@@ -1,0 +1,924 @@
+2019-09-27  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r250365. rdar://problem/55770710
+
+    Update selections after scrolling for iframes and hide selections while iframes and overflow scrolls are scrolling.
+    https://bugs.webkit.org/show_bug.cgi?id=202125
+    
+    Reviewed by Tim Horton.
+    
+    Source/WebCore:
+    
+    Test: editing/selection/ios/update-selection-after-iframe-scroll.html
+    
+    When we end scrolling, make sure that iframes get a final update to ensure that the
+    selection is in the correct position. Pipe that to WebKit/UIProcess via
+    frame specific plath.
+    
+    * loader/EmptyClients.cpp:
+    * page/EditorClient.h:
+    * page/scrolling/AsyncScrollingCoordinator.cpp:
+    (WebCore::AsyncScrollingCoordinator::updateScrollPositionAfterAsyncScroll):
+    
+    Source/WebKit:
+    
+    Add additional calls into UIKit differentiate between main frame scrolling and overflow/iframe scrolling.
+    Add piping for iframe specific scrolling.
+    
+    * Platform/spi/ios/UIKitSPI.h:
+    * UIProcess/ios/WKContentViewInteraction.mm:
+    (-[WKContentView _willStartScrollingOrZooming]):
+    (-[WKContentView _didEndScrollingOrZooming]):
+    * WebProcess/WebCoreSupport/WebEditorClient.cpp:
+    (WebKit::WebEditorClient::subFrameScrollPositionChanged):
+    * WebProcess/WebCoreSupport/WebEditorClient.h:
+    * WebProcess/WebCoreSupport/ios/WebEditorClientIOS.mm:
+    (WebKit::WebEditorClient::subFrameScrollPositionChanged):
+    
+    Source/WebKitLegacy/mac:
+    
+    Filling out unused functions needed for new fix.
+    
+    * WebCoreSupport/WebEditorClient.h:
+    
+    LayoutTests:
+    
+    Test that an iframe selection is updated after a scroll is completed.
+    
+    * editing/selection/ios/update-selection-after-iframe-scroll-expected.txt: Added.
+    * editing/selection/ios/update-selection-after-iframe-scroll.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@250365 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-09-25  Megan Gardner  <megan_gardner@apple.com>
+
+            Update selections after scrolling for iframes and hide selections while iframes and overflow scrolls are scrolling.
+            https://bugs.webkit.org/show_bug.cgi?id=202125
+
+            Reviewed by Tim Horton.
+
+            Filling out unused functions needed for new fix.
+
+            * WebCoreSupport/WebEditorClient.h:
+
+2019-09-23  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r250066. rdar://problem/55608013
+
+    Add -suspend and -resumeAllMediaPlayback to WebView
+    https://bugs.webkit.org/show_bug.cgi?id=201951
+    
+    Reviewed by Eric Carlson.
+    
+    * WebView/WebView.mm:
+    (-[WebView suspendAllMediaPlayback]):
+    (-[WebView resumeAllMediaPlayback]):
+    * WebView/WebViewPrivate.h:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@250066 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-09-18  Jer Noble  <jer.noble@apple.com>
+
+            Add -suspend and -resumeAllMediaPlayback to WebView
+            https://bugs.webkit.org/show_bug.cgi?id=201951
+
+            Reviewed by Eric Carlson.
+
+            * WebView/WebView.mm:
+            (-[WebView suspendAllMediaPlayback]):
+            (-[WebView resumeAllMediaPlayback]):
+            * WebView/WebViewPrivate.h:
+
+2019-08-21  Kocsen Chung  <kocsen_chung@apple.com>
+
+        Cherry-pick r248974. rdar://problem/54579634
+
+    [Mail] Tapping top of message scrolls back to copied text instead of top of the message
+    https://bugs.webkit.org/show_bug.cgi?id=200999
+    <rdar://problem/54564878>
+    
+    Reviewed by Wenson Hsieh.
+    
+    Source/WebCore:
+    
+    Test: editing/selection/ios/change-selection-by-tapping-with-existing-selection.html
+    
+    * page/EditorClient.h:
+    (WebCore::EditorClient::shouldAllowSingleClickToChangeSelection const):
+    * page/EventHandler.cpp:
+    (WebCore::EventHandler::handleMousePressEventSingleClick):
+    Instead of encoding platform behaviors in EventHandler, defer to EditorClient.
+    
+    Source/WebKit:
+    
+    In the case where you have a WebCore selection but are not first responder,
+    when you tap the WKWebView to become first responder, EventHandler would
+    bail from setting the selection, assuming UIKit was going to do it. This
+    behavior was introduced in r233311.
+    
+    However, since we are not first responder, UIKit does not change the
+    selection, since it considers the view to not be editable.
+    
+    Fix this by letting WebCore set the selection in this case, as it used to.
+    
+    * WebProcess/WebCoreSupport/WebEditorClient.h:
+    * WebProcess/WebCoreSupport/ios/WebEditorClientIOS.mm:
+    (WebKit::WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+    * WebProcess/WebPage/WebPage.h:
+    (WebKit::WebPage::isShowingInputViewForFocusedElement const):
+    Copy the logic from EventHandler, with the added caveat (which fixes the
+    aforementioned behavior) that we will allow EventHandler to change the
+    selection if we don't have a focused node in the UIKit sense, because
+    we know that the platform text interaction code will *not* change the
+    selection if that is the case, so it's up to us.
+    
+    Source/WebKitLegacy/mac:
+    
+    * WebCoreSupport/WebEditorClient.h:
+    * WebCoreSupport/WebEditorClient.mm:
+    (WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+    Copy the existing behavior from EventHandler.
+    We do not fix the bug in WebKitLegacy for a multitude of reasons, primarily
+    because we do not know of any user impact.
+    
+    LayoutTests:
+    
+    * editing/selection/ios/change-selection-by-tapping-with-existing-selection-expected.txt: Added.
+    * editing/selection/ios/change-selection-by-tapping-with-existing-selection.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@248974 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-08-21  Tim Horton  <timothy_horton@apple.com>
+
+            [Mail] Tapping top of message scrolls back to copied text instead of top of the message
+            https://bugs.webkit.org/show_bug.cgi?id=200999
+            <rdar://problem/54564878>
+
+            Reviewed by Wenson Hsieh.
+
+            * WebCoreSupport/WebEditorClient.h:
+            * WebCoreSupport/WebEditorClient.mm:
+            (WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+            Copy the existing behavior from EventHandler.
+            We do not fix the bug in WebKitLegacy for a multitude of reasons, primarily
+            because we do not know of any user impact.
+
+2019-08-15  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r248741. rdar://problem/54360841
+
+    Yellow Lookup highlight gets stuck over Mail messages
+    https://bugs.webkit.org/show_bug.cgi?id=200778
+    <rdar://problem/53868514>
+    
+    Reviewed by Wenson Hsieh.
+    
+    * WebView/WebView.mm:
+    (-[WebView _showDictionaryLookupPopup:]):
+    Add a dismissal callback so that when Reveal hides the panel, it also
+    dismisses the yellow indicator. This matches the behavior in modern WebKit.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@248741 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-08-15  Tim Horton  <timothy_horton@apple.com>
+
+            Yellow Lookup highlight gets stuck over Mail messages
+            https://bugs.webkit.org/show_bug.cgi?id=200778
+            <rdar://problem/53868514>
+
+            Reviewed by Wenson Hsieh.
+
+            * WebView/WebView.mm:
+            (-[WebView _showDictionaryLookupPopup:]):
+            Add a dismissal callback so that when Reveal hides the panel, it also
+            dismisses the yellow indicator. This matches the behavior in modern WebKit.
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247837. rdar://problem/53648220
+
+    Add helper for ignoring deprecated implementation warnings
+    https://bugs.webkit.org/show_bug.cgi?id=200135
+    
+    Reviewed by Wenson Hsieh.
+    
+    Add ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN/END macro which
+    is IGNORE_WARNINGS_BEGIN("deprecated-implementations")
+    
+    Source/WebCore:
+    
+    * accessibility/mac/WebAccessibilityObjectWrapperMac.mm:
+    (-[WebAccessibilityObjectWrapper ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WebAccessibilityObjectWrapper accessibilityAttributeValue:]):
+    (-[WebAccessibilityObjectWrapper accessibilityIsAttributeSettable:]):
+    (-[WebAccessibilityObjectWrapper accessibilityPerformAction:]):
+    (-[WebAccessibilityObjectWrapper accessibilitySetValue:forAttribute:]):
+    (-[WebAccessibilityObjectWrapper accessibilityActionDescription:]):
+    (-[WebAccessibilityObjectWrapper accessibilityAttributeValue:forParameter:]):
+    (-[WebAccessibilityObjectWrapper IGNORE_WARNINGS_END]): Deleted.
+    * platform/graphics/avfoundation/objc/SourceBufferPrivateAVFObjC.mm:
+    (-[WebAVStreamDataParserListener streamDataParserWillProvideContentKeyRequestInitializationData:forTrackID:]):
+    (-[WebAVStreamDataParserListener streamDataParser:didProvideContentKeyRequestInitializationData:forTrackID:]):
+    * platform/network/mac/WebCoreResourceHandleAsOperationQueueDelegate.mm:
+    (-[WebCoreResourceHandleAsOperationQueueDelegate connection:didReceiveAuthenticationChallenge:]):
+    (-[WebCoreResourceHandleAsOperationQueueDelegate connection:canAuthenticateAgainstProtectionSpace:]):
+    
+    Source/WebKit:
+    
+    * UIProcess/API/Cocoa/LegacyBundleForClass.mm:
+    * UIProcess/API/Cocoa/WKBrowsingContextController.mm:
+    (IGNORE_WARNINGS_BEGIN): Deleted.
+    * UIProcess/API/Cocoa/WKBrowsingContextGroup.mm:
+    (IGNORE_WARNINGS_BEGIN): Deleted.
+    * UIProcess/API/Cocoa/WKConnection.mm:
+    (IGNORE_WARNINGS_BEGIN): Deleted.
+    * UIProcess/API/Cocoa/WKPreviewElementInfo.mm:
+    * UIProcess/API/Cocoa/WKProcessGroup.mm:
+    (IGNORE_WARNINGS_BEGIN): Deleted.
+    * UIProcess/API/Cocoa/WKTypeRefWrapper.mm:
+    * UIProcess/API/Cocoa/WKWebView.mm:
+    (-[WKWebView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKWebView draggedImage:endedAt:operation:]):
+    (-[WKWebView accessibilityAttributeValue:]):
+    (-[WKWebView accessibilityAttributeValue:forParameter:]):
+    (-[WKWebView namesOfPromisedFilesDroppedAtDestination:]):
+    (-[WKWebView IGNORE_WARNINGS_END]): Deleted.
+    * UIProcess/API/Cocoa/WKWebViewConfiguration.mm:
+    (-[WKWebViewConfiguration ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKWebViewConfiguration _setWebsiteDataStore:]):
+    (-[WKWebViewConfiguration IGNORE_WARNINGS_END]): Deleted.
+    * UIProcess/API/Cocoa/_WKWebsiteDataStore.mm:
+    * UIProcess/API/mac/WKView.mm:
+    (-[WKView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKView draggedImage:endedAt:operation:]):
+    (-[WKView accessibilityAttributeValue:]):
+    (-[WKView accessibilityAttributeValue:forParameter:]):
+    (-[WKView namesOfPromisedFilesDroppedAtDestination:]):
+    (-[WKView IGNORE_WARNINGS_END]): Deleted.
+    * UIProcess/WKImagePreviewViewController.mm:
+    (-[WKImagePreviewViewController ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKImagePreviewViewController IGNORE_WARNINGS_END]): Deleted.
+    * UIProcess/ios/forms/WKAirPlayRoutePicker.mm:
+    (-[WKAirPlayRoutePicker popoverControllerDidDismissPopover:]):
+    * UIProcess/ios/forms/WKFileUploadPanel.mm:
+    (-[WKFileUploadPanel popoverControllerDidDismissPopover:]):
+    * UIProcess/ios/forms/WKFormPopover.mm:
+    (-[WKRotatingPopover popoverControllerDidDismissPopover:]):
+    * WebProcess/Plugins/PDF/PDFPlugin.mm:
+    (-[WKPDFPluginAccessibilityObject ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKPDFPluginAccessibilityObject accessibilityAttributeValue:]):
+    (-[WKPDFPluginAccessibilityObject accessibilityAttributeValue:forParameter:]):
+    (-[WKPDFPluginAccessibilityObject accessibilityPerformAction:]):
+    (-[WKPDFPluginAccessibilityObject accessibilityIsAttributeSettable:]):
+    (-[WKPDFPluginAccessibilityObject accessibilitySetValue:forAttribute:]):
+    (-[WKPDFPluginAccessibilityObject IGNORE_WARNINGS_END]): Deleted.
+    * WebProcess/WebPage/mac/WKAccessibilityWebPageObjectMac.mm:
+    (-[WKAccessibilityWebPageObject ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WKAccessibilityWebPageObject accessibilityIsAttributeSettable:]):
+    (-[WKAccessibilityWebPageObject accessibilitySetValue:forAttribute:]):
+    (-[WKAccessibilityWebPageObject accessibilityAttributeValue:]):
+    (-[WKAccessibilityWebPageObject accessibilityAttributeValue:forParameter:]):
+    (-[WKAccessibilityWebPageObject IGNORE_WARNINGS_END]): Deleted.
+    
+    Source/WebKitLegacy/mac:
+    
+    * Misc/WebDownload.mm:
+    (-[WebDownload initWithRequest:delegate:]):
+    * Misc/WebIconDatabase.mm:
+    * Plugins/WebBaseNetscapePluginView.mm:
+    (-[WebBaseNetscapePluginView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WebBaseNetscapePluginView IGNORE_WARNINGS_END]): Deleted.
+    * WebView/WebDynamicScrollBarsView.mm:
+    (-[WebDynamicScrollBarsView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WebDynamicScrollBarsView IGNORE_WARNINGS_END]): Deleted.
+    * WebView/WebHTMLView.mm:
+    (-[WebHTMLView draggingSourceOperationMaskForLocal:]):
+    (-[WebHTMLView draggedImage:endedAt:operation:]):
+    (-[WebHTMLView namesOfPromisedFilesDroppedAtDestination:]):
+    (-[WebHTMLView accessibilityAttributeValue:]):
+    (-[WebHTMLView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+    (-[WebHTMLView characterIndexForPoint:]):
+    (-[WebHTMLView firstRectForCharacterRange:]):
+    (-[WebHTMLView attributedSubstringFromRange:]):
+    (-[WebHTMLView setMarkedText:selectedRange:]):
+    (-[WebHTMLView doCommandBySelector:]):
+    (-[WebHTMLView insertText:]):
+    (-[WebHTMLView IGNORE_WARNINGS_END]): Deleted.
+    
+    Source/WTF:
+    
+    * wtf/Compiler.h:
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247837 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-25  Dean Jackson  <dino@apple.com>
+
+            Add helper for ignoring deprecated implementation warnings
+            https://bugs.webkit.org/show_bug.cgi?id=200135
+
+            Reviewed by Wenson Hsieh.
+
+            Add ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN/END macro which
+            is IGNORE_WARNINGS_BEGIN("deprecated-implementations")
+
+            * Misc/WebDownload.mm:
+            (-[WebDownload initWithRequest:delegate:]):
+            * Misc/WebIconDatabase.mm:
+            * Plugins/WebBaseNetscapePluginView.mm:
+            (-[WebBaseNetscapePluginView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+            (-[WebBaseNetscapePluginView IGNORE_WARNINGS_END]): Deleted.
+            * WebView/WebDynamicScrollBarsView.mm:
+            (-[WebDynamicScrollBarsView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+            (-[WebDynamicScrollBarsView IGNORE_WARNINGS_END]): Deleted.
+            * WebView/WebHTMLView.mm:
+            (-[WebHTMLView draggingSourceOperationMaskForLocal:]):
+            (-[WebHTMLView draggedImage:endedAt:operation:]):
+            (-[WebHTMLView namesOfPromisedFilesDroppedAtDestination:]):
+            (-[WebHTMLView accessibilityAttributeValue:]):
+            (-[WebHTMLView ALLOW_DEPRECATED_IMPLEMENTATIONS_END]):
+            (-[WebHTMLView characterIndexForPoint:]):
+            (-[WebHTMLView firstRectForCharacterRange:]):
+            (-[WebHTMLView attributedSubstringFromRange:]):
+            (-[WebHTMLView setMarkedText:selectedRange:]):
+            (-[WebHTMLView doCommandBySelector:]):
+            (-[WebHTMLView insertText:]):
+            (-[WebHTMLView IGNORE_WARNINGS_END]): Deleted.
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247722. rdar://problem/53647293
+
+    [macOS 10.15] Web process crashes when attempting to show the font panel via Font > Show Fonts
+    https://bugs.webkit.org/show_bug.cgi?id=200021
+    <rdar://problem/53301325>
+    
+    Reviewed by Ryosuke Niwa.
+    
+    Source/WebCore:
+    
+    In macOS 10.15, attempting to access ~/Library/FontCollections/ from the web process causes a Sandbox violation
+    and a subsequent crash. This can be triggered by trying to show the font panel via Font > Show Fonts in the
+    context menu after right clicking.
+    
+    In the (near) future, we should fix this by moving logic to show the font panel, color panel and styles panel
+    from the Editor in the web process to the UI process in WebKit2. However, for the time being, we can just work
+    around this by adding a new EditorClient hook to determine whether to allow the font panel to show; this returns
+    true in the legacy macOS WebKit port, and false everywhere else.
+    
+    Test: editing/mac/style/do-not-crash-when-showing-font-panel.html
+    
+    * editing/mac/EditorMac.mm:
+    (WebCore::Editor::showFontPanel):
+    * loader/EmptyClients.cpp:
+    * page/EditorClient.h:
+    
+    Source/WebKit:
+    
+    Always return false from canShowFontPanel in WebKit2.
+    
+    * WebProcess/WebCoreSupport/WebEditorClient.h:
+    
+    Source/WebKitLegacy/mac:
+    
+    Implement a new editing client hook. In WebKit1, this always returns true on macOS and false on iOS.
+    
+    * WebCoreSupport/WebEditorClient.h:
+    
+    Source/WebKitLegacy/win:
+    
+    Implement a new editing client hook.
+    
+    * WebCoreSupport/WebEditorClient.h:
+    
+    Tools:
+    
+    Add support for grabbing the child menu items of a context menu item.
+    
+    * WebKitTestRunner/InjectedBundle/EventSendingController.cpp:
+    (WTR::getMenuItemChildrenCallback):
+    
+    LayoutTests:
+    
+    Add a new layout test to verify that attempting to show the font panel doesn't crash the web process in WebKit2.
+    This test is skipped in WebKit1, since EventSender::contextClick() in WebKit1 only returns an array of strings
+    corresponding to the titles of each menu item.
+    
+    * editing/mac/style/do-not-crash-when-showing-font-panel-expected.txt: Added.
+    * editing/mac/style/do-not-crash-when-showing-font-panel.html: Added.
+    * platform/mac-wk1/TestExpectations:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247722 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-23  Wenson Hsieh  <wenson_hsieh@apple.com>
+
+            [macOS 10.15] Web process crashes when attempting to show the font panel via Font > Show Fonts
+            https://bugs.webkit.org/show_bug.cgi?id=200021
+            <rdar://problem/53301325>
+
+            Reviewed by Ryosuke Niwa.
+
+            Implement a new editing client hook. In WebKit1, this always returns true on macOS and false on iOS.
+
+            * WebCoreSupport/WebEditorClient.h:
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247712. rdar://problem/53647280
+
+    Fix WebView iframe rendering in macOS Catalina
+    https://bugs.webkit.org/show_bug.cgi?id=200022
+    rdar://problem/49102040
+    
+    Reviewed by Darin Adler.
+    Source/WebKitLegacy/mac:
+    
+    Adapt to internal NSView method renames in Catalina.
+    
+    * WebView/WebHTMLView.mm:
+    (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]):
+    (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]): Deleted.
+    
+    LayoutTests:
+    
+    New test for rendering of overlapping iframes, defects when we fail to setAsideSubviews
+    in WebView.
+    
+    * fast/frames/frames-not-double-painted-expected.html: Added.
+    * fast/frames/frames-not-double-painted.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247712 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-22  Simon Fraser  <simon.fraser@apple.com>
+
+            Fix WebView iframe rendering in macOS Catalina
+            https://bugs.webkit.org/show_bug.cgi?id=200022
+            rdar://problem/49102040
+
+            Reviewed by Darin Adler.
+
+            Adapt to internal NSView method renames in Catalina.
+
+            * WebView/WebHTMLView.mm:
+            (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]):
+            (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]): Deleted.
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247708. rdar://problem/53648010
+
+    Enable CSSOMViewScrollingAPIEnabled in WebKit1
+    https://bugs.webkit.org/show_bug.cgi?id=200008
+    rdar://problem/53409062
+    
+    Reviewed by Tim Horton.
+    
+    Default WebKitCSSOMViewScrollingAPIEnabledPreferenceKey to YES, so that
+    CSSOMViewScrollingAPIEnabled is on for both WebKit1 and WebKit2.
+    
+    DumpRenderTree already turns this preference on, so this change is not
+    detected by tests.
+    
+    * WebView/WebPreferences.mm:
+    (+[WebPreferences initialize]):
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247708 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-22  Simon Fraser  <simon.fraser@apple.com>
+
+            Enable CSSOMViewScrollingAPIEnabled in WebKit1
+            https://bugs.webkit.org/show_bug.cgi?id=200008
+            rdar://problem/53409062
+
+            Reviewed by Tim Horton.
+
+            Default WebKitCSSOMViewScrollingAPIEnabledPreferenceKey to YES, so that
+            CSSOMViewScrollingAPIEnabled is on for both WebKit1 and WebKit2.
+
+            DumpRenderTree already turns this preference on, so this change is not
+            detected by tests.
+
+            * WebView/WebPreferences.mm:
+            (+[WebPreferences initialize]):
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247692. rdar://problem/53519917
+
+    Disable MediaRecorder for legacy WebKit
+    https://bugs.webkit.org/show_bug.cgi?id=200001
+    <rdar://problem/53400030>
+    
+    Reviewed by Eric Carlson.
+    
+    Source/WebKitLegacy/mac:
+    
+    Disable MediaRecorder by default in legacy WebKit.
+    Add SPI to set/get this preference.
+    
+    * WebView/WebPreferences.mm:
+    (+[WebPreferences initialize]):
+    (-[WebPreferences _mediaRecorderEnabled]):
+    (-[WebPreferences _setMediaRecorderEnabled:]):
+    * WebView/WebPreferencesPrivate.h:
+    
+    Tools:
+    
+    Enable MediaRecorder for testing purposes.
+    
+    * DumpRenderTree/mac/DumpRenderTree.mm:
+    (createWebViewAndOffscreenWindow):
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247692 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-22  Youenn Fablet  <youenn@apple.com>
+
+            Disable MediaRecorder for legacy WebKit
+            https://bugs.webkit.org/show_bug.cgi?id=200001
+            <rdar://problem/53400030>
+
+            Reviewed by Eric Carlson.
+
+            Disable MediaRecorder by default in legacy WebKit.
+            Add SPI to set/get this preference.
+
+            * WebView/WebPreferences.mm:
+            (+[WebPreferences initialize]):
+            (-[WebPreferences _mediaRecorderEnabled]):
+            (-[WebPreferences _setMediaRecorderEnabled:]):
+            * WebView/WebPreferencesPrivate.h:
+
+2019-07-24  Alan Coon  <alancoon@apple.com>
+
+        Apply patch. rdar://problem/53483188
+
+    Disable ENABLE_LAYOUT_FORMATTING_CONTEXT https://bugs.webkit.org/show_bug.cgi?id=200038 <rdar://problem/53457282>
+    
+    Reviewed by Zalan Bujtas.
+    
+    This feature is not complete. It is enabled for the trunk, but needs
+    to be disabled in branches for shipping products.
+    
+    Source/JavaScriptCore:
+    
+    * Configurations/FeatureDefines.xcconfig:
+    
+    Source/WebCore:
+    
+    No new tests -- this change does not add any new functionality.
+    
+    * Configurations/FeatureDefines.xcconfig:
+    
+    Source/WebCore/PAL:
+    
+    * Configurations/FeatureDefines.xcconfig:
+    
+    Source/WebKit:
+    
+    * Configurations/FeatureDefines.xcconfig:
+    
+    Source/WebKitLegacy/mac:
+    
+    * Configurations/FeatureDefines.xcconfig:
+    
+    Tools:
+    
+    * TestWebKitAPI/Configurations/FeatureDefines.xcconfig:
+
+    2019-07-23  Keith Rollin  <krollin@apple.com>
+
+            Disable ENABLE_LAYOUT_FORMATTING_CONTEXT
+            https://bugs.webkit.org/show_bug.cgi?id=200038
+            <rdar://problem/53457282>
+
+            Reviewed by Zalan Bujtas.
+
+            This feature is not complete. It is enabled for the trunk, but needs
+            to be disabled in branches for shipping products.
+
+            * Configurations/FeatureDefines.xcconfig:
+
+2019-07-24  Alan Coon  <alancoon@apple.com>
+
+        Apply patch. rdar://problem/53483293
+
+    2019-07-24  Keith Rollin  <krollin@apple.com>
+
+            Disable Web Animations in WebKitLegacy
+            https://bugs.webkit.org/show_bug.cgi?id=200041
+            <rdar://problem/53458020>
+
+            Reviewed by Jon Lee.
+
+            We want this disabled for WebKitLegacy in shipping branches.
+
+            * WebView/WebPreferences.mm:
+            (+[WebPreferences initialize]):
+
+2019-07-17  Kocsen Chung  <kocsen_chung@apple.com>
+
+        Cherry-pick r247541. rdar://problem/53230029
+
+    Unable to tap buttons at top of Wells Fargo app’s Payees screen
+    https://bugs.webkit.org/show_bug.cgi?id=199846
+    <rdar://problem/48112220>
+    
+    Reviewed by Simon Fraser.
+    
+    Source/WebCore:
+    
+    This patch restores the stop-before-reaching-the-body heuristics for the approximate node finding feature only.
+    (WebFrame::approximateNodeAtViewportLocation mistakenly relied on this odd quirk of nodeRespondingToClickEvents.)
+    
+    * page/Frame.h:
+    * page/ios/FrameIOS.mm:
+    (WebCore::Frame::approximateNodeAtViewportLocationLegacy):
+    
+    Source/WebKitLegacy/mac:
+    
+    * WebView/WebFrame.mm:
+    (-[WebFrame approximateNodeAtViewportLocation:]):
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247541 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-17  Zalan Bujtas  <zalan@apple.com>
+
+            Unable to tap buttons at top of Wells Fargo app’s Payees screen
+            https://bugs.webkit.org/show_bug.cgi?id=199846
+            <rdar://problem/48112220>
+
+            Reviewed by Simon Fraser.
+
+            * WebView/WebFrame.mm:
+            (-[WebFrame approximateNodeAtViewportLocation:]):
+
+2019-07-13  Zalan Bujtas  <zalan@apple.com>
+
+        Cannot bring up custom media controls at all on v.youku.com
+        https://bugs.webkit.org/show_bug.cgi?id=199699
+        <rdar://problem/51835327>
+
+        Reviewed by Simon Fraser.
+
+        * WebCoreSupport/WebFrameLoaderClient.mm:
+        (WebFrameLoaderClient::actionDictionary const):
+        * WebView/WebFrame.mm:
+        (-[WebFrame elementAtPoint:]):
+        * WebView/WebHTMLView.mm:
+        (-[WebHTMLView elementAtPoint:allowShadowContent:]):
+        * WebView/WebImmediateActionController.mm:
+        (-[WebImmediateActionController performHitTestAtPoint:]):
+
+2019-07-12  Alex Christensen  <achristensen@webkit.org>
+
+        Begin unifying WebKitLegacy sources
+        https://bugs.webkit.org/show_bug.cgi?id=199730
+
+        Reviewed by Keith Miller.
+
+        * Configurations/WebKitLegacy.xcconfig:
+
+2019-07-11  Pablo Saavedra  <psaavedra@igalia.com>
+
+        [WPE][GTK] Build failure with ENABLE_ACCESSIBILITY=OFF
+        https://bugs.webkit.org/show_bug.cgi?id=199625
+
+        Added ENABLE(ACCESSIBILITY) and replaced HAVE(ACCESSIBILITY)
+        with ENABLE(ACCESSIBILITY) in the code.
+
+        Additionally, the TestRunner code generator now honors the
+        Conditional IDL format.
+
+        Reviewed by Konstantin Tokarev.
+
+        * WebView/WebFrame.mm:
+        (-[WebFrame setAccessibleName:]):
+        (-[WebFrame enhancedAccessibilityEnabled]):
+        (-[WebFrame setEnhancedAccessibility:]):
+        (-[WebFrame accessibilityRoot]):
+
+2019-07-08  Antoine Quint  <graouts@apple.com>
+
+        [Pointer Events] Enable only on the most recent version of the supported iOS family
+        https://bugs.webkit.org/show_bug.cgi?id=199562
+        <rdar://problem/52766511>
+
+        Reviewed by Dean Jackson.
+
+        * Configurations/FeatureDefines.xcconfig:
+
+2019-07-03  Sam Weinig  <weinig@apple.com>
+
+        Adopt simple structured bindings in more places
+        https://bugs.webkit.org/show_bug.cgi?id=199247
+
+        Reviewed by Alex Christensen.
+
+        Replaces simple uses of std::tie() with structured bindings. Does not touch
+        uses of std::tie() that are not initial declarations, use std::ignore or in
+        case where the binding is captured by a lambda, as structured bindings don't
+        work for those cases yet.
+
+        * WebView/WebImmediateActionController.mm:
+        (-[WebImmediateActionController _animationControllerForText]):
+
+2019-07-02  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debug: "Reset Web Inspector" should also clear the saved window size and attachment side
+        https://bugs.webkit.org/show_bug.cgi?id=198956
+
+        Reviewed by Matt Baker.
+
+        * WebCoreSupport/WebInspectorClient.h:
+        * WebCoreSupport/WebInspectorClient.mm:
+        (WebInspectorFrontendClient::resetWindowState): Added.
+
+2019-06-28  Timothy Hatcher  <timothy@apple.com>
+
+        Rename effectiveAppearanceIsInactive and useInactiveAppearance to better match UIUserInterfaceLevel.
+        https://bugs.webkit.org/show_bug.cgi?id=199336
+        rdar://problem/52348938
+
+        Reviewed by Tim Horton.
+
+        * WebView/WebView.mm:
+        (-[WebView _commonInitializationWithFrameName:groupName:]):
+        (-[WebView _setUseDarkAppearance:]):
+        (-[WebView _useElevatedUserInterfaceLevel]):
+        (-[WebView _setUseElevatedUserInterfaceLevel:]):
+        (-[WebView _setUseDarkAppearance:useInactiveAppearance:]):
+        (-[WebView _setUseDarkAppearance:useElevatedUserInterfaceLevel:]):
+        (-[WebView _effectiveUserInterfaceLevelIsElevated]):
+        (-[WebView viewDidChangeEffectiveAppearance]):
+        (-[WebView _useInactiveAppearance]): Deleted.
+        (-[WebView _setUseInactiveAppearance:]): Deleted.
+        (-[WebView _effectiveAppearanceIsInactive]): Deleted.
+        * WebView/WebViewPrivate.h:
+
+2019-06-28  Konstantin Tokarev  <annulen@yandex.ru>
+
+        Remove traces of ENABLE_ICONDATABASE remaining after its removal in 219733
+        https://bugs.webkit.org/show_bug.cgi?id=199317
+
+        Reviewed by Michael Catanzaro.
+
+        While IconDatabase and all code using it was removed,
+        ENABLE_ICONDATABASE still exists as build option and C++ macro.
+
+        * Configurations/FeatureDefines.xcconfig:
+        * WebView/WebView.mm:
+        (-[WebView _cacheFrameLoadDelegateImplementations]): Use PLATFORM(MAC)
+        guard instead of ENABLE_ICONDATABASE, because ENABLE_ICONDATABASE was
+        enabled for macOS only.
+
+2019-06-27  Timothy Hatcher  <timothy@apple.com>
+
+        Move WebKitLegacy off of a couple AppKit ivars.
+        https://bugs.webkit.org/show_bug.cgi?id=199279
+        rdar://problem/34983438
+
+        Reviewed by Tim Horton.
+
+        * WebView/WebHTMLView.mm:
+        (-[NSView _setSubviewsIvar:]): Added. Implement on older systems.
+        (-[NSView _subviewsIvar]): Added. Ditto.
+        (needsCursorRectsSupportAtPoint): Use _borderView property.
+        (-[WebHTMLView _setAsideSubviews]): Use _subviewsIvar property.
+        (-[NSWindow _web_borderView]): Deleted.
+
+2019-06-27  Beth Dakin  <bdakin@apple.com>
+
+        Upstream use of MACCATALYST
+        https://bugs.webkit.org/show_bug.cgi?id=199245
+        rdar://problem/51687723
+
+        Reviewed by Tim Horton.
+
+        * Configurations/Base.xcconfig:
+        * Configurations/FeatureDefines.xcconfig:
+        * Configurations/SDKVariant.xcconfig:
+
+2019-06-27  Saam Barati  <sbarati@apple.com>
+
+        Make WEBGPU enabled only on Mojave and later.
+
+        Rubber-stamped by Myles C. Maxfield.
+
+        * Configurations/FeatureDefines.xcconfig:
+
+2019-06-16  Darin Adler  <darin@apple.com>
+
+        Rename AtomicString to AtomString
+        https://bugs.webkit.org/show_bug.cgi?id=195276
+
+        Reviewed by Michael Catanzaro.
+
+        * many files: Let do-webcore-rename do the renaming.
+
+2019-06-14  Megan Gardner  <megan_gardner@apple.com>
+
+        Move Synthetic Editing Commands to behind an experimental feature flag
+        https://bugs.webkit.org/show_bug.cgi?id=198842
+        <rdar://problem/50594700>
+
+        Reviewed by Simon Fraser.
+
+        Add plumbing for synthetic editing command feature flag.
+
+        * WebView/WebPreferenceKeysPrivate.h:
+        * WebView/WebPreferences.mm:
+        (+[WebPreferences initialize]):
+        (-[WebPreferences syntheticEditingCommandsEnabled]):
+        (-[WebPreferences setSyntheticEditingCommandsEnabled:]):
+        * WebView/WebPreferencesPrivate.h:
+        * WebView/WebView.mm:
+        (-[WebView _preferencesChanged:]):
+
+2019-06-13  Antoine Quint  <graouts@apple.com>
+
+        REGRESSION (r246103) [ Mojave+ WK1 ] Layout Test scrollbars/scrollbar-iframe-click-does-not-blur-content.html is timing out
+        https://bugs.webkit.org/show_bug.cgi?id=198800
+        <rdar://problem/51679634>
+
+        Reviewed by Tim Horton.
+
+        Expose a private method that we need to use from DumpRenderTree.
+
+        * WebView/WebHTMLView.mm:
+        (-[WebHTMLView _hitViewForEvent:]):
+        * WebView/WebHTMLViewPrivate.h:
+
+2019-06-10  Sam Weinig  <weinig@apple.com>
+
+        Remove Dashboard support
+        https://bugs.webkit.org/show_bug.cgi?id=198615
+
+        Reviewed by Ryosuke Niwa.
+
+        Removes implementation, but keeps privatly exported interfaces and enums
+        around until we can confirm there are no more users of them. 
+
+        * Configurations/FeatureDefines.xcconfig:
+        * Plugins/WebBaseNetscapePluginView.mm:
+        (-[WebBaseNetscapePluginView initWithFrame:pluginPackage:URL:baseURL:MIMEType:attributeKeys:attributeValues:loadManually:element:]):
+        * WebCoreSupport/WebChromeClient.h:
+        * WebCoreSupport/WebChromeClient.mm:
+        (WebChromeClient::annotatedRegionsChanged): Deleted.
+        * WebView/WebClipView.mm:
+        (-[WebClipView _focusRingVisibleRect]):
+        (-[WebClipView scrollWheel:]):
+        * WebView/WebDashboardRegion.h:
+        * WebView/WebDashboardRegion.mm:
+        * WebView/WebHTMLView.mm:
+        (-[WebHTMLView _updateMouseoverWithEvent:]):
+        (-[WebHTMLView acceptsFirstMouse:]):
+        (-[WebHTMLView setDataSource:]):
+        * WebView/WebPreferences.mm:
+        (cacheModelForMainBundle):
+        * WebView/WebUIDelegatePrivate.h:
+        * WebView/WebView.mm:
+        (-[WebView _needsPreHTML5ParserQuirks]):
+        (-[WebView _preferencesChanged:]):
+        (-[WebView _addScrollerDashboardRegions:]):
+        (-[WebView _dashboardRegions]):
+        (-[WebView _setDashboardBehavior:to:]):
+        (-[WebView _dashboardBehavior:]):
+        (-[WebView _addControlRect:clip:fromView:toDashboardRegions:]): Deleted.
+        (-[WebView _addScrollerDashboardRegionsForFrameView:dashboardRegions:]): Deleted.
+        (-[WebView _addScrollerDashboardRegions:from:]): Deleted.
+        * WebView/WebViewData.h:
+        * WebView/WebViewData.mm:
+        (-[WebViewPrivate init]):
+        * WebView/WebViewPrivate.h:
+
+2019-06-10  Timothy Hatcher  <timothy@apple.com>
+
+        Integrate dark mode support for iOS.
+        https://bugs.webkit.org/show_bug.cgi?id=198687
+        rdar://problem/51545643
+
+        Reviewed by Tim Horton.
+
+        * Configurations/FeatureDefines.xcconfig:
+
+2019-06-07  Said Abou-Hallawa  <sabouhallawa@apple.com>
+
+        REGRESSION (r244182) [WK1]: Page updates should always scheduleCompositingLayerFlush() immediately
+        https://bugs.webkit.org/show_bug.cgi?id=198664
+
+        Reviewed by Simon Fraser.
+
+        WK1 has to skip using DisplayRefreshMonitor when layers need to be updated.
+
+        * WebCoreSupport/WebChromeClient.h:
+        (WebChromeClient::needsImmediateScheduleCompositingLayerFlush):
+
+== Rolled over to ChangeLog-2019-06-05 ==

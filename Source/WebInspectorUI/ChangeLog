@@ -1,0 +1,1330 @@
+2019-08-20  Babak Shafiei  <bshafiei@apple.com>
+
+        Cherry-pick r247867. rdar://problem/54543378
+
+    Web Inspector: AXI: Audit: Typo of "some" as "somee"
+    https://bugs.webkit.org/show_bug.cgi?id=200166
+    
+    Patch by Greg Doolittle <gr3g@apple.com> on 2019-07-26
+    Reviewed by Devin Rousso.
+    
+    * Localizations/en.lproj/localizedStrings.js:
+    * UserInterface/Controllers/AuditManager.js:
+    (WI.AuditManager.prototype._addDefaultTests):
+    (WI.AuditManager):
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247867 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-26  Greg Doolittle  <gr3g@apple.com>
+
+            Web Inspector: AXI: Audit: Typo of "some" as "somee"
+            https://bugs.webkit.org/show_bug.cgi?id=200166
+
+            Reviewed by Devin Rousso.
+
+            * Localizations/en.lproj/localizedStrings.js:
+            * UserInterface/Controllers/AuditManager.js:
+            (WI.AuditManager.prototype._addDefaultTests):
+            (WI.AuditManager):
+
+2019-07-15  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Device Settings: update Safari user agent from 12.2 to 13.0
+        https://bugs.webkit.org/show_bug.cgi?id=199758
+
+        Reviewed by Maciej Stachowiak.
+
+        * UserInterface/Base/Main.js:
+        (WI._handleDeviceSettingsToolbarButtonClicked):
+
+2019-07-12  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: Changes: dismissing a blank property makes style rule to show in Changes panel
+        https://bugs.webkit.org/show_bug.cgi?id=199760
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Models/CSSProperty.js:
+        (WI.CSSProperty.prototype._updateOwnerStyleText):
+        Call updatePropertiesModifiedState even when _updateOwnerStyleText returns early.
+
+2019-07-12  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Elements: always show all navigation bar items, but disable those that wouldn't work
+        https://bugs.webkit.org/show_bug.cgi?id=199594
+
+        Reviewed by Ross Kirsling.
+
+        Reorder the navigation items of the Elements tab (left to right):
+         - Show rulers
+         - Force print media styles
+         - Force Dark Appearance / Force Light Appearance
+         - Show compositing borders
+         - Enable paint flashing
+         - Show shadow DOM nodes
+        This way, "related" (e.g. print styles and dark/light appearance both relate to CSS media)
+        toggles are grouped closer together.
+
+        * UserInterface/Views/DOMTreeContentView.js:
+        (WI.DOMTreeContentView):
+        (WI.DOMTreeContentView.prototype.get navigationItems):
+        (WI.DOMTreeContentView.prototype._defaultAppearanceDidChange):
+        (WI.DOMTreeContentView.prototype._toggleAppearance):
+
+        * Localizations/en.lproj/localizedStrings.js:
+
+2019-07-11  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Layers: Uncaught Exception: Request with id = 2 failed. {"code":-32601,"message":"'Page' domain was not found","data":[{"code":-32601,"message":"'Page' domain was not found"}]}
+        https://bugs.webkit.org/show_bug.cgi?id=199555
+
+        Reviewed by Joseph Pecoraro.
+
+        Use modern inspected target support checking, and defer agent commands until a target is
+        available.
+
+        * UserInterface/Views/Layers3DContentView.js:
+        (WI.Layers3DContentView):
+        (WI.Layers3DContentView.prototype._showPaintRectsSettingChanged):
+        (WI.Layers3DContentView.prototype._updateCompositingBordersButtonState):
+        (WI.Layers3DContentView.prototype._toggleCompositingBorders):
+
+        * UserInterface/Views/DOMTreeContentView.js:
+        (WI.DOMTreeContentView):
+        (WI.DOMTreeContentView.prototype._toggleCompositingBorders):
+        (WI.DOMTreeContentView.prototype._updateCompositingBordersButtonToMatchPageSettings):
+        (WI.DOMTreeContentView.prototype._showPaintRectsSettingChanged):
+        (WI.DOMTreeContentView.prototype._showPrintStylesChanged):
+        (WI.DOMTreeContentView.prototype._showRulersChanged):
+        Drive-by: apply the same changes to the Elements tab for when the Layers tab isn't enabled.
+
+2019-07-09  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Canvas: replace WTF::Vector with std::initializer_list in CallTracer to avoid dynamic allocations
+        https://bugs.webkit.org/show_bug.cgi?id=199611
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Models/Recording.js:
+        (WI.Recording.prototype.async swizzle):
+        Drive-by: handle the situation where a parameter is an array of deduplicated strings, which
+                  would otherwise be treated as an array of numbers.
+
+2019-07-09  Joseph Pecoraro  <pecoraro@apple.com>
+
+        Web Inspector: Add another Protocol Version (iOS 13.0)
+        https://bugs.webkit.org/show_bug.cgi?id=199631
+        <rdar://problem/47538193>
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Protocol/Legacy/13.0/InspectorBackendCommands.js: Added.
+        * Versions/Inspector-iOS-13.0.json: Added.
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debugger: special breakpoints and event targets should be sorted into separate "areas"
+        https://bugs.webkit.org/show_bug.cgi?id=199554
+
+        Reviewed by Joseph Pecoraro.
+
+        Move the special All Requests breakpoint down to be right above all other URL breakpoints.
+        Move the `window` object tree element below other DOM node tree elements.
+
+        * UserInterface/Views/DebuggerSidebarPanel.js:
+        (WI.DebuggerSidebarPanel.prototype._addTreeElement):
+        * UserInterface/Views/SourcesNavigationSidebarPanel.js:
+        (WI.SourcesNavigationSidebarPanel.prototype._insertDebuggerTreeElement):
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: DOM Debugger: there should be different icons for each type of DOM breakpoint
+        https://bugs.webkit.org/show_bug.cgi?id=199552
+
+        Reviewed by Joseph Pecoraro.
+
+        [S] for Subtree Modified
+        [A] for Attribute Modified
+        [R] for Node Removed
+
+        * UserInterface/Views/DOMBreakpointTreeElement.js:
+        (WI.DOMBreakpointTreeElement):
+        * UserInterface/Views/DOMBreakpointTreeElement.css: Added.
+        (.breakpoint.dom.breakpoint-for-subtree-modified:not(.breakpoint-paused-icon) .icon):
+        (.breakpoint.dom.breakpoint-for-attribute-modified:not(.breakpoint-paused-icon) .icon):
+        (.breakpoint.dom.breakpoint-for-node-removed:not(.breakpoint-paused-icon) .icon):
+
+        * UserInterface/Main.html:
+        * UserInterface/Images/DOMBreakpointAttributeModified.svg: Added.
+        * UserInterface/Images/DOMBreakpointNodeRemoved.svg: Added.
+        * UserInterface/Images/DOMBreakpointSubtreeModified.svg: Added.
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Uncaught Exception: Unexpected enum value: CPU
+        https://bugs.webkit.org/show_bug.cgi?id=199564
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Controllers/TimelineManager.js:
+        (WI.TimelineManager.prototype._updateAutoCaptureInstruments):
+        Filter the list of auto-capture instruments based on what's actually supported, instead of
+        directly using the saved list from the `WI.Setting`.
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Enabling the Layers tab hides the paint flashing button
+        https://bugs.webkit.org/show_bug.cgi?id=199549
+
+        Reviewed by Joseph Pecoraro.
+
+        Still show the Compositing Borders and Paint Flashing navigation items in the Elements tab
+        even when the Layers tab is enabled (just like the Layers details sidebar).
+
+        * UserInterface/Views/DOMTreeContentView.js:
+        (WI.DOMTreeContentView.prototype.get navigationItems):
+        (WI.DOMTreeContentView.prototype._updateCompositingBordersButtonToMatchPageSettings):
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION: Elements: pasting in the Styles sidebar adds a text node to the DOM tree
+        https://bugs.webkit.org/show_bug.cgi?id=199588
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Base/Main.js:
+        (WI._paste):
+        Bail if `event.defaultPrevented`, as that means that something else has handled (and likely
+        overrode) this event.
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: the "x" in the Exception icon overlaps the border
+        https://bugs.webkit.org/show_bug.cgi?id=199553
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Images/Exception.svg:
+        * UserInterface/Images/Function.svg:
+        * UserInterface/Images/TailDeletedFunction.svg:
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debugger: there should be a different icon for URL breakpoints
+        https://bugs.webkit.org/show_bug.cgi?id=199550
+
+        Reviewed by Joseph Pecoraro.
+
+        Use the same (down|up) arrow icon for the Network Tab and the Network timeline.
+
+        * UserInterface/Views/URLBreakpointTreeElement.js:
+        (WI.URLBreakpointTreeElement):
+        * UserInterface/Views/URLBreakpointTreeElement.css:
+        (.breakpoint.url:not(.breakpoint-paused-icon) .icon): Added.
+
+        * UserInterface/Views/DebuggerSidebarPanel.js:
+        (WI.DebuggerSidebarPanel.prototype._addBreakpoint):
+        * UserInterface/Views/SourcesNavigationSidebarPanel.js:
+        (WI.SourcesNavigationSidebarPanel.prototype._addBreakpoint):
+
+        * UserInterface/Images/URLBreakpoint.svg: Added.
+
+2019-07-08  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Timelines: CPU: the Duration string isn't localized
+        https://bugs.webkit.org/show_bug.cgi?id=199582
+        <rdar://problem/51698165>
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/CPUTimelineView.js:
+        (WI.CPUTimelineView.prototype._layoutEnergyChart):
+
+        * Localizations/en.lproj/localizedStrings.js:
+
+2019-07-06  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: Styles: unbalanced quotes and parenthesis aren't displayed as property closed after editing values
+        https://bugs.webkit.org/show_bug.cgi?id=199090
+        <rdar://problem/51965431>
+
+        Reviewed by Devin Rousso.
+
+        `}` gets added by WI.tokenizeCSSValue (called by SpreadsheetStyleProperty.prototype._renderValue)
+        when it encounters unbalanced quotes. Fix unbalanced quotes by re-rendering the value from the model,
+        not the DOM content.
+
+        * UserInterface/Views/SpreadsheetStyleProperty.js:
+        (WI.SpreadsheetStyleProperty.prototype.spreadsheetTextFieldDidCommit):
+        For consistency, render property name from the model as well.
+
+2019-07-05  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: current call frame indicator not visible in dark mode
+        https://bugs.webkit.org/show_bug.cgi?id=199047
+        <rdar://problem/51922895>
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/CallFrameTreeElement.css:
+        (.tree-outline .item.call-frame .status > .status-image):
+        (.tree-outline .item.call-frame.selected .status > .status-image):
+        Replace the CSS variables used for `fill` with their actual color value (in `light` mode),
+        as the semantic "name" of the variable doesn't really match its usage. As an example, the
+        current call frame shouldn't rely on the value of `--border-color`, as it's not a "border".
+
+2019-07-05  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: Elements: use a CSS transition when showing/hiding DOM breakpoint gutter
+        https://bugs.webkit.org/show_bug.cgi?id=199411
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Views/DOMTreeContentView.css:
+        (.content-view.dom-tree .tree-outline.dom):
+
+2019-07-02  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Elements: allow nodes to be copied and pasted
+        https://bugs.webkit.org/show_bug.cgi?id=199182
+
+        Reviewed by Matt Baker.
+
+        Copy is already supported, so there's nothing that needs to be done there.
+
+        Pasting is as simple as calling `insertAdjacentHTML("afterend", ...)` on the selected node.
+
+        * UserInterface/Base/Main.js:
+        (WI.contentLoaded):
+        (WI._paste): Added.
+
+        * UserInterface/Views/DOMTreeContentView.js:
+        (WI.DOMTreeContentView.prototype.handlePasteEvent): Added.
+
+2019-07-02  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: DOM Debugger: descendant breakpoints should be able to be enabled/disabled/deleted from a collapsed parent
+        https://bugs.webkit.org/show_bug.cgi?id=199332
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Controllers/DOMDebuggerManager.js:
+        (WI.DOMDebuggerManager.prototype.get domBreakpoints):
+        (WI.DOMDebuggerManager.prototype.domBreakpointsForNode):
+        (WI.DOMDebuggerManager.prototype.domBreakpointsInSubtree): Added.
+        (WI.DOMDebuggerManager.prototype.removeDOMBreakpoint):
+        (WI.DOMDebuggerManager.prototype._detachDOMBreakpoint):
+        (WI.DOMDebuggerManager.prototype._detachBreakpointsForFrame):
+        (WI.DOMDebuggerManager.prototype._speculativelyResolveDOMBreakpointsForURL):
+        (WI.DOMDebuggerManager.prototype._resolveDOMBreakpoint):
+        Provide a way of getting a "summary" array of `DOMBreakpoint`s for all descendant nodes.
+        Rework the data structure for holding `DOMBreakpoint`s to use a `Multimap` so no duplicates
+        can be added (it uses a `Set` instead of an `Array`).
+
+        * UserInterface/Views/DOMTreeElement.js:
+        (WI.DOMTreeElement):
+        (WI.DOMTreeElement.prototype.get hasBreakpoint):
+        (WI.DOMTreeElement.prototype.set breakpointStatus):
+        (WI.DOMTreeElement.prototype.bindRevealDescendantBreakpointsMenuItemHandler): Added.
+        (WI.DOMTreeElement.prototype._subtreeBreakpointChanged): Added.
+        (WI.DOMTreeElement.prototype._updateBreakpointStatus):
+        (WI.DOMTreeElement.prototype._statusImageContextmenu):
+        (WI.DOMTreeElement.prototype.subtreeBreakpointCountDidChange): Deleted.
+        * UserInterface/Views/DOMTreeOutline.js:
+        (WI.DOMTreeOutline.prototype.populateContextMenu):
+        * UserInterface/Views/ContextMenuUtilities.js:
+        (WI.appendContextMenuItemsForDOMNode):
+        (WI.appendContextMenuItemsForDOMNodeBreakpoints):
+        Keep track of the actual descendant `DOMNodeTreeElement` that have breakpoints, rather than
+        just a count, so that the "Reveal Descendant Breakpoints" action is able to access them.
+        Change "Reveal Descendant Breakpoints" to reveal and select all descendant breakpoints
+        instead of just the first one.
+        Drive-by: don't remove specific (event) listener breakpoints when invoking the
+                  "Delete Descendant Breakpoints" action, as that's not obvious from the UI.
+
+        * UserInterface/Controllers/BreakpointPopoverController.js:
+        (WI.BreakpointPopoverController.prototype.appendContextMenuItems):
+        * UserInterface/Views/DOMBreakpointTreeElement.js:
+        (WI.DOMBreakpointTreeElement.prototype.populateContextMenu):
+        * UserInterface/Views/DOMNodeTreeElement.js:
+        (WI.DOMNodeTreeElement.prototype.populateContextMenu):
+        * UserInterface/Views/EventBreakpointTreeElement.js:
+        (WI.EventBreakpointTreeElement.prototype.populateContextMenu):
+        * UserInterface/Views/URLBreakpointTreeElement.js:
+        (WI.URLBreakpointTreeElement.prototype.populateContextMenu):
+        Remove the separator before "Delete Breakpoint" so all breakpoint actions are in the same section.
+
+        * Localizations/en.lproj/localizedStrings.js:
+        * UserInterface/Base/Multimap.js:
+        (Multimap.prototype.get size): Added.
+
+2019-07-02  Matt Baker  <mattbaker@apple.com>
+
+        REGRESSION (r238563): Web Inspector: Selection is erratic when holding Up/Down on Network Table
+        https://bugs.webkit.org/show_bug.cgi?id=193841
+        <rdar://problem/47559124>
+
+        Reviewed by Devin Rousso.
+
+        Selecting and revealing a row after reloading Table data, but before the
+        layout that populates visible rows, could cause the Table to always be
+        scrolled so that the revealed row is first.
+
+        This patch fixes `revealRow` by calculating the position of the row being
+        revealed in the absence of its DOM element, so that the Table is only
+        scrolled when necessary.
+
+        * UserInterface/Views/Table.js:
+        (WI.Table.prototype.revealRow):
+        (WI.Table.prototype._resizeColumnsAndFiller):
+        Drive-by fix: use realOffsetWidth for consistency.
+        (WI.Table.prototype._updateVisibleRows):
+        (WI.Table.prototype._calculateOffsetHeight):
+        (WI.Table.prototype._calculateScrollTop):
+
+2019-07-02  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debug: "Reset Web Inspector" should also clear the saved window size and attachment side
+        https://bugs.webkit.org/show_bug.cgi?id=198956
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Base/Main.js:
+        (WI.reset): Added.
+
+        * UserInterface/Views/SettingsTabContentView.js:
+        (WI.SettingsTabContentView.prototype._createDebugSettingsView):
+
+2019-07-02  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Audit: missing demo audits for WebInspectorAudit functions
+        https://bugs.webkit.org/show_bug.cgi?id=198719
+
+        Reviewed by Matt Baker.
+
+        Other than the LayoutTests, there's no way to see an example of the functionality of many of
+        the exposed `WebInspectorAudit` functions. There should be a demo audit for every exposed
+        function so they're more discoverable.
+
+        * UserInterface/Controllers/AuditManager.js:
+        (WI.AuditManager.prototype._addDefaultTests):
+        (WI.AuditManager.prototype._addDefaultTests.removeWhitespace): Added.
+        Move all demo audit test functions to be actual JavaScript functions, which are then
+        stringified and stripped of unnecessary white-space.
+
+        * Localizations/en.lproj/localizedStrings.js:
+
+2019-07-01  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION(r245498): Timelines: CPU: discontinuities are filled in by the next record
+        https://bugs.webkit.org/show_bug.cgi?id=198927
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Controllers/TimelineManager.js:
+        (WI.TimelineManager.prototype.capturingStarted):
+        (WI.TimelineManager.prototype.capturingStopped):
+        * UserInterface/Models/TimelineRecording.js:
+        (WI.TimelineRecording):
+        (WI.TimelineRecording.prototype.start):
+        (WI.TimelineRecording.prototype.capturingStarted): Added.
+        (WI.TimelineRecording.prototype.capturingStopped): Added.
+        (WI.TimelineRecording.prototype.reset):
+        (WI.TimelineRecording.prototype.addRecord):
+        (WI.TimelineRecording.prototype.discontinuitiesInTimeRange):
+        (WI.TimelineRecording.prototype.addDiscontinuity): Deleted.
+        Notify the `TimelineRecording` when capturing has started/stopped.
+        Adjust the first record after a discontinuity to have it's `startTime` match the `endTime`
+        of the most recent discontinuity.
+
+        * UserInterface/Models/Timeline.js:
+        (WI.Timeline.prototype.addRecord):
+        * UserInterface/Models/CPUTimeline.js:
+        (WI.CPUTimeline.prototype.addRecord):
+        * UserInterface/Models/CPUTimelineRecord.js:
+        (WI.CPUTimelineRecord.prototype.adjustStartTime): Added.
+        (WI.CPUTimelineRecord.prototype.adjustStartTimeToLastRecord): Deleted.
+        * UserInterface/Models/MemoryTimeline.js:
+        (WI.MemoryTimeline.prototype.addRecord):
+        * UserInterface/Models/MemoryTimelineRecord.js:
+        (WI.MemoryTimelineRecord.prototype.adjustStartTime): Added.
+        (WI.MemoryTimelineRecord.prototype.adjustStartTimeToLastRecord): Deleted.
+        * UserInterface/Models/NetworkTimeline.js:
+        (WI.NetworkTimeline.prototype.addRecord):
+
+        * UserInterface/Views/CPUTimelineView.js:
+        (WI.CPUTimelineView.prototype.layout):
+        * UserInterface/Views/MemoryTimelineOverviewGraph.js:
+        (WI.MemoryTimelineOverviewGraph.prototype.layout):
+        * UserInterface/Views/MemoryTimelineView.js:
+        (WI.MemoryTimelineView.prototype.layout):
+        Include discontinuities that exactly match the start/end time of the record immediately
+        before/after the discontinuity.
+
+        * UserInterface/Views/TimelineRecordingContentView.js:
+        (WI.TimelineRecordingContentView):
+        (WI.TimelineRecordingContentView.prototype._handleTimelineCapturingStateChanged):
+        (WI.TimelineRecordingContentView.prototype._recordingReset):
+        Move the logic for handling discontinuity start/end times to the `TimelineRecording`.
+
+        * UserInterface/Base/Utilities.js:
+
+2019-06-29  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: Remove trailing white-space
+        https://bugs.webkit.org/show_bug.cgi?id=199346
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Controllers/NetworkManager.js:
+        (WI.NetworkManager.prototype._initiatorCallFramesFromPayload):
+        * UserInterface/Images/Import.svg:
+        * UserInterface/Views/CanvasOverviewContentView.css:
+        (.navigation-bar > .item.canvas-recording-auto-capture > label > input):
+        * UserInterface/Views/DataGrid.css:
+        (.data-grid .resizer):
+        * UserInterface/Views/DatabaseContentView.css:
+        (.storage-view):
+        * UserInterface/Views/GoToLineDialog.css:
+        (@media (prefers-color-scheme: dark)):
+        * UserInterface/Views/GradientSlider.css:
+        (.gradient-slider > .add-area):
+        (.gradient-slider-knob > :matches(img, div)):
+        * UserInterface/Views/ResourceDetailsSection.css:
+        * UserInterface/Views/ScrubberNavigationItem.css:
+        (.navigation-bar .item.scrubber > input[disabled]):
+        * UserInterface/Views/SourceCodeTextEditor.css:
+        (.popover .expandable):
+        * UserInterface/Views/TimelineRecordBar.css:
+        (.timeline-record-bar.timeline-record-type-script.garbage-collected > .segment,):
+        * UserInterface/Workers/HeapSnapshot/HeapSnapshotWorker.js:
+        (HeapSnapshotWorker.prototype.createSnapshot):
+
+2019-06-29  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Remove duplicate "Private" section and fix white space
+
+        Unreviewed code style fix.
+
+        * UserInterface/Views/SpreadsheetRulesStyleDetailsPanel.js:
+        (WI.SpreadsheetRulesStyleDetailsPanel.prototype.layout):
+
+2019-06-27  Beth Dakin  <bdakin@apple.com>
+
+        Upstream use of MACCATALYST
+        https://bugs.webkit.org/show_bug.cgi?id=199245
+        rdar://problem/51687723
+
+        Reviewed by Tim Horton.
+
+        * Configurations/Base.xcconfig:
+        * Configurations/SDKVariant.xcconfig:
+
+2019-06-27  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: throw an error if console.count/console.countReset is called with an object that throws an error from toString
+        https://bugs.webkit.org/show_bug.cgi?id=199252
+
+        Reviewed by Joseph Pecoraro.
+
+        Add entries for `console.countReset` and `console.timeLog`.
+
+        Rename `title` to `label` for `console.time`, `console.timeLog`, and `console.timeEnd` to
+        better match the spec.
+
+        * UserInterface/Models/NativeFunctionParameters.js:
+
+2019-06-26  Joseph Pecoraro  <pecoraro@apple.com>
+
+        Web Inspector: Update legacy backend commands after enum name change
+        https://bugs.webkit.org/show_bug.cgi?id=199250
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Protocol/Legacy/11.3/InspectorBackendCommands.js:
+        * UserInterface/Protocol/Legacy/12.0/InspectorBackendCommands.js:
+        * UserInterface/Protocol/Legacy/12.2/InspectorBackendCommands.js:
+
+2019-06-26  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION: Elements: the forced pseudo-class indicator isn't visible when hovering
+        https://bugs.webkit.org/show_bug.cgi?id=199166
+
+        Reviewed by Matt Baker.
+
+        Make the pseudo-class indicator into its own element instead of being a `::before`.
+
+        * UserInterface/Views/DOMTreeElement.js:
+        (WI.DOMTreeElement):
+        (WI.DOMTreeElement.prototype.updateSelectionArea):
+        (WI.DOMTreeElement.prototype.updateTitle):
+        (WI.DOMTreeElement.prototype._updatePseudoClassIndicator): Added.
+        (WI.DOMTreeElement.prototype.get pseudoClassesEnabled): Deleted.
+        (WI.DOMTreeElement.prototype._nodePseudoClassesDidChange): Deleted.
+
+        * UserInterface/Views/DOMTreeOutline.css:
+        (.tree-outline.dom):
+        (.tree-outline.dom li .pseudo-class-indicator): Added.
+        (body[dir=ltr] .tree-outline.dom li .pseudo-class-indicator): Added.
+        (body[dir=rtl] .tree-outline.dom li .pseudo-class-indicator): Added.
+        (.tree-outline.dom:focus li.selected .pseudo-class-indicator): Added.
+        (.tree-outline.dom li.pseudo-class-enabled > .selection-area::before): Deleted.
+        (body[dir=ltr] .tree-outline.dom li.pseudo-class-enabled > .selection-area::before): Deleted.
+        (body[dir=rtl] .tree-outline.dom li.pseudo-class-enabled > .selection-area::before): Deleted.
+        (.tree-outline.dom:focus li.selected.pseudo-class-enabled > .selection-area::before): Deleted.
+
+        * UserInterface/Views/FormattedValue.css:
+        (.formatted-node > .tree-outline.dom):
+        Adjust the indent of any `DOMTreeOutline` so there's more room for the pseudo-class
+        indicator, such as in the Console.
+
+2019-06-25  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: Elements: show shadow DOM by default
+        https://bugs.webkit.org/show_bug.cgi?id=199128
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Base/Setting.js:
+
+        * UserInterface/Test/Test.js:
+        (WI.loaded):
+        Overriding the default value isn't necessary since the default is now true.
+
+2019-06-25  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        REGRESSION(r246621): Web Inspector: Styles: property may get removed when editing after deleting value
+        https://bugs.webkit.org/show_bug.cgi?id=199143
+        <rdar://problem/52042815>
+
+        Reviewed by Matt Baker.
+
+        r246621 affected when WI.CSSStyleDeclaration.Event.PropertiesChanged event is fired, which caused
+        SpreadsheetCSSStyleDeclarationEditor to possibly enter a state when `focused` property is
+        incorrectly set to false.
+
+        * UserInterface/Views/SpreadsheetCSSStyleDeclarationEditor.js:
+        (WI.SpreadsheetCSSStyleDeclarationEditor.prototype.spreadsheetStylePropertyRemoved): Removed.
+        (WI.SpreadsheetCSSStyleDeclarationEditor.prototype.spreadsheetStylePropertyWillRemove): Added.
+        Renamed from "removed" to "willRemove" since we need to call it before the property DOM element
+        is detached from the document.
+
+        * UserInterface/Views/SpreadsheetStyleProperty.js:
+        (WI.SpreadsheetStyleProperty.prototype.remove):
+        Don't set focused to false when the removed property wasn't focused.
+        This code need to exist because removing focused element from the DOM doesn't trigger blur event.
+
+2019-06-25  Joseph Pecoraro  <pecoraro@apple.com>
+
+        Web Inspector: Implement console.timeLog
+        https://bugs.webkit.org/show_bug.cgi?id=199184
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Views/ConsoleMessageView.js:
+        (WI.ConsoleMessageView.prototype._appendMessageTextAndArguments):
+        Time messages (like timeLog) do not include their messageText
+        in their parameters list. So to behave more like normal logs
+        build a parameter list that includes it at the front.
+
+2019-06-23  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: REGRESSION (r246684): Dark Mode: dashboard buttons should have no background
+        https://bugs.webkit.org/show_bug.cgi?id=199136
+        <rdar://problem/52035798>
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/DefaultDashboardView.css:
+        (@media (prefers-color-scheme: dark)):
+        (.toolbar .dashboard .item.button,):
+
+2019-06-23  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: Styles: show green highlight for newly added properties only when name and value are present
+        https://bugs.webkit.org/show_bug.cgi?id=199131
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/SpreadsheetStyleProperty.js:
+        (WI.SpreadsheetStyleProperty.prototype.updateStatus):
+
+2019-06-22  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        REGRESSION(r241980): Web Inspector: Styles: Pressing Tab/Enter on last property no longer focuses on selector on next rule
+        https://bugs.webkit.org/show_bug.cgi?id=199125
+        <rdar://problem/52011182>
+
+        Reviewed by Matt Baker.
+
+        Since SpreadsheetSelectorField's focus handler was removed in r241980, focusing on the selector element
+        doesn't start editing it.
+
+        * UserInterface/Views/SpreadsheetCSSStyleDeclarationSection.js:
+        (WI.SpreadsheetCSSStyleDeclarationSection.prototype.startEditingRuleSelector):
+
+2019-06-22  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: Styles: unbalanced quotes and parenthesis aren't displayed as property closed after editing values
+        https://bugs.webkit.org/show_bug.cgi?id=199090
+        <rdar://problem/51965431>
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/SpreadsheetStyleProperty.js:
+        (WI.SpreadsheetStyleProperty.prototype.spreadsheetTextFieldDidBlur):
+        Unbalanced quotes and parenthesis are fixed inside of CSSProperty's rawValue setter.
+        Render the value from the model, not the view.
+
+2019-06-21  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: remove unused DataGrid style .force-focus
+        https://bugs.webkit.org/show_bug.cgi?id=199112
+        <rdar://problem/51993412>
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/HeapAllocationsTimelineView.css:
+        (.timeline-view.heap-allocations > .data-grid:not(:focus) tr.selected.invalid):
+        (.timeline-view.heap-allocations > .data-grid:not(:focus, .force-focus) tr.selected.invalid): Deleted.
+
+        * UserInterface/Views/ResourceTreeElement.css:
+        (.item.resource.resource-type-websocket:not(.selected) .status .ready-state.open,):
+        (.item.resource.resource-type-websocket:not(.selected) .status .ready-state.connecting,):
+        Missed in https://bugs.webkit.org/show_bug.cgi?id=190480.
+
+2019-06-21  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: remove .legacy-mac/.latest-mac CSS classes, standardize on .latest-mac UI
+        https://bugs.webkit.org/show_bug.cgi?id=199109
+        <rdar://problem/51991129>
+
+        Reviewed by Timothy Hatcher.
+
+        Drop legacy macOS version support from Web Inspector UI.
+
+        * UserInterface/Base/Main.js:
+
+        * UserInterface/Views/DefaultDashboardView.css:
+        (@media (prefers-color-scheme: dark)):
+        (body.latest-mac .toolbar .dashboard .item.button): Deleted.
+
+        * UserInterface/Views/Toolbar.css:
+        (.toolbar):
+        (.toolbar .item.button,):
+        (.toolbar .search-bar > input[type="search"]):
+        (.toolbar .search-bar > input[type="search"]:focus):
+        (@media (-webkit-min-device-pixel-ratio: 2)):
+        (.toolbar .item.button:active):
+        (body.window-inactive .toolbar .item.button,):
+        (@media (prefers-color-scheme: dark)):
+        (.toolbar .search-bar > input[type="search"]::placeholder):
+        (body.window-inactive .toolbar .search-bar > input[type="search"]::placeholder):
+        (body.window-inactive .toolbar .search-bar > input[type="search"]::-webkit-search-results-button):
+        (.toolbar .dashboard-container):
+        (body .toolbar): Deleted.
+        (body.legacy-mac .toolbar .item.button,): Deleted.
+        (body.legacy-mac .toolbar .search-bar > input[type="search"]): Deleted.
+        (body.legacy-mac .toolbar .search-bar > input[type="search"]:focus): Deleted.
+        (body.legacy-mac .toolbar .item.button:active): Deleted.
+        (body.window-inactive.legacy-mac .toolbar .item.button,): Deleted.
+        (body.latest-mac .toolbar .item.button,): Deleted.
+        (body.latest-mac .toolbar .search-bar > input[type="search"]): Deleted.
+        (body.latest-mac .toolbar .search-bar > input[type="search"]:focus): Deleted.
+        (body.latest-mac .toolbar .item.button:active): Deleted.
+        (body.latest-mac.window-inactive .toolbar .item.button,): Deleted.
+        (body.latest-mac .toolbar .search-bar > input[type="search"]::placeholder): Deleted.
+        (body.latest-mac.window-inactive .toolbar .search-bar > input[type="search"]::placeholder): Deleted.
+        (body.latest-mac.window-inactive .toolbar .search-bar > input[type="search"]::-webkit-search-results-button): Deleted.
+        (body.latest-mac .toolbar .dashboard-container): Deleted.
+
+2019-06-20  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: rename shadowRootPushed parameter to match protocol
+        https://bugs.webkit.org/show_bug.cgi?id=199098
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Protocol/DOMObserver.js:
+        (WI.DOMObserver.prototype.shadowRootPushed):
+
+2019-06-20  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Error "null is not an object (evaluating 'syntaxTree.containersOfPosition')" when setting a breakpoint
+        https://bugs.webkit.org/show_bug.cgi?id=199082
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/SourceCodeTextEditor.js:
+        (WI.SourceCodeTextEditor.prototype.textEditorExecutionHighlightRange):
+        The script syntax tree may be fetched even if the resource hasn't finished parsing (or had
+        a syntax error), so it's possible for it to be `null`.
+
+2019-06-20  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Dark Mode: inactive tab bar item should get darker on hover
+        https://bugs.webkit.org/show_bug.cgi?id=199022
+
+        Reviewed by Darin Adler.
+
+        * UserInterface/Views/TabBar.css:
+        (.tab-bar:not(.animating) > .item:not(.selected, .disabled):hover):
+        (@media not (prefers-color-scheme: dark) .tab-bar:not(.animating) > .item:not(.selected, .disabled):hover > .icon):
+        (@media (prefers-color-scheme: dark) .tab-bar):
+        (@media (prefers-color-scheme: dark) .tab-bar > .item):
+        (@media (prefers-color-scheme: dark) .tab-bar > .item:not(.disabled).selected):
+        (@media (prefers-color-scheme: dark) .tab-bar:not(.animating) > .item:not(.selected):hover):
+        (@media (prefers-color-scheme: dark) body.window-inactive .tab-bar):
+        (@media (prefers-color-scheme: dark) body.window-inactive .tab-bar > .item):
+        (@media (prefers-color-scheme: dark) body.window-inactive .tab-bar > .item.selected):
+
+        * UserInterface/Views/Toolbar.css:
+        (@media (prefers-color-scheme: dark) body .toolbar):
+
+2019-06-20  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debugger: setting a breakpoint on a non-JavaScript line should immediately show as unresolved
+        https://bugs.webkit.org/show_bug.cgi?id=199033
+
+        Reviewed by Matt Baker.
+
+        Remove the `shouldSpeculativelyResolve` parameter, as it was resolving breakpoints even in
+        the case that there were no resolved locations for the given breakpoint.
+
+        In the case that there are resolved locations, the breakpoint would've already been resolved
+        by the time that `shouldSpeculativelyResolve` would've taken effect, so it's unnecessary.
+
+        This parameter was only used when setting a breakpoint from a `SourceCodeTextEditor` gutter.
+
+        * UserInterface/Controllers/DebuggerManager.js:
+        (WI.DebuggerManager.prototype.addBreakpoint):
+        (WI.DebuggerManager.prototype._setBreakpoint):
+        (WI.DebuggerManager.prototype._setBreakpoint.didSetBreakpoint):
+
+        * UserInterface/Views/SourceCodeTextEditor.js:
+        (WI.SourceCodeTextEditor.prototype.textEditorBreakpointAdded):
+
+2019-06-20  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Edit -> Tag doesn't do anything for html, head, and body elements
+        https://bugs.webkit.org/show_bug.cgi?id=199052
+        <rdar://problem/51923906>
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/DOMTreeElement.js:
+        (WI.DOMTreeElement.prototype.populateDOMNodeContextMenu):
+         - Don't show an "Edit > Tag" for <html>, <head>, and <body> nodes
+         - Disable any "Edit" submenu item if it's target is already being edited
+         - Prevent "Add" submenu items from being shown for text nodes
+
+2019-06-19  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION: Debugger: current call frame indicator isn't vertically centered
+        https://bugs.webkit.org/show_bug.cgi?id=199015
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/CallFrameTreeElement.css:
+        (.tree-outline .item.call-frame .status):
+
+2019-06-19  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        REGRESSION(r240946): Web Inspector: Styles: Pasting multiple properties has issues
+        https://bugs.webkit.org/show_bug.cgi?id=198505
+        <rdar://problem/51374780>
+
+        Reviewed by Matt Baker.
+
+        Since r240946, setting WI.CSSStyleDeclaration.prototype.text updates the text immediately.
+        When WI.CSSStyleDeclaration.prototype.update gets called after setting text, it exits early
+        without firing WI.CSSStyleDeclaration.Event.PropertiesChanged.
+
+        * UserInterface/Models/CSSStyleDeclaration.js:
+        (WI.CSSStyleDeclaration):
+        (WI.CSSStyleDeclaration.prototype.set text):
+
+2019-06-19  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: Remove unused _pendingFilter from NetworkTableContentView
+        https://bugs.webkit.org/show_bug.cgi?id=199026
+
+        Reviewed by Devin Rousso.
+
+        This flag is no longer set as of https://trac.webkit.org/changeset/225895.
+
+        * UserInterface/Views/NetworkTableContentView.js:
+        (WI.NetworkTableContentView):
+        (WI.NetworkTableContentView.prototype._processPendingEntries):
+
+2019-06-19  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Uncaught Exception: TypeError: undefined is not an object (evaluating 'sourceCodePosition.lineNumber')
+        https://bugs.webkit.org/show_bug.cgi?id=199019
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Base/Main.js:
+        (WI.linkifyLocation):
+
+2019-06-19  Zhifei Fang  <zhifei_fang@apple.com>
+
+        Correct the error object link color in dark mode.
+        https://bugs.webkit.org/show_bug.cgi?id=198033
+
+        Reviewed by Devin Rousso.
+
+        * UserInterface/Views/ErrorObjectView.css:
+        (@media (prefers-dark-interface)):
+        (.error-object-link-container):
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Network: detail view shouldn't stay open when the related entry is removed
+        https://bugs.webkit.org/show_bug.cgi?id=198951
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/NetworkTableContentView.js:
+        (WI.NetworkTableContentView.prototype._mainResourceDidChange):
+        Hide the detail view if the main resource changes and we aren't preserving the log.
+
+        * UserInterface/Views/Table.js:
+        (WI.Table.prototype.reloadVisibleColumnCells):
+        Only attempt to populate cells for rows that the `_dataSource` actually has. Without this,
+        the `_delegate` may be asked to populate a cell for a row it doesn't have, which would error.
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: parseQueryParameters fails to successfully parse query parameter values that contain "="
+        https://bugs.webkit.org/show_bug.cgi?id=198971
+        <rdar://problem/51852782>
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Base/URLUtilities.js:
+        (parseQueryString):
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION: Heap: subsequent snapshots taken manually don't appear in the list
+        https://bugs.webkit.org/show_bug.cgi?id=198941
+
+        Reviewed by Joseph Pecoraro.
+
+        Since heap snapshot records can be added at any time, including when not actively recording,
+        when the "Entire Recording" range is selected, make sure to set the `filterEndTime` to be an
+        effectively infinite number so that records added later aren't filtered out.
+
+        This isn't done for other timeline views as they may have graphs that don't expect to render
+        from time 0 till infinity, not to mention being unable to add records when not recording.
+
+        * UserInterface/Views/TimelineRecordingContentView.js:
+        (WI.TimelineRecordingContentView.prototype._updateTimelineViewTimes):
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION: Canvas: cannot select saved recordings
+        https://bugs.webkit.org/show_bug.cgi?id=198953
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/TreeElement.js:
+        (WI.TreeElement.treeElementToggled):
+        Don't early return if the `TreeElement` isn't `selectable` as the owner `TreeOutline` may
+        want to dispatch an event that it was clicked.
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Canvas: the initial state should be selected when processing a new/imported recording if the navigation sidebar is collapsed
+        https://bugs.webkit.org/show_bug.cgi?id=198952
+
+        Reviewed by Joseph Pecoraro.
+
+        Prevent any content from being generated until `initialLayout` is called, as otherwise it's
+        possible for the `CanvasNavigationSidebar` to update the current action index before the
+        preview element has been created, which would throw an error.
+
+        * UserInterface/Views/RecordingContentView.js:
+        (WI.RecordingContentView.prototype.updateActionIndex):
+        (WI.RecordingContentView.prototype.initialLayout):
+        (WI.RecordingContentView.prototype._updateSliderValue):
+        (WI.RecordingContentView.prototype._handleRecordingProcessedAction):
+        Drive-by: update the slider max each time the selected action index is changed.
+
+2019-06-18  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Canvas: imported recordings aren't selectable from the overview if there are no canvases in the page
+        https://bugs.webkit.org/show_bug.cgi?id=198955
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/CanvasOverviewContentView.js:
+        (WI.CanvasOverviewContentView.prototype._addSavedRecording):
+        Hide the content placeholder when a recording is imported. It won't be shown again because
+        the `subviews` list will never be empty, as there's no way to remove an imported recording.
+
+        * UserInterface/Views/CollectionContentView.js:
+        (WI.CollectionContentView.prototype.addContentViewForItem):
+        (WI.CollectionContentView.prototype.removeContentViewForItem):
+        (WI.CollectionContentView.prototype.showContentPlaceholder): Added.
+        (WI.CollectionContentView.prototype.hideContentPlaceholder): Added.
+        (WI.CollectionContentView.prototype.initialLayout):
+        (WI.CollectionContentView.prototype._selectItem):
+        (WI.CollectionContentView.prototype._showContentPlaceholder): Deleted.
+        (WI.CollectionContentView.prototype._hideContentPlaceholder): Deleted.
+        Make `showContentPlaceholder`/`hideContentPlaceholder` protected for any subclasses to call.
+
+2019-06-17  Matt Baker  <mattbaker@apple.com>
+
+        Web Inspector: Elements: remove ellipses from "Break on" context menu item title
+        https://bugs.webkit.org/show_bug.cgi?id=198944
+
+        Reviewed by Devin Rousso.
+
+        Update context menu title to comply with Apple HI guidelines.
+
+        * Localizations/en.lproj/localizedStrings.js:
+        * UserInterface/Views/ContextMenuUtilities.js:
+
+2019-06-17  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Debugger: adding a DOM/Event/URL breakpoint should enable breakpoints
+        https://bugs.webkit.org/show_bug.cgi?id=198932
+
+        Reviewed by Matt Baker.
+
+        Match the behavior of JavaScript breakpoints, which enable breakpoints globally when a new
+        breakpoint is set or an existing breakpoint is enabled.
+
+        This avoids the situation where setting a DOM breakpoint or a specific event listener
+        breakpoint appears to not "work" because breakpoints are globally disabled. There is no
+        "breakpoints disabled" banner in the Elements tab, so the user could be completely unaware
+        of this, and therefore be confused as to why these breakpoints aren't being hit.
+
+        * UserInterface/Controllers/DOMManager.js:
+        (WI.DOMManager.prototype._updateEventBreakpoint):
+
+        * UserInterface/Controllers/DOMDebuggerManager.js:
+        (WI.DOMDebuggerManager.prototype._updateDOMBreakpoint):
+        (WI.DOMDebuggerManager.prototype._updateEventBreakpoint):
+        (WI.DOMDebuggerManager.prototype._updateURLBreakpoint):
+
+2019-06-17  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Sources: remove extra space above Breakpoints section when breakpoints are disabled
+        https://bugs.webkit.org/show_bug.cgi?id=198933
+
+        Reviewed by Matt Baker.
+
+        * UserInterface/Views/DebuggerSidebarPanel.css:
+        (.sidebar > .panel.navigation.debugger .warning-banner):
+        * UserInterface/Views/SourcesNavigationSidebarPanel.css:
+        (.sidebar > .panel.navigation.sources > .content > .warning-banner):
+
+2019-06-17  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Settings: split the General panel into sub panels so it's less crowded
+        https://bugs.webkit.org/show_bug.cgi?id=198803
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/SettingsTabContentView.js:
+        (WI.SettingsTabContentView.prototype.initialLayout):
+        (WI.SettingsTabContentView.prototype._createGeneralSettingsView):
+        Many of the settings in General only affect a specific part of Web Inspector, and therefore
+        aren't really "general".
+
+        (WI.SettingsTabContentView.prototype._createElementsSettingsView): Added.
+         - Element Selection
+         - CSS Changes
+
+        (WI.SettingsTabContentView.prototype._createSourcesSettingsView): Added.
+         - Debugger
+         - Source Maps
+
+        (WI.SettingsTabContentView.prototype._createConsoleSettingsView): Added.
+         - Traces (renamed from "Console")
+         - WebRTC Logging
+         - Media Logging
+         - MSE Logging
+
+        * Localizations/en.lproj/localizedStrings.js:
+
+2019-06-17  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Sources: the Inspector Style Sheet is missing when grouped by path
+        https://bugs.webkit.org/show_bug.cgi?id=198860
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Controllers/CSSManager.js:
+        (WI.CSSManager.prototype.get styleSheets):
+        (WI.CSSManager.prototype.inspectorStyleSheetsForFrame):
+        (WI.CSSManager.prototype.preferredInspectorStyleSheetForFrame):
+        (WI.CSSManager.prototype._inspectorStyleSheetsForFrame): Deleted.
+        Expose a way to fetch all inspector stylesheets for a given frame.
+        Make sure to associate inspector stylesheets with their frame.
+
+        * UserInterface/Views/SourcesNavigationSidebarPanel.js:
+        (WI.SourcesNavigationSidebarPanel.prototype._compareTreeElements):
+        (WI.SourcesNavigationSidebarPanel.prototype._addResourcesRecursivelyForFrame):
+        (WI.SourcesNavigationSidebarPanel.prototype._handleCSSStyleSheetAdded):
+        Add paths for inspector stylesheet creation/fetching when grouping by path.
+        Sort inspector stylesheets as the first item of an origin/frame when grouping by path.
+
+2019-06-17  Jamal Nasser  <jamaln@mail.com>
+
+        Web Inspector: Go To Line dialog is white when in Dark Mode
+        https://bugs.webkit.org/show_bug.cgi?id=198596
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/GoToLineDialog.css:
+        (@media (prefers-color-scheme: dark)):
+        (.go-to-line-dialog):
+        (.go-to-line-dialog > div > input):
+        (.go-to-line-dialog > div > input::placeholder):
+        (.go-to-line-dialog > div::before):
+
+2019-06-17  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Sources: searching doesn't use the case sensitive or regex global settings
+        https://bugs.webkit.org/show_bug.cgi?id=198897
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/SourceCodeTextEditor.js:
+        (WI.SourceCodeTextEditor.prototype.customPerformSearch):
+
+2019-06-13  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION(r246178): extra spaces added in at-rules when formatting CSS
+        https://bugs.webkit.org/show_bug.cgi?id=198806
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Workers/Formatter/CSSFormatter.js:
+        (CSSFormatter.prototype._format):
+        Add more specific tests for at-rules, and add/remove whitespace depending on the type of
+        at-rule (e.g. `@supports` vs `@media`), as well as where the scanner is in the parameters of
+        the at at-rule (e.g. `@supports |` vs `@media (|`).
+
+        * UserInterface/Workers/Formatter/FormatterContentBuilder.js:
+        (FormatterContentBuilder):
+        (FormatterContentBuilder.prototype.get lastToken): Added.
+        (FormatterContentBuilder.prototype.get currentLine):
+        (FormatterContentBuilder.prototype.removeLastNewline):
+        (FormatterContentBuilder.prototype.removeLastWhitespace):
+        (FormatterContentBuilder.prototype._popFormattedContent):
+        (FormatterContentBuilder.prototype._append):
+        Update `lastTokenWasNewline` and `lastTokenWasWhitespace` when removing newlines/whitespace.
+        Memoize the `currentLine` so it's less expensive to re-fetch.
+
+2019-06-13  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Settings: indent type and size settings aren't respected everywhere
+        https://bugs.webkit.org/show_bug.cgi?id=198804
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/CodeMirrorEditor.js:
+        (WI.CodeMirrorEditor.create):
+        When creating a `CodeMirror` instance, default to using the global `Setting`s as the options.
+        If an override is specified in `options`, it will take precedence and the `CodeMirror` will
+        ignore any changes to the `Setting` as well.
+
+        * UserInterface/Views/TextEditor.js:
+        (WI.TextEditor):
+        (WI.TextEditor.prototype.close): Deleted.
+
+        * UserInterface/Views/AuditTestCaseContentView.js:
+        (WI.AuditTestCaseContentView.prototype.layout):
+        * UserInterface/Views/BreakpointActionView.js:
+        (WI.BreakpointActionView.prototype._updateBody):
+        * UserInterface/Views/ConsolePrompt.js:
+        (WI.ConsolePrompt):
+        * UserInterface/Views/ScopeChainDetailsSidebarPanel.js:
+        (WI.ScopeChainDetailsSidebarPanel.prototype._addWatchExpressionButtonClicked):
+        Remove overrides that aren't necessary for `CodeMirror` to fit in the container element:
+         - `showWhitespaceCharacters`
+         - `indentWithTabs`
+         - `indentUnit`
+
+        * UserInterface/Views/SourceCodeTextEditor.js:
+        (WI.SourceCodeTextEditor.prototype.close):
+        * UserInterface/Views/ShaderProgramContentView.js:
+        (WI.ShaderProgramContentView.prototype.closed): Deleted.
+        * UserInterface/Views/TextContentView.js:
+        (WI.TextContentView.prototype.closed): Deleted.
+        * UserInterface/Views/TextResourceContentView.js:
+        (WI.TextResourceContentView.prototype.closed):
+        Delete the logic for removing event listeners from global `Setting`, as it didn't work
+        anyways, since none of the event listeners were added using a `thisObject`.
+
+2019-06-13  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Settings: sticky header disappears when over scrolling
+        https://bugs.webkit.org/show_bug.cgi?id=198833
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/SettingsTabContentView.css:
+        (.content-view.settings .navigation-bar):
+        (.content-view.settings > .settings-view): Added.
+        (.content-view.settings): Deleted.
+
+2019-06-10  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Timelines: imported recordings do not have JavaScript call trees
+        https://bugs.webkit.org/show_bug.cgi?id=197490
+        <rdar://problem/50589158>
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Models/TimelineRecording.js:
+        (WI.TimelineRecording.prototype.initializeCallingContextTrees):
+        Make sure to actually save the provided stack traces and samples in the export data.
+
+        * UserInterface/Models/ScriptTimelineRecord.js:
+        (WI.ScriptTimelineRecord.fromJSON):
+        (WI.ScriptTimelineRecord.prototype.toJSON):
+        Drive-by: include `extraDetails`, which contains useful information like "default prevented".
+
+2019-06-10  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        REGRESSION(r244268): Web Inspector: Styles: navigating from Computed to Styles doesn't work
+        https://bugs.webkit.org/show_bug.cgi?id=198508
+        <rdar://problem/51375503>
+
+        Reviewed by Matt Baker.
+
+        It didn't work because the detached sidebar panel tried to access its parent view (this.parentSidebar).
+
+        * UserInterface/Views/ComputedStyleDetailsSidebarPanel.js:
+        (WI.ComputedStyleDetailsSidebarPanel.prototype.computedStyleDetailsPanelShowProperty): Added.
+        (WI.ComputedStyleDetailsSidebarPanel):
+        * UserInterface/Views/GeneralStyleDetailsSidebarPanel.js:
+        (WI.GeneralStyleDetailsSidebarPanel.prototype.computedStyleDetailsPanelShowProperty): Deleted.
+        Move computedStyleDetailsPanelShowProperty to ComputedStyleDetailsSidebarPanel since it's the only
+        panel where it's needed.
+
+2019-06-10  Alexey Shvayka  <shvaikalesh@gmail.com>
+
+        Web Inspector: "Copy Path to Property" doesn't work with multiline keys
+        https://bugs.webkit.org/show_bug.cgi?id=198691
+
+        Reviewed by Matt Baker.
+
+        Correctly escape line terminators to prevent doubleQuotedString from returning malformed strings.
+
+        * UserInterface/Base/Utilities.js: Use JSON.stringify.
+
+2019-06-10  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION(r246025): prototypes in object previews are visible even when setting `showOnlyJSON`
+        https://bugs.webkit.org/show_bug.cgi?id=198721
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/ObjectTreeView.css:
+        (.object-tree.properties-only.json-only .object-tree-property.prototype-property): Added.
+        (.object-tree.properties-only.json-only .object-tree-property .prototype-property): Deleted.
+
+2019-06-07  Nikita Vasilyev  <nvasilyev@apple.com>
+
+        Web Inspector: longhand CSS properties overridden by shorthands miss strikethrough
+        https://bugs.webkit.org/show_bug.cgi?id=198629
+        <rdar://problem/51504160>
+
+        Reviewed by Devin Rousso.
+
+        Longhand CSS properties (e.g. "font-size") overriden by shorthands (e.g. "font") now have strikethroughs.
+
+        * UserInterface/Models/CSSProperty.js:
+        (WI.CSSProperty.prototype.set overridingProperty):
+        (WI.CSSProperty):
+
+        * UserInterface/Models/DOMNodeStyles.js:
+        (WI.DOMNodeStyles.prototype._updateStyleCascade):
+        Call _associateRelatedProperties before _markOverriddenProperties because
+        _associateRelatedProperties sets relatedShorthandProperty property, which
+        is now used by _markOverriddenProperties.
+
+        (WI.DOMNodeStyles.prototype._markOverriddenProperties.isOverriddenBy):
+        (WI.DOMNodeStyles.prototype._markOverriddenProperties):
+
+2019-06-06  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Timelines: remove always disabled details sidebar navigation item
+        https://bugs.webkit.org/show_bug.cgi?id=198393
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/TimelineTabContentView.js:
+        (WI.TimelineTabContentView):
+
+2019-06-06  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: REGRESSION(r245833): Timelines: CPU: JavaScript label is missing and JavaScript section of pie chart is black
+        https://bugs.webkit.org/show_bug.cgi?id=198627
+
+        Reviewed by Joseph Pecoraro.
+
+        * UserInterface/Views/CPUTimelineView.js:
+        (WI.CPUTimelineView.displayNameForSampleType):
+        * UserInterface/Views/CPUTimelineView.css:
+        (.timeline-view.cpu > .content > .overview .legend > .row > .swatch.sample-type-javascript):
+        (.timeline-view.cpu .circle-chart > svg > path.segment.sample-type-javascript): Added.
+        (.timeline-view.cpu .circle-chart > svg > path.segment.sample-type-script): Deleted.
+        * UserInterface/Views/CPUUsageCombinedView.css:
+        (.cpu-usage-combined-view > .graph > .range-chart .sample-type-javascript): Added.
+        (.cpu-usage-combined-view > .graph > .range-chart .sample-type-script): Deleted.
+        Use the enum string added in r245833 (`sample-type-javascript`) instead of what was there
+        before (`sample-type-script`).
+
+        * UserInterface/Views/Variables.css:
+        (:root):
+        Rename `--cpu-script-*` to `--cpu-javascript-*`.
+
+2019-06-06  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Formatter: pretty-print CSS using a Worker
+        https://bugs.webkit.org/show_bug.cgi?id=197829
+        <rdar://problem/36891532>
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Proxies/FormatterWorkerProxy.js:
+        (WI.FormatterWorkerProxy.prototype.formatCSS): Added.
+        * UserInterface/Workers/Formatter/FormatterWorker.js:
+        (FormatterWorker.prototype.formatCSS): Added.
+        * UserInterface/Workers/Formatter/CSSFormatter.js: Added.
+        (CSSFormatter):
+        (CSSFormatter.prototype.get success):
+        (CSSFormatter.prototype.get formattedText):
+        (CSSFormatter.prototype.get sourceMapData):
+        (CSSFormatter.prototype._format):
+
+        * UserInterface/Workers/Formatter/FormatterContentBuilder.js:
+        (FormatterContentBuilder.prototype.get currentLine): Added.
+
+        * UserInterface/Views/TextEditor.js:
+        (WI.TextEditor.prototype._canUseFormatterWorker):
+        (WI.TextEditor.prototype._startWorkerPrettyPrint):
+
+        * .eslintrc:
+
+2019-06-06  Devin Rousso  <drousso@apple.com>
+
+        Web Inspector: Elements: print/rulers/compositing/paint navigation items shouldn't be visible if the inspected target doesn't have a PageAgent
+        https://bugs.webkit.org/show_bug.cgi?id=198410
+
+        Reviewed by Timothy Hatcher.
+
+        * UserInterface/Views/DOMTreeContentView.js:
+        (WI.DOMTreeContentView):
+        (WI.DOMTreeContentView.prototype.get navigationItems):
+        (WI.DOMTreeContentView.prototype._showRulersChanged):
+
+== Rolled over to ChangeLog-2019-06-05 ==
