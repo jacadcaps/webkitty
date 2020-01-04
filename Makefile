@@ -8,7 +8,7 @@ PKG:=$(PKG_ICU)
 
 all:
 
-configure: morphos.cmake CMakeFiles.txt
+configure: morphos.cmake CMakeLists.txt
 	rm -rf cross-build
 	mkdir cross-build
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
@@ -28,6 +28,9 @@ build:
 
 morphos.cmake: morphos.cmake.in
 	gcc -xc -E -P -C -o$@ -nostdinc morphos.cmake.in -D_IN_ROOTPATH=/home/jaca/morphos
+
+clean:
+	rm -rf morphos.cmake cross-build
 
 install:
 
