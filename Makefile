@@ -6,7 +6,19 @@ PKG_ICU:=$(LIB)/libicu/instdir/lib/pkgconfig/
 PKG_SQLITE:=$(LIB)/sqlite/instdir/lib/pkgconfig/
 PKG:=$(PKG_ICU)
 
+DEBIAN_PKG:=libicu-dev ruby-dev clang-7
+NATIVE_GCC:=/home/jaca/gcc7/inst/bin/x86_64-pc-linux-gnu-
+
 all:
+
+configure-native:
+	rm -rf build
+	mkdir build
+	(cd build && PATH=~/cmake-3.10.3-Linux-x86_64/bin/:${PATH} \
+		cmake -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
+		-DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES -DCMAKE_CXX_FLAGS="-O2 -fPIC" -DCMAKE_C_FLAGS="-O2 -fPIC" \
+		-DCMAKE_C_COMPILER=$(NATIVE_GCC)gcc -DCMAKE_CXX_COMPILER=$(NATIVE_GCC)g++ \
+		$(realpath ./))
 
 configure: morphos.cmake CMakeLists.txt
 	rm -rf cross-build

@@ -49,8 +49,10 @@
 #include <wtf/PlatformLegacy.h>
 
 /* HAVE() - specific system features (headers, functions or similar) that are present or not */
-#include <wtf/PlatformHave.h>
 
+#ifdef __MORPHOS__
+#define WTF_OS_MORPHOS 1
+#endif
 
 /* ==== Policy decision macros: these define policy choices for a particular port. ==== */
 
@@ -101,6 +103,114 @@
 /* Disable those macros so that we are not limited in how we name methods and functions. */
 #undef __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES
 #define __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES 0
+<<<<<<< HEAD
+=======
+
+#endif
+
+#if PLATFORM(MAC)
+
+#define HAVE_RUNLOOP_TIMER 1
+#define HAVE_SEC_KEYCHAIN 1
+#define USE_APPKIT 1
+#define USE_PASSKIT 1
+
+#if CPU(X86_64)
+#define HAVE_NETWORK_EXTENSION 1
+#define USE_PLUGIN_HOST_PROCESS 1
+#endif
+#endif /* PLATFORM(MAC) */
+
+#if PLATFORM(IOS_FAMILY)
+
+#define HAVE_NETWORK_EXTENSION 1
+#define HAVE_READLINE 1
+#define USE_UIKIT_EDITING 1
+#define USE_WEB_THREAD 1
+
+#if CPU(ARM64)
+#define ENABLE_JIT_CONSTANT_BLINDING 0
+#endif
+
+#if CPU(ARM_NEON)
+#undef HAVE_ARM_NEON_INTRINSICS
+#define HAVE_ARM_NEON_INTRINSICS 0
+#endif
+
+#endif /* PLATFORM(IOS_FAMILY) */
+
+#if !defined(HAVE_ACCESSIBILITY)
+#if PLATFORM(COCOA) || PLATFORM(WIN) || PLATFORM(GTK) || PLATFORM(WPE)
+#define HAVE_ACCESSIBILITY 1
+#endif
+#endif /* !defined(HAVE_ACCESSIBILITY) */
+
+/* FIXME: Remove after CMake build enabled on Darwin */
+#if OS(DARWIN)
+#define HAVE_ERRNO_H 1
+#define HAVE_LANGINFO_H 1
+#define HAVE_LOCALTIME_R 1
+#define HAVE_MMAP 1
+#define HAVE_REGEX_H 1
+#define HAVE_SIGNAL_H 1
+#define HAVE_STAT_BIRTHTIME 1
+#define HAVE_STRINGS_H 1
+#define HAVE_STRNSTR 1
+#define HAVE_SYS_PARAM_H 1
+#define HAVE_SYS_TIME_H 1 
+#define HAVE_TM_GMTOFF 1
+#define HAVE_TM_ZONE 1
+#define HAVE_TIMEGM 1
+#define HAVE_PTHREAD_MAIN_NP 1
+
+#if CPU(X86_64) || CPU(ARM64)
+#define HAVE_INT128_T 1
+#endif
+#endif /* OS(DARWIN) */
+
+#if OS(UNIX)
+#define USE_PTHREADS 1
+#endif /* OS(UNIX) */
+
+#if OS(MORPHOS)
+#define USE_PTHREADS 1
+#endif
+
+#if OS(UNIX) && !OS(FUCHSIA)
+#define HAVE_RESOURCE_H 1
+#define HAVE_PTHREAD_SETSCHEDPARAM 1
+#endif
+
+#if OS(DARWIN)
+#define HAVE_DISPATCH_H 1
+#define HAVE_MADV_FREE 1
+#define HAVE_MADV_FREE_REUSE 1
+#define HAVE_MADV_DONTNEED 1
+#define HAVE_MERGESORT 1
+#define HAVE_PTHREAD_SETNAME_NP 1
+#define HAVE_READLINE 1
+#define HAVE_SYS_TIMEB_H 1
+
+#if __has_include(<mach/mach_exc.defs>) && !PLATFORM(GTK)
+#define HAVE_MACH_EXCEPTIONS 1
+#endif
+
+#if !PLATFORM(GTK)
+#define USE_ACCELERATE 1
+#endif
+#if !PLATFORM(IOS_FAMILY)
+#define HAVE_HOSTED_CORE_ANIMATION 1
+#endif
+
+#endif /* OS(DARWIN) */
+
+#if OS(DARWIN) || OS(FUCHSIA) || ((OS(FREEBSD) || defined(__GLIBC__) || defined(__BIONIC__)) && (CPU(X86) || CPU(X86_64) || CPU(ARM) || CPU(ARM64) || CPU(MIPS)))
+#define HAVE_MACHINE_CONTEXT 1
+#endif
+
+#if OS(DARWIN) || (OS(LINUX) && defined(__GLIBC__) && !defined(__UCLIBC__))
+#define HAVE_BACKTRACE 1
+>>>>>>> WTF partial port
 #endif
 
 #if COMPILER(MSVC)

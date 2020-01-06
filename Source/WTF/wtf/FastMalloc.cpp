@@ -57,6 +57,8 @@
 #include <notify.h>
 #endif
 
+#if OS(MORPHOS)
+#include <stdlib.h>
 #endif
 
 namespace WTF {
@@ -160,6 +162,28 @@ void* tryFastAlignedMalloc(size_t alignment, size_t size)
 void fastAlignedFree(void* p) 
 {
     _aligned_free(p);
+}
+
+#elif OS(MORPHOS)
+
+void* fastAlignedMalloc(size_t alignment, size_t size)
+{
+    ASSERT_IS_WITHIN_LIMIT(size);
+	void* p = aligned_alloc(alignment, size);
+	if (UNLIKELY(!p))
+		CRASH();
+	return p;
+}
+
+void *tryFastAlignedMalloc(size_t alignment, size_t size)
+{
+    FAIL_IF_EXCEEDS_LIMIT(size);
+    return aligned_alloc(alignment, size);
+}
+
+void fastAlignedFree(void *p)
+{
+	free(p);
 }
 
 #else

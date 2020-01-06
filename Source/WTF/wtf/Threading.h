@@ -243,7 +243,7 @@ protected:
     void establishPlatformSpecificHandle(PlatformThreadHandle, ThreadIdentifier);
 #endif
 
-#if USE(PTHREADS) && !OS(DARWIN)
+#if USE(PTHREADS) && !OS(DARWIN) && !OS(MORPHOS)
     static void signalHandlerSuspendResume(int, siginfo_t*, void* ucontext);
 #endif
 
