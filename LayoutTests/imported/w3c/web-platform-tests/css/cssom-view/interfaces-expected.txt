@@ -1,0 +1,39 @@
+
+CSSOM View IDL tests
+
+
+FAIL idl_test setup promise_test: Unhandled rejection with value: object "Got an error before parsing any named definition: Unrecognised tokens, line 1 (tokens: "{\"error\": {\"message\"")
+[
+    {
+        "type": "{",
+        "value": "{",
+        "trivia": ""
+    },
+    {
+        "type": "string",
+        "value": "\"error\"",
+        "trivia": ""
+    },
+    {
+        "type": ":",
+        "value": ":",
+        "trivia": ""
+    },
+    {
+        "type": "{",
+        "value": "{",
+        "trivia": " "
+    },
+    {
+        "type": "string",
+        "value": "\"message\"",
+        "trivia": ""
+    }
+]"
+FAIL Partial interface Window: original interface defined assert_true: Original interface should be defined expected true got false
+FAIL Partial interface Document: original interface defined assert_true: Original interface should be defined expected true got false
+FAIL Partial interface Element: original interface defined assert_true: Original interface should be defined expected true got false
+FAIL Partial interface HTMLElement: original interface defined assert_true: Original interface should be defined expected true got false
+FAIL Partial interface HTMLImageElement: original interface defined assert_true: Original interface should be defined expected true got false
+FAIL Partial interface Range: original interface defined assert_true: Original interface should be defined expected true got false
+

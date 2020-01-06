@@ -1,0 +1,40 @@
+
+PASS blur 
+PASS error 
+PASS focus 
+PASS load 
+PASS resize 
+PASS scroll 
+PASS afterprint 
+PASS beforeprint 
+PASS beforeunload 
+PASS hashchange 
+PASS languagechange 
+PASS message 
+PASS offline 
+PASS online 
+PASS pagehide 
+PASS pageshow 
+PASS popstate 
+PASS storage 
+PASS unload 
+PASS blur removal 
+PASS error removal 
+PASS focus removal 
+PASS load removal 
+PASS resize removal 
+PASS scroll removal 
+PASS afterprint removal 
+PASS beforeprint removal 
+PASS beforeunload removal 
+PASS hashchange removal 
+PASS languagechange removal 
+PASS message removal 
+PASS offline removal 
+PASS online removal 
+PASS pagehide removal 
+PASS pageshow removal 
+PASS popstate removal 
+PASS storage removal 
+PASS unload removal 
+

@@ -1,0 +1,6 @@
+Available Actions: 
+Share…
+Add to Photos
+Copy
+Cancel
+PASS
