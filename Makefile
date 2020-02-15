@@ -20,6 +20,34 @@ configure-native:
 		-DCMAKE_C_COMPILER=$(NATIVE_GCC)gcc -DCMAKE_CXX_COMPILER=$(NATIVE_GCC)g++ \
 		$(realpath ./))
 
+jscore-native:
+	rm -rf WebKitBuild build
+	mkdir build
+	(cd build && PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
+		--cmakeargs='-DCMAKE_MODULE_PATH=$(realpath Source/cmake) -DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) \
+                -DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES -DCMAKE_CXX_FLAGS="-O2 -fPIC" -DCMAKE_C_FLAGS="-O2 -fPIC" \
+                -DCMAKE_C_COMPILER=$(NATIVE_GCC)gcc -DCMAKE_CXX_COMPILER=$(NATIVE_GCC)g++')
+	cp -a Source/JavaScriptCore/API/tests/testapiScripts ~/morphos/morphoswb/apps/webkitty/WebKitBuild/Release/Source/JavaScriptCore/shell/
+	Tools/Scripts/run-javascriptcore-tests --root WebKitBuild/Release/Source/JavaScriptCore/shell/ --no-jsc-stress --no-jit-stress-test
+
+jscore-morphos: morphos.cmake
+	rm -rf WebKitBuild cross-build
+	mkdir cross-build
+	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
+		--cmakeargs='-DCMAKE_CROSSCOMPILING=ON -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
+		-DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) -DBUILD_SHARED_LIBS=NO \
+		-DJPEG_LIBRARY=$(LIB)/libjpeg -DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
+		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib -DLIBXML2_INCLUDE_DIR=$(LIB)/libxml2/instdir/include \
+		-DPNG_LIBRARY=$(GEN)/libpng16/lib/ -DPNG_INCLUDE_DIR=$(GEN)/libpng16/include \
+		-DLIBXSLT_LIBRARIES=$(LIB)/libxslt/instdir/lib -DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
+		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib -DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
+                -DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES \
+		-DCMAKE_FIND_LIBRARY_SUFFIXES=".a" ')
+	cp -a Source/JavaScriptCore/API/tests/testapiScripts ~/morphos/morphoswb/apps/webkitty/WebKitBuild/Release/Source/JavaScriptCore/shell/
+#	Tools/Scripts/run-javascriptcore-tests --root WebKitBuild/Release/Source/JavaScriptCore/shell/ --no-jsc-stress --no-jit-stress-test
+
 configure: morphos.cmake CMakeLists.txt
 	rm -rf cross-build
 	mkdir cross-build

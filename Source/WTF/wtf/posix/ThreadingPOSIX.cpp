@@ -66,6 +66,13 @@
 
 #endif
 
+#if OS(MORPHOS)
+#include <semaphore.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <pthread.h>
+#endif
+
 namespace WTF {
 
 static Lock globalSuspendLock;
@@ -107,6 +114,7 @@ static LazyNeverDestroyed<Semaphore> globalSemaphoreForSuspendResume;
 
 static std::atomic<Thread*> targetThread { nullptr };
 
+#if !OS(MORPHOS)
 void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
 {
     // Touching a global variable atomic types from signal handlers is allowed.
@@ -164,7 +172,7 @@ void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
     // Allow resume caller to see that this thread is resumed.
     globalSemaphoreForSuspendResume->post();
 }
-
+#endif
 #endif // !OS(DARWIN)
 
 void Thread::initializePlatformThreading()
@@ -172,6 +180,7 @@ void Thread::initializePlatformThreading()
 #if !OS(DARWIN)
     globalSemaphoreForSuspendResume.construct(0);
 
+#if !OS(MORPHOS)
     // Signal handlers are process global configuration.
     // Intentionally block SigThreadSuspendResume in the handler.
     // SigThreadSuspendResume will be allowed in the handler by sigsuspend.
@@ -183,11 +192,12 @@ void Thread::initializePlatformThreading()
     action.sa_flags = SA_RESTART | SA_SIGINFO;
     sigaction(SigThreadSuspendResume, &action, 0);
 #endif
+#endif
 }
 
 void Thread::initializeCurrentThreadEvenIfNonWTFCreated()
 {
-#if !OS(DARWIN)
+#if !OS(DARWIN) && !OS(MORPHOS)
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SigThreadSuspendResume);

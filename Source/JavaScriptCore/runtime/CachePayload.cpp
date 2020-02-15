@@ -26,7 +26,7 @@
 #include "config.h"
 #include "CachePayload.h"
 
-#if !OS(WINDOWS)
+#if !OS(WINDOWS) && !OS(MORPHOS)
 #include <sys/mman.h>
 #endif
 
