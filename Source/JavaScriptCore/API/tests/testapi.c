@@ -1390,7 +1390,11 @@ int main(int argc, char* argv[])
 
     configureJSCForTesting();
 
-#if !OS(WINDOWS)
+#if OS(MORPHOS)
+    chdir("PROGDIR:");
+#endif
+
+#if !OS(WINDOWS) && !OS(MORPHOS)
     char resolvedPath[PATH_MAX];
     if (!realpath(argv[0], resolvedPath))
         fprintf(stdout, "Could not get the absolute pathname for: %s\n", argv[0]);

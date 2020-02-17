@@ -31,7 +31,9 @@
 #include <time.h>
 #include <wtf/Optional.h>
 
+#if OS(MORPHOS)
 extern "C" { void dprintf(const char *fmt, ...); }
+#endif
 
 namespace WTF {
 

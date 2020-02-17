@@ -84,7 +84,11 @@ void* OSAllocator::reserveAndCommit(size_t bytes, Usage usage, bool writable, bo
     int fd = -1;
 #endif
 
+#if OS(MORPHOS)
     caddr_t result = 0;
+#else
+    void* result = 0;
+#endif
 #if (OS(DARWIN) && CPU(X86_64))
     if (executable) {
         ASSERT(includesGuardPages);

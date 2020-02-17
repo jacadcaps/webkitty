@@ -113,6 +113,10 @@
 #include <crt_externs.h>
 #endif
 
+#if OS(MORPHOS)
+unsigned long __stack = 2 * 1024 * 1024;
+#endif
+
 #if HAVE(READLINE)
 // readline/history.h has a Function typedef which conflicts with the WTF::Function template from WTF/Forward.h
 // We #define it to something else to avoid this conflict.

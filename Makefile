@@ -33,7 +33,7 @@ jscore-native:
 
 jscore-morphos: morphos.cmake
 	rm -rf WebKitBuild cross-build
-	mkdir cross-build
+	mkdir -p cross-build WebKitBuild/Release/bin
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
 		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
 		--cmakeargs='-DCMAKE_CROSSCOMPILING=ON -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
