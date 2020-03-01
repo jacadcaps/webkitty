@@ -26,6 +26,10 @@
 
 #pragma once
 
+#if OS(MORPHOS)
+#define PROTO_SOCKET_H
+#endif
+
 #include "CurlProxySettings.h"
 #include "CurlSSLHandle.h"
 

@@ -28,6 +28,27 @@
 #include "config.h"
 #include "CurlRequestScheduler.h"
 
+#if OS(MORPHOS)
+namespace {
+#include <ppcinline/macros.h>
+struct Library;
+extern struct Library *SocketBase;
+LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
+                struct timeval *timeout, ULONG *maskp);
+#define SOCKET_BASE_NAME SocketBase
+#define WaitSelect(__p0, __p1, __p2, __p3, __p4, __p5) \
+        LP6(126, LONG , WaitSelect, \
+                LONG , __p0, d0, \
+                fd_set *, __p1, a0, \
+                fd_set *, __p2, a1, \
+                fd_set *, __p3, a2, \
+                struct timeval *, __p4, a3, \
+                ULONG *, __p5, d1, \
+                , SOCKET_BASE_NAME, 0, 0, 0, 0, 0, 0)
+
+}
+#endif
+
 #if USE(CURL)
 
 #include "CurlRequestSchedulerClient.h"
@@ -177,7 +198,11 @@ void CurlRequestScheduler::workerThread()
             // and bail out, stopping the file download. So make sure we
             // have valid file descriptors before calling select.
             if (maxfd >= 0)
+#if OS(MORPHOS)
+		rc = WaitSelect(maxfd + 1, &fdread, &fdwrite, &fdexcep, &timeout, nullptr);
+#else
                 rc = ::select(maxfd + 1, &fdread, &fdwrite, &fdexcep, &timeout);
+#endif
         } while (rc == -1 && errno == EINTR);
 
         int activeCount = 0;
