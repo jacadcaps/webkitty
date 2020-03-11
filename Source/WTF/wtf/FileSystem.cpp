@@ -340,6 +340,66 @@ bool unmapViewOfFile(void* buffer, size_t size)
     return !munmap(buffer, size);
 }
 
+#else
+
+MappedFileData::~MappedFileData()
+{
+    if (!m_fileData)
+        return;
+    free(m_fileData);
+}
+
+MappedFileData::MappedFileData(const String& filePath, bool& success)
+	: m_fileData(nullptr)
+{
+    CString fsRep = fileSystemRepresentation(filePath);
+    int fd = !fsRep.isNull() ? open(fsRep.data(), O_RDONLY) : -1;
+    if (fd < 0) {
+        success = false;
+        return;
+    }
+
+    struct stat fileStat;
+    if (fstat(fd, &fileStat)) {
+        close(fd);
+        success = false;
+        return;
+    }
+
+    unsigned size;
+    if (!WTF::convertSafely(fileStat.st_size, size)) {
+        close(fd);
+        success = false;
+        return;
+    }
+
+    if (!size) {
+        close(fd);
+        success = true;
+        return;
+    }
+
+    void* data = malloc(size);
+
+    if (data == nullptr) {
+        success = false;
+        return;
+    }
+
+	if (size != read(fd, data, size))
+	{
+    	close(fd);
+		free(data);
+        success = false;
+        return;
+	}
+    close(fd);
+
+    success = true;
+    m_fileData = data;
+    m_fileSize = size;
+}
+
 #endif
 
 PlatformFileHandle openAndLockFile(const String& path, FileOpenMode openMode, OptionSet<FileLockMode> lockMode)

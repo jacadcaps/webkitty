@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <wtf/FastMalloc.h>
 #include "StorageAreaSync.h"
 
 #include "StorageAreaImpl.h"

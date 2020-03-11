@@ -22,6 +22,7 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
     ${SQLITE_INCLUDE_DIR}
     ${ZLIB_INCLUDE_DIRS}
     ${WPE_INCLUDE_DIRS}
+    ${HYPHEN_INCLUDE_DIRS}
 )
 
 list(APPEND WebCore_LIBRARIES
@@ -30,5 +31,17 @@ list(APPEND WebCore_LIBRARIES
     ${SQLITE_LIBRARIES}
     ${ZLIB_LIBRARIES}
     ${WPE_LIBRARIES}
+    ${HYPHEN_LIBRARIES}
 )
 
+list(APPEND WebCore_SOURCES
+    platform/morphos/PasteboardMorphOS.cpp
+    platform/morphos/PlatformKeyboardEvent.cpp
+    platform/morphos/PlatformScreenMorphOS.cpp
+    rendering/RenderThemeMorphOS.cpp
+    platform/graphics/morphos/GraphicsLayerMorphOS.cpp
+    platform/text/hyphen/HyphenationLibHyphen.cpp
+    platform/network/morphos/CurlSSLHandlePlayStation.cpp
+    platform/network/morphos/NetworkStateNotifierMorphOS.cpp
+    platform/morphos/MIMETypeRegistryMorphOS.cpp
+)

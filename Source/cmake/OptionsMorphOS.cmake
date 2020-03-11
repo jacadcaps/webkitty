@@ -137,6 +137,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_CRYPTO PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY PRIVATE OFF)
 
+WEBKIT_OPTION_DEFINE(USE_LIBHYPHEN "Whether to enable the default automatic hyphenation implementation." PUBLIC ON)
+
 #WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_VERSION_STAMPER PRIVATE ON)
 
 # Experimental features
@@ -168,6 +170,7 @@ find_package(ZLIB 1.2.11 REQUIRED)
 find_package(PNG REQUIRED)
 find_package(Sqlite 3.23.1 REQUIRED)
 find_package(Nghttp2 REQUIRED)
+find_package(Hyphen REQUIRED)
 
 # FIXME: We should add the following, too.
 # find_package(WebP 1.0.0)

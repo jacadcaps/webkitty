@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <wtf/FastMalloc.h>
 #include <WebCore/SQLiteDatabase.h>
 #include <wtf/HashSet.h>
 #include <wtf/Seconds.h>
