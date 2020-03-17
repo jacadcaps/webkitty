@@ -35,13 +35,20 @@ list(APPEND WebCore_LIBRARIES
 )
 
 list(APPEND WebCore_SOURCES
+    editing/morphos/EditorMorphOS.cpp
     platform/morphos/PasteboardMorphOS.cpp
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
-    rendering/RenderThemeMorphOS.cpp
+    platform/morphos/ScrollbarThemeMorphOS.cpp
+    platform/morphos/EventLoopMorphOS.cpp
+    platform/morphos/MIMETypeRegistryMorphOS.cpp
+    platform/generic/KeyedDecoderGeneric.cpp
+    platform/generic/KeyedEncoderGeneric.cpp
     platform/graphics/morphos/GraphicsLayerMorphOS.cpp
-    platform/text/hyphen/HyphenationLibHyphen.cpp
     platform/network/morphos/CurlSSLHandlePlayStation.cpp
     platform/network/morphos/NetworkStateNotifierMorphOS.cpp
-    platform/morphos/MIMETypeRegistryMorphOS.cpp
+    platform/posix/SharedBufferPOSIX.cpp
+    platform/text/LocaleICU.cpp
+    platform/text/hyphen/HyphenationLibHyphen.cpp
+    rendering/RenderThemeMorphOS.cpp
 )

@@ -1,10 +1,19 @@
 #include <exec/types.h>
 #include <cstdint>
-#include <WebKitLegacy/morphos/WebFrame.h>
+#include <WebKitLegacy/morphos/WebView.h>
+
+#include <proto/exec.h>
+
+struct Library *FreetypeBase;
 
 int main(void)
 {
-	WebFrame fr;
+	FreetypeBase = OpenLibrary("freetype.library", 0);
+	if (FreetypeBase)
+	{
+		WebView view;
+		CloseLibrary(FreetypeBase);
+	}
 	return 0;
 }
 

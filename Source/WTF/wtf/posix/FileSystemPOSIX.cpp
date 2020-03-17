@@ -287,6 +287,9 @@ Optional<FileMetadata> fileMetadataFollowingSymlinks(const String& path)
 
 bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath)
 {
+#if OS(MORPHOS)
+    return false;
+#else
     CString targetPathFSRep = fileSystemRepresentation(targetPath);
     if (!targetPathFSRep.data() || targetPathFSRep.data()[0] == '\0')
         return false;
@@ -296,6 +299,7 @@ bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath
         return false;
 
     return !symlink(targetPathFSRep.data(), symbolicLinkPathFSRep.data());
+#endif
 }
 
 String pathByAppendingComponent(const String& path, const String& component)
@@ -456,6 +460,9 @@ end:
 
 bool hardLink(const String& source, const String& destination)
 {
+#if OS(MORPHOS)
+    return false;
+#else
     if (source.isEmpty() || destination.isEmpty())
         return false;
 
@@ -468,6 +475,7 @@ bool hardLink(const String& source, const String& destination)
         return false;
 
     return !link(fsSource.data(), fsDestination.data());
+#endif
 }
 
 bool hardLinkOrCopyFile(const String& source, const String& destination)

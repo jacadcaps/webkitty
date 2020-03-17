@@ -82,12 +82,12 @@ configure: morphos.cmake CMakeLists.txt
 		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib/libsqlite3.a \
 		-DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
-		-DCAIRO_LIBRARIES=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a \
-		-DHARFBUZZ_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/harfbuzz/src \
-		-DHARFBUZZ_LIBRARIES=$(ROOTPATH)/morphoswb/libs/harfbuzz/src/libharfbuzz.a \
-		-DHARFBUZZ_ICU_LIBRARIES=$(GEN)/lib/libnghttp2.a \
-		-DFREETYPE_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/freetype/include \
-		-DFREETYPE_LIBRARY=$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a \
+		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
+		-DHARFBUZZ_LIBRARIES=$(GEN)/lib/libnghttp2.a \
+		-DHARFBUZZ_ICU_LIBRARIES="$(realpath Dummy)/libdummy.a" \
+		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
+		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
 build:
@@ -108,4 +108,9 @@ install-iso:
 source:
 
 sdk:
+
+Dummy/libdummy.a:
+	ppc-morphos-gcc-9 -c -o Dummy/dummy.o Dummy/dummy.c
+	ppc-morphos-ar rc Dummy/libdummy.a Dummy/dummy.o
+	ppc-morphos-ranlib Dummy/libdummy.a
 

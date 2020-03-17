@@ -1,9 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
- * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
- * Copyright (C) 2007 Holger Hans Peter Freyther
- * Copyright (C) 2008 Collabora, Ltd.  All rights reserved.
- * All rights reserved.
+ * Copyright (C) 2018 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -14,10 +10,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
@@ -27,29 +23,28 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "PlatformKeyboardEvent.h"
+#pragma once
 
-#include "NotImplemented.h"
-#include "TextEncoding.h"
-#include "WindowsKeyboardCodes.h"
-#include <wtf/HexNumber.h>
+#include "ScrollbarThemeComposite.h"
 
 namespace WebCore {
 
-void PlatformKeyboardEvent::getCurrentModifierState(bool& shiftKey, bool& ctrlKey, bool& altKey, bool& metaKey)
-{
+class ScrollbarThemeMorphOS : public ScrollbarThemeComposite {
+public:
+    ScrollbarThemeMorphOS() = default;
+    virtual ~ScrollbarThemeMorphOS() = default;
 
-}
+    int scrollbarThickness(ScrollbarControlSize = RegularScrollbar, ScrollbarExpansionState = ScrollbarExpansionState::Expanded) override;
 
-void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardCompatibilityMode)
-{
+    bool hasButtons(Scrollbar&) override;
+    bool hasThumb(Scrollbar&) override;
 
-}
+    IntRect backButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
+    IntRect forwardButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
+    IntRect trackRect(Scrollbar&, bool painting = false) override;
 
-bool PlatformKeyboardEvent::currentCapsLockState()
-{
-    return false;
-}
+    void paintTrackBackground(GraphicsContext&, Scrollbar&, const IntRect&) override;
+    void paintThumb(GraphicsContext&, Scrollbar&, const IntRect&) override;
+};
 
-}
+} // namespace WebCore

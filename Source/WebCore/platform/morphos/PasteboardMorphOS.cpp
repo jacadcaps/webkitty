@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2015 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,169 +10,143 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "Pasteboard.h"
 
-#if OS(MORPHOS)
-
-#include "DragData.h"
-#include "Image.h"
-#include "MIMETypeRegistry.h"
+#include "NotImplemented.h"
 #include "PasteboardStrategy.h"
-#include "PlatformPasteboard.h"
-#include "PlatformStrategies.h"
-#include "SharedBuffer.h"
-#include <wtf/RetainPtr.h>
-#include <wtf/StdLibExtras.h>
-#include <wtf/URL.h>
-#include <wtf/text/StringBuilder.h>
-#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
+std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
+{
+    return std::make_unique<Pasteboard>();
+}
+
+Pasteboard::Pasteboard()
+{
+}
+
 bool Pasteboard::hasData()
 {
-	return false;
+    return false;
 }
 
-bool Pasteboard::canSmartReplace()
+Vector<String> Pasteboard::typesSafeForBindings(const String&)
 {
-	return false;
-}
-
-Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
-{
-	return Vector<String>();
+    notImplemented();
+    return { };
 }
 
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 {
-	return Vector<String>();
+    Vector<String> types;
+//    platformStrategies()->pasteboardStrategy()->getTypes(types);
+    return types;
 }
 
 String Pasteboard::readOrigin()
 {
-	return String();
+    notImplemented(); // webkit.org/b/177633: [GTK] Move to new Pasteboard API
+    return { };
 }
 
 String Pasteboard::readString(const String& type)
 {
-	return String();
+//    return platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, type);
+    return { };
 }
 
-String Pasteboard::readStringInCustomData(const String& type)
+String Pasteboard::readStringInCustomData(const String&)
 {
-	return String();
+    notImplemented();
+    return { };
 }
 
-#if 0
-Vector<String> Pasteboard::readAllStrings(const String& type)
+void Pasteboard::writeString(const String& type, const String& text)
 {
-	return Vector<String>();
-}
-#endif
-
-void Pasteboard::writeString(const String& type, const String& data)
-{
+     notImplemented();
 }
 
 void Pasteboard::clear()
 {
-
 }
 
-void Pasteboard::clear(const String& type)
+void Pasteboard::clear(const String&)
 {
-
 }
 
-void Pasteboard::read(PasteboardPlainText&)
+void Pasteboard::read(PasteboardPlainText& text)
 {
-
+//    text.text = platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, "text/plain;charset=utf-8");
 }
 
-void Pasteboard::read(PasteboardWebContentReader& , WebContentReadingPolicy )
+void Pasteboard::read(PasteboardWebContentReader&, WebContentReadingPolicy)
 {
-
+    notImplemented();
 }
 
 void Pasteboard::read(PasteboardFileReader&)
 {
-
 }
 
-void Pasteboard::write(const Color&)
+void Pasteboard::write(const PasteboardURL& url)
 {
-
-}
-
-void Pasteboard::write(const PasteboardURL&)
-{
-
 }
 
 void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
 {
-
+    notImplemented();
 }
 
 void Pasteboard::write(const PasteboardImage&)
 {
-
 }
 
-void Pasteboard::write(const PasteboardWebContent&)
+void Pasteboard::write(const PasteboardWebContent& content)
 {
-
-}
-
-void Pasteboard::writeCustomData(const PasteboardCustomData&)
-{
-
+//    platformStrategies()->pasteboardStrategy()->writeToPasteboard(content);
 }
 
 Pasteboard::FileContentState Pasteboard::fileContentState()
 {
-	return FileContentState::NoFileOrImageData;
+    notImplemented();
+    return FileContentState::NoFileOrImageData;
 }
 
-void Pasteboard::writeMarkup(const String& markup)
+bool Pasteboard::canSmartReplace()
 {
-
+    return false;
 }
 
-void Pasteboard::writePlainText(const String&, SmartReplaceOption)
+void Pasteboard::writeMarkup(const String&)
 {
-
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop()
+void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
 {
-	return nullptr;
+    writeString("text/plain;charset=utf-8", text);
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(const DragData&)
+void Pasteboard::writeCustomData(const PasteboardCustomData&)
 {
-	return nullptr;
 }
 
-void Pasteboard::setDragImage(DragImage, const IntPoint& hotSpot)
+void Pasteboard::write(const Color&)
 {
-
 }
 
-}
-#endif
+} // namespace WebCore

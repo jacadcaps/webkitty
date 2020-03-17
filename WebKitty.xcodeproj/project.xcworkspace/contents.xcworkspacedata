@@ -2,6 +2,15 @@
 <Workspace
    version = "1.0">
    <FileRef
+      location = "group:../Source/WebCore">
+   </FileRef>
+   <FileRef
+      location = "group:../Source/WebKit">
+   </FileRef>
+   <FileRef
+      location = "group:../Source/WebKitLegacy">
+   </FileRef>
+   <FileRef
       location = "self:">
    </FileRef>
 </Workspace>

@@ -30,9 +30,17 @@
 #include "FontCascade.h"
 #include "HbUniquePtr.h"
 #include "SurrogatePairAwareTextIterator.h"
+
+#if OS(MORPHOS)
+#define _NO_PPCINLINE
+#include <proto/harfbuzz.h>
+#include <libraries/harfbuzz.h>
+#undef _NO_PPCINLINE
+#else
 #include <hb-ft.h>
 #include <hb-icu.h>
 #include <hb-ot.h>
+#endif
 
 #if ENABLE(VARIATION_FONTS)
 #include FT_MULTIPLE_MASTERS_H
@@ -349,8 +357,10 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cha
     for (unsigned i = 0; i < runCount; ++i) {
         auto& run = runList[m_run.rtl() ? runCount - i - 1 : i];
 
+#if !OS(MORPHOS) // TODO check this?
         if (fontPlatformData.orientation() != FontOrientation::Vertical)
             hb_buffer_set_script(buffer.get(), hb_icu_script_to_script(run.script));
+#endif
         if (!m_mayUseNaturalWritingDirection || m_run.directionalOverride())
             hb_buffer_set_direction(buffer.get(), m_run.rtl() ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
         else {

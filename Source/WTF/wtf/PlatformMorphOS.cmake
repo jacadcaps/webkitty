@@ -13,6 +13,8 @@ list(APPEND WTF_SOURCES
 
         unix/LanguageUnix.cpp
         unix/UniStdExtrasUnix.cpp
+
+        morphos/Misc.cpp
     )
     if (WTF_OS_FUCHSIA)
         list(APPEND WTF_SOURCES
