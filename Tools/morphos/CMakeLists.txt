@@ -31,5 +31,10 @@ set(EXECUTABLE_NAME MiniBrowser)
 set(PRODUCT_NAME MiniBrowser)
 
 include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
-add_executable(MiniBrowser ${MiniBrowser_SOURCES})
-target_link_libraries(MiniBrowser ${MiniBrowser_LIBRARIES})
+add_executable(MiniBrowser.db ${MiniBrowser_SOURCES})
+target_link_libraries(MiniBrowser.db ${MiniBrowser_LIBRARIES})
+add_custom_command(OUTPUT MiniBrowser
+	COMMAND "ppc-morphos-strip -o $<TARGET_FILE:MiniBrowser> $<TARGET_FILE:MiniBrowser>.db"
+	DEPENDS MiniBrowser.db
+        )
+

@@ -129,7 +129,15 @@ WebView *kit(WebCore::Page* page)
 
 WebView::WebView()
 {
+printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+    JSC::initializeThreading();
+    RunLoop::initializeMainRunLoop();
+    WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
+
+printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
 	auto storageProvider = PageStorageSessionProvider::create();
+printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	WebCore::PageConfiguration pageConfiguration(
         makeUniqueRef<WebEditorClient>(this),
         WebCore::SocketProvider::create(),
@@ -138,9 +146,11 @@ WebView::WebView()
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef())
         );
-	
+printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
 	m_page = new WebCore::Page(WTFMove(pageConfiguration));
-//	WebFrame frame;
+printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
 }
 
 WebCore::Page *WebView::page()

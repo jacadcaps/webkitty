@@ -4,11 +4,11 @@ SET(CMAKE_SYSTEM_VERSION 1)
 SET(CMAKE_C_COMPILER /gg/bin/ppc-morphos-gcc-9)
 SET(CMAKE_CXX_COMPILER /gg/bin/ppc-morphos-g++-9)
 
-SET(CMAKE_CXX_FLAGS "-g -noixemul")
-SET(CMAKE_CXX_FLAGS_DEBUG "-g -noixemul")
+SET(CMAKE_CXX_FLAGS "-g -noixemul -mlongcall -Wno-ignored-attributes")
+SET(CMAKE_CXX_FLAGS_DEBUG "-g -noixemul -mlongcall -Wno-ignored-attributes")
 
-SET(CMAKE_C_FLAGS "-g -noixemul")
-SET(CMAKE_C_FLAGS_DEBUG "-g -noixemul")
+SET(CMAKE_C_FLAGS "-noixemul -mlongcall -Wno-ignored-attributes")
+SET(CMAKE_C_FLAGS_DEBUG "-g -noixemul -mlongcall -Wno-ignored-attributes")
 
 SET(CMAKE_MODULE_LINKER_FLAGS "-noixemul")
 SET(CMAKE_FIND_LIBRARY_SUFFIXES "*.a")

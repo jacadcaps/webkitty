@@ -91,7 +91,7 @@ configure: morphos.cmake CMakeLists.txt
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
 build:
-	(cd cross-build && make)
+	(cd cross-build && make -j$(shell nproc))
 
 #		-Wdev --debug-output --trace --trace-expand \
 
@@ -114,3 +114,9 @@ Dummy/libdummy.a:
 	ppc-morphos-ar rc Dummy/libdummy.a Dummy/dummy.o
 	ppc-morphos-ranlib Dummy/libdummy.a
 
+miniscp:
+	ppc-morphos-strip cross-build/Tools/morphos/MiniBrowser.db -o cross-build/Tools/morphos/MiniBrowser
+	scp cross-build/Tools/morphos/MiniBrowser jaca@192.168.2.5:/Users/jaca
+
+minidump:
+	ppc-morphos-objdump --demangle --disassemble cross-build/Tools/morphos/MiniBrowser.db | less

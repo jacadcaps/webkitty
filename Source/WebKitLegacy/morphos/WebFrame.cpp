@@ -48,8 +48,8 @@
 
 WebFrame::WebFrame()
 {
-
-	_coreFrame = WebCore::Frame::create(nullptr, nullptr, nullptr);
+	printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+	//_coreFrame = WebCore::Frame::create(nullptr, nullptr, nullptr);
 
 }
 

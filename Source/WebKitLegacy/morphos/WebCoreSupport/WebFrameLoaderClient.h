@@ -28,7 +28,6 @@
 
 #pragma once
 
-#include <WebCore/COMPtr.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ProgressTrackerClient.h>
 
