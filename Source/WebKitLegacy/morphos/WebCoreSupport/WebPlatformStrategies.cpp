@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,55 +23,39 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebFrameNetworkingContext.h"
+#include "WebPlatformStrategies.h"
 
-#include "NetworkStorageSessionMap.h"
-#include "WebView.h"
+#include "WebFrameNetworkingContext.h"
+#include "WebResourceLoadScheduler.h"
+#include <WebCore/BlobRegistryImpl.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameLoaderClient.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Page.h>
-#include <WebCore/ResourceError.h>
-#include <WebCore/Settings.h>
-#include <wtf/NeverDestroyed.h>
+#include <WebCore/PageGroup.h>
 
 using namespace WebCore;
 
-static String& identifierBase()
+void WebPlatformStrategies::initialize()
 {
-    static NeverDestroyed<String> base;
-    return base;
+    static NeverDestroyed<WebPlatformStrategies> platformStrategies;
 }
 
-void WebFrameNetworkingContext::setPrivateBrowsingStorageSessionIdentifierBase(const String& base)
+WebPlatformStrategies::WebPlatformStrategies()
 {
-    ASSERT(isMainThread());
-
-    identifierBase() = base;
+    setPlatformStrategies(this);
 }
 
-NetworkStorageSession& WebFrameNetworkingContext::ensurePrivateBrowsingSession()
+LoaderStrategy* WebPlatformStrategies::createLoaderStrategy()
 {
-    ASSERT(isMainThread());
-
-    NetworkStorageSessionMap::ensureSession(PAL::SessionID::legacyPrivateSessionID());
-
-    return *NetworkStorageSessionMap::storageSession(PAL::SessionID::legacyPrivateSessionID());
+    return new WebResourceLoadScheduler;
 }
 
-void WebFrameNetworkingContext::destroyPrivateBrowsingSession()
+PasteboardStrategy* WebPlatformStrategies::createPasteboardStrategy()
 {
-    ASSERT(isMainThread());
-
-    NetworkStorageSessionMap::destroySession(PAL::SessionID::legacyPrivateSessionID());
+    return nullptr;
 }
 
-NetworkStorageSession* WebFrameNetworkingContext::storageSession() const
+BlobRegistry* WebPlatformStrategies::createBlobRegistry()
 {
-    ASSERT(isMainThread());
-
-    if (frame() && frame()->page() && frame()->page()->usesEphemeralSession())
-        return NetworkStorageSessionMap::storageSession(PAL::SessionID::legacyPrivateSessionID());
-
-    return &NetworkStorageSessionMap::defaultStorageSession();
+    return new BlobRegistryImpl;
 }

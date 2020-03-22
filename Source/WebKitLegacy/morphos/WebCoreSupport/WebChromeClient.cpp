@@ -78,80 +78,44 @@ void WebChromeClient::chromeDestroyed()
 
 void WebChromeClient::setWindowRect(const FloatRect& r)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        RECT rect = IntRect(r);
-        uiDelegate->setFrame(m_webView, &rect);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 FloatRect WebChromeClient::windowRect()
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        RECT rect;
-        HRESULT retval = uiDelegate->webViewFrame(m_webView, &rect);
-
-        uiDelegate->Release();
-
-        if (SUCCEEDED(retval))
-            return rect;
-    }
-
+	notImplemented();
     return FloatRect();
 }
 
 FloatRect WebChromeClient::pageRect()
 {
-    RECT rect;
-    m_webView->frameRect(&rect);
-    return rect;
+	notImplemented();
+	return FloatRect(0, 0, 800, 600);
 }
 
 void WebChromeClient::focus()
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->webViewFocus(m_webView);
-        uiDelegate->Release();
-    }
+	notImplemented();
     // Normally this would happen on a timer, but JS might need to know this earlier, so we'll update here.
-    m_webView->updateActiveState();
+//    m_webView->updateActiveState();
 }
 
 void WebChromeClient::unfocus()
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->webViewUnfocus(m_webView);
-        uiDelegate->Release();
-    }
+	notImplemented();
     // Normally this would happen on a timer, but JS might need to know this earlier, so we'll update here.
-    m_webView->updateActiveState();
+//    m_webView->updateActiveState();
 }
 
 bool WebChromeClient::canTakeFocus(FocusDirection direction)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    BOOL bForward = (direction == FocusDirectionForward) ? TRUE : FALSE;
-    BOOL result = FALSE;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->canTakeFocus(m_webView, bForward, &result);
-        uiDelegate->Release();
-    }
-
-    return !!result;
+	notImplemented();
+	return false;
 }
 
 void WebChromeClient::takeFocus(FocusDirection direction)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    BOOL bForward = (direction == FocusDirectionForward) ? TRUE : FALSE;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->takeFocus(m_webView, bForward);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 void WebChromeClient::focusedElementChanged(Element*)
@@ -162,171 +126,75 @@ void WebChromeClient::focusedFrameChanged(Frame*)
 {
 }
 
-static COMPtr<IPropertyBag> createWindowFeaturesPropertyBag(const WindowFeatures& features)
-{
-    HashMap<String, COMVariant> map;
-    if (features.x)
-        map.set(WebWindowFeaturesXKey, *features.x);
-    if (features.y)
-        map.set(WebWindowFeaturesYKey, *features.y);
-    if (features.width)
-        map.set(WebWindowFeaturesWidthKey, *features.width);
-    if (features.height)
-        map.set(WebWindowFeaturesHeightKey, *features.height);
-    map.set(WebWindowFeaturesMenuBarVisibleKey, features.menuBarVisible);
-    map.set(WebWindowFeaturesStatusBarVisibleKey, features.statusBarVisible);
-    map.set(WebWindowFeaturesToolBarVisibleKey, features.toolBarVisible);
-    map.set(WebWindowFeaturesScrollbarsVisibleKey, features.scrollbarsVisible);
-    map.set(WebWindowFeaturesResizableKey, features.resizable);
-    map.set(WebWindowFeaturesFullscreenKey, features.fullscreen);
-    map.set(WebWindowFeaturesDialogKey, features.dialog);
-
-    return COMPtr<IPropertyBag>(AdoptCOM, COMPropertyBag<COMVariant>::adopt(map));
-}
-
 Page* WebChromeClient::createWindow(Frame& frame, const FrameLoadRequest&, const WindowFeatures& features, const NavigationAction& navigationAction)
 {
-    COMPtr<IWebUIDelegate> delegate = uiDelegate();
-    if (!delegate)
-        return 0;
-
-#if ENABLE(FULLSCREEN_API)
-    if (frame.document() && frame.document()->fullscreenManager().currentFullscreenElement())
-        frame.document()->fullscreenManager().cancelFullscreen();
-#endif
-
-    COMPtr<WebMutableURLRequest> request = adoptCOM(WebMutableURLRequest::createInstance(ResourceRequest(navigationAction.url())));
-
-    COMPtr<IWebUIDelegatePrivate2> delegatePrivate(Query, delegate);
-    if (delegatePrivate) {
-        COMPtr<IWebView> newWebView;
-        HRESULT hr = delegatePrivate->createWebViewWithRequest(m_webView, request.get(), createWindowFeaturesPropertyBag(features).get(), &newWebView);
-
-        if (SUCCEEDED(hr) && newWebView)
-            return core(newWebView.get());
-
-        // If the delegate doesn't implement the IWebUIDelegatePrivate2 version of the call, fall back
-        // to the old versions (even if they support the IWebUIDelegatePrivate2 interface).
-        if (hr != E_NOTIMPL)
-            return 0;
-    }
-
-    COMPtr<IWebView> newWebView;
-
-    if (features.dialog) {
-        if (FAILED(delegate->createModalDialog(m_webView, request.get(), &newWebView)))
-            return 0;
-    } else if (FAILED(delegate->createWebViewWithRequest(m_webView, request.get(), &newWebView)))
-        return 0;
-
-    return newWebView ? core(newWebView.get()) : 0;
+	return nullptr;
 }
 
 void WebChromeClient::show()
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->webViewShow(m_webView);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 bool WebChromeClient::canRunModal()
 {
-    BOOL result = FALSE;
-    if (COMPtr<IWebUIDelegate> delegate = uiDelegate())
-        delegate->canRunModal(m_webView, &result);
-    return result;
+	notImplemented();
+	return false;
 }
 
 void WebChromeClient::runModal()
 {
-    if (COMPtr<IWebUIDelegate> delegate = uiDelegate())
-        delegate->runModal(m_webView);
+	notImplemented();
 }
 
 void WebChromeClient::setToolbarsVisible(bool visible)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->setToolbarsVisible(m_webView, visible);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 bool WebChromeClient::toolbarsVisible()
 {
-    BOOL result = false;
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->webViewAreToolbarsVisible(m_webView, &result);
-        uiDelegate->Release();
-    }
-    return result != false;
+	notImplemented();
+	return false;
 }
 
 void WebChromeClient::setStatusbarVisible(bool visible)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->setStatusBarVisible(m_webView, visible);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 bool WebChromeClient::statusbarVisible()
 {
-    BOOL result = false;
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->webViewIsStatusBarVisible(m_webView, &result);
-        uiDelegate->Release();
-    }
-    return result != false;
+	notImplemented();
+	return false;
 }
 
 void WebChromeClient::setScrollbarsVisible(bool b)
 {
-    WebFrame* webFrame = m_webView->topLevelFrame();
-    if (webFrame)
-        webFrame->setAllowsScrolling(b);
+	notImplemented();
 }
 
 bool WebChromeClient::scrollbarsVisible()
 {
-    WebFrame* webFrame = m_webView->topLevelFrame();
-    BOOL b = false;
-    if (webFrame)
-        webFrame->allowsScrolling(&b);
-
-    return !!b;
+	notImplemented();
+	return false;
 }
 
 void WebChromeClient::setMenubarVisible(bool visible)
 {
-    COMPtr<IWebUIDelegate> delegate = uiDelegate();
-    if (!delegate)
-        return;
-    delegate->setMenuBarVisible(m_webView, visible);
+	notImplemented();
+
 }
 
 bool WebChromeClient::menubarVisible()
 {
-    COMPtr<IWebUIDelegate> delegate = uiDelegate();
-    if (!delegate)
-        return true;
-    BOOL result = true;
-    delegate->isMenuBarVisible(m_webView, &result);
-    return result;
+	notImplemented();
+	return true;
 }
 
 void WebChromeClient::setResizable(bool resizable)
 {
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->setResizable(m_webView, resizable);
-        uiDelegate->Release();
-    }
+	notImplemented();
 }
 
 static BOOL messageIsError(MessageLevel level)
@@ -336,36 +204,19 @@ static BOOL messageIsError(MessageLevel level)
 
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
-    UNUSED_PARAM(columnNumber);
-
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        COMPtr<IWebUIDelegatePrivate> uiPrivate;
-        if (SUCCEEDED(uiDelegate->QueryInterface(IID_IWebUIDelegatePrivate, (void**)&uiPrivate)))
-            uiPrivate->webViewAddMessageToConsole(m_webView, BString(message), lineNumber, BString(url), messageIsError(level));
-    }
+	notImplemented();
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
 {
-    IWebUIDelegate* ui;
-    if (SUCCEEDED(m_webView->uiDelegate(&ui)) && ui) {
-        ui->Release();
-        return true;
-    }
+	notImplemented();
     return false;
 }
 
 bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, Frame& frame)
 {
-    BOOL result = TRUE;
-    IWebUIDelegate* ui;
-    if (SUCCEEDED(m_webView->uiDelegate(&ui)) && ui) {
-        WebFrame* webFrame = kit(&frame);
-        ui->runBeforeUnloadConfirmPanelWithMessage(m_webView, BString(message), webFrame, &result);
-        ui->Release();
-    }
-    return !!result;
+	notImplemented();
+	return true;
 }
 
 void WebChromeClient::closeWindowSoon()
@@ -382,30 +233,30 @@ void WebChromeClient::closeWindowSoon()
     // message by actually closing the WebView. Safari guarantees this behavior, but other apps might not.
     // This approach is an inherent limitation of not making a close execute immediately
     // after a call to window.close.
-
+#if 0
     m_webView->setGroupName(0);
     m_webView->stopLoading(0);
     m_webView->closeWindowSoon();
+#endif
 }
 
 void WebChromeClient::runJavaScriptAlert(Frame&, const String& message)
 {
-    COMPtr<IWebUIDelegate> ui;
-    if (SUCCEEDED(m_webView->uiDelegate(&ui)))
-        ui->runJavaScriptAlertPanelWithMessage(m_webView, BString(message));
+	notImplemented();
+
 }
 
 bool WebChromeClient::runJavaScriptConfirm(Frame&, const String& message)
 {
-    BOOL result = FALSE;
-    COMPtr<IWebUIDelegate> ui;
-    if (SUCCEEDED(m_webView->uiDelegate(&ui)))
-        ui->runJavaScriptConfirmPanelWithMessage(m_webView, BString(message), &result);
-    return !!result;
+	notImplemented();
+	return false;
 }
 
 bool WebChromeClient::runJavaScriptPrompt(Frame&, const String& message, const String& defaultValue, String& result)
 {
+	notImplemented();
+	return false;
+#if 0
     COMPtr<IWebUIDelegate> ui;
     if (FAILED(m_webView->uiDelegate(&ui)))
         return false;
@@ -421,49 +272,38 @@ bool WebChromeClient::runJavaScriptPrompt(Frame&, const String& message, const S
 
     result = String(resultBSTR, SysStringLen(resultBSTR));
     return true;
+#endif
 }
 
 void WebChromeClient::setStatusbarText(const String& statusText)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        uiDelegate->setStatusText(m_webView, BString(statusText));
-    }
+	notImplemented();
 }
 
 KeyboardUIMode WebChromeClient::keyboardUIMode()
 {
-    BOOL enabled = FALSE;
-    IWebPreferences* preferences;
-    if (SUCCEEDED(m_webView->preferences(&preferences)))
-        preferences->tabsToLinks(&enabled);
-
+	bool enabled = false;
     return enabled ? KeyboardAccessTabsToLinks : KeyboardAccessDefault;
 }
 
 void WebChromeClient::invalidateRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, false /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
+	notImplemented();
 }
 
 void WebChromeClient::invalidateContentsAndRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
+	notImplemented();
 }
 
 void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, true /*repaintContentOnly*/);
+	notImplemented();
 }
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-
-    m_webView->scrollBackingStore(core(m_webView->topLevelFrame())->view(), delta.width(), delta.height(), scrollViewRect, clipRect);
+	notImplemented();
 }
 
 IntPoint WebChromeClient::accessibilityScreenToRootView(const WebCore::IntPoint& point) const
@@ -478,39 +318,17 @@ IntRect WebChromeClient::rootViewToAccessibilityScreen(const WebCore::IntRect& r
 
 IntRect WebChromeClient::rootViewToScreen(const IntRect& rect) const
 {
-    HWND viewWindow;
-    if (FAILED(m_webView->viewWindow(&viewWindow)))
-        return rect;
-
-    // Find the top left corner of the Widget's containing window in screen coords,
-    // and adjust the result rect's position by this amount.
-    POINT topLeft = {0, 0};
-    IntRect result = rect;
-    ::ClientToScreen(viewWindow, &topLeft);
-    result.move(topLeft.x, topLeft.y);
-
-    return result;
+	return IntRect();
 }
 
 IntPoint WebChromeClient::screenToRootView(const IntPoint& point) const
 {
-    POINT result = point;
-
-    HWND viewWindow;
-    if (FAILED(m_webView->viewWindow(&viewWindow)))
-        return point;
-
-    ::ScreenToClient(viewWindow, &result);
-
-    return result;
+	return IntPoint();
 }
 
 PlatformPageClient WebChromeClient::platformPageClient() const
 {
-    HWND viewWindow;
-    if (FAILED(m_webView->viewWindow(&viewWindow)))
-        return 0;
-    return viewWindow;
+	return 0;
 }
 
 void WebChromeClient::contentsSizeChanged(Frame&, const IntSize&) const
@@ -525,93 +343,32 @@ void WebChromeClient::intrinsicContentsSizeChanged(const IntSize&) const
 
 void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& result, unsigned modifierFlags)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (FAILED(m_webView->uiDelegate(&uiDelegate)))
-        return;
-
-    COMPtr<WebElementPropertyBag> element;
-    element.adoptRef(WebElementPropertyBag::createInstance(result));
-
-    uiDelegate->mouseDidMoveOverElement(m_webView, element.get(), modifierFlags);
+	notImplemented();
 }
 
 bool WebChromeClient::shouldUnavailablePluginMessageBeButton(RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
-    if (pluginUnavailabilityReason != RenderEmbeddedObject::PluginMissing)
-        return false;
-
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (FAILED(m_webView->uiDelegate(&uiDelegate)))
-        return false;
-    
-    // If the UI delegate implements IWebUIDelegatePrivate3, 
-    // which contains didPressMissingPluginButton, then the message should be a button.
-    COMPtr<IWebUIDelegatePrivate3> uiDelegatePrivate3(Query, uiDelegate);
-    return uiDelegatePrivate3;
+	return false;
 }
 
 void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
-    ASSERT_UNUSED(pluginUnavailabilityReason, pluginUnavailabilityReason == RenderEmbeddedObject::PluginMissing);
-
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (FAILED(m_webView->uiDelegate(&uiDelegate)))
-        return;
-
-    COMPtr<IWebUIDelegatePrivate3> uiDelegatePrivate3(Query, uiDelegate);
-    if (!uiDelegatePrivate3)
-        return;
-
-    COMPtr<IDOMElement> e(AdoptCOM, DOMElement::createInstance(&element));
-    uiDelegatePrivate3->didPressMissingPluginButton(e.get());
+	notImplemented();
 }
 
 void WebChromeClient::setToolTip(const String& toolTip, TextDirection)
 {
-    m_webView->setToolTip(toolTip);
+	notImplemented();
 }
 
 void WebChromeClient::print(Frame& frame)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate)))
-        uiDelegate->printFrame(m_webView, kit(&frame));
+	notImplemented();
 }
 
 void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& databaseIdentifier, DatabaseDetails)
 {
-    COMPtr<WebSecurityOrigin> origin(AdoptCOM, WebSecurityOrigin::createInstance(&frame.document()->securityOrigin()));
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        COMPtr<IWebUIDelegatePrivate> uiDelegatePrivate(Query, uiDelegate);
-        if (uiDelegatePrivate)
-            uiDelegatePrivate->exceededDatabaseQuota(m_webView, kit(&frame), origin.get(), BString(databaseIdentifier));
-        else {
-            // FIXME: remove this workaround once shipping Safari has the necessary delegate implemented.
-            WCHAR path[MAX_PATH];
-            HMODULE safariHandle = GetModuleHandleW(L"Safari.exe");
-            if (!safariHandle)
-                return;
-            if (!::GetModuleFileName(safariHandle, path, WTF_ARRAY_LENGTH(path)))
-                return;
-            DWORD handle = 0;
-            DWORD versionSize = GetFileVersionInfoSize(path, &handle);
-            if (!versionSize)
-                return;
-            Vector<char> data(versionSize);
-            if (!GetFileVersionInfo(path, 0, versionSize, data.data()))
-                return;
-
-            LPCTSTR productVersion;
-            UINT productVersionLength;
-            if (!VerQueryValueW(data.data(), L"\\StringFileInfo\\040904b0\\ProductVersion", (void**)&productVersion, &productVersionLength))
-                return;
-            if (wcsncmp(L"3.1", productVersion, productVersionLength) > 0) {
-                const unsigned long long defaultQuota = 5 * 1024 * 1024; // 5 megabytes should hopefully be enough to test storage support.
-                origin->setQuota(defaultQuota);
-            }
-        }
-    }
+	notImplemented();
 }
 
 // FIXME: Move this include to the top of the file with the other includes.
@@ -630,61 +387,6 @@ void WebChromeClient::reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_
 
 void WebChromeClient::runOpenPanel(Frame&, FileChooser& fileChooser)
 {
-    HWND viewWindow;
-    if (FAILED(m_webView->viewWindow(&viewWindow)))
-        return;
-
-    bool multiFile = fileChooser.settings().allowsMultipleFiles;
-    Vector<WCHAR> fileBuf(multiFile ? maxFilePathsListSize : MAX_PATH);
-
-    OPENFILENAME ofn;
-
-    memset(&ofn, 0, sizeof(ofn));
-
-    // Need to zero out the first char of fileBuf so GetOpenFileName doesn't think it's an initialization string
-    fileBuf[0] = '\0';
-
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = viewWindow;
-    String allFiles = makeString(allFilesText(), String("\0*.*\0\0", 6));
-
-    Vector<wchar_t> filterCharacters = allFiles.wideCharacters(); // Retain buffer long enough to make the GetOpenFileName call
-    ofn.lpstrFilter = filterCharacters.data();
-
-    ofn.lpstrFile = fileBuf.data();
-    ofn.nMaxFile = fileBuf.size();
-    String dialogTitle = uploadFileText();
-    Vector<wchar_t> dialogTitleCharacters = dialogTitle.wideCharacters(); // Retain buffer long enough to make the GetOpenFileName call
-    ofn.lpstrTitle = dialogTitleCharacters.data();
-    ofn.Flags = OFN_ENABLESIZING | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-    if (multiFile)
-        ofn.Flags = ofn.Flags | OFN_ALLOWMULTISELECT;
-
-    if (GetOpenFileName(&ofn)) {
-        WCHAR* files = fileBuf.data();
-        Vector<String> fileList;
-        String file(files);
-        if (multiFile) {
-            while (!file.isEmpty()) {
-                // When using the OFN_EXPLORER flag, the file list is null delimited.
-                // When you create a String from a ptr to this list, it will use strlen to look for the null character.
-                // Then we find the next file path string by using the length of the string we just created.
-                WCHAR* nextFilePtr = files + file.length() + 1;
-                String nextFile(nextFilePtr);
-                // If multiple files are selected, there will be a directory name first, which we don't want to add to the vector.
-                // We know a single file was selected if there is only one filename in the list.  
-                // In that case, we don't want to skip adding the first (and only) name.
-                if (files != fileBuf.data() || nextFile.isEmpty())
-                    fileList.append(file);
-                files = nextFilePtr;
-                file = nextFile;
-            }
-        } else
-            fileList.append(file);
-        ASSERT(fileList.size());
-        fileChooser.chooseFiles(fileList);
-    }
-    // FIXME: Show some sort of error if too many files are selected and the buffer is too small.  For now, this will fail silently.
 }
 
 void WebChromeClient::loadIconForFiles(const Vector<WTF::String>& filenames, WebCore::FileIconLoader& loader)
@@ -703,26 +405,9 @@ void WebChromeClient::didFinishLoadingImageForElement(WebCore::HTMLImageElement&
 
 void WebChromeClient::setCursor(const Cursor& cursor)
 {
-    if (!cursor.platformCursor())
-        return;
+	notImplemented();
 
-    HCURSOR platformCursor = cursor.platformCursor()->nativeCursor();
-    if (!platformCursor)
-        return;
-
-    bool shouldSetCursor = true;
-    if (COMPtr<IWebUIDelegate> delegate = uiDelegate()) {
-        COMPtr<IWebUIDelegatePrivate> delegatePrivate(Query, delegate);
-        if (delegatePrivate) {
-            if (SUCCEEDED(delegatePrivate->webViewSetCursor(m_webView, platformCursor)))
-                shouldSetCursor = false;
-        }
-    }
-
-    if (shouldSetCursor)
-        ::SetCursor(platformCursor);
-
-    setLastSetCursorToCurrentCursor();
+//    setLastSetCursorToCurrentCursor();
 }
 
 void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
@@ -730,14 +415,9 @@ void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
     notImplemented();
 }
 
-void WebChromeClient::setLastSetCursorToCurrentCursor()
-{
-    m_webView->setLastCursor(::GetCursor());
-}
-
 void WebChromeClient::attachRootGraphicsLayer(Frame&, GraphicsLayer* graphicsLayer)
 {
-    m_webView->setRootChildLayer(graphicsLayer);
+//    m_webView->setRootChildLayer(graphicsLayer);
 }
 
 void WebChromeClient::attachViewOverlayGraphicsLayer(GraphicsLayer*)
@@ -747,41 +427,8 @@ void WebChromeClient::attachViewOverlayGraphicsLayer(GraphicsLayer*)
 
 void WebChromeClient::scheduleCompositingLayerFlush()
 {
-    m_webView->flushPendingGraphicsLayerChangesSoon();
+//    m_webView->flushPendingGraphicsLayerChangesSoon();
 }
-
-#if PLATFORM(WIN) && USE(AVFOUNDATION)
-WebCore::GraphicsDeviceAdapter* WebChromeClient::graphicsDeviceAdapter() const
-{
-    return m_webView->graphicsDeviceAdapter();
-}
-#endif
-
-COMPtr<IWebUIDelegate> WebChromeClient::uiDelegate()
-{
-    COMPtr<IWebUIDelegate> delegate;
-    m_webView->uiDelegate(&delegate);
-    return delegate;
-}
-
-#if ENABLE(VIDEO)
-
-bool WebChromeClient::supportsVideoFullscreen(HTMLMediaElementEnums::VideoFullscreenMode)
-{
-    return true;
-}
-
-void WebChromeClient::enterVideoFullscreenForVideoElement(HTMLVideoElement& videoElement, HTMLMediaElementEnums::VideoFullscreenMode, bool)
-{
-    m_webView->enterVideoFullscreenForVideoElement(videoElement);
-}
-
-void WebChromeClient::exitVideoFullscreenForVideoElement(HTMLVideoElement& videoElement)
-{
-    m_webView->exitVideoFullscreenForVideoElement(videoElement);
-}
-
-#endif
 
 bool WebChromeClient::selectItemWritingDirectionIsNatural()
 {
@@ -795,66 +442,34 @@ bool WebChromeClient::selectItemAlignmentFollowsMenuWritingDirection()
 
 RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) const
 {
-    return adoptRef(new PopupMenuWin(&client));
+	return nullptr;
+//    return adoptRef(new PopupMenuWin(&client));
 }
 
 RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& client) const
 {
-    return adoptRef(new SearchPopupMenuWin(&client));
+	return nullptr;
+//    return adoptRef(new SearchPopupMenuWin(&client));
 }
 
 #if ENABLE(FULLSCREEN_API)
 
 bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool requestingKeyboardAccess)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        COMPtr<IWebUIDelegatePrivate4> uiDelegatePrivate4(Query, uiDelegate);
-        BOOL supports = FALSE;
-        COMPtr<IDOMElement> domElement(AdoptCOM, DOMElement::createInstance(const_cast<Element*>(&element)));
-
-        if (uiDelegatePrivate4 && SUCCEEDED(uiDelegatePrivate4->supportsFullScreenForElement(domElement.get(), requestingKeyboardAccess, &supports)))
-            return supports;
-    }
-
-    return m_webView->supportsFullScreenForElement(&element, requestingKeyboardAccess);
+	return false;
 }
 
 void WebChromeClient::enterFullScreenForElement(Element& element)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        COMPtr<IWebUIDelegatePrivate4> uiDelegatePrivate4(Query, uiDelegate);
-        COMPtr<IDOMElement> domElement(AdoptCOM, DOMElement::createInstance(&element));
-        if (uiDelegatePrivate4 && SUCCEEDED(uiDelegatePrivate4->enterFullScreenForElement(domElement.get())))
-            return;
-    } 
-
-    m_webView->setFullScreenElement(&element);
-    m_webView->fullScreenController()->enterFullScreen();
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element)
 {
-    COMPtr<IWebUIDelegate> uiDelegate;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
-        COMPtr<IWebUIDelegatePrivate4> uiDelegatePrivate4(Query, uiDelegate);
-        COMPtr<IDOMElement> domElement(AdoptCOM, DOMElement::createInstance(element));
-        if (uiDelegatePrivate4 && SUCCEEDED(uiDelegatePrivate4->exitFullScreenForElement(domElement.get())))
-            return;
-    }
-
-    ASSERT(element == m_webView->fullScreenElement());
-    m_webView->fullScreenController()->exitFullScreen();
 }
 
 #endif
 
 bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameView) const
 {
-#if !USE(CAIRO)
-    return frameView.frame().isMainFrame();
-#else
     return false;
-#endif
 }

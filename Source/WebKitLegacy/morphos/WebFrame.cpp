@@ -46,14 +46,53 @@
 #include <WebCore/VisibleUnits.h>
 #include <WebCore/markup.h>
 
-WebFrame::WebFrame()
+WebCore::Frame* core(WebFrame *webFrame)
+{
+	if (webFrame)
+	{
+		return webFrame->impl();
+	}
+	
+	return nullptr;
+}
+
+class WebFrame::WebFramePrivate {
+public:
+    WebFramePrivate()
+    {
+    }
+
+    ~WebFramePrivate() { }
+    WebCore::FrameView* frameView() { return frame ? frame->view() : nullptr; }
+
+    WebCore::Frame* frame { nullptr };
+    WebView* webView { nullptr };
+};
+
+WebFrame* WebFrame::createInstance(WebCore::Frame *frame, WebView *view)
+{
+    WebFrame* instance = new WebFrame(frame, view);
+    return instance;
+}
+
+WebFrame::WebFrame(WebCore::Frame *frame, WebView *view)
 {
 	printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	//_coreFrame = WebCore::Frame::create(nullptr, nullptr, nullptr);
-
+	_private = new WebFramePrivate();
+	if (_private)
+	{
+		_private->frame = frame;
+		_private->webView = view;
+	}
 }
 
 WebFrame::~WebFrame()
 {
+	delete _private;
+}
 
+WebCore::Frame* WebFrame::impl()
+{
+	return _private->frame;
 }

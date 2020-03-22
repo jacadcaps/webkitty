@@ -96,7 +96,7 @@ build:
 #		-Wdev --debug-output --trace --trace-expand \
 
 morphos.cmake: morphos.cmake.in
-	gcc -xc -E -P -C -o$@ -nostdinc morphos.cmake.in -D_IN_ROOTPATH=/home/jaca/morphos
+	gcc -xc -E -P -C -o$@ -nostdinc morphos.cmake.in -D_IN_ROOTPATH=$(ROOTPATH)
 
 clean:
 	rm -rf morphos.cmake cross-build WebKitBuild build
@@ -119,4 +119,4 @@ miniscp:
 	scp cross-build/Tools/morphos/MiniBrowser jaca@192.168.2.5:/Users/jaca
 
 minidump:
-	ppc-morphos-objdump --demangle --disassemble cross-build/Tools/morphos/MiniBrowser.db | less
+	ppc-morphos-objdump --demangle --disassemble -l --source cross-build/Tools/morphos/MiniBrowser.db | less

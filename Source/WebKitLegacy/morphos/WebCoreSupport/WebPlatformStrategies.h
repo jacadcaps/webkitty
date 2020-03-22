@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,27 +22,23 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include <WebCore/LoaderStrategy.h>
+#include <WebCore/PlatformStrategies.h>
+#include <wtf/Forward.h>
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
+class WebPlatformStrategies : public WebCore::PlatformStrategies {
 public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
-
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
-
+    static void initialize();
+    
 private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    friend NeverDestroyed<WebPlatformStrategies>;
+    WebPlatformStrategies();
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+    // WebCore::PlatformStrategies
+    virtual WebCore::LoaderStrategy* createLoaderStrategy();
+    virtual WebCore::PasteboardStrategy* createPasteboardStrategy();
+    virtual WebCore::BlobRegistry* createBlobRegistry();
 };

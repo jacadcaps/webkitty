@@ -2,13 +2,7 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:../Source/WebCore">
-   </FileRef>
-   <FileRef
-      location = "group:../Source/WebKit">
-   </FileRef>
-   <FileRef
-      location = "group:../Source/WebKitLegacy">
+      location = "group:../Tools/morphos">
    </FileRef>
    <FileRef
       location = "self:">

@@ -131,21 +131,7 @@ public:
     // to do an eager layout before the drawing.
     void scheduleCompositingLayerFlush() final;
 
-#if PLATFORM(WIN) && USE(AVFOUNDATION)
-    WebCore::GraphicsDeviceAdapter* graphicsDeviceAdapter() const final;
-#endif
-
     void scrollRectIntoView(const WebCore::IntRect&) const final { }
-
-#if ENABLE(VIDEO)
-    bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;
-    void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool) final;
-    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) final;
-#endif
-
-#if ENABLE(NOTIFICATIONS)
-    WebCore::NotificationClient* notificationPresenter() const final { return reinterpret_cast<WebCore::NotificationClient*>(m_notificationsDelegate.get()); }
-#endif
 
     bool selectItemWritingDirectionIsNatural() final;
     bool selectItemAlignmentFollowsMenuWritingDirection() final;

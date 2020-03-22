@@ -25,14 +25,19 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WebFrame.cpp
     morphos/WebView.cpp
     morphos/BackForwardClient.cpp
+    morphos/WebApplicationCache.cpp
+    morphos/storage/WebDatabaseProvider.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebVisitedLinkStore.cpp
     morphos/WebCoreSupport/WebEditorClient.cpp
-#    morphos/WebCoreSupport/WebChromeClient.cpp
-#    morphos/WebCoreSupport/WebFrameLoaderClient.cpp
-#    morphos/WebCoreSupport/WebFrameNetworkingContext.cpp
+    morphos/WebCoreSupport/WebChromeClient.cpp
+    morphos/WebCoreSupport/WebPluginInfoProvider.cpp
+    morphos/WebCoreSupport/WebPlatformStrategies.cpp
+    morphos/WebCoreSupport/WebInspectorClient.cpp
+    morphos/WebCoreSupport/WebFrameLoaderClient.cpp
+    morphos/WebCoreSupport/WebFrameNetworkingContext.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})

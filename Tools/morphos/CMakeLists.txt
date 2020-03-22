@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 include(WebKitCommon)
 
+find_package(Cairo REQUIRED)
+
 set(MINIBROWSER_DIR "./morphos")
 
 add_definitions("-DWEBCORE_EXPORT=")
@@ -21,6 +23,7 @@ set(MiniBrowser_INCLUDE_DIRECTORIES
     ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
     ${WebKit_FRAMEWORK_HEADERS_DIR}
     ${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${CAIRO_INCLUDE_DIRS}
 )
 
 set(MiniBrowser_LIBRARIES

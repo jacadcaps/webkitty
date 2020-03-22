@@ -1,5 +1,3 @@
-#add_definitions(-g)
-
 include(platform/Cairo.cmake)
 include(platform/Curl.cmake)
 include(platform/FreeType.cmake)

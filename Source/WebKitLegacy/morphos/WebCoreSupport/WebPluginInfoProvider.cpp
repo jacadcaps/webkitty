@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,27 +22,38 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include "WebPluginInfoProvider.h"
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
-public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
+using namespace WebCore;
 
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
+WebPluginInfoProvider& WebPluginInfoProvider::singleton()
+{
+    static WebPluginInfoProvider& pluginInfoProvider = adoptRef(*new WebPluginInfoProvider).leakRef();
 
-private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    return pluginInfoProvider;
+}
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
-};
+WebPluginInfoProvider::WebPluginInfoProvider()
+{
+}
+
+WebPluginInfoProvider::~WebPluginInfoProvider()
+{
+}
+
+void WebPluginInfoProvider::refreshPlugins()
+{
+}
+
+Vector<WebCore::PluginInfo> WebPluginInfoProvider::pluginInfo(WebCore::Page& page, Optional<Vector<WebCore::SupportedPluginIdentifier>>&)
+{
+    Vector<WebCore::PluginInfo> outPlugins;
+    return outPlugins;
+}
+
+Vector<WebCore::PluginInfo> WebPluginInfoProvider::webVisiblePluginInfo(WebCore::Page& page, const URL&)
+{
+    Optional<Vector<WebCore::SupportedPluginIdentifier>> supportedPluginNames;
+    return pluginInfo(page, supportedPluginNames);
+}

@@ -15,14 +15,22 @@ namespace WebCore {
     class Range;
 }
 
-#include <wtf/RefPtr.h>
+class WebView;
 
 class WebFrame
 {
 public:
-	WebFrame();
-	~WebFrame();
+    static WebFrame* createInstance(WebCore::Frame *frame, WebView *view);
+
+    WebCore::Frame* impl();
+
+protected:
+    WebFrame(WebCore::Frame *frame, WebView *view);
+    ~WebFrame();
 
 private:
-    RefPtr<WebCore::Frame> _coreFrame;
+	class WebFramePrivate;
+	WebFramePrivate *_private;
 };
+
+WebCore::Frame* core(WebFrame *webFrame);

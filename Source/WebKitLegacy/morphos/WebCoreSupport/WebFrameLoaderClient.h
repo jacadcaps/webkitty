@@ -38,7 +38,6 @@ namespace WebCore {
 
 class WebFrame;
 class WebFramePolicyListener;
-class WebHistory;
 
 class WebFrameLoaderClient : public WebCore::FrameLoaderClient, public WebCore::ProgressTrackerClient {
 public:
@@ -77,9 +76,6 @@ public:
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, unsigned long identifier, int dataLength) override;
     void dispatchDidFinishLoading(WebCore::DocumentLoader*, unsigned long identifier) override;
     void dispatchDidFailLoading(WebCore::DocumentLoader*, unsigned long identifier, const WebCore::ResourceError&) override;
-#if USE(CFURLCONNECTION)
-    bool shouldCacheResponse(WebCore::DocumentLoader*, unsigned long identifier, const WebCore::ResourceResponse&, const unsigned char* data, unsigned long long length) override;
-#endif
 
     void dispatchDidDispatchOnloadEvents() override;
     void dispatchDidReceiveServerRedirectForProvisionalLoad() override;
@@ -195,23 +191,10 @@ public:
 
     void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld&) override;
 
-    COMPtr<WebFramePolicyListener> setUpPolicyListener(WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&);
-    void receivedPolicyDecision(WebCore::PolicyAction);
-
     bool shouldAlwaysUsePluginDocument(const WTF::String& mimeType) const override;
 
     void prefetchDNS(const String&) override;
 
 private:
-    WebHistory* webHistory() const;
-
-    class WebFramePolicyListenerPrivate;
-    std::unique_ptr<WebFramePolicyListenerPrivate> m_policyListenerPrivate;
-
     WebFrame* m_webFrame;
-
-    // Points to the manual loader that data should be redirected to.
-    WebCore::PluginManualLoader* m_manualLoader;
-
-    bool m_hasSentResponseToPlugin;
 };

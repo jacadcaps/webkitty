@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,27 +22,22 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include <WebCore/PluginInfoProvider.h>
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
+class WebPluginInfoProvider final : public WebCore::PluginInfoProvider {
+    friend class NeverDestroyed<WebPluginInfoProvider>;
+
 public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
-
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
+    static WebPluginInfoProvider& singleton();
+    virtual ~WebPluginInfoProvider();
 
 private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    void refreshPlugins() final;
+    Vector<WebCore::PluginInfo> pluginInfo(WebCore::Page&, Optional<Vector<WebCore::SupportedPluginIdentifier>>&) final;
+    Vector<WebCore::PluginInfo> webVisiblePluginInfo(WebCore::Page&i, const URL&) final;
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+    WebPluginInfoProvider();
 };

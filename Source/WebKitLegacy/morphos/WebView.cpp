@@ -81,6 +81,8 @@
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/ValidationBubble.h>
 #include <WebCore/Widget.h>
+#include <WebCore/StorageNamespaceProvider.h>
+#include <WebCore/FrameLoadRequest.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -92,14 +94,29 @@
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/JSValueRef.h>
 
+#include <wtf/URLHelpers.h>
+
 #include "WebView.h"
 #include "WebFrame.h"
 #include "../../WebCoreSupport/PageStorageSessionProvider.h"
 #include "WebCoreSupport/WebEditorClient.h"
+#include "WebCoreSupport/WebChromeClient.h"
+#include "WebCoreSupport/WebPluginInfoProvider.h"
+#include "../../WebCoreSupport/WebViewGroup.h"
 #include "BackForwardClient.h"
+#include <WebCoreSupport/WebVisitedLinkStore.h>
+#include "WebCoreSupport/WebPlatformStrategies.h"
+#include "WebCoreSupport/WebInspectorClient.h"
+#include "WebCoreSupport/WebFrameLoaderClient.h"
+#include "WebApplicationCache.h"
+#include "../../Storage/WebDatabaseProvider.h"
 
 #include <utility>
 using namespace std;
+
+extern "C" {
+	void dprintf(const char *, ...);
+};
 
 WebCore::Page* core(WebView *webView)
 {
@@ -129,15 +146,36 @@ WebView *kit(WebCore::Page* page)
 
 WebView::WebView()
 {
-printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
     JSC::initializeThreading();
     RunLoop::initializeMainRunLoop();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
 
-printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
+    static bool didOneTimeInitialization;
+    if (!didOneTimeInitialization) {
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+        initializeLogChannelsIfNecessary();
+#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
+
+        // Initialize our platform strategies first before invoking the rest
+        // of the initialization code which may depend on the strategies.
+        WebPlatformStrategies::initialize();
+
+        auto& memoryPressureHandler = MemoryPressureHandler::singleton();
+        memoryPressureHandler.setLowMemoryHandler([] (Critical critical, Synchronous synchronous) {
+            WebCore::releaseMemory(critical, synchronous);
+        });
+        memoryPressureHandler.install();
+
+        didOneTimeInitialization = true;
+     }
+
+	m_webViewGroup = WebViewGroup::getOrCreate("test", "T:");
 
 	auto storageProvider = PageStorageSessionProvider::create();
-printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	WebCore::PageConfiguration pageConfiguration(
         makeUniqueRef<WebEditorClient>(this),
         WebCore::SocketProvider::create(),
@@ -146,14 +184,51 @@ printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef())
         );
-printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
+	pageConfiguration.chromeClient = new WebChromeClient(this);
+	pageConfiguration.inspectorClient = new WebInspectorClient(this);
+    pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient;
+    pageConfiguration.progressTrackerClient = static_cast<WebFrameLoaderClient*>(pageConfiguration.loaderClientForMainFrame);
+    pageConfiguration.storageNamespaceProvider = &m_webViewGroup->storageNamespaceProvider();
+    pageConfiguration.userContentProvider = &m_webViewGroup->userContentController();
+    pageConfiguration.visitedLinkStore = &m_webViewGroup->visitedLinkStore();
+    pageConfiguration.pluginInfoProvider = &WebPluginInfoProvider::singleton();
+    pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
+    pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
+    pageConfiguration.userContentProvider = &m_webViewGroup->userContentController();;
+	
+dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
 	m_page = new WebCore::Page(WTFMove(pageConfiguration));
-printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 
+    WebFrame* webFrame = WebFrame::createInstance(&m_page->mainFrame(), this);
+    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(webFrame);
+    m_mainFrame = webFrame;
+
+    //m_page->mainFrame().tree().setName(toString(frameName));
+    m_page->mainFrame().init();
+}
+
+WebView::~WebView()
+{
+	delete m_page;
 }
 
 WebCore::Page *WebView::page()
 {
 	return m_page;
+}
+
+void WebView::go(const char *url)
+{
+	WebCore::ResourceRequest req;
+
+    WTF::URL wurl { WTF::URL { }, String(url) };
+	req.setURL(wurl);
+
+    auto* coreFrame = core(m_mainFrame);
+	
+	dprintf("go...\n");
+    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow));
 }
