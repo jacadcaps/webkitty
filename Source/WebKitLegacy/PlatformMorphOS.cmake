@@ -19,6 +19,7 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     ${SQLITE_INCLUDE_DIR}
     ${ZLIB_INCLUDE_DIRS}
     ${WPE_INCLUDE_DIRS}
+    ${OBJC_INCLUDE}
 )
 
 list(APPEND WebKitLegacy_SOURCES_Classes
@@ -27,6 +28,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/BackForwardClient.cpp
     morphos/WebApplicationCache.cpp
     morphos/storage/WebDatabaseProvider.cpp
+    morphos/WkWebView.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport

@@ -9,6 +9,8 @@ PKG:=$(PKG_ICU)
 DEBIAN_PKG:=libicu-dev ruby-dev clang-7
 NATIVE_GCC:=/home/jaca/gcc7/inst/bin/x86_64-pc-linux-gnu-
 
+OBJC:=$(ROOTPATH)/morphoswb/classes/frameworks/includes/
+
 all:
 
 configure-native:
@@ -88,6 +90,7 @@ configure: morphos.cmake CMakeLists.txt
 		-DHARFBUZZ_ICU_LIBRARIES="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
+		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
 build:

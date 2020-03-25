@@ -222,13 +222,31 @@ WebCore::Page *WebView::page()
 
 void WebView::go(const char *url)
 {
-	WebCore::ResourceRequest req;
-
-    WTF::URL wurl { WTF::URL { }, String(url) };
-	req.setURL(wurl);
+	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
+	WebCore::ResourceRequest req(baseCoreURL);
 
     auto* coreFrame = core(m_mainFrame);
 	
-	dprintf("go...\n");
+//	dprintf("go to %s, %s...\n", wurl.protocol().utf8().data(), wurl.host().utf8().data());
     coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow));
+}
+
+void WebView::repaint(const WebCore::IntRect&, bool contentChanged, bool immediate, bool repaintContentOnly)
+{
+
+}
+
+void WebView::closeWindow()
+{
+
+}
+
+void WebView::closeWindowSoon()
+{
+
+}
+
+void WebView::closeWindowTimerFired()
+{
+
 }

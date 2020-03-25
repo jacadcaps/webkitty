@@ -24,6 +24,7 @@ int main(void)
 	if (FreetypeBase)
 	{
 		// Hack to make sure cairo mutex are initialized
+		// TODO: fix this in the fucking cairo
 		cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
 		if (dummysurface)
 			cairo_surface_destroy(dummysurface);
@@ -31,7 +32,8 @@ int main(void)
         dprintf("Creating webview...\n");
 		WebView *view = new WebView();
 		dprintf("page %p\n", view->page());
-		view->go("https://google.com");
+		//view->go("http://www.google.com/");
+		view->go("file:///System:test.html");
 		dprintf("issued...\n");
 		
 		for (int i = 0; i < 1000; i++)

@@ -64,6 +64,8 @@
 using namespace WebCore;
 using namespace HTMLNames;
 
+#include <proto/exec.h>
+
 WebFrameLoaderClient::WebFrameLoaderClient(WebFrame* webFrame)
     : m_webFrame(webFrame)
 {
@@ -241,6 +243,7 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent>)
 void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading)
 {
 	notImplemented();
+	DumpTaskState(FindTask(0));
 }
 
 void WebFrameLoaderClient::dispatchDidFailLoad(const ResourceError& error)
@@ -275,6 +278,7 @@ void WebFrameLoaderClient::dispatchShow()
 
 void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceResponse& response, const ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier, const String&, FramePolicyFunction&& function)
 {
+	function(PolicyAction::Use, identifier);
 	notImplemented();
 }
 
@@ -314,6 +318,9 @@ void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Completi
 
 void WebFrameLoaderClient::setMainDocumentError(DocumentLoader*, const ResourceError& error)
 {
+	WTF::StringView sv(error.localizedDescription());
+	dprintf("SMDE error %d %s\n", error.errorCode(), sv.utf8().data());
+	DumpTaskState(FindTask(0));
 	notImplemented();
 }
 

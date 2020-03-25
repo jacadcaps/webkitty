@@ -128,6 +128,7 @@ void WebChromeClient::focusedFrameChanged(Frame*)
 
 Page* WebChromeClient::createWindow(Frame& frame, const FrameLoadRequest&, const WindowFeatures& features, const NavigationAction& navigationAction)
 {
+	notImplemented();
 	return nullptr;
 }
 
@@ -233,6 +234,8 @@ void WebChromeClient::closeWindowSoon()
     // message by actually closing the WebView. Safari guarantees this behavior, but other apps might not.
     // This approach is an inherent limitation of not making a close execute immediately
     // after a call to window.close.
+	notImplemented();
+
 #if 0
     m_webView->setGroupName(0);
     m_webView->stopLoading(0);
@@ -288,17 +291,20 @@ KeyboardUIMode WebChromeClient::keyboardUIMode()
 
 void WebChromeClient::invalidateRootView(const IntRect& windowRect)
 {
-	notImplemented();
+    ASSERT(core(m_webView->topLevelFrame()));
+    m_webView->repaint(windowRect, false /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
 }
 
 void WebChromeClient::invalidateContentsAndRootView(const IntRect& windowRect)
 {
-	notImplemented();
+    ASSERT(core(m_webView->topLevelFrame()));
+    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
 }
 
 void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 {
-	notImplemented();
+    ASSERT(core(m_webView->topLevelFrame()));
+    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, true /*repaintContentOnly*/);
 }
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
@@ -328,6 +334,7 @@ IntPoint WebChromeClient::screenToRootView(const IntPoint& point) const
 
 PlatformPageClient WebChromeClient::platformPageClient() const
 {
+	notImplemented();
 	return 0;
 }
 
@@ -417,16 +424,19 @@ void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
 
 void WebChromeClient::attachRootGraphicsLayer(Frame&, GraphicsLayer* graphicsLayer)
 {
+notImplemented();
 //    m_webView->setRootChildLayer(graphicsLayer);
 }
 
 void WebChromeClient::attachViewOverlayGraphicsLayer(GraphicsLayer*)
 {
+notImplemented();
     // FIXME: If we want view-relative page overlays in Legacy WebKit on Windows, this would be the place to hook them up.
 }
 
 void WebChromeClient::scheduleCompositingLayerFlush()
 {
+notImplemented();
 //    m_webView->flushPendingGraphicsLayerChangesSoon();
 }
 
