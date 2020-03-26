@@ -1,5 +1,6 @@
 #pragma once
 #include <wtf/RefPtr.h>
+#include "WebViewDelegate.h"
 
 namespace WebCore {
 	class Page;
@@ -11,13 +12,15 @@ class WebView;
 class WebViewGroup;
 class WebFrame;
 
+struct RastPort;
+
 WebCore::Page* core(WebView *webView);
 WebView *kit(WebCore::Page* page);
 
 WebCore::Frame& mainframe(WebCore::Page& page);
 const WebCore::Frame& mainframe(const WebCore::Page& page);
 
-class WebView
+class WebView : public WebViewDelegate
 {
 public:
 	WebView();
@@ -37,8 +40,11 @@ public:
     bool usesLayeredWindow() const { return m_usesLayeredWindow; }
     bool needsDisplay() const { return m_needsDisplay; }
 
-    // Convenient to be able to violate the rules of COM here for easy movement to the frame.
     WebFrame* topLevelFrame() const { return m_mainFrame; }
+	
+	void drawToRP(struct RastPort *rp, const int x, const int y, const int width, const int height);
+	
+    static void handleRunLoop();
 
 private:
     WebFrame* m_mainFrame { nullptr };

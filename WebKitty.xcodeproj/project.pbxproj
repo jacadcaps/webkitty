@@ -6,6 +6,23 @@
 	objectVersion = 50;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		011B866E242BBBF100749380 /* minibrowser.mm in Sources */ = {isa = PBXBuildFile; fileRef = 011B866D242BBBF100749380 /* minibrowser.mm */; };
+		011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */; };
+		011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */; };
+		011B8679242CFCD800749380 /* WebEditorClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8671242CFCD800749380 /* WebEditorClient.cpp */; };
+		011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8672242CFCD800749380 /* WebFrameNetworkingContext.cpp */; };
+		011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8673242CFCD800749380 /* WebFrameLoaderClient.cpp */; };
+		011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8674242CFCD800749380 /* WebInspectorClient.cpp */; };
+		011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8675242CFCD800749380 /* WebChromeClient.cpp */; };
+		011B867E242CFCD800749380 /* WebVisitedLinkStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */; };
+		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
+		01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F14242B985D007717A6 /* WebApplicationCache.cpp */; };
+		01E13646242BB118007BA528 /* WebFrame.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F10242B985D007717A6 /* WebFrame.cpp */; };
+		01E13647242BB118007BA528 /* WebView.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F0F242B985D007717A6 /* WebView.cpp */; };
+		01E13648242BB118007BA528 /* WkWebView.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01816F13242B985D007717A6 /* WkWebView.mm */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		017F370D235317AB00C8836A /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -19,13 +36,28 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		017F370F235317AB00C8836A /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; name = WebKitty; path = "/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/build/Debug/WebKitty"; sourceTree = "<absolute>"; };
-		01B5505E2422EACB009CA553 /* WebKitLegacy */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKitLegacy; path = Source/WebKitLegacy; sourceTree = "<group>"; };
-		01B5505F2422EACB009CA553 /* WebKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKit; path = Source/WebKit; sourceTree = "<group>"; };
-		01B550602422EACC009CA553 /* WebCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebCore; path = Source/WebCore; sourceTree = "<group>"; };
-		01B550612422EACC009CA553 /* JavaScriptCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JavaScriptCore; path = Source/JavaScriptCore; sourceTree = "<group>"; };
-		01B550622422EAF7009CA553 /* WTF */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WTF; path = Source/WTF; sourceTree = "<group>"; };
-		01B550632422EDD2009CA553 /* morphos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = morphos; path = Tools/morphos; sourceTree = "<group>"; };
+		011B866D242BBBF100749380 /* minibrowser.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = minibrowser.mm; path = Tools/morphos/minibrowser.mm; sourceTree = "<group>"; };
+		011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPlatformStrategies.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPlatformStrategies.cpp; sourceTree = "<group>"; };
+		011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPluginInfoProvider.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPluginInfoProvider.cpp; sourceTree = "<group>"; };
+		011B8671242CFCD800749380 /* WebEditorClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebEditorClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebEditorClient.cpp; sourceTree = "<group>"; };
+		011B8672242CFCD800749380 /* WebFrameNetworkingContext.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebFrameNetworkingContext.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameNetworkingContext.cpp; sourceTree = "<group>"; };
+		011B8673242CFCD800749380 /* WebFrameLoaderClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebFrameLoaderClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameLoaderClient.cpp; sourceTree = "<group>"; };
+		011B8674242CFCD800749380 /* WebInspectorClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebInspectorClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebInspectorClient.cpp; sourceTree = "<group>"; };
+		011B8675242CFCD800749380 /* WebChromeClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebChromeClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebChromeClient.cpp; sourceTree = "<group>"; };
+		011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebVisitedLinkStore.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebVisitedLinkStore.cpp; sourceTree = "<group>"; };
+		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
+		01816F0D242B985D007717A6 /* WebKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
+		01816F0E242B985D007717A6 /* WebFrame.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
+		01816F0F242B985D007717A6 /* WebView.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = WebView.cpp; path = Source/WebKitLegacy/morphos/WebView.cpp; sourceTree = "<group>"; };
+		01816F10242B985D007717A6 /* WebFrame.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = WebFrame.cpp; path = Source/WebKitLegacy/morphos/WebFrame.cpp; sourceTree = "<group>"; };
+		01816F11242B985D007717A6 /* BackForwardClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BackForwardClient.cpp; path = Source/WebKitLegacy/morphos/BackForwardClient.cpp; sourceTree = "<group>"; };
+		01816F12242B985D007717A6 /* WebViewDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebViewDelegate.h; path = Source/WebKitLegacy/morphos/WebViewDelegate.h; sourceTree = "<group>"; };
+		01816F13242B985D007717A6 /* WkWebView.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = WkWebView.mm; path = Source/WebKitLegacy/morphos/WkWebView.mm; sourceTree = "<group>"; };
+		01816F14242B985D007717A6 /* WebApplicationCache.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = WebApplicationCache.cpp; path = Source/WebKitLegacy/morphos/WebApplicationCache.cpp; sourceTree = "<group>"; };
+		01816F15242B985E007717A6 /* BackForwardClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BackForwardClient.h; path = Source/WebKitLegacy/morphos/BackForwardClient.h; sourceTree = "<group>"; };
+		01816F16242B985E007717A6 /* WebView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebView.h; path = Source/WebKitLegacy/morphos/WebView.h; sourceTree = "<group>"; };
+		01816F17242B985E007717A6 /* WkWebView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WkWebView.h; path = Source/WebKitLegacy/morphos/WkWebView.h; sourceTree = "<group>"; };
+		01816F18242B985E007717A6 /* WebApplicationCache.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebApplicationCache.h; path = Source/WebKitLegacy/morphos/WebApplicationCache.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,12 +74,28 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
-				01B550632422EDD2009CA553 /* morphos */,
-				01B550622422EAF7009CA553 /* WTF */,
-				01B550612422EACC009CA553 /* JavaScriptCore */,
-				01B550602422EACC009CA553 /* WebCore */,
-				01B5505F2422EACB009CA553 /* WebKit */,
-				01B5505E2422EACB009CA553 /* WebKitLegacy */,
+				011B8675242CFCD800749380 /* WebChromeClient.cpp */,
+				011B8671242CFCD800749380 /* WebEditorClient.cpp */,
+				011B8673242CFCD800749380 /* WebFrameLoaderClient.cpp */,
+				011B8672242CFCD800749380 /* WebFrameNetworkingContext.cpp */,
+				011B8674242CFCD800749380 /* WebInspectorClient.cpp */,
+				011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */,
+				011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */,
+				011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */,
+				011B866D242BBBF100749380 /* minibrowser.mm */,
+				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
+				01816F15242B985E007717A6 /* BackForwardClient.h */,
+				01816F14242B985D007717A6 /* WebApplicationCache.cpp */,
+				01816F18242B985E007717A6 /* WebApplicationCache.h */,
+				01816F10242B985D007717A6 /* WebFrame.cpp */,
+				01816F0E242B985D007717A6 /* WebFrame.h */,
+				01816F0D242B985D007717A6 /* WebKit.h */,
+				01816F0F242B985D007717A6 /* WebView.cpp */,
+				01816F16242B985E007717A6 /* WebView.h */,
+				01816F12242B985D007717A6 /* WebViewDelegate.h */,
+				01816F17242B985E007717A6 /* WkWebView.h */,
+				01816F13242B985D007717A6 /* WkWebView.mm */,
+				01816EE0242A370A007717A6 /* WebKitty */,
 			);
 			sourceTree = "<group>";
 		};
@@ -85,7 +133,7 @@
 			);
 			name = WebKitty;
 			productName = Scout;
-			productReference = 017F370F235317AB00C8836A /* WebKitty */;
+			productReference = 01816EE0242A370A007717A6 /* WebKitty */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -129,6 +177,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */,
+				011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */,
+				011B866E242BBBF100749380 /* minibrowser.mm in Sources */,
+				011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */,
+				011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */,
+				011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */,
+				01E13648242BB118007BA528 /* WkWebView.mm in Sources */,
+				011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */,
+				01E13647242BB118007BA528 /* WebView.cpp in Sources */,
+				01E13646242BB118007BA528 /* WebFrame.cpp in Sources */,
+				011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */,
+				011B867E242CFCD800749380 /* WebVisitedLinkStore.cpp in Sources */,
+				01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */,
+				011B8679242CFCD800749380 /* WebEditorClient.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,7 +269,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_ARC = NO;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
@@ -221,7 +283,7 @@
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = NO;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
@@ -257,6 +319,8 @@
 					"/Users/jaca/dumbian-mountpoint/morphoswb/development/include",
 					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/Source/WTF",
 					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/cross-build/DerivedSources",
+					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/cross-build/DerivedSources/ForwardingHeaders",
+					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/Source",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -275,7 +339,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_ARC = NO;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
@@ -289,7 +353,7 @@
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = NO;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
@@ -323,6 +387,8 @@
 					"/Users/jaca/dumbian-mountpoint/morphoswb/development/include",
 					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/Source/WTF",
 					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/cross-build/DerivedSources",
+					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/cross-build/DerivedSources/ForwardingHeaders",
+					"/Users/jaca/dumbian-mountpoint/morphoswb/apps/webkitty/Source",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
 				MTL_ENABLE_DEBUG_INFO = NO;

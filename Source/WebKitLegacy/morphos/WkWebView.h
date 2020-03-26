@@ -7,4 +7,6 @@ class WebView;
 	WebView *_webView;
 }
 
+- (void)navigateTo:(OBString *)uri;
+
 @end

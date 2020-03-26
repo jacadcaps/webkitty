@@ -95,6 +95,7 @@
 #include <JavaScriptCore/JSValueRef.h>
 
 #include <wtf/URLHelpers.h>
+#include <wtf/RunLoop.h>
 
 #include "WebView.h"
 #include "WebFrame.h"
@@ -111,8 +112,14 @@
 #include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
 
+#include <cairo.h>
+
 #include <utility>
 using namespace std;
+
+#include <proto/graphics.h>
+#include <proto/cybergraphics.h>
+#include <cybergraphx/cybergraphics.h>
 
 extern "C" {
 	void dprintf(const char *, ...);
@@ -231,9 +238,10 @@ void WebView::go(const char *url)
     coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow));
 }
 
-void WebView::repaint(const WebCore::IntRect&, bool contentChanged, bool immediate, bool repaintContentOnly)
+void WebView::repaint(const WebCore::IntRect& rect, bool contentChanged, bool immediate, bool repaintContentOnly)
 {
-
+	if (_fInvalidateRect)
+		_fInvalidateRect(rect.x(), rect.y(), rect.width(), rect.height());
 }
 
 void WebView::closeWindow()
@@ -249,4 +257,49 @@ void WebView::closeWindowSoon()
 void WebView::closeWindowTimerFired()
 {
 
+}
+
+void WebView::drawToRP(struct RastPort *rp, const int x, const int y, const int width, const int height)
+{
+	auto* coreFrame = core(m_mainFrame);
+	if (!coreFrame)
+		return;
+
+    WebCore::FrameView* frameView = coreFrame->view();
+	frameView->updateLayoutAndStyleIfNeededRecursive();
+
+dprintf("draw to %p at %d %d : %dx%d\n", rp, x,y, width, height);
+
+	auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+	auto *cr = cairo_create(surface);
+
+	{
+		WebCore::PlatformContextCairo pcc(cr);
+		WebCore::GraphicsContext gc(&pcc);
+		
+		WebCore::IntRect ir(0, 0, width, height);
+		WebCore::FloatRect fr(0, 0, width, height);
+
+		gc.save();
+		gc.clip(fr);
+		
+		frameView->paintContents(gc, ir);
+
+		gc.restore();
+	}
+
+	unsigned int stride;
+	unsigned char *src;
+	stride = cairo_image_surface_get_stride(surface);
+    src = cairo_image_surface_get_data(surface);
+
+	WritePixelArray(src, 0, 0, stride, rp, x, y, width, height, RECTFMT_ARGB);
+
+	cairo_destroy(cr);
+	cairo_surface_destroy(surface);
+}
+
+void WebView::handleRunLoop()
+{
+	WTF::RunLoop::iterate();
 }

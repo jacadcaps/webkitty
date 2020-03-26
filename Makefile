@@ -95,6 +95,9 @@ configure: morphos.cmake CMakeLists.txt
 
 build:
 	(cd cross-build && make -j$(shell nproc))
+	echo "Magic linking..."
+	(cd cross-build/Tools/morphos && $(realpath ./link.sh) )
+	echo "Link done"
 
 #		-Wdev --debug-output --trace --trace-expand \
 

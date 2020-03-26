@@ -5,10 +5,10 @@ find_package(Cairo REQUIRED)
 
 set(MINIBROWSER_DIR "./morphos")
 
-add_definitions("-DWEBCORE_EXPORT=")
+add_definitions(-DWEBCORE_EXPORT="" -Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -Wignored-attributes)
 
 set(MiniBrowser_SOURCES
-    test.cpp
+    minibrowser.mm
 )
 
 set(MiniBrowser_INCLUDE_DIRECTORIES
@@ -24,6 +24,7 @@ set(MiniBrowser_INCLUDE_DIRECTORIES
     ${WebKit_FRAMEWORK_HEADERS_DIR}
     ${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}
     ${CAIRO_INCLUDE_DIRS}
+    ${OBJC_INCLUDE}
 )
 
 set(MiniBrowser_LIBRARIES
@@ -35,9 +36,11 @@ set(PRODUCT_NAME MiniBrowser)
 
 include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
 add_executable(MiniBrowser.db ${MiniBrowser_SOURCES})
-target_link_libraries(MiniBrowser.db ${MiniBrowser_LIBRARIES})
+target_link_libraries(MiniBrowser.db ${MiniBrowser_LIBRARIES} mui.framework.a ob.framework objc)
 add_custom_command(OUTPUT MiniBrowser
 	COMMAND "ppc-morphos-strip -o $<TARGET_FILE:MiniBrowser> $<TARGET_FILE:MiniBrowser>.db"
 	DEPENDS MiniBrowser.db
         )
 
+
+#SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -lob.framework -lmui.framework -lobjc")
