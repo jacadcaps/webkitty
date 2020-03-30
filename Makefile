@@ -125,4 +125,5 @@ miniscp:
 	scp cross-build/Tools/morphos/MiniBrowser jaca@192.168.2.5:/Users/jaca
 
 minidump:
-	ppc-morphos-objdump --demangle --disassemble -l --source cross-build/Tools/morphos/MiniBrowser.db | less
+	@read -p "Address:" address; \
+	ppc-morphos-objdump --demangle --disassemble -l --source cross-build/Tools/morphos/MiniBrowser.db --start-address $$address | less

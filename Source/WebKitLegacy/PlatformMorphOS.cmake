@@ -40,6 +40,7 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebInspectorClient.cpp
     morphos/WebCoreSupport/WebFrameLoaderClient.cpp
     morphos/WebCoreSupport/WebFrameNetworkingContext.cpp
+    morphos/WebCoreSupport/WebContextMenuClient.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})

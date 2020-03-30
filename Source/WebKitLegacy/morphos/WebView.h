@@ -11,8 +11,11 @@ namespace WebCore {
 class WebView;
 class WebViewGroup;
 class WebFrame;
+class WebViewDrawContext;
+class WebChromeClient;
 
 struct RastPort;
+struct IntuiMessage;
 
 WebCore::Page* core(WebView *webView);
 WebView *kit(WebCore::Page* page);
@@ -22,6 +25,7 @@ const WebCore::Frame& mainframe(const WebCore::Page& page);
 
 class WebView : public WebViewDelegate
 {
+friend class WebChromeClient;
 public:
 	WebView();
 	~WebView();
@@ -30,7 +34,20 @@ public:
 
 	void go(const char *url);
 
-    void repaint(const WebCore::IntRect&, bool contentChanged, bool immediate = false, bool repaintContentOnly = false);
+	void setVisibleSize(const int width, const int height);
+	void setScroll(const int x, const int y);
+	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
+	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
+	
+    static void handleRunLoop();
+    static void shutdown();
+    WebFrame* topLevelFrame() const { return m_mainFrame; }
+
+protected:
+	// WebChrome methods
+    void repaint(const WebCore::IntRect&);
+    void internalScroll(int scrollX, int scrollY);
+    void documentSizeChanged(int width, int height);
 
     void closeWindow();
     void closeWindowSoon();
@@ -38,19 +55,13 @@ public:
 
     bool transparent() const { return m_transparent; }
     bool usesLayeredWindow() const { return m_usesLayeredWindow; }
-    bool needsDisplay() const { return m_needsDisplay; }
-
-    WebFrame* topLevelFrame() const { return m_mainFrame; }
-	
-	void drawToRP(struct RastPort *rp, const int x, const int y, const int width, const int height);
-	
-    static void handleRunLoop();
 
 private:
     WebFrame* m_mainFrame { nullptr };
     WebCore::Page* m_page { nullptr };
 	RefPtr<WebViewGroup> m_webViewGroup;
+	WebViewDrawContext  *m_drawContext { nullptr };
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
-	bool m_needsDisplay { false };
+	int  m_clickCount { 0 };
 };

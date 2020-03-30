@@ -17,6 +17,31 @@ extern "C" {
 
 struct Library *FreetypeBase;
 
+static WkWebView *view;
+static MUIString *address;
+
+@interface MUIApplication (Addons)
+@end
+
+@implementation MUIApplication (Addons)
+
+- (void)test1
+{
+	[view navigateTo:@"file:///System:test.html"];
+}
+
+- (void)test2
+{
+	[view navigateTo:@"file:///System:Applications/OWB/Resource/about.html"];
+}
+
+- (void)navigate
+{
+	[view navigateTo:[address contents]];
+}
+
+@end
+
 int muiMain(int argc, char *argv[])
 {
 dprintf("muimain!\n");
@@ -36,26 +61,43 @@ dprintf("muimain!\n");
 			MUIWindow *win = [MUIWindow new];
 
 dprintf("instantiate webview..\n");
-			WkWebView *view = [[WkWebView new] autorelease];
+			view = [[WkWebView new] autorelease];
 dprintf("webview %p\n", view);
 
-			win.rootObject = view;
+			MUIButton *test1, *test2;
+
+			win.rootObject = [MUIGroup groupWithObjects:
+				[MUIGroup horizontalGroupWithObjects:
+					address = [MUIString stringWithContents:@"file:///"],
+					test1 = [MUIButton buttonWithLabel:@"test1"],
+					test2 = [MUIButton buttonWithLabel:@"test2"],
+					nil],
+				view, nil];
 			win.title = @"Test";
 			
+			[address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:app];
+			[test1 notify:@selector(pressed) trigger:NO performSelector:@selector(test1) withTarget:app];
+			[test2 notify:@selector(pressed) trigger:NO performSelector:@selector(test2) withTarget:app];
+
 			[app instantiateWithWindows:win, nil];
 			[win autorelease];
 			win.open = YES;
+//			[view navigateTo:@"file:///System:test.html"];
 			[view navigateTo:@"file:///System:test.html"];
 
 			[app run];
+			
+			[WkWebView shutdown];
 
 dprintf("exiting...\n");
 
 			win.open = NO;
 		}
 		
+dprintf("release..\n");
 		[app release];
-		
+dprintf("app release done...\n");
+
 		CloseLibrary(FreetypeBase);
 	}
 	

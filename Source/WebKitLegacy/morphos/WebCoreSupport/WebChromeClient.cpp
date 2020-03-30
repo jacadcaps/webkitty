@@ -292,24 +292,27 @@ KeyboardUIMode WebChromeClient::keyboardUIMode()
 void WebChromeClient::invalidateRootView(const IntRect& windowRect)
 {
     ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, false /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
+    m_webView->repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsAndRootView(const IntRect& windowRect)
 {
     ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
+    m_webView->repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 {
     ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect, true /*contentChanged*/, false /*immediate*/, true /*repaintContentOnly*/);
+    m_webView->repaint(windowRect);
 }
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
 {
-	notImplemented();
+/*dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
+	scrollViewRect.x(), scrollViewRect.y(), scrollViewRect.width(), scrollViewRect.height(),
+	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height()); */
+	m_webView->internalScroll(delta.width(), delta.height());
 }
 
 IntPoint WebChromeClient::accessibilityScreenToRootView(const WebCore::IntPoint& point) const
