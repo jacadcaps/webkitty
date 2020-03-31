@@ -195,6 +195,8 @@ public:
 
     void prefetchDNS(const String&) override;
 
+     bool allowScript(bool enabledPerSettings) override;
+
 private:
     WebFrame* m_webFrame;
 };

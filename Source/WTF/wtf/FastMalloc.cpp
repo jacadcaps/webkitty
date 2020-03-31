@@ -58,7 +58,7 @@
 #endif
 
 #if OS(MORPHOS)
-#include <stdlib.h>
+#include <cstdint>
 #endif
 
 namespace WTF {

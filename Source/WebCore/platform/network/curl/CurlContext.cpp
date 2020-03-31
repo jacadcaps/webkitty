@@ -46,24 +46,14 @@
 #endif
 
 #if OS(MORPHOS)
-namespace {
+#include <exec/libraries.h>
+#include <proto/exec.h>
 #include <ppcinline/macros.h>
-struct Library;
-extern struct Library *SocketBase;
+extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
                 struct timeval *timeout, ULONG *maskp);
-#define SOCKET_BASE_NAME SocketBase
-#define WaitSelect(__p0, __p1, __p2, __p3, __p4, __p5) \
-        LP6(126, LONG , WaitSelect, \
-                LONG , __p0, d0, \
-                fd_set *, __p1, a0, \
-                fd_set *, __p2, a1, \
-                fd_set *, __p3, a2, \
-                struct timeval *, __p4, a3, \
-                ULONG *, __p5, d1, \
-                , SOCKET_BASE_NAME, 0, 0, 0, 0, 0, 0)
-
-}
+void dprintf(const char *fmt, ... );
+};
 #endif
 
 namespace WebCore {
@@ -177,6 +167,7 @@ bool CurlContext::isHttp2Enabled() const
 
 CurlShareHandle::CurlShareHandle()
 {
+	dprintf(">> %s: %p\n", __PRETTY_FUNCTION__, FindTask(0));
     m_shareHandle = curl_share_init();
     curl_share_setopt(m_shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
     curl_share_setopt(m_shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
@@ -275,6 +266,11 @@ CURLMcode CurlMultiHandle::getFdSet(fd_set& readFdSet, fd_set& writeFdSet, fd_se
     return curl_multi_fdset(m_multiHandle, &readFdSet, &writeFdSet, &excFdSet, &maxFd);
 }
 
+CURLMcode CurlMultiHandle::getTimeout(long &timeout)
+{
+	return curl_multi_timeout(m_multiHandle, &timeout);
+}
+
 CURLMcode CurlMultiHandle::perform(int& runningHandles)
 {
     return curl_multi_perform(m_multiHandle, &runningHandles);
@@ -286,6 +282,76 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 }
 
 // CurlHandle -------------------------------------------------
+
+static
+void dump(const char *text, unsigned char *ptr, size_t size)
+{
+  size_t i;
+  size_t c;
+  unsigned int width=0x10;
+	
+  dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
+          text, (long)size, (long)size);
+	
+  for(i=0; i<size; i+= width) {
+    dprintf( "%4.4lx: ", (long)i);
+ 
+    /* show hex to the left */
+    for(c = 0; c < width; c++) {
+      if(i+c < size)
+        dprintf("%02x ", ptr[i+c]);
+      else
+        dprintf("   ");
+    }
+ 
+    /* show data on the right */
+    for(c = 0; (c < width) && (i+c < size); c++) {
+      char x = (ptr[i+c] >= 0x20 && ptr[i+c] < 0x80) ? ptr[i+c] : '.';
+      dprintf("%c", x);
+    }
+ 
+    dprintf("\n"); /* newline */
+  }
+}
+	
+static
+int my_trace(CURL *handle, curl_infotype type,
+             char *data, size_t size,
+             void *userp)
+{
+  const char *text;
+  (void)handle; /* prevent compiler warning */
+  (void)userp;
+	
+  switch (type) {
+  case CURLINFO_TEXT:
+    dprintf("== Info: %s", data);
+  default: /* in case a new one is introduced to shock us */
+    return 0;
+ 
+  case CURLINFO_HEADER_OUT:
+    text = "=> Send header";
+    break;
+  case CURLINFO_DATA_OUT:
+    text = "=> Send data";
+    break;
+  case CURLINFO_SSL_DATA_OUT:
+    text = "=> Send SSL data";
+    break;
+  case CURLINFO_HEADER_IN:
+    text = "<= Recv header";
+    break;
+  case CURLINFO_DATA_IN:
+    text = "<= Recv data";
+    break;
+  case CURLINFO_SSL_DATA_IN:
+    text = "<= Recv SSL data";
+    break;
+  }
+	
+  dump(text, (unsigned char *)data, size);
+  return 0;
+}
 
 CurlHandle::CurlHandle()
 {
@@ -305,6 +371,8 @@ CurlHandle::CurlHandle()
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
+//curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+//curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
 }
 
 CurlHandle::~CurlHandle()
@@ -913,6 +981,7 @@ void CurlHandle::enableStdErrIfUsed()
 CurlSocketHandle::CurlSocketHandle(const URL& url, Function<void(CURLcode)>&& errorHandler)
     : m_errorHandler(WTFMove(errorHandler))
 {
+	dprintf(">> %s: %p\n", __PRETTY_FUNCTION__, FindTask(0));
     // Libcurl is not responsible for the protocol handling. It just handles connection.
     // Only scheme, host and port is required.
     URL urlForConnection;
@@ -1007,7 +1076,8 @@ Optional<CurlSocketHandle::WaitResult> CurlSocketHandle::wait(const Seconds& tim
         FD_SET(socket, &fderr);
 
 #if OS(MORPHOS)
-	rc = WaitSelect(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout, NULL);
+	ULONG maskp = 0;
+	rc = WaitSelect(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout, &maskp);
 #else
         rc = ::select(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout);
 #endif

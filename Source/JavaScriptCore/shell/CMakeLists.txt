@@ -11,6 +11,12 @@ set(jsc_LIBRARIES
     WebKit::JavaScriptCore
 )
 
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(jsc_LIBRARIES $(jsc_LIBRARIES)
+        ${CMAKE_DL_LIBS}
+    )
+endif ()
+
 set(jsc_PRIVATE_INCLUDE_DIRECTORIES
     ${JavaScriptCore_INCLUDE_DIRECTORIES}
     ${JavaScriptCore_PRIVATE_INCLUDE_DIRECTORIES}

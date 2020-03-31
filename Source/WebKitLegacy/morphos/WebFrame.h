@@ -15,14 +15,20 @@ namespace WebCore {
     class Range;
 }
 
+#include <wtf/RefPtr.h>
+
 class WebView;
 
 class WebFrame
 {
 public:
     static WebFrame* createInstance(WebCore::Frame *frame, WebView *view);
+	static WTF::Ref<WebCore::Frame> createSubframeWithOwnerElement(WebView* webView, WebCore::Page* page, WebCore::HTMLFrameOwnerElement* ownerElement);
 
     WebCore::Frame* impl();
+    WebView *webView() const;
+
+	void frameLoaderDestroyed();
 
 protected:
     WebFrame(WebCore::Frame *frame, WebView *view);

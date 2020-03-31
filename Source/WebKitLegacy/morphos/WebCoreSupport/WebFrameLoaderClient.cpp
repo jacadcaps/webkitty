@@ -69,14 +69,23 @@ using namespace HTMLNames;
 WebFrameLoaderClient::WebFrameLoaderClient(WebFrame* webFrame)
     : m_webFrame(webFrame)
 {
+	printf("%s:%d. frame %p\n", __PRETTY_FUNCTION__, __LINE__, webFrame);
 }
 
 WebFrameLoaderClient::~WebFrameLoaderClient()
 {
+	printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 }
 
 void WebFrameLoaderClient::frameLoaderDestroyed()
 {
+	dprintf("%s:...\n", __PRETTY_FUNCTION__);
+	
+	if (m_webFrame)
+		m_webFrame->frameLoaderDestroyed();
+//    notImplemented();
+    //m_webFrame = nullptr; ??
+	delete this;
 }
 
 Optional<WebCore::PageIdentifier> WebFrameLoaderClient::pageID() const
@@ -97,7 +106,7 @@ PAL::SessionID WebFrameLoaderClient::sessionID() const
 
 bool WebFrameLoaderClient::hasWebView() const
 {
-    return false;//m_webFrame->webView();
+    return m_webFrame->webView();
 }
 
 void WebFrameLoaderClient::makeRepresentation(DocumentLoader*)
@@ -243,7 +252,7 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent>)
 void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading)
 {
 	notImplemented();
-	DumpTaskState(FindTask(0));
+//	DumpTaskState(FindTask(0));
 }
 
 void WebFrameLoaderClient::dispatchDidFailLoad(const ResourceError& error)
@@ -320,7 +329,7 @@ void WebFrameLoaderClient::setMainDocumentError(DocumentLoader*, const ResourceE
 {
 	WTF::StringView sv(error.localizedDescription());
 	dprintf("SMDE error %d %s\n", error.errorCode(), sv.utf8().data());
-	DumpTaskState(FindTask(0));
+	// DumpTaskState(FindTask(0));
 	notImplemented();
 }
 
@@ -551,7 +560,8 @@ void WebFrameLoaderClient::dispatchDidBecomeFrameset(bool)
 String WebFrameLoaderClient::userAgent(const URL& url)
 {
     //return m_webFrame->webView()->userAgentForKURL(url);
-    return String("DUpajasia");
+    //return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko)");
+    return String("Mozilla/5.0 (MorphOS; PowerPC 3.14) AppleWebKit/605.1.15 (KHTML, like Gecko) Chrome/78.0.3904.87 Version/13.1 Safari/605.1.15");
 }
 
 bool WebFrameLoaderClient::canCachePage() const
@@ -562,19 +572,24 @@ bool WebFrameLoaderClient::canCachePage() const
 RefPtr<Frame> WebFrameLoaderClient::createFrame(const URL& url, const String& name, HTMLFrameOwnerElement& ownerElement,
     const String& referrer)
 {
-	notImplemented();
-	return nullptr;
-#if 0
     Frame* coreFrame = core(m_webFrame);
     ASSERT(coreFrame);
 
-    COMPtr<WebFrame> webFrame(AdoptCOM, WebFrame::createInstance());
+dprintf("create frame, core %p\n", coreFrame);
 
-    RefPtr<Frame> childFrame = webFrame->createSubframeWithOwnerElement(m_webFrame->webView(), coreFrame->page(), &ownerElement);
+    RefPtr<WebCore::Frame> childFrame = WebFrame::createSubframeWithOwnerElement(m_webFrame->webView(), coreFrame->page(), &ownerElement);
+
+dprintf("create frame, child %p\n", childFrame);
 
     childFrame->tree().setName(name);
-    coreFrame->tree().appendChild(*childFrame);
+
+    ownerElement.document().frame()->tree().appendChild(*childFrame);
+
+//    coreFrame->tree().appendChild(*childFrame);
     childFrame->init();
+
+    if (!childFrame->page())
+        return nullptr;
 
     coreFrame->loader().loadURLIntoChildFrame(url, referrer, childFrame.get());
 
@@ -583,7 +598,6 @@ RefPtr<Frame> WebFrameLoaderClient::createFrame(const URL& url, const String& na
         return nullptr;
 
     return childFrame;
-#endif
 }
 
 ObjectContentType WebFrameLoaderClient::objectContentType(const URL& url, const String& mimeTypeIn)
@@ -657,4 +671,10 @@ void WebFrameLoaderClient::cancelPolicyCheck()
 void WebFrameLoaderClient::prefetchDNS(const String& hostname)
 {
     WebCore::prefetchDNS(hostname);
+}
+
+bool WebFrameLoaderClient::allowScript(bool enabledPerSettings)
+{
+	notImplemented();
+	return true;
 }

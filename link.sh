@@ -18,7 +18,7 @@
 /home/jaca/morphos/morphoswb/libs/freetype/library/lib/libfreetype.a \
 /home/jaca/morphos/gen/host/libnix/lib/libnghttp2.a \
 /home/jaca/morphos/lib/libjpeg/libjpeg.a \
-/home/jaca/morphos/gen/host/libnix/libpng16/lib/libpng.a  \
+/home/jaca/morphos/gen/host/libnix/lib/libpng.a  \
 /home/jaca/morphos/gen/host/libnix/lib/libhyphen.a \
 /home/jaca/morphos/gen/host/libnix/lib/libcrypto.a \
 /home/jaca/morphos/lib/libicu/instdir/lib/libicui18n.a \
@@ -27,5 +27,5 @@
 -lsyscall -lpthread \
 CMakeFiles/MiniBrowser.db.dir/minibrowser.mm.obj \
 -lob.framework -lmui.framework \
--lobjc -lc -lgcc
+-lobjc -lc -lgcc -lauto
 

@@ -27,12 +27,12 @@ static MUIString *address;
 
 - (void)test1
 {
-	[view navigateTo:@"file:///System:test.html"];
+	[view navigateTo:@"https://www.google.com"];
 }
 
 - (void)test2
 {
-	[view navigateTo:@"file:///System:Applications/OWB/Resource/about.html"];
+	[view navigateTo:@"https://www.whatsmybrowser.org"];
 }
 
 - (void)navigate
@@ -64,29 +64,35 @@ dprintf("instantiate webview..\n");
 			view = [[WkWebView new] autorelease];
 dprintf("webview %p\n", view);
 
-			MUIButton *test1, *test2;
+			MUIGroup *bug;
+			MUIButton *button;
 
 			win.rootObject = [MUIGroup groupWithObjects:
-				[MUIGroup horizontalGroupWithObjects:
-					address = [MUIString stringWithContents:@"file:///"],
-					test1 = [MUIButton buttonWithLabel:@"test1"],
-					test2 = [MUIButton buttonWithLabel:@"test2"],
+				bug = [MUIGroup horizontalGroupWithObjects:
+					address = [MUIString stringWithContents:@"https://"],
 					nil],
 				view, nil];
 			win.title = @"Test";
 			
 			[address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:app];
-			[test1 notify:@selector(pressed) trigger:NO performSelector:@selector(test1) withTarget:app];
-			[test2 notify:@selector(pressed) trigger:NO performSelector:@selector(test2) withTarget:app];
+			
+			#define ADDBUTTON(__title__, __address__) \
+				[bug addObject:button = [MUIButton buttonWithLabel:__title__]]; \
+				[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:view withObject:__address__];
+
+			ADDBUTTON(@"Ggle", @"https://www.google.com");
+			ADDBUTTON(@"WIMB", @"https://www.whatsmybrowser.org");
+			ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
+			ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 
 			[app instantiateWithWindows:win, nil];
 			[win autorelease];
 			win.open = YES;
-//			[view navigateTo:@"file:///System:test.html"];
-			[view navigateTo:@"file:///System:test.html"];
 
 			[app run];
-			
+
+dprintf("shutdown...\n");
+
 			[WkWebView shutdown];
 
 dprintf("exiting...\n");
@@ -100,6 +106,6 @@ dprintf("app release done...\n");
 
 		CloseLibrary(FreetypeBase);
 	}
-	
+dprintf("destructors be called next\n");
 	return 0;
 }

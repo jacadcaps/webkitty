@@ -167,6 +167,7 @@ public:
 
     CURLMcode getFdSet(fd_set&, fd_set&, fd_set&, int&);
     CURLMcode perform(int&);
+    CURLMcode getTimeout(long &timeout);
     CURLMsg* readInfo(int&);
 
 private:

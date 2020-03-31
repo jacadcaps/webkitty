@@ -509,9 +509,11 @@ set(WTF_PRIVATE_INCLUDE_DIRECTORIES
     "${WTF_DIR}/wtf/unicode"
 )
 
-set(WTF_LIBRARIES
-    ${CMAKE_DL_LIBS}
-)
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(WTF_LIBRARIES
+        ${CMAKE_DL_LIBS}
+    )
+endif ()
 
 if (NOT USE_SYSTEM_MALLOC)
     list(APPEND WTF_LIBRARIES WebKit::bmalloc)

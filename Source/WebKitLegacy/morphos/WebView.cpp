@@ -394,19 +394,22 @@ dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfigurat
 	m_page = new WebCore::Page(WTFMove(pageConfiguration));
 dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 
-    WebFrame* webFrame = WebFrame::createInstance(&m_page->mainFrame(), this);
-    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(webFrame);
-    m_mainFrame = webFrame;
-
-    //m_page->mainFrame().tree().setName(toString(frameName));
-    m_page->mainFrame().init();
-
 	WebCore::Settings& settings = m_page->settings();
 	settings.setJavaEnabled(true);
 	settings.setJavaEnabledForLocalFiles(true);
     settings.setAllowDisplayOfInsecureContent(true);
     settings.setAllowRunningOfInsecureContent(true);
     settings.setLoadsImagesAutomatically(true);
+    settings.setScriptEnabled(true);
+
+	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
+
+	WebFrame* webFrame = WebFrame::createInstance(&m_page->mainFrame(), this);
+    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(webFrame);
+    m_mainFrame = webFrame;
+
+    //m_page->mainFrame().tree().setName(toString(frameName));
+    m_page->mainFrame().init();
 }
 
 WebView::~WebView()

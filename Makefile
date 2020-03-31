@@ -71,14 +71,14 @@ configure: morphos.cmake CMakeLists.txt
 	rm -rf cross-build
 	mkdir cross-build
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
-		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_TOOLCHAIN_FILE=../morphos.cmake -DCMAKE_BUILD_TYPE=Release \
+		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DUSE_SYSTEM_MALLOC=YES -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
 		-DLIBXML2_INCLUDE_DIR=$(LIB)/libxml2/instdir/include/libxml2/ \
-		-DPNG_LIBRARY=$(GEN)/libpng16/lib/libpng.a \
-		-DPNG_INCLUDE_DIR=$(GEN)/libpng16/include \
+		-DPNG_LIBRARY=$(GEN)/lib/libpng.a \
+		-DPNG_INCLUDE_DIR=$(GEN)/include \
 		-DLIBXSLT_LIBRARIES=$(LIB)/libxslt/instdir/lib/libxslt.a \
 		-DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
 		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib/libsqlite3.a \

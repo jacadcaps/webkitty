@@ -47,7 +47,7 @@ int ScrollbarThemeMorphOS::scrollbarThickness(ScrollbarControlSize, ScrollbarExp
 bool ScrollbarThemeMorphOS::hasButtons(Scrollbar&)
 {
     notImplemented();
-    return true;
+    return false;
 }
 
 bool ScrollbarThemeMorphOS::hasThumb(Scrollbar&)

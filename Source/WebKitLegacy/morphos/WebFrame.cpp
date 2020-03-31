@@ -46,6 +46,8 @@
 #include <WebCore/VisibleUnits.h>
 #include <WebCore/markup.h>
 
+#include "WebCoreSupport/WebFrameLoaderClient.h"
+
 WebCore::Frame* core(WebFrame *webFrame)
 {
 	if (webFrame)
@@ -75,6 +77,16 @@ WebFrame* WebFrame::createInstance(WebCore::Frame *frame, WebView *view)
     return instance;
 }
 
+WTF::Ref<WebCore::Frame> WebFrame::createSubframeWithOwnerElement(WebView* view, WebCore::Page* page, WebCore::HTMLFrameOwnerElement* ownerElement)
+{
+    WebFrame* instance = new WebFrame(nullptr, view);
+
+    auto coreFrame = WebCore::Frame::create(page, ownerElement, new WebFrameLoaderClient(instance));
+	instance->_private->frame = coreFrame.ptr();
+
+	return coreFrame;
+}
+
 WebFrame::WebFrame(WebCore::Frame *frame, WebView *view)
 {
 	printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
@@ -89,10 +101,23 @@ WebFrame::WebFrame(WebCore::Frame *frame, WebView *view)
 
 WebFrame::~WebFrame()
 {
+	printf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	delete _private;
+}
+
+WebView *WebFrame::webView() const
+{
+	return _private->webView;
 }
 
 WebCore::Frame* WebFrame::impl()
 {
 	return _private->frame;
+}
+
+void WebFrame::frameLoaderDestroyed()
+{
+    // The FrameLoader going away is equivalent to the Frame going away,
+    // so we now need to clear our frame pointer.
+    _private->frame = nullptr;
 }
