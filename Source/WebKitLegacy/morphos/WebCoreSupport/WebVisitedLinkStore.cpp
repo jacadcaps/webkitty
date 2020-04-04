@@ -35,6 +35,8 @@
 
 using namespace WebCore;
 
+namespace WebKit {
+
 static bool s_shouldTrackVisitedLinks;
 
 static HashSet<WebVisitedLinkStore*>& visitedLinkStores()
@@ -138,3 +140,6 @@ void WebVisitedLinkStore::removeVisitedLinkHashes()
 
     invalidateStylesForAllLinks();
 }
+
+}
+

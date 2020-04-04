@@ -24,11 +24,14 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
 
 list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WebFrame.cpp
-    morphos/WebView.cpp
+    morphos/WebPage.cpp
+    morphos/WebProcess.cpp
     morphos/BackForwardClient.cpp
     morphos/WebApplicationCache.cpp
     morphos/storage/WebDatabaseProvider.cpp
     morphos/WkWebView.mm
+    morphos/WebDocumentLoader.cpp
+    morphos/CacheModel.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -41,6 +44,8 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebFrameLoaderClient.cpp
     morphos/WebCoreSupport/WebFrameNetworkingContext.cpp
     morphos/WebCoreSupport/WebContextMenuClient.cpp
+    morphos/WebCoreSupport/WebPageGroup.cpp
+    morphos/WebCoreSupport/WebProgressTrackerClient.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})

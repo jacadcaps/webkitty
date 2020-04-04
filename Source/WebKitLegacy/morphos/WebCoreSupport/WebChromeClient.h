@@ -32,13 +32,19 @@
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
 
-class WebView;
+namespace WebKit {
+
+class WebPage;
 class WebDesktopNotificationsDelegate;
 
 class WebChromeClient final : public WebCore::ChromeClient {
 public:
-    WebChromeClient(WebView*);
+    WebChromeClient(WebKit::WebPage&);
 
+    WebPage* webPage() const { return &m_webPage; }
+    WebPage& page() const { return m_webPage; }
+
+protected:
     void chromeDestroyed() final;
 
     void setWindowRect(const WebCore::FloatRect&) final;
@@ -146,8 +152,6 @@ public:
 
     void wheelEventHandlersChanged(bool) final { }
 
-    WebView* webView() { return m_webView; }
-
     bool shouldUseTiledBackingForFrameView(const WebCore::FrameView&) const final;
 
     RefPtr<WebCore::Icon> createIconForFiles(const Vector<String>&) final;
@@ -155,9 +159,12 @@ public:
     void didFinishLoadingImageForElement(WebCore::HTMLImageElement&) final;
 
 private:
-    WebView* m_webView;
+    WebPage& m_webPage;
 
 #if ENABLE(NOTIFICATIONS)
     std::unique_ptr<WebDesktopNotificationsDelegate> m_notificationsDelegate;
 #endif
 };
+
+}
+

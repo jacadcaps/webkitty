@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,32 +22,19 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include <WebCore/ResourceRequest.h>
+#include <WebCore/SecurityOriginData.h>
 
 namespace WebKit {
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
-public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
-
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
-
-private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
-
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+struct FrameInfoData {
+    bool isMainFrame { false };
+    WebCore::ResourceRequest request;
+    WebCore::SecurityOriginData securityOrigin;
+    uint64_t frameID { 0 };
 };
 
 }
-

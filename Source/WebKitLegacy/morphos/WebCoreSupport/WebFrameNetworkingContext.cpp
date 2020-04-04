@@ -26,7 +26,6 @@
 #include "WebFrameNetworkingContext.h"
 
 #include "NetworkStorageSessionMap.h"
-#include "WebView.h"
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/NetworkStorageSession.h>
@@ -36,6 +35,8 @@
 #include <wtf/NeverDestroyed.h>
 
 using namespace WebCore;
+
+namespace WebKit {
 
 static String& identifierBase()
 {
@@ -74,4 +75,6 @@ NetworkStorageSession* WebFrameNetworkingContext::storageSession() const
         return NetworkStorageSessionMap::storageSession(PAL::SessionID::legacyPrivateSessionID());
 
     return &NetworkStorageSessionMap::defaultStorageSession();
+}
+
 }

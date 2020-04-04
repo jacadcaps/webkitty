@@ -87,6 +87,8 @@
 #include <WebCore/PlatformEvent.h>
 #include <WebCore/PlatformKeyboardEvent.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+#include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/UserInputBridge.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -101,29 +103,31 @@
 #include <wtf/URLHelpers.h>
 #include <wtf/RunLoop.h>
 
-#include "WebView.h"
+#include "WebPage.h"
 #include "WebFrame.h"
 #include "../../WebCoreSupport/PageStorageSessionProvider.h"
 #include "WebCoreSupport/WebEditorClient.h"
 #include "WebCoreSupport/WebChromeClient.h"
 #include "WebCoreSupport/WebPluginInfoProvider.h"
-#include "../../WebCoreSupport/WebViewGroup.h"
+#include "WebCoreSupport/WebPageGroup.h"
 #include "BackForwardClient.h"
 #include <WebCoreSupport/WebVisitedLinkStore.h>
 #include "WebCoreSupport/WebPlatformStrategies.h"
 #include "WebCoreSupport/WebInspectorClient.h"
 #include "WebCoreSupport/WebFrameLoaderClient.h"
 #include "WebCoreSupport/WebContextMenuClient.h"
+#include "WebCoreSupport/WebProgressTrackerClient.h"
 #include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
+#include "WebDocumentLoader.h"
 
 #include <cairo.h>
 
 #include <utility>
 #include <cstdio>
-using namespace std;
 
 #include <proto/graphics.h>
+#include <proto/exec.h>
 #include <proto/cybergraphics.h>
 #include <cybergraphx/cybergraphics.h>
 #include <intuition/intuition.h>
@@ -134,6 +138,11 @@ using namespace std;
 extern "C" {
 	void dprintf(const char *, ...);
 };
+
+using namespace std;
+using namespace WebCore;
+
+namespace WebKit {
 
 class WebViewDrawContext
 {
@@ -181,6 +190,11 @@ public:
 		}
 	}
 	
+	void invalidate()
+	{
+		m_needsRepaint = true;
+	}
+	
 	void setScroll(const int sX, const int sY)
 	{
 		m_scrollX = sX;
@@ -219,6 +233,8 @@ public:
 		else if (m_hasDamage)
 		{
 			WebCore::GraphicsContext gc(m_platformContext);
+			
+			m_damage.intersect({ 0, 0, m_width, m_height });
 			
 			WebCore::IntRect ir(m_scrollX + m_damage.x(), m_scrollY + m_damage.y(), m_damage.width(), m_damage.height());
 			WebCore::FloatRect fr(m_damage.x(), m_damage.y(), m_damage.width(), m_damage.height());
@@ -306,10 +322,10 @@ private:
 
 };
 
-WebCore::Page* core(WebView *webView)
+WebCore::Page* core(WebPage *webpage)
 {
-	if (webView)
-    	return webView->page();
+	if (webpage)
+    	return webpage->corePage();
 	return nullptr;
 }
 
@@ -323,23 +339,26 @@ const WebCore::Frame& mainframe(const WebCore::Page& page)
 	return page.mainFrame();
 }
 
-WebView *kit(WebCore::Page* page)
+WebPage *kit(WebCore::Page* page)
 {
-    if (!page)
-        return nullptr;
-
-	WebEditorClient &editorClient = static_cast<WebEditorClient &>(page->editorClient());
-    return editorClient.webView();
+	return WebPage::fromCorePage(page);
 }
 
-WebView::WebView()
+Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
+{
+    Ref<WebPage> page = adoptRef(*new WebPage(pageID, WTFMove(parameters)));
+    return page;
+}
+
+WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
+	: m_pageID(pageID)
 {
 dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
     JSC::initializeThreading();
     RunLoop::initializeMainRunLoop();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
 
-	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
+//	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
 
 dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 
@@ -362,7 +381,7 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
         didOneTimeInitialization = true;
      }
 
-	m_webViewGroup = WebViewGroup::getOrCreate("test", "T:");
+	m_webPageGroup = WebPageGroup::getOrCreate("test", "T:");
 
 	auto storageProvider = PageStorageSessionProvider::create();
 dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
@@ -375,13 +394,13 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
         WebCore::CookieJar::create(storageProvider.copyRef())
         );
 
-	pageConfiguration.chromeClient = new WebChromeClient(this);
+	pageConfiguration.chromeClient = new WebChromeClient(*this);
 	pageConfiguration.inspectorClient = new WebInspectorClient(this);
     pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient;
-    pageConfiguration.progressTrackerClient = static_cast<WebFrameLoaderClient*>(pageConfiguration.loaderClientForMainFrame);
-    pageConfiguration.storageNamespaceProvider = &m_webViewGroup->storageNamespaceProvider();
-    pageConfiguration.userContentProvider = &m_webViewGroup->userContentController();
-    pageConfiguration.visitedLinkStore = &m_webViewGroup->visitedLinkStore();
+    pageConfiguration.progressTrackerClient = new WebProgressTrackerClient(*this);
+    pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
+    pageConfiguration.userContentProvider = &m_webPageGroup->userContentController();
+    pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
     pageConfiguration.pluginInfoProvider = &WebPluginInfoProvider::singleton();
     pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
@@ -391,7 +410,8 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 
 dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
-	m_page = new WebCore::Page(WTFMove(pageConfiguration));
+	m_page = std::make_unique<WebCore::Page>(WTFMove(pageConfiguration));
+
 dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 
 	WebCore::Settings& settings = m_page->settings();
@@ -402,53 +422,287 @@ dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
 
+dprintf("ACc %d %d\n", settings.acceleratedCompositingEnabled(), settings.acceleratedDrawingEnabled(),
+	settings.acceleratedCompositedAnimationsEnabled());
+	settings.setAcceleratedCompositingEnabled(false);
+
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
 
-	WebFrame* webFrame = WebFrame::createInstance(&m_page->mainFrame(), this);
-    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(webFrame);
-    m_mainFrame = webFrame;
+    m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
+    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
 
-    //m_page->mainFrame().tree().setName(toString(frameName));
-    m_page->mainFrame().init();
+//    m_page->mainFrame().tree().setName(toString("frameName"));
+//    m_page->mainFrame().init();
+
+    m_page->layoutIfNeeded();
+	
+    m_page->setIsVisible(true);
+    m_page->setIsInWindow(true);
+	m_page->setActivityState(ActivityState::WindowIsActive);
+
+//    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
 }
 
-WebView::~WebView()
+WebPage::~WebPage()
 {
+	dprintf("!!!! %s\n", __PRETTY_FUNCTION__);
 	delete m_drawContext;
-	delete m_page;
 }
 
-void WebView::shutdown()
+WebCore::Page *WebPage::corePage()
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+	return m_page.get();
 }
 
-WebCore::Page *WebView::page()
+WebPage* WebPage::fromCorePage(WebCore::Page* page)
 {
-	return m_page;
+    return &static_cast<WebChromeClient&>(page->chrome().client()).page();
 }
 
-void WebView::go(const char *url)
+void WebPage::go(const char *url)
 {
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
 	WebCore::ResourceRequest req(baseCoreURL);
 
-    auto* coreFrame = core(m_mainFrame);
-	
-//	dprintf("go to %s, %s...\n", wurl.protocol().utf8().data(), wurl.host().utf8().data());
-    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow));
+    auto* coreFrame = m_mainFrame->coreFrame();
+
+	corePage()->userInputBridge().stopLoadingFrame(coreFrame);
+	GCController::singleton().garbageCollectNow();
+//	coreFrame->loader().cancelAndClear();
+
+dprintf("GO >> mf %p cf %p corepage %p\n",m_mainFrame.get(), coreFrame, corePage());
+	WebCore::FrameLoadRequest request(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+	request.setIsRequestFromClientOrUserInput();
+	corePage()->userInputBridge().loadRequest(WTFMove(request));
+
+//    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow));
 }
 
-void WebView::repaint(const WebCore::IntRect& rect)
+Frame* WebPage::mainFrame() const
+{
+    return m_page ? &m_page->mainFrame() : nullptr;
+}
+
+FrameView* WebPage::mainFrameView() const
+{
+    if (Frame* frame = mainFrame())
+        return frame->view();
+	
+    return nullptr;
+}
+
+PAL::SessionID WebPage::sessionID() const
+{
+	return m_page->sessionID();
+}
+
+void WebPage::addResourceRequest(unsigned long identifier, const WebCore::ResourceRequest& request)
+{
+    if (!request.url().protocolIsInHTTPFamily())
+        return;
+
+    if (m_mainFrameProgressCompleted)
+        return;
+
+    ASSERT(!m_trackedNetworkResourceRequestIdentifiers.contains(identifier));
+    bool wasEmpty = m_trackedNetworkResourceRequestIdentifiers.isEmpty();
+    m_trackedNetworkResourceRequestIdentifiers.add(identifier);
+//    if (wasEmpty)
+//        send(Messages::WebPageProxy::SetNetworkRequestsInProgress(true));
+}
+
+void WebPage::removeResourceRequest(unsigned long identifier)
+{
+    if (!m_trackedNetworkResourceRequestIdentifiers.remove(identifier))
+        return;
+
+  //  if (m_trackedNetworkResourceRequestIdentifiers.isEmpty())
+  //      send(Messages::WebPageProxy::SetNetworkRequestsInProgress(false));
+}
+void WebPage::didStartPageTransition()
+{
+}
+
+void WebPage::didCompletePageTransition()
+{
+}
+
+void WebPage::didCommitLoad(WebFrame* frame)
+{
+//    resetFocusedElementForFrame(frame);
+
+    if (!frame->isMainFrame())
+        return;
+
+#if 0
+    // If previous URL is invalid, then it's not a real page that's being navigated away from.
+    // Most likely, this is actually the first load to be committed in this page.
+    if (frame->coreFrame()->loader().previousURL().isValid())
+        reportUsedFeatures();
+#endif
+
+    // Only restore the scale factor for standard frame loads (of the main frame).
+    if (frame->coreFrame()->loader().loadType() == WebCore::FrameLoadType::Standard) {
+        Page* page = frame->coreFrame()->page();
+
+        if (page && page->pageScaleFactor() != 1)
+            scalePage(1, IntPoint());
+    }
+
+#if 0
+#if ENABLE(VIEWPORT_RESIZING)
+    m_shrinkToFitContentTimer.stop();
+#endif
+
+#if ENABLE(TEXT_AUTOSIZING)
+    m_textAutoSizingAdjustmentTimer.stop();
+#endif
+
+    WebProcess::singleton().updateActivePages();
+
+    updateMainFrameScrollOffsetPinning();
+
+    updateMockAccessibilityElementAfterCommittingLoad();
+#endif
+}
+
+void WebPage::didFinishDocumentLoad(WebFrame& frame)
+{
+    if (!frame.isMainFrame())
+        return;
+	
+//	corePage()->resumeActiveDOMObjectsAndAnimations();
+
+#if ENABLE(VIEWPORT_RESIZING) && 0
+    scheduleShrinkToFitContent();
+#endif
+}
+
+void WebPage::didFinishLoad(WebFrame& frame)
+{
+    if (!frame.isMainFrame())
+        return;
+
+#if ENABLE(VIEWPORT_RESIZING) && 0
+    scheduleShrinkToFitContent();
+#endif
+}
+
+Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, const ResourceRequest& request, const SubstituteData& substituteData)
+{
+    Ref<WebDocumentLoader> documentLoader = WebDocumentLoader::create(request, substituteData);
+
+    if (frame.isMainFrame()) {
+        if (m_pendingNavigationID) {
+            documentLoader->setNavigationID(m_pendingNavigationID);
+            m_pendingNavigationID = 0;
+        }
+
+#if 0
+        if (m_pendingWebsitePolicies) {
+            WebsitePoliciesData::applyToDocumentLoader(WTFMove(*m_pendingWebsitePolicies), documentLoader);
+            m_pendingWebsitePolicies = WTF::nullopt;
+        }
+#endif
+    }
+
+    return documentLoader;
+}
+
+void WebPage::updateCachedDocumentLoader(WebDocumentLoader& documentLoader, Frame& frame)
+{
+    if (m_pendingNavigationID && frame.isMainFrame()) {
+        documentLoader.setNavigationID(m_pendingNavigationID);
+        m_pendingNavigationID = 0;
+    }
+}
+
+WebCore::IntSize WebPage::size() const
 {
 	if (m_drawContext)
-		m_drawContext->invalidate(rect);
+		return WebCore::IntSize(m_drawContext->width(), m_drawContext->height());
+	return WebCore::IntSize();
+}
+
+double WebPage::totalScaleFactor() const
+{
+    return m_page->pageScaleFactor();
+}
+
+double WebPage::pageScaleFactor() const
+{
+    return totalScaleFactor() / viewScaleFactor();
+}
+
+double WebPage::viewScaleFactor() const
+{
+    return m_page->viewScaleFactor();
+}
+
+void WebPage::scalePage(double scale, const IntPoint& origin)
+{
+    double totalScale = scale * viewScaleFactor();
+    bool willChangeScaleFactor = totalScale != totalScaleFactor();
+
+    m_page->setPageScaleFactor(totalScale, origin);
+
+    // We can't early return before setPageScaleFactor because the origin might be different.
+    if (!willChangeScaleFactor)
+        return;
+
+	if (m_drawContext)
+		m_drawContext->invalidate();
 
 	if (_fInvalidate)
 		_fInvalidate();
 }
 
-void WebView::internalScroll(int scrollX, int scrollY)
+void WebPage::setAlwaysShowsHorizontalScroller(bool alwaysShowsHorizontalScroller)
+{
+    if (alwaysShowsHorizontalScroller == m_alwaysShowsHorizontalScroller)
+        return;
+
+    m_alwaysShowsHorizontalScroller = alwaysShowsHorizontalScroller;
+    auto view = corePage()->mainFrame().view();
+    if (!alwaysShowsHorizontalScroller)
+        view->setHorizontalScrollbarLock(false);
+    view->setHorizontalScrollbarMode(alwaysShowsHorizontalScroller ? ScrollbarAlwaysOn : m_mainFrameIsScrollable ? ScrollbarAuto : ScrollbarAlwaysOff, alwaysShowsHorizontalScroller || !m_mainFrameIsScrollable);
+}
+
+void WebPage::setAlwaysShowsVerticalScroller(bool alwaysShowsVerticalScroller)
+{
+    if (alwaysShowsVerticalScroller == m_alwaysShowsVerticalScroller)
+        return;
+
+    m_alwaysShowsVerticalScroller = alwaysShowsVerticalScroller;
+    auto view = corePage()->mainFrame().view();
+    if (!alwaysShowsVerticalScroller)
+        view->setVerticalScrollbarLock(false);
+    view->setVerticalScrollbarMode(alwaysShowsVerticalScroller ? ScrollbarAlwaysOn : m_mainFrameIsScrollable ? ScrollbarAuto : ScrollbarAlwaysOff, alwaysShowsVerticalScroller || !m_mainFrameIsScrollable);
+}
+
+void WebPage::repaint(const WebCore::IntRect& rect)
+{
+	WebCore::IntRect realRect(0, 0, m_drawContext->width(), m_drawContext->height());
+	realRect.intersect(rect);
+
+	if (rect.x() < 0)
+	DumpTaskState(FindTask(0));
+
+#if 0
+	dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, rect.x(), rect.y(), rect.width(), rect.height());
+	dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, realRect.x(), realRect.y(),
+		realRect.width(), realRect.height());
+#endif
+
+	if (m_drawContext)
+		m_drawContext->invalidate(realRect);
+
+	if (_fInvalidate)
+		_fInvalidate();
+}
+
+void WebPage::internalScroll(int scrollX, int scrollY)
 {
 	if (m_drawContext)
 	{
@@ -465,29 +719,29 @@ dprintf("%s: by %d %d to %d %d\n", __PRETTY_FUNCTION__, scrollX, scrollY, sx, sy
 	}
 }
 
-void WebView::documentSizeChanged(int width, int height)
+void WebPage::documentSizeChanged(int width, int height)
 {
 	if (_setDocumentSize)
 		_setDocumentSize(width, height);
 }
 
-void WebView::closeWindow()
+void WebPage::closeWindow()
 {
 
 }
 
-void WebView::closeWindowSoon()
+void WebPage::closeWindowSoon()
 {
 	delete m_drawContext;
 	m_drawContext = nullptr;
 }
 
-void WebView::closeWindowTimerFired()
+void WebPage::closeWindowTimerFired()
 {
 
 }
 
-void WebView::setVisibleSize(const int width, const int height)
+void WebPage::setVisibleSize(const int width, const int height)
 {
 	bool resized = false;
 	if (nullptr == m_drawContext)
@@ -502,32 +756,51 @@ void WebView::setVisibleSize(const int width, const int height)
 
 	if (resized)
 	{
-		auto* coreFrame = core(m_mainFrame);
-		if (coreFrame)
+dprintf("resize to %d %d\n", width, height);
+
+  		auto* coreFrame = m_mainFrame->coreFrame();
+		coreFrame->view()->resize(width, height);
+
+//		corePage()->mainFrame().view()->enableAutoSizeMode(true, { width, height });
+#if 0
+		WebCore::FrameView* view = m_page->mainFrame().view();
+		if (view)
+		{
+			view->resize(width, height);
+		}
+
+  		auto* coreFrame = m_mainFrame->coreFrame();
+
+		if (coreFrame && coreFrame->view())
 		{
 			WebCore::FloatSize logicalSize(width, height);
 			auto clientRect = enclosingIntRect(WebCore::FloatRect(WebCore::FloatPoint(), logicalSize));
 			coreFrame->view()->resize(clientRect.size());
 		}
+#endif
 	}
 }
 
-void WebView::setScroll(const int x, const int y)
+void WebPage::setScroll(const int x, const int y)
 {
 	if (m_drawContext)
 		m_drawContext->setScroll(x, y);
 }
 
-void WebView::draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode)
+void WebPage::draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode)
 {
-	auto* coreFrame = core(m_mainFrame);
+	auto* coreFrame = m_mainFrame->coreFrame();
 	if (!coreFrame || !m_drawContext)
 		return;
-
     WebCore::FrameView* frameView = coreFrame->view();
-	frameView->updateLayoutAndStyleIfNeededRecursive();
+    if (!frameView)
+    	return;
 
-//dprintf("draw to %p at %d %d : %dx%d\n", rp, x,y, width, height);
+	frameView->updateLayoutAndStyleIfNeededRecursive();
+	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
+	IntSize s = frameView->autoSizingIntrinsicContentSize();
+
+//	dprintf("draw to %p at %d %d : %dx%d, %d %d\n", rp, x,y, width, height, s.width(), s.height());
 
 	m_drawContext->draw(frameView, rp, x, y, width, height, updateMode);
 }
@@ -569,7 +842,7 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
-bool WebView::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside)
+bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside)
 {
 	switch (imsg->Class)
 	{
@@ -654,7 +927,5 @@ bool WebView::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 	return false;
 }
 
-void WebView::handleRunLoop()
-{
-	WTF::RunLoop::iterate();
 }
+

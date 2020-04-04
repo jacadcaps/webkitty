@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,32 +22,53 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include "WebKit.h"
+#include "WebProgressTrackerClient.h"
+
+#include "WebPage.h"
+#include <WebCore/Frame.h>
+#include <WebCore/Page.h>
+#include <WebCore/ProgressTracker.h>
 
 namespace WebKit {
+using namespace WebCore;
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
-public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
+WebProgressTrackerClient::WebProgressTrackerClient(WebPage& webPage)
+    : m_webPage(webPage)
+{
+}
+    
+void WebProgressTrackerClient::progressTrackerDestroyed()
+{
+    delete this;
+}
+    
+void WebProgressTrackerClient::progressStarted(Frame& originatingProgressFrame)
+{
+    if (!originatingProgressFrame.isMainFrame())
+        return;
 
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
-
-private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
-
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
-};
-
+//    m_webPage.setMainFrameProgressCompleted(false);
+//    m_webPage.send(Messages::WebPageProxy::DidStartProgress());
 }
 
+void WebProgressTrackerClient::progressEstimateChanged(Frame& originatingProgressFrame)
+{
+    if (!originatingProgressFrame.isMainFrame())
+        return;
+    
+    double progress = m_webPage.corePage()->progress().estimatedProgress();
+//    m_webPage.send(Messages::WebPageProxy::DidChangeProgress(progress));
+}
+
+void WebProgressTrackerClient::progressFinished(Frame& originatingProgressFrame)
+{
+    if (!originatingProgressFrame.isMainFrame())
+        return;
+
+//    m_webPage.setMainFrameProgressCompleted(true);
+//    m_webPage.send(Messages::WebPageProxy::DidFinishProgress());
+}
+
+} // namespace WebKit

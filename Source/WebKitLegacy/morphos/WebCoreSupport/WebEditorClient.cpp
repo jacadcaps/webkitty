@@ -24,7 +24,7 @@
  */
 
 #include "WebEditorClient.h"
-#include "WebView.h"
+#include "WebPage.h"
 #include <WebCore/Document.h>
 #include <WebCore/HTMLElement.h>
 #include <WebCore/HTMLInputElement.h>
@@ -46,8 +46,10 @@ using namespace HTMLNames;
 
 // WebEditorClient ------------------------------------------------------------------
 
-WebEditorClient::WebEditorClient(WebView* webView)
-    : m_webView(webView)
+namespace WebKit {
+
+WebEditorClient::WebEditorClient(WebPage* webPage)
+    : m_webPage(webPage)
     , m_undoTarget(0)
 {
 //    m_undoTarget = new WebEditorUndoTarget();
@@ -111,7 +113,7 @@ void WebEditorClient::respondToChangedContents()
 
 void WebEditorClient::respondToChangedSelection(Frame*)
 {
-//    m_webView->selectionChanged();
+//    m_webPage->selectionChanged();
     notImplemented();
 }
 
@@ -188,7 +190,7 @@ bool WebEditorClient::shouldMoveRangeAfterDelete(Range*, Range*)
 
 bool WebEditorClient::smartInsertDeleteEnabled(void)
 {
-    Page* page = m_webView->page();
+    Page* page = m_webPage->corePage();
     if (!page)
         return false;
     return page->settings().smartInsertDeleteEnabled();
@@ -196,7 +198,7 @@ bool WebEditorClient::smartInsertDeleteEnabled(void)
 
 bool WebEditorClient::isSelectTrailingWhitespaceEnabled(void) const
 {
-    Page* page = m_webView->page();
+    Page* page = m_webPage->corePage();
     if (!page)
         return false;
     return page->settings().selectTrailingWhitespaceEnabled();
@@ -367,7 +369,7 @@ void WebEditorClient::registerUndoStep(UndoStep& step)
 	notImplemented();
 #if 0
     IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
+    if (SUCCEEDED(m_webPage->uiDelegate(&uiDelegate))) {
         String actionName = undoNameForEditAction(step.editingAction());
         WebEditorUndoCommand* undoCommand = new WebEditorUndoCommand(step, true);
         if (!undoCommand)
@@ -386,7 +388,7 @@ void WebEditorClient::registerRedoStep(UndoStep& step)
 	notImplemented();
 #if 0
     IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webView->uiDelegate(&uiDelegate))) {
+    if (SUCCEEDED(m_webPage->uiDelegate(&uiDelegate))) {
         WebEditorUndoCommand* undoCommand = new WebEditorUndoCommand(step, false);
         if (!undoCommand)
             return;
@@ -437,7 +439,7 @@ void WebEditorClient::redo()
 void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)
 {
 	notImplemented();
-//    if (m_webView->handleEditingKeyboardEvent(event))
+//    if (m_webPage->handleEditingKeyboardEvent(event))
 //        event.setDefaultHandled();
 }
 
@@ -515,3 +517,6 @@ void WebEditorClient::willSetInputMethodState()
 void WebEditorClient::setInputMethodState(bool enabled)
 {
 }
+
+}
+

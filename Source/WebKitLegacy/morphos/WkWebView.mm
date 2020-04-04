@@ -1,9 +1,13 @@
+#undef __OBJC__
+#import "WebPage.h"
+#import "WebProcess.h"
+#define __OBJC__
+
 #import <ob/OBFramework.h>
 #import <mui/MUIFramework.h>
 
 #import "WkWebView.h"
 #import "WebViewDelegate.h"
-#import "WebView.h"
 
 #import <proto/dos.h>
 #import <cairo.h>
@@ -18,60 +22,132 @@ extern "C" { void dprintf(const char *, ...); }
 
 @end
 
+@interface WkWebViewPrivate : OBObject
+{
+	WTF::RefPtr<WebKit::WebPage> _page;
+}
+@end
+
+@implementation WkWebViewPrivate
+
+- (void)setPage:(WebKit::WebPage *)page
+{
+	_page = page;
+}
+
+- (WebKit::WebPage *)page
+{
+	return _page.get();
+}
+
+@end
+
 @implementation WkWebView
 
 static int _viewInstanceCount;
 static bool _shutdown;
-static OBScheduledTimer *_timer;
+static bool _wasInstantiatedOnce;
+static OBSignalHandler *_signalHandler;
+
++ (void)performWithSignalHandler:(OBSignalHandler *)handler
+{
+	if (_signalHandler == handler)
+	{
+		static const uint32_t mask = uint32_t(1UL << [handler sigBit]);
+		WebKit::WebProcess::singleton().handleSignals(mask);
+	}
+}
 
 + (void)fire
 {
-	WebView::handleRunLoop();
+	[self performWithSignalHandler:_signalHandler];
 }
 
 + (void)shutdown
 {
+	if (!_shutdown && 0 == _viewInstanceCount)
+	{
+		[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
+		[_signalHandler release];
+		WebKit::WebProcess::singleton().terminate();
+	}
+
 	_shutdown = YES;
-	if (0 == _viewInstanceCount)
-		WebView::shutdown();
 }
 
 - (id)init
 {
 	if ((self = [super init]))
 	{
+		if (_shutdown)
+		{
+			[self release];
+			return nil;
+		}
+	
 		@synchronized ([WkWebView class])
 		{
 			_viewInstanceCount ++;
 
-			if (1 == _viewInstanceCount)
+			if (!_wasInstantiatedOnce)
 			{
-				// MUST be done before 1st WebView is instantiated!
+				// MUST be done before 1st WebPage is instantiated!
 				cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
 				if (dummysurface)
 					cairo_surface_destroy(dummysurface);
 				
-				_timer = [[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES runLoop:[OBRunLoop mainRunLoop]] retain];
+				_signalHandler = [OBSignalHandler new];
+				[_signalHandler setDelegate:(id)[self class]];
+				[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
+				
+				[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES];
+				
+				WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
+				
+				_wasInstantiatedOnce = true;
 			}
 		}
 
 		self.fillArea = NO;
 		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_RAWKEY | IDCMP_MOUSEHOVER;
 
+		_private = [WkWebViewPrivate new];
+		if (!_private)
+		{
+			[self release];
+			return nil;
+		}
+
 		try {
-			_webView = new WebView();
+			auto webProcess = WebKit::WebProcess::singleton();
+			auto identifier = WebCore::PageIdentifier::generate();
 
-			_webView->_fInvalidate = [self]() { [self invalidated]; };
+			WebKit::WebPageCreationParameters parameters;
+			webProcess.createWebPage(identifier, WTFMove(parameters));
+    		[_private setPage:webProcess.webPage(identifier)];
 
-			_webView->_setDocumentSize = [self](int width, int height) {
+			if (![_private page])
+			{
+				[self release];
+				return nil;
+			}
+			
+			auto webPage = [_private page];
+
+			webPage->_fInvalidate = [self]() { [self invalidated]; };
+
+			webPage->_setDocumentSize = [self](int width, int height) {
 				[self setDocumentWidth:width height:height];
 			};
 			
-			_webView->_fScroll = [self](int x, int y) {
+			webPage->_fScroll = [self](int x, int y) {
 				[self scrollToX:x y:y];
 			};
 
+dprintf("done, webpage %p, %p\n", webPage, webProcess.webPage(identifier));
+
 		} catch (...) {
+dprintf("kill me\n");
 			[self release];
 			return nil;
 		}
@@ -85,23 +161,14 @@ static OBScheduledTimer *_timer;
 	@synchronized ([WkWebView class])
 	{
 		_viewInstanceCount --;
-		
-		if (0 == _viewInstanceCount)
-		{
-			[_timer invalidate];
-			[_timer release];
-			_timer = nil;
-			
-			if (_shutdown)
-			{
-				WebView::shutdown();
-			}
-		}
 	}
 
 	try {
-		delete _webView;
+		auto webPage = [_private page];
+		WebKit::WebProcess::singleton().removeWebPage(PAL::SessionID(), webPage->pageID());
 	} catch (...) {};
+
+	[_private release];
 
 	[super dealloc];
 }
@@ -126,8 +193,9 @@ static OBScheduledTimer *_timer;
 	LONG ih = [self innerHeight];
 	
 	try {
-		_webView->setVisibleSize(int(iw), int(ih));
-		_webView->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
+		auto webPage = [_private page];
+		webPage->setVisibleSize(int(iw), int(ih));
+		webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
@@ -139,7 +207,8 @@ static OBScheduledTimer *_timer;
 {
 	if (imsg)
 	{
-		return _webView->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg], [self isInObject:imsg]) ?
+		auto webPage = [_private page];
+		return webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg], [self isInObject:imsg]) ?
 			MUI_EventHandlerRC_Eat : 0;
 	}
 	
@@ -148,8 +217,11 @@ static OBScheduledTimer *_timer;
 
 - (void)lateDraw
 {
-	[self redraw:MADF_DRAWUPDATE];
-	_drawPending = NO;
+	if (_drawPending)
+	{
+		[self redraw:MADF_DRAWUPDATE];
+		_drawPending = NO;
+	}
 }
 
 - (void)invalidated
@@ -183,10 +255,16 @@ static OBScheduledTimer *_timer;
 //	dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 
 	try {
-		_webView->go(curi);
+		auto webPage = [_private page];
+		webPage->go(curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
+}
+
+- (void)dumpDebug
+{
+	WebKit::WebProcess::singleton().dumpWebCoreStatistics();
 }
 
 @end
@@ -204,7 +282,7 @@ static OBScheduledTimer *_timer;
 	}
 
 	try {
-		WebView::handleRunLoop();
+		WebPage::handleRunLoop();
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}

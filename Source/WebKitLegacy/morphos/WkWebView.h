@@ -1,15 +1,16 @@
 #import <mui/MUIArea.h>
 
-class WebView;
+@class WkWebViewPrivate;
 
 @interface WkWebView : MUIArea
 {
-	WebView *_webView;
-	bool _drawPending;
+	WkWebViewPrivate *_private;
+	bool              _drawPending;
 }
 
 + (void)shutdown;
 
 - (void)navigateTo:(OBString *)uri;
+- (void)dumpDebug;
 
 @end

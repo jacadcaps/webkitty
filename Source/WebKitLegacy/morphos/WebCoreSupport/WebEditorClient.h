@@ -30,16 +30,18 @@
 #include <WebCore/EditorClient.h>
 #include <WebCore/TextCheckerClient.h>
 
-class WebView;
+namespace WebKit {
+
+class WebPage;
 class WebNotification;
 class WebEditorUndoTarget;
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient {
 public:
-    WebEditorClient(WebView*);
+    WebEditorClient(WebPage*);
     ~WebEditorClient();
 
-	WebView *webView() { return m_webView; }
+	WebPage *webPage() { return m_webPage; }
 
 private:
     bool isContinuousSpellCheckingEnabled() final;
@@ -124,6 +126,9 @@ private:
 
     bool canShowFontPanel() const final { return false; }
 
-    WebView* m_webView;
+    WebPage* m_webPage;
     WebEditorUndoTarget* m_undoTarget;
 };
+
+}
+

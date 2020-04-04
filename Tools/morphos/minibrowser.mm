@@ -6,14 +6,14 @@
 #include <cairo.h>
 #include <stdio.h>
 
-unsigned long __stack = 2 * 1024 * 1024;
+unsigned long __stack = 5 * 1024 * 1024;
 
 extern "C" {
         void dprintf(const char *fmt, ...);
 };
 
 #import <WebKitLegacy/morphos/WkWebView.h>
-#import <WebKitLegacy/morphos/WebView.h>
+//#import <WebKitLegacy/morphos/WebPage.h>
 
 struct Library *FreetypeBase;
 
@@ -66,12 +66,18 @@ dprintf("webview %p\n", view);
 
 			MUIGroup *bug;
 			MUIButton *button;
+			MUIButton *debug;
 
 			win.rootObject = [MUIGroup groupWithObjects:
 				bug = [MUIGroup horizontalGroupWithObjects:
 					address = [MUIString stringWithContents:@"https://"],
 					nil],
-				view, nil];
+				view,
+				[MUIGroup horizontalGroupWithObjects:
+					[MUIRectangle rectangle],
+					debug = [MUIButton buttonWithLabel:@"Debug Stats"],
+					nil],
+				nil];
 			win.title = @"Test";
 			
 			[address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:app];
@@ -84,6 +90,14 @@ dprintf("webview %p\n", view);
 			ADDBUTTON(@"WIMB", @"https://www.whatsmybrowser.org");
 			ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
 			ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
+			ADDBUTTON(@"MZone", @"https://morph.zone/");
+			ADDBUTTON(@"Clock", @"https://www.w3schools.com/js/js_timing.asp");
+			ADDBUTTON(@"Clock2", @"http://javascriptkit.com/script/script2/css3analogclock.shtml");
+			ADDBUTTON(@"CSSTest", @"https://andresiegel.com/private/webkit/test_whatismybrowser.html");
+			ADDBUTTON(@"AS1", @"http://andresiegel.com/private/webkit/test_inline_js.html");
+			ADDBUTTON(@"AS2", @"http://andresiegel.com/private/webkit/test_inline_css.html");
+
+			[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:view];
 
 			[app instantiateWithWindows:win, nil];
 			[win autorelease];

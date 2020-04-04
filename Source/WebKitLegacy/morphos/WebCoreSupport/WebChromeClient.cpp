@@ -32,7 +32,7 @@
 //#include "WebMutableURLRequest.h"
 //#include "WebDesktopNotificationsDelegate.h"
 //#include "WebSecurityOrigin.h"
-#include "WebView.h"
+#include "WebPage.h"
 #include <WebCore/ContextMenu.h>
 #include <WebCore/Cursor.h>
 #include <WebCore/FileChooser.h>
@@ -54,19 +54,21 @@
 #include <WebCore/Page.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/WindowFeatures.h>
-#include <wchar.h>
+#include <WebCore/ApplicationCacheStorage.h>
 
 using namespace WebCore;
+
+namespace WebKit {
 
 // When you call GetOpenFileName, if the size of the buffer is too small,
 // MSDN says that the first two bytes of the buffer contain the required size for the file selection, in bytes or characters
 // So we can assume the required size can't be more than the maximum value for a short.
 static const size_t maxFilePathsListSize = USHRT_MAX;
 
-WebChromeClient::WebChromeClient(WebView* webView)
-    : m_webView(webView)
+WebChromeClient::WebChromeClient(WebKit::WebPage& webPage)
+    : m_webPage(webPage)
 #if ENABLE(NOTIFICATIONS)
-    , m_notificationsDelegate(std::make_unique<WebDesktopNotificationsDelegate>(webView))
+    , m_notificationsDelegate(std::make_unique<WebDesktopNotificationsDelegate>(webPage))
 #endif
 {
 }
@@ -83,28 +85,27 @@ void WebChromeClient::setWindowRect(const FloatRect& r)
 
 FloatRect WebChromeClient::windowRect()
 {
-	notImplemented();
-    return FloatRect();
+    return { FloatPoint(0.f, 0.f), FloatSize(m_webPage.size()) };
 }
 
 FloatRect WebChromeClient::pageRect()
 {
 	notImplemented();
-	return FloatRect(0, 0, 800, 600);
+	return windowRect();
 }
 
 void WebChromeClient::focus()
 {
 	notImplemented();
     // Normally this would happen on a timer, but JS might need to know this earlier, so we'll update here.
-//    m_webView->updateActiveState();
+//    m_webPage.updateActiveState();
 }
 
 void WebChromeClient::unfocus()
 {
 	notImplemented();
     // Normally this would happen on a timer, but JS might need to know this earlier, so we'll update here.
-//    m_webView->updateActiveState();
+//    m_webPage.updateActiveState();
 }
 
 bool WebChromeClient::canTakeFocus(FocusDirection direction)
@@ -225,24 +226,24 @@ bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, Frame& 
 
 void WebChromeClient::closeWindowSoon()
 {
-    // We need to remove the parent WebView from WebViewSets here, before it actually
+    // We need to remove the parent WebPage from WebPageSets here, before it actually
     // closes, to make sure that JavaScript code that executes before it closes
-    // can't find it. Otherwise, window.open will select a closed WebView instead of 
+    // can't find it. Otherwise, window.open will select a closed WebPage instead of
     // opening a new one <rdar://problem/3572585>.
 
     // We also need to stop the load to prevent further parsing or JavaScript execution
     // after the window has torn down <rdar://problem/4161660>.
   
-    // FIXME: This code assumes that the UI delegate will respond to a webViewClose
-    // message by actually closing the WebView. Safari guarantees this behavior, but other apps might not.
+    // FIXME: This code assumes that the UI delegate will respond to a webPageClose
+    // message by actually closing the WebPage. Safari guarantees this behavior, but other apps might not.
     // This approach is an inherent limitation of not making a close execute immediately
     // after a call to window.close.
 	notImplemented();
 
 #if 0
-    m_webView->setGroupName(0);
-    m_webView->stopLoading(0);
-    m_webView->closeWindowSoon();
+    m_webPage.setGroupName(0);
+    m_webPage.stopLoading(0);
+    m_webPage.closeWindowSoon();
 #endif
 }
 
@@ -264,13 +265,13 @@ bool WebChromeClient::runJavaScriptPrompt(Frame&, const String& message, const S
 	return false;
 #if 0
     COMPtr<IWebUIDelegate> ui;
-    if (FAILED(m_webView->uiDelegate(&ui)))
+    if (FAILED(m_webPage.uiDelegate(&ui)))
         return false;
 
     TimerBase::fireTimersInNestedEventLoop();
 
     BString resultBSTR;
-    if (FAILED(ui->runJavaScriptTextInputPanelWithPrompt(m_webView, BString(message), BString(defaultValue), &resultBSTR)))
+    if (FAILED(ui->runJavaScriptTextInputPanelWithPrompt(m_webPage, BString(message), BString(defaultValue), &resultBSTR)))
         return false;
 
     if (!resultBSTR)
@@ -294,20 +295,20 @@ KeyboardUIMode WebChromeClient::keyboardUIMode()
 
 void WebChromeClient::invalidateRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect);
+    ASSERT(core(m_webPage.topLevelFrame()));
+    m_webPage.repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsAndRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect);
+    ASSERT(core(m_webPage.topLevelFrame()));
+    m_webPage.repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 {
-    ASSERT(core(m_webView->topLevelFrame()));
-    m_webView->repaint(windowRect);
+    ASSERT(core(m_webPage.topLevelFrame()));
+    m_webPage.repaint(windowRect);
 }
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
@@ -315,7 +316,7 @@ void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect
 /*dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
 	scrollViewRect.x(), scrollViewRect.y(), scrollViewRect.width(), scrollViewRect.height(),
 	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height()); */
-	m_webView->internalScroll(delta.width(), delta.height());
+	m_webPage.internalScroll(delta.width(), delta.height());
 }
 
 IntPoint WebChromeClient::accessibilityScreenToRootView(const WebCore::IntPoint& point) const
@@ -384,9 +385,6 @@ void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& database
 	notImplemented();
 }
 
-// FIXME: Move this include to the top of the file with the other includes.
-#include <WebCore/ApplicationCacheStorage.h>
-
 void WebChromeClient::reachedMaxAppCacheSize(int64_t spaceNeeded)
 {
     // FIXME: Free some space.
@@ -431,7 +429,7 @@ void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
 void WebChromeClient::attachRootGraphicsLayer(Frame&, GraphicsLayer* graphicsLayer)
 {
 notImplemented();
-//    m_webView->setRootChildLayer(graphicsLayer);
+//    m_webPage.setRootChildLayer(graphicsLayer);
 }
 
 void WebChromeClient::attachViewOverlayGraphicsLayer(GraphicsLayer*)
@@ -443,7 +441,7 @@ notImplemented();
 void WebChromeClient::scheduleCompositingLayerFlush()
 {
 notImplemented();
-//    m_webView->flushPendingGraphicsLayerChangesSoon();
+//    m_webPage.flushPendingGraphicsLayerChangesSoon();
 }
 
 bool WebChromeClient::selectItemWritingDirectionIsNatural()
@@ -489,3 +487,6 @@ bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameVi
 {
     return false;
 }
+
+}
+

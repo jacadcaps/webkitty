@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,32 +22,32 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#ifndef WebDocumentLoader_h
+#define WebDocumentLoader_h
+
+#include <WebCore/DocumentLoader.h>
 
 namespace WebKit {
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
+class WebDocumentLoader : public WebCore::DocumentLoader {
 public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
+    static Ref<WebDocumentLoader> create(const WebCore::ResourceRequest& request, const WebCore::SubstituteData& data)
     {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
+        return adoptRef(*new WebDocumentLoader(request, data));
     }
 
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
+    uint64_t navigationID() const { return m_navigationID; }
+    void setNavigationID(uint64_t);
 
 private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    WebDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+    void detachFromFrame() override;
+
+    uint64_t m_navigationID;
 };
 
-}
+} // namespace WebKit
 
+#endif // WebDocumentLoader_h

@@ -28,11 +28,13 @@
 #include <WebCore/ContextMenuClient.h>
 #include <wtf/Forward.h>
 
-class WebView;
+namespace WebKit {
+
+class WebPage;
 
 class WebContextMenuClient : public WebCore::ContextMenuClient {
 public:
-    WebContextMenuClient(WebView*);
+    WebContextMenuClient(WebPage*);
 
     virtual void contextMenuDestroyed();
 
@@ -44,5 +46,8 @@ public:
     virtual bool isSpeaking();
 
 private:
-    WebView* m_webView;
+    WebPage* m_webPage;
 };
+
+}
+

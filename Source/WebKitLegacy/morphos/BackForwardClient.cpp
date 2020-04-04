@@ -1,7 +1,9 @@
 #include "BackForwardClient.h"
 #include <WebCore/HistoryItem.h>
 
-BackForwardClientMorphOS::BackForwardClientMorphOS(WebView *view)
+namespace WebKit {
+
+BackForwardClientMorphOS::BackForwardClientMorphOS(WebPage *view)
 {
 
 }
@@ -35,3 +37,6 @@ void BackForwardClientMorphOS::close()
 {
 
 }
+
+}
+

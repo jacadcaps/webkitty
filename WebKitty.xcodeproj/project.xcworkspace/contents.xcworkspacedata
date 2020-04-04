@@ -2,9 +2,6 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:../Source/WTF">
-   </FileRef>
-   <FileRef
       location = "group:../Source/JavaScriptCore">
    </FileRef>
    <FileRef
@@ -15,6 +12,9 @@
    </FileRef>
    <FileRef
       location = "group:../Source/WebKitLegacy">
+   </FileRef>
+   <FileRef
+      location = "group:../Source/WTF">
    </FileRef>
    <FileRef
       location = "self:">

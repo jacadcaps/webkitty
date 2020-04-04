@@ -89,7 +89,11 @@ bool isMainThread()
 #endif
 }
 
+#if OS(MORPHOS)
+void __attribute__((weak)) scheduleDispatchFunctionsOnMainThread() 
+#else
 void scheduleDispatchFunctionsOnMainThread()
+#endif
 {
     // Use a RunLoop::Timer instead of RunLoop::dispatch() to be able to use a different priority and
     // avoid the double queue because dispatchOnMainThread also queues the functions.

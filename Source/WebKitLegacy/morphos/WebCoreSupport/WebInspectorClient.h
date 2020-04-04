@@ -38,13 +38,15 @@ class CertificateInfo;
 class Page;
 }
 
+namespace WebKit {
+
 class WebInspectorFrontendClient;
 class WebNodeHighlight;
-class WebView;
+class WebPage;
 
 class WebInspectorClient final : public WebCore::InspectorClient, public Inspector::FrontendChannel {
 public:
-    explicit WebInspectorClient(WebView*);
+    explicit WebInspectorClient(WebPage*);
 
     // InspectorClient API.
     void inspectedPageDestroyed() override;
@@ -62,5 +64,6 @@ public:
 private:
     virtual ~WebInspectorClient();
 };
+}
 
 #endif // !defined(WebInspectorClient_h)

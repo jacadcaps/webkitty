@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,32 +22,30 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#ifndef WebProgressTrackerClient_h
+#define WebProgressTrackerClient_h
+
+#include <WebCore/ProgressTrackerClient.h>
 
 namespace WebKit {
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
+class WebPage;
+
+class WebProgressTrackerClient : public WebCore::ProgressTrackerClient {
 public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
-
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
-
+    explicit WebProgressTrackerClient(WebPage&);
+    
 private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    void progressTrackerDestroyed() override;
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+    void progressStarted(WebCore::Frame& originatingProgressFrame) override;
+    void progressEstimateChanged(WebCore::Frame& originatingProgressFrame) override;
+    void progressFinished(WebCore::Frame& originatingProgressFrame) override;
+
+    WebPage& m_webPage;
 };
 
-}
+} // namespace WebKit
 
+#endif // WebProgressTrackerClient_h

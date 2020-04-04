@@ -28,12 +28,14 @@
 
 #include "WebInspectorClient.h"
 
-#include "WebView.h"
+#include "WebPage.h"
 #include <JavaScriptCore/InspectorAgentBase.h>
 
 using namespace WebCore;
 
-WebInspectorClient::WebInspectorClient(WebView* webView)
+namespace WebKit {
+
+WebInspectorClient::WebInspectorClient(WebPage* webView)
 {
 }
 
@@ -66,3 +68,6 @@ void WebInspectorClient::hideHighlight()
 void WebInspectorClient::sendMessageToFrontend(const WTF::String&)
 {
 }
+
+}
+

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,31 +22,46 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
 
-#include <WebCore/FrameNetworkingContext.h>
+#include <wtf/HashSet.h>
+#include <wtf/RefCounted.h>
+#include <wtf/text/WTFString.h>
+
+namespace WebCore {
+class StorageNamespaceProvider;
+class UserContentController;
+}
 
 namespace WebKit {
 
-class WebFrameNetworkingContext : public WebCore::FrameNetworkingContext {
-public:
-    static Ref<WebFrameNetworkingContext> create(WebCore::Frame* frame)
-    {
-        return adoptRef(*new WebFrameNetworkingContext(frame));
-    }
+class WebVisitedLinkStore;
+class WebPage;
 
-    static void setPrivateBrowsingStorageSessionIdentifierBase(const String&);
-    static WebCore::NetworkStorageSession& ensurePrivateBrowsingSession();
-    static void destroyPrivateBrowsingSession();
+class WebPageGroup : public RefCounted<WebPageGroup> {
+public:
+    static Ref<WebPageGroup> getOrCreate(const String& name, const String& localStorageDatabasePath);
+    ~WebPageGroup();
+
+    static WebPageGroup* get(const String& name);
+
+    void addWebPage(WebPage *);
+    void removeWebPage(WebPage *);
+
+    WebCore::StorageNamespaceProvider& storageNamespaceProvider();
+    WebCore::UserContentController& userContentController() { return m_userContentController.get(); }
+    WebVisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
 
 private:
-    explicit WebFrameNetworkingContext(WebCore::Frame* frame)
-        : WebCore::FrameNetworkingContext(frame)
-    {
-    }
+    WebPageGroup(const String& name, const String& localStorageDatabasePath);
 
-    //WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-    WebCore::NetworkStorageSession* storageSession() const override;
+    String m_name;
+    HashSet<WebPage *> m_webPages;
+
+    String m_localStorageDatabasePath;
+    RefPtr<WebCore::StorageNamespaceProvider> m_storageNamespaceProvider;
+
+    Ref<WebCore::UserContentController> m_userContentController;
+    Ref<WebVisitedLinkStore> m_visitedLinkStore;
 };
 
 }

@@ -25,7 +25,7 @@
 
 #include "WebContextMenuClient.h"
 
-#include "WebView.h"
+#include "WebPage.h"
 #include <WebCore/ContextMenuController.h>
 #include <WebCore/Editor.h>
 #include <WebCore/Event.h>
@@ -38,8 +38,10 @@
 
 using namespace WebCore;
 
-WebContextMenuClient::WebContextMenuClient(WebView* webView)
-    : m_webView(webView)
+namespace  WebKit {
+
+WebContextMenuClient::WebContextMenuClient(WebPage* webView)
+    : m_webPage(webView)
 {
 }
 
@@ -89,3 +91,6 @@ bool WebContextMenuClient::isSpeaking()
     notImplemented();
     return false;
 }
+
+}
+

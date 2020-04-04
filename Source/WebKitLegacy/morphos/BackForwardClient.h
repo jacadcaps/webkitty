@@ -2,14 +2,16 @@
 #include "WebKit.h"
 #include <WebCore/BackForwardClient.h>
 
-class WebView;
+namespace WebKit {
+
+class WebPage;
 
 class BackForwardClientMorphOS : public WebCore::BackForwardClient
 {
 public:
-	BackForwardClientMorphOS(WebView *view);
+	BackForwardClientMorphOS(WebPage *view);
 
-    static Ref<BackForwardClientMorphOS> create(WebView *view)
+    static Ref<BackForwardClientMorphOS> create(WebPage *view)
     {
         return WTF::adoptRef(*new BackForwardClientMorphOS(view));
     }
@@ -24,3 +26,6 @@ public:
 
     void close() final;
 };
+
+}
+

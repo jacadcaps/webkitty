@@ -23,11 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebVisitedLinkStore_h
-#define WebVisitedLinkStore_h
+#pragma once
 
 #include <WebCore/SharedStringHash.h>
 #include <WebCore/VisitedLinkStore.h>
+
+namespace WebKit {
 
 class WebVisitedLinkStore final : public WebCore::VisitedLinkStore {
 public:
@@ -54,4 +55,4 @@ private:
     bool m_visitedLinksPopulated;
 };
 
-#endif // WebVisitedLinkStore_h
+}
