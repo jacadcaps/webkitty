@@ -94,7 +94,7 @@ dprintf("webview %p\n", view);
 			ADDBUTTON(@"Clock", @"https://www.w3schools.com/js/js_timing.asp");
 			ADDBUTTON(@"Clock2", @"http://javascriptkit.com/script/script2/css3analogclock.shtml");
 			ADDBUTTON(@"CSSTest", @"https://andresiegel.com/private/webkit/test_whatismybrowser.html");
-			ADDBUTTON(@"AS1", @"http://andresiegel.com/private/webkit/test_inline_js.html");
+			ADDBUTTON(@"AS1", @"https://andresiegel.com/private/webkit/test_inline_js.html");
 			ADDBUTTON(@"AS2", @"http://andresiegel.com/private/webkit/test_inline_css.html");
 
 			[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:view];
