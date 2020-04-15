@@ -1,0 +1,30 @@
+/gg/bin/ppc-morphos-g++-9 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
+../../Source/WebKitLegacy/libWebKit.a \
+../../Source/WebCore/libWebCore.a \
+../../Source/WebCore/PAL/pal/libPAL.a \
+../../Source/JavaScriptCore/libJavaScriptCore.a \
+../../Source/WTF/wtf/libWTF.a \
+-Wl,--no-whole-archive \
+_IN_ROOTPATH/lib/libxml2/instdir/lib/libxml2.a \
+_IN_ROOTPATH/lib/libxslt/instdir/lib/libxslt.a \
+_IN_ROOTPATH/lib/sqlite/instdir/lib/libsqlite3.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libz.a \
+-Wl,--whole-archive \
+_IN_ROOTPATH/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a \
+-Wl,--no-whole-archive \
+_IN_ROOTPATH/gen/host/libnix/lib/libcurl.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libssl.a \
+_IN_ROOTPATH/morphoswb/libs/freetype/library/lib/libfreetype.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libnghttp2.a \
+_IN_ROOTPATH/lib/libjpeg/libjpeg.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libpng.a  \
+_IN_ROOTPATH/gen/host/libnix/lib/libhyphen.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libcrypto.a \
+_IN_ROOTPATH/lib/libicu/instdir/lib/libicui18n.a \
+_IN_ROOTPATH/lib/libicu/instdir/lib/libicuuc.a \
+_IN_ROOTPATH/lib/libicu/instdir/lib/libicudata.a \
+-lsyscall -lpthread \
+CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
+-lob.framework -lmui.framework \
+-lobjc -lc -lgcc -lauto
+

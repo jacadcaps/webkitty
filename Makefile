@@ -67,12 +67,12 @@ jscore-pack:
 		./WebKitBuild/Release/Source/JavaScriptCore/shell/testmasm \
 		 JSTests LayoutTests PerformanceTests
 
-configure: morphos.cmake CMakeLists.txt
+configure: morphos.cmake link.sh CMakeLists.txt
 	rm -rf cross-build
 	mkdir cross-build
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
-		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) \
-		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DUSE_SYSTEM_MALLOC=YES -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 \
+		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) \
+		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DUSE_SYSTEM_MALLOC=YES -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
@@ -85,9 +85,13 @@ configure: morphos.cmake CMakeLists.txt
 		-DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
-		-DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
-		-DHARFBUZZ_LIBRARIES=$(GEN)/lib/libnghttp2.a \
-		-DHARFBUZZ_ICU_LIBRARIES="$(realpath Dummy)/libdummy.a" \
+		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" \
+		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a \
+		-DICU_ROOT="$(LIB)/libicu/instdir/" \
+		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicuuc.a" \
+		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicudata.a" \
+		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicui18n.a" \
+		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DOBJC_INCLUDE="$(OBJC)" \
@@ -95,17 +99,21 @@ configure: morphos.cmake CMakeLists.txt
 
 build:
 	(cd cross-build && make -j$(shell nproc))
-	echo "Magic linking..."
-	(cd cross-build/Tools/morphos && $(realpath ./link.sh) )
 	echo "Link done"
+	ppc-morphos-strip cross-build/Tools/morphos/MiniBrowser.db -o cross-build/Tools/morphos/MiniBrowser
+	echo "Stripped binary in cross-build/Tools/morphos/MiniBrowser"
 
 #		-Wdev --debug-output --trace --trace-expand \
 
 morphos.cmake: morphos.cmake.in
-	gcc -xc -E -P -C -o$@ -nostdinc morphos.cmake.in -D_IN_ROOTPATH=$(ROOTPATH)
+	gcc -xc -E -P -C -o$@ -nostdinc $@.in -D_IN_ROOTPATH=$(ROOTPATH) -D_IN_DUMMYPATH=$(realpath Dummy)
+
+link.sh: link.sh.in
+	gcc -xc -E -P -C -o$@ -nostdinc $@.in -D_IN_ROOTPATH=$(ROOTPATH)
+	chmod u+x $@
 
 clean:
-	rm -rf morphos.cmake cross-build WebKitBuild build
+	rm -rf morphos.cmake cross-build WebKitBuild build link.sh
 
 install:
 
@@ -119,9 +127,9 @@ Dummy/libdummy.a:
 	ppc-morphos-gcc-9 -c -o Dummy/dummy.o Dummy/dummy.c
 	ppc-morphos-ar rc Dummy/libdummy.a Dummy/dummy.o
 	ppc-morphos-ranlib Dummy/libdummy.a
+	cp Dummy/libdummy.a Dummy/libdl.a
 
 miniscp:
-	ppc-morphos-strip cross-build/Tools/morphos/MiniBrowser.db -o cross-build/Tools/morphos/MiniBrowser
 	scp cross-build/Tools/morphos/MiniBrowser jaca@192.168.2.5:/Users/jaca
 
 minidump:

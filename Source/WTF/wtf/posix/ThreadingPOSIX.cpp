@@ -71,6 +71,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
+extern "C" { int pthread_setname_np(pthread_t thread, const char *name); }
 #endif
 
 namespace WTF {
@@ -235,6 +236,8 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
     pthread_setname_np(normalizeThreadName(threadName));
 #elif OS(LINUX)
     prctl(PR_SET_NAME, normalizeThreadName(threadName));
+#elif OS(MORPHOS)
+	pthread_setname_np(pthread_self(), normalizeThreadName(threadName));
 #else
     UNUSED_PARAM(threadName);
 #endif
@@ -308,11 +311,15 @@ Thread& Thread::initializeCurrentTLS()
 
 bool Thread::signal(int signalNumber)
 {
+#if !OS(MORPHOS)
     auto locker = holdLock(m_mutex);
     if (hasExited())
         return false;
     int errNo = pthread_kill(m_handle, signalNumber);
     return !errNo; // A 0 errNo means success.
+#else
+    return false;
+#endif
 }
 
 auto Thread::suspend() -> Expected<void, PlatformSuspendError>
@@ -335,7 +342,7 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
     if (result != KERN_SUCCESS)
         return makeUnexpected(result);
     return { };
-#else
+#elif !OS(MORPHOS)
     if (!m_suspendCount) {
         // Ideally, we would like to use pthread_sigqueue. It allows us to pass the argument to the signal handler.
         // But it can be used in a few platforms, like Linux.
@@ -365,7 +372,7 @@ void Thread::resume()
     LockHolder locker(globalSuspendLock);
 #if OS(DARWIN)
     thread_resume(m_platformThread);
-#else
+#elif !OS(MORPHOS)
     if (m_suspendCount == 1) {
         // When allowing SigThreadSuspendResume interrupt in the signal handler by sigsuspend and SigThreadSuspendResume is actually issued,
         // the signal handler itself will be called once again.
