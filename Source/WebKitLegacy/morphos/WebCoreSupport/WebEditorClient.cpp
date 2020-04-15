@@ -438,9 +438,8 @@ void WebEditorClient::redo()
 
 void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)
 {
-	notImplemented();
-//    if (m_webPage->handleEditingKeyboardEvent(event))
-//        event.setDefaultHandled();
+    if (m_webPage->handleEditingKeyboardEvent(event))
+        event.setDefaultHandled();
 }
 
 void WebEditorClient::handleInputMethodKeydown(KeyboardEvent&)

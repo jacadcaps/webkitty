@@ -160,10 +160,6 @@ protected:
 
 private:
     WebPage& m_webPage;
-
-#if ENABLE(NOTIFICATIONS)
-    std::unique_ptr<WebDesktopNotificationsDelegate> m_notificationsDelegate;
-#endif
 };
 
 }

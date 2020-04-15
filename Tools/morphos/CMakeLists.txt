@@ -34,13 +34,17 @@ set(MiniBrowser_LIBRARIES
 set(EXECUTABLE_NAME MiniBrowser)
 set(PRODUCT_NAME MiniBrowser)
 
+
 include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
-add_executable(MiniBrowser.db ${MiniBrowser_SOURCES})
-target_link_libraries(MiniBrowser.db ${MiniBrowser_LIBRARIES} mui.framework.a ob.framework objc)
-add_custom_command(OUTPUT MiniBrowser
-	COMMAND "ppc-morphos-strip -o $<TARGET_FILE:MiniBrowser> $<TARGET_FILE:MiniBrowser>.db"
-	DEPENDS MiniBrowser.db
-        )
+add_library(MiniBrowserlib ${MiniBrowser_SOURCES})
+add_custom_target(MiniBrowser ALL COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/../../link.sh" DEPENDS MiniBrowserlib WebKitLegacy)
+
+#add_executable(MiniBrowser.db ${MiniBrowser_SOURCES})
+#target_link_libraries(MiniBrowser.db ${MiniBrowser_LIBRARIES} mui.framework.a ob.framework objc)
+#add_custom_command(OUTPUT MiniBrowser
+#	COMMAND "ppc-morphos-strip -o $<TARGET_FILE:MiniBrowser> $<TARGET_FILE:MiniBrowser>.db"
+#	DEPENDS MiniBrowser.db
+#       )
 
 
 #SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -lob.framework -lmui.framework -lobjc")

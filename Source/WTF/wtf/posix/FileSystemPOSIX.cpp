@@ -304,7 +304,11 @@ bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath
 
 String pathByAppendingComponent(const String& path, const String& component)
 {
+#if OS(MORPHOS)
+    if (path.endsWith('/') || path.endsWith(':'))
+#else
     if (path.endsWith('/'))
+#endif
         return path + component;
     return path + "/" + component;
 }

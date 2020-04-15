@@ -67,9 +67,6 @@ static const size_t maxFilePathsListSize = USHRT_MAX;
 
 WebChromeClient::WebChromeClient(WebKit::WebPage& webPage)
     : m_webPage(webPage)
-#if ENABLE(NOTIFICATIONS)
-    , m_notificationsDelegate(std::make_unique<WebDesktopNotificationsDelegate>(webPage))
-#endif
 {
 }
 
@@ -111,7 +108,7 @@ void WebChromeClient::unfocus()
 bool WebChromeClient::canTakeFocus(FocusDirection direction)
 {
 	notImplemented();
-	return false;
+	return true;
 }
 
 void WebChromeClient::takeFocus(FocusDirection direction)
@@ -119,8 +116,9 @@ void WebChromeClient::takeFocus(FocusDirection direction)
 	notImplemented();
 }
 
-void WebChromeClient::focusedElementChanged(Element*)
+void WebChromeClient::focusedElementChanged(Element* element)
 {
+	dprintf("focused element %p\n", element);
 }
 
 void WebChromeClient::focusedFrameChanged(Frame*)
@@ -209,7 +207,6 @@ void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel lev
 	try {
 		dprintf(">> Console: %s\n", message.utf8().data());
 	} catch (...) { };
-	notImplemented();
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
@@ -456,12 +453,14 @@ bool WebChromeClient::selectItemAlignmentFollowsMenuWritingDirection()
 
 RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) const
 {
+	notImplemented();
 	return nullptr;
 //    return adoptRef(new PopupMenuWin(&client));
 }
 
 RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& client) const
 {
+	notImplemented();
 	return nullptr;
 //    return adoptRef(new SearchPopupMenuWin(&client));
 }

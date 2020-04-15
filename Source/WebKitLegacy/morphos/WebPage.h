@@ -11,6 +11,7 @@ namespace WebCore {
 	class Frame;
 	class FrameView;
 	class IntRect;
+	class KeyboardEvent;
 };
 
 struct RastPort;
@@ -52,6 +53,7 @@ public:
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
+	bool handleMUIKey(int muikey);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
     void removeResourceRequest(unsigned long);
@@ -78,6 +80,8 @@ public:
     bool alwaysShowsHorizontalScroller() const { return m_alwaysShowsHorizontalScroller; };
     bool alwaysShowsVerticalScroller() const { return m_alwaysShowsVerticalScroller; };
 
+	bool handleEditingKeyboardEvent(WebCore::KeyboardEvent& event);
+
     const Optional<WebCore::Color>& backgroundColor() const { return m_backgroundColor; }
 
     WebCore::IntSize size() const;
@@ -87,6 +91,11 @@ public:
 
     WebCore::Frame* mainFrame() const; // May return nullptr.
     WebCore::FrameView* mainFrameView() const; // May return nullptr.
+	
+    void goActive();
+    void goInactive();
+	
+    void setFocusedElement(WebCore::Element *);
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -118,6 +127,8 @@ private:
     bool m_alwaysShowsHorizontalScroller { false };
     bool m_alwaysShowsVerticalScroller { false };
     bool m_mainFrameIsScrollable { true };
+    bool m_trackMouse { false };
+    WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };
 

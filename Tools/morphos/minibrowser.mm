@@ -6,7 +6,10 @@
 #include <cairo.h>
 #include <stdio.h>
 
-unsigned long __stack = 5 * 1024 * 1024;
+#include <signal.h>
+#include <locale.h>
+
+unsigned long __stack = 2 * 1024 * 1024;
 
 extern "C" {
         void dprintf(const char *fmt, ...);
@@ -44,6 +47,10 @@ static MUIString *address;
 
 int muiMain(int argc, char *argv[])
 {
+    signal(SIGINT, SIG_IGN);
+	setlocale(LC_TIME, "C");
+	setlocale(LC_NUMERIC, "C");
+
 dprintf("muimain!\n");
 	FreetypeBase = OpenLibrary("freetype.library", 0);
 	if (FreetypeBase)
@@ -74,13 +81,15 @@ dprintf("webview %p\n", view);
 					nil],
 				view,
 				[MUIGroup horizontalGroupWithObjects:
-					[MUIRectangle rectangle],
+					[MUIRectangle rectangleWithWeight:300],
 					debug = [MUIButton buttonWithLabel:@"Debug Stats"],
 					nil],
 				nil];
 			win.title = @"Test";
+			win.iD = 1;
 			
 			[address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:app];
+			[address setWeight:300];
 			
 			#define ADDBUTTON(__title__, __address__) \
 				[bug addObject:button = [MUIButton buttonWithLabel:__title__]]; \
@@ -88,17 +97,18 @@ dprintf("webview %p\n", view);
 
 			ADDBUTTON(@"Ggle", @"https://www.google.com");
 			ADDBUTTON(@"WIMB", @"https://www.whatsmybrowser.org");
+			ADDBUTTON(@"Cookies", @"https://www.whatismybrowser.com/detect/are-cookies-enabled");
 			ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
 			ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 			ADDBUTTON(@"MZone", @"https://morph.zone/");
-			ADDBUTTON(@"Clock", @"https://www.w3schools.com/js/js_timing.asp");
-			ADDBUTTON(@"Clock2", @"http://javascriptkit.com/script/script2/css3analogclock.shtml");
-			ADDBUTTON(@"CSSTest", @"https://andresiegel.com/private/webkit/test_whatismybrowser.html");
+			ADDBUTTON(@"CSSTest", @"https://tunkki.dk/~jaca/test_whatismybrowser.html");
+			ADDBUTTON(@"TestB", @"http://tunkki.dk/~jaca/test.html");
 			ADDBUTTON(@"AS1", @"https://andresiegel.com/private/webkit/test_inline_js.html");
 			ADDBUTTON(@"AS2", @"http://andresiegel.com/private/webkit/test_inline_css.html");
 
 			[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:view];
 
+			[app setBase:@"WEKBITTY"];
 			[app instantiateWithWindows:win, nil];
 			[win autorelease];
 			win.open = YES;

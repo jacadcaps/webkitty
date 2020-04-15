@@ -455,7 +455,7 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
     if (!webPage)
         return;
 
-    notImplemented();
+    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
 #if ENABLE(FULLSCREEN_API) && 0
     Element* documentElement = m_frame->coreFrame()->document()->documentElement();
@@ -509,6 +509,8 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
+
+    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
     webPage->didCommitLoad(m_frame);
 
@@ -587,6 +589,8 @@ void WebFrameLoaderClient::dispatchDidFinishDocumentLoad()
     if (!webPage)
         return;
 
+    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+
 #if 0
     RefPtr<API::Object> userData;
 
@@ -607,6 +611,8 @@ void WebFrameLoaderClient::dispatchDidFinishLoad()
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
+
+    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
 #if 0
     RefPtr<API::Object> userData;
@@ -1007,6 +1013,7 @@ void WebFrameLoaderClient::willReplaceMultipartContent()
 
 void WebFrameLoaderClient::didReplaceMultipartContent()
 {
+	notImplemented();
 #if 0
     WebPage* webPage = m_frame->page();
     if (!webPage)

@@ -89,6 +89,7 @@
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/UserInputBridge.h>
+#include <WebCore/KeyboardEvent.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -134,6 +135,44 @@
 #include <intuition/intuimessageclass.h>
 #include <intuition/classusr.h>
 #include <clib/alib_protos.h>
+#include <devices/rawkeycodes.h>
+
+// we cannot include libraries/mui.h here...
+enum
+{
+	MUIKEY_RELEASE = -2, /* not a real key, faked when MUIKEY_PRESS is released */
+	MUIKEY_NONE    = -1,
+	MUIKEY_PRESS,
+	MUIKEY_TOGGLE,
+	MUIKEY_UP,
+	MUIKEY_DOWN,
+	MUIKEY_PAGEUP,
+	MUIKEY_PAGEDOWN,
+	MUIKEY_TOP,
+	MUIKEY_BOTTOM,
+	MUIKEY_LEFT,
+	MUIKEY_RIGHT,
+	MUIKEY_WORDLEFT,
+	MUIKEY_WORDRIGHT,
+	MUIKEY_LINESTART,
+	MUIKEY_LINEEND,
+	MUIKEY_GADGET_NEXT,
+	MUIKEY_GADGET_PREV,
+	MUIKEY_GADGET_OFF,
+	MUIKEY_WINDOW_CLOSE,
+	MUIKEY_WINDOW_NEXT,
+	MUIKEY_WINDOW_PREV,
+	MUIKEY_HELP,
+	MUIKEY_POPUP,
+	MUIKEY_CUT,
+	MUIKEY_COPY,
+	MUIKEY_PASTE,
+	MUIKEY_UNDO,
+	MUIKEY_REDO,
+	MUIKEY_DELETE,
+	MUIKEY_BACKSPACE,
+	MUIKEY_ICONIFY,
+};
 
 extern "C" {
 	void dprintf(const char *, ...);
@@ -381,9 +420,9 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
         didOneTimeInitialization = true;
      }
 
-	m_webPageGroup = WebPageGroup::getOrCreate("test", "T:");
-
+	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
+
 dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	WebCore::PageConfiguration pageConfiguration(
         makeUniqueRef<WebEditorClient>(this),
@@ -421,11 +460,30 @@ dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
     settings.setAllowRunningOfInsecureContent(true);
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
+    settings.setScriptMarkupEnabled(true);
+    settings.setDeferredCSSParserEnabled(true);
+    settings.setDeviceWidth(1920);
+    settings.setDeviceHeight(1080);
+    settings.setDiagnosticLoggingEnabled(true);
+    settings.setEditableImagesEnabled(true);
+    settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
+    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
+    settings.setShrinksStandaloneImagesToFit(true);
+    settings.setSubpixelAntialiasedLayerTextEnabled(true);
 
-dprintf("ACc %d %d\n", settings.acceleratedCompositingEnabled(), settings.acceleratedDrawingEnabled(),
-	settings.acceleratedCompositedAnimationsEnabled());
 	settings.setAcceleratedCompositingEnabled(false);
 
+	settings.setTreatsAnyTextCSSLinkAsStylesheet(true);
+	settings.setUsePreHTML5ParserQuirks(true);
+
+	settings.setWebGLEnabled(false);
+
+	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
+	settings.setLocalStorageEnabled(true);
+	
+	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
+	
+	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
 
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
@@ -464,16 +522,27 @@ void WebPage::go(const char *url)
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
 	WebCore::ResourceRequest req(baseCoreURL);
 
+	if (!m_mainFrame)
+		return;
+
     auto* coreFrame = m_mainFrame->coreFrame();
 
+	static uint64_t navid = 1;
+	
 	corePage()->userInputBridge().stopLoadingFrame(coreFrame);
 	GCController::singleton().garbageCollectNow();
-//	coreFrame->loader().cancelAndClear();
+
+	m_pendingNavigationID = navid ++;
 
 dprintf("GO >> mf %p cf %p corepage %p\n",m_mainFrame.get(), coreFrame, corePage());
+#if 1
+    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+#else
+
 	WebCore::FrameLoadRequest request(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 	request.setIsRequestFromClientOrUserInput();
 	corePage()->userInputBridge().loadRequest(WTFMove(request));
+#endif
 
 //    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow));
 }
@@ -494,6 +563,29 @@ FrameView* WebPage::mainFrameView() const
 PAL::SessionID WebPage::sessionID() const
 {
 	return m_page->sessionID();
+}
+
+void WebPage::goActive()
+{
+	if (!m_page)
+		return;
+dprintf("goactive!\n");
+	corePage()->userInputBridge().focusSetActive(true);
+	corePage()->userInputBridge().focusSetFocused(true);
+}
+
+void WebPage::goInactive()
+{
+	if (!m_page)
+		return;
+
+	corePage()->userInputBridge().focusSetFocused(false);
+}
+
+void WebPage::setFocusedElement(WebCore::Element *element)
+{
+	// this is called by the Chrome
+	m_focusedElement = element;
 }
 
 void WebPage::addResourceRequest(unsigned long identifier, const WebCore::ResourceRequest& request)
@@ -525,6 +617,7 @@ void WebPage::didStartPageTransition()
 
 void WebPage::didCompletePageTransition()
 {
+	setScroll(0, 0);
 }
 
 void WebPage::didCommitLoad(WebFrame* frame)
@@ -683,11 +776,14 @@ void WebPage::setAlwaysShowsVerticalScroller(bool alwaysShowsVerticalScroller)
 
 void WebPage::repaint(const WebCore::IntRect& rect)
 {
+	if (!m_drawContext)
+		return;
+
 	WebCore::IntRect realRect(0, 0, m_drawContext->width(), m_drawContext->height());
 	realRect.intersect(rect);
 
-	if (rect.x() < 0)
-	DumpTaskState(FindTask(0));
+//	if (rect.x() < 0)
+//	DumpTaskState(FindTask(0));
 
 #if 0
 	dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, rect.x(), rect.y(), rect.width(), rect.height());
@@ -709,7 +805,7 @@ void WebPage::internalScroll(int scrollX, int scrollY)
 		const int sx = std::max(0, m_drawContext->scrollX() - scrollX);
 		const int sy = std::max(0, m_drawContext->scrollY() - scrollY);
 
-dprintf("%s: by %d %d to %d %d\n", __PRETTY_FUNCTION__, scrollX, scrollY, sx, sy);
+// dprintf("%s: by %d %d to %d %d\n", __PRETTY_FUNCTION__, scrollX, scrollY, sx, sy);
 
 		if (m_drawContext)
 			m_drawContext->setScroll(sx, sy);
@@ -842,8 +938,45 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
+bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
+{
+    auto* frame = downcast<WebCore::Node>(event.target())->document().frame();
+    ASSERT(frame);
+
+    auto* keyEvent = event.underlyingPlatformEvent();
+    if (!keyEvent || keyEvent->isSystemKey())  // do not treat this as text input if it's a system key event
+        return false;
+
+#if 0
+    auto command = frame->editor().command(interpretKeyEvent(&event));
+
+    if (keyEvent->type() == PlatformEvent::RawKeyDown) {
+        // WebKit doesn't have enough information about mode to decide how commands that just insert text if executed via Editor should be treated,
+        // so we leave it upon WebCore to either handle them immediately (e.g. Tab that changes focus) or let a keypress event be generated
+        // (e.g. Tab that inserts a Tab character, or Enter).
+        return !command.isTextInsertion() && command.execute(&event);
+    }
+
+    if (command.execute(&event))
+        return true;
+
+    // Don't insert null or control characters as they can result in unexpected behaviour
+    if (event.charCode() < ' ')
+        return false;
+#endif
+
+    return frame->editor().insertText(keyEvent->text(), &event);
+}
+
 bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside)
 {
+	WebCore::Page *cp = corePage();
+	if (!cp)
+		return false;
+
+	auto& bridge = cp->userInputBridge();
+	auto& focusController = m_page->focusController();
+
 	switch (imsg->Class)
 	{
 	case IDCMP_MOUSEMOVE:
@@ -868,11 +1001,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				WTF::WallTime::fromRawSeconds(imsg->Seconds),
 				0.0,
 				WebCore::SyntheticClickType::NoTap);
-		
-			WebCore::FocusController& focusController = m_page->focusController();
-		
-		bool rc;
-		
+			
 			switch (imsg->Class)
 			{
 			case IDCMP_MOUSEBUTTONS:
@@ -881,27 +1010,43 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				case SELECTDOWN:
 				case MENUDOWN:
 				case MIDDLEDOWN:
-					focusController.setFocused(mouseInside);
-					rc = m_page->mainFrame().eventHandler().handleMousePressEvent(pme);
-					printf("press at %d %d -> %d\n", mouseX, mouseY, rc);
+					if (mouseInside)
+					{
+						bridge.handleMousePressEvent(pme);
+						bridge.focusSetActive(true);
+						bridge.focusSetFocused(true);
+						m_trackMouse = true;
+	//					rc = m_page->mainFrame().eventHandler().handleMousePressEvent(pme);
+	//					printf("press at %d %d -> %d\n", mouseX, mouseY, rc);
+						return true;
+					}
 					break;
 				default:
-					rc = m_page->mainFrame().eventHandler().handleMouseReleaseEvent(pme);
-					printf("release at %d %d -> %d\n", mouseX, mouseY, rc);
+					if (m_trackMouse)
+					{
+						bridge.handleMouseReleaseEvent(pme);
+						m_trackMouse = false;
+						return true;
+					}
+//					rc = m_page->mainFrame().eventHandler().handleMouseReleaseEvent(pme);
+//					printf("release at %d %d -> %d\n", mouseX, mouseY, rc);
 					break;
 				}
 				break;
 			case IDCMP_MOUSEMOVE:
 			case IDCMP_MOUSEHOVER:
+				if (mouseInside || m_trackMouse)
 				{
+					bridge.handleMouseMoveEvent(pme);
+					return true;
 //				WebCore::HitTestResult ht;
-				rc = m_page->mainFrame().eventHandler().handleMouseMoveEvent(pme);
+//				rc = m_page->mainFrame().eventHandler().handleMouseMoveEvent(pme);
 //				auto p = ht.pointInMainFrame();
 //				printf("%p %p %d %d\n", ht.innerNode(), ht.URLElement(), int(p.x()), int(p.y()));
 //				}
 //				printf("move at %d %d -> %d\n", mouseX, mouseY, rc);
-				break;
 				}
+				break;
 			}
 		}
 		break;
@@ -910,20 +1055,87 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 		{
 			Boopsiobject *oimsg = (Boopsiobject *)imsg;
 			ULONG key = 0;
-			DoMethod(oimsg, OM_GET, IMSGA_UCS4, &key);
-			if (key >= 32)
+			ULONG code = imsg->Code & ~IECODE_UP_PREFIX;
+			BOOL up = (imsg->Code & IECODE_UP_PREFIX) == IECODE_UP_PREFIX;
+
+dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
+
+			switch (code)
 			{
-				UChar ch[2] = { key, 0 };
-				WTF::String s(ch, 2);
-				dprintf("type char %d\n", key);
-				auto ke = WebCore::PlatformKeyboardEvent((imsg->Code & IECODE_UP_PREFIX) ? WebCore::PlatformEvent::KeyUp : WebCore::PlatformEvent::KeyDown,s,s,s,s,s,
-					 0, false, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));
-				m_page->mainFrame().eventHandler().keyEvent(ke);
+			case NM_WHEEL_UP:
+			case NM_WHEEL_DOWN:
+				if (mouseInside)
+				{
+					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+						0,imsg->Code == NM_WHEEL_UP ? 15 : -15,
+						0,imsg->Code == NM_WHEEL_UP ? 15 : -15,
+						ScrollByPixelWheelEvent,
+						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+						);
+					bridge.handleWheelEvent(pke);
+					return true;
+				}
+				break;
+				
+			case RAWKEY_TAB:
+				if (!up)
+				{
+					bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
+					if ((!rc || !m_focusedElement) && _fActivateNext)
+						_fActivateNext();
+				}
+				return true;
+			
+			default:
+				DoMethod(oimsg, OM_GET, IMSGA_UCS4, &key);
+				if (key >= 32)
+				{
+					if (imsg->Code & IECODE_UP_PREFIX)
+					{
+						UChar ch[2] = { key, 0 };
+						WTF::String s(ch, 2);
+//						dprintf("typed char '%s' (%ld)\n", s.utf8().data(), key);
+						auto ke = WebCore::PlatformKeyboardEvent(WebCore::PlatformEvent::Char,s,s,s,s,s,
+							 0, imsg->Qualifier & IEQUALIFIER_REPEAT, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));
+					
+						bridge.handleKeyEvent(ke);
+					}
+					//m_page->mainFrame().eventHandler().keyEvent(ke);
+				}
+				return true;
 			}
 		}
 		break;
 	}
 
+	return false;
+}
+
+bool WebPage::handleMUIKey(int muikey)
+{
+	if (!m_page)
+		return false;
+dprintf("handlekey %lx\n", muikey);
+
+	auto& focusController = m_page->focusController();
+	switch (muikey)
+	{
+	case MUIKEY_GADGET_NEXT:
+		focusController.advanceFocus(FocusDirection::FocusDirectionForward, nullptr);
+		return true;
+	case MUIKEY_GADGET_PREV:
+		focusController.advanceFocus(FocusDirection::FocusDirectionBackward, nullptr);
+		return true;
+	case MUIKEY_GADGET_OFF:
+		return true;
+	default:
+		break;
+	}
+	
 	return false;
 }
 

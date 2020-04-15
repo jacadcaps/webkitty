@@ -109,7 +109,9 @@ static OBSignalHandler *_signalHandler;
 		}
 
 		self.fillArea = NO;
-		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_RAWKEY | IDCMP_MOUSEHOVER;
+		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER;
+		[self setEventHandlerGUIMode:YES];
+		self.cycleChain = YES;
 
 		_private = [WkWebViewPrivate new];
 		if (!_private)
@@ -143,6 +145,10 @@ static OBSignalHandler *_signalHandler;
 			webPage->_fScroll = [self](int x, int y) {
 				[self scrollToX:x y:y];
 			};
+			
+			webPage->_fActivateNext = [self]() {
+				[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Next];
+			};
 
 dprintf("done, webpage %p, %p\n", webPage, webProcess.webPage(identifier));
 
@@ -173,14 +179,25 @@ dprintf("kill me\n");
 	[super dealloc];
 }
 
+- (Boopsiobject *)instantiateTagList:(struct TagItem *)tags
+{
+
+#define MADF_KNOWSACTIVE       (1<< 7) /* sigh */
+
+	Boopsiobject *meBoopsi = [super instantiateTagList:tags];
+	// prevent MUI active frame from being drawn
+	_flags(meBoopsi) |= MADF_KNOWSACTIVE;
+	return meBoopsi;
+}
+
 - (void)askMinMax:(struct MUI_MinMax *)minmaxinfo
 {
 	[super askMinMax:minmaxinfo];
 
-	minmaxinfo->MinWidth += 50;
-	minmaxinfo->MinHeight += 50;
-	minmaxinfo->DefWidth += 800;
-	minmaxinfo->DefHeight += 600;
+	minmaxinfo->MinWidth += 100;
+	minmaxinfo->MinHeight += 100;
+	minmaxinfo->DefWidth += 1024;
+	minmaxinfo->DefHeight += 740;
 	minmaxinfo->MaxWidth = MUI_MAXMAX;
 	minmaxinfo->MaxHeight = MUI_MAXMAX;
 }
@@ -203,6 +220,48 @@ dprintf("kill me\n");
 	return TRUE;
 }
 
+- (void)goActive:(ULONG)flags
+{
+	[super goActive:flags];
+
+	_isActive = true;
+	self.handledEvents = self.handledEvents | IDCMP_RAWKEY;
+	[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
+
+	try {
+		auto webPage = [_private page];
+		webPage->goActive();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)becomeInactive
+{
+	_isActive = false;
+	self.handledEvents = self.handledEvents & ~IDCMP_RAWKEY;
+	[[self windowObject] setDisableKeys:0];
+
+	try {
+		auto webPage = [_private page];
+		webPage->goInactive();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)goInactive:(ULONG)flags
+{
+	[super goInactive:flags];
+	[self becomeInactive];
+}
+
+- (void)cleanup
+{
+	[self becomeInactive];
+	[super cleanup];
+}
+
 - (ULONG)handleEvent:(struct IntuiMessage *)imsg muikey:(LONG)muikey
 {
 	if (imsg)
@@ -210,6 +269,11 @@ dprintf("kill me\n");
 		auto webPage = [_private page];
 		return webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg], [self isInObject:imsg]) ?
 			MUI_EventHandlerRC_Eat : 0;
+	}
+	else
+	{
+		auto webPage = [_private page];
+		return webPage->handleMUIKey(int(muikey));
 	}
 	
 	return 0;

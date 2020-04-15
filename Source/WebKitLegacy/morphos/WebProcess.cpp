@@ -9,6 +9,7 @@
 #include <WebCore/PageCache.h>
 #include <WebCore/CommonVM.h>
 #include <WebCore/CurlCacheManager.h>
+#include <WebCore/ProcessWarming.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -56,6 +57,9 @@ void WebProcess::initialize(int sigbit)
 	setCacheModel(CacheModel::PrimaryWebBrowser);
 	dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask);
 
+// makes shit fail quickly now
+// 	ProcessWarming::prewarmGlobally();
+
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 }
 
@@ -68,8 +72,12 @@ void WebProcess::terminate()
 
 void WebProcess::handleSignals(const uint32_t sigmask)
 {
-	dispatchFunctionsFromMainThread();
-	WTF::RunLoop::iterate();
+	try {
+		dispatchFunctionsFromMainThread();
+		WTF::RunLoop::iterate();
+	} catch (std::exception &ex) {
+		dprintf("%s: webkit threw %s\n", ex.what());
+	}
 }
 
 WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const
@@ -167,15 +175,17 @@ static void getWebCoreMemoryCacheStatistics(WTF::TextStream& ss)
 
 void WebProcess::dumpWebCoreStatistics()
 {
+    GCController::singleton().garbageCollectNow();
+
 	WTF::TextStream ss;
 	
     // Gather JavaScript statistics.
     {
         JSLockHolder lock(commonVM());
-        ss << "JavaScriptObjectsCount" << commonVM().heap.objectCount(); ss.nextLine();;
-        ss << "JavaScriptGlobalObjectsCount" << commonVM().heap.globalObjectCount(); ss.nextLine();;
-        ss << "JavaScriptProtectedObjectsCount" << commonVM().heap.protectedObjectCount(); ss.nextLine();;
-        ss << "JavaScriptProtectedGlobalObjectsCount" << commonVM().heap.protectedGlobalObjectCount(); ss.nextLine();;
+        ss << "JavaScriptObjectsCount " << commonVM().heap.objectCount(); ss.nextLine();;
+        ss << "JavaScriptGlobalObjectsCount " << commonVM().heap.globalObjectCount(); ss.nextLine();;
+        ss << "JavaScriptProtectedObjectsCount " << commonVM().heap.protectedObjectCount(); ss.nextLine();;
+        ss << "JavaScriptProtectedGlobalObjectsCount " << commonVM().heap.protectedGlobalObjectCount(); ss.nextLine();;
 		
         std::unique_ptr<TypeCountSet> protectedObjectTypeCounts(commonVM().heap.protectedObjectTypeCounts());
         fromCountedSetToDebug(protectedObjectTypeCounts.get(), ss);
@@ -184,22 +194,22 @@ void WebProcess::dumpWebCoreStatistics()
         fromCountedSetToDebug(objectTypeCounts.get(), ss);
 		
         uint64_t javaScriptHeapSize = commonVM().heap.size();
-        ss << "JavaScriptHeapSize" << javaScriptHeapSize; ss.nextLine();;
-        ss << "JavaScriptFreeSize" << (commonVM().heap.capacity() - javaScriptHeapSize); ss.nextLine();;
+        ss << "JavaScriptHeapSize " << javaScriptHeapSize; ss.nextLine();;
+        ss << "JavaScriptFreeSize " << (commonVM().heap.capacity() - javaScriptHeapSize); ss.nextLine();;
     }
 
     WTF::FastMallocStatistics fastMallocStatistics = WTF::fastMallocStatistics();
-    ss << "FastMallocReservedVMBytes" << fastMallocStatistics.reservedVMBytes; ss.nextLine();;
-    ss << "FastMallocCommittedVMBytes" << fastMallocStatistics.committedVMBytes; ss.nextLine();;
-    ss << "FastMallocFreeListBytes" << fastMallocStatistics.freeListBytes; ss.nextLine();;
+    ss << "FastMallocReservedVMBytes " << fastMallocStatistics.reservedVMBytes; ss.nextLine();;
+    ss << "FastMallocCommittedVMBytes " << fastMallocStatistics.committedVMBytes; ss.nextLine();;
+    ss << "FastMallocFreeListBytes " << fastMallocStatistics.freeListBytes; ss.nextLine();;
 	
     // Gather font statistics.
     auto& fontCache = FontCache::singleton();
-    ss << "CachedFontDataCount" << fontCache.fontCount(); ss.nextLine();;
-    ss << "CachedFontDataInactiveCount" << fontCache.inactiveFontCount(); ss.nextLine();;
+    ss << "CachedFontDataCount " << fontCache.fontCount(); ss.nextLine();;
+    ss << "CachedFontDataInactiveCount " << fontCache.inactiveFontCount(); ss.nextLine();;
 	
     // Gather glyph page statistics.
-    ss << "GlyphPageCount" << GlyphPage::count(); ss.nextLine();;
+    ss << "GlyphPageCount " << GlyphPage::count(); ss.nextLine();;
 	
     // Get WebCore memory cache statistics
     getWebCoreMemoryCacheStatistics(ss);
@@ -242,11 +252,15 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
 
     calculateMemoryCacheSizes(cacheModel, cacheTotalCapacity, cacheMinDeadCapacity, cacheMaxDeadCapacity, deadDecodedDataDeletionInterval, pageCacheSize);
 
+
+cacheMinDeadCapacity = cacheMaxDeadCapacity = cacheTotalCapacity = 512*1024*1024;
+pageCacheSize = 256*1024*1024;
+
     auto& memoryCache = MemoryCache::singleton();
     memoryCache.setCapacities(cacheMinDeadCapacity, cacheMaxDeadCapacity, cacheTotalCapacity);
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
     PageCache::singleton().setMaxSize(pageCacheSize);
-    CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache"));
+    CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
 	
     dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity);
 }

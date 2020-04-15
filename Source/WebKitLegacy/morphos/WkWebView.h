@@ -6,6 +6,7 @@
 {
 	WkWebViewPrivate *_private;
 	bool              _drawPending;
+	bool              _isActive;
 }
 
 + (void)shutdown;
