@@ -11,20 +11,12 @@ list(APPEND WTF_SOURCES
 
         text/unix/TextBreakIteratorInternalICUUnix.cpp
 
-        unix/LanguageUnix.cpp
+        unix/CPUTimeUnix.cpp
         unix/UniStdExtrasUnix.cpp
 
+        morphos/LanguageMorphOS.cpp
         morphos/Misc.cpp
     )
-    if (WTF_OS_FUCHSIA)
-        list(APPEND WTF_SOURCES
-            fuchsia/CPUTimeFuchsia.cpp
-        )
-    else ()
-        list(APPEND WTF_SOURCES
-            unix/CPUTimeUnix.cpp
-        )
-    endif ()
 
     list(APPEND WTF_SOURCES
         generic/MemoryFootprintGeneric.cpp

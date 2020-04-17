@@ -1291,6 +1291,9 @@ String WebFrameLoaderClient::userAgent(const URL& url)
     if (!webPage)
         return String();
 
+	// Chrome
+	// return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36");
+
  	return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
 
 //    return webPage->userAgent(url);

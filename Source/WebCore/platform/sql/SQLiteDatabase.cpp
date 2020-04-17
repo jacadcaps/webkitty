@@ -41,6 +41,8 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
+extern "C" { void dprintf(const char *,...); }
+
 namespace WebCore {
 
 static const char notOpenErrorMessage[] = "database is not open";
@@ -140,6 +142,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode)
     else
         m_openErrorMessage = "sqlite_open returned null";
 
+#if !OS(MORPHOS)
     {
         SQLiteTransactionInProgressAutoCounter transactionCounter;
         if (!SQLiteStatement(*this, "PRAGMA temp_store = MEMORY;"_s).executeCommand())
@@ -148,6 +151,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode)
 
     if (openMode != OpenMode::ReadOnly)
         useWALJournalMode();
+#endif
 
     String shmFileName = makeString(filename, "-shm"_s);
     if (FileSystem::fileExists(shmFileName)) {
@@ -156,6 +160,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode)
             FileSystem::makeSafeToUseMemoryMapForPath(shmFileName);
         }
     }
+dprintf("%s: open >> %d\n", __PRETTY_FUNCTION__, isOpen());
 
     return isOpen();
 }
@@ -550,6 +555,9 @@ bool SQLiteDatabase::isAutoCommitOn() const
 
 bool SQLiteDatabase::turnOnIncrementalAutoVacuum()
 {
+#if OS(MORPHOS)
+	return true;
+#endif
     SQLiteStatement statement(*this, "PRAGMA auto_vacuum"_s);
     int autoVacuumMode = statement.getColumnInt(0);
     int error = lastError();

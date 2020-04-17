@@ -23,6 +23,8 @@
 #include <JavaScriptCore/MemoryStatistics.h>
 #include <WebCore/CrossOriginPreflightResultCache.h>
 
+#include <proto/dos.h>
+
 extern "C" {
 	void dprintf(const char *, ...);
 };
@@ -46,7 +48,7 @@ namespace WebKit {
 
 WebProcess& WebProcess::singleton()
 {
-    static WebProcess& process = *new WebProcess;
+    static WebProcess process;
     return process;
 }
 
@@ -68,6 +70,29 @@ void WebProcess::terminate()
     GCController::singleton().garbageCollectNow();
     FontCache::singleton().invalidate();
     MemoryCache::singleton().setDisabled(true);
+}
+
+WebProcess::~WebProcess()
+{
+dprintf("WebProcess will wait for threads...\n");
+	waitForThreads();
+}
+
+void WebProcess::waitForThreads()
+{
+	for (;;)
+	{
+		{
+			LockHolder lock(Thread::allThreadsMutex());
+			auto count = Thread::allThreads(lock).size();
+			if (0 == count)
+				return;
+			dprintf("wait for %ld threads\n", count);
+		}
+		Delay(10);
+		dispatchFunctionsFromMainThread();
+		WTF::RunLoop::iterate();
+	}
 }
 
 void WebProcess::handleSignals(const uint32_t sigmask)

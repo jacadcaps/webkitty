@@ -50,8 +50,8 @@ int muiMain(int argc, char *argv[])
     signal(SIGINT, SIG_IGN);
 	setlocale(LC_TIME, "C");
 	setlocale(LC_NUMERIC, "C");
+	setlocale(LC_CTYPE, "en-US");
 
-dprintf("muimain!\n");
 	FreetypeBase = OpenLibrary("freetype.library", 0);
 	if (FreetypeBase)
 	{
@@ -67,9 +67,7 @@ dprintf("muimain!\n");
 		{
 			MUIWindow *win = [MUIWindow new];
 
-dprintf("instantiate webview..\n");
 			view = [[WkWebView new] autorelease];
-dprintf("webview %p\n", view);
 
 			MUIGroup *bug;
 			MUIButton *button;
@@ -97,14 +95,11 @@ dprintf("webview %p\n", view);
 
 			ADDBUTTON(@"Ggle", @"https://www.google.com");
 			ADDBUTTON(@"WIMB", @"https://www.whatsmybrowser.org");
-			ADDBUTTON(@"Cookies", @"https://www.whatismybrowser.com/detect/are-cookies-enabled");
+			ADDBUTTON(@"Cookies", @"http://browsercookielimits.squawky.net");
 			ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
 			ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 			ADDBUTTON(@"MZone", @"https://morph.zone/");
-			ADDBUTTON(@"CSSTest", @"https://tunkki.dk/~jaca/test_whatismybrowser.html");
-			ADDBUTTON(@"TestB", @"http://tunkki.dk/~jaca/test.html");
-			ADDBUTTON(@"AS1", @"https://andresiegel.com/private/webkit/test_inline_js.html");
-			ADDBUTTON(@"AS2", @"http://andresiegel.com/private/webkit/test_inline_css.html");
+			ADDBUTTON(@"HTML5", @"http://html5test.com");
 
 			[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:view];
 
@@ -115,15 +110,14 @@ dprintf("webview %p\n", view);
 
 			[app run];
 
-dprintf("shutdown...\n");
-
-			[WkWebView shutdown];
+			win.open = NO;
 
 dprintf("exiting...\n");
 
-			win.open = NO;
 		}
 		
+		[WkWebView shutdown];
+
 dprintf("release..\n");
 		[app release];
 dprintf("app release done...\n");

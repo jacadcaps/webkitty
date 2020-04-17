@@ -24,6 +24,7 @@ public:
 
 	void initialize(int sigbit);
 	void terminate();
+	void waitForThreads();
 
     WebPage* webPage(WebCore::PageIdentifier) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -48,6 +49,8 @@ public:
 protected:
     HashMap<uint64_t, WebFrame*> m_frameMap;
     HashMap<WebCore::PageIdentifier, RefPtr<WebPage>> m_pageMap;
+
+	~WebProcess();
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };

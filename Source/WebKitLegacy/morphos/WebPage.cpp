@@ -90,6 +90,7 @@
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/UserInputBridge.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/EventNames.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -481,11 +482,11 @@ dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 	settings.setLocalStorageEnabled(true);
 	
-	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
+//	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
-
+dprintf("cookies %d %d \n", settings.cookieEnabled(), settings.isThirdPartyCookieBlockingOnSitesWithoutUserInteractionEnabled());
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
     static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
 
@@ -938,6 +939,127 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
+static const unsigned CtrlKey = 1 << 0;
+static const unsigned AltKey = 1 << 1;
+static const unsigned ShiftKey = 1 << 2;
+
+
+struct KeyDownEntry {
+    unsigned virtualKey;
+    unsigned modifiers;
+    const char* name;
+};
+
+struct KeyPressEntry {
+    unsigned charCode;
+    unsigned modifiers;
+    const char* name;
+};
+
+static const KeyDownEntry keyDownEntries[] = {
+    { RAWKEY_LEFT,   0,                  "MoveLeft"                                    },
+    { RAWKEY_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
+    { RAWKEY_LEFT,   CtrlKey,            "MoveWordLeft"                                },
+    { RAWKEY_LEFT,   CtrlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
+    { RAWKEY_RIGHT,  0,                  "MoveRight"                                   },
+    { RAWKEY_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
+    { RAWKEY_RIGHT,  CtrlKey,            "MoveWordRight"                               },
+    { RAWKEY_RIGHT,  CtrlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
+    { RAWKEY_UP,     0,                  "MoveUp"                                      },
+    { RAWKEY_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
+    { RAWKEY_DOWN,   0,                  "MoveDown"                                    },
+    { RAWKEY_DOWN,   ShiftKey,           "MoveDownAndModifySelection"                  },
+    { RAWKEY_HOME,   0,                  "MoveToBeginningOfLine"                       },
+    { RAWKEY_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
+    { RAWKEY_HOME,   CtrlKey,            "MoveToBeginningOfDocument"                   },
+    { RAWKEY_HOME,   CtrlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
+
+    { RAWKEY_END,    0,                  "MoveToEndOfLine"                             },
+    { RAWKEY_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
+    { RAWKEY_END,    CtrlKey,            "MoveToEndOfDocument"                         },
+    { RAWKEY_END,    CtrlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
+
+    { RAWKEY_BACKSPACE,   0,                  "DeleteBackward"                              },
+    { RAWKEY_BACKSPACE,   ShiftKey,           "DeleteBackward"                              },
+    { RAWKEY_DELETE, 0,                  "DeleteForward"                               },
+    { RAWKEY_BACKSPACE,   CtrlKey,            "DeleteWordBackward"                          },
+    { RAWKEY_DELETE, CtrlKey,            "DeleteWordForward"                           },
+	
+    { 'B',       CtrlKey,            "ToggleBold"                                  },
+    { 'I',       CtrlKey,            "ToggleItalic"                                },
+
+    { RAWKEY_ESCAPE, 0,                  "Cancel"                                      },
+    { RAWKEY_TAB,    0,                  "InsertTab"                                   },
+    { RAWKEY_TAB,    ShiftKey,           "InsertBacktab"                               },
+    { RAWKEY_RETURN, 0,                  "InsertNewline"                               },
+    { RAWKEY_RETURN, CtrlKey,            "InsertNewline"                               },
+    { RAWKEY_RETURN, AltKey,             "InsertNewline"                               },
+    { RAWKEY_RETURN, ShiftKey,           "InsertNewline"                               },
+    { RAWKEY_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
+    { RAWKEY_KP_ENTER, 0,                  "InsertNewline"                               },
+    { RAWKEY_KP_ENTER, CtrlKey,            "InsertNewline"                               },
+    { RAWKEY_KP_ENTER, AltKey,             "InsertNewline"                               },
+    { RAWKEY_KP_ENTER, ShiftKey,           "InsertNewline"                               },
+    { RAWKEY_KP_ENTER, AltKey | ShiftKey,  "InsertNewline"                               },
+
+    // It's not quite clear whether clipboard shortcuts and Undo/Redo should be handled
+    // in the application or in WebKit. We chose WebKit.
+    { 'C',       CtrlKey,            "Copy"                                        },
+    { 'V',       CtrlKey,            "Paste"                                       },
+    { 'X',       CtrlKey,            "Cut"                                         },
+    { 'A',       CtrlKey,            "SelectAll"                                   },
+    { RAWKEY_INSERT, CtrlKey,            "Copy"                                        },
+    { RAWKEY_DELETE, ShiftKey,           "Cut"                                         },
+    { RAWKEY_INSERT, ShiftKey,           "Paste"                                       },
+    { 'Z',       CtrlKey,            "Undo"                                        },
+    { 'Z',       CtrlKey | ShiftKey, "Redo"                                        },
+};
+
+static const KeyPressEntry keyPressEntries[] = {
+    { '\t',   0,                  "InsertTab"                                   },
+    { '\t',   ShiftKey,           "InsertBacktab"                               },
+    { '\r',   0,                  "InsertNewline"                               },
+    { '\r',   CtrlKey,            "InsertNewline"                               },
+    { '\r',   AltKey,             "InsertNewline"                               },
+    { '\r',   ShiftKey,           "InsertNewline"                               },
+    { '\r',   AltKey | ShiftKey,  "InsertNewline"                               },
+};
+
+static const char* interpretKeyEvent(const KeyboardEvent* evt)
+{
+    ASSERT(evt->type() == eventNames().keydownEvent || evt->type() == eventNames().keypressEvent);
+
+    static HashMap<int, const char*>* keyDownCommandsMap = 0;
+    static HashMap<int, const char*>* keyPressCommandsMap = 0;
+
+    if (!keyDownCommandsMap) {
+        keyDownCommandsMap = new HashMap<int, const char*>;
+        keyPressCommandsMap = new HashMap<int, const char*>;
+
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyDownEntries); ++i)
+            keyDownCommandsMap->set(keyDownEntries[i].modifiers << 16 | keyDownEntries[i].virtualKey, keyDownEntries[i].name);
+
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyPressEntries); ++i)
+            keyPressCommandsMap->set(keyPressEntries[i].modifiers << 16 | keyPressEntries[i].charCode, keyPressEntries[i].name);
+    }
+
+    unsigned modifiers = 0;
+    if (evt->shiftKey())
+        modifiers |= ShiftKey;
+    if (evt->altKey())
+        modifiers |= AltKey;
+    if (evt->ctrlKey())
+        modifiers |= CtrlKey;
+
+    if (evt->type() == eventNames().keydownEvent) {
+        int mapKey = modifiers << 16 | evt->keyCode();
+        return mapKey ? keyDownCommandsMap->get(mapKey) : 0;
+    }
+
+    int mapKey = modifiers << 16 | evt->charCode();
+    return mapKey ? keyPressCommandsMap->get(mapKey) : 0;
+}
+
 bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
 {
     auto* frame = downcast<WebCore::Node>(event.target())->document().frame();
@@ -947,7 +1069,6 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     if (!keyEvent || keyEvent->isSystemKey())  // do not treat this as text input if it's a system key event
         return false;
 
-#if 0
     auto command = frame->editor().command(interpretKeyEvent(&event));
 
     if (keyEvent->type() == PlatformEvent::RawKeyDown) {
@@ -963,7 +1084,6 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     // Don't insert null or control characters as they can result in unexpected behaviour
     if (event.charCode() < ' ')
         return false;
-#endif
 
     return frame->editor().insertText(keyEvent->text(), &event);
 }
@@ -1012,9 +1132,10 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				case MIDDLEDOWN:
 					if (mouseInside)
 					{
+						if (_fGoActive)
+							_fGoActive();
+
 						bridge.handleMousePressEvent(pme);
-						bridge.focusSetActive(true);
-						bridge.focusSetFocused(true);
 						m_trackMouse = true;
 	//					rc = m_page->mainFrame().eventHandler().handleMousePressEvent(pme);
 	//					printf("press at %d %d -> %d\n", mouseX, mouseY, rc);
@@ -1064,12 +1185,14 @@ dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 			{
 			case NM_WHEEL_UP:
 			case NM_WHEEL_DOWN:
-				if (mouseInside)
+				if (mouseInside && !up)
 				{
+					float wheelTicksY = 1;
+					float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
 					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
 						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
-						0,imsg->Code == NM_WHEEL_UP ? 15 : -15,
-						0,imsg->Code == NM_WHEEL_UP ? 15 : -15,
+						0, deltaY,
+						0, wheelTicksY,
 						ScrollByPixelWheelEvent,
 						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
 						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
@@ -1080,13 +1203,37 @@ dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 					return true;
 				}
 				break;
+			
+			case RAWKEY_BACKSPACE:
+			case RAWKEY_RETURN:
+			case RAWKEY_KP_ENTER:
+			case RAWKEY_LEFT:
+			case RAWKEY_RIGHT:
+			case RAWKEY_UP:
+			case RAWKEY_DOWN:
+			case RAWKEY_HOME:
+			case RAWKEY_END:
+				{
+					static const WTF::String empty;
+					auto ke = WebCore::PlatformKeyboardEvent(up ? WebCore::PlatformEvent::KeyUp : WebCore::PlatformEvent::RawKeyDown, empty,empty,empty,empty,empty,
+						code, imsg->Qualifier & IEQUALIFIER_REPEAT, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));
 				
+					bridge.handleKeyEvent(ke);
+				}
+				break;
+			
 			case RAWKEY_TAB:
 				if (!up)
 				{
 					bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
-					if ((!rc || !m_focusedElement) && _fActivateNext)
-						_fActivateNext();
+dprintf(">>> next focused %p %d\n", m_focusedElement, rc);
+					if ((!rc || !m_focusedElement) && _fActivateNext && _fActivatePrevious)
+					{
+						if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+							_fActivatePrevious();
+						else
+							_fActivateNext();
+					}
 				}
 				return true;
 			
@@ -1097,7 +1244,7 @@ dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 					if (imsg->Code & IECODE_UP_PREFIX)
 					{
 						UChar ch[2] = { key, 0 };
-						WTF::String s(ch, 2);
+						WTF::String s(ch, 1);
 //						dprintf("typed char '%s' (%ld)\n", s.utf8().data(), key);
 						auto ke = WebCore::PlatformKeyboardEvent(WebCore::PlatformEvent::Char,s,s,s,s,s,
 							 0, imsg->Qualifier & IEQUALIFIER_REPEAT, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));

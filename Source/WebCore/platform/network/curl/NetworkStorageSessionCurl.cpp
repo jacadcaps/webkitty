@@ -46,6 +46,9 @@ namespace WebCore {
 
 static String defaultCookieJarPath()
 {
+#if OS(MORPHOS)
+	return "PROGDIR:Cache/cookie.jar.db";
+#else
     static const char* defaultFileName = "cookie.jar.db";
     char* cookieJarPath = getenv("CURL_COOKIE_JAR_PATH");
     if (cookieJarPath)
@@ -56,6 +59,7 @@ static String defaultCookieJarPath()
 #else
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=192417
     return defaultFileName;
+#endif
 #endif
 }
 
@@ -111,16 +115,19 @@ std::pair<String, bool> NetworkStorageSession::cookiesForDOM(const URL& firstPar
 void NetworkStorageSession::setCookies(const Vector<Cookie>&, const URL&, const URL&)
 {
     // FIXME: Implement for WebKit to use.
+    notImplemented();
 }
 
 void NetworkStorageSession::setCookie(const Cookie&)
 {
     // FIXME: Implement for WebKit to use.
+    notImplemented();
 }
 
 void NetworkStorageSession::deleteCookie(const Cookie&)
 {
     // FIXME: Implement for WebKit to use.
+    notImplemented();
 }
 
 void NetworkStorageSession::deleteCookie(const URL& url, const String& cookie) const

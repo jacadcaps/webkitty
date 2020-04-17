@@ -118,7 +118,7 @@ void WebChromeClient::takeFocus(FocusDirection direction)
 
 void WebChromeClient::focusedElementChanged(Element* element)
 {
-	dprintf("focused element %p\n", element);
+	m_webPage.setFocusedElement(element);
 }
 
 void WebChromeClient::focusedFrameChanged(Frame*)

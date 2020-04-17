@@ -65,14 +65,13 @@ static OBSignalHandler *_signalHandler;
 
 + (void)shutdown
 {
-	if (!_shutdown && 0 == _viewInstanceCount)
+	if (!_shutdown)
 	{
 		[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 		[_signalHandler release];
 		WebKit::WebProcess::singleton().terminate();
+		_shutdown = YES;
 	}
-
-	_shutdown = YES;
 }
 
 - (id)init
@@ -121,7 +120,7 @@ static OBSignalHandler *_signalHandler;
 		}
 
 		try {
-			auto webProcess = WebKit::WebProcess::singleton();
+			auto& webProcess = WebKit::WebProcess::singleton();
 			auto identifier = WebCore::PageIdentifier::generate();
 
 			WebKit::WebPageCreationParameters parameters;
@@ -149,11 +148,16 @@ static OBSignalHandler *_signalHandler;
 			webPage->_fActivateNext = [self]() {
 				[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Next];
 			};
+			
+			webPage->_fActivatePrevious = [self]() {
+				[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Prev];
+			};
 
-dprintf("done, webpage %p, %p\n", webPage, webProcess.webPage(identifier));
+			webPage->_fGoActive = [self]() {
+				[[self windowObject] setActiveObject:self];
+			};
 
 		} catch (...) {
-dprintf("kill me\n");
 			[self release];
 			return nil;
 		}
