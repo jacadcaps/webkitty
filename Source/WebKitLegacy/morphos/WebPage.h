@@ -48,6 +48,8 @@ public:
     PAL::SessionID sessionID() const;
 
 	void go(const char *url);
+	void reload();
+	void stop();
 
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
@@ -103,7 +105,8 @@ protected:
 	// WebChrome methods
     void repaint(const WebCore::IntRect&);
     void internalScroll(int scrollX, int scrollY);
-    void documentSizeChanged(int width, int height);
+	void scrollBy(const int xDelta, const int yDelta);
+    void frameSizeChanged(WebCore::Frame& frame, int width, int height);
 
     void closeWindow();
     void closeWindowSoon();
@@ -128,6 +131,7 @@ private:
     bool m_alwaysShowsVerticalScroller { false };
     bool m_mainFrameIsScrollable { true };
     bool m_trackMouse { false };
+    bool m_ignoreScroll { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };

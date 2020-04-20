@@ -9,6 +9,8 @@
 #include <signal.h>
 #include <locale.h>
 
+#include <algorithm>
+
 unsigned long __stack = 2 * 1024 * 1024;
 
 extern "C" {
@@ -20,30 +22,336 @@ extern "C" {
 
 struct Library *FreetypeBase;
 
-static WkWebView *view;
-static MUIString *address;
-
-@interface MUIApplication (Addons)
+@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate>
+{
+	WkWebView *_view;
+ 	MUIString *_address;
+	MUICycle  *_userAgents;
+	MUIGroup  *_topGroup;
+	MUIGroup  *_bottomGroup;
+	MUIGroup  *_loading;
+}
 @end
 
-@implementation MUIApplication (Addons)
-
-- (void)test1
+@interface BrowserGroup : MUIGroup<WkWebViewScrollingDelegate>
 {
-	[view navigateTo:@"https://www.google.com"];
+	WkWebView *_view;
+	MUIScrollbar *_horiz;
+	MUIScrollbar *_vert;
+	int           _documentWidth;
+	int           _documentHeight;
+	int           _viewWidth;
+	int           _viewHeight;
+	int           _horizStep;
+	int           _vertStep;
+	bool          _needsUpdate;
 }
 
-- (void)test2
+- (void)doScroll;
+
+@end
+
+@implementation BrowserGroup
+
+- (id)initWithWkWebView:(WkWebView *)view
 {
-	[view navigateTo:@"https://www.whatsmybrowser.org"];
+	MUIGroup *inner;
+	if ((self = [super initHorizontalWithObjects:
+		inner = [MUIGroup groupWithObjects:_view = view, _horiz = [MUIScrollbar horizontalScrollbar], nil],
+		_vert = [MUIScrollbar verticalScrollbar],
+		nil]))
+	{
+		[inner setInnerLeft:0];
+		[inner setInnerRight:0];
+		
+		[_vert notify:@selector(first) performSelector:@selector(doScroll) withTarget:self];
+		[_horiz notify:@selector(first) performSelector:@selector(doScroll) withTarget:self];
+		
+		[_view setScrollingDelegate:self];
+		
+		[_vert setDeltaFactor:10];
+		[_horiz setDeltaFactor:10];
+	}
+	
+	return self;
 }
+
++ (id)browserGroupWithWkWebView:(WkWebView *)view
+{
+	return [[[self alloc] initWithWkWebView:view] autorelease];
+}
+
+- (void)updateScrollers
+{
+	_needsUpdate = false;
+	
+	if (_documentWidth > 0)
+	{
+		if (_documentWidth >= _viewWidth)
+		{
+			[_horiz noNotifySetEntries:_documentWidth];
+			[_horiz noNotifySetPropVisible:_viewWidth];
+		}
+		else
+		{
+			[_horiz noNotifySetEntries:1];
+		}
+		
+		if (_documentHeight >= _viewHeight)
+		{
+			[_vert noNotifySetEntries:_documentHeight];
+			[_vert noNotifySetPropVisible:_viewHeight];
+		}
+		else
+			[_vert noNotifySetEntries:1];
+	}
+	else
+	{
+		[_vert noNotifySetEntries:1];
+		[_horiz noNotifySetEntries:1];
+	}
+}
+
+- (void)webView:(WkWebView *)view changedContentsSizeToWidth:(int)width height:(int)height
+{
+	_documentWidth = width;
+	_documentHeight = height;
+	if (!_needsUpdate)
+	{
+		_needsUpdate = true;
+		[[OBRunLoop mainRunLoop] performSelector:@selector(updateScrollers) target:self];
+	}
+}
+
+- (void)webView:(WkWebView *)view scrolledToLeft:(int)left top:(int)top
+{
+	[_horiz noNotifySetFirst:left];
+	[_vert noNotifySetFirst:top];
+}
+
+- (void)doScroll
+{
+	[_view scrollToLeft:[_horiz first] top:[_vert first]];
+}
+
+- (BOOL)show:(struct LongRect *)clip
+{
+	if ([super show:clip])
+	{
+		_viewWidth = [_view innerWidth];
+		_viewHeight = [_view innerHeight];
+
+		if (!_needsUpdate)
+		{
+			_needsUpdate = true;
+			[[OBRunLoop mainRunLoop] performSelector:@selector(updateScrollers) target:self];
+		}
+
+		return YES;
+	}
+	
+	return NO;
+}
+
+@end
+
+
+@interface MiniMenuitem : MUIMenuitem
+
++ (id)itemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector;
++ (id)checkmarkItemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector;
+
+@end
+
+@implementation MiniMenuitem
+
++ (id)itemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector
+{
+	return [[self alloc] initWithTitle:title shortcut:shortcut selector:selector];
+}
+
++ (id)checkmarkItemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector
+{
+	MiniMenuitem *item = [[self alloc] initWithTitle:title shortcut:shortcut selector:selector];
+	item.checkit = YES;
+	return item;
+}
+
+- (void)about
+{
+	MUIApplication *app = [MUIApplication currentApplication];
+	OBArray *windows = [app objects];
+	
+	for (int i = 0; i < [windows count]; i++)
+	{
+		MUIWindow *window = [windows objectAtIndex:i];
+		if ([window isKindOfClass:[MCCAboutbox class]])
+		{
+			window.open = YES;
+			return;
+		}
+	}
+	
+	MCCAboutbox *about = [MCCAboutbox new];
+	[app addObject:about];
+	about.open = YES;
+}
+
+- (void)quit
+{
+	[[MUIApplication currentApplication] quit];
+}
+
+- (void)newWindow
+{
+	BrowserWindow *w = [[BrowserWindow new] autorelease];
+	[[MUIApplication currentApplication] addObject:w];
+	[w setOpen:YES];
+}
+
+@end
+
+@implementation BrowserWindow
+
+static int _windowID = 1;
 
 - (void)navigate
 {
-	[view navigateTo:[address contents]];
+	[_view navigateTo:[_address contents]];
+}
+
+- (void)postClose
+{
+	OBEnumerator *e = [[[MUIApplication currentApplication] objects] objectEnumerator];
+	MUIWindow *win;
+
+	while ((win = [e nextObject]))
+	{
+		if ([win isKindOfClass:[self class]] && win != self)
+		{
+			[[MUIApplication currentApplication] removeObject:self];
+			return;
+		}
+	}
+
+	[[OBRunLoop currentRunLoop] performSelector:@selector(quit) target:[MUIApplication currentApplication]];
+}
+
+- (void)doClose
+{
+	[self setOpen:NO];
+	[[OBRunLoop mainRunLoop] performSelector:@selector(postClose) target:self];
+}
+
+- (id)initWithView:(WkWebView *)view
+{
+	if ((self = [super init]))
+	{
+		MUIButton *button;
+		MUIButton *debug;
+
+		self.rootObject = [MUIGroup groupWithObjects:
+			_topGroup = [MUIGroup horizontalGroupWithObjects:
+				_address = [MUIString stringWithContents:@"https://"],
+				nil],
+			[BrowserGroup browserGroupWithWkWebView:_view = view],
+			_bottomGroup = [MUIGroup horizontalGroupWithObjects:
+				_userAgents = [MUICycle cycleWithEntries:[OBArray arrayWithObjects:@"Safari", @"Chrome", @"WebKitty", nil]],
+				debug = [MUIButton buttonWithLabel:@"Debug Stats"],
+				[MUIRectangle rectangleWithWeight:300],
+				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
+				nil],
+			nil];
+		self.title = @"Test";
+		self.iD = _windowID++;
+
+		[self notify:@selector(closeRequest) performSelector:@selector(doClose) withTarget:self];
+
+		[_address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:self];
+		[_address setWeight:300];
+		
+		[_view setNetworkDelegate:self];
+
+		#define ADDBUTTON(__title__, __address__) \
+			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
+			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:_view withObject:__address__];
+
+		ADDBUTTON(@"Ggle", @"https://www.google.com");
+		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
+		ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
+		ADDBUTTON(@"MZone", @"https://morph.zone/");
+		ADDBUTTON(@"HTML5", @"http://html5test.com");
+
+		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
+
+		[self setMenustrip:[MUIMenustrip menustripWithObjects:
+			[MUIMenu menuWithTitle:@"MiniBrowser" objects:
+				[MiniMenuitem itemWithTitle:@"New Window..." shortcut:@"N" selector:@selector(newWindow)],
+				[MUIMenuitem barItem],
+				[MiniMenuitem itemWithTitle:@"About..." shortcut:@"?" selector:@selector(about)],
+				[MiniMenuitem itemWithTitle:@"Quit" shortcut:@"Q" selector:@selector(quit)],
+				nil],
+			nil]];
+	
+	}
+	
+	return self;
+}
+
+- (id)init
+{
+	return [self initWithView:[[WkWebView new] autorelease]];
+}
+
+- (OBString *)userAgentForURL:(OBString *)url
+{
+	switch ([_userAgents active])
+	{
+	case 1:
+		return @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36";
+	case 2:
+		return @"Mozilla/5.0 (MorphOS; PowerPC 3_14) WebKitty/605.1.15 (KHTML, like Gecko)";
+	}
+
+	return nil;
+}
+
+- (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle
+{
+	[self setTitle:newtitle];
+}
+
+- (void)webView:(WkWebView *)view changedDocumentURL:(OBString *)newurl
+{
+	[_address noNotifySetContents:newurl];
+}
+
+- (void)webViewDidStartProvisionalLoading:(WkWebView *)view
+{
+	[_loading setActivePage:1];
+}
+
+- (void)webViewDidFinishProvisionalLoading:(WkWebView *)view
+{
+	[_loading setActivePage:0];
+}
+
+- (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBString *)url options:(OBDictionary *)options
+{
+	return YES;
+}
+
+- (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview
+{
+	BrowserWindow *newWindow = [[[BrowserWindow alloc] initWithView:newview] autorelease];
+	[[MUIApplication currentApplication] addObject:newWindow];
+	[newWindow setOpen:YES];
 }
 
 @end
+
+#define VERSION   "$VER: MiniBrowser 1.0 (19.04.2020) (C)2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
+#define COPYRIGHT @"2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 
 int muiMain(int argc, char *argv[])
 {
@@ -65,55 +373,20 @@ int muiMain(int argc, char *argv[])
 	
 		if (app)
 		{
-			MUIWindow *win = [MUIWindow new];
-
-			view = [[WkWebView new] autorelease];
-
-			MUIGroup *bug;
-			MUIButton *button;
-			MUIButton *debug;
-
-			win.rootObject = [MUIGroup groupWithObjects:
-				bug = [MUIGroup horizontalGroupWithObjects:
-					address = [MUIString stringWithContents:@"https://"],
-					nil],
-				view,
-				[MUIGroup horizontalGroupWithObjects:
-					[MUIRectangle rectangleWithWeight:300],
-					debug = [MUIButton buttonWithLabel:@"Debug Stats"],
-					nil],
-				nil];
-			win.title = @"Test";
-			win.iD = 1;
-			
-			[address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:app];
-			[address setWeight:300];
-			
-			#define ADDBUTTON(__title__, __address__) \
-				[bug addObject:button = [MUIButton buttonWithLabel:__title__]]; \
-				[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:view withObject:__address__];
-
-			ADDBUTTON(@"Ggle", @"https://www.google.com");
-			ADDBUTTON(@"WIMB", @"https://www.whatsmybrowser.org");
-			ADDBUTTON(@"Cookies", @"http://browsercookielimits.squawky.net");
-			ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
-			ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
-			ADDBUTTON(@"MZone", @"https://morph.zone/");
-			ADDBUTTON(@"HTML5", @"http://html5test.com");
-
-			[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:view];
-
 			[app setBase:@"WEKBITTY"];
+
+			app.title = @"WebKitty MiniBrowser";
+			app.author = @"Jacek Piszczek, Harry Sintonen";
+			app.copyright = COPYRIGHT;
+			app.applicationVersion = [OBString stringWithCString:VERSION encoding:MIBENUM_ISO_8859_1];
+		
+
+			MUIWindow *win = [[BrowserWindow new] autorelease];
 			[app instantiateWithWindows:win, nil];
-			[win autorelease];
+
 			win.open = YES;
 
 			[app run];
-
-			win.open = NO;
-
-dprintf("exiting...\n");
-
 		}
 		
 		[WkWebView shutdown];

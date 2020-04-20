@@ -32,6 +32,7 @@
 //#include "WebMutableURLRequest.h"
 //#include "WebDesktopNotificationsDelegate.h"
 //#include "WebSecurityOrigin.h"
+#include "WebProcess.h"
 #include "WebPage.h"
 #include <WebCore/ContextMenu.h>
 #include <WebCore/Cursor.h>
@@ -127,8 +128,10 @@ void WebChromeClient::focusedFrameChanged(Frame*)
 
 Page* WebChromeClient::createWindow(Frame& frame, const FrameLoadRequest&, const WindowFeatures& features, const NavigationAction& navigationAction)
 {
-	notImplemented();
-	return nullptr;
+	if (!m_webPage._fCanOpenWindow || !m_webPage._fCanOpenWindow(navigationAction.url().string(), features))
+		return nullptr;
+	
+	return m_webPage._fDoOpenWindow();
 }
 
 void WebChromeClient::show()
@@ -310,9 +313,9 @@ void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
 {
-/*dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
+dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
 	scrollViewRect.x(), scrollViewRect.y(), scrollViewRect.width(), scrollViewRect.height(),
-	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height()); */
+	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height());
 	m_webPage.internalScroll(delta.width(), delta.height());
 }
 
@@ -342,14 +345,15 @@ PlatformPageClient WebChromeClient::platformPageClient() const
 	return 0;
 }
 
-void WebChromeClient::contentsSizeChanged(Frame&, const IntSize&) const
+void WebChromeClient::contentsSizeChanged(Frame& frame, const IntSize& size) const
 {
-    notImplemented();
+//    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
+    m_webPage.frameSizeChanged(frame, size.width(), size.height());
 }
 
-void WebChromeClient::intrinsicContentsSizeChanged(const IntSize&) const
+void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
 {
-    notImplemented();
+    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
 }
 
 void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& result, unsigned modifierFlags)

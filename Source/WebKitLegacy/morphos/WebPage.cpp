@@ -188,8 +188,6 @@ class WebViewDrawContext
 {
 	int m_width;
 	int m_height;
-	int m_scrollX = 0;
-	int m_scrollY = 0;
 	
 	WebCore::IntRect m_damage;
 	bool m_hasDamage = false;
@@ -235,20 +233,11 @@ public:
 		m_needsRepaint = true;
 	}
 	
-	void setScroll(const int sX, const int sY)
-	{
-		m_scrollX = sX;
-		m_scrollY = sY;
-		
-		m_needsRepaint = true;
-	}
-	
-	const int scrollX() const { return m_scrollX; }
-	const int scrollY() const { return m_scrollY; }
 	const int width() const { return m_width; }
 	const int height() const { return m_height; }
 
-	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height, bool update)
+	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
+		int scrollX, int scrollY, bool update)
 	{
 		if (!m_platformContext)
 			return;
@@ -257,12 +246,12 @@ public:
 		{
 			WebCore::GraphicsContext gc(m_platformContext);
 			
-			WebCore::IntRect ir(m_scrollX, m_scrollY, m_width, m_height);
+			WebCore::IntRect ir(scrollX, scrollY, m_width, m_height);
 			WebCore::FloatRect fr(0, 0, m_width, m_height);
 
 			gc.save();
 			gc.clip(fr);
-			gc.translate(-m_scrollX, -m_scrollY);
+			gc.translate(-scrollX, -scrollY);
 			
 			frameView->paintContents(gc, ir);
 
@@ -276,12 +265,12 @@ public:
 			
 			m_damage.intersect({ 0, 0, m_width, m_height });
 			
-			WebCore::IntRect ir(m_scrollX + m_damage.x(), m_scrollY + m_damage.y(), m_damage.width(), m_damage.height());
+			WebCore::IntRect ir(scrollX + m_damage.x(), scrollY + m_damage.y(), m_damage.width(), m_damage.height());
 			WebCore::FloatRect fr(m_damage.x(), m_damage.y(), m_damage.width(), m_damage.height());
 
 			gc.save();
 			gc.clip(fr);
-			gc.translate(-m_scrollX, -m_scrollY);
+			gc.translate(-scrollX, -scrollY);
 			
 			frameView->paintContents(gc, ir);
 
@@ -393,14 +382,11 @@ Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationPara
 WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 	: m_pageID(pageID)
 {
-dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
     JSC::initializeThreading();
     RunLoop::initializeMainRunLoop();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
 
 //	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
-
-dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 
     static bool didOneTimeInitialization;
     if (!didOneTimeInitialization) {
@@ -424,7 +410,6 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
 
-dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 	WebCore::PageConfiguration pageConfiguration(
         makeUniqueRef<WebEditorClient>(this),
         WebCore::SocketProvider::create(),
@@ -446,11 +431,10 @@ dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
 	pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
 
-// setUserStyleSheetLocation !
-
-dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
+//dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
 	m_page = std::make_unique<WebCore::Page>(WTFMove(pageConfiguration));
+	storageProvider->setPage(*m_page);
 
 dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 
@@ -485,8 +469,8 @@ dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
-	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
-dprintf("cookies %d %d \n", settings.cookieEnabled(), settings.isThirdPartyCookieBlockingOnSitesWithoutUserInteractionEnabled());
+	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file://PROGDIR:resource/userStyleSheet.css")));
+
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
     static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
 
@@ -504,7 +488,6 @@ dprintf("cookies %d %d \n", settings.cookieEnabled(), settings.isThirdPartyCooki
 
 WebPage::~WebPage()
 {
-	dprintf("!!!! %s\n", __PRETTY_FUNCTION__);
 	delete m_drawContext;
 }
 
@@ -548,6 +531,15 @@ dprintf("GO >> mf %p cf %p corepage %p\n",m_mainFrame.get(), coreFrame, corePage
 //    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow));
 }
 
+void WebPage::reload()
+{
+}
+
+void WebPage::stop()
+{
+
+}
+
 Frame* WebPage::mainFrame() const
 {
     return m_page ? &m_page->mainFrame() : nullptr;
@@ -570,7 +562,7 @@ void WebPage::goActive()
 {
 	if (!m_page)
 		return;
-dprintf("goactive!\n");
+
 	corePage()->userInputBridge().focusSetActive(true);
 	corePage()->userInputBridge().focusSetFocused(true);
 }
@@ -618,7 +610,6 @@ void WebPage::didStartPageTransition()
 
 void WebPage::didCompletePageTransition()
 {
-	setScroll(0, 0);
 }
 
 void WebPage::didCommitLoad(WebFrame* frame)
@@ -801,25 +792,38 @@ void WebPage::repaint(const WebCore::IntRect& rect)
 
 void WebPage::internalScroll(int scrollX, int scrollY)
 {
-	if (m_drawContext)
+	if (!m_ignoreScroll)
 	{
-		const int sx = std::max(0, m_drawContext->scrollX() - scrollX);
-		const int sy = std::max(0, m_drawContext->scrollY() - scrollY);
-
-// dprintf("%s: by %d %d to %d %d\n", __PRETTY_FUNCTION__, scrollX, scrollY, sx, sy);
-
-		if (m_drawContext)
-			m_drawContext->setScroll(sx, sy);
-
+		if (!m_mainFrame)
+			return;
+		auto* coreFrame = m_mainFrame->coreFrame();
+		if (!coreFrame)
+			return;
+		WebCore::FrameView *view = coreFrame->view();
+		WebCore::ScrollPosition sp = view->scrollPosition();
 		if (_fScroll)
-			_fScroll(sx, sy);
+			_fScroll(sp.x(), sp.y());
+		_fInvalidate();
 	}
 }
 
-void WebPage::documentSizeChanged(int width, int height)
+void WebPage::frameSizeChanged(WebCore::Frame& frame, int width, int height)
 {
-	if (_setDocumentSize)
-		_setDocumentSize(width, height);
+	if (!m_mainFrame)
+		return;
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return;
+	WebCore::FrameView *view = coreFrame->view();
+
+	if (coreFrame == &frame)
+	{
+		WebCore::ScrollPosition sp = view->scrollPosition();
+		if (_setDocumentSize)
+			_setDocumentSize(width, height);
+		if (_fScroll)
+			_fScroll(sp.x(), sp.y());
+	}
 }
 
 void WebPage::closeWindow()
@@ -853,7 +857,6 @@ void WebPage::setVisibleSize(const int width, const int height)
 
 	if (resized)
 	{
-dprintf("resize to %d %d\n", width, height);
 
   		auto* coreFrame = m_mainFrame->coreFrame();
 		coreFrame->view()->resize(width, height);
@@ -880,8 +883,46 @@ dprintf("resize to %d %d\n", width, height);
 
 void WebPage::setScroll(const int x, const int y)
 {
-	if (m_drawContext)
-		m_drawContext->setScroll(x, y);
+	if (!m_mainFrame)
+		return;
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return;
+	WebCore::FrameView *view = coreFrame->view();
+
+	m_ignoreScroll = true;
+	view->setScrollPosition(WebCore::ScrollPosition(x, y));
+	m_ignoreScroll = false;
+
+	if (_fInvalidate)
+		_fInvalidate();
+}
+
+void WebPage::scrollBy(const int xDelta, const int yDelta)
+{
+	if (!m_mainFrame)
+		return;
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return;
+	WebCore::FrameView *view = coreFrame->view();
+	WebCore::ScrollPosition sp = view->scrollPosition();
+	WebCore::ScrollPosition spMin = view->minimumScrollPosition();
+	WebCore::ScrollPosition spMax = view->maximumScrollPosition();
+
+	int x = sp.x() - xDelta;
+	int y = sp.y() - yDelta;
+
+	x = std::max(x, spMin.x());
+	x = std::min(x, spMax.x());
+	
+	y = std::max(y, spMin.y());
+	y = std::min(y, spMax.y());
+
+	view->setScrollPosition(WebCore::ScrollPosition(x, y));
+
+	if (_fInvalidate)
+		_fInvalidate();
 }
 
 void WebPage::draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode)
@@ -896,10 +937,11 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	frameView->updateLayoutAndStyleIfNeededRecursive();
 	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
 	IntSize s = frameView->autoSizingIntrinsicContentSize();
+	auto scroll = frameView->scrollPosition();
 
 //	dprintf("draw to %p at %d %d : %dx%d, %d %d\n", rp, x,y, width, height, s.width(), s.height());
 
-	m_drawContext->draw(frameView, rp, x, y, width, height, updateMode);
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode);
 }
 
 static inline WebCore::MouseButton imsgToButton(IntuiMessage *imsg)
@@ -1159,7 +1201,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside || m_trackMouse)
 				{
 					bridge.handleMouseMoveEvent(pme);
-					return true;
+					return m_trackMouse;
 //				WebCore::HitTestResult ht;
 //				rc = m_page->mainFrame().eventHandler().handleMouseMoveEvent(pme);
 //				auto p = ht.pointInMainFrame();
@@ -1199,7 +1241,9 @@ dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
 						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
 						);
-					bridge.handleWheelEvent(pke);
+					bool handled = bridge.handleWheelEvent(pke);
+					if (!handled)
+						scrollBy(0, (code == NM_WHEEL_UP) ? 50 : -50);
 					return true;
 				}
 				break;

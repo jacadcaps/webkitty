@@ -167,7 +167,6 @@ bool CurlContext::isHttp2Enabled() const
 
 CurlShareHandle::CurlShareHandle()
 {
-	dprintf(">> %s: %p\n", __PRETTY_FUNCTION__, FindTask(0));
     m_shareHandle = curl_share_init();
     curl_share_setopt(m_shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
     curl_share_setopt(m_shareHandle, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
@@ -981,7 +980,6 @@ void CurlHandle::enableStdErrIfUsed()
 CurlSocketHandle::CurlSocketHandle(const URL& url, Function<void(CURLcode)>&& errorHandler)
     : m_errorHandler(WTFMove(errorHandler))
 {
-	dprintf(">> %s: %p\n", __PRETTY_FUNCTION__, FindTask(0));
     // Libcurl is not responsible for the protocol handling. It just handles connection.
     // Only scheme, host and port is required.
     URL urlForConnection;
@@ -1081,7 +1079,11 @@ Optional<CurlSocketHandle::WaitResult> CurlSocketHandle::wait(const Seconds& tim
 #else
         rc = ::select(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout);
 #endif
+#if OS(MORPHOS)
+	} while (0);
+#else
     } while (rc == -1 && errno == EINTR);
+#endif
 
     if (rc <= 0)
         return WTF::nullopt;

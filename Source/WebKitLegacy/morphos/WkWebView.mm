@@ -1,15 +1,20 @@
+#define SYSTEM_PRIVATE
+
 #undef __OBJC__
+#import "WebKit.h"
 #import "WebPage.h"
 #import "WebProcess.h"
+#import "WebViewDelegate.h"
 #define __OBJC__
 
 #import <ob/OBFramework.h>
 #import <mui/MUIFramework.h>
 
 #import "WkWebView.h"
-#import "WebViewDelegate.h"
 
 #import <proto/dos.h>
+#import <proto/exec.h>
+
 #import <cairo.h>
 
 extern "C" { void dprintf(const char *, ...); }
@@ -24,7 +29,11 @@ extern "C" { void dprintf(const char *, ...); }
 
 @interface WkWebViewPrivate : OBObject
 {
-	WTF::RefPtr<WebKit::WebPage> _page;
+	WTF::RefPtr<WebKit::WebPage>   _page;
+	id<WkWebViewScrollingDelegate> _scrollingDelegate;
+	id<WkWebViewNetworkDelegate>   _networkDelegate;
+	bool                           _drawPending;
+	bool                           _isActive;
 }
 @end
 
@@ -40,6 +49,46 @@ extern "C" { void dprintf(const char *, ...); }
 	return _page.get();
 }
 
+- (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
+{
+	_scrollingDelegate = delegate;
+}
+
+- (id<WkWebViewScrollingDelegate>)scrollingDelegate
+{
+	return _scrollingDelegate;
+}
+
+- (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate
+{
+	_networkDelegate = delegate;
+}
+
+- (id<WkWebViewNetworkDelegate>)networkDelegate
+{
+	return _networkDelegate;
+}
+
+- (void)setDrawPending:(bool)drawPending
+{
+	_drawPending = drawPending;
+}
+
+- (bool)drawPending
+{
+	return _drawPending;
+}
+
+- (void)setIsActive:(bool)isactive
+{
+	_isActive = isactive;
+}
+
+- (bool)isActive
+{
+	return _isActive;
+}
+
 @end
 
 @implementation WkWebView
@@ -48,6 +97,19 @@ static int _viewInstanceCount;
 static bool _shutdown;
 static bool _wasInstantiatedOnce;
 static OBSignalHandler *_signalHandler;
+APTR   _globalOBContext;
+struct Task *_mainThread;
+
+static inline bool wkIsMainThread() {
+	return FindTask(0) == _mainThread;
+}
+
+static inline void validateObjCContext() {
+	if (!wkIsMainThread()) {
+dprintf("---------- objc fixup ------------\n");
+		FindTask(0)->tc_ETask->OBContext = _globalOBContext; // fixup ObjC threading
+	}
+}
 
 + (void)performWithSignalHandler:(OBSignalHandler *)handler
 {
@@ -72,6 +134,11 @@ static OBSignalHandler *_signalHandler;
 		WebKit::WebProcess::singleton().terminate();
 		_shutdown = YES;
 	}
+}
+
+- (WkWebViewPrivate *)privateObject
+{
+	return _private;
 }
 
 - (id)init
@@ -104,6 +171,8 @@ static OBSignalHandler *_signalHandler;
 				WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
 				
 				_wasInstantiatedOnce = true;
+				_mainThread = FindTask(0);
+				_globalOBContext = _mainThread->tc_ETask->OBContext;
 			}
 		}
 
@@ -156,6 +225,79 @@ static OBSignalHandler *_signalHandler;
 			webPage->_fGoActive = [self]() {
 				[[self windowObject] setActiveObject:self];
 			};
+			
+			webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					OBString *overload = [networkDelegate userAgentForURL:[OBString stringWithUTF8String:url.utf8().data()]];
+
+					if (overload)
+						return WTF::String::fromUTF8([overload cString]);
+				}
+				return WTF::String::fromUTF8("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
+			};
+			
+			webPage->_fChangedTitle = [self](const WTF::String& title) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					[networkDelegate webView:self changedTitle:[OBString stringWithUTF8String:title.utf8().data()]];
+				}
+			};
+
+			webPage->_fChangedURL = [self](const WTF::String& title) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					[networkDelegate webView:self changedDocumentURL:[OBString stringWithUTF8String:title.utf8().data()]];
+				}
+			};
+			
+			webPage->_fDidStartLoading = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				[networkDelegate webViewDidStartProvisionalLoading:self];
+			};
+
+			webPage->_fDidStopLoading = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				[networkDelegate webViewDidFinishProvisionalLoading:self];
+			};
+			
+			webPage->_fCanOpenWindow = [self](const WTF::String& url, const WebCore::WindowFeatures&) -> bool {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				return [networkDelegate webView:self wantsToCreateNewViewWithURL:[OBString stringWithUTF8String:url.utf8().data()] options:nil];
+			};
+			
+			webPage->_fDoOpenWindow = [self]() -> WebCore::Page * {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (!networkDelegate)
+					return nullptr;
+
+				WkWebView *newView = [[WkWebView new] autorelease];
+				WkWebViewPrivate *newPrivateObject = [newView privateObject];
+				WebKit::WebPage *page = [newPrivateObject page];
+				if (page && page->corePage())
+				{
+					[networkDelegate webView:self createdNewWebView:newView];
+					return page->corePage();
+				}
+				return nullptr;
+			};
 
 		} catch (...) {
 			[self release];
@@ -175,12 +317,71 @@ static OBSignalHandler *_signalHandler;
 
 	try {
 		auto webPage = [_private page];
+		webPage->stop();
 		WebKit::WebProcess::singleton().removeWebPage(PAL::SessionID(), webPage->pageID());
 	} catch (...) {};
 
 	[_private release];
 
 	[super dealloc];
+}
+
+- (void)scrollToLeft:(int)left top:(int)top
+{
+	try {
+		auto webPage = [_private page];
+		webPage->setScroll(left, top);
+	} catch (std::exception& ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
+{
+	[_private setScrollingDelegate:delegate];
+}
+
+- (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate
+{
+	[_private setNetworkDelegate:delegate];
+}
+
+- (void)navigateTo:(OBString *)uri
+{
+	const char *curi = [uri cString];
+//	dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+
+	try {
+		auto webPage = [_private page];
+		webPage->go(curi);
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)reload
+{
+	try {
+		auto webPage = [_private page];
+		webPage->reload();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)stop
+{
+	try {
+		auto webPage = [_private page];
+		webPage->stop();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)dumpDebug
+{
+	WebKit::WebProcess::singleton().dumpWebCoreStatistics();
 }
 
 - (Boopsiobject *)instantiateTagList:(struct TagItem *)tags
@@ -228,7 +429,7 @@ static OBSignalHandler *_signalHandler;
 {
 	[super goActive:flags];
 
-	_isActive = true;
+	[_private setIsActive:true];
 	self.handledEvents = self.handledEvents | IDCMP_RAWKEY;
 	[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
 
@@ -242,7 +443,7 @@ static OBSignalHandler *_signalHandler;
 
 - (void)becomeInactive
 {
-	_isActive = false;
+	[_private setIsActive:false];
 	self.handledEvents = self.handledEvents & ~IDCMP_RAWKEY;
 	[[self windowObject] setDisableKeys:0];
 
@@ -285,105 +486,36 @@ static OBSignalHandler *_signalHandler;
 
 - (void)lateDraw
 {
-	if (_drawPending)
+	if ([_private drawPending])
 	{
 		[self redraw:MADF_DRAWUPDATE];
-		_drawPending = NO;
+		[_private setDrawPending:false];
 	}
 }
 
 - (void)invalidated
 {
-	if (!_drawPending)
+	if (![_private drawPending])
 	{
 		[[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
-		_drawPending = YES;
+		[_private setDrawPending:true];
 	}
 }
 
 - (void)scrollToX:(int)x y:(int)y
 {
-	// update scrollers...
+	[[_private scrollingDelegate] webView:self scrolledToLeft:x top:y];
 
-	if (!_drawPending)
+	if (![_private drawPending])
 	{
 		[[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
-		_drawPending = YES;
+		[_private setDrawPending:true];
 	}
 }
 
 - (void)setDocumentWidth:(int)width height:(int)height
 {
-	// update scrollers...
-}
-
-- (void)navigateTo:(OBString *)uri
-{
-	const char *curi = [uri cString];
-//	dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
-
-	try {
-		auto webPage = [_private page];
-		webPage->go(curi);
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-}
-
-- (void)dumpDebug
-{
-	WebKit::WebProcess::singleton().dumpWebCoreStatistics();
+	[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:width height:height];
 }
 
 @end
-
-#if 0
-@implementation WkWebViewSupport
-
-- (void)fire
-{
-	static bool firstFire;
-	if (!firstFire)
-	{
-		dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
-		firstFire = YES;
-	}
-
-	try {
-		WebPage::handleRunLoop();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-}
-
-- (id)init
-{
-	if ((self = [super init]))
-	{
-		// cairo initializer hack, lame
-		cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
-		if (dummysurface)
-		{
-				cairo_surface_destroy(dummysurface);
-		}
-		else
-		{
-			[self release];
-			return nil;
-		}
-
-		_timer = [OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:self] repeats:YES runLoop:[OBRunLoop mainRunLoop]];
-	}
-	
-	return self;
-}
-
-- (void)stop
-{
-	[_timer invalidate];
-	_timer = nil;
-}
-
-@end
-#endif
-

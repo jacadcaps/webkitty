@@ -388,6 +388,10 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
     if (!webPage)
         return;
 
+	if (m_frame->isMainFrame() && webPage->_fChangedURL)
+	{
+		webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+	}
 //    auto navigationID = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader()).navigationID();
 }
 
@@ -455,7 +459,10 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
     if (!webPage)
         return;
 
-    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+//    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+
+	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
+		webPage->_fDidStartLoading();
 
 #if ENABLE(FULLSCREEN_API) && 0
     Element* documentElement = m_frame->coreFrame()->document()->documentElement();
@@ -490,7 +497,8 @@ void WebFrameLoaderClient::dispatchDidReceiveTitle(const StringWithDirection& ti
 
     auto truncatedTitle = truncateFromEnd(title, maxTitleLength);
 
-    notImplemented();
+	if (m_frame->isMainFrame() && webPage->_fChangedTitle)
+		webPage->_fChangedTitle(truncatedTitle.string);
 
 #if 0
     RefPtr<API::Object> userData;
@@ -513,6 +521,11 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
     dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
     webPage->didCommitLoad(m_frame);
+
+	if (m_frame->isMainFrame() && webPage->_fChangedURL)
+	{
+		webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+	}
 
 #if 0
     WebDocumentLoader& documentLoader = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader());
@@ -591,6 +604,9 @@ void WebFrameLoaderClient::dispatchDidFinishDocumentLoad()
 
     dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
+  	if (m_frame->isMainFrame() && webPage->_fDidStopLoading)
+		webPage->_fDidStopLoading();
+
 #if 0
     RefPtr<API::Object> userData;
 
@@ -612,7 +628,7 @@ void WebFrameLoaderClient::dispatchDidFinishLoad()
     if (!webPage)
         return;
 
-    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+//    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
 
 #if 0
     RefPtr<API::Object> userData;
@@ -1253,11 +1269,18 @@ void WebFrameLoaderClient::provisionalLoadStarted()
     if (m_frame->isMainFrame()) {
         webPage->didStartPageTransition();
         m_didCompletePageTransition = false;
+		
+       	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
+		webPage->_fDidStartLoading();
     }
 }
 
 void WebFrameLoaderClient::didFinishLoad()
 {
+    WebPage* webPage = m_frame->page();
+    if (!webPage)
+        return;
+
 	notImplemented();
 }
 
@@ -1281,22 +1304,28 @@ void WebFrameLoaderClient::setTitle(const StringWithDirection& title, const URL&
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
-
+	
+	// this is not an actual titlebar change it seems
 	notImplemented();
 }
 
 String WebFrameLoaderClient::userAgent(const URL& url)
 {
-    auto* webPage = m_frame->page();
-    if (!webPage)
-        return String();
+    auto* webPage = m_frame ? m_frame->page() : nullptr;
+
+    if (webPage && webPage->_fUserAgentForURL)
+    {
+    	WTF::String urlBase = url.baseAsString();
+    	WTF::String out = webPage->_fUserAgentForURL(urlBase);
+    	return out;
+	}
+
+ 	// return String("Mozilla/5.0 (MorphOS; PowerPC 3_14) WebKitty/605.1.15 (KHTML, like Gecko)");
 
 	// Chrome
 	// return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36");
 
  	return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
-
-//    return webPage->userAgent(url);
 }
 
 String WebFrameLoaderClient::overrideContentSecurityPolicy() const
@@ -1328,7 +1357,7 @@ void WebFrameLoaderClient::transitionToCommittedForNewPage()
     bool isMainFrame = m_frame->isMainFrame();
     bool shouldUseFixedLayout = false;//isMainFrame;// && webPage->useFixedLayout();
     bool shouldDisableScrolling = !isMainFrame; //isMainFrame && !webPage->mainFrameIsScrollable();
-    bool shouldHideScrollbars = shouldDisableScrolling;
+    bool shouldHideScrollbars = shouldDisableScrolling || isMainFrame;
     auto psize = webPage->size();
     IntRect fixedVisibleContentRect = webPage->bounds();
 
@@ -1343,8 +1372,8 @@ void WebFrameLoaderClient::transitionToCommittedForNewPage()
     bool horizontalLock = shouldHideScrollbars || webPage->alwaysShowsHorizontalScroller();
     bool verticalLock = shouldHideScrollbars || webPage->alwaysShowsVerticalScroller();
 
-dprintf("%s: rect size %d %d, fixedl %d mainf %d %d %d\n", __PRETTY_FUNCTION__, fixedVisibleContentRect.width(),
-fixedVisibleContentRect.height(),shouldUseFixedLayout, isMainFrame, horizontalLock, verticalLock);
+dprintf("%s: rect size %d %d, fixedl %d mainf %d %d %d vsmode %d\n", __PRETTY_FUNCTION__, fixedVisibleContentRect.width(),
+fixedVisibleContentRect.height(),shouldUseFixedLayout, isMainFrame, horizontalLock, verticalLock, int(verticalScrollbarMode));
 
     m_frame->coreFrame()->createView(psize, webPage->backgroundColor(),
         psize, fixedVisibleContentRect, shouldUseFixedLayout,
@@ -1435,26 +1464,6 @@ RefPtr<Widget> WebFrameLoaderClient::createPlugin(const IntSize&, HTMLPlugInElem
 void WebFrameLoaderClient::redirectDataToPlugin(Widget& pluginWidget)
 {
 }
-
-#if ENABLE(WEBGL)
-
-WebCore::WebGLLoadPolicy WebFrameLoaderClient::webGLPolicyForURL(const URL& url) const
-{
-    if (auto* webPage = m_frame->page())
-        return webPage->webGLPolicyForURL(m_frame, url);
-
-    return WebGLAllowCreation;
-}
-
-WebCore::WebGLLoadPolicy WebFrameLoaderClient::resolveWebGLPolicyForURL(const URL& url) const
-{
-    if (auto* webPage = m_frame->page())
-        return webPage->resolveWebGLPolicyForURL(m_frame, url);
-
-    return WebGLAllowCreation;
-}
-
-#endif
 
 RefPtr<Widget> WebFrameLoaderClient::createJavaAppletWidget(const IntSize& pluginSize, HTMLAppletElement& appletElement, const URL&, const Vector<String>& paramNames, const Vector<String>& paramValues)
 {
@@ -1560,6 +1569,8 @@ void WebFrameLoaderClient::didChangeScrollOffset()
     if (!webPage)
         return;
 
+	notImplemented();
+
 //    webPage->didChangeScrollOffsetForFrame(m_frame->coreFrame());
 }
 
@@ -1612,7 +1623,7 @@ void WebFrameLoaderClient::didRestoreScrollPosition()
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
-
+notImplemented();
 //    webPage->didRestoreScrollPosition();
 }
 
