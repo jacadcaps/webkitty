@@ -225,7 +225,7 @@ bool WebEditorClient::doTextFieldCommandFromEvent(Element* e, KeyboardEvent* ke)
 {
     bool result = false;
     notImplemented();
-    return !!result;
+    return result;
 }
 
 void WebEditorClient::textWillBeDeletedInTextField(Element* e)

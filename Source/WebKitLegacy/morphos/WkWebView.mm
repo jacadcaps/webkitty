@@ -16,6 +16,7 @@
 #import <proto/exec.h>
 
 #import <cairo.h>
+struct Library *FreetypeBase;
 
 extern "C" { void dprintf(const char *, ...); }
 
@@ -132,6 +133,7 @@ dprintf("---------- objc fixup ------------\n");
 		[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 		[_signalHandler release];
 		WebKit::WebProcess::singleton().terminate();
+		CloseLibrary(FreetypeBase);
 		_shutdown = YES;
 	}
 }
@@ -157,22 +159,26 @@ dprintf("---------- objc fixup ------------\n");
 
 			if (!_wasInstantiatedOnce)
 			{
-				// MUST be done before 1st WebPage is instantiated!
-				cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
-				if (dummysurface)
-					cairo_surface_destroy(dummysurface);
-				
-				_signalHandler = [OBSignalHandler new];
-				[_signalHandler setDelegate:(id)[self class]];
-				[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
-				
-				[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES];
-				
-				WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
-				
-				_wasInstantiatedOnce = true;
-				_mainThread = FindTask(0);
-				_globalOBContext = _mainThread->tc_ETask->OBContext;
+				FreetypeBase = OpenLibrary("freetype.library", 0);
+				if (FreetypeBase)
+				{
+					// MUST be done before 1st WebPage is instantiated!
+					cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
+					if (dummysurface)
+						cairo_surface_destroy(dummysurface);
+					
+					_signalHandler = [OBSignalHandler new];
+					[_signalHandler setDelegate:(id)[self class]];
+					[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
+					
+					[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES];
+					
+					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
+					
+					_wasInstantiatedOnce = true;
+					_mainThread = FindTask(0);
+					_globalOBContext = _mainThread->tc_ETask->OBContext;
+				}
 			}
 		}
 
@@ -390,9 +396,21 @@ dprintf("---------- objc fixup ------------\n");
 #define MADF_KNOWSACTIVE       (1<< 7) /* sigh */
 
 	Boopsiobject *meBoopsi = [super instantiateTagList:tags];
-	// prevent MUI active frame from being drawn
-	_flags(meBoopsi) |= MADF_KNOWSACTIVE;
+	if (meBoopsi)
+	{
+		// prevent MUI active frame from being drawn
+		_flags(meBoopsi) |= MADF_KNOWSACTIVE;
+		auto webPage = [_private page];
+		webPage->setPlatformWidget(meBoopsi);
+	}
 	return meBoopsi;
+}
+
+- (void)deinstantiate
+{
+	auto webPage = [_private page];
+	webPage->setPlatformWidget(nullptr);
+	[super deinstantiate];
 }
 
 - (void)askMinMax:(struct MUI_MinMax *)minmaxinfo

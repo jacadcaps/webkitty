@@ -5,6 +5,7 @@
 #include <WebCore/Color.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
+#include <intuition/classusr.h>
 
 namespace WebCore {
 	class Page;
@@ -56,6 +57,7 @@ public:
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
 	bool handleMUIKey(int muikey);
+	void setPlatformWidget(Boopsiobject *widget);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
     void removeResourceRequest(unsigned long);

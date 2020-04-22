@@ -20,8 +20,6 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkWebView.h>
 //#import <WebKitLegacy/morphos/WebPage.h>
 
-struct Library *FreetypeBase;
-
 @interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate>
 {
 	WkWebView *_view;
@@ -281,6 +279,9 @@ static int _windowID = 1;
 		ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
+		ADDBUTTON(@"IDB", @"https://www.tutorialspoint.com/html5/html5_indexeddb.htm");
+		ADDBUTTON(@"Key1", @"https://javascript.info/keyboard-events");
+		ADDBUTTON(@"Key2", @"http://keycode.info");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 
@@ -360,43 +361,31 @@ int muiMain(int argc, char *argv[])
 	setlocale(LC_NUMERIC, "C");
 	setlocale(LC_CTYPE, "en-US");
 
-	FreetypeBase = OpenLibrary("freetype.library", 0);
-	if (FreetypeBase)
+	MUIApplication *app = [MUIApplication new];
+
+	if (app)
 	{
-		// Hack to make sure cairo mutex are initialized
-		// TODO: fix this in the fucking cairo
-		cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
-		if (dummysurface)
-				cairo_surface_destroy(dummysurface);
+		[app setBase:@"WEKBITTY"];
 
-		MUIApplication *app = [MUIApplication new];
+		app.title = @"WebKitty MiniBrowser";
+		app.author = @"Jacek Piszczek, Harry Sintonen";
+		app.copyright = COPYRIGHT;
+		app.applicationVersion = [OBString stringWithCString:VERSION encoding:MIBENUM_ISO_8859_1];
 	
-		if (app)
-		{
-			[app setBase:@"WEKBITTY"];
 
-			app.title = @"WebKitty MiniBrowser";
-			app.author = @"Jacek Piszczek, Harry Sintonen";
-			app.copyright = COPYRIGHT;
-			app.applicationVersion = [OBString stringWithCString:VERSION encoding:MIBENUM_ISO_8859_1];
-		
+		MUIWindow *win = [[BrowserWindow new] autorelease];
+		[app instantiateWithWindows:win, nil];
 
-			MUIWindow *win = [[BrowserWindow new] autorelease];
-			[app instantiateWithWindows:win, nil];
+		win.open = YES;
 
-			win.open = YES;
-
-			[app run];
-		}
-		
-		[WkWebView shutdown];
+		[app run];
+	}
+	
+	[WkWebView shutdown];
 
 dprintf("release..\n");
-		[app release];
-dprintf("app release done...\n");
+	[app release];
 
-		CloseLibrary(FreetypeBase);
-	}
 dprintf("destructors be called next\n");
 	return 0;
 }

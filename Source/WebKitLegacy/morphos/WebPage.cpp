@@ -91,6 +91,9 @@
 #include <WebCore/UserInputBridge.h>
 #include <WebCore/KeyboardEvent.h>
 #include <WebCore/EventNames.h>
+#include <WebCore/WindowsKeyboardCodes.h>
+#include <wtf/ASCIICType.h>
+#include <wtf/HexNumber.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -538,6 +541,16 @@ void WebPage::reload()
 void WebPage::stop()
 {
 
+}
+
+void WebPage::setPlatformWidget(Boopsiobject *widget)
+{
+// breaks rendering - AND input
+#if 0
+	FrameView *frameView = mainFrameView();
+	if (frameView)
+		frameView->setPlatformWidget(PlatformWidget(widget));
+#endif
 }
 
 Frame* WebPage::mainFrame() const
@@ -999,50 +1012,50 @@ struct KeyPressEntry {
 };
 
 static const KeyDownEntry keyDownEntries[] = {
-    { RAWKEY_LEFT,   0,                  "MoveLeft"                                    },
-    { RAWKEY_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
-    { RAWKEY_LEFT,   CtrlKey,            "MoveWordLeft"                                },
-    { RAWKEY_LEFT,   CtrlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
-    { RAWKEY_RIGHT,  0,                  "MoveRight"                                   },
-    { RAWKEY_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
-    { RAWKEY_RIGHT,  CtrlKey,            "MoveWordRight"                               },
-    { RAWKEY_RIGHT,  CtrlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
-    { RAWKEY_UP,     0,                  "MoveUp"                                      },
-    { RAWKEY_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
-    { RAWKEY_DOWN,   0,                  "MoveDown"                                    },
-    { RAWKEY_DOWN,   ShiftKey,           "MoveDownAndModifySelection"                  },
-    { RAWKEY_HOME,   0,                  "MoveToBeginningOfLine"                       },
-    { RAWKEY_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
-    { RAWKEY_HOME,   CtrlKey,            "MoveToBeginningOfDocument"                   },
-    { RAWKEY_HOME,   CtrlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
+    { VK_LEFT,   0,                  "MoveLeft"                                    },
+    { VK_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
+    { VK_LEFT,   CtrlKey,            "MoveWordLeft"                                },
+    { VK_LEFT,   CtrlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
+    { VK_RIGHT,  0,                  "MoveRight"                                   },
+    { VK_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
+    { VK_RIGHT,  CtrlKey,            "MoveWordRight"                               },
+    { VK_RIGHT,  CtrlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
+    { VK_UP,     0,                  "MoveUp"                                      },
+    { VK_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
+    { VK_PRIOR,  ShiftKey,           "MovePageUpAndModifySelection"                },
+    { VK_DOWN,   0,                  "MoveDown"                                    },
+    { VK_DOWN,   ShiftKey,           "MoveDownAndModifySelection"                  },
+    { VK_NEXT,   ShiftKey,           "MovePageDownAndModifySelection"              },
+    { VK_PRIOR,  0,                  "MovePageUp"                                  },
+    { VK_NEXT,   0,                  "MovePageDown"                                },
+    { VK_HOME,   0,                  "MoveToBeginningOfLine"                       },
+    { VK_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
+    { VK_HOME,   CtrlKey,            "MoveToBeginningOfDocument"                   },
+    { VK_HOME,   CtrlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
 
-    { RAWKEY_END,    0,                  "MoveToEndOfLine"                             },
-    { RAWKEY_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
-    { RAWKEY_END,    CtrlKey,            "MoveToEndOfDocument"                         },
-    { RAWKEY_END,    CtrlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
+    { VK_END,    0,                  "MoveToEndOfLine"                             },
+    { VK_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
+    { VK_END,    CtrlKey,            "MoveToEndOfDocument"                         },
+    { VK_END,    CtrlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
 
-    { RAWKEY_BACKSPACE,   0,                  "DeleteBackward"                              },
-    { RAWKEY_BACKSPACE,   ShiftKey,           "DeleteBackward"                              },
-    { RAWKEY_DELETE, 0,                  "DeleteForward"                               },
-    { RAWKEY_BACKSPACE,   CtrlKey,            "DeleteWordBackward"                          },
-    { RAWKEY_DELETE, CtrlKey,            "DeleteWordForward"                           },
+    { VK_BACK,   0,                  "DeleteBackward"                              },
+    { VK_BACK,   ShiftKey,           "DeleteBackward"                              },
+    { VK_DELETE, 0,                  "DeleteForward"                               },
+    { VK_BACK,   CtrlKey,            "DeleteWordBackward"                          },
+    { VK_DELETE, CtrlKey,            "DeleteWordForward"                           },
 	
     { 'B',       CtrlKey,            "ToggleBold"                                  },
     { 'I',       CtrlKey,            "ToggleItalic"                                },
 
-    { RAWKEY_ESCAPE, 0,                  "Cancel"                                      },
-    { RAWKEY_TAB,    0,                  "InsertTab"                                   },
-    { RAWKEY_TAB,    ShiftKey,           "InsertBacktab"                               },
-    { RAWKEY_RETURN, 0,                  "InsertNewline"                               },
-    { RAWKEY_RETURN, CtrlKey,            "InsertNewline"                               },
-    { RAWKEY_RETURN, AltKey,             "InsertNewline"                               },
-    { RAWKEY_RETURN, ShiftKey,           "InsertNewline"                               },
-    { RAWKEY_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
-    { RAWKEY_KP_ENTER, 0,                  "InsertNewline"                               },
-    { RAWKEY_KP_ENTER, CtrlKey,            "InsertNewline"                               },
-    { RAWKEY_KP_ENTER, AltKey,             "InsertNewline"                               },
-    { RAWKEY_KP_ENTER, ShiftKey,           "InsertNewline"                               },
-    { RAWKEY_KP_ENTER, AltKey | ShiftKey,  "InsertNewline"                               },
+    { VK_ESCAPE, 0,                  "Cancel"                                      },
+    { VK_OEM_PERIOD, CtrlKey,        "Cancel"                                      },
+    { VK_TAB,    0,                  "InsertTab"                                   },
+    { VK_TAB,    ShiftKey,           "InsertBacktab"                               },
+    { VK_RETURN, 0,                  "InsertNewline"                               },
+    { VK_RETURN, CtrlKey,            "InsertNewline"                               },
+    { VK_RETURN, AltKey,             "InsertNewline"                               },
+    { VK_RETURN, ShiftKey,           "InsertNewline"                               },
+    { VK_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
 
     // It's not quite clear whether clipboard shortcuts and Undo/Redo should be handled
     // in the application or in WebKit. We chose WebKit.
@@ -1050,9 +1063,9 @@ static const KeyDownEntry keyDownEntries[] = {
     { 'V',       CtrlKey,            "Paste"                                       },
     { 'X',       CtrlKey,            "Cut"                                         },
     { 'A',       CtrlKey,            "SelectAll"                                   },
-    { RAWKEY_INSERT, CtrlKey,            "Copy"                                        },
-    { RAWKEY_DELETE, ShiftKey,           "Cut"                                         },
-    { RAWKEY_INSERT, ShiftKey,           "Paste"                                       },
+    { VK_INSERT, CtrlKey,            "Copy"                                        },
+    { VK_DELETE, ShiftKey,           "Cut"                                         },
+    { VK_INSERT, ShiftKey,           "Paste"                                       },
     { 'Z',       CtrlKey,            "Undo"                                        },
     { 'Z',       CtrlKey | ShiftKey, "Redo"                                        },
 };
@@ -1221,7 +1234,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			ULONG code = imsg->Code & ~IECODE_UP_PREFIX;
 			BOOL up = (imsg->Code & IECODE_UP_PREFIX) == IECODE_UP_PREFIX;
 
-dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
+// dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 
 			switch (code)
 			{
@@ -1248,29 +1261,11 @@ dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
 				}
 				break;
 			
-			case RAWKEY_BACKSPACE:
-			case RAWKEY_RETURN:
-			case RAWKEY_KP_ENTER:
-			case RAWKEY_LEFT:
-			case RAWKEY_RIGHT:
-			case RAWKEY_UP:
-			case RAWKEY_DOWN:
-			case RAWKEY_HOME:
-			case RAWKEY_END:
-				{
-					static const WTF::String empty;
-					auto ke = WebCore::PlatformKeyboardEvent(up ? WebCore::PlatformEvent::KeyUp : WebCore::PlatformEvent::RawKeyDown, empty,empty,empty,empty,empty,
-						code, imsg->Qualifier & IEQUALIFIER_REPEAT, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));
-				
-					bridge.handleKeyEvent(ke);
-				}
-				break;
-			
 			case RAWKEY_TAB:
 				if (!up)
 				{
 					bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
-dprintf(">>> next focused %p %d\n", m_focusedElement, rc);
+
 					if ((!rc || !m_focusedElement) && _fActivateNext && _fActivatePrevious)
 					{
 						if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
@@ -1282,12 +1277,15 @@ dprintf(">>> next focused %p %d\n", m_focusedElement, rc);
 				return true;
 			
 			default:
+				bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+#if 0
 				DoMethod(oimsg, OM_GET, IMSGA_UCS4, &key);
 				if (key >= 32)
 				{
 					if (imsg->Code & IECODE_UP_PREFIX)
 					{
-						UChar ch[2] = { key, 0 };
+// todo: proper conversion goes here
+						UChar ch[2] = { UChar(key), 0 };
 						WTF::String s(ch, 1);
 //						dprintf("typed char '%s' (%ld)\n", s.utf8().data(), key);
 						auto ke = WebCore::PlatformKeyboardEvent(WebCore::PlatformEvent::Char,s,s,s,s,s,
@@ -1297,6 +1295,7 @@ dprintf(">>> next focused %p %d\n", m_focusedElement, rc);
 					}
 					//m_page->mainFrame().eventHandler().keyEvent(ke);
 				}
+#endif
 				return true;
 			}
 		}
