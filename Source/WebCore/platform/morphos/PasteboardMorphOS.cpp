@@ -42,6 +42,7 @@ Pasteboard::Pasteboard()
 
 bool Pasteboard::hasData()
 {
+     notImplemented();
     return false;
 }
 
@@ -55,6 +56,7 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 {
     Vector<String> types;
 //    platformStrategies()->pasteboardStrategy()->getTypes(types);
+     notImplemented();
     return types;
 }
 
@@ -67,6 +69,7 @@ String Pasteboard::readOrigin()
 String Pasteboard::readString(const String& type)
 {
 //    return platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, type);
+     notImplemented();
     return { };
 }
 
@@ -91,6 +94,7 @@ void Pasteboard::clear(const String&)
 
 void Pasteboard::read(PasteboardPlainText& text)
 {
+     notImplemented();
 //    text.text = platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, "text/plain;charset=utf-8");
 }
 
@@ -101,10 +105,12 @@ void Pasteboard::read(PasteboardWebContentReader&, WebContentReadingPolicy)
 
 void Pasteboard::read(PasteboardFileReader&)
 {
+     notImplemented();
 }
 
 void Pasteboard::write(const PasteboardURL& url)
 {
+     notImplemented();
 }
 
 void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
@@ -114,11 +120,13 @@ void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
 
 void Pasteboard::write(const PasteboardImage&)
 {
+     notImplemented();
 }
 
 void Pasteboard::write(const PasteboardWebContent& content)
 {
 //    platformStrategies()->pasteboardStrategy()->writeToPasteboard(content);
+     notImplemented();
 }
 
 Pasteboard::FileContentState Pasteboard::fileContentState()
@@ -129,11 +137,13 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
 
 bool Pasteboard::canSmartReplace()
 {
+     notImplemented();
     return false;
 }
 
 void Pasteboard::writeMarkup(const String&)
 {
+     notImplemented();
 }
 
 void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
@@ -143,10 +153,12 @@ void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
 
 void Pasteboard::writeCustomData(const PasteboardCustomData&)
 {
+     notImplemented();
 }
 
 void Pasteboard::write(const Color&)
 {
+     notImplemented();
 }
 
 } // namespace WebCore
