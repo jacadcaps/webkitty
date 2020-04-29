@@ -736,6 +736,13 @@ void CurlHandle::setDebugCallbackFunction(curl_debug_callback callbackFunc, void
 void CurlHandle::enableConnectionOnly()
 {
     curl_easy_setopt(m_handle, CURLOPT_CONNECT_ONLY, 1L);
+	// WebSockets work different on HTTP/1.1 and HTTP/2 and the server
+	// expects the client to talk specific protocol version depending on
+	// the type of the connection established. Currently WebKit only knows
+	// how to talk WebSocket HTTP/1.1, so force connection to use HTTP/1.1,
+	// too. Once WebKit learns to talk WebSocket HTTP/2, this can be
+	// removed. - Piru
+	curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 }
 
 Optional<String> CurlHandle::getProxyUrl()
