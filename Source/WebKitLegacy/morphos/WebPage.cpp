@@ -92,6 +92,7 @@
 #include <WebCore/KeyboardEvent.h>
 #include <WebCore/EventNames.h>
 #include <WebCore/WindowsKeyboardCodes.h>
+#include <WebCore/RenderLayerCompositor.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -125,6 +126,7 @@
 #include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
 #include "WebDocumentLoader.h"
+#include "WebDragClient.h"
 
 #include <cairo.h>
 
@@ -239,6 +241,22 @@ public:
 	const int width() const { return m_width; }
 	const int height() const { return m_height; }
 
+	void drawLayer(WebCore::GraphicsLayer *layer, WebCore::GraphicsContext& gc, WebCore::FloatRect &fr)
+	{
+		layer->paintGraphicsLayerContents(gc, fr);
+		
+		const Vector<Ref<GraphicsLayer>>& children = layer->children();
+		for (auto it = children.begin(); it != children.end(); it++)
+		{
+			WebCore::GraphicsLayer *child = it->ptr();
+			dprintf("child %p pos %f %f size %f %f bounds %f %f backing %p\n", child, child->position().x(), child->position().y(),
+				child->size().width(), child->size().height(), child->boundsOrigin().x(), child->boundsOrigin().y(), child->tiledBacking());
+			WebCore::FloatRect xfr(fr.x() + child->position().x(), fr.y() + child->position().y(), child->size().width(), child->size().height());
+			drawLayer(child, gc, xfr);
+		}
+
+	}
+
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
 		int scrollX, int scrollY, bool update)
 	{
@@ -257,6 +275,37 @@ public:
 			gc.translate(-scrollX, -scrollY);
 			
 			frameView->paintContents(gc, ir);
+
+//			frameView->paintContentsForSnapshot(gc, ir, WebCore::FrameView::SelectionInSnapshot::ExcludeSelection,
+//				WebCore::FrameView::CoordinateSpaceForSnapshot::ViewCoordinates);
+
+#if 0
+			if (frameView->renderView() && frameView->renderView()->compositor().rootGraphicsLayer())
+			{
+				auto *rlayer = frameView->renderView()->compositor().rootGraphicsLayer();
+				const Vector<Ref<GraphicsLayer>>& children = rlayer->children();
+				for (auto it = children.begin(); it != children.end(); it++)
+				{
+					WebCore::GraphicsLayer *layer = it->ptr();
+					drawLayer(layer, gc, fr);
+				}
+			}
+
+#if 0
+				const FloatPoint position = layer->position();
+					layer->paintGraphicsLayerContents(gc, fr);
+					const Vector<Ref<GraphicsLayer>>& inchildren = rlayer->children();
+					for (auto it = inchildren.begin(); it != inchildren.end(); it++)
+					{
+						WebCore::GraphicsLayer *xlayer = it->ptr();
+						const FloatPoint position = xlayer->position();
+						xlayer->paintGraphicsLayerContents(gc, fr);
+						dprintf("subsublayer at %f %f\n", position.x(), position.y());
+					}
+				}
+			}
+#endif
+#endif
 
 			gc.restore();
 			cairo_surface_flush(m_surface);
@@ -433,13 +482,12 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
 	pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
+	pageConfiguration.dragClient = new WebDragClient(this);
 
 //dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
 	m_page = std::make_unique<WebCore::Page>(WTFMove(pageConfiguration));
 	storageProvider->setPage(*m_page);
-
-dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
 
 	WebCore::Settings& settings = m_page->settings();
 	settings.setJavaEnabled(true);
@@ -455,14 +503,24 @@ dprintf("%s:%d Created!\n", __PRETTY_FUNCTION__, __LINE__);
     settings.setDiagnosticLoggingEnabled(true);
     settings.setEditableImagesEnabled(true);
     settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
-    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
     settings.setShrinksStandaloneImagesToFit(true);
     settings.setSubpixelAntialiasedLayerTextEnabled(true);
 
+	settings.setForceCompositingMode(false);
 	settings.setAcceleratedCompositingEnabled(false);
 
-	settings.setTreatsAnyTextCSSLinkAsStylesheet(true);
-	settings.setUsePreHTML5ParserQuirks(true);
+#if 1
+	settings.setAcceleratedCompositingEnabled(false);
+	settings.setAcceleratedDrawingEnabled(false);
+	settings.setAccelerated2dCanvasEnabled(false);
+	settings.setAcceleratedCompositedAnimationsEnabled(false);
+	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
+	settings.setAcceleratedFiltersEnabled(false);
+    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
+#endif
+
+//	settings.setTreatsAnyTextCSSLinkAsStylesheet(true);
+//	settings.setUsePreHTML5ParserQuirks(true);
 
 	settings.setWebGLEnabled(false);
 
@@ -536,11 +594,16 @@ dprintf("GO >> mf %p cf %p corepage %p\n",m_mainFrame.get(), coreFrame, corePage
 
 void WebPage::reload()
 {
+	auto *mainframe = mainFrame();
+	if (mainframe)
+		mainframe->loader().reload();
 }
 
 void WebPage::stop()
 {
-
+	auto *mainframe = mainFrame();
+	if (mainframe)
+		mainframe->loader().stopAllLoaders();
 }
 
 void WebPage::setPlatformWidget(Boopsiobject *widget)
@@ -948,12 +1011,39 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
     	return;
 
 	frameView->updateLayoutAndStyleIfNeededRecursive();
+//	frameView->updateCompositingLayersAfterLayout();
 	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
 	IntSize s = frameView->autoSizingIntrinsicContentSize();
 	auto scroll = frameView->scrollPosition();
 
-//	dprintf("draw to %p at %d %d : %dx%d, %d %d\n", rp, x,y, width, height, s.width(), s.height());
+//	dprintf("draw to %p at %d %d : %dx%d, %d %d renderable %d\n", rp, x,y, width, height, s.width(), s.height(), frameView->isSoftwareRenderable());
 
+	FrameTree& tree = coreFrame->tree();
+
+#if 0
+    for (Frame* child = tree.firstRenderedChild(); child; child = child->tree().traverseNextRendered(coreFrame)) {
+        if (!child->view())
+            continue;
+		dprintf("maybe render child frame %p\n", child);
+    }
+#endif
+
+#if 0
+	if (frameView->renderView())
+	{
+    	dprintf("rv compositior 3d %d rgl %p\n", frameView->renderView()->compositor().has3DContent(), frameView->renderView()->compositor().rootGraphicsLayer());
+    	if (frameView->renderView()->compositor().rootGraphicsLayer())
+    	{
+    		auto *rlayer = frameView->renderView()->compositor().rootGraphicsLayer();
+    		const Vector<Ref<GraphicsLayer>>& children = rlayer->children();
+    		for (auto it = children.begin(); it != children.end(); it++)
+    		{
+    			const FloatPoint position = it->ptr()->position();
+				dprintf("child layer %p at %f %f\n", it->ptr(), position.x(), position.y());
+			}
+		}
+	}
+#endif
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode);
 }
 

@@ -101,8 +101,6 @@ Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage* page, WebCore::Frame* c
     auto frame = create(std::unique_ptr<WebFrameLoaderClient>(static_cast<WebFrameLoaderClient*>(&coreFrame->loader().client())));
 //    page->send(Messages::WebPageProxy::DidCreateMainFrame(frame->frameID()));
 
-dprintf(">>>>> coreFrame %p cflc %p\n", coreFrame, &frame->m_frameLoaderClient);
-
     frame->m_coreFrame = coreFrame;
     frame->m_coreFrame->tree().setName(String());
     frame->m_coreFrame->init();
@@ -151,8 +149,6 @@ WebFrame::WebFrame(std::unique_ptr<WebFrameLoaderClient> frameLoaderClient)
 
 WebFrame::~WebFrame()
 {
-	dprintf("killed wf %p\n", this);
-
     ASSERT(!m_coreFrame);
 
     auto willSubmitFormCompletionHandlers = WTFMove(m_willSubmitFormCompletionHandlers);

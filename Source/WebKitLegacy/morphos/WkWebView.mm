@@ -162,6 +162,21 @@ dprintf("---------- objc fixup ------------\n");
 				FreetypeBase = OpenLibrary("freetype.library", 0);
 				if (FreetypeBase)
 				{
+					BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
+					if (0 == icuDir)
+					{
+						[MUIRequest requestWithTitle:@"WebKit Installation Error" message:@"ICU data files must be presend in MOSSYS:Data/ICU"
+							buttons:[OBArray arrayWithObject:@"Exit"]];
+						CloseLibrary(FreetypeBase);
+						FreetypeBase = NULL;
+						[self release];
+						return nil;
+					}
+					else
+					{
+						UnLock(icuDir);
+					}
+					
 					// MUST be done before 1st WebPage is instantiated!
 					cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
 					if (dummysurface)
@@ -400,8 +415,6 @@ dprintf("---------- objc fixup ------------\n");
 	{
 		// prevent MUI active frame from being drawn
 		_flags(meBoopsi) |= MADF_KNOWSACTIVE;
-		auto webPage = [_private page];
-		webPage->setPlatformWidget(meBoopsi);
 	}
 	return meBoopsi;
 }

@@ -56,6 +56,7 @@
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/WindowFeatures.h>
 #include <WebCore/ApplicationCacheStorage.h>
+#include "PopupMenu.h"
 
 using namespace WebCore;
 
@@ -313,9 +314,9 @@ void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 
 void WebChromeClient::scroll(const IntSize& delta, const IntRect& scrollViewRect, const IntRect& clipRect)
 {
-dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
-	scrollViewRect.x(), scrollViewRect.y(), scrollViewRect.width(), scrollViewRect.height(),
-	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height());
+//dprintf("scroll by %d.%d rect %d %d %d %d cr %d %d %d %d\n", delta.width(), delta.height(),
+//	scrollViewRect.x(), scrollViewRect.y(), scrollViewRect.width(), scrollViewRect.height(),
+//	clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height());
 	m_webPage.internalScroll(delta.width(), delta.height());
 }
 
@@ -457,9 +458,7 @@ bool WebChromeClient::selectItemAlignmentFollowsMenuWritingDirection()
 
 RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) const
 {
-	notImplemented();
-	return nullptr;
-//    return adoptRef(new PopupMenuWin(&client));
+	return adoptRef(new PopupMenuMorphOS(&client, &m_webPage));
 }
 
 RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& client) const

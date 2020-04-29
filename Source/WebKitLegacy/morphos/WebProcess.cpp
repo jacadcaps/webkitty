@@ -22,6 +22,8 @@
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
 #include <WebCore/CrossOriginPreflightResultCache.h>
+typedef uint32_t socklen_t;
+#include <pal/crypto/gcrypt/Initialization.h>
 
 #include <proto/dos.h>
 
@@ -63,6 +65,7 @@ void WebProcess::initialize(int sigbit)
 // 	ProcessWarming::prewarmGlobally();
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
+	PAL::GCrypt::initialize();
 }
 
 void WebProcess::terminate()

@@ -15,3 +15,6 @@ Source/JavaScriptCore/inspector/scripts/codegen/*pyc
 Source/JavaScriptCore/wasm/generateWasm.pyc
 Source/JavaScriptCore/yarr/hasher.pyc
 Source/JavaScriptCore/disassembler/udis86/ud_opcode.pyc
+Dummy/libdl.a
+link.sh
+

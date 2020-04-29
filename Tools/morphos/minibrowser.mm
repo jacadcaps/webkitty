@@ -254,7 +254,7 @@ static int _windowID = 1;
 				nil],
 			[BrowserGroup browserGroupWithWkWebView:_view = view],
 			_bottomGroup = [MUIGroup horizontalGroupWithObjects:
-				_userAgents = [MUICycle cycleWithEntries:[OBArray arrayWithObjects:@"Safari", @"Chrome", @"WebKitty", nil]],
+				_userAgents = [MUICycle cycleWithEntries:[OBArray arrayWithObjects:@"Safari", @"Chrome", @"WebKitty", @"iPad 12.2", @"IE10", nil]],
 				debug = [MUIButton buttonWithLabel:@"Debug Stats"],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
@@ -279,9 +279,7 @@ static int _windowID = 1;
 		ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
-		ADDBUTTON(@"IDB", @"https://www.tutorialspoint.com/html5/html5_indexeddb.htm");
-		ADDBUTTON(@"Key1", @"https://javascript.info/keyboard-events");
-		ADDBUTTON(@"Key2", @"http://keycode.info");
+		ADDBUTTON(@"Maps", @"https://maps.google.com");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 
@@ -312,6 +310,10 @@ static int _windowID = 1;
 		return @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36";
 	case 2:
 		return @"Mozilla/5.0 (MorphOS; PowerPC 3_14) WebKitty/605.1.15 (KHTML, like Gecko)";
+	case 3:
+		return @"Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.1 Mobile/15E148 Safari/604.1";
+	case 4:
+		return @"Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2)";
 	}
 
 	return nil;

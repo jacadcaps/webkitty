@@ -137,6 +137,19 @@ protected:
     // to do an eager layout before the drawing.
     void scheduleCompositingLayerFlush() final;
 
+ 	CompositingTriggerFlags allowedCompositingTriggers() const { return static_cast<CompositingTriggerFlags>(0); }
+#if 0
+    CompositingTriggerFlags allowedCompositingTriggers() const final
+    {
+        return static_cast<CompositingTriggerFlags>(
+            ThreeDTransformTrigger |
+            VideoTrigger |
+            PluginTrigger|
+            CanvasTrigger |
+            AnimationTrigger);
+    }
+#endif
+
     void scrollRectIntoView(const WebCore::IntRect&) const final { }
 
     bool selectItemWritingDirectionIsNatural() final;

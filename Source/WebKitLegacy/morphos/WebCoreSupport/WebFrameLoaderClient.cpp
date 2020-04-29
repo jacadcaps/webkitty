@@ -1372,8 +1372,8 @@ void WebFrameLoaderClient::transitionToCommittedForNewPage()
     bool horizontalLock = shouldHideScrollbars || webPage->alwaysShowsHorizontalScroller();
     bool verticalLock = shouldHideScrollbars || webPage->alwaysShowsVerticalScroller();
 
-dprintf("%s: rect size %d %d, fixedl %d mainf %d %d %d vsmode %d\n", __PRETTY_FUNCTION__, fixedVisibleContentRect.width(),
-fixedVisibleContentRect.height(),shouldUseFixedLayout, isMainFrame, horizontalLock, verticalLock, int(verticalScrollbarMode));
+//dprintf("%s: rect size %d %d, fixedl %d mainf %d %d %d vsmode %d\n", __PRETTY_FUNCTION__, fixedVisibleContentRect.width(),
+//fixedVisibleContentRect.height(),shouldUseFixedLayout, isMainFrame, horizontalLock, verticalLock, int(verticalScrollbarMode));
 
     m_frame->coreFrame()->createView(psize, webPage->backgroundColor(),
         psize, fixedVisibleContentRect, shouldUseFixedLayout,

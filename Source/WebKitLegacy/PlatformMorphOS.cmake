@@ -32,6 +32,8 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkWebView.mm
     morphos/WebDocumentLoader.cpp
     morphos/CacheModel.cpp
+    morphos/WebDragClient.cpp
+    morphos/PopupMenu.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
