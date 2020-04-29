@@ -2,6 +2,7 @@ include(platform/Cairo.cmake)
 include(platform/Curl.cmake)
 include(platform/FreeType.cmake)
 include(platform/ImageDecoders.cmake)
+include(platform/GCrypt.cmake)
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_LIBRARIES_DIR}/include"
