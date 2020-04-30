@@ -575,21 +575,10 @@ void WebPage::go(const char *url)
 	static uint64_t navid = 1;
 	
 	corePage()->userInputBridge().stopLoadingFrame(coreFrame);
-	GCController::singleton().garbageCollectNow();
 
 	m_pendingNavigationID = navid ++;
 
-dprintf("GO >> mf %p cf %p corepage %p\n",m_mainFrame.get(), coreFrame, corePage());
-#if 1
     coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
-#else
-
-	WebCore::FrameLoadRequest request(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
-	request.setIsRequestFromClientOrUserInput();
-	corePage()->userInputBridge().loadRequest(WTFMove(request));
-#endif
-
-//    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, req, WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow));
 }
 
 void WebPage::reload()
@@ -606,14 +595,14 @@ void WebPage::stop()
 		mainframe->loader().stopAllLoaders();
 }
 
-void WebPage::setPlatformWidget(Boopsiobject *widget)
+void WebPage::willBeDisposed()
 {
-// breaks rendering - AND input
-#if 0
-	FrameView *frameView = mainFrameView();
-	if (frameView)
-		frameView->setPlatformWidget(PlatformWidget(widget));
-#endif
+	m_orphaned = true;
+	auto *mainframe = mainFrame();
+	stop();
+	clearDelegateCallbacks();
+	if (mainframe)
+		mainframe->loader().detachFromParent();
 }
 
 Frame* WebPage::mainFrame() const
@@ -662,7 +651,7 @@ void WebPage::addResourceRequest(unsigned long identifier, const WebCore::Resour
     if (!request.url().protocolIsInHTTPFamily())
         return;
 
-    if (m_mainFrameProgressCompleted)
+    if (m_mainFrameProgressCompleted || m_orphaned)
         return;
 
     ASSERT(!m_trackedNetworkResourceRequestIdentifiers.contains(identifier));
@@ -747,6 +736,11 @@ void WebPage::didFinishLoad(WebFrame& frame)
 #if ENABLE(VIEWPORT_RESIZING) && 0
     scheduleShrinkToFitContent();
 #endif
+}
+
+void WebPage::didFailLoad(const WebCore::ResourceError& error)
+{
+dprintf("--- didFailLoad: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
 }
 
 Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, const ResourceRequest& request, const SubstituteData& substituteData)
@@ -879,7 +873,8 @@ void WebPage::internalScroll(int scrollX, int scrollY)
 		WebCore::ScrollPosition sp = view->scrollPosition();
 		if (_fScroll)
 			_fScroll(sp.x(), sp.y());
-		_fInvalidate();
+		if (_fInvalidate)
+			_fInvalidate();
 	}
 }
 
@@ -895,8 +890,8 @@ void WebPage::frameSizeChanged(WebCore::Frame& frame, int width, int height)
 	if (coreFrame == &frame)
 	{
 		WebCore::ScrollPosition sp = view->scrollPosition();
-		if (_setDocumentSize)
-			_setDocumentSize(width, height);
+		if (_fSetDocumentSize)
+			_fSetDocumentSize(width, height);
 		if (_fScroll)
 			_fScroll(sp.x(), sp.y());
 	}

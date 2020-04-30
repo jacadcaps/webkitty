@@ -1,6 +1,8 @@
 #pragma once
 #include <functional>
 #include <wtf/text/WTFString.h>
+#include <wtf/Vector.h>
+#include <WebCore/IntRect.h>
 
 namespace WebCore {
 	class Page;
@@ -11,8 +13,7 @@ struct WebViewDelegate
 {
 	std::function<void()>             _fInvalidate;
 	std::function<void(int, int)>     _fScroll;
-	std::function<void(int, int)>     _setDocumentSize;
-	std::function<void(int&, int&)>   _getViewSize;
+	std::function<void(int, int)>     _fSetDocumentSize;
 	std::function<void()>             _fActivateNext;
 	std::function<void()>             _fActivatePrevious;
 	std::function<void()>             _fGoActive;
@@ -25,4 +26,23 @@ struct WebViewDelegate
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)> _fCanOpenWindow;
 	std::function<WebCore::Page*(void)> _fDoOpenWindow;
+	
+	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
+	
+	void clearDelegateCallbacks() {
+		_fInvalidate = nullptr;
+		_fScroll = nullptr;
+		_fSetDocumentSize = nullptr;
+		_fActivateNext = nullptr;
+		_fActivatePrevious = nullptr;
+		_fGoActive = nullptr;
+		_fUserAgentForURL = nullptr;
+		_fChangedTitle = nullptr;
+		_fChangedURL = nullptr;
+		_fDidStartLoading = nullptr;
+		_fDidStopLoading = nullptr;
+		_fCanOpenWindow = nullptr;
+		_fDoOpenWindow = nullptr;
+		_fPopup = nullptr;
+	};
 };

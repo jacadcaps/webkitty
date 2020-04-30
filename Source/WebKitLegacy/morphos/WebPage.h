@@ -13,6 +13,7 @@ namespace WebCore {
 	class FrameView;
 	class IntRect;
 	class KeyboardEvent;
+	class ResourceError;
 };
 
 struct RastPort;
@@ -51,13 +52,13 @@ public:
 	void go(const char *url);
 	void reload();
 	void stop();
+	void willBeDisposed();
 
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
 	bool handleMUIKey(int muikey);
-	void setPlatformWidget(Boopsiobject *widget);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
     void removeResourceRequest(unsigned long);
@@ -67,6 +68,7 @@ public:
     void didCommitLoad(WebFrame*);
 	void didFinishDocumentLoad(WebFrame& frame);
 	void didFinishLoad(WebFrame& frame);
+	void didFailLoad(const WebCore::ResourceError& error);
 
     Ref<WebCore::DocumentLoader> createDocumentLoader(WebCore::Frame&, const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
     void updateCachedDocumentLoader(WebDocumentLoader&, WebCore::Frame&);
@@ -134,6 +136,7 @@ private:
     bool m_mainFrameIsScrollable { true };
     bool m_trackMouse { false };
     bool m_ignoreScroll { false };
+    bool m_orphaned { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };

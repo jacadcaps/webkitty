@@ -103,6 +103,8 @@
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
 
+#define D(x)
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -111,12 +113,12 @@ WebFrameLoaderClient::WebFrameLoaderClient()
     , m_didCompletePageTransition(false)
     , m_frameCameFromPageCache(false)
 {
-dprintf("%s: this %p\n", __PRETTY_FUNCTION__, this);
+	D(dprintf("%s: this %p\n", __PRETTY_FUNCTION__, this));
 }
 
 WebFrameLoaderClient::~WebFrameLoaderClient()
 {
-dprintf("%s: this %p\n", __PRETTY_FUNCTION__, this);
+	D(dprintf("%s: this %p\n", __PRETTY_FUNCTION__, this));
 }
 
 Optional<PageIdentifier> WebFrameLoaderClient::pageID() const
@@ -156,7 +158,7 @@ void WebFrameLoaderClient::setHasFrameSpecificStorageAccess(FrameSpecificStorage
 
 void WebFrameLoaderClient::frameLoaderDestroyed()
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
     m_frame->invalidate();
 
     // Balances explicit ref() in WebFrame::create().
@@ -294,6 +296,8 @@ void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*, unsigned long
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
+
+dprintf("dispatchDidFailLoading: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
 
 //    webPage->injectedBundleResourceLoadClient().didFailLoadForResource(*webPage, *m_frame, identifier, error);
     webPage->removeResourceRequest(identifier);
@@ -459,7 +463,7 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
     if (!webPage)
         return;
 
-//    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+	D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
 	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
 		webPage->_fDidStartLoading();
@@ -518,7 +522,7 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
     if (!webPage)
         return;
 
-    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+    D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
     webPage->didCommitLoad(m_frame);
 
@@ -580,6 +584,7 @@ void WebFrameLoaderClient::dispatchDidFailLoad(const ResourceError& error)
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
+dprintf("dispatchDidFailLoad: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
 
 #if 0
     RELEASE_LOG(Network, "%p - WebFrameLoaderClient::dispatchDidFailLoad: (pageID = %" PRIu64 ", frameID = %" PRIu64 ")", this, webPage->pageID().toUInt64(), m_frame->frameID());
@@ -602,7 +607,7 @@ void WebFrameLoaderClient::dispatchDidFinishDocumentLoad()
     if (!webPage)
         return;
 
-    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+    D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
   	if (m_frame->isMainFrame() && webPage->_fDidStopLoading)
 		webPage->_fDidStopLoading();
@@ -628,7 +633,7 @@ void WebFrameLoaderClient::dispatchDidFinishLoad()
     if (!webPage)
         return;
 
-//    dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID());
+    D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
 #if 0
     RefPtr<API::Object> userData;
@@ -993,7 +998,10 @@ void WebFrameLoaderClient::revertToProvisionalState(DocumentLoader*)
 
 void WebFrameLoaderClient::setMainDocumentError(DocumentLoader*, const ResourceError& error)
 {
-	notImplemented();
+    WebPage* webPage = m_frame->page();
+    if (!webPage) {
+		webPage->didFailLoad(error);
+	}
 }
 
 void WebFrameLoaderClient::setMainFrameDocumentReady(bool)
@@ -1137,26 +1145,31 @@ void WebFrameLoaderClient::didDetectXSS(const URL&, bool)
 
 ResourceError WebFrameLoaderClient::cancelledError(const ResourceRequest& request)
 {
+	notImplemented();
     return ResourceError();//WebKit::cancelledError(request);
 }
 
 ResourceError WebFrameLoaderClient::blockedError(const ResourceRequest& request)
 {
+	notImplemented();
     return ResourceError();//WebKit::blockedError(request);
 }
 
 ResourceError WebFrameLoaderClient::blockedByContentBlockerError(const ResourceRequest& request)
 {
+	notImplemented();
     return ResourceError();//WebKit::blockedByContentBlockerError(request);
 }
 
 ResourceError WebFrameLoaderClient::cannotShowURLError(const ResourceRequest& request)
 {
+	notImplemented();
     return ResourceError();//WebKit::cannotShowURLError(request);
 }
 
 ResourceError WebFrameLoaderClient::interruptedForPolicyChangeError(const ResourceRequest& request)
 {
+	notImplemented();
     return ResourceError();//WebKit::interruptedForPolicyChangeError(request);
 }
 
@@ -1169,11 +1182,13 @@ ResourceError WebFrameLoaderClient::blockedByContentFilterError(const ResourceRe
 
 ResourceError WebFrameLoaderClient::cannotShowMIMETypeError(const ResourceResponse& response)
 {
+	notImplemented();
     return ResourceError();//WebKit::cannotShowMIMETypeError(response);
 }
 
 ResourceError WebFrameLoaderClient::fileDoesNotExistError(const ResourceResponse& response)
 {
+	notImplemented();
     return ResourceError();//WebKit::fileDoesNotExistError(response);
 }
 
@@ -1271,7 +1286,7 @@ void WebFrameLoaderClient::provisionalLoadStarted()
         m_didCompletePageTransition = false;
 		
        	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
-		webPage->_fDidStartLoading();
+			webPage->_fDidStartLoading();
     }
 }
 

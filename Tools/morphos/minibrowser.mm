@@ -165,12 +165,12 @@ extern "C" {
 
 + (id)itemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector
 {
-	return [[self alloc] initWithTitle:title shortcut:shortcut selector:selector];
+	return [[[self alloc] initWithTitle:title shortcut:shortcut selector:selector] autorelease];
 }
 
 + (id)checkmarkItemWithTitle:(OBString *)title shortcut:(OBString *)shortcut selector:(SEL)selector
 {
-	MiniMenuitem *item = [[self alloc] initWithTitle:title shortcut:shortcut selector:selector];
+	MiniMenuitem *item = [[[self alloc] initWithTitle:title shortcut:shortcut selector:selector] autorelease];
 	item.checkit = YES;
 	return item;
 }
@@ -279,7 +279,8 @@ static int _windowID = 1;
 		ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
 		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
-		ADDBUTTON(@"Maps", @"https://maps.google.com");
+		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
+		ADDBUTTON(@"Input", @"https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 
@@ -300,6 +301,13 @@ static int _windowID = 1;
 - (id)init
 {
 	return [self initWithView:[[WkWebView new] autorelease]];
+}
+
+- (void)dealloc
+{
+	[_view setNetworkDelegate:nil];
+	[_view setScrollingDelegate:nil];
+	[super dealloc];
 }
 
 - (OBString *)userAgentForURL:(OBString *)url
@@ -353,6 +361,43 @@ static int _windowID = 1;
 
 @end
 
+@interface MiniAppDelegate : OBObject<OBApplicationDelegate>
+@end
+
+@implementation MiniAppDelegate
+
+- (void)applicationWillRun
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+}
+
+- (BOOL)applicationShouldTerminate
+{
+	OBArray *allWindows = [[MUIApplication currentApplication] objects];
+	OBEnumerator *e = [allWindows objectEnumerator];
+	MUIWindow *w;
+	
+	while ((w = [e nextObject]))
+	{
+		[w setOpen:NO];
+	}
+	
+	[[MUIApplication currentApplication] removeAllObjects];
+
+	[WkWebView shutdown];
+
+	BOOL shouldTerminate = [WkWebView readyToQuit];
+	dprintf("%s %d\n", __PRETTY_FUNCTION__, shouldTerminate);
+	return shouldTerminate;
+}
+
+- (void)applicationDidTerminate
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+}
+
+@end
+
 #define VERSION   "$VER: MiniBrowser 1.0 (19.04.2020) (C)2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 #define COPYRIGHT @"2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 
@@ -367,13 +412,14 @@ int muiMain(int argc, char *argv[])
 
 	if (app)
 	{
+		MiniAppDelegate *delegate = [MiniAppDelegate new];
 		[app setBase:@"WEKBITTY"];
 
 		app.title = @"WebKitty MiniBrowser";
 		app.author = @"Jacek Piszczek, Harry Sintonen";
 		app.copyright = COPYRIGHT;
 		app.applicationVersion = [OBString stringWithCString:VERSION encoding:MIBENUM_ISO_8859_1];
-	
+		[[OBApplication currentApplication] setDelegate:delegate];
 
 		MUIWindow *win = [[BrowserWindow new] autorelease];
 		[app instantiateWithWindows:win, nil];
@@ -381,6 +427,9 @@ int muiMain(int argc, char *argv[])
 		win.open = YES;
 
 		[app run];
+		
+		[[OBApplication currentApplication] setDelegate:nil];
+		[delegate release];
 	}
 	
 	[WkWebView shutdown];

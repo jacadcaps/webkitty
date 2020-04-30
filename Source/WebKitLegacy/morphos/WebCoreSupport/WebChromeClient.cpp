@@ -463,9 +463,7 @@ RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) cons
 
 RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& client) const
 {
-	notImplemented();
-	return nullptr;
-//    return adoptRef(new SearchPopupMenuWin(&client));
+    return adoptRef(new SearchPopupMenuMorphOS(&client, &m_webPage));
 }
 
 #if ENABLE(FULLSCREEN_API)

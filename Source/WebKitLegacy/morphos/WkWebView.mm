@@ -20,6 +20,15 @@ struct Library *FreetypeBase;
 
 extern "C" { void dprintf(const char *, ...); }
 
+namespace  {
+	static int _viewInstanceCount;
+	static bool _shutdown;
+	static bool _wasInstantiatedOnce;
+	static OBSignalHandler *_signalHandler;
+	APTR   _globalOBContext;
+	struct Task *_mainThread;
+}
+
 @interface WkWebView ()
 
 - (void)invalidated;
@@ -39,6 +48,26 @@ extern "C" { void dprintf(const char *, ...); }
 @end
 
 @implementation WkWebViewPrivate
+
+- (void)dealloc
+{
+	@synchronized ([WkWebView class])
+	{
+		_viewInstanceCount --;
+	}
+	
+	if (_shutdown)
+	{
+		[[MUIApplication currentApplication] quit];
+	}
+	
+	[super dealloc];
+}
+
+- (void)timedOut
+{
+	[self autorelease];
+}
 
 - (void)setPage:(WebKit::WebPage *)page
 {
@@ -94,13 +123,6 @@ extern "C" { void dprintf(const char *, ...); }
 
 @implementation WkWebView
 
-static int _viewInstanceCount;
-static bool _shutdown;
-static bool _wasInstantiatedOnce;
-static OBSignalHandler *_signalHandler;
-APTR   _globalOBContext;
-struct Task *_mainThread;
-
 static inline bool wkIsMainThread() {
 	return FindTask(0) == _mainThread;
 }
@@ -135,6 +157,14 @@ dprintf("---------- objc fixup ------------\n");
 		WebKit::WebProcess::singleton().terminate();
 		CloseLibrary(FreetypeBase);
 		_shutdown = YES;
+	}
+}
+
++ (BOOL)readyToQuit
+{
+	@synchronized ([WkWebView class])
+	{
+		return _viewInstanceCount == 0;
 	}
 }
 
@@ -227,7 +257,7 @@ dprintf("---------- objc fixup ------------\n");
 
 			webPage->_fInvalidate = [self]() { [self invalidated]; };
 
-			webPage->_setDocumentSize = [self](int width, int height) {
+			webPage->_fSetDocumentSize = [self](int width, int height) {
 				[self setDocumentWidth:width height:height];
 			};
 			
@@ -319,6 +349,25 @@ dprintf("---------- objc fixup ------------\n");
 				}
 				return nullptr;
 			};
+			
+			webPage->_fPopup = [self](const WebCore::IntRect& pos, const WTF::Vector<WTF::String>& items) -> int {
+				validateObjCContext();
+				MUIMenu *menu = [[MUIMenu new] autorelease];
+				int index = 0;
+				for (const WTF::String &entry : items)
+				{
+					[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:entry.utf8().data()] shortcut:nil userData:++index]];
+				}
+				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
+				if (strip)
+				{
+					int rc = [strip popup:self flags:0 x:pos.x() y:pos.y()];
+					[strip release];
+					// 0 on failure, all our menus return 1, 2...
+					return rc - 1;
+				}
+				return -1;
+			};
 
 		} catch (...) {
 			[self release];
@@ -331,17 +380,13 @@ dprintf("---------- objc fixup ------------\n");
 
 - (void)dealloc
 {
-	@synchronized ([WkWebView class])
-	{
-		_viewInstanceCount --;
-	}
-
 	try {
 		auto webPage = [_private page];
-		webPage->stop();
+		webPage->willBeDisposed();
 		WebKit::WebProcess::singleton().removeWebPage(PAL::SessionID(), webPage->pageID());
 	} catch (...) {};
 
+	[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(timedOut) target:_private] repeats:NO];
 	[_private release];
 
 	[super dealloc];
@@ -417,13 +462,6 @@ dprintf("---------- objc fixup ------------\n");
 		_flags(meBoopsi) |= MADF_KNOWSACTIVE;
 	}
 	return meBoopsi;
-}
-
-- (void)deinstantiate
-{
-	auto webPage = [_private page];
-	webPage->setPlatformWidget(nullptr);
-	[super deinstantiate];
 }
 
 - (void)askMinMax:(struct MUI_MinMax *)minmaxinfo

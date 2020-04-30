@@ -1,0 +1,30 @@
+Early beta of a new WebKit port. Technically, this is a port of WebKit2 into WebKit_Legacy ;)
+
+You must copy the MOSSYS data into the correct path before running.
+Start the application FROM SHELL. Do NOT run it from Ambient.
+Save your work before running it. System may not be usable after you quit the browser.
+Will not work or will crash unless you're on a very recent 3.14 installation.
+
+There's plenty of debug enabled. Live with it.
+
+Some things do not yet work - do NOT report them. I will be deleting bugtracker entries about sites not working,
+missing features, etc. MiniBrowser is NOT the designated brower application. It will NOT support tabs, etc.
+
+DO report crashes while browsing pages though, thank you!
+
+Rough changelist:
+
+- 30.04.2020
+	- Fixed crashes related to popup input elements, added some lame and simple popup menu
+	- Integrated typed arrays little endian patches by internetzel - makes web.whatsapp.com work
+	- Fixed a lot of issues on exit/when closing windows, some still remain
+	- Checks for the ICU files on startup
+
+Known issues:
+	- System becomes unusable after quitting the app, deal with it for now. I recommend rebooting
+	- IndexedDB support seems shaky at best
+	- Sites like bing/google maps require GL, will not work for now, same with photopea.com
+	  or Twitter
+	- Twitter mostly works with UserAgent=WebKitty (legacy mode)
+	- Telegram works but needs a lot of time (multiple tries?) to load initially. Once logged in,
+	  it seems to work OK

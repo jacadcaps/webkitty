@@ -237,7 +237,10 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
 #elif OS(LINUX)
     prctl(PR_SET_NAME, normalizeThreadName(threadName));
 #elif OS(MORPHOS)
-	pthread_setname_np(pthread_self(), normalizeThreadName(threadName));
+	char nameBuffer[256];
+	strcpy(nameBuffer, "WkWebView:");
+	stccpy(nameBuffer + 10, threadName, sizeof(nameBuffer) - 10);
+	pthread_setname_np(pthread_self(), nameBuffer);
 #else
     UNUSED_PARAM(threadName);
 #endif
@@ -362,8 +365,8 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
         }
     }
     ++m_suspendCount;
-    return { };
 #endif
+    return { };
 }
 
 void Thread::resume()

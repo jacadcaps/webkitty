@@ -31,6 +31,7 @@
 }
 
 + (void)shutdown;
++ (BOOL)readyToQuit;
 
 - (void)navigateTo:(OBString *)uri;
 - (void)stop;
