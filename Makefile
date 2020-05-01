@@ -135,3 +135,20 @@ miniscp:
 minidump:
 	@read -p "Address:" address; \
 	ppc-morphos-objdump --demangle --disassemble -l --source cross-build/Tools/morphos/MiniBrowser.db --start-address $$address | less
+
+minirelease:
+	rm -rf WebKitty webkitty.tar webkitty.tar.xz webkitty.lha
+	mkdir -p WebKitty/MOSSYS/Data/ICU
+	cp cross-build/Tools/morphos/MiniBrowser WebKitty/
+	cp MiniBrowser.info WebKitty/
+	cp -a Source/WebCore/Resources WebKitty/Resources
+	cp -a $(ROOTPATH)/lib/libicu/instdir/icu/54.2/icudt54b WebKitty/MOSSYS/Data/ICU/icudt54b
+	cp MUSTREAD.txt WebKitty/
+	lha ao5 webkitty.lha WebKitty
+#	tar cf webkitty.tar WebKitty
+#	xz -z -T0 webkitty.tar
+	rm -rf WebKitty
+
+putrelease: minirelease
+	scp webkitty.lha jaca@tunkki.dk:/home/jaca/public_html
+

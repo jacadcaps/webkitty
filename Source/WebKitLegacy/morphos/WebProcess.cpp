@@ -31,6 +31,8 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
+#define D(x)
+
 /// TODO
 /// MemoryPressureHandler !
 
@@ -59,7 +61,7 @@ void WebProcess::initialize(int sigbit)
 	m_sigTask = FindTask(0);
 	m_sigMask = 1UL << sigbit;
 	setCacheModel(CacheModel::PrimaryWebBrowser);
-	dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask);
+	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
@@ -74,7 +76,7 @@ void WebProcess::terminate()
 
 WebProcess::~WebProcess()
 {
-dprintf("WebProcess will wait for threads...\n");
+	D(dprintf("WebProcess will wait for threads...\n"));
 	waitForThreads();
 }
 
@@ -87,7 +89,7 @@ void WebProcess::waitForThreads()
 			auto count = Thread::allThreads(lock).size();
 			if (0 == count)
 				return;
-			dprintf("wait for %ld threads\n", count);
+			D(dprintf("wait for %ld threads\n", count));
 		}
 		Delay(10);
 		dispatchFunctionsFromMainThread();
@@ -112,13 +114,14 @@ WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const
 
 void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
     auto result = m_pageMap.add(pageID, nullptr);
 //    auto oldPageID = parameters.oldPageID ? parameters.oldPageID.value() : pageID;
     if (result.isNewEntry) {
         ASSERT(!result.iterator->value);
         result.iterator->value = WebPage::create(pageID, WTFMove(parameters));
-dprintf("%s >> %p\n", __PRETTY_FUNCTION__, result.iterator->value);
+
+		D(dprintf("%s >> %p\n", __PRETTY_FUNCTION__, result.iterator->value));
 
  		ProcessWarming::prewarmGlobally();
 
@@ -134,7 +137,7 @@ dprintf("%s >> %p\n", __PRETTY_FUNCTION__, result.iterator->value);
 void WebProcess::removeWebPage(PAL::SessionID, WebCore::PageIdentifier pageID)
 {
     ASSERT(m_pageMap.contains(pageID));
-dprintf("%s\n", __PRETTY_FUNCTION__);
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
  //   pageWillLeaveWindow(pageID);
     m_pageMap.remove(pageID);
 
@@ -160,14 +163,14 @@ WebFrame* WebProcess::webFrame(uint64_t frameID) const
 
 void WebProcess::addWebFrame(uint64_t frameID, WebFrame* frame)
 {
-dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID);
+	D(dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID));
 
     m_frameMap.set(frameID, frame);
 }
 
 void WebProcess::removeWebFrame(uint64_t frameID)
 {
-dprintf("%s %llu\n", __PRETTY_FUNCTION__, frameID);
+	D(dprintf("%s %llu\n", __PRETTY_FUNCTION__, frameID));
 
     m_frameMap.remove(frameID);
 }
@@ -289,7 +292,7 @@ pageCacheSize = 256*1024*1024;
     PageCache::singleton().setMaxSize(pageCacheSize);
     CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
 	
-    dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity);
+    D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));
 }
 
 void WebProcess::signalMainThread()
