@@ -19,6 +19,7 @@ Rough changelist:
 	- Integrated typed arrays little endian patches by internetzel - makes web.whatsapp.com work
 	- Fixed a lot of issues on exit/when closing windows, some still remain
 	- Checks for the ICU files on startup
+	- Implemented support for Resources images
 
 Known issues:
 	- System becomes unusable after quitting the app, deal with it for now. I recommend rebooting

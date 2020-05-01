@@ -530,7 +530,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
-	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file://PROGDIR:resource/userStyleSheet.css")));
+//	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
 
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
     static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());

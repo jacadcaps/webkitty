@@ -61,9 +61,6 @@ void WebProcess::initialize(int sigbit)
 	setCacheModel(CacheModel::PrimaryWebBrowser);
 	dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask);
 
-// makes shit fail quickly now
-// 	ProcessWarming::prewarmGlobally();
-
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
 }
@@ -122,6 +119,8 @@ dprintf("%s\n", __PRETTY_FUNCTION__);
         ASSERT(!result.iterator->value);
         result.iterator->value = WebPage::create(pageID, WTFMove(parameters));
 dprintf("%s >> %p\n", __PRETTY_FUNCTION__, result.iterator->value);
+
+ 		ProcessWarming::prewarmGlobally();
 
 // Balanced by an enableTermination in removeWebPage.
 //        disableTermination();
@@ -298,4 +297,31 @@ void WebProcess::signalMainThread()
 	Signal(m_sigTask, m_sigMask);
 }
 
+}
+
+RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name);
+RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
+{
+	WTF::String path = "PROGDIR:Resources/";
+	path.append(name);
+	path.append(".png");
+
+	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(path, WTF::FileSystemImpl::FileOpenMode::Read);
+
+	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+	{
+		long long size;
+		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull && size < (32ull * 1024ull))
+		{
+			char buffer[size];
+			if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
+			{
+				WTF::FileSystemImpl::closeFile(fh);
+				return WebCore::SharedBuffer::create(reinterpret_cast<const char*>(buffer), size);
+			}
+		}
+		WTF::FileSystemImpl::closeFile(fh);
+	}
+
+	return nullptr;
 }

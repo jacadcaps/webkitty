@@ -46,6 +46,7 @@ list(APPEND WebCore_SOURCES
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
     platform/graphics/morphos/GraphicsLayerMorphOS.cpp
+    platform/graphics/morphos/ImageMorphOS.cpp
     platform/network/morphos/CurlSSLHandlePlayStation.cpp
     platform/network/morphos/NetworkStateNotifierMorphOS.cpp
     platform/posix/SharedBufferPOSIX.cpp
