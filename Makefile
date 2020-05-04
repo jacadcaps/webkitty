@@ -145,12 +145,10 @@ minirelease:
 	cp MiniBrowser.info WebKitty/
 	cp -a Source/WebCore/Resources WebKitty/Resources
 	cp -a $(ROOTPATH)/lib/libicu/instdir/icu/54.2/icudt54b WebKitty/MOSSYS/Data/ICU/icudt54b
+	( cd WebKitty/Resources && wget https://easylist.to/easylist/easylist.txt )
 	cp MUSTREAD.txt WebKitty/
 	lha ao5 webkitty.lha WebKitty
-#	tar cf webkitty.tar WebKitty
-#	xz -z -T0 webkitty.tar
 	rm -rf WebKitty
 
 putrelease: minirelease
 	scp webkitty.lha jaca@tunkki.dk:/home/jaca/public_html
-

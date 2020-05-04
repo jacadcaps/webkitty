@@ -51,6 +51,11 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *,...); }
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info);
+#endif
+
 namespace WebCore {
 
 namespace ContentExtensions {
@@ -156,8 +161,10 @@ StyleSheetContents* ContentExtensionsBackend::globalDisplayNoneStyleSheet(const 
 
 ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(const URL& url, OptionSet<ResourceType> resourceType, DocumentLoader& initiatingDocumentLoader)
 {
+#if !OS(MORPHOS)
     if (m_contentExtensions.isEmpty())
         return { };
+#endif
 
     Document* currentDocument = nullptr;
     URL mainDocumentURL;
@@ -174,9 +181,19 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
     }
 
     ResourceLoadInfo resourceLoadInfo = { url, mainDocumentURL, resourceType };
+	ContentRuleListResults results;
+
+#if OS(MORPHOS)
+	if (!shouldLoadResource(resourceLoadInfo))
+	{
+		ContentRuleListResults::Result result;
+		results.summary.blockedLoad = true;
+		result.blockedLoad = true;
+		results.results.append({ "x-morphos-blocker", WTFMove(result) });
+	}
+#else
     auto actions = actionsForResourceLoad(resourceLoadInfo);
 
-    ContentRuleListResults results;
     results.results.reserveInitialCapacity(actions.size());
     for (const auto& actionsFromContentRuleList : actions) {
         const String& contentRuleListIdentifier = actionsFromContentRuleList.contentRuleListIdentifier;
@@ -226,6 +243,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
         results.results.uncheckedAppend({ contentRuleListIdentifier, WTFMove(result) });
     }
 
+#endif
     if (currentDocument) {
         if (results.summary.madeHTTPS) {
             ASSERT(url.protocolIs("http") || url.protocolIs("ws"));

@@ -55,7 +55,15 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebProgressTrackerClient.cpp
 )
 
-list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})
+list(APPEND WebKitLegacy_ABP
+	morphos/ABPFilterParser/ABPFilterParser.cpp
+	morphos/ABPFilterParser/BloomFilter.cpp
+	morphos/ABPFilterParser/cosmeticFilter.cpp
+	morphos/ABPFilterParser/filter.cpp
+	morphos/ABPFilterParser/hashFn.cpp
+)
+
+list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport} ${WebKitLegacy_ABP})
 
 set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")

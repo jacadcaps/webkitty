@@ -2,6 +2,12 @@
 #include "WebPage.h"
 #include "WebFrame.h"
 
+// todo: check why it isn't enabled inside WebKitLegacy
+#ifdef ENABLE_CONTENT_EXTENSIONS
+#undef ENABLE_CONTENT_EXTENSIONS
+#endif
+#define ENABLE_CONTENT_EXTENSIONS 1
+
 #include <WebCore/GCController.h>
 #include <WebCore/FontCache.h>
 #include <WebCore/MemoryCache.h>
@@ -22,6 +28,7 @@
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
 #include <WebCore/CrossOriginPreflightResultCache.h>
+#include <WebCore/ResourceLoadInfo.h>
 typedef uint32_t socklen_t;
 #include <pal/crypto/gcrypt/Initialization.h>
 
@@ -65,6 +72,80 @@ void WebProcess::initialize(int sigbit)
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
+	
+	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";
+	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat";
+
+	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Read);
+
+	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+	{
+		long long size;
+
+		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull)
+		{
+			char *buffer = (char *)malloc(size + 1);
+			if (buffer)
+			{
+				if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
+				{
+					buffer[size] = 0; // terminate just in case
+					m_urlFilter.deserialize(buffer);
+				}
+				
+				free(buffer);
+			}
+		}
+
+		WTF::FileSystemImpl::closeFile(fh);
+	}
+	else
+	{
+		WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(easyListPath, WTF::FileSystemImpl::FileOpenMode::Read);
+
+		if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+		{
+			long long size;
+			if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull)
+			{
+				char *buffer = (char *)malloc(size + 1);
+				if (buffer)
+				{
+					if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
+					{
+						buffer[size] = 0; // terminate, parser expects this to be a null-term string
+	dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
+						m_urlFilter.parse(buffer);
+						int ssize;
+						char *sbuffer = m_urlFilter.serialize(&ssize, false);
+						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Write);
+						if (WTF::FileSystemImpl::invalidPlatformFileHandle != dfh)
+						{
+							if (ssize != WTF::FileSystemImpl::writeToFile(dfh, sbuffer, ssize))
+							{
+								WTF::FileSystemImpl::closeFile(dfh);
+								WTF::FileSystemImpl::deleteFile(easyListSerializedPath);
+							}
+							else
+							{
+dprintf("write ok?\n");
+								WTF::FileSystemImpl::closeFile(dfh);
+							}
+						}
+						else
+						{
+							dprintf(">> failed opening fiel for write\n");
+						}
+						delete[] sbuffer;
+	dprintf("Easylist ready!\n");
+					}
+					
+					free(buffer);
+				}
+			}
+			WTF::FileSystemImpl::closeFile(fh);
+		}
+	}
 }
 
 void WebProcess::terminate()
@@ -82,13 +163,22 @@ WebProcess::~WebProcess()
 
 void WebProcess::waitForThreads()
 {
+	int loops = 5 * 5; // 5s grace period, then sigint
 	for (;;)
 	{
 		{
 			LockHolder lock(Thread::allThreadsMutex());
-			auto count = Thread::allThreads(lock).size();
+			auto& allThreads = Thread::allThreads(lock);
+			auto count = allThreads.size();
 			if (0 == count)
 				return;
+			if (0 == --loops)
+			{
+				for (auto thread : allThreads)
+				{
+					thread->signal(SIGINT);
+				}
+			}
 			D(dprintf("wait for %ld threads\n", count));
 		}
 		Delay(10);
@@ -300,6 +390,16 @@ void WebProcess::signalMainThread()
 	Signal(m_sigTask, m_sigMask);
 }
 
+bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL)
+{
+	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
+	{
+	dprintf("AdFilter: reject %s\n", url);
+		return false;
+	}
+	return true;
+}
+
 }
 
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name);
@@ -327,4 +427,10 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 	}
 
 	return nullptr;
+}
+
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info)
+{
+	static WebKit::WebProcess &instance = WebKit::WebProcess::singleton();
+	return instance.shouldAllowRequest(info.resourceURL.string().utf8().data(), info.mainDocumentURL.string().utf8().data());
 }

@@ -4,6 +4,7 @@
 #include <WebCore/PageIdentifier.h>
 #include <pal/SessionID.h>
 #include "CacheModel.h"
+#include "ABPFilterParser/ABPFilterParser.h"
 
 namespace WebKit {
 
@@ -45,6 +46,8 @@ public:
 	
 	void handleSignals(const uint32_t sigmask);
 	void signalMainThread();
+	
+	bool shouldAllowRequest(const char *url, const char *mainPageURL);
 
 protected:
     HashMap<uint64_t, WebFrame*> m_frameMap;
@@ -54,6 +57,7 @@ protected:
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
+    ABP::ABPFilterParser m_urlFilter;
 	
 	struct Task *m_sigTask;
     uint32_t m_sigMask;

@@ -314,15 +314,15 @@ Thread& Thread::initializeCurrentTLS()
 
 bool Thread::signal(int signalNumber)
 {
-#if !OS(MORPHOS)
+//#if !OS(MORPHOS)
     auto locker = holdLock(m_mutex);
     if (hasExited())
         return false;
     int errNo = pthread_kill(m_handle, signalNumber);
     return !errNo; // A 0 errNo means success.
-#else
-    return false;
-#endif
+//#else
+//    return false;
+//#endif
 }
 
 auto Thread::suspend() -> Expected<void, PlatformSuspendError>
