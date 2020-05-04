@@ -229,6 +229,13 @@ public:
 
     struct NewThreadContext;
     static void entryPoint(NewThreadContext*);
+
+#if OS(MORPHOS)
+    // Final clean up for this class as a while.
+    // Must method must be called after last sub-thread has terminated.
+    static void deleteTLSKey();
+#endif
+
 protected:
     Thread();
 

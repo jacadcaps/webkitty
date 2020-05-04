@@ -69,15 +69,15 @@ void WebProcess::initialize(int sigbit)
 
 void WebProcess::terminate()
 {
+	waitForThreads();
     GCController::singleton().garbageCollectNow();
     FontCache::singleton().invalidate();
     MemoryCache::singleton().setDisabled(true);
+	WTF::Thread::deleteTLSKey();
 }
 
 WebProcess::~WebProcess()
 {
-	D(dprintf("WebProcess will wait for threads...\n"));
-	waitForThreads();
 }
 
 void WebProcess::waitForThreads()

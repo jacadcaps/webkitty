@@ -2,6 +2,7 @@
 
 @class WkWebView;
 @class WkWebViewPrivate;
+@class WkMutableNetworkRequest;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -12,7 +13,6 @@
 
 @protocol WkWebViewNetworkDelegate <OBObject>
 
-// CAUTION: may be called on the network thread
 - (OBString *)userAgentForURL:(OBString *)url;
 
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
@@ -30,12 +30,40 @@
 	WkWebViewPrivate *_private;
 }
 
-+ (void)shutdown;
+// Query whether we're ready to quit. You MUST keep calling this from OBApplication's readyToQuit delegate
+// method until it returns YES. WkWebKit will break the main runloop on its own one readiness state
+// changes
 + (BOOL)readyToQuit;
 
-- (void)navigateTo:(OBString *)uri;
-- (void)stop;
+// Perform a shutdown of services. Call this after the main runloop of the application has exited
+// and readyToQuit returned YES
++ (void)shutdown;
+
+// Load an URL into the main frame
+- (void)load:(OBURL *)url;
+// Load a HTML string into the main frame
+- (void)loadHTMLString:(OBString *)string baseURL:(OBURL *)base;
+// Loads a WkMutableNetworkRequest
+- (void)loadRequest:(WkMutableNetworkRequest *)request;
+
+- (BOOL)loading;
+- (BOOL)hasOnlySecureContent;
+
+- (BOOL)canGoBack;
+- (BOOL)canGoForward;
+
+- (void)goBack;
+- (void)goForward;
+
 - (void)reload;
+
+- (void)stopLoading;
+
+- (OBString *)title;
+- (OBURL *)URL;
+
+- (void)runJavaScript:(OBString *)javascript;
+- (OBString *)evaluateJavaScript:(OBString *)javascript;
 
 - (void)scrollToLeft:(int)left top:(int)top;
 

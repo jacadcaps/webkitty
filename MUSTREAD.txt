@@ -1,8 +1,6 @@
 Early beta of a new WebKit port. Technically, this is a port of WebKit2 into WebKit_Legacy ;)
 
 You must copy the MOSSYS data into the correct path before running.
-Start the application FROM SHELL. Do NOT run it from Ambient.
-Save your work before running it. System may not be usable after you quit the browser.
 Will not work or will crash unless you're on a very recent 3.14 installation.
 
 There's plenty of debug enabled. Live with it.
@@ -13,6 +11,11 @@ missing features, etc. MiniBrowser is NOT the designated brower application. It 
 DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
+
+- 02.05.2020
+	- Fixed memory corruption on quit
+	- Enabled WebP
+	- Lots of work on internal interfaces to make a full proper browser possible
 
 - 30.04.2020
 	- Fixed crashes related to popup input elements, added some lame and simple popup menu

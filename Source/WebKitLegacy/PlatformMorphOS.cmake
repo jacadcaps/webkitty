@@ -29,11 +29,16 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/BackForwardClient.cpp
     morphos/WebApplicationCache.cpp
     morphos/storage/WebDatabaseProvider.cpp
-    morphos/WkWebView.mm
     morphos/WebDocumentLoader.cpp
     morphos/CacheModel.cpp
     morphos/WebDragClient.cpp
     morphos/PopupMenu.cpp
+)
+
+list(APPEND WebKitLegacy_SOURCES_Classes
+    morphos/WkWebView.mm
+    morphos/WkNetworkRequestMutable.mm
+    morphos/WkHistory.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -52,7 +57,9 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})
 
-set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -Wignored-attributes")
+set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
+set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
+set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

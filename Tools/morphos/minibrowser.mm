@@ -215,7 +215,7 @@ static int _windowID = 1;
 
 - (void)navigate
 {
-	[_view navigateTo:[_address contents]];
+	[_view load:[OBURL URLWithString:[_address contents]]];
 }
 
 - (void)postClose
@@ -239,6 +239,11 @@ static int _windowID = 1;
 {
 	[self setOpen:NO];
 	[[OBRunLoop mainRunLoop] performSelector:@selector(postClose) target:self];
+}
+
+- (void)navigateTo:(OBString *)to
+{
+	[_view load:[OBURL URLWithString:to]];
 }
 
 - (id)initWithView:(WkWebView *)view
@@ -272,7 +277,7 @@ static int _windowID = 1;
 
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
-			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:_view withObject:__address__];
+			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");

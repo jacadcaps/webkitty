@@ -1,5 +1,6 @@
 #define SYSTEM_PRIVATE
 
+// These will spew out some warnings, but it is not possible to disable them :(
 #undef __OBJC__
 #import "WebKit.h"
 #import "WebPage.h"
@@ -23,6 +24,7 @@ extern "C" { void dprintf(const char *, ...); }
 namespace  {
 	static int _viewInstanceCount;
 	static bool _shutdown;
+	static bool _readyToQuitPending;
 	static bool _wasInstantiatedOnce;
 	static OBSignalHandler *_signalHandler;
 	APTR   _globalOBContext;
@@ -56,7 +58,7 @@ namespace  {
 		_viewInstanceCount --;
 	}
 	
-	if (_shutdown)
+	if (_readyToQuitPending)
 	{
 		[[MUIApplication currentApplication] quit];
 	}
@@ -152,11 +154,12 @@ dprintf("---------- objc fixup ------------\n");
 {
 	if (!_shutdown)
 	{
+		_shutdown = YES;
+
 		[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 		[_signalHandler release];
 		WebKit::WebProcess::singleton().terminate();
 		CloseLibrary(FreetypeBase);
-		_shutdown = YES;
 	}
 }
 
@@ -164,6 +167,7 @@ dprintf("---------- objc fixup ------------\n");
 {
 	@synchronized ([WkWebView class])
 	{
+		_readyToQuitPending = YES;
 		return _viewInstanceCount == 0;
 	}
 }
@@ -412,9 +416,9 @@ dprintf("---------- objc fixup ------------\n");
 	[_private setNetworkDelegate:delegate];
 }
 
-- (void)navigateTo:(OBString *)uri
+- (void)load:(OBURL *)url
 {
-	const char *curi = [uri cString];
+	const char *curi = [[url absoluteString] cString];
 //	dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
 
 	try {
@@ -423,6 +427,46 @@ dprintf("---------- objc fixup ------------\n");
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
+}
+
+- (void)loadHTMLString:(OBString *)string baseURL:(OBURL *)base
+{
+
+}
+
+- (void)loadRequest:(WkMutableNetworkRequest *)request
+{
+
+}
+
+- (BOOL)loading
+{
+	return NO;
+}
+
+- (BOOL)hasOnlySecureContent
+{
+	return NO;
+}
+
+- (BOOL)canGoBack
+{
+	return NO;
+}
+
+- (BOOL)canGoForward
+{
+	return NO;
+}
+
+- (void)goBack
+{
+
+}
+
+- (void)goForward
+{
+
 }
 
 - (void)reload
@@ -435,7 +479,7 @@ dprintf("---------- objc fixup ------------\n");
 	}
 }
 
-- (void)stop
+- (void)stopLoading
 {
 	try {
 		auto webPage = [_private page];
@@ -443,6 +487,31 @@ dprintf("---------- objc fixup ------------\n");
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
+}
+
+- (OBString *)title
+{
+	return nil;
+}
+
+- (OBURL *)URL
+{
+	return nil;
+}
+
+- (void)runJavaScript:(OBString *)javascript
+{
+
+}
+
+- (OBString *)evaluateJavaScript:(OBString *)javascript
+{
+	return nil;
+}
+
+- (void)navigateTo:(OBString *)uri
+{
+
 }
 
 - (void)dumpDebug

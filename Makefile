@@ -76,9 +76,10 @@ configure: morphos.cmake link.sh CMakeLists.txt
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
-		-DLIBXML2_INCLUDE_DIR=$(LIB)/libxml2/instdir/include/libxml2/ \
-		-DPNG_LIBRARY=$(GEN)/lib/libpng.a \
-		-DPNG_INCLUDE_DIR=$(GEN)/include \
+		-DLIBXML2_INCLUDE_DIR="$(LIB)/libxml2/instdir/include/libxml2/" \
+		-DPNG_LIBRARIES=$(GEN)/libpng16/lib/libpng16.a \
+		-DPNG_PNG_INCLUDE_DIR=$(GEN)/libpng16/include/libpng16/ \
+		-DPNG_INCLUDE_DIRS=$(GEN)/libpng16/include/libpng16/ \
 		-DLIBXSLT_LIBRARIES=$(LIB)/libxslt/instdir/lib/libxslt.a \
 		-DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
 		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib/libsqlite3.a \
@@ -94,6 +95,7 @@ configure: morphos.cmake link.sh CMakeLists.txt
 		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
+		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 

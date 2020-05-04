@@ -455,6 +455,18 @@ void Thread::establishPlatformSpecificHandle(pthread_t handle)
 #endif
 }
 
+#if OS(MORPHOS)
+void Thread::deleteTLSKey()
+{
+#if !HAVE(FAST_TLS)
+    // Make sure that the Thread::destructTLS is not called for the main thread
+    threadSpecificSet(s_key, NULL);
+    // Actually delete the TLS key
+    threadSpecificKeyDelete(s_key);
+#endif
+}
+#endif
+
 #if !HAVE(FAST_TLS)
 void Thread::initializeTLSKey()
 {

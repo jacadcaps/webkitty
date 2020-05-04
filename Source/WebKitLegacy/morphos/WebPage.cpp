@@ -592,17 +592,19 @@ void WebPage::stop()
 {
 	auto *mainframe = mainFrame();
 	if (mainframe)
-		mainframe->loader().stopAllLoaders();
+		mainframe->loader().stopForUserCancel();
 }
 
 void WebPage::willBeDisposed()
 {
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
-	stop();
 	clearDelegateCallbacks();
 	if (mainframe)
+	{
+		mainframe->loader().cancelAndClear();
 		mainframe->loader().detachFromParent();
+	}
 }
 
 Frame* WebPage::mainFrame() const
