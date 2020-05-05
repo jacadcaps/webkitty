@@ -284,7 +284,8 @@ static int _windowID = 1;
 		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
 		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
-		ADDBUTTON(@"Input", @"https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select");
+//		ADDBUTTON(@"Input", @"https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select");
+//		ADDBUTTON(@"APNG", @"https://davidmz.github.io/apng-canvas/");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 
