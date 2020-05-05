@@ -184,6 +184,8 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
+#define D(x) x
+
 using namespace std;
 using namespace WebCore;
 
@@ -549,6 +551,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 WebPage::~WebPage()
 {
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	delete m_drawContext;
 }
 
@@ -597,14 +600,14 @@ void WebPage::stop()
 
 void WebPage::willBeDisposed()
 {
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
 	clearDelegateCallbacks();
+	stop();
 	if (mainframe)
-	{
-		mainframe->loader().cancelAndClear();
 		mainframe->loader().detachFromParent();
-	}
+	D(dprintf("%s done mf %p\n", __PRETTY_FUNCTION__, mainframe));
 }
 
 Frame* WebPage::mainFrame() const

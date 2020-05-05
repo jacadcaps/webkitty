@@ -21,6 +21,8 @@ struct Library *FreetypeBase;
 
 extern "C" { void dprintf(const char *, ...); }
 
+#define D(x) x
+
 namespace  {
 	static int _viewInstanceCount;
 	static bool _shutdown;
@@ -56,11 +58,12 @@ namespace  {
 	@synchronized ([WkWebView class])
 	{
 		_viewInstanceCount --;
-	}
-	
-	if (_readyToQuitPending)
-	{
-		[[MUIApplication currentApplication] quit];
+		D(dprintf("%s: instances left %d pendingquit %d\n", __PRETTY_FUNCTION__, _viewInstanceCount, _readyToQuitPending));
+
+		if (_readyToQuitPending)
+		{
+			[[MUIApplication currentApplication] quit];
+		}
 	}
 	
 	[super dealloc];
@@ -150,16 +153,12 @@ dprintf("---------- objc fixup ------------\n");
 	[self performWithSignalHandler:_signalHandler];
 }
 
-+ (void)shutdown
++ (void)_lastPageClosed
 {
-	if (!_shutdown)
+	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__,_readyToQuitPending));
+	if (_readyToQuitPending)
 	{
-		_shutdown = YES;
-
-		[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
-		[_signalHandler release];
-		WebKit::WebProcess::singleton().terminate();
-		CloseLibrary(FreetypeBase);
+		[[MUIApplication currentApplication] quit];
 	}
 }
 
@@ -168,8 +167,19 @@ dprintf("---------- objc fixup ------------\n");
 	@synchronized ([WkWebView class])
 	{
 		_readyToQuitPending = YES;
-		return _viewInstanceCount == 0;
+		if (_viewInstanceCount == 0 && WebKit::WebProcess::singleton().webFrameCount() == 0)
+		{
+			_readyToQuitPending = NO;
+			_shutdown = YES;
+			[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
+			[_signalHandler release];
+			WebKit::WebProcess::singleton().terminate();
+			CloseLibrary(FreetypeBase);
+			return YES;
+		}
 	}
+	
+	return NO;
 }
 
 - (WkWebViewPrivate *)privateObject
@@ -181,14 +191,14 @@ dprintf("---------- objc fixup ------------\n");
 {
 	if ((self = [super init]))
 	{
-		if (_shutdown)
-		{
-			[self release];
-			return nil;
-		}
-	
 		@synchronized ([WkWebView class])
 		{
+			if (_shutdown || _readyToQuitPending)
+			{
+				[self release];
+				return nil;
+			}
+
 			_viewInstanceCount ++;
 
 			if (!_wasInstantiatedOnce)
@@ -223,6 +233,9 @@ dprintf("---------- objc fixup ------------\n");
 					[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES];
 					
 					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
+					WebKit::WebProcess::singleton().setLastPageClosedCallback([]() {
+						[WkWebView _lastPageClosed];
+					});
 					
 					_wasInstantiatedOnce = true;
 					_mainThread = FindTask(0);

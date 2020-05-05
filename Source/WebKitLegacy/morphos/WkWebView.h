@@ -35,10 +35,6 @@
 // changes
 + (BOOL)readyToQuit;
 
-// Perform a shutdown of services. Call this after the main runloop of the application has exited
-// and readyToQuit returned YES
-+ (void)shutdown;
-
 // Load an URL into the main frame
 - (void)load:(OBURL *)url;
 // Load a HTML string into the main frame

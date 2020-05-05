@@ -119,6 +119,13 @@ void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
     m_runThread = false;
 }
 
+#if OS(MORPHOS)
+void CurlRequestScheduler::stopCurlThread()
+{
+	stopThread();
+}
+#endif
+
 void CurlRequestScheduler::stopThread()
 {
     {

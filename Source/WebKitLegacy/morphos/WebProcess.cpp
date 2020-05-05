@@ -29,16 +29,23 @@
 #include <JavaScriptCore/MemoryStatistics.h>
 #include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/ResourceLoadInfo.h>
+#include <WebCore/CurlContext.h>
+// bloody include shit
+extern "C" {
+LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
+                struct timeval *timeout, ULONG *maskp);
+}
 typedef uint32_t socklen_t;
 #include <pal/crypto/gcrypt/Initialization.h>
-
 #include <proto/dos.h>
+
+#define USE_ADFILTER 1
 
 extern "C" {
 	void dprintf(const char *, ...);
 };
 
-#define D(x)
+#define D(x) x
 
 /// TODO
 /// MemoryPressureHandler !
@@ -72,7 +79,8 @@ void WebProcess::initialize(int sigbit)
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
-	
+
+#if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";
 	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat";
 
@@ -84,16 +92,15 @@ void WebProcess::initialize(int sigbit)
 
 		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull)
 		{
-			char *buffer = (char *)malloc(size + 1);
-			if (buffer)
+			m_urlFilterData.resize(size + 1);
+			if (size == WTF::FileSystemImpl::readFromFile(fh, &m_urlFilterData[0], int(size)))
 			{
-				if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
-				{
-					buffer[size] = 0; // terminate just in case
-					m_urlFilter.deserialize(buffer);
-				}
-				
-				free(buffer);
+				m_urlFilterData[size] = 0; // terminate just in case
+				m_urlFilter.deserialize(&m_urlFilterData[0]);
+			}
+			else
+			{
+				m_urlFilterData.clear();
 			}
 		}
 
@@ -114,7 +121,7 @@ void WebProcess::initialize(int sigbit)
 					if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
 					{
 						buffer[size] = 0; // terminate, parser expects this to be a null-term string
-	dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
+dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
 						m_urlFilter.parse(buffer);
 						int ssize;
 						char *sbuffer = m_urlFilter.serialize(&ssize, false);
@@ -128,7 +135,6 @@ void WebProcess::initialize(int sigbit)
 							}
 							else
 							{
-dprintf("write ok?\n");
 								WTF::FileSystemImpl::closeFile(dfh);
 							}
 						}
@@ -137,7 +143,6 @@ dprintf("write ok?\n");
 							dprintf(">> failed opening fiel for write\n");
 						}
 						delete[] sbuffer;
-	dprintf("Easylist ready!\n");
 					}
 					
 					free(buffer);
@@ -146,25 +151,29 @@ dprintf("write ok?\n");
 			WTF::FileSystemImpl::closeFile(fh);
 		}
 	}
+#endif
 }
 
 void WebProcess::terminate()
 {
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	waitForThreads();
     GCController::singleton().garbageCollectNow();
     FontCache::singleton().invalidate();
     MemoryCache::singleton().setDisabled(true);
 	WTF::Thread::deleteTLSKey();
+	D(dprintf("%s done\n", __PRETTY_FUNCTION__));
 }
 
 WebProcess::~WebProcess()
 {
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 }
 
 void WebProcess::waitForThreads()
 {
 	int loops = 5 * 5; // 5s grace period, then sigint
-	for (;;)
+	while (loops-- > 0)
 	{
 		{
 			LockHolder lock(Thread::allThreadsMutex());
@@ -172,19 +181,21 @@ void WebProcess::waitForThreads()
 			auto count = allThreads.size();
 			if (0 == count)
 				return;
-			if (0 == --loops)
+			if (2 * 5 == loops)
 			{
+				D(dprintf("sending SIGINT...\n"));
 				for (auto thread : allThreads)
 				{
 					thread->signal(SIGINT);
 				}
+				WebCore::CurlContext::singleton().stopThread();
 			}
-			D(dprintf("wait for %ld threads\n", count));
 		}
 		Delay(10);
 		dispatchFunctionsFromMainThread();
 		WTF::RunLoop::iterate();
 	}
+	D(dprintf("..done waiting\n"));
 }
 
 void WebProcess::handleSignals(const uint32_t sigmask)
@@ -231,7 +242,8 @@ void WebProcess::removeWebPage(PAL::SessionID, WebCore::PageIdentifier pageID)
  //   pageWillLeaveWindow(pageID);
     m_pageMap.remove(pageID);
 
-//    enableTermination();
+	if (0 == m_pageMap.size() && m_fLastPageClosed)
+		m_fLastPageClosed();
 }
 
 WebPage* WebProcess::focusedWebPage() const
@@ -372,10 +384,6 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
 
     calculateMemoryCacheSizes(cacheModel, cacheTotalCapacity, cacheMinDeadCapacity, cacheMaxDeadCapacity, deadDecodedDataDeletionInterval, pageCacheSize);
 
-
-cacheMinDeadCapacity = cacheMaxDeadCapacity = cacheTotalCapacity = 512*1024*1024;
-pageCacheSize = 256*1024*1024;
-
     auto& memoryCache = MemoryCache::singleton();
     memoryCache.setCapacities(cacheMinDeadCapacity, cacheMaxDeadCapacity, cacheTotalCapacity);
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
@@ -431,6 +439,10 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 
 bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info)
 {
+#if USE_ADFILTER
 	static WebKit::WebProcess &instance = WebKit::WebProcess::singleton();
 	return instance.shouldAllowRequest(info.resourceURL.string().utf8().data(), info.mainDocumentURL.string().utf8().data());
+#else
+	return true;
+#endif
 }

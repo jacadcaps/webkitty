@@ -106,6 +106,10 @@ public:
 
     CurlRequestScheduler& scheduler() { return *m_scheduler; }
 
+#if OS(MORPHOS)
+	void stopThread();
+#endif
+
     // Proxy
     const CurlProxySettings& proxySettings() const { return m_proxySettings; }
     void setProxySettings(CurlProxySettings&& settings) { m_proxySettings = WTFMove(settings); }

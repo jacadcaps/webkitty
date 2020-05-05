@@ -145,6 +145,13 @@ CurlContext::~CurlContext()
 #endif
 }
 
+#if OS(MORPHOS)
+void CurlContext::stopThread()
+{
+	m_scheduler->stopCurlThread();
+}
+#endif
+
 void CurlContext::initShareHandle()
 {
     CURL* curl = curl_easy_init();

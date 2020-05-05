@@ -12,6 +12,10 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 04.05.2020
+	- Fixed more issues on quit/window close
+	- AdBlock based on easylist
+
 - 02.05.2020
 	- Fixed memory corruption on quit
 	- Enabled WebP

@@ -18,7 +18,6 @@ extern "C" {
 };
 
 #import <WebKitLegacy/morphos/WkWebView.h>
-//#import <WebKitLegacy/morphos/WebPage.h>
 
 @interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate>
 {
@@ -310,6 +309,7 @@ static int _windowID = 1;
 
 - (void)dealloc
 {
+	dprintf("%s\n", __PRETTY_FUNCTION__);
 	[_view setNetworkDelegate:nil];
 	[_view setScrollingDelegate:nil];
 	[super dealloc];
@@ -371,6 +371,12 @@ static int _windowID = 1;
 
 @implementation MiniAppDelegate
 
+- (void)dealloc
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	[super dealloc];
+}
+
 - (void)applicationWillRun
 {
 	dprintf("%s\n", __PRETTY_FUNCTION__);
@@ -388,8 +394,6 @@ static int _windowID = 1;
 	}
 	
 	[[MUIApplication currentApplication] removeAllObjects];
-
-	[WkWebView shutdown];
 
 	BOOL shouldTerminate = [WkWebView readyToQuit];
 	dprintf("%s %d\n", __PRETTY_FUNCTION__, shouldTerminate);
@@ -433,12 +437,12 @@ int muiMain(int argc, char *argv[])
 
 		[app run];
 		
+		dprintf("%s: runloop exited!\n", __PRETTY_FUNCTION__);
+		
 		[[OBApplication currentApplication] setDelegate:nil];
 		[delegate release];
 	}
 	
-	[WkWebView shutdown];
-
 dprintf("release..\n");
 	[app release];
 
