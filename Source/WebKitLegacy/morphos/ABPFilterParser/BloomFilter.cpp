@@ -61,11 +61,11 @@ void BloomFilter::add(const char *sz) {
 }
 
 bool BloomFilter::exists(const char *input, int len) {
-  bool allSet = true;
   for (int j = 0; j < numHashFns; j++) {
-    allSet = allSet && isBitSet(hashFns[j](input, len) % bitBufferSize);
+    if (!isBitSet(hashFns[j](input, len) % bitBufferSize))
+      return false;
   }
-  return allSet;
+  return true;
 }
 
 bool BloomFilter::exists(const char *sz) {
@@ -92,7 +92,10 @@ bool BloomFilter::substringExists(const char *data, int dataLen,
         ? nullptr : lastHashes, lastHashes, lastCharCode);
     bool allSet = true;
     for (int j = 0; j < numHashFns; j++) {
-      allSet = allSet && isBitSet(lastHashes[j] % bitBufferSize);
+      if (!isBitSet(lastHashes[j] % bitBufferSize)) {
+        allSet = false;
+        break;
+      }
     }
     if (allSet) {
       return true;

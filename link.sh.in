@@ -31,4 +31,3 @@ _IN_ROOTPATH/gen/host/libnix/lib/libtasn1.a \
 CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
 -lob.framework -lmui.framework \
 -lobjc -lc -lgcc -lauto
-

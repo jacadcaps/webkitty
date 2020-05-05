@@ -3,6 +3,7 @@
 @class WkWebView;
 @class WkWebViewPrivate;
 @class WkMutableNetworkRequest;
+@class WkBackForwardList;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -22,6 +23,12 @@
 
 - (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBString *)url options:(OBDictionary *)options;
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview;
+
+@end
+
+@protocol WkWebViewBackForwardListDelegate <OBObject>
+
+- (void)webViewChangedBackForwardList:(WkWebView *)view;
 
 @end
 
@@ -48,8 +55,10 @@
 - (BOOL)canGoBack;
 - (BOOL)canGoForward;
 
-- (void)goBack;
-- (void)goForward;
+- (BOOL)goBack;
+- (BOOL)goForward;
+
+- (WkBackForwardList *)backForwardList;
 
 - (void)reload;
 
@@ -65,6 +74,7 @@
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate;
 - (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;
+- (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
 
 - (void)dumpDebug;
 

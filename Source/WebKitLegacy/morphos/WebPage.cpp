@@ -495,7 +495,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setJavaEnabled(true);
 	settings.setJavaEnabledForLocalFiles(true);
     settings.setAllowDisplayOfInsecureContent(true);
-    settings.setAllowRunningOfInsecureContent(true);
+    settings.setAllowRunningOfInsecureContent(false);
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
@@ -508,16 +508,16 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setShrinksStandaloneImagesToFit(true);
     settings.setSubpixelAntialiasedLayerTextEnabled(true);
 
-	settings.setForceCompositingMode(false);
-	settings.setAcceleratedCompositingEnabled(false);
-
 #if 1
+	settings.setForceCompositingMode(false);
 	settings.setAcceleratedCompositingEnabled(false);
 	settings.setAcceleratedDrawingEnabled(false);
 	settings.setAccelerated2dCanvasEnabled(false);
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 	settings.setAcceleratedFiltersEnabled(false);
+    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
+#else
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
 
@@ -596,6 +596,45 @@ void WebPage::stop()
 	auto *mainframe = mainFrame();
 	if (mainframe)
 		mainframe->loader().stopForUserCancel();
+}
+
+bool WebPage::goBack()
+{
+	if (m_page)
+		return m_page->backForward().goBack();
+	return false;
+}
+
+bool WebPage::goForward()
+{
+	if (m_page)
+		return m_page->backForward().goForward();
+	return false;
+}
+
+bool WebPage::canGoBack()
+{
+	if (m_page)
+		return m_page->backForward().canGoBackOrForward(-1);
+	return false;
+}
+
+bool WebPage::canGoForward()
+{
+	if (m_page)
+		return m_page->backForward().canGoBackOrForward(1);
+	return false;
+}
+
+WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
+{
+	if (m_page)
+	{
+		Ref<BackForwardClientMorphOS> client(static_cast<BackForwardClientMorphOS&>(m_page->backForward().client()));
+		return client;
+	}
+	
+	return nullptr;
 }
 
 void WebPage::willBeDisposed()
@@ -1009,6 +1048,8 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)
     	return;
+
+    m_page->updateRendering();
 
 	frameView->updateLayoutAndStyleIfNeededRecursive();
 //	frameView->updateCompositingLayersAfterLayout();

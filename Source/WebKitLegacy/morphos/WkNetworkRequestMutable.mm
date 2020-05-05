@@ -18,11 +18,6 @@
 
 @implementation WkMutableNetworkRequestPrivate
 
-- (id)initWithURL:(OBURL *)url
-{
-	return [self initWithURL:url cachePolicy:WkMutableNetworkRequestUseProtocolCachePolicy timeoutInterval:60.0];
-}
-
 - (id)initWithURL:(OBURL *)url cachePolicy:(WkMutableNetworkRequestCachePolicy)cachePolicy timeoutInterval:(float)timeout
 {
 	if ((self = [super init]))
@@ -34,6 +29,11 @@
 	}
 	
 	return self;
+}
+
+- (id)initWithURL:(OBURL *)url
+{
+	return [self initWithURL:url cachePolicy:WkMutableNetworkRequestUseProtocolCachePolicy timeoutInterval:60.0];
 }
 
 - (void)dealloc

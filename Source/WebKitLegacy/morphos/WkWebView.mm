@@ -12,6 +12,7 @@
 #import <mui/MUIFramework.h>
 
 #import "WkWebView.h"
+#import "WkHistory_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -71,6 +72,8 @@ namespace  {
 
 - (void)timedOut
 {
+	// delay disposal just a little bit
+	[self retain];
 	[self autorelease];
 }
 
@@ -464,22 +467,59 @@ dprintf("---------- objc fixup ------------\n");
 
 - (BOOL)canGoBack
 {
+	try {
+		auto webPage = [_private page];
+		return webPage->canGoBack();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
 	return NO;
 }
 
 - (BOOL)canGoForward
 {
+	try {
+		auto webPage = [_private page];
+		return webPage->canGoForward();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
 	return NO;
 }
 
-- (void)goBack
+- (BOOL)goBack
 {
-
+	try {
+		auto webPage = [_private page];
+		return webPage->goBack();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+	return NO;
 }
 
-- (void)goForward
+- (BOOL)goForward
 {
+	try {
+		auto webPage = [_private page];
+		return webPage->goForward();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+	return NO;
+}
 
+- (WkBackForwardList *)backForwardList
+{
+	try {
+		auto webPage = [_private page];
+		WTF::RefPtr<WebKit::BackForwardClientMorphOS> client = webPage->backForwardClient();
+		if (client.get())
+			return [WkBackForwardListPrivate backForwardListPrivate:client];
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+	return nil;
 }
 
 - (void)reload
@@ -667,6 +707,11 @@ dprintf("---------- objc fixup ------------\n");
 - (void)setDocumentWidth:(int)width height:(int)height
 {
 	[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:width height:height];
+}
+
+- (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate
+{
+
 }
 
 @end

@@ -73,6 +73,7 @@ configure: morphos.cmake link.sh CMakeLists.txt
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DUSE_SYSTEM_MALLOC=YES -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 \
+		-DENABLE_APNG=1 \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \

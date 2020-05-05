@@ -20,5 +20,6 @@
 }
 
 + (id)backForwardListPrivate:(WTF::RefPtr<WebKit::BackForwardClientMorphOS>)bf;
+- (WTF::RefPtr<WebKit::BackForwardClientMorphOS>)client;
 
 @end

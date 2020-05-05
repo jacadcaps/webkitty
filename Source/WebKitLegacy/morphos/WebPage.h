@@ -28,6 +28,7 @@ class WebViewDrawContext;
 class WebChromeClient;
 class WebPageCreationParameters;
 class WebDocumentLoader;
+class BackForwardClientMorphOS;
 
 WebCore::Page* core(WebPage *webView);
 WebPage *kit(WebCore::Page* page);
@@ -52,6 +53,12 @@ public:
 	void go(const char *url);
 	void reload();
 	void stop();
+
+	bool goBack();
+	bool goForward();
+	bool canGoBack();
+	bool canGoForward();
+
 	void willBeDisposed();
 
 	void setVisibleSize(const int width, const int height);
@@ -97,7 +104,9 @@ public:
 
     WebCore::Frame* mainFrame() const; // May return nullptr.
     WebCore::FrameView* mainFrameView() const; // May return nullptr.
-	
+
+	WTF::RefPtr<WebKit::BackForwardClientMorphOS> backForwardClient();
+
     void goActive();
     void goInactive();
 	
