@@ -126,7 +126,11 @@
 #define __NOEXCEPT noexcept
 #define __NOEXCEPT_(__exception) noexcept(__exception)
 #else
+#if OS(MORPHOS)
+#define __THROW_EXCEPTION(__exception) do { auto ex = __exception; dprintf("" __FILE__ "/%d: " #__exception "(%s)\n", __LINE__, ex.what()); CRASH(); } while (0);
+#else
 #define __THROW_EXCEPTION(__exception) do { (void)__exception; CRASH(); } while (0);
+#endif
 #define __NOEXCEPT
 #define __NOEXCEPT_(...)
 #endif
