@@ -39,7 +39,8 @@
  */
 
 #include "config.h"
-
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
 #if OS(MORPHOS)
 #define __WANT_PNG_1_6__
 #endif
@@ -548,9 +549,19 @@ void PNGImageDecoder::decode(bool onlySize, unsigned haltAtFrame, bool allDataRe
     if (!m_reader)
         m_reader = makeUnique<PNGImageReader>(this);
 
+    RefPtr<SharedBuffer> protectedData(m_data);
+    if (!protectedData) {
+        setFailed();
+        return;
+	}
+
+	// The 'data' will have data appended from network thread while we're decoding
+	// no clue how this doesn't crash on other OS's
+	auto locker = holdLock(protectedData->readLock());
+
     // If we couldn't decode the image but we've received all the data, decoding
     // has failed.
-    if (!m_reader->decode(*m_data, onlySize, haltAtFrame) && allDataReceived)
+    if (!m_reader->decode(*protectedData, onlySize, haltAtFrame) && allDataReceived)
         setFailed();
     // If we're done decoding the image, we don't need the PNGImageReader
     // anymore.  (If we failed, |m_reader| has already been cleared.)
@@ -907,3 +918,4 @@ void PNGImageDecoder::fallbackNotAnimated()
 #endif
 
 } // namespace WebCore
+#pragma GCC pop_options

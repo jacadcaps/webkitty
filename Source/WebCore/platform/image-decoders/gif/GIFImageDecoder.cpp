@@ -326,9 +326,16 @@ void GIFImageDecoder::decode(unsigned haltAtFrame, GIFQuery query, bool allDataR
     if (failed())
         return;
 
+    RefPtr<SharedBuffer> protectedData(m_data);
+    if (!protectedData) {
+        setFailed();
+        return;
+	}
+	auto locker = holdLock(protectedData->writeLock());
+
     if (!m_reader) {
         m_reader = makeUnique<GIFImageReader>(this);
-        m_reader->setData(*m_data);
+        m_reader->setData(protectedData.get());
     }
 
     if (query == GIFSizeQuery) {

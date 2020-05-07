@@ -31,6 +31,7 @@
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ReadWriteLock.h>
 #include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -105,6 +106,7 @@ public:
     // Iterate the segments using begin() and end() instead.
     // FIXME: Audit the call sites of this function and replace them with iteration if possible.
     const char* data() const;
+    const char* dataLocked() const;
 
     // Creates an ArrayBuffer and copies this SharedBuffer's contents to that
     // ArrayBuffer without merging segmented buffers into a flat buffer.
@@ -212,6 +214,11 @@ public:
     bool operator==(const SharedBuffer&) const;
     bool operator!=(const SharedBuffer& other) const { return !operator==(other); }
 
+#if OS(MORPHOS)
+    ReadWriteLock::ReadLock& readLock() { return m_rwLock.read(); };
+    ReadWriteLock::WriteLock& writeLock() { return m_rwLock.write(); };
+#endif
+
 private:
     explicit SharedBuffer() = default;
     explicit SharedBuffer(const char*, size_t);
@@ -232,7 +239,8 @@ private:
 #endif
 
     void combineIntoOneSegment() const;
-    
+    void combineIntoOneSegmentLocked() const;
+
     static RefPtr<SharedBuffer> createFromReadingFile(const String& filePath);
 
     size_t m_size { 0 };
@@ -241,6 +249,10 @@ private:
 #if ASSERT_ENABLED
     mutable bool m_hasBeenCombinedIntoOneSegment { false };
     bool internallyConsistent() const;
+#endif
+
+#if OS(MORPHOS)
+	mutable ReadWriteLock m_rwLock;
 #endif
 };
 
