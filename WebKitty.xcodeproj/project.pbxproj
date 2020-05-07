@@ -21,6 +21,13 @@
 		0138E9312433BA2F00B53904 /* WebPageGroup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E92F2433BA2F00B53904 /* WebPageGroup.cpp */; };
 		0138E9342433C21500B53904 /* WebProgressTrackerClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E9322433C21500B53904 /* WebProgressTrackerClient.cpp */; };
 		0138E93724342FB700B53904 /* WebDocumentLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E93524342FB700B53904 /* WebDocumentLoader.cpp */; };
+		013D3C87246042EC00805F29 /* BloomFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C7B246042EC00805F29 /* BloomFilter.cpp */; };
+		013D3C88246042EC00805F29 /* hashFn.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C7D246042EC00805F29 /* hashFn.cpp */; };
+		013D3C89246042EC00805F29 /* ABPFilterParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C7F246042EC00805F29 /* ABPFilterParser.cpp */; };
+		013D3C8A246042EC00805F29 /* cosmeticFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C80246042EC00805F29 /* cosmeticFilter.cpp */; };
+		013D3C8B246042EC00805F29 /* filter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C82246042EC00805F29 /* filter.cpp */; };
+		013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C9324633B0B00805F29 /* WkSettings.mm */; };
+		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
 		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
@@ -68,6 +75,26 @@
 		0138E93524342FB700B53904 /* WebDocumentLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDocumentLoader.cpp; path = Source/WebKitLegacy/morphos/WebDocumentLoader.cpp; sourceTree = "<group>"; };
 		0138E93624342FB700B53904 /* WebDocumentLoader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDocumentLoader.h; path = Source/WebKitLegacy/morphos/WebDocumentLoader.h; sourceTree = "<group>"; };
 		013D3C79245F22E600805F29 /* WkHistory_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory_private.h; path = Source/WebKitLegacy/morphos/WkHistory_private.h; sourceTree = "<group>"; };
+		013D3C7B246042EC00805F29 /* BloomFilter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = BloomFilter.cpp; path = Source/WebKitLegacy/morphos/ABPFilterParser/BloomFilter.cpp; sourceTree = SOURCE_ROOT; };
+		013D3C7C246042EC00805F29 /* filter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = filter.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/filter.h; sourceTree = SOURCE_ROOT; };
+		013D3C7D246042EC00805F29 /* hashFn.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hashFn.cpp; path = Source/WebKitLegacy/morphos/ABPFilterParser/hashFn.cpp; sourceTree = SOURCE_ROOT; };
+		013D3C7E246042EC00805F29 /* hashFn.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = hashFn.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/hashFn.h; sourceTree = SOURCE_ROOT; };
+		013D3C7F246042EC00805F29 /* ABPFilterParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ABPFilterParser.cpp; path = Source/WebKitLegacy/morphos/ABPFilterParser/ABPFilterParser.cpp; sourceTree = SOURCE_ROOT; };
+		013D3C80246042EC00805F29 /* cosmeticFilter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = cosmeticFilter.cpp; path = Source/WebKitLegacy/morphos/ABPFilterParser/cosmeticFilter.cpp; sourceTree = SOURCE_ROOT; };
+		013D3C81246042EC00805F29 /* cosmeticFilter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = cosmeticFilter.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/cosmeticFilter.h; sourceTree = SOURCE_ROOT; };
+		013D3C82246042EC00805F29 /* filter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = filter.cpp; path = Source/WebKitLegacy/morphos/ABPFilterParser/filter.cpp; sourceTree = SOURCE_ROOT; };
+		013D3C83246042EC00805F29 /* badFingerprint.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = badFingerprint.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/badFingerprint.h; sourceTree = SOURCE_ROOT; };
+		013D3C84246042EC00805F29 /* ABPFilterParser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ABPFilterParser.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/ABPFilterParser.h; sourceTree = SOURCE_ROOT; };
+		013D3C85246042EC00805F29 /* BloomFilter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BloomFilter.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/BloomFilter.h; sourceTree = SOURCE_ROOT; };
+		013D3C86246042EC00805F29 /* badFingerprints.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = badFingerprints.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/badFingerprints.h; sourceTree = SOURCE_ROOT; };
+		013D3C8C2460474400805F29 /* hash_set.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = hash_set.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/hash_set.h; sourceTree = SOURCE_ROOT; };
+		013D3C8D2460474400805F29 /* hash_item.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = hash_item.h; path = Source/WebKitLegacy/morphos/ABPFilterParser/hash_item.h; sourceTree = SOURCE_ROOT; };
+		013D3C9224633B0B00805F29 /* WkSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkSettings.h; path = Source/WebKitLegacy/morphos/WkSettings.h; sourceTree = "<group>"; };
+		013D3C9324633B0B00805F29 /* WkSettings.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkSettings.mm; path = Source/WebKitLegacy/morphos/WkSettings.mm; sourceTree = "<group>"; };
+		013D3C952463448600805F29 /* link.sh.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = link.sh.in; sourceTree = "<group>"; };
+		013D3C962463448600805F29 /* morphos.cmake.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = morphos.cmake.in; sourceTree = "<group>"; };
+		013D3C972463448600805F29 /* MUSTREAD.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = MUSTREAD.txt; sourceTree = "<group>"; };
+		013D3C992463448700805F29 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
 		01816F0D242B985D007717A6 /* WebKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
 		01816F0E242B985D007717A6 /* WebFrame.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
@@ -112,12 +139,35 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		013D3C7A246042CE00805F29 /* ABP */ = {
+			isa = PBXGroup;
+			children = (
+				013D3C8D2460474400805F29 /* hash_item.h */,
+				013D3C8C2460474400805F29 /* hash_set.h */,
+				013D3C7F246042EC00805F29 /* ABPFilterParser.cpp */,
+				013D3C84246042EC00805F29 /* ABPFilterParser.h */,
+				013D3C83246042EC00805F29 /* badFingerprint.h */,
+				013D3C86246042EC00805F29 /* badFingerprints.h */,
+				013D3C7B246042EC00805F29 /* BloomFilter.cpp */,
+				013D3C85246042EC00805F29 /* BloomFilter.h */,
+				013D3C80246042EC00805F29 /* cosmeticFilter.cpp */,
+				013D3C81246042EC00805F29 /* cosmeticFilter.h */,
+				013D3C82246042EC00805F29 /* filter.cpp */,
+				013D3C7C246042EC00805F29 /* filter.h */,
+				013D3C7D246042EC00805F29 /* hashFn.cpp */,
+				013D3C7E246042EC00805F29 /* hashFn.h */,
+			);
+			path = ABP;
+			sourceTree = "<group>";
+		};
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
-				013D3C79245F22E600805F29 /* WkHistory_private.h */,
-				01B27291245EF46B00B7277E /* WkHistory.h */,
-				01B27292245EF46B00B7277E /* WkHistory.mm */,
+				013D3C952463448600805F29 /* link.sh.in */,
+				013D3C992463448700805F29 /* Makefile */,
+				013D3C962463448600805F29 /* morphos.cmake.in */,
+				013D3C972463448600805F29 /* MUSTREAD.txt */,
+				013D3C7A246042CE00805F29 /* ABP */,
 				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
 				01816F15242B985E007717A6 /* BackForwardClient.h */,
 				01F87DA42436CBE3008754BB /* CacheModel.cpp */,
@@ -163,8 +213,13 @@
 				01816F12242B985D007717A6 /* WebViewDelegate.h */,
 				011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */,
 				01984443242FECE00057CD22 /* WebVisitedLinkStore.h */,
+				013D3C79245F22E600805F29 /* WkHistory_private.h */,
+				01B27291245EF46B00B7277E /* WkHistory.h */,
+				01B27292245EF46B00B7277E /* WkHistory.mm */,
 				01F884E9245C58DE00088E76 /* WkNetworkRequestMutable.h */,
 				01F884EA245C58DE00088E76 /* WkNetworkRequestMutable.mm */,
+				013D3C9224633B0B00805F29 /* WkSettings.h */,
+				013D3C9324633B0B00805F29 /* WkSettings.mm */,
 				01816F17242B985E007717A6 /* WkWebView.h */,
 				01816F13242B985D007717A6 /* WkWebView.mm */,
 				01816EE0242A370A007717A6 /* WebKitty */,
@@ -253,16 +308,21 @@
 				01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */,
 				0120E5F924590B9E003150E3 /* PopupMenu.cpp in Sources */,
 				0138E9342433C21500B53904 /* WebProgressTrackerClient.cpp in Sources */,
+				013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */,
 				0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */,
 				01F884EB245C58DE00088E76 /* WkNetworkRequestMutable.mm in Sources */,
 				011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */,
+				013D3C88246042EC00805F29 /* hashFn.cpp in Sources */,
+				013D3C87246042EC00805F29 /* BloomFilter.cpp in Sources */,
 				011B866E242BBBF100749380 /* minibrowser.mm in Sources */,
 				011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */,
 				0138E9312433BA2F00B53904 /* WebPageGroup.cpp in Sources */,
+				013D3C8A246042EC00805F29 /* cosmeticFilter.cpp in Sources */,
 				011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */,
 				011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */,
 				0138E93724342FB700B53904 /* WebDocumentLoader.cpp in Sources */,
 				01E13648242BB118007BA528 /* WkWebView.mm in Sources */,
+				013D3C89246042EC00805F29 /* ABPFilterParser.cpp in Sources */,
 				011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */,
 				01F96C49243389D200A3D191 /* WebPage.cpp in Sources */,
 				01E13646242BB118007BA528 /* WebFrame.cpp in Sources */,
@@ -272,6 +332,8 @@
 				011B867E242CFCD800749380 /* WebVisitedLinkStore.cpp in Sources */,
 				01E871E424526E3900DCCEB4 /* WebDragClient.cpp in Sources */,
 				01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */,
+				013D3C9A2463448700805F29 /* Makefile in Sources */,
+				013D3C8B246042EC00805F29 /* filter.cpp in Sources */,
 				011B8679242CFCD800749380 /* WebEditorClient.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
