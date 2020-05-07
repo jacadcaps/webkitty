@@ -29,7 +29,22 @@
 #include "NotImplemented.h"
 #include "PasteboardStrategy.h"
 
+#include <proto/exec.h>
+#include <proto/clipboard.h>
+
+#include <libraries/charsets.h>
+#include <libraries/clipboard.h>
+
 namespace WebCore {
+
+enum ClipboardDataType {
+    ClipboardDataTypeText,
+    ClipboardDataTypeMarkup,
+    ClipboardDataTypeURIList,
+    ClipboardDataTypeURL,
+    ClipboardDataTypeImage,
+    ClipboardDataTypeUnknown
+};
 
 std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
 {
@@ -66,6 +81,17 @@ String Pasteboard::readOrigin()
     return { };
 }
 
+static ClipboardDataType selectionDataTypeFromHTMLClipboardType(const String& type)
+{
+    if (type == "text/plain")
+        return ClipboardDataTypeText;
+    if (type == "text/html")
+        return ClipboardDataTypeMarkup;
+    if (type == "Files" || type == "text/uri-list")
+        return ClipboardDataTypeURIList;
+    return ClipboardDataTypeUnknown;
+}
+
 String Pasteboard::readString(const String& type)
 {
 //    return platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, type);
@@ -81,7 +107,17 @@ String Pasteboard::readStringInCustomData(const String&)
 
 void Pasteboard::writeString(const String& type, const String& text)
 {
-     notImplemented();
+	auto ctype = selectionDataTypeFromHTMLClipboardType(type);
+	
+	if (ctype == ClipboardDataTypeText || ctype == ClipboardDataTypeUnknown)
+	{
+		if ((ClipboardBase = OpenLibrary("clipboard.library", 51)))
+        {
+        	auto utext = text.utf8();
+			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
+			WriteClipTextA(utext.data(), tags);
+		}
+	}
 }
 
 void Pasteboard::clear()
@@ -94,8 +130,20 @@ void Pasteboard::clear(const String&)
 
 void Pasteboard::read(PasteboardPlainText& text)
 {
-     notImplemented();
-//    text.text = platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, "text/plain;charset=utf-8");
+	const char *clipcontents;
+
+	if ((ClipboardBase = OpenLibrary("clipboard.library", 51)))
+	{
+		struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
+		clipcontents = (const char *)ReadClipTextA(tags);
+		if (nullptr != clipcontents)
+		{
+			text.text = String::fromUTF8(clipcontents);
+			FreeClipText(clipcontents);
+		}
+		
+		CloseLibrary(ClipboardBase);
+	}
 }
 
 void Pasteboard::read(PasteboardWebContentReader&, WebContentReadingPolicy)

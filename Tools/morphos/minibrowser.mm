@@ -18,8 +18,9 @@ extern "C" {
 };
 
 #import <WebKitLegacy/morphos/WkWebView.h>
+#import <WebKitLegacy/morphos/WkSettings.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -27,6 +28,12 @@ extern "C" {
 	MUIGroup  *_topGroup;
 	MUIGroup  *_bottomGroup;
 	MUIGroup  *_loading;
+	MUIButton *_back;
+	MUIButton *_forward;
+	MUIButton *_stop;
+	MUIButton *_reload;
+	MUICheckmark *_adBlock;
+	MUICheckmark *_script;
 }
 @end
 
@@ -245,6 +252,14 @@ static int _windowID = 1;
 	[_view load:[OBURL URLWithString:to]];
 }
 
+- (void)settingsUpdated
+{
+	WkSettings *settings = [WkSettings settings];
+	[settings setJavaScriptEnabled:[_script selected]];
+	[settings setAdBlockerEnabled:[_adBlock selected]];
+	[_view setSettings:settings];
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
@@ -254,12 +269,18 @@ static int _windowID = 1;
 
 		self.rootObject = [MUIGroup groupWithObjects:
 			_topGroup = [MUIGroup horizontalGroupWithObjects:
+				_back = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-go-back-20.png]"],
+				_forward = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-circled-right-20.png]"],
+				_stop = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-no-entry-20.png]"],
+				_reload = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-restart-20.png]"],
 				_address = [MUIString stringWithContents:@"https://"],
 				nil],
 			[BrowserGroup browserGroupWithWkWebView:_view = view],
 			_bottomGroup = [MUIGroup horizontalGroupWithObjects:
 				_userAgents = [MUICycle cycleWithEntries:[OBArray arrayWithObjects:@"Safari", @"Chrome", @"WebKitty", @"iPad 12.2", @"IE10", nil]],
 				debug = [MUIButton buttonWithLabel:@"Debug Stats"],
+				[MUICheckmark checkmarkWithLabel:@"AdBlocker" checkmark:&_adBlock],
+				[MUICheckmark checkmarkWithLabel:@"JS" checkmark:&_script],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -273,6 +294,26 @@ static int _windowID = 1;
 		[_address setWeight:300];
 		
 		[_view setNetworkDelegate:self];
+		[_view setBackForwardListDelegate:self];
+
+		[_back notify:@selector(pressed) trigger:NO performSelector:@selector(goBack) withTarget:_view];
+		[_forward notify:@selector(pressed) trigger:NO performSelector:@selector(goForward) withTarget:_view];
+		[_stop notify:@selector(pressed) trigger:NO performSelector:@selector(stopLoading) withTarget:_view];
+		[_reload notify:@selector(pressed) trigger:NO performSelector:@selector(reload) withTarget:_view];
+		
+		[_back setHorizWeight:0];
+		[_forward setHorizWeight:0];
+		[_stop setHorizWeight:0];
+		[_reload setHorizWeight:0];
+		
+		[_adBlock setSelected:YES];
+		[_script setSelected:YES];
+		
+		[_adBlock notify:@selector(selected) performSelector:@selector(settingsUpdated) withTarget:self];
+		[_script notify:@selector(selected) performSelector:@selector(settingsUpdated) withTarget:self];
+
+		[_back setDisabled:YES];
+		[_forward setDisabled:YES];
 
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
@@ -284,6 +325,7 @@ static int _windowID = 1;
 		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
 		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
+		ADDBUTTON(@"Teleg", @"https://web.telegram.org");
 //		ADDBUTTON(@"Input", @"https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select");
 //		ADDBUTTON(@"APNG", @"https://davidmz.github.io/apng-canvas/");
 
@@ -363,6 +405,12 @@ static int _windowID = 1;
 	BrowserWindow *newWindow = [[[BrowserWindow alloc] initWithView:newview] autorelease];
 	[[MUIApplication currentApplication] addObject:newWindow];
 	[newWindow setOpen:YES];
+}
+
+- (void)webViewChangedBackForwardList:(WkWebView *)view
+{
+	[_back setDisabled:![view canGoBack]];
+	[_forward setDisabled:![_view canGoForward]];
 }
 
 @end

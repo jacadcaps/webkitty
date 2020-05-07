@@ -89,7 +89,9 @@ private:
     
     void undo() final;
     void redo() final;
-    
+
+	bool supportsGlobalSelection() final { return true; }
+
     bool shouldChangeSelectedRange(WebCore::Range* fromRange, WebCore::Range* toRange, WebCore::EAffinity, bool stillSelecting) final;
     void textFieldDidBeginEditing(WebCore::Element*) final;
     void textFieldDidEndEditing(WebCore::Element*) final;

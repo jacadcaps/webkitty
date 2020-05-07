@@ -23,6 +23,7 @@ struct WebViewDelegate
 	std::function<void(const WTF::String&)>        _fChangedURL;
 	std::function<void(void)>                      _fDidStartLoading;
 	std::function<void(void)>                      _fDidStopLoading;
+	std::function<void(void)>                      _fHistoryChanged;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)> _fCanOpenWindow;
 	std::function<WebCore::Page*(void)> _fDoOpenWindow;
@@ -44,5 +45,6 @@ struct WebViewDelegate
 		_fCanOpenWindow = nullptr;
 		_fDoOpenWindow = nullptr;
 		_fPopup = nullptr;
+		_fHistoryChanged = nullptr;
 	};
 };

@@ -12,6 +12,12 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 06.05.2020
+	- Fixed a deep-rooted race condition inside WebCore's image decoding
+	- Minimal history support
+	- Minimal clipboard support, still no clue why I cannot mark text with a mouse :)
+	- AdBlocker/JS settings
+
 - 04.05.2020
 	- Fixed more issues on quit/window close
 	- AdBlock based on easylist
@@ -29,8 +35,7 @@ Rough changelist:
 	- Implemented support for Resources images
 
 Known issues:
-	- System becomes unusable after quitting the app, deal with it for now. I recommend rebooting
-	- IndexedDB support seems shaky at best
+	- IndexedDB support seems shaky at best, seems to be the culpti in web Skype login failure
 	- Sites like bing/google maps require GL, will not work for now, same with photopea.com
 	  or Twitter
 	- Twitter mostly works with UserAgent=WebKitty (legacy mode)

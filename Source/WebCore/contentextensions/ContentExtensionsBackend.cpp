@@ -53,7 +53,7 @@
 
 #if OS(MORPHOS)
 extern "C" { void dprintf(const char *,...); }
-bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info);
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info, WebCore::DocumentLoader& loader);
 #endif
 
 namespace WebCore {
@@ -184,7 +184,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
 	ContentRuleListResults results;
 
 #if OS(MORPHOS)
-	if (!shouldLoadResource(resourceLoadInfo))
+	if (!shouldLoadResource(resourceLoadInfo, initiatingDocumentLoader))
 	{
 		ContentRuleListResults::Result result;
 		results.summary.blockedLoad = true;

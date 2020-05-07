@@ -51,9 +51,9 @@ public:
     HistoryItemVector& entries();
 
 private:
-    explicit BackForwardClientMorphOS(WebPage *view);
+    explicit BackForwardClientMorphOS(WebPage *page);
 
-	WebPage *m_view;
+	WebPage *m_page;
     HistoryItemVector m_entries;
     HistoryItemHashSet m_entryHash;
     unsigned m_current;

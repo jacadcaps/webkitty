@@ -13,6 +13,7 @@
 
 #import "WkWebView.h"
 #import "WkHistory_private.h"
+#import "WkSettings.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -22,7 +23,7 @@ struct Library *FreetypeBase;
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x) x
+#define D(x) 
 
 namespace  {
 	static int _viewInstanceCount;
@@ -47,6 +48,7 @@ namespace  {
 	WTF::RefPtr<WebKit::WebPage>   _page;
 	id<WkWebViewScrollingDelegate> _scrollingDelegate;
 	id<WkWebViewNetworkDelegate>   _networkDelegate;
+	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
 	bool                           _drawPending;
 	bool                           _isActive;
 }
@@ -110,6 +112,16 @@ namespace  {
 - (void)setDrawPending:(bool)drawPending
 {
 	_drawPending = drawPending;
+}
+
+- (void)setBackForwardDelegate:(id<WkWebViewBackForwardListDelegate>)backForwardDelegate
+{
+	_backForwardDelegate = backForwardDelegate;
+}
+
+- (id<WkWebViewBackForwardListDelegate>)backForwardDelegate
+{
+	return _backForwardDelegate;
 }
 
 - (bool)drawPending
@@ -303,7 +315,8 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				if (networkDelegate)
 				{
-					OBString *overload = [networkDelegate userAgentForURL:[OBString stringWithUTF8String:url.utf8().data()]];
+					auto uurl = url.utf8();
+					OBString *overload = [networkDelegate userAgentForURL:[OBString stringWithUTF8String:uurl.data()]];
 
 					if (overload)
 						return WTF::String::fromUTF8([overload cString]);
@@ -317,7 +330,8 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				if (networkDelegate)
 				{
-					[networkDelegate webView:self changedTitle:[OBString stringWithUTF8String:title.utf8().data()]];
+					auto utitle = title.utf8();
+					[networkDelegate webView:self changedTitle:[OBString stringWithUTF8String:utitle.data()]];
 				}
 			};
 
@@ -327,7 +341,8 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				if (networkDelegate)
 				{
-					[networkDelegate webView:self changedDocumentURL:[OBString stringWithUTF8String:title.utf8().data()]];
+					auto utitle = title.utf8();
+					[networkDelegate webView:self changedDocumentURL:[OBString stringWithUTF8String:utitle.data()]];
 				}
 			};
 			
@@ -349,7 +364,8 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				return [networkDelegate webView:self wantsToCreateNewViewWithURL:[OBString stringWithUTF8String:url.utf8().data()] options:nil];
+				auto uurl = url.utf8();
+				return [networkDelegate webView:self wantsToCreateNewViewWithURL:[OBString stringWithUTF8String:uurl.data()] options:nil];
 			};
 			
 			webPage->_fDoOpenWindow = [self]() -> WebCore::Page * {
@@ -376,7 +392,8 @@ dprintf("---------- objc fixup ------------\n");
 				int index = 0;
 				for (const WTF::String &entry : items)
 				{
-					[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:entry.utf8().data()] shortcut:nil userData:++index]];
+					auto uentry = entry.utf8();
+					[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:uentry.data()] shortcut:nil userData:++index]];
 				}
 				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
 				if (strip)
@@ -387,6 +404,13 @@ dprintf("---------- objc fixup ------------\n");
 					return rc - 1;
 				}
 				return -1;
+			};
+			
+			webPage->_fHistoryChanged = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewBackForwardListDelegate> delegate = [privateObject backForwardDelegate];
+				[delegate webViewChangedBackForwardList:self];
 			};
 
 		} catch (...) {
@@ -562,9 +586,16 @@ dprintf("---------- objc fixup ------------\n");
 	return nil;
 }
 
-- (void)navigateTo:(OBString *)uri
+- (WkSettings *)settings
 {
+	return nil;
+}
 
+- (void)setSettings:(WkSettings *)settings
+{
+	auto webPage = [_private page];
+	webPage->setJavaScriptEnabled([settings javaScriptEnabled]);
+	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
 }
 
 - (void)dumpDebug
@@ -711,7 +742,7 @@ dprintf("---------- objc fixup ------------\n");
 
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate
 {
-
+	[_private setBackForwardDelegate:delegate];
 }
 
 @end

@@ -16,6 +16,7 @@
 #include <WebCore/CommonVM.h>
 #include <WebCore/CurlCacheManager.h>
 #include <WebCore/ProcessWarming.h>
+#include <WebCore/DocumentLoader.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -45,7 +46,7 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
-#define D(x) x
+#define D(x) 
 
 /// TODO
 /// MemoryPressureHandler !
@@ -389,7 +390,7 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
     PageCache::singleton().setMaxSize(pageCacheSize);
     CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
-	
+
     D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));
 }
 
@@ -398,13 +399,23 @@ void WebProcess::signalMainThread()
 	Signal(m_sigTask, m_sigMask);
 }
 
-bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL)
+bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
+	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
+	if (!frame)
+		return false;
+	WebPage *page = frame->page();
+	if (!page)
+		return false;
+
+	if (!page->adBlockingEnabled())
+		return true;
+
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
 	{
-	dprintf("AdFilter: reject %s\n", url);
 		return false;
 	}
+
 	return true;
 }
 
@@ -437,11 +448,13 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 	return nullptr;
 }
 
-bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info)
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info, WebCore::DocumentLoader& loader)
 {
 #if USE_ADFILTER
 	static WebKit::WebProcess &instance = WebKit::WebProcess::singleton();
-	return instance.shouldAllowRequest(info.resourceURL.string().utf8().data(), info.mainDocumentURL.string().utf8().data());
+	auto url = info.resourceURL.string().utf8();
+	auto mainurl = info.mainDocumentURL.string().utf8();
+	return instance.shouldAllowRequest(url.data(), mainurl.data(), loader);
 #else
 	return true;
 #endif

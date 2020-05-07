@@ -4,6 +4,7 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/PageCache.h>
+#include "WebPage.h"
 
 using namespace WebCore;
 using namespace WTF;
@@ -15,8 +16,8 @@ static const unsigned NoCurrentItemIndex = UINT_MAX;
 
 using namespace WebCore;
 
-BackForwardClientMorphOS::BackForwardClientMorphOS(WebPage *view)
-    : m_view(view)
+BackForwardClientMorphOS::BackForwardClientMorphOS(WebPage *page)
+    : m_page(page)
     , m_current(NoCurrentItemIndex)
     , m_capacity(DefaultCapacity)
     , m_closed(true)
@@ -52,6 +53,9 @@ void BackForwardClientMorphOS::addItem(Ref<HistoryItem>&& newItem)
     m_entryHash.add(newItem.ptr());
     m_entries.insert(m_current + 1, WTFMove(newItem));
     ++m_current;
+	
+	if (m_page->_fHistoryChanged)
+    	m_page->_fHistoryChanged();
 }
 
 void BackForwardClientMorphOS::goBack()
@@ -59,6 +63,9 @@ void BackForwardClientMorphOS::goBack()
     ASSERT(m_current > 0);
     if (m_current > 0) {
         m_current--;
+
+		if (m_page->_fHistoryChanged)
+			m_page->_fHistoryChanged();
     }
 }
 
@@ -67,6 +74,9 @@ void BackForwardClientMorphOS::goForward()
     ASSERT(m_current < m_entries.size() - 1);
     if (m_current < m_entries.size() - 1) {
         m_current++;
+
+		if (m_page->_fHistoryChanged)
+			m_page->_fHistoryChanged();
     }
 }
 
@@ -81,6 +91,8 @@ void BackForwardClientMorphOS::goToItem(HistoryItem& item)
             break;
     if (index < m_entries.size()) {
         m_current = index;
+		if (m_page->_fHistoryChanged)
+			m_page->_fHistoryChanged();
     }
 }
 
@@ -113,6 +125,8 @@ void BackForwardClientMorphOS::backListWithLimit(int limit, Vector<Ref<HistoryIt
         for (; first < m_current; ++first)
             list.append(m_entries[first].get());
     }
+	if (m_page->_fHistoryChanged)
+		m_page->_fHistoryChanged();
 }
 
 void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<HistoryItem>>& list)
@@ -120,7 +134,11 @@ void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<Histor
     ASSERT(limit > -1);
     list.clear();
     if (!m_entries.size())
+    {
+		if (m_page->_fHistoryChanged)
+			m_page->_fHistoryChanged();
         return;
+	}
 	
     unsigned lastEntry = m_entries.size() - 1;
     if (m_current < lastEntry) {
@@ -129,6 +147,8 @@ void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<Histor
         for (; limit <= last; ++limit)
             list.append(m_entries[limit].get());
     }
+	if (m_page->_fHistoryChanged)
+		m_page->_fHistoryChanged();
 }
 
 int BackForwardClientMorphOS::capacity()
@@ -150,6 +170,8 @@ void BackForwardClientMorphOS::setCapacity(int size)
         m_current = m_entries.size() - 1;
     }
     m_capacity = size;
+	if (m_page->_fHistoryChanged)
+		m_page->_fHistoryChanged();
 }
 
 bool BackForwardClientMorphOS::enabled()
@@ -164,6 +186,8 @@ void BackForwardClientMorphOS::setEnabled(bool enabled)
         int capacity = m_capacity;
         setCapacity(0);
         setCapacity(capacity);
+		if (m_page->_fHistoryChanged)
+			m_page->_fHistoryChanged();
     }
 }
 
@@ -227,6 +251,9 @@ void BackForwardClientMorphOS::removeItem(HistoryItem* item)
             break;
         }
     }
+
+	if (m_page->_fHistoryChanged)
+		m_page->_fHistoryChanged();
 }
 
 bool BackForwardClientMorphOS::containsItem(HistoryItem* entry)

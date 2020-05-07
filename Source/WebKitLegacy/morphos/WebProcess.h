@@ -6,6 +6,10 @@
 #include "CacheModel.h"
 #include "ABPFilterParser/ABPFilterParser.h"
 
+namespace WebCore {
+	class DocumentLoader;
+};
+
 namespace WebKit {
 
 class WebFrame;
@@ -48,7 +52,7 @@ public:
 	void handleSignals(const uint32_t sigmask);
 	void signalMainThread();
 	
-	bool shouldAllowRequest(const char *url, const char *mainPageURL);
+	bool shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader);
 	
 	void setLastPageClosedCallback(std::function<void()>&&func) { m_fLastPageClosed = func; }
 

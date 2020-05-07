@@ -39,6 +39,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkWebView.mm
     morphos/WkNetworkRequestMutable.mm
     morphos/WkHistory.mm
+    morphos/WkSettings.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -68,6 +69,7 @@ list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES
 set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
+set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

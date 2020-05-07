@@ -184,7 +184,7 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
-#define D(x) x
+#define D(x) 
 
 using namespace std;
 using namespace WebCore;
@@ -492,8 +492,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	storageProvider->setPage(*m_page);
 
 	WebCore::Settings& settings = m_page->settings();
-	settings.setJavaEnabled(true);
-	settings.setJavaEnabledForLocalFiles(true);
     settings.setAllowDisplayOfInsecureContent(true);
     settings.setAllowRunningOfInsecureContent(false);
     settings.setLoadsImagesAutomatically(true);
@@ -600,41 +598,28 @@ void WebPage::stop()
 
 bool WebPage::goBack()
 {
-	if (m_page)
-		return m_page->backForward().goBack();
-	return false;
+	return m_page->backForward().goBack();
 }
 
 bool WebPage::goForward()
 {
-	if (m_page)
-		return m_page->backForward().goForward();
-	return false;
+	return m_page->backForward().goForward();
 }
 
 bool WebPage::canGoBack()
 {
-	if (m_page)
-		return m_page->backForward().canGoBackOrForward(-1);
-	return false;
+	return m_page->backForward().canGoBackOrForward(-1);
 }
 
 bool WebPage::canGoForward()
 {
-	if (m_page)
-		return m_page->backForward().canGoBackOrForward(1);
-	return false;
+	return m_page->backForward().canGoBackOrForward(1);
 }
 
 WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
 {
-	if (m_page)
-	{
-		Ref<BackForwardClientMorphOS> client(static_cast<BackForwardClientMorphOS&>(m_page->backForward().client()));
-		return client;
-	}
-	
-	return nullptr;
+	Ref<BackForwardClientMorphOS> client(static_cast<BackForwardClientMorphOS&>(m_page->backForward().client()));
+	return client;
 }
 
 void WebPage::willBeDisposed()
@@ -667,20 +652,36 @@ PAL::SessionID WebPage::sessionID() const
 	return m_page->sessionID();
 }
 
+bool WebPage::javaScriptEnabled() const
+{
+	return m_page->settings().isScriptEnabled();
+}
+
+void WebPage::setJavaScriptEnabled(bool enabled)
+{
+	return m_page->settings().setScriptEnabled(enabled);
+}
+
+bool WebPage::adBlockingEnabled() const
+{
+	return m_adBlocking;
+}
+
+void WebPage::setAdBlockingEnabled(bool enabled)
+{
+	m_adBlocking = enabled;
+}
+
 void WebPage::goActive()
 {
-	if (!m_page)
-		return;
-
 	corePage()->userInputBridge().focusSetActive(true);
 	corePage()->userInputBridge().focusSetFocused(true);
+	m_justWentActive = true;
 }
 
 void WebPage::goInactive()
 {
-	if (!m_page)
-		return;
-
+	m_justWentActive = false;
 	corePage()->userInputBridge().focusSetFocused(false);
 }
 
@@ -713,6 +714,7 @@ void WebPage::removeResourceRequest(unsigned long identifier)
   //  if (m_trackedNetworkResourceRequestIdentifiers.isEmpty())
   //      send(Messages::WebPageProxy::SetNetworkRequestsInProgress(false));
 }
+
 void WebPage::didStartPageTransition()
 {
 }
@@ -1125,7 +1127,7 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
-static const unsigned CtrlKey = 1 << 0;
+static const unsigned CommandKey = 1 << 0;
 static const unsigned AltKey = 1 << 1;
 static const unsigned ShiftKey = 1 << 2;
 
@@ -1145,12 +1147,12 @@ struct KeyPressEntry {
 static const KeyDownEntry keyDownEntries[] = {
     { VK_LEFT,   0,                  "MoveLeft"                                    },
     { VK_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
-    { VK_LEFT,   CtrlKey,            "MoveWordLeft"                                },
-    { VK_LEFT,   CtrlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
+    { VK_LEFT,   CommandKey,            "MoveWordLeft"                                },
+    { VK_LEFT,   CommandKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
     { VK_RIGHT,  0,                  "MoveRight"                                   },
     { VK_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
-    { VK_RIGHT,  CtrlKey,            "MoveWordRight"                               },
-    { VK_RIGHT,  CtrlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
+    { VK_RIGHT,  CommandKey,            "MoveWordRight"                               },
+    { VK_RIGHT,  CommandKey | ShiftKey, "MoveWordRightAndModifySelection"             },
     { VK_UP,     0,                  "MoveUp"                                      },
     { VK_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
     { VK_PRIOR,  ShiftKey,           "MovePageUpAndModifySelection"                },
@@ -1161,51 +1163,51 @@ static const KeyDownEntry keyDownEntries[] = {
     { VK_NEXT,   0,                  "MovePageDown"                                },
     { VK_HOME,   0,                  "MoveToBeginningOfLine"                       },
     { VK_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
-    { VK_HOME,   CtrlKey,            "MoveToBeginningOfDocument"                   },
-    { VK_HOME,   CtrlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
+    { VK_HOME,   CommandKey,            "MoveToBeginningOfDocument"                   },
+    { VK_HOME,   CommandKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
 
     { VK_END,    0,                  "MoveToEndOfLine"                             },
     { VK_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
-    { VK_END,    CtrlKey,            "MoveToEndOfDocument"                         },
-    { VK_END,    CtrlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
+    { VK_END,    CommandKey,            "MoveToEndOfDocument"                         },
+    { VK_END,    CommandKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
 
     { VK_BACK,   0,                  "DeleteBackward"                              },
     { VK_BACK,   ShiftKey,           "DeleteBackward"                              },
     { VK_DELETE, 0,                  "DeleteForward"                               },
-    { VK_BACK,   CtrlKey,            "DeleteWordBackward"                          },
-    { VK_DELETE, CtrlKey,            "DeleteWordForward"                           },
+    { VK_BACK,   CommandKey,            "DeleteWordBackward"                          },
+    { VK_DELETE, CommandKey,            "DeleteWordForward"                           },
 	
-    { 'B',       CtrlKey,            "ToggleBold"                                  },
-    { 'I',       CtrlKey,            "ToggleItalic"                                },
+    { 'B',       CommandKey,            "ToggleBold"                                  },
+    { 'I',       CommandKey,            "ToggleItalic"                                },
 
     { VK_ESCAPE, 0,                  "Cancel"                                      },
-    { VK_OEM_PERIOD, CtrlKey,        "Cancel"                                      },
+    { VK_OEM_PERIOD, CommandKey,        "Cancel"                                      },
     { VK_TAB,    0,                  "InsertTab"                                   },
     { VK_TAB,    ShiftKey,           "InsertBacktab"                               },
     { VK_RETURN, 0,                  "InsertNewline"                               },
-    { VK_RETURN, CtrlKey,            "InsertNewline"                               },
+    { VK_RETURN, CommandKey,            "InsertNewline"                               },
     { VK_RETURN, AltKey,             "InsertNewline"                               },
     { VK_RETURN, ShiftKey,           "InsertNewline"                               },
     { VK_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
 
     // It's not quite clear whether clipboard shortcuts and Undo/Redo should be handled
     // in the application or in WebKit. We chose WebKit.
-    { 'C',       CtrlKey,            "Copy"                                        },
-    { 'V',       CtrlKey,            "Paste"                                       },
-    { 'X',       CtrlKey,            "Cut"                                         },
-    { 'A',       CtrlKey,            "SelectAll"                                   },
-    { VK_INSERT, CtrlKey,            "Copy"                                        },
+    { 'C',       CommandKey,            "Copy"                                        },
+    { 'V',       CommandKey,            "Paste"                                       },
+    { 'X',       CommandKey,            "Cut"                                         },
+    { 'A',       CommandKey,            "SelectAll"                                   },
+    { VK_INSERT, CommandKey,            "Copy"                                        },
     { VK_DELETE, ShiftKey,           "Cut"                                         },
     { VK_INSERT, ShiftKey,           "Paste"                                       },
-    { 'Z',       CtrlKey,            "Undo"                                        },
-    { 'Z',       CtrlKey | ShiftKey, "Redo"                                        },
+    { 'Z',       CommandKey,            "Undo"                                        },
+    { 'Z',       CommandKey | ShiftKey, "Redo"                                        },
 };
 
 static const KeyPressEntry keyPressEntries[] = {
     { '\t',   0,                  "InsertTab"                                   },
     { '\t',   ShiftKey,           "InsertBacktab"                               },
     { '\r',   0,                  "InsertNewline"                               },
-    { '\r',   CtrlKey,            "InsertNewline"                               },
+    { '\r',   CommandKey,            "InsertNewline"                               },
     { '\r',   AltKey,             "InsertNewline"                               },
     { '\r',   ShiftKey,           "InsertNewline"                               },
     { '\r',   AltKey | ShiftKey,  "InsertNewline"                               },
@@ -1234,8 +1236,8 @@ static const char* interpretKeyEvent(const KeyboardEvent* evt)
         modifiers |= ShiftKey;
     if (evt->altKey())
         modifiers |= AltKey;
-    if (evt->ctrlKey())
-        modifiers |= CtrlKey;
+    if (evt->metaKey())
+        modifiers |= CommandKey;
 
     if (evt->type() == eventNames().keydownEvent) {
         int mapKey = modifiers << 16 | evt->keyCode();
@@ -1395,14 +1397,25 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case RAWKEY_TAB:
 				if (!up)
 				{
-					bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
-
-					if ((!rc || !m_focusedElement) && _fActivateNext && _fActivatePrevious)
+					if (m_justWentActive)
 					{
-						if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
-							_fActivatePrevious();
-						else
-							_fActivateNext();
+						Frame& frame = m_page->focusController().focusedOrMainFrame();
+						frame.document()->setFocusedElement(0);
+						m_page->focusController().setInitialFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ?
+							FocusDirectionBackward : FocusDirectionForward, nullptr);
+						m_justWentActive = false;
+					}
+					else
+					{
+						bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
+
+						if ((!rc || !m_focusedElement) && _fActivateNext && _fActivatePrevious)
+						{
+							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+								_fActivatePrevious();
+							else
+								_fActivateNext();
+						}
 					}
 				}
 				return true;

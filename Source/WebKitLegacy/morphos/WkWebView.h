@@ -4,6 +4,7 @@
 @class WkWebViewPrivate;
 @class WkMutableNetworkRequest;
 @class WkBackForwardList;
+@class WkSettings;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -66,6 +67,9 @@
 
 - (OBString *)title;
 - (OBURL *)URL;
+
+- (WkSettings *)settings;
+- (void)setSettings:(WkSettings *)settings;
 
 - (void)runJavaScript:(OBString *)javascript;
 - (OBString *)evaluateJavaScript:(OBString *)javascript;

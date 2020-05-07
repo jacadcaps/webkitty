@@ -61,6 +61,12 @@ public:
 
 	void willBeDisposed();
 
+	bool javaScriptEnabled() const;
+	void setJavaScriptEnabled(bool enabled);
+	
+	bool adBlockingEnabled() const;
+	void setAdBlockingEnabled(bool enabled);
+
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
@@ -146,6 +152,8 @@ private:
     bool m_trackMouse { false };
     bool m_ignoreScroll { false };
     bool m_orphaned { false };
+    bool m_adBlocking { true };
+    bool m_justWentActive { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };

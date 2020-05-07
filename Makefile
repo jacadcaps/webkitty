@@ -73,7 +73,6 @@ configure: morphos.cmake link.sh CMakeLists.txt
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DUSE_SYSTEM_MALLOC=YES -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 \
-		-DENABLE_APNG=1 \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
@@ -143,11 +142,13 @@ minirelease:
 	rm -rf WebKitty webkitty.tar webkitty.tar.xz webkitty.lha
 	mkdir -p WebKitty/MOSSYS/Data/ICU
 	cp cross-build/Tools/morphos/MiniBrowser WebKitty/
-	cp MiniBrowser.info WebKitty/
 	cp -a Source/WebCore/Resources WebKitty/Resources
 	cp -a $(ROOTPATH)/lib/libicu/instdir/icu/54.2/icudt54b WebKitty/MOSSYS/Data/ICU/icudt54b
 #	( cd WebKitty/Resources && wget https://easylist.to/easylist/easylist.txt )
 	cp easylist/easylist.dat WebKitty/Resources
+	mkdir WebKitty/MiniResources
+	cp Tools/morphos/MiniResources/*.png WebKitty/MiniResources
+	cp Tools/morphos/MiniResources/MiniBrowser.info WebKitty/
 	cp MUSTREAD.txt WebKitty/
 	lha ao5 webkitty.lha WebKitty
 	rm -rf WebKitty
