@@ -292,6 +292,7 @@ static int _windowID = 1;
 
 		[_address notify:@selector(acknowledge) performSelector:@selector(navigate) withTarget:self];
 		[_address setWeight:300];
+		[_address setMaxLen:4000];
 		
 		[_view setNetworkDelegate:self];
 		[_view setBackForwardListDelegate:self];
@@ -326,8 +327,7 @@ static int _windowID = 1;
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
 		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
 		ADDBUTTON(@"Teleg", @"https://web.telegram.org");
-//		ADDBUTTON(@"Input", @"https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select");
-//		ADDBUTTON(@"APNG", @"https://davidmz.github.io/apng-canvas/");
+		ADDBUTTON(@"Gif", @"https://media.giphy.com/media/dC4FTacOCkOKRYIRqw/source.gif");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 

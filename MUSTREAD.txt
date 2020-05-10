@@ -12,6 +12,9 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 09.05.2020
+	- Fixed Gif/APNG animations
+
 - 06.05.2020
 	- Fixed a deep-rooted race condition inside WebCore's image decoding
 	- Minimal history support
