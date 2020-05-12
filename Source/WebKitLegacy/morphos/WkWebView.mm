@@ -6,6 +6,7 @@
 #import "WebPage.h"
 #import "WebProcess.h"
 #import "WebViewDelegate.h"
+#import <WebCore/ContextMenuItem.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -704,6 +705,55 @@ dprintf("---------- objc fixup ------------\n");
 	}
 	
 	return 0;
+}
+
+static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::ContextMenuItem> &items)
+{
+	for (const WebCore::ContextMenuItem& item : items)
+	{
+		auto title = item.title().utf8();
+
+		switch (item.type())
+		{
+		case WebCore::ContextMenuItemType::ActionType:
+			[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:ULONG(item.action())]];
+			break;
+		case WebCore::ContextMenuItemType::CheckableActionType:
+			[menu addObject:[MUIMenuitem checkmarkItemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:int(item.action()) checked:item.checked()]];
+			break;
+		case WebCore::ContextMenuItemType::SeparatorType:
+			[menu addObject:[MUIMenuitem barItem]];
+			break;
+		case WebCore::ContextMenuItemType::SubmenuType:
+			{
+				MUIMenu *submenu = [MUIMenu menuWithTitle:[OBString stringWithUTF8String:title.data()] objects:nil, nil];
+				[menu addObject:submenu];
+				populateContextMenu(submenu, item.subMenuItems());
+			}
+			break;
+		}
+	}
+}
+
+- (IPTR)contextMenuAdd:(MUIMenustrip *)menustrip mx:(LONG)mx my:(LONG)my mxp:(LONG *)mxp myp:(LONG *)myp
+{
+	auto webPage = [_private page];
+	auto items = webPage->buildContextMenu(mx - [self left], my - [self top]);
+
+	if (0 == items.size())
+		return 0;
+
+	MUIMenu *menu = [MUIMenu menuWithTitle:[[MUIApplication currentApplication] title] objects:nil, nil];
+	[menustrip addObject:menu];
+	populateContextMenu(menu, items);
+
+	return 0;
+}
+
+- (void)contextMenuChoice:(MUIMenuitem *)item
+{
+	auto webPage = [_private page];
+	webPage->onContextMenuItemSelected([item userData], [[item title] cString]);
 }
 
 - (void)lateDraw

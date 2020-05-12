@@ -1,6 +1,7 @@
 #pragma once
 #include <wtf/RefPtr.h>
 #include <wtf/HashSet.h>
+#include <wtf/Vector.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/Color.h>
 #include "WebViewDelegate.h"
@@ -14,6 +15,7 @@ namespace WebCore {
 	class IntRect;
 	class KeyboardEvent;
 	class ResourceError;
+	class ContextMenuItem;
 };
 
 struct RastPort;
@@ -72,6 +74,9 @@ public:
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
 	bool handleMUIKey(int muikey);
+
+	const WTF::Vector<WebCore::ContextMenuItem>& buildContextMenu(const int x, const int y);
+	void onContextMenuItemSelected(ULONG action, const char *title);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
     void removeResourceRequest(unsigned long);
@@ -142,9 +147,10 @@ private:
     WebCore::PageIdentifier m_pageID;
     WTF::HashSet<unsigned long> m_trackedNetworkResourceRequestIdentifiers;
     uint64_t m_pendingNavigationID { 0 };
+	int  m_clickCount { 0 };
+	uint32_t m_lastQualifier { 0 };
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
-	int  m_clickCount { 0 };
     bool m_mainFrameProgressCompleted { false };
     bool m_alwaysShowsHorizontalScroller { false };
     bool m_alwaysShowsVerticalScroller { false };

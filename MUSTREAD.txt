@@ -12,6 +12,11 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 12.09.2020
+	- Implemented standard WebCore context menus (no, Download is not supported)
+	- Clipboard support mostly works now, including copyimg images (asynchronously!) and text
+	  selection
+
 - 09.05.2020
 	- Fixed Gif/APNG animations
 

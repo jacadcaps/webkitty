@@ -93,6 +93,7 @@
 #include <WebCore/EventNames.h>
 #include <WebCore/WindowsKeyboardCodes.h>
 #include <WebCore/RenderLayerCompositor.h>
+#include <WebCore/ContextMenuController.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -702,8 +703,9 @@ void WebPage::addResourceRequest(unsigned long identifier, const WebCore::Resour
     ASSERT(!m_trackedNetworkResourceRequestIdentifiers.contains(identifier));
     bool wasEmpty = m_trackedNetworkResourceRequestIdentifiers.isEmpty();
     m_trackedNetworkResourceRequestIdentifiers.add(identifier);
-//    if (wasEmpty)
-//        send(Messages::WebPageProxy::SetNetworkRequestsInProgress(true));
+
+    if (wasEmpty && _fDidStartLoading)
+    	_fDidStartLoading();
 }
 
 void WebPage::removeResourceRequest(unsigned long identifier)
@@ -711,8 +713,8 @@ void WebPage::removeResourceRequest(unsigned long identifier)
     if (!m_trackedNetworkResourceRequestIdentifiers.remove(identifier))
         return;
 
-  //  if (m_trackedNetworkResourceRequestIdentifiers.isEmpty())
-  //      send(Messages::WebPageProxy::SetNetworkRequestsInProgress(false));
+	if (m_trackedNetworkResourceRequestIdentifiers.isEmpty() && _fDidStopLoading)
+		_fDidStopLoading();
 }
 
 void WebPage::didStartPageTransition()
@@ -767,7 +769,7 @@ void WebPage::didFinishDocumentLoad(WebFrame& frame)
     if (!frame.isMainFrame())
         return;
 	
-//	corePage()->resumeActiveDOMObjectsAndAnimations();
+	corePage()->resumeActiveDOMObjectsAndAnimations();
 
 #if ENABLE(VIEWPORT_RESIZING) && 0
     scheduleShrinkToFitContent();
@@ -1092,7 +1094,7 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 
 static inline WebCore::MouseButton imsgToButton(IntuiMessage *imsg)
 {
-	if (IDCMP_MOUSEBUTTONS == imsg->Class)
+	if (IDCMP_MOUSEBUTTONS == imsg->Class || IDCMP_MOUSEMOVE == imsg->Class)
 	{
 		switch (imsg->Code)
 		{
@@ -1102,6 +1104,14 @@ static inline WebCore::MouseButton imsgToButton(IntuiMessage *imsg)
 		case MENUDOWN: return WebCore::MouseButton::RightButton;
 		case MIDDLEUP:
 		case MIDDLEDOWN: return WebCore::MouseButton::MiddleButton;
+		default:
+			if (imsg->Qualifier & IEQUALIFIER_LEFTBUTTON)
+				return WebCore::MouseButton::LeftButton;
+			if (imsg->Qualifier & IEQUALIFIER_RBUTTON)
+				return WebCore::MouseButton::RightButton;
+			if (imsg->Qualifier & IEQUALIFIER_MIDBUTTON)
+				return WebCore::MouseButton::MiddleButton;
+			break;
 		}
 	}
 	
@@ -1310,6 +1320,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				0.0,
 				WebCore::SyntheticClickType::NoTap);
 			
+			m_lastQualifier = imsg->Qualifier;
+			
 			switch (imsg->Class)
 			{
 			case IDCMP_MOUSEBUTTONS:
@@ -1323,22 +1335,18 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						if (_fGoActive)
 							_fGoActive();
 
-						bridge.handleMousePressEvent(pme);
+						bool eat = bridge.handleMousePressEvent(pme);
 						m_trackMouse = true;
-	//					rc = m_page->mainFrame().eventHandler().handleMousePressEvent(pme);
-	//					printf("press at %d %d -> %d\n", mouseX, mouseY, rc);
-						return true;
+						return eat;
 					}
 					break;
 				default:
-					if (m_trackMouse)
+					if (mouseInside || m_trackMouse)
 					{
-						bridge.handleMouseReleaseEvent(pme);
+						bool eat = bridge.handleMouseReleaseEvent(pme);
 						m_trackMouse = false;
-						return true;
+						return eat;
 					}
-//					rc = m_page->mainFrame().eventHandler().handleMouseReleaseEvent(pme);
-//					printf("release at %d %d -> %d\n", mouseX, mouseY, rc);
 					break;
 				}
 				break;
@@ -1348,12 +1356,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					bridge.handleMouseMoveEvent(pme);
 					return m_trackMouse;
-//				WebCore::HitTestResult ht;
-//				rc = m_page->mainFrame().eventHandler().handleMouseMoveEvent(pme);
-//				auto p = ht.pointInMainFrame();
-//				printf("%p %p %d %d\n", ht.innerNode(), ht.URLElement(), int(p.x()), int(p.y()));
-//				}
-//				printf("move at %d %d -> %d\n", mouseX, mouseY, rc);
 				}
 				break;
 			}
@@ -1368,6 +1370,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			BOOL up = (imsg->Code & IECODE_UP_PREFIX) == IECODE_UP_PREFIX;
 
 // dprintf("rawkey %lx up %d\n", imsg->Code& ~IECODE_UP_PREFIX, up);
+
+			m_lastQualifier = imsg->Qualifier;
 
 			switch (code)
 			{
@@ -1422,24 +1426,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			
 			default:
 				bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
-#if 0
-				DoMethod(oimsg, OM_GET, IMSGA_UCS4, &key);
-				if (key >= 32)
-				{
-					if (imsg->Code & IECODE_UP_PREFIX)
-					{
-// todo: proper conversion goes here
-						UChar ch[2] = { UChar(key), 0 };
-						WTF::String s(ch, 1);
-//						dprintf("typed char '%s' (%ld)\n", s.utf8().data(), key);
-						auto ke = WebCore::PlatformKeyboardEvent(WebCore::PlatformEvent::Char,s,s,s,s,s,
-							 0, imsg->Qualifier & IEQUALIFIER_REPEAT, false, false, WTF::OptionSet<WebCore::PlatformEvent::Modifier>(), WTF::WallTime::fromRawSeconds(imsg->Seconds));
-					
-						bridge.handleKeyEvent(ke);
-					}
-					//m_page->mainFrame().eventHandler().keyEvent(ke);
-				}
-#endif
 				return true;
 			}
 		}
@@ -1453,7 +1439,6 @@ bool WebPage::handleMUIKey(int muikey)
 {
 	if (!m_page)
 		return false;
-dprintf("handlekey %lx\n", muikey);
 
 	auto& focusController = m_page->focusController();
 	switch (muikey)
@@ -1471,6 +1456,58 @@ dprintf("handlekey %lx\n", muikey);
 	}
 	
 	return false;
+}
+
+const WTF::Vector<WebCore::ContextMenuItem>& WebPage::buildContextMenu(const int x, const int y)
+{
+	static WTF::Vector<WebCore::ContextMenuItem> _empty;
+	WebCore::PlatformMouseEvent pme(
+		WebCore::IntPoint(x, y),
+		WebCore::IntPoint(x, y),
+		WebCore::MouseButton::RightButton,
+		WebCore::PlatformEvent::Type::MousePressed,
+		m_clickCount,
+		(m_lastQualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+		(m_lastQualifier & IEQUALIFIER_CONTROL) != 0,
+		(m_lastQualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+		(m_lastQualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0,
+		WTF::WallTime::now(),
+		0.0,
+		WebCore::SyntheticClickType::NoTap);
+
+
+    auto* coreFrame = m_mainFrame->coreFrame();
+	WebCore::Page *page = corePage();
+	if (!page)
+		return _empty;
+
+	// kill any previous context menu
+    page->contextMenuController().clearContextMenu();
+	bool handledEvent = coreFrame->eventHandler().sendContextMenuEvent(pme);
+
+	if (!handledEvent)
+		return _empty;
+
+	// Re-get page, since it might have gone away during event handling.
+	page = coreFrame->page();
+	if (!page)
+		return _empty;
+
+	auto* contextMenu = page->contextMenuController().contextMenu();
+	if (!contextMenu)
+		return _empty;
+
+	return contextMenu->items();
+}
+
+void WebPage::onContextMenuItemSelected(ULONG action, const char *title)
+{
+	WebCore::ContextMenuAction cmaction = WebCore::ContextMenuAction(action);
+	WTF::String wtftitle = WTF::String::fromUTF8(title);
+	WebCore::Page *page = corePage();
+	if (!page)
+		return;
+	page->contextMenuController().contextMenuItemSelected(cmaction, wtftitle);
 }
 
 }
