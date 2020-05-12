@@ -50,6 +50,11 @@ namespace WebCore {
 class SelectionData;
 }
 typedef WebCore::SelectionData* DragDataRef;
+#elif OS(MORPHOS)
+namespace WebCore {
+class SelectionData;
+}
+typedef WebCore::SelectionData* DragDataRef;
 #else
 typedef void* DragDataRef;
 #endif

@@ -43,6 +43,8 @@ list(APPEND WebCore_SOURCES
     platform/morphos/ScrollbarThemeMorphOS.cpp
     platform/morphos/EventLoopMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp
+    platform/morphos/DragDataMorphOS.cpp
+    platform/morphos/SelectionData.cpp
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
     platform/graphics/morphos/GraphicsLayerMorphOS.cpp
@@ -53,4 +55,5 @@ list(APPEND WebCore_SOURCES
     platform/text/LocaleICU.cpp
     platform/text/hyphen/HyphenationLibHyphen.cpp
     rendering/RenderThemeMorphOS.cpp
+    page/morphos/DragControllerMorphOS.cpp
 )

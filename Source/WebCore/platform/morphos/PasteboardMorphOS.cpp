@@ -25,12 +25,17 @@
 
 #include "config.h"
 #include "Pasteboard.h"
+#include "DragData.h"
+#include "SelectionData.h"
 
 #include "NotImplemented.h"
 #include "PasteboardStrategy.h"
 
+#include <cairo.h>
+
 #include <proto/exec.h>
 #include <proto/clipboard.h>
+#include <proto/intuition.h>
 
 #include <libraries/charsets.h>
 #include <libraries/clipboard.h>
@@ -51,9 +56,23 @@ std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
     return std::make_unique<Pasteboard>();
 }
 
-Pasteboard::Pasteboard()
+Pasteboard::Pasteboard(SelectionData& selectionData)
+    : m_selectionData(selectionData)
 {
 }
+
+Pasteboard::Pasteboard(const String& name)
+    : m_selectionData(SelectionData::create())
+    , m_name(name)
+{
+}
+
+Pasteboard::Pasteboard()
+    : m_selectionData(SelectionData::create())
+{
+}
+
+Pasteboard::~Pasteboard() = default;
 
 bool Pasteboard::hasData()
 {
@@ -111,11 +130,24 @@ void Pasteboard::writeString(const String& type, const String& text)
 	
 	if (ctype == ClipboardDataTypeText || ctype == ClipboardDataTypeUnknown)
 	{
-		if ((ClipboardBase = OpenLibrary("clipboard.library", 51)))
+		struct Library *ClipboardBase;
+		if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
         {
         	auto utext = text.utf8();
 			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
 			WriteClipTextA(utext.data(), tags);
+			CloseLibrary(ClipboardBase);
+		}
+	}
+	else if (ctype == ClipboardDataTypeMarkup)
+	{
+		struct Library *ClipboardBase;
+		if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
+        {
+        	auto utext = text.utf8();
+			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, {CLP_ClipUnit, 1}, { TAG_DONE }};
+			WriteClipTextA(utext.data(), tags);
+			CloseLibrary(ClipboardBase);
 		}
 	}
 }
@@ -132,7 +164,8 @@ void Pasteboard::read(PasteboardPlainText& text)
 {
 	const char *clipcontents;
 
-	if ((ClipboardBase = OpenLibrary("clipboard.library", 51)))
+	struct Library *ClipboardBase;
+	if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
 	{
 		struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
 		clipcontents = (const char *)ReadClipTextA(tags);
@@ -158,7 +191,7 @@ void Pasteboard::read(PasteboardFileReader&)
 
 void Pasteboard::write(const PasteboardURL& url)
 {
-     notImplemented();
+     writePlainText(url.url.string(), CanSmartReplace);
 }
 
 void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
@@ -166,15 +199,75 @@ void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
     notImplemented();
 }
 
-void Pasteboard::write(const PasteboardImage&)
+void Pasteboard::write(const PasteboardImage& image)
 {
-     notImplemented();
+	RefPtr<cairo_surface_t> surface = image.image->nativeImageForCurrentFrame();
+	if (surface.get())
+	{
+		// Create a copy of the data since it'll take time to write it
+		unsigned char *data;
+		int width, height, stride;
+
+		cairo_surface_flush (surface.get());
+
+		data = cairo_image_surface_get_data (surface.get());
+		width = cairo_image_surface_get_width (surface.get());
+		height = cairo_image_surface_get_height (surface.get());
+		stride = cairo_image_surface_get_stride (surface.get());
+		
+		// should cairo use a different stride, we'd be in trouble with this routine
+		if (stride > 0 && height > 0 && data && (stride == width * 4))
+		{
+			void *copiedData = fastMalloc(stride * height);
+			
+			memcpy(copiedData, data, stride * height);
+			
+			if (copiedData)
+			{
+				Thread::create("Clipboard Writer", [copiedData, width, height] {
+					struct Library *ClipboardBase;
+					if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
+					{
+						struct TagItem tags[] = {
+							{CLP_Width, ULONG(width)}, {CLP_Height, ULONG(height)},
+							{CLP_Data, (IPTR)copiedData}, {CLP_Format, CLIPPIXFMT_ARGB32 },
+							{ TAG_DONE }
+						};
+						
+						WriteClipImageA(tags);
+						CloseLibrary(ClipboardBase);
+					}
+					fastFree(copiedData);
+				});
+			}
+			else
+			{
+				DisplayBeep(0);
+			}
+		}
+		else
+		{
+			DisplayBeep(0);
+		}
+	}
+	else
+	{
+		DisplayBeep(0);
+	}
 }
 
 void Pasteboard::write(const PasteboardWebContent& content)
 {
-//    platformStrategies()->pasteboardStrategy()->writeToPasteboard(content);
-     notImplemented();
+    if (!content.text.isEmpty())
+    {
+	     writePlainText(content.text, CanSmartReplace);
+	}
+	
+	if (!content.markup.isEmpty())
+	{
+		// will go into Unit1
+		writeString("text/html", content.markup);
+	}
 }
 
 Pasteboard::FileContentState Pasteboard::fileContentState()
@@ -208,5 +301,23 @@ void Pasteboard::write(const Color&)
 {
      notImplemented();
 }
+
+#if ENABLE(DRAG_SUPPORT)
+void Pasteboard::setDragImage(DragImage, const IntPoint&)
+{
+}
+
+std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop()
+{
+    return std::make_unique<Pasteboard>(SelectionData::create());
+}
+
+std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(const DragData& dragData)
+{
+    ASSERT(dragData.platformData());
+    return std::make_unique<Pasteboard>(*dragData.platformData());
+}
+
+#endif
 
 } // namespace WebCore

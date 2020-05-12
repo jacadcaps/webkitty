@@ -95,6 +95,10 @@ struct PasteboardWebContent {
     String text;
     String markup;
 #endif
+#if OS(MORPHOS)
+    String text;
+    String markup;
+#endif
 };
 
 struct PasteboardURL {
@@ -169,7 +173,7 @@ public:
     Pasteboard();
     virtual ~Pasteboard();
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(MORPHOS)
     explicit Pasteboard(const String& name);
     explicit Pasteboard(SelectionData&);
 #endif
@@ -309,7 +313,7 @@ private:
     RefPtr<SharedBuffer> readBufferForTypeWithSecurityCheck(const String&);
 #endif
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(MORPHOS)
     void writeToClipboard();
     void readFromClipboard();
     Ref<SelectionData> m_selectionData;
@@ -345,7 +349,7 @@ extern const char* const WebURLNamePboardType;
 extern const char* const WebURLsWithTitlesPboardType;
 #endif
 
-#if !PLATFORM(GTK)
+#if !PLATFORM(GTK) && !OS(MORPHOS)
 
 inline Pasteboard::~Pasteboard()
 {

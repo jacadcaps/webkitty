@@ -29,9 +29,21 @@
 #include "DocumentFragment.h"
 #include "Frame.h"
 #include "NotImplemented.h"
+#include "HTMLEmbedElement.h"
+#include "HTMLImageElement.h"
+#include "HTMLInputElement.h"
+#include "HTMLNames.h"
+#include "HTMLObjectElement.h"
+#include "SVGElement.h"
+#include "SVGImageElement.h"
 #include "Pasteboard.h"
 #include "Settings.h"
+#include "XLinkNames.h"
+#include "CachedImage.h"
+#include "RenderImage.h"
 #include "markup.h"
+#include "HTMLParserIdioms.h"
+#include "platform/morphos/SelectionData.h"
 
 namespace WebCore {
 
@@ -63,18 +75,49 @@ static RefPtr<DocumentFragment> createFragmentFromPasteboardData(Pasteboard& pas
 
 void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
 {
-#if 0
     PasteboardWebContent pasteboardContent;
     pasteboardContent.text = selectedTextForDataTransfer();
     pasteboardContent.markup = serializePreservingVisualAppearance(m_frame.selection().selection(), ResolveURLs::YesExcludingLocalFileURLsForPrivacy,
         m_frame.settings().selectionAcrossShadowBoundariesEnabled() ? SerializeComposedTree::Yes : SerializeComposedTree::No);
     pasteboard.write(pasteboardContent);
-#endif
 }
 
-void Editor::writeImageToPasteboard(Pasteboard&, Element&, const URL&, const String&)
+static const AtomString& elementURL(Element& element)
 {
-    notImplemented();
+    if (is<HTMLImageElement>(element) || is<HTMLInputElement>(element))
+        return element.attributeWithoutSynchronization(HTMLNames::srcAttr);
+    if (is<SVGImageElement>(element))
+        return element.attributeWithoutSynchronization(XLinkNames::hrefAttr);
+    if (is<HTMLEmbedElement>(element) || is<HTMLObjectElement>(element))
+        return element.imageSourceURL();
+    return nullAtom();
+}
+
+static bool getImageForElement(Element& element, RefPtr<Image>& image)
+{
+    auto* renderer = element.renderer();
+    if (!is<RenderImage>(renderer))
+        return false;
+
+    CachedImage* cachedImage = downcast<RenderImage>(*renderer).cachedImage();
+    if (!cachedImage || cachedImage->errorOccurred())
+        return false;
+
+    image = cachedImage->imageForRenderer(renderer);
+    return image;
+}
+
+void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element&imageElement, const URL&, const String&title)
+{
+    PasteboardImage pasteboardImage;
+
+    if (!getImageForElement(imageElement, pasteboardImage.image))
+        return;
+    ASSERT(pasteboardImage.image);
+
+    pasteboardImage.url.url = imageElement.document().completeURL(stripLeadingAndTrailingHTMLSpaces(elementURL(imageElement)));
+    pasteboardImage.url.title = title;
+    pasteboard.write(pasteboardImage);
 }
 
 void Editor::pasteWithPasteboard(Pasteboard* pasteboard, OptionSet<PasteOption> options)
@@ -91,6 +134,11 @@ void Editor::pasteWithPasteboard(Pasteboard* pasteboard, OptionSet<PasteOption> 
 
     if (fragment && shouldInsertFragment(*fragment, range.get(), EditorInsertAction::Pasted))
         pasteAsFragment(*fragment, canSmartReplaceWithPasteboard(*pasteboard), chosePlainText, options.contains(PasteOption::IgnoreMailBlockquote) ? MailBlockquoteHandling::IgnoreBlockquote : MailBlockquoteHandling::RespectBlockquote);
+}
+
+RefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard& pasteboard, Range& context, bool allowPlainText, bool& chosePlainText)
+{
+    return createFragmentFromPasteboardData(pasteboard, m_frame, context, allowPlainText, chosePlainText);
 }
 
 } // namespace WebCore
