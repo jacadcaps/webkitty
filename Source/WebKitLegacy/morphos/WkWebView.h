@@ -5,6 +5,9 @@
 @class WkMutableNetworkRequest;
 @class WkBackForwardList;
 @class WkSettings;
+@class WkCertificate;
+@class WkCertificateChain;
+@class WkError;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -18,11 +21,14 @@
 - (OBString *)userAgentForURL:(OBString *)url;
 
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
-- (void)webView:(WkWebView *)view changedDocumentURL:(OBString *)newURL;
+- (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
+
 - (void)webViewDidStartProvisionalLoading:(WkWebView *)view;
 - (void)webViewDidFinishProvisionalLoading:(WkWebView *)view;
 
-- (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBString *)url options:(OBDictionary *)options;
+- (void)webView:(WkWebView *)view didFailLoadingWithError:(WkError *)error;
+
+- (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options;
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview;
 
 @end
@@ -30,6 +36,26 @@
 @protocol WkWebViewBackForwardListDelegate <OBObject>
 
 - (void)webViewChangedBackForwardList:(WkWebView *)view;
+
+@end
+
+@protocol WkWebViewDebugConsoleDelegate <OBObject>
+
+typedef enum {
+    WkWebViewDebugConsoleLogLevel_Log = 1,
+    WkWebViewDebugConsoleLogLevel_Warning = 2,
+    WkWebViewDebugConsoleLogLevel_Error = 3,
+    WkWebViewDebugConsoleLogLevel_Debug = 4,
+    WkWebViewDebugConsoleLogLevel_Info = 5,
+} WkWebViewDebugConsoleLogLevel;
+
+- (void)webView:(WkWebView *)view outputConsoleMessage:(OBString *)message level:(WkWebViewDebugConsoleLogLevel)level atLine:(ULONG)lineno;
+
+@end
+
+@protocol WkWebViewNetworkProtocolHandlerDelegate <OBObject>
+
+- (void)webView:(WkWebView *)view wantsToNavigateToCustomProtocol:(OBString *)protocol withArguments:(OBString *)arguments;
 
 @end
 
@@ -67,6 +93,10 @@
 
 - (OBString *)title;
 - (OBURL *)URL;
+- (WkCertificateChain *)certificateChain;
+
+- (OBString *)html;
+- (void)setHTML:(OBString *)html;
 
 - (WkSettings *)settings;
 - (void)setSettings:(WkSettings *)settings;
@@ -79,7 +109,10 @@
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate;
 - (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
+- (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate;
 
 - (void)dumpDebug;
+
+- (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 
 @end

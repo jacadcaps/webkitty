@@ -7,6 +7,8 @@
 #import "WebProcess.h"
 #import "WebViewDelegate.h"
 #import <WebCore/ContextMenuItem.h>
+#import <WebCore/CertificateInfo.h>
+#import <WebCore/ResourceRequest.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -15,6 +17,8 @@
 #import "WkWebView.h"
 #import "WkHistory_private.h"
 #import "WkSettings.h"
+#import "WkCertificate_private.h"
+#import "WkError_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -44,14 +48,75 @@ namespace  {
 
 @end
 
+@interface WkWeakContainer : OBObject
+{
+        id _object;
+}
+
++ (id)container:(id)object;
+- (id)containedObject;
+- (id)performSelector:(SEL)selector;
+- (id)performSelector:(SEL)selector withObject:(id)object;
+- (id)performSelector:(SEL)selector withObject:(id)object withObject:(id)object2;
+
+@end
+
+@implementation WkWeakContainer
+
++ (id)container:(id)object
+{
+        WkWeakContainer *container = [WkWeakContainer new];
+        container->_object = object;
+        return [container autorelease];
+}
+
+- (id)containedObject
+{
+        return _object;
+}
+
+- (id)performSelector:(SEL)selector
+{
+        return [_object performSelector:selector];
+}
+
+- (id)performSelector:(SEL)selector withObject:(id)object
+{
+        return [_object performSelector:selector withObject:object];
+}
+
+- (id)performSelector:(SEL)selector withObject:(id)object withObject:(id)object2
+{
+        return [_object performSelector:selector withObject:object withObject:object2];
+}
+
+- (BOOL)isEqual:(id)otherObject
+{
+        static Class myClass = [WkWeakContainer class];
+        if ([otherObject isKindOfClass:myClass])
+                return [_object isEqual:[(WkWeakContainer *)otherObject containedObject]];
+        return [_object isEqual:otherObject];
+}
+
+- (ULONG)hash
+{
+        return [_object hash];
+}
+
+@end
+
 @interface WkWebViewPrivate : OBObject
 {
-	WTF::RefPtr<WebKit::WebPage>   _page;
-	id<WkWebViewScrollingDelegate> _scrollingDelegate;
-	id<WkWebViewNetworkDelegate>   _networkDelegate;
+	WTF::RefPtr<WebKit::WebPage>         _page;
+	id<WkWebViewScrollingDelegate>       _scrollingDelegate;
+	id<WkWebViewNetworkDelegate>         _networkDelegate;
 	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
-	bool                           _drawPending;
-	bool                           _isActive;
+	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
+	OBMutableDictionary                 *_protocolDelegates;
+	bool                                 _drawPending;
+	bool                                 _isActive;
+	OBURL                               *_url;
+	OBString                            *_title;
 }
 @end
 
@@ -69,6 +134,10 @@ namespace  {
 			[[MUIApplication currentApplication] quit];
 		}
 	}
+	
+	[_url release];
+	[_title release];
+	[_protocolDelegates release];
 	
 	[super dealloc];
 }
@@ -110,6 +179,38 @@ namespace  {
 	return _networkDelegate;
 }
 
+- (void)setConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)consoleDelegate
+{
+	_consoleDelegate = consoleDelegate;
+}
+
+- (id<WkWebViewDebugConsoleDelegate>)consoleDelegate
+{
+	return _consoleDelegate;
+}
+
+- (void)setTitle:(OBString *)title
+{
+	[_title autorelease];
+	_title = [title retain];
+}
+
+- (OBString *)title
+{
+	return _title;
+}
+
+- (void)setURL:(OBURL *)url
+{
+	[_url autorelease];
+	_url = [url retain];
+}
+
+- (OBURL *)url
+{
+	return _url;
+}
+
 - (void)setDrawPending:(bool)drawPending
 {
 	_drawPending = drawPending;
@@ -123,6 +224,19 @@ namespace  {
 - (id<WkWebViewBackForwardListDelegate>)backForwardDelegate
 {
 	return _backForwardDelegate;
+}
+
+- (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
+{
+	if (nil == _protocolDelegates)
+		_protocolDelegates = [OBMutableDictionary new];
+	
+	[_protocolDelegates setObject:[WkWeakContainer container:delegate] forKey:protocol];
+}
+
+- (id<WkWebViewNetworkProtocolHandlerDelegate>)protocolDelegateForProtocol:(OBString *)protocol
+{
+	return [[_protocolDelegates objectForKey:protocol] containedObject];
 }
 
 - (bool)drawPending
@@ -190,6 +304,7 @@ dprintf("---------- objc fixup ------------\n");
 			[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 			[_signalHandler release];
 			WebKit::WebProcess::singleton().terminate();
+			[WkCertificate shutdown];
 			CloseLibrary(FreetypeBase);
 			return YES;
 		}
@@ -329,22 +444,20 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					auto utitle = title.utf8();
-					[networkDelegate webView:self changedTitle:[OBString stringWithUTF8String:utitle.data()]];
-				}
+				auto utitle = title.utf8();
+				OBString *otitle = [OBString stringWithUTF8String:utitle.data()];
+				[privateObject setTitle:otitle];
+				[networkDelegate webView:self changedTitle:otitle];
 			};
 
-			webPage->_fChangedURL = [self](const WTF::String& title) {
+			webPage->_fChangedURL = [self](const WTF::String& url) {
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					auto utitle = title.utf8();
-					[networkDelegate webView:self changedDocumentURL:[OBString stringWithUTF8String:utitle.data()]];
-				}
+				auto uurl = url.utf8();
+				OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+				[privateObject setURL:ourl];
+				[networkDelegate webView:self changedDocumentURL:ourl];
 			};
 			
 			webPage->_fDidStartLoading = [self]() {
@@ -365,8 +478,13 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				auto uurl = url.utf8();
-				return [networkDelegate webView:self wantsToCreateNewViewWithURL:[OBString stringWithUTF8String:uurl.data()] options:nil];
+				if (networkDelegate)
+				{
+					auto uurl = url.utf8();
+					OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+					return [networkDelegate webView:self wantsToCreateNewViewWithURL:url options:nil];
+				}
+				return NO;
 			};
 			
 			webPage->_fDoOpenWindow = [self]() -> WebCore::Page * {
@@ -399,9 +517,10 @@ dprintf("---------- objc fixup ------------\n");
 				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
 				if (strip)
 				{
+					// 0 on failure, all our menus return 1, 2...
 					int rc = [strip popup:self flags:0 x:pos.x() y:pos.y()];
 					[strip release];
-					// 0 on failure, all our menus return 1, 2...
+					// 0 = first entry, -1 = error
 					return rc - 1;
 				}
 				return -1;
@@ -412,6 +531,60 @@ dprintf("---------- objc fixup ------------\n");
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewBackForwardListDelegate> delegate = [privateObject backForwardDelegate];
 				[delegate webViewChangedBackForwardList:self];
+			};
+			
+			webPage->_fConsole = [self](const WTF::String&message, int level, unsigned int line) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewDebugConsoleDelegate> delegate = [privateObject consoleDelegate];
+				if (delegate)
+				{
+					auto umessage = message.utf8();
+					OBString *log = [OBString stringWithUTF8String:umessage.data()];
+
+					[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
+				}
+			};
+			
+			webPage->_fDidFailWithError = [self](const WebCore::ResourceError &error) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					[networkDelegate webViewDidFinishProvisionalLoading:self];
+					[networkDelegate webView:self didFailLoadingWithError:[WkError errorWithResourceError:error]];
+				}
+			};
+			
+			webPage->_fCanHandleRequest = [self](const WebCore::ResourceRequest &request) {
+				if (request.httpMethod() == "GET")
+				{
+					const WTF::URL &url = request.url();
+					WTF::String protocol = url.protocol().toString();
+
+					// bypass standard protocols...
+					if (protocol == "http" || protocol == "https" || protocol == "ftp")
+						return true;
+					
+					validateObjCContext();
+					WkWebViewPrivate *privateObject = [self privateObject];
+
+					auto uprotocol = protocol.utf8();
+					OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
+					id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
+					if (delegate)
+					{
+						auto uurl = url.string().utf8();
+						OBString *args = @"";
+						if (uurl.length() > protocol.length() + 1)
+							args = [OBString stringWithUTF8String:uurl.data() + protocol.length() + 1];
+						[delegate webView:self wantsToNavigateToCustomProtocol:oprotocol withArguments:args];
+						return false;
+					}
+				}
+
+				return true;
 			};
 
 		} catch (...) {
@@ -459,12 +632,16 @@ dprintf("---------- objc fixup ------------\n");
 
 - (void)load:(OBURL *)url
 {
-	const char *curi = [[url absoluteString] cString];
-//	dprintf("%s:%d\n", __PRETTY_FUNCTION__, __LINE__);
+	OBString *scheme = [url scheme];
+	if (0 == [scheme length])
+	{
+		url = [OBURL URLWithString:[OBString stringWithFormat:@"http://%@", [url absoluteString]]];
+	}
 
 	try {
+		const char *curi = [[url absoluteString] cString];
 		auto webPage = [_private page];
-		webPage->go(curi);
+		webPage->load(curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
@@ -472,7 +649,21 @@ dprintf("---------- objc fixup ------------\n");
 
 - (void)loadHTMLString:(OBString *)string baseURL:(OBURL *)base
 {
+	OBString *scheme = [base scheme];
+	if (0 == [scheme length])
+	{
+		base = [OBURL URLWithString:[OBString stringWithFormat:@"file:///%@", [base absoluteString]]];
+	}
 
+	OBData *data = [string dataWithEncoding:MIBENUM_UTF_8];
+
+	try {
+		const char *curi = [[base absoluteString] cString];
+		auto webPage = [_private page];
+		webPage->loadData(reinterpret_cast<const char*>([data bytes]), [data length], curi);
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
 }
 
 - (void)loadRequest:(WkMutableNetworkRequest *)request
@@ -569,26 +760,83 @@ dprintf("---------- objc fixup ------------\n");
 
 - (OBString *)title
 {
-	return nil;
+	return [_private title];
 }
 
 - (OBURL *)URL
 {
-	return nil;
+	return [_private url];
+}
+
+- (WkCertificateChain *)certificateChain
+{
+	auto webPage = [_private page];
+	WebCore::CertificateInfo info = webPage->getCertificate();
+	if (info.isEmpty())
+		return nil;
+	const Vector<WebCore::CertificateInfo::Certificate>& chain = info.certificateChain();
+
+	OBMutableArray *certArray = [OBMutableArray arrayWithCapacity:chain.size()];
+	// NOTE: we want root > intermediate > client cert order
+	for (int i = chain.size() - 1; i >= 0; i--)
+	{
+		const auto &cert = chain[i];
+		[certArray addObject:[WkCertificate certificateWithData:(const char*)cert.data() length:cert.size()]];
+	}
+
+	return [WkCertificateChain certificateChainWithCertificates:certArray];
+}
+
+- (OBString *)html
+{
+	auto webPage = [_private page];
+	return (OBString *)webPage->getInnerHTML([](const char *res) {
+		return (void *)[OBString stringWithUTF8String:res];
+	});
+}
+
+- (void)setHTML:(OBString *)html
+{
+	auto webPage = [_private page];
+	webPage->setInnerHTML([html cString]);
 }
 
 - (void)runJavaScript:(OBString *)javascript
 {
-
+	try {
+		auto webPage = [_private page];
+		[self retain];
+		webPage->run([javascript cString]);
+		[self autorelease];
+	} catch (std::exception &ex) {
+		[self autorelease];
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
 }
 
 - (OBString *)evaluateJavaScript:(OBString *)javascript
 {
+	try {
+		[self retain];
+		auto webPage = [_private page];
+		OBString *out = (id)webPage->evaluate([javascript cString], [](const char *res) {
+			return (void *)[OBString stringWithUTF8String:res];
+		});
+		[self autorelease];
+		return out;
+	} catch (std::exception &ex) {
+		[self autorelease];
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
 	return nil;
 }
 
 - (WkSettings *)settings
 {
+	WkSettings *settings = [[WkSettings new] autorelease];
+	auto webPage = [_private page];
+	[settings setAdBlockerEnabled:webPage->adBlockingEnabled()];
+	[settings setJavaScriptEnabled:webPage->javaScriptEnabled()];
 	return nil;
 }
 
@@ -793,6 +1041,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate
 {
 	[_private setBackForwardDelegate:delegate];
+}
+
+- (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate
+{
+	[_private setConsoleDelegate:delegate];
+}
+
+- (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
+{
+	[_private setCustomProtocolHandler:delegate forProtocol:protocol];
 }
 
 @end

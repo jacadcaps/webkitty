@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		010EB702246EEAB7004726C6 /* WkCertificate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 010EB6FE246EEAB6004726C6 /* WkCertificate.mm */; };
+		010EB703246EEAB7004726C6 /* WkCertificateViewer.mm in Sources */ = {isa = PBXBuildFile; fileRef = 010EB701246EEAB6004726C6 /* WkCertificateViewer.mm */; };
 		011B866E242BBBF100749380 /* minibrowser.mm in Sources */ = {isa = PBXBuildFile; fileRef = 011B866D242BBBF100749380 /* minibrowser.mm */; };
 		011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */; };
 		011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */; };
@@ -28,6 +30,7 @@
 		013D3C8B246042EC00805F29 /* filter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C82246042EC00805F29 /* filter.cpp */; };
 		013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C9324633B0B00805F29 /* WkSettings.mm */; };
 		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
+		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
 		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
@@ -53,6 +56,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		010EB6FE246EEAB6004726C6 /* WkCertificate.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCertificate.mm; path = Source/WebKitLegacy/morphos/WkCertificate.mm; sourceTree = "<group>"; };
+		010EB6FF246EEAB6004726C6 /* WkCertificateViewer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificateViewer.h; path = Source/WebKitLegacy/morphos/WkCertificateViewer.h; sourceTree = "<group>"; };
+		010EB700246EEAB6004726C6 /* WkCertificate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate.h; path = Source/WebKitLegacy/morphos/WkCertificate.h; sourceTree = "<group>"; };
+		010EB701246EEAB6004726C6 /* WkCertificateViewer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCertificateViewer.mm; path = Source/WebKitLegacy/morphos/WkCertificateViewer.mm; sourceTree = "<group>"; };
+		010EB98424745E74004726C6 /* WkCertificate_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate_private.h; path = Source/WebKitLegacy/morphos/WkCertificate_private.h; sourceTree = "<group>"; };
 		011B866D242BBBF100749380 /* minibrowser.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = minibrowser.mm; path = Tools/morphos/minibrowser.mm; sourceTree = "<group>"; };
 		011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPlatformStrategies.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPlatformStrategies.cpp; sourceTree = "<group>"; };
 		011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPluginInfoProvider.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPluginInfoProvider.cpp; sourceTree = "<group>"; };
@@ -95,6 +103,9 @@
 		013D3C962463448600805F29 /* morphos.cmake.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = morphos.cmake.in; sourceTree = "<group>"; };
 		013D3C972463448600805F29 /* MUSTREAD.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = MUSTREAD.txt; sourceTree = "<group>"; };
 		013D3C992463448700805F29 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
+		014836F22483321500C3E7F0 /* WkError.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkError.mm; path = Source/WebKitLegacy/morphos/WkError.mm; sourceTree = "<group>"; };
+		014836F32483321500C3E7F0 /* WkError.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError.h; path = Source/WebKitLegacy/morphos/WkError.h; sourceTree = "<group>"; };
+		014836F52483327400C3E7F0 /* WkError_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError_private.h; path = Source/WebKitLegacy/morphos/WkError_private.h; sourceTree = "<group>"; };
 		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
 		01816F0D242B985D007717A6 /* WebKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
 		01816F0E242B985D007717A6 /* WebFrame.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
@@ -163,17 +174,17 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
-				013D3C952463448600805F29 /* link.sh.in */,
-				013D3C992463448700805F29 /* Makefile */,
-				013D3C962463448600805F29 /* morphos.cmake.in */,
-				013D3C972463448600805F29 /* MUSTREAD.txt */,
 				013D3C7A246042CE00805F29 /* ABP */,
 				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
 				01816F15242B985E007717A6 /* BackForwardClient.h */,
 				01F87DA42436CBE3008754BB /* CacheModel.cpp */,
 				01F87DA52436CBE3008754BB /* CacheModel.h */,
 				0138E92D2433ADFF00B53904 /* FrameInfoData.h */,
+				013D3C952463448600805F29 /* link.sh.in */,
+				013D3C992463448700805F29 /* Makefile */,
 				011B866D242BBBF100749380 /* minibrowser.mm */,
+				013D3C962463448600805F29 /* morphos.cmake.in */,
+				013D3C972463448600805F29 /* MUSTREAD.txt */,
 				0120E5F724590B9E003150E3 /* PlatformMorphOS.cmake */,
 				0120E5F624590B9D003150E3 /* PopupMenu.cpp */,
 				0120E5F824590B9E003150E3 /* PopupMenu.h */,
@@ -198,6 +209,7 @@
 				011B8674242CFCD800749380 /* WebInspectorClient.cpp */,
 				01984440242FECE00057CD22 /* WebInspectorClient.h */,
 				01816F0D242B985D007717A6 /* WebKit.h */,
+				01816EE0242A370A007717A6 /* WebKitty */,
 				01F96C48243389D200A3D191 /* WebPage.cpp */,
 				01F96C47243389D200A3D191 /* WebPage.h */,
 				0138E92F2433BA2F00B53904 /* WebPageGroup.cpp */,
@@ -213,6 +225,14 @@
 				01816F12242B985D007717A6 /* WebViewDelegate.h */,
 				011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */,
 				01984443242FECE00057CD22 /* WebVisitedLinkStore.h */,
+				010EB98424745E74004726C6 /* WkCertificate_private.h */,
+				010EB700246EEAB6004726C6 /* WkCertificate.h */,
+				010EB6FE246EEAB6004726C6 /* WkCertificate.mm */,
+				010EB6FF246EEAB6004726C6 /* WkCertificateViewer.h */,
+				010EB701246EEAB6004726C6 /* WkCertificateViewer.mm */,
+				014836F52483327400C3E7F0 /* WkError_private.h */,
+				014836F32483321500C3E7F0 /* WkError.h */,
+				014836F22483321500C3E7F0 /* WkError.mm */,
 				013D3C79245F22E600805F29 /* WkHistory_private.h */,
 				01B27291245EF46B00B7277E /* WkHistory.h */,
 				01B27292245EF46B00B7277E /* WkHistory.mm */,
@@ -222,7 +242,6 @@
 				013D3C9324633B0B00805F29 /* WkSettings.mm */,
 				01816F17242B985E007717A6 /* WkWebView.h */,
 				01816F13242B985D007717A6 /* WkWebView.mm */,
-				01816EE0242A370A007717A6 /* WebKitty */,
 			);
 			sourceTree = "<group>";
 		};
@@ -318,6 +337,7 @@
 				011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */,
 				0138E9312433BA2F00B53904 /* WebPageGroup.cpp in Sources */,
 				013D3C8A246042EC00805F29 /* cosmeticFilter.cpp in Sources */,
+				014836F42483321500C3E7F0 /* WkError.mm in Sources */,
 				011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */,
 				011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */,
 				0138E93724342FB700B53904 /* WebDocumentLoader.cpp in Sources */,
@@ -333,7 +353,9 @@
 				01E871E424526E3900DCCEB4 /* WebDragClient.cpp in Sources */,
 				01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */,
 				013D3C9A2463448700805F29 /* Makefile in Sources */,
+				010EB702246EEAB7004726C6 /* WkCertificate.mm in Sources */,
 				013D3C8B246042EC00805F29 /* filter.cpp in Sources */,
+				010EB703246EEAB7004726C6 /* WkCertificateViewer.mm in Sources */,
 				011B8679242CFCD800749380 /* WebEditorClient.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -1,5 +1,6 @@
 #import <ob/OBFramework.h>
 #import <mui/MUIFramework.h>
+#import <mui/PowerTerm_mcc.h>
 
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -8,6 +9,8 @@
 
 #include <signal.h>
 #include <locale.h>
+
+#include <string.h>
 
 #include <algorithm>
 
@@ -19,8 +22,10 @@ extern "C" {
 
 #import <WebKitLegacy/morphos/WkWebView.h>
 #import <WebKitLegacy/morphos/WkSettings.h>
+#import <WebKitLegacy/morphos/WkCertificateViewer.h>
+#import <WebKitLegacy/morphos/WkError.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -32,9 +37,14 @@ extern "C" {
 	MUIButton *_forward;
 	MUIButton *_stop;
 	MUIButton *_reload;
+	MUIButton *_certificate;
 	MUICheckmark *_adBlock;
 	MUICheckmark *_script;
+	WkError   *_lastError;
 }
+
+- (WkWebView *)webView;
+
 @end
 
 @interface BrowserGroup : MUIGroup<WkWebViewScrollingDelegate>
@@ -52,6 +62,21 @@ extern "C" {
 }
 
 - (void)doScroll;
+
+@end
+
+@interface BrowserLogWindow : MUIWindow<WkWebViewDebugConsoleDelegate>
+{
+	WkWebView    *_view;
+	MCCPowerTerm *_logview;
+	MUIString    *_command;
+	MUIButton    *_goButton;
+}
+
++ (id)logWindowForView:(WkWebView *)view;
++ (id)getWindowForView:(WkWebView *)view;
+
+- (WkWebView *)webView;
 
 @end
 
@@ -206,6 +231,28 @@ extern "C" {
 	[[MUIApplication currentApplication] quit];
 }
 
+- (MUIWindow *)activeWindow
+{
+	MUIApplication *app = [MUIApplication currentApplication];
+	OBArray *windows = [app objects];
+	for (int i = 0; i < [windows count]; i++)
+	{
+		MUIWindow *window = [windows objectAtIndex:i];
+		if ([window activate])
+			return window;
+	}
+	return nil;
+}
+
+- (void)debugWindow
+{
+	BrowserWindow *w = (BrowserWindow *)[self activeWindow];
+	if ([w isKindOfClass:[BrowserWindow class]])
+	{
+		[BrowserLogWindow logWindowForView:[w webView]];
+	}
+}
+
 - (void)newWindow
 {
 	BrowserWindow *w = [[BrowserWindow new] autorelease];
@@ -218,6 +265,11 @@ extern "C" {
 @implementation BrowserWindow
 
 static int _windowID = 1;
+
+- (WkWebView *)webView
+{
+	return _view;
+}
 
 - (void)navigate
 {
@@ -260,6 +312,25 @@ static int _windowID = 1;
 	[_view setSettings:settings];
 }
 
+- (void)closeCertificate:(MUIWindow *)window
+{
+	[[window retain] autorelease];
+	[window setOpen:NO];
+	[[MUIApplication currentApplication] removeObject:window];
+}
+
+- (void)showCertificate
+{
+	WkCertificateChain *cert = _lastError ? [_lastError certificates] : [_view certificateChain];
+	MUIWindow *window = [[MUIWindow new] autorelease];
+	[window setTitle:[OBString stringWithFormat:@"Certificate for %@", _lastError ? [[_lastError URL] absoluteString] : [[_view URL] absoluteString]]];
+	WkCertificateVerifier *cv = [WkCertificateVerifier verifierForCertificateChain:cert];
+	[window setRootObject:cv];
+	[[MUIApplication currentApplication] addObject:window];
+	[window setOpen:YES];
+	[window notify:@selector(closeRequest) trigger:YES performSelector:@selector(closeCertificate:) withTarget:self withObject:window];
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
@@ -273,6 +344,7 @@ static int _windowID = 1;
 				_forward = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-circled-right-20.png]"],
 				_stop = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-no-entry-20.png]"],
 				_reload = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-restart-20.png]"],
+				_certificate = [MUIButton buttonWithLabel:@"\33I[5:PROGDIR:MiniResources/icons8-certificate-20.png]"],
 				_address = [MUIString stringWithContents:@"https://"],
 				nil],
 			[BrowserGroup browserGroupWithWkWebView:_view = view],
@@ -296,6 +368,7 @@ static int _windowID = 1;
 		
 		[_view setNetworkDelegate:self];
 		[_view setBackForwardListDelegate:self];
+		[_view setCustomProtocolHandler:self forProtocol:@"mini"];
 
 		[_back notify:@selector(pressed) trigger:NO performSelector:@selector(goBack) withTarget:_view];
 		[_forward notify:@selector(pressed) trigger:NO performSelector:@selector(goForward) withTarget:_view];
@@ -306,6 +379,7 @@ static int _windowID = 1;
 		[_forward setHorizWeight:0];
 		[_stop setHorizWeight:0];
 		[_reload setHorizWeight:0];
+		[_certificate setHorizWeight:0];
 		
 		[_adBlock setSelected:YES];
 		[_script setSelected:YES];
@@ -316,6 +390,8 @@ static int _windowID = 1;
 		[_back setDisabled:YES];
 		[_forward setDisabled:YES];
 
+		[_certificate notify:@selector(selected) trigger:NO performSelector:@selector(showCertificate) withTarget:self];
+		
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
@@ -334,6 +410,7 @@ static int _windowID = 1;
 		[self setMenustrip:[MUIMenustrip menustripWithObjects:
 			[MUIMenu menuWithTitle:@"MiniBrowser" objects:
 				[MiniMenuitem itemWithTitle:@"New Window..." shortcut:@"N" selector:@selector(newWindow)],
+				[MiniMenuitem itemWithTitle:@"Console" shortcut:@"D" selector:@selector(debugWindow)],
 				[MUIMenuitem barItem],
 				[MiniMenuitem itemWithTitle:@"About..." shortcut:@"?" selector:@selector(about)],
 				[MiniMenuitem itemWithTitle:@"Quit" shortcut:@"Q" selector:@selector(quit)],
@@ -355,6 +432,8 @@ static int _windowID = 1;
 	dprintf("%s\n", __PRETTY_FUNCTION__);
 	[_view setNetworkDelegate:nil];
 	[_view setScrollingDelegate:nil];
+	[_view setCustomProtocolHandler:nil forProtocol:@"mini"];
+	[_lastError release];
 	[super dealloc];
 }
 
@@ -380,9 +459,11 @@ static int _windowID = 1;
 	[self setTitle:newtitle];
 }
 
-- (void)webView:(WkWebView *)view changedDocumentURL:(OBString *)newurl
+- (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newurl
 {
-	[_address noNotifySetContents:newurl];
+	[_address noNotifySetContents:[newurl absoluteString]];
+	[_lastError release];
+	_lastError = nil;
 }
 
 - (void)webViewDidStartProvisionalLoading:(WkWebView *)view
@@ -395,7 +476,7 @@ static int _windowID = 1;
 	[_loading setActivePage:0];
 }
 
-- (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBString *)url options:(OBDictionary *)options
+- (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options
 {
 	return YES;
 }
@@ -411,6 +492,163 @@ static int _windowID = 1;
 {
 	[_back setDisabled:![view canGoBack]];
 	[_forward setDisabled:![_view canGoForward]];
+}
+
+- (void)webView:(WkWebView *)view didFailLoadingWithError:(WkError *)error
+{
+	[_lastError release];
+	_lastError = [error retain];
+
+	switch ([error type])
+	{
+	case WkErrorType_Null:
+		break;
+	case WkErrorType_General:
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		break;
+	case WkErrorType_Timeout:
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Timeout loading %@</center></body></html>", [[error URL] host]]];
+		break;
+	case WkErrorType_Cancellation:
+		break;
+	case WkErrorType_AccessControl:
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Access Controls Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		break;
+	case WkErrorType_SSLConnection:
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>SSL Connection Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		break;
+	case WkErrorType_SSLCertification:
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Server %@ presented an untrusted certificate<br><a href=\"mini:showcertificate\">Show Certificate</a>&nbsp;<a href=\"mini:back\">Go Back</a></center></body></html>", [[error URL] host]]];
+		break;
+	}
+}
+
+- (void)webView:(WkWebView *)view wantsToNavigateToCustomProtocol:(OBString *)protocol withArguments:(OBString *)arguments
+{
+	if ([arguments isEqualToString:@"showcertificate"])
+	{
+		if (_lastError)
+		{
+			[self showCertificate];
+		}
+	}
+	else if ([arguments isEqualToString:@"back"])
+	{
+	
+	}
+}
+
+@end
+
+@implementation BrowserLogWindow
+
+- (void)go
+{
+	OBString *exec = [_command contents];
+
+	OBString *log = [OBString stringWithFormat:@">> %@\r\n", exec];
+	const char *clog = [log cString];
+	[_logview writeUnicode:(APTR)clog length:strlen(clog) format:MUIV_PowerTerm_WriteUnicode_UTF8];
+
+	OBString *res = [_view evaluateJavaScript:exec];
+	log = [OBString stringWithFormat:@"<< %@\r\n", res];
+	clog = [log cString];
+	[_logview writeUnicode:(APTR)clog length:strlen(clog) format:MUIV_PowerTerm_WriteUnicode_UTF8];
+}
+
+- (id)initWithView:(WkWebView *)view
+{
+	if ((self = [super init]))
+	{
+		MUIScrollbar *sc;
+		_view = [view retain];
+		[self setTitle:@"Console"];
+		[self setRootObject:[MUIGroup groupWithObjects:
+			[MUIGroup horizontalGroupWithObjects:_logview = [[MCCPowerTerm new] autorelease], sc = [MUIScrollbar verticalScrollbar], nil],
+			[MUIGroup horizontalGroupWithObjects:_command = [MUIString string], _goButton = [MUIButton buttonWithLabel:@"Run"], nil],
+			nil]];
+		[_command setCycleChain:YES];
+		[_command setMaxLen:2048];
+		[_logview setUTFEnable:YES];
+		[_logview setWrap:YES];
+		[_logview setResizable:YES];
+		[_logview setScroller:sc];
+		[_logview setResizableHistory:YES];
+		[_goButton notify:@selector(pressed) trigger:NO performSelector:@selector(go) withTarget:self];
+		[_command notify:@selector(acknowledge) performSelector:@selector(go) withTarget:self];
+		[_view setDebugConsoleDelegate:self];
+	}
+	return self;
+}
+
+- (void)dealloc
+{
+	[_view setDebugConsoleDelegate:nil];
+	[_view release];
+	[super dealloc];
+}
+
++ (id)logWindowForView:(WkWebView *)view
+{
+	id win = [self getWindowForView:view];
+	if (nil == win)
+	{
+		win = [[[self alloc] initWithView:view] autorelease];
+		if (win)
+		{
+			[[MUIApplication currentApplication] addObject:win];
+			[win setOpen:YES];
+		}
+	}
+	return win;
+}
+
++ (id)getWindowForView:(WkWebView *)view
+{
+	OBEnumerator *e = [[[MUIApplication currentApplication] objects] objectEnumerator];
+	MUIWindow *w;
+	while ((w = [e nextObject]))
+	{
+		if ([w isKindOfClass:[self class]])
+		{
+			BrowserLogWindow *bw = (id)w;
+			if ([bw webView] == view)
+			{
+				[bw toFront];
+				return bw;
+			}
+		}
+	}
+	
+	return nil;
+}
+
+- (WkWebView *)webView
+{
+	return _view;
+}
+
+- (void)setCloseRequest:(BOOL)closerequest
+{
+	[[self retain] autorelease];
+	[self setOpen:NO];
+	[[MUIApplication currentApplication] removeObject:self];
+}
+
+- (void)webView:(WkWebView *)view outputConsoleMessage:(OBString *)message level:(WkWebViewDebugConsoleLogLevel)level atLine:(ULONG)lineno
+{
+	OBString *lstring = @"?";
+	switch (level)
+	{
+	case WkWebViewDebugConsoleLogLevel_Info: lstring = @"INF"; break;
+	case WkWebViewDebugConsoleLogLevel_Log: lstring = @"LOG"; break;
+	case WkWebViewDebugConsoleLogLevel_Debug: lstring = @"DBG"; break;
+	case WkWebViewDebugConsoleLogLevel_Error: lstring = @"ERR"; break;
+	case WkWebViewDebugConsoleLogLevel_Warning: lstring = @"WARN"; break;
+	}
+	OBString *log = [OBString stringWithFormat:@"[%@] %@; at line %d\r\n", lstring, message, lineno];
+	const char *clog = [log cString];
+	[_logview writeUnicode:(APTR)clog length:strlen(clog) format:MUIV_PowerTerm_WriteUnicode_UTF8];
 }
 
 @end

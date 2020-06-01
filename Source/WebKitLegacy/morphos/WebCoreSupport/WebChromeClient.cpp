@@ -208,9 +208,8 @@ static BOOL messageIsError(MessageLevel level)
 
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
-	try {
-		dprintf(">> Console: %s\n", message.utf8().data());
-	} catch (...) { };
+	if (m_webPage._fConsole)
+		m_webPage._fConsole(message, int(level), lineNumber);
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()

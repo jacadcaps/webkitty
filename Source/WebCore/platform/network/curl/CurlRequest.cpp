@@ -472,7 +472,10 @@ void CurlRequest::didCompleteTransfer(CURLcode result)
 
         CertificateInfo certificateInfo;
         if (auto info = m_curlHandle->certificateInfo())
+        {
+        	resourceError.setCertificateInfo(info->isolatedCopy());
             certificateInfo = WTFMove(*info);
+		}
 
         finalizeTransfer();
         callClient([error = WTFMove(resourceError), certificateInfo = WTFMove(certificateInfo)](CurlRequest& request, CurlRequestClient& client) mutable {

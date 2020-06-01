@@ -16,6 +16,7 @@ namespace WebCore {
 	class KeyboardEvent;
 	class ResourceError;
 	class ContextMenuItem;
+	class CertificateInfo;
 };
 
 struct RastPort;
@@ -52,9 +53,18 @@ public:
     WebCore::PageIdentifier pageID() const { return m_pageID; }
     PAL::SessionID sessionID() const;
 
-	void go(const char *url);
+	void load(const char *url);
+	void loadData(const char *data, size_t length, const char *url);
 	void reload();
 	void stop();
+	
+	WebCore::CertificateInfo getCertificate(void);
+	
+	void run(const char *js);
+	void *evaluate(const char *js, WTF::Function<void *(const char *)>&& response);
+	
+	void *getInnerHTML(WTF::Function<void *(const char *)>&& cb);
+	void setInnerHTML(const char *html);
 
 	bool goBack();
 	bool goForward();

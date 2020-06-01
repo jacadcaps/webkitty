@@ -30,41 +30,6 @@
 #include "WebDocumentLoader.h"
 #include "WebFrameNetworkingContext.h"
 
-#if 0
-//#include "AuthenticationManager.h"
-#include "DataReference.h"
-#include "DrawingArea.h"
-#include "FindController.h"
-#include "FormDataReference.h"
-#include "FrameInfoData.h"
-#include "InjectedBundle.h"
-#include "InjectedBundleDOMWindowExtension.h"
-#include "InjectedBundleNavigationAction.h"
-#include "Logging.h"
-#include "NavigationActionData.h"
-#include "NetworkConnectionToWebProcessMessages.h"
-#include "NetworkProcessConnection.h"
-#include "PluginView.h"
-#include "UserData.h"
-#include "WKBundleAPICast.h"
-#include "WebAutomationSessionProxy.h"
-#include "WebBackForwardListProxy.h"
-#include "WebCoreArgumentCoders.h"
-#include "WebDocumentLoader.h"
-#include "WebErrors.h"
-#include "WebEvent.h"
-#include "WebFrame.h"
-#include "WebFrameNetworkingContext.h"
-#include "WebFullScreenManager.h"
-#include "WebNavigationDataStore.h"
-#include "WebPage.h"
-#include "WebPageGroupProxy.h"
-#include "WebPageProxyMessages.h"
-#include "WebProcess.h"
-#include "WebProcessPoolMessages.h"
-#include "WebsitePoliciesData.h"
-#endif
-
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSObject.h>
 #include <WebCore/CachedFrame.h>
@@ -99,6 +64,7 @@
 #include <WebCore/UIEventWithKeyState.h>
 #include <WebCore/Widget.h>
 #include <WebCore/WindowFeatures.h>
+#include <WebCore/CertificateInfo.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
@@ -231,15 +197,6 @@ void WebFrameLoaderClient::dispatchWillSendRequest(DocumentLoader*, unsigned lon
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
-
-#if 0
-    // The API can return a completely new request. We should ensure that at least the requester
-    // is kept, so that if this is a main resource load it's still considered as such.
-    auto requester = request.requester();
-    webPage->injectedBundleResourceLoadClient().willSendRequestForFrame(*webPage, *m_frame, identifier, request, redirectResponse);
-    if (!request.isNull())
-        request.setRequester(requester);
-#endif
 }
 
 bool WebFrameLoaderClient::shouldUseCredentialStorage(DocumentLoader*, unsigned long identifier)
@@ -290,17 +247,16 @@ void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, unsigned lo
     webPage->removeResourceRequest(identifier);
 }
 
-void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*, unsigned long identifier, const ResourceError& error)
+void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, unsigned long identifier, const ResourceError& error)
 {
-    notImplemented();
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
 
-dprintf("dispatchDidFailLoading: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
-
-//    webPage->injectedBundleResourceLoadClient().didFailLoadForResource(*webPage, *m_frame, identifier, error);
     webPage->removeResourceRequest(identifier);
+
+	if (m_frame->isMainFrame())
+		webPage->didFailLoad(error);
 }
 
 bool WebFrameLoaderClient::dispatchDidLoadResourceFromMemoryCache(DocumentLoader*, const ResourceRequest&, const ResourceResponse&, int /*length*/)
@@ -584,7 +540,18 @@ void WebFrameLoaderClient::dispatchDidFailLoad(const ResourceError& error)
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
-dprintf("dispatchDidFailLoad: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
+dprintf("dispatchDidFailLoad: sslerror %d sslconnect %d errorcode %d type %d certinfo %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()), m_frame->coreFrame()->loader().documentLoader()->response().certificateInfo().hasValue());
+
+	if (error.isSSLCertVerificationError())
+	{
+		const Optional<CertificateInfo>& certInfo = m_frame->coreFrame()->loader().documentLoader()->response().certificateInfo();
+		
+		if (certInfo)
+		{
+			const auto& chain = certInfo->certificateChain();
+			dprintf("certs: %d\n", chain.size());
+		}
+	}
 
 #if 0
     RELEASE_LOG(Network, "%p - WebFrameLoaderClient::dispatchDidFailLoad: (pageID = %" PRIu64 ", frameID = %" PRIu64 ")", this, webPage->pageID().toUInt64(), m_frame->frameID());
@@ -840,7 +807,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         return;
     }
 
-function(PolicyAction::Use, requestIdentifier);
+	function(PolicyAction::Use, requestIdentifier);
 
 #if 0
     RefPtr<API::Object> userData;
@@ -1211,9 +1178,16 @@ bool WebFrameLoaderClient::shouldFallBack(const ResourceError& error)
     return true;
 }
 
-bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest&) const
+bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest& request) const
 {
-    notImplemented();
+    WebPage* webPage = m_frame->page();
+
+	if (webPage && webPage->_fCanHandleRequest)
+	{
+		if (!webPage->_fCanHandleRequest(request))
+			return false;
+	}
+
     return true;
 }
 

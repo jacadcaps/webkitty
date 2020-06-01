@@ -7,6 +7,8 @@
 namespace WebCore {
 	class Page;
 	class WindowFeatures;
+	class ResourceError;
+	class ResourceRequest;
 };
 
 struct WebViewDelegate
@@ -18,18 +20,22 @@ struct WebViewDelegate
 	std::function<void()>             _fActivatePrevious;
 	std::function<void()>             _fGoActive;
 
-	std::function<WTF::String(const WTF::String&)> _fUserAgentForURL;
-	std::function<void(const WTF::String&)>        _fChangedTitle;
-	std::function<void(const WTF::String&)>        _fChangedURL;
-	std::function<void(void)>                      _fDidStartLoading;
-	std::function<void(void)>                      _fDidStopLoading;
-	std::function<void(void)>                      _fHistoryChanged;
+	std::function<WTF::String(const WTF::String&)>       _fUserAgentForURL;
+	std::function<void(const WTF::String&)>              _fChangedTitle;
+	std::function<void(const WTF::String&)>              _fChangedURL;
+	std::function<void(void)>                            _fDidStartLoading;
+	std::function<void(void)>                            _fDidStopLoading;
+	std::function<void(void)>                            _fHistoryChanged;
+	std::function<void(const WebCore::ResourceError &)>  _fDidFailWithError;
+	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)> _fCanOpenWindow;
 	std::function<WebCore::Page*(void)> _fDoOpenWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
-	
+
+	std::function<void(const WTF::String&, int level, unsigned int line)> _fConsole;
+
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
 		_fScroll = nullptr;
@@ -46,5 +52,8 @@ struct WebViewDelegate
 		_fDoOpenWindow = nullptr;
 		_fPopup = nullptr;
 		_fHistoryChanged = nullptr;
+		_fConsole = nullptr;
+		_fDidFailWithError = nullptr;
+		_fCanHandleRequest = nullptr;
 	};
 };

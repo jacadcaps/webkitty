@@ -564,7 +564,7 @@ WebPage* WebPage::fromCorePage(WebCore::Page* page)
     return &static_cast<WebChromeClient&>(page->chrome().client()).page();
 }
 
-void WebPage::go(const char *url)
+void WebPage::load(const char *url)
 {
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
 	WebCore::ResourceRequest req(baseCoreURL);
@@ -583,6 +583,18 @@ void WebPage::go(const char *url)
     coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 }
 
+void WebPage::loadData(const char *data, size_t length, const char *url)
+{
+	WTF::URL baseURL = url ? WTF::URL(WTF::URL(), WTF::String(url)) : WTF::blankURL();
+
+    ResourceRequest request(baseURL);
+    ResourceResponse response(WTF::blankURL(), "text/html", length, "UTF-8");
+    SubstituteData substituteData(WebCore::SharedBuffer::create(data, length), WTF::blankURL(), response, SubstituteData::SessionHistoryVisibility::Hidden);
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+    coreFrame->loader().load(FrameLoadRequest(*coreFrame, request, ShouldOpenExternalURLsPolicy::ShouldNotAllow, substituteData));
+}
+
 void WebPage::reload()
 {
 	auto *mainframe = mainFrame();
@@ -595,6 +607,78 @@ void WebPage::stop()
 	auto *mainframe = mainFrame();
 	if (mainframe)
 		mainframe->loader().stopForUserCancel();
+}
+
+WebCore::CertificateInfo WebPage::getCertificate(void)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return { };
+
+    DocumentLoader* documentLoader = coreFrame->loader().documentLoader();
+    if (!documentLoader)
+        return { };
+
+    return valueOrCompute(documentLoader->response().certificateInfo(), [] { return CertificateInfo(); });
+}
+
+void WebPage::run(const char *js)
+{
+	if (!m_mainFrame)
+		return;
+
+	WTF::RefPtr<WebPage> protect(this);
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return;
+
+	coreFrame->script().executeScript(js, true);
+}
+
+void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb)
+{
+	if (!m_mainFrame)
+		return nullptr;
+	WTF::RefPtr<WebPage> protect(this);
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return nullptr;
+
+	JSC::JSValue result = coreFrame->script().executeScript(js, true);
+	if (!m_mainFrame || !m_mainFrame->coreFrame() || !result || (!result.isBoolean() && !result.isString() && !result.isNumber()))
+	{
+		return cb("");
+	}
+
+    JSC::ExecState* exec = coreFrame->script().globalObject(mainThreadNormalWorld())->globalExec();
+    JSC::JSLockHolder lock(exec);
+	WTF::String string = result.toWTFString(exec);
+	auto ustring = string.utf8();
+	return cb(ustring.data());
+}
+
+void *WebPage::getInnerHTML(WTF::Function<void *(const char *)>&& cb)
+{
+    WebCore::Frame* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+	{
+		WTF::String inner = coreFrame->document()->documentElement()->innerHTML();
+		auto uinner = inner.utf8();
+		return cb(uinner.data());
+	}
+	
+	return nullptr;
+}
+
+void WebPage::setInnerHTML(const char *html)
+{
+    WebCore::Frame* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+	{
+		coreFrame->document()->documentElement()->setInnerHTML(WTF::String::fromUTF8(html));
+	}
 }
 
 bool WebPage::goBack()
@@ -788,7 +872,8 @@ void WebPage::didFinishLoad(WebFrame& frame)
 
 void WebPage::didFailLoad(const WebCore::ResourceError& error)
 {
-dprintf("--- didFailLoad: sslerror %d sslconnect %d errorcode %d type %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()));
+	if (_fDidFailWithError)
+		_fDidFailWithError(error);
 }
 
 Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, const ResourceRequest& request, const SubstituteData& substituteData)
@@ -1476,10 +1561,10 @@ const WTF::Vector<WebCore::ContextMenuItem>& WebPage::buildContextMenu(const int
 		WebCore::SyntheticClickType::NoTap);
 
 
-    auto* coreFrame = m_mainFrame->coreFrame();
 	WebCore::Page *page = corePage();
 	if (!page)
 		return _empty;
+    auto* coreFrame = m_mainFrame->coreFrame();
 
 	// kill any previous context menu
     page->contextMenuController().clearContextMenu();
