@@ -12,6 +12,8 @@ PASS createEvent
 PASS createRange 
 PASS createNodeIterator 
 PASS createTreeWalker 
+PASS Request 
+PASS Response 
 PASS getElementsByTagName 
 PASS getElementsByTagNameNS 
 PASS getElementsByClassName 
@@ -29,5 +31,5 @@ PASS getContext 2d
 PASS getContext webgl 
 PASS createImageData 
 PASS getImageData 
-FAIL FontFace's load() The string did not match the expected pattern.
+PASS FontFace's load() 
 

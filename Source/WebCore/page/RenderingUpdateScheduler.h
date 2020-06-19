@@ -42,7 +42,7 @@ class RenderingUpdateScheduler
 public:
     static std::unique_ptr<RenderingUpdateScheduler> create(Page& page)
     {
-        return std::make_unique<RenderingUpdateScheduler>(page);
+        return makeUnique<RenderingUpdateScheduler>(page);
     }
 
     RenderingUpdateScheduler(Page&);
@@ -50,10 +50,13 @@ public:
     void scheduleImmediateRenderingUpdate();
     void scheduleRenderingUpdate();
 
+#if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
+    void windowScreenDidChange(PlatformDisplayID);
+#endif
+
 private:
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
     RefPtr<DisplayRefreshMonitor> createDisplayRefreshMonitor(PlatformDisplayID) const final;
-    void windowScreenDidChange(PlatformDisplayID);
     void displayRefreshFired() final;
 #else
     void displayRefreshFired();

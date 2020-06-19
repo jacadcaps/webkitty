@@ -35,6 +35,7 @@
 #include "ViewSnapshotStore.h"
 #include "WebColorPickerGtk.h"
 #include "WebContextMenuProxyGtk.h"
+#include "WebDataListSuggestionsDropdownGtk.h"
 #include "WebEventFactory.h"
 #include "WebKitColorChooser.h"
 #include "WebKitPopupMenu.h"
@@ -64,7 +65,7 @@ PageClientImpl::PageClientImpl(GtkWidget* viewWidget)
 // PageClient's pure virtual functions
 std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& process)
 {
-    return std::make_unique<DrawingAreaProxyCoordinatedGraphics>(*webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_viewWidget)), process);
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_viewWidget)), process);
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
@@ -154,9 +155,15 @@ void PageClientImpl::setCursor(const WebCore::Cursor& cursor)
         gdk_window_set_cursor(window, newCursor);
 }
 
-void PageClientImpl::setCursorHiddenUntilMouseMoves(bool /* hiddenUntilMouseMoves */)
+void PageClientImpl::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
 {
-    notImplemented();
+    if (!hiddenUntilMouseMoves)
+        return;
+
+    setCursor(WebCore::noneCursor());
+
+    // There's no need to set a timer to restore the cursor by hand. It will
+    // be automatically restored when the mouse moves.
 }
 
 void PageClientImpl::didChangeViewportProperties(const WebCore::ViewportAttributes&)
@@ -223,8 +230,6 @@ void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool 
 {
     if (wasEventHandled)
         return;
-    if (event.isFakeEventForComposition())
-        return;
 
     WebKitWebViewBase* webkitWebViewBase = WEBKIT_WEB_VIEW_BASE(m_viewWidget);
     webkitWebViewBaseForwardNextKeyEvent(webkitWebViewBase);
@@ -249,6 +254,13 @@ RefPtr<WebColorPicker> PageClientImpl::createColorPicker(WebPageProxy* page, con
         return WebKitColorChooser::create(*page, color, rect);
     return WebColorPickerGtk::create(*page, color, rect);
 }
+
+#if ENABLE(DATALIST_ELEMENT)
+RefPtr<WebDataListSuggestionsDropdown> PageClientImpl::createDataListSuggestionsDropdown(WebPageProxy& page)
+{
+    return WebDataListSuggestionsDropdownGtk::create(m_viewWidget, page);
+}
+#endif
 
 void PageClientImpl::enterAcceleratedCompositingMode(const LayerTreeContext& layerTreeContext)
 {
@@ -282,9 +294,9 @@ void PageClientImpl::selectionDidChange()
         webkitWebViewSelectionDidChange(WEBKIT_WEB_VIEW(m_viewWidget));
 }
 
-RefPtr<ViewSnapshot> PageClientImpl::takeViewSnapshot()
+RefPtr<ViewSnapshot> PageClientImpl::takeViewSnapshot(Optional<WebCore::IntRect>&& clipRect)
 {
-    return webkitWebViewBaseTakeViewSnapshot(WEBKIT_WEB_VIEW_BASE(m_viewWidget));
+    return webkitWebViewBaseTakeViewSnapshot(WEBKIT_WEB_VIEW_BASE(m_viewWidget), WTFMove(clipRect));
 }
 
 void PageClientImpl::didChangeContentSize(const IntSize& size)
@@ -553,13 +565,13 @@ bool PageClientImpl::effectiveAppearanceIsDark() const
     if (preferDarkTheme)
         return true;
 
+    if (auto* themeNameEnv = g_getenv("GTK_THEME"))
+        return g_str_has_suffix(themeNameEnv, "-dark") || g_str_has_suffix(themeNameEnv, ":dark");
+
     GUniqueOutPtr<char> themeName;
     g_object_get(settings, "gtk-theme-name", &themeName.outPtr(), nullptr);
     if (g_str_has_suffix(themeName.get(), "-dark"))
         return true;
-
-    if (auto* themeNameEnv = g_getenv("GTK_THEME"))
-        return g_str_has_suffix(themeNameEnv, ":dark");
 
     return false;
 }
@@ -570,5 +582,28 @@ IPC::Attachment PageClientImpl::hostFileDescriptor()
     return webkitWebViewBaseRenderHostFileDescriptor(WEBKIT_WEB_VIEW_BASE(m_viewWidget));
 }
 #endif
+
+void PageClientImpl::didChangeWebPageID() const
+{
+    if (WEBKIT_IS_WEB_VIEW(m_viewWidget))
+        webkitWebViewDidChangePageID(WEBKIT_WEB_VIEW(m_viewWidget));
+}
+
+String PageClientImpl::themeName() const
+{
+    if (auto* themeNameEnv = g_getenv("GTK_THEME")) {
+        String name = String::fromUTF8(themeNameEnv);
+        if (name.endsWith("-dark") || name.endsWith(":dark"))
+            return name.substring(0, name.length() - 5);
+        return name;
+    }
+
+    GUniqueOutPtr<char> themeNameSetting;
+    g_object_get(gtk_widget_get_settings(m_viewWidget), "gtk-theme-name", &themeNameSetting.outPtr(), nullptr);
+    String name = String::fromUTF8(themeNameSetting.get());
+    if (name.endsWith("-dark"))
+        return name.substring(0, name.length() - 5);
+    return name;
+}
 
 } // namespace WebKit

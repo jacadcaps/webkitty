@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "config.h"
 #include "DumpRenderTree.h"
 
+#include "DefaultPolicyDelegate.h"
 #include "EditingDelegate.h"
 #include "FrameLoadDelegate.h"
 #include "GCController.h"
@@ -313,6 +314,8 @@ static const wstring& fontsPath()
 
 static void initialize()
 {
+    JSC::Config::configureForTesting();
+
     if (HMODULE webKitModule = LoadLibrary(WEBKITDLL))
         if (FARPROC dllRegisterServer = GetProcAddress(webKitModule, "DllRegisterServer"))
             dllRegisterServer();
@@ -794,7 +797,10 @@ static void enableExperimentalFeatures(IWebPreferences* preferences)
     prefsPrivate->setCSSOMViewScrollingAPIEnabled(TRUE);
     prefsPrivate->setResizeObserverEnabled(TRUE);
     prefsPrivate->setWebAnimationsEnabled(TRUE);
+    prefsPrivate->setWebAnimationsCompositeOperationsEnabled(TRUE);
+    prefsPrivate->setWebAnimationsMutableTimelinesEnabled(TRUE);
     prefsPrivate->setServerTimingEnabled(TRUE);
+    prefsPrivate->setAspectRatioOfImgFromWidthAndHeightEnabled(TRUE);
     // FIXME: WebGL2
     // FIXME: WebRTC
 }
@@ -807,7 +813,7 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
 
     preferences->setAutosaves(FALSE);
 
-    COMPtr<IWebPreferencesPrivate6> prefsPrivate(Query, preferences);
+    COMPtr<IWebPreferencesPrivate8> prefsPrivate(Query, preferences);
     ASSERT(prefsPrivate);
     prefsPrivate->setFullScreenEnabled(TRUE);
 
@@ -827,6 +833,7 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
     static _bstr_t pictographFamily(TEXT("Segoe UI Symbol"));
 #endif
 
+    prefsPrivate->setAllowTopNavigationToDataURLs(TRUE);
     prefsPrivate->setAllowUniversalAccessFromFileURLs(TRUE);
     prefsPrivate->setAllowFileAccessFromFileURLs(TRUE);
     preferences->setStandardFontFamily(standardFamily);
@@ -900,13 +907,20 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
 
 static void setWebPreferencesForTestOptions(IWebPreferences* preferences, const TestOptions& options)
 {
-    COMPtr<IWebPreferencesPrivate6> prefsPrivate { Query, preferences };
+    COMPtr<IWebPreferencesPrivate8> prefsPrivate { Query, preferences };
 
     prefsPrivate->setWebAnimationsCSSIntegrationEnabled(options.enableWebAnimationsCSSIntegration);
     prefsPrivate->setMenuItemElementEnabled(options.enableMenuItemElement);
+    prefsPrivate->setKeygenElementEnabled(options.enableKeygenElement);
     prefsPrivate->setModernMediaControlsEnabled(options.enableModernMediaControls);
     prefsPrivate->setIsSecureContextAttributeEnabled(options.enableIsSecureContextAttribute);
     prefsPrivate->setInspectorAdditionsEnabled(options.enableInspectorAdditions);
+    prefsPrivate->setRequestIdleCallbackEnabled(options.enableRequestIdleCallback);
+    prefsPrivate->setAsyncClipboardAPIEnabled(options.enableAsyncClipboardAPI);
+    prefsPrivate->setWebSQLEnabled(options.enableWebSQL);
+    prefsPrivate->setAllowTopNavigationToDataURLs(options.allowTopNavigationToDataURLs);
+    preferences->setPrivateBrowsingEnabled(options.useEphemeralSession);
+    preferences->setUsesPageCache(options.enableBackForwardCache);
 }
 
 static String applicationId()
@@ -993,7 +1007,7 @@ static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& option
         webViewPrivate->setTabKeyCyclesThroughElements(TRUE);
     }
 
-    webView->setPolicyDelegate(nullptr);
+    webView->setPolicyDelegate(DefaultPolicyDelegate::sharedInstance());
     policyDelegate->setPermissive(false);
     policyDelegate->setControllerToNotifyDone(nullptr);
     sharedFrameLoadDelegate->resetToConsistentState();
@@ -1044,6 +1058,9 @@ static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& option
 
     COMPtr<IWebViewPrivate5> webViewPrivate5(Query, webView);
     webViewPrivate5->exitFullscreenIfNeeded();
+
+    WebCoreTestSupport::clearAllLogChannelsToAccumulate();
+    WebCoreTestSupport::initializeLogChannelsIfNecessary();
 }
 
 static void sizeWebViewForCurrentTest()

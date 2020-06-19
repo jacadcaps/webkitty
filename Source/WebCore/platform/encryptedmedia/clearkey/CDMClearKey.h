@@ -40,6 +40,7 @@
 namespace WebCore {
 
 class CDMFactoryClearKey final : public CDMFactory {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     static CDMFactoryClearKey& singleton();
 
@@ -54,6 +55,7 @@ private:
 };
 
 class CDMPrivateClearKey final : public CDMPrivate {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     CDMPrivateClearKey();
     virtual ~CDMPrivateClearKey();
@@ -75,6 +77,20 @@ public:
     Optional<String> sanitizeSessionId(const String&) const final;
 };
 
+class ProxyCDMClearKey final : public ProxyCDM {
+public:
+    struct Key {
+        CDMInstanceSession::KeyStatus status;
+        String keyIDData;
+        String keyValueData;
+    };
+
+    virtual ~ProxyCDMClearKey() = default;
+    const Vector<Key> isolatedKeys() const;
+private:
+    mutable Lock m_keysMutex;
+};
+
 class CDMInstanceClearKey final : public CDMInstance, public CanMakeWeakPtr<CDMInstanceClearKey> {
 public:
     CDMInstanceClearKey();
@@ -94,12 +110,32 @@ public:
         CDMInstanceSession::KeyStatus status;
         RefPtr<SharedBuffer> keyIDData;
         RefPtr<SharedBuffer> keyValueData;
+
+        String keyIDAsString() const;
+        String keyValueAsString() const;
+
+        bool hasSameKeyValue(const Key &other)
+        {
+            ASSERT(keyValueData);
+            ASSERT(other.keyValueData);
+            return *keyValueData == *other.keyValueData;
+        }
+
+        // Two keys are equal if they have the same ID, ignoring key value and status.
+        friend bool operator==(const Key &k1, const Key &k2);
+        // Key's are ordered by their IDs, first by size, then by contents.
+        friend bool operator<(const Key &k1, const Key &k2);
+
+        friend bool operator!=(const Key &k1, const Key &k2) { return !(operator==(k1, k2)); }
+        friend bool operator>(const Key &k1, const Key &k2) { return !operator==(k1, k2) && !operator<(k1, k2); }
+        friend bool operator<=(const Key &k1, const Key &k2) { return !operator>(k1, k2); }
+        friend bool operator>=(const Key &k1, const Key &k2) { return !operator<(k1, k2); }
     };
 
-    const Vector<Key> keys() const;
+    RefPtr<ProxyCDM> proxyCDM() const final { return m_proxyCDM; }
 
 private:
-    mutable Lock m_keysMutex;
+    RefPtr<ProxyCDM> m_proxyCDM;
 };
 
 class CDMInstanceSessionClearKey final : public CDMInstanceSession, public CanMakeWeakPtr<CDMInstanceSessionClearKey> {

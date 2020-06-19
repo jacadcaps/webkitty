@@ -50,8 +50,11 @@
 @interface WKWebView (TestWebKitAPI)
 @property (nonatomic, readonly) NSArray<NSString *> *tagsInBody;
 - (void)loadTestPageNamed:(NSString *)pageName;
+- (void)synchronouslyGoBack;
+- (void)synchronouslyGoForward;
 - (void)synchronouslyLoadHTMLString:(NSString *)html;
 - (void)synchronouslyLoadHTMLString:(NSString *)html baseURL:(NSURL *)url;
+- (void)synchronouslyLoadRequest:(NSURLRequest *)request;
 - (void)synchronouslyLoadTestPageNamed:(NSString *)pageName;
 - (BOOL)_synchronouslyExecuteEditCommand:(NSString *)command argument:(NSString *)argument;
 - (void)expectElementTagsInOrder:(NSArray<NSString *> *)tagNames;
@@ -60,6 +63,8 @@
 - (NSString *)stringByEvaluatingJavaScript:(NSString *)script;
 - (id)objectByEvaluatingJavaScriptWithUserGesture:(NSString *)script;
 - (id)objectByEvaluatingJavaScript:(NSString *)script;
+- (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments error:(NSError **)errorOut;
+- (unsigned)waitUntilClientWidthIs:(unsigned)expectedClientWidth;
 @end
 
 @interface TestMessageHandler : NSObject <WKScriptMessageHandler>
@@ -80,7 +85,16 @@
 - (void)collapseToStart;
 - (void)collapseToEnd;
 - (void)addToTestWindow;
+- (BOOL)selectionRangeHasStartOffset:(int)start endOffset:(int)end;
+- (void)clickOnElementID:(NSString *)elementID;
 @end
+
+#if PLATFORM(IOS_FAMILY)
+@interface UIView (WKTestingUIViewUtilities)
+- (UIView *)wkFirstSubviewWithClass:(Class)targetClass;
+- (UIView *)wkFirstSubviewWithBoundsSize:(CGSize)size;
+@end
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 @interface WKContentView : UIView
@@ -106,6 +120,7 @@
 - (void)mouseUpAtPoint:(NSPoint)pointInWindow;
 - (void)mouseMoveToPoint:(NSPoint)pointInWindow withFlags:(NSEventModifierFlags)flags;
 - (void)sendClicksAtPoint:(NSPoint)pointInWindow numberOfClicks:(NSUInteger)numberOfClicks;
+- (void)sendClickAtPoint:(NSPoint)pointInWindow;
 - (NSWindow *)hostWindow;
 - (void)typeCharacter:(char)character;
 @end

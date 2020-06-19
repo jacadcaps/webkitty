@@ -31,20 +31,20 @@
 #include <string>
 #include <wtf/RefPtr.h>
 
-class MainWindow : public RefCounted<MainWindow> {
+class MainWindow final : public RefCounted<MainWindow>, public BrowserWindowClient {
 public:
-    using BrowserWindowFactory = std::function<Ref<BrowserWindow>(HWND mainWnd, HWND urlBarWnd, bool usesLayeredWebView, bool pageLoadTesting)>;
+    using BrowserWindowFactory = std::function<Ref<BrowserWindow>(BrowserWindowClient&, HWND mainWnd, bool usesLayeredWebView)>;
 
     static Ref<MainWindow> create();
 
     ~MainWindow();
-    bool init(BrowserWindowFactory, HINSTANCE hInstance, bool usesLayeredWebView = false, bool pageLoadTesting = false);
+    bool init(BrowserWindowFactory, HINSTANCE hInstance, bool usesLayeredWebView = false);
 
     void resizeSubViews();
     HWND hwnd() const { return m_hMainWnd; }
     BrowserWindow* browserWindow() const { return m_browserWindow.get(); }
 
-    void loadURL(BSTR url);
+    void loadURL(std::wstring);
     
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -59,10 +59,17 @@ private:
     void onURLBarEnter();
     void updateDeviceScaleFactor();
 
+    // BrowserWindowClient
+    void progressChanged(double) final;
+    void progressFinished() final;
+    void activeURLChanged(std::wstring) final;
+
     HWND m_hMainWnd { nullptr };
     HWND m_hURLBarWnd { nullptr };
     HWND m_hBackButtonWnd { nullptr };
     HWND m_hForwardButtonWnd { nullptr };
+    HWND m_hReloadButtonWnd { nullptr };
+    HWND m_hProgressIndicator { nullptr };
     HWND m_hCacheWnd { nullptr };
     HGDIOBJ m_hURLBarFont { nullptr };
     RefPtr<BrowserWindow> m_browserWindow;

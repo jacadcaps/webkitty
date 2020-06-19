@@ -57,7 +57,7 @@ testComputed("r", "100px", "100px");
 testComputed("r", "1em", "16px");
 testComputed("r", "1ex", "12.800000190734863px");
 testComputed("r", "20%", "20%");
-testComputed("r", "-200px", "-200px");
+testComputed("r", "-200px", "0px");
 
 // Test 'rx'.
 testComputed("rx", "  100", "100px");
@@ -66,7 +66,7 @@ testComputed("rx", "100px", "100px");
 testComputed("rx", "1em", "16px");
 testComputed("rx", "1ex", "12.800000190734863px");
 testComputed("rx", "20%", "20%");
-testComputed("rx", "-200px", "-200px");
+testComputed("rx", "-200px", "auto");
 
 // Test 'ry'.
 testComputed("ry", "  100", "100px");
@@ -75,7 +75,7 @@ testComputed("ry", "100px", "100px");
 testComputed("ry", "1em", "16px");
 testComputed("ry", "1ex", "12.800000190734863px");
 testComputed("ry", "20%", "20%");
-testComputed("ry", "-200px", "-200px");
+testComputed("ry", "-200px", "auto");
 
 // Test 'width'.
 testComputed("width", "auto", "auto");
@@ -129,18 +129,18 @@ negativeTestZero("r", "100px !important");
 negativeTestZero("r", "{ 100px }");
 
 // Negative tests for 'rx'.
-negativeTestZero("rx", "auto", "auto");
-negativeTestZero("rx", "100   px");
-negativeTestZero("rx", "100px;");
-negativeTestZero("rx", "100px !important");
-negativeTestZero("rx", "{ 100px }");
+negativeTest("rx", "auto", "auto");
+negativeTest("rx", "100   px", "auto");
+negativeTest("rx", "100px;", "auto");
+negativeTest("rx", "100px !important", "auto");
+negativeTest("rx", "{ 100px }", "auto");
 
 // Negative tests for 'ry'.
-negativeTestZero("ry", "auto");
-negativeTestZero("ry", "100   px");
-negativeTestZero("ry", "100px;");
-negativeTestZero("ry", "100px !important");
-negativeTestZero("ry", "{ 100px }");
+negativeTest("ry", "auto", "auto");
+negativeTest("ry", "100   px", "auto");
+negativeTest("ry", "100px;", "auto");
+negativeTest("ry", "100px !important", "auto");
+negativeTest("ry", "{ 100px }", "auto");
 
 // Negative tests for 'width'.
 negativeTest("width", "100   px");

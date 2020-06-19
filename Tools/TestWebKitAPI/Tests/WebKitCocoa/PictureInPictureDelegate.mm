@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
+#if PLATFORM(MAC)
 
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
@@ -38,12 +38,11 @@
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKURLCF.h>
 #import <WebKit/WKView.h>
-#import <WebKit/WKViewPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
-#import <wtf/mac/AppKitCompatibilityDeclarations.h>
 
 static bool receivedLoadedMessage;
 

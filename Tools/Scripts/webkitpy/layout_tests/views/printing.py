@@ -99,12 +99,12 @@ class Printer(object):
         normalize_baseline = lambda baseline_search_path: [
             fs.relpath(x, self._port.layout_tests_dir()).replace("../", "") for x in baseline_search_path]
 
-        self._print_default('Verbose baseline search path: {} -> generic'.format(
-            ' -> '.join(normalize_baseline(full_baseline_search_path))))
+        self._print_default(u'Verbose baseline search path: {} -> generic'.format(
+            u' -> '.join(normalize_baseline(full_baseline_search_path))))
 
         self._print_default('')
-        self._print_default('Baseline search path: {} -> generic'.format(
-            ' -> '.join(normalize_baseline([path for path in full_baseline_search_path if fs.exists(path)]))))
+        self._print_default(u'Baseline search path: {} -> generic'.format(
+            u' -> '.join(normalize_baseline([path for path in full_baseline_search_path if fs.exists(path)]))))
         self._print_default('')
 
     def print_found(self, num_all_test_files, num_to_run, repeat_each, iterations):
@@ -239,7 +239,7 @@ class Printer(object):
         self._print_debug("Time to process slowest subdirectories:")
         min_seconds_to_print = 10
         for timing in timings:
-            if timing[0] > min_seconds_to_print:
+            if timing[1] > min_seconds_to_print:
                 self._print_debug("  %s took %s seconds to run %s tests." % timing)
         self._print_debug("")
 
@@ -254,10 +254,10 @@ class Printer(object):
         percentile99 = timings[int(.99 * num_tests)]
 
         if num_tests % 2 == 1:
-            median = timings[((num_tests - 1) / 2) - 1]
+            median = timings[(num_tests - 1) // 2 - 1]
         else:
-            lower = timings[num_tests / 2 - 1]
-            upper = timings[num_tests / 2]
+            lower = timings[num_tests // 2 - 1]
+            upper = timings[num_tests // 2]
             median = (float(lower + upper)) / 2
 
         mean = sum(timings) / num_tests

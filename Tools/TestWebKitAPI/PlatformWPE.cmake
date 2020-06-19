@@ -6,6 +6,7 @@ add_custom_target(TestWebKitAPI-forwarding-headers
 )
 
 list(APPEND TestWebKit_DEPENDENCIES TestWebKitAPI-forwarding-headers)
+add_dependencies(TestWebKitAPIInjectedBundle TestWebKitAPI-forwarding-headers)
 
 include_directories(SYSTEM
     ${CAIRO_INCLUDE_DIRS}
@@ -83,7 +84,6 @@ target_include_directories(TestWebKitAPIBase PRIVATE
 target_sources(TestWebKitAPIInjectedBundle PRIVATE
     glib/UtilitiesGLib.cpp
 
-    wpe/InjectedBundleControllerWPE.cpp
     wpe/PlatformUtilitiesWPE.cpp
 )
 target_include_directories(TestWebKitAPIInjectedBundle PRIVATE
@@ -100,8 +100,6 @@ set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${TESTWEBKITAPI_DIR}
     ${THIRDPARTY_DIR}/gtest/include
-    ${WTF_FRAMEWORK_HEADERS_DIR}
-    ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
     ${FORWARDING_HEADERS_DIR}
     ${FORWARDING_HEADERS_DIR}/JavaScriptCore
     ${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib
@@ -111,7 +109,7 @@ set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
 set(TestJSC_LIBRARIES
     ${GLIB_LIBRARIES}
     ${GLIB_GMODULE_LIBRARIES}
-    JavaScriptCore
+    WebKit::JavaScriptCore
 )
 
 set(TestJSC_DEFINITIONS

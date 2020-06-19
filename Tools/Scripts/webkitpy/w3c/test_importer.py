@@ -190,6 +190,12 @@ class TestImporter(object):
             if self._tests_options:
                 self.remove_slow_from_w3c_tests_options()
 
+        self.globalToSuffix = dict(
+            window='html',
+            worker='worker.html',
+            dedicatedworker='worker.html',
+            serviceworker='serviceworker.html')
+
     def do_import(self):
         if not self.source_directory:
             _log.info('Downloading W3C test repositories')
@@ -269,6 +275,14 @@ class TestImporter(object):
             if self.filesystem.glob(path.replace('-expected.txt', '*')) == [path]:
                 self.filesystem.remove(path)
 
+    def _source_root_directory_for_path(self, path):
+        if not self._importing_downloaded_tests:
+            return self.source_directory
+        for test_repository in self.test_downloader().load_test_repositories(self.filesystem):
+            source_directory = self.filesystem.join(self.source_directory, test_repository['name'])
+            if path.startswith(source_directory):
+                return source_directory
+
     def find_importable_tests(self, directory):
         def should_keep_subdir(filesystem, path):
             if self._importing_downloaded_tests:
@@ -278,6 +292,7 @@ class TestImporter(object):
             should_skip = filesystem.basename(subdir).startswith('.') or (subdir in DIRS_TO_SKIP)
             return not should_skip
 
+        source_root_directory = self._source_root_directory_for_path(directory)
         directories = self.filesystem.dirs_under(directory, should_keep_subdir)
         for root in directories:
             _log.info('Scanning ' + root + '...')
@@ -302,7 +317,7 @@ class TestImporter(object):
                     copy_list.append({'src': fullpath, 'dest': filename})
                     continue
 
-                test_parser = TestParser(vars(self.options), filename=fullpath, host=self.host)
+                test_parser = TestParser(vars(self.options), filename=fullpath, host=self.host, source_root_directory=source_root_directory)
                 test_info = test_parser.analyze_test()
                 if test_info is None:
                     # This is probably a resource file, but we should generate WPT manifest instead and get the list of resource files from it.
@@ -398,6 +413,16 @@ class TestImporter(object):
         content = '<!-- This file is required for WebKit test infrastructure to run the templated test -->'
         self.filesystem.write_text_file(new_filepath, content + webkit_test_runner_options)
 
+    def readEnvironmentsForTemplateTest(self, filepath):
+        environments = []
+        lines = self.filesystem.read_text_file(filepath).split('\n')
+        for line in lines:
+            if line.startswith('//') and 'META: global=' in line:
+                items = line.split('META: global=', 1)[1].split(',')
+                suffixes = [self.globalToSuffix.get(item.strip(), '') for item in items]
+                environments = list(filter(None, set(suffixes)))
+        return set(environments) if len(environments) else ['html', 'worker.html']
+
     def write_html_files_for_templated_js_tests(self, orig_filepath, new_filepath):
         if (orig_filepath.endswith('.window.js')):
             self._write_html_template(new_filepath.replace('.window.js', '.window.html'))
@@ -406,8 +431,8 @@ class TestImporter(object):
             self._write_html_template(new_filepath.replace('.worker.js', '.worker.html'))
             return
         if (orig_filepath.endswith('.any.js')):
-            self._write_html_template(new_filepath.replace('.any.js', '.any.html'))
-            self._write_html_template(new_filepath.replace('.any.js', '.any.worker.html'))
+            for suffix in self.readEnvironmentsForTemplateTest(orig_filepath):
+                self._write_html_template(new_filepath.replace('.any.js', '.any.' + suffix))
             return
 
     def import_tests(self):
@@ -421,7 +446,7 @@ class TestImporter(object):
 
         # We currently need to rewrite css web-platform-tests because they use a separate "reference" folder for
         # their ref-tests' results.
-        folders_needing_file_rewriting = ['web-platform-tests/css', ]
+        folders_needing_file_rewriting = ['web-platform-tests/']
 
         for dir_to_copy in self.import_list:
             total_imported_tests += dir_to_copy['total_tests']
@@ -484,7 +509,9 @@ class TestImporter(object):
                 # Only html, xml, or css should be converted
                 # FIXME: Eventually, so should js when support is added for this type of conversion
                 mimetype = mimetypes.guess_type(orig_filepath)
-                if should_rewrite_files and ('html' in str(mimetype[0]) or 'xml' in str(mimetype[0])  or 'css' in str(mimetype[0])):
+                if should_rewrite_files and ('text/' in str(mimetype[0]) or 'application/' in str(mimetype[0])) \
+                                        and ('html' in str(mimetype[0]) or 'xml' in str(mimetype[0])  or 'css' in str(mimetype[0]) or 'javascript' in str(mimetype[0])):
+                    _log.info("Rewriting: %s" % new_filepath)
                     try:
                         converted_file = convert_for_webkit(new_path, filename=orig_filepath, reference_support_info=reference_support_info, host=self.host, convert_test_harness_links=self.should_convert_test_harness_links(subpath), webkit_test_runner_options=self._webkit_test_runner_options(new_filepath))
                     except:

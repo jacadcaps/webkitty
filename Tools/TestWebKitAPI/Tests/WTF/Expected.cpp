@@ -407,6 +407,7 @@ TEST(WTF_Expected, destructors)
 static int snowflakes = 0;
 static int melted = 0;
 struct snowflake {
+    WTF_MAKE_STRUCT_FAST_ALLOCATED;
     static void reset() { snowflakes = melted = 0; }
     snowflake() { ++snowflakes; }
     ~snowflake() { ++melted; }
@@ -416,7 +417,7 @@ TEST(WTF_Expected, unique_ptr)
 {
     // Unique snowflakes cannot be copied.
     {
-        auto s = makeUnexpected(std::make_unique<snowflake>());
+        auto s = makeUnexpected(makeUnique<snowflake>());
         EXPECT_EQ(snowflakes, 1);
         EXPECT_EQ(melted, 0);
     }
@@ -425,7 +426,7 @@ TEST(WTF_Expected, unique_ptr)
     snowflake::reset();
 
     {
-        auto s = makeUnexpected(std::make_unique<snowflake>());
+        auto s = makeUnexpected(makeUnique<snowflake>());
         Unexpected<std::unique_ptr<snowflake>> c(WTFMove(s));
         EXPECT_EQ(snowflakes, 1);
         EXPECT_EQ(melted, 0);
@@ -446,7 +447,7 @@ TEST(WTF_Expected, unique_ptr)
     };
 
     {
-        Expected<std::unique_ptr<snowflake>, int> s(std::make_unique<snowflake>());
+        Expected<std::unique_ptr<snowflake>, int> s(makeUnique<snowflake>());
         plow(WTFMove(s).value());
     }
     EXPECT_EQ(snowflakes, 1);
@@ -454,7 +455,7 @@ TEST(WTF_Expected, unique_ptr)
     snowflake::reset();
 
     {
-        Expected<int, std::unique_ptr<snowflake>> s(makeUnexpected(std::make_unique<snowflake>()));
+        Expected<int, std::unique_ptr<snowflake>> s(makeUnexpected(makeUnique<snowflake>()));
         plow(WTFMove(s).error());
     }
     EXPECT_EQ(snowflakes, 1);
@@ -462,7 +463,7 @@ TEST(WTF_Expected, unique_ptr)
     snowflake::reset();
 
     {
-        Expected<void, std::unique_ptr<snowflake>> s(makeUnexpected(std::make_unique<snowflake>()));
+        Expected<void, std::unique_ptr<snowflake>> s(makeUnexpected(makeUnique<snowflake>()));
         plow(WTFMove(s).error());
     }
     EXPECT_EQ(snowflakes, 1);

@@ -29,10 +29,11 @@
 #if ENABLE(WEB_AUTHN)
 
 #import <Security/SecItem.h>
+#import <WebCore/AuthenticatorAssertionResponse.h>
+#import <WebCore/AuthenticatorAttestationResponse.h>
 #import <WebCore/CBORWriter.h>
 #import <WebCore/ExceptionData.h>
 #import <WebCore/PublicKeyCredentialCreationOptions.h>
-#import <WebCore/PublicKeyCredentialData.h>
 #import <WebCore/PublicKeyCredentialRequestOptions.h>
 #import <WebCore/WebAuthenticationConstants.h>
 #import <WebCore/WebAuthenticationUtils.h>
@@ -130,7 +131,7 @@ void LocalAuthenticator::makeCredential()
         OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &attributesArrayRef);
         if (status && status != errSecItemNotFound) {
             LOG_ERROR("Couldn't query Keychain: %d", status);
-            receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+            receiveRespond(ExceptionData { UnknownError, makeString("Couldn't query Keychain: ", status) });
             return;
         }
         auto retainAttributesArray = adoptCF(attributesArrayRef);
@@ -185,8 +186,8 @@ void LocalAuthenticator::continueMakeCredentialAfterUserConsented(LocalConnectio
     };
     OSStatus status = SecItemDelete((__bridge CFDictionaryRef)deleteQuery);
     if (status && status != errSecItemNotFound) {
-        LOG_ERROR("Couldn't detele older credential: %d", status);
-        receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+        LOG_ERROR("Couldn't delete older credential: %d", status);
+        receiveRespond(ExceptionData { UnknownError, makeString("Couldn't delete older credential: ", status) });
         return;
     }
 
@@ -210,7 +211,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
 
     if (error) {
         LOG_ERROR("Couldn't attest: %@", error);
-        receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+        receiveRespond(ExceptionData { UnknownError, makeString("Couldn't attest: ", String(error.localizedDescription)) });
         return;
     }
     // Attestation Certificate and Attestation Issuing CA
@@ -248,7 +249,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
         OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)credentialIdQuery, &attributesRef);
         if (status) {
             LOG_ERROR("Couldn't get Credential ID: %d", status);
-            receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+            receiveRespond(ExceptionData { UnknownError, makeString("Couldn't get Credential ID: ", status) });
             return;
         }
         auto retainAttributes = adoptCF(attributesRef);
@@ -273,7 +274,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
         status = SecItemUpdate((__bridge CFDictionaryRef)updateQuery, (__bridge CFDictionaryRef)updateParams);
         if (status) {
             LOG_ERROR("Couldn't update the Keychain item: %d", status);
-            receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+            receiveRespond(ExceptionData { UnknownError, makeString("Couldn't update the Keychain item: ", status) });
             return;
         }
     }
@@ -294,7 +295,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
             auto retainError = adoptCF(errorRef);
             if (errorRef) {
                 LOG_ERROR("Couldn't export the public key: %@", (NSError*)errorRef);
-                receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+                receiveRespond(ExceptionData { UnknownError, makeString("Couldn't export the public key: ", String(((NSError*)errorRef).localizedDescription)) });
                 return;
             }
             ASSERT(((NSData *)publicKeyDataRef.get()).length == (1 + 2 * ES256FieldElementLength)); // 04 | X | Y
@@ -326,7 +327,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
             auto retainError = adoptCF(errorRef);
             if (errorRef) {
                 LOG_ERROR("Couldn't generate the signature: %@", (NSError*)errorRef);
-                receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+                receiveRespond(ExceptionData { UnknownError, makeString("Couldn't generate the signature: ", String(((NSError*)errorRef).localizedDescription)) });
                 return;
             }
             signature = toVector((NSData *)signatureRef.get());
@@ -340,7 +341,7 @@ void LocalAuthenticator::continueMakeCredentialAfterAttested(SecKeyRef privateKe
     }
     auto attestationObject = buildAttestationObject(WTFMove(authData), "Apple", WTFMove(attestationStatementMap), creationOptions.attestation);
 
-    receiveRespond(PublicKeyCredentialData { ArrayBuffer::create(credentialId.data(), credentialId.size()), true, nullptr, ArrayBuffer::create(attestationObject.data(), attestationObject.size()), nullptr, nullptr, nullptr, WTF::nullopt });
+    receiveRespond(AuthenticatorAttestationResponse::create(credentialId, attestationObject));
 }
 
 void LocalAuthenticator::getAssertion()
@@ -378,7 +379,7 @@ void LocalAuthenticator::getAssertion()
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &attributesArrayRef);
     if (status && status != errSecItemNotFound) {
         LOG_ERROR("Couldn't query Keychain: %d", status);
-        receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+        receiveRespond(ExceptionData { UnknownError, makeString("Couldn't query Keychain: ", status) });
         return;
     }
     auto retainAttributesArray = adoptCF(attributesArrayRef);
@@ -401,8 +402,7 @@ void LocalAuthenticator::getAssertion()
     }
 
     // Step 6.
-    // FIXME(rdar://problem/35900534): We don't have an UI to prompt users for selecting intersectedCredentials, and therefore we always use the first one for now.
-    NSDictionary *selectedCredentialAttributes = intersectedCredentialsAttributes[0];
+    auto *selectedCredentialAttributes = m_connection->selectCredential(intersectedCredentialsAttributes);
 
     // Step 7. Get user consent.
     // FIXME(rdar://problem/35900593): Update to a formal UI.
@@ -461,7 +461,7 @@ void LocalAuthenticator::continueGetAssertionAfterUserConsented(LocalConnection:
         OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &privateKeyRef);
         if (status) {
             LOG_ERROR("Couldn't get the private key reference: %d", status);
-            receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+            receiveRespond(ExceptionData { UnknownError, makeString("Couldn't get the private key reference: ", status) });
             return;
         }
         auto privateKey = adoptCF(privateKeyRef);
@@ -475,14 +475,14 @@ void LocalAuthenticator::continueGetAssertionAfterUserConsented(LocalConnection:
         auto retainError = adoptCF(errorRef);
         if (errorRef) {
             LOG_ERROR("Couldn't generate the signature: %@", (NSError*)errorRef);
-            receiveRespond(ExceptionData { UnknownError, "Unknown internal error."_s });
+            receiveRespond(ExceptionData { UnknownError, makeString("Couldn't generate the signature: ", String(((NSError*)errorRef).localizedDescription)) });
             return;
         }
         signature = toVector((NSData *)signatureRef.get());
     }
 
     // Step 13.
-    receiveRespond(PublicKeyCredentialData { ArrayBuffer::create(credentialId.data(), credentialId.size()), false, nullptr, nullptr, ArrayBuffer::create(authData.data(), authData.size()), ArrayBuffer::create(signature.data(), signature.size()), ArrayBuffer::create(userhandle.data(), userhandle.size()), WTF::nullopt });
+    receiveRespond(AuthenticatorAssertionResponse::create(credentialId, authData, signature, userhandle));
 }
 
 } // namespace WebKit

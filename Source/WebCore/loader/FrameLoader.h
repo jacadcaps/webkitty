@@ -37,6 +37,7 @@
 #include "FrameLoaderTypes.h"
 #include "LayoutMilestone.h"
 #include "MixedContentChecker.h"
+#include "PolicyChecker.h"
 #include "ReferrerPolicy.h"
 #include "ResourceLoadNotifier.h"
 #include "ResourceLoaderOptions.h"
@@ -84,7 +85,6 @@ class SubframeLoader;
 class SubstituteData;
 
 enum class NewLoadInProgress : bool;
-enum class ShouldContinue;
 enum class NavigationPolicyDecision : uint8_t;
 enum class ShouldTreatAsContinuingLoad : bool;
 
@@ -95,7 +95,8 @@ WEBCORE_EXPORT bool isReload(FrameLoadType);
 
 using ContentPolicyDecisionFunction = WTF::Function<void(PolicyAction, PolicyCheckIdentifier)>;
 
-class FrameLoader {
+class FrameLoader final {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(FrameLoader);
 public:
     FrameLoader(Frame&, FrameLoaderClient&);
@@ -146,6 +147,7 @@ public:
     void stopAllLoadersAndCheckCompleteness();
     WEBCORE_EXPORT void stopAllLoaders(ClearProvisionalItemPolicy = ShouldClearProvisionalItem, StopLoadingPolicy = StopLoadingPolicy::PreventDuringUnloadEvents);
     WEBCORE_EXPORT void stopForUserCancel(bool deferCheckLoadComplete = false);
+    void stopForBackForwardCache();
     void stop();
     void stopLoading(UnloadEventPolicy);
     bool closeURL();
@@ -236,7 +238,6 @@ public:
 
     void dispatchOnloadEvents();
     String userAgent(const URL&) const;
-    String userAgentForJavaScript(const URL&) const;
     String navigatorPlatform() const;
 
     void dispatchDidClearWindowObjectInWorld(DOMWrapperWorld&);
@@ -251,6 +252,7 @@ public:
 
     WEBCORE_EXPORT Frame* opener();
     WEBCORE_EXPORT void setOpener(Frame*);
+    WEBCORE_EXPORT void detachFromAllOpenedFrames();
     bool hasOpenedFrames() const { return !m_openedFrames.isEmpty(); }
 
     void resetMultipleFormSubmissionProtection();
@@ -355,7 +357,7 @@ private:
     void dispatchUnloadEvents(UnloadEventPolicy);
 
     void continueLoadAfterNavigationPolicy(const ResourceRequest&, FormState*, NavigationPolicyDecision, AllowNavigationToInvalidURL);
-    void continueLoadAfterNewWindowPolicy(const ResourceRequest&, FormState*, const String& frameName, const NavigationAction&, ShouldContinue, AllowNavigationToInvalidURL, NewFrameOpenerPolicy);
+    void continueLoadAfterNewWindowPolicy(const ResourceRequest&, FormState*, const String& frameName, const NavigationAction&, PolicyChecker::ShouldContinue, AllowNavigationToInvalidURL, NewFrameOpenerPolicy);
     void continueFragmentScrollAfterNavigationPolicy(const ResourceRequest&, bool shouldContinue);
 
     bool shouldPerformFragmentNavigation(bool isFormSubmission, const String& httpMethod, FrameLoadType, const URL&);

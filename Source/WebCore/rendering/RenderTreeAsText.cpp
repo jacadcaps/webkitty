@@ -35,6 +35,7 @@
 #include "HTMLNames.h"
 #include "HTMLSpanElement.h"
 #include "InlineTextBox.h"
+#include "LineLayoutTraversal.h"
 #include "Logging.h"
 #include "PrintContext.h"
 #include "PseudoElement.h"
@@ -63,7 +64,6 @@
 #include "RenderWidget.h"
 #include "SVGRenderTreeAsText.h"
 #include "ShadowRoot.h"
-#include "SimpleLineLayoutResolver.h"
 #include "StyleProperties.h"
 #include <wtf/HexNumber.h>
 #include <wtf/Vector.h>
@@ -160,7 +160,7 @@ String quoteAndEscapeNonPrintables(StringView s)
                 result.append(c);
             else {
                 result.appendLiteral("\\x{");
-                appendUnsignedAsHex(c, result);
+                result.append(hex(c));
                 result.append('}');
             }
         }
@@ -176,8 +176,8 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
     if (behavior.contains(RenderAsTextFlag::ShowAddresses))
         ts << " " << static_cast<const void*>(&o);
 
-    if (o.style().zIndex())
-        ts << " zI: " << o.style().zIndex();
+    if (o.style().usedZIndex()) // FIXME: This should use !hasAutoUsedZIndex().
+        ts << " zI: " << o.style().usedZIndex();
 
     if (o.node()) {
         String tagName = getTagName(o.node());
@@ -202,11 +202,11 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
         // many test results.
         const RenderText& text = downcast<RenderText>(o);
         r = IntRect(text.firstRunLocation(), text.linesBoundingBox().size());
-        if (!text.firstTextBox() && !text.simpleLineLayout())
+        if (!LineLayoutTraversal::firstTextBoxFor(text))
             adjustForTableCells = false;
     } else if (o.isBR()) {
         const RenderLineBreak& br = downcast<RenderLineBreak>(o);
-        IntRect linesBox = br.linesBoundingBox();
+        IntRect linesBox = br.boundingBoxForRenderTreeDump();
         r = IntRect(linesBox.x(), linesBox.y(), linesBox.width(), linesBox.height());
         if (!br.inlineBoxWrapper())
             adjustForTableCells = false;
@@ -244,17 +244,17 @@ void RenderTreeAsText::writeRenderObject(TextStream& ts, const RenderObject& o, 
             // Do not dump invalid or transparent backgrounds, since that is the default.
             Color backgroundColor = o.style().visitedDependentColor(CSSPropertyBackgroundColor);
             if (o.parent()->style().visitedDependentColor(CSSPropertyBackgroundColor).rgb() != backgroundColor.rgb()
-                && backgroundColor.isValid() && backgroundColor.rgb())
+                && backgroundColor.rgb() != Color::transparent)
                 ts << " [bgcolor=" << backgroundColor.nameForRenderTreeAsText() << "]";
             
             Color textFillColor = o.style().visitedDependentColor(CSSPropertyWebkitTextFillColor);
             if (o.parent()->style().visitedDependentColor(CSSPropertyWebkitTextFillColor).rgb() != textFillColor.rgb()  
-                && textFillColor.isValid() && textFillColor.rgb() != color.rgb() && textFillColor.rgb())
+                && textFillColor.rgb() != color.rgb() && textFillColor.rgb() != Color::transparent)
                 ts << " [textFillColor=" << textFillColor.nameForRenderTreeAsText() << "]";
 
             Color textStrokeColor = o.style().visitedDependentColor(CSSPropertyWebkitTextStrokeColor);
             if (o.parent()->style().visitedDependentColor(CSSPropertyWebkitTextStrokeColor).rgb() != textStrokeColor.rgb()
-                && textStrokeColor.isValid() && textStrokeColor.rgb() != color.rgb() && textStrokeColor.rgb())
+                && textStrokeColor.rgb() != color.rgb() && textStrokeColor.rgb() != Color::transparent)
                 ts << " [textStrokeColor=" << textStrokeColor.nameForRenderTreeAsText() << "]";
 
             if (o.parent()->style().textStrokeWidth() != o.style().textStrokeWidth() && o.style().textStrokeWidth() > 0)
@@ -477,45 +477,27 @@ void writeDebugInfo(TextStream& ts, const RenderObject& object, OptionSet<Render
     }
 }
 
-static void writeTextRun(TextStream& ts, const RenderText& o, const InlineTextBox& run)
+static void writeTextBox(TextStream& ts, const RenderText& o, const LineLayoutTraversal::TextBox& textBox)
 {
-    // FIXME: For now use an "enclosingIntRect" model for x, y and logicalWidth, although this makes it harder
-    // to detect any changes caused by the conversion to floating point. :(
-    int x = run.x();
-    int y = run.y();
-    int logicalWidth = ceilf(run.left() + run.logicalWidth()) - x;
-
+    auto rect = textBox.rect();
+    int x = rect.x();
+    int y = rect.y();
+    // FIXME: Use non-logical width. webkit.org/b/206809.
+    int logicalWidth = ceilf(rect.x() + (textBox.isHorizontal() ? rect.width() : rect.height())) - x;
     // FIXME: Table cell adjustment is temporary until results can be updated.
     if (is<RenderTableCell>(*o.containingBlock()))
         y -= floorToInt(downcast<RenderTableCell>(*o.containingBlock()).intrinsicPaddingBefore());
         
     ts << "text run at (" << x << "," << y << ") width " << logicalWidth;
-    if (!run.isLeftToRightDirection() || run.dirOverride()) {
-        ts << (!run.isLeftToRightDirection() ? " RTL" : " LTR");
-        if (run.dirOverride())
+    if (!textBox.isLeftToRightDirection() || textBox.dirOverride()) {
+        ts << (!textBox.isLeftToRightDirection() ? " RTL" : " LTR");
+        if (textBox.dirOverride())
             ts << " override";
     }
     ts << ": "
-        << quoteAndEscapeNonPrintables(String(o.text()).substring(run.start(), run.len()));
-    if (run.hasHyphen())
+        << quoteAndEscapeNonPrintables(textBox.text());
+    if (textBox.hasHyphen())
         ts << " + hyphen string " << quoteAndEscapeNonPrintables(o.style().hyphenString().string());
-    ts << "\n";
-}
-
-static void writeSimpleLine(TextStream& ts, const RenderText& renderText, const SimpleLineLayout::RunResolver::Run& run)
-{
-    auto rect = run.rect();
-    int x = rect.x();
-    int y = rect.y();
-    int logicalWidth = ceilf(rect.x() + rect.width()) - x;
-
-    if (is<RenderTableCell>(*renderText.containingBlock()))
-        y -= floorToInt(downcast<RenderTableCell>(*renderText.containingBlock()).intrinsicPaddingBefore());
-
-    ts << "text run at (" << x << "," << y << ") width " << logicalWidth;
-    ts << ": " << quoteAndEscapeNonPrintables(run.text());
-    if (run.hasHyphen())
-        ts << " + hyphen string " << quoteAndEscapeNonPrintables(renderText.style().hyphenString().string());
     ts << "\n";
 }
 
@@ -563,20 +545,10 @@ void write(TextStream& ts, const RenderObject& o, OptionSet<RenderAsTextFlag> be
 
     if (is<RenderText>(o)) {
         auto& text = downcast<RenderText>(o);
-        if (auto layout = text.simpleLineLayout()) {
-            ASSERT(!text.firstTextBox());
-            auto resolver = runResolver(downcast<RenderBlockFlow>(*text.parent()), *layout);
-            for (auto run : resolver.rangeForRenderer(text)) {
-                ts << indent;
-                writeSimpleLine(ts, text, run);
-            }
-        } else {
-            for (auto* box = text.firstTextBox(); box; box = box->nextTextBox()) {
-                ts << indent;
-                writeTextRun(ts, text, *box);
-            }
+        for (auto& textBox : LineLayoutTraversal::textBoxesFor(text)) {
+            ts << indent;
+            writeTextBox(ts, text, textBox);
         }
-
     } else {
         for (auto& child : childrenOfType<RenderObject>(downcast<RenderElement>(o))) {
             if (child.hasLayer())
@@ -662,7 +634,7 @@ static void writeLayer(TextStream& ts, const RenderLayer& layer, const LayoutRec
     if (layer.isolatesBlending())
         ts << " isolatesBlending";
     if (layer.hasBlendMode())
-        ts << " blendMode: " << compositeOperatorName(CompositeSourceOver, layer.blendMode());
+        ts << " blendMode: " << compositeOperatorName(CompositeOperator::SourceOver, layer.blendMode());
 #endif
     
     ts << "\n";

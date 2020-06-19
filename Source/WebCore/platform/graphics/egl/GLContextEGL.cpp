@@ -21,7 +21,7 @@
 
 #if USE(EGL)
 
-#include "GraphicsContext3D.h"
+#include "GraphicsContextGLOpenGL.h"
 #include "PlatformDisplay.h"
 
 #if USE(LIBEPOXY)
@@ -188,7 +188,8 @@ std::unique_ptr<GLContextEGL> GLContextEGL::createWindowContext(GLNativeWindowTy
     if (platformDisplay.type() == PlatformDisplay::Type::WPE)
         surface = createWindowSurfaceWPE(display, config, window);
 #else
-    surface = eglCreateWindowSurface(display, config, static_cast<EGLNativeWindowType>(window), nullptr);
+    if (surface == EGL_NO_SURFACE)
+        surface = eglCreateWindowSurface(display, config, static_cast<EGLNativeWindowType>(window), nullptr);
 #endif
     if (surface == EGL_NO_SURFACE) {
         WTFLogAlways("Cannot create EGL window surface: %s\n", lastErrorString());
@@ -486,8 +487,8 @@ cairo_device_t* GLContextEGL::cairoDevice()
 }
 #endif
 
-#if ENABLE(GRAPHICS_CONTEXT_3D)
-PlatformGraphicsContext3D GLContextEGL::platformContext()
+#if ENABLE(GRAPHICS_CONTEXT_GL)
+PlatformGraphicsContextGL GLContextEGL::platformContext()
 {
     return m_context;
 }

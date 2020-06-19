@@ -32,10 +32,10 @@ namespace TestWebKitAPI {
 
 StringView stringViewFromLiteral(const char* characters)
 {
-    return StringView(reinterpret_cast<const LChar*>(characters), strlen(characters));
+    return StringView(characters);
 }
 
-StringView stringViewFromUTF8(String &ref, const char* characters)
+StringView stringViewFromUTF8(String& ref, const char* characters)
 {
     ref = String::fromUTF8(characters);
     return ref;
@@ -969,6 +969,15 @@ TEST(WTF, StringViewStripLeadingAndTrailingMatchedCharacters)
 
     StringView nullView;
     EXPECT_TRUE(nullView.stripLeadingAndTrailingMatchedCharacters(isA) == nullView);
+}
+
+TEST(WTF, StringViewIsAllASCII)
+{
+    EXPECT_TRUE(StringView(String("Hello")).isAllASCII());
+    EXPECT_TRUE(StringView(String("Cocoa")).isAllASCII());
+    EXPECT_FALSE(StringView(String("📱")).isAllASCII());
+    EXPECT_FALSE(StringView(String("\u0080")).isAllASCII());
+    EXPECT_TRUE(StringView(String(bitwise_cast<const UChar*>(u"Hello"))).isAllASCII());
 }
 
 } // namespace TestWebKitAPI

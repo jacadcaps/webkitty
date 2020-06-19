@@ -42,10 +42,11 @@ class ApplyWatchListTest(unittest.TestCase):
             'diff': 'The diff',
         }
         expected_logs = """MockWatchList: determine_cc_and_messages
-MOCK bug comment: bug_id=50001, cc=set(['levin@chromium.org']), see_also=None
+MOCK bug comment: bug_id=50001, cc=['levin@chromium.org'], see_also=None
 --- Begin comment ---
 Message2.
 --- End comment ---
 
+Result of watchlist: cc "levin@chromium.org" messages "Message2."
 """
         capture.assert_outputs(self, step.run, [state], expected_logs=expected_logs)

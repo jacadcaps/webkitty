@@ -39,6 +39,7 @@
 #include <JavaScriptCore/JSArrayBufferView.h>
 #include <JavaScriptCore/JSCTestRunnerUtils.h>
 #include <JavaScriptCore/JSContextRef.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
@@ -53,6 +54,7 @@
 #include <wtf/RefPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/UniqueArray.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
@@ -363,11 +365,11 @@ static JSValueRef addURLToRedirectCallback(JSContextRef context, JSObjectRef fun
     ASSERT(!*exception);
 
     size_t maxLength = JSStringGetMaximumUTF8CStringSize(origin.get());
-    auto originBuffer = std::make_unique<char[]>(maxLength + 1);
+    auto originBuffer = makeUniqueArray<char>(maxLength + 1);
     JSStringGetUTF8CString(origin.get(), originBuffer.get(), maxLength + 1);
 
     maxLength = JSStringGetMaximumUTF8CStringSize(destination.get());
-    auto destinationBuffer = std::make_unique<char[]>(maxLength + 1);
+    auto destinationBuffer = makeUniqueArray<char>(maxLength + 1);
     JSStringGetUTF8CString(destination.get(), destinationBuffer.get(), maxLength + 1);
 
     TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
@@ -581,6 +583,9 @@ static JSValueRef overridePreferenceCallback(JSContextRef context, JSObjectRef f
     ASSERT(!*exception);
     auto value = adopt(JSValueToStringCopy(context, arguments[1], exception));
     ASSERT(!*exception);
+
+    // Should use `<!-- webkit-test-runner [ enableBackForwardCache=true ] -->` instead.
+    RELEASE_ASSERT(!JSStringIsEqualToUTF8CString(key.get(), "WebKitUsesBackForwardCachePreferenceKey"));
 
     TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
     controller->overridePreference(key.get(), value.get());
@@ -893,20 +898,6 @@ static JSValueRef setDatabaseQuotaCallback(JSContextRef context, JSObjectRef fun
     return JSValueMakeUndefined(context);
 }
 
-static JSValueRef setIDBPerOriginQuotaCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
-{
-    if (argumentCount < 1)
-        return JSValueMakeUndefined(context);
-    
-    auto* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
-    
-    double quota = JSValueToNumber(context, arguments[0], nullptr);
-    if (!std::isnan(quota))
-        controller->setIDBPerOriginQuota(static_cast<uint64_t>(quota));
-    
-    return JSValueMakeUndefined(context);
-}
-
 static JSValueRef setDefersLoadingCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     if (argumentCount < 1)
@@ -1141,6 +1132,30 @@ static JSValueRef setPrivateBrowsingEnabledCallback(JSContextRef context, JSObje
     return JSValueMakeUndefined(context);
 }
 
+static JSValueRef setShouldSwapToEphemeralSessionOnNextNavigationCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    // Has mac & windows implementation
+    if (argumentCount < 1)
+        return JSValueMakeUndefined(context);
+
+    TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
+    controller->setShouldSwapToEphemeralSessionOnNextNavigation(JSValueToBoolean(context, arguments[0]));
+
+    return JSValueMakeUndefined(context);
+}
+
+static JSValueRef setShouldSwapToDefaultSessionOnNextNavigationCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    // Has mac & windows implementation
+    if (argumentCount < 1)
+        return JSValueMakeUndefined(context);
+
+    TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
+    controller->setShouldSwapToDefaultSessionOnNextNavigation(JSValueToBoolean(context, arguments[0]));
+
+    return JSValueMakeUndefined(context);
+}
+
 static JSValueRef setJavaScriptCanAccessClipboardCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     // Has mac & windows implementation
@@ -1318,7 +1333,7 @@ static JSValueRef setWillSendRequestClearHeaderCallback(JSContextRef context, JS
     ASSERT(!*exception);
 
     size_t maxLength = JSStringGetMaximumUTF8CStringSize(header.get());
-    auto headerBuffer = std::make_unique<char[]>(maxLength + 1);
+    auto headerBuffer = makeUniqueArray<char>(maxLength + 1);
     JSStringGetUTF8CString(header.get(), headerBuffer.get(), maxLength + 1);
 
     TestRunner* controller = static_cast<TestRunner*>(JSObjectGetPrivate(thisObject));
@@ -2220,7 +2235,6 @@ JSStaticFunction* TestRunner::staticFunctions()
         { "setRejectsProtectionSpaceAndContinueForAuthenticationChallenges", setRejectsProtectionSpaceAndContinueForAuthenticationChallengesCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setHandlesAuthenticationChallenges", setHandlesAuthenticationChallengesCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setIconDatabaseEnabled", setIconDatabaseEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
-        { "setIDBPerOriginQuota", setIDBPerOriginQuotaCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setAutomaticLinkDetectionEnabled", setAutomaticLinkDetectionEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setMainFrameIsFirstResponder", setMainFrameIsFirstResponderCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setMockDeviceOrientation", setMockDeviceOrientationCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -2233,7 +2247,9 @@ JSStaticFunction* TestRunner::staticFunctions()
         { "setPopupBlockingEnabled", setPopupBlockingEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setPluginsEnabled", setPluginsEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setPrinting", setPrintingCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
-        { "setPrivateBrowsingEnabled", setPrivateBrowsingEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+        { "setPrivateBrowsingEnabled_DEPRECATED", setPrivateBrowsingEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+        { "setShouldSwapToEphemeralSessionOnNextNavigation", setShouldSwapToEphemeralSessionOnNextNavigationCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+        { "setShouldSwapToDefaultSessionOnNextNavigation", setShouldSwapToDefaultSessionOnNextNavigationCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setSerializeHTTPLoads", setSerializeHTTPLoadsCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setSpatialNavigationEnabled", setSpatialNavigationEnabledCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setStopProvisionalFrameLoads", setStopProvisionalFrameLoadsCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -2394,7 +2410,7 @@ void TestRunner::setShouldPaintBrokenImage(bool shouldPaintBrokenImage)
 void TestRunner::setAccummulateLogsForChannel(JSStringRef channel)
 {
     size_t maxLength = JSStringGetMaximumUTF8CStringSize(channel);
-    auto buffer = std::make_unique<char[]>(maxLength + 1);
+    auto buffer = makeUniqueArray<char>(maxLength + 1);
     JSStringGetUTF8CString(channel, buffer.get(), maxLength + 1);
 
     WebCoreTestSupport::setLogChannelToAccumulate({ buffer.get() });
@@ -2464,7 +2480,7 @@ void TestRunner::runUIScript(JSContextRef context, JSStringRef script, JSValueRe
     cacheTestRunnerCallback(callbackID, callback);
 
     if (!m_UIScriptContext)
-        m_UIScriptContext = std::make_unique<WTR::UIScriptContext>(*this);
+        m_UIScriptContext = makeUniqueWithoutFastMallocCheck<WTR::UIScriptContext>(*this);
 
     String scriptString(JSStringGetCharactersPtr(script), JSStringGetLength(script));
     m_UIScriptContext->runUIScript(scriptString, callbackID);
@@ -2521,7 +2537,7 @@ void TestRunner::setOpenPanelFiles(JSContextRef context, JSValueRef filesValue)
 
         auto file = adopt(JSValueToStringCopy(context, fileValue, nullptr));
         size_t fileBufferSize = JSStringGetMaximumUTF8CStringSize(file.get()) + 1;
-        auto fileBuffer = std::make_unique<char[]>(fileBufferSize);
+        auto fileBuffer = makeUniqueArray<char>(fileBufferSize);
         JSStringGetUTF8CString(file.get(), fileBuffer.get(), fileBufferSize);
 
         m_openPanelFiles.push_back(fileBuffer.get());
@@ -2548,4 +2564,14 @@ void TestRunner::setOpenPanelFilesMediaIcon(JSContextRef context, JSValueRef med
 void TestRunner::cleanup()
 {
     clearTestRunnerCallbacks();
+}
+
+void TestRunner::willNavigate()
+{
+    if (m_shouldSwapToEphemeralSessionOnNextNavigation || m_shouldSwapToDefaultSessionOnNextNavigation) {
+        ASSERT(m_shouldSwapToEphemeralSessionOnNextNavigation != m_shouldSwapToDefaultSessionOnNextNavigation);
+        setPrivateBrowsingEnabled(m_shouldSwapToEphemeralSessionOnNextNavigation);
+        m_shouldSwapToEphemeralSessionOnNextNavigation = false;
+        m_shouldSwapToDefaultSessionOnNextNavigation = false;
+    }
 }

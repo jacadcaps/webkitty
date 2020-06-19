@@ -43,6 +43,7 @@ namespace WKQCA {
 class Image;
 
 class D3DPostProcessingContext {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     D3DPostProcessingContext(const CComPtr<IDirect3DTexture9>&, const CComPtr<IDirect3DVertexBuffer9>&);
 
@@ -104,7 +105,7 @@ private:
     CComPtr<IDirect3DDevice9> m_d3dDevice;
     CARenderOGLContext* m_renderOGLContext { nullptr };
     CComPtr<IDirect3DPixelShader9> m_pixelShader;
-#if !ASSERT_DISABLED
+#if ASSERT_ENABLED
     DWORD m_deviceThreadID { 0 };
 #endif
     bool m_initialized { false };

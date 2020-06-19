@@ -311,6 +311,11 @@ void HTMLSelectElement::parseAttribute(const QualifiedName& name, const AtomStri
         HTMLFormControlElementWithState::parseAttribute(name, value);
 }
 
+int HTMLSelectElement::defaultTabIndex() const
+{
+    return 0;
+}
+
 bool HTMLSelectElement::isKeyboardFocusable(KeyboardEvent* event) const
 {
     if (renderer())
@@ -731,7 +736,7 @@ const Vector<HTMLElement*>& HTMLSelectElement::listItems() const
     if (m_shouldRecalcListItems)
         recalcListItems();
     else {
-#if !ASSERT_DISABLED
+#if ASSERT_ENABLED
         Vector<HTMLElement*> items = m_listItems;
         recalcListItems(false);
         ASSERT(items == m_listItems);

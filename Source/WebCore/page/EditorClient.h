@@ -121,6 +121,7 @@ public:
 
     virtual void handleKeyboardEvent(KeyboardEvent&) = 0;
     virtual void handleInputMethodKeydown(KeyboardEvent&) = 0;
+    virtual void didDispatchInputMethodKeydown(KeyboardEvent&) { }
     
     virtual void textFieldDidBeginEditing(Element*) = 0;
     virtual void textFieldDidEndEditing(Element*) = 0;
@@ -178,7 +179,7 @@ public:
     virtual void showSpellingUI(bool show) = 0;
     virtual bool spellingUIIsShowing() = 0;
     virtual void willSetInputMethodState() = 0;
-    virtual void setInputMethodState(bool enabled) = 0;
+    virtual void setInputMethodState(Element*) = 0;
 
     // Support for global selections, used on platforms like the X Window System that treat
     // selection as a type of clipboard.

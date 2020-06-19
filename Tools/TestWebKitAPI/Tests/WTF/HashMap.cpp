@@ -88,6 +88,9 @@ TEST(WTF_HashMap, DoubleHashCollisions)
     const double negativeZeroKey = -zeroKey;
 
     DoubleHashMap map;
+#if !CHECK_HASHTABLE_ITERATORS &&!DUMP_HASHTABLE_STATS_PER_TABLE
+    static_assert(sizeof(map) == sizeof(void*));
+#endif
 
     map.add(clobberKey, 1);
     map.add(zeroKey, 2);
@@ -191,7 +194,7 @@ TEST(WTF_HashMap, UniquePtrKey)
 
     HashMap<std::unique_ptr<ConstructorDestructorCounter>, int> map;
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     map.add(WTFMove(uniquePtr), 2);
 
     EXPECT_EQ(1u, ConstructorDestructorCounter::constructionCount);
@@ -230,7 +233,7 @@ TEST(WTF_HashMap, UniquePtrKey_FindUsingRawPointer)
 {
     HashMap<std::unique_ptr<int>, int> map;
 
-    auto uniquePtr = std::make_unique<int>(5);
+    auto uniquePtr = makeUniqueWithoutFastMallocCheck<int>(5);
     int* ptr = uniquePtr.get();
     map.add(WTFMove(uniquePtr), 2);
 
@@ -244,7 +247,7 @@ TEST(WTF_HashMap, UniquePtrKey_ContainsUsingRawPointer)
 {
     HashMap<std::unique_ptr<int>, int> map;
 
-    auto uniquePtr = std::make_unique<int>(5);
+    auto uniquePtr = makeUniqueWithoutFastMallocCheck<int>(5);
     int* ptr = uniquePtr.get();
     map.add(WTFMove(uniquePtr), 2);
 
@@ -255,7 +258,7 @@ TEST(WTF_HashMap, UniquePtrKey_GetUsingRawPointer)
 {
     HashMap<std::unique_ptr<int>, int> map;
 
-    auto uniquePtr = std::make_unique<int>(5);
+    auto uniquePtr = makeUniqueWithoutFastMallocCheck<int>(5);
     int* ptr = uniquePtr.get();
     map.add(WTFMove(uniquePtr), 2);
 
@@ -269,7 +272,7 @@ TEST(WTF_HashMap, UniquePtrKey_RemoveUsingRawPointer)
 
     HashMap<std::unique_ptr<ConstructorDestructorCounter>, int> map;
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     ConstructorDestructorCounter* ptr = uniquePtr.get();
     map.add(WTFMove(uniquePtr), 2);
 
@@ -289,7 +292,7 @@ TEST(WTF_HashMap, UniquePtrKey_TakeUsingRawPointer)
 
     HashMap<std::unique_ptr<ConstructorDestructorCounter>, int> map;
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     ConstructorDestructorCounter* ptr = uniquePtr.get();
     map.add(WTFMove(uniquePtr), 2);
 
@@ -563,12 +566,12 @@ TEST(WTF_HashMap, Ensure_UniquePointer)
 {
     HashMap<unsigned, std::unique_ptr<unsigned>> map;
     {
-        auto addResult = map.ensure(1, [] { return std::make_unique<unsigned>(1); });
+        auto addResult = map.ensure(1, [] { return makeUniqueWithoutFastMallocCheck<unsigned>(1); });
         EXPECT_EQ(1u, *map.get(1));
         EXPECT_EQ(1u, *addResult.iterator->value.get());
         EXPECT_EQ(1u, addResult.iterator->key);
         EXPECT_TRUE(addResult.isNewEntry);
-        auto addResult2 = map.ensure(1, [] { return std::make_unique<unsigned>(2); });
+        auto addResult2 = map.ensure(1, [] { return makeUniqueWithoutFastMallocCheck<unsigned>(2); });
         EXPECT_EQ(1u, *map.get(1));
         EXPECT_EQ(1u, *addResult2.iterator->value.get());
         EXPECT_EQ(1u, addResult2.iterator->key);
@@ -590,6 +593,7 @@ TEST(WTF_HashMap, Ensure_RefPtr)
 }
 
 class ObjectWithRefLogger {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     ObjectWithRefLogger(Ref<RefLogger>&& logger)
         : m_logger(WTFMove(logger))
@@ -604,7 +608,7 @@ void testMovingUsingEnsure(Ref<RefLogger>&& logger)
 {
     HashMap<unsigned, std::unique_ptr<ObjectWithRefLogger>> map;
     
-    map.ensure(1, [&] { return std::make_unique<ObjectWithRefLogger>(WTFMove(logger)); });
+    map.ensure(1, [&] { return makeUnique<ObjectWithRefLogger>(WTFMove(logger)); });
 }
 
 void testMovingUsingAdd(Ref<RefLogger>&& logger)
@@ -612,7 +616,7 @@ void testMovingUsingAdd(Ref<RefLogger>&& logger)
     HashMap<unsigned, std::unique_ptr<ObjectWithRefLogger>> map;
 
     auto& slot = map.add(1, nullptr).iterator->value;
-    slot = std::make_unique<ObjectWithRefLogger>(WTFMove(logger));
+    slot = makeUnique<ObjectWithRefLogger>(WTFMove(logger));
 }
 
 TEST(WTF_HashMap, Ensure_LambdasCapturingByReference)
@@ -680,24 +684,25 @@ TEST(WTF_HashMap, ValueIsDestructedOnRemove)
     EXPECT_TRUE(destructed);
 }
 
+struct DerefObserver {
+    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    NEVER_INLINE void ref()
+    {
+        ++count;
+    }
+    NEVER_INLINE void deref()
+    {
+        --count;
+        observedBucket = bucketAddress->get();
+    }
+    unsigned count { 1 };
+    const RefPtr<DerefObserver>* bucketAddress { nullptr };
+    const DerefObserver* observedBucket { nullptr };
+};
+
 TEST(WTF_HashMap, RefPtrNotZeroedBeforeDeref)
 {
-    struct DerefObserver {
-        NEVER_INLINE void ref()
-        {
-            ++count;
-        }
-        NEVER_INLINE void deref()
-        {
-            --count;
-            observedBucket = bucketAddress->get();
-        }
-        unsigned count { 1 };
-        const RefPtr<DerefObserver>* bucketAddress { nullptr };
-        const DerefObserver* observedBucket { nullptr };
-    };
-
-    auto observer = std::make_unique<DerefObserver>();
+    auto observer = makeUnique<DerefObserver>();
 
     HashMap<RefPtr<DerefObserver>, int> map;
     map.add(adoptRef(observer.get()), 5);
@@ -714,7 +719,7 @@ TEST(WTF_HashMap, RefPtrNotZeroedBeforeDeref)
     // value.
     // A zero would be a incorrect outcome as it would mean we nulled the bucket before an opaque
     // call.
-    EXPECT_TRUE(observer->observedBucket == observer.get() || observer->observedBucket == RefPtr<DerefObserver>::hashTableDeletedValue());
+    EXPECT_TRUE(observer->observedBucket == observer.get() || observer->observedBucket == RefPtr<DerefObserver>::PtrTraits::hashTableDeletedValue());
     EXPECT_EQ(observer->count, 0u);
 }
 

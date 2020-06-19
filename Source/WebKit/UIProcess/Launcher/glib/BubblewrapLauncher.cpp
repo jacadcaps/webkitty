@@ -30,6 +30,16 @@
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
+#if PLATFORM(GTK)
+#include "WaylandCompositor.h"
+#endif
+
+#if PLATFORM(GTK)
+#define BASE_DIRECTORY "webkitgtk"
+#elif PLATFORM(WPE)
+#define BASE_DIRECTORY "wpe"
+#endif
+
 #if __has_include(<sys/memfd.h>)
 
 #include <sys/memfd.h>
@@ -125,15 +135,15 @@ class XDGDBusProxyLauncher {
 public:
     void setAddress(const char* dbusAddress, DBusAddressType addressType)
     {
-        GUniquePtr<char> dbusPath = dbusAddressToPath(dbusAddress, addressType);
-        if (!dbusPath.get())
+        CString dbusPath = dbusAddressToPath(dbusAddress, addressType);
+        if (dbusPath.isNull())
             return;
 
-        GUniquePtr<char> appRunDir(g_build_filename(g_get_user_runtime_dir(), g_get_prgname(), nullptr));
-        m_proxyPath = makeProxyPath(appRunDir.get()).get();
+        GUniquePtr<char> appRunDir(g_build_filename(g_get_user_runtime_dir(), BASE_DIRECTORY, nullptr));
+        m_proxyPath = makeProxyPath(appRunDir.get());
 
         m_socket = dbusAddress;
-        m_path = dbusPath.get();
+        m_path = WTFMove(dbusPath);
     }
 
     bool isRunning() const { return m_isRunning; };
@@ -154,7 +164,7 @@ public:
             return;
 
         int syncFds[2];
-        if (pipe2 (syncFds, O_CLOEXEC) == -1)
+        if (pipe2(syncFds, O_CLOEXEC) == -1)
             g_error("Failed to make syncfds for dbus-proxy: %s", g_strerror(errno));
 
         GUniquePtr<char> syncFdStr(g_strdup_printf("--fd=%d", syncFds[1]));
@@ -200,7 +210,7 @@ public:
         char out;
         // We need to ensure the proxy has created the socket.
         // FIXME: This is more blocking IO.
-        if (read (syncFds[0], &out, 1) != 1)
+        if (read(syncFds[0], &out, 1) != 1)
             g_error("Failed to fully launch dbus-proxy %s", g_strerror(errno));
 
         m_isRunning = true;
@@ -213,42 +223,42 @@ private:
         fcntl(fd, F_SETFD, 0); // Unset CLOEXEC
     }
 
-    static GUniquePtr<char> makeProxyPath(const char* appRunDir)
+    static CString makeProxyPath(const char* appRunDir)
     {
         if (g_mkdir_with_parents(appRunDir, 0700) == -1) {
             g_warning("Failed to mkdir for dbus proxy (%s): %s", appRunDir, g_strerror(errno));
-            return GUniquePtr<char>(nullptr);
+            return { };
         }
 
         GUniquePtr<char> proxySocketTemplate(g_build_filename(appRunDir, "dbus-proxy-XXXXXX", nullptr));
         int fd;
         if ((fd = g_mkstemp(proxySocketTemplate.get())) == -1) {
             g_warning("Failed to make socket file for dbus proxy: %s", g_strerror(errno));
-            return GUniquePtr<char>(nullptr);
+            return { };
         }
 
         close(fd);
-        return proxySocketTemplate;
+        return CString(proxySocketTemplate.get());
     };
 
-    static GUniquePtr<char> dbusAddressToPath(const char* address, DBusAddressType addressType = DBusAddressType::Normal)
+    static CString dbusAddressToPath(const char* address, DBusAddressType addressType = DBusAddressType::Normal)
     {
         if (!address)
-            return nullptr;
+            return { };
 
         if (!g_str_has_prefix(address, "unix:"))
-            return nullptr;
+            return { };
 
         const char* path = strstr(address, addressType == DBusAddressType::Abstract ? "abstract=" : "path=");
         if (!path)
-            return nullptr;
+            return { };
 
         path += strlen(addressType == DBusAddressType::Abstract ? "abstract=" : "path=");
         const char* pathEnd = path;
         while (*pathEnd && *pathEnd != ',')
             pathEnd++;
 
-        return GUniquePtr<char>(g_strndup(path, pathEnd - path));
+        return CString(path, pathEnd - path);
 }
 
     CString m_socket;
@@ -294,10 +304,16 @@ static void bindDBusSession(Vector<CString>& args, XDGDBusProxyLauncher& proxy)
 static void bindX11(Vector<CString>& args)
 {
     const char* display = g_getenv("DISPLAY");
-    if (!display || display[0] != ':' || !g_ascii_isdigit(const_cast<char*>(display)[1]))
-        display = ":0";
-    GUniquePtr<char> x11File(g_strdup_printf("/tmp/.X11-unix/X%s", display + 1));
-    bindIfExists(args, x11File.get(), BindFlags::ReadWrite);
+    if (display && display[0] == ':' && g_ascii_isdigit(const_cast<char*>(display)[1])) {
+        const char* displayNumber = &display[1];
+        const char* displayNumberEnd = displayNumber;
+        while (g_ascii_isdigit(*displayNumberEnd))
+            displayNumberEnd++;
+
+        GUniquePtr<char> displayString(g_strndup(displayNumber, displayNumberEnd - displayNumber));
+        GUniquePtr<char> x11File(g_strdup_printf("/tmp/.X11-unix/X%s", displayString.get()));
+        bindIfExists(args, x11File.get(), BindFlags::ReadWrite);
+    }
 
     const char* xauth = g_getenv("XAUTHORITY");
     if (!xauth) {
@@ -311,6 +327,9 @@ static void bindX11(Vector<CString>& args)
 #if PLATFORM(WAYLAND) && USE(EGL)
 static void bindWayland(Vector<CString>& args)
 {
+    if (PlatformDisplay::sharedDisplay().type() != PlatformDisplay::Type::Wayland)
+        return;
+
     const char* display = g_getenv("WAYLAND_DISPLAY");
     if (!display)
         display = "wayland-0";
@@ -318,6 +337,14 @@ static void bindWayland(Vector<CString>& args)
     const char* runtimeDir = g_get_user_runtime_dir();
     GUniquePtr<char> waylandRuntimeFile(g_build_filename(runtimeDir, display, nullptr));
     bindIfExists(args, waylandRuntimeFile.get(), BindFlags::ReadWrite);
+
+#if !USE(WPE_RENDERER)
+    if (WaylandCompositor::singleton().isRunning()) {
+        String displayName = WaylandCompositor::singleton().displayName();
+        waylandRuntimeFile.reset(g_build_filename(runtimeDir, displayName.utf8().data(), nullptr));
+        bindIfExists(args, waylandRuntimeFile.get(), BindFlags::ReadWrite);
+    }
+#endif
 }
 #endif
 
@@ -363,17 +390,20 @@ static void bindFonts(Vector<CString>& args)
 
     // Configs can include custom dirs but then we have to parse them...
     GUniquePtr<char> fontConfig(g_build_filename(configDir, "fontconfig", nullptr));
+    GUniquePtr<char> fontConfigHome(g_build_filename(homeDir, ".fontconfig", nullptr));
     GUniquePtr<char> fontCache(g_build_filename(cacheDir, "fontconfig", nullptr));
     GUniquePtr<char> fontHomeConfig(g_build_filename(homeDir, ".fonts.conf", nullptr));
     GUniquePtr<char> fontHomeConfigDir(g_build_filename(configDir, ".fonts.conf.d", nullptr));
     GUniquePtr<char> fontData(g_build_filename(dataDir, "fonts", nullptr));
     GUniquePtr<char> fontHomeData(g_build_filename(homeDir, ".fonts", nullptr));
     bindIfExists(args, fontConfig.get());
+    bindIfExists(args, fontConfigHome.get());
     bindIfExists(args, fontCache.get(), BindFlags::ReadWrite);
     bindIfExists(args, fontHomeConfig.get());
     bindIfExists(args, fontHomeConfigDir.get());
     bindIfExists(args, fontData.get());
     bindIfExists(args, fontHomeData.get());
+    bindIfExists(args, "/var/cache/fontconfig"); // Used by Debian.
 }
 
 #if PLATFORM(GTK)

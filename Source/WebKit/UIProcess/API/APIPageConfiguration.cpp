@@ -35,12 +35,17 @@
 #include "WebURLSchemeHandler.h"
 #include "WebUserContentControllerProxy.h"
 
+#if USE(APPLE_INTERNAL_SDK)
+#include <WebKitAdditions/PageConfigurationAdditions.h>
+#else
+#define PAGE_CONFIGURATION_ADDITIONS
+#endif
+
 #if ENABLE(APPLICATION_MANIFEST)
 #include "APIApplicationManifest.h"
 #endif
 
 namespace API {
-using namespace WebCore;
 using namespace WebKit;
 
 Ref<PageConfiguration> PageConfiguration::create()
@@ -49,12 +54,11 @@ Ref<PageConfiguration> PageConfiguration::create()
 }
 
 PageConfiguration::PageConfiguration()
+PAGE_CONFIGURATION_ADDITIONS
 {
 }
 
-PageConfiguration::~PageConfiguration()
-{
-}
+PageConfiguration::~PageConfiguration() = default;
 
 Ref<PageConfiguration> PageConfiguration::copy() const
 {
@@ -68,7 +72,6 @@ Ref<PageConfiguration> PageConfiguration::copy() const
     copy->m_relatedPage = this->m_relatedPage;
     copy->m_visitedLinkStore = this->m_visitedLinkStore;
     copy->m_websiteDataStore = this->m_websiteDataStore;
-    copy->m_sessionID = this->m_sessionID;
     copy->m_treatsSHA1SignedCertificatesAsInsecure = this->m_treatsSHA1SignedCertificatesAsInsecure;
 #if PLATFORM(IOS_FAMILY)
     copy->m_alwaysRunsAtForegroundPriority = this->m_alwaysRunsAtForegroundPriority;
@@ -86,6 +89,8 @@ Ref<PageConfiguration> PageConfiguration::copy() const
 #endif
     for (auto& pair : this->m_urlSchemeHandlers)
         copy->m_urlSchemeHandlers.set(pair.key, pair.value.copyRef());
+    copy->m_corsDisablingPatterns = this->m_corsDisablingPatterns;
+    copy->m_webViewCategory = this->m_webViewCategory;
 
     return copy;
 }
@@ -141,7 +146,6 @@ void PageConfiguration::setRelatedPage(WebPageProxy* relatedPage)
     m_relatedPage = relatedPage;
 }
 
-
 VisitedLinkStore* PageConfiguration::visitedLinkStore()
 {
     return m_visitedLinkStore.get();
@@ -152,19 +156,14 @@ void PageConfiguration::setVisitedLinkStore(VisitedLinkStore* visitedLinkStore)
     m_visitedLinkStore = visitedLinkStore;
 }
 
-API::WebsiteDataStore* PageConfiguration::websiteDataStore()
+WebKit::WebsiteDataStore* PageConfiguration::websiteDataStore()
 {
     return m_websiteDataStore.get();
 }
 
-void PageConfiguration::setWebsiteDataStore(API::WebsiteDataStore* websiteDataStore)
+void PageConfiguration::setWebsiteDataStore(WebKit::WebsiteDataStore* websiteDataStore)
 {
     m_websiteDataStore = websiteDataStore;
-
-    if (m_websiteDataStore)
-        m_sessionID = m_websiteDataStore->websiteDataStore().sessionID();
-    else
-        m_sessionID = PAL::SessionID();
 }
 
 WebsitePolicies* PageConfiguration::defaultWebsitePolicies() const
@@ -175,18 +174,6 @@ WebsitePolicies* PageConfiguration::defaultWebsitePolicies() const
 void PageConfiguration::setDefaultWebsitePolicies(WebsitePolicies* policies)
 {
     m_defaultWebsitePolicies = policies;
-}
-
-PAL::SessionID PageConfiguration::sessionID()
-{
-    ASSERT(!m_websiteDataStore || m_websiteDataStore->websiteDataStore().sessionID() == m_sessionID || m_sessionID == PAL::SessionID::legacyPrivateSessionID());
-
-    return m_sessionID;
-}
-
-void PageConfiguration::setSessionID(PAL::SessionID sessionID)
-{
-    m_sessionID = sessionID;
 }
 
 RefPtr<WebKit::WebURLSchemeHandler> PageConfiguration::urlSchemeHandlerForURLScheme(const WTF::String& scheme)

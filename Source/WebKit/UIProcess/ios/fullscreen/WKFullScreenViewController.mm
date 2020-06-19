@@ -43,7 +43,6 @@
 static const NSTimeInterval showHideAnimationDuration = 0.1;
 static const NSTimeInterval pipHideAnimationDuration = 0.2;
 static const NSTimeInterval autoHideDelay = 4.0;
-static const double requiredScore = 0.1;
 
 @class WKFullscreenStackView;
 
@@ -89,6 +88,7 @@ private:
 };
 
 class WKFullScreenViewControllerVideoFullscreenModelClient : WebCore::VideoFullscreenModelClient {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     void setParent(WKFullScreenViewController *parent) { m_parent = parent; }
 
@@ -183,11 +183,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     _nonZeroStatusBarHeight = UIApplication.sharedApplication.statusBarFrame.size.height;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_statusBarFrameDidChange:) name:UIApplicationDidChangeStatusBarFrameNotification object:nil];
 ALLOW_DEPRECATED_DECLARATIONS_END
-    _secheuristic.setRampUpSpeed(Seconds(0.25));
-    _secheuristic.setRampDownSpeed(Seconds(1.));
-    _secheuristic.setXWeight(0);
-    _secheuristic.setGamma(0.1);
-    _secheuristic.setGammaCutoff(0.08);
+    _secheuristic.setParameters(WebKit::FullscreenTouchSecheuristicParameters::iosParameters());
 
     self._webView = webView;
 
@@ -259,7 +255,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)videoControlsManagerDidChange
 {
-    WebKit::WebPageProxy* page = [self._webView _page];
+    auto page = [self._webView _page];
     auto* videoFullscreenManager = page ? page->videoFullscreenManager() : nullptr;
     auto* videoFullscreenInterface = videoFullscreenManager ? videoFullscreenManager->controlsManagerInterface() : nullptr;
     auto* playbackSessionInterface = videoFullscreenInterface ? &videoFullscreenInterface->playbackSessionInterface() : nullptr;
@@ -484,7 +480,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @dynamic _manager;
 - (WebKit::WebFullScreenManagerProxy*)_manager
 {
-    if (auto* page = [self._webView _page])
+    if (auto page = [self._webView _page])
         return page->fullScreenManager();
     return nullptr;
 }
@@ -508,7 +504,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_togglePiPAction:(id)sender
 {
-    WebKit::WebPageProxy* page = [self._webView _page];
+    auto page = [self._webView _page];
     if (!page)
         return;
 
@@ -531,7 +527,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     if ([_touchGestureRecognizer state] == UIGestureRecognizerStateEnded) {
         double score = _secheuristic.scoreOfNextTouch([_touchGestureRecognizer locationInView:self.view]);
-        if (score > requiredScore)
+        if (score > _secheuristic.requiredScore())
             [self _showPhishingAlert];
     }
     if (!self.animating)
@@ -562,21 +558,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     NSString *alertMessage = [NSString stringWithFormat:WEB_UI_STRING("Typing is not allowed in full screen websites. “%@” may be showing a fake keyboard to trick you into disclosing personal or financial information.", "Full Screen Deceptive Website Warning Sheet Content Text"), (NSString *)self.location];
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:alertTitle message:alertMessage preferredStyle:UIAlertControllerStyleAlert];
 
-    if (auto* page = [self._webView _page]) {
+    if (auto page = [self._webView _page]) {
         page->suspendAllMediaPlayback();
         page->suspendActiveDOMObjectsAndAnimations();
     }
 
     UIAlertAction* exitAction = [UIAlertAction actionWithTitle:WEB_UI_STRING_KEY("Exit Full Screen", "Exit Full Screen (Element Full Screen)", "Full Screen Deceptive Website Exit Action") style:UIAlertActionStyleCancel handler:^(UIAlertAction * action) {
         [self _cancelAction:action];
-        if (auto* page = [self._webView _page]) {
+        if (auto page = [self._webView _page]) {
             page->resumeActiveDOMObjectsAndAnimations();
             page->resumeAllMediaPlayback();
         }
     }];
 
     UIAlertAction* stayAction = [UIAlertAction actionWithTitle:WEB_UI_STRING_KEY("Stay in Full Screen", "Stay in Full Screen (Element Full Screen)", "Full Screen Deceptive Website Stay Action") style:UIAlertActionStyleDefault handler:^(UIAlertAction * action) {
-        if (auto* page = [self._webView _page]) {
+        if (auto page = [self._webView _page]) {
             page->resumeActiveDOMObjectsAndAnimations();
             page->resumeAllMediaPlayback();
         }

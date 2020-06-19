@@ -26,6 +26,7 @@
 #include "config.h"
 #include "PageClientImpl.h"
 
+#include "APIViewClient.h"
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "NativeWebMouseEvent.h"
 #include "NativeWebWheelEvent.h"
@@ -33,6 +34,7 @@
 #include "WPEView.h"
 #include "WebContextMenuProxy.h"
 #include "WebContextMenuProxyWPE.h"
+#include "WebKitPopupMenu.h"
 #include <WebCore/ActivityState.h>
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/NotImplemented.h>
@@ -45,7 +47,6 @@ namespace WebKit {
 
 PageClientImpl::PageClientImpl(WKWPE::View& view)
     : m_view(view)
-    , m_scrollGestureController(std::make_unique<ScrollGestureController>())
 {
 }
 
@@ -63,7 +64,7 @@ IPC::Attachment PageClientImpl::hostFileDescriptor()
 
 std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& process)
 {
-    return std::make_unique<DrawingAreaProxyCoordinatedGraphics>(m_view.page(), process);
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(m_view.page(), process);
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region&)
@@ -211,9 +212,10 @@ void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& touchEvent, b
         return;
 
     auto& page = m_view.page();
+    auto& scrollGestureController = m_view.scrollGestureController();
 
-    if (m_scrollGestureController->handleEvent(touchPoint)) {
-        struct wpe_input_axis_event* axisEvent = m_scrollGestureController->axisEvent();
+    if (scrollGestureController.handleEvent(touchPoint)) {
+        struct wpe_input_axis_event* axisEvent = scrollGestureController.axisEvent();
         if (axisEvent->type != wpe_input_axis_event_type_null)
             page.handleWheelEvent(WebKit::NativeWebWheelEvent(axisEvent, m_view.page().deviceScaleFactor()));
         return;
@@ -253,9 +255,11 @@ void PageClientImpl::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&
 {
 }
 
-RefPtr<WebPopupMenuProxy> PageClientImpl::createPopupMenuProxy(WebPageProxy&)
+RefPtr<WebPopupMenuProxy> PageClientImpl::createPopupMenuProxy(WebPageProxy& page)
 {
-    return nullptr;
+    if (!m_view.client().isGLibBasedAPI())
+        return nullptr;
+    return WebKitPopupMenu::create(m_view, page);
 }
 
 #if ENABLE(CONTEXT_MENUS)
@@ -419,5 +423,25 @@ AtkObject* PageClientImpl::accessible()
     return ATK_OBJECT(m_view.accessible());
 }
 #endif
+
+void PageClientImpl::didChangeWebPageID() const
+{
+    m_view.didChangePageID();
+}
+
+void PageClientImpl::sendMessageToWebView(UserMessage&& message, CompletionHandler<void(UserMessage&&)>&& completionHandler)
+{
+    m_view.didReceiveUserMessage(WTFMove(message), WTFMove(completionHandler));
+}
+
+void PageClientImpl::setInputMethodState(Optional<InputMethodState>&& state)
+{
+    m_view.setInputMethodState(WTFMove(state));
+}
+
+void PageClientImpl::selectionDidChange()
+{
+    m_view.selectionDidChange();
+}
 
 } // namespace WebKit

@@ -26,17 +26,16 @@
 #include "config.h"
 #include "DragAndDropSimulator.h"
 
-#if ENABLE(DRAG_SUPPORT) && PLATFORM(IOS_FAMILY)
+#if ENABLE(DRAG_SUPPORT) && PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
 
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
 #import "UIKitSPI.h"
-
 #import <UIKit/UIDragInteraction.h>
 #import <UIKit/UIDragItem.h>
 #import <UIKit/UIDropInteraction.h>
 #import <UIKit/UIInteraction.h>
-#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKFocusedElementInfo.h>
 #import <WebKit/_WKFormInputSession.h>
 #import <wtf/RetainPtr.h>
@@ -496,7 +495,7 @@ IGNORE_WARNINGS_END
                 defaultPreview = adoptNS([[UITargetedDragPreview alloc] initWithView:_webView.get()]);
             }
 
-            id <UIDropInteractionDelegate_Staging_31075005> delegate = (id <UIDropInteractionDelegate_Staging_31075005>)[_webView dropInteractionDelegate];
+            id <UIDropInteractionDelegate_Private> delegate = (id <UIDropInteractionDelegate_Private>)[_webView dropInteractionDelegate];
             UIDropInteraction *interaction = [_webView dropInteraction];
             [_dropPreviews addObject:[delegate dropInteraction:interaction previewForDroppingItem:item withDefault:defaultPreview.get()] ?: NSNull.null];
             [_delayedDropPreviews addObject:NSNull.null];
@@ -650,6 +649,7 @@ IGNORE_WARNINGS_END
         break;
     case DragAndDropPhaseEntered: {
         _lastKnownDropProposal = [[_webView dropInteractionDelegate] dropInteraction:[_webView dropInteraction] sessionDidUpdate:_dropSession.get()];
+        [_webView waitForNextPresentationUpdate];
         if (![self shouldAllowMoveOperation] && [_lastKnownDropProposal operation] == UIDropOperationMove)
             _lastKnownDropProposal = adoptNS([[UIDropProposal alloc] initWithDropOperation:UIDropOperationCancel]);
         break;
@@ -923,4 +923,4 @@ IGNORE_WARNINGS_END
 
 @end
 
-#endif // ENABLE(DRAG_SUPPORT) && PLATFORM(IOS_FAMILY)
+#endif // ENABLE(DRAG_SUPPORT) && PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)

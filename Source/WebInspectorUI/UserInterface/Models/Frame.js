@@ -187,7 +187,12 @@ WI.Frame = class Frame extends WI.Object
 
     get url()
     {
-        return this._mainResource._url;
+        return this._mainResource.url;
+    }
+
+    get urlComponents()
+    {
+        return this._mainResource.urlComponents;
     }
 
     get domTree()
@@ -218,9 +223,11 @@ WI.Frame = class Frame extends WI.Object
 
     addExecutionContext(context)
     {
-        var changedPageContext = this._executionContextList.add(context);
+        this._executionContextList.add(context);
 
-        if (changedPageContext)
+        this.dispatchEventToListeners(WI.Frame.Event.ExecutionContextAdded, {context});
+
+        if (this._executionContextList.pageExecutionContext === context)
             this.dispatchEventToListeners(WI.Frame.Event.PageExecutionContextChanged);
     }
 
@@ -266,11 +273,15 @@ WI.Frame = class Frame extends WI.Object
 
     markDOMContentReadyEvent(timestamp)
     {
+        console.assert(isNaN(this._domContentReadyEventTimestamp));
+
         this._domContentReadyEventTimestamp = timestamp || NaN;
     }
 
     markLoadEvent(timestamp)
     {
+        console.assert(isNaN(this._loadEventTimestamp));
+
         this._loadEventTimestamp = timestamp || NaN;
     }
 
@@ -500,6 +511,7 @@ WI.Frame.Event = {
     ChildFrameWasRemoved: "frame-child-frame-was-removed",
     AllChildFramesRemoved: "frame-all-child-frames-removed",
     PageExecutionContextChanged: "frame-page-execution-context-changed",
+    ExecutionContextAdded: "frame-execution-context-added",
     ExecutionContextsCleared: "frame-execution-contexts-cleared"
 };
 

@@ -50,6 +50,7 @@ struct Int : public CanMakeWeakPtr<Int> {
 };
 
 class Base : public CanMakeWeakPtr<Base> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     Base() { }
 
@@ -559,7 +560,7 @@ TEST(WTF_WeakPtr, WeakHashSetConstObjects)
 TEST(WTF_WeakPtr, WeakHashSetExpansion)
 {
     unsigned initialCapacity;
-    const static unsigned maxLoadCap = 3;
+    static constexpr unsigned maxLoadCap = 3;
     {
         WeakHashSet<Base> weakHashSet;
         Base object;
@@ -578,10 +579,10 @@ TEST(WTF_WeakPtr, WeakHashSetExpansion)
         EXPECT_EQ(weakHashSet.capacity(), 0u);
         EXPECT_TRUE(initialCapacity / maxLoadCap);
         for (unsigned i = 0; i < initialCapacity / maxLoadCap; ++i) {
-            auto object = std::make_unique<Base>();
+            auto object = makeUnique<Base>();
             weakHashSet.add(*object);
             objects.append(WTFMove(object));
-            otherObjects.append(std::make_unique<Base>());
+            otherObjects.append(makeUnique<Base>());
             weakHashSet.checkConsistency();
         }
         EXPECT_EQ(s_baseWeakReferences, otherObjects.size());
@@ -615,7 +616,7 @@ TEST(WTF_WeakPtr, WeakHashSetExpansion)
         EXPECT_EQ(weakHashSet.capacity(), 0u);
         unsigned objectCount = initialCapacity * 2;
         for (unsigned i = 0; i < objectCount; ++i) {
-            auto object = std::make_unique<Base>();
+            auto object = makeUnique<Base>();
             weakHashSet.add(*object);
             objects.append(WTFMove(object));
             weakHashSet.checkConsistency();
@@ -667,10 +668,10 @@ TEST(WTF_WeakPtr, WeakHashSetComputesEmpty)
     {
         WeakHashSet<Base> weakHashSet;
         Vector<std::unique_ptr<Base>> objects;
-        auto firstObject = std::make_unique<Base>();
+        auto firstObject = makeUnique<Base>();
         weakHashSet.add(*firstObject);
         do {
-            auto object = std::make_unique<Base>();
+            auto object = makeUnique<Base>();
             weakHashSet.add(*object);
             objects.append(WTFMove(object));
         } while (weakHashSet.begin().get() == firstObject.get());
@@ -734,8 +735,8 @@ TEST(WTF_WeakPtr, WeakHashSetComputeSize)
 
     while (1) {
         WeakHashSet<Base> weakHashSet;
-        auto firstObject = std::make_unique<Base>();
-        auto lastObject = std::make_unique<Base>();
+        auto firstObject = makeUnique<Base>();
+        auto lastObject = makeUnique<Base>();
         weakHashSet.add(*firstObject);
         weakHashSet.add(*lastObject);
         if (weakHashSet.begin().get() != firstObject.get())
@@ -759,10 +760,10 @@ TEST(WTF_WeakPtr, WeakHashSetComputeSize)
     {
         WeakHashSet<Base> weakHashSet;
         Vector<std::unique_ptr<Base>> objects;
-        auto nonFirstObject = std::make_unique<Base>();
+        auto nonFirstObject = makeUnique<Base>();
         weakHashSet.add(*nonFirstObject);
         do {
-            auto object = std::make_unique<Base>();
+            auto object = makeUnique<Base>();
             weakHashSet.add(*object);
             objects.append(WTFMove(object));
         } while (weakHashSet.begin().get() == nonFirstObject.get());

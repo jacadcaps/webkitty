@@ -201,6 +201,11 @@ function testSyntaxError(script, message) {
         `var O = { *method(await) { return await; } };`,
 
         `(function await() {})`,
+        `(function () { await => {}; })`,
+        `(function () { (await) => {}; })`,
+        `(function () { (x = await => {}) => {}; })`,
+        `(function () { (x = (await) => {}) => {}; })`,
+        `(function () { (x = await /1/g) => {}; })`,
     ];
 
     for (let context of contextData) {
@@ -422,6 +427,9 @@ function testSyntaxError(script, message) {
         `var asyncArrow = async({ await = 1}) => {};`,
         `var asyncArrow = async({ } = await) => 1;`,
         `var asyncArrow = async({ } = await) => {};`,
+        `var asyncArrow = async() => { (x = await => {}) => {} };`,
+        `var asyncArrow = async() => { (x = (await) => {}) => {} };`,
+        `var asyncArrow = async() => { (x = await /1/g) => {} };`,
 
         `({ async method(await) {} })`,
         `({ async method(...await) {} })`,
@@ -552,9 +560,6 @@ async function fn(b) {
         // ObjectLiteral AsyncMethodDefinition
         { prefix: "({ async", suffix: "method() {} }).method" },
 
-        // ClassLiteral AsyncMethodDefinition
-        { prefix: "(class { async", suffix: "method() {} }).prototype.method" },
-
         // AsyncArrowFunctions
         { prefix: "(async", suffix: "param => 1)" },
         { prefix: "(async", suffix: "(param) => 1)" },
@@ -568,6 +573,18 @@ async function fn(b) {
         shouldBe("function", typeof eval(`${prefix} ${suffix}`));
         shouldBe("function", typeof eval(`"use strict";${prefix} ${suffix}`));
         testLineFeedErrors(prefix, suffix);
+    }
+
+    let testsClass = [
+        // ClassLiteral AsyncMethodDefinition
+        { prefix: "(class { async", suffix: "method() {} }).prototype.method" },
+    ];
+
+    for (let { prefix, suffix } of testsClass) {
+        testSyntax(`${prefix} ${suffix}`);
+        testSyntax(`"use strict";${prefix} ${suffix}`);
+        shouldBe("function", typeof eval(`${prefix} ${suffix}`));
+        shouldBe("function", typeof eval(`"use strict";${prefix} ${suffix}`));
     }
 
     // AsyncFunctionDeclaration

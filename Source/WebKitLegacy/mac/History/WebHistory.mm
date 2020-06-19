@@ -133,7 +133,7 @@ private:
         return nil;
     
     _entriesByURL = [[NSMutableDictionary alloc] init];
-    _entriesByDate = std::make_unique<DateToEntriesMap>();
+    _entriesByDate = makeUnique<DateToEntriesMap>();
 
     return self;
 }
@@ -254,7 +254,7 @@ static inline WebHistoryDateKey dateKey(NSTimeInterval date)
 
     [_entriesByURL removeObjectForKey:URLString];
     
-#if ASSERT_DISABLED
+#if !ASSERT_ENABLED
     [self removeItemFromDateCaches:entry];
 #else
     BOOL itemWasInDateCaches = [self removeItemFromDateCaches:entry];

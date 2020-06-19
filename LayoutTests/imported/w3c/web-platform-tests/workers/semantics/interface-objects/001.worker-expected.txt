@@ -10,7 +10,10 @@ PASS The MessageChannel interface object should be exposed.
 PASS The WorkerLocation interface object should be exposed. 
 PASS The ImageData interface object should be exposed. 
 PASS The ImageBitmap interface object should be exposed. 
+PASS The CanvasGradient interface object should be exposed. 
+PASS The CanvasPattern interface object should be exposed. 
 FAIL The CanvasPath interface object should be exposed. assert_own_property: expected property "CanvasPath" missing
+FAIL The TextMetrics interface object should be exposed. assert_own_property: expected property "TextMetrics" missing
 PASS The Path2D interface object should be exposed. 
 PASS The PromiseRejectionEvent interface object should be exposed. 
 PASS The EventSource interface object should be exposed. 
@@ -29,15 +32,15 @@ PASS The Float32Array interface object should be exposed.
 PASS The Float64Array interface object should be exposed. 
 PASS The DataView interface object should be exposed. 
 PASS The XMLHttpRequestEventTarget interface object should be exposed. 
-FAIL The XMLHttpRequestUpload interface object should be exposed. assert_own_property: expected property "XMLHttpRequestUpload" missing
+PASS The XMLHttpRequestUpload interface object should be exposed. 
 PASS The XMLHttpRequest interface object should be exposed. 
 PASS The ProgressEvent interface object should be exposed. 
-FAIL The FormData interface object should be exposed. assert_own_property: expected property "FormData" missing
+PASS The FormData interface object should be exposed. 
 PASS The URL interface object should be exposed. 
 PASS The URLSearchParams interface object should be exposed. 
-FAIL The File interface object should be exposed. assert_own_property: expected property "File" missing
+PASS The File interface object should be exposed. 
 PASS The Blob interface object should be exposed. 
-FAIL The FileList interface object should be exposed. assert_own_property: expected property "FileList" missing
+PASS The FileList interface object should be exposed. 
 PASS The FileReader interface object should be exposed. 
 PASS The FileReaderSync interface object should be exposed. 
 PASS The EventTarget interface object should be exposed. 

@@ -27,6 +27,7 @@
 #include "config.h"
 #include "UserAgent.h"
 
+#include "HTTPParsers.h"
 #include "UserAgentQuirks.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/URL.h>
@@ -91,19 +92,25 @@ static String buildUserAgentString(const UserAgentQuirks& quirks)
         uaString.append(platformVersionForUAString());
     }
 
+    if (quirks.contains(UserAgentQuirks::NeedsFirefoxBrowser)) {
+        uaString.append(UserAgentQuirks::stringForQuirk(UserAgentQuirks::NeedsFirefoxBrowser));
+        return uaString.toString();
+    }
+
     uaString.appendLiteral(") AppleWebKit/");
     uaString.append(versionForUAString());
     uaString.appendLiteral(" (KHTML, like Gecko) ");
 
-    // Note that Chrome UAs advertise *both* Chrome and Safari.
+    // Note that Chrome UAs advertise *both* Chrome/X and Safari/X, but it does
+    // not advertise Version/X.
     if (quirks.contains(UserAgentQuirks::NeedsChromeBrowser)) {
         uaString.append(UserAgentQuirks::stringForQuirk(UserAgentQuirks::NeedsChromeBrowser));
         uaString.appendLiteral(" ");
-    }
-
     // Version/X is mandatory *before* Safari/X to be a valid Safari UA. See
     // https://bugs.webkit.org/show_bug.cgi?id=133403 for details.
-    uaString.appendLiteral("Version/13.0 Safari/");
+    } else
+        uaString.appendLiteral("Version/13.0 ");
+    uaString.appendLiteral("Safari/");
     uaString.append(versionForUAString());
 
     return uaString.toString();
@@ -125,21 +132,30 @@ String standardUserAgent(const String& applicationName, const String& applicatio
     // browsers that are "Safari" but not running on OS X are the Safari iOS browser. Getting this
     // wrong can cause sites to load the wrong JavaScript, CSS, or custom fonts. In some cases
     // sites won't load resources at all.
-    if (applicationName.isEmpty())
-        return standardUserAgentStatic();
 
-    String finalApplicationVersion = applicationVersion;
-    if (finalApplicationVersion.isEmpty())
-        finalApplicationVersion = versionForUAString();
-
-    return standardUserAgentStatic() + ' ' + applicationName + '/' + finalApplicationVersion;
+    String userAgent;
+    if (applicationName.isEmpty()) {
+        userAgent = standardUserAgentStatic();
+    } else {
+        String finalApplicationVersion = applicationVersion;
+        if (finalApplicationVersion.isEmpty())
+            finalApplicationVersion = versionForUAString();
+        userAgent = standardUserAgentStatic() + ' ' + applicationName + '/' + finalApplicationVersion;
+    }
+    ASSERT(isValidUserAgentHeaderValue(userAgent));
+    return userAgent;
 }
 
 String standardUserAgentForURL(const URL& url)
 {
     auto quirks = UserAgentQuirks::quirksForURL(url);
     // The null string means we don't need a specific UA for the given URL.
-    return quirks.isEmpty() ? String() : buildUserAgentString(quirks);
+    if (quirks.isEmpty())
+        return String();
+
+    String userAgent(buildUserAgentString(quirks));
+    ASSERT(isValidUserAgentHeaderValue(userAgent));
+    return userAgent;
 }
 
 } // namespace WebCore

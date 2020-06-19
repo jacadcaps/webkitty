@@ -26,7 +26,7 @@ PASS createElement(col)
 PASS createElement(colgroup) 
 PASS createElement(data) 
 FAIL createElement(datalist) assert_true: HTMLDataListElement is not supported expected true got false
-FAIL createElement(dialog) assert_true: HTMLDialogElement is not supported expected true got false
+PASS createElement(dialog) 
 PASS createElement(dd) 
 PASS createElement(del) 
 PASS createElement(details) 
@@ -128,7 +128,8 @@ PASS createElementNS HTML
 PASS createElementNS non-HTML 
 PASS createProcessingInstruction 
 PASS implementation.createDocumentType 
-FAIL implementation.createDocument assert_equals: origin value expected "null" but got "http://localhost:8800"
+PASS implementation.createDocument 
 PASS implementation.createHTMLDocument 
 PASS node with children 
+PASS Node with custom prototype 
 

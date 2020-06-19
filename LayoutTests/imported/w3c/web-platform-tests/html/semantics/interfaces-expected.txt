@@ -7,8 +7,8 @@ PASS Interfaces for acronym
 PASS Interfaces for ACRONYM 
 PASS Interfaces for address 
 PASS Interfaces for ADDRESS 
-FAIL Interfaces for applet assert_equals: Element applet should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLAppletElement]"
-FAIL Interfaces for APPLET assert_equals: Element APPLET should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLAppletElement]"
+FAIL Interfaces for applet assert_class_string: Element applet should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLAppletElement]"
+FAIL Interfaces for APPLET assert_class_string: Element APPLET should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLAppletElement]"
 PASS Interfaces for area 
 PASS Interfaces for AREA 
 PASS Interfaces for article 
@@ -59,8 +59,8 @@ PASS Interfaces for command
 PASS Interfaces for COMMAND 
 PASS Interfaces for data 
 PASS Interfaces for DATA 
-FAIL Interfaces for datalist assert_equals: Element datalist should have HTMLDataListElement as its primary interface. expected "[object HTMLDataListElement]" but got "[object HTMLUnknownElement]"
-FAIL Interfaces for DATALIST assert_equals: Element DATALIST should have HTMLDataListElement as its primary interface. expected "[object HTMLDataListElement]" but got "[object HTMLUnknownElement]"
+FAIL Interfaces for datalist assert_class_string: Element datalist should have HTMLDataListElement as its primary interface. expected "[object HTMLDataListElement]" but got "[object HTMLUnknownElement]"
+FAIL Interfaces for DATALIST assert_class_string: Element DATALIST should have HTMLDataListElement as its primary interface. expected "[object HTMLDataListElement]" but got "[object HTMLUnknownElement]"
 PASS Interfaces for dd 
 PASS Interfaces for DD 
 PASS Interfaces for del 
@@ -69,8 +69,8 @@ PASS Interfaces for details
 PASS Interfaces for DETAILS 
 PASS Interfaces for dfn 
 PASS Interfaces for DFN 
-FAIL Interfaces for dialog assert_equals: Element dialog should have HTMLDialogElement as its primary interface. expected "[object HTMLDialogElement]" but got "[object HTMLUnknownElement]"
-FAIL Interfaces for DIALOG assert_equals: Element DIALOG should have HTMLDialogElement as its primary interface. expected "[object HTMLDialogElement]" but got "[object HTMLUnknownElement]"
+PASS Interfaces for dialog 
+PASS Interfaces for DIALOG 
 PASS Interfaces for dir 
 PASS Interfaces for DIR 
 PASS Interfaces for directory 
@@ -144,8 +144,8 @@ PASS Interfaces for isindex
 PASS Interfaces for ISINDEX 
 PASS Interfaces for kbd 
 PASS Interfaces for KBD 
-FAIL Interfaces for keygen assert_equals: Element keygen should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLKeygenElement]"
-FAIL Interfaces for KEYGEN assert_equals: Element KEYGEN should have HTMLUnknownElement as its primary interface. expected "[object HTMLUnknownElement]" but got "[object HTMLKeygenElement]"
+PASS Interfaces for keygen 
+PASS Interfaces for KEYGEN 
 PASS Interfaces for label 
 PASS Interfaces for LABEL 
 PASS Interfaces for legend 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2011, 2014-2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,11 @@
 #include <WebCore/CACFLayerTreeHost.h>
 #endif
 
+#if USE(CF)
 #include <CoreFoundation/CoreFoundation.h>
+#endif
+
+#include <WebCore/BString.h>
 #include <WebCore/COMPtr.h>
 #include <WebCore/FontCascade.h>
 #include <WebCore/LocalizedStrings.h>
@@ -60,6 +64,8 @@ static const String& oldPreferencesPath()
     static String path = FileSystem::pathByAppendingComponent(FileSystem::roamingUserSpecificStorageDirectory(), "WebKitPreferences.plist");
     return path;
 }
+
+#if USE(CF)
 
 template<typename NumberType> struct CFNumberTraits { static const CFNumberType Type; };
 template<> struct CFNumberTraits<int> { static const CFNumberType Type = kCFNumberSInt32Type; };
@@ -103,6 +109,7 @@ static bool booleanValueForPreferencesValue(CFPropertyListRef value)
 static CFDictionaryRef defaultSettings;
 
 RetainPtr<CFStringRef> WebPreferences::m_applicationId = kCFPreferencesCurrentApplication;
+#endif
 
 static HashMap<WTF::String, COMPtr<WebPreferences>>& webPreferencesInstances()
 {
@@ -186,13 +193,16 @@ void WebPreferences::removeReferenceForIdentifier(BSTR identifier)
         webPreferencesInstances().remove(identifierString);
 }
 
+#if USE(CF)
 CFStringRef WebPreferences::applicationId()
 {
     return m_applicationId.get();
 }
+#endif
 
 void WebPreferences::initializeDefaultSettings()
 {
+#if USE(CF)
     if (defaultSettings)
         return;
 
@@ -221,6 +231,7 @@ void WebPreferences::initializeDefaultSettings()
     CFDictionaryAddValue(defaults, CFSTR(WebKitJavaScriptEnabledPreferenceKey), kCFBooleanTrue);
     CFDictionaryAddValue(defaults, CFSTR(WebKitJavaScriptRuntimeFlagsPreferenceKey), CFSTR("0"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitWebSecurityEnabledPreferenceKey), kCFBooleanTrue);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitAllowTopNavigationToDataURLsPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitAllowUniversalAccessFromFileURLsPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitAllowFileAccessFromFileURLsPreferenceKey), kCFBooleanTrue);
     CFDictionaryAddValue(defaults, CFSTR(WebKitJavaScriptCanAccessClipboardPreferenceKey), kCFBooleanFalse);
@@ -276,11 +287,7 @@ void WebPreferences::initializeDefaultSettings()
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitUseHighResolutionTimersPreferenceKey), kCFBooleanTrue);
 
-#if USE(CG)
     CFDictionaryAddValue(defaults, CFSTR(WebKitAcceleratedCompositingEnabledPreferenceKey), kCFBooleanTrue);
-#else
-    CFDictionaryAddValue(defaults, CFSTR(WebKitAcceleratedCompositingEnabledPreferenceKey), kCFBooleanFalse);
-#endif
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitShowDebugBordersPreferenceKey), kCFBooleanFalse);
 
@@ -307,7 +314,11 @@ void WebPreferences::initializeDefaultSettings()
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitCustomElementsEnabledPreferenceKey), kCFBooleanFalse);
 
-    CFDictionaryAddValue(defaults, CFSTR(WebKitWebAnimationsEnabledPreferenceKey), kCFBooleanFalse);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitWebAnimationsEnabledPreferenceKey), kCFBooleanTrue);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitWebAnimationsCompositeOperationsEnabledPreferenceKey), kCFBooleanFalse);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitWebAnimationsMutableTimelinesEnabledPreferenceKey), kCFBooleanFalse);
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitWebAnimationsCSSIntegrationEnabledPreferenceKey), kCFBooleanFalse);
 
@@ -331,11 +342,23 @@ void WebPreferences::initializeDefaultSettings()
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitResizeObserverEnabledPreferenceKey), kCFBooleanFalse);
 
+    CFDictionaryAddValue(defaults, CFSTR(WebKitCSSOMViewSmoothScrollingEnabledPreferenceKey), kCFBooleanFalse);
+
     CFDictionaryAddValue(defaults, CFSTR(WebKitCoreMathMLEnabledPreferenceKey), kCFBooleanFalse);
 
+    CFDictionaryAddValue(defaults, CFSTR(WebKitRequestIdleCallbackEnabledPreferenceKey), kCFBooleanFalse);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitAsyncClipboardAPIEnabledPreferenceKey), kCFBooleanFalse);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitAspectRatioOfImgFromWidthAndHeightEnabledPreferenceKey), kCFBooleanFalse);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitWebSQLEnabledPreferenceKey), kCFBooleanFalse);
+
     defaultSettings = defaults;
+#endif
 }
 
+#if USE(CF)
 RetainPtr<CFPropertyListRef> WebPreferences::valueForKey(CFStringRef key)
 {
     RetainPtr<CFPropertyListRef> value = CFDictionaryGetValue(m_privatePrefs.get(), key);
@@ -369,9 +392,11 @@ RetainPtr<CFPropertyListRef> WebPreferences::valueForKey(const char* key)
     RetainPtr<CFStringRef> cfKey = adoptCF(CFStringCreateWithCString(0, key, kCFStringEncodingASCII));
     return valueForKey(cfKey.get());
 }
+#endif
 
 BSTR WebPreferences::stringValueForKey(const char* key)
 {
+#if USE(CF)
     RetainPtr<CFPropertyListRef> value = valueForKey(key);
     
     if (!value || (CFGetTypeID(value.get()) != CFStringGetTypeID()))
@@ -395,26 +420,46 @@ BSTR WebPreferences::stringValueForKey(const char* key)
         
     bstr[length] = 0;
     return bstr;
+#else
+    BString dummy;
+    return dummy;
+#endif
 }
 
 int WebPreferences::integerValueForKey(const char* key)
 {
+#if USE(CF)
     return numberValueForPreferencesValue<int>(valueForKey(key).get());
+#else
+    return 0;
+#endif
 }
 
 BOOL WebPreferences::boolValueForKey(const char* key)
 {
+#if USE(CF)
     return booleanValueForPreferencesValue(valueForKey(key).get());
+#else
+    return 0;
+#endif
 }
 
 float WebPreferences::floatValueForKey(const char* key)
 {
+#if USE(CF)
     return numberValueForPreferencesValue<float>(valueForKey(key).get());
+#else
+    return 0;
+#endif
 }
 
 LONGLONG WebPreferences::longlongValueForKey(const char* key)
 {
+#if USE(CF)
     return numberValueForPreferencesValue<LONGLONG>(valueForKey(key).get());
+#else
+    return 0;
+#endif
 }
 
 void WebPreferences::setStringValue(const char* key, BSTR value)
@@ -423,9 +468,11 @@ void WebPreferences::setStringValue(const char* key, BSTR value)
     val.adoptBSTR(stringValueForKey(key));
     if (val && !wcscmp(val, value))
         return;
-    
+
+#if USE(CF)
     RetainPtr<CFStringRef> valueRef = adoptCF(CFStringCreateWithCharacters(0, reinterpret_cast<const UniChar*>(value), static_cast<CFIndex>(wcslen(value))));
     setValueForKey(key, valueRef.get());
+#endif
 
     postPreferencesChangesNotification();
 }
@@ -435,7 +482,9 @@ void WebPreferences::setIntegerValue(const char* key, int value)
     if (integerValueForKey(key) == value)
         return;
 
+#if USE(CF)
     setValueForKey(key, cfNumber(value).get());
+#endif
 
     postPreferencesChangesNotification();
 }
@@ -445,7 +494,9 @@ void WebPreferences::setFloatValue(const char* key, float value)
     if (floatValueForKey(key) == value)
         return;
 
+#if USE(CF)
     setValueForKey(key, cfNumber(value).get());
+#endif
 
     postPreferencesChangesNotification();
 }
@@ -455,7 +506,9 @@ void WebPreferences::setBoolValue(const char* key, BOOL value)
     if (boolValueForKey(key) == value)
         return;
 
+#if USE(CF)
     setValueForKey(key, value ? kCFBooleanTrue : kCFBooleanFalse);
+#endif
 
     postPreferencesChangesNotification();
 }
@@ -465,7 +518,9 @@ void WebPreferences::setLongLongValue(const char* key, LONGLONG value)
     if (longlongValueForKey(key) == value)
         return;
 
+#if USE(CF)
     setValueForKey(key, cfNumber(value).get());
+#endif
 
     postPreferencesChangesNotification();
 }
@@ -484,18 +539,23 @@ BSTR WebPreferences::webPreferencesRemovedNotification()
 
 void WebPreferences::save()
 {
+#if USE(CF)
     CFPreferencesAppSynchronize(applicationId());
+#endif
 }
 
 void WebPreferences::load()
 {
     initializeDefaultSettings();
 
+#if USE(CF)
     m_privatePrefs = adoptCF(CFDictionaryCreateMutable(0, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 
     migrateWebKitPreferencesToCFPreferences();
+#endif
 }
 
+#if USE(CF)
 void WebPreferences::migrateWebKitPreferencesToCFPreferences()
 {
     if (boolValueForKey(WebKitDidMigrateWebKitPreferencesToCFPreferencesPreferenceKey))
@@ -558,6 +618,7 @@ void WebPreferences::copyWebKitPreferencesToCFPreferences(CFDictionaryRef dict)
         setValueForKey(static_cast<CFStringRef>(keys[i]), values[i]);
     }
 }
+#endif
 
 // IUnknown -------------------------------------------------------------------
 
@@ -584,6 +645,8 @@ HRESULT WebPreferences::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppv
         *ppvObject = static_cast<IWebPreferencesPrivate6*>(this);
     else if (IsEqualGUID(riid, IID_IWebPreferencesPrivate7))
         *ppvObject = static_cast<IWebPreferencesPrivate7*>(this);
+    else if (IsEqualGUID(riid, IID_IWebPreferencesPrivate8))
+        *ppvObject = static_cast<IWebPreferencesPrivate8*>(this);
     else if (IsEqualGUID(riid, CLSID_WebPreferences))
         *ppvObject = this;
     else
@@ -1671,9 +1734,11 @@ HRESULT WebPreferences::setPreferenceForTest(_In_ BSTR key, _In_ BSTR value)
 {
     if (!SysStringLen(key) || !SysStringLen(value))
         return E_FAIL;
+#if USE(CF)
     RetainPtr<CFStringRef> keyString = adoptCF(CFStringCreateWithCharacters(0, reinterpret_cast<UniChar*>(key), SysStringLen(key)));
     RetainPtr<CFStringRef> valueString = adoptCF(CFStringCreateWithCharacters(0, reinterpret_cast<UniChar*>(value), SysStringLen(value)));
     setValueForKey(keyString.get(), valueString.get());
+#endif
     postPreferencesChangesNotification();
     return S_OK;
 }
@@ -1688,12 +1753,10 @@ HRESULT WebPreferences::acceleratedCompositingEnabled(_Out_ BOOL* enabled)
 {
     if (!enabled)
         return E_POINTER;
+    *enabled = boolValueForKey(WebKitAcceleratedCompositingEnabledPreferenceKey);
 #if USE(CA)
-    *enabled = CACFLayerTreeHost::acceleratedCompositingAvailable() && boolValueForKey(WebKitAcceleratedCompositingEnabledPreferenceKey);
-#else
-    *enabled = TRUE;
+    *enabled = *enabled && CACFLayerTreeHost::acceleratedCompositingAvailable();
 #endif
-
     return S_OK;
 }
 
@@ -2038,6 +2101,20 @@ HRESULT WebPreferences::setMenuItemElementEnabled(BOOL enabled)
     return S_OK;
 }
 
+HRESULT WebPreferences::keygenElementEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitKeygenElementEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setKeygenElementEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitKeygenElementEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
 HRESULT WebPreferences::crossOriginWindowPolicySupportEnabled(_Out_ BOOL* enabled)
 {
     if (!enabled)
@@ -2217,9 +2294,53 @@ HRESULT WebPreferences::setCoreMathMLEnabled(BOOL enabled)
     return S_OK;
 }
 
+HRESULT WebPreferences::CSSOMViewSmoothScrollingEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitCSSOMViewSmoothScrollingEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setCSSOMViewSmoothScrollingEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitCSSOMViewSmoothScrollingEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::requestIdleCallbackEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitRequestIdleCallbackEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setRequestIdleCallbackEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitRequestIdleCallbackEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::asyncClipboardAPIEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitAsyncClipboardAPIEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setAsyncClipboardAPIEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitAsyncClipboardAPIEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
 HRESULT WebPreferences::setApplicationId(BSTR applicationId)
 {
+#if USE(CF)
     m_applicationId = String(applicationId).createCFString();
+#endif
     return S_OK;
 }
 
@@ -2234,6 +2355,34 @@ HRESULT WebPreferences::webAnimationsEnabled(_Out_ BOOL* enabled)
     if (!enabled)
         return E_POINTER;
     *enabled = boolValueForKey(WebKitWebAnimationsEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setWebAnimationsCompositeOperationsEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitWebAnimationsCompositeOperationsEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::webAnimationsCompositeOperationsEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitWebAnimationsCompositeOperationsEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setWebAnimationsMutableTimelinesEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitWebAnimationsMutableTimelinesEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::webAnimationsMutableTimelinesEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitWebAnimationsMutableTimelinesEnabledPreferenceKey);
     return S_OK;
 }
 
@@ -2290,5 +2439,47 @@ HRESULT WebPreferences::resizeObserverEnabled(_Out_ BOOL* enabled)
 HRESULT WebPreferences::setResizeObserverEnabled(BOOL enabled)
 {
     setBoolValue(WebKitResizeObserverEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::aspectRatioOfImgFromWidthAndHeightEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitAspectRatioOfImgFromWidthAndHeightEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setAspectRatioOfImgFromWidthAndHeightEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitAspectRatioOfImgFromWidthAndHeightEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::webSQLEnabled(_Out_ BOOL* enabled)
+{
+    if (!enabled)
+        return E_POINTER;
+    *enabled = boolValueForKey(WebKitWebSQLEnabledPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setWebSQLEnabled(BOOL enabled)
+{
+    setBoolValue(WebKitWebSQLEnabledPreferenceKey, enabled);
+    return S_OK;
+}
+
+HRESULT WebPreferences::allowTopNavigationToDataURLs(_Out_ BOOL* allowAccess)
+{
+    if (!allowAccess)
+        return E_POINTER;
+    *allowAccess = boolValueForKey(WebKitAllowTopNavigationToDataURLsPreferenceKey);
+    return S_OK;
+}
+
+HRESULT WebPreferences::setAllowTopNavigationToDataURLs(BOOL allowAccess)
+{
+    setBoolValue(WebKitAllowTopNavigationToDataURLsPreferenceKey, allowAccess);
     return S_OK;
 }

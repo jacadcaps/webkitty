@@ -1,7 +1,3 @@
-CONSOLE MESSAGE: line 27: [blocked] The page at https://localhost:9443/service-workers/service-worker/sandboxed-iframe-fetch-event.https.html was not allowed to display insecure content from blob:null/e9a86ffd-fb5f-43da-b59d-c35969c4f72e.
-
-CONSOLE MESSAGE: line 27: Not allowed to request resource
-CONSOLE MESSAGE: line 27: Cannot load blob:null/e9a86ffd-fb5f-43da-b59d-c35969c4f72e due to access control checks.
 
 Harness Error (TIMEOUT), message = null
 

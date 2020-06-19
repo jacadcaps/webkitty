@@ -409,12 +409,6 @@ bool HTMLFormControlElement::matchesInvalidPseudoClass() const
     return willValidate() && !isValidFormControlElement();
 }
 
-int HTMLFormControlElement::tabIndex() const
-{
-    // Skip the supportsFocus check in HTMLElement.
-    return Element::tabIndex();
-}
-
 bool HTMLFormControlElement::computeWillValidate() const
 {
     if (m_dataListAncestorState == Unknown) {
@@ -480,7 +474,7 @@ void HTMLFormControlElement::updateVisibleValidationMessage()
     if (renderer() && willValidate())
         message = validationMessage().stripWhiteSpace();
     if (!m_validationMessage)
-        m_validationMessage = std::make_unique<ValidationMessage>(this);
+        m_validationMessage = makeUnique<ValidationMessage>(this);
     m_validationMessage->updateValidationMessage(message);
 }
 
@@ -621,7 +615,7 @@ void HTMLFormControlElement::dispatchBlurEvent(RefPtr<Element>&& newFocusedEleme
     hideVisibleValidationMessage();
 }
 
-#if ENABLE(IOS_AUTOCORRECT_AND_AUTOCAPITALIZE)
+#if ENABLE(AUTOCORRECT)
 
 // FIXME: We should look to share this code with class HTMLFormElement instead of duplicating the logic.
 
@@ -634,6 +628,10 @@ bool HTMLFormControlElement::shouldAutocorrect() const
         return form->shouldAutocorrect();
     return true;
 }
+
+#endif
+
+#if ENABLE(AUTOCAPITALIZE)
 
 AutocapitalizeType HTMLFormControlElement::autocapitalizeType() const
 {

@@ -37,7 +37,7 @@
 #import <Contacts/Contacts.h>
 #import <MapKit/MapKit.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
-#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebArchive.h>
 #import <WebKit/WebKitPrivate.h>
 #import <wtf/RetainPtr.h>
@@ -54,7 +54,6 @@ SOFT_LINK_FRAMEWORK(MapKit)
 SOFT_LINK_CLASS(MapKit, MKMapItem)
 SOFT_LINK_CLASS(MapKit, MKPlacemark)
 
-#define USES_MODERN_ATTRIBUTED_STRING_CONVERSION ((PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300))
 @interface NSArray (AttachmentTestingHelpers)
 - (_WKAttachment *)_attachmentWithName:(NSString *)name;
 @end
@@ -69,6 +68,8 @@ SOFT_LINK_CLASS(MapKit, MKPlacemark)
     return nil;
 }
 @end
+
+#define USES_MODERN_ATTRIBUTED_STRING_CONVERSION ((PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) || PLATFORM(MAC))
 
 @interface AttachmentUpdateObserver : NSObject <WKUIDelegatePrivate>
 @property (nonatomic, readonly) NSArray *inserted;

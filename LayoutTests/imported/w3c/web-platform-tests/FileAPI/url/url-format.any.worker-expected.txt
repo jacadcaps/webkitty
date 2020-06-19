@@ -1,5 +1,8 @@
-CONSOLE MESSAGE: line 1774: TypeError: null is not an object (evaluating 'this.message_target.removeEventListener')
-CONSOLE MESSAGE: line 2: ReferenceError: Can't find variable: File
 
-FAIL Untitled ReferenceError: Can't find variable: File
+PASS Generated Blob URLs are unique 
+PASS Blob URL starts with "blob:" 
+PASS Blob URL starts with "blob:" for Files 
+PASS Origin of Blob URL matches our origin 
+PASS Blob URL parses correctly 
+PASS Origin of Blob URL matches our origin for Files 
 

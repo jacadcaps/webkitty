@@ -28,6 +28,13 @@
 #include <windows.h>
 #include <wtf/RefCounted.h>
 
+class BrowserWindowClient {
+public:
+    virtual void progressChanged(double) = 0;
+    virtual void progressFinished() = 0;
+    virtual void activeURLChanged(std::wstring) = 0;
+};
+
 class BrowserWindow : public RefCounted<BrowserWindow> {
 public:
     virtual ~BrowserWindow() { };
@@ -36,6 +43,7 @@ public:
     virtual HWND hwnd() = 0;
 
     virtual HRESULT loadURL(const BSTR& passedURL) = 0;
+    virtual void reload() = 0;
     virtual void navigateForwardOrBackward(UINT menuID) = 0;
     virtual void navigateToHistory(UINT menuID) = 0;
     virtual void setPreference(UINT menuID, bool enable) = 0;

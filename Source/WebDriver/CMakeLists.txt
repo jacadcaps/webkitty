@@ -6,7 +6,6 @@ set(WebDriver_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}"
     "${WEBDRIVER_DIR}"
     "${DERIVED_SOURCES_WEBDRIVER_DIR}"
-    "${WTF_FRAMEWORK_HEADERS_DIR}"
 )
 
 set(WebDriver_SOURCES
@@ -19,12 +18,13 @@ set(WebDriver_SOURCES
 )
 
 set(WebDriver_LIBRARIES
-    WTF
+    WebKit::WTF
 )
 
 set(WebDriver_SCRIPTS
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/ElementAttribute.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/ElementDisplayed.js
+    ${WEBKIT_DIR}/UIProcess/Automation/atoms/ElementEnabled.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/EnterFullscreen.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/FindNodes.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/FormElementClear.js

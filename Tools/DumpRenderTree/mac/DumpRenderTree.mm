@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2020 Apple Inc. All rights reserved.
  *           (C) 2007 Graham Dennis (graham.dennis@gmail.com)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -57,6 +57,7 @@
 #import "WorkQueue.h"
 #import "WorkQueueItem.h"
 #import <CoreFoundation/CoreFoundation.h>
+#import <JavaScriptCore/JSCConfig.h>
 #import <JavaScriptCore/Options.h>
 #import <JavaScriptCore/TestRunnerUtils.h>
 #import <WebCore/LogInitialization.h>
@@ -88,15 +89,16 @@
 #import <WebKit/WebPreferencesPrivate.h>
 #import <WebKit/WebResourceLoadDelegate.h>
 #import <WebKit/WebStorageManagerPrivate.h>
+#import <WebKit/WebView.h>
 #import <WebKit/WebViewPrivate.h>
 #import <getopt.h>
 #import <wtf/Assertions.h>
 #import <wtf/FastMalloc.h>
-#import <wtf/LoggingAccumulator.h>
 #import <wtf/ObjCRuntimeExtras.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Threading.h>
+#import <wtf/UniqueArray.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/WTFString.h>
 
@@ -856,11 +858,14 @@ static void enableExperimentalFeatures(WebPreferences* preferences)
 {
     // FIXME: SpringTimingFunction
     [preferences setGamepadsEnabled:YES];
+    [preferences setHighlightAPIEnabled:YES];
     [preferences setLinkPreloadEnabled:YES];
     [preferences setMediaPreloadingEnabled:YES];
     // FIXME: InputEvents
     [preferences setFetchAPIKeepAliveEnabled:YES];
     [preferences setWebAnimationsEnabled:YES];
+    [preferences setWebAnimationsCompositeOperationsEnabled:YES];
+    [preferences setWebAnimationsMutableTimelinesEnabled:YES];
     [preferences setWebGL2Enabled:YES];
     // FIXME: AsyncFrameScrollingEnabled
     [preferences setCacheAPIEnabled:NO];
@@ -877,8 +882,10 @@ static void enableExperimentalFeatures(WebPreferences* preferences)
     [preferences setCSSOMViewScrollingAPIEnabled:YES];
     [preferences setMediaRecorderEnabled:YES];
     [preferences setReferrerPolicyAttributeEnabled:YES];
-    [preferences setReferrerPolicyAttributeEnabled:YES];
     [preferences setLinkPreloadResponsiveImagesEnabled:YES];
+    [preferences setCSSShadowPartsEnabled:YES];
+    [preferences setAspectRatioOfImgFromWidthAndHeightEnabled:YES];
+    [preferences setCSSOMViewSmoothScrollingEnabled:YES];
 }
 
 // Called before each test.
@@ -979,6 +986,7 @@ static void resetWebPreferencesToConsistentValues()
 
     [preferences setDataTransferItemsEnabled:YES];
     [preferences setCustomPasteboardDataEnabled:YES];
+    [preferences setDialogElementEnabled:YES];
 
     [preferences setWebGL2Enabled:YES];
 
@@ -987,6 +995,7 @@ static void resetWebPreferencesToConsistentValues()
 
     [preferences setHiddenPageDOMTimerThrottlingEnabled:NO];
     [preferences setHiddenPageCSSAnimationSuspensionEnabled:NO];
+    [preferences setRemotePlaybackEnabled:YES];
 
     [preferences setMediaDevicesEnabled:YES];
 
@@ -1001,6 +1010,8 @@ static void resetWebPreferencesToConsistentValues()
 
     preferences.selectionAcrossShadowBoundariesEnabled = YES;
 
+    [preferences setWebSQLEnabled:YES];
+
     [WebPreferences _clearNetworkLoaderSession];
     [WebPreferences _setCurrentNetworkLoaderSessionCookieAcceptPolicy:NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain];
 }
@@ -1012,6 +1023,7 @@ static void setWebPreferencesForTestOptions(const TestOptions& options)
     preferences.attachmentElementEnabled = options.enableAttachmentElement;
     preferences.acceleratedDrawingEnabled = options.useAcceleratedDrawing;
     preferences.menuItemElementEnabled = options.enableMenuItemElement;
+    preferences.keygenElementEnabled = options.enableKeygenElement;
     preferences.modernMediaControlsEnabled = options.enableModernMediaControls;
     preferences.isSecureContextAttributeEnabled = options.enableIsSecureContextAttribute;
     preferences.inspectorAdditionsEnabled = options.enableInspectorAdditions;
@@ -1023,7 +1035,15 @@ static void setWebPreferencesForTestOptions(const TestOptions& options)
     preferences.CSSLogicalEnabled = options.enableCSSLogical;
     preferences.adClickAttributionEnabled = options.adClickAttributionEnabled;
     preferences.resizeObserverEnabled = options.enableResizeObserver;
+    preferences.CSSOMViewSmoothScrollingEnabled = options.enableCSSOMViewSmoothScrolling;
     preferences.coreMathMLEnabled = options.enableCoreMathML;
+    preferences.requestIdleCallbackEnabled = options.enableRequestIdleCallback;
+    preferences.asyncClipboardAPIEnabled = options.enableAsyncClipboardAPI;
+    preferences.privateBrowsingEnabled = options.useEphemeralSession;
+    preferences.usesPageCache = options.enableBackForwardCache;
+    preferences.layoutFormattingContextIntegrationEnabled = options.layoutFormattingContextIntegrationEnabled;
+    preferences.aspectRatioOfImgFromWidthAndHeightEnabled = options.enableAspectRatioOfImgFromWidthAndHeight;
+    preferences.allowTopNavigationToDataURLs = options.allowTopNavigationToDataURLs;
 }
 
 // Called once on DumpRenderTree startup.
@@ -1280,6 +1300,8 @@ void writeCrashedMessageOnFatalError(int signalCode)
 
 void dumpRenderTree(int argc, const char *argv[])
 {
+    JSC::Config::configureForTesting();
+
 #if PLATFORM(IOS_FAMILY)
     setUpIOSLayoutTestCommunication();
     [UIApplication sharedApplication].idleTimerDisabled = YES;
@@ -1533,7 +1555,7 @@ static NSString *dumpFramesAsText(WebFrame *frame)
     // the result without any conversion.
     WKRetainPtr<WKStringRef> stringRef = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)innerText));
     size_t bufferSize = WKStringGetMaximumUTF8CStringSize(stringRef.get());
-    auto buffer = std::make_unique<char[]>(bufferSize);
+    auto buffer = makeUniqueArray<char>(bufferSize);
     size_t stringLength = WKStringGetUTF8CStringNonStrict(stringRef.get(), buffer.get(), bufferSize);
     [result appendFormat:@"%@\n", String::fromUTF8WithLatin1Fallback(buffer.get(), stringLength - 1).createCFString().get()];
 
@@ -1709,6 +1731,7 @@ static void updateDisplay()
     [gDrtWindow layoutTilesNow];
     [webView _flushCompositingChanges];
 #else
+    [webView _forceRepaintForTesting];
     if ([webView _isUsingAcceleratedCompositing])
         [webView display];
     else
@@ -1721,6 +1744,9 @@ void dump()
 #if PLATFORM(IOS_FAMILY)
     WebThreadLock();
 #endif
+
+    if (done)
+        return;
 
     updateDisplay();
 
@@ -1801,7 +1827,7 @@ void dump()
 
 static bool shouldLogFrameLoadDelegates(const char* pathOrURL)
 {
-    return strstr(pathOrURL, "loading/");
+    return strstr(pathOrURL, "loading/") && !strstr(pathOrURL, "://localhost");
 }
 
 static bool shouldLogHistoryDelegates(const char* pathOrURL)
@@ -1825,6 +1851,11 @@ static bool shouldMakeViewportFlexible(const char* pathOrURL)
     return strstr(pathOrURL, "viewport/") && !strstr(pathOrURL, "visual-viewport/");
 }
 #endif
+
+static bool shouldUseEphemeralSession(const char* pathOrURL)
+{
+    return strstr(pathOrURL, "w3c/IndexedDB-private-browsing");
+}
 
 static void setJSCOptions(const TestOptions& options)
 {
@@ -1882,7 +1913,7 @@ static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& option
 #endif
 
     TestRunner::setSerializeHTTPLoads(false);
-    TestRunner::setAllowsAnySSLCertificate(false);
+    TestRunner::setAllowsAnySSLCertificate(true);
 
     setlocale(LC_ALL, "");
 
@@ -1895,7 +1926,7 @@ static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& option
 
 #if !PLATFORM(IOS_FAMILY)
     if (WebCore::Frame* frame = [webView _mainCoreFrame])
-        WebCoreTestSupport::clearWheelEventTestTrigger(*frame);
+        WebCoreTestSupport::clearWheelEventTestMonitor(*frame);
 #endif
 
 #if !PLATFORM(IOS_FAMILY)
@@ -1927,7 +1958,7 @@ static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& option
     [LayoutTestSpellChecker uninstallAndReset];
 #endif
 
-    resetAccumulatedLogs();
+    WebCoreTestSupport::clearAllLogChannelsToAccumulate();
     WebCoreTestSupport::initializeLogChannelsIfNecessary();
 }
 
@@ -2033,7 +2064,6 @@ static void runTest(const string& inputLine)
     gTestRunner->clearAllApplicationCaches();
 
     gTestRunner->clearAllDatabases();
-    gTestRunner->setIDBPerOriginQuota(50 * MB);
 
     if (disallowedURLs)
         CFSetRemoveAllValues(disallowedURLs);
@@ -2057,6 +2087,9 @@ static void runTest(const string& inputLine)
     if (shouldMakeViewportFlexible(pathOrURL.c_str()))
         adjustWebDocumentForFlexibleViewport(gWebBrowserView, gWebScrollView);
 #endif
+
+    if (shouldUseEphemeralSession(pathOrURL.c_str()))
+        [[[mainFrame webView] preferences] setPrivateBrowsingEnabled:YES];
 
     if ([WebHistory optionalSharedHistory])
         [WebHistory setOptionalSharedHistory:nil];

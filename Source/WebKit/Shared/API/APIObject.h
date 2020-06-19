@@ -71,6 +71,7 @@ public:
         ProtectionSpace,
         RenderLayer,
         RenderObject,
+        ResourceLoadInfo,
         SecurityOrigin,
         SessionState,
         SerializedScriptValue,
@@ -109,6 +110,7 @@ public:
         ContentRuleList,
         ContentRuleListAction,
         ContentRuleListStore,
+        ContentWorld,
 #if PLATFORM(IOS_FAMILY)
         ContextMenuElementInfo,
 #endif
@@ -116,6 +118,7 @@ public:
         CookieManager,
         CustomHeaderFields,
         InternalDebugFeature,
+        DebuggableInfo,
         Download,
         ExperimentalFeature,
         FormSubmissionListener,
@@ -153,6 +156,8 @@ public:
         Preferences,
         RequestStorageAccessConfirmResultListener,
         ResourceLoadStatisticsStore,
+        ResourceLoadStatisticsFirstParty,
+        ResourceLoadStatisticsThirdParty,
         RunBeforeUnloadConfirmPanelResultListener,
         RunJavaScriptAlertResultListener,
         RunJavaScriptConfirmResultListener,
@@ -179,6 +184,7 @@ public:
 #endif
 
 #if ENABLE(WEB_AUTHN)
+        WebAuthenticationAssertionResponse,
         WebAuthenticationPanel,
 #endif
 

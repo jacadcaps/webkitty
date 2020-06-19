@@ -38,6 +38,7 @@
 #include <WebKit/WKBundleFrame.h>
 #include <atk/atk.h>
 #include <wtf/Assertions.h>
+#include <wtf/UniqueArray.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
@@ -582,15 +583,15 @@ String attributesOfElement(AccessibilityUIElement* element)
     builder.append('\n');
 
     builder.appendLiteral("AXPosition:  { ");
-    builder.appendFixedPrecisionNumber(element->x(), 6, KeepTrailingZeros);
+    builder.append(FormattedNumber::fixedPrecision(element->x(), 6, KeepTrailingZeros));
     builder.appendLiteral(", ");
-    builder.appendFixedPrecisionNumber(element->y(), 6, KeepTrailingZeros);
+    builder.append(FormattedNumber::fixedPrecision(element->y(), 6, KeepTrailingZeros));
     builder.appendLiteral(" }\n");
 
     builder.appendLiteral("AXSize: { ");
-    builder.appendFixedPrecisionNumber(element->width(), 6, KeepTrailingZeros);
+    builder.append(FormattedNumber::fixedPrecision(element->width(), 6, KeepTrailingZeros));
     builder.appendLiteral(", ");
-    builder.appendFixedPrecisionNumber(element->height(), 6, KeepTrailingZeros);
+    builder.append(FormattedNumber::fixedPrecision(element->height(), 6, KeepTrailingZeros));
     builder.appendLiteral(" }\n");
 
     String title = element->title()->string();
@@ -730,7 +731,7 @@ static JSValueRef convertToJSObjectArray(const Vector<RefPtr<AccessibilityUIElem
     JSContextRef context = WKBundleFrameGetJavaScriptContext(mainFrame);
 
     size_t elementCount = children.size();
-    auto valueElements = std::make_unique<JSValueRef[]>(elementCount);
+    auto valueElements = makeUniqueArray<JSValueRef>(elementCount);
     for (size_t i = 0; i < elementCount; i++)
         valueElements[i] = JSObjectMake(context, children[i]->wrapperClass(), children[i].get());
 

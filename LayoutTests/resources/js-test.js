@@ -4,10 +4,6 @@ if (self.testRunner) {
         testRunner.dumpAsTextWithPixelResults();
     else
         testRunner.dumpAsText();
-
-    // If the test file URL ends in "-private.html", enable private browsing.
-    if (window.location.href.endsWith("-private.html") || self.enablePrivateBrowsing)
-        testRunner.setPrivateBrowsingEnabled(true);
 }
 
 var description, debug, didFailSomeTests, successfullyParsed;
@@ -717,6 +713,11 @@ function expectError()
 
 function shouldReject(_a, _message)
 {
+    return shouldRejectWithErrorName(_a, undefined, _message);
+}
+
+function shouldRejectWithErrorName(_a, _name, _message)
+{
     var _exception;
     var _av;
     try {
@@ -729,7 +730,11 @@ function shouldReject(_a, _message)
     return _av.then(function(result) {
         testFailed((_message ? _message : _a) + " should reject promise. Resolved with " + result + ".");
     }, function(error) {
-        testPassed((_message ? _message : _a) + " rejected promise  with " + error + ".");
+        if (_name === undefined || error['name'] === _name) {
+            // FIXME: Remove the extra space and '.' (DOMException descriptions already end with periods) then rebase tests.
+            testPassed((_message ? _message : _a) + " rejected promise  with " + error + ".");
+        } else
+            testFailed((_message ? _message : _a) + " should reject promise with " + _name + ". Rejected with " + error['name'] + " instead.");
     });
 }
 

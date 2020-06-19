@@ -151,15 +151,11 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     }   
 }
 
-@interface HIDEventGenerator ()
-@property (nonatomic, strong) NSMutableDictionary *eventCallbacks;
-@property (nonatomic, strong) NSArray<UIView *> *debugTouchViews;
-@end
-
 @implementation HIDEventGenerator {
     IOHIDEventSystemClientRef _ioSystemClient;
     SyntheticEventDigitizerInfo _activePoints[HIDMaxTouchCount];
     NSUInteger _activePointCount;
+    RetainPtr<NSMutableDictionary> _eventCallbacks;
 }
 
 + (HIDEventGenerator *)sharedHIDEventGenerator
@@ -186,16 +182,9 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     for (NSUInteger i = 0; i < HIDMaxTouchCount; ++i)
         _activePoints[i].identifier = fingerIdentifiers[i];
 
-    _eventCallbacks = [[NSMutableDictionary alloc] init];
+    _eventCallbacks = adoptNS([[NSMutableDictionary alloc] init]);
 
     return self;
-}
-
-- (void)dealloc
-{
-    [_eventCallbacks release];
-    [_debugTouchViews release];
-    [super dealloc];
 }
 
 - (void)_sendIOHIDKeyboardEvent:(uint64_t)timestamp usage:(uint32_t)usage isKeyDown:(bool)isKeyDown
@@ -712,7 +701,21 @@ static InterpolationType interpolationFromString(NSString *string)
     [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
-- (void)sendTaps:(int)tapCount location:(CGPoint)location withNumberOfTouches:(int)touchCount completionBlock:(void (^)(void))completionBlock
+- (void)_waitFor:(NSTimeInterval)delay
+{
+    if (delay <= 0)
+        return;
+
+    bool doneWaitingForDelay = false;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), [&doneWaitingForDelay] {
+        doneWaitingForDelay = true;
+    });
+
+    while (!doneWaitingForDelay)
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
+}
+
+- (void)sendTaps:(int)tapCount location:(CGPoint)location withNumberOfTouches:(int)touchCount delay:(NSTimeInterval)delay completionBlock:(void (^)(void))completionBlock
 {
     struct timespec doubleDelay = { 0, static_cast<long>(multiTapInterval * nanosecondsPerSecond) };
     struct timespec pressDelay = { 0, static_cast<long>(fingerLiftDelay * nanosecondsPerSecond) };
@@ -723,6 +726,8 @@ static InterpolationType interpolationFromString(NSString *string)
         [self liftUp:location touchCount:touchCount];
         if (i + 1 != tapCount) 
             nanosleep(&doubleDelay, 0);
+
+        [self _waitFor:delay];
     }
     
     [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
@@ -730,17 +735,17 @@ static InterpolationType interpolationFromString(NSString *string)
 
 - (void)tap:(CGPoint)location completionBlock:(void (^)(void))completionBlock
 {
-    [self sendTaps:1 location:location withNumberOfTouches:1 completionBlock:completionBlock];
+    [self sendTaps:1 location:location withNumberOfTouches:1 delay:0 completionBlock:completionBlock];
 }
 
-- (void)doubleTap:(CGPoint)location completionBlock:(void (^)(void))completionBlock
+- (void)doubleTap:(CGPoint)location delay:(NSTimeInterval)delay completionBlock:(void (^)(void))completionBlock
 {
-    [self sendTaps:2 location:location withNumberOfTouches:1 completionBlock:completionBlock];
+    [self sendTaps:2 location:location withNumberOfTouches:1 delay:delay completionBlock:completionBlock];
 }
 
 - (void)twoFingerTap:(CGPoint)location completionBlock:(void (^)(void))completionBlock
 {
-    [self sendTaps:1 location:location withNumberOfTouches:2 completionBlock:completionBlock];
+    [self sendTaps:1 location:location withNumberOfTouches:2 delay:0 completionBlock:completionBlock];
 }
 
 - (void)longPress:(CGPoint)location completionBlock:(void (^)(void))completionBlock
@@ -784,9 +789,9 @@ static InterpolationType interpolationFromString(NSString *string)
     }
 }
 
-- (BOOL)checkForOutstandingCallbacks
+- (BOOL)hasOutstandingCallbacks
 {
-    return !([_eventCallbacks count] > 0);
+    return [_eventCallbacks count];
 }
 
 static inline bool shouldWrapWithShiftKeyEventForCharacter(NSString *key)

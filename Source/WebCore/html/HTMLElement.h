@@ -22,7 +22,7 @@
 
 #pragma once
 
-#if ENABLE(IOS_AUTOCORRECT_AND_AUTOCAPITALIZE)
+#if ENABLE(AUTOCAPITALIZE)
 #include "Autocapitalize.h"
 #endif
 
@@ -37,14 +37,14 @@ class FormNamedItem;
 class HTMLCollection;
 class HTMLFormElement;
 
+enum class EnterKeyHint : uint8_t;
+
 class HTMLElement : public StyledElement {
     WTF_MAKE_ISO_ALLOCATED(HTMLElement);
 public:
     static Ref<HTMLElement> create(const QualifiedName& tagName, Document&);
 
     WEBCORE_EXPORT String title() const final;
-
-    int tabIndex() const override;
 
     WEBCORE_EXPORT ExceptionOr<void> setInnerText(const String&);
     WEBCORE_EXPORT ExceptionOr<void> setOuterText(const String&);
@@ -70,8 +70,8 @@ public:
 
     void accessKeyAction(bool sendMouseEvents) override;
 
-    bool rendererIsNeeded(const RenderStyle&) override;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool rendererIsEverNeeded() final;
 
     WEBCORE_EXPORT virtual HTMLFormElement* form() const;
 
@@ -92,6 +92,8 @@ public:
     virtual FormNamedItem* asFormNamedItem();
     virtual FormAssociatedElement* asFormAssociatedElement();
 
+    virtual bool isInteractiveContent() const { return false; }
+
     bool hasTagName(const HTMLQualifiedName& name) const { return hasLocalName(name.localName()); }
 
     static const AtomString& eventNameForEventHandlerAttribute(const QualifiedName& attributeName);
@@ -100,11 +102,13 @@ public:
     bool canBeActuallyDisabled() const;
     bool isActuallyDisabled() const;
 
-#if ENABLE(IOS_AUTOCORRECT_AND_AUTOCAPITALIZE)
+#if ENABLE(AUTOCAPITALIZE)
     WEBCORE_EXPORT virtual AutocapitalizeType autocapitalizeType() const;
     WEBCORE_EXPORT const AtomString& autocapitalize() const;
     WEBCORE_EXPORT void setAutocapitalize(const AtomString& value);
+#endif
 
+#if ENABLE(AUTOCORRECT)
     bool autocorrect() const { return shouldAutocorrect(); }
     WEBCORE_EXPORT virtual bool shouldAutocorrect() const;
     WEBCORE_EXPORT void setAutocorrect(bool);
@@ -113,6 +117,10 @@ public:
     WEBCORE_EXPORT InputMode canonicalInputMode() const;
     const AtomString& inputMode() const;
     void setInputMode(const AtomString& value);
+
+    WEBCORE_EXPORT EnterKeyHint canonicalEnterKeyHint() const;
+    String enterKeyHint() const;
+    void setEnterKeyHint(const String& value);
 
 protected:
     HTMLElement(const QualifiedName& tagName, Document&, ConstructionType);

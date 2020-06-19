@@ -29,9 +29,10 @@
 
 #include "AudioSampleBufferList.h"
 #include <CoreAudio/CoreAudioTypes.h>
+#include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
-#include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
 typedef const struct opaqueCMFormatDescription *CMFormatDescriptionRef;
@@ -42,9 +43,13 @@ namespace WebCore {
 class CAAudioStreamDescription;
 class CARingBuffer;
 
-class AudioSampleDataSource : public RefCounted<AudioSampleDataSource> {
+class AudioSampleDataSource : public ThreadSafeRefCounted<AudioSampleDataSource, WTF::DestructionThread::MainRunLoop>
+#if !RELEASE_LOG_DISABLED
+    , private LoggerHelper
+#endif
+    {
 public:
-    static Ref<AudioSampleDataSource> create(size_t);
+    static Ref<AudioSampleDataSource> create(size_t, WTF::LoggerHelper&);
 
     ~AudioSampleDataSource();
 
@@ -68,8 +73,14 @@ public:
     void setMuted(bool muted) { m_muted = muted; }
     bool muted() const { return m_muted; }
 
-protected:
-    AudioSampleDataSource(size_t);
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const final { return m_logger; }
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    void setLogger(Ref<const Logger>&&, const void*);
+#endif
+
+private:
+    AudioSampleDataSource(size_t, LoggerHelper&);
 
     OSStatus setupConverter();
     bool pullSamplesInternal(AudioBufferList&, size_t&, uint64_t, double, PullMode);
@@ -81,9 +92,13 @@ protected:
 
     MediaTime hostTime() const;
 
+#if !RELEASE_LOG_DISABLED
+    const char* logClassName() const final { return "AudioSampleDataSource"; }
+    WTFLogChannel& logChannel() const final;
+#endif
+
     uint64_t m_lastPushedSampleCount { 0 };
     MediaTime m_expectedNextPushedSampleTime { MediaTime::invalidTime() };
-    double m_hostTime { -1 };
 
     MediaTime m_inputSampleOffset;
     int64_t m_outputSampleOffset { 0 };
@@ -98,6 +113,11 @@ protected:
     bool m_muted { false };
     bool m_paused { true };
     bool m_transitioningFromPaused { true };
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 };
 
 } // namespace WebCore

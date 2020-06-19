@@ -42,7 +42,7 @@ function test()
                 // Initialize the DOM agent.
                 InspectorProtocol.sendCommand("DOM.getDocument", {}, function() {
                     ProtocolTest.log("Main document loaded");
-                    
+
                     // Add the iframe to the DOM.
                     InspectorProtocol.sendCommand("Runtime.evaluate", { "expression": "appendIframe()" });
                 });

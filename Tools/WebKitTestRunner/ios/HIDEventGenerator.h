@@ -87,7 +87,7 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *, uint64_t timestamp, bool 
 
 // Taps
 - (void)tap:(CGPoint)location completionBlock:(void (^)(void))completionBlock;
-- (void)doubleTap:(CGPoint)location completionBlock:(void (^)(void))completionBlock;
+- (void)doubleTap:(CGPoint)location delay:(NSTimeInterval)delay completionBlock:(void (^)(void))completionBlock;
 - (void)twoFingerTap:(CGPoint)location completionBlock:(void (^)(void))completionBlock;
 
 // Long Press
@@ -104,7 +104,7 @@ RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *, uint64_t timestamp, bool 
 - (void)sendEventStream:(NSDictionary *)eventInfo completionBlock:(void (^)(void))completionBlock;
 
 - (void)markerEventReceived:(IOHIDEventRef)event;
-- (BOOL)checkForOutstandingCallbacks;
+- (BOOL)hasOutstandingCallbacks;
 
 // Keyboard
 - (void)keyPress:(NSString *)character completionBlock:(void (^)(void))completionBlock;

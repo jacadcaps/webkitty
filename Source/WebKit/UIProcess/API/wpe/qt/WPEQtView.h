@@ -22,7 +22,6 @@
 
 #include "config.h"
 
-#include "WPEQtViewBackend.h"
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QUrl>
@@ -30,6 +29,7 @@
 #include <wpe/webkit.h>
 #include <wtf/glib/GRefPtr.h>
 
+class WPEQtViewBackend;
 class WPEQtViewLoadRequest;
 
 class WPEQtView : public QQuickItem {
@@ -77,7 +77,7 @@ Q_SIGNALS:
     void webViewCreated();
     void urlChanged();
     void titleChanged();
-    void loadingChanged(WPEQtViewLoadRequest*);
+    void loadingChanged(WPEQtViewLoadRequest* loadRequest);
     void loadProgressChanged();
 
 protected:

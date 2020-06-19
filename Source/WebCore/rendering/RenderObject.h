@@ -53,7 +53,6 @@ class HitTestResult;
 class InlineBox;
 class Path;
 class Position;
-class PseudoStyleRequest;
 class RenderBoxModelObject;
 class RenderInline;
 class RenderBlock;
@@ -84,6 +83,10 @@ const int caretWidth = 1;
 enum class ShouldAllowCrossOriginScrolling { No, Yes };
 
 struct ScrollRectToVisibleOptions;
+
+namespace Style {
+class PseudoElementRequest;
+}
 
 // Base class for all rendering tree objects.
 class RenderObject : public CachedImageClient, public CanMakeWeakPtr<RenderObject> {
@@ -162,7 +165,7 @@ public:
     WEBCORE_EXPORT bool useDarkAppearance() const;
     OptionSet<StyleColor::Options> styleColorOptions() const;
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     void setHasAXObject(bool flag) { m_hasAXObject = flag; }
     bool hasAXObject() const { return m_hasAXObject; }
 
@@ -175,7 +178,7 @@ public:
         RenderObject* m_renderObject;
         bool m_preexistingForbidden;
     };
-#endif
+#endif // ASSERT_ENABLED
 
     // Obtains the nearest enclosing block (including this block) that contributes a first-line style to our inline
     // children.
@@ -723,7 +726,7 @@ public:
      */
     virtual LayoutRect localCaretRect(InlineBox*, unsigned caretOffset, LayoutUnit* extraWidthToEndOfLine = nullptr);
 
-    // When performing a global document tear-down, or when going into the page cache, the renderer of the document is cleared.
+    // When performing a global document tear-down, or when going into the back/forward cache, the renderer of the document is cleared.
     bool renderTreeBeingDestroyed() const;
 
     void destroy();
@@ -810,7 +813,7 @@ protected:
     }
 
 private:
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     bool isSetNeedsLayoutForbidden() const { return m_setNeedsLayoutForbidden; }
     void setNeedsLayoutIsForbidden(bool flag) { m_setNeedsLayoutForbidden = flag; }
 #endif
@@ -830,7 +833,7 @@ private:
     bool hasRareData() const { return m_bitfields.hasRareData(); }
     void setHasRareData(bool b) { m_bitfields.setHasRareData(b); }
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     void checkBlockPositionedObjectsNeedLayout();
 #endif
 
@@ -840,7 +843,7 @@ private:
     RenderObject* m_previous;
     RenderObject* m_next;
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     bool m_hasAXObject             : 1;
     bool m_setNeedsLayoutForbidden : 1;
 #endif
@@ -1104,6 +1107,8 @@ inline bool RenderObject::needsSimplifiedNormalFlowLayoutOnly() const
     return m_bitfields.needsSimplifiedNormalFlowLayout() && !m_bitfields.needsLayout() && !m_bitfields.normalChildNeedsLayout()
         && !m_bitfields.posChildNeedsLayout() && !m_bitfields.needsPositionedMovementLayout();
 }
+
+inline void Node::setRenderer(RenderObject* renderer) { m_rendererWithStyleFlags.setPointer(renderer); }
 
 #if ENABLE(TREE_DEBUGGING)
 void printRenderTreeForLiveDocuments();

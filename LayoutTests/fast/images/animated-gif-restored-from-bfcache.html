@@ -1,12 +1,13 @@
+<!-- webkit-test-runner [ enableBackForwardCache=true ] -->
 <script>
-    if (window.testRunner) {
+    if (window.testRunner)
         testRunner.dumpAsText();
-        testRunner.overridePreference("WebKitUsesPageCachePreferenceKey", 1);
-    }
 
     function runTest() {
-        if (window.testRunner)
+        if (window.internals && window.testRunner) {
+            internals.settings.setAnimatedImageDebugCanvasDrawingEnabled(true);
             testRunner.waitUntilDone();
+        }
 
         var image = document.getElementById("image");
         var console = document.getElementById("console");            

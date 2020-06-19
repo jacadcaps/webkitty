@@ -75,6 +75,12 @@ FloatRect screenAvailableRect(Widget*);
 
 WEBCORE_EXPORT bool screenSupportsExtendedColor(Widget* = nullptr);
 
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
+bool screenSupportsHighDynamicRange(Widget* = nullptr);
+#else
+constexpr bool screenSupportsHighDynamicRange(Widget* = nullptr) { return false; }
+#endif
+
 #if USE(CG)
 WEBCORE_EXPORT CGColorSpaceRef screenColorSpace(Widget* = nullptr);
 #endif
@@ -104,11 +110,9 @@ WEBCORE_EXPORT PlatformDisplayID primaryScreenDisplayID();
 uint32_t primaryOpenGLDisplayMask();
 uint32_t displayMaskForDisplay(PlatformDisplayID);
 
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
 IORegistryGPUID primaryGPUID();
 IORegistryGPUID gpuIDForDisplay(PlatformDisplayID);
 IORegistryGPUID gpuIDForDisplayMask(uint32_t);
-#endif
 
 #endif // !PLATFORM(MAC)
 

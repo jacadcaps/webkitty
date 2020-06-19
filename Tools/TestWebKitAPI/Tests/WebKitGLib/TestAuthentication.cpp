@@ -78,6 +78,21 @@ private:
     GRefPtr<WebKitAuthenticationRequest> m_authenticationRequest;
 };
 
+class EphemeralAuthenticationTest : public AuthenticationTest {
+public:
+    MAKE_GLIB_TEST_FIXTURE_WITH_SETUP_TEARDOWN(EphemeralAuthenticationTest, setup, teardown);
+
+    static void setup()
+    {
+        WebViewTest::shouldCreateEphemeralWebView = true;
+    }
+
+    static void teardown()
+    {
+        WebViewTest::shouldCreateEphemeralWebView = false;
+    }
+};
+
 int AuthenticationTest::authenticationRetries = 0;
 bool AuthenticationTest::authenticationCancelledReceived = false;
 
@@ -184,30 +199,23 @@ static void testWebViewAuthenticationNoCredential(AuthenticationTest* test, gcon
     g_assert_cmpstr(webkit_web_view_get_title(test->m_webView), ==, authExpectedFailureTitle);
 }
 
-// FIXME: Find a way to not use the private browsing setting and enable for WPE.
-#if PLATFORM(GTK)
-static void testWebViewAuthenticationStorage(AuthenticationTest* test, gconstpointer)
+static void testWebViewAuthenticationEphemeral(EphemeralAuthenticationTest* test, gconstpointer)
 {
-    // Enable private browsing before authentication request to test that credentials can't be saved.
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
-    webkit_settings_set_enable_private_browsing(webkit_web_view_get_settings(test->m_webView), TRUE);
-    G_GNUC_END_IGNORE_DEPRECATIONS;
     test->loadURI(kServer->getURIForPath("/auth-test.html").data());
-    WebKitAuthenticationRequest* request = test->waitForAuthenticationRequest();
+    auto* request = test->waitForAuthenticationRequest();
     g_assert_null(webkit_authentication_request_get_proposed_credential(request));
     g_assert_false(webkit_authentication_request_can_save_credentials(request));
+}
 
+#if USE(LIBSECRET)
+static void testWebViewAuthenticationStorage(AuthenticationTest* test, gconstpointer)
+{
     // If WebKit has been compiled with libsecret, and private browsing is disabled
     // then check that credentials can be saved.
-#if USE(LIBSECRET)
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
-    webkit_settings_set_enable_private_browsing(webkit_web_view_get_settings(test->m_webView), FALSE);
-    G_GNUC_END_IGNORE_DEPRECATIONS;
     test->loadURI(kServer->getURIForPath("/auth-test.html").data());
-    request = test->waitForAuthenticationRequest();
+    auto* request = test->waitForAuthenticationRequest();
     g_assert_null(webkit_authentication_request_get_proposed_credential(request));
     g_assert_true(webkit_authentication_request_can_save_credentials(request));
-#endif
 }
 #endif
 
@@ -256,6 +264,7 @@ static void testWebViewAuthenticationEmptyRealm(AuthenticationTest* test, gconst
 }
 
 class Tunnel {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     Tunnel(SoupServer* server, SoupMessage* message)
         : m_server(server)
@@ -299,7 +308,7 @@ static void serverCallback(SoupServer* server, SoupMessage* message, const char*
 {
     if (message->method == SOUP_METHOD_CONNECT) {
         g_assert_cmpuint(soup_server_get_port(server), ==, gProxyServerPort);
-        auto tunnel = std::make_unique<Tunnel>(server, message);
+        auto tunnel = makeUnique<Tunnel>(server, message);
         auto* tunnelPtr = tunnel.get();
         tunnelPtr->connect([tunnel = WTFMove(tunnel)](const char* errorMessage) {
             if (errorMessage) {
@@ -394,7 +403,7 @@ static void testWebViewAuthenticationProxy(ProxyAuthenticationTest* test, gconst
 
 static void testWebViewAuthenticationProxyHTTPS(ProxyAuthenticationTest* test, gconstpointer)
 {
-    auto httpsServer = std::make_unique<WebKitTestServer>(WebKitTestServer::ServerHTTPS);
+    auto httpsServer = makeUnique<WebKitTestServer>(WebKitTestServer::ServerHTTPS);
     httpsServer->run(serverCallback);
 
     test->loadURI(httpsServer->getURIForPath("/proxy/auth-test.html").data());
@@ -419,7 +428,8 @@ void beforeAll()
     AuthenticationTest::add("Authentication", "authentication-success", testWebViewAuthenticationSuccess);
     AuthenticationTest::add("Authentication", "authentication-failure", testWebViewAuthenticationFailure);
     AuthenticationTest::add("Authentication", "authentication-no-credential", testWebViewAuthenticationNoCredential);
-#if PLATFORM(GTK)
+    EphemeralAuthenticationTest::add("Authentication", "authentication-ephemeral", testWebViewAuthenticationEphemeral);
+#if USE(LIBSECRET)
     AuthenticationTest::add("Authentication", "authentication-storage", testWebViewAuthenticationStorage);
 #endif
     AuthenticationTest::add("Authentication", "authentication-empty-realm", testWebViewAuthenticationEmptyRealm);

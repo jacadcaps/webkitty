@@ -71,19 +71,25 @@
 #import "_WKAttachmentInternal.h"
 #import "_WKAutomationSessionInternal.h"
 #import "_WKContentRuleListActionInternal.h"
+#import "_WKContentWorldInternal.h"
 #import "_WKCustomHeaderFieldsInternal.h"
 #import "_WKDownloadInternal.h"
 #import "_WKExperimentalFeatureInternal.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKGeolocationPositionInternal.h"
 #import "_WKHitTestResultInternal.h"
+#import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
 #import "_WKInternalDebugFeatureInternal.h"
 #import "_WKProcessPoolConfigurationInternal.h"
+#import "_WKResourceLoadInfoInternal.h"
+#import "_WKResourceLoadStatisticsFirstPartyInternal.h"
+#import "_WKResourceLoadStatisticsThirdPartyInternal.h"
 #import "_WKUserContentWorldInternal.h"
 #import "_WKUserInitiatedActionInternal.h"
 #import "_WKUserStyleSheetInternal.h"
 #import "_WKVisitedLinkStoreInternal.h"
+#import "_WKWebAuthenticationAssertionResponseInternal.h"
 #import "_WKWebAuthenticationPanelInternal.h"
 #import "_WKWebsiteDataStoreConfigurationInternal.h"
 
@@ -185,6 +191,10 @@ void* Object::newObject(size_t size, Type type)
         ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         wrapper = allocateWKObject([WKConnection self], size);
         ALLOW_DEPRECATED_DECLARATIONS_END
+        break;
+
+    case Type::DebuggableInfo:
+        wrapper = [_WKInspectorDebuggableInfo alloc];
         break;
 
     case Type::Preferences:
@@ -325,6 +335,22 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [_WKCustomHeaderFields alloc];
         break;
 
+    case Type::ResourceLoadInfo:
+        wrapper = [_WKResourceLoadInfo alloc];
+        break;
+            
+    case Type::ResourceLoadStatisticsFirstParty:
+        wrapper = [_WKResourceLoadStatisticsFirstParty alloc];
+        break;
+
+    case Type::ResourceLoadStatisticsThirdParty:
+        wrapper = [_WKResourceLoadStatisticsThirdParty alloc];
+        break;
+
+    case Type::ContentWorld:
+        wrapper = [_WKContentWorld alloc];
+        break;
+
     case Type::UserContentWorld:
         wrapper = [_WKUserContentWorld alloc];
         break;
@@ -368,6 +394,9 @@ void* Object::newObject(size_t size, Type type)
 #if ENABLE(WEB_AUTHN)
     case Type::WebAuthenticationPanel:
         wrapper = [_WKWebAuthenticationPanel alloc];
+        break;
+    case Type::WebAuthenticationAssertionResponse:
+        wrapper = [_WKWebAuthenticationAssertionResponse alloc];
         break;
 #endif
 

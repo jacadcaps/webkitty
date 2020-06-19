@@ -35,7 +35,7 @@ class AdClickAttribution;
 class DOMTokenList;
 
 // Link relation bitmask values.
-enum class Relation {
+enum class Relation : uint8_t {
     NoReferrer = 1 << 0,
     NoOpener = 1 << 1,
     Opener = 1 << 2,
@@ -88,8 +88,9 @@ private:
     bool isURLAttribute(const Attribute&) const final;
     bool canStartSelection() const final;
     String target() const override;
-    int tabIndex() const final;
+    int defaultTabIndex() const final;
     bool draggable() const final;
+    bool isInteractiveContent() const final;
 
     String effectiveTarget() const;
 
@@ -116,7 +117,7 @@ private:
     OptionSet<Relation> m_linkRelations;
 
     // This is computed only once and must not be affected by subsequent URL changes.
-    mutable Optional<SharedStringHash> m_storedVisitedLinkHash;
+    mutable Markable<SharedStringHash, SharedStringHashMarkableTraits> m_storedVisitedLinkHash;
 
     mutable std::unique_ptr<DOMTokenList> m_relList;
 };

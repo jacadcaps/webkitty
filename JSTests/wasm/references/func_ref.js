@@ -215,12 +215,12 @@ function makeFuncrefIdent() {
     fullGC();
 
     assert.eq($1.exports.get_import()(), 1337)
-    assert.eq($1.exports.expglob, null)
-    assert.eq($1.exports.expglob2(), 1337)
-    assert.eq($1.exports.exp_glob_is_null, $1.exports.glob_is_null);
+    assert.eq($1.exports.expglob.value, null)
+    assert.eq($1.exports.expglob2.value(), 1337)
+    assert.eq($1.exports.exp_glob_is_null.value, $1.exports.glob_is_null);
     assert.eq($1.exports.get_glob(), null)
 
-    $1.exports.set_glob(myfun); assert.eq($1.exports.get_glob(), myfun); assert.eq($1.exports.get_glob()(), 42); assert.eq($1.exports.expglob2(), 1337)
+    $1.exports.set_glob(myfun); assert.eq($1.exports.get_glob(), myfun); assert.eq($1.exports.get_glob()(), 42); assert.eq($1.exports.expglob2.value(), 1337)
     $1.exports.set_glob(null); assert.eq($1.exports.get_glob(), null)
     $1.exports.set_glob(myfun); assert.eq($1.exports.get_glob()(), 42);
 
@@ -246,7 +246,7 @@ assert.throws(() => new WebAssembly.Module((new Builder())
     .Function("h", { params: ["anyref"], ret: "funcref" })
       .GetLocal(0)
     .End()
-  .End().WebAssembly().get()), Error, "WebAssembly.Module doesn't validate: control flow returns with unexpected type, in function at index 0 (evaluating 'new WebAssembly.Module')");
+  .End().WebAssembly().get()), Error, "WebAssembly.Module doesn't validate: control flow returns with unexpected type. Anyref is not a subtype of Funcref, in function at index 0 (evaluating 'new WebAssembly.Module')");
 
 assert.throws(() => new WebAssembly.Module((new Builder())
   .Type().End()
@@ -447,4 +447,63 @@ for (let importedFun of [function(i) { return i; }, makeFuncrefIdent()]) {
             assert.throws(() => test()(fun), Error, "Funcref must be an exported wasm function (evaluating 'func(...args)')")
         }
     }
+}
+
+{
+    const $1 = new WebAssembly.Instance(new WebAssembly.Module((new Builder())
+      .Type().End()
+      .Import().End()
+      .Function().End()
+      .Export()
+          .Function("test")
+      .End()
+      .Code()
+        .Function("test", { params: ["i32", "funcref"], ret: "i32" })
+          .GetLocal(0)
+        .End()
+      .End().WebAssembly().get()), { });
+
+    const myfun = makeExportedFunction(1337);
+    assert.eq(myfun(), 1337)
+    assert.eq(42, $1.exports.test(42, myfun))
+    assert.throws(() => $1.exports.test(42, () => 5), Error, "Funcref must be an exported wasm function (evaluating 'func(...args)')")
+}
+
+{
+    const $1 = new WebAssembly.Instance(new WebAssembly.Module((new Builder())
+      .Type().End()
+      .Import().End()
+      .Function().End()
+      .Export()
+          .Function("test")
+      .End()
+      .Code()
+        .Function("test", { params: ["i32", "funcref"], ret: "i32" })
+          .GetLocal(0)
+          .If("i32")
+          .Block("i32", (b) =>
+            b.GetLocal(0)
+            .GetLocal(1)
+            .Call(0)
+          )
+          .Else()
+          .Block("i32", (b) =>
+            b.GetLocal(0)
+          )
+          .End()
+        .End()
+      .End().WebAssembly().get()), { });
+
+    const myfun = makeExportedFunction(1337);
+    function foo(b) {
+        $1.exports.test(b, myfun)
+    }
+    noInline(foo);
+
+    for (let i = 0; i < 100; ++i)
+        foo(0);
+
+    assert.throws(() => $1.exports.test(42, () => 5), Error, "Funcref must be an exported wasm function (evaluating 'func(...args)')")
+    assert.throws(() => $1.exports.test(42, myfun), RangeError, "Maximum call stack size exceeded.")
+    assert.throws(() => foo(1), RangeError, "Maximum call stack size exceeded.")
 }

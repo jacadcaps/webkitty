@@ -55,8 +55,8 @@ void testInitialCapacity()
         ASSERT_EQ(initialCapacity, static_cast<unsigned>(testSet.capacity()));
     }
 
-    // Adding items up to less than half the capacity should not change the capacity.
-    unsigned capacityLimit = initialCapacity / 2 - 1;
+    // Adding items up to less than 3/4 of the capacity should not change the capacity.
+    unsigned capacityLimit = initialCapacity * 3 / 4 - 1;
     for (size_t i = size; i < capacityLimit; ++i) {
         testSet.add(i);
         ASSERT_EQ(initialCapacity, static_cast<unsigned>(testSet.capacity()));
@@ -128,7 +128,7 @@ TEST(WTF_HashSet, UniquePtrKey)
 
     HashSet<std::unique_ptr<ConstructorDestructorCounter>> set;
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     set.add(WTFMove(uniquePtr));
 
     EXPECT_EQ(1u, ConstructorDestructorCounter::constructionCount);
@@ -144,7 +144,7 @@ TEST(WTF_HashSet, UniquePtrKey_FindUsingRawPointer)
 {
     HashSet<std::unique_ptr<int>> set;
 
-    auto uniquePtr = std::make_unique<int>(5);
+    auto uniquePtr = makeUniqueWithoutFastMallocCheck<int>(5);
     int* ptr = uniquePtr.get();
     set.add(WTFMove(uniquePtr));
 
@@ -158,7 +158,7 @@ TEST(WTF_HashSet, UniquePtrKey_ContainsUsingRawPointer)
 {
     HashSet<std::unique_ptr<int>> set;
 
-    auto uniquePtr = std::make_unique<int>(5);
+    auto uniquePtr = makeUniqueWithoutFastMallocCheck<int>(5);
     int* ptr = uniquePtr.get();
     set.add(WTFMove(uniquePtr));
 
@@ -170,8 +170,11 @@ TEST(WTF_HashSet, UniquePtrKey_RemoveUsingRawPointer)
     ConstructorDestructorCounter::TestingScope scope;
 
     HashSet<std::unique_ptr<ConstructorDestructorCounter>> set;
+#if !CHECK_HASHTABLE_ITERATORS &&!DUMP_HASHTABLE_STATS_PER_TABLE
+    static_assert(sizeof(set) == sizeof(void*));
+#endif
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     ConstructorDestructorCounter* ptr = uniquePtr.get();
     set.add(WTFMove(uniquePtr));
 
@@ -191,7 +194,7 @@ TEST(WTF_HashSet, UniquePtrKey_TakeUsingRawPointer)
 
     HashSet<std::unique_ptr<ConstructorDestructorCounter>> set;
 
-    auto uniquePtr = std::make_unique<ConstructorDestructorCounter>();
+    auto uniquePtr = makeUnique<ConstructorDestructorCounter>();
     ConstructorDestructorCounter* ptr = uniquePtr.get();
     set.add(WTFMove(uniquePtr));
 
@@ -280,24 +283,25 @@ TEST(WTF_HashSet, CopyCapacityIsNotOnBoundary)
     }
 }
 
+struct DerefObserver {
+    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    NEVER_INLINE void ref()
+    {
+        ++count;
+    }
+    NEVER_INLINE void deref()
+    {
+        --count;
+        observedBucket = bucketAddress->get();
+    }
+    unsigned count { 1 };
+    const RefPtr<DerefObserver>* bucketAddress { nullptr };
+    const DerefObserver* observedBucket { nullptr };
+};
+
 TEST(WTF_HashSet, RefPtrNotZeroedBeforeDeref)
 {
-    struct DerefObserver {
-        NEVER_INLINE void ref()
-        {
-            ++count;
-        }
-        NEVER_INLINE void deref()
-        {
-            --count;
-            observedBucket = bucketAddress->get();
-        }
-        unsigned count { 1 };
-        const RefPtr<DerefObserver>* bucketAddress { nullptr };
-        const DerefObserver* observedBucket { nullptr };
-    };
-
-    auto observer = std::make_unique<DerefObserver>();
+    auto observer = makeUnique<DerefObserver>();
 
     HashSet<RefPtr<DerefObserver>> set;
     set.add(adoptRef(observer.get()));
@@ -314,7 +318,7 @@ TEST(WTF_HashSet, RefPtrNotZeroedBeforeDeref)
     // value.
     // A zero would be a incorrect outcome as it would mean we nulled the bucket before an opaque
     // call.
-    EXPECT_TRUE(observer->observedBucket == observer.get() || observer->observedBucket == RefPtr<DerefObserver>::hashTableDeletedValue());
+    EXPECT_TRUE(observer->observedBucket == observer.get() || observer->observedBucket == RefPtr<DerefObserver>::PtrTraits::hashTableDeletedValue());
     EXPECT_EQ(observer->count, 0u);
 }
 

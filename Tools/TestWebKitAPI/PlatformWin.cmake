@@ -77,8 +77,6 @@ else ()
         WebKitQuartzCoreAdditions${DEBUG_SUFFIX}
         libdispatch${DEBUG_SUFFIX}
         libexslt${DEBUG_SUFFIX}
-        libicuin${DEBUG_SUFFIX}
-        libicuuc${DEBUG_SUFFIX}
     )
 endif ()
 
@@ -109,7 +107,7 @@ if (ENABLE_WEBKIT_LEGACY)
     list(APPEND TestWebKitLegacy_DEFINITIONS ${webcore_DEFINITIONS})
 
     list(APPEND TestWebKitLegacy_LIBRARIES
-        WTF
+        WebKit::WTF
     )
 
     list(APPEND TestWebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
@@ -130,7 +128,6 @@ if (ENABLE_WEBKIT)
     add_dependencies(TestWebKitAPIInjectedBundle WebKitFrameworkHeaders)
 
     target_sources(TestWebKitAPIInjectedBundle PRIVATE
-        win/InjectedBundleControllerWin.cpp
         win/PlatformUtilitiesWin.cpp
         win/UtilitiesWin.cpp
     )

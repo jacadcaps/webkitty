@@ -66,6 +66,7 @@ def __lldb_init_module(debugger, dict):
     debugger.HandleCommand('type summary add --expand -F lldb_webkit.WTFHashSet_SummaryProvider -x "^WTF::HashSet<.+>$"')
     debugger.HandleCommand('type summary add --expand -F lldb_webkit.WTFMediaTime_SummaryProvider WTF::MediaTime')
     debugger.HandleCommand('type summary add --expand -F lldb_webkit.WTFOptionSet_SummaryProvider -x "^WTF::OptionSet<.+>$"')
+    debugger.HandleCommand('type summary add --expand -F lldb_webkit.WTFCompactPointerTuple_SummaryProvider -x "^WTF::CompactPointerTuple<.+,.+>$"')
 
     debugger.HandleCommand('type summary add -F lldb_webkit.WTFURL_SummaryProvider WTF::URL')
     debugger.HandleCommand('type summary add -F lldb_webkit.WebCoreColor_SummaryProvider WebCore::Color')
@@ -93,6 +94,7 @@ def __lldb_init_module(debugger, dict):
     debugger.HandleCommand('type synthetic add -x "^WTF::Vector<.+>$" --python-class lldb_webkit.WTFVectorProvider')
     debugger.HandleCommand('type synthetic add -x "^WTF::HashTable<.+>$" --python-class lldb_webkit.WTFHashTableProvider')
     debugger.HandleCommand('type synthetic add -x "^WTF::OptionSet<.+>$" --python-class lldb_webkit.WTFOptionSetProvider')
+    debugger.HandleCommand('type synthetic add -x "^WTF::CompactPointerTuple<.+,.+>$" --python-class lldb_webkit.WTFCompactPointerTupleProvider')
 
     addSummaryAndSyntheticFormattersForRawBitmaskType(debugger, "WebEventFlags", {
         0x00010000: "WebEventFlagMaskLeftCommandKey",
@@ -168,6 +170,11 @@ def WTFMediaTime_SummaryProvider(valobj, dict):
     return "{ %d/%d, %f }" % (provider.timeValue(), provider.timeScale(), float(provider.timeValue()) / provider.timeScale())
 
 
+def WTFCompactPointerTuple_SummaryProvider(valobj, dict):
+    provider = WTFCompactPointerTupleProvider(valobj, dict)
+    return "{ type = %s }" % provider.type_as_string()
+
+
 def WebCoreColor_SummaryProvider(valobj, dict):
     provider = WebCoreColorProvider(valobj, dict)
     return "{ %s }" % provider.to_string()
@@ -239,19 +246,19 @@ def WebCoreFrame_SummaryProvider(valobj, dict):
     if document:
         origin = document.origin()
         url = document.url()
-        pageCacheState = document.page_cache_state()
+        backForwardCacheState = document.page_cache_state()
     else:
         origin = ''
         url = ''
-        pageCacheState = ''
-    return '{ origin = %s, url = %s, isMainFrame = %d, pageCacheState = %s }' % (origin, url, provider.is_main_frame(), pageCacheState)
+        backForwardCacheState = ''
+    return '{ origin = %s, url = %s, isMainFrame = %d, backForwardCacheState = %s }' % (origin, url, provider.is_main_frame(), backForwardCacheState)
 
 
 def WebCoreDocument_SummaryProvider(valobj, dict):
     provider = WebCoreDocumentProvider(valobj, dict)
     frame = provider.frame()
     in_main_frame = '%d' % frame.is_main_frame() if frame else 'Detached'
-    return '{ origin = %s, url = %s, inMainFrame = %s, pageCacheState = %s }' % (provider.origin(), provider.url(), in_main_frame, provider.page_cache_state())
+    return '{ origin = %s, url = %s, inMainFrame = %s, backForwardCacheState = %s }' % (provider.origin(), provider.url(), in_main_frame, provider.page_cache_state())
 
 
 def btjs(debugger, command, result, internal_dict):
@@ -262,13 +269,13 @@ def btjs(debugger, command, result, internal_dict):
     process = target.GetProcess()
     thread = process.GetSelectedThread()
 
-    if target.FindFunctions("JSC::ExecState::describeFrame").GetSize() or target.FindFunctions("_ZN3JSC9ExecState13describeFrameEv").GetSize():
+    if target.FindFunctions("JSC::CallFrame::describeFrame").GetSize() or target.FindFunctions("_ZN3JSC9CallFrame13describeFrameEv").GetSize():
         annotateJSFrames = True
     else:
         annotateJSFrames = False
 
     if not annotateJSFrames:
-        print("Warning: Can't find JSC::ExecState::describeFrame() in executable to annotate JavaScript frames")
+        print("Warning: Can't find JSC::CallFrame::describeFrame() in executable to annotate JavaScript frames")
 
     backtraceDepth = thread.GetNumFrames()
 
@@ -279,7 +286,8 @@ def btjs(debugger, command, result, internal_dict):
             return
 
     threadFormat = '* thread #{num}: tid = {tid:#x}, {pcAddr:' + addressFormat + '}, queue = \'{queueName}, stop reason = {stopReason}'
-    print(threadFormat.format(num=thread.GetIndexID(), tid=thread.GetThreadID(), pcAddr=thread.GetFrameAtIndex(0).GetPC(), queueName=thread.GetQueueName(), stopReason=thread.GetStopDescription(30)))
+    # FIXME: GetStopDescription needs to be pass a stupidly large length because lldb has weird utf-8 encoding errors if it's too small. See: rdar://problem/57980599
+    print(threadFormat.format(num=thread.GetIndexID(), tid=thread.GetThreadID(), pcAddr=thread.GetFrameAtIndex(0).GetPC(), queueName=thread.GetQueueName(), stopReason=thread.GetStopDescription(300)))
 
     for frame in thread:
         if backtraceDepth < 1:
@@ -291,13 +299,11 @@ def btjs(debugger, command, result, internal_dict):
 
         if annotateJSFrames and not frame or not frame.GetSymbol() or frame.GetSymbol().GetName() == "llint_entry":
             callFrame = frame.GetSP()
-            JSFrameDescription = frame.EvaluateExpression("((JSC::ExecState*)0x%x)->describeFrame()" % frame.GetFP()).GetSummary()
+            JSFrameDescription = frame.EvaluateExpression("((JSC::CallFrame*)0x%x)->describeFrame()" % frame.GetFP()).GetSummary()
             if not JSFrameDescription:
-                JSFrameDescription = frame.EvaluateExpression("((JSC::CallFrame*)0x%x)->describeFrame()" % frame.GetFP()).GetSummary()
-            if not JSFrameDescription:
-                JSFrameDescription = frame.EvaluateExpression("(char*)_ZN3JSC9ExecState13describeFrameEv(0x%x)" % frame.GetFP()).GetSummary()
+                JSFrameDescription = frame.EvaluateExpression("(char*)_ZN3JSC9CallFrame13describeFrameEv(0x%x)" % frame.GetFP()).GetSummary()
             if JSFrameDescription:
-                JSFrameDescription = string.strip(JSFrameDescription, '"')
+                JSFrameDescription = JSFrameDescription.strip('"')
                 frameFormat = '    frame #{num}: {addr:' + addressFormat + '} {desc}'
                 print(frameFormat.format(num=frame.GetFrameID(), addr=frame.GetPC(), desc=JSFrameDescription))
                 continue
@@ -723,7 +729,7 @@ class WebCoreDocumentProvider:
         return WebCoreSecurityOriginProvider(security_origin_ptr, dict()).to_string()
 
     def page_cache_state(self):
-        return self.valobj.GetChildMemberWithName('m_pageCacheState').GetValue()
+        return self.valobj.GetChildMemberWithName('m_backForwardCacheState').GetValue()
 
     def frame(self):
         frame_ptr = self.valobj.GetChildMemberWithName('m_frame')
@@ -735,6 +741,7 @@ class WebCoreDocumentProvider:
 class FlagEnumerationProvider(object):
     def __init__(self, valobj, internal_dict):
         self.valobj = valobj
+        self._elements = []
         self.update()
 
     # Subclasses must override this to return a dictionary that maps emumerator values to names.
@@ -750,6 +757,24 @@ class FlagEnumerationProvider(object):
     def _update(self):
         pass
 
+    # Subclasses can override this to provide the index that corresponds to the specified name.
+    # If this method is overridden then it is also expected that _get_child_at_index() will be
+    # overridden to provide the value for the index returned by this method. Note that the
+    # returned index must be greater than or equal to self.size in order to avoid breaking
+    # printing of synthetic children.
+    def _get_child_index(self, name):
+        return None
+
+    # Subclasses can override this to provide the SBValue for the specified index. It is only
+    # meaningful to override this method if _get_child_index() is also overridden.
+    def _get_child_at_index(self, index):
+        return None
+
+    @property
+    def size(self):
+        return len(self._elements)
+
+    # LLDB overrides
     def has_children(self):
         return bool(self._elements)
 
@@ -757,10 +782,7 @@ class FlagEnumerationProvider(object):
         return len(self._elements)
 
     def get_child_index(self, name):
-        try:
-            return int(name.lstrip('[').rstrip(']'))
-        except:
-            return None
+        return self._get_child_index(name)
 
     def get_child_at_index(self, index):
         if index < 0 or not self.valobj.IsValid():
@@ -768,13 +790,10 @@ class FlagEnumerationProvider(object):
         if index < len(self._elements):
             (name, value) = self._elements[index]
             return self.valobj.CreateValueFromExpression(name, str(value))
-        return None
+        return self._get_child_at_index(index)
 
     def update(self):
         self._update()
-
-        self._elements = []
-        self.size = 0
 
         enumerator_value_to_name_map = self._enumerator_value_to_name_map()
         if not enumerator_value_to_name_map:
@@ -793,8 +812,6 @@ class FlagEnumerationProvider(object):
             elements.append((enumerator_value_to_name_map[current], current))  # e.g. ('Spelling', 4)
             bitmask = bitmask & (bitmask - 1)  # Turn off the rightmost set bit.
         self._elements = elements
-        self.size = len(elements)
-
 
 class WTFOptionSetProvider(FlagEnumerationProvider):
     def _enumerator_value_to_name_map(self):
@@ -812,6 +829,16 @@ class WTFOptionSetProvider(FlagEnumerationProvider):
     def _update(self):
         self.storage = self.valobj.GetChildMemberWithName('m_storage')  # May be an invalid value.
 
+    def _get_child_index(self, name):
+        if name == 'm_storage':
+            return self.size
+        return None
+
+    def _get_child_at_index(self, index):
+        if index == self.size:
+            return self.storage
+        return None
+
 
 class RawBitmaskProviderBase(FlagEnumerationProvider):
     ENUMERATOR_VALUE_TO_NAME_MAP = {}
@@ -821,6 +848,89 @@ class RawBitmaskProviderBase(FlagEnumerationProvider):
 
     def _bitmask(self):
         return self.valobj.GetValueAsUnsigned(0)
+
+
+class WTFCompactPointerTupleProvider(object):
+
+    TYPE_MASK = 0xF800000000000007
+    POINTER_MASK = ~TYPE_MASK
+
+    def __init__(self, valobj, internal_dict):
+        self.valobj = valobj
+        self._is32Bit = valobj.GetTarget().GetAddressByteSize() == 4
+        self._pointer = None
+        self._type = None
+        self.update()
+
+    def type_as_string(self):
+        if not self.is_human_readable_type():
+            return "%s" % self._type.GetValueAsUnsigned(0)
+        return "%s" % self._type.GetValue()
+
+    def is_human_readable_type(self):
+        # The default summary provider for uint8_t, unsigned char emits the ASCII printable character or equivalent
+        # C escape sequence (e.g. \a = 0x07). Typically the CompactPointerTuple is used to encode non-character integral
+        # data. In this context it is less readable to use the default summary provider. So, we don't.
+        return self.valobj.GetType().GetTemplateArgumentType(1).GetBasicType() != lldb.eBasicTypeUnsignedChar
+
+    # LLDB overrides
+    def has_children(self):
+        return self._type is not None and self._pointer is not None
+
+    def num_children(self):
+        if not self.has_children:
+            return 0
+        return 2
+
+    def get_child_index(self, name):
+        if name == '[0]':
+            return 0
+        if name == '[1]':
+            return 1
+        if self._is32Bit:
+            if name == 'm_pointer':
+                return 2
+            if name == 'm_type':
+                return 3
+        else:
+            if name == 'm_data':
+                return 2
+        return None
+
+    def get_child_at_index(self, index):
+        if index < 0 or not self.valobj.IsValid():
+            return None
+        if index == 0:
+            return self._pointer
+        if index == 1:
+            return self._type
+        if self._is32Bit:
+            if index == 2:
+                return self._pointer
+            if index == 3:
+                return self._type
+        else:
+            if index == 2:
+                return self.valobj.GetChildMemberWithName('m_data')
+        return None
+
+    def update(self):
+        if self._is32Bit:
+            self._pointer = self.valobj.GetChildMemberWithName('m_pointer')
+            self._type = self.valobj.GetChildMemberWithName('m_type')
+        else:
+            data = self.valobj.GetChildMemberWithName('m_data').GetValueAsUnsigned(0)
+            byte_order = self.valobj.GetTarget().GetByteOrder()
+            address_byte_size = self.valobj.GetTarget().GetAddressByteSize()
+
+            pointer_data = lldb.SBData.CreateDataFromUInt64Array(byte_order, address_byte_size, [data & self.POINTER_MASK])
+            self._pointer = self.valobj.CreateValueFromData('[0]', pointer_data, self.valobj.GetType().GetTemplateArgumentType(0))
+
+            type_data = lldb.SBData.CreateDataFromUInt64Array(byte_order, address_byte_size, [(data >> 59 | data << 5) & 0xFF])
+            type_to_use = self.valobj.GetType().GetTemplateArgumentType(1)
+            if not self.is_human_readable_type():
+                type_to_use = self.valobj.GetTarget().GetBasicType(lldb.eBasicTypeUnsignedInt)
+            self._type = self.valobj.CreateValueFromData('[1]', type_data, type_to_use)
 
 
 class WTFVectorProvider:

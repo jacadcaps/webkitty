@@ -24,13 +24,14 @@
  */
 
 #import "config.h"
-#import "UIScriptController.h"
+#import "UIScriptControllerMac.h"
 
+#import "EventSenderProxy.h"
 #import "EventSerializerMac.h"
+#import "PlatformViewHelpers.h"
+#import "PlatformWebView.h"
 #import "PlatformWebView.h"
 #import "SharedEventStreamsMac.h"
-#import "TestController.h"
-#import "PlatformWebView.h"
 #import "StringFunctions.h"
 #import "TestController.h"
 #import "TestRunnerWKWebView.h"
@@ -41,88 +42,97 @@
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <JavaScriptCore/OpaqueJSString.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
+#import <wtf/BlockPtr.h>
 
 namespace WTR {
 
-NSString *nsString(JSStringRef string)
+Ref<UIScriptController> UIScriptController::create(UIScriptContext& context)
+{
+    return adoptRef(*new UIScriptControllerMac(context));
+}
+
+static NSString *nsString(JSStringRef string)
 {
     return CFBridgingRelease(JSStringCopyCFString(kCFAllocatorDefault, string));
 }
 
-void UIScriptController::doAfterPresentationUpdate(JSValueRef callback)
+void UIScriptControllerMac::replaceTextAtRange(JSStringRef text, int location, int length)
 {
-    return doAsyncTask(callback);
+    [webView() _insertText:nsString(text) replacementRange:NSMakeRange(location == -1 ? NSNotFound : location, length)];
 }
 
-void UIScriptController::doAfterNextStablePresentationUpdate(JSValueRef callback)
-{
-    doAsyncTask(callback);
-}
-
-void UIScriptController::ensurePositionInformationIsUpToDateAt(long, long, JSValueRef callback)
-{
-    doAsyncTask(callback);
-}
-
-void UIScriptController::doAfterVisibleContentRectUpdate(JSValueRef callback)
-{
-    doAsyncTask(callback);
-}
-
-void UIScriptController::replaceTextAtRange(JSStringRef text, int location, int length)
-{
-    auto* webView = TestController::singleton().mainWebView()->platformView();
-    [webView _insertText:nsString(text) replacementRange:NSMakeRange(location == -1 ? NSNotFound : location, length)];
-}
-
-void UIScriptController::zoomToScale(double scale, JSValueRef callback)
+void UIScriptControllerMac::zoomToScale(double scale, JSValueRef callback)
 {
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
 
-    auto* webView = TestController::singleton().mainWebView()->platformView();
+    auto* webView = this->webView();
     [webView _setPageScale:scale withOrigin:CGPointZero];
 
-    [webView _doAfterNextPresentationUpdate: ^ {
+    [webView _doAfterNextPresentationUpdate:makeBlockPtr([this, strongThis = makeRef(*this), callbackID] {
         if (!m_context)
             return;
         m_context->asyncTaskComplete(callbackID);
-    }];
+    }).get()];
 }
 
-void UIScriptController::simulateAccessibilitySettingsChangeNotification(JSValueRef callback)
+double UIScriptControllerMac::zoomScale() const
+{
+    return webView().magnification;
+}
+
+void UIScriptControllerMac::simulateAccessibilitySettingsChangeNotification(JSValueRef callback)
 {
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
 
-    auto* webView = TestController::singleton().mainWebView()->platformView();
+    auto* webView = this->webView();
     NSNotificationCenter *center = [[NSWorkspace sharedWorkspace] notificationCenter];
     [center postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:webView];
 
-    [webView _doAfterNextPresentationUpdate: ^{
+    [webView _doAfterNextPresentationUpdate:makeBlockPtr([this, strongThis = makeRef(*this), callbackID] {
         if (!m_context)
             return;
         m_context->asyncTaskComplete(callbackID);
-    }];
+    }).get()];
 }
 
-void UIScriptController::simulateRotation(DeviceOrientation*, JSValueRef)
+bool UIScriptControllerMac::isShowingDataListSuggestions() const
 {
+    return dataListSuggestionsTableView();
 }
 
-void UIScriptController::simulateRotationLikeSafari(DeviceOrientation*, JSValueRef)
+void UIScriptControllerMac::activateDataListSuggestion(unsigned index, JSValueRef callback)
 {
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+
+    RetainPtr<NSTableView> table;
+    do {
+        table = dataListSuggestionsTableView();
+    } while (index >= [table numberOfRows] && [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]]);
+
+    [table selectRowIndexes:[NSIndexSet indexSetWithIndex:index] byExtendingSelection:NO];
+
+    // Send the action after a short delay to simulate normal user interaction.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), [this, protectedThis = makeRefPtr(*this), callbackID, table] {
+        if ([table window])
+            [table sendAction:[table action] to:[table target]];
+
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    });
 }
 
-bool UIScriptController::isShowingDataListSuggestions() const
+NSTableView *UIScriptControllerMac::dataListSuggestionsTableView() const
 {
-    TestRunnerWKWebView *webView = TestController::singleton().mainWebView()->platformView();
-    for (NSWindow *childWindow in webView.window.childWindows) {
+    for (NSWindow *childWindow in webView().window.childWindows) {
         if ([childWindow isKindOfClass:NSClassFromString(@"WKDataListSuggestionWindow")])
-            return true;
+            return (NSTableView *)[findAllViewsInHierarchyOfType(childWindow.contentView, NSClassFromString(@"WKDataListSuggestionTableView")) firstObject];
     }
-    return false;
+    return nil;
 }
 
-static void playBackEvents(UIScriptContext *context, NSString *eventStream, JSValueRef callback)
+static void playBackEvents(WKWebView *webView, UIScriptContext *context, NSString *eventStream, JSValueRef callback)
 {
     NSError *error = nil;
     NSArray *eventDicts = [NSJSONSerialization JSONObjectWithData:[eventStream dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];
@@ -133,52 +143,79 @@ static void playBackEvents(UIScriptContext *context, NSString *eventStream, JSVa
     }
 
     unsigned callbackID = context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
-
-    NSWindow *window = [TestController::singleton().mainWebView()->platformView() window];
-
-    [EventStreamPlayer playStream:eventDicts window:window completionHandler:^ {
+    [EventStreamPlayer playStream:eventDicts window:webView.window completionHandler:^{
         context->asyncTaskComplete(callbackID);
     }];
 }
 
-void UIScriptController::beginBackSwipe(JSValueRef callback)
+void UIScriptControllerMac::clearAllCallbacks()
 {
-    playBackEvents(m_context, beginSwipeBackEventStream(), callback);
+    [webView() resetInteractionCallbacks];
 }
 
-void UIScriptController::completeBackSwipe(JSValueRef callback)
+void UIScriptControllerMac::chooseMenuAction(JSStringRef jsAction, JSValueRef callback)
 {
-    playBackEvents(m_context, completeSwipeBackEventStream(), callback);
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+
+    auto action = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, jsAction));
+    __block NSUInteger matchIndex = NSNotFound;
+    auto activeMenu = retainPtr(webView()._activeMenu);
+    [[activeMenu itemArray] enumerateObjectsUsingBlock:^(NSMenuItem *item, NSUInteger index, BOOL *stop) {
+        if ([item.title isEqualToString:(__bridge NSString *)action.get()])
+            matchIndex = index;
+    }];
+
+    if (matchIndex != NSNotFound) {
+        [activeMenu performActionForItemAtIndex:matchIndex];
+        [activeMenu removeAllItems];
+        [activeMenu update];
+        [activeMenu cancelTracking];
+    }
+
+    dispatch_async(dispatch_get_main_queue(), makeBlockPtr([this, strongThis = makeRef(*this), callbackID] {
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    }).get());
 }
 
-void UIScriptController::platformPlayBackEventStream(JSStringRef eventStream, JSValueRef callback)
+void UIScriptControllerMac::beginBackSwipe(JSValueRef callback)
+{
+    playBackEvents(webView(), m_context, beginSwipeBackEventStream(), callback);
+}
+
+void UIScriptControllerMac::completeBackSwipe(JSValueRef callback)
+{
+    playBackEvents(webView(), m_context, completeSwipeBackEventStream(), callback);
+}
+
+void UIScriptControllerMac::playBackEventStream(JSStringRef eventStream, JSValueRef callback)
 {
     RetainPtr<CFStringRef> stream = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, eventStream));
-    playBackEvents(m_context, (__bridge NSString *)stream.get(), callback);
+    playBackEvents(webView(), m_context, (__bridge NSString *)stream.get(), callback);
 }
 
-void UIScriptController::firstResponderSuppressionForWebView(bool shouldSuppress)
+void UIScriptControllerMac::firstResponderSuppressionForWebView(bool shouldSuppress)
 {
-    auto* webView = TestController::singleton().mainWebView()->platformView();
-    [webView _setShouldSuppressFirstResponderChanges:shouldSuppress];
+    [webView() _setShouldSuppressFirstResponderChanges:shouldSuppress];
 }
 
-void UIScriptController::makeWindowContentViewFirstResponder()
+void UIScriptControllerMac::makeWindowContentViewFirstResponder()
 {
-    NSWindow *window = [TestController::singleton().mainWebView()->platformView() window];
+    NSWindow *window = [webView() window];
     [window makeFirstResponder:[window contentView]];
 }
 
-bool UIScriptController::isWindowContentViewFirstResponder() const
+bool UIScriptControllerMac::isWindowContentViewFirstResponder() const
 {
-    NSWindow *window = [TestController::singleton().mainWebView()->platformView() window];
+    NSWindow *window = [webView() window];
     return [window firstResponder] == [window contentView];
 }
 
-void UIScriptController::toggleCapsLock(JSValueRef callback)
+void UIScriptControllerMac::toggleCapsLock(JSValueRef callback)
 {
     m_capsLockOn = !m_capsLockOn;
-    NSWindow *window = [TestController::singleton().mainWebView()->platformView() window];
+    NSWindow *window = [webView() window];
     NSEvent *fakeEvent = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
         location:NSZeroPoint
         modifierFlags:m_capsLockOn ? NSEventModifierFlagCapsLock : 0
@@ -193,14 +230,37 @@ void UIScriptController::toggleCapsLock(JSValueRef callback)
     doAsyncTask(callback);
 }
 
-NSView *UIScriptController::platformContentView() const
+NSView *UIScriptControllerMac::platformContentView() const
 {
-    return TestController::singleton().mainWebView()->platformView();
+    return webView();
 }
 
-JSObjectRef UIScriptController::calendarType() const
+void UIScriptControllerMac::activateAtPoint(long x, long y, JSValueRef callback)
 {
-    return nullptr;
+    auto* eventSender = TestController::singleton().eventSenderProxy();
+    if (!eventSender) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
+
+    eventSender->mouseMoveTo(x, y);
+    eventSender->mouseDown(0, 0);
+    eventSender->mouseUp(0, 0);
+
+    dispatch_async(dispatch_get_main_queue(), makeBlockPtr([this, strongThis = makeRef(*this), callbackID] {
+        if (!m_context)
+            return;
+        m_context->asyncTaskComplete(callbackID);
+    }).get());
+}
+
+void UIScriptControllerMac::copyText(JSStringRef text)
+{
+    NSPasteboard *pasteboard = NSPasteboard.generalPasteboard;
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSPasteboardTypeString] owner:nil];
+    [pasteboard setString:text->string() forType:NSPasteboardTypeString];
 }
 
 } // namespace WTR

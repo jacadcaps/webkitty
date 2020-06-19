@@ -25,32 +25,42 @@
 
 #pragma once
 #include "BrowserWindow.h"
-#include "PageLoadTestClient.h"
 #include <WebKitLegacy/WebKit.h>
 #include <comip.h>
 #include <memory>
 #include <vector>
+#include <wtf/Ref.h>
 
-typedef _com_ptr_t<_com_IIID<IWebFrame, &__uuidof(IWebFrame)>> IWebFramePtr;
-typedef _com_ptr_t<_com_IIID<IWebView, &__uuidof(IWebView)>> IWebViewPtr;
-typedef _com_ptr_t<_com_IIID<IWebViewPrivate2, &__uuidof(IWebViewPrivate2)>> IWebViewPrivatePtr;
-typedef _com_ptr_t<_com_IIID<IWebFrameLoadDelegate, &__uuidof(IWebFrameLoadDelegate)>> IWebFrameLoadDelegatePtr;
-typedef _com_ptr_t<_com_IIID<IWebHistory, &__uuidof(IWebHistory)>> IWebHistoryPtr;
-typedef _com_ptr_t<_com_IIID<IWebHistoryItem, &__uuidof(IWebHistoryItem)>> IWebHistoryItemPtr;
-typedef _com_ptr_t<_com_IIID<IWebPreferences, &__uuidof(IWebPreferences)>> IWebPreferencesPtr;
-typedef _com_ptr_t<_com_IIID<IWebPreferencesPrivate3, &__uuidof(IWebPreferencesPrivate3)>> IWebPreferencesPrivatePtr;
-typedef _com_ptr_t<_com_IIID<IWebUIDelegate, &__uuidof(IWebUIDelegate)>> IWebUIDelegatePtr;
-typedef _com_ptr_t<_com_IIID<IAccessibilityDelegate, &__uuidof(IAccessibilityDelegate)>> IAccessibilityDelegatePtr;
-typedef _com_ptr_t<_com_IIID<IWebInspector, &__uuidof(IWebInspector)>> IWebInspectorPtr;
-typedef _com_ptr_t<_com_IIID<IWebCoreStatistics, &__uuidof(IWebCoreStatistics)>> IWebCoreStatisticsPtr;
-typedef _com_ptr_t<_com_IIID<IWebCache, &__uuidof(IWebCache)>> IWebCachePtr;
-typedef _com_ptr_t<_com_IIID<IWebResourceLoadDelegate, &__uuidof(IWebResourceLoadDelegate)>> IWebResourceLoadDelegatePtr;
-typedef _com_ptr_t<_com_IIID<IWebDownloadDelegate, &__uuidof(IWebDownloadDelegate)>> IWebDownloadDelegatePtr;
-typedef _com_ptr_t<_com_IIID<IWebFramePrivate, &__uuidof(IWebFramePrivate)>> IWebFramePrivatePtr;
+_COM_SMARTPTR_TYPEDEF(IAccessibilityDelegate, IID_IAccessibilityDelegate);
+_COM_SMARTPTR_TYPEDEF(IWebBackForwardList, IID_IWebBackForwardList);
+_COM_SMARTPTR_TYPEDEF(IWebCache, IID_IWebCache);
+_COM_SMARTPTR_TYPEDEF(IWebCoreStatistics, IID_IWebCoreStatistics);
+_COM_SMARTPTR_TYPEDEF(IWebDataSource, IID_IWebDataSource);
+_COM_SMARTPTR_TYPEDEF(IWebDownloadDelegate, IID_IWebDownloadDelegate);
+_COM_SMARTPTR_TYPEDEF(IWebFrame, IID_IWebFrame);
+_COM_SMARTPTR_TYPEDEF(IWebFrame2, IID_IWebFrame2);
+_COM_SMARTPTR_TYPEDEF(IWebFrameLoadDelegate, IID_IWebFrameLoadDelegate);
+_COM_SMARTPTR_TYPEDEF(IWebFramePrivate, IID_IWebFramePrivate);
+_COM_SMARTPTR_TYPEDEF(IWebHistory, IID_IWebHistory);
+_COM_SMARTPTR_TYPEDEF(IWebHistoryItem, IID_IWebHistoryItem);
+_COM_SMARTPTR_TYPEDEF(IWebHistoryPrivate, IID_IWebHistoryPrivate);
+_COM_SMARTPTR_TYPEDEF(IWebIBActions, IID_IWebIBActions);
+_COM_SMARTPTR_TYPEDEF(IWebInspector, IID_IWebInspector);
+_COM_SMARTPTR_TYPEDEF(IWebKitMessageLoop, IID_IWebKitMessageLoop);
+_COM_SMARTPTR_TYPEDEF(IWebMutableURLRequest, IID_IWebMutableURLRequest);
+_COM_SMARTPTR_TYPEDEF(IWebNotificationCenter, IID_IWebNotificationCenter);
+_COM_SMARTPTR_TYPEDEF(IWebNotificationObserver, IID_IWebNotificationObserver);
+_COM_SMARTPTR_TYPEDEF(IWebPreferences, IID_IWebPreferences);
+_COM_SMARTPTR_TYPEDEF(IWebPreferencesPrivate3, IID_IWebPreferencesPrivate3);
+_COM_SMARTPTR_TYPEDEF(IWebResourceLoadDelegate, IID_IWebResourceLoadDelegate);
+_COM_SMARTPTR_TYPEDEF(IWebUIDelegate, IID_IWebUIDelegate);
+_COM_SMARTPTR_TYPEDEF(IWebView, IID_IWebView);
+_COM_SMARTPTR_TYPEDEF(IWebViewPrivate2, IID_IWebViewPrivate2);
+_COM_SMARTPTR_TYPEDEF(IWebViewPrivate3, IID_IWebViewPrivate3);
 
 class WebKitLegacyBrowserWindow : public BrowserWindow {
 public:
-    static Ref<BrowserWindow> create(HWND mainWnd, HWND urlBarWnd, bool useLayeredWebView = false, bool pageLoadTesting = false);
+    static Ref<BrowserWindow> create(BrowserWindowClient&, HWND mainWnd, bool useLayeredWebView = false);
 
 private:
     friend class AccessibilityDelegate;
@@ -58,34 +68,28 @@ private:
     friend class PrintWebUIDelegate;
     friend class WebDownloadDelegate;
     friend class ResourceLoadDelegate;
-    friend class PageLoadTestClient;
-
-    ULONG AddRef();
-    ULONG Release();
 
     HRESULT init();
     HRESULT prepareViews(HWND mainWnd, const RECT& clientRect);
 
     HRESULT loadURL(const BSTR& passedURL);
+    void reload();
 
     void showLastVisitedSites(IWebView&);
     void launchInspector();
     void openProxySettings();
     void navigateForwardOrBackward(UINT menuID);
     void navigateToHistory(UINT menuID);
-    void exitProgram();
     bool seedInitialDefaultPreferences();
     bool setToDefaultPreferences();
 
-    HRESULT setFrameLoadDelegate(IWebFrameLoadDelegate*);
-    HRESULT setFrameLoadDelegatePrivate(IWebFrameLoadDelegatePrivate*);
     HRESULT setUIDelegate(IWebUIDelegate*);
     HRESULT setAccessibilityDelegate(IAccessibilityDelegate*);
     HRESULT setResourceLoadDelegate(IWebResourceLoadDelegate*);
     HRESULT setDownloadDelegate(IWebDownloadDelegatePtr);
 
     IWebPreferencesPtr standardPreferences() { return m_standardPreferences;  }
-    IWebPreferencesPrivatePtr privatePreferences() { return m_prefsPrivate; }
+    IWebPreferencesPrivate3Ptr privatePreferences() { return m_prefsPrivate; }
     IWebFramePtr mainFrame();
     IWebCoreStatisticsPtr statistics() { return m_statistics; }
     IWebCachePtr webCache() { return m_webCache;  }
@@ -99,8 +103,6 @@ private:
     void setUserAgent(_bstr_t& customUAString);
     _bstr_t userAgent();
 
-    PageLoadTestClient& pageLoadTestClient() { return *m_pageLoadTestClient; }
-
     void resetZoom();
     void zoomIn();
     void zoomOut();
@@ -113,34 +115,29 @@ private:
     void updateStatistics(HWND dialog);
     void setPreference(UINT menuID, bool enable);
 
-    WebKitLegacyBrowserWindow(HWND mainWnd, HWND urlBarWnd, bool useLayeredWebView, bool pageLoadTesting);
+    WebKitLegacyBrowserWindow(BrowserWindowClient&, HWND mainWnd, bool useLayeredWebView);
+    ~WebKitLegacyBrowserWindow();
     void subclassForLayeredWindow();
     bool setCacheFolder();
 
+    BrowserWindowClient& m_client;
     std::vector<IWebHistoryItemPtr> m_historyItems;
 
     IWebViewPtr m_webView;
-    IWebViewPrivatePtr m_webViewPrivate;
+    IWebViewPrivate2Ptr m_webViewPrivate;
 
     IWebHistoryPtr m_webHistory;
     IWebInspectorPtr m_inspector;
     IWebPreferencesPtr m_standardPreferences;
-    IWebPreferencesPrivatePtr m_prefsPrivate;
-
-    IWebFrameLoadDelegatePtr m_frameLoadDelegate;
-    IWebUIDelegatePtr m_uiDelegate;
-    IAccessibilityDelegatePtr m_accessibilityDelegate;
-    IWebResourceLoadDelegatePtr m_resourceLoadDelegate;
-    IWebDownloadDelegatePtr m_downloadDelegate;
+    IWebPreferencesPrivate3Ptr m_prefsPrivate;
+    IWebNotificationCenterPtr m_defaultNotificationCenter;
+    IWebNotificationObserverPtr m_notificationObserver;
 
     IWebCoreStatisticsPtr m_statistics;
     IWebCachePtr m_webCache;
 
     HWND m_hMainWnd { nullptr };
-    HWND m_hURLBarWnd { nullptr };
     HWND m_viewWnd { nullptr };
 
     bool m_useLayeredWebView;
-
-    std::unique_ptr<PageLoadTestClient> m_pageLoadTestClient;
 };

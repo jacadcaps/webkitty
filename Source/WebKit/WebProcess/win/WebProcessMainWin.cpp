@@ -24,15 +24,16 @@
  */
 
 #include "config.h"
-#include "WebProcessMainWin.h"
+#include "WebProcessMain.h"
 
 #include "AuxiliaryProcessMain.h"
 #include "WebProcess.h"
+#include <Objbase.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-class WebProcessMain final : public AuxiliaryProcessMainBase {
+class WebProcessMainWin final : public AuxiliaryProcessMainBase {
 public:
     bool platformInitialize() override
     {
@@ -40,9 +41,12 @@ public:
     }
 };
 
-int WebProcessMainWin(int argc, char** argv)
+int WebProcessMain(int argc, char** argv)
 {
-    return AuxiliaryProcessMain<WebProcess, WebProcessMain>(argc, argv);
+    // WebProcess uses DirectX
+    HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    RELEASE_ASSERT(SUCCEEDED(hr));
+    return AuxiliaryProcessMain<WebProcess, WebProcessMainWin>(argc, argv);
 }
 
 } // namespace WebKit

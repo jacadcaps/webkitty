@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
+ * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,6 +29,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #include <WebCore/COMPtr.h>
 #include <WebCore/Notification.h>
 #include <WebCore/NotificationClient.h>
@@ -41,6 +44,7 @@ class Document;
 }
 
 class WebDesktopNotificationsDelegate : public WebCore::NotificationClient {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     WebDesktopNotificationsDelegate(WebView* view);
 

@@ -40,6 +40,7 @@
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/UniqueArray.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -269,9 +270,11 @@ int getGDKKeySymForKeyRef(WKStringRef keyRef, unsigned location, guint* modifier
         return GDK_KEY_F11;
     if (WKStringIsEqualToUTF8CString(keyRef, "F12"))
         return GDK_KEY_F12;
+    if (WKStringIsEqualToUTF8CString(keyRef, "escape"))
+        return GDK_KEY_Escape;
 
     size_t bufferSize = WKStringGetMaximumUTF8CStringSize(keyRef);
-    auto buffer = std::make_unique<char[]>(bufferSize);
+    auto buffer = makeUniqueArray<char>(bufferSize);
     WKStringGetUTF8CString(keyRef, buffer.get(), bufferSize);
     char charCode = buffer.get()[0];
 

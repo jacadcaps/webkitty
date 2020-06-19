@@ -37,6 +37,8 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/Vector.h>
+#import <wtf/WeakObjCPtr.h>
 
 @interface WKWebView (Details)
 - (WKPageRef)_pageForTesting;
@@ -130,6 +132,9 @@ static CGRect viewRectForWindowRect(CGRect, PlatformWebView::WebViewSizingMode);
     [super viewWillTransitionToSize:toSize withTransitionCoordinator:coordinator];
 
     TestRunnerWKWebView *webView = WTR::TestController::singleton().mainWebView()->platformView();
+
+    if (CGSizeEqualToSize([webView frame].size, toSize))
+        return;
 
     if (webView.usesSafariLikeRotation)
         [webView _setInterfaceOrientationOverride:[[UIApplication sharedApplication] statusBarOrientation]];
@@ -318,40 +323,58 @@ static void releaseDataProviderData(void* info, const void*, size_t)
 RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS;
+
+    CGSize viewSize = m_view.bounds.size;
+    RELEASE_ASSERT(viewSize.width);
+    RELEASE_ASSERT(viewSize.height);
+
+    UIView *selectionView = [platformView() valueForKeyPath:@"_currentContentView.interactionAssistant.selectionView"];
+    UIView *startGrabberView = [selectionView valueForKeyPath:@"rangeView.startGrabber"];
+    UIView *endGrabberView = [selectionView valueForKeyPath:@"rangeView.endGrabber"];
+    Vector<WeakObjCPtr<UIView>, 3> viewsToUnhide;
+    if (![selectionView isHidden]) {
+        [selectionView setHidden:YES];
+        viewsToUnhide.uncheckedAppend(selectionView);
+    }
+
+    if (![startGrabberView isHidden]) {
+        [startGrabberView setHidden:YES];
+        viewsToUnhide.uncheckedAppend(startGrabberView);
+    }
+
+    if (![endGrabberView isHidden]) {
+        [endGrabberView setHidden:YES];
+        viewsToUnhide.uncheckedAppend(endGrabberView);
+    }
+
 #if HAVE(IOSURFACE)
     __block bool isDone = false;
     __block RetainPtr<CGImageRef> result;
     
     RetainPtr<WKSnapshotConfiguration> snapshotConfiguration = adoptNS([[WKSnapshotConfiguration alloc] init]);
-    [snapshotConfiguration setRect:CGRectMake(0, 0, m_view.frame.size.width, m_view.frame.size.height)];
-    [snapshotConfiguration setSnapshotWidth:@(m_view.frame.size.width)];
+    [snapshotConfiguration setRect:CGRectMake(0, 0, viewSize.width, viewSize.height)];
+    [snapshotConfiguration setSnapshotWidth:@(viewSize.width)];
     
     [m_view takeSnapshotWithConfiguration:snapshotConfiguration.get() completionHandler:^(UIImage *snapshotImage, NSError *error) {
+        RELEASE_ASSERT(!error);
+        RELEASE_ASSERT(snapshotImage);
+        RELEASE_ASSERT(snapshotImage.size.width);
+        RELEASE_ASSERT(snapshotImage.size.height);
         if (!error)
             result = [snapshotImage CGImage];
         isDone = true;
     }];
     while (!isDone)
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]];
-    return result;
-
 #else
     CGFloat deviceScaleFactor = 2; // FIXME: hardcode 2x for now. In future we could respect 1x and 3x as we do on Mac.
     CATransform3D transform = CATransform3DMakeScale(deviceScaleFactor, deviceScaleFactor, 1);
     
-    CGSize viewSize = m_view.bounds.size;
     int bufferWidth = ceil(viewSize.width * deviceScaleFactor);
     int bufferHeight = ceil(viewSize.height * deviceScaleFactor);
-    if (!bufferWidth || !bufferHeight) {
-        WTFLogAlways("Being asked for snapshot of view with width %d height %d\n", bufferWidth, bufferHeight);
-        return nullptr;
-    }
 
     CARenderServerBufferRef buffer = CARenderServerCreateBuffer(bufferWidth, bufferHeight);
-    if (!buffer) {
-        WTFLogAlways("CARenderServerCreateBuffer failed for buffer with width %d height %d\n", bufferWidth, bufferHeight);
-        return nullptr;
-    }
+    RELEASE_ASSERT(buffer);
 
     CARenderServerRenderLayerWithTransform(MACH_PORT_NULL, m_view.layer.context.contextId, reinterpret_cast<uint64_t>(m_view.layer), buffer, 0, 0, &transform);
 
@@ -359,12 +382,15 @@ RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
     size_t rowBytes = CARenderServerGetBufferRowBytes(buffer);
 
     static CGColorSpaceRef sRGBSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    RetainPtr<CGDataProviderRef> provider = adoptCF(CGDataProviderCreateWithData(buffer, data, CARenderServerGetBufferDataSize(buffer), releaseDataProviderData));
+    auto provider = adoptCF(CGDataProviderCreateWithData(buffer, data, CARenderServerGetBufferDataSize(buffer), releaseDataProviderData));
     
-    RetainPtr<CGImageRef> cgImage = adoptCF(CGImageCreate(bufferWidth, bufferHeight, 8, 32, rowBytes, sRGBSpace, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host, provider.get(), 0, false, kCGRenderingIntentDefault));
-
-    return cgImage;
+    auto result = adoptCF(CGImageCreate(bufferWidth, bufferHeight, 8, 32, rowBytes, sRGBSpace, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host, provider.get(), 0, false, kCGRenderingIntentDefault));
+    RELEASE_ASSERT(result);
 #endif
+    for (auto view : viewsToUnhide)
+        [view setHidden:NO];
+
+    return result;
     END_BLOCK_OBJC_EXCEPTIONS;
 }
 

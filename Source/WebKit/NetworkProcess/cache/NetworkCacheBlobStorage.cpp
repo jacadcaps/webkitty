@@ -35,6 +35,7 @@
 
 #if !OS(WINDOWS)
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace WebKit {
@@ -46,7 +47,7 @@ BlobStorage::BlobStorage(const String& blobDirectoryPath, Salt salt)
 {
 }
 
-String BlobStorage::blobDirectoryPath() const
+String BlobStorage::blobDirectoryPathIsolatedCopy() const
 {
     return m_blobDirectoryPath.isolatedCopy();
 }
@@ -55,10 +56,11 @@ void BlobStorage::synchronize()
 {
     ASSERT(!RunLoop::isMain());
 
-    FileSystem::makeAllDirectories(blobDirectoryPath());
+    auto blobDirectoryPath = blobDirectoryPathIsolatedCopy();
+    FileSystem::makeAllDirectories(blobDirectoryPath);
 
     m_approximateSize = 0;
-    auto blobDirectory = blobDirectoryPath();
+    auto blobDirectory = blobDirectoryPath;
     traverseDirectory(blobDirectory, [this, &blobDirectory](const String& name, DirectoryEntryType type) {
         if (type != DirectoryEntryType::File)
             return;
@@ -79,7 +81,7 @@ void BlobStorage::synchronize()
 String BlobStorage::blobPathForHash(const SHA1::Digest& hash) const
 {
     auto hashAsString = SHA1::hexDigest(hash);
-    return FileSystem::pathByAppendingComponent(blobDirectoryPath(), String::fromUTF8(hashAsString));
+    return FileSystem::pathByAppendingComponent(blobDirectoryPathIsolatedCopy(), String::fromUTF8(hashAsString));
 }
 
 BlobStorage::Blob BlobStorage::add(const String& path, const Data& data)
@@ -109,8 +111,6 @@ BlobStorage::Blob BlobStorage::add(const String& path, const Data& data)
     auto mappedData = data.mapToFile(blobPath);
     if (mappedData.isNull())
         return { };
-
-    FileSystem::makeSafeToUseMemoryMapForPath(blobPath);
 
     if (!FileSystem::hardLink(blobPath, path))
         WTFLogAlways("Failed to create hard link from %s to %s", blobPath.utf8().data(), path.utf8().data());

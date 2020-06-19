@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -91,10 +91,6 @@ WK_EXPORT void WKPreferencesSetWebGLEnabled(WKPreferencesRef, bool);
 WK_EXPORT bool WKPreferencesGetWebGLEnabled(WKPreferencesRef);
 
 // Defaults to false.
-WK_EXPORT void WKPreferencesSetForceSoftwareWebGLRendering(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetForceSoftwareWebGLRendering(WKPreferencesRef);
-
-// Defaults to false.
 WK_EXPORT void WKPreferencesSetAccelerated2DCanvasEnabled(WKPreferencesRef, bool);
 WK_EXPORT bool WKPreferencesGetAccelerated2DCanvasEnabled(WKPreferencesRef);
 
@@ -157,6 +153,10 @@ WK_EXPORT bool WKPreferencesGetUniversalAccessFromFileURLsAllowed(WKPreferencesR
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetFileAccessFromFileURLsAllowed(WKPreferencesRef preferences, bool allowed);
 WK_EXPORT bool WKPreferencesGetFileAccessFromFileURLsAllowed(WKPreferencesRef preferences);
+
+// Defaults to false.
+WK_EXPORT void WKPreferencesSetTopNavigationToDataURLsAllowed(WKPreferencesRef preferences, bool allowed);
+WK_EXPORT bool WKPreferencesGetTopNavigationToDataURLsAllowed(WKPreferencesRef preferences);
 
 // Defaults to true
 WK_EXPORT void WKPreferencesSetNeedsStorageAccessFromFileURLsQuirk(WKPreferencesRef preferences, bool needsQuirk);
@@ -395,6 +395,10 @@ WK_EXPORT bool WKPreferencesGetImageControlsEnabled(WKPreferencesRef preferences
 WK_EXPORT void WKPreferencesSetGamepadsEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetGamepadsEnabled(WKPreferencesRef preferencesRef);
 
+// Default to false.
+WK_EXPORT void WKPreferencesSetHighlightAPIEnabled(WKPreferencesRef preferencesRef, bool enabled);
+WK_EXPORT bool WKPreferencesGetHighlightAPIEnabled(WKPreferencesRef preferencesRef);
+
 // Not implemented, should be deleted once there are no callers.
 WK_EXPORT void WKPreferencesSetLongMousePressEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetLongMousePressEnabled(WKPreferencesRef preferencesRef);
@@ -470,11 +474,7 @@ WK_EXPORT bool WKPreferencesGetIntersectionObserverEnabled(WKPreferencesRef);
 // Defaults to false
 WK_EXPORT void WKPreferencesSetMenuItemElementEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetMenuItemElementEnabled(WKPreferencesRef);
-    
-// Defaults to false
-WK_EXPORT void WKPreferencesSetDisplayContentsEnabled(WKPreferencesRef, bool flag);
-WK_EXPORT bool WKPreferencesGetDisplayContentsEnabled(WKPreferencesRef);
-    
+        
 // Defaults to false
 WK_EXPORT void WKPreferencesSetDataTransferItemsEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetDataTransferItemsEnabled(WKPreferencesRef);
@@ -482,7 +482,15 @@ WK_EXPORT bool WKPreferencesGetDataTransferItemsEnabled(WKPreferencesRef);
 // Defaults to false
 WK_EXPORT void WKPreferencesSetCustomPasteboardDataEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetCustomPasteboardDataEnabled(WKPreferencesRef);
-    
+
+// Defaults to false
+WK_EXPORT void WKPreferencesSetDialogElementEnabled(WKPreferencesRef, bool flag);
+WK_EXPORT bool WKPreferencesGetDialogElementEnabled(WKPreferencesRef);
+
+// Defaults to false
+WK_EXPORT void WKPreferencesSetKeygenElementEnabled(WKPreferencesRef, bool flag);
+WK_EXPORT bool WKPreferencesGetKeygenElementEnabled(WKPreferencesRef);
+
 // Defaults to false, true for iOS
 WK_EXPORT void WKPreferencesSetWebShareEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetWebShareEnabled(WKPreferencesRef);
@@ -498,6 +506,14 @@ WK_EXPORT bool WKPreferencesGetResourceTimingEnabled(WKPreferencesRef);
 // Defaults to false
 WK_EXPORT void WKPreferencesSetFetchAPIKeepAliveEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetFetchAPIKeepAliveEnabled(WKPreferencesRef);
+
+// Defaults to false
+WK_EXPORT void WKPreferencesSetIsNSURLSessionWebSocketEnabled(WKPreferencesRef, bool flag);
+WK_EXPORT bool WKPreferencesGetIsNSURLSessionWebSocketEnabled(WKPreferencesRef);
+
+// Defaults to false
+WK_EXPORT void WKPreferencesSetIsAccessibilityIsolatedTreeEnabled(WKPreferencesRef, bool flag);
+WK_EXPORT bool WKPreferencesGetIsAccessibilityIsolatedTreeEnabled(WKPreferencesRef);
 
 // Defaults to true.
 WK_EXPORT void WKPreferencesSetLargeImageAsyncDecodingEnabled(WKPreferencesRef preferencesRef, bool flag);
@@ -590,6 +606,10 @@ WK_EXPORT bool WKPreferencesGetPunchOutWhiteBackgroundsInDarkMode(WKPreferencesR
 // Defaults to false
 WK_EXPORT void WKPreferencesSetReferrerPolicyAttributeEnabled(WKPreferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetReferrerPolicyAttributeEnabled(WKPreferencesRef);
+
+// Defaults to false
+WK_EXPORT void WKPreferencesSetLazyImageLoadingEnabled(WKPreferencesRef, bool flag);
+WK_EXPORT bool WKPreferencesGetLazyImageLoadingEnabled(WKPreferencesRef);
 
 #ifdef __cplusplus
 }

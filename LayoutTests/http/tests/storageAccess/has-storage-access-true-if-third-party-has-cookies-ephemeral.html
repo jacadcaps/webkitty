@@ -1,3 +1,4 @@
+<!-- webkit-test-runner [ useEphemeralSession=true ] -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -6,9 +7,6 @@
     <script>
         description("Tests that document.hasStorageAccess() returns true for a 3rd-party iframe if the 3rd-party has cookies set (ephemeral session).");
         jsTestIsAsync = true;
-
-        if (window.testRunner)
-            testRunner.setPrivateBrowsingEnabled(true);
 
         window.addEventListener("message", receiveMessage, false);
 
@@ -26,8 +24,9 @@
         const hostUnderTest = "localhost:8000";
         const statisticsUrl = "http://" + hostUnderTest;
         function runTest() {
+            // This test should not call setEnableFeature(true) because ephemeral sessions do not use ITP.
             if (document.location.hash !== "#firstPartyCookieSet") {
-                document.location.href = statisticsUrl + "/storageAccess/resources/set-cookie.php?name=firstPartyCookie&value=value#http://127.0.0.1:8000/storageAccess/has-storage-access-true-if-third-party-has-cookies.html#firstPartyCookieSet";
+                document.location.href = statisticsUrl + "/storageAccess/resources/set-cookie.php?name=firstPartyCookie&value=value#http://127.0.0.1:8000/storageAccess/has-storage-access-true-if-third-party-has-cookies-ephemeral.html#firstPartyCookieSet";
             } else {
                 let iframeElement = document.createElement("iframe");
                 iframeElement.id = "TheIframeThatRequestsStorageAccess";

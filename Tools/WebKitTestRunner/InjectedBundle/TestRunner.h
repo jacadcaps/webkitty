@@ -112,7 +112,6 @@ public:
     void setNeedsStorageAccessFromFileURLsQuirk(bool);
     void setPluginsEnabled(bool);
     void setJavaScriptCanAccessClipboard(bool);
-    void setPrivateBrowsingEnabled(bool);
     void setPopupBlockingEnabled(bool);
     void setAuthorAndUserStylesEnabled(bool);
     void setCustomPolicyDelegate(bool enabled, bool permissive = false);
@@ -127,10 +126,13 @@ public:
     void setCacheModel(int);
     void setAsynchronousSpellCheckingEnabled(bool);
     void setAllowsAnySSLCertificate(bool);
+    void setShouldSwapToEphemeralSessionOnNextNavigation(bool);
+    void setShouldSwapToDefaultSessionOnNextNavigation(bool);
     void setEncryptedMediaAPIEnabled(bool);
+    void setPictureInPictureAPIEnabled(bool);
+    void setGenericCueAPIEnabled(bool);
     void setMediaDevicesEnabled(bool);
     void setWebRTCMDNSICECandidatesEnabled(bool);
-    void setWebRTCUnifiedPlanEnabled(bool);
     void setCustomUserAgent(JSStringRef);
     void setWebAPIStatisticsEnabled(bool);
 
@@ -159,6 +161,7 @@ public:
     void clearAllDatabases();
     void setDatabaseQuota(uint64_t);
     JSRetainPtr<JSStringRef> pathToLocalResource(JSStringRef);
+    void syncLocalStorage();
 
     // Application Cache
     void clearAllApplicationCaches();
@@ -174,9 +177,6 @@ public:
     bool hasDOMCache(JSStringRef origin);
     uint64_t domCacheSize(JSStringRef origin);
     void setAllowStorageQuotaIncrease(bool);
-
-    // IndexedDB
-    void setIDBPerOriginQuota(uint64_t);
 
     // Failed load condition testing
     void forceImmediateCompletion();
@@ -380,13 +380,14 @@ public:
     void setMockGamepadButtonValue(unsigned index, unsigned buttonIndex, double value);
     
     // Resource Load Statistics
+    void setStatisticsEnabled(bool value);
     void installStatisticsDidModifyDataRecordsCallback(JSValueRef callback);
     void installStatisticsDidScanDataRecordsCallback(JSValueRef callback);
     void installStatisticsDidRunTelemetryCallback(JSValueRef callback);
     void statisticsDidModifyDataRecordsCallback();
     void statisticsDidScanDataRecordsCallback();
-    void statisticsDidRunTelemetryCallback(unsigned totalPrevalentResources, unsigned totalPrevalentResourcesWithUserInteraction, unsigned top3SubframeUnderTopFrameOrigins);
-    void statisticsNotifyObserver();
+    void statisticsDidRunTelemetryCallback(unsigned numberOfPrevalentResources, unsigned numberOfPrevalentResourcesWithUserInteraction, unsigned numberOfPrevalentResourcesWithoutUserInteraction, unsigned topPrevalentResourceWithUserInteractionDaysSinceUserInteraction, unsigned medianDaysSinceUserInteractionPrevalentResourceWithUserInteraction, unsigned top3NumberOfPrevalentResourcesWithUI, unsigned top3MedianSubFrameWithoutUI, unsigned top3MedianSubResourceWithoutUI, unsigned top3MedianUniqueRedirectsWithoutUI, unsigned top3MedianDataRecordsRemovedWithoutUI);
+    bool statisticsNotifyObserver();
     void statisticsProcessStatisticsAndDataRecords();
     void statisticsUpdateCookieBlocking(JSValueRef completionHandler);
     void statisticsCallDidSetBlockCookiesForHostCallback();
@@ -397,6 +398,8 @@ public:
     void statisticsCallDidSetPrevalentResourceForDebugModeCallback();
     void setStatisticsLastSeen(JSStringRef hostName, double seconds, JSValueRef completionHandler);
     void statisticsCallDidSetLastSeenCallback();
+    void setStatisticsMergeStatistic(JSStringRef hostName, JSStringRef topFrameDomain1, JSStringRef topFrameDomain2, double lastSeen, bool hadUserInteraction, double mostRecentUserInteraction, bool isGrandfathered, bool isPrevalent, bool isVeryPrevalent, unsigned dataRecordsRemoved, JSValueRef completionHandler);
+    void statisticsCallDidSetMergeStatisticCallback();
     void setStatisticsPrevalentResource(JSStringRef hostName, bool value, JSValueRef completionHandler);
     void statisticsCallDidSetPrevalentResourceCallback();
     void setStatisticsVeryPrevalentResource(JSStringRef hostName, bool value, JSValueRef completionHandler);
@@ -409,8 +412,10 @@ public:
     void setStatisticsHasHadUserInteraction(JSStringRef hostName, bool value, JSValueRef completionHandler);
     void statisticsCallDidSetHasHadUserInteractionCallback();
     bool isStatisticsHasHadUserInteraction(JSStringRef hostName);
+    bool isStatisticsOnlyInDatabaseOnce(JSStringRef subHost, JSStringRef topHost);
     void setStatisticsGrandfathered(JSStringRef hostName, bool value);
     bool isStatisticsGrandfathered(JSStringRef hostName);
+    void setUseITPDatabase(bool value);
     void setStatisticsSubframeUnderTopFrameOrigin(JSStringRef hostName, JSStringRef topFrameHostName);
     void setStatisticsSubresourceUnderTopFrameOrigin(JSStringRef hostName, JSStringRef topFrameHostName);
     void setStatisticsSubresourceUniqueRedirectTo(JSStringRef hostName, JSStringRef hostNameRedirectedTo);
@@ -434,10 +439,13 @@ public:
     void statisticsCallClearThroughWebsiteDataRemovalCallback();
     bool isStatisticsHasLocalStorage(JSStringRef hostName);
     void setStatisticsCacheMaxAgeCap(double seconds);
+    bool hasStatisticsIsolatedSession(JSStringRef hostName);
     void setStatisticsShouldDowngradeReferrer(bool, JSValueRef callback);
     void statisticsCallDidSetShouldDowngradeReferrerCallback();
-    void setStatisticsShouldBlockThirdPartyCookies(bool, JSValueRef callback);
+    void setStatisticsShouldBlockThirdPartyCookies(bool value, JSValueRef callback, bool onlyOnSitesWithoutUserInteraction);
     void statisticsCallDidSetShouldBlockThirdPartyCookiesCallback();
+    void setStatisticsFirstPartyWebsiteDataRemovalMode(bool value, JSValueRef callback);
+    void statisticsCallDidSetFirstPartyWebsiteDataRemovalModeCallback();
     void statisticsResetToConsistentState(JSValueRef completionHandler);
     void statisticsCallDidResetToConsistentStateCallback();
 
@@ -463,7 +471,8 @@ public:
     void abortModal();
 
     void terminateNetworkProcess();
-    void terminateServiceWorkerProcess();
+    void terminateServiceWorkers();
+    void setUseSeparateServiceWorkerProcess(bool);
 
     void removeAllSessionCredentials(JSValueRef);
     void callDidRemoveAllSessionCredentialsCallback();
@@ -482,6 +491,8 @@ public:
     void clearMockMediaDevices();
     void removeMockMediaDevice(JSStringRef persistentId);
     void resetMockMediaDevices();
+    void setMockCameraOrientation(unsigned);
+    bool isMockRealtimeMediaSourceCenterEnabled();
 
     size_t userScriptInjectedCount() const;
     void injectUserScript(JSStringRef);
@@ -492,11 +503,9 @@ public:
 
     // FIXME(189876)
     void addTestKeyToKeychain(JSStringRef privateKeyBase64, JSStringRef attrLabel, JSStringRef applicationTagBase64);
-    void cleanUpKeychain(JSStringRef attrLabel);
+    void cleanUpKeychain(JSStringRef attrLabel, JSStringRef applicationTagBase64);
     bool keyExistsInKeychain(JSStringRef attrLabel, JSStringRef applicationTagBase64);
 
-    void setCanHandleHTTPSServerTrustEvaluation(bool canHandle);
-    bool canDoServerTrustEvaluationInNetworkProcess();
     unsigned long serverTrustEvaluationCallbackCallsCount();
 
     // Ad Click Attribution.
@@ -506,6 +515,8 @@ public:
     void setAdClickAttributionOverrideTimerForTesting(bool value);
     void setAdClickAttributionConversionURLForTesting(JSStringRef);
     void markAdClickAttributionsAsExpiredForTesting();
+
+    void setOffscreenCanvasEnabled(bool);
 
 private:
     TestRunner();
@@ -573,6 +584,7 @@ private:
     bool m_dumpAllHTTPRedirectedResponseHeaders { false };
     bool m_hasSetDowngradeReferrerCallback { false };
     bool m_hasSetBlockThirdPartyCookiesCallback { false };
+    bool m_hasSetFirstPartyWebsiteDataRemovalModeCallback { false };
 };
 
 } // namespace WTR

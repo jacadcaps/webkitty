@@ -40,6 +40,7 @@
 namespace WTR {
 
 class TestInvocation final : public UIScriptContextDelegate {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(TestInvocation);
 public:
     explicit TestInvocation(WKURLRef, const TestOptions&);
@@ -74,11 +75,13 @@ public:
     void didClearStatisticsThroughWebsiteDataRemoval();
     void didSetShouldDowngradeReferrer();
     void didSetShouldBlockThirdPartyCookies();
+    void didSetFirstPartyWebsiteDataRemovalMode();
     void didResetStatisticsToConsistentState();
     void didSetBlockCookiesForHost();
     void didSetStatisticsDebugMode();
     void didSetPrevalentResourceForDebugMode();
     void didSetLastSeen();
+    void didMergeStatistic();
     void didSetPrevalentResource();
     void didSetVeryPrevalentResource();
     void didSetHasHadUserInteraction();
@@ -92,6 +95,8 @@ public:
 
     void dumpAdClickAttribution();
     void performCustomMenuAction();
+
+    void willCreateNewPage();
 
 private:
     WKRetainPtr<WKMutableDictionaryRef> createTestSettingsDictionary();

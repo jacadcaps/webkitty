@@ -24,16 +24,15 @@ if (self.testRunner) {
 
     // Make WebAudio map to webkitWebAudio for WPT tests
     if (location.port == 8800 || location.port == 9443) {
-        self.AudioContext = self.webkitAudioContext;
-        self.OfflineAudioContext = self.webkitOfflineAudioContext;
+        if (window.webkitAudioContext && !window.AudioContext)
+            Object.defineProperty(self, "AudioContext", Object.getOwnPropertyDescriptor(self, "webkitAudioContext"));
+        if (window.webkitOfflineAudioContext && !window.OfflineAudioContext)
+            Object.defineProperty(self, "OfflineAudioContext", Object.getOwnPropertyDescriptor(self, "webkitOfflineAudioContext"));
     }
 
     if (testRunner.setStatisticsShouldDowngradeReferrer) 
        testRunner.setStatisticsShouldDowngradeReferrer(false, function() { });
 }
-
-if (self.internals && internals.setDisableGetDisplayMediaUserGestureConstraint)
-    internals.setDisableGetDisplayMediaUserGestureConstraint(true);
 
 if (self.internals && internals.setICECandidateFiltering)
     internals.setICECandidateFiltering(false);
@@ -64,7 +63,6 @@ if (self.testRunner) {
     *   manner that allows dumpAsText to produce readable test results
     */
     add_completion_callback(function (tests, harness_status) {
-        var results = document.createElement("pre");
         var resultStr = "\n";
 
         // Sanitizes the given text for display in test results.
@@ -91,17 +89,41 @@ if (self.testRunner) {
             resultStr += convertResult(tests[i].status) + " " + sanitize(tests[i].name) + " " + message + "\n";
         }
 
+        var results = document.createElementNS("http://www.w3.org/1999/xhtml", "pre");
         results.innerText = resultStr;
+
         var log = document.getElementById("log");
         if (log)
             log.appendChild(results);
-        else
+        else if (document.body)
             document.body.appendChild(results);
+        else {
+            var root = document.documentElement;
+            var is_html = root
+                    && root.namespaceURI == "http://www.w3.org/1999/xhtml"
+                    && root.localName == "html";
+            var is_svg = document.defaultView
+                    && "SVGSVGElement" in document.defaultView
+                    && root instanceof document.defaultView.SVGSVGElement;
+
+            if (is_svg) {
+                var foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+                foreignObject.setAttribute("width", "100%");
+                foreignObject.setAttribute("height", "100%");
+                root.appendChild(foreignObject);
+                foreignObject.appendChild(results);
+            } else if (is_html) {
+                root.appendChild(document.createElementNS("http://www.w3.org/1999/xhtml", "body"))
+                    .appendChild(results);
+            } else {
+                root.appendChild(results);
+            }
+        }
 
         // Wait for any other completion callbacks, which may eliminate test elements
         // from the page and therefore reduce the output.
         setTimeout(function () {
-            testRunner.notifyDone();
+            testRunner.forceImmediateCompletion();
         }, 0);
     });
 }

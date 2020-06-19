@@ -1,15 +1,14 @@
 <?php
     header("Content-Security-Policy: img-src 'none'; report-uri http://localhost:8080/security/contentSecurityPolicy/resources/save-report.php");
 ?>
+<!-- webkit-test-runner [ useEphemeralSession=true ] -->
 <!DOCTYPE html>
 <html>
 <body>
 <script>
-    if (window.testRunner) {
-        testRunner.setPrivateBrowsingEnabled(true);
-        testRunner.waitUntilDone();
-        testRunner.dumpAsText();
-    }
+if (window.testRunner) {
+    testRunner.waitUntilDone();
+    testRunner.dumpAsText();
 
     testRunner.setStatisticsShouldDowngradeReferrer(false, function () {
         var xhr = new XMLHttpRequest();
@@ -25,6 +24,7 @@
         imgElement.src = "/security/resources/abe.png";
         document.body.appendChild(imgElement);
     });
+}
 </script>
 </body>
 </html>

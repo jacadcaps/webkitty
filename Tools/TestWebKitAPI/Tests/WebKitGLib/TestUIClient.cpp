@@ -218,7 +218,8 @@ public:
 
         test->m_mouseTargetHitTestResult = hitTestResult;
         test->m_mouseTargetModifiers = modifiers;
-        g_main_loop_quit(test->m_mainLoop);
+        if (test->m_waitingForMouseTargetChange)
+            g_main_loop_quit(test->m_mainLoop);
     }
 
     static gboolean permissionRequested(WebKitWebView*, WebKitPermissionRequest* request, UIClientTest* test)
@@ -308,8 +309,10 @@ public:
 
     WebKitHitTestResult* moveMouseAndWaitUntilMouseTargetChanged(int x, int y, unsigned mouseModifiers = 0)
     {
+        m_waitingForMouseTargetChange = true;
         mouseMoveTo(x, y, mouseModifiers);
         g_main_loop_run(m_mainLoop);
+        m_waitingForMouseTargetChange = false;
         return m_mouseTargetHitTestResult.get();
     }
 
@@ -330,7 +333,7 @@ public:
         g_assert_true(webView == m_webView);
         g_assert_nonnull(navigation);
 
-        auto* newWebView = Test::createWebView(webkit_web_view_get_context(webView));
+        auto* newWebView = Test::createWebView(webView);
 #if PLATFORM(GTK)
         g_object_ref_sink(newWebView);
 #endif
@@ -384,6 +387,7 @@ public:
     GRefPtr<WebKitHitTestResult> m_mouseTargetHitTestResult;
     unsigned m_mouseTargetModifiers;
     GUniquePtr<char> m_permissionResult;
+    bool m_waitingForMouseTargetChange { false };
 };
 
 static void testWebViewCreateReadyClose(UIClientTest* test, gconstpointer)
@@ -479,7 +483,7 @@ static void testWebViewCreateNavigationData(CreateNavigationDataTest* test, gcon
     test->loadHTML("<html><body onLoad=\"window.open();\"></html>");
     test->waitUntilMainLoopFinishes();
 
-    g_assert_cmpstr(webkit_uri_request_get_uri(webkit_navigation_action_get_request(test->m_navigation)), ==, "about:blank");
+    g_assert_cmpstr(webkit_uri_request_get_uri(webkit_navigation_action_get_request(test->m_navigation)), ==, "");
     g_assert_cmpuint(webkit_navigation_action_get_navigation_type(test->m_navigation), ==, WEBKIT_NAVIGATION_TYPE_OTHER);
     g_assert_cmpuint(webkit_navigation_action_get_mouse_button(test->m_navigation), ==, 0);
     g_assert_cmpuint(webkit_navigation_action_get_modifiers(test->m_navigation), ==, 0);
@@ -527,6 +531,7 @@ static void testWebViewAllowModalDialogs(ModalDialogsTest* test, gconstpointer)
 {
     WebKitSettings* settings = webkit_web_view_get_settings(test->m_webView);
     webkit_settings_set_allow_modal_dialogs(settings, TRUE);
+    webkit_settings_set_allow_top_navigation_to_data_urls(settings, TRUE);
 
     test->loadHtml("<html><body onload=\"window.showModalDialog('data:text/html,<html><body/><script>window.close();</script></html>')\"></body></html>", 0);
     test->waitUntilMainLoopFinishes();
@@ -808,12 +813,12 @@ static void testWebViewGeolocationPermissionRequests(UIClientTest* test, gconstp
         "</html>";
 
     // Geolocation is not allowed from insecure connections like HTTP,
-    // POSITION_UNAVAILABLE ('2') is returned in that case without even
+    // PERMISSION_DENIED ('1') is returned in that case without even
     // asking the API layer.
     test->m_allowPermissionRequests = false;
     test->loadHtml(geolocationRequestHTML, "http://foo.com/bar");
     const gchar* result = test->waitUntilPermissionResultMessageReceived();
-    g_assert_cmpstr(result, ==, "2");
+    g_assert_cmpstr(result, ==, "1");
 
     // Test denying a permission request. PERMISSION_DENIED ('1') is
     // returned in this case.
@@ -946,6 +951,44 @@ static void testWebViewAudioOnlyUserMediaPermissionRequests(UIClientTest* test, 
     webkit_settings_set_enable_media_stream(settings, enabled);
 }
 #endif // ENABLE(MEDIA_STREAM)
+
+#if ENABLE(POINTER_LOCK)
+static void testWebViewPointerLockPermissionRequest(UIClientTest* test, gconstpointer)
+{
+#if PLATFORM(GTK)
+    test->showInWindowAndWaitUntilMapped(GTK_WINDOW_TOPLEVEL);
+#endif
+
+    static const char* pointerLockRequestHTML =
+        "<html>"
+        "  <script>"
+        "  function runTest()"
+        "  {"
+        "    document.onpointerlockchange = function () { document.title = \"Locked\" };"
+        "    document.onpointerlockerror = function () { document.title = \"Error\" };"
+        "    document.getElementById('target').requestPointerLock();"
+        "  }"
+        "  </script>"
+        "  <body>"
+        "   <input style='position:absolute; left:0; top:0; margin:0; padding:0' type='button' value='click to lock pointer' onclick='runTest()'/>"
+        "   <div id='target'></div>"
+        "  </body>"
+        "</html>";
+
+    test->loadHtml(pointerLockRequestHTML, nullptr);
+    test->waitUntilLoadFinished();
+
+    // Test denying a permission request.
+    test->m_allowPermissionRequests = false;
+    test->clickMouseButton(5, 5, 1);
+    test->waitUntilTitleChangedTo("Error");
+
+    // Test allowing a permission request.
+    test->m_allowPermissionRequests = true;
+    test->clickMouseButton(5, 5, 1);
+    test->waitUntilTitleChangedTo("Locked");
+}
+#endif
 
 #if PLATFORM(GTK)
 class FileChooserTest: public UIClientTest {
@@ -1203,6 +1246,9 @@ void beforeAll()
 #endif
 #if PLATFORM(GTK)
     ColorChooserTest::add("WebKitWebView", "color-chooser-request", testWebViewColorChooserRequest);
+#endif
+#if ENABLE(POINTER_LOCK)
+    UIClientTest::add("WebKitWebView", "pointer-lock-permission-request", testWebViewPointerLockPermissionRequest);
 #endif
 }
 

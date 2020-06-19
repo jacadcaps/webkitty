@@ -27,7 +27,6 @@
 
 #include "stdafx.h"
 #include "MainWindow.h"
-#include "WebKitLegacyBrowserWindow.h"
 
 enum class BrowserWindowType {
     WebKit,
@@ -37,7 +36,6 @@ enum class BrowserWindowType {
 struct CommandLineOptions {
     bool usesLayeredWebView { };
     bool useFullDesktop { };
-    bool pageLoadTesting { };
     BrowserWindowType windowType;
     _bstr_t requestedURL;
 

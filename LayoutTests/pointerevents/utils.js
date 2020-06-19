@@ -59,6 +59,8 @@ class EventTracker
             this._handlePointerEvent(event);
         else if (event instanceof MouseEvent)
             this._handleMouseEvent(event);
+        else if (event instanceof TouchEvent)
+            this._handleTouchEvent(event);
     }
 
     _handlePointerEvent(event)
@@ -88,15 +90,20 @@ class EventTracker
         });
     }
 
+    _handleTouchEvent(event)
+    {
+        this.events.push({ type: event.type });
+    }
+
     assertMatchesEvents(expectedEvents)
     {
         assert_true(!!this.events.length, "Event tracker saw some events.");
-        assert_equals(expectedEvents.length, this.events.length, "Expected events and actual events have the same length.");
+        assert_equals(this.events.length, expectedEvents.length, "Expected events and actual events have the same length.");
         for (let i = 0; i < expectedEvents.length; ++i) {
             const expectedEvent = expectedEvents[i];
             const actualEvent = this.events[i];
             for (let property of Object.getOwnPropertyNames(expectedEvent))
-                assert_equals(expectedEvent[property], actualEvent[property], `Property ${property} matches for event at index ${i}.`);
+                assert_equals(actualEvent[property], expectedEvent[property], `Property ${property} matches for event at index ${i}.`);
         }
     }
 }
@@ -130,7 +137,7 @@ const ui = new (class UIController {
     doubleTapToZoom(options)
     {
         const durationInSeconds = 0.35;
-        return new Promise(resolve => this._run(`uiController.doubleTapAtPoint(${options.x}, ${options.y})`).then(() =>
+        return new Promise(resolve => this._run(`uiController.doubleTapAtPoint(${options.x}, ${options.y}, 0)`).then(() =>
             setTimeout(resolve, durationInSeconds * 1000)
         ));
         return this._run();

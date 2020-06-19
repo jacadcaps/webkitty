@@ -30,16 +30,18 @@
 #import "BlockSPI.h"
 #import "Connection.h"
 #import "RemoteObjectInvocation.h"
-#import "RemoteObjectRegistry.h"
+#import "UIRemoteObjectRegistry.h"
 #import "UserData.h"
 #import "WKConnectionRef.h"
 #import "WKRemoteObject.h"
 #import "WKRemoteObjectCoder.h"
 #import "WKSharedAPICast.h"
 #import "WebPage.h"
+#import "WebRemoteObjectRegistry.h"
 #import "_WKRemoteObjectInterface.h"
 #import <objc/runtime.h>
 
+extern "C" const char *_protocol_getMethodTypeEncoding(Protocol *p, SEL sel, BOOL isRequiredMethod, BOOL isInstanceMethod);
 extern "C" id __NSMakeSpecialForwardingCaptureBlock(const char *signature, void (^handler)(NSInvocation *inv));
 
 static const void* replyBlockKey = &replyBlockKey;
@@ -104,22 +106,22 @@ struct PendingReply {
     return remoteObject.autorelease();
 }
 
-- (id)_initWithWebPage:(WebKit::WebPage&)page
+- (id)_initWithWebPage:(NakedRef<WebKit::WebPage>)page
 {
     if (!(self = [super init]))
         return nil;
 
-    _remoteObjectRegistry = std::make_unique<WebKit::RemoteObjectRegistry>(self, page);
+    _remoteObjectRegistry = makeUnique<WebKit::WebRemoteObjectRegistry>(self, page.get());
 
     return self;
 }
 
-- (id)_initWithWebPageProxy:(WebKit::WebPageProxy&)page
+- (id)_initWithWebPageProxy:(NakedRef<WebKit::WebPageProxy>)page
 {
     if (!(self = [super init]))
         return nil;
 
-    _remoteObjectRegistry = std::make_unique<WebKit::RemoteObjectRegistry>(self, page);
+    _remoteObjectRegistry = makeUnique<WebKit::UIRemoteObjectRegistry>(self, page.get());
 
     return self;
 }
@@ -160,7 +162,7 @@ static uint64_t generateReplyIdentifier()
         if (strcmp([NSMethodSignature signatureWithObjCTypes:replyBlockSignature].methodReturnType, "v"))
             [NSException raise:NSInvalidArgumentException format:@"Return value of block argument must be 'void'. (%s)", sel_getName(invocation.selector)];
 
-        replyInfo = std::make_unique<WebKit::RemoteObjectInvocation::ReplyInfo>(generateReplyIdentifier(), replyBlockSignature);
+        replyInfo = makeUnique<WebKit::RemoteObjectInvocation::ReplyInfo>(generateReplyIdentifier(), replyBlockSignature);
 
         // Replace the block object so we won't try to encode it.
         id null = nullptr;

@@ -63,12 +63,20 @@
     font-style: italic;
 }
 
+.breakpoint-debugger-statement-icon .icon {
+    content: url(../Images/DebuggerStatement.svg);
+}
+
 .breakpoint-exception-icon .icon {
     content: url(../Images/Exception.svg);
 }
 
 .breakpoint-assertion-icon .icon {
     content: url(../Images/Assertion.svg);
+}
+
+.breakpoint-microtask-icon .icon {
+    content: url(../Images/Microtask.svg);
 }
 
 .breakpoint-paused-icon .icon {

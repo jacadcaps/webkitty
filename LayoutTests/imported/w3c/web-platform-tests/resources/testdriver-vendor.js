@@ -37,6 +37,9 @@ function dispatchMouseActions(actions)
                     logDebug(() => `eventSender.mouseUp()`);
                     eventSender.mouseUp(action.button);
                     break;
+                case "pause":
+                    // FIXME: What should we do here?
+                    break;
                 default:
                     return Promise.reject(new Error(`Unknown action type "${action.type}".`));
                 }
@@ -136,6 +139,72 @@ function dispatchTouchActions(actions, options = { insertPauseAfterPointerUp: fa
 if (window.test_driver_internal === undefined)
     window.test_driver_internal = { };
 
+window.test_driver_internal.send_keys = function(element, keys)
+{
+    if (!window.eventSender)
+        return Promise.reject(new Error("window.eventSender is undefined."));
+
+    // https://seleniumhq.github.io/selenium/docs/api/py/webdriver/selenium.webdriver.common.keys.html
+    // FIXME: Add more cases.
+    // FIXME: Add the support for modifier keys.
+    const SeleniumCharCodeToEventSenderKey = {
+        0xE003: 'delete',
+        0xE004: '\t',
+        0xE00D: ' ',
+        0xE012: 'leftArrow',
+        0xE013: 'upArrow',
+        0xE014: 'rightArrow',
+        0xE015: 'downArrow',
+    };
+
+    function convertSeleniumKeyCode(key)
+    {
+        const code = key.charCodeAt(0);
+        return SeleniumCharCodeToEventSenderKey[code] || key;
+    }
+
+    const keyList = [];
+    for (const key of keys)
+        keyList.push(convertSeleniumKeyCode(key));
+
+    if (testRunner.isIOSFamily && testRunner.isWebKit2) {
+        return new Promise((resolve) => {
+            testRunner.runUIScript(`
+                const keyList = JSON.parse('${JSON.stringify(keyList)}');
+                for (const key of keyList)
+                    uiController.keyDown(key);`, resolve);
+        });
+    }
+
+    for (const key of keyList)
+        eventSender.keyDown(key);
+    return Promise.resolve();
+}
+
+window.test_driver_internal.click = function (element, coords)
+{
+    if (!window.testRunner)
+        return Promise.resolve();
+
+    if (!window.eventSender)
+        return Promise.reject(new Error("window.eventSender is undefined."));
+
+    if (testRunner.isIOSFamily && testRunner.isWebKit2) {
+        return new Promise((resolve) => {
+            testRunner.runUIScript(`
+                uiController.singleTapAtPoint(${coords.x}, ${coords.y}, function() {
+                    uiController.uiScriptComplete();
+                });`, resolve);
+        });
+    }
+
+    eventSender.mouseMoveTo(coords.x, coords.y);
+    eventSender.mouseDown();
+    eventSender.mouseUp();
+
+    return Promise.resolve();
+}
+
 window.test_driver_internal.action_sequence = function(sources)
 {
     // https://w3c.github.io/webdriver/#processing-actions    
@@ -178,7 +247,7 @@ window.test_driver_internal.action_sequence = function(sources)
 
     if (pointerType === "touch")
         return dispatchTouchActions(pointerSource.actions);
-    if ("createTouch" in document)
+    if (testRunner.isIOSFamily && "createTouch" in document)
         return dispatchTouchActions(pointerSource.actions, { insertPauseAfterPointerUp: true });
     if (pointerType === "mouse")
         return dispatchMouseActions(pointerSource.actions);

@@ -130,7 +130,7 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
 
     bool success = false;
     String systemPath = filePathURL.fileSystemPath();
-    FileSystem::MappedFileData fileData(systemPath, success);
+    FileSystem::MappedFileData fileData(systemPath, FileSystem::MappedFileMode::Shared, success);
     if (!success)
         return createError([NSString stringWithFormat:@"File at path %@ could not be mapped.", static_cast<NSString *>(systemPath)], error);
 
@@ -153,24 +153,21 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
     if (!m_cachePath)
         return;
 
-    int fd = open([m_cachePath path].UTF8String, O_RDONLY | O_EXLOCK | O_NONBLOCK, 0666);
-    if (fd == -1)
+    auto fd = FileSystem::openAndLockFile([m_cachePath path].UTF8String, FileSystem::FileOpenMode::Read, {FileSystem::FileLockMode::Exclusive, FileSystem::FileLockMode::Nonblocking});
+    if (!FileSystem::isHandleValid(fd))
         return;
     auto closeFD = makeScopeExit([&] {
-        close(fd);
+        FileSystem::unlockAndCloseFile(fd);
     });
 
-    struct stat sb;
-    int res = fstat(fd, &sb);
-    size_t size = static_cast<size_t>(sb.st_size);
-    if (res || !size)
+    bool success;
+    FileSystem::MappedFileData mappedFile(fd, FileSystem::MappedFileMode::Private, success);
+    if (!success)
         return;
 
-    void* buffer = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    Ref<JSC::CachedBytecode> cachedBytecode = JSC::CachedBytecode::create(WTFMove(mappedFile));
 
-    Ref<JSC::CachedBytecode> cachedBytecode = JSC::CachedBytecode::create(buffer, size);
-
-    JSC::VM& vm = [m_virtualMachine vm];
+    JSC::VM& vm = *toJS([m_virtualMachine JSContextGroupRef]);
     JSC::SourceCode sourceCode = [self sourceCode];
     JSC::SourceCodeKey key = m_type == kJSScriptTypeProgram ? sourceCodeKeyForSerializedProgram(vm, sourceCode) : sourceCodeKeyForSerializedModule(vm, sourceCode);
     if (isCachedBytecodeStillValid(vm, cachedBytecode.copyRef(), key, m_type == kJSScriptTypeProgram ? JSC::SourceCodeType::ProgramType : JSC::SourceCodeType::ModuleType))
@@ -238,7 +235,7 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
 
 - (JSC::SourceCode)sourceCode
 {
-    JSC::VM& vm = [m_virtualMachine vm];
+    JSC::VM& vm = *toJS([m_virtualMachine JSContextGroupRef]);
     JSC::JSLockHolder locker(vm);
 
     TextPosition startPosition { };
@@ -251,7 +248,7 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
 
 - (JSC::JSSourceCode*)jsSourceCode
 {
-    JSC::VM& vm = [m_virtualMachine vm];
+    JSC::VM& vm = *toJS([m_virtualMachine JSContextGroupRef]);
     JSC::JSLockHolder locker(vm);
     JSC::JSSourceCode* jsSourceCode = JSC::JSSourceCode::create(vm, [self sourceCode]);
     return jsSourceCode;
@@ -280,18 +277,19 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
 
     JSC::BytecodeCacheError cacheError;
     JSC::SourceCode sourceCode = [self sourceCode];
+    JSC::VM& vm = *toJS([m_virtualMachine JSContextGroupRef]);
     switch (m_type) {
     case kJSScriptTypeModule:
-        m_cachedBytecode = JSC::generateModuleBytecode([m_virtualMachine vm], sourceCode, fd, cacheError);
+        m_cachedBytecode = JSC::generateModuleBytecode(vm, sourceCode, fd, cacheError);
         break;
     case kJSScriptTypeProgram:
-        m_cachedBytecode = JSC::generateProgramBytecode([m_virtualMachine vm], sourceCode, fd, cacheError);
+        m_cachedBytecode = JSC::generateProgramBytecode(vm, sourceCode, fd, cacheError);
         break;
     }
 
     if (cacheError.isValid()) {
         m_cachedBytecode = JSC::CachedBytecode::create();
-        ftruncate(fd, 0);
+        FileSystem::truncateFile(fd, 0);
         error = makeString("Unable to generate bytecode for this JSScript because: ", cacheError.message());
         return NO;
     }

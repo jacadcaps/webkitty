@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #include <WebKit/WKContextConfigurationRef.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/UniqueArray.h>
 
 namespace TestWebKitAPI {
 namespace Util {
@@ -39,6 +40,7 @@ WKContextRef createContextWithInjectedBundle()
     WKRetainPtr<WKStringRef> injectedBundlePath = adoptWK(createInjectedBundlePath());
     auto configuration = adoptWK(WKContextConfigurationCreate());
     WKContextConfigurationSetInjectedBundlePath(configuration.get(), injectedBundlePath.get());
+    WKContextConfigurationSetShouldConfigureJSCForTesting(configuration.get(), true);
     return WKContextCreateWithConfiguration(configuration.get());
 }
 
@@ -69,7 +71,7 @@ WKContextRef createContextForInjectedBundleTest(const std::string& testName, WKT
 std::string toSTD(WKStringRef string)
 {
     size_t bufferSize = WKStringGetMaximumUTF8CStringSize(string);
-    auto buffer = std::make_unique<char[]>(bufferSize);
+    auto buffer = makeUniqueWithoutFastMallocCheck<char[]>(bufferSize);
     size_t stringLength = WKStringGetUTF8CString(string, buffer.get(), bufferSize);
     return std::string(buffer.get(), stringLength - 1);
 }

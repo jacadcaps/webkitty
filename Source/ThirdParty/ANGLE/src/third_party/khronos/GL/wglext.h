@@ -33,7 +33,7 @@ extern "C" {
 ** used to make the header, and the header can be found at
 **   http://www.opengl.org/registry/
 **
-** Khronos $Revision: 225340 $ on $Date: 2017-11-30 21:39:54 +0100 (Thu, 30 Nov 2017) $
+** Khronos $Revision: 255806 $ on $Date: 2020-02-05 11:55:19 +0100 (Wed, 05 Feb 2020) $
 */
 
 #if defined(_WIN32) && !defined(APIENTRY) && !defined(__CYGWIN__) && !defined(__SCITECH_SNAP__)

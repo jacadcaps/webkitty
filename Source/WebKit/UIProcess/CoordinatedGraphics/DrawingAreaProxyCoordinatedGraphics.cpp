@@ -46,6 +46,11 @@
 #include <wtf/glib/RunLoopSourcePriority.h>
 #endif
 
+#if USE(DIRECT2D)
+#include <d2d1.h>
+#include <d3d11_1.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -114,11 +119,17 @@ void DrawingAreaProxyCoordinatedGraphics::paint(BackingStore::PlatformGraphicsCo
 
 void DrawingAreaProxyCoordinatedGraphics::sizeDidChange()
 {
+#if USE(DIRECT2D)
+    m_backingStore = nullptr;
+#endif
     backingStoreStateDidChange(RespondImmediately);
 }
 
 void DrawingAreaProxyCoordinatedGraphics::deviceScaleFactorDidChange()
 {
+#if USE(DIRECT2D)
+    m_backingStore = nullptr;
+#endif
     backingStoreStateDidChange(RespondImmediately);
 }
 
@@ -164,7 +175,7 @@ void DrawingAreaProxyCoordinatedGraphics::didUpdateBackingStoreState(uint64_t ba
     m_isWaitingForDidUpdateBackingStoreState = false;
 
     // Stop the responsiveness timer that was started in sendUpdateBackingStoreState.
-    process().responsivenessTimer().stop();
+    process().stopResponsivenessTimer();
 
     if (layerTreeContext != m_layerTreeContext) {
         if (layerTreeContext.isEmpty() && !m_layerTreeContext.isEmpty()) {
@@ -236,7 +247,7 @@ void DrawingAreaProxyCoordinatedGraphics::incorporateUpdate(const UpdateInfo& up
         return;
 
     if (!m_backingStore)
-        m_backingStore = std::make_unique<BackingStore>(updateInfo.viewSize, updateInfo.deviceScaleFactor, m_webPageProxy);
+        m_backingStore = makeUnique<BackingStore>(updateInfo.viewSize, updateInfo.deviceScaleFactor, m_webPageProxy);
 
     m_backingStore->incorporateUpdate(updateInfo);
 
@@ -308,7 +319,7 @@ void DrawingAreaProxyCoordinatedGraphics::sendUpdateBackingStoreState(RespondImm
     if (m_isWaitingForDidUpdateBackingStoreState) {
         // Start the responsiveness timer. We will stop it when we hear back from the WebProcess
         // in didUpdateBackingStoreState.
-        process().responsivenessTimer().start();
+        process().startResponsivenessTimer();
     }
 
     if (m_isWaitingForDidUpdateBackingStoreState && !m_layerTreeContext.isEmpty()) {
@@ -399,8 +410,9 @@ void DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::start(WTF::Function<vo
     m_startTime = MonotonicTime::now();
     m_callback = WTFMove(callback);
 #if PLATFORM(GTK)
+    gtk_widget_queue_draw(m_webPage.viewWidget());
     g_signal_connect_swapped(m_webPage.viewWidget(), "draw", reinterpret_cast<GCallback>(webViewDrawCallback), this);
-    m_timer.startOneShot(1_s);
+    m_timer.startOneShot(100_ms);
 #else
     m_timer.startOneShot(0_s);
 #endif
@@ -421,13 +433,13 @@ void DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::stop()
 
 void DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::didDraw()
 {
-    // We wait up to 1 second for draw events. If there are several draw events queued quickly,
+    // We wait up to 100 milliseconds for draw events. If there are several draw events queued quickly,
     // we want to wait until all of them have been processed, so after receiving a draw, we wait
-    // up to 100ms for the next one or stop.
-    if (MonotonicTime::now() - m_startTime > 1_s)
+    // for the next frame or stop.
+    if (MonotonicTime::now() - m_startTime > 100_ms)
         stop();
     else
-        m_timer.startOneShot(100_ms);
+        m_timer.startOneShot(16_ms);
 }
 
 void DrawingAreaProxyCoordinatedGraphics::dispatchAfterEnsuringDrawing(WTF::Function<void(CallbackBase::Error)>&& callbackFunction)
@@ -438,7 +450,7 @@ void DrawingAreaProxyCoordinatedGraphics::dispatchAfterEnsuringDrawing(WTF::Func
     }
 
     if (!m_drawingMonitor)
-        m_drawingMonitor = std::make_unique<DrawingAreaProxyCoordinatedGraphics::DrawingMonitor>(m_webPageProxy);
+        m_drawingMonitor = makeUnique<DrawingAreaProxyCoordinatedGraphics::DrawingMonitor>(m_webPageProxy);
     m_drawingMonitor->start(WTFMove(callbackFunction));
 }
 

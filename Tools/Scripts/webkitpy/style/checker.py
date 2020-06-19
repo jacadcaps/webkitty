@@ -1,7 +1,7 @@
 # Copyright (C) 2009 Google Inc. All rights reserved.
 # Copyright (C) 2010 Chris Jerdonek (chris.jerdonek@gmail.com)
 # Copyright (C) 2010 ProFUSION embedded systems
-# Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+# Copyright (C) 2013-2017, 2019 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -35,35 +35,35 @@ import logging
 import os.path
 import re
 
-from checkers.common import categories as CommonCategories
-from checkers.common import CarriageReturnChecker
-from checkers.contributors import ContributorsChecker
-from checkers.changelog import ChangeLogChecker
-from checkers.cpp import CppChecker
-from checkers.cmake import CMakeChecker
-from checkers.featuredefines import FeatureDefinesChecker
-from checkers.js import JSChecker
-from checkers.jsonchecker import JSONChecker
-from checkers.jsonchecker import JSONContributorsChecker
-from checkers.jsonchecker import JSONFeaturesChecker
-from checkers.jsonchecker import JSONCSSPropertiesChecker
-from checkers.jstest import JSTestChecker
-from checkers.messagesin import MessagesInChecker
-from checkers.png import PNGChecker
-from checkers.python import PythonChecker
-from checkers.sdkvariant import SDKVariantChecker
-from checkers.test_expectations import TestExpectationsChecker
-from checkers.text import TextChecker
-from checkers.watchlist import WatchListChecker
-from checkers.xcodeproj import XcodeProjectFileChecker
-from checkers.xml import XMLChecker
-from error_handlers import DefaultStyleErrorHandler
-from filter import FilterConfiguration
-from optparser import ArgumentParser
-from optparser import DefaultCommandOptionValues
 from webkitpy.common.host import Host
 from webkitpy.common.system.logutils import configure_logging as _configure_logging
 from webkitpy.port.config import apple_additions
+from webkitpy.style.checkers.common import categories as CommonCategories
+from webkitpy.style.checkers.common import CarriageReturnChecker
+from webkitpy.style.checkers.contributors import ContributorsChecker
+from webkitpy.style.checkers.changelog import ChangeLogChecker
+from webkitpy.style.checkers.cpp import CppChecker
+from webkitpy.style.checkers.cmake import CMakeChecker
+from webkitpy.style.checkers.featuredefines import FeatureDefinesChecker
+from webkitpy.style.checkers.js import JSChecker
+from webkitpy.style.checkers.jsonchecker import JSONChecker
+from webkitpy.style.checkers.jsonchecker import JSONContributorsChecker
+from webkitpy.style.checkers.jsonchecker import JSONFeaturesChecker
+from webkitpy.style.checkers.jsonchecker import JSONCSSPropertiesChecker
+from webkitpy.style.checkers.jstest import JSTestChecker
+from webkitpy.style.checkers.messagesin import MessagesInChecker
+from webkitpy.style.checkers.png import PNGChecker
+from webkitpy.style.checkers.python import PythonChecker, Python3Checker
+from webkitpy.style.checkers.sdkvariant import SDKVariantChecker
+from webkitpy.style.checkers.test_expectations import TestExpectationsChecker
+from webkitpy.style.checkers.text import TextChecker
+from webkitpy.style.checkers.watchlist import WatchListChecker
+from webkitpy.style.checkers.xcodeproj import XcodeProjectFileChecker
+from webkitpy.style.checkers.xml import XMLChecker
+from webkitpy.style.error_handlers import DefaultStyleErrorHandler
+from webkitpy.style.filter import FilterConfiguration
+from webkitpy.style.optparser import ArgumentParser
+from webkitpy.style.optparser import DefaultCommandOptionValues
 
 
 _log = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ _BASE_FILTER_RULES = [
     #        with the 79 character limit, or some higher limit that is
     #        agreeable to the WebKit project.
     '-pep8/E501',
+    '-pycodestyle/E501',
 
     # FIXME: Move the pylint rules from the pylintrc to here. This will
     # also require us to re-work lint-webkitpy to produce the equivalent output.
@@ -153,6 +154,14 @@ _PATH_RULES_SPECIFIER = [
      ["-readability/naming"]),
 
     ([
+      # The WPEQtView class can't rely on the readability/parameter_name rule,
+      # because omitting parameter names for QML signals leads to runtime
+      # errors.
+      os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt', 'WPEQtView.h'),
+    ],
+    ["-readability/parameter_name"]),
+
+    ([
       # The GTK+ and WPE APIs use upper case, underscore separated, words in
       # certain types of enums (e.g. signals, properties).
       os.path.join('Source', 'JavaScriptCore', 'API', 'glib'),
@@ -168,7 +177,7 @@ _PATH_RULES_SPECIFIER = [
     ([
       # To use GStreamer GL without conflicts of GL symbols,
       # we should include gst/gl/gl.h before including OpenGL[ES]Shims
-      os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'MediaPlayerPrivateGStreamerBase.cpp')],
+      os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'MediaPlayerPrivateGStreamer.cpp')],
      ["-build/include_order"]),
 
     ([
@@ -208,6 +217,8 @@ _PATH_RULES_SPECIFIER = [
     ([
       # These files define GObjects, which implies some definitions of
       # variables and functions containing underscores.
+      os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'GLVideoSinkGStreamer.cpp'),
+      os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'GLVideoSinkGStreamer.h'),
       os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'VideoSinkGStreamer.cpp'),
       os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'WebKitWebSourceGStreamer.cpp'),
       os.path.join('Source', 'WebCore', 'platform', 'audio', 'gstreamer', 'WebKitWebAudioSourceGStreamer.cpp'),
@@ -252,6 +263,12 @@ _PATH_RULES_SPECIFIER = [
       "-whitespace/braces",
       "-readability/naming/underscores",
       "-readability/enum_casing",
+     ]),
+
+    ([  # Files following using WebRTC optionnal type
+      os.path.join('Source', 'WebCore', 'platform', 'mediastream', 'libwebrtc', 'GStreamerVideoDecoderFactory.cpp'),
+     ],
+     ["-runtime/wtf_optional",
      ]),
 
     ([
@@ -424,7 +441,7 @@ def _all_categories():
     #        now we add only the categories needed for the unit tests
     #        (which validate the consistency of the configuration
     #        settings against the known categories, etc).
-    categories = categories.union(["pep8/W191", "pep8/W291", "pep8/E501"])
+    categories = categories.union(["pep8/W191", "pep8/W291", "pep8/E501", "pycodestyle/E501"])
 
     if apple_additions():
         categories = categories.union(apple_additions().all_categories())
@@ -701,6 +718,10 @@ class CheckerDispatcher(object):
             else:
                 checker = JSONChecker(file_path, handle_style_error)
         elif file_type == FileType.PYTHON:
+            python3_paths = ['Tools/resultsdbpy']
+            for partial in python3_paths:
+                if file_path.startswith(partial):
+                    return Python3Checker(file_path, handle_style_error)
             if apple_additions():
                 checker = apple_additions().python_checker(file_path, handle_style_error)
             else:

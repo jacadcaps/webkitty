@@ -24,11 +24,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CompositingCoordinator_h
-#define CompositingCoordinator_h
+#pragma once
 
 #if USE(COORDINATED_GRAPHICS)
 
+#include "WebPage.h"
 #include <WebCore/CoordinatedGraphicsLayer.h>
 #include <WebCore/CoordinatedGraphicsState.h>
 #include <WebCore/FloatPoint.h>
@@ -37,6 +37,7 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/NicosiaBuffer.h>
 #include <WebCore/NicosiaPlatformLayer.h>
+#include <WebCore/NicosiaSceneIntegration.h>
 
 namespace Nicosia {
 class PaintingEngine;
@@ -46,14 +47,14 @@ class SceneIntegration;
 namespace WebCore {
 class GraphicsContext;
 class GraphicsLayer;
-class Page;
 }
 
 namespace WebKit {
 
 class CompositingCoordinator final : public WebCore::GraphicsLayerClient
     , public WebCore::CoordinatedGraphicsLayerClient
-    , public WebCore::GraphicsLayerFactory {
+    , public WebCore::GraphicsLayerFactory
+    , public Nicosia::SceneIntegration::Client {
     WTF_MAKE_NONCOPYABLE(CompositingCoordinator);
 public:
     class Client {
@@ -61,10 +62,10 @@ public:
         virtual void didFlushRootLayer(const WebCore::FloatRect& visibleContentRect) = 0;
         virtual void notifyFlushRequired() = 0;
         virtual void commitSceneState(const WebCore::CoordinatedGraphicsState&) = 0;
-        virtual RefPtr<Nicosia::SceneIntegration> sceneIntegration() = 0;
+        virtual void updateScene() = 0;
     };
 
-    CompositingCoordinator(WebCore::Page*, CompositingCoordinator::Client&);
+    CompositingCoordinator(WebPage&, CompositingCoordinator::Client&);
     virtual ~CompositingCoordinator();
 
     void invalidate();
@@ -77,7 +78,6 @@ public:
     void setVisibleContentsRect(const WebCore::FloatRect&);
     void renderNextFrame();
 
-    void createRootLayer(const WebCore::IntSize&);
     WebCore::GraphicsLayer* rootLayer() const { return m_rootLayer.get(); }
     WebCore::GraphicsLayer* rootCompositingLayer() const { return m_rootCompositingLayer; }
 
@@ -107,13 +107,16 @@ private:
     // GraphicsLayerFactory
     Ref<WebCore::GraphicsLayer> createGraphicsLayer(WebCore::GraphicsLayer::Type, WebCore::GraphicsLayerClient&) override;
 
+    // Nicosia::SceneIntegration::Client
+    void requestUpdate() override;
+
     void initializeRootCompositingLayerIfNeeded();
 
     void purgeBackingStores();
 
     double timestamp() const;
 
-    WebCore::Page* m_page;
+    WebPage& m_page;
     CompositingCoordinator::Client& m_client;
 
     RefPtr<WebCore::GraphicsLayer> m_rootLayer;
@@ -122,6 +125,7 @@ private:
 
     struct {
         RefPtr<Nicosia::Scene> scene;
+        RefPtr<Nicosia::SceneIntegration> sceneIntegration;
         Nicosia::Scene::State state;
     } m_nicosia;
     WebCore::CoordinatedGraphicsState m_state;
@@ -131,7 +135,6 @@ private:
     std::unique_ptr<Nicosia::PaintingEngine> m_paintingEngine;
 
     // We don't send the messages related to releasing resources to renderer during purging, because renderer already had removed all resources.
-    bool m_isDestructing { false };
     bool m_isPurging { false };
     bool m_isFlushingLayerChanges { false };
     bool m_shouldSyncFrame { false };
@@ -145,5 +148,3 @@ private:
 }
 
 #endif // namespace WebKit
-
-#endif // CompositingCoordinator_h

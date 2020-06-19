@@ -27,9 +27,10 @@
 
 #include "APIObject.h"
 #include "WebPreferencesStore.h"
-#include <pal/SessionID.h>
+#include "WebViewCategory.h"
 #include <wtf/Forward.h>
 #include <wtf/GetPtr.h>
+#include <wtf/HashSet.h>
 
 #if PLATFORM(IOS_FAMILY)
 OBJC_PROTOCOL(_UIClickInteractionDriving);
@@ -44,12 +45,12 @@ class WebPreferences;
 class WebProcessPool;
 class WebURLSchemeHandler;
 class WebUserContentControllerProxy;
+class WebsiteDataStore;
 }
 
 namespace API {
 
 class ApplicationManifest;
-class WebsiteDataStore;
 class WebsitePolicies;
 
 class PageConfiguration : public ObjectImpl<Object::Type::PageConfiguration> {
@@ -84,15 +85,11 @@ public:
     WebKit::VisitedLinkStore* visitedLinkStore();
     void setVisitedLinkStore(WebKit::VisitedLinkStore*);
 
-    WebsiteDataStore* websiteDataStore();
-    void setWebsiteDataStore(WebsiteDataStore*);
+    WebKit::WebsiteDataStore* websiteDataStore();
+    void setWebsiteDataStore(WebKit::WebsiteDataStore*);
 
     WebsitePolicies* defaultWebsitePolicies() const;
     void setDefaultWebsitePolicies(WebsitePolicies*);
-
-    // FIXME: Once PageConfigurations *always* have a data store, get rid of the separate sessionID.
-    PAL::SessionID sessionID();
-    void setSessionID(PAL::SessionID);
 
     bool treatsSHA1SignedCertificatesAsInsecure() { return m_treatsSHA1SignedCertificatesAsInsecure; }
     void setTreatsSHA1SignedCertificatesAsInsecure(bool treatsSHA1SignedCertificatesAsInsecure) { m_treatsSHA1SignedCertificatesAsInsecure = treatsSHA1SignedCertificatesAsInsecure; } 
@@ -139,6 +136,12 @@ public:
     void setURLSchemeHandlerForURLScheme(Ref<WebKit::WebURLSchemeHandler>&&, const WTF::String&);
     const HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>>& urlSchemeHandlers() { return m_urlSchemeHandlers; }
 
+    const Vector<WTF::String>& corsDisablingPatterns() const { return m_corsDisablingPatterns; }
+    void setCORSDisablingPatterns(Vector<WTF::String>&& patterns) { m_corsDisablingPatterns = WTFMove(patterns); }
+
+    WebKit::WebViewCategory webViewCategory() const { return m_webViewCategory; }
+    void setWebViewCategory(WebKit::WebViewCategory category) { m_webViewCategory = category; }
+
 private:
 
     RefPtr<WebKit::WebProcessPool> m_processPool;
@@ -149,11 +152,8 @@ private:
     RefPtr<WebKit::WebPageProxy> m_relatedPage;
     RefPtr<WebKit::VisitedLinkStore> m_visitedLinkStore;
 
-    RefPtr<WebsiteDataStore> m_websiteDataStore;
+    RefPtr<WebKit::WebsiteDataStore> m_websiteDataStore;
     RefPtr<WebsitePolicies> m_defaultWebsitePolicies;
-    // FIXME: We currently have to pass the session ID separately here to support the legacy private browsing session.
-    // Once we get rid of it we should get rid of this configuration parameter as well.
-    PAL::SessionID m_sessionID;
 
     bool m_treatsSHA1SignedCertificatesAsInsecure { true };
 #if PLATFORM(IOS_FAMILY)
@@ -178,6 +178,8 @@ private:
 #endif
 
     HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>> m_urlSchemeHandlers;
+    Vector<WTF::String> m_corsDisablingPatterns;
+    WebKit::WebViewCategory m_webViewCategory { WebKit::WebViewCategory::HybridApp };
 };
 
 } // namespace API

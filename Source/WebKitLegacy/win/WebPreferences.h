@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2009, 2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,7 @@
 #include <WebCore/BString.h>
 #include <wtf/RetainPtr.h>
 
-class WebPreferences final : public IWebPreferences, public IWebPreferencesPrivate7 {
+class WebPreferences final : public IWebPreferences, public IWebPreferencesPrivate8 {
 public:
     static WebPreferences* createInstance();
 protected:
@@ -271,12 +271,16 @@ public:
     virtual HRESULT STDMETHODCALLTYPE setVisualViewportAPIEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE CSSOMViewScrollingAPIEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setCSSOMViewScrollingAPIEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE CSSOMViewSmoothScrollingEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setCSSOMViewSmoothScrollingEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE fetchAPIKeepAliveEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setFetchAPIKeepAliveEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE spatialNavigationEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setSpatialNavigationEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE menuItemElementEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setMenuItemElementEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE keygenElementEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setKeygenElementEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE serverTimingEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setServerTimingEnabled(BOOL);
 
@@ -287,6 +291,22 @@ public:
     virtual HRESULT STDMETHODCALLTYPE setResizeObserverEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE coreMathMLEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setCoreMathMLEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE requestIdleCallbackEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setRequestIdleCallbackEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE asyncClipboardAPIEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setAsyncClipboardAPIEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE webAnimationsCompositeOperationsEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setWebAnimationsCompositeOperationsEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE webAnimationsMutableTimelinesEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setWebAnimationsMutableTimelinesEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE aspectRatioOfImgFromWidthAndHeightEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setAspectRatioOfImgFromWidthAndHeightEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE webSQLEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setWebSQLEnabled(BOOL);
+
+    // IWebPreferencesPrivate8
+    virtual HRESULT STDMETHODCALLTYPE allowTopNavigationToDataURLs(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setAllowTopNavigationToDataURLs(BOOL);
 
     // WebPreferences
 
@@ -315,10 +335,12 @@ public:
     HRESULT postPreferencesChangesNotification();
 
 protected:
+#if USE(CF)
     void setValueForKey(CFStringRef key, CFPropertyListRef value);
     RetainPtr<CFPropertyListRef> valueForKey(CFStringRef key);
     void setValueForKey(const char* key, CFPropertyListRef value);
     RetainPtr<CFPropertyListRef> valueForKey(const char* key);
+#endif
     BSTR stringValueForKey(const char* key);
     int integerValueForKey(const char* key);
     BOOL boolValueForKey(const char* key);
@@ -333,15 +355,20 @@ protected:
     static void initializeDefaultSettings();
     void save();
     void load();
+#if USE(CF)
     void migrateWebKitPreferencesToCFPreferences();
     void copyWebKitPreferencesToCFPreferences(CFDictionaryRef);
+#endif
 
 protected:
     ULONG m_refCount { 0 };
-    RetainPtr<CFMutableDictionaryRef> m_privatePrefs;
     WebCore::BString m_identifier;
     bool m_autoSaves { false };
     bool m_automaticallyDetectsCacheModel { true };
     unsigned m_numWebViews { 0 };
+
+#if USE(CF)
+    RetainPtr<CFMutableDictionaryRef> m_privatePrefs;
     static RetainPtr<CFStringRef> m_applicationId;
+#endif
 };

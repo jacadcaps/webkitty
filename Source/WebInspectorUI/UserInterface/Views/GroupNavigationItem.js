@@ -67,17 +67,21 @@ WI.GroupNavigationItem = class GroupNavigationItem extends WI.NavigationItem
 
     // Protected
 
-    updateLayout(expandOnly)
+    update(options = {})
     {
-        super.updateLayout(expandOnly);
+        super.update(options);
+
+        this._updateItems();
 
         for (let item of this._navigationItems)
-            item.updateLayout(expandOnly);
+            item.update(options);
     }
 
     didAttach(navigationBar)
     {
         super.didAttach(navigationBar);
+
+        this._updateItems();
 
         for (let item of this._navigationItems)
             item.didAttach(navigationBar);

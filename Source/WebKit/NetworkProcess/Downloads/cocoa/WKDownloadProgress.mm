@@ -62,13 +62,8 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
     [task addObserver:self forKeyPath:countOfBytesReceivedKeyPath options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionInitial context:WKDownloadProgressBytesReceivedContext];
 
     self.kind = NSProgressKindFile;
-#if !PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     self.fileOperationKind = NSProgressFileOperationKindDownloading;
     self.fileURL = fileURL;
-#else
-    [self setUserInfoObject:NSProgressFileOperationKindDownloading forKey:NSProgressFileOperationKindKey];
-    [self setUserInfoObject:fileURL forKey:NSProgressFileURLKey];
-#endif
     m_sandboxExtension = sandboxExtension;
 
     self.cancellable = YES;
@@ -85,7 +80,7 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
     return self;
 }
 
-#if USE(NSPROGRESS_PUBLISHING_SPI)
+#if HAVE(NSPROGRESS_PUBLISHING_SPI)
 - (void)_publish
 #else
 - (void)publish
@@ -94,20 +89,20 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
     BOOL consumedExtension = m_sandboxExtension->consume();
     ASSERT_UNUSED(consumedExtension, consumedExtension);
 
-#if USE(NSPROGRESS_PUBLISHING_SPI)
+#if HAVE(NSPROGRESS_PUBLISHING_SPI)
     [super _publish];
 #else
     [super publish];
 #endif
 }
 
-#if USE(NSPROGRESS_PUBLISHING_SPI)
+#if HAVE(NSPROGRESS_PUBLISHING_SPI)
 - (void)_unpublish
 #else
 - (void)unpublish
 #endif
 {
-#if USE(NSPROGRESS_PUBLISHING_SPI)
+#if HAVE(NSPROGRESS_PUBLISHING_SPI)
     [super _unpublish];
 #else
     [super unpublish];

@@ -33,6 +33,7 @@
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WebKitPrivate.h>
 #import <WebKit/_WKActivatedElementInfo.h>
+#import <WebKit/_WKContentWorld.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <objc/runtime.h>
 #import <wtf/RetainPtr.h>
@@ -40,7 +41,6 @@
 #if PLATFORM(MAC)
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
-#import <wtf/mac/AppKitCompatibilityDeclarations.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -69,6 +69,24 @@ SOFT_LINK_CLASS(UIKit, UIWindow)
 {
     NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:pageName withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
     [self loadRequest:request];
+}
+
+- (void)synchronouslyGoBack
+{
+    [self goBack];
+    [self _test_waitForDidFinishNavigation];
+}
+
+- (void)synchronouslyGoForward
+{
+    [self goForward];
+    [self _test_waitForDidFinishNavigation];
+}
+
+- (void)synchronouslyLoadRequest:(NSURLRequest *)request
+{
+    [self loadRequest:request];
+    [self _test_waitForDidFinishNavigation];
 }
 
 - (void)synchronouslyLoadHTMLString:(NSString *)html baseURL:(NSURL *)url
@@ -161,9 +179,47 @@ SOFT_LINK_CLASS(UIKit, UIWindow)
     return evalResult.autorelease();
 }
 
+- (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments error:(NSError **)errorOut
+{
+    bool isWaitingForJavaScript = false;
+    if (errorOut)
+        *errorOut = nil;
+
+    RetainPtr<id> evalResult;
+    [self _callAsyncJavaScriptFunction:script withArguments:arguments inWorld:_WKContentWorld.pageContentWorld completionHandler:[&] (id result, NSError *error) {
+        evalResult = result;
+        if (errorOut)
+            *errorOut = [error retain];
+        isWaitingForJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&isWaitingForJavaScript);
+
+    if (errorOut)
+        [*errorOut autorelease];
+
+    return evalResult.autorelease();
+}
+
 - (NSString *)stringByEvaluatingJavaScript:(NSString *)script
 {
     return [NSString stringWithFormat:@"%@", [self objectByEvaluatingJavaScript:script]];
+}
+
+- (unsigned)waitUntilClientWidthIs:(unsigned)expectedClientWidth
+{
+    int timeout = 10;
+    unsigned clientWidth = 0;
+    do {
+        if (timeout != 10)
+            TestWebKitAPI::Util::sleep(0.1);
+
+        id result = [self objectByEvaluatingJavaScript:@"function ___forceLayoutAndGetClientWidth___() { document.body.offsetTop; return document.body.clientWidth; }; ___forceLayoutAndGetClientWidth___();"];
+        clientWidth = [result integerValue];
+
+        --timeout;
+    } while (clientWidth != expectedClientWidth && timeout >= 0);
+
+    return clientWidth;
 }
 
 @end
@@ -273,25 +329,6 @@ NSEventMask __simulated_forceClickAssociatedEventsMask(id self, SEL _cmd)
 
 #if PLATFORM(IOS_FAMILY)
 
-static NSArray<NSString *> *writableTypeIdentifiersForItemProviderWithoutPublicRTFD()
-{
-    return @[
-        @"com.apple.uikit.attributedstring",
-        (__bridge NSString *)kUTTypeFlatRTFD,
-        (__bridge NSString *)kUTTypeUTF8PlainText,
-    ];
-}
-
-static void applyWorkaroundToAllowWritingAttributedStringsToItemProviders()
-{
-    // FIXME: Remove this once <rdar://problem/51510554> is fixed.
-    static std::unique_ptr<ClassMethodSwizzler> swizzler;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        swizzler = std::make_unique<ClassMethodSwizzler>(NSAttributedString.class, @selector(writableTypeIdentifiersForItemProvider), reinterpret_cast<IMP>(writableTypeIdentifiersForItemProviderWithoutPublicRTFD));
-    });
-}
-
 using InputSessionChangeCount = NSUInteger;
 static InputSessionChangeCount nextInputSessionChangeCount()
 {
@@ -341,9 +378,8 @@ static UICalloutBar *suppressUICalloutBar()
 
 #if PLATFORM(IOS_FAMILY)
     // FIXME: Remove this workaround once <https://webkit.org/b/175204> is fixed.
-    _sharedCalloutBarSwizzler = std::make_unique<ClassMethodSwizzler>([UICalloutBar class], @selector(sharedCalloutBar), reinterpret_cast<IMP>(suppressUICalloutBar));
+    _sharedCalloutBarSwizzler = makeUnique<ClassMethodSwizzler>([UICalloutBar class], @selector(sharedCalloutBar), reinterpret_cast<IMP>(suppressUICalloutBar));
     _inputSessionChangeCount = 0;
-    applyWorkaroundToAllowWritingAttributedStringsToItemProviders();
 #endif
 
     return self;
@@ -406,7 +442,8 @@ static UICalloutBar *suppressUICalloutBar()
     TestWebKitAPI::Util::run(&isDoneWaiting);
 }
 
-- (void)performAfterLoading:(dispatch_block_t)actions {
+- (void)performAfterLoading:(dispatch_block_t)actions
+{
     TestMessageHandler *handler = [[TestMessageHandler alloc] init];
     [handler addMessage:@"loaded" withHandler:actions];
 
@@ -459,6 +496,29 @@ static UICalloutBar *suppressUICalloutBar()
 - (void)collapseToEnd
 {
     [self evaluateJavaScript:@"getSelection().collapseToEnd()" completionHandler:nil];
+}
+
+- (BOOL)selectionRangeHasStartOffset:(int)start endOffset:(int)end
+{
+    __block bool isDone = false;
+    __block bool matches = true;
+    [self evaluateJavaScript:@"window.getSelection().getRangeAt(0).startOffset" completionHandler:^(id result, NSError *error) {
+        if ([(NSNumber *)result intValue] != start)
+            matches = false;
+    }];
+    [self evaluateJavaScript:@"window.getSelection().getRangeAt(0).endOffset" completionHandler:^(id result, NSError *error) {
+        if ([(NSNumber *)result intValue] != end)
+            matches = false;
+        isDone = true;
+    }];
+    TestWebKitAPI::Util::run(&isDone);
+
+    return matches;
+}
+
+- (void)clickOnElementID:(NSString *)elementID
+{
+    [self evaluateJavaScript:[NSString stringWithFormat:@"document.getElementById('%@').click();", elementID] completionHandler:nil];
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -598,6 +658,11 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
     }
 }
 
+- (void)sendClickAtPoint:(NSPoint)pointInWindow
+{
+    [self sendClicksAtPoint:pointInWindow numberOfClicks:1];
+}
+
 - (void)mouseEnterAtPoint:(NSPoint)pointInWindow
 {
     [self mouseEntered:[self _mouseEventWithType:NSEventTypeMouseEntered atLocation:pointInWindow]];
@@ -639,4 +704,39 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 }
 
 @end
-#endif
+#endif // PLATFORM(MAC)
+
+#if PLATFORM(IOS_FAMILY)
+@implementation UIView (WKTestingUIViewUtilities)
+
+- (UIView *)wkFirstSubviewWithClass:(Class)targetClass
+{
+    for (UIView *view in self.subviews) {
+        if ([view isKindOfClass:targetClass])
+            return view;
+    
+        UIView *foundSubview = [view wkFirstSubviewWithClass:targetClass];
+        if (foundSubview)
+            return foundSubview;
+    }
+    
+    return nil;
+}
+
+- (UIView *)wkFirstSubviewWithBoundsSize:(CGSize)size
+{
+    for (UIView *view in self.subviews) {
+        if (CGSizeEqualToSize([view bounds].size, size))
+            return view;
+    
+        UIView *foundSubview = [view wkFirstSubviewWithBoundsSize:size];
+        if (foundSubview)
+            return foundSubview;
+    }
+    
+    return nil;
+}
+
+@end
+
+#endif // PLATFORM(IOS_FAMILY)

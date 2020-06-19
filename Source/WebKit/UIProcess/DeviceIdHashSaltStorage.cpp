@@ -178,7 +178,7 @@ std::unique_ptr<DeviceIdHashSaltStorage::HashSaltForOrigin> DeviceIdHashSaltStor
         return nullptr;
     }
 
-    auto hashSaltForOrigin = std::make_unique<HashSaltForOrigin>(WTFMove(securityOriginData.value()), WTFMove(parentSecurityOriginData.value()), WTFMove(deviceIdHashSalt));
+    auto hashSaltForOrigin = makeUnique<HashSaltForOrigin>(WTFMove(securityOriginData.value()), WTFMove(parentSecurityOriginData.value()), WTFMove(deviceIdHashSalt));
 
     hashSaltForOrigin->lastTimeUsed = WallTime::fromRawSeconds(lastTimeUsed);
 
@@ -215,11 +215,11 @@ void DeviceIdHashSaltStorage::completeDeviceIdHashSaltForOriginCall(SecurityOrig
         StringBuilder builder;
         builder.reserveCapacity(hashSaltSize);
         for (unsigned i = 0; i < randomDataSize; i++)
-            appendUnsignedAsHex(randomData[i], builder);
+            builder.append(hex(randomData[i]));
 
         String deviceIdHashSalt = builder.toString();
 
-        auto newHashSaltForOrigin = std::make_unique<HashSaltForOrigin>(WTFMove(documentOrigin), WTFMove(parentOrigin), WTFMove(deviceIdHashSalt));
+        auto newHashSaltForOrigin = makeUnique<HashSaltForOrigin>(WTFMove(documentOrigin), WTFMove(parentOrigin), WTFMove(deviceIdHashSalt));
 
         return newHashSaltForOrigin;
     }).iterator->value;

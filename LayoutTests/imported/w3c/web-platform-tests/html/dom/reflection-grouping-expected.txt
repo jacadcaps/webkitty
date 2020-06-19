@@ -8,6 +8,9 @@ PASS p.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS p.title: setAttribute() to undefined 
 PASS p.title: setAttribute() to 7 
 PASS p.title: setAttribute() to 1.5 
+PASS p.title: setAttribute() to "5%" 
+PASS p.title: setAttribute() to "+100" 
+PASS p.title: setAttribute() to ".5" 
 PASS p.title: setAttribute() to true 
 PASS p.title: setAttribute() to false 
 PASS p.title: setAttribute() to object "[object Object]" 
@@ -23,6 +26,9 @@ PASS p.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS p.title: IDL set to undefined 
 PASS p.title: IDL set to 7 
 PASS p.title: IDL set to 1.5 
+PASS p.title: IDL set to "5%" 
+PASS p.title: IDL set to "+100" 
+PASS p.title: IDL set to ".5" 
 PASS p.title: IDL set to true 
 PASS p.title: IDL set to false 
 PASS p.title: IDL set to object "[object Object]" 
@@ -40,6 +46,9 @@ PASS p.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS p.lang: setAttribute() to undefined 
 PASS p.lang: setAttribute() to 7 
 PASS p.lang: setAttribute() to 1.5 
+PASS p.lang: setAttribute() to "5%" 
+PASS p.lang: setAttribute() to "+100" 
+PASS p.lang: setAttribute() to ".5" 
 PASS p.lang: setAttribute() to true 
 PASS p.lang: setAttribute() to false 
 PASS p.lang: setAttribute() to object "[object Object]" 
@@ -55,6 +64,9 @@ PASS p.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS p.lang: IDL set to undefined 
 PASS p.lang: IDL set to 7 
 PASS p.lang: IDL set to 1.5 
+PASS p.lang: IDL set to "5%" 
+PASS p.lang: IDL set to "+100" 
+PASS p.lang: IDL set to ".5" 
 PASS p.lang: IDL set to true 
 PASS p.lang: IDL set to false 
 PASS p.lang: IDL set to object "[object Object]" 
@@ -72,6 +84,9 @@ PASS p.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS p.dir: setAttribute() to undefined 
 PASS p.dir: setAttribute() to 7 
 PASS p.dir: setAttribute() to 1.5 
+PASS p.dir: setAttribute() to "5%" 
+PASS p.dir: setAttribute() to "+100" 
+PASS p.dir: setAttribute() to ".5" 
 PASS p.dir: setAttribute() to true 
 PASS p.dir: setAttribute() to false 
 PASS p.dir: setAttribute() to object "[object Object]" 
@@ -102,6 +117,9 @@ PASS p.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x1
 PASS p.dir: IDL set to undefined 
 PASS p.dir: IDL set to 7 
 PASS p.dir: IDL set to 1.5 
+PASS p.dir: IDL set to "5%" 
+PASS p.dir: IDL set to "+100" 
+PASS p.dir: IDL set to ".5" 
 PASS p.dir: IDL set to true 
 PASS p.dir: IDL set to false 
 PASS p.dir: IDL set to object "[object Object]" 
@@ -134,6 +152,9 @@ PASS p.className (<p class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07
 PASS p.className (<p class>): setAttribute() to undefined 
 PASS p.className (<p class>): setAttribute() to 7 
 PASS p.className (<p class>): setAttribute() to 1.5 
+PASS p.className (<p class>): setAttribute() to "5%" 
+PASS p.className (<p class>): setAttribute() to "+100" 
+PASS p.className (<p class>): setAttribute() to ".5" 
 PASS p.className (<p class>): setAttribute() to true 
 PASS p.className (<p class>): setAttribute() to false 
 PASS p.className (<p class>): setAttribute() to object "[object Object]" 
@@ -149,6 +170,9 @@ PASS p.className (<p class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n
 PASS p.className (<p class>): IDL set to undefined 
 PASS p.className (<p class>): IDL set to 7 
 PASS p.className (<p class>): IDL set to 1.5 
+PASS p.className (<p class>): IDL set to "5%" 
+PASS p.className (<p class>): IDL set to "+100" 
+PASS p.className (<p class>): IDL set to ".5" 
 PASS p.className (<p class>): IDL set to true 
 PASS p.className (<p class>): IDL set to false 
 PASS p.className (<p class>): IDL set to object "[object Object]" 
@@ -159,6 +183,45 @@ PASS p.className (<p class>): IDL set to "\0"
 PASS p.className (<p class>): IDL set to null 
 PASS p.className (<p class>): IDL set to object "test-toString" 
 PASS p.className (<p class>): IDL set to object "test-valueOf" 
+FAIL p.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL p.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL p.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL p.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL p.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL p.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL p.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL p.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL p.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL p.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL p.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS p.autofocus: IDL set to true 
+FAIL p.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL p.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL p.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL p.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL p.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL p.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL p.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL p.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS p.hidden: typeof IDL attribute 
 PASS p.hidden: IDL get with DOM attribute unset 
 PASS p.hidden: setAttribute() to "" 
@@ -167,6 +230,9 @@ PASS p.hidden: setAttribute() to undefined
 PASS p.hidden: setAttribute() to null 
 PASS p.hidden: setAttribute() to 7 
 PASS p.hidden: setAttribute() to 1.5 
+PASS p.hidden: setAttribute() to "5%" 
+PASS p.hidden: setAttribute() to "+100" 
+PASS p.hidden: setAttribute() to ".5" 
 PASS p.hidden: setAttribute() to true 
 PASS p.hidden: setAttribute() to false 
 PASS p.hidden: setAttribute() to object "[object Object]" 
@@ -183,6 +249,9 @@ PASS p.hidden: IDL set to undefined
 PASS p.hidden: IDL set to null 
 PASS p.hidden: IDL set to 7 
 PASS p.hidden: IDL set to 1.5 
+PASS p.hidden: IDL set to "5%" 
+PASS p.hidden: IDL set to "+100" 
+PASS p.hidden: IDL set to ".5" 
 PASS p.hidden: IDL set to true 
 PASS p.hidden: IDL set to false 
 PASS p.hidden: IDL set to object "[object Object]" 
@@ -199,6 +268,9 @@ PASS p.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\
 PASS p.accessKey: setAttribute() to undefined 
 PASS p.accessKey: setAttribute() to 7 
 PASS p.accessKey: setAttribute() to 1.5 
+PASS p.accessKey: setAttribute() to "5%" 
+PASS p.accessKey: setAttribute() to "+100" 
+PASS p.accessKey: setAttribute() to ".5" 
 PASS p.accessKey: setAttribute() to true 
 PASS p.accessKey: setAttribute() to false 
 PASS p.accessKey: setAttribute() to object "[object Object]" 
@@ -214,6 +286,9 @@ PASS p.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x
 PASS p.accessKey: IDL set to undefined 
 PASS p.accessKey: IDL set to 7 
 PASS p.accessKey: IDL set to 1.5 
+PASS p.accessKey: IDL set to "5%" 
+PASS p.accessKey: IDL set to "+100" 
+PASS p.accessKey: IDL set to ".5" 
 PASS p.accessKey: IDL set to true 
 PASS p.accessKey: IDL set to false 
 PASS p.accessKey: IDL set to object "[object Object]" 
@@ -241,6 +316,8 @@ PASS p.tabIndex: setAttribute() to " 7"
 PASS p.tabIndex: setAttribute() to "\n7" 
 PASS p.tabIndex: setAttribute() to "\r7" 
 PASS p.tabIndex: setAttribute() to 1.5 
+PASS p.tabIndex: setAttribute() to "5%" 
+PASS p.tabIndex: setAttribute() to "+100" 
 PASS p.tabIndex: setAttribute() to object "2" 
 PASS p.tabIndex: IDL set to -36 
 PASS p.tabIndex: IDL set to -1 
@@ -255,6 +332,9 @@ PASS p.align: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS p.align: setAttribute() to undefined 
 PASS p.align: setAttribute() to 7 
 PASS p.align: setAttribute() to 1.5 
+PASS p.align: setAttribute() to "5%" 
+PASS p.align: setAttribute() to "+100" 
+PASS p.align: setAttribute() to ".5" 
 PASS p.align: setAttribute() to true 
 PASS p.align: setAttribute() to false 
 PASS p.align: setAttribute() to object "[object Object]" 
@@ -270,6 +350,9 @@ PASS p.align: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS p.align: IDL set to undefined 
 PASS p.align: IDL set to 7 
 PASS p.align: IDL set to 1.5 
+PASS p.align: IDL set to "5%" 
+PASS p.align: IDL set to "+100" 
+PASS p.align: IDL set to ".5" 
 PASS p.align: IDL set to true 
 PASS p.align: IDL set to false 
 PASS p.align: IDL set to object "[object Object]" 
@@ -287,6 +370,9 @@ PASS hr.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS hr.title: setAttribute() to undefined 
 PASS hr.title: setAttribute() to 7 
 PASS hr.title: setAttribute() to 1.5 
+PASS hr.title: setAttribute() to "5%" 
+PASS hr.title: setAttribute() to "+100" 
+PASS hr.title: setAttribute() to ".5" 
 PASS hr.title: setAttribute() to true 
 PASS hr.title: setAttribute() to false 
 PASS hr.title: setAttribute() to object "[object Object]" 
@@ -302,6 +388,9 @@ PASS hr.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS hr.title: IDL set to undefined 
 PASS hr.title: IDL set to 7 
 PASS hr.title: IDL set to 1.5 
+PASS hr.title: IDL set to "5%" 
+PASS hr.title: IDL set to "+100" 
+PASS hr.title: IDL set to ".5" 
 PASS hr.title: IDL set to true 
 PASS hr.title: IDL set to false 
 PASS hr.title: IDL set to object "[object Object]" 
@@ -319,6 +408,9 @@ PASS hr.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS hr.lang: setAttribute() to undefined 
 PASS hr.lang: setAttribute() to 7 
 PASS hr.lang: setAttribute() to 1.5 
+PASS hr.lang: setAttribute() to "5%" 
+PASS hr.lang: setAttribute() to "+100" 
+PASS hr.lang: setAttribute() to ".5" 
 PASS hr.lang: setAttribute() to true 
 PASS hr.lang: setAttribute() to false 
 PASS hr.lang: setAttribute() to object "[object Object]" 
@@ -334,6 +426,9 @@ PASS hr.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS hr.lang: IDL set to undefined 
 PASS hr.lang: IDL set to 7 
 PASS hr.lang: IDL set to 1.5 
+PASS hr.lang: IDL set to "5%" 
+PASS hr.lang: IDL set to "+100" 
+PASS hr.lang: IDL set to ".5" 
 PASS hr.lang: IDL set to true 
 PASS hr.lang: IDL set to false 
 PASS hr.lang: IDL set to object "[object Object]" 
@@ -351,6 +446,9 @@ PASS hr.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS hr.dir: setAttribute() to undefined 
 PASS hr.dir: setAttribute() to 7 
 PASS hr.dir: setAttribute() to 1.5 
+PASS hr.dir: setAttribute() to "5%" 
+PASS hr.dir: setAttribute() to "+100" 
+PASS hr.dir: setAttribute() to ".5" 
 PASS hr.dir: setAttribute() to true 
 PASS hr.dir: setAttribute() to false 
 PASS hr.dir: setAttribute() to object "[object Object]" 
@@ -381,6 +479,9 @@ PASS hr.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS hr.dir: IDL set to undefined 
 PASS hr.dir: IDL set to 7 
 PASS hr.dir: IDL set to 1.5 
+PASS hr.dir: IDL set to "5%" 
+PASS hr.dir: IDL set to "+100" 
+PASS hr.dir: IDL set to ".5" 
 PASS hr.dir: IDL set to true 
 PASS hr.dir: IDL set to false 
 PASS hr.dir: IDL set to object "[object Object]" 
@@ -413,6 +514,9 @@ PASS hr.className (<hr class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS hr.className (<hr class>): setAttribute() to undefined 
 PASS hr.className (<hr class>): setAttribute() to 7 
 PASS hr.className (<hr class>): setAttribute() to 1.5 
+PASS hr.className (<hr class>): setAttribute() to "5%" 
+PASS hr.className (<hr class>): setAttribute() to "+100" 
+PASS hr.className (<hr class>): setAttribute() to ".5" 
 PASS hr.className (<hr class>): setAttribute() to true 
 PASS hr.className (<hr class>): setAttribute() to false 
 PASS hr.className (<hr class>): setAttribute() to object "[object Object]" 
@@ -428,6 +532,9 @@ PASS hr.className (<hr class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS hr.className (<hr class>): IDL set to undefined 
 PASS hr.className (<hr class>): IDL set to 7 
 PASS hr.className (<hr class>): IDL set to 1.5 
+PASS hr.className (<hr class>): IDL set to "5%" 
+PASS hr.className (<hr class>): IDL set to "+100" 
+PASS hr.className (<hr class>): IDL set to ".5" 
 PASS hr.className (<hr class>): IDL set to true 
 PASS hr.className (<hr class>): IDL set to false 
 PASS hr.className (<hr class>): IDL set to object "[object Object]" 
@@ -438,6 +545,45 @@ PASS hr.className (<hr class>): IDL set to "\0"
 PASS hr.className (<hr class>): IDL set to null 
 PASS hr.className (<hr class>): IDL set to object "test-toString" 
 PASS hr.className (<hr class>): IDL set to object "test-valueOf" 
+FAIL hr.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL hr.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL hr.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL hr.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL hr.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL hr.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL hr.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL hr.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL hr.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL hr.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL hr.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS hr.autofocus: IDL set to true 
+FAIL hr.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL hr.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL hr.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL hr.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL hr.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL hr.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL hr.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL hr.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS hr.hidden: typeof IDL attribute 
 PASS hr.hidden: IDL get with DOM attribute unset 
 PASS hr.hidden: setAttribute() to "" 
@@ -446,6 +592,9 @@ PASS hr.hidden: setAttribute() to undefined
 PASS hr.hidden: setAttribute() to null 
 PASS hr.hidden: setAttribute() to 7 
 PASS hr.hidden: setAttribute() to 1.5 
+PASS hr.hidden: setAttribute() to "5%" 
+PASS hr.hidden: setAttribute() to "+100" 
+PASS hr.hidden: setAttribute() to ".5" 
 PASS hr.hidden: setAttribute() to true 
 PASS hr.hidden: setAttribute() to false 
 PASS hr.hidden: setAttribute() to object "[object Object]" 
@@ -462,6 +611,9 @@ PASS hr.hidden: IDL set to undefined
 PASS hr.hidden: IDL set to null 
 PASS hr.hidden: IDL set to 7 
 PASS hr.hidden: IDL set to 1.5 
+PASS hr.hidden: IDL set to "5%" 
+PASS hr.hidden: IDL set to "+100" 
+PASS hr.hidden: IDL set to ".5" 
 PASS hr.hidden: IDL set to true 
 PASS hr.hidden: IDL set to false 
 PASS hr.hidden: IDL set to object "[object Object]" 
@@ -478,6 +630,9 @@ PASS hr.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS hr.accessKey: setAttribute() to undefined 
 PASS hr.accessKey: setAttribute() to 7 
 PASS hr.accessKey: setAttribute() to 1.5 
+PASS hr.accessKey: setAttribute() to "5%" 
+PASS hr.accessKey: setAttribute() to "+100" 
+PASS hr.accessKey: setAttribute() to ".5" 
 PASS hr.accessKey: setAttribute() to true 
 PASS hr.accessKey: setAttribute() to false 
 PASS hr.accessKey: setAttribute() to object "[object Object]" 
@@ -493,6 +648,9 @@ PASS hr.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS hr.accessKey: IDL set to undefined 
 PASS hr.accessKey: IDL set to 7 
 PASS hr.accessKey: IDL set to 1.5 
+PASS hr.accessKey: IDL set to "5%" 
+PASS hr.accessKey: IDL set to "+100" 
+PASS hr.accessKey: IDL set to ".5" 
 PASS hr.accessKey: IDL set to true 
 PASS hr.accessKey: IDL set to false 
 PASS hr.accessKey: IDL set to object "[object Object]" 
@@ -520,6 +678,8 @@ PASS hr.tabIndex: setAttribute() to " 7"
 PASS hr.tabIndex: setAttribute() to "\n7" 
 PASS hr.tabIndex: setAttribute() to "\r7" 
 PASS hr.tabIndex: setAttribute() to 1.5 
+PASS hr.tabIndex: setAttribute() to "5%" 
+PASS hr.tabIndex: setAttribute() to "+100" 
 PASS hr.tabIndex: setAttribute() to object "2" 
 PASS hr.tabIndex: IDL set to -36 
 PASS hr.tabIndex: IDL set to -1 
@@ -534,6 +694,9 @@ PASS hr.align: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS hr.align: setAttribute() to undefined 
 PASS hr.align: setAttribute() to 7 
 PASS hr.align: setAttribute() to 1.5 
+PASS hr.align: setAttribute() to "5%" 
+PASS hr.align: setAttribute() to "+100" 
+PASS hr.align: setAttribute() to ".5" 
 PASS hr.align: setAttribute() to true 
 PASS hr.align: setAttribute() to false 
 PASS hr.align: setAttribute() to object "[object Object]" 
@@ -549,6 +712,9 @@ PASS hr.align: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS hr.align: IDL set to undefined 
 PASS hr.align: IDL set to 7 
 PASS hr.align: IDL set to 1.5 
+PASS hr.align: IDL set to "5%" 
+PASS hr.align: IDL set to "+100" 
+PASS hr.align: IDL set to ".5" 
 PASS hr.align: IDL set to true 
 PASS hr.align: IDL set to false 
 PASS hr.align: IDL set to object "[object Object]" 
@@ -566,6 +732,9 @@ PASS hr.color: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS hr.color: setAttribute() to undefined 
 PASS hr.color: setAttribute() to 7 
 PASS hr.color: setAttribute() to 1.5 
+PASS hr.color: setAttribute() to "5%" 
+PASS hr.color: setAttribute() to "+100" 
+PASS hr.color: setAttribute() to ".5" 
 PASS hr.color: setAttribute() to true 
 PASS hr.color: setAttribute() to false 
 PASS hr.color: setAttribute() to object "[object Object]" 
@@ -581,6 +750,9 @@ PASS hr.color: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS hr.color: IDL set to undefined 
 PASS hr.color: IDL set to 7 
 PASS hr.color: IDL set to 1.5 
+PASS hr.color: IDL set to "5%" 
+PASS hr.color: IDL set to "+100" 
+PASS hr.color: IDL set to ".5" 
 PASS hr.color: IDL set to true 
 PASS hr.color: IDL set to false 
 PASS hr.color: IDL set to object "[object Object]" 
@@ -599,6 +771,9 @@ PASS hr.noShade: setAttribute() to undefined
 PASS hr.noShade: setAttribute() to null 
 PASS hr.noShade: setAttribute() to 7 
 PASS hr.noShade: setAttribute() to 1.5 
+PASS hr.noShade: setAttribute() to "5%" 
+PASS hr.noShade: setAttribute() to "+100" 
+PASS hr.noShade: setAttribute() to ".5" 
 PASS hr.noShade: setAttribute() to true 
 PASS hr.noShade: setAttribute() to false 
 PASS hr.noShade: setAttribute() to object "[object Object]" 
@@ -615,6 +790,9 @@ PASS hr.noShade: IDL set to undefined
 PASS hr.noShade: IDL set to null 
 PASS hr.noShade: IDL set to 7 
 PASS hr.noShade: IDL set to 1.5 
+PASS hr.noShade: IDL set to "5%" 
+PASS hr.noShade: IDL set to "+100" 
+PASS hr.noShade: IDL set to ".5" 
 PASS hr.noShade: IDL set to true 
 PASS hr.noShade: IDL set to false 
 PASS hr.noShade: IDL set to object "[object Object]" 
@@ -631,6 +809,9 @@ PASS hr.size: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS hr.size: setAttribute() to undefined 
 PASS hr.size: setAttribute() to 7 
 PASS hr.size: setAttribute() to 1.5 
+PASS hr.size: setAttribute() to "5%" 
+PASS hr.size: setAttribute() to "+100" 
+PASS hr.size: setAttribute() to ".5" 
 PASS hr.size: setAttribute() to true 
 PASS hr.size: setAttribute() to false 
 PASS hr.size: setAttribute() to object "[object Object]" 
@@ -646,6 +827,9 @@ PASS hr.size: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS hr.size: IDL set to undefined 
 PASS hr.size: IDL set to 7 
 PASS hr.size: IDL set to 1.5 
+PASS hr.size: IDL set to "5%" 
+PASS hr.size: IDL set to "+100" 
+PASS hr.size: IDL set to ".5" 
 PASS hr.size: IDL set to true 
 PASS hr.size: IDL set to false 
 PASS hr.size: IDL set to object "[object Object]" 
@@ -663,6 +847,9 @@ PASS hr.width: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS hr.width: setAttribute() to undefined 
 PASS hr.width: setAttribute() to 7 
 PASS hr.width: setAttribute() to 1.5 
+PASS hr.width: setAttribute() to "5%" 
+PASS hr.width: setAttribute() to "+100" 
+PASS hr.width: setAttribute() to ".5" 
 PASS hr.width: setAttribute() to true 
 PASS hr.width: setAttribute() to false 
 PASS hr.width: setAttribute() to object "[object Object]" 
@@ -678,6 +865,9 @@ PASS hr.width: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS hr.width: IDL set to undefined 
 PASS hr.width: IDL set to 7 
 PASS hr.width: IDL set to 1.5 
+PASS hr.width: IDL set to "5%" 
+PASS hr.width: IDL set to "+100" 
+PASS hr.width: IDL set to ".5" 
 PASS hr.width: IDL set to true 
 PASS hr.width: IDL set to false 
 PASS hr.width: IDL set to object "[object Object]" 
@@ -695,6 +885,9 @@ PASS pre.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS pre.title: setAttribute() to undefined 
 PASS pre.title: setAttribute() to 7 
 PASS pre.title: setAttribute() to 1.5 
+PASS pre.title: setAttribute() to "5%" 
+PASS pre.title: setAttribute() to "+100" 
+PASS pre.title: setAttribute() to ".5" 
 PASS pre.title: setAttribute() to true 
 PASS pre.title: setAttribute() to false 
 PASS pre.title: setAttribute() to object "[object Object]" 
@@ -710,6 +903,9 @@ PASS pre.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f
 PASS pre.title: IDL set to undefined 
 PASS pre.title: IDL set to 7 
 PASS pre.title: IDL set to 1.5 
+PASS pre.title: IDL set to "5%" 
+PASS pre.title: IDL set to "+100" 
+PASS pre.title: IDL set to ".5" 
 PASS pre.title: IDL set to true 
 PASS pre.title: IDL set to false 
 PASS pre.title: IDL set to object "[object Object]" 
@@ -727,6 +923,9 @@ PASS pre.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS pre.lang: setAttribute() to undefined 
 PASS pre.lang: setAttribute() to 7 
 PASS pre.lang: setAttribute() to 1.5 
+PASS pre.lang: setAttribute() to "5%" 
+PASS pre.lang: setAttribute() to "+100" 
+PASS pre.lang: setAttribute() to ".5" 
 PASS pre.lang: setAttribute() to true 
 PASS pre.lang: setAttribute() to false 
 PASS pre.lang: setAttribute() to object "[object Object]" 
@@ -742,6 +941,9 @@ PASS pre.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS pre.lang: IDL set to undefined 
 PASS pre.lang: IDL set to 7 
 PASS pre.lang: IDL set to 1.5 
+PASS pre.lang: IDL set to "5%" 
+PASS pre.lang: IDL set to "+100" 
+PASS pre.lang: IDL set to ".5" 
 PASS pre.lang: IDL set to true 
 PASS pre.lang: IDL set to false 
 PASS pre.lang: IDL set to object "[object Object]" 
@@ -759,6 +961,9 @@ PASS pre.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS pre.dir: setAttribute() to undefined 
 PASS pre.dir: setAttribute() to 7 
 PASS pre.dir: setAttribute() to 1.5 
+PASS pre.dir: setAttribute() to "5%" 
+PASS pre.dir: setAttribute() to "+100" 
+PASS pre.dir: setAttribute() to ".5" 
 PASS pre.dir: setAttribute() to true 
 PASS pre.dir: setAttribute() to false 
 PASS pre.dir: setAttribute() to object "[object Object]" 
@@ -789,6 +994,9 @@ PASS pre.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS pre.dir: IDL set to undefined 
 PASS pre.dir: IDL set to 7 
 PASS pre.dir: IDL set to 1.5 
+PASS pre.dir: IDL set to "5%" 
+PASS pre.dir: IDL set to "+100" 
+PASS pre.dir: IDL set to ".5" 
 PASS pre.dir: IDL set to true 
 PASS pre.dir: IDL set to false 
 PASS pre.dir: IDL set to object "[object Object]" 
@@ -821,6 +1029,9 @@ PASS pre.className (<pre class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06
 PASS pre.className (<pre class>): setAttribute() to undefined 
 PASS pre.className (<pre class>): setAttribute() to 7 
 PASS pre.className (<pre class>): setAttribute() to 1.5 
+PASS pre.className (<pre class>): setAttribute() to "5%" 
+PASS pre.className (<pre class>): setAttribute() to "+100" 
+PASS pre.className (<pre class>): setAttribute() to ".5" 
 PASS pre.className (<pre class>): setAttribute() to true 
 PASS pre.className (<pre class>): setAttribute() to false 
 PASS pre.className (<pre class>): setAttribute() to object "[object Object]" 
@@ -836,6 +1047,9 @@ PASS pre.className (<pre class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b
 PASS pre.className (<pre class>): IDL set to undefined 
 PASS pre.className (<pre class>): IDL set to 7 
 PASS pre.className (<pre class>): IDL set to 1.5 
+PASS pre.className (<pre class>): IDL set to "5%" 
+PASS pre.className (<pre class>): IDL set to "+100" 
+PASS pre.className (<pre class>): IDL set to ".5" 
 PASS pre.className (<pre class>): IDL set to true 
 PASS pre.className (<pre class>): IDL set to false 
 PASS pre.className (<pre class>): IDL set to object "[object Object]" 
@@ -846,6 +1060,45 @@ PASS pre.className (<pre class>): IDL set to "\0"
 PASS pre.className (<pre class>): IDL set to null 
 PASS pre.className (<pre class>): IDL set to object "test-toString" 
 PASS pre.className (<pre class>): IDL set to object "test-valueOf" 
+FAIL pre.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL pre.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL pre.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL pre.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL pre.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL pre.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL pre.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL pre.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL pre.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL pre.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL pre.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS pre.autofocus: IDL set to true 
+FAIL pre.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL pre.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL pre.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL pre.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL pre.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL pre.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL pre.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL pre.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS pre.hidden: typeof IDL attribute 
 PASS pre.hidden: IDL get with DOM attribute unset 
 PASS pre.hidden: setAttribute() to "" 
@@ -854,6 +1107,9 @@ PASS pre.hidden: setAttribute() to undefined
 PASS pre.hidden: setAttribute() to null 
 PASS pre.hidden: setAttribute() to 7 
 PASS pre.hidden: setAttribute() to 1.5 
+PASS pre.hidden: setAttribute() to "5%" 
+PASS pre.hidden: setAttribute() to "+100" 
+PASS pre.hidden: setAttribute() to ".5" 
 PASS pre.hidden: setAttribute() to true 
 PASS pre.hidden: setAttribute() to false 
 PASS pre.hidden: setAttribute() to object "[object Object]" 
@@ -870,6 +1126,9 @@ PASS pre.hidden: IDL set to undefined
 PASS pre.hidden: IDL set to null 
 PASS pre.hidden: IDL set to 7 
 PASS pre.hidden: IDL set to 1.5 
+PASS pre.hidden: IDL set to "5%" 
+PASS pre.hidden: IDL set to "+100" 
+PASS pre.hidden: IDL set to ".5" 
 PASS pre.hidden: IDL set to true 
 PASS pre.hidden: IDL set to false 
 PASS pre.hidden: IDL set to object "[object Object]" 
@@ -886,6 +1145,9 @@ PASS pre.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\
 PASS pre.accessKey: setAttribute() to undefined 
 PASS pre.accessKey: setAttribute() to 7 
 PASS pre.accessKey: setAttribute() to 1.5 
+PASS pre.accessKey: setAttribute() to "5%" 
+PASS pre.accessKey: setAttribute() to "+100" 
+PASS pre.accessKey: setAttribute() to ".5" 
 PASS pre.accessKey: setAttribute() to true 
 PASS pre.accessKey: setAttribute() to false 
 PASS pre.accessKey: setAttribute() to object "[object Object]" 
@@ -901,6 +1163,9 @@ PASS pre.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS pre.accessKey: IDL set to undefined 
 PASS pre.accessKey: IDL set to 7 
 PASS pre.accessKey: IDL set to 1.5 
+PASS pre.accessKey: IDL set to "5%" 
+PASS pre.accessKey: IDL set to "+100" 
+PASS pre.accessKey: IDL set to ".5" 
 PASS pre.accessKey: IDL set to true 
 PASS pre.accessKey: IDL set to false 
 PASS pre.accessKey: IDL set to object "[object Object]" 
@@ -928,6 +1193,8 @@ PASS pre.tabIndex: setAttribute() to " 7"
 PASS pre.tabIndex: setAttribute() to "\n7" 
 PASS pre.tabIndex: setAttribute() to "\r7" 
 PASS pre.tabIndex: setAttribute() to 1.5 
+PASS pre.tabIndex: setAttribute() to "5%" 
+PASS pre.tabIndex: setAttribute() to "+100" 
 PASS pre.tabIndex: setAttribute() to object "2" 
 PASS pre.tabIndex: IDL set to -36 
 PASS pre.tabIndex: IDL set to -1 
@@ -980,6 +1247,9 @@ PASS pre.width: setAttribute() to " 7"
 PASS pre.width: setAttribute() to "　7" 
 PASS pre.width: setAttribute() to undefined 
 PASS pre.width: setAttribute() to 1.5 
+PASS pre.width: setAttribute() to "5%" 
+PASS pre.width: setAttribute() to "+100" 
+PASS pre.width: setAttribute() to ".5" 
 PASS pre.width: setAttribute() to true 
 PASS pre.width: setAttribute() to false 
 PASS pre.width: setAttribute() to object "[object Object]" 
@@ -1002,6 +1272,9 @@ PASS blockquote.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n
 PASS blockquote.title: setAttribute() to undefined 
 PASS blockquote.title: setAttribute() to 7 
 PASS blockquote.title: setAttribute() to 1.5 
+PASS blockquote.title: setAttribute() to "5%" 
+PASS blockquote.title: setAttribute() to "+100" 
+PASS blockquote.title: setAttribute() to ".5" 
 PASS blockquote.title: setAttribute() to true 
 PASS blockquote.title: setAttribute() to false 
 PASS blockquote.title: setAttribute() to object "[object Object]" 
@@ -1017,6 +1290,9 @@ PASS blockquote.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS blockquote.title: IDL set to undefined 
 PASS blockquote.title: IDL set to 7 
 PASS blockquote.title: IDL set to 1.5 
+PASS blockquote.title: IDL set to "5%" 
+PASS blockquote.title: IDL set to "+100" 
+PASS blockquote.title: IDL set to ".5" 
 PASS blockquote.title: IDL set to true 
 PASS blockquote.title: IDL set to false 
 PASS blockquote.title: IDL set to object "[object Object]" 
@@ -1034,6 +1310,9 @@ PASS blockquote.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\
 PASS blockquote.lang: setAttribute() to undefined 
 PASS blockquote.lang: setAttribute() to 7 
 PASS blockquote.lang: setAttribute() to 1.5 
+PASS blockquote.lang: setAttribute() to "5%" 
+PASS blockquote.lang: setAttribute() to "+100" 
+PASS blockquote.lang: setAttribute() to ".5" 
 PASS blockquote.lang: setAttribute() to true 
 PASS blockquote.lang: setAttribute() to false 
 PASS blockquote.lang: setAttribute() to object "[object Object]" 
@@ -1049,6 +1328,9 @@ PASS blockquote.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS blockquote.lang: IDL set to undefined 
 PASS blockquote.lang: IDL set to 7 
 PASS blockquote.lang: IDL set to 1.5 
+PASS blockquote.lang: IDL set to "5%" 
+PASS blockquote.lang: IDL set to "+100" 
+PASS blockquote.lang: IDL set to ".5" 
 PASS blockquote.lang: IDL set to true 
 PASS blockquote.lang: IDL set to false 
 PASS blockquote.lang: IDL set to object "[object Object]" 
@@ -1066,6 +1348,9 @@ PASS blockquote.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v
 PASS blockquote.dir: setAttribute() to undefined 
 PASS blockquote.dir: setAttribute() to 7 
 PASS blockquote.dir: setAttribute() to 1.5 
+PASS blockquote.dir: setAttribute() to "5%" 
+PASS blockquote.dir: setAttribute() to "+100" 
+PASS blockquote.dir: setAttribute() to ".5" 
 PASS blockquote.dir: setAttribute() to true 
 PASS blockquote.dir: setAttribute() to false 
 PASS blockquote.dir: setAttribute() to object "[object Object]" 
@@ -1096,6 +1381,9 @@ PASS blockquote.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS blockquote.dir: IDL set to undefined 
 PASS blockquote.dir: IDL set to 7 
 PASS blockquote.dir: IDL set to 1.5 
+PASS blockquote.dir: IDL set to "5%" 
+PASS blockquote.dir: IDL set to "+100" 
+PASS blockquote.dir: IDL set to ".5" 
 PASS blockquote.dir: IDL set to true 
 PASS blockquote.dir: IDL set to false 
 PASS blockquote.dir: IDL set to object "[object Object]" 
@@ -1128,6 +1416,9 @@ PASS blockquote.className (<blockquote class>): setAttribute() to " \0\x01\x02\x
 PASS blockquote.className (<blockquote class>): setAttribute() to undefined 
 PASS blockquote.className (<blockquote class>): setAttribute() to 7 
 PASS blockquote.className (<blockquote class>): setAttribute() to 1.5 
+PASS blockquote.className (<blockquote class>): setAttribute() to "5%" 
+PASS blockquote.className (<blockquote class>): setAttribute() to "+100" 
+PASS blockquote.className (<blockquote class>): setAttribute() to ".5" 
 PASS blockquote.className (<blockquote class>): setAttribute() to true 
 PASS blockquote.className (<blockquote class>): setAttribute() to false 
 PASS blockquote.className (<blockquote class>): setAttribute() to object "[object Object]" 
@@ -1143,6 +1434,9 @@ PASS blockquote.className (<blockquote class>): IDL set to " \0\x01\x02\x03\x04\
 PASS blockquote.className (<blockquote class>): IDL set to undefined 
 PASS blockquote.className (<blockquote class>): IDL set to 7 
 PASS blockquote.className (<blockquote class>): IDL set to 1.5 
+PASS blockquote.className (<blockquote class>): IDL set to "5%" 
+PASS blockquote.className (<blockquote class>): IDL set to "+100" 
+PASS blockquote.className (<blockquote class>): IDL set to ".5" 
 PASS blockquote.className (<blockquote class>): IDL set to true 
 PASS blockquote.className (<blockquote class>): IDL set to false 
 PASS blockquote.className (<blockquote class>): IDL set to object "[object Object]" 
@@ -1153,6 +1447,45 @@ PASS blockquote.className (<blockquote class>): IDL set to "\0"
 PASS blockquote.className (<blockquote class>): IDL set to null 
 PASS blockquote.className (<blockquote class>): IDL set to object "test-toString" 
 PASS blockquote.className (<blockquote class>): IDL set to object "test-valueOf" 
+FAIL blockquote.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL blockquote.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL blockquote.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL blockquote.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL blockquote.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL blockquote.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL blockquote.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL blockquote.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL blockquote.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL blockquote.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL blockquote.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS blockquote.autofocus: IDL set to true 
+FAIL blockquote.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL blockquote.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL blockquote.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL blockquote.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL blockquote.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL blockquote.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL blockquote.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL blockquote.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS blockquote.hidden: typeof IDL attribute 
 PASS blockquote.hidden: IDL get with DOM attribute unset 
 PASS blockquote.hidden: setAttribute() to "" 
@@ -1161,6 +1494,9 @@ PASS blockquote.hidden: setAttribute() to undefined
 PASS blockquote.hidden: setAttribute() to null 
 PASS blockquote.hidden: setAttribute() to 7 
 PASS blockquote.hidden: setAttribute() to 1.5 
+PASS blockquote.hidden: setAttribute() to "5%" 
+PASS blockquote.hidden: setAttribute() to "+100" 
+PASS blockquote.hidden: setAttribute() to ".5" 
 PASS blockquote.hidden: setAttribute() to true 
 PASS blockquote.hidden: setAttribute() to false 
 PASS blockquote.hidden: setAttribute() to object "[object Object]" 
@@ -1177,6 +1513,9 @@ PASS blockquote.hidden: IDL set to undefined
 PASS blockquote.hidden: IDL set to null 
 PASS blockquote.hidden: IDL set to 7 
 PASS blockquote.hidden: IDL set to 1.5 
+PASS blockquote.hidden: IDL set to "5%" 
+PASS blockquote.hidden: IDL set to "+100" 
+PASS blockquote.hidden: IDL set to ".5" 
 PASS blockquote.hidden: IDL set to true 
 PASS blockquote.hidden: IDL set to false 
 PASS blockquote.hidden: IDL set to object "[object Object]" 
@@ -1193,6 +1532,9 @@ PASS blockquote.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b
 PASS blockquote.accessKey: setAttribute() to undefined 
 PASS blockquote.accessKey: setAttribute() to 7 
 PASS blockquote.accessKey: setAttribute() to 1.5 
+PASS blockquote.accessKey: setAttribute() to "5%" 
+PASS blockquote.accessKey: setAttribute() to "+100" 
+PASS blockquote.accessKey: setAttribute() to ".5" 
 PASS blockquote.accessKey: setAttribute() to true 
 PASS blockquote.accessKey: setAttribute() to false 
 PASS blockquote.accessKey: setAttribute() to object "[object Object]" 
@@ -1208,6 +1550,9 @@ PASS blockquote.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\
 PASS blockquote.accessKey: IDL set to undefined 
 PASS blockquote.accessKey: IDL set to 7 
 PASS blockquote.accessKey: IDL set to 1.5 
+PASS blockquote.accessKey: IDL set to "5%" 
+PASS blockquote.accessKey: IDL set to "+100" 
+PASS blockquote.accessKey: IDL set to ".5" 
 PASS blockquote.accessKey: IDL set to true 
 PASS blockquote.accessKey: IDL set to false 
 PASS blockquote.accessKey: IDL set to object "[object Object]" 
@@ -1235,6 +1580,8 @@ PASS blockquote.tabIndex: setAttribute() to " 7"
 PASS blockquote.tabIndex: setAttribute() to "\n7" 
 PASS blockquote.tabIndex: setAttribute() to "\r7" 
 PASS blockquote.tabIndex: setAttribute() to 1.5 
+PASS blockquote.tabIndex: setAttribute() to "5%" 
+PASS blockquote.tabIndex: setAttribute() to "+100" 
 PASS blockquote.tabIndex: setAttribute() to object "2" 
 PASS blockquote.tabIndex: IDL set to -36 
 PASS blockquote.tabIndex: IDL set to -1 
@@ -1252,6 +1599,9 @@ PASS blockquote.cite: setAttribute() to "\0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v
 PASS blockquote.cite: setAttribute() to undefined 
 PASS blockquote.cite: setAttribute() to 7 
 PASS blockquote.cite: setAttribute() to 1.5 
+PASS blockquote.cite: setAttribute() to "5%" 
+PASS blockquote.cite: setAttribute() to "+100" 
+PASS blockquote.cite: setAttribute() to ".5" 
 PASS blockquote.cite: setAttribute() to true 
 PASS blockquote.cite: setAttribute() to false 
 PASS blockquote.cite: setAttribute() to object "[object Object]" 
@@ -1270,6 +1620,9 @@ PASS blockquote.cite: IDL set to "\0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS blockquote.cite: IDL set to undefined 
 PASS blockquote.cite: IDL set to 7 
 PASS blockquote.cite: IDL set to 1.5 
+PASS blockquote.cite: IDL set to "5%" 
+PASS blockquote.cite: IDL set to "+100" 
+PASS blockquote.cite: IDL set to ".5" 
 PASS blockquote.cite: IDL set to true 
 PASS blockquote.cite: IDL set to false 
 PASS blockquote.cite: IDL set to object "[object Object]" 
@@ -1287,6 +1640,9 @@ PASS ol.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS ol.title: setAttribute() to undefined 
 PASS ol.title: setAttribute() to 7 
 PASS ol.title: setAttribute() to 1.5 
+PASS ol.title: setAttribute() to "5%" 
+PASS ol.title: setAttribute() to "+100" 
+PASS ol.title: setAttribute() to ".5" 
 PASS ol.title: setAttribute() to true 
 PASS ol.title: setAttribute() to false 
 PASS ol.title: setAttribute() to object "[object Object]" 
@@ -1302,6 +1658,9 @@ PASS ol.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS ol.title: IDL set to undefined 
 PASS ol.title: IDL set to 7 
 PASS ol.title: IDL set to 1.5 
+PASS ol.title: IDL set to "5%" 
+PASS ol.title: IDL set to "+100" 
+PASS ol.title: IDL set to ".5" 
 PASS ol.title: IDL set to true 
 PASS ol.title: IDL set to false 
 PASS ol.title: IDL set to object "[object Object]" 
@@ -1319,6 +1678,9 @@ PASS ol.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS ol.lang: setAttribute() to undefined 
 PASS ol.lang: setAttribute() to 7 
 PASS ol.lang: setAttribute() to 1.5 
+PASS ol.lang: setAttribute() to "5%" 
+PASS ol.lang: setAttribute() to "+100" 
+PASS ol.lang: setAttribute() to ".5" 
 PASS ol.lang: setAttribute() to true 
 PASS ol.lang: setAttribute() to false 
 PASS ol.lang: setAttribute() to object "[object Object]" 
@@ -1334,6 +1696,9 @@ PASS ol.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS ol.lang: IDL set to undefined 
 PASS ol.lang: IDL set to 7 
 PASS ol.lang: IDL set to 1.5 
+PASS ol.lang: IDL set to "5%" 
+PASS ol.lang: IDL set to "+100" 
+PASS ol.lang: IDL set to ".5" 
 PASS ol.lang: IDL set to true 
 PASS ol.lang: IDL set to false 
 PASS ol.lang: IDL set to object "[object Object]" 
@@ -1351,6 +1716,9 @@ PASS ol.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS ol.dir: setAttribute() to undefined 
 PASS ol.dir: setAttribute() to 7 
 PASS ol.dir: setAttribute() to 1.5 
+PASS ol.dir: setAttribute() to "5%" 
+PASS ol.dir: setAttribute() to "+100" 
+PASS ol.dir: setAttribute() to ".5" 
 PASS ol.dir: setAttribute() to true 
 PASS ol.dir: setAttribute() to false 
 PASS ol.dir: setAttribute() to object "[object Object]" 
@@ -1381,6 +1749,9 @@ PASS ol.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS ol.dir: IDL set to undefined 
 PASS ol.dir: IDL set to 7 
 PASS ol.dir: IDL set to 1.5 
+PASS ol.dir: IDL set to "5%" 
+PASS ol.dir: IDL set to "+100" 
+PASS ol.dir: IDL set to ".5" 
 PASS ol.dir: IDL set to true 
 PASS ol.dir: IDL set to false 
 PASS ol.dir: IDL set to object "[object Object]" 
@@ -1413,6 +1784,9 @@ PASS ol.className (<ol class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS ol.className (<ol class>): setAttribute() to undefined 
 PASS ol.className (<ol class>): setAttribute() to 7 
 PASS ol.className (<ol class>): setAttribute() to 1.5 
+PASS ol.className (<ol class>): setAttribute() to "5%" 
+PASS ol.className (<ol class>): setAttribute() to "+100" 
+PASS ol.className (<ol class>): setAttribute() to ".5" 
 PASS ol.className (<ol class>): setAttribute() to true 
 PASS ol.className (<ol class>): setAttribute() to false 
 PASS ol.className (<ol class>): setAttribute() to object "[object Object]" 
@@ -1428,6 +1802,9 @@ PASS ol.className (<ol class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS ol.className (<ol class>): IDL set to undefined 
 PASS ol.className (<ol class>): IDL set to 7 
 PASS ol.className (<ol class>): IDL set to 1.5 
+PASS ol.className (<ol class>): IDL set to "5%" 
+PASS ol.className (<ol class>): IDL set to "+100" 
+PASS ol.className (<ol class>): IDL set to ".5" 
 PASS ol.className (<ol class>): IDL set to true 
 PASS ol.className (<ol class>): IDL set to false 
 PASS ol.className (<ol class>): IDL set to object "[object Object]" 
@@ -1438,6 +1815,45 @@ PASS ol.className (<ol class>): IDL set to "\0"
 PASS ol.className (<ol class>): IDL set to null 
 PASS ol.className (<ol class>): IDL set to object "test-toString" 
 PASS ol.className (<ol class>): IDL set to object "test-valueOf" 
+FAIL ol.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL ol.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ol.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL ol.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL ol.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL ol.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL ol.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL ol.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL ol.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL ol.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL ol.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS ol.autofocus: IDL set to true 
+FAIL ol.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL ol.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL ol.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL ol.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL ol.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL ol.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL ol.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL ol.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS ol.hidden: typeof IDL attribute 
 PASS ol.hidden: IDL get with DOM attribute unset 
 PASS ol.hidden: setAttribute() to "" 
@@ -1446,6 +1862,9 @@ PASS ol.hidden: setAttribute() to undefined
 PASS ol.hidden: setAttribute() to null 
 PASS ol.hidden: setAttribute() to 7 
 PASS ol.hidden: setAttribute() to 1.5 
+PASS ol.hidden: setAttribute() to "5%" 
+PASS ol.hidden: setAttribute() to "+100" 
+PASS ol.hidden: setAttribute() to ".5" 
 PASS ol.hidden: setAttribute() to true 
 PASS ol.hidden: setAttribute() to false 
 PASS ol.hidden: setAttribute() to object "[object Object]" 
@@ -1462,6 +1881,9 @@ PASS ol.hidden: IDL set to undefined
 PASS ol.hidden: IDL set to null 
 PASS ol.hidden: IDL set to 7 
 PASS ol.hidden: IDL set to 1.5 
+PASS ol.hidden: IDL set to "5%" 
+PASS ol.hidden: IDL set to "+100" 
+PASS ol.hidden: IDL set to ".5" 
 PASS ol.hidden: IDL set to true 
 PASS ol.hidden: IDL set to false 
 PASS ol.hidden: IDL set to object "[object Object]" 
@@ -1478,6 +1900,9 @@ PASS ol.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS ol.accessKey: setAttribute() to undefined 
 PASS ol.accessKey: setAttribute() to 7 
 PASS ol.accessKey: setAttribute() to 1.5 
+PASS ol.accessKey: setAttribute() to "5%" 
+PASS ol.accessKey: setAttribute() to "+100" 
+PASS ol.accessKey: setAttribute() to ".5" 
 PASS ol.accessKey: setAttribute() to true 
 PASS ol.accessKey: setAttribute() to false 
 PASS ol.accessKey: setAttribute() to object "[object Object]" 
@@ -1493,6 +1918,9 @@ PASS ol.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS ol.accessKey: IDL set to undefined 
 PASS ol.accessKey: IDL set to 7 
 PASS ol.accessKey: IDL set to 1.5 
+PASS ol.accessKey: IDL set to "5%" 
+PASS ol.accessKey: IDL set to "+100" 
+PASS ol.accessKey: IDL set to ".5" 
 PASS ol.accessKey: IDL set to true 
 PASS ol.accessKey: IDL set to false 
 PASS ol.accessKey: IDL set to object "[object Object]" 
@@ -1520,6 +1948,8 @@ PASS ol.tabIndex: setAttribute() to " 7"
 PASS ol.tabIndex: setAttribute() to "\n7" 
 PASS ol.tabIndex: setAttribute() to "\r7" 
 PASS ol.tabIndex: setAttribute() to 1.5 
+PASS ol.tabIndex: setAttribute() to "5%" 
+PASS ol.tabIndex: setAttribute() to "+100" 
 PASS ol.tabIndex: setAttribute() to object "2" 
 PASS ol.tabIndex: IDL set to -36 
 PASS ol.tabIndex: IDL set to -1 
@@ -1535,6 +1965,9 @@ PASS ol.reversed: setAttribute() to undefined
 PASS ol.reversed: setAttribute() to null 
 PASS ol.reversed: setAttribute() to 7 
 PASS ol.reversed: setAttribute() to 1.5 
+PASS ol.reversed: setAttribute() to "5%" 
+PASS ol.reversed: setAttribute() to "+100" 
+PASS ol.reversed: setAttribute() to ".5" 
 PASS ol.reversed: setAttribute() to true 
 PASS ol.reversed: setAttribute() to false 
 PASS ol.reversed: setAttribute() to object "[object Object]" 
@@ -1551,6 +1984,9 @@ PASS ol.reversed: IDL set to undefined
 PASS ol.reversed: IDL set to null 
 PASS ol.reversed: IDL set to 7 
 PASS ol.reversed: IDL set to 1.5 
+PASS ol.reversed: IDL set to "5%" 
+PASS ol.reversed: IDL set to "+100" 
+PASS ol.reversed: IDL set to ".5" 
 PASS ol.reversed: IDL set to true 
 PASS ol.reversed: IDL set to false 
 PASS ol.reversed: IDL set to object "[object Object]" 
@@ -1605,6 +2041,9 @@ PASS ol.start: setAttribute() to " 7"
 PASS ol.start: setAttribute() to "　7" 
 PASS ol.start: setAttribute() to undefined 
 PASS ol.start: setAttribute() to 1.5 
+PASS ol.start: setAttribute() to "5%" 
+PASS ol.start: setAttribute() to "+100" 
+PASS ol.start: setAttribute() to ".5" 
 PASS ol.start: setAttribute() to true 
 PASS ol.start: setAttribute() to false 
 PASS ol.start: setAttribute() to object "[object Object]" 
@@ -1627,6 +2066,9 @@ PASS ol.type: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS ol.type: setAttribute() to undefined 
 PASS ol.type: setAttribute() to 7 
 PASS ol.type: setAttribute() to 1.5 
+PASS ol.type: setAttribute() to "5%" 
+PASS ol.type: setAttribute() to "+100" 
+PASS ol.type: setAttribute() to ".5" 
 PASS ol.type: setAttribute() to true 
 PASS ol.type: setAttribute() to false 
 PASS ol.type: setAttribute() to object "[object Object]" 
@@ -1642,6 +2084,9 @@ PASS ol.type: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS ol.type: IDL set to undefined 
 PASS ol.type: IDL set to 7 
 PASS ol.type: IDL set to 1.5 
+PASS ol.type: IDL set to "5%" 
+PASS ol.type: IDL set to "+100" 
+PASS ol.type: IDL set to ".5" 
 PASS ol.type: IDL set to true 
 PASS ol.type: IDL set to false 
 PASS ol.type: IDL set to object "[object Object]" 
@@ -1660,6 +2105,9 @@ PASS ol.compact: setAttribute() to undefined
 PASS ol.compact: setAttribute() to null 
 PASS ol.compact: setAttribute() to 7 
 PASS ol.compact: setAttribute() to 1.5 
+PASS ol.compact: setAttribute() to "5%" 
+PASS ol.compact: setAttribute() to "+100" 
+PASS ol.compact: setAttribute() to ".5" 
 PASS ol.compact: setAttribute() to true 
 PASS ol.compact: setAttribute() to false 
 PASS ol.compact: setAttribute() to object "[object Object]" 
@@ -1676,6 +2124,9 @@ PASS ol.compact: IDL set to undefined
 PASS ol.compact: IDL set to null 
 PASS ol.compact: IDL set to 7 
 PASS ol.compact: IDL set to 1.5 
+PASS ol.compact: IDL set to "5%" 
+PASS ol.compact: IDL set to "+100" 
+PASS ol.compact: IDL set to ".5" 
 PASS ol.compact: IDL set to true 
 PASS ol.compact: IDL set to false 
 PASS ol.compact: IDL set to object "[object Object]" 
@@ -1692,6 +2143,9 @@ PASS ul.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS ul.title: setAttribute() to undefined 
 PASS ul.title: setAttribute() to 7 
 PASS ul.title: setAttribute() to 1.5 
+PASS ul.title: setAttribute() to "5%" 
+PASS ul.title: setAttribute() to "+100" 
+PASS ul.title: setAttribute() to ".5" 
 PASS ul.title: setAttribute() to true 
 PASS ul.title: setAttribute() to false 
 PASS ul.title: setAttribute() to object "[object Object]" 
@@ -1707,6 +2161,9 @@ PASS ul.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS ul.title: IDL set to undefined 
 PASS ul.title: IDL set to 7 
 PASS ul.title: IDL set to 1.5 
+PASS ul.title: IDL set to "5%" 
+PASS ul.title: IDL set to "+100" 
+PASS ul.title: IDL set to ".5" 
 PASS ul.title: IDL set to true 
 PASS ul.title: IDL set to false 
 PASS ul.title: IDL set to object "[object Object]" 
@@ -1724,6 +2181,9 @@ PASS ul.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS ul.lang: setAttribute() to undefined 
 PASS ul.lang: setAttribute() to 7 
 PASS ul.lang: setAttribute() to 1.5 
+PASS ul.lang: setAttribute() to "5%" 
+PASS ul.lang: setAttribute() to "+100" 
+PASS ul.lang: setAttribute() to ".5" 
 PASS ul.lang: setAttribute() to true 
 PASS ul.lang: setAttribute() to false 
 PASS ul.lang: setAttribute() to object "[object Object]" 
@@ -1739,6 +2199,9 @@ PASS ul.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS ul.lang: IDL set to undefined 
 PASS ul.lang: IDL set to 7 
 PASS ul.lang: IDL set to 1.5 
+PASS ul.lang: IDL set to "5%" 
+PASS ul.lang: IDL set to "+100" 
+PASS ul.lang: IDL set to ".5" 
 PASS ul.lang: IDL set to true 
 PASS ul.lang: IDL set to false 
 PASS ul.lang: IDL set to object "[object Object]" 
@@ -1756,6 +2219,9 @@ PASS ul.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS ul.dir: setAttribute() to undefined 
 PASS ul.dir: setAttribute() to 7 
 PASS ul.dir: setAttribute() to 1.5 
+PASS ul.dir: setAttribute() to "5%" 
+PASS ul.dir: setAttribute() to "+100" 
+PASS ul.dir: setAttribute() to ".5" 
 PASS ul.dir: setAttribute() to true 
 PASS ul.dir: setAttribute() to false 
 PASS ul.dir: setAttribute() to object "[object Object]" 
@@ -1786,6 +2252,9 @@ PASS ul.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS ul.dir: IDL set to undefined 
 PASS ul.dir: IDL set to 7 
 PASS ul.dir: IDL set to 1.5 
+PASS ul.dir: IDL set to "5%" 
+PASS ul.dir: IDL set to "+100" 
+PASS ul.dir: IDL set to ".5" 
 PASS ul.dir: IDL set to true 
 PASS ul.dir: IDL set to false 
 PASS ul.dir: IDL set to object "[object Object]" 
@@ -1818,6 +2287,9 @@ PASS ul.className (<ul class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS ul.className (<ul class>): setAttribute() to undefined 
 PASS ul.className (<ul class>): setAttribute() to 7 
 PASS ul.className (<ul class>): setAttribute() to 1.5 
+PASS ul.className (<ul class>): setAttribute() to "5%" 
+PASS ul.className (<ul class>): setAttribute() to "+100" 
+PASS ul.className (<ul class>): setAttribute() to ".5" 
 PASS ul.className (<ul class>): setAttribute() to true 
 PASS ul.className (<ul class>): setAttribute() to false 
 PASS ul.className (<ul class>): setAttribute() to object "[object Object]" 
@@ -1833,6 +2305,9 @@ PASS ul.className (<ul class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS ul.className (<ul class>): IDL set to undefined 
 PASS ul.className (<ul class>): IDL set to 7 
 PASS ul.className (<ul class>): IDL set to 1.5 
+PASS ul.className (<ul class>): IDL set to "5%" 
+PASS ul.className (<ul class>): IDL set to "+100" 
+PASS ul.className (<ul class>): IDL set to ".5" 
 PASS ul.className (<ul class>): IDL set to true 
 PASS ul.className (<ul class>): IDL set to false 
 PASS ul.className (<ul class>): IDL set to object "[object Object]" 
@@ -1843,6 +2318,45 @@ PASS ul.className (<ul class>): IDL set to "\0"
 PASS ul.className (<ul class>): IDL set to null 
 PASS ul.className (<ul class>): IDL set to object "test-toString" 
 PASS ul.className (<ul class>): IDL set to object "test-valueOf" 
+FAIL ul.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL ul.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL ul.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL ul.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL ul.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL ul.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL ul.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL ul.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL ul.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL ul.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL ul.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS ul.autofocus: IDL set to true 
+FAIL ul.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL ul.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL ul.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL ul.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL ul.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL ul.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL ul.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL ul.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS ul.hidden: typeof IDL attribute 
 PASS ul.hidden: IDL get with DOM attribute unset 
 PASS ul.hidden: setAttribute() to "" 
@@ -1851,6 +2365,9 @@ PASS ul.hidden: setAttribute() to undefined
 PASS ul.hidden: setAttribute() to null 
 PASS ul.hidden: setAttribute() to 7 
 PASS ul.hidden: setAttribute() to 1.5 
+PASS ul.hidden: setAttribute() to "5%" 
+PASS ul.hidden: setAttribute() to "+100" 
+PASS ul.hidden: setAttribute() to ".5" 
 PASS ul.hidden: setAttribute() to true 
 PASS ul.hidden: setAttribute() to false 
 PASS ul.hidden: setAttribute() to object "[object Object]" 
@@ -1867,6 +2384,9 @@ PASS ul.hidden: IDL set to undefined
 PASS ul.hidden: IDL set to null 
 PASS ul.hidden: IDL set to 7 
 PASS ul.hidden: IDL set to 1.5 
+PASS ul.hidden: IDL set to "5%" 
+PASS ul.hidden: IDL set to "+100" 
+PASS ul.hidden: IDL set to ".5" 
 PASS ul.hidden: IDL set to true 
 PASS ul.hidden: IDL set to false 
 PASS ul.hidden: IDL set to object "[object Object]" 
@@ -1883,6 +2403,9 @@ PASS ul.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS ul.accessKey: setAttribute() to undefined 
 PASS ul.accessKey: setAttribute() to 7 
 PASS ul.accessKey: setAttribute() to 1.5 
+PASS ul.accessKey: setAttribute() to "5%" 
+PASS ul.accessKey: setAttribute() to "+100" 
+PASS ul.accessKey: setAttribute() to ".5" 
 PASS ul.accessKey: setAttribute() to true 
 PASS ul.accessKey: setAttribute() to false 
 PASS ul.accessKey: setAttribute() to object "[object Object]" 
@@ -1898,6 +2421,9 @@ PASS ul.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS ul.accessKey: IDL set to undefined 
 PASS ul.accessKey: IDL set to 7 
 PASS ul.accessKey: IDL set to 1.5 
+PASS ul.accessKey: IDL set to "5%" 
+PASS ul.accessKey: IDL set to "+100" 
+PASS ul.accessKey: IDL set to ".5" 
 PASS ul.accessKey: IDL set to true 
 PASS ul.accessKey: IDL set to false 
 PASS ul.accessKey: IDL set to object "[object Object]" 
@@ -1925,6 +2451,8 @@ PASS ul.tabIndex: setAttribute() to " 7"
 PASS ul.tabIndex: setAttribute() to "\n7" 
 PASS ul.tabIndex: setAttribute() to "\r7" 
 PASS ul.tabIndex: setAttribute() to 1.5 
+PASS ul.tabIndex: setAttribute() to "5%" 
+PASS ul.tabIndex: setAttribute() to "+100" 
 PASS ul.tabIndex: setAttribute() to object "2" 
 PASS ul.tabIndex: IDL set to -36 
 PASS ul.tabIndex: IDL set to -1 
@@ -1940,6 +2468,9 @@ PASS ul.compact: setAttribute() to undefined
 PASS ul.compact: setAttribute() to null 
 PASS ul.compact: setAttribute() to 7 
 PASS ul.compact: setAttribute() to 1.5 
+PASS ul.compact: setAttribute() to "5%" 
+PASS ul.compact: setAttribute() to "+100" 
+PASS ul.compact: setAttribute() to ".5" 
 PASS ul.compact: setAttribute() to true 
 PASS ul.compact: setAttribute() to false 
 PASS ul.compact: setAttribute() to object "[object Object]" 
@@ -1956,6 +2487,9 @@ PASS ul.compact: IDL set to undefined
 PASS ul.compact: IDL set to null 
 PASS ul.compact: IDL set to 7 
 PASS ul.compact: IDL set to 1.5 
+PASS ul.compact: IDL set to "5%" 
+PASS ul.compact: IDL set to "+100" 
+PASS ul.compact: IDL set to ".5" 
 PASS ul.compact: IDL set to true 
 PASS ul.compact: IDL set to false 
 PASS ul.compact: IDL set to object "[object Object]" 
@@ -1972,6 +2506,9 @@ PASS ul.type: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS ul.type: setAttribute() to undefined 
 PASS ul.type: setAttribute() to 7 
 PASS ul.type: setAttribute() to 1.5 
+PASS ul.type: setAttribute() to "5%" 
+PASS ul.type: setAttribute() to "+100" 
+PASS ul.type: setAttribute() to ".5" 
 PASS ul.type: setAttribute() to true 
 PASS ul.type: setAttribute() to false 
 PASS ul.type: setAttribute() to object "[object Object]" 
@@ -1987,6 +2524,9 @@ PASS ul.type: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS ul.type: IDL set to undefined 
 PASS ul.type: IDL set to 7 
 PASS ul.type: IDL set to 1.5 
+PASS ul.type: IDL set to "5%" 
+PASS ul.type: IDL set to "+100" 
+PASS ul.type: IDL set to ".5" 
 PASS ul.type: IDL set to true 
 PASS ul.type: IDL set to false 
 PASS ul.type: IDL set to object "[object Object]" 
@@ -2004,6 +2544,9 @@ PASS li.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS li.title: setAttribute() to undefined 
 PASS li.title: setAttribute() to 7 
 PASS li.title: setAttribute() to 1.5 
+PASS li.title: setAttribute() to "5%" 
+PASS li.title: setAttribute() to "+100" 
+PASS li.title: setAttribute() to ".5" 
 PASS li.title: setAttribute() to true 
 PASS li.title: setAttribute() to false 
 PASS li.title: setAttribute() to object "[object Object]" 
@@ -2019,6 +2562,9 @@ PASS li.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS li.title: IDL set to undefined 
 PASS li.title: IDL set to 7 
 PASS li.title: IDL set to 1.5 
+PASS li.title: IDL set to "5%" 
+PASS li.title: IDL set to "+100" 
+PASS li.title: IDL set to ".5" 
 PASS li.title: IDL set to true 
 PASS li.title: IDL set to false 
 PASS li.title: IDL set to object "[object Object]" 
@@ -2036,6 +2582,9 @@ PASS li.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS li.lang: setAttribute() to undefined 
 PASS li.lang: setAttribute() to 7 
 PASS li.lang: setAttribute() to 1.5 
+PASS li.lang: setAttribute() to "5%" 
+PASS li.lang: setAttribute() to "+100" 
+PASS li.lang: setAttribute() to ".5" 
 PASS li.lang: setAttribute() to true 
 PASS li.lang: setAttribute() to false 
 PASS li.lang: setAttribute() to object "[object Object]" 
@@ -2051,6 +2600,9 @@ PASS li.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS li.lang: IDL set to undefined 
 PASS li.lang: IDL set to 7 
 PASS li.lang: IDL set to 1.5 
+PASS li.lang: IDL set to "5%" 
+PASS li.lang: IDL set to "+100" 
+PASS li.lang: IDL set to ".5" 
 PASS li.lang: IDL set to true 
 PASS li.lang: IDL set to false 
 PASS li.lang: IDL set to object "[object Object]" 
@@ -2068,6 +2620,9 @@ PASS li.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS li.dir: setAttribute() to undefined 
 PASS li.dir: setAttribute() to 7 
 PASS li.dir: setAttribute() to 1.5 
+PASS li.dir: setAttribute() to "5%" 
+PASS li.dir: setAttribute() to "+100" 
+PASS li.dir: setAttribute() to ".5" 
 PASS li.dir: setAttribute() to true 
 PASS li.dir: setAttribute() to false 
 PASS li.dir: setAttribute() to object "[object Object]" 
@@ -2098,6 +2653,9 @@ PASS li.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS li.dir: IDL set to undefined 
 PASS li.dir: IDL set to 7 
 PASS li.dir: IDL set to 1.5 
+PASS li.dir: IDL set to "5%" 
+PASS li.dir: IDL set to "+100" 
+PASS li.dir: IDL set to ".5" 
 PASS li.dir: IDL set to true 
 PASS li.dir: IDL set to false 
 PASS li.dir: IDL set to object "[object Object]" 
@@ -2130,6 +2688,9 @@ PASS li.className (<li class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS li.className (<li class>): setAttribute() to undefined 
 PASS li.className (<li class>): setAttribute() to 7 
 PASS li.className (<li class>): setAttribute() to 1.5 
+PASS li.className (<li class>): setAttribute() to "5%" 
+PASS li.className (<li class>): setAttribute() to "+100" 
+PASS li.className (<li class>): setAttribute() to ".5" 
 PASS li.className (<li class>): setAttribute() to true 
 PASS li.className (<li class>): setAttribute() to false 
 PASS li.className (<li class>): setAttribute() to object "[object Object]" 
@@ -2145,6 +2706,9 @@ PASS li.className (<li class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS li.className (<li class>): IDL set to undefined 
 PASS li.className (<li class>): IDL set to 7 
 PASS li.className (<li class>): IDL set to 1.5 
+PASS li.className (<li class>): IDL set to "5%" 
+PASS li.className (<li class>): IDL set to "+100" 
+PASS li.className (<li class>): IDL set to ".5" 
 PASS li.className (<li class>): IDL set to true 
 PASS li.className (<li class>): IDL set to false 
 PASS li.className (<li class>): IDL set to object "[object Object]" 
@@ -2155,6 +2719,45 @@ PASS li.className (<li class>): IDL set to "\0"
 PASS li.className (<li class>): IDL set to null 
 PASS li.className (<li class>): IDL set to object "test-toString" 
 PASS li.className (<li class>): IDL set to object "test-valueOf" 
+FAIL li.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL li.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL li.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL li.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL li.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL li.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL li.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL li.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL li.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL li.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL li.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS li.autofocus: IDL set to true 
+FAIL li.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL li.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL li.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL li.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL li.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL li.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL li.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL li.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS li.hidden: typeof IDL attribute 
 PASS li.hidden: IDL get with DOM attribute unset 
 PASS li.hidden: setAttribute() to "" 
@@ -2163,6 +2766,9 @@ PASS li.hidden: setAttribute() to undefined
 PASS li.hidden: setAttribute() to null 
 PASS li.hidden: setAttribute() to 7 
 PASS li.hidden: setAttribute() to 1.5 
+PASS li.hidden: setAttribute() to "5%" 
+PASS li.hidden: setAttribute() to "+100" 
+PASS li.hidden: setAttribute() to ".5" 
 PASS li.hidden: setAttribute() to true 
 PASS li.hidden: setAttribute() to false 
 PASS li.hidden: setAttribute() to object "[object Object]" 
@@ -2179,6 +2785,9 @@ PASS li.hidden: IDL set to undefined
 PASS li.hidden: IDL set to null 
 PASS li.hidden: IDL set to 7 
 PASS li.hidden: IDL set to 1.5 
+PASS li.hidden: IDL set to "5%" 
+PASS li.hidden: IDL set to "+100" 
+PASS li.hidden: IDL set to ".5" 
 PASS li.hidden: IDL set to true 
 PASS li.hidden: IDL set to false 
 PASS li.hidden: IDL set to object "[object Object]" 
@@ -2195,6 +2804,9 @@ PASS li.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS li.accessKey: setAttribute() to undefined 
 PASS li.accessKey: setAttribute() to 7 
 PASS li.accessKey: setAttribute() to 1.5 
+PASS li.accessKey: setAttribute() to "5%" 
+PASS li.accessKey: setAttribute() to "+100" 
+PASS li.accessKey: setAttribute() to ".5" 
 PASS li.accessKey: setAttribute() to true 
 PASS li.accessKey: setAttribute() to false 
 PASS li.accessKey: setAttribute() to object "[object Object]" 
@@ -2210,6 +2822,9 @@ PASS li.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS li.accessKey: IDL set to undefined 
 PASS li.accessKey: IDL set to 7 
 PASS li.accessKey: IDL set to 1.5 
+PASS li.accessKey: IDL set to "5%" 
+PASS li.accessKey: IDL set to "+100" 
+PASS li.accessKey: IDL set to ".5" 
 PASS li.accessKey: IDL set to true 
 PASS li.accessKey: IDL set to false 
 PASS li.accessKey: IDL set to object "[object Object]" 
@@ -2237,6 +2852,8 @@ PASS li.tabIndex: setAttribute() to " 7"
 PASS li.tabIndex: setAttribute() to "\n7" 
 PASS li.tabIndex: setAttribute() to "\r7" 
 PASS li.tabIndex: setAttribute() to 1.5 
+PASS li.tabIndex: setAttribute() to "5%" 
+PASS li.tabIndex: setAttribute() to "+100" 
 PASS li.tabIndex: setAttribute() to object "2" 
 PASS li.tabIndex: IDL set to -36 
 PASS li.tabIndex: IDL set to -1 
@@ -2289,6 +2906,9 @@ PASS li.value: setAttribute() to " 7"
 PASS li.value: setAttribute() to "　7" 
 PASS li.value: setAttribute() to undefined 
 PASS li.value: setAttribute() to 1.5 
+PASS li.value: setAttribute() to "5%" 
+PASS li.value: setAttribute() to "+100" 
+PASS li.value: setAttribute() to ".5" 
 PASS li.value: setAttribute() to true 
 PASS li.value: setAttribute() to false 
 PASS li.value: setAttribute() to object "[object Object]" 
@@ -2311,6 +2931,9 @@ PASS li.type: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS li.type: setAttribute() to undefined 
 PASS li.type: setAttribute() to 7 
 PASS li.type: setAttribute() to 1.5 
+PASS li.type: setAttribute() to "5%" 
+PASS li.type: setAttribute() to "+100" 
+PASS li.type: setAttribute() to ".5" 
 PASS li.type: setAttribute() to true 
 PASS li.type: setAttribute() to false 
 PASS li.type: setAttribute() to object "[object Object]" 
@@ -2326,6 +2949,9 @@ PASS li.type: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS li.type: IDL set to undefined 
 PASS li.type: IDL set to 7 
 PASS li.type: IDL set to 1.5 
+PASS li.type: IDL set to "5%" 
+PASS li.type: IDL set to "+100" 
+PASS li.type: IDL set to ".5" 
 PASS li.type: IDL set to true 
 PASS li.type: IDL set to false 
 PASS li.type: IDL set to object "[object Object]" 
@@ -2343,6 +2969,9 @@ PASS dl.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS dl.title: setAttribute() to undefined 
 PASS dl.title: setAttribute() to 7 
 PASS dl.title: setAttribute() to 1.5 
+PASS dl.title: setAttribute() to "5%" 
+PASS dl.title: setAttribute() to "+100" 
+PASS dl.title: setAttribute() to ".5" 
 PASS dl.title: setAttribute() to true 
 PASS dl.title: setAttribute() to false 
 PASS dl.title: setAttribute() to object "[object Object]" 
@@ -2358,6 +2987,9 @@ PASS dl.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS dl.title: IDL set to undefined 
 PASS dl.title: IDL set to 7 
 PASS dl.title: IDL set to 1.5 
+PASS dl.title: IDL set to "5%" 
+PASS dl.title: IDL set to "+100" 
+PASS dl.title: IDL set to ".5" 
 PASS dl.title: IDL set to true 
 PASS dl.title: IDL set to false 
 PASS dl.title: IDL set to object "[object Object]" 
@@ -2375,6 +3007,9 @@ PASS dl.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS dl.lang: setAttribute() to undefined 
 PASS dl.lang: setAttribute() to 7 
 PASS dl.lang: setAttribute() to 1.5 
+PASS dl.lang: setAttribute() to "5%" 
+PASS dl.lang: setAttribute() to "+100" 
+PASS dl.lang: setAttribute() to ".5" 
 PASS dl.lang: setAttribute() to true 
 PASS dl.lang: setAttribute() to false 
 PASS dl.lang: setAttribute() to object "[object Object]" 
@@ -2390,6 +3025,9 @@ PASS dl.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS dl.lang: IDL set to undefined 
 PASS dl.lang: IDL set to 7 
 PASS dl.lang: IDL set to 1.5 
+PASS dl.lang: IDL set to "5%" 
+PASS dl.lang: IDL set to "+100" 
+PASS dl.lang: IDL set to ".5" 
 PASS dl.lang: IDL set to true 
 PASS dl.lang: IDL set to false 
 PASS dl.lang: IDL set to object "[object Object]" 
@@ -2407,6 +3045,9 @@ PASS dl.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS dl.dir: setAttribute() to undefined 
 PASS dl.dir: setAttribute() to 7 
 PASS dl.dir: setAttribute() to 1.5 
+PASS dl.dir: setAttribute() to "5%" 
+PASS dl.dir: setAttribute() to "+100" 
+PASS dl.dir: setAttribute() to ".5" 
 PASS dl.dir: setAttribute() to true 
 PASS dl.dir: setAttribute() to false 
 PASS dl.dir: setAttribute() to object "[object Object]" 
@@ -2437,6 +3078,9 @@ PASS dl.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS dl.dir: IDL set to undefined 
 PASS dl.dir: IDL set to 7 
 PASS dl.dir: IDL set to 1.5 
+PASS dl.dir: IDL set to "5%" 
+PASS dl.dir: IDL set to "+100" 
+PASS dl.dir: IDL set to ".5" 
 PASS dl.dir: IDL set to true 
 PASS dl.dir: IDL set to false 
 PASS dl.dir: IDL set to object "[object Object]" 
@@ -2469,6 +3113,9 @@ PASS dl.className (<dl class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS dl.className (<dl class>): setAttribute() to undefined 
 PASS dl.className (<dl class>): setAttribute() to 7 
 PASS dl.className (<dl class>): setAttribute() to 1.5 
+PASS dl.className (<dl class>): setAttribute() to "5%" 
+PASS dl.className (<dl class>): setAttribute() to "+100" 
+PASS dl.className (<dl class>): setAttribute() to ".5" 
 PASS dl.className (<dl class>): setAttribute() to true 
 PASS dl.className (<dl class>): setAttribute() to false 
 PASS dl.className (<dl class>): setAttribute() to object "[object Object]" 
@@ -2484,6 +3131,9 @@ PASS dl.className (<dl class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS dl.className (<dl class>): IDL set to undefined 
 PASS dl.className (<dl class>): IDL set to 7 
 PASS dl.className (<dl class>): IDL set to 1.5 
+PASS dl.className (<dl class>): IDL set to "5%" 
+PASS dl.className (<dl class>): IDL set to "+100" 
+PASS dl.className (<dl class>): IDL set to ".5" 
 PASS dl.className (<dl class>): IDL set to true 
 PASS dl.className (<dl class>): IDL set to false 
 PASS dl.className (<dl class>): IDL set to object "[object Object]" 
@@ -2494,6 +3144,45 @@ PASS dl.className (<dl class>): IDL set to "\0"
 PASS dl.className (<dl class>): IDL set to null 
 PASS dl.className (<dl class>): IDL set to object "test-toString" 
 PASS dl.className (<dl class>): IDL set to object "test-valueOf" 
+FAIL dl.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL dl.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dl.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL dl.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL dl.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL dl.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL dl.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL dl.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL dl.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL dl.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL dl.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS dl.autofocus: IDL set to true 
+FAIL dl.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL dl.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL dl.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL dl.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL dl.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL dl.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL dl.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL dl.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS dl.hidden: typeof IDL attribute 
 PASS dl.hidden: IDL get with DOM attribute unset 
 PASS dl.hidden: setAttribute() to "" 
@@ -2502,6 +3191,9 @@ PASS dl.hidden: setAttribute() to undefined
 PASS dl.hidden: setAttribute() to null 
 PASS dl.hidden: setAttribute() to 7 
 PASS dl.hidden: setAttribute() to 1.5 
+PASS dl.hidden: setAttribute() to "5%" 
+PASS dl.hidden: setAttribute() to "+100" 
+PASS dl.hidden: setAttribute() to ".5" 
 PASS dl.hidden: setAttribute() to true 
 PASS dl.hidden: setAttribute() to false 
 PASS dl.hidden: setAttribute() to object "[object Object]" 
@@ -2518,6 +3210,9 @@ PASS dl.hidden: IDL set to undefined
 PASS dl.hidden: IDL set to null 
 PASS dl.hidden: IDL set to 7 
 PASS dl.hidden: IDL set to 1.5 
+PASS dl.hidden: IDL set to "5%" 
+PASS dl.hidden: IDL set to "+100" 
+PASS dl.hidden: IDL set to ".5" 
 PASS dl.hidden: IDL set to true 
 PASS dl.hidden: IDL set to false 
 PASS dl.hidden: IDL set to object "[object Object]" 
@@ -2534,6 +3229,9 @@ PASS dl.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS dl.accessKey: setAttribute() to undefined 
 PASS dl.accessKey: setAttribute() to 7 
 PASS dl.accessKey: setAttribute() to 1.5 
+PASS dl.accessKey: setAttribute() to "5%" 
+PASS dl.accessKey: setAttribute() to "+100" 
+PASS dl.accessKey: setAttribute() to ".5" 
 PASS dl.accessKey: setAttribute() to true 
 PASS dl.accessKey: setAttribute() to false 
 PASS dl.accessKey: setAttribute() to object "[object Object]" 
@@ -2549,6 +3247,9 @@ PASS dl.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS dl.accessKey: IDL set to undefined 
 PASS dl.accessKey: IDL set to 7 
 PASS dl.accessKey: IDL set to 1.5 
+PASS dl.accessKey: IDL set to "5%" 
+PASS dl.accessKey: IDL set to "+100" 
+PASS dl.accessKey: IDL set to ".5" 
 PASS dl.accessKey: IDL set to true 
 PASS dl.accessKey: IDL set to false 
 PASS dl.accessKey: IDL set to object "[object Object]" 
@@ -2576,6 +3277,8 @@ PASS dl.tabIndex: setAttribute() to " 7"
 PASS dl.tabIndex: setAttribute() to "\n7" 
 PASS dl.tabIndex: setAttribute() to "\r7" 
 PASS dl.tabIndex: setAttribute() to 1.5 
+PASS dl.tabIndex: setAttribute() to "5%" 
+PASS dl.tabIndex: setAttribute() to "+100" 
 PASS dl.tabIndex: setAttribute() to object "2" 
 PASS dl.tabIndex: IDL set to -36 
 PASS dl.tabIndex: IDL set to -1 
@@ -2591,6 +3294,9 @@ PASS dl.compact: setAttribute() to undefined
 PASS dl.compact: setAttribute() to null 
 PASS dl.compact: setAttribute() to 7 
 PASS dl.compact: setAttribute() to 1.5 
+PASS dl.compact: setAttribute() to "5%" 
+PASS dl.compact: setAttribute() to "+100" 
+PASS dl.compact: setAttribute() to ".5" 
 PASS dl.compact: setAttribute() to true 
 PASS dl.compact: setAttribute() to false 
 PASS dl.compact: setAttribute() to object "[object Object]" 
@@ -2607,6 +3313,9 @@ PASS dl.compact: IDL set to undefined
 PASS dl.compact: IDL set to null 
 PASS dl.compact: IDL set to 7 
 PASS dl.compact: IDL set to 1.5 
+PASS dl.compact: IDL set to "5%" 
+PASS dl.compact: IDL set to "+100" 
+PASS dl.compact: IDL set to ".5" 
 PASS dl.compact: IDL set to true 
 PASS dl.compact: IDL set to false 
 PASS dl.compact: IDL set to object "[object Object]" 
@@ -2623,6 +3332,9 @@ PASS dt.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS dt.title: setAttribute() to undefined 
 PASS dt.title: setAttribute() to 7 
 PASS dt.title: setAttribute() to 1.5 
+PASS dt.title: setAttribute() to "5%" 
+PASS dt.title: setAttribute() to "+100" 
+PASS dt.title: setAttribute() to ".5" 
 PASS dt.title: setAttribute() to true 
 PASS dt.title: setAttribute() to false 
 PASS dt.title: setAttribute() to object "[object Object]" 
@@ -2638,6 +3350,9 @@ PASS dt.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS dt.title: IDL set to undefined 
 PASS dt.title: IDL set to 7 
 PASS dt.title: IDL set to 1.5 
+PASS dt.title: IDL set to "5%" 
+PASS dt.title: IDL set to "+100" 
+PASS dt.title: IDL set to ".5" 
 PASS dt.title: IDL set to true 
 PASS dt.title: IDL set to false 
 PASS dt.title: IDL set to object "[object Object]" 
@@ -2655,6 +3370,9 @@ PASS dt.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS dt.lang: setAttribute() to undefined 
 PASS dt.lang: setAttribute() to 7 
 PASS dt.lang: setAttribute() to 1.5 
+PASS dt.lang: setAttribute() to "5%" 
+PASS dt.lang: setAttribute() to "+100" 
+PASS dt.lang: setAttribute() to ".5" 
 PASS dt.lang: setAttribute() to true 
 PASS dt.lang: setAttribute() to false 
 PASS dt.lang: setAttribute() to object "[object Object]" 
@@ -2670,6 +3388,9 @@ PASS dt.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS dt.lang: IDL set to undefined 
 PASS dt.lang: IDL set to 7 
 PASS dt.lang: IDL set to 1.5 
+PASS dt.lang: IDL set to "5%" 
+PASS dt.lang: IDL set to "+100" 
+PASS dt.lang: IDL set to ".5" 
 PASS dt.lang: IDL set to true 
 PASS dt.lang: IDL set to false 
 PASS dt.lang: IDL set to object "[object Object]" 
@@ -2687,6 +3408,9 @@ PASS dt.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS dt.dir: setAttribute() to undefined 
 PASS dt.dir: setAttribute() to 7 
 PASS dt.dir: setAttribute() to 1.5 
+PASS dt.dir: setAttribute() to "5%" 
+PASS dt.dir: setAttribute() to "+100" 
+PASS dt.dir: setAttribute() to ".5" 
 PASS dt.dir: setAttribute() to true 
 PASS dt.dir: setAttribute() to false 
 PASS dt.dir: setAttribute() to object "[object Object]" 
@@ -2717,6 +3441,9 @@ PASS dt.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS dt.dir: IDL set to undefined 
 PASS dt.dir: IDL set to 7 
 PASS dt.dir: IDL set to 1.5 
+PASS dt.dir: IDL set to "5%" 
+PASS dt.dir: IDL set to "+100" 
+PASS dt.dir: IDL set to ".5" 
 PASS dt.dir: IDL set to true 
 PASS dt.dir: IDL set to false 
 PASS dt.dir: IDL set to object "[object Object]" 
@@ -2749,6 +3476,9 @@ PASS dt.className (<dt class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS dt.className (<dt class>): setAttribute() to undefined 
 PASS dt.className (<dt class>): setAttribute() to 7 
 PASS dt.className (<dt class>): setAttribute() to 1.5 
+PASS dt.className (<dt class>): setAttribute() to "5%" 
+PASS dt.className (<dt class>): setAttribute() to "+100" 
+PASS dt.className (<dt class>): setAttribute() to ".5" 
 PASS dt.className (<dt class>): setAttribute() to true 
 PASS dt.className (<dt class>): setAttribute() to false 
 PASS dt.className (<dt class>): setAttribute() to object "[object Object]" 
@@ -2764,6 +3494,9 @@ PASS dt.className (<dt class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS dt.className (<dt class>): IDL set to undefined 
 PASS dt.className (<dt class>): IDL set to 7 
 PASS dt.className (<dt class>): IDL set to 1.5 
+PASS dt.className (<dt class>): IDL set to "5%" 
+PASS dt.className (<dt class>): IDL set to "+100" 
+PASS dt.className (<dt class>): IDL set to ".5" 
 PASS dt.className (<dt class>): IDL set to true 
 PASS dt.className (<dt class>): IDL set to false 
 PASS dt.className (<dt class>): IDL set to object "[object Object]" 
@@ -2774,6 +3507,45 @@ PASS dt.className (<dt class>): IDL set to "\0"
 PASS dt.className (<dt class>): IDL set to null 
 PASS dt.className (<dt class>): IDL set to object "test-toString" 
 PASS dt.className (<dt class>): IDL set to object "test-valueOf" 
+FAIL dt.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL dt.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dt.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL dt.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL dt.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL dt.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL dt.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL dt.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL dt.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL dt.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL dt.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS dt.autofocus: IDL set to true 
+FAIL dt.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL dt.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL dt.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL dt.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL dt.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL dt.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL dt.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL dt.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS dt.hidden: typeof IDL attribute 
 PASS dt.hidden: IDL get with DOM attribute unset 
 PASS dt.hidden: setAttribute() to "" 
@@ -2782,6 +3554,9 @@ PASS dt.hidden: setAttribute() to undefined
 PASS dt.hidden: setAttribute() to null 
 PASS dt.hidden: setAttribute() to 7 
 PASS dt.hidden: setAttribute() to 1.5 
+PASS dt.hidden: setAttribute() to "5%" 
+PASS dt.hidden: setAttribute() to "+100" 
+PASS dt.hidden: setAttribute() to ".5" 
 PASS dt.hidden: setAttribute() to true 
 PASS dt.hidden: setAttribute() to false 
 PASS dt.hidden: setAttribute() to object "[object Object]" 
@@ -2798,6 +3573,9 @@ PASS dt.hidden: IDL set to undefined
 PASS dt.hidden: IDL set to null 
 PASS dt.hidden: IDL set to 7 
 PASS dt.hidden: IDL set to 1.5 
+PASS dt.hidden: IDL set to "5%" 
+PASS dt.hidden: IDL set to "+100" 
+PASS dt.hidden: IDL set to ".5" 
 PASS dt.hidden: IDL set to true 
 PASS dt.hidden: IDL set to false 
 PASS dt.hidden: IDL set to object "[object Object]" 
@@ -2814,6 +3592,9 @@ PASS dt.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS dt.accessKey: setAttribute() to undefined 
 PASS dt.accessKey: setAttribute() to 7 
 PASS dt.accessKey: setAttribute() to 1.5 
+PASS dt.accessKey: setAttribute() to "5%" 
+PASS dt.accessKey: setAttribute() to "+100" 
+PASS dt.accessKey: setAttribute() to ".5" 
 PASS dt.accessKey: setAttribute() to true 
 PASS dt.accessKey: setAttribute() to false 
 PASS dt.accessKey: setAttribute() to object "[object Object]" 
@@ -2829,6 +3610,9 @@ PASS dt.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS dt.accessKey: IDL set to undefined 
 PASS dt.accessKey: IDL set to 7 
 PASS dt.accessKey: IDL set to 1.5 
+PASS dt.accessKey: IDL set to "5%" 
+PASS dt.accessKey: IDL set to "+100" 
+PASS dt.accessKey: IDL set to ".5" 
 PASS dt.accessKey: IDL set to true 
 PASS dt.accessKey: IDL set to false 
 PASS dt.accessKey: IDL set to object "[object Object]" 
@@ -2856,6 +3640,8 @@ PASS dt.tabIndex: setAttribute() to " 7"
 PASS dt.tabIndex: setAttribute() to "\n7" 
 PASS dt.tabIndex: setAttribute() to "\r7" 
 PASS dt.tabIndex: setAttribute() to 1.5 
+PASS dt.tabIndex: setAttribute() to "5%" 
+PASS dt.tabIndex: setAttribute() to "+100" 
 PASS dt.tabIndex: setAttribute() to object "2" 
 PASS dt.tabIndex: IDL set to -36 
 PASS dt.tabIndex: IDL set to -1 
@@ -2870,6 +3656,9 @@ PASS dd.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS dd.title: setAttribute() to undefined 
 PASS dd.title: setAttribute() to 7 
 PASS dd.title: setAttribute() to 1.5 
+PASS dd.title: setAttribute() to "5%" 
+PASS dd.title: setAttribute() to "+100" 
+PASS dd.title: setAttribute() to ".5" 
 PASS dd.title: setAttribute() to true 
 PASS dd.title: setAttribute() to false 
 PASS dd.title: setAttribute() to object "[object Object]" 
@@ -2885,6 +3674,9 @@ PASS dd.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS dd.title: IDL set to undefined 
 PASS dd.title: IDL set to 7 
 PASS dd.title: IDL set to 1.5 
+PASS dd.title: IDL set to "5%" 
+PASS dd.title: IDL set to "+100" 
+PASS dd.title: IDL set to ".5" 
 PASS dd.title: IDL set to true 
 PASS dd.title: IDL set to false 
 PASS dd.title: IDL set to object "[object Object]" 
@@ -2902,6 +3694,9 @@ PASS dd.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS dd.lang: setAttribute() to undefined 
 PASS dd.lang: setAttribute() to 7 
 PASS dd.lang: setAttribute() to 1.5 
+PASS dd.lang: setAttribute() to "5%" 
+PASS dd.lang: setAttribute() to "+100" 
+PASS dd.lang: setAttribute() to ".5" 
 PASS dd.lang: setAttribute() to true 
 PASS dd.lang: setAttribute() to false 
 PASS dd.lang: setAttribute() to object "[object Object]" 
@@ -2917,6 +3712,9 @@ PASS dd.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS dd.lang: IDL set to undefined 
 PASS dd.lang: IDL set to 7 
 PASS dd.lang: IDL set to 1.5 
+PASS dd.lang: IDL set to "5%" 
+PASS dd.lang: IDL set to "+100" 
+PASS dd.lang: IDL set to ".5" 
 PASS dd.lang: IDL set to true 
 PASS dd.lang: IDL set to false 
 PASS dd.lang: IDL set to object "[object Object]" 
@@ -2934,6 +3732,9 @@ PASS dd.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS dd.dir: setAttribute() to undefined 
 PASS dd.dir: setAttribute() to 7 
 PASS dd.dir: setAttribute() to 1.5 
+PASS dd.dir: setAttribute() to "5%" 
+PASS dd.dir: setAttribute() to "+100" 
+PASS dd.dir: setAttribute() to ".5" 
 PASS dd.dir: setAttribute() to true 
 PASS dd.dir: setAttribute() to false 
 PASS dd.dir: setAttribute() to object "[object Object]" 
@@ -2964,6 +3765,9 @@ PASS dd.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \x
 PASS dd.dir: IDL set to undefined 
 PASS dd.dir: IDL set to 7 
 PASS dd.dir: IDL set to 1.5 
+PASS dd.dir: IDL set to "5%" 
+PASS dd.dir: IDL set to "+100" 
+PASS dd.dir: IDL set to ".5" 
 PASS dd.dir: IDL set to true 
 PASS dd.dir: IDL set to false 
 PASS dd.dir: IDL set to object "[object Object]" 
@@ -2996,6 +3800,9 @@ PASS dd.className (<dd class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x
 PASS dd.className (<dd class>): setAttribute() to undefined 
 PASS dd.className (<dd class>): setAttribute() to 7 
 PASS dd.className (<dd class>): setAttribute() to 1.5 
+PASS dd.className (<dd class>): setAttribute() to "5%" 
+PASS dd.className (<dd class>): setAttribute() to "+100" 
+PASS dd.className (<dd class>): setAttribute() to ".5" 
 PASS dd.className (<dd class>): setAttribute() to true 
 PASS dd.className (<dd class>): setAttribute() to false 
 PASS dd.className (<dd class>): setAttribute() to object "[object Object]" 
@@ -3011,6 +3818,9 @@ PASS dd.className (<dd class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t
 PASS dd.className (<dd class>): IDL set to undefined 
 PASS dd.className (<dd class>): IDL set to 7 
 PASS dd.className (<dd class>): IDL set to 1.5 
+PASS dd.className (<dd class>): IDL set to "5%" 
+PASS dd.className (<dd class>): IDL set to "+100" 
+PASS dd.className (<dd class>): IDL set to ".5" 
 PASS dd.className (<dd class>): IDL set to true 
 PASS dd.className (<dd class>): IDL set to false 
 PASS dd.className (<dd class>): IDL set to object "[object Object]" 
@@ -3021,6 +3831,45 @@ PASS dd.className (<dd class>): IDL set to "\0"
 PASS dd.className (<dd class>): IDL set to null 
 PASS dd.className (<dd class>): IDL set to object "test-toString" 
 PASS dd.className (<dd class>): IDL set to object "test-valueOf" 
+FAIL dd.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL dd.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL dd.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL dd.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL dd.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL dd.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL dd.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL dd.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL dd.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL dd.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL dd.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS dd.autofocus: IDL set to true 
+FAIL dd.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL dd.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL dd.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL dd.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL dd.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL dd.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL dd.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL dd.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS dd.hidden: typeof IDL attribute 
 PASS dd.hidden: IDL get with DOM attribute unset 
 PASS dd.hidden: setAttribute() to "" 
@@ -3029,6 +3878,9 @@ PASS dd.hidden: setAttribute() to undefined
 PASS dd.hidden: setAttribute() to null 
 PASS dd.hidden: setAttribute() to 7 
 PASS dd.hidden: setAttribute() to 1.5 
+PASS dd.hidden: setAttribute() to "5%" 
+PASS dd.hidden: setAttribute() to "+100" 
+PASS dd.hidden: setAttribute() to ".5" 
 PASS dd.hidden: setAttribute() to true 
 PASS dd.hidden: setAttribute() to false 
 PASS dd.hidden: setAttribute() to object "[object Object]" 
@@ -3045,6 +3897,9 @@ PASS dd.hidden: IDL set to undefined
 PASS dd.hidden: IDL set to null 
 PASS dd.hidden: IDL set to 7 
 PASS dd.hidden: IDL set to 1.5 
+PASS dd.hidden: IDL set to "5%" 
+PASS dd.hidden: IDL set to "+100" 
+PASS dd.hidden: IDL set to ".5" 
 PASS dd.hidden: IDL set to true 
 PASS dd.hidden: IDL set to false 
 PASS dd.hidden: IDL set to object "[object Object]" 
@@ -3061,6 +3916,9 @@ PASS dd.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS dd.accessKey: setAttribute() to undefined 
 PASS dd.accessKey: setAttribute() to 7 
 PASS dd.accessKey: setAttribute() to 1.5 
+PASS dd.accessKey: setAttribute() to "5%" 
+PASS dd.accessKey: setAttribute() to "+100" 
+PASS dd.accessKey: setAttribute() to ".5" 
 PASS dd.accessKey: setAttribute() to true 
 PASS dd.accessKey: setAttribute() to false 
 PASS dd.accessKey: setAttribute() to object "[object Object]" 
@@ -3076,6 +3934,9 @@ PASS dd.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS dd.accessKey: IDL set to undefined 
 PASS dd.accessKey: IDL set to 7 
 PASS dd.accessKey: IDL set to 1.5 
+PASS dd.accessKey: IDL set to "5%" 
+PASS dd.accessKey: IDL set to "+100" 
+PASS dd.accessKey: IDL set to ".5" 
 PASS dd.accessKey: IDL set to true 
 PASS dd.accessKey: IDL set to false 
 PASS dd.accessKey: IDL set to object "[object Object]" 
@@ -3103,6 +3964,8 @@ PASS dd.tabIndex: setAttribute() to " 7"
 PASS dd.tabIndex: setAttribute() to "\n7" 
 PASS dd.tabIndex: setAttribute() to "\r7" 
 PASS dd.tabIndex: setAttribute() to 1.5 
+PASS dd.tabIndex: setAttribute() to "5%" 
+PASS dd.tabIndex: setAttribute() to "+100" 
 PASS dd.tabIndex: setAttribute() to object "2" 
 PASS dd.tabIndex: IDL set to -36 
 PASS dd.tabIndex: IDL set to -1 
@@ -3117,6 +3980,9 @@ PASS figure.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f
 PASS figure.title: setAttribute() to undefined 
 PASS figure.title: setAttribute() to 7 
 PASS figure.title: setAttribute() to 1.5 
+PASS figure.title: setAttribute() to "5%" 
+PASS figure.title: setAttribute() to "+100" 
+PASS figure.title: setAttribute() to ".5" 
 PASS figure.title: setAttribute() to true 
 PASS figure.title: setAttribute() to false 
 PASS figure.title: setAttribute() to object "[object Object]" 
@@ -3132,6 +3998,9 @@ PASS figure.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\
 PASS figure.title: IDL set to undefined 
 PASS figure.title: IDL set to 7 
 PASS figure.title: IDL set to 1.5 
+PASS figure.title: IDL set to "5%" 
+PASS figure.title: IDL set to "+100" 
+PASS figure.title: IDL set to ".5" 
 PASS figure.title: IDL set to true 
 PASS figure.title: IDL set to false 
 PASS figure.title: IDL set to object "[object Object]" 
@@ -3149,6 +4018,9 @@ PASS figure.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\
 PASS figure.lang: setAttribute() to undefined 
 PASS figure.lang: setAttribute() to 7 
 PASS figure.lang: setAttribute() to 1.5 
+PASS figure.lang: setAttribute() to "5%" 
+PASS figure.lang: setAttribute() to "+100" 
+PASS figure.lang: setAttribute() to ".5" 
 PASS figure.lang: setAttribute() to true 
 PASS figure.lang: setAttribute() to false 
 PASS figure.lang: setAttribute() to object "[object Object]" 
@@ -3164,6 +4036,9 @@ PASS figure.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x
 PASS figure.lang: IDL set to undefined 
 PASS figure.lang: IDL set to 7 
 PASS figure.lang: IDL set to 1.5 
+PASS figure.lang: IDL set to "5%" 
+PASS figure.lang: IDL set to "+100" 
+PASS figure.lang: IDL set to ".5" 
 PASS figure.lang: IDL set to true 
 PASS figure.lang: IDL set to false 
 PASS figure.lang: IDL set to object "[object Object]" 
@@ -3181,6 +4056,9 @@ PASS figure.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r
 PASS figure.dir: setAttribute() to undefined 
 PASS figure.dir: setAttribute() to 7 
 PASS figure.dir: setAttribute() to 1.5 
+PASS figure.dir: setAttribute() to "5%" 
+PASS figure.dir: setAttribute() to "+100" 
+PASS figure.dir: setAttribute() to ".5" 
 PASS figure.dir: setAttribute() to true 
 PASS figure.dir: setAttribute() to false 
 PASS figure.dir: setAttribute() to object "[object Object]" 
@@ -3211,6 +4089,9 @@ PASS figure.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0
 PASS figure.dir: IDL set to undefined 
 PASS figure.dir: IDL set to 7 
 PASS figure.dir: IDL set to 1.5 
+PASS figure.dir: IDL set to "5%" 
+PASS figure.dir: IDL set to "+100" 
+PASS figure.dir: IDL set to ".5" 
 PASS figure.dir: IDL set to true 
 PASS figure.dir: IDL set to false 
 PASS figure.dir: IDL set to object "[object Object]" 
@@ -3243,6 +4124,9 @@ PASS figure.className (<figure class>): setAttribute() to " \0\x01\x02\x03\x04\x
 PASS figure.className (<figure class>): setAttribute() to undefined 
 PASS figure.className (<figure class>): setAttribute() to 7 
 PASS figure.className (<figure class>): setAttribute() to 1.5 
+PASS figure.className (<figure class>): setAttribute() to "5%" 
+PASS figure.className (<figure class>): setAttribute() to "+100" 
+PASS figure.className (<figure class>): setAttribute() to ".5" 
 PASS figure.className (<figure class>): setAttribute() to true 
 PASS figure.className (<figure class>): setAttribute() to false 
 PASS figure.className (<figure class>): setAttribute() to object "[object Object]" 
@@ -3258,6 +4142,9 @@ PASS figure.className (<figure class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\
 PASS figure.className (<figure class>): IDL set to undefined 
 PASS figure.className (<figure class>): IDL set to 7 
 PASS figure.className (<figure class>): IDL set to 1.5 
+PASS figure.className (<figure class>): IDL set to "5%" 
+PASS figure.className (<figure class>): IDL set to "+100" 
+PASS figure.className (<figure class>): IDL set to ".5" 
 PASS figure.className (<figure class>): IDL set to true 
 PASS figure.className (<figure class>): IDL set to false 
 PASS figure.className (<figure class>): IDL set to object "[object Object]" 
@@ -3268,6 +4155,45 @@ PASS figure.className (<figure class>): IDL set to "\0"
 PASS figure.className (<figure class>): IDL set to null 
 PASS figure.className (<figure class>): IDL set to object "test-toString" 
 PASS figure.className (<figure class>): IDL set to object "test-valueOf" 
+FAIL figure.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL figure.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figure.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL figure.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL figure.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL figure.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL figure.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL figure.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL figure.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL figure.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL figure.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS figure.autofocus: IDL set to true 
+FAIL figure.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL figure.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL figure.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL figure.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL figure.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL figure.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL figure.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL figure.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS figure.hidden: typeof IDL attribute 
 PASS figure.hidden: IDL get with DOM attribute unset 
 PASS figure.hidden: setAttribute() to "" 
@@ -3276,6 +4202,9 @@ PASS figure.hidden: setAttribute() to undefined
 PASS figure.hidden: setAttribute() to null 
 PASS figure.hidden: setAttribute() to 7 
 PASS figure.hidden: setAttribute() to 1.5 
+PASS figure.hidden: setAttribute() to "5%" 
+PASS figure.hidden: setAttribute() to "+100" 
+PASS figure.hidden: setAttribute() to ".5" 
 PASS figure.hidden: setAttribute() to true 
 PASS figure.hidden: setAttribute() to false 
 PASS figure.hidden: setAttribute() to object "[object Object]" 
@@ -3292,6 +4221,9 @@ PASS figure.hidden: IDL set to undefined
 PASS figure.hidden: IDL set to null 
 PASS figure.hidden: IDL set to 7 
 PASS figure.hidden: IDL set to 1.5 
+PASS figure.hidden: IDL set to "5%" 
+PASS figure.hidden: IDL set to "+100" 
+PASS figure.hidden: IDL set to ".5" 
 PASS figure.hidden: IDL set to true 
 PASS figure.hidden: IDL set to false 
 PASS figure.hidden: IDL set to object "[object Object]" 
@@ -3308,6 +4240,9 @@ PASS figure.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n
 PASS figure.accessKey: setAttribute() to undefined 
 PASS figure.accessKey: setAttribute() to 7 
 PASS figure.accessKey: setAttribute() to 1.5 
+PASS figure.accessKey: setAttribute() to "5%" 
+PASS figure.accessKey: setAttribute() to "+100" 
+PASS figure.accessKey: setAttribute() to ".5" 
 PASS figure.accessKey: setAttribute() to true 
 PASS figure.accessKey: setAttribute() to false 
 PASS figure.accessKey: setAttribute() to object "[object Object]" 
@@ -3323,6 +4258,9 @@ PASS figure.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS figure.accessKey: IDL set to undefined 
 PASS figure.accessKey: IDL set to 7 
 PASS figure.accessKey: IDL set to 1.5 
+PASS figure.accessKey: IDL set to "5%" 
+PASS figure.accessKey: IDL set to "+100" 
+PASS figure.accessKey: IDL set to ".5" 
 PASS figure.accessKey: IDL set to true 
 PASS figure.accessKey: IDL set to false 
 PASS figure.accessKey: IDL set to object "[object Object]" 
@@ -3350,6 +4288,8 @@ PASS figure.tabIndex: setAttribute() to " 7"
 PASS figure.tabIndex: setAttribute() to "\n7" 
 PASS figure.tabIndex: setAttribute() to "\r7" 
 PASS figure.tabIndex: setAttribute() to 1.5 
+PASS figure.tabIndex: setAttribute() to "5%" 
+PASS figure.tabIndex: setAttribute() to "+100" 
 PASS figure.tabIndex: setAttribute() to object "2" 
 PASS figure.tabIndex: IDL set to -36 
 PASS figure.tabIndex: IDL set to -1 
@@ -3364,6 +4304,9 @@ PASS figcaption.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n
 PASS figcaption.title: setAttribute() to undefined 
 PASS figcaption.title: setAttribute() to 7 
 PASS figcaption.title: setAttribute() to 1.5 
+PASS figcaption.title: setAttribute() to "5%" 
+PASS figcaption.title: setAttribute() to "+100" 
+PASS figcaption.title: setAttribute() to ".5" 
 PASS figcaption.title: setAttribute() to true 
 PASS figcaption.title: setAttribute() to false 
 PASS figcaption.title: setAttribute() to object "[object Object]" 
@@ -3379,6 +4322,9 @@ PASS figcaption.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS figcaption.title: IDL set to undefined 
 PASS figcaption.title: IDL set to 7 
 PASS figcaption.title: IDL set to 1.5 
+PASS figcaption.title: IDL set to "5%" 
+PASS figcaption.title: IDL set to "+100" 
+PASS figcaption.title: IDL set to ".5" 
 PASS figcaption.title: IDL set to true 
 PASS figcaption.title: IDL set to false 
 PASS figcaption.title: IDL set to object "[object Object]" 
@@ -3396,6 +4342,9 @@ PASS figcaption.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\
 PASS figcaption.lang: setAttribute() to undefined 
 PASS figcaption.lang: setAttribute() to 7 
 PASS figcaption.lang: setAttribute() to 1.5 
+PASS figcaption.lang: setAttribute() to "5%" 
+PASS figcaption.lang: setAttribute() to "+100" 
+PASS figcaption.lang: setAttribute() to ".5" 
 PASS figcaption.lang: setAttribute() to true 
 PASS figcaption.lang: setAttribute() to false 
 PASS figcaption.lang: setAttribute() to object "[object Object]" 
@@ -3411,6 +4360,9 @@ PASS figcaption.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS figcaption.lang: IDL set to undefined 
 PASS figcaption.lang: IDL set to 7 
 PASS figcaption.lang: IDL set to 1.5 
+PASS figcaption.lang: IDL set to "5%" 
+PASS figcaption.lang: IDL set to "+100" 
+PASS figcaption.lang: IDL set to ".5" 
 PASS figcaption.lang: IDL set to true 
 PASS figcaption.lang: IDL set to false 
 PASS figcaption.lang: IDL set to object "[object Object]" 
@@ -3428,6 +4380,9 @@ PASS figcaption.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v
 PASS figcaption.dir: setAttribute() to undefined 
 PASS figcaption.dir: setAttribute() to 7 
 PASS figcaption.dir: setAttribute() to 1.5 
+PASS figcaption.dir: setAttribute() to "5%" 
+PASS figcaption.dir: setAttribute() to "+100" 
+PASS figcaption.dir: setAttribute() to ".5" 
 PASS figcaption.dir: setAttribute() to true 
 PASS figcaption.dir: setAttribute() to false 
 PASS figcaption.dir: setAttribute() to object "[object Object]" 
@@ -3458,6 +4413,9 @@ PASS figcaption.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS figcaption.dir: IDL set to undefined 
 PASS figcaption.dir: IDL set to 7 
 PASS figcaption.dir: IDL set to 1.5 
+PASS figcaption.dir: IDL set to "5%" 
+PASS figcaption.dir: IDL set to "+100" 
+PASS figcaption.dir: IDL set to ".5" 
 PASS figcaption.dir: IDL set to true 
 PASS figcaption.dir: IDL set to false 
 PASS figcaption.dir: IDL set to object "[object Object]" 
@@ -3490,6 +4448,9 @@ PASS figcaption.className (<figcaption class>): setAttribute() to " \0\x01\x02\x
 PASS figcaption.className (<figcaption class>): setAttribute() to undefined 
 PASS figcaption.className (<figcaption class>): setAttribute() to 7 
 PASS figcaption.className (<figcaption class>): setAttribute() to 1.5 
+PASS figcaption.className (<figcaption class>): setAttribute() to "5%" 
+PASS figcaption.className (<figcaption class>): setAttribute() to "+100" 
+PASS figcaption.className (<figcaption class>): setAttribute() to ".5" 
 PASS figcaption.className (<figcaption class>): setAttribute() to true 
 PASS figcaption.className (<figcaption class>): setAttribute() to false 
 PASS figcaption.className (<figcaption class>): setAttribute() to object "[object Object]" 
@@ -3505,6 +4466,9 @@ PASS figcaption.className (<figcaption class>): IDL set to " \0\x01\x02\x03\x04\
 PASS figcaption.className (<figcaption class>): IDL set to undefined 
 PASS figcaption.className (<figcaption class>): IDL set to 7 
 PASS figcaption.className (<figcaption class>): IDL set to 1.5 
+PASS figcaption.className (<figcaption class>): IDL set to "5%" 
+PASS figcaption.className (<figcaption class>): IDL set to "+100" 
+PASS figcaption.className (<figcaption class>): IDL set to ".5" 
 PASS figcaption.className (<figcaption class>): IDL set to true 
 PASS figcaption.className (<figcaption class>): IDL set to false 
 PASS figcaption.className (<figcaption class>): IDL set to object "[object Object]" 
@@ -3515,6 +4479,45 @@ PASS figcaption.className (<figcaption class>): IDL set to "\0"
 PASS figcaption.className (<figcaption class>): IDL set to null 
 PASS figcaption.className (<figcaption class>): IDL set to object "test-toString" 
 PASS figcaption.className (<figcaption class>): IDL set to object "test-valueOf" 
+FAIL figcaption.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL figcaption.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL figcaption.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL figcaption.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL figcaption.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL figcaption.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL figcaption.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL figcaption.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL figcaption.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL figcaption.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL figcaption.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS figcaption.autofocus: IDL set to true 
+FAIL figcaption.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL figcaption.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL figcaption.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL figcaption.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL figcaption.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL figcaption.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL figcaption.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL figcaption.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS figcaption.hidden: typeof IDL attribute 
 PASS figcaption.hidden: IDL get with DOM attribute unset 
 PASS figcaption.hidden: setAttribute() to "" 
@@ -3523,6 +4526,9 @@ PASS figcaption.hidden: setAttribute() to undefined
 PASS figcaption.hidden: setAttribute() to null 
 PASS figcaption.hidden: setAttribute() to 7 
 PASS figcaption.hidden: setAttribute() to 1.5 
+PASS figcaption.hidden: setAttribute() to "5%" 
+PASS figcaption.hidden: setAttribute() to "+100" 
+PASS figcaption.hidden: setAttribute() to ".5" 
 PASS figcaption.hidden: setAttribute() to true 
 PASS figcaption.hidden: setAttribute() to false 
 PASS figcaption.hidden: setAttribute() to object "[object Object]" 
@@ -3539,6 +4545,9 @@ PASS figcaption.hidden: IDL set to undefined
 PASS figcaption.hidden: IDL set to null 
 PASS figcaption.hidden: IDL set to 7 
 PASS figcaption.hidden: IDL set to 1.5 
+PASS figcaption.hidden: IDL set to "5%" 
+PASS figcaption.hidden: IDL set to "+100" 
+PASS figcaption.hidden: IDL set to ".5" 
 PASS figcaption.hidden: IDL set to true 
 PASS figcaption.hidden: IDL set to false 
 PASS figcaption.hidden: IDL set to object "[object Object]" 
@@ -3555,6 +4564,9 @@ PASS figcaption.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b
 PASS figcaption.accessKey: setAttribute() to undefined 
 PASS figcaption.accessKey: setAttribute() to 7 
 PASS figcaption.accessKey: setAttribute() to 1.5 
+PASS figcaption.accessKey: setAttribute() to "5%" 
+PASS figcaption.accessKey: setAttribute() to "+100" 
+PASS figcaption.accessKey: setAttribute() to ".5" 
 PASS figcaption.accessKey: setAttribute() to true 
 PASS figcaption.accessKey: setAttribute() to false 
 PASS figcaption.accessKey: setAttribute() to object "[object Object]" 
@@ -3570,6 +4582,9 @@ PASS figcaption.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\
 PASS figcaption.accessKey: IDL set to undefined 
 PASS figcaption.accessKey: IDL set to 7 
 PASS figcaption.accessKey: IDL set to 1.5 
+PASS figcaption.accessKey: IDL set to "5%" 
+PASS figcaption.accessKey: IDL set to "+100" 
+PASS figcaption.accessKey: IDL set to ".5" 
 PASS figcaption.accessKey: IDL set to true 
 PASS figcaption.accessKey: IDL set to false 
 PASS figcaption.accessKey: IDL set to object "[object Object]" 
@@ -3597,6 +4612,8 @@ PASS figcaption.tabIndex: setAttribute() to " 7"
 PASS figcaption.tabIndex: setAttribute() to "\n7" 
 PASS figcaption.tabIndex: setAttribute() to "\r7" 
 PASS figcaption.tabIndex: setAttribute() to 1.5 
+PASS figcaption.tabIndex: setAttribute() to "5%" 
+PASS figcaption.tabIndex: setAttribute() to "+100" 
 PASS figcaption.tabIndex: setAttribute() to object "2" 
 PASS figcaption.tabIndex: IDL set to -36 
 PASS figcaption.tabIndex: IDL set to -1 
@@ -3611,6 +4628,9 @@ PASS main.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r
 PASS main.title: setAttribute() to undefined 
 PASS main.title: setAttribute() to 7 
 PASS main.title: setAttribute() to 1.5 
+PASS main.title: setAttribute() to "5%" 
+PASS main.title: setAttribute() to "+100" 
+PASS main.title: setAttribute() to ".5" 
 PASS main.title: setAttribute() to true 
 PASS main.title: setAttribute() to false 
 PASS main.title: setAttribute() to object "[object Object]" 
@@ -3626,6 +4646,9 @@ PASS main.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0
 PASS main.title: IDL set to undefined 
 PASS main.title: IDL set to 7 
 PASS main.title: IDL set to 1.5 
+PASS main.title: IDL set to "5%" 
+PASS main.title: IDL set to "+100" 
+PASS main.title: IDL set to ".5" 
 PASS main.title: IDL set to true 
 PASS main.title: IDL set to false 
 PASS main.title: IDL set to object "[object Object]" 
@@ -3643,6 +4666,9 @@ PASS main.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS main.lang: setAttribute() to undefined 
 PASS main.lang: setAttribute() to 7 
 PASS main.lang: setAttribute() to 1.5 
+PASS main.lang: setAttribute() to "5%" 
+PASS main.lang: setAttribute() to "+100" 
+PASS main.lang: setAttribute() to ".5" 
 PASS main.lang: setAttribute() to true 
 PASS main.lang: setAttribute() to false 
 PASS main.lang: setAttribute() to object "[object Object]" 
@@ -3658,6 +4684,9 @@ PASS main.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f
 PASS main.lang: IDL set to undefined 
 PASS main.lang: IDL set to 7 
 PASS main.lang: IDL set to 1.5 
+PASS main.lang: IDL set to "5%" 
+PASS main.lang: IDL set to "+100" 
+PASS main.lang: IDL set to ".5" 
 PASS main.lang: IDL set to true 
 PASS main.lang: IDL set to false 
 PASS main.lang: IDL set to object "[object Object]" 
@@ -3675,6 +4704,9 @@ PASS main.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS main.dir: setAttribute() to undefined 
 PASS main.dir: setAttribute() to 7 
 PASS main.dir: setAttribute() to 1.5 
+PASS main.dir: setAttribute() to "5%" 
+PASS main.dir: setAttribute() to "+100" 
+PASS main.dir: setAttribute() to ".5" 
 PASS main.dir: setAttribute() to true 
 PASS main.dir: setAttribute() to false 
 PASS main.dir: setAttribute() to object "[object Object]" 
@@ -3705,6 +4737,9 @@ PASS main.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS main.dir: IDL set to undefined 
 PASS main.dir: IDL set to 7 
 PASS main.dir: IDL set to 1.5 
+PASS main.dir: IDL set to "5%" 
+PASS main.dir: IDL set to "+100" 
+PASS main.dir: IDL set to ".5" 
 PASS main.dir: IDL set to true 
 PASS main.dir: IDL set to false 
 PASS main.dir: IDL set to object "[object Object]" 
@@ -3737,6 +4772,9 @@ PASS main.className (<main class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x
 PASS main.className (<main class>): setAttribute() to undefined 
 PASS main.className (<main class>): setAttribute() to 7 
 PASS main.className (<main class>): setAttribute() to 1.5 
+PASS main.className (<main class>): setAttribute() to "5%" 
+PASS main.className (<main class>): setAttribute() to "+100" 
+PASS main.className (<main class>): setAttribute() to ".5" 
 PASS main.className (<main class>): setAttribute() to true 
 PASS main.className (<main class>): setAttribute() to false 
 PASS main.className (<main class>): setAttribute() to object "[object Object]" 
@@ -3752,6 +4790,9 @@ PASS main.className (<main class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 
 PASS main.className (<main class>): IDL set to undefined 
 PASS main.className (<main class>): IDL set to 7 
 PASS main.className (<main class>): IDL set to 1.5 
+PASS main.className (<main class>): IDL set to "5%" 
+PASS main.className (<main class>): IDL set to "+100" 
+PASS main.className (<main class>): IDL set to ".5" 
 PASS main.className (<main class>): IDL set to true 
 PASS main.className (<main class>): IDL set to false 
 PASS main.className (<main class>): IDL set to object "[object Object]" 
@@ -3762,6 +4803,45 @@ PASS main.className (<main class>): IDL set to "\0"
 PASS main.className (<main class>): IDL set to null 
 PASS main.className (<main class>): IDL set to object "test-toString" 
 PASS main.className (<main class>): IDL set to object "test-valueOf" 
+FAIL main.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL main.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL main.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL main.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL main.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL main.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL main.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL main.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL main.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL main.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL main.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS main.autofocus: IDL set to true 
+FAIL main.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL main.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL main.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL main.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL main.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL main.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL main.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL main.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS main.hidden: typeof IDL attribute 
 PASS main.hidden: IDL get with DOM attribute unset 
 PASS main.hidden: setAttribute() to "" 
@@ -3770,6 +4850,9 @@ PASS main.hidden: setAttribute() to undefined
 PASS main.hidden: setAttribute() to null 
 PASS main.hidden: setAttribute() to 7 
 PASS main.hidden: setAttribute() to 1.5 
+PASS main.hidden: setAttribute() to "5%" 
+PASS main.hidden: setAttribute() to "+100" 
+PASS main.hidden: setAttribute() to ".5" 
 PASS main.hidden: setAttribute() to true 
 PASS main.hidden: setAttribute() to false 
 PASS main.hidden: setAttribute() to object "[object Object]" 
@@ -3786,6 +4869,9 @@ PASS main.hidden: IDL set to undefined
 PASS main.hidden: IDL set to null 
 PASS main.hidden: IDL set to 7 
 PASS main.hidden: IDL set to 1.5 
+PASS main.hidden: IDL set to "5%" 
+PASS main.hidden: IDL set to "+100" 
+PASS main.hidden: IDL set to ".5" 
 PASS main.hidden: IDL set to true 
 PASS main.hidden: IDL set to false 
 PASS main.hidden: IDL set to object "[object Object]" 
@@ -3802,6 +4888,9 @@ PASS main.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v
 PASS main.accessKey: setAttribute() to undefined 
 PASS main.accessKey: setAttribute() to 7 
 PASS main.accessKey: setAttribute() to 1.5 
+PASS main.accessKey: setAttribute() to "5%" 
+PASS main.accessKey: setAttribute() to "+100" 
+PASS main.accessKey: setAttribute() to ".5" 
 PASS main.accessKey: setAttribute() to true 
 PASS main.accessKey: setAttribute() to false 
 PASS main.accessKey: setAttribute() to object "[object Object]" 
@@ -3817,6 +4906,9 @@ PASS main.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS main.accessKey: IDL set to undefined 
 PASS main.accessKey: IDL set to 7 
 PASS main.accessKey: IDL set to 1.5 
+PASS main.accessKey: IDL set to "5%" 
+PASS main.accessKey: IDL set to "+100" 
+PASS main.accessKey: IDL set to ".5" 
 PASS main.accessKey: IDL set to true 
 PASS main.accessKey: IDL set to false 
 PASS main.accessKey: IDL set to object "[object Object]" 
@@ -3844,6 +4936,8 @@ PASS main.tabIndex: setAttribute() to " 7"
 PASS main.tabIndex: setAttribute() to "\n7" 
 PASS main.tabIndex: setAttribute() to "\r7" 
 PASS main.tabIndex: setAttribute() to 1.5 
+PASS main.tabIndex: setAttribute() to "5%" 
+PASS main.tabIndex: setAttribute() to "+100" 
 PASS main.tabIndex: setAttribute() to object "2" 
 PASS main.tabIndex: IDL set to -36 
 PASS main.tabIndex: IDL set to -1 
@@ -3858,6 +4952,9 @@ PASS div.title: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS div.title: setAttribute() to undefined 
 PASS div.title: setAttribute() to 7 
 PASS div.title: setAttribute() to 1.5 
+PASS div.title: setAttribute() to "5%" 
+PASS div.title: setAttribute() to "+100" 
+PASS div.title: setAttribute() to ".5" 
 PASS div.title: setAttribute() to true 
 PASS div.title: setAttribute() to false 
 PASS div.title: setAttribute() to object "[object Object]" 
@@ -3873,6 +4970,9 @@ PASS div.title: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f
 PASS div.title: IDL set to undefined 
 PASS div.title: IDL set to 7 
 PASS div.title: IDL set to 1.5 
+PASS div.title: IDL set to "5%" 
+PASS div.title: IDL set to "+100" 
+PASS div.title: IDL set to ".5" 
 PASS div.title: IDL set to true 
 PASS div.title: IDL set to false 
 PASS div.title: IDL set to object "[object Object]" 
@@ -3890,6 +4990,9 @@ PASS div.lang: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x
 PASS div.lang: setAttribute() to undefined 
 PASS div.lang: setAttribute() to 7 
 PASS div.lang: setAttribute() to 1.5 
+PASS div.lang: setAttribute() to "5%" 
+PASS div.lang: setAttribute() to "+100" 
+PASS div.lang: setAttribute() to ".5" 
 PASS div.lang: setAttribute() to true 
 PASS div.lang: setAttribute() to false 
 PASS div.lang: setAttribute() to object "[object Object]" 
@@ -3905,6 +5008,9 @@ PASS div.lang: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f 
 PASS div.lang: IDL set to undefined 
 PASS div.lang: IDL set to 7 
 PASS div.lang: IDL set to 1.5 
+PASS div.lang: IDL set to "5%" 
+PASS div.lang: IDL set to "+100" 
+PASS div.lang: IDL set to ".5" 
 PASS div.lang: IDL set to true 
 PASS div.lang: IDL set to false 
 PASS div.lang: IDL set to object "[object Object]" 
@@ -3922,6 +5028,9 @@ PASS div.dir: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0
 PASS div.dir: setAttribute() to undefined 
 PASS div.dir: setAttribute() to 7 
 PASS div.dir: setAttribute() to 1.5 
+PASS div.dir: setAttribute() to "5%" 
+PASS div.dir: setAttribute() to "+100" 
+PASS div.dir: setAttribute() to ".5" 
 PASS div.dir: setAttribute() to true 
 PASS div.dir: setAttribute() to false 
 PASS div.dir: setAttribute() to object "[object Object]" 
@@ -3952,6 +5061,9 @@ PASS div.dir: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f \
 PASS div.dir: IDL set to undefined 
 PASS div.dir: IDL set to 7 
 PASS div.dir: IDL set to 1.5 
+PASS div.dir: IDL set to "5%" 
+PASS div.dir: IDL set to "+100" 
+PASS div.dir: IDL set to ".5" 
 PASS div.dir: IDL set to true 
 PASS div.dir: IDL set to false 
 PASS div.dir: IDL set to object "[object Object]" 
@@ -3984,6 +5096,9 @@ PASS div.className (<div class>): setAttribute() to " \0\x01\x02\x03\x04\x05\x06
 PASS div.className (<div class>): setAttribute() to undefined 
 PASS div.className (<div class>): setAttribute() to 7 
 PASS div.className (<div class>): setAttribute() to 1.5 
+PASS div.className (<div class>): setAttribute() to "5%" 
+PASS div.className (<div class>): setAttribute() to "+100" 
+PASS div.className (<div class>): setAttribute() to ".5" 
 PASS div.className (<div class>): setAttribute() to true 
 PASS div.className (<div class>): setAttribute() to false 
 PASS div.className (<div class>): setAttribute() to object "[object Object]" 
@@ -3999,6 +5114,9 @@ PASS div.className (<div class>): IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b
 PASS div.className (<div class>): IDL set to undefined 
 PASS div.className (<div class>): IDL set to 7 
 PASS div.className (<div class>): IDL set to 1.5 
+PASS div.className (<div class>): IDL set to "5%" 
+PASS div.className (<div class>): IDL set to "+100" 
+PASS div.className (<div class>): IDL set to ".5" 
 PASS div.className (<div class>): IDL set to true 
 PASS div.className (<div class>): IDL set to false 
 PASS div.className (<div class>): IDL set to object "[object Object]" 
@@ -4009,6 +5127,45 @@ PASS div.className (<div class>): IDL set to "\0"
 PASS div.className (<div class>): IDL set to null 
 PASS div.className (<div class>): IDL set to object "test-toString" 
 PASS div.className (<div class>): IDL set to object "test-valueOf" 
+FAIL div.autofocus: typeof IDL attribute assert_equals: expected "boolean" but got "undefined"
+FAIL div.autofocus: IDL get with DOM attribute unset assert_equals: expected (boolean) false but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to "" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to " foo " assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to undefined assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to null assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to 7 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to 1.5 assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to "5%" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to "+100" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to ".5" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to true assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to false assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to NaN assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to -Infinity assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to "\0" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to object "test-toString" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: setAttribute() to "autofocus" assert_equals: IDL get expected (boolean) true but got (undefined) undefined
+FAIL div.autofocus: IDL set to "" assert_equals: hasAttribute() expected false but got true
+FAIL div.autofocus: IDL set to " foo " assert_equals: IDL get expected (boolean) true but got (string) " foo "
+FAIL div.autofocus: IDL set to undefined assert_equals: hasAttribute() expected false but got true
+FAIL div.autofocus: IDL set to null assert_equals: hasAttribute() expected false but got true
+FAIL div.autofocus: IDL set to 7 assert_equals: IDL get expected (boolean) true but got (number) 7
+FAIL div.autofocus: IDL set to 1.5 assert_equals: IDL get expected (boolean) true but got (number) 1.5
+FAIL div.autofocus: IDL set to "5%" assert_equals: IDL get expected (boolean) true but got (string) "5%"
+FAIL div.autofocus: IDL set to "+100" assert_equals: IDL get expected (boolean) true but got (string) "+100"
+FAIL div.autofocus: IDL set to ".5" assert_equals: IDL get expected (boolean) true but got (string) ".5"
+PASS div.autofocus: IDL set to true 
+FAIL div.autofocus: IDL set to false assert_equals: hasAttribute() expected false but got true
+FAIL div.autofocus: IDL set to object "[object Object]" assert_equals: IDL get expected (boolean) true but got (object) object "[object Object]"
+FAIL div.autofocus: IDL set to NaN assert_equals: hasAttribute() expected false but got true
+FAIL div.autofocus: IDL set to Infinity assert_equals: IDL get expected (boolean) true but got (number) Infinity
+FAIL div.autofocus: IDL set to -Infinity assert_equals: IDL get expected (boolean) true but got (number) -Infinity
+FAIL div.autofocus: IDL set to "\0" assert_equals: IDL get expected (boolean) true but got (string) "\0"
+FAIL div.autofocus: IDL set to object "test-toString" assert_equals: IDL get expected (boolean) true but got (object) object "test-toString"
+FAIL div.autofocus: IDL set to object "test-valueOf" assert_equals: IDL get expected (boolean) true but got (object) object "test-valueOf"
 PASS div.hidden: typeof IDL attribute 
 PASS div.hidden: IDL get with DOM attribute unset 
 PASS div.hidden: setAttribute() to "" 
@@ -4017,6 +5174,9 @@ PASS div.hidden: setAttribute() to undefined
 PASS div.hidden: setAttribute() to null 
 PASS div.hidden: setAttribute() to 7 
 PASS div.hidden: setAttribute() to 1.5 
+PASS div.hidden: setAttribute() to "5%" 
+PASS div.hidden: setAttribute() to "+100" 
+PASS div.hidden: setAttribute() to ".5" 
 PASS div.hidden: setAttribute() to true 
 PASS div.hidden: setAttribute() to false 
 PASS div.hidden: setAttribute() to object "[object Object]" 
@@ -4033,6 +5193,9 @@ PASS div.hidden: IDL set to undefined
 PASS div.hidden: IDL set to null 
 PASS div.hidden: IDL set to 7 
 PASS div.hidden: IDL set to 1.5 
+PASS div.hidden: IDL set to "5%" 
+PASS div.hidden: IDL set to "+100" 
+PASS div.hidden: IDL set to ".5" 
 PASS div.hidden: IDL set to true 
 PASS div.hidden: IDL set to false 
 PASS div.hidden: IDL set to object "[object Object]" 
@@ -4049,6 +5212,9 @@ PASS div.accessKey: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\
 PASS div.accessKey: setAttribute() to undefined 
 PASS div.accessKey: setAttribute() to 7 
 PASS div.accessKey: setAttribute() to 1.5 
+PASS div.accessKey: setAttribute() to "5%" 
+PASS div.accessKey: setAttribute() to "+100" 
+PASS div.accessKey: setAttribute() to ".5" 
 PASS div.accessKey: setAttribute() to true 
 PASS div.accessKey: setAttribute() to false 
 PASS div.accessKey: setAttribute() to object "[object Object]" 
@@ -4064,6 +5230,9 @@ PASS div.accessKey: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e
 PASS div.accessKey: IDL set to undefined 
 PASS div.accessKey: IDL set to 7 
 PASS div.accessKey: IDL set to 1.5 
+PASS div.accessKey: IDL set to "5%" 
+PASS div.accessKey: IDL set to "+100" 
+PASS div.accessKey: IDL set to ".5" 
 PASS div.accessKey: IDL set to true 
 PASS div.accessKey: IDL set to false 
 PASS div.accessKey: IDL set to object "[object Object]" 
@@ -4091,6 +5260,8 @@ PASS div.tabIndex: setAttribute() to " 7"
 PASS div.tabIndex: setAttribute() to "\n7" 
 PASS div.tabIndex: setAttribute() to "\r7" 
 PASS div.tabIndex: setAttribute() to 1.5 
+PASS div.tabIndex: setAttribute() to "5%" 
+PASS div.tabIndex: setAttribute() to "+100" 
 PASS div.tabIndex: setAttribute() to object "2" 
 PASS div.tabIndex: IDL set to -36 
 PASS div.tabIndex: IDL set to -1 
@@ -4105,6 +5276,9 @@ PASS div.align: setAttribute() to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\
 PASS div.align: setAttribute() to undefined 
 PASS div.align: setAttribute() to 7 
 PASS div.align: setAttribute() to 1.5 
+PASS div.align: setAttribute() to "5%" 
+PASS div.align: setAttribute() to "+100" 
+PASS div.align: setAttribute() to ".5" 
 PASS div.align: setAttribute() to true 
 PASS div.align: setAttribute() to false 
 PASS div.align: setAttribute() to object "[object Object]" 
@@ -4120,6 +5294,9 @@ PASS div.align: IDL set to " \0\x01\x02\x03\x04\x05\x06\x07 \b\t\n\v\f\r\x0e\x0f
 PASS div.align: IDL set to undefined 
 PASS div.align: IDL set to 7 
 PASS div.align: IDL set to 1.5 
+PASS div.align: IDL set to "5%" 
+PASS div.align: IDL set to "+100" 
+PASS div.align: IDL set to ".5" 
 PASS div.align: IDL set to true 
 PASS div.align: IDL set to false 
 PASS div.align: IDL set to object "[object Object]" 

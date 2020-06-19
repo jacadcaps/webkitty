@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,12 +41,14 @@ inline bool isInWebProcess() { return true; }
 #if PLATFORM(COCOA)
 
 bool isInWebProcess();
+bool isInNetworkProcess();
 
 WEBCORE_EXPORT void setApplicationSDKVersion(uint32_t);
 WEBCORE_EXPORT uint32_t applicationSDKVersion();
 
 WEBCORE_EXPORT void setApplicationBundleIdentifier(const String&);
-String applicationBundleIdentifier();
+WEBCORE_EXPORT String applicationBundleIdentifier();
+WEBCORE_EXPORT void clearApplicationBundleIdentifierTestingOverride();
 
 #if PLATFORM(MAC)
 
@@ -67,6 +69,7 @@ bool isSolidStateNetworksDownloader();
 WEBCORE_EXPORT bool isVersions();
 WEBCORE_EXPORT bool isHRBlock();
 WEBCORE_EXPORT bool isIAdProducer();
+WEBCORE_EXPORT bool isEpsonSoftwareUpdater();
 
 } // MacApplication
 
@@ -85,7 +88,6 @@ WEBCORE_EXPORT bool isWebBookmarksD();
 WEBCORE_EXPORT bool isDumpRenderTree();
 bool isMobileStore();
 bool isSpringBoard();
-WEBCORE_EXPORT bool isWebApp();
 WEBCORE_EXPORT bool isWebProcess();
 WEBCORE_EXPORT bool isIBooks();
 bool isIBooksStorytime();
@@ -102,6 +104,10 @@ WEBCORE_EXPORT bool isDataActivation();
 } // IOSApplication
 
 #endif // PLATFORM(IOS_FAMILY)
+
+#else
+
+inline bool isInNetworkProcess() { return false; }
 
 #endif // PLATFORM(COCOA)
 

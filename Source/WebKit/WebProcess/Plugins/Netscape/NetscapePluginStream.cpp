@@ -46,7 +46,7 @@ NetscapePluginStream::NetscapePluginStream(Ref<NetscapePlugin>&& plugin, uint64_
     , m_offset(0)
     , m_fileHandle(FileSystem::invalidPlatformFileHandle)
     , m_isStarted(false)
-#if !ASSERT_DISABLED
+#if ASSERT_ENABLED
     , m_urlNotifyHasBeenCalled(false)
 #endif    
     , m_deliveryDataTimer(RunLoop::main(), this, &NetscapePluginStream::deliverDataToPlugin)
@@ -193,7 +193,7 @@ void NetscapePluginStream::deliverData(const char* bytes, int length)
 
     if (m_transferMode != NP_ASFILEONLY) {
         if (!m_deliveryData)
-            m_deliveryData = std::make_unique<Vector<uint8_t>>();
+            m_deliveryData = makeUnique<Vector<uint8_t>>();
 
         m_deliveryData->reserveCapacity(m_deliveryData->size() + length);
         m_deliveryData->append(bytes, length);
@@ -364,7 +364,7 @@ void NetscapePluginStream::notifyAndDestroyStream(NPReason reason)
     if (m_sendNotification) {
         m_plugin->NPP_URLNotify(m_requestURLString.utf8().data(), reason, m_notificationData);
     
-#if !ASSERT_DISABLED
+#if ASSERT_ENABLED
         m_urlNotifyHasBeenCalled = true;
 #endif    
     }

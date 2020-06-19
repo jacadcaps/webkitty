@@ -202,7 +202,7 @@ RetainPtr<NSImage> WebContextMenuClient::imageForCurrentSharingServicePickerItem
         return nil;
 
     // This is effectively a snapshot, and will be painted in an unaccelerated fashion in line with FrameSnapshotting.
-    std::unique_ptr<ImageBuffer> buffer = ImageBuffer::create(rect.size(), Unaccelerated);
+    std::unique_ptr<ImageBuffer> buffer = ImageBuffer::create(rect.size(), RenderingMode::Unaccelerated);
     if (!buffer)
         return nil;
 
@@ -235,7 +235,7 @@ NSMenu *WebContextMenuClient::contextMenuForEvent(NSEvent *event, NSView *view, 
     if (!page)
         return nil;
 
-#if ENABLE(SERVICE_CONTROLS) && defined(__LP64__)
+#if ENABLE(SERVICE_CONTROLS)
     if (Image* image = page->contextMenuController().context().controlledImage()) {
         ASSERT(page->contextMenuController().context().hitTestResult().innerNode());
 

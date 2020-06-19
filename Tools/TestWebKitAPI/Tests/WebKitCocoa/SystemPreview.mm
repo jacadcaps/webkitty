@@ -31,7 +31,7 @@
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
 #import <WebKit/WKViewPrivate.h>
-#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKit.h>
 
 static bool hasTriggerInfo;
@@ -64,7 +64,7 @@ namespace TestWebKitAPI {
 
 TEST(WebKit, SystemPreviewTriggered)
 {
-    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals"];
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
     auto messageHandler = adoptNS([[TestSystemPreviewTriggeredHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testSystemPreview"];
 

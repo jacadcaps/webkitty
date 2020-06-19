@@ -31,7 +31,6 @@
 
 #include "AccessibilityDelegate.h"
 #include "Common.h"
-#include "DOMDefaultImpl.h"
 #include "MiniBrowserLibResource.h"
 #include "MiniBrowserWebHost.h"
 #include "PrintWebUIDelegate.h"
@@ -57,32 +56,22 @@ float deviceScaleFactorForWindow(HWND);
 
 static const int maxHistorySize = 10;
 
-typedef _com_ptr_t<_com_IIID<IWebMutableURLRequest, &__uuidof(IWebMutableURLRequest)>> IWebMutableURLRequestPtr;
-
-Ref<BrowserWindow> WebKitLegacyBrowserWindow::create(HWND mainWnd, HWND urlBarWnd, bool useLayeredWebView, bool pageLoadTesting)
+Ref<BrowserWindow> WebKitLegacyBrowserWindow::create(BrowserWindowClient& client, HWND mainWnd, bool useLayeredWebView)
 {
-    return adoptRef(*new WebKitLegacyBrowserWindow(mainWnd, urlBarWnd, useLayeredWebView, pageLoadTesting));
+    return adoptRef(*new WebKitLegacyBrowserWindow(client, mainWnd, useLayeredWebView));
 }
 
-WebKitLegacyBrowserWindow::WebKitLegacyBrowserWindow(HWND mainWnd, HWND urlBarWnd, bool useLayeredWebView, bool pageLoadTesting)
-    : m_hMainWnd(mainWnd)
-    , m_hURLBarWnd(urlBarWnd)
+WebKitLegacyBrowserWindow::WebKitLegacyBrowserWindow(BrowserWindowClient& client, HWND mainWnd, bool useLayeredWebView)
+    : m_client(client)
+    , m_hMainWnd(mainWnd)
     , m_useLayeredWebView(useLayeredWebView)
-    , m_pageLoadTestClient(std::make_unique<PageLoadTestClient>(this, pageLoadTesting))
 {
 }
 
-ULONG WebKitLegacyBrowserWindow::AddRef()
+WebKitLegacyBrowserWindow::~WebKitLegacyBrowserWindow()
 {
-    ref();
-    return refCount();
-}
-
-ULONG WebKitLegacyBrowserWindow::Release()
-{
-    auto count = refCount();
-    deref();
-    return --count;
+    m_defaultNotificationCenter->removeObserver(m_notificationObserver, _bstr_t(WebViewProgressEstimateChangedNotification), m_webView);
+    m_defaultNotificationCenter->removeObserver(m_notificationObserver, _bstr_t(WebViewProgressFinishedNotification), m_webView);
 }
 
 HRESULT WebKitLegacyBrowserWindow::init()
@@ -91,8 +80,8 @@ HRESULT WebKitLegacyBrowserWindow::init()
     if (FAILED(hr))
         return hr;
 
-    hr = m_webView->QueryInterface(IID_IWebViewPrivate2, reinterpret_cast<void**>(&m_webViewPrivate.GetInterfacePtr()));
-    if (FAILED(hr))
+    m_webViewPrivate = m_webView;
+    if (!m_webViewPrivate)
         return hr;
 
     hr = WebKitCreateInstance(CLSID_WebHistory, 0, __uuidof(m_webHistory), reinterpret_cast<void**>(&m_webHistory.GetInterfacePtr()));
@@ -107,6 +96,15 @@ HRESULT WebKitLegacyBrowserWindow::init()
     if (FAILED(hr))
         return hr;
 
+    IWebNotificationCenterPtr notificationCenter;
+    hr = WebKitCreateInstance(CLSID_WebNotificationCenter, 0, __uuidof(notificationCenter), reinterpret_cast<void**>(&notificationCenter.GetInterfacePtr()));
+    if (FAILED(hr))
+        return hr;
+
+    hr = notificationCenter->defaultCenter(&m_defaultNotificationCenter.GetInterfacePtr());
+    if (FAILED(hr))
+        return hr;
+
     if (!seedInitialDefaultPreferences())
         return E_FAIL;
 
@@ -116,13 +114,22 @@ HRESULT WebKitLegacyBrowserWindow::init()
     if (!setCacheFolder())
         return E_FAIL;
 
-    auto webHost = new MiniBrowserWebHost(this, m_hURLBarWnd);
+    auto webHost = new MiniBrowserWebHost(this);
 
-    hr = setFrameLoadDelegate(webHost);
+    hr = m_webView->setFrameLoadDelegate(webHost);
     if (FAILED(hr))
         return hr;
 
-    hr = setFrameLoadDelegatePrivate(webHost);
+    hr = m_webViewPrivate->setFrameLoadDelegatePrivate(webHost);
+    if (FAILED(hr))
+        return hr;
+
+    m_notificationObserver = webHost;
+    hr = m_defaultNotificationCenter->addObserver(m_notificationObserver, _bstr_t(WebViewProgressEstimateChangedNotification), m_webView);
+    if (FAILED(hr))
+        return hr;
+
+    hr = m_defaultNotificationCenter->addObserver(m_notificationObserver, _bstr_t(WebViewProgressFinishedNotification), m_webView);
     if (FAILED(hr))
         return hr;
 
@@ -138,9 +145,7 @@ HRESULT WebKitLegacyBrowserWindow::init()
     if (FAILED(hr))
         return hr;
 
-    IWebDownloadDelegatePtr downloadDelegate;
-    downloadDelegate.Attach(new WebDownloadDelegate(*this));
-    hr = setDownloadDelegate(downloadDelegate);
+    hr = setDownloadDelegate(new WebDownloadDelegate(*this));
     if (FAILED(hr))
         return hr;
 
@@ -232,38 +237,23 @@ void WebKitLegacyBrowserWindow::subclassForLayeredWindow()
 #endif
 }
 
-HRESULT WebKitLegacyBrowserWindow::setFrameLoadDelegate(IWebFrameLoadDelegate* frameLoadDelegate)
-{
-    m_frameLoadDelegate = frameLoadDelegate;
-    return m_webView->setFrameLoadDelegate(frameLoadDelegate);
-}
-
-HRESULT WebKitLegacyBrowserWindow::setFrameLoadDelegatePrivate(IWebFrameLoadDelegatePrivate* frameLoadDelegatePrivate)
-{
-    return m_webViewPrivate->setFrameLoadDelegatePrivate(frameLoadDelegatePrivate);
-}
-
 HRESULT WebKitLegacyBrowserWindow::setUIDelegate(IWebUIDelegate* uiDelegate)
 {
-    m_uiDelegate = uiDelegate;
     return m_webView->setUIDelegate(uiDelegate);
 }
 
 HRESULT WebKitLegacyBrowserWindow::setAccessibilityDelegate(IAccessibilityDelegate* accessibilityDelegate)
 {
-    m_accessibilityDelegate = accessibilityDelegate;
     return m_webView->setAccessibilityDelegate(accessibilityDelegate);
 }
 
 HRESULT WebKitLegacyBrowserWindow::setResourceLoadDelegate(IWebResourceLoadDelegate* resourceLoadDelegate)
 {
-    m_resourceLoadDelegate = resourceLoadDelegate;
     return m_webView->setResourceLoadDelegate(resourceLoadDelegate);
 }
 
 HRESULT WebKitLegacyBrowserWindow::setDownloadDelegate(IWebDownloadDelegatePtr downloadDelegate)
 {
-    m_downloadDelegate = downloadDelegate;
     return m_webView->setDownloadDelegate(downloadDelegate);
 }
 
@@ -288,8 +278,8 @@ bool WebKitLegacyBrowserWindow::seedInitialDefaultPreferences()
 
 bool WebKitLegacyBrowserWindow::setToDefaultPreferences()
 {
-    HRESULT hr = m_standardPreferences->QueryInterface(IID_IWebPreferencesPrivate, reinterpret_cast<void**>(&m_prefsPrivate.GetInterfacePtr()));
-    if (!SUCCEEDED(hr))
+    m_prefsPrivate = m_standardPreferences;
+    if (!m_prefsPrivate)
         return false;
 
 #if USE(CG)
@@ -334,7 +324,7 @@ void WebKitLegacyBrowserWindow::showLastVisitedSites(IWebView& webView)
 {
     HMENU menu = ::GetMenu(m_hMainWnd);
 
-    _com_ptr_t<_com_IIID<IWebBackForwardList, &__uuidof(IWebBackForwardList)>> backForwardList;
+    IWebBackForwardListPtr backForwardList;
     HRESULT hr = webView.backForwardList(&backForwardList.GetInterfacePtr());
     if (FAILED(hr))
         return;
@@ -369,9 +359,8 @@ void WebKitLegacyBrowserWindow::showLastVisitedSites(IWebView& webView)
     if (FAILED(hr))
         return;
 
-    _com_ptr_t<_com_IIID<IWebHistoryPrivate, &__uuidof(IWebHistoryPrivate)>> webHistory;
-    hr = m_webHistory->QueryInterface(IID_IWebHistoryPrivate, reinterpret_cast<void**>(&webHistory.GetInterfacePtr()));
-    if (FAILED(hr))
+    IWebHistoryPrivatePtr webHistory(m_webHistory);
+    if (!webHistory)
         return;
 
     int totalListCount = 0;
@@ -453,7 +442,7 @@ void WebKitLegacyBrowserWindow::navigateToHistory(UINT menuID)
     _bstr_t frameURL;
     desiredHistoryItem->URLString(frameURL.GetAddress());
 
-    ::SendMessage(m_hURLBarWnd, (UINT)WM_SETTEXT, 0, (LPARAM)frameURL.GetBSTR());
+    m_client.activeURLChanged(frameURL.GetBSTR());
 }
 
 bool WebKitLegacyBrowserWindow::goBack()
@@ -475,15 +464,6 @@ HRESULT WebKitLegacyBrowserWindow::loadURL(const BSTR& passedURL)
     if (!passedURL)
         return E_INVALIDARG;
 
-    _bstr_t urlBStr(passedURL);
-    if (!!urlBStr && (::PathFileExists(urlBStr) || ::PathIsUNC(urlBStr))) {
-        TCHAR fileURL[INTERNET_MAX_URL_LENGTH];
-        DWORD fileURLLength = sizeof(fileURL) / sizeof(fileURL[0]);
-
-        if (SUCCEEDED(::UrlCreateFromPath(urlBStr, fileURL, &fileURLLength, 0)))
-            urlBStr = fileURL;
-    }
-
     IWebFramePtr frame;
     HRESULT hr = m_webView->mainFrame(&frame.GetInterfacePtr());
     if (FAILED(hr))
@@ -494,7 +474,7 @@ HRESULT WebKitLegacyBrowserWindow::loadURL(const BSTR& passedURL)
     if (FAILED(hr))
         return hr;
 
-    hr = request->initWithURL(wcsstr(static_cast<wchar_t*>(urlBStr), L"://") ? urlBStr : _bstr_t(L"http://") + urlBStr, WebURLRequestUseProtocolCachePolicy, 60);
+    hr = request->initWithURL(passedURL, WebURLRequestUseProtocolCachePolicy, 60);
     if (FAILED(hr))
         return hr;
 
@@ -506,11 +486,6 @@ HRESULT WebKitLegacyBrowserWindow::loadURL(const BSTR& passedURL)
     hr = frame->loadRequest(request);
 
     return hr;
-}
-
-void WebKitLegacyBrowserWindow::exitProgram()
-{
-    ::PostMessage(m_hMainWnd, static_cast<UINT>(WM_COMMAND), MAKELPARAM(IDM_EXIT, 0), 0);
 }
 
 void WebKitLegacyBrowserWindow::setUserAgent(_bstr_t& customUserAgent)
@@ -530,12 +505,19 @@ _bstr_t WebKitLegacyBrowserWindow::userAgent()
     return userAgent;
 }
 
-typedef _com_ptr_t<_com_IIID<IWebIBActions, &__uuidof(IWebIBActions)>> IWebIBActionsPtr;
+void WebKitLegacyBrowserWindow::reload()
+{
+    IWebIBActionsPtr webActions(m_webView);
+    if (!webActions)
+        return;
+
+    webActions->reload(nullptr);
+}
 
 void WebKitLegacyBrowserWindow::resetZoom()
 {
-    IWebIBActionsPtr webActions;
-    if (FAILED(m_webView->QueryInterface(IID_IWebIBActions, reinterpret_cast<void**>(&webActions.GetInterfacePtr()))))
+    IWebIBActionsPtr webActions(m_webView);
+    if (!webActions)
         return;
 
     webActions->resetPageZoom(nullptr);
@@ -543,8 +525,8 @@ void WebKitLegacyBrowserWindow::resetZoom()
 
 void WebKitLegacyBrowserWindow::zoomIn()
 {
-    IWebIBActionsPtr webActions;
-    if (FAILED(m_webView->QueryInterface(IID_IWebIBActions, reinterpret_cast<void**>(&webActions.GetInterfacePtr()))))
+    IWebIBActionsPtr webActions(m_webView);
+    if (!webActions)
         return;
 
     webActions->zoomPageIn(nullptr);
@@ -552,19 +534,17 @@ void WebKitLegacyBrowserWindow::zoomIn()
 
 void WebKitLegacyBrowserWindow::zoomOut()
 {
-    IWebIBActionsPtr webActions;
-    if (FAILED(m_webView->QueryInterface(IID_IWebIBActions, reinterpret_cast<void**>(&webActions.GetInterfacePtr()))))
+    IWebIBActionsPtr webActions(m_webView);
+    if (!webActions)
         return;
 
     webActions->zoomPageOut(nullptr);
 }
 
-typedef _com_ptr_t<_com_IIID<IWebViewPrivate3, &__uuidof(IWebViewPrivate3)>> IWebViewPrivate3Ptr;
-
 void WebKitLegacyBrowserWindow::showLayerTree()
 {
-    IWebViewPrivate3Ptr webViewPrivate;
-    if (FAILED(m_webView->QueryInterface(IID_IWebViewPrivate3, reinterpret_cast<void**>(&webViewPrivate.GetInterfacePtr()))))
+    IWebViewPrivate3Ptr webViewPrivate(m_webView);
+    if (!webViewPrivate)
         return;
 
     OutputDebugString(L"CURRENT TREE:\n");
@@ -624,8 +604,8 @@ void WebKitLegacyBrowserWindow::print()
     if (!frame)
         return;
 
-    IWebFramePrivatePtr framePrivate;
-    if (FAILED(frame->QueryInterface(&framePrivate.GetInterfacePtr())))
+    IWebFramePrivatePtr framePrivate(frame);
+    if (!framePrivate)
         return;
 
     framePrivate->setInPrintingMode(TRUE, printDC);
@@ -663,8 +643,6 @@ static void setWindowText(HWND dialog, UINT field, UINT value)
     setWindowText(dialog, field, _bstr_t(valueStr.utf8().data()));
 }
 
-typedef _com_ptr_t<_com_IIID<IPropertyBag, &__uuidof(IPropertyBag)>> IPropertyBagPtr;
-
 static void setWindowText(HWND dialog, UINT field, IPropertyBagPtr statistics, const _bstr_t& key)
 {
     _variant_t var;
@@ -678,6 +656,7 @@ static void setWindowText(HWND dialog, UINT field, IPropertyBagPtr statistics, c
     setWindowText(dialog, field, _bstr_t(valueStr.utf8().data()));
 }
 
+#if USE(CF)
 static void setWindowText(HWND dialog, UINT field, CFDictionaryRef dictionary, CFStringRef key, UINT& total)
 {
     CFNumberRef countNum = static_cast<CFNumberRef>(CFDictionaryGetValue(dictionary, key));
@@ -690,6 +669,7 @@ static void setWindowText(HWND dialog, UINT field, CFDictionaryRef dictionary, C
     setWindowText(dialog, field, static_cast<UINT>(count));
     total += count;
 }
+#endif
 
 void WebKitLegacyBrowserWindow::updateStatistics(HWND dialog)
 {

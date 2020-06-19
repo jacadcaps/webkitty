@@ -43,8 +43,6 @@ ALLOW_UNUSED_PARAMETERS_END
 
 #include <wtf/cf/TypeCastsCF.h>
 
-#include "CoreVideoSoftLink.h"
-
 namespace WebCore {
 using namespace PAL;
 
@@ -95,28 +93,7 @@ RetainPtr<CVPixelBufferRef> createBlackPixelBuffer(size_t width, size_t height)
 CVPixelBufferPoolRef RealtimeIncomingVideoSourceCocoa::pixelBufferPool(size_t width, size_t height)
 {
     if (!m_pixelBufferPool || m_pixelBufferPoolWidth != width || m_pixelBufferPoolHeight != height) {
-        const OSType videoCaptureFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
-        auto pixelAttributes = @{
-            (__bridge NSString *)kCVPixelBufferWidthKey: @(width),
-            (__bridge NSString *)kCVPixelBufferHeightKey: @(height),
-            (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(videoCaptureFormat),
-            (__bridge NSString *)kCVPixelBufferCGImageCompatibilityKey: @(NO),
-#if PLATFORM(IOS_FAMILY)
-            (__bridge NSString *)kCVPixelFormatOpenGLESCompatibility : @(YES),
-#else
-            (__bridge NSString *)kCVPixelBufferOpenGLCompatibilityKey : @(YES),
-#endif
-            (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{ }
-        };
-
-        CVPixelBufferPoolRef pool = nullptr;
-        auto status = CVPixelBufferPoolCreate(kCFAllocatorDefault, nullptr, (__bridge CFDictionaryRef)pixelAttributes, &pool);
-
-        if (status != kCVReturnSuccess) {
-            ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed creating a pixel buffer pool with error ", status);
-            return nullptr;
-        }
-        m_pixelBufferPool = adoptCF(pool);
+        m_pixelBufferPool = createPixelBufferPool(width, height);
         m_pixelBufferPoolWidth = width;
         m_pixelBufferPoolHeight = height;
     }
@@ -158,18 +135,12 @@ void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& frame)
         return;
 
 #if !RELEASE_LOG_DISABLED
-    if (!(++m_numberOfFrames % 60)) {
-        callOnMainThread([this, protectedThis = makeRef(*this), numberOfFrames = m_numberOfFrames] {
-            ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER, "frame ", numberOfFrames);
-        });
-    }
+    ALWAYS_LOG_IF(loggerPtr() && !(++m_numberOfFrames % 60), LOGIDENTIFIER, "frame ", m_numberOfFrames);
 #endif
 
     auto pixelBuffer = pixelBufferFromVideoFrame(frame);
     if (!pixelBuffer) {
-        callOnMainThread([this, protectedThis = makeRef(*this)] {
-            ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to get a pixel buffer from a frame");
-        });
+        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to get a pixel buffer from a frame");
         return;
     }
 
@@ -183,9 +154,7 @@ void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& frame)
     CMVideoFormatDescriptionRef formatDescription;
     OSStatus ostatus = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, &formatDescription);
     if (ostatus != noErr) {
-        callOnMainThread([this, protectedThis = makeRef(*this), ostatus] {
-            ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to initialize CMVideoFormatDescription with error ", static_cast<int>(ostatus));
-        });
+        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to initialize CMVideoFormatDescription with error ", static_cast<int>(ostatus));
         return;
     }
 
@@ -193,9 +162,7 @@ void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& frame)
     ostatus = CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, formatDescription, &timingInfo, &sampleBuffer);
     CFRelease(formatDescription);
     if (ostatus != noErr) {
-        callOnMainThread([this, protectedThis = makeRef(*this), ostatus] {
-            ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to create the sample buffer with error ", static_cast<int>(ostatus));
-        });
+        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to create the sample buffer with error ", static_cast<int>(ostatus));
         return;
     }
 

@@ -45,6 +45,7 @@
 @class WebEditorUndoTarget;
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient, public CanMakeWeakPtr<WebEditorClient> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     WebEditorClient(WebView *);
     virtual ~WebEditorClient();
@@ -165,7 +166,7 @@ private:
     void getGuessesForWord(const String& word, const String& context, const WebCore::VisibleSelection& currentSelection, Vector<String>& guesses) final;
 
     void willSetInputMethodState() final;
-    void setInputMethodState(bool enabled) final;
+    void setInputMethodState(WebCore::Element*) final;
     void requestCheckingOfString(WebCore::TextCheckingRequest&, const WebCore::VisibleSelection& currentSelection) final;
 
 #if PLATFORM(MAC)

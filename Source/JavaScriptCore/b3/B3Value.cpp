@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,7 +51,7 @@
 
 namespace JSC { namespace B3 {
 
-const char* const Value::dumpPrefix = "@";
+const char* const Value::dumpPrefix = "b@";
 void DeepValueDump::dump(PrintStream& out) const
 {
     if (m_value)
@@ -445,7 +445,7 @@ Value* Value::invertedCompare(Procedure& proc) const
 
 bool Value::isRounded() const
 {
-    ASSERT(isFloat(type()));
+    ASSERT(type().isFloat());
     switch (opcode()) {
     case Floor:
     case Ceil:
@@ -578,6 +578,7 @@ Effects Value::effects() const
     case EqualOrUnordered:
     case Select:
     case Depend:
+    case Extract:
         break;
     case Div:
     case UDiv:
@@ -861,7 +862,7 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
     case IToF:
         return Float;
     case BitwiseCast:
-        switch (firstChild->type()) {
+        switch (firstChild->type().kind()) {
         case Int64:
             return Double;
         case Double:
@@ -871,6 +872,7 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
         case Float:
             return Int32;
         case Void:
+        case Tuple:
             ASSERT_NOT_REACHED();
         }
         return Void;

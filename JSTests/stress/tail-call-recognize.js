@@ -150,6 +150,11 @@ function runTests() {
         return false || callerMustBeRun();
     })();
 
+    (function tailCallCoalesce() {
+        "use strict";
+        return false ?? callerMustBeRun();
+    })();
+
     (function memberTailCall() {
         "use strict";
         return { f: callerMustBeRun }.f();
@@ -158,6 +163,11 @@ function runTests() {
     (function bindTailCall() {
         "use strict";
         return callerMustBeRun.bind()();
+    })();
+
+    (function optionalTailCall() {
+        "use strict";
+        return callerMustBeRun?.();
     })();
 
     // Function.prototype tests

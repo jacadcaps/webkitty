@@ -23,15 +23,18 @@ endmacro()
 set(TestWTF_SOURCES
     Counters.cpp
     TestsController.cpp
+    WTFStringUtilities.cpp
 
     Tests/WTF/AtomString.cpp
     Tests/WTF/BloomFilter.cpp
+    Tests/WTF/BumpPointerAllocator.cpp
     Tests/WTF/CString.cpp
     Tests/WTF/CheckedArithmeticOperations.cpp
     Tests/WTF/ConcurrentPtrHashSet.cpp
     Tests/WTF/Condition.cpp
     Tests/WTF/CrossThreadCopier.cpp
     Tests/WTF/CrossThreadTask.cpp
+    Tests/WTF/DataMutex.cpp
     Tests/WTF/DateMath.cpp
     Tests/WTF/Deque.cpp
     Tests/WTF/EnumTraits.cpp
@@ -42,6 +45,7 @@ set(TestWTF_SOURCES
     Tests/WTF/HashMap.cpp
     Tests/WTF/HashSet.cpp
     Tests/WTF/Hasher.cpp
+    Tests/WTF/HexNumber.cpp
     Tests/WTF/IntegerToStringConversion.cpp
     Tests/WTF/IteratorRange.cpp
     Tests/WTF/JSONValue.cpp
@@ -62,6 +66,8 @@ set(TestWTF_SOURCES
     Tests/WTF/OptionSet.cpp
     Tests/WTF/Optional.cpp
     Tests/WTF/Packed.cpp
+    Tests/WTF/PackedRef.cpp
+    Tests/WTF/PackedRefPtr.cpp
     Tests/WTF/ParkingLot.cpp
     Tests/WTF/PriorityQueue.cpp
     Tests/WTF/RedBlackTree.cpp
@@ -103,15 +109,12 @@ set(TestWTF_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${TESTWEBKITAPI_DIR}
     ${THIRDPARTY_DIR}/gtest/include
-    ${WTF_FRAMEWORK_HEADERS_DIR}
 )
 
 set(TestWTF_LIBRARIES
-    WTF
+    WebKit::WTF
     gtest
 )
-
-set(TestWTF_DEPENDENCIES WTFFrameworkHeaders)
 
 WEBKIT_EXECUTABLE_DECLARE(TestWTF)
 
@@ -119,6 +122,7 @@ WEBKIT_EXECUTABLE_DECLARE(TestWTF)
 if (ENABLE_WEBCORE)
     set(TestWebCore_SOURCES
         TestsController.cpp
+        WTFStringUtilities.cpp
 
         Tests/WebCore/AffineTransform.cpp
         Tests/WebCore/CSSParser.cpp
@@ -130,9 +134,11 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/FloatSize.cpp
         Tests/WebCore/GridPosition.cpp
         Tests/WebCore/HTMLParserIdioms.cpp
+        Tests/WebCore/HTTPParsers.cpp
         Tests/WebCore/IntPoint.cpp
         Tests/WebCore/IntRect.cpp
         Tests/WebCore/IntSize.cpp
+        Tests/WebCore/KeyedCoding.cpp
         Tests/WebCore/LayoutUnit.cpp
         Tests/WebCore/MIMETypeRegistry.cpp
         Tests/WebCore/ParsedContentRange.cpp
@@ -146,10 +152,11 @@ if (ENABLE_WEBCORE)
     )
 
     set(TestWebCore_LIBRARIES
-        WebCore
-        WebCoreTestSupport
         gtest
     )
+    if (NOT APPLE)
+        list(APPEND TestWebCore_LIBRARIES WebCore WebCoreHeaderInterface)
+    endif ()
 
     set(TestWebCore_PRIVATE_INCLUDE_DIRECTORIES
         ${CMAKE_BINARY_DIR}
@@ -157,7 +164,6 @@ if (ENABLE_WEBCORE)
         ${THIRDPARTY_DIR}/gtest/include
         ${PAL_FRAMEWORK_HEADERS_DIR}
         ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-        ${WTF_FRAMEWORK_HEADERS_DIR}
     )
 
     set(TestWebCore_DEPENDENCIES WebCorePrivateFrameworkHeaders)
@@ -169,12 +175,17 @@ endif ()
 if (ENABLE_WEBKIT_LEGACY)
     set(TestWebKitLegacy_SOURCES
         TestsController.cpp
+        WTFStringUtilities.cpp
     )
 
     set(TestWebKitLegacy_LIBRARIES
-        WebKitLegacy
         gtest
     )
+    if (NOT APPLE)
+        list(APPEND TestWebKitLegacy_LIBRARIES
+            WebKitLegacy
+        )
+    endif ()
 
     set(TestWebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
         ${CMAKE_BINARY_DIR}
@@ -182,7 +193,6 @@ if (ENABLE_WEBKIT_LEGACY)
         ${THIRDPARTY_DIR}/gtest/include
         ${PAL_FRAMEWORK_HEADERS_DIR}
         ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-        ${WTF_FRAMEWORK_HEADERS_DIR}
         ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
     )
 
@@ -196,7 +206,6 @@ if (ENABLE_WEBKIT)
     set(TestWebKit_SOURCES
         Tests/WebKit/AboutBlankLoad.cpp
         Tests/WebKit/CanHandleRequest.cpp
-        Tests/WebKit/CookieManager.cpp
         Tests/WebKit/DOMWindowExtensionBasic.cpp
         Tests/WebKit/DOMWindowExtensionNoCache.cpp
         Tests/WebKit/DocumentStartUserScriptAlertCrash.cpp
@@ -225,6 +234,7 @@ if (ENABLE_WEBKIT)
         Tests/WebKit/NewFirstVisuallyNonEmptyLayoutFrames.cpp
         Tests/WebKit/PageLoadBasic.cpp
         Tests/WebKit/PageLoadDidChangeLocationWithinPageForFrame.cpp
+        Tests/WebKit/PageLoadState.cpp
         Tests/WebKit/ParentFrame.cpp
         Tests/WebKit/PendingAPIRequestURL.cpp
         Tests/WebKit/PreventEmptyUserAgent.cpp
@@ -251,10 +261,7 @@ if (ENABLE_WEBKIT)
         ${TESTWEBKITAPI_DIR}
         ${THIRDPARTY_DIR}/gtest/include
         ${PAL_FRAMEWORK_HEADERS_DIR}
-        ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-        ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
         ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-        ${WTF_FRAMEWORK_HEADERS_DIR}
         ${WebKit_FRAMEWORK_HEADERS_DIR}
     )
 
@@ -274,6 +281,7 @@ if (ENABLE_WEBKIT)
         JavaScriptTest.cpp
         PlatformUtilities.cpp
         TestsController.cpp
+        WTFStringUtilities.cpp
     )
     target_compile_definitions(TestWebKitAPIBase PRIVATE BUILDING_TestWebKit)
     target_include_directories(TestWebKitAPIBase PRIVATE ${TestWebKit_PRIVATE_INCLUDE_DIRECTORIES})
@@ -286,7 +294,7 @@ if (ENABLE_WEBKIT)
                                                       -Wno-unused-parameter)
     endif ()
 
-    add_library(TestWebKitAPIInjectedBundle SHARED
+    set(TestWebKitAPIInjectedBundle_SOURCES
         InjectedBundleController.cpp
         InjectedBundleMain.cpp
         PlatformUtilities.cpp
@@ -315,9 +323,21 @@ if (ENABLE_WEBKIT)
         Tests/WebKit/WillLoad_Bundle.cpp
         Tests/WebKit/WillSendSubmitEvent_Bundle.cpp
     )
+    if (APPLE)
+        list(APPEND TestWebKitAPIInjectedBundle_SOURCES
+            Tests/WebKit/DOMWindowExtensionBasic_Bundle.cpp
+
+            cocoa/UtilitiesCocoa.mm
+
+            mac/InjectedBundleControllerMac.mm
+            mac/PlatformUtilitiesMac.mm
+        )
+    endif ()
+    add_library(TestWebKitAPIInjectedBundle SHARED ${TestWebKitAPIInjectedBundle_SOURCES})
+
     target_compile_definitions(TestWebKitAPIInjectedBundle PRIVATE BUILDING_TestWebKit)
     target_include_directories(TestWebKitAPIInjectedBundle PRIVATE ${TestWebKit_PRIVATE_INCLUDE_DIRECTORIES})
-    target_link_libraries(TestWebKitAPIInjectedBundle PRIVATE WebKit)
+    target_link_libraries(TestWebKitAPIInjectedBundle PRIVATE WebKit WTF)
 
     if (COMPILER_IS_GCC_OR_CLANG)
         WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKitAPIInjectedBundle -Wno-dangling-else
