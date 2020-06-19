@@ -35,6 +35,8 @@ struct WebViewDelegate
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
 
 	std::function<void(const WTF::String&, int level, unsigned int line)> _fConsole;
+	
+	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)> _fDownload;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -55,5 +57,6 @@ struct WebViewDelegate
 		_fConsole = nullptr;
 		_fDidFailWithError = nullptr;
 		_fCanHandleRequest = nullptr;
+		_fDownload = nullptr;
 	};
 };

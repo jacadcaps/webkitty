@@ -285,6 +285,7 @@ private:
     bool m_didCompletePageTransition;
     bool m_frameCameFromPageCache;
     bool m_useIconLoadingClient { false };
+    bool m_mainDocumentReady { false };
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     Optional<FrameSpecificStorageAccessIdentifier> m_frameSpecificStorageAccessIdentifier;
 #endif

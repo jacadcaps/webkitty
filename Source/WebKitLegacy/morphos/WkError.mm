@@ -10,6 +10,7 @@
 {
 	OBURL *_url;
 	OBString *_domain;
+	OBString *_description;
 	WkCertificateChain *_certificates;
 	WkErrorType _type;
 	int _code;
@@ -22,6 +23,9 @@
 {
 	if ((self = [super init]))
 	{
+		auto udescription = error.localizedDescription().utf8();
+		_description = [[OBString stringWithUTF8String:udescription.data()] retain];
+
 		_code = error.errorCode();
 
 		auto udomain = error.domain().utf8();
@@ -71,12 +75,18 @@
 	[_url release];
 	[_domain release];
 	[_certificates release];
+	[_description release];
 	[super dealloc];
 }
 
 - (OBString *)domain
 {
 	return _domain;
+}
+
+- (OBString *)localizedDescription
+{
+	return _description;
 }
 
 - (OBURL *)URL
@@ -114,6 +124,11 @@
 }
 
 - (OBURL *)URL
+{
+	return nil;
+}
+
+- (OBString *)localizedDescription
 {
 	return nil;
 }

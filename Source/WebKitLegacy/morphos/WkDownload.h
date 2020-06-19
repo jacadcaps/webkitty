@@ -1,0 +1,48 @@
+#import <ob/OBURL.h>
+
+@class WkMutableNetworkRequest, WkDownload, WkError;
+
+@protocol WkDownloadDelegate <OBObject>
+
+- (void)downloadDidBegin:(WkDownload *)download;
+
+// Size should be known at the time of this callback, provided the server gave us one
+- (void)didReceiveResponse:(WkDownload *)download;
+
+// Respond with a string or nil to cancel download
+- (OBString *)decideFilenameForDownload:(WkDownload *)download withSuggestedName:(OBString *)suggestedName;
+
+- (void)download:(WkDownload *)download didReceiveBytes:(size_t)bytes;
+
+- (void)downloadDidFinish:(WkDownload *)download;
+- (void)download:(WkDownload *)download didFailWithError:(WkError *)error;
+
+@end
+
+@interface WkDownload : OBObject
+
++ (WkDownload *)download:(OBURL *)url withDelegate:(id<WkDownloadDelegate>)delegate;
++ (WkDownload *)downloadRequest:(WkMutableNetworkRequest *)request withDelegate:(id<WkDownloadDelegate>)delegate;
+
+// Set the default download path for all new downloads, they'll be downloaded with a tmp name
+// and renamed to the name returned by decideFilenameForDownload:withSuggestedName: on success
++ (void)setDownloadPath:(OBString *)path;
+
+- (void)start;
+- (void)cancel;
+- (void)cancelForResume;
+
+- (BOOL)canResumeDownload;
+
+- (OBURL *)url;
+- (OBString *)filename;
+
+- (void)setDeletesFilesUponFailure:(BOOL)deleteOnFailure;
+
+- (size_t)size;
+- (size_t)downloadedSize;
+
+- (BOOL)isPending;
+- (BOOL)isFailed;
+
+@end

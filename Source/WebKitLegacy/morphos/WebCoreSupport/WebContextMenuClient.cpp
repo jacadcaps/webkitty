@@ -52,6 +52,7 @@ void WebContextMenuClient::contextMenuDestroyed()
 
 void WebContextMenuClient::downloadURL(const URL& url)
 {
+	m_webPage->topLevelFrame()->startDownload(url);
 }
 
 void WebContextMenuClient::searchWithGoogle(const Frame* frame)

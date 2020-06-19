@@ -273,6 +273,13 @@ void WebFrame::didReceivePolicyDecision(uint64_t listenerID, WebCore::PolicyChec
 }
 #endif
 
+void WebFrame::startDownload(const WTF::URL &url, const String& suggestedName)
+{
+	WebPage *webpage = page();
+	if (webpage && webpage->_fDownload)
+		webpage->_fDownload(url, suggestedName.length() ? suggestedName : suggestedFilenameForResourceWithURL(url));
+}
+
 void WebFrame::startDownload(const WebCore::ResourceRequest& request, const String& suggestedName)
 {
 	notImplemented();

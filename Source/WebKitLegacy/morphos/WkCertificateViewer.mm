@@ -69,13 +69,7 @@ extern "C" { void dprintf(const char *,...); }
 - (void)certificateSelected
 {
 	WkCertificate *certificate = [((_WkCertificateListEntry *)[_tree active]) certificate];
-	if (certificate)
-	{
-		[_name setContents:[[certificate subjectName] objectForKey:@"CN"]];
-		[_issuedBy setContents:[[certificate issuerName] objectForKey:@"CN"]];
-		[_expires setContents:[certificate notValidAfter]];
-		[_valid setContents:[certificate isValid] ? OBL(@"This vertificate is valid.", @"Certificate validity msg") : OBL(@"This vertificate is NOT valid.", @"Certificate validity msg")];
-	}
+	[self onCertificateSelected:certificate];
 }
 
 - (id)initWithCertificateChain:(WkCertificateChain *)chain
@@ -131,6 +125,17 @@ extern "C" { void dprintf(const char *,...); }
 - (WkCertificateChain *)certificateChain
 {
 	return _certificateChain;
+}
+
+- (void)onCertificateSelected:(WkCertificate *)certificate
+{
+	if (certificate)
+	{
+		[_name setContents:[[certificate subjectName] objectForKey:@"CN"]];
+		[_issuedBy setContents:[[certificate issuerName] objectForKey:@"CN"]];
+		[_expires setContents:[certificate notValidAfter]];
+		[_valid setContents:[certificate isValid] ? OBL(@"This vertificate is valid.", @"Certificate validity msg") : OBL(@"This vertificate is NOT valid.", @"Certificate validity msg")];
+	}
 }
 
 @end

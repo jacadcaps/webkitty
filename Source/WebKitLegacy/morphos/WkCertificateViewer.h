@@ -19,4 +19,7 @@
 
 - (WkCertificateChain *)certificateChain;
 
+// Allows overloading the event, must call super to allow for regular processing
+- (void)onCertificateSelected:(WkCertificate *)certificate;
+
 @end

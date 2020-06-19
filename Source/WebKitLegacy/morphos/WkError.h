@@ -18,6 +18,8 @@ typedef enum
 // error domain (textual)
 - (OBString *)domain;
 
+- (OBString *)localizedDescription;
+
 // address related to the error
 - (OBURL *)URL;
 

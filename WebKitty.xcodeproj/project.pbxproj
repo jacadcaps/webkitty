@@ -31,6 +31,7 @@
 		013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C9324633B0B00805F29 /* WkSettings.mm */; };
 		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
 		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
+		0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0178C4042486D3EC00B5BA7F /* WkDownload.mm */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
 		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
@@ -106,6 +107,9 @@
 		014836F22483321500C3E7F0 /* WkError.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkError.mm; path = Source/WebKitLegacy/morphos/WkError.mm; sourceTree = "<group>"; };
 		014836F32483321500C3E7F0 /* WkError.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError.h; path = Source/WebKitLegacy/morphos/WkError.h; sourceTree = "<group>"; };
 		014836F52483327400C3E7F0 /* WkError_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError_private.h; path = Source/WebKitLegacy/morphos/WkError_private.h; sourceTree = "<group>"; };
+		0178C4032486D3EC00B5BA7F /* WkDownload.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload.h; path = Source/WebKitLegacy/morphos/WkDownload.h; sourceTree = "<group>"; };
+		0178C4042486D3EC00B5BA7F /* WkDownload.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkDownload.mm; path = Source/WebKitLegacy/morphos/WkDownload.mm; sourceTree = "<group>"; };
+		0178C4062487257700B5BA7F /* WkDownload_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload_private.h; path = Source/WebKitLegacy/morphos/WkDownload_private.h; sourceTree = "<group>"; };
 		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
 		01816F0D242B985D007717A6 /* WebKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
 		01816F0E242B985D007717A6 /* WebFrame.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
@@ -174,6 +178,9 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
+				0178C4062487257700B5BA7F /* WkDownload_private.h */,
+				0178C4032486D3EC00B5BA7F /* WkDownload.h */,
+				0178C4042486D3EC00B5BA7F /* WkDownload.mm */,
 				013D3C7A246042CE00805F29 /* ABP */,
 				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
 				01816F15242B985E007717A6 /* BackForwardClient.h */,
@@ -323,6 +330,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */,
 				01B27293245EF46B00B7277E /* WkHistory.mm in Sources */,
 				01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */,
 				0120E5F924590B9E003150E3 /* PopupMenu.cpp in Sources */,

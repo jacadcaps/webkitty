@@ -9,6 +9,7 @@
 #import <WebCore/ContextMenuItem.h>
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/ResourceRequest.h>
+#import <WebCore/ResourceHandle.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -19,6 +20,7 @@
 #import "WkSettings.h"
 #import "WkCertificate_private.h"
 #import "WkError_private.h"
+#import "WkDownload_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -112,6 +114,7 @@ namespace  {
 	id<WkWebViewNetworkDelegate>         _networkDelegate;
 	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
 	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
+	id<WkDownloadDelegate>               _downloadDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	bool                                 _drawPending;
 	bool                                 _isActive;
@@ -226,6 +229,16 @@ namespace  {
 	return _backForwardDelegate;
 }
 
+- (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate
+{
+	_downloadDelegate = delegate;
+}
+
+- (id<WkDownloadDelegate>)downloadDelegate
+{
+	return _downloadDelegate;
+}
+
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
 {
 	if (nil == _protocolDelegates)
@@ -311,6 +324,17 @@ dprintf("---------- objc fixup ------------\n");
 	}
 	
 	return NO;
+}
+
++ (void)setCustomCertificate:(OBString *)pathToPEM forDomain:(OBString *)domain withKey:(OBString *)key
+{
+	if (pathToPEM && domain)
+	{
+		WTF::String sPath = WTF::String::fromUTF8([[pathToPEM absolutePath] nativeCString]);
+		WTF::String sDomain = WTF::String::fromUTF8([domain cString]);
+		WTF::String sKey = key ? WTF::String::fromUTF8([key cString]) : "";
+		WebCore::ResourceHandle::setClientCertificateInfo(sDomain, sPath, sKey);
+	}
 }
 
 - (WkWebViewPrivate *)privateObject
@@ -464,14 +488,14 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				[networkDelegate webViewDidStartProvisionalLoading:self];
+				[networkDelegate webView:self documentReady:NO];
 			};
 
 			webPage->_fDidStopLoading = [self]() {
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				[networkDelegate webViewDidFinishProvisionalLoading:self];
+				[networkDelegate webView:self documentReady:YES];
 			};
 			
 			webPage->_fCanOpenWindow = [self](const WTF::String& url, const WebCore::WindowFeatures&) -> bool {
@@ -552,7 +576,7 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				if (networkDelegate)
 				{
-					[networkDelegate webViewDidFinishProvisionalLoading:self];
+					[networkDelegate webView:self documentReady:YES];
 					[networkDelegate webView:self didFailLoadingWithError:[WkError errorWithResourceError:error]];
 				}
 			};
@@ -585,6 +609,18 @@ dprintf("---------- objc fixup ------------\n");
 				}
 
 				return true;
+			};
+			
+			webPage->_fDownload = [self](const WTF::URL &url, const WTF::String &suggestedName) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
+				if (downloadDelegate)
+				{
+					auto uurl = url.string().utf8();
+					WkDownload *download = [WkDownload download:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] withDelegate:downloadDelegate];
+					[download start];
+				}
 			};
 
 		} catch (...) {
@@ -1051,6 +1087,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
 {
 	[_private setCustomProtocolHandler:delegate forProtocol:protocol];
+}
+
+- (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate
+{
+	[_private setDownloadDelegate:delegate];
 }
 
 @end

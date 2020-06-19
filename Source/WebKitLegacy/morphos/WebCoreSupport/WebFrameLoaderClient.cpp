@@ -253,10 +253,8 @@ void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, unsigne
     if (!webPage)
         return;
 
+notImplemented();
     webPage->removeResourceRequest(identifier);
-
-	if (m_frame->isMainFrame())
-		webPage->didFailLoad(error);
 }
 
 bool WebFrameLoaderClient::dispatchDidLoadResourceFromMemoryCache(DocumentLoader*, const ResourceRequest&, const ResourceResponse&, int /*length*/)
@@ -421,9 +419,6 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
 
 	D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
-	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
-		webPage->_fDidStartLoading();
-
 #if ENABLE(FULLSCREEN_API) && 0
     Element* documentElement = m_frame->coreFrame()->document()->documentElement();
     if (documentElement && documentElement->containsFullScreenElement())
@@ -540,19 +535,7 @@ void WebFrameLoaderClient::dispatchDidFailLoad(const ResourceError& error)
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
-dprintf("dispatchDidFailLoad: sslerror %d sslconnect %d errorcode %d type %d certinfo %d\n", error.isSSLCertVerificationError(), error.isSSLConnectError(), error.errorCode(), int(error.type()), m_frame->coreFrame()->loader().documentLoader()->response().certificateInfo().hasValue());
-
-	if (error.isSSLCertVerificationError())
-	{
-		const Optional<CertificateInfo>& certInfo = m_frame->coreFrame()->loader().documentLoader()->response().certificateInfo();
-		
-		if (certInfo)
-		{
-			const auto& chain = certInfo->certificateChain();
-			dprintf("certs: %d\n", chain.size());
-		}
-	}
-
+notImplemented();
 #if 0
     RELEASE_LOG(Network, "%p - WebFrameLoaderClient::dispatchDidFailLoad: (pageID = %" PRIu64 ", frameID = %" PRIu64 ")", this, webPage->pageID().toUInt64(), m_frame->frameID());
 
@@ -575,9 +558,6 @@ void WebFrameLoaderClient::dispatchDidFinishDocumentLoad()
         return;
 
     D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
-
-  	if (m_frame->isMainFrame() && webPage->_fDidStopLoading)
-		webPage->_fDidStopLoading();
 
 #if 0
     RefPtr<API::Object> userData;
@@ -966,14 +946,26 @@ void WebFrameLoaderClient::revertToProvisionalState(DocumentLoader*)
 void WebFrameLoaderClient::setMainDocumentError(DocumentLoader*, const ResourceError& error)
 {
     WebPage* webPage = m_frame->page();
-    if (!webPage) {
+    if (webPage)
+    {
 		webPage->didFailLoad(error);
 	}
 }
 
-void WebFrameLoaderClient::setMainFrameDocumentReady(bool)
+void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 {
-    notImplemented();
+	if (m_mainDocumentReady != ready)
+	{
+   		WebPage* webPage = m_frame->page();
+		m_mainDocumentReady = ready;
+		if (webPage)
+		{
+			if (m_mainDocumentReady && webPage->_fDidStopLoading)
+				webPage->_fDidStopLoading();
+			else if (!m_mainDocumentReady && webPage->_fDidStartLoading)
+				webPage->_fDidStartLoading();
+		}
+	}
 }
 
 void WebFrameLoaderClient::startDownload(const ResourceRequest& request, const String& suggestedName)
@@ -1258,9 +1250,6 @@ void WebFrameLoaderClient::provisionalLoadStarted()
     if (m_frame->isMainFrame()) {
         webPage->didStartPageTransition();
         m_didCompletePageTransition = false;
-		
-       	if (m_frame->isMainFrame() && webPage->_fDidStartLoading)
-			webPage->_fDidStartLoading();
     }
 }
 

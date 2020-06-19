@@ -8,6 +8,7 @@
 @class WkCertificate;
 @class WkCertificateChain;
 @class WkError;
+@protocol WkDownloadDelegate;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -23,8 +24,7 @@
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
 - (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
 
-- (void)webViewDidStartProvisionalLoading:(WkWebView *)view;
-- (void)webViewDidFinishProvisionalLoading:(WkWebView *)view;
+- (void)webView:(WkWebView *)view documentReady:(BOOL)ready;
 
 - (void)webView:(WkWebView *)view didFailLoadingWithError:(WkError *)error;
 
@@ -69,6 +69,10 @@ typedef enum {
 // changes
 + (BOOL)readyToQuit;
 
+// Sets a custom PEM file to be used to validate a connection to the given domain
+// 'key' is an optional password required to load the PEM file
++ (void)setCustomCertificate:(OBString *)pathToPEM forDomain:(OBString *)domain withKey:(OBString *)key;
+
 // Load an URL into the main frame
 - (void)load:(OBURL *)url;
 // Load a HTML string into the main frame
@@ -110,6 +114,7 @@ typedef enum {
 - (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate;
+- (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate;
 
 - (void)dumpDebug;
 

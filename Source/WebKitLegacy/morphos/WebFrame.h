@@ -81,6 +81,7 @@ public:
 #endif
 
     void startDownload(const WebCore::ResourceRequest&, const String& suggestedName = { });
+    void startDownload(const WTF::URL &, const String& suggestedName = { });
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, PAL::SessionID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
 
     void addConsoleMessage(MessageSource, MessageLevel, const String&, uint64_t requestID = 0);

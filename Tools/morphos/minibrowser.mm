@@ -24,6 +24,7 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkSettings.h>
 #import <WebKitLegacy/morphos/WkCertificateViewer.h>
 #import <WebKitLegacy/morphos/WkError.h>
+#import <WebKitLegacy/morphos/WkDownload.h>
 
 @interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate>
 {
@@ -78,6 +79,13 @@ extern "C" {
 
 - (WkWebView *)webView;
 
+@end
+
+@interface BrowserDownloadWindow : MUIWindow<WkDownloadDelegate>
+{
+	MUIList *_downloads;
+}
++ (id)sharedInstance;
 @end
 
 @implementation BrowserGroup
@@ -312,6 +320,15 @@ static int _windowID = 1;
 	[_view setSettings:settings];
 }
 
+- (void)trustCertificate:(OBArray *)params
+{
+	WkCertificate *cert = [params firstObject];
+	OBURL *url = [params lastObject];
+	OBString *certPath = [OBString stringWithFormat:@"T:%@.pem", [url host]];
+	[[cert certificate] writeToFile:certPath];
+	[WkWebView setCustomCertificate:certPath forDomain:[url host] withKey:nil];
+}
+
 - (void)closeCertificate:(MUIWindow *)window
 {
 	[[window retain] autorelease];
@@ -325,7 +342,21 @@ static int _windowID = 1;
 	MUIWindow *window = [[MUIWindow new] autorelease];
 	[window setTitle:[OBString stringWithFormat:@"Certificate for %@", _lastError ? [[_lastError URL] absoluteString] : [[_view URL] absoluteString]]];
 	WkCertificateVerifier *cv = [WkCertificateVerifier verifierForCertificateChain:cert];
-	[window setRootObject:cv];
+
+	// test handling of self-signed certs...
+	if (![cert verify:nullptr] && [[cert certificates] count] == 1)
+	{
+		MUIButton *trust;
+		[window setRootObject:[MUIGroup groupWithObjects:cv,
+		 	[MUIGroup groupWithObjects:[MUIRectangle rectangleWithWeight:100], trust = [MUIButton buttonWithLabel:@"Trust this certificate"], nil],
+		 	nil]];
+		[trust notify:@selector(pressed) trigger:NO performSelector:@selector(trustCertificate:) withTarget:self withObject:
+			[OBArray arrayWithObjects:[[cert certificates] lastObject], _lastError ? [_lastError URL] : [_view URL], nil]];
+	}
+	else
+	{
+		[window setRootObject:cv];
+	}
 	[[MUIApplication currentApplication] addObject:window];
 	[window setOpen:YES];
 	[window notify:@selector(closeRequest) trigger:YES performSelector:@selector(closeCertificate:) withTarget:self withObject:window];
@@ -369,6 +400,7 @@ static int _windowID = 1;
 		[_view setNetworkDelegate:self];
 		[_view setBackForwardListDelegate:self];
 		[_view setCustomProtocolHandler:self forProtocol:@"mini"];
+		[_view setDownloadDelegate:[BrowserDownloadWindow sharedInstance]];
 
 		[_back notify:@selector(pressed) trigger:NO performSelector:@selector(goBack) withTarget:_view];
 		[_forward notify:@selector(pressed) trigger:NO performSelector:@selector(goForward) withTarget:_view];
@@ -466,14 +498,9 @@ static int _windowID = 1;
 	_lastError = nil;
 }
 
-- (void)webViewDidStartProvisionalLoading:(WkWebView *)view
+- (void)webView:(WkWebView *)view documentReady:(BOOL)ready
 {
-	[_loading setActivePage:1];
-}
-
-- (void)webViewDidFinishProvisionalLoading:(WkWebView *)view
-{
-	[_loading setActivePage:0];
+	[_loading setActivePage:!ready];
 }
 
 - (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options
@@ -504,18 +531,18 @@ static int _windowID = 1;
 	case WkErrorType_Null:
 		break;
 	case WkErrorType_General:
-		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Error: %d<br>loading %@<br>%@</center></body></html>", [error errorCode], [[error URL] host], [error localizedDescription]]];
 		break;
 	case WkErrorType_Timeout:
-		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Timeout loading %@</center></body></html>", [[error URL] host]]];
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Timeout loading %@<br>%@</center></body></html>", [[error URL] host], [error localizedDescription]]];
 		break;
 	case WkErrorType_Cancellation:
 		break;
 	case WkErrorType_AccessControl:
-		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Access Controls Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Access Controls Error: %d<br>loading %@<br>%@</center></body></html>", [error errorCode], [[error URL] host], [error localizedDescription]]];
 		break;
 	case WkErrorType_SSLConnection:
-		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>SSL Connection Error: %d<br>loading %@</center></body></html>", [error errorCode], [[error URL] host]]];
+		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>SSL Connection Error: %d<br>loading %@<br>%@</center></body></html>", [error errorCode], [[error URL] host], [error localizedDescription]]];
 		break;
 	case WkErrorType_SSLCertification:
 		[_view setHTML:[OBString stringWithFormat:@"<html><body><center>Server %@ presented an untrusted certificate<br><a href=\"mini:showcertificate\">Show Certificate</a>&nbsp;<a href=\"mini:back\">Go Back</a></center></body></html>", [[error URL] host]]];
@@ -653,6 +680,96 @@ static int _windowID = 1;
 
 @end
 
+@interface WkDownload (MUIList) <MUIListEntry>
+@end
+
+@implementation WkDownload (MUIList)
+
+- (OBArray *)listDisplay
+{
+	return [OBArray arrayWithObjects:
+		[[self url] absoluteString],
+		[self filename],
+		[OBString stringWithFormat:@"%ld / %ld", [self downloadedSize], [self size]],
+		nil];
+}
+
+@end
+
+@implementation BrowserDownloadWindow
+
+static BrowserDownloadWindow *_instance;
+
+- (id)init
+{
+	if ((self = [super init]))
+	{
+		[self setTitle:@"Downloads"];
+		[self setRootObject:[MUIGroup groupWithObjects:
+			_downloads = [[MUIList new] autorelease],
+			nil]];
+		
+		_downloads.title = YES;
+		_downloads.titles = [OBArray arrayWithObjects:@"URL", @"File", @"Progress", nil];
+		_downloads.format = @"BAR,BAR,";
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	_instance = nil;
+	[super dealloc];
+}
+
++ (id)sharedInstance
+{
+	if (nil == _instance)
+		_instance = [BrowserDownloadWindow new];
+	return _instance;
+}
+
+- (void)downloadDidBegin:(WkDownload *)download
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	[_downloads addObject:download];
+	[self setOpen:YES];
+}
+
+- (void)didReceiveResponse:(WkDownload *)download
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	[_downloads redraw:[_downloads indexOfObject:download]];
+}
+
+- (OBString *)decideFilenameForDownload:(WkDownload *)download withSuggestedName:(OBString *)suggestedName
+{
+	dprintf("%s: %s\n", __PRETTY_FUNCTION__, [suggestedName cString]);
+	return [@"SYS:Downloads" stringByAddingPathComponent:suggestedName];
+}
+
+- (void)download:(WkDownload *)download didReceiveBytes:(size_t)bytes
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	[_downloads redraw:[_downloads indexOfObject:download]];
+}
+
+- (void)downloadDidFinish:(WkDownload *)download
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	// [_downloads removeObject:download];
+	[_downloads redraw:[_downloads indexOfObject:download]];
+}
+
+- (void)download:(WkDownload *)download didFailWithError:(WkError *)error
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+	[_downloads redraw:[_downloads indexOfObject:download]];
+}
+
+@end
+
 @interface MiniAppDelegate : OBObject<OBApplicationDelegate>
 @end
 
@@ -718,7 +835,8 @@ int muiMain(int argc, char *argv[])
 		[[OBApplication currentApplication] setDelegate:delegate];
 
 		MUIWindow *win = [[BrowserWindow new] autorelease];
-		[app instantiateWithWindows:win, nil];
+		MUIWindow *dlwin = [BrowserDownloadWindow sharedInstance];
+		[app instantiateWithWindows:win, dlwin, nil];
 
 		win.open = YES;
 
@@ -731,6 +849,7 @@ int muiMain(int argc, char *argv[])
 	}
 	
 dprintf("release..\n");
+	[[BrowserDownloadWindow sharedInstance] release];
 	[app release];
 
 dprintf("destructors be called next\n");

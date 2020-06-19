@@ -43,6 +43,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkCertificate.mm
     morphos/WkCertificateViewer.mm
     morphos/WkError.mm
+    morphos/WkDownload.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -76,6 +77,7 @@ set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS "-Wno
 set_source_files_properties(morphos/WkCertificate.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 set_source_files_properties(morphos/WkCertificateViewer.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 set_source_files_properties(morphos/WkError.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
+set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

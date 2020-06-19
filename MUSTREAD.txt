@@ -12,7 +12,17 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
-- 12.09.2020
+- 19.06.2020
+	- Very basic download support - only working from the context menu for now
+
+- 02.06.2020
+	- Improved loading / error event handling
+
+- 01.06.2020
+	- Basic error handling
+	- Very basic certificate viewer and the ability to trust a website with self-signed cert
+
+- 12.05.2020
 	- Implemented standard WebCore context menus (no, Download is not supported)
 	- Clipboard support mostly works now, including copyimg images (asynchronously!) and text
 	  selection
