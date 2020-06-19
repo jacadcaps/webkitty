@@ -47,6 +47,10 @@
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
+#if OS(MORPHOS)
+#include <libraries/charsets.h>
+#endif
+
 namespace WTF {
 
 namespace FileSystemImpl {
@@ -401,13 +405,20 @@ String stringFromFileSystemRepresentation(const char* path)
 {
     if (!path)
         return String();
-
+#if OS(MORPHOS)
+	return String(path, strlen(path), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(path);
+#endif
 }
 
 CString fileSystemRepresentation(const String& path)
 {
+#if OS(MORPHOS)
+	return path.native();
+#else
     return path.utf8();
+#endif
 }
 #endif
 
@@ -439,15 +450,10 @@ bool getVolumeFreeSpace(const String& path, uint64_t& freeSpace)
 #endif
 }
 
-String openTemporaryFile(const String& prefix, PlatformFileHandle& handle)
+String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle& handle)
 {
     char buffer[PATH_MAX];
-    const char* tmpDir = getenv("TMPDIR");
-
-    if (!tmpDir)
-        tmpDir = "/tmp";
-
-    if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", tmpDir, prefix.utf8().data()) >= PATH_MAX)
+    if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", fileSystemRepresentation(tmpPath).data(), fileSystemRepresentation(prefix).data()) >= PATH_MAX)
         goto end;
 
     handle = mkstemp(buffer);
@@ -459,6 +465,21 @@ String openTemporaryFile(const String& prefix, PlatformFileHandle& handle)
 end:
     handle = invalidPlatformFileHandle;
     return String();
+}
+
+String openTemporaryFile(const String& prefix, PlatformFileHandle& handle)
+{
+#if OS(MORPHOS)
+	const char* tmpDir = "PROGDIR:Tmp";
+	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle);
+#else
+    const char* tmpDir = getenv("TMPDIR");
+
+    if (!tmpDir)
+        tmpDir = "/tmp";
+
+	return openTemporaryFile(String::fromUTF8(tmpDir), prefix, handle);
+#endif
 }
 #endif // !PLATFORM(COCOA)
 

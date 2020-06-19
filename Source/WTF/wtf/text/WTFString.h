@@ -120,6 +120,10 @@ public:
 
     String(StaticStringImpl&);
     String(StaticStringImpl*);
+	
+#if OS(MORPHOS)
+	String(const char * characters, unsigned length, unsigned mib);
+#endif
 
     // Construct a string from a constant string literal.
     WTF_EXPORT_PRIVATE String(ASCIILiteral);
@@ -162,6 +166,9 @@ public:
 
     WTF_EXPORT_PRIVATE CString ascii() const;
     WTF_EXPORT_PRIVATE CString latin1() const;
+#if OS(MORPHOS)
+    CString native() const;
+#endif
 
     WTF_EXPORT_PRIVATE CString utf8(ConversionMode) const;
     WTF_EXPORT_PRIVATE CString utf8() const;
