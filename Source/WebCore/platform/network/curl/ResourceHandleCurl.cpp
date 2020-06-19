@@ -167,7 +167,7 @@ CurlResourceHandleDelegate* ResourceHandle::delegate()
     return d->m_delegate.get();
 }
 
-#if OS(WINDOWS)
+#if OS(WINDOWS) || OS(MORPHOS)
 
 void ResourceHandle::setHostAllowsAnyHTTPSCertificate(const String& host)
 {

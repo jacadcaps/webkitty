@@ -42,6 +42,12 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+String CurlRequest::m_downloadPath = "SYS:Downloads";
+#else
+String CurlRequest::m_downloadPath = "/tmp";
+#endif
+
 CurlRequest::CurlRequest(const ResourceRequest&request, CurlRequestClient* client, ShouldSuspend shouldSuspend, EnableMultipart enableMultipart, CaptureNetworkLoadMetrics captureExtraMetrics, RefPtr<SynchronousLoaderMessageQueue>&& messageQueue)
     : m_client(client)
     , m_messageQueue(WTFMove(messageQueue))

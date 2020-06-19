@@ -97,6 +97,8 @@ public:
     // Download
     void enableDownloadToFile();
     const String& getDownloadedFilePath();
+		
+    static void SetDownloadPath(const String &downloadPath) { m_downloadPath = downloadPath; }
 
 private:
     enum class Action {
@@ -207,6 +209,7 @@ private:
     bool m_isEnabledDownloadToFile { false };
     String m_downloadFilePath;
     FileSystem::PlatformFileHandle m_downloadFileHandle { FileSystem::invalidPlatformFileHandle };
+    static String m_downloadPath;
 
     bool m_captureExtraMetrics;
     HTTPHeaderMap m_requestHeaders;

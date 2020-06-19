@@ -377,8 +377,9 @@ CurlHandle::CurlHandle()
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
-//curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
-//curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
+
+// curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+// curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
 }
 
 CurlHandle::~CurlHandle()
@@ -394,11 +395,19 @@ const String CurlHandle::errorDescription(CURLcode errorCode)
 
 void CurlHandle::enableSSLForHost(const String& host)
 {
+#if OS(MORPHOS)
+	bool caCertOverride = false;
+#endif
     auto& sslHandle = CurlContext::singleton().sslHandle();
     if (auto sslClientCertificate = sslHandle.getSSLClientCertificate(host)) {
+#if OS(MORPHOS)
+        setCACertPath(sslClientCertificate->first.utf8().data());
+        caCertOverride = true;
+#else
         setSslCert(sslClientCertificate->first.utf8().data());
         setSslCertType("P12");
         setSslKeyPassword(sslClientCertificate->second.utf8().data());
+#endif
     }
 
     if (sslHandle.canIgnoreAnyHTTPSCertificatesForHost(host) || sslHandle.shouldIgnoreSSLErrors()) {
@@ -415,6 +424,11 @@ void CurlHandle::enableSSLForHost(const String& host)
 
     setSslCtxCallbackFunction(willSetupSslCtxCallback, this);
 
+#if OS(MORPHOS)
+	if (caCertOverride)
+		setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
+	else
+#endif
     if (auto* path = WTF::get_if<String>(sslHandle.getCACertInfo()))
         setCACertPath(path->utf8().data());
 }
