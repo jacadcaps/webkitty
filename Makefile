@@ -84,6 +84,8 @@ configure: morphos.cmake link.sh CMakeLists.txt
 		-DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
 		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib/libsqlite3.a \
 		-DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
+		-DSQLite3_LIBRARY=$(LIB)/sqlite/instdir/include \
+		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
