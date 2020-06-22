@@ -274,7 +274,7 @@ public:
         unsigned readOffset = m_bufferLength - m_info.src->bytes_in_buffer;
 
         m_info.src->bytes_in_buffer += newByteCount;
-        m_info.src->next_input_byte = (JOCTET*)(data.dataLocked()) + readOffset;
+        m_info.src->next_input_byte = (JOCTET*)(data.data()) + readOffset;
 
         // If we still have bytes to skip, try to skip those now.
         if (m_bytesToSkip)
@@ -626,16 +626,9 @@ void JPEGImageDecoder::decode(bool onlySize, bool allDataReceived)
     if (!m_reader)
         m_reader = makeUnique<JPEGImageReader>(this);
 
-    RefPtr<SharedBuffer> protectedData(m_data);
-    if (!protectedData) {
-        setFailed();
-        return;
-	}
-	// calls protectedData->data()
-	auto locker = holdLock(protectedData->writeLock());
     // If we couldn't decode the image but we've received all the data, decoding
     // has failed.
-    if (!m_reader->decode(*protectedData, onlySize) && allDataReceived)
+    if (!m_reader->decode(*m_data, onlySize) && allDataReceived)
         setFailed();
     // If we're done decoding the image, we don't need the JPEGImageReader
     // anymore.  (If we failed, |m_reader| has already been cleared.)

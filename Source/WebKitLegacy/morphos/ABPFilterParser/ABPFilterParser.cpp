@@ -339,7 +339,7 @@ void parseFilter(const char *input, const char *end, Filter *f,
     }
   } else if (f->filterType == FTElementHidingException) {
     if (simpleCosmeticFilters && f->domainList) {
-      simpleCosmeticFilters->Remove(CosmeticFilter(data));
+      simpleCosmeticFilters->HSRemove(CosmeticFilter(data));
     }
   } else if (exceptionBloomFilter
       && (f->filterType & FTException) && (f->filterType & FTHostOnly)) {

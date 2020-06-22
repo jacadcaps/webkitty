@@ -2,12 +2,14 @@
 
 #include <wtf/HashMap.h>
 #include <WebCore/PageIdentifier.h>
+#include <WebCore/FrameIdentifier.h>
 #include <pal/SessionID.h>
 #include "CacheModel.h"
 #include "ABPFilterParser/ABPFilterParser.h"
 
 namespace WebCore {
 	class DocumentLoader;
+	class CacheStorageProvider;
 };
 
 namespace WebKit {
@@ -33,13 +35,17 @@ public:
 
     WebPage* webPage(WebCore::PageIdentifier) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
-    void removeWebPage(PAL::SessionID, WebCore::PageIdentifier);
+    void removeWebPage(WebCore::PageIdentifier);
     WebPage* focusedWebPage() const;
 
-    WebFrame* webFrame(uint64_t) const;
-    void addWebFrame(uint64_t, WebFrame*);
-    void removeWebFrame(uint64_t);
+    WebFrame* webFrame(WebCore::FrameIdentifier) const;
+    void addWebFrame(WebCore::FrameIdentifier, WebFrame*);
+    void removeWebFrame(WebCore::FrameIdentifier);
     size_t webFrameCount() const { return m_frameMap.size(); }
+
+	PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
+
+	WebCore::CacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
 
 	void setCacheModel(WebKit::CacheModel cacheModel);
 
@@ -57,16 +63,19 @@ public:
 	void setLastPageClosedCallback(std::function<void()>&&func) { m_fLastPageClosed = func; }
 
 protected:
-    HashMap<uint64_t, WebFrame*> m_frameMap;
+    HashMap<WebCore::FrameIdentifier, WebFrame*> m_frameMap;
     HashMap<WebCore::PageIdentifier, RefPtr<WebPage>> m_pageMap;
 
+	WebProcess();
 	~WebProcess();
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
     ABP::ABPFilterParser m_urlFilter;
     std::vector<char>    m_urlFilterData;
-	
+    Optional<PAL::SessionID> m_sessionID;
+    Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
+
     std::function<void()> m_fLastPageClosed;
 	
 	struct Task *m_sigTask;
@@ -74,4 +83,3 @@ protected:
 };
 
 }
-

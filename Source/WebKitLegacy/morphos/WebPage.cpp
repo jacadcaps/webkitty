@@ -51,7 +51,7 @@
 #include <WebCore/Notification.h>
 #include <WebCore/NotificationController.h>
 #include <WebCore/Page.h>
-#include <WebCore/PageCache.h>
+//#include <WebCore/PageCache.h>
 #include <WebCore/PageConfiguration.h>
 #include <WebCore/PageGroup.h>
 #include <WebCore/PathUtilities.h>
@@ -64,7 +64,7 @@
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/RuntimeApplicationChecks.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
-#include <WebCore/SchemeRegistry.h>
+//#include <WebCore/SchemeRegistry.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityPolicy.h>
@@ -94,6 +94,8 @@
 #include <WebCore/WindowsKeyboardCodes.h>
 #include <WebCore/RenderLayerCompositor.h>
 #include <WebCore/ContextMenuController.h>
+#include <WebCore/MediaRecorderProvider.h>
+#include <WebCore/ScriptState.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -128,6 +130,7 @@
 #include "../../Storage/WebDatabaseProvider.h"
 #include "WebDocumentLoader.h"
 #include "WebDragClient.h"
+#include "WebProcess.h"
 
 #include <cairo.h>
 
@@ -191,6 +194,11 @@ using namespace std;
 using namespace WebCore;
 
 namespace WebKit {
+
+class MediaRecorderProvider final : public WebCore::MediaRecorderProvider {
+public:
+    MediaRecorderProvider() = default;
+};
 
 class WebViewDrawContext
 {
@@ -442,7 +450,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
 
 //	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
-
     static bool didOneTimeInitialization;
     if (!didOneTimeInitialization) {
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
@@ -466,18 +473,20 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	auto storageProvider = PageStorageSessionProvider::create();
 
 	WebCore::PageConfiguration pageConfiguration(
+		WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(this),
         WebCore::SocketProvider::create(),
-        WebCore::LibWebRTCProvider::create(),
-        WebCore::CacheStorageProvider::create(),
+        makeUniqueRef<WebCore::LibWebRTCProvider>(),
+        WebProcess::singleton().cacheStorageProvider(),
         BackForwardClientMorphOS::create(this),
-        WebCore::CookieJar::create(storageProvider.copyRef())
+        WebCore::CookieJar::create(storageProvider.copyRef()),
+        makeUniqueRef<WebProgressTrackerClient>(*this),
+        makeUniqueRef<MediaRecorderProvider>()
         );
 
 	pageConfiguration.chromeClient = new WebChromeClient(*this);
 	pageConfiguration.inspectorClient = new WebInspectorClient(this);
     pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient;
-    pageConfiguration.progressTrackerClient = new WebProgressTrackerClient(*this);
     pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
     pageConfiguration.userContentProvider = &m_webPageGroup->userContentController();
     pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
@@ -485,7 +494,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
 	pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
-	pageConfiguration.dragClient = new WebDragClient(this);
+	pageConfiguration.dragClient = makeUnique<WebDragClient>(this);
 
 //dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
@@ -540,7 +549,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //    m_page->mainFrame().init();
 
     m_page->layoutIfNeeded();
-	
+
     m_page->setIsVisible(true);
     m_page->setIsInWindow(true);
 	m_page->setActivityState(ActivityState::WindowIsActive);
@@ -633,7 +642,7 @@ void WebPage::run(const char *js)
 	if (!coreFrame)
 		return;
 
-	coreFrame->script().executeScript(js, true);
+	coreFrame->script().executeScriptIgnoringException(js, true);
 }
 
 void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb)
@@ -646,15 +655,15 @@ void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb
 	if (!coreFrame)
 		return nullptr;
 
-	JSC::JSValue result = coreFrame->script().executeScript(js, true);
+	auto result = coreFrame->script().executeScriptIgnoringException(js, true);
 	if (!m_mainFrame || !m_mainFrame->coreFrame() || !result || (!result.isBoolean() && !result.isString() && !result.isNumber()))
 	{
 		return cb("");
 	}
 
-    JSC::ExecState* exec = coreFrame->script().globalObject(mainThreadNormalWorld())->globalExec();
-    JSC::JSLockHolder lock(exec);
-	WTF::String string = result.toWTFString(exec);
+    auto state = mainWorldExecState(coreFrame);
+    JSC::JSLockHolder lock(state);
+	WTF::String string = result.toWTFString(state);
 	auto ustring = string.utf8();
 	return cb(ustring.data());
 }

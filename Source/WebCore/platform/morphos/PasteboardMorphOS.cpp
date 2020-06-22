@@ -160,7 +160,7 @@ void Pasteboard::clear(const String&)
 {
 }
 
-void Pasteboard::read(PasteboardPlainText& text)
+void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, Optional<size_t>)
 {
 	const char *clipcontents;
 
@@ -179,7 +179,7 @@ void Pasteboard::read(PasteboardPlainText& text)
 	}
 }
 
-void Pasteboard::read(PasteboardWebContentReader&, WebContentReadingPolicy)
+void Pasteboard::read(PasteboardWebContentReader&, WebContentReadingPolicy, Optional<size_t>)
 {
     notImplemented();
 }
@@ -292,7 +292,7 @@ void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
     writeString("text/plain;charset=utf-8", text);
 }
 
-void Pasteboard::writeCustomData(const PasteboardCustomData&)
+void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>&)
 {
      notImplemented();
 }

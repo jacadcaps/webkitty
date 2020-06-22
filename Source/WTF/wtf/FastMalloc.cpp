@@ -52,6 +52,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
 #include <wtf/StackShot.h>
+#endif
 
 #if PLATFORM(COCOA)
 #include <notify.h>

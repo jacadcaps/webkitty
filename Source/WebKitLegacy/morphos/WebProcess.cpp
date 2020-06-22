@@ -1,3 +1,4 @@
+#include "WebKit.h"
 #include "WebProcess.h"
 #include "WebPage.h"
 #include "WebFrame.h"
@@ -12,7 +13,8 @@
 #include <WebCore/FontCache.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/MemoryRelease.h>
-#include <WebCore/PageCache.h>
+#include <WebCore/CacheStorageProvider.h>
+#include <WebCore/BackForwardCache.h>
 #include <WebCore/CommonVM.h>
 #include <WebCore/CurlCacheManager.h>
 #include <WebCore/ProcessWarming.h>
@@ -64,6 +66,12 @@ namespace WTF {
 }
 
 namespace WebKit {
+
+WebProcess::WebProcess()
+	: m_sessionID(PAL::SessionID::generatePersistentSessionID())
+	, m_cacheStorageProvider(CacheStorageProvider::create())
+{
+}
 
 WebProcess& WebProcess::singleton()
 {
@@ -236,7 +244,7 @@ void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationPa
 	}
 }
 
-void WebProcess::removeWebPage(PAL::SessionID, WebCore::PageIdentifier pageID)
+void WebProcess::removeWebPage(WebCore::PageIdentifier pageID)
 {
     ASSERT(m_pageMap.contains(pageID));
 	D(dprintf("%s\n", __PRETTY_FUNCTION__));
@@ -259,19 +267,19 @@ WebPage* WebProcess::focusedWebPage() const
 
 }
 
-WebFrame* WebProcess::webFrame(uint64_t frameID) const
+WebFrame* WebProcess::webFrame(WebCore::FrameIdentifier frameID) const
 {
     return m_frameMap.get(frameID);
 }
 
-void WebProcess::addWebFrame(uint64_t frameID, WebFrame* frame)
+void WebProcess::addWebFrame(WebCore::FrameIdentifier frameID, WebFrame* frame)
 {
 	D(dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID));
 
     m_frameMap.set(frameID, frame);
 }
 
-void WebProcess::removeWebFrame(uint64_t frameID)
+void WebProcess::removeWebFrame(WebCore::FrameIdentifier frameID)
 {
 	D(dprintf("%s %llu\n", __PRETTY_FUNCTION__, frameID));
 
@@ -342,7 +350,7 @@ void WebProcess::dumpWebCoreStatistics()
     ss << "CachedFontDataInactiveCount " << fontCache.inactiveFontCount(); ss.nextLine();;
 	
     // Gather glyph page statistics.
-    ss << "GlyphPageCount " << GlyphPage::count(); ss.nextLine();;
+//    ss << "GlyphPageCount " << GlyphPage::count(); ss.nextLine();;
 	
     // Get WebCore memory cache statistics
     getWebCoreMemoryCacheStatistics(ss);
@@ -388,7 +396,7 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     auto& memoryCache = MemoryCache::singleton();
     memoryCache.setCapacities(cacheMinDeadCapacity, cacheMaxDeadCapacity, cacheTotalCapacity);
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
-    PageCache::singleton().setMaxSize(pageCacheSize);
+    BackForwardCache::singleton().setMaxSize(pageCacheSize);
     CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
 
     D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));

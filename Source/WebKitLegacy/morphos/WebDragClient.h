@@ -32,6 +32,7 @@ namespace WebKit {
 class WebPage;
 
 class WebDragClient : public WebCore::DragClient {
+	WTF_MAKE_FAST_ALLOCATED;
 public:
     WebDragClient(WebPage* page)
         : m_page(page)
@@ -45,8 +46,6 @@ private:
 
     void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::Frame&) override;
     void didConcludeEditDrag() override;
-
-    void dragControllerDestroyed() override;
 
     WebPage* m_page;
 };

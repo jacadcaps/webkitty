@@ -178,7 +178,7 @@ class HashSet {
    * @param data_to_check The data to remove
    * @return true if an item matching the data was removed
    */
-  bool Remove(const T &data_to_check) {
+  bool HSRemove(const T &data_to_check) {
     uint64_t hash = data_to_check.GetHash();
     HashItem<T> *hash_item = buckets_[hash % bucket_count_];
     if (!hash_item) {

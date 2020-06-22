@@ -356,7 +356,7 @@ void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
     dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
 }
 
-void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& result, unsigned modifierFlags)
+void WebChromeClient::mouseDidMoveOverElement(const WebCore::HitTestResult&, unsigned modifierFlags, const WTF::String& toolTip, WebCore::TextDirection)
 {
 	notImplemented();
 }
@@ -367,11 +367,6 @@ bool WebChromeClient::shouldUnavailablePluginMessageBeButton(RenderEmbeddedObjec
 }
 
 void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
-{
-	notImplemented();
-}
-
-void WebChromeClient::setToolTip(const String& toolTip, TextDirection)
 {
 	notImplemented();
 }

@@ -133,12 +133,7 @@ void WEBPImageDecoder::decode(size_t frameIndex, bool allDataReceived)
     // When executed in the decoding thread, a call to setData() from the main thread may change the data
     // the WebPDemuxer is using, leaving it in an inconsistent state, so we need to protect the data.
     RefPtr<SharedBuffer::DataSegment> protectedData(m_data);
-    if (!protectedData) {
-        setFailed();
-        return;
-    }
-    auto lock(protectedData->writeLock());
-    WebPData inputData = { reinterpret_cast<const uint8_t*>(protectedData->dataLocked()), protectedData->size() };
+    WebPData inputData = { reinterpret_cast<const uint8_t*>(protectedData->data()), protectedData->size() };
     WebPDemuxState demuxerState;
     WebPDemuxer* demuxer = WebPDemuxPartial(&inputData, &demuxerState);
     if (!demuxer) {

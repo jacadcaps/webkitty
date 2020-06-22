@@ -35,10 +35,4 @@ void WebDragClient::didConcludeEditDrag()
 {
 }
 
-void WebDragClient::dragControllerDestroyed()
-{
-	dprintf("%s\n", __PRETTY_FUNCTION__);
-    delete this;
-}
-
 } // namespace WebKit

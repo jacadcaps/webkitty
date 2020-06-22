@@ -7,7 +7,6 @@ if ("${JavaScriptCore_LIBRARY_TYPE}" MATCHES "STATIC")
 endif ()
 
 set(jsc_LIBRARIES
-    ${CMAKE_DL_LIBS}
     WebKit::JavaScriptCore
 )
 

@@ -39,11 +39,6 @@ WebProgressTrackerClient::WebProgressTrackerClient(WebPage& webPage)
 {
 }
     
-void WebProgressTrackerClient::progressTrackerDestroyed()
-{
-    delete this;
-}
-    
 void WebProgressTrackerClient::progressStarted(Frame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())

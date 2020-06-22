@@ -28,12 +28,9 @@
 
 namespace WebCore {
 
-struct TypeExtensionPair {
-    ASCIILiteral type;
-    ASCIILiteral extension;
-};
+// TODO: use code for Iris
 
-const TypeExtensionPair commonMediaTypes[] = {
+const TypeExtensionPair XcommonMediaTypes[] = {
     { "bmp"_s, "image/bmp"_s },
     { "css"_s, "text/css"_s },
     { "gif"_s, "image/gif"_s },
@@ -60,7 +57,7 @@ const TypeExtensionPair commonMediaTypes[] = {
 
 String MIMETypeRegistry::getMIMETypeForExtension(const String& extension)
 {
-    for (auto& entry : commonMediaTypes) {
+    for (auto& entry : XcommonMediaTypes) {
         if (equalIgnoringASCIICase(extension, entry.extension.characters()))
             return entry.type;
     }
@@ -74,7 +71,7 @@ bool MIMETypeRegistry::isApplicationPluginMIMEType(const String&)
 
 String MIMETypeRegistry::getPreferredExtensionForMIMEType(const String& mimeType)
 {
-    for (auto& entry : commonMediaTypes) {
+    for (auto& entry : XcommonMediaTypes) {
         if (equalIgnoringASCIICase(mimeType, entry.type.characters()))
             return entry.extension;
     }

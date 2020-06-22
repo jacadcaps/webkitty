@@ -637,7 +637,7 @@ dprintf("---------- objc fixup ------------\n");
 	try {
 		auto webPage = [_private page];
 		webPage->willBeDisposed();
-		WebKit::WebProcess::singleton().removeWebPage(PAL::SessionID(), webPage->pageID());
+		WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
 	} catch (...) {};
 
 	[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(timedOut) target:_private] repeats:NO];

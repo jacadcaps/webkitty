@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include "WebKit.h"
+
 #if ENABLE(INDEXED_DATABASE)
 
 #include <WebCore/IDBConnectionToClient.h>

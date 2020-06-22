@@ -24,6 +24,7 @@
 
 #include "WebResourceLoadScheduler.h"
 
+#include <JavaScriptCore/JSExportMacros.h>
 #include "PingHandle.h"
 #include <WebCore/Document.h>
 #include <WebCore/DocumentLoader.h>

@@ -16,6 +16,7 @@ Source/JavaScriptCore/wasm/generateWasm.pyc
 Source/JavaScriptCore/yarr/hasher.pyc
 Source/JavaScriptCore/disassembler/udis86/ud_opcode.pyc
 Dummy/libdl.a
+Dummy/libdummy.a
 link.sh
 webkitty.tar.xz
 webkitty.lha

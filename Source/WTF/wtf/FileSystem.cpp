@@ -340,64 +340,58 @@ bool unmapViewOfFile(void* buffer, size_t size)
     return !munmap(buffer, size);
 }
 
-#else
+#elif OS(MORPHOS)
 
-MappedFileData::~MappedFileData()
+MappedFileData::MappedFileData(const String& filePath, MappedFileMode mode, bool& success)
 {
-    if (!m_fileData)
-        return;
-    free(m_fileData);
+    auto fd = openFile(filePath, FileOpenMode::Read);
+
+    success = mapFileHandle(fd, mode);
+    closeFile(fd);
 }
 
-MappedFileData::MappedFileData(const String& filePath, bool& success)
-	: m_fileData(nullptr)
+bool MappedFileData::mapFileHandle(PlatformFileHandle handle, MappedFileMode mode)
 {
-    CString fsRep = fileSystemRepresentation(filePath);
-    int fd = !fsRep.isNull() ? open(fsRep.data(), O_RDONLY) : -1;
-    if (fd < 0) {
-        success = false;
-        return;
-    }
+    if (!isHandleValid(handle))
+        return false;
+
+    int fd;
+    fd = handle;
 
     struct stat fileStat;
     if (fstat(fd, &fileStat)) {
-        close(fd);
-        success = false;
-        return;
+        return false;
     }
 
     unsigned size;
     if (!WTF::convertSafely(fileStat.st_size, size)) {
-        close(fd);
-        success = false;
-        return;
+        return false;
     }
 
     if (!size) {
-        close(fd);
-        success = true;
-        return;
+        return true;
     }
-
+	
     void* data = malloc(size);
 
-    if (data == nullptr) {
-        success = false;
-        return;
-    }
+        if (nullptr == data) {
+                return false;
+        }
 
-	if (size != read(fd, data, size))
-	{
-    	close(fd);
-		free(data);
-        success = false;
-        return;
-	}
-    close(fd);
+        if (size != read(fd, data, size)) {
+                free(data);
+                return false;
+        }
 
-    success = true;
     m_fileData = data;
     m_fileSize = size;
+    return true;
+}
+
+bool unmapViewOfFile(void* buffer, size_t size)
+{
+    free(buffer);
+    return true;
 }
 
 #endif

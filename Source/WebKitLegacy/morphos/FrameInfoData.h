@@ -27,6 +27,7 @@
 
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SecurityOriginData.h>
+#include <WebCore/FrameIdentifier.h>
 
 namespace WebKit {
 
@@ -34,7 +35,7 @@ struct FrameInfoData {
     bool isMainFrame { false };
     WebCore::ResourceRequest request;
     WebCore::SecurityOriginData securityOrigin;
-    uint64_t frameID { 0 };
+    WebCore::FrameIdentifier frameID;
 };
 
 }

@@ -26,11 +26,6 @@
 #pragma once
 
 #include <WebCore/FrameLoaderClient.h>
-#include <pal/SessionID.h>
-
-namespace PAL {
-class SessionID;
-}
 
 namespace WebKit {
 
@@ -52,15 +47,13 @@ public:
     void applyToDocumentLoader(WebsitePoliciesData&&);
 
     Optional<WebCore::PageIdentifier> pageID() const final;
-    Optional<uint64_t> frameID() const final;
-    PAL::SessionID sessionID() const final;
+    Optional<WebCore::FrameIdentifier> frameID() const final;
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     bool hasFrameSpecificStorageAccess() final { return !!m_frameSpecificStorageAccessIdentifier; }
     
     struct FrameSpecificStorageAccessIdentifier {
-        PAL::SessionID sessionID;
-        uint64_t frameID;
+        WebCore::FrameIdentifier frameID;
         WebCore::PageIdentifier pageID;
     };
     void setHasFrameSpecificStorageAccess(FrameSpecificStorageAccessIdentifier&&);
@@ -122,7 +115,7 @@ private:
     void dispatchDidFailLoad(const WebCore::ResourceError&) final;
     void dispatchDidFinishDocumentLoad() final;
     void dispatchDidFinishLoad() final;
-    void dispatchDidExplicitOpen(const URL&) final;
+    void dispatchDidExplicitOpen(const URL&, const String& /* mimeType */) final;
 
     void dispatchDidReachLayoutMilestone(OptionSet<WebCore::LayoutMilestone>) final;
     void dispatchDidLayout() final;
@@ -209,13 +202,12 @@ private:
 #endif
     void transitionToCommittedForNewPage() final;
 
-    void didSaveToPageCache() final;
-    void didRestoreFromPageCache() final;
+    void didRestoreFromBackForwardCache() final { m_frameCameFromPageCache = true; };
 
     void dispatchDidBecomeFrameset(bool) final;
 
     bool canCachePage() const final;
-    void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, PAL::SessionID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
+    void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
 
     RefPtr<WebCore::Frame> createFrame(const URL&, const String& name, WebCore::HTMLFrameOwnerElement&, const String& referrer) final;
 

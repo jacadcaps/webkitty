@@ -41,7 +41,7 @@ list(APPEND WebCore_SOURCES
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
     platform/morphos/ScrollbarThemeMorphOS.cpp
-    platform/morphos/EventLoopMorphOS.cpp
+#    platform/morphos/EventLoopMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp
     platform/morphos/DragDataMorphOS.cpp
     platform/morphos/SelectionData.cpp

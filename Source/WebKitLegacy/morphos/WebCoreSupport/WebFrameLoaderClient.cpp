@@ -95,22 +95,12 @@ Optional<PageIdentifier> WebFrameLoaderClient::pageID() const
     return WTF::nullopt;
 }
 
-Optional<uint64_t> WebFrameLoaderClient::frameID() const
+Optional<WebCore::FrameIdentifier> WebFrameLoaderClient::frameID() const
 {
     if (m_frame)
-        return m_frame->frameID();
+        return WebCore::FrameIdentifier(m_frame->frameID());
 
     return WTF::nullopt;
-}
-
-PAL::SessionID WebFrameLoaderClient::sessionID() const
-{
-    WebPage* page = m_frame ? m_frame->page() : nullptr;
-    if (!page || !page->corePage()) {
-        ASSERT_NOT_REACHED();
-        return PAL::SessionID::defaultSessionID();
-    }
-    return page->sessionID();
 }
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
@@ -402,7 +392,7 @@ void WebFrameLoaderClient::dispatchWillClose()
     notImplemented();
 }
 
-void WebFrameLoaderClient::dispatchDidExplicitOpen(const URL& url)
+void WebFrameLoaderClient::dispatchDidExplicitOpen(const URL&, const String& /* mimeType */)
 {
     notImplemented();
 
@@ -1384,15 +1374,6 @@ m_frame->coreFrame()->view()->setVisualUpdatesAllowedByClient(true);
 #endif
 }
 
-void WebFrameLoaderClient::didSaveToPageCache()
-{
-}
-
-void WebFrameLoaderClient::didRestoreFromPageCache()
-{
-    m_frameCameFromPageCache = true;
-}
-
 void WebFrameLoaderClient::dispatchDidBecomeFrameset(bool value)
 {
 }
@@ -1402,9 +1383,9 @@ bool WebFrameLoaderClient::canCachePage() const
     return true;
 }
 
-void WebFrameLoaderClient::convertMainResourceLoadToDownload(DocumentLoader *documentLoader, PAL::SessionID sessionID, const ResourceRequest& request, const ResourceResponse& response)
+void WebFrameLoaderClient::convertMainResourceLoadToDownload(DocumentLoader *documentLoader, const ResourceRequest& request, const ResourceResponse& response)
 {
-    m_frame->convertMainResourceLoadToDownload(documentLoader, sessionID, request, response);
+    m_frame->convertMainResourceLoadToDownload(documentLoader, request, response);
 }
 
 RefPtr<Frame> WebFrameLoaderClient::createFrame(const URL& url, const String& name, HTMLFrameOwnerElement& ownerElement,

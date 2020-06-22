@@ -287,7 +287,7 @@ private:
 
     const unsigned char* data(size_t dataPosition) const
     {
-        return reinterpret_cast<const unsigned char*>(m_data->dataLocked()) + dataPosition;
+        return reinterpret_cast<const unsigned char*>(m_data->data()) + dataPosition;
     }
 
     void addFrameIfNecessary();
