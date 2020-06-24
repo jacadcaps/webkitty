@@ -66,9 +66,6 @@ private:
     bool hasWebView() const final;
     
     void makeRepresentation(WebCore::DocumentLoader*) final;
-#if PLATFORM(IOS_FAMILY)
-    bool forceLayoutOnRestoreFromPageCache() final;
-#endif
     void forceLayoutForNonHTML() final;
     
     void setCopiesOnScroll() final;
@@ -83,9 +80,6 @@ private:
     void dispatchDidReceiveAuthenticationChallenge(WebCore::DocumentLoader*, unsigned long identifier, const WebCore::AuthenticationChallenge&) final;
 #if USE(PROTECTION_SPACE_AUTH_CALLBACK)
     bool canAuthenticateAgainstProtectionSpace(WebCore::DocumentLoader*, unsigned long identifier, const WebCore::ProtectionSpace&) final;
-#endif
-#if PLATFORM(IOS_FAMILY)
-    RetainPtr<CFDictionaryRef> connectionProperties(WebCore::DocumentLoader*, unsigned long identifier) final;
 #endif
     void dispatchDidReceiveResponse(WebCore::DocumentLoader*, unsigned long identifier, const WebCore::ResourceResponse&) final;
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, unsigned long identifier, int dataLength) final;
