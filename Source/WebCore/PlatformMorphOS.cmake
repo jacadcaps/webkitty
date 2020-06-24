@@ -57,3 +57,5 @@ list(APPEND WebCore_SOURCES
     rendering/RenderThemeMorphOS.cpp
     page/morphos/DragControllerMorphOS.cpp
 )
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os")
