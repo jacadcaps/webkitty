@@ -518,7 +518,7 @@ dprintf("---------- objc fixup ------------\n");
 				if (!networkDelegate)
 					return nullptr;
 
-				WkWebView *newView = [[WkWebView new] autorelease];
+				WkWebView *newView = [[[self class] new] autorelease];
 				WkWebViewPrivate *newPrivateObject = [newView privateObject];
 				WebKit::WebPage *page = [newPrivateObject page];
 				if (page && page->corePage())
