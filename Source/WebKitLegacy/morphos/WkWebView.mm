@@ -364,7 +364,7 @@ dprintf("---------- objc fixup ------------\n");
 					BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
 					if (0 == icuDir)
 					{
-						[MUIRequest requestWithTitle:@"WebKit Installation Error" message:@"ICU data files must be presend in MOSSYS:Data/ICU"
+						[MUIRequest requestWithTitle:@"WebKit Installation Error" message:@"ICU data files must be present in MOSSYS:Data/ICU"
 							buttons:[OBArray arrayWithObject:@"Exit"]];
 						CloseLibrary(FreetypeBase);
 						FreetypeBase = NULL;
