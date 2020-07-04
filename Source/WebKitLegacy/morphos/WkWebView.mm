@@ -118,6 +118,8 @@ namespace  {
 	OBMutableDictionary                 *_protocolDelegates;
 	bool                                 _drawPending;
 	bool                                 _isActive;
+	bool                                 _isLoading;
+	bool                                 _hasOnlySecureContent;
 	OBURL                               *_url;
 	OBString                            *_title;
 }
@@ -265,6 +267,16 @@ namespace  {
 - (bool)isActive
 {
 	return _isActive;
+}
+
+- (void)setIsLoading:(bool)isloading
+{
+	_isLoading = isloading;
+}
+
+- (bool)isLoading
+{
+	return _isLoading;
 }
 
 @end
@@ -488,6 +500,7 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				[privateObject setIsLoading:YES];
 				[networkDelegate webView:self documentReady:NO];
 			};
 
@@ -495,6 +508,7 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				[privateObject setIsLoading:NO];
 				[networkDelegate webView:self documentReady:YES];
 			};
 			
@@ -709,7 +723,7 @@ dprintf("---------- objc fixup ------------\n");
 
 - (BOOL)loading
 {
-	return NO;
+	return [_private isLoading];
 }
 
 - (BOOL)hasOnlySecureContent

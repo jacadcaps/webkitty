@@ -74,21 +74,32 @@ extern "C" { void dprintf(const char *,...); }
 
 - (id)initWithCertificateChain:(WkCertificateChain *)chain
 {
+	MUIText *certimage;
 	if ((self = [super initWithObjects:
 		_tree = [[_WkListTree new] autorelease],
-		[MUIGroup groupWithColumns:2 objects:
-			[MUILabel label:OBL(@"Name:", @"Certificate Name")],
-			_name = [MUIText textWithContents:nil],
-			[MUILabel label:OBL(@"Issued by:", @"Certificate Name")],
-			_issuedBy = [MUIText textWithContents:nil],
-			[MUILabel label:OBL(@"Expires:", @"Certificate Name")],
-			_expires = [MUIText textWithContents:nil],
-			[MUIRectangle rectangleWithWeight:0],
-			_valid = [MUIText textWithContents:nil],
+		[MUIGroup horizontalGroupWithObjects:
+			[MUIGroup groupWithObjects:
+				certimage = [MUIText textWithContents:@"\33I[5:PROGDIR:Resources/certificate.png]"],
+				[MUIRectangle rectangleWithWeight:10],
+				nil],
+			[MUIGroup groupWithColumns:2 objects:
+				[MUILabel label:OBL(@"Name:", @"Certificate Name")],
+				_name = [MUIText textWithContents:nil],
+				[MUILabel label:OBL(@"Issued by:", @"Certificate Name")],
+				_issuedBy = [MUIText textWithContents:nil],
+				[MUILabel label:OBL(@"Expires:", @"Certificate Name")],
+				_expires = [MUIText textWithContents:nil],
+				[MUIRectangle rectangleWithWeight:0],
+				_valid = [MUIText textWithContents:nil],
+				nil],
 			nil],
 		nil]))
 	{
 		_certificateChain = [chain retain];
+		
+		[certimage setSetMax:YES];
+		[certimage setSetMin:YES];
+		[certimage setSetVMax:YES];
 		
 		OBArray *certificates = [chain certificates];
 		ULONG certs = [certificates count];
