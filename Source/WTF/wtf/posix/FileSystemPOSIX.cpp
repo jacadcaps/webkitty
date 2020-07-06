@@ -46,6 +46,8 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/text/StringHash.h>
+#include <wtf/HashMap.h>
 
 #if OS(MORPHOS)
 #include <libraries/charsets.h>
@@ -467,10 +469,23 @@ end:
     return String();
 }
 
+HashMap<String, String> tmpPathPrefixes;
+
+void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
+{
+#if OS(MORPHOS)
+	tmpPathPrefixes.add(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
+#endif
+}
+
 String openTemporaryFile(const String& prefix, PlatformFileHandle& handle)
 {
 #if OS(MORPHOS)
 	const char* tmpDir = "PROGDIR:Tmp";
+	if (tmpPathPrefixes.contains(prefix))
+	{
+		return openTemporaryFile(tmpPathPrefixes.get(prefix), prefix, handle);
+	}
 	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle);
 #else
     const char* tmpDir = getenv("TMPDIR");

@@ -130,6 +130,11 @@ public:
 
     void goActive();
     void goInactive();
+    void goVisible();
+    void goHidden();
+	
+	void startLiveResize();
+	void endLiveResize();
 	
     void setFocusedElement(WebCore::Element *);
 
@@ -170,6 +175,7 @@ private:
     bool m_orphaned { false };
     bool m_adBlocking { true };
     bool m_justWentActive { false };
+    bool m_isActive { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };

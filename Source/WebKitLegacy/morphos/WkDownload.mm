@@ -8,6 +8,7 @@
 #include <WebCore/CurlDownload.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/TextEncoding.h>
+#include <wtf/FileSystem.h>
 #define __OBJC__
 
 extern "C" { void dprintf(const char *, ...); }
@@ -291,7 +292,9 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 
 + (void)setDownloadPath:(OBString *)path
 {
-	WebCore::CurlRequest::SetDownloadPath(WTF::String::fromUTF8([path cString]));
+	const char *cpath = [path nativeCString];
+	WebCore::CurlRequest::SetDownloadPath(WTF::String(cpath, strlen(cpath), MIBENUM_SYSTEM));
+	WTF::FileSystemImpl::setTemporaryFilePathForPrefix(cpath, "download");
 }
 
 - (void)start

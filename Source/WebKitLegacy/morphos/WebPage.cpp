@@ -771,12 +771,38 @@ void WebPage::goActive()
 	corePage()->userInputBridge().focusSetActive(true);
 	corePage()->userInputBridge().focusSetFocused(true);
 	m_justWentActive = true;
+	m_isActive = true;
 }
 
 void WebPage::goInactive()
 {
 	m_justWentActive = false;
+	m_isActive = false;
 	corePage()->userInputBridge().focusSetFocused(false);
+}
+
+void WebPage::goVisible()
+{
+	corePage()->userInputBridge().focusSetActive(true);
+}
+
+void WebPage::goHidden()
+{
+	corePage()->userInputBridge().focusSetActive(false);
+}
+
+void WebPage::startLiveResize()
+{
+dprintf("%s\n", __PRETTY_FUNCTION__);
+	auto* coreFrame = m_mainFrame->coreFrame();
+	coreFrame->view()->willStartLiveResize();
+}
+
+void WebPage::endLiveResize()
+{
+dprintf("%s\n", __PRETTY_FUNCTION__);
+	auto* coreFrame = m_mainFrame->coreFrame();
+	coreFrame->view()->willEndLiveResize();
 }
 
 void WebPage::setFocusedElement(WebCore::Element *element)
@@ -1473,26 +1499,35 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case NM_WHEEL_DOWN:
 				if (mouseInside && !up)
 				{
-					float wheelTicksY = 1;
-					float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
-					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
-						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
-						0, deltaY,
-						0, wheelTicksY,
-						ScrollByPixelWheelEvent,
-						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
-						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
-						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
-						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
-						);
-					bool handled = bridge.handleWheelEvent(pke);
-					if (!handled)
+					if (m_isActive)
+					{
+						float wheelTicksY = 1;
+						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
+						WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+							WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+							0, deltaY,
+							0, wheelTicksY,
+							ScrollByPixelWheelEvent,
+							(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+							(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+							(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+							(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+							);
+						bool handled = bridge.handleWheelEvent(pke);
+						if (!handled)
+							scrollBy(0, (code == NM_WHEEL_UP) ? 50 : -50);
+					}
+					else
+					{
 						scrollBy(0, (code == NM_WHEEL_UP) ? 50 : -50);
+					}
 					return true;
 				}
 				break;
 			
 			case RAWKEY_TAB:
+				if (!m_isActive)
+					return false;
 				if (!up)
 				{
 					if (m_justWentActive)
@@ -1519,8 +1554,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				return true;
 			
 			default:
-				bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
-				return true;
+				if (m_isActive)
+				{
+					bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					return true;
+				}
+				break;
 			}
 		}
 		break;

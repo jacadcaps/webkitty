@@ -45,7 +45,7 @@ namespace  {
 @interface WkWebView ()
 
 - (void)invalidated;
-- (void)scrollToX:(int)x y:(int)y;
+- (void)scrollToX:(int)sx y:(int)sy;
 - (void)setDocumentWidth:(int)width height:(int)height;
 
 @end
@@ -119,9 +119,12 @@ namespace  {
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
+	bool                                 _isLiveResizing;
 	bool                                 _hasOnlySecureContent;
 	OBURL                               *_url;
 	OBString                            *_title;
+	int                                  _scrollX, _scrollY;
+	int                                  _documentWidth, _documentHeight;
 }
 @end
 
@@ -279,6 +282,48 @@ namespace  {
 	return _isLoading;
 }
 
+- (bool)isLiveResizing
+{
+	return _isLiveResizing;
+}
+
+- (void)setIsLiveResizing:(BOOL)resizing
+{
+	_isLiveResizing = resizing;
+}
+
+- (void)setDocumentWidth:(int)width height:(int)height
+{
+	_documentWidth = width;
+	_documentHeight = height;
+}
+
+- (int)documentWidth
+{
+	return _documentWidth;
+}
+
+- (int)documentHeight
+{
+	return _documentHeight;
+}
+
+- (void)setScrollX:(int)sx y:(int)sy
+{
+	_scrollX = sx;
+	_scrollY = sy;
+}
+
+- (int)scrollX
+{
+	return _scrollX;
+}
+
+- (int)scrollY
+{
+	return _scrollY;
+}
+
 @end
 
 @implementation WkWebView
@@ -412,7 +457,7 @@ dprintf("---------- objc fixup ------------\n");
 		}
 
 		self.fillArea = NO;
-		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER;
+		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER | IDCMP_RAWKEY;
 		[self setEventHandlerGUIMode:YES];
 		self.cycleChain = YES;
 
@@ -445,8 +490,8 @@ dprintf("---------- objc fixup ------------\n");
 				[self setDocumentWidth:width height:height];
 			};
 			
-			webPage->_fScroll = [self](int x, int y) {
-				[self scrollToX:x y:y];
+			webPage->_fScroll = [self](int sx, int sy) {
+				[self scrollToX:sx y:sy];
 			};
 			
 			webPage->_fActivateNext = [self]() {
@@ -946,12 +991,68 @@ dprintf("---------- objc fixup ------------\n");
 	return TRUE;
 }
 
+- (BOOL)show:(struct LongRect *)clip
+{
+	if ([super show:clip])
+	{
+		try {
+			auto webPage = [_private page];
+			webPage->goVisible();
+			
+			if ([_private documentWidth])
+			{
+				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+					height:[_private documentHeight]];
+				[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+			}
+		} catch (std::exception &ex) {
+			dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+		}
+		return YES;
+	}
+	
+	return NO;
+}
+
+- (void)hide
+{
+	[super hide];
+
+	try {
+		auto webPage = [_private page];
+		webPage->goHidden();
+	} catch (std::exception &ex) {
+		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+	}
+}
+
+- (void)initResize:(ULONG)flags
+{
+	[super initResize:flags];
+	[_private setIsLiveResizing:YES];
+	auto webPage = [_private page];
+	webPage->startLiveResize();
+}
+
+- (void)postExitResize
+{
+	[self redraw:MADF_DRAWOBJECT];
+}
+
+- (void)exitResize
+{
+	[super exitResize];
+	[_private setIsLiveResizing:NO];
+	auto webPage = [_private page];
+	webPage->endLiveResize();
+	[[OBRunLoop mainRunLoop] performSelector:@selector(postExitResize) target:self];
+}
+
 - (void)goActive:(ULONG)flags
 {
 	[super goActive:flags];
 
 	[_private setIsActive:true];
-	self.handledEvents = self.handledEvents | IDCMP_RAWKEY;
 	[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
 
 	try {
@@ -965,7 +1066,6 @@ dprintf("---------- objc fixup ------------\n");
 - (void)becomeInactive
 {
 	[_private setIsActive:false];
-	self.handledEvents = self.handledEvents & ~IDCMP_RAWKEY;
 	[[self windowObject] setDisableKeys:0];
 
 	try {
@@ -1072,9 +1172,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 }
 
-- (void)scrollToX:(int)x y:(int)y
+- (void)scrollToX:(int)sx y:(int)sy
 {
-	[[_private scrollingDelegate] webView:self scrolledToLeft:x top:y];
+	[_private setScrollX:sx y:sy];
+	[[_private scrollingDelegate] webView:self scrolledToLeft:sx top:sy];
 
 	if (![_private drawPending])
 	{
@@ -1085,6 +1186,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)setDocumentWidth:(int)width height:(int)height
 {
+	[_private setDocumentWidth:width height:height];
 	[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:width height:height];
 }
 
