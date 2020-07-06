@@ -46,12 +46,16 @@ private:
 	OBURL                   *_url;
 	OBString                *_filename;
 	id<WkDownloadDelegate>   _delegate;
-	BOOL                     _selfretained;
+	bool                     _selfretained;
+	bool                     _isPending;
+	bool                     _isFailed;
 }
 
 - (id<WkDownloadDelegate>)delegate;
 - (void)setFilename:(OBString *)f;
 - (void)selfrelease;
+- (void)setPending:(BOOL)pending;
+- (void)setFailed:(BOOL)failed;
 
 @end
 
@@ -136,12 +140,16 @@ void WebDownload::didReceiveDataOfLength(int size)
 
 void WebDownload::didFinish()
 {
+	[m_outerObject setPending:NO];
 	[[m_outerObject delegate] downloadDidFinish:m_outerObject];
 	[m_outerObject selfrelease];
 }
 
 void WebDownload::didFail()
 {
+	[m_outerObject setPending:NO];
+	[m_outerObject setFailed:YES];
+
 	[[m_outerObject delegate] download:m_outerObject didFailWithError:nil];
 	[m_outerObject selfrelease];
 }
@@ -160,6 +168,8 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 	{
 		_url = [url retain];
 		_delegate = [delegate retain];
+		_isPending = false;
+		_isFailed = false;
 		_download.initialize(self, _url);
 	}
 	
@@ -173,6 +183,8 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 		_delegate = [delegate retain];
 		_request = [request retain];
 		_url = [[request URL] retain];
+		_isPending = false;
+		_isFailed = false;
 		_download.initialize(self, _url);
 	}
 	
@@ -198,6 +210,7 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 {
 	if (_download.start())
 	{
+		_isPending = true;
 		@synchronized (self) {
 			if (!_selfretained)
 			{
@@ -221,11 +234,13 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 
 - (void)cancel
 {
+	_isPending = false;
 	_download.cancel();
 }
 
 - (void)cancelForResume
 {
+	_isPending = false;
 	_download.cancelForResume();
 }
 
@@ -268,12 +283,22 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 
 - (BOOL)isPending
 {
-	return 0;
+	return _isPending;
 }
 
 - (BOOL)isFailed
 {
-	return 0;
+	return _isFailed;
+}
+
+- (void)setPending:(BOOL)pending
+{
+	_isPending = pending;
+}
+
+- (void)setFailed:(BOOL)failed
+{
+	_isFailed = failed;
 }
 
 @end
