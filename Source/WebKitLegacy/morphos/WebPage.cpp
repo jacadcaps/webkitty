@@ -793,14 +793,12 @@ void WebPage::goHidden()
 
 void WebPage::startLiveResize()
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
 	auto* coreFrame = m_mainFrame->coreFrame();
 	coreFrame->view()->willStartLiveResize();
 }
 
 void WebPage::endLiveResize()
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
 	auto* coreFrame = m_mainFrame->coreFrame();
 	coreFrame->view()->willEndLiveResize();
 }
