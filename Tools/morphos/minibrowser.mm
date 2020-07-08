@@ -348,7 +348,8 @@ static int _windowID = 1;
 	{
 		MUIButton *trust;
 		[window setRootObject:[MUIGroup groupWithObjects:cv,
-		 	[MUIGroup groupWithObjects:[MUIRectangle rectangleWithWeight:100], trust = [MUIButton buttonWithLabel:@"Trust this certificate"], nil],
+		 	[MUIGroup groupWithObjects:[MUIRectangle rectangleWithWeight:100],
+		 		trust = [MUIButton buttonWithLabel:@"Trust this certificate"], nil],
 		 	nil]];
 		[trust notify:@selector(pressed) trigger:NO performSelector:@selector(trustCertificate:) withTarget:self withObject:
 			[OBArray arrayWithObjects:[[cert certificates] lastObject], _lastError ? [_lastError URL] : [_view URL], nil]];
@@ -506,6 +507,10 @@ static int _windowID = 1;
 - (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options
 {
 	return YES;
+}
+
+- (void)webViewDidLoadInsecureContent:(WkWebView *)view
+{
 }
 
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview

@@ -324,6 +324,16 @@ namespace  {
 	return _scrollY;
 }
 
+- (BOOL)hasOnlySecureContent
+{
+	return _hasOnlySecureContent;
+}
+
+- (void)setHasOnlySecureContent:(BOOL)hasOnlySecureContent
+{
+	_hasOnlySecureContent = hasOnlySecureContent;
+}
+
 @end
 
 @implementation WkWebView
@@ -537,6 +547,7 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				auto uurl = url.utf8();
 				OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+				[privateObject setHasOnlySecureContent:YES];
 				[privateObject setURL:ourl];
 				[networkDelegate webView:self changedDocumentURL:ourl];
 			};
@@ -555,6 +566,14 @@ dprintf("---------- objc fixup ------------\n");
 				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
 				[privateObject setIsLoading:NO];
 				[networkDelegate webView:self documentReady:YES];
+			};
+
+			webPage->_fDidLoadInsecureContent = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				[privateObject setHasOnlySecureContent:NO];
+				[networkDelegate webViewDidLoadInsecureContent:self];
 			};
 			
 			webPage->_fCanOpenWindow = [self](const WTF::String& url, const WebCore::WindowFeatures&) -> bool {
@@ -736,6 +755,7 @@ dprintf("---------- objc fixup ------------\n");
 	try {
 		const char *curi = [[url absoluteString] cString];
 		auto webPage = [_private page];
+		[_private setURL:url];
 		webPage->load(curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
@@ -773,7 +793,7 @@ dprintf("---------- objc fixup ------------\n");
 
 - (BOOL)hasOnlySecureContent
 {
-	return NO;
+	return [_private hasOnlySecureContent];
 }
 
 - (BOOL)canGoBack

@@ -56,6 +56,18 @@ extern "C" { void dprintf(const char *,...); }
 
 @implementation _WkListTree
 
+- (id)init
+{
+	if ((self = [super init]))
+	{
+		[self setDragDropSort:NO];
+		[self setFrame:MUIV_Frame_ReadList];
+		[self setCycleChain:YES];
+	}
+	
+	return self;
+}
+
 - (Boopsiobject *)instantiateTagList:(struct TagItem *)tags
 {
 	struct TagItem atags[] = { MUIA_List_AdjustHeight, TRUE, TAG_MORE, (IPTR)tags };
@@ -74,13 +86,12 @@ extern "C" { void dprintf(const char *,...); }
 
 - (id)initWithCertificateChain:(WkCertificateChain *)chain
 {
-	MUIText *certimage;
+	MUIGroup *left;
 	if ((self = [super initWithObjects:
 		_tree = [[_WkListTree new] autorelease],
 		[MUIGroup horizontalGroupWithObjects:
-			[MUIGroup groupWithObjects:
-				certimage = [MUIText textWithContents:@"\33I[5:PROGDIR:Resources/certificate.png]"],
-				[MUIRectangle rectangleWithWeight:10],
+			left = [MUIGroup groupWithObjects:
+				[MUIDtpic dtpicWithFileName:@"PROGDIR:Resources/certificate.png"],
 				nil],
 			[MUIGroup groupWithColumns:2 objects:
 				[MUILabel label:OBL(@"Name:", @"Certificate Name")],
@@ -97,9 +108,7 @@ extern "C" { void dprintf(const char *,...); }
 	{
 		_certificateChain = [chain retain];
 		
-		[certimage setSetMax:YES];
-		[certimage setSetMin:YES];
-		[certimage setSetVMax:YES];
+		[left setHorizWeight:0];
 		
 		OBArray *certificates = [chain certificates];
 		ULONG certs = [certificates count];
@@ -116,7 +125,6 @@ extern "C" { void dprintf(const char *,...); }
 		}
 		
 		[_tree notify:@selector(active) performSelector:@selector(certificateSelected) withTarget:self];
-		[_tree setActive:last];
 	}
 	
 	return self;
@@ -131,6 +139,16 @@ extern "C" { void dprintf(const char *,...); }
 + (WkCertificateVerifier *)verifierForCertificateChain:(WkCertificateChain *)chain
 {
 	return [[[self alloc] initWithCertificateChain:chain] autorelease];
+}
+
+- (BOOL)setup
+{
+	if ([super setup])
+	{
+		[_tree setValue:MUIV_List_Active_Bottom forAttribute:MUIA_List_Active]; // hah
+		return YES;
+	}
+	return NO;
 }
 
 - (WkCertificateChain *)certificateChain

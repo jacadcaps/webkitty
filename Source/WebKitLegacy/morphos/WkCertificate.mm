@@ -19,6 +19,7 @@ static X509_STORE     *_store;
 	OBData       *_data;
 	BOOL          _decoded;
 	BOOL          _valid;
+	BOOL          _validOverride;
 	BOOL          _selfSigned;
 	OBDictionary *_subjectName;
 	OBDictionary *_issuerName;
@@ -178,10 +179,6 @@ static X509_STORE     *_store;
 	{
 		X509* cert = [self _cert];
 
-#if 0
-	dprintf("%s: %d ceert %p len %d bytes %p %c%c%c%c\n", __PRETTY_FUNCTION__, __LINE__, cert, [_data length], bytes, bytes[0], bytes[1], bytes[2], bytes[3]);
-#endif
-
 		_decoded = YES;
 
 		if (cert)
@@ -226,15 +223,11 @@ static X509_STORE     *_store;
 			_validNotAfter = [[self _convertASN1TIME:X509_get_notAfter(cert)] retain];
 			_validNotBefore = [[self _convertASN1TIME:X509_get_notBefore(cert)] retain];
 
-			_valid = X509_check_ca(cert) > 0;
+			if (!_validOverride)
+				_valid = X509_check_ca(cert) > 0;
 			_selfSigned = X509_check_issued(cert, cert) == X509_V_OK;
 
 			X509_free(cert);
-			
-#if 0
-			dprintf("cert %p valid %d self %d\nsn %s\nin %s\n%s>%s\n", self, _valid, _selfSigned, [[_issuerName description] cString], [[_subjectName description] cString],
-				[_validNotBefore cString], [_validNotAfter cString]);
-#endif
 		}
 	}
 }
@@ -254,6 +247,7 @@ static X509_STORE     *_store;
 - (void)setValid:(BOOL)valid
 {
 	_valid = valid;
+	_validOverride = YES;
 }
 
 - (BOOL)isSelfSigned

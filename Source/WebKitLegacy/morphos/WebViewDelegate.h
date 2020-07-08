@@ -28,6 +28,7 @@ struct WebViewDelegate
 	std::function<void(void)>                            _fHistoryChanged;
 	std::function<void(const WebCore::ResourceError &)>  _fDidFailWithError;
 	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
+	std::function<void()>                                _fDidLoadInsecureContent;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)> _fCanOpenWindow;
 	std::function<WebCore::Page*(void)> _fDoOpenWindow;
@@ -58,5 +59,6 @@ struct WebViewDelegate
 		_fDidFailWithError = nullptr;
 		_fCanHandleRequest = nullptr;
 		_fDownload = nullptr;
+		_fDidLoadInsecureContent = nullptr;
 	};
 };

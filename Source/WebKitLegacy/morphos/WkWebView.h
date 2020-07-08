@@ -31,6 +31,8 @@
 - (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options;
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview;
 
+- (void)webViewDidLoadInsecureContent:(WkWebView *)view;
+
 @end
 
 @protocol WkWebViewBackForwardListDelegate <OBObject>

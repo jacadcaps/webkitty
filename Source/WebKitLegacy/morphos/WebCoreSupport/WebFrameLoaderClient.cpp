@@ -471,6 +471,11 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
 	{
 		webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
 	}
+	
+	if (hasInsecureContent && m_frame->isMainFrame() && webPage->_fDidLoadInsecureContent)
+	{
+		webPage->_fDidLoadInsecureContent();
+	}
 
 #if 0
     WebDocumentLoader& documentLoader = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader());
