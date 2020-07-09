@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 08.07.20202
+	- Video/Audio element stubs
+
 - 06.07.2020
 	- Improvements in resize, wheel handling
 	- Tmp download files are now being created in the dest download path
