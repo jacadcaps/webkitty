@@ -24,16 +24,56 @@
  */
 
 #include "config.h"
-#include "EventLoop.h"
 
-#include <wtf/RunLoop.h>
+#if ENABLE(WEB_AUDIO)
+#include "AudioDestinationMorphOS.h"
+#include "AudioChannel.h"
+#include "AudioSourceProvider.h"
+#include "NotImplemented.h"
 
 namespace WebCore {
 
-void EventLoop::cycle()
+static const unsigned framesToPull = 128;
+
+float AudioDestination::hardwareSampleRate()
 {
-// TODO MORPHOS
-    RunLoop::iterate();
+	return 44100.f;
 }
 
-} // namespace WebCore
+unsigned long AudioDestination::AudioDestination::maxChannelCount()
+{
+	return 0; // stereo
+}
+
+std::unique_ptr<AudioDestination> AudioDestination::create(AudioIOCallback& callback, const String&, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+{
+    return makeUnique<AudioDestinationMorphOS>(callback, sampleRate);
+}
+
+AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float sampleRate)
+	: m_callback(callback)
+	, m_renderBus(AudioBus::create(2, framesToPull, false))
+	, m_sampleRate(sampleRate)
+	, m_isPlaying(false)
+{
+	notImplemented();
+}
+
+AudioDestinationMorphOS::~AudioDestinationMorphOS()
+{
+
+}
+
+void AudioDestinationMorphOS::start()
+{
+	notImplemented();
+}
+
+void AudioDestinationMorphOS::stop()
+{
+
+}
+
+}
+
+#endif

@@ -22,18 +22,34 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+#pragma once
+#include "AudioBus.h"
+#include "AudioDestination.h"
 
-#include "config.h"
-#include "EventLoop.h"
-
-#include <wtf/RunLoop.h>
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
-void EventLoop::cycle()
-{
-// TODO MORPHOS
-    RunLoop::iterate();
-}
+class AudioDestinationMorphOS : public AudioDestination {
+public:
+    AudioDestinationMorphOS(AudioIOCallback&, float sampleRate);
+    ~AudioDestinationMorphOS();
+
+    void start() override;
+    void stop() override;
+
+    bool isPlaying() override { return m_isPlaying; }
+    float sampleRate() const override { return m_sampleRate; }
+    AudioIOCallback& callback() const { return m_callback; }
+
+private:
+    AudioIOCallback& m_callback;
+    RefPtr<AudioBus> m_renderBus;
+
+    float m_sampleRate;
+    bool m_isPlaying;
+    bool m_audioSinkAvailable;
+};
 
 } // namespace WebCore
+

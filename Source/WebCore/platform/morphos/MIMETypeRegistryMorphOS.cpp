@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Sony Interactive Entertainment Inc.
+ * Copyright (C) 2020 Jacek Piszczek
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions

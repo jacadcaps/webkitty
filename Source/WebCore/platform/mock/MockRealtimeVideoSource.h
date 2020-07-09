@@ -54,7 +54,7 @@ public:
 protected:
     MockRealtimeVideoSource(String&& deviceID, String&& name, String&& hashSalt);
 
-    virtual void updateSampleBuffer() = 0;
+    virtual void updateSampleBuffer() { };
 
     void setCurrentFrame(MediaSample&);
     ImageBuffer* imageBuffer() const;

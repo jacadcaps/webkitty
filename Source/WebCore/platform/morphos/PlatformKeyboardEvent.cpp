@@ -3,6 +3,7 @@
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
  * Copyright (C) 2007 Holger Hans Peter Freyther
  * Copyright (C) 2008 Collabora, Ltd.  All rights reserved.
+ * Copyright (C) 2020 Jacek Piszczek
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
