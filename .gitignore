@@ -20,3 +20,5 @@ Dummy/libdummy.a
 link.sh
 webkitty.tar.xz
 webkitty.lha
+ffmpeg/ffmpeg-2.8.15
+ffmpeg/instdir

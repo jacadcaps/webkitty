@@ -65,6 +65,7 @@ find_package(LibGcrypt 1.6.0 REQUIRED)
 find_package(LibXslt 1.1.32 REQUIRED)
 find_package(Libtasn1 REQUIRED)
 find_package(WebP 1.0.0 REQUIRED)
+find_package(ffmpeg REQUIRED)
 
 SET_AND_EXPOSE_TO_BUILD(USE_CAIRO ON)
 SET_AND_EXPOSE_TO_BUILD(USE_CURL ON)

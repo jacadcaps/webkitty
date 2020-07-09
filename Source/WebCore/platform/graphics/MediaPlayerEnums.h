@@ -98,6 +98,7 @@ public:
         HolePunch,
         MediaFoundation,
         MockMSE,
+        MorphOS
     };
 };
 
@@ -220,7 +221,8 @@ template<> struct EnumTraits<WebCore::MediaPlayerEnums::MediaEngineIdentifier> {
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::GStreamerMSE,
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::HolePunch,
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::MediaFoundation,
-        WebCore::MediaPlayerEnums::MediaEngineIdentifier::MockMSE
+        WebCore::MediaPlayerEnums::MediaEngineIdentifier::MockMSE,
+        WebCore::MediaPlayerEnums::MediaEngineIdentifier::MorphOS
     >;
 };
 

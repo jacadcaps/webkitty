@@ -431,12 +431,11 @@ static int _windowID = 1;
 
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
-		ADDBUTTON(@"BBC", @"https://www.bbc.com/news/");
-		ADDBUTTON(@"MZone", @"https://morph.zone/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
 		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
 		ADDBUTTON(@"Teleg", @"https://web.telegram.org");
 		ADDBUTTON(@"Gif", @"https://media.giphy.com/media/dC4FTacOCkOKRYIRqw/source.gif");
+		ADDBUTTON(@"Audio", @"http://hpr.dogphilosophy.net/test/");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 

@@ -67,7 +67,7 @@ jscore-pack:
 		./WebKitBuild/Release/Source/JavaScriptCore/shell/testmasm \
 		 JSTests LayoutTests PerformanceTests
 
-configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a
+configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
 	rm -rf cross-build
 	mkdir cross-build
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
@@ -98,6 +98,10 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
+		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DAVUTIL_LIBRARY="ffmpeg/instdir/lib/libavutil.a" -DAVUTIL_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DSWSCALE_LIBRARY="ffmpeg/instdir/lib/libswscale.a" -DSWSCALE_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
@@ -132,6 +136,9 @@ Dummy/libdummy.a:
 	ppc-morphos-ar rc Dummy/libdummy.a Dummy/dummy.o
 	ppc-morphos-ranlib Dummy/libdummy.a
 	cp Dummy/libdummy.a Dummy/libdl.a
+
+ffmpeg/.buildstamp:
+	cd ffmpeg && make
 
 miniscp:
 	scp cross-build/Tools/morphos/MiniBrowser jaca@192.168.2.5:/Users/jaca

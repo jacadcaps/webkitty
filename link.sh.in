@@ -5,6 +5,12 @@
 ../../Source/JavaScriptCore/libJavaScriptCore.a \
 ../../Source/WTF/wtf/libWTF.a \
 -Wl,--no-whole-archive \
+../../../ffmpeg/instdir/lib/libavdevice.a \
+../../../ffmpeg/instdir/lib/libavformat.a \
+../../../ffmpeg/instdir/lib/libavcodec.a \
+../../../ffmpeg/instdir/lib/libavutil.a \
+../../../ffmpeg/instdir/lib/libswscale.a \
+../../../ffmpeg/instdir/lib/libswresample.a \
 _IN_ROOTPATH/lib/libxml2/instdir/lib/libxml2.a \
 _IN_ROOTPATH/lib/libxslt/instdir/lib/libxslt.a \
 _IN_ROOTPATH/lib/sqlite/instdir/lib/libsqlite3.a \

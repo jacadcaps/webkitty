@@ -24,6 +24,7 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
     ${ZLIB_INCLUDE_DIRS}
     ${WPE_INCLUDE_DIRS}
     ${HYPHEN_INCLUDE_DIRS}
+    ${AVCODEC_INCLUDE_DIR}
 )
 
 list(APPEND WebCore_LIBRARIES
@@ -60,6 +61,8 @@ list(APPEND WebCore_SOURCES
     platform/audio/morphos/AudioDestinationMorphOS.cpp
     platform/audio/morphos/AudioBusMorphOS.cpp
     platform/audio/morphos/AudioFileReaderMorphOS.cpp
+    platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
+    platform/graphics/morphos/acinerella.c
 )
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os")
