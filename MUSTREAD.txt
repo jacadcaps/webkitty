@@ -13,7 +13,10 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
-- 08.07.20202
+- 09.07.2020
+	- Fixed the crash on quit (Piru)
+
+- 08.07.2020
 	- Video/Audio element stubs
 
 - 06.07.2020

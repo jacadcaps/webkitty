@@ -17,12 +17,12 @@ namespace WebCore {
 static MediaPlayerPrivateMorphOSSettings m_playerSettings;
 
 class MediaPlayerFactoryMediaSourceMorphOS final : public MediaPlayerFactory {
-private:
+public:
     MediaPlayerEnums::MediaEngineIdentifier identifier() const final { return MediaPlayerEnums::MediaEngineIdentifier::MorphOS; };
 
     std::unique_ptr<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer* player) const final { return makeUnique<MediaPlayerPrivateMorphOS>(player); }
 
-    void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types) const final
+    static void s_getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types)
     {
     	if (m_playerSettings.m_enableAudio)
     	{
@@ -65,7 +65,12 @@ private:
 		}
     }
 
-    MediaPlayer::SupportsType supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters) const final
+	void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types) const final
+	{
+		s_getSupportedTypes(types);
+	}
+
+    static MediaPlayer::SupportsType s_supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters)
     {
 		D(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d\n", __PRETTY_FUNCTION__,
 			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream));
@@ -73,12 +78,17 @@ private:
 		if (containerType.isEmpty())
 			return MediaPlayer::SupportsType::MayBeSupported;
 		HashSet<String, ASCIICaseInsensitiveHash> types;
-		getSupportedTypes(types);
+		s_getSupportedTypes(types);
 		D(dprintf("%s: contains? %d\n", __PRETTY_FUNCTION__, types.contains(containerType)));
 		if (types.contains(containerType))
 			return parameters.type.codecs().isEmpty() ? MediaPlayer::SupportsType::MayBeSupported : MediaPlayer::SupportsType::IsSupported;
         return MediaPlayer::SupportsType::IsNotSupported;
     }
+	
+    MediaPlayer::SupportsType supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters) const final
+    {
+    	return s_supportsTypeAndCodecs(parameters);
+	}
 };
 
 MediaPlayerPrivateMorphOSSettings &MediaPlayerPrivateMorphOS::settings()
@@ -104,14 +114,12 @@ void MediaPlayerPrivateMorphOS::registerMediaEngine(MediaEngineRegistrar registr
 
 MediaPlayer::SupportsType MediaPlayerPrivateMorphOS::extendedSupportsType(const MediaEngineSupportParameters& parameters, MediaPlayer::SupportsType type)
 {
-	dprintf("%s: url '%s' content '%s'\n", __PRETTY_FUNCTION__,
-		parameters.url.string().utf8().data(), parameters.type.raw().utf8().data());
-	return MediaPlayer::SupportsType::IsNotSupported;
+	return MediaPlayerFactoryMediaSourceMorphOS::s_supportsTypeAndCodecs(parameters);
 }
 
 bool MediaPlayerPrivateMorphOS::supportsKeySystem(const String& keySystem, const String& mimeType)
 {
-	notImplemented();
+	// this encrypted media support, which we don't have
 	return false;
 }
 
