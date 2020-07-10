@@ -558,8 +558,7 @@ bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
         return false;
 
     if (absoluteTime > WallTime::fromRawSeconds(INT_MAX)) {
-        wait(mutex);
-        return true;
+        return pthread_cond_wait(&m_condition, &mutex.impl()) == 0;
     }
 
     double rawSeconds = absoluteTime.secondsSinceEpoch().value();
