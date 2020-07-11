@@ -13,6 +13,8 @@
 
 extern "C" { void dprintf(const char *, ...); }
 
+#define D(x) x
+
 @class _WkDownload;
 
 class WebDownload final : public WebCore::CurlDownloadListener
@@ -83,6 +85,7 @@ bool WebDownload::start()
 
 bool WebDownload::cancel()
 {
+	D(dprintf("%s: dl %p\n", __PRETTY_FUNCTION__, m_download));
 	if (!m_download)
 		return true;
 	if (!m_download->cancel())
@@ -94,11 +97,13 @@ bool WebDownload::cancel()
 
 bool WebDownload::cancelForResume()
 {
+	D(dprintf("%s: dl %p\n", __PRETTY_FUNCTION__, m_download));
 	if (!m_download)
 		return true;
 	if (!m_download->cancel())
 		return false;
 	m_download->setListener(nullptr);
+	m_download = nullptr;
 	// TODO ?
 	return true;
 }

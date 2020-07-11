@@ -8,6 +8,8 @@
 @class WkCertificate;
 @class WkCertificateChain;
 @class WkError;
+@protocol WkFileDialogSettings;
+@protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
 
 @protocol WkWebViewScrollingDelegate <OBObject>
@@ -58,6 +60,15 @@ typedef enum {
 @protocol WkWebViewNetworkProtocolHandlerDelegate <OBObject>
 
 - (void)webView:(WkWebView *)view wantsToNavigateToCustomProtocol:(OBString *)protocol withArguments:(OBString *)arguments;
+
+@end
+
+@protocol WkWebViewDialogDelegate <OBObject>
+
+- (void)webView:(WkWebView *)view wantsToOpenFileSelectionPanelWithSettings:(id<WkFileDialogSettings>)settings responseHandler:(id<WkFileDialogResponseHandler>)handler;
+- (void)webView:(WkWebView *)view wantsToShowJavaScriptAlertWithMessage:(OBString *)message;
+- (BOOL)webView:(WkWebView *)view wantsToShowJavaScriptConfirmPanelWithMessage:(OBString *)message;
+- (OBString *)webView:(WkWebView *)view wantsToShowJavaScriptPromptPanelWithMessage:(OBString *)message defaultValue:(OBString *)defaultValue;
 
 @end
 
@@ -117,6 +128,7 @@ typedef enum {
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate;
 - (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate;
+- (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate;
 
 - (void)dumpDebug;
 

@@ -249,37 +249,22 @@ void WebChromeClient::closeWindowSoon()
 
 void WebChromeClient::runJavaScriptAlert(Frame&, const String& message)
 {
-	notImplemented();
-
+	if (m_webPage._fAlert)
+		m_webPage._fAlert(message);
 }
 
 bool WebChromeClient::runJavaScriptConfirm(Frame&, const String& message)
 {
-	notImplemented();
+	if (m_webPage._fConfirm)
+		return m_webPage._fConfirm(message);
 	return false;
 }
 
 bool WebChromeClient::runJavaScriptPrompt(Frame&, const String& message, const String& defaultValue, String& result)
 {
-	notImplemented();
+	if (m_webPage._fPrompt)
+		return m_webPage._fPrompt(message, defaultValue, result);
 	return false;
-#if 0
-    COMPtr<IWebUIDelegate> ui;
-    if (FAILED(m_webPage.uiDelegate(&ui)))
-        return false;
-
-    TimerBase::fireTimersInNestedEventLoop();
-
-    BString resultBSTR;
-    if (FAILED(ui->runJavaScriptTextInputPanelWithPrompt(m_webPage, BString(message), BString(defaultValue), &resultBSTR)))
-        return false;
-
-    if (!resultBSTR)
-        return false;
-
-    result = String(resultBSTR, SysStringLen(resultBSTR));
-    return true;
-#endif
 }
 
 void WebChromeClient::setStatusbarText(const String& statusText)
@@ -394,6 +379,8 @@ void WebChromeClient::reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_
 
 void WebChromeClient::runOpenPanel(Frame&, FileChooser& fileChooser)
 {
+	if (m_webPage._fFile)
+		m_webPage._fFile(fileChooser);
 }
 
 void WebChromeClient::loadIconForFiles(const Vector<WTF::String>& filenames, WebCore::FileIconLoader& loader)

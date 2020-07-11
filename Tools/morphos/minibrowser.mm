@@ -6,6 +6,9 @@
 #include <proto/dos.h>
 #include <cairo.h>
 #include <stdio.h>
+#import <proto/muimaster.h>
+#import <libraries/asl.h>
+#import <clib/alib_protos.h>
 
 #include <signal.h>
 #include <locale.h>
@@ -25,8 +28,9 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkCertificateViewer.h>
 #import <WebKitLegacy/morphos/WkError.h>
 #import <WebKitLegacy/morphos/WkDownload.h>
+#import <WebKitLegacy/morphos/WkFileDialog.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -402,6 +406,7 @@ static int _windowID = 1;
 		[_view setBackForwardListDelegate:self];
 		[_view setCustomProtocolHandler:self forProtocol:@"mini"];
 		[_view setDownloadDelegate:[BrowserDownloadWindow sharedInstance]];
+		[_view setDialogDelegate:self];
 
 		[_back notify:@selector(pressed) trigger:NO performSelector:@selector(goBack) withTarget:_view];
 		[_forward notify:@selector(pressed) trigger:NO performSelector:@selector(goForward) withTarget:_view];
@@ -429,6 +434,7 @@ static int _windowID = 1;
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
+		ADDBUTTON(@"MTDL", @"https://morphos-team.net/downloads");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
@@ -569,6 +575,117 @@ static int _windowID = 1;
 	}
 }
 
+- (OBString *)aslFile:(OBString *)oldpath title:(OBString *)title doSave:(BOOL)save reference:(MUIArea *)ref
+{
+        APTR requester = MUI_AllocAslRequest(ASL_FileRequest, NULL);
+        OBString *path = nil;
+
+        if (MUI_AslRequestTags(requester,
+                ASLFR_Window, [ref window],
+                ASLFR_TitleText, [title nativeCString],
+                ASLFR_DoSaveMode, save,
+                oldpath ? ASLFR_InitialDrawer : TAG_IGNORE, [[oldpath pathPart] nativeCString],
+                oldpath ? ASLFR_InitialFile : TAG_IGNORE, [[oldpath filePart] nativeCString],
+                TAG_DONE))
+        {
+                struct FileRequester *aslfr = (struct FileRequester *)requester;
+                OBString *drawer = [OBString stringWithCString:aslfr->fr_Drawer encoding:MIBENUM_SYSTEM];
+                OBString *fileName = [OBString stringWithCString:aslfr->fr_File encoding:MIBENUM_SYSTEM];
+                path = drawer;
+                if (path)
+                        path = [path stringByAddingPathComponent:fileName];
+                else
+                        path = fileName;
+                path = [path absolutePath];
+
+                if (path && save)
+                {
+                        BPTR lock = Lock([path nativeCString], ACCESS_READ);
+                        if (lock)
+                        {
+                                UnLock(lock);
+
+                                if (0 == [MUIRequest request:NULL title:@"JSPopup" message:[OBString stringWithFormat:OBL(@"File %@ already exists!", @"File overwrite requester"), fileName]
+                                        buttons:[OBArray arrayWithObjects:OBL(@"Overwrite", @"File overwrite requester button"), @"Cancel", nil]])
+                                        return nil;
+                        }
+                }
+        }
+
+        MUI_FreeAslRequest(requester);
+
+        return path;
+}
+
+- (OBArray *)aslFiles:(OBString *)oldpath title:(OBString *)title reference:(MUIArea *)ref
+{
+        APTR requester = MUI_AllocAslRequest(ASL_FileRequest, NULL);
+
+        if (MUI_AslRequestTags(requester,
+                ASLFR_Window, [ref window],
+                ASLFR_TitleText, [title nativeCString],
+                ASLFR_DoMultiSelect, YES,
+                oldpath ? ASLFR_InitialDrawer : TAG_IGNORE, [[oldpath pathPart] nativeCString],
+                oldpath ? ASLFR_InitialFile : TAG_IGNORE, [[oldpath filePart] nativeCString],
+                TAG_DONE))
+        {
+                struct FileRequester *aslfr = (struct FileRequester *)requester;
+                OBString *drawer = [OBString stringWithCString:aslfr->fr_Drawer encoding:MIBENUM_SYSTEM];
+                OBMutableArray *out = [OBMutableArray arrayWithCapacity:aslfr->fr_NumArgs];
+
+                for (LONG i = 0; i < aslfr->fr_NumArgs; i++)
+                {
+                        OBString *fileName = [OBString stringWithCString:(const char *)aslfr->fr_ArgList[i].wa_Name encoding:MIBENUM_SYSTEM];
+                        OBString *path = nil;
+
+                        path = drawer;
+                        if (path)
+                                path = [path stringByAddingPathComponent:fileName];
+                        else
+                                path = fileName;
+                        path = [path absolutePath];
+                        [out addObject:path];
+                }
+
+                return out;
+        }
+
+        MUI_FreeAslRequest(requester);
+
+        return nil;
+}
+
+- (void)webView:(WkWebView *)view wantsToOpenFileSelectionPanelWithSettings:(id<WkFileDialogSettings>)settings responseHandler:(id<WkFileDialogResponseHandler>)handler
+{
+	if ([settings allowsMultipleFiles])
+	{
+		OBArray *files = [self aslFiles:@"" title:@"JSPopup" reference:[self rootObject]];
+		[handler selectedFiles:files];
+	}
+	else
+	{
+		OBString *file = [self aslFile:@"" title:@"JSPopup" doSave:NO reference:[self rootObject]];
+		[handler selectedFile:file];
+	}
+}
+
+- (void)webView:(WkWebView *)view wantsToShowJavaScriptAlertWithMessage:(OBString *)message
+{
+	[MUIRequest request:self title:@"JSAlert" message:message buttons:[OBArray arrayWithObject:@"OK"]];
+}
+
+- (BOOL)webView:(WkWebView *)view wantsToShowJavaScriptConfirmPanelWithMessage:(OBString *)message
+{
+	if (1 == [MUIRequest request:self title:@"JSAlert" message:message buttons:[OBArray arrayWithObjects:@"OK", @"Cancel", nil]])
+		return YES;
+	return NO;
+}
+
+- (OBString *)webView:(WkWebView *)view wantsToShowJavaScriptPromptPanelWithMessage:(OBString *)message defaultValue:(OBString *)defaultValue
+{
+	return defaultValue;
+}
+
 @end
 
 @implementation BrowserLogWindow
@@ -704,18 +821,36 @@ static int _windowID = 1;
 
 static BrowserDownloadWindow *_instance;
 
+- (void)onCancel
+{
+	WkDownload *dl = [_downloads objectAtIndex:[_downloads active]];
+	if (dl)
+	{
+		dprintf("%s\n", __PRETTY_FUNCTION__);
+		[dl cancelForResume];
+	}
+}
+
 - (id)init
 {
 	if ((self = [super init]))
 	{
+		MUIButton *cancel;
 		[self setTitle:@"Downloads"];
 		[self setRootObject:[MUIGroup groupWithObjects:
 			_downloads = [[MUIList new] autorelease],
+			[MUIGroup horizontalGroupWithObjects:
+				[MUIRectangle rectangleWithWeight:200],
+				cancel = [MUIButton buttonWithLabel:@"Cancel"],
+			 	nil],
 			nil]];
 		
 		_downloads.title = YES;
 		_downloads.titles = [OBArray arrayWithObjects:@"URL", @"File", @"Progress", nil];
 		_downloads.format = @"BAR,BAR,";
+		
+		[self setID:200];
+		[cancel notify:@selector(pressed) trigger:NO performSelector:@selector(onCancel) withTarget:self];
 	}
 	
 	return self;
@@ -755,7 +890,7 @@ static BrowserDownloadWindow *_instance;
 
 - (void)download:(WkDownload *)download didReceiveBytes:(size_t)bytes
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
 	[_downloads redraw:[_downloads indexOfObject:download]];
 }
 

@@ -10,6 +10,7 @@
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceHandle.h>
+#import <WebCore/FileChooser.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -21,6 +22,7 @@
 #import "WkCertificate_private.h"
 #import "WkError_private.h"
 #import "WkDownload_private.h"
+#import "WkFileDialog_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -115,6 +117,7 @@ namespace  {
 	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
 	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
 	id<WkDownloadDelegate>               _downloadDelegate;
+	id<WkWebViewDialogDelegate>          _dialogDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	bool                                 _drawPending;
 	bool                                 _isActive;
@@ -242,6 +245,16 @@ namespace  {
 - (id<WkDownloadDelegate>)downloadDelegate
 {
 	return _downloadDelegate;
+}
+
+- (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate
+{
+	_dialogDelegate = delegate;
+}
+
+- (id<WkWebViewDialogDelegate>)dialogDelegate
+{
+	return _dialogDelegate;
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
@@ -700,7 +713,59 @@ dprintf("---------- objc fixup ------------\n");
 					[download start];
 				}
 			};
+			
+			webPage->_fAlert = [self](const WTF::String &alert) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+				if (dialogDelegate)
+				{
+					auto uurl = alert.utf8();
+					[dialogDelegate webView:self wantsToShowJavaScriptAlertWithMessage:[OBString stringWithUTF8String:uurl.data()]];
+				}
+			};
 
+			webPage->_fConfirm = [self](const WTF::String &confirm) -> bool {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+				if (dialogDelegate)
+				{
+					auto uurl = confirm.utf8();
+					return [dialogDelegate webView:self wantsToShowJavaScriptConfirmPanelWithMessage:[OBString stringWithUTF8String:uurl.data()]];
+				}
+				return false;
+			};
+			
+			webPage->_fPrompt = [self](const WTF::String &prompt, const WTF::String &defaults, WTF::String &out) -> bool {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+				if (dialogDelegate)
+				{
+					auto uprompt = prompt.utf8();
+					auto udefaults = defaults.utf8();
+					OBString *rc = [dialogDelegate webView:self wantsToShowJavaScriptPromptPanelWithMessage:[OBString stringWithUTF8String:uprompt.data()] defaultValue:[OBString stringWithUTF8String:udefaults.data()]];
+					if (rc)
+					{
+						out = WTF::String::fromUTF8([rc cString]);
+						return true;
+					}
+				}
+				return false;
+			};
+			
+			webPage->_fFile = [self](WebCore::FileChooser&chooser) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+				if (dialogDelegate)
+				{
+					WkFileDialogResponseHandlerPrivate *fd = [[[WkFileDialogResponseHandlerPrivate alloc] initWithChooser:chooser] autorelease];
+					[dialogDelegate webView:self wantsToOpenFileSelectionPanelWithSettings:fd responseHandler:fd];
+				}
+			};
+			
 		} catch (...) {
 			[self release];
 			return nil;
@@ -1228,6 +1293,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate
 {
 	[_private setDownloadDelegate:delegate];
+}
+
+- (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate
+{
+	[_private setDialogDelegate:delegate];
 }
 
 @end

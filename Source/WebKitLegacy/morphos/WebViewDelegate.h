@@ -9,6 +9,7 @@ namespace WebCore {
 	class WindowFeatures;
 	class ResourceError;
 	class ResourceRequest;
+	class FileChooser;
 };
 
 struct WebViewDelegate
@@ -38,6 +39,11 @@ struct WebViewDelegate
 	std::function<void(const WTF::String&, int level, unsigned int line)> _fConsole;
 	
 	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)> _fDownload;
+	
+	std::function<void(const WTF::String &)>                              _fAlert;
+	std::function<bool(const WTF::String &)>                              _fConfirm;
+	std::function<bool(const WTF::String &, const WTF::String &, WTF::String &) > _fPrompt;
+	std::function<void(WebCore::FileChooser&)>                            _fFile;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -60,5 +66,9 @@ struct WebViewDelegate
 		_fCanHandleRequest = nullptr;
 		_fDownload = nullptr;
 		_fDidLoadInsecureContent = nullptr;
+		_fAlert = nullptr;
+		_fConfirm = nullptr;
+		_fPrompt = nullptr;
+		_fFile = nullptr;
 	};
 };
