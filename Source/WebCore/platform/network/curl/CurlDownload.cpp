@@ -69,7 +69,7 @@ bool CurlDownload::cancel()
 {
     m_isCancelled = true;
 
-    if (!m_curlRequest)
+    if (m_curlRequest)
         m_curlRequest->cancel();
 
     return true;
