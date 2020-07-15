@@ -13,6 +13,13 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 14.07.2020
+	- Internal MIME type handling
+	- Download delegation of non-displayable MIME types
+
+- 12.07.2020
+	- JS Alerts and file selection
+
 - 09.07.2020
 	- Fixed the crash on quit (Piru)
 

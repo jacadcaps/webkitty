@@ -21,6 +21,7 @@ class WebDownload final : public WebCore::CurlDownloadListener
 {
 public:
 	void initialize(_WkDownload *outer, OBURL *url);
+	void initialize(_WkDownload *outer, WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response);
 	bool start();
 	bool cancel();
 	bool cancelForResume();
@@ -69,6 +70,16 @@ void WebDownload::initialize(_WkDownload *outer, OBURL *url)
 	{
 		WTF::URL wurl(WTF::URL(), [[url absoluteString] cString]);
 		m_download->init(*this, wurl);
+	}
+}
+
+void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle, const WebCore::ResourceRequest&request, const WebCore::ResourceResponse& response)
+{
+	m_outerObject = outer;
+	m_download = adoptRef(new WebCore::CurlDownload());
+	if (m_download)
+	{
+		m_download->init(*this, handle, request, response);
 	}
 }
 
@@ -196,6 +207,20 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 	return self;
 }
 
+- (WkDownload *)initWithHandle:(WebCore::ResourceHandle*)handle request:(const WebCore::ResourceRequest&)request response:(const WebCore::ResourceResponse&)response withDelegate:(id<WkDownloadDelegate>)delegate
+{
+	if ((self = [super init]))
+	{
+		auto uurl = response.url().string().utf8();
+		_url = [[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] retain];
+		_delegate = [delegate retain];
+		_isPending = false;
+		_isFailed = false;
+		_download.initialize(self, handle, request, response);
+	}
+	return self;
+}
+
 - (void)dealloc
 {
 	[self cancel];
@@ -318,6 +343,11 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 + (WkDownload *)downloadRequest:(WkMutableNetworkRequest *)request withDelegate:(id<WkDownloadDelegate>)delegate
 {
 	return [[[_WkDownload alloc] initWithRequest:request withDelegate:delegate] autorelease];
+}
+
++ (WkDownload *)downloadWithHandle:(WebCore::ResourceHandle*)handle request:(const WebCore::ResourceRequest&)request response:(const WebCore::ResourceResponse&)response withDelegate:(id<WkDownloadDelegate>)delegate
+{
+	return [[[_WkDownload alloc] initWithHandle:handle request:request response:response withDelegate:delegate] autorelease];
 }
 
 + (void)setDownloadPath:(OBString *)path

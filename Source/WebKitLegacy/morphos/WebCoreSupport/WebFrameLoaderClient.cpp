@@ -664,6 +664,7 @@ void WebFrameLoaderClient::dispatchShow()
 void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceResponse& response, const ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier, const String& downloadAttribute, FramePolicyFunction&& function)
 {
     WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+
     if (!webPage) {
         function(PolicyAction::Ignore, identifier);
         return;
@@ -674,31 +675,18 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
         return;
     }
 
-	notImplemented();
+	if (!canShowMIMEType(response.mimeType()))
+	{
+		// should we download this??
+		if (webPage->_fDownloadAsk)
+		{
+			webPage->_fDownloadAsk(response, request, identifier, downloadAttribute, std::move(function));
+			return;
+		}
+		function(PolicyAction::Ignore, identifier);
+	}
+
 	function(PolicyAction::Use, identifier);
-
-#if 0
-    RefPtr<API::Object> userData;
-
-    // Notify the bundle client.
-    WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage, m_frame, response, request, userData);
-    if (policy == WKBundlePagePolicyActionUse) {
-        function(PolicyAction::Use, identifier);
-        return;
-    }
-
-    bool canShowResponse = webPage->canShowResponse(response);
-
-    WebCore::Frame* coreFrame = m_frame->coreFrame();
-    auto* policyDocumentLoader = coreFrame ? coreFrame->loader().provisionalDocumentLoader() : nullptr;
-    auto navigationID = policyDocumentLoader ? static_cast<WebDocumentLoader&>(*policyDocumentLoader).navigationID() : 0;
-    
-    Ref<WebFrame> protector(*m_frame);
-    uint64_t listenerID = m_frame->setUpPolicyListener(identifier, WTFMove(function), WebFrame::ForNavigationAction::No);
-    if (!webPage->send(Messages::WebPageProxy::DecidePolicyForResponse(m_frame->frameID(), SecurityOriginData::fromFrame(coreFrame), identifier, navigationID, response, request,
-        canShowResponse, downloadAttribute, listenerID, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()))))
-        m_frame->didReceivePolicyDecision(listenerID, identifier, PolicyAction::Ignore, 0, { }, { });
-#endif
 }
 
 void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request,
@@ -773,7 +761,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         function(PolicyAction::Ignore, requestIdentifier);
         return;
     }
-
+	notImplemented();
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
 
     // Always ignore requests with empty URLs. 
@@ -1178,15 +1166,17 @@ bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest& request) cons
     return true;
 }
 
-bool WebFrameLoaderClient::canShowMIMEType(const String& /*MIMEType*/) const
+bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
 {
-    notImplemented();
-    return true;
+    bool canShow = MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
+        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType);
+//        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
+    return canShow;
 }
 
-bool WebFrameLoaderClient::canShowMIMETypeAsHTML(const String& /*MIMEType*/) const
+bool WebFrameLoaderClient::canShowMIMETypeAsHTML(const String& mimeType) const
 {
-    return true;
+    return MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType);
 }
 
 bool WebFrameLoaderClient::representationExistsForURLScheme(const String& /*URLScheme*/) const

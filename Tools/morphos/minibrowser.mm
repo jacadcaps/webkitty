@@ -560,6 +560,19 @@ static int _windowID = 1;
 	}
 }
 
+- (void)ignoreDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
+{
+	dprintf("ignore delegate!\n");
+	[delegate ignore];
+}
+
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t)size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
+{
+	dprintf("%s: url %s mime %s name '%s' delegate %p\n", __PRETTY_FUNCTION__, [[url absoluteString] cString], [mime cString], [suggestedName cString], delegate);
+//	[[OBRunLoop mainRunLoop] performSelector:@selector(ignore) target:delegate];
+	[OBScheduledTimer scheduledTimerWithInterval:5.0 perform:[OBPerform performSelector:@selector(ignoreDelegate:) target:self withObject:delegate] repeats:NO];
+}
+
 - (void)webView:(WkWebView *)view wantsToNavigateToCustomProtocol:(OBString *)protocol withArguments:(OBString *)arguments
 {
 	if ([arguments isEqualToString:@"showcertificate"])

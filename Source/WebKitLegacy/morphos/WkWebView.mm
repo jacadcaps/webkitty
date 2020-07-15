@@ -10,7 +10,9 @@
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceHandle.h>
+#import <WebCore/ResourceResponse.h>
 #import <WebCore/FileChooser.h>
+#import <WebCore/TextEncoding.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -345,6 +347,53 @@ namespace  {
 - (void)setHasOnlySecureContent:(BOOL)hasOnlySecureContent
 {
 	_hasOnlySecureContent = hasOnlySecureContent;
+}
+
+@end
+
+@interface WkDownloadResponseDelegatePrivate : OBObject<WkConfirmDownloadResponseDelegate>
+{
+	WebCore::PolicyCheckIdentifier _identifier;
+	WebCore::FramePolicyFunction   _function;
+}
+@end
+
+@implementation WkDownloadResponseDelegatePrivate
+
+- (id)initWithPolicyCheckIdentifier:(WebCore::PolicyCheckIdentifier)identifier function:(WebCore::FramePolicyFunction &&)function
+{
+	if ((self = [super init]))
+	{
+		_function = std::move(function);
+		_identifier = identifier;
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	if (_function)
+		_function(WebCore::PolicyAction::Ignore, _identifier);
+	[super dealloc];
+}
+
+- (void)download
+{
+	if (_function)
+	{
+		_function(WebCore::PolicyAction::Download, _identifier);
+		_function = nullptr;
+	}
+}
+
+- (void)ignore
+{
+	if (_function)
+	{
+		_function(WebCore::PolicyAction::Ignore, _identifier);
+		_function = nullptr;
+	}
 }
 
 @end
@@ -714,6 +763,43 @@ dprintf("---------- objc fixup ------------\n");
 				}
 			};
 			
+			webPage->_fDownloadFromResource = [self](WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
+				if (downloadDelegate)
+				{
+					WkDownload *download = [WkDownload downloadWithHandle:handle request:request response:response withDelegate:downloadDelegate];
+					[download start];
+				}
+			};
+			
+			webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request,
+				WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					WkDownloadResponseDelegatePrivate *responsePrivate = [[[WkDownloadResponseDelegatePrivate alloc] initWithPolicyCheckIdentifier:identifier function:std::move(function)] autorelease];
+					auto uurl = response.url().string().utf8();
+					auto umime = response.mimeType().utf8();
+					auto uname = response.suggestedFilename().utf8();
+					
+					if (0 == uname.length())
+						uname = WebCore::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
+					
+					[networkDelegate webView:self
+						confirmDownloadOfURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
+						mimeType:[OBString stringWithUTF8String:umime.data()]
+						size:response.expectedContentLength()
+						withSuggestedName:[OBString stringWithUTF8String:uname.data()]
+						withResponseDelegate:responsePrivate];
+					return;
+				}
+				function(WebCore::PolicyAction::Ignore, identifier);
+			};
+
 			webPage->_fAlert = [self](const WTF::String &alert) {
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];

@@ -19,6 +19,13 @@
 
 @end
 
+@protocol WkConfirmDownloadResponseDelegate <OBObject>
+
+- (void)download;
+- (void)ignore;
+
+@end
+
 @protocol WkWebViewNetworkDelegate <OBObject>
 
 - (OBString *)userAgentForURL:(OBString *)url;
@@ -34,6 +41,8 @@
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview;
 
 - (void)webViewDidLoadInsecureContent:(WkWebView *)view;
+
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
 
 @end
 

@@ -292,27 +292,9 @@ void WebFrame::startDownload(const WebCore::ResourceRequest& request, const Stri
 
 void WebFrame::convertMainResourceLoadToDownload(DocumentLoader* documentLoader, const ResourceRequest& request, const ResourceResponse& response)
 {
-	notImplemented();
-#if 0
-    ASSERT(m_policyDownloadID.downloadID());
-
-    auto policyDownloadID = m_policyDownloadID;
-    m_policyDownloadID = { };
-
-    SubresourceLoader* mainResourceLoader = documentLoader->mainResourceLoader();
-
-    auto& webProcess = WebProcess::singleton();
-    // Use 0 to indicate that the resource load can't be converted and a new download must be started.
-    // This can happen if there is no loader because the main resource is in the WebCore memory cache,
-    // or because the conversion was attempted when not calling SubresourceLoader::didReceiveResponse().
-    uint64_t mainResourceLoadIdentifier;
-    if (mainResourceLoader)
-        mainResourceLoadIdentifier = mainResourceLoader->identifier();
-    else
-        mainResourceLoadIdentifier = 0;
-
-    webProcess.ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::ConvertMainResourceLoadToDownload(sessionID, mainResourceLoadIdentifier, policyDownloadID, request, response), 0);
-#endif
+	WebPage *webpage = page();
+	if (webpage && webpage->_fDownloadFromResource)
+		webpage->_fDownloadFromResource(documentLoader->mainResourceLoader()->handle(), request, response);
 }
 
 void WebFrame::addConsoleMessage(MessageSource messageSource, MessageLevel messageLevel, const String& message, uint64_t requestID)

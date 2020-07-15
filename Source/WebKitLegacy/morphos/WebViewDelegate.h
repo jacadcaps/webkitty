@@ -3,6 +3,7 @@
 #include <wtf/text/WTFString.h>
 #include <wtf/Vector.h>
 #include <WebCore/IntRect.h>
+#include <WebCore/FrameLoaderClient.h>
 
 namespace WebCore {
 	class Page;
@@ -10,6 +11,8 @@ namespace WebCore {
 	class ResourceError;
 	class ResourceRequest;
 	class FileChooser;
+	class ResourceResponse;
+	class PolicyCheckIdentifier;
 };
 
 struct WebViewDelegate
@@ -39,6 +42,8 @@ struct WebViewDelegate
 	std::function<void(const WTF::String&, int level, unsigned int line)> _fConsole;
 	
 	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)> _fDownload;
+	std::function<void(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&)> _fDownloadFromResource;
+	std::function<void(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function)> _fDownloadAsk;
 	
 	std::function<void(const WTF::String &)>                              _fAlert;
 	std::function<bool(const WTF::String &)>                              _fConfirm;
@@ -70,5 +75,7 @@ struct WebViewDelegate
 		_fConfirm = nullptr;
 		_fPrompt = nullptr;
 		_fFile = nullptr;
+		_fDownloadAsk = nullptr;
+		_fDownloadFromResource = nullptr;
 	};
 };
