@@ -186,6 +186,11 @@ void ResourceHandle::setClientCertificateInfo(const String& host, const String& 
         LOG(Network, "Invalid client certificate file: %s!\n", certificate.latin1().data());
 }
 
+void ResourceHandle::clearClientCertificateInfo(const String& host)
+{
+	CurlContext::singleton().sslHandle().clearClientCertificateInfo(host);
+}
+
 #endif
 
 void ResourceHandle::platformSetDefersLoading(bool defers)

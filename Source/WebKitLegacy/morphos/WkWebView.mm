@@ -455,14 +455,28 @@ dprintf("---------- objc fixup ------------\n");
 	return NO;
 }
 
-+ (void)setCustomCertificate:(OBString *)pathToPEM forDomain:(OBString *)domain withKey:(OBString *)key
++ (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key
 {
-	if (pathToPEM && domain)
+	if ([pathToPEM length] && [host length])
 	{
 		WTF::String sPath = WTF::String::fromUTF8([[pathToPEM absolutePath] nativeCString]);
-		WTF::String sDomain = WTF::String::fromUTF8([domain cString]);
+		WTF::String sDomain = WTF::String::fromUTF8([host cString]);
 		WTF::String sKey = key ? WTF::String::fromUTF8([key cString]) : "";
 		WebCore::ResourceHandle::setClientCertificateInfo(sDomain, sPath, sKey);
+	}
+	else if ([host length])
+	{
+		WTF::String sDomain = WTF::String::fromUTF8([host cString]);
+		WebCore::ResourceHandle::clearClientCertificateInfo(sDomain);
+	}
+}
+
++ (void)ignoreSSLErrorsForHost:(OBString *)host
+{
+	if ([host length])
+	{
+		WTF::String sDomain = WTF::String::fromUTF8([host cString]);
+		WebCore::ResourceHandle::setHostAllowsAnyHTTPSCertificate(sDomain);
 	}
 }
 

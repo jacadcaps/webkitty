@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 15.07.2020
+	- Curl certificate handling improvements
+
 - 14.07.2020
 	- Internal MIME type handling
 	- Download delegation of non-displayable MIME types

@@ -330,7 +330,7 @@ static int _windowID = 1;
 	OBURL *url = [params lastObject];
 	OBString *certPath = [OBString stringWithFormat:@"T:%@.pem", [url host]];
 	[[cert certificate] writeToFile:certPath];
-	[WkWebView setCustomCertificate:certPath forDomain:[url host] withKey:nil];
+	[WkWebView setCustomCertificate:certPath forHost:[url host] withKey:nil];
 }
 
 - (void)closeCertificate:(MUIWindow *)window
