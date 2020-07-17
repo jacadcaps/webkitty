@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 17.07.2020
+	- Fixed input selection via popmenus, fixed the open offset of the popmenus
+
 - 15.07.2020
 	- Curl certificate handling improvements
 	- Fixed the ICU files check/requester on init

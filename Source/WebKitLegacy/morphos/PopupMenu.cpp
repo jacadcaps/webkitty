@@ -39,14 +39,9 @@ void PopupMenuMorphOS::show(const WebCore::IntRect& rect, WebCore::FrameView* vi
 
 		if (m_client)
 		{
+			m_client->popupDidHide();
 			if (selection >= 0)
-			{
-				if (m_client->itemIsEnabled(selection))
-				{
-					m_client->setTextFromItem(selection);
-					m_client->selectionChanged(selection);
-				}
-			}
+				m_client->valueChanged(selection);
 		}
 
 		hide();

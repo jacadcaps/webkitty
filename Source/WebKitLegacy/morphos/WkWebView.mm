@@ -697,7 +697,7 @@ dprintf("---------- objc fixup ------------\n");
 				if (strip)
 				{
 					// 0 on failure, all our menus return 1, 2...
-					int rc = [strip popup:self flags:0 x:pos.x() y:pos.y()];
+					int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
 					[strip release];
 					// 0 = first entry, -1 = error
 					return rc - 1;
