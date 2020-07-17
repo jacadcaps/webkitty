@@ -15,6 +15,7 @@ Rough changelist:
 
 - 15.07.2020
 	- Curl certificate handling improvements
+	- Fixed the ICU files check/requester on init
 
 - 14.07.2020
 	- Internal MIME type handling

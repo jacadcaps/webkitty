@@ -78,6 +78,9 @@ public:
 	
 	bool adBlockingEnabled() const;
 	void setAdBlockingEnabled(bool enabled);
+	
+	bool thirdPartyCookiesAllowed() const;
+	void setThirdPartyCookiesAllowed(bool blocked);
 
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);

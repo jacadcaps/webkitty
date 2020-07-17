@@ -507,7 +507,8 @@ dprintf("---------- objc fixup ------------\n");
 					BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
 					if (0 == icuDir)
 					{
-						[MUIRequest requestWithTitle:@"WebKit Installation Error" message:@"ICU data files must be present in MOSSYS:Data/ICU"
+						[MUIRequest request:nil title:@"WebKit Installation Error"
+							message:@"ICU data files must be present in MOSSYS:Data/ICU/icudt54b"
 							buttons:[OBArray arrayWithObject:@"Exit"]];
 						CloseLibrary(FreetypeBase);
 						FreetypeBase = NULL;
@@ -879,8 +880,11 @@ dprintf("---------- objc fixup ------------\n");
 {
 	try {
 		auto webPage = [_private page];
-		webPage->willBeDisposed();
-		WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
+		if (webPage)
+		{
+			webPage->willBeDisposed();
+			WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
+		}
 	} catch (...) {};
 
 	[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(timedOut) target:_private] repeats:NO];
@@ -1117,6 +1121,7 @@ dprintf("---------- objc fixup ------------\n");
 	auto webPage = [_private page];
 	[settings setAdBlockerEnabled:webPage->adBlockingEnabled()];
 	[settings setJavaScriptEnabled:webPage->javaScriptEnabled()];
+	[settings setThirdPartyCookiesAllowed:webPage->thirdPartyCookiesAllowed()];
 	return nil;
 }
 
@@ -1125,6 +1130,7 @@ dprintf("---------- objc fixup ------------\n");
 	auto webPage = [_private page];
 	webPage->setJavaScriptEnabled([settings javaScriptEnabled]);
 	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
+	webPage->setThirdPartyCookiesAllowed([settings thirdPartyCookiesAllowed]);
 }
 
 - (void)dumpDebug

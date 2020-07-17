@@ -769,6 +769,16 @@ void WebPage::setAdBlockingEnabled(bool enabled)
 	m_adBlocking = enabled;
 }
 
+bool WebPage::thirdPartyCookiesAllowed() const
+{
+	return m_page->settings().isThirdPartyCookieBlockingDisabled();
+}
+
+void WebPage::setThirdPartyCookiesAllowed(bool blocked)
+{
+	m_page->settings().setIsThirdPartyCookieBlockingDisabled(blocked);
+}
+
 void WebPage::goActive()
 {
 	corePage()->userInputBridge().focusSetActive(true);

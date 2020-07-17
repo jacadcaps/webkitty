@@ -4,6 +4,7 @@
 {
 	bool _script;
 	bool _adBlocker;
+	bool _thCookies;
 }
 @end
 
@@ -15,6 +16,7 @@
 	{
 		_script = YES;
 		_adBlocker = YES;
+		_thCookies = YES;
 	}
 	
 	return self;
@@ -38,6 +40,16 @@
 - (void)setAdBlockerEnabled:(BOOL)enabled
 {
 	_adBlocker = enabled;
+}
+
+- (BOOL)thirdPartyCookiesAllowed
+{
+	return _thCookies;
+}
+
+- (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies
+{
+	_thCookies = allowCookies;
 }
 
 @end
@@ -64,6 +76,15 @@
 }
 
 - (void)setAdBlockerEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)thirdPartyCookiesAllowed
+{
+	return NO;
+}
+
+- (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies
 {
 }
 

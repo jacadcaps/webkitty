@@ -10,4 +10,7 @@
 - (BOOL)adBlockerEnabled;
 - (void)setAdBlockerEnabled:(BOOL)enabled;
 
+- (BOOL)thirdPartyCookiesAllowed;
+- (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies;
+
 @end
