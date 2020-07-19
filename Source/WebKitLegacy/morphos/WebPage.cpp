@@ -472,6 +472,10 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
 
+#if 0
+        [[self preferences] privateBrowsingEnabled] ? PAL::SessionID::legacyPrivateSessionID() : PAL::SessionID::defaultSessionID(),
+#endif
+
 	WebCore::PageConfiguration pageConfiguration(
 		WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(this),

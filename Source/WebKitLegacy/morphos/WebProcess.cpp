@@ -68,7 +68,7 @@ namespace WTF {
 namespace WebKit {
 
 WebProcess::WebProcess()
-	: m_sessionID(PAL::SessionID::generatePersistentSessionID())
+	: m_sessionID(PAL::SessionID::defaultSessionID())
 	, m_cacheStorageProvider(CacheStorageProvider::create())
 {
 }
