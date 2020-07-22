@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,44 +23,23 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebDatabaseProvider.h"
+#pragma once
 
-#include <pal/SessionID.h>
+#include "HTMLInputElement.h"
 
-WebDatabaseProvider& WebDatabaseProvider::singleton()
-{
-    static WebDatabaseProvider& databaseProvider = adoptRef(*new WebDatabaseProvider).leakRef();
+namespace WebCore {
 
-    return databaseProvider;
-}
+class AutofillElements {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    WEBCORE_EXPORT static Optional<AutofillElements> computeAutofillElements(Ref<HTMLInputElement>);
+    WEBCORE_EXPORT void autofill(String, String);
 
-WebDatabaseProvider::WebDatabaseProvider()
-{
-}
+    const HTMLInputElement* username() const { return m_username.get(); }
+private:
+    AutofillElements(RefPtr<HTMLInputElement>&&, RefPtr<HTMLInputElement>&&);
+    RefPtr<HTMLInputElement> m_username;
+    RefPtr<HTMLInputElement> m_password;
+};
 
-WebDatabaseProvider::~WebDatabaseProvider()
-{
-}
-
-#if ENABLE(INDEXED_DATABASE)
-WebCore::IDBClient::IDBConnectionToServer& WebDatabaseProvider::idbConnectionToServerForSession(const PAL::SessionID& sessionID)
-{
-    return m_idbServerMap.ensure(sessionID, [&sessionID] {
-        return sessionID.isEphemeral() ? InProcessIDBServer::create(sessionID) : InProcessIDBServer::create(sessionID, indexedDatabaseDirectoryPath());
-    }).iterator->value->connectionToServer();
-}
-
-void WebDatabaseProvider::shutdownAllDatabases()
-{
-	for (auto& server : m_idbServerMap.values())
-		server->close();
-	m_idbServerMap.clear();
-}
-
-void WebDatabaseProvider::deleteAllDatabases()
-{
-    for (auto& server : m_idbServerMap.values())
-        server->closeAndDeleteDatabasesModifiedSince(-WallTime::infinity());
-}
-
-#endif
+} // namespace WebCore

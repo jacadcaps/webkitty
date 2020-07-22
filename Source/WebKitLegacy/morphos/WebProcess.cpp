@@ -19,6 +19,7 @@
 #include <WebCore/CurlCacheManager.h>
 #include <WebCore/ProcessWarming.h>
 #include <WebCore/DocumentLoader.h>
+#include <WebCore/DOMWindow.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -33,6 +34,9 @@
 #include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/ResourceLoadInfo.h>
 #include <WebCore/CurlContext.h>
+#include "NetworkStorageSessionMap.h"
+#include "WebDatabaseProvider.h"
+#include "WebStorageNamespaceProvider.h"
 // bloody include shit
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
@@ -166,7 +170,14 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
 void WebProcess::terminate()
 {
 	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+	WebCore::DOMWindow::dispatchAllPendingUnloadEvents();
+	WebCore::CurlContext::singleton().stopThread();
+	NetworkStorageSessionMap::destroyAllSessions();
+	WebDatabaseProvider::singleton().shutdownAllDatabases();
+	WebStorageNamespaceProvider::closeLocalStorage();
+
 	waitForThreads();
+
     GCController::singleton().garbageCollectNow();
     FontCache::singleton().invalidate();
     MemoryCache::singleton().setDisabled(true);
@@ -197,7 +208,6 @@ void WebProcess::waitForThreads()
 				{
 					thread->signal(SIGINT);
 				}
-				WebCore::CurlContext::singleton().stopThread();
 			}
 		}
 		Delay(10);
@@ -247,11 +257,11 @@ void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationPa
 void WebProcess::removeWebPage(WebCore::PageIdentifier pageID)
 {
     ASSERT(m_pageMap.contains(pageID));
-	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+	D(dprintf("%s at %d\n", __PRETTY_FUNCTION__, m_pageMap.size()));
  //   pageWillLeaveWindow(pageID);
     m_pageMap.remove(pageID);
 
-	if (0 == m_pageMap.size() && m_fLastPageClosed)
+	if (0 == m_pageMap.size() && 0 == m_frameMap.size() && m_fLastPageClosed)
 		m_fLastPageClosed();
 }
 
@@ -284,6 +294,9 @@ void WebProcess::removeWebFrame(WebCore::FrameIdentifier frameID)
 	D(dprintf("%s %llu\n", __PRETTY_FUNCTION__, frameID));
 
     m_frameMap.remove(frameID);
+
+	if (0 == m_pageMap.size() && 0 == m_frameMap.size() && m_fLastPageClosed)
+		m_fLastPageClosed();
 }
 
 static void fromCountedSetToDebug(TypeCountSet* countedSet, WTF::TextStream& ss)

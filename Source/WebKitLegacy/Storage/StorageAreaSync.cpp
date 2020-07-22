@@ -526,6 +526,10 @@ void StorageAreaSync::deleteEmptyDatabase()
                 LOG_ERROR("Failed to delete database file %s\n", databaseFilename.utf8().data());
         }
     }
+    else
+    {
+    	m_database.close();
+	}
 }
 
 void StorageAreaSync::scheduleSync()

@@ -82,6 +82,7 @@ public:
 		D(dprintf("%s: contains? %d\n", __PRETTY_FUNCTION__, types.contains(containerType)));
 		if (types.contains(containerType))
 			return parameters.type.codecs().isEmpty() ? MediaPlayer::SupportsType::MayBeSupported : MediaPlayer::SupportsType::IsSupported;
+		D(dprintf("%s: not supported %s\n", __PRETTY_FUNCTION__, parameters.type.raw().utf8().data()));
         return MediaPlayer::SupportsType::IsNotSupported;
     }
 	
@@ -123,22 +124,53 @@ bool MediaPlayerPrivateMorphOS::supportsKeySystem(const String& keySystem, const
 	return false;
 }
 
+void MediaPlayerPrivateMorphOS::load(const String& url)
+{
+	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
+    m_networkState = MediaPlayer::NetworkState::Loading;
+    m_player->networkStateChanged();
+    m_readyState = MediaPlayer::ReadyState::HaveNothing;
+    m_player->readyStateChanged();
+}
+
 void MediaPlayerPrivateMorphOS::cancelLoad()
 {
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 	notImplemented();
 
+}
+
+void MediaPlayerPrivateMorphOS::prepareToPlay()
+{
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+}
+
+bool MediaPlayerPrivateMorphOS::canSaveMediaData() const
+{
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+	return false;
 }
 
 void MediaPlayerPrivateMorphOS::play()
 {
 	notImplemented();
-
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 }
 
 void MediaPlayerPrivateMorphOS::pause()
 {
 	notImplemented();
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+}
 
+void MediaPlayerPrivateMorphOS::setVolume(float volume)
+{
+	D(dprintf("%s: vol %f\n", __PRETTY_FUNCTION__, volume));
+}
+
+void MediaPlayerPrivateMorphOS::setMuted(bool muted)
+{
+	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, muted));
 }
 
 FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
@@ -156,9 +188,9 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 	return false;
 }
 
-void MediaPlayerPrivateMorphOS::setVisible(bool)
+void MediaPlayerPrivateMorphOS::setVisible(bool visible)
 {
-
+	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
 }
 
 bool MediaPlayerPrivateMorphOS::seeking() const
@@ -173,14 +205,12 @@ bool MediaPlayerPrivateMorphOS::paused() const
 
 MediaPlayer::NetworkState MediaPlayerPrivateMorphOS::networkState() const
 {
-	notImplemented();
-	return MediaPlayer::NetworkState::Empty;
+	return m_networkState;
 }
 
 MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 {
-	notImplemented();
-	return MediaPlayer::ReadyState::HaveNothing;
+	return m_readyState;
 }
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const

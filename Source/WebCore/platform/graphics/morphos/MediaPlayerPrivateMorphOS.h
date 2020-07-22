@@ -39,7 +39,11 @@ public:
 	
     static MediaPlayerPrivateMorphOSSettings &settings();
 
+    void load(const String&) final;
     void cancelLoad() final;
+    void prepareToPlay() final;
+    bool canSaveMediaData() const final;
+
 	void play() final;
     void pause() final;
     FloatSize naturalSize() const final;
@@ -50,7 +54,10 @@ public:
     void setVisible(bool) final;
     bool seeking() const final;
     bool paused() const final;
-	
+
+    void setVolume(float) final;
+    void setMuted(bool) final;
+
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
     std::unique_ptr<PlatformTimeRanges> buffered() const final;
@@ -59,6 +66,8 @@ public:
 	
 protected:
 	MediaPlayer* m_player;
+	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
+	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
 };
 
 };

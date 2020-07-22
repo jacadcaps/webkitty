@@ -518,6 +518,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     editing/WebContentReader.h
     editing/WritingDirection.h
     editing/markup.h
+    editing/morphos/AutofillElements.h
 
     fileapi/AsyncFileStream.h
     fileapi/Blob.h

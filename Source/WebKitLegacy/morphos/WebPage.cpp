@@ -285,7 +285,7 @@ public:
 			gc.clip(fr);
 			gc.translate(-scrollX, -scrollY);
 			
-			frameView->paintContents(gc, ir);
+			frameView->paint(gc, ir);
 
 //			frameView->paintContentsForSnapshot(gc, ir, WebCore::FrameView::SelectionInSnapshot::ExcludeSelection,
 //				WebCore::FrameView::CoordinateSpaceForSnapshot::ViewCoordinates);
@@ -528,7 +528,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 	settings.setAcceleratedFiltersEnabled(false);
-    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
+//    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #else
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
@@ -1190,9 +1190,11 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 
     m_page->updateRendering();
 
+#if 0
 	frameView->updateLayoutAndStyleIfNeededRecursive();
 //	frameView->updateCompositingLayersAfterLayout();
 	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
+#endif
 	IntSize s = frameView->autoSizingIntrinsicContentSize();
 	auto scroll = frameView->scrollPosition();
 

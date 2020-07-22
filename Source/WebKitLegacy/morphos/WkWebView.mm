@@ -13,6 +13,7 @@
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/FileChooser.h>
 #import <WebCore/TextEncoding.h>
+#import <WebCore/DOMWindow.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -438,8 +439,11 @@ dprintf("---------- objc fixup ------------\n");
 {
 	@synchronized ([WkWebView class])
 	{
+		if (!_readyToQuitPending)
+			WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
 		_readyToQuitPending = YES;
-		if (_viewInstanceCount == 0 && WebKit::WebProcess::singleton().webFrameCount() == 0)
+		if (_viewInstanceCount == 0 &&
+			WebKit::WebProcess::singleton().webFrameCount() == 0)
 		{
 			_readyToQuitPending = NO;
 			_shutdown = YES;

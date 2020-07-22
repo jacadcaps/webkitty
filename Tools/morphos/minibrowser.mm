@@ -435,13 +435,11 @@ static int _windowID = 1;
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"MTDL", @"https://morphos-team.net/downloads");
+		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
+		ADDBUTTON(@"GGlogin", @"https://accounts.google.com/");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
 		ADDBUTTON(@"HTML5", @"http://html5test.com");
-		ADDBUTTON(@"WhatsApp", @"https://web.whatsapp.com");
-		ADDBUTTON(@"Teleg", @"https://web.telegram.org");
-		ADDBUTTON(@"Gif", @"https://media.giphy.com/media/dC4FTacOCkOKRYIRqw/source.gif");
-		ADDBUTTON(@"Audio", @"http://hpr.dogphilosophy.net/test/");
 
 		[debug notify:@selector(pressed) trigger:NO performSelector:@selector(dumpDebug) withTarget:_view];
 

@@ -39,6 +39,7 @@
 #include <WebCore/UndoStep.h>
 #include <WebCore/UserTypingGestureIndicator.h>
 #include <WebCore/VisibleSelection.h>
+#include <WebCore/AutofillElements.h>
 #include <wtf/text/StringView.h>
 
 using namespace WebCore;
@@ -207,6 +208,13 @@ bool WebEditorClient::isSelectTrailingWhitespaceEnabled(void) const
 void WebEditorClient::textFieldDidBeginEditing(Element* e)
 {
     notImplemented();
+	
+    if (is<HTMLInputElement>(e))
+    {
+		HTMLInputElement* element = downcast<HTMLInputElement>(e);
+        if (auto autofillElements = WebCore::AutofillElements::computeAutofillElements(*element)) {
+        }
+	}
 }
 
 void WebEditorClient::textFieldDidEndEditing(Element* e)

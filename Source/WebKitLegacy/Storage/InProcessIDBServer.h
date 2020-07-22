@@ -121,6 +121,7 @@ public:
     void didGetAllDatabaseNames(uint64_t callbackID, const Vector<String>& databaseNames) final;
 
     void closeAndDeleteDatabasesModifiedSince(WallTime);
+    void close();
 
     void dispatchTask(Function<void()>&&);
     void dispatchTaskReply(Function<void()>&&);

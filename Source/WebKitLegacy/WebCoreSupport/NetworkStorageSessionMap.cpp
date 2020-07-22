@@ -45,6 +45,12 @@ static HashMap<PAL::SessionID, std::unique_ptr<WebCore::NetworkStorageSession>>&
     return map;
 }
 
+void NetworkStorageSessionMap::destroyAllSessions()
+{
+	globalSessionMap().clear();
+	defaultNetworkStorageSession() = nullptr;
+}
+
 WebCore::NetworkStorageSession* NetworkStorageSessionMap::storageSession(const PAL::SessionID& sessionID)
 {
     if (sessionID == PAL::SessionID::defaultSessionID())
