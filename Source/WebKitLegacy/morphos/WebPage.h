@@ -48,6 +48,7 @@ public:
     virtual ~WebPage();
 
 	WebCore::Page *corePage();
+	const WebCore::Page *corePage() const;
 	static WebPage *fromCorePage(WebCore::Page *corePage);
 
     WebCore::PageIdentifier pageID() const { return m_pageID; }
@@ -140,6 +141,11 @@ public:
 	void endLiveResize();
 	
     void setFocusedElement(WebCore::Element *);
+	
+	bool hasAutofillElements();
+	void clearAutofillElements();
+	void setAutofillElements(const WTF::String &login, const WTF::String &password);
+	bool getAutofillElements(WTF::String &outlogin, WTF::String &outPassword);
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);

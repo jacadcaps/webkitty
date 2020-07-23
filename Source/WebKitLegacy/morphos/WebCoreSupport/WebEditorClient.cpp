@@ -207,26 +207,56 @@ bool WebEditorClient::isSelectTrailingWhitespaceEnabled(void) const
 
 void WebEditorClient::textFieldDidBeginEditing(Element* e)
 {
-    notImplemented();
+//    notImplemented();
 	
-    if (is<HTMLInputElement>(e))
+    if (is<HTMLInputElement>(e) && !hasAutofillElements())
     {
 		HTMLInputElement* element = downcast<HTMLInputElement>(e);
-        if (auto autofillElements = WebCore::AutofillElements::computeAutofillElements(*element)) {
-        }
+        m_autofillElements = WebCore::AutofillElements::computeAutofillElements(*element);
+        if (m_autofillElements && m_webPage->_fHasAutofill)
+        	m_webPage->_fHasAutofill();
 	}
+}
+
+void WebEditorClient::setAutofillElements(const WTF::String &login, const WTF::String &password)
+{
+	if (hasAutofillElements())
+	{
+		m_autofillElements->autofill(login, password);
+	}
+}
+
+bool WebEditorClient::getAutofillElements(WTF::String &outlogin, WTF::String &outPassword) const
+{
+	outlogin = String();
+	outPassword = String();
+
+	if (hasAutofillElements())
+	{
+		if (m_autofillElements->username())
+		{
+			outlogin = m_autofillElements->username()->value();
+		}
+		
+		if (m_autofillElements->password())
+		{
+			outPassword = m_autofillElements->password()->value();
+		}
+	}
+	
+	return false;
 }
 
 void WebEditorClient::textFieldDidEndEditing(Element* e)
 {
-    notImplemented();
+//    notImplemented();
 }
 
 void WebEditorClient::textDidChangeInTextField(Element* e)
 {
     if (!UserTypingGestureIndicator::processingUserTypingGesture() || UserTypingGestureIndicator::focusedElementAtGestureStart() != e)
         return;
-    notImplemented();
+    //notImplemented();
 }
 
 bool WebEditorClient::doTextFieldCommandFromEvent(Element* e, KeyboardEvent* ke)
@@ -238,12 +268,12 @@ bool WebEditorClient::doTextFieldCommandFromEvent(Element* e, KeyboardEvent* ke)
 
 void WebEditorClient::textWillBeDeletedInTextField(Element* e)
 {
-    notImplemented();
+    //notImplemented();
 }
 
 void WebEditorClient::textDidChangeInTextArea(Element* e)
 {
-    notImplemented();
+    //notImplemented();
 }
 
 #if 0

@@ -29,6 +29,7 @@
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/EditorClient.h>
 #include <WebCore/TextCheckerClient.h>
+#include <WebCore/AutofillElements.h>
 
 namespace WebCore {
 class Element;
@@ -47,6 +48,11 @@ public:
     ~WebEditorClient();
 
 	WebPage *webPage() { return m_webPage; }
+
+	bool hasAutofillElements() const { return m_autofillElements.hasValue(); }
+	void clearAutofillElements() { m_autofillElements = { WTF::nullopt }; }
+	void setAutofillElements(const WTF::String &login, const WTF::String &password);
+	bool getAutofillElements(WTF::String &outlogin, WTF::String &outPassword) const;
 
 private:
     bool isContinuousSpellCheckingEnabled() final;
@@ -133,9 +139,11 @@ private:
 
     bool canShowFontPanel() const final { return false; }
 
+protected:
     WebPage* m_webPage;
     WebEditorUndoTarget* m_undoTarget;
+    WTF::Optional<WebCore::AutofillElements> m_autofillElements;
+
 };
 
 }
-

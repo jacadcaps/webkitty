@@ -575,6 +575,11 @@ WebCore::Page *WebPage::corePage()
 	return m_page.get();
 }
 
+const WebCore::Page *WebPage::corePage() const
+{
+	return m_page.get();
+}
+
 WebPage* WebPage::fromCorePage(WebCore::Page* page)
 {
     return &static_cast<WebChromeClient&>(page->chrome().client()).page();
@@ -824,6 +829,30 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 {
 	// this is called by the Chrome
 	m_focusedElement = element;
+}
+
+bool WebPage::hasAutofillElements()
+{
+	auto client = downcast<WebEditorClient>(corePage()->editorClient());
+	return client.hasAutofillElements();
+}
+
+void WebPage::clearAutofillElements()
+{
+	auto client = downcast<WebEditorClient>(corePage()->editorClient());
+	client.clearAutofillElements();
+}
+
+void WebPage::setAutofillElements(const WTF::String &login, const WTF::String &password)
+{
+	auto client = downcast<WebEditorClient>(corePage()->editorClient());
+	client.setAutofillElements(login, password);
+}
+
+bool WebPage::getAutofillElements(WTF::String &outlogin, WTF::String &outPassword)
+{
+	auto client = downcast<WebEditorClient>(corePage()->editorClient());
+	return client.getAutofillElements(outlogin, outPassword);
 }
 
 void WebPage::addResourceRequest(unsigned long identifier, const WebCore::ResourceRequest& request)

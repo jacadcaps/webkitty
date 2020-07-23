@@ -340,6 +340,7 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
 	{
 		webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
 	}
+	webPage->clearAutofillElements();
 //    auto navigationID = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader()).navigationID();
 }
 
@@ -350,6 +351,7 @@ void WebFrameLoaderClient::dispatchDidChangeMainDocument()
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
+	webPage->clearAutofillElements();
 
 //    webPage->send(Messages::WebPageProxy::DidChangeMainDocument(m_frame->frameID()));
 }
@@ -476,6 +478,8 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
 	{
 		webPage->_fDidLoadInsecureContent();
 	}
+
+	webPage->clearAutofillElements();
 
 #if 0
     WebDocumentLoader& documentLoader = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader());
@@ -897,6 +901,14 @@ void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Completi
         completionHandler();
         return;
     }
+
+	if (webPage->hasAutofillElements() && webPage->_fStoreAutofill)
+	{
+		WTF::String user, password;
+		webPage->getAutofillElements(user, password);
+		if (!user.isEmpty() || !password.isEmpty())
+			webPage->_fStoreAutofill(user, password);
+	}
 
 	notImplemented();
 	completionHandler();

@@ -50,6 +50,9 @@ struct WebViewDelegate
 	std::function<bool(const WTF::String &, const WTF::String &, WTF::String &) > _fPrompt;
 	std::function<void(WebCore::FileChooser&)>                            _fFile;
 
+	std::function<void()> _fHasAutofill;
+	std::function<void(const WTF::String &l, const WTF::String &p)> _fStoreAutofill;
+
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
 		_fScroll = nullptr;
@@ -77,5 +80,7 @@ struct WebViewDelegate
 		_fFile = nullptr;
 		_fDownloadAsk = nullptr;
 		_fDownloadFromResource = nullptr;
+		_fHasAutofill = nullptr;
+		_fStoreAutofill = nullptr;
 	};
 };

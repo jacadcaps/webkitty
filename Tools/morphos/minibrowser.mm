@@ -30,7 +30,7 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkDownload.h>
 #import <WebKitLegacy/morphos/WkFileDialog.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -408,6 +408,9 @@ static int _windowID = 1;
 		[_view setDownloadDelegate:[BrowserDownloadWindow sharedInstance]];
 		[_view setDialogDelegate:self];
 
+// annoying :)
+//		[_view setAutofillDelegate:self];
+
 		[_back notify:@selector(pressed) trigger:NO performSelector:@selector(goBack) withTarget:_view];
 		[_forward notify:@selector(pressed) trigger:NO performSelector:@selector(goForward) withTarget:_view];
 		[_stop notify:@selector(pressed) trigger:NO performSelector:@selector(stopLoading) withTarget:_view];
@@ -468,6 +471,8 @@ static int _windowID = 1;
 	dprintf("%s\n", __PRETTY_FUNCTION__);
 	[_view setNetworkDelegate:nil];
 	[_view setScrollingDelegate:nil];
+	[_view setDownloadDelegate:nil];
+	[_view setAutofillDelegate:nil];
 	[_view setCustomProtocolHandler:nil forProtocol:@"mini"];
 	[_lastError release];
 	[super dealloc];
@@ -695,6 +700,23 @@ static int _windowID = 1;
 - (OBString *)webView:(WkWebView *)view wantsToShowJavaScriptPromptPanelWithMessage:(OBString *)message defaultValue:(OBString *)defaultValue
 {
 	return defaultValue;
+}
+
+- (void)webView:(WkWebView *)view willSubmitFormWithLogin:(OBString *)login password:(OBString *)password atURL:(OBURL *)url
+{
+	dprintf(">> WillSubmitForm @ %s (%s, %s)\n", [[url absoluteString] cString], [login cString], [password cString]);
+}
+
+- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url
+{
+	MUIString *l, *p;
+	MUIGroup *g = [[MUIGroup groupWithObjects:l = [MUIString string], p = [MUIString string], nil] retain];
+	if (1 == [MUIRequest request:self title:@"Input Credentials" message:@"Input login credentials" buttons:[OBArray arrayWithObjects:@"OK", @"Cancel", nil] object:g])
+	{
+		[view autofillElementsWithLogin:[l contents] password:[p contents]];
+	}
+	
+	[g release];
 }
 
 @end

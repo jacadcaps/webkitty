@@ -121,6 +121,7 @@ namespace  {
 	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
 	id<WkDownloadDelegate>               _downloadDelegate;
 	id<WkWebViewDialogDelegate>          _dialogDelegate;
+	id<WkWebViewAutofillDelegate>        _autofillDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	bool                                 _drawPending;
 	bool                                 _isActive;
@@ -258,6 +259,16 @@ namespace  {
 - (id<WkWebViewDialogDelegate>)dialogDelegate
 {
 	return _dialogDelegate;
+}
+
+- (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate
+{
+	_autofillDelegate = delegate;
+}
+
+- (id<WkWebViewAutofillDelegate>)autofillDelegate
+{
+	return _autofillDelegate;
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
@@ -871,6 +882,28 @@ dprintf("---------- objc fixup ------------\n");
 				}
 			};
 			
+			webPage->_fHasAutofill = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
+				if (autoDelegate)
+				{
+					[autoDelegate webView:self selectedAutofillFieldAtURL:[self URL]];
+				}
+			};
+			
+			webPage->_fStoreAutofill = [self](const WTF::String &l, const WTF::String &p) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
+				if (autoDelegate)
+				{
+					auto ul = l.utf8();
+					auto up = p.utf8();
+					[autoDelegate webView:self willSubmitFormWithLogin:[OBString stringWithUTF8String:ul.data()] password:[OBString stringWithUTF8String:up.data()] atURL:[self URL]];
+				}
+			};
+			
 		} catch (...) {
 			[self release];
 			return nil;
@@ -1408,6 +1441,23 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate
 {
 	[_private setDialogDelegate:delegate];
+}
+
+- (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate
+{
+	[_private setAutofillDelegate:delegate];
+}
+
+- (BOOL)hasAutofillElements
+{
+	auto webPage = [_private page];
+	return webPage->hasAutofillElements();
+}
+
+- (void)autofillElementsWithLogin:(OBString *)login password:(OBString *)password
+{
+	auto webPage = [_private page];
+	return webPage->setAutofillElements(WTF::String::fromUTF8([login cString]), WTF::String::fromUTF8([password cString]));
 }
 
 @end

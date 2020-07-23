@@ -81,6 +81,13 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewAutofillDelegate <OBObject>
+
+- (void)webView:(WkWebView *)view willSubmitFormWithLogin:(OBString *)login password:(OBString *)password atURL:(OBURL *)url;
+- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url;
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -135,12 +142,16 @@ typedef enum {
 
 - (void)scrollToLeft:(int)left top:(int)top;
 
+- (BOOL)hasAutofillElements;
+- (void)autofillElementsWithLogin:(OBString *)login password:(OBString *)password;
+
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate;
 - (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate;
 - (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate;
 - (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate;
+- (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate;
 
 - (void)dumpDebug;
 

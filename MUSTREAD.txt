@@ -13,8 +13,10 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
-- 22.07.2020
+- 23.07.2020
 	- Faster quit, ensure cookie.jar database gets closed on quit
+	- Fixed an SQL issue where some files would remain locked after quit
+	- Implemented login form autofill interfaces
 
 - 18.07.2020
 	- Fixed session setup (fixes various sites reporting cookies being disabled)

@@ -41,8 +41,6 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
-extern "C" { void dprintf(const char *,...); }
-
 namespace WebCore {
 
 static const char notOpenErrorMessage[] = "database is not open";
@@ -200,9 +198,9 @@ void SQLiteDatabase::close()
         }
         if (m_useWAL) {
             SQLiteTransactionInProgressAutoCounter transactionCounter;
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
         } else
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
     }
 
     m_openingThread = nullptr;

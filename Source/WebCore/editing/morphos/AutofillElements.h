@@ -36,6 +36,7 @@ public:
     WEBCORE_EXPORT void autofill(String, String);
 
     const HTMLInputElement* username() const { return m_username.get(); }
+    const HTMLInputElement* password() const { return m_password.get(); }
 private:
     AutofillElements(RefPtr<HTMLInputElement>&&, RefPtr<HTMLInputElement>&&);
     RefPtr<HTMLInputElement> m_username;
