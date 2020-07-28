@@ -15,6 +15,13 @@ namespace WebCore {
 	class PolicyCheckIdentifier;
 };
 
+enum class WebViewDelegateOpenWindowMode
+{
+	Default,
+	BackgroundTab,
+	NewWindow
+};
+
 struct WebViewDelegate
 {
 	std::function<void()>             _fInvalidate;
@@ -34,21 +41,22 @@ struct WebViewDelegate
 	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
 	std::function<void()>                                _fDidLoadInsecureContent;
 
-	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)> _fCanOpenWindow;
-	std::function<WebCore::Page*(void)> _fDoOpenWindow;
+	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)>      _fCanOpenWindow;
+	std::function<WebCore::Page*(void)>                                          _fDoOpenWindow;
+	std::function<void(const WTF::URL& url, WebViewDelegateOpenWindowMode mode)> _fNewTabWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
 
-	std::function<void(const WTF::String&, int level, unsigned int line)> _fConsole;
+	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
 	
 	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)> _fDownload;
 	std::function<void(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&)> _fDownloadFromResource;
 	std::function<void(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function)> _fDownloadAsk;
 	
-	std::function<void(const WTF::String &)>                              _fAlert;
-	std::function<bool(const WTF::String &)>                              _fConfirm;
+	std::function<void(const WTF::String &)>                                      _fAlert;
+	std::function<bool(const WTF::String &)>                                      _fConfirm;
 	std::function<bool(const WTF::String &, const WTF::String &, WTF::String &) > _fPrompt;
-	std::function<void(WebCore::FileChooser&)>                            _fFile;
+	std::function<void(WebCore::FileChooser&)>                                    _fFile;
 
 	std::function<void()> _fHasAutofill;
 	std::function<void(const WTF::String &l, const WTF::String &p)> _fStoreAutofill;
@@ -82,5 +90,6 @@ struct WebViewDelegate
 		_fDownloadFromResource = nullptr;
 		_fHasAutofill = nullptr;
 		_fStoreAutofill = nullptr;
+		_fNewTabWindow = nullptr;
 	};
 };

@@ -61,7 +61,11 @@ public:
     void setListener(CurlDownloadListener* listener) { m_listener = listener; }
 
     void start();
+    void resume();
     bool cancel();
+    bool isCancelled() { return m_isCancelled; }
+
+	void setDeleteTmpFile(bool deleteTmpFile) { m_deleteTmpFile = deleteTmpFile; }
 
     bool deletesFileUponFailure() const { return m_deletesFileUponFailure; }
     void setDeletesFileUponFailure(bool deletesFileUponFailure) { m_deletesFileUponFailure = deletesFileUponFailure; }
@@ -85,6 +89,7 @@ private:
     ResourceRequest m_request;
     ResourceResponse m_response;
     bool m_deletesFileUponFailure { false };
+    bool m_deleteTmpFile { false };
     String m_destination;
     unsigned m_redirectCount { 0 };
     RefPtr<CurlRequest> m_curlRequest;

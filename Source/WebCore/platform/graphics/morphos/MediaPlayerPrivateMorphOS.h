@@ -12,8 +12,8 @@ namespace WebCore {
 struct MediaPlayerPrivateMorphOSSettings
 {
 	MediaPlayerPrivateMorphOSSettings()
-		: m_enableVideo(true)
-		, m_enableAudio(true)
+		: m_enableVideo(false)
+		, m_enableAudio(false)
 		, m_enableOgg(true)
 		, m_enableFlv(true)
 		, m_enableWebm(true)

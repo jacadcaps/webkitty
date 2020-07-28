@@ -33,16 +33,16 @@
 - (void)cancelForResume;
 
 - (BOOL)canResumeDownload;
+- (void)resume;
 
 - (OBURL *)url;
 - (OBString *)filename;
-
-- (void)setDeletesFilesUponFailure:(BOOL)deleteOnFailure;
 
 - (size_t)size;
 - (size_t)downloadedSize;
 
 - (BOOL)isPending;
 - (BOOL)isFailed;
+- (BOOL)isFinished;
 
 @end

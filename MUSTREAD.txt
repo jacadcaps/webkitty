@@ -13,6 +13,15 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 27.07.2020
+	- Download resuming support
+	- MMB click handling
+	- Fixed a crash when quitting LocalStorage thread
+
+- 24.07.2020
+	- Link with latest sqlite, fixes some IndexedDB issues
+	- Fixed a crash on aliexpress.com
+
 - 23.07.2020
 	- Faster quit, ensure cookie.jar database gets closed on quit
 	- Fixed an SQL issue where some files would remain locked after quit

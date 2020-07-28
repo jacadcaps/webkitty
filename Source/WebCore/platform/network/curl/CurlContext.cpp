@@ -614,6 +614,11 @@ void CurlHandle::setHttpCustomRequest(const String& method)
     curl_easy_setopt(m_handle, CURLOPT_CUSTOMREQUEST, method.ascii().data());
 }
 
+void CurlHandle::setResumeOffset(long long offset)
+{
+	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
+}
+
 void CurlHandle::enableAcceptEncoding()
 {
     // enable all supported built-in compressions (gzip and deflate) through Accept-Encoding:

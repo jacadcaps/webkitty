@@ -128,7 +128,6 @@ void CurlRequest::start()
 void CurlRequest::startWithJobManager()
 {
     ASSERT(isMainThread());
-
     CurlContext::singleton().scheduler().add(this);
 }
 
@@ -249,11 +248,13 @@ CURL* CurlRequest::setupTransfer()
 
     m_curlHandle->setTimeout(timeoutInterval());
 
+	if (m_downloadResumeOffset > 0)
+		m_curlHandle->setResumeOffset(m_downloadResumeOffset);
+
     if (m_shouldSuspend)
         setRequestPaused(true);
 
     m_performStartTime = MonotonicTime::now();
-
     return m_curlHandle->handle();
 }
 
@@ -757,7 +758,19 @@ void CurlRequest::enableDownloadToFile()
     m_isEnabledDownloadToFile = true;
 }
 
-const String& CurlRequest::getDownloadedFilePath()
+void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
+{
+    LockHolder locker(m_downloadMutex);
+    m_isEnabledDownloadToFile = true;
+	m_downloadFileHandle = FileSystem::openFile(tmpDownloadPath, FileSystem::FileOpenMode::ReadWrite);
+	if (m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
+	{
+		m_downloadFilePath = tmpDownloadPath;
+		m_downloadResumeOffset = FileSystem::seekFile(m_downloadFileHandle, 0, FileSystem::FileSeekOrigin::End);
+	}
+}
+
+String CurlRequest::getDownloadedFilePath()
 {
     LockHolder locker(m_downloadMutex);
     return m_downloadFilePath;
@@ -794,7 +807,7 @@ void CurlRequest::cleanupDownloadFile()
 {
     LockHolder locker(m_downloadMutex);
 
-    if (!m_downloadFilePath.isEmpty()) {
+    if (!m_downloadFilePath.isEmpty() && m_deletesDownloadFileOnCancelOrError) {
         FileSystem::deleteFile(m_downloadFilePath);
         m_downloadFilePath = String();
     }

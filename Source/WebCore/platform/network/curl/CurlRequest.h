@@ -96,7 +96,10 @@ public:
 
     // Download
     void enableDownloadToFile();
-    const String& getDownloadedFilePath();
+    void resumeDownloadToFile(const String &tmpDownloadPath);
+    void setDeletesDownloadFileOnCancelOrError(bool deletesFile) { m_deletesDownloadFileOnCancelOrError = deletesFile; }
+    long long getDownloadResumeOffset() const { return m_downloadResumeOffset; }
+    String getDownloadedFilePath();
 		
     static void SetDownloadPath(const String &downloadPath) { m_downloadPath = downloadPath; }
 
@@ -207,8 +210,10 @@ private:
 
     Lock m_downloadMutex;
     bool m_isEnabledDownloadToFile { false };
+    bool m_deletesDownloadFileOnCancelOrError { false };
     String m_downloadFilePath;
     FileSystem::PlatformFileHandle m_downloadFileHandle { FileSystem::invalidPlatformFileHandle };
+    long long m_downloadResumeOffset { 0 };
     static String m_downloadPath;
 
     bool m_captureExtraMetrics;

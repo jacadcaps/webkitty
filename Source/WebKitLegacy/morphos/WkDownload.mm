@@ -24,8 +24,11 @@ public:
 	void initialize(_WkDownload *outer, WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response);
 	bool start();
 	bool cancel();
+
 	bool cancelForResume();
-	void setDeletesFileOnFailure(bool deletes);
+	bool resume();
+	
+	void deleteTmpFile();
 
     void didReceiveResponse(const WebCore::ResourceResponse& response) override;
     void didReceiveDataOfLength(int size) override;
@@ -52,6 +55,7 @@ private:
 	bool                     _selfretained;
 	bool                     _isPending;
 	bool                     _isFailed;
+	bool                     _isFinished;
 }
 
 - (id<WkDownloadDelegate>)delegate;
@@ -59,6 +63,7 @@ private:
 - (void)selfrelease;
 - (void)setPending:(BOOL)pending;
 - (void)setFailed:(BOOL)failed;
+- (void)setFinished:(BOOL)fini;
 
 @end
 
@@ -99,32 +104,44 @@ bool WebDownload::cancel()
 	D(dprintf("%s: dl %p\n", __PRETTY_FUNCTION__, m_download));
 	if (!m_download)
 		return true;
+	m_download->setDeleteTmpFile(true);
 	if (!m_download->cancel())
 		return false;
 	m_download->setListener(nullptr);
 	m_download = nullptr;
 	return true;
 }
+
+#pragma GCC push_options
+#pragma GCC optimize ("O0") // or crash when resuming :|
 
 bool WebDownload::cancelForResume()
 {
 	D(dprintf("%s: dl %p\n", __PRETTY_FUNCTION__, m_download));
 	if (!m_download)
 		return true;
+	m_download->setDeleteTmpFile(false);
 	if (!m_download->cancel())
 		return false;
-	m_download->setListener(nullptr);
-	m_download = nullptr;
-	// TODO ?
+	D(dprintf("%s: dl %p done\n", __PRETTY_FUNCTION__, m_download));
 	return true;
 }
+
+bool WebDownload::resume()
+{
+	if (m_download && m_download->isCancelled())
+		m_download->resume();
+}
+
+#pragma GCC pop_options
 
 void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 {
 	[m_outerObject retain];
 	if (m_download)
 	{
-		m_size = response.expectedContentLength();
+		// (add received size to handle resuming)
+		m_size = m_receivedSize + response.expectedContentLength();
 		[[m_outerObject delegate] didReceiveResponse:m_outerObject];
 		
 		String suggestedFilename = response.suggestedFilename();
@@ -156,6 +173,11 @@ void WebDownload::didReceiveDataOfLength(int size)
 
 void WebDownload::didFinish()
 {
+	m_download->setDeleteTmpFile(false);
+	m_download->setListener(nullptr);
+	m_download = nullptr;
+
+	[m_outerObject setFinished:YES];
 	[m_outerObject setPending:NO];
 	[[m_outerObject delegate] downloadDidFinish:m_outerObject];
 	[m_outerObject selfrelease];
@@ -165,15 +187,12 @@ void WebDownload::didFail()
 {
 	[m_outerObject setPending:NO];
 	[m_outerObject setFailed:YES];
+	
+	if (m_download)
+		m_download->setDeleteTmpFile(true);
 
 	[[m_outerObject delegate] download:m_outerObject didFailWithError:nil];
 	[m_outerObject selfrelease];
-}
-
-void WebDownload::setDeletesFileOnFailure(bool deletes)
-{
-	if (m_download)
-		m_download->setDeletesFileUponFailure(deletes);
 }
 
 @implementation _WkDownload
@@ -276,13 +295,24 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 
 - (BOOL)canResumeDownload
 {
-// https://curl.haxx.se/libcurl/c/CURLOPT_RESUME_FROM_LARGE.html
-	return 0;
+	return !_isPending && !_isFinished;
 }
 
-- (void)setDeletesFilesUponFailure:(BOOL)deleteOnFailure
+- (void)resume
 {
-	_download.setDeletesFileOnFailure(deleteOnFailure);
+	if (_download.resume())
+	{
+		_isPending = YES;
+		_isFinished = NO;
+		_isFailed = NO;
+		@synchronized (self) {
+			if (!_selfretained)
+			{
+				[self retain];
+				_selfretained = YES;
+			}
+		}
+	}
 }
 
 - (OBURL *)url
@@ -331,6 +361,16 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 	_isFailed = failed;
 }
 
+- (void)setFinished:(BOOL)fini
+{
+	_isFinished = fini;
+}
+
+- (BOOL)isFinished
+{
+	_isFinished;
+}
+
 @end
 
 @implementation WkDownload
@@ -377,7 +417,7 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 	return 0;
 }
 
-- (void)setDeletesFilesUponFailure:(BOOL)deleteOnFailure
+- (void)resume
 {
 
 }
@@ -398,6 +438,11 @@ void WebDownload::setDeletesFileOnFailure(bool deletes)
 }
 
 - (BOOL)isFailed
+{
+	return 0;
+}
+
+- (BOOL)isFinished
 {
 	return 0;
 }

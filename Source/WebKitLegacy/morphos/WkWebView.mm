@@ -904,6 +904,41 @@ dprintf("---------- objc fixup ------------\n");
 				}
 			};
 			
+			webPage->_fNewTabWindow = [self](const WTF::URL& inurl, WebViewDelegateOpenWindowMode mode) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					auto uurl = inurl.string().utf8();
+					OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+					OBString *modeKey;
+					
+					switch (mode)
+					{
+					case WebViewDelegateOpenWindowMode::NewWindow:
+						modeKey = kWebViewNetworkDelegateOption_NewWindow;
+						break;
+					case WebViewDelegateOpenWindowMode::BackgroundTab:
+						modeKey = kWebViewNetworkDelegateOption_NewTab;
+						break;
+					default:
+						modeKey = kWebViewNetworkDelegateOption;
+						break;
+					}
+
+					if ([networkDelegate webView:self wantsToCreateNewViewWithURL:url
+						options:[OBDictionary dictionaryWithObject:modeKey forKey:kWebViewNetworkDelegateOption]])
+					{
+						WkWebView *newView = [[[self class] new] autorelease];
+						[newView load:url];
+						[networkDelegate webView:self createdNewWebView:newView];
+					}
+				}
+				return NO;
+
+			};
+			
 		} catch (...) {
 			[self release];
 			return nil;

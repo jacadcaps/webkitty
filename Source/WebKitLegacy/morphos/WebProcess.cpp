@@ -173,7 +173,6 @@ void WebProcess::terminate()
 	WebCore::DOMWindow::dispatchAllPendingUnloadEvents();
 	WebCore::CurlContext::singleton().stopThread();
 	NetworkStorageSessionMap::destroyAllSessions();
-	WebDatabaseProvider::singleton().shutdownAllDatabases();
 	WebStorageNamespaceProvider::closeLocalStorage();
 
 	waitForThreads();

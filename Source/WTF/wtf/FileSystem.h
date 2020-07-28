@@ -82,6 +82,9 @@ enum class FileOpenMode {
 #if OS(DARWIN)
     EventsOnly,
 #endif
+#ifdef __MORPHOS__
+	ReadWrite,
+#endif
 };
 
 enum class FileSeekOrigin {

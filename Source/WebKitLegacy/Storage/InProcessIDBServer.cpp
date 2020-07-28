@@ -502,22 +502,6 @@ void InProcessIDBServer::closeAndDeleteDatabasesModifiedSince(WallTime modificat
     });
 }
 
-void InProcessIDBServer::close()
-{
-	if (m_thread)
-	{
-		BinarySemaphore semaphore;
-		dispatchTask([this, &semaphore] {
-			m_server = nullptr;
-			m_connectionToClient = nullptr;
-			semaphore.signal();
-		});
-		semaphore.wait();
-		m_thread->terminate();
-		m_thread = nullptr;
-	}
-}
-
 void InProcessIDBServer::dispatchTask(Function<void()>&& function)
 {
     ASSERT(isMainThread());

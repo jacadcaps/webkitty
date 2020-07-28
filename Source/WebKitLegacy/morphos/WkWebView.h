@@ -12,6 +12,10 @@
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
 
+#define kWebViewNetworkDelegateOption @"mode"
+#define kWebViewNetworkDelegateOption_NewWindow @"window"
+#define kWebViewNetworkDelegateOption_NewTab @"tab"
+
 @protocol WkWebViewScrollingDelegate <OBObject>
 
 - (void)webView:(WkWebView *)view changedContentsSizeToWidth:(int)width height:(int)height;

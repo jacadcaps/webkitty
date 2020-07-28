@@ -256,6 +256,7 @@ public:
     void enableHttpPutRequest();
     void setInFileSizeLarge(curl_off_t);
     void setHttpCustomRequest(const String&);
+    void setResumeOffset(long long);
 
     void enableConnectionOnly();
 

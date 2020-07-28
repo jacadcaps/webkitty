@@ -88,6 +88,8 @@ void StorageThread::dispatch(Function<void ()>&& function)
 
 void StorageThread::terminate()
 {
+	if (!m_thread)
+		return;
     ASSERT(isMainThread());
     ASSERT(!m_queue.killed() && m_thread);
     activeStorageThreads().remove(this);

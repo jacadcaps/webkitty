@@ -51,6 +51,7 @@
 
 #if OS(MORPHOS)
 #include <libraries/charsets.h>
+#include <proto/dos.h>
 #endif
 
 namespace WTF {
@@ -103,7 +104,10 @@ PlatformFileHandle openFile(const String& path, FileOpenMode mode)
     else if (mode == FileOpenMode::EventsOnly)
         platformFlag |= O_EVTONLY;
 #endif
-
+#ifdef __MORPHOS__
+	else if (mode == FileOpenMode::ReadWrite)
+		platformFlag = O_RDWR;
+#endif
     return open(fsRep.data(), platformFlag, 0666);
 }
 
@@ -455,8 +459,17 @@ bool getVolumeFreeSpace(const String& path, uint64_t& freeSpace)
 String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle& handle)
 {
     char buffer[PATH_MAX];
+#if OS(MORPHOS)
+	stccpy(buffer, fileSystemRepresentation(tmpPath).data(), sizeof(buffer));
+	if (0 == AddPart(buffer, fileSystemRepresentation(prefix).data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+#else
     if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", fileSystemRepresentation(tmpPath).data(), fileSystemRepresentation(prefix).data()) >= PATH_MAX)
         goto end;
+#endif
 
     handle = mkstemp(buffer);
     if (handle < 0)

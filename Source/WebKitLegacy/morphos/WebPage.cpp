@@ -1495,7 +1495,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 				case SELECTDOWN:
 				case MENUDOWN:
-				case MIDDLEDOWN:
 					if (mouseInside)
 					{
 						if (_fGoActive)
@@ -1504,6 +1503,55 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						bool eat = bridge.handleMousePressEvent(pme);
 						m_trackMouse = true;
 						return eat;
+					}
+					break;
+				case MIDDLEDOWN:
+					if (mouseInside)
+						return true;
+					break;
+				case MIDDLEUP:
+					if (mouseInside || m_trackMouse)
+					{
+						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(pme.position(), WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						bool isMouseDownOnLinkOrImage = hitTestResult.isOverLink() || hitTestResult.image();
+						if (isMouseDownOnLinkOrImage)
+						{
+							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+							{
+								// open in new window...
+								if (_fNewTabWindow)
+								{
+									if (hitTestResult.isOverLink())
+										_fNewTabWindow(hitTestResult.absoluteLinkURL(), WebViewDelegateOpenWindowMode::NewWindow);
+									else
+										_fNewTabWindow(hitTestResult.absoluteImageURL(), WebViewDelegateOpenWindowMode::NewWindow);
+								}
+							}
+							else if (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT))
+							{
+								// download
+								if (_fDownload)
+								{
+									if (hitTestResult.isOverLink())
+										_fDownload(hitTestResult.absoluteLinkURL(), hitTestResult.linkSuggestedFilename());
+									else
+										_fDownload(hitTestResult.absoluteImageURL(), { });
+								}
+							}
+							else
+							{
+								// open in new bg tab...
+								if (_fNewTabWindow)
+								{
+									if (hitTestResult.isOverLink())
+										_fNewTabWindow(hitTestResult.absoluteLinkURL(), WebViewDelegateOpenWindowMode::BackgroundTab);
+									else
+										_fNewTabWindow(hitTestResult.absoluteImageURL(), WebViewDelegateOpenWindowMode::BackgroundTab);
+								}
+							}
+						}
+						m_trackMouse = false;
+						return true;
 					}
 					break;
 				default:

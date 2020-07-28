@@ -42,6 +42,8 @@ CurlDownload::~CurlDownload()
 {
     if (m_curlRequest)
         m_curlRequest->invalidateClient();
+	if (m_deleteTmpFile && m_curlRequest)
+        FileSystem::deleteFile(m_curlRequest->getDownloadedFilePath());
 }
 
 void CurlDownload::init(CurlDownloadListener& listener, const URL& url)
@@ -62,7 +64,23 @@ void CurlDownload::start()
 
     m_curlRequest = createCurlRequest(m_request);
     m_curlRequest->enableDownloadToFile();
+    m_curlRequest->setDeletesDownloadFileOnCancelOrError(false);
     m_curlRequest->start();
+}
+
+void CurlDownload::resume()
+{
+    ASSERT(isMainThread());
+    ASSERT(m_curlRequest);
+
+	if (m_curlRequest && m_curlRequest->isCompletedOrCancelled())
+	{
+		String oldPath = m_curlRequest->getDownloadedFilePath();
+		m_isCancelled = false;
+		m_curlRequest = createCurlRequest(m_request);
+		m_curlRequest->resumeDownloadToFile(oldPath);
+		m_curlRequest->start();
+	}
 }
 
 bool CurlDownload::cancel()

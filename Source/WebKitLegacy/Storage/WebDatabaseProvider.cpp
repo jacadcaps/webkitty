@@ -50,13 +50,6 @@ WebCore::IDBClient::IDBConnectionToServer& WebDatabaseProvider::idbConnectionToS
     }).iterator->value->connectionToServer();
 }
 
-void WebDatabaseProvider::shutdownAllDatabases()
-{
-	for (auto& server : m_idbServerMap.values())
-		server->close();
-	m_idbServerMap.clear();
-}
-
 void WebDatabaseProvider::deleteAllDatabases()
 {
     for (auto& server : m_idbServerMap.values())
