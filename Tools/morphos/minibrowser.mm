@@ -707,10 +707,10 @@ static int _windowID = 1;
 	dprintf(">> WillSubmitForm @ %s (%s, %s)\n", [[url absoluteString] cString], [login cString], [password cString]);
 }
 
-- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url
+- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url withPrefilledLogin:(OBString *)login
 {
 	MUIString *l, *p;
-	MUIGroup *g = [[MUIGroup groupWithObjects:l = [MUIString string], p = [MUIString string], nil] retain];
+	MUIGroup *g = [[MUIGroup groupWithObjects:l = [MUIString stringWithContents:login], p = [MUIString string], nil] retain];
 	if (1 == [MUIRequest request:self title:@"Input Credentials" message:@"Input login credentials" buttons:[OBArray arrayWithObjects:@"OK", @"Cancel", nil] object:g])
 	{
 		[view autofillElementsWithLogin:[l contents] password:[p contents]];

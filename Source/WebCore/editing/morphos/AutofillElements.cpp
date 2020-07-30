@@ -25,6 +25,8 @@
 
 #include "config.h"
 #include "AutofillElements.h"
+#include "HTMLFormElement.h"
+#include "HTMLCollection.h"
 
 #include "FocusController.h"
 #include "Page.h"
@@ -72,27 +74,29 @@ static inline RefPtr<HTMLInputElement> previousAutofillableElement(Node* startNo
     return &downcast<HTMLInputElement>(*previousElement);
 }
 
-AutofillElements::AutofillElements(RefPtr<HTMLInputElement>&& username, RefPtr<HTMLInputElement>&& password)
-    : m_username(username)
-    , m_password(password)
+AutofillElements::AutofillElements()
 {
 }
 
-Optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
+bool AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
 {
     if (!start->document().page())
-        return WTF::nullopt;
+        false;
     FocusController& focusController = start->document().page()->focusController();
     if (start->isPasswordField()) {
         RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
         RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
         bool hasDuplicatePasswordElements = (nextElement && nextElement->isPasswordField()) || (previousElement && previousElement->isPasswordField());
         if (hasDuplicatePasswordElements)
-            return WTF::nullopt;
+            return false;
 
         if (previousElement && is<HTMLInputElement>(*previousElement)) {
             if (previousElement->isTextField())
-                return AutofillElements(WTFMove(previousElement), WTFMove(start));
+            {
+            	m_username = previousElement;
+            	m_password = start.ptr();
+            	return true;
+			}
         }
     } else {
         RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
@@ -101,9 +105,10 @@ Optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HTMLInp
                 RefPtr<HTMLInputElement> elementAfternextElement = nextAutofillableElement(nextElement.get(), focusController);
                 bool hasDuplicatePasswordElements = elementAfternextElement && elementAfternextElement->isPasswordField();
                 if (hasDuplicatePasswordElements)
-                    return WTF::nullopt;
-
-                return AutofillElements(WTFMove(start), WTFMove(nextElement));
+                    return false;
+            	m_username = start.ptr();
+            	m_password = nextElement;
+                return true;
             }
         }
     }
@@ -112,9 +117,28 @@ Optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HTMLInp
         RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
         RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
         if (!previousElement && !nextElement)
-            return AutofillElements(nullptr, start.ptr());
+        {
+			m_username = nullptr;
+			m_password = start.ptr();
+
+			if (start.ptr())
+			{
+				auto elements = start->form()->elementsForNativeBindings();
+				for (unsigned i = 0; i < elements->length(); i++)
+				{
+					Element* e = elements->item(i);
+					if (isAutofillableElement(*e) && e != start.ptr())
+					{
+						m_username = &downcast<HTMLInputElement>(*e);
+						break;
+					}
+				}
+			}
+
+            return true;
+		}
     }
-    return WTF::nullopt;
+    return false;
 }
 
 void AutofillElements::autofill(String username, String password)

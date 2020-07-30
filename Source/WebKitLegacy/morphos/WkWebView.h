@@ -88,7 +88,7 @@ typedef enum {
 @protocol WkWebViewAutofillDelegate <OBObject>
 
 - (void)webView:(WkWebView *)view willSubmitFormWithLogin:(OBString *)login password:(OBString *)password atURL:(OBURL *)url;
-- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url;
+- (void)webView:(WkWebView *)view selectedAutofillFieldAtURL:(OBURL *)url withPrefilledLogin:(OBString *)login;
 
 @end
 
@@ -148,6 +148,10 @@ typedef enum {
 
 - (BOOL)hasAutofillElements;
 - (void)autofillElementsWithLogin:(OBString *)login password:(OBString *)password;
+
+- (float)textZoomFactor;
+- (float)pageZoomFactor;
+- (void)setPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor;
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate;
 - (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;

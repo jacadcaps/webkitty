@@ -209,42 +209,11 @@ void WebEditorClient::textFieldDidBeginEditing(Element* e)
 {
 //    notImplemented();
 	
-    if (is<HTMLInputElement>(e) && !hasAutofillElements())
+    if (is<HTMLInputElement>(e) && !m_webPage->hasAutofillElements())
     {
 		HTMLInputElement* element = downcast<HTMLInputElement>(e);
-        m_autofillElements = WebCore::AutofillElements::computeAutofillElements(*element);
-        if (m_autofillElements && m_webPage->_fHasAutofill)
-        	m_webPage->_fHasAutofill();
+		m_webPage->startedEditingElement(element);
 	}
-}
-
-void WebEditorClient::setAutofillElements(const WTF::String &login, const WTF::String &password)
-{
-	if (hasAutofillElements())
-	{
-		m_autofillElements->autofill(login, password);
-	}
-}
-
-bool WebEditorClient::getAutofillElements(WTF::String &outlogin, WTF::String &outPassword) const
-{
-	outlogin = String();
-	outPassword = String();
-
-	if (hasAutofillElements())
-	{
-		if (m_autofillElements->username())
-		{
-			outlogin = m_autofillElements->username()->value();
-		}
-		
-		if (m_autofillElements->password())
-		{
-			outPassword = m_autofillElements->password()->value();
-		}
-	}
-	
-	return false;
 }
 
 void WebEditorClient::textFieldDidEndEditing(Element* e)

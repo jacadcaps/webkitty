@@ -96,6 +96,7 @@
 #include <WebCore/ContextMenuController.h>
 #include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/ScriptState.h>
+#include <WebCore/AutofillElements.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -568,6 +569,7 @@ WebPage::~WebPage()
 {
 	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	delete m_drawContext;
+	delete m_autofillElements;
 }
 
 WebCore::Page *WebPage::corePage()
@@ -831,28 +833,65 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 	m_focusedElement = element;
 }
 
+void WebPage::startedEditingElement(WebCore::HTMLInputElement *input)
+{
+	if (nullptr == input)
+		return;
+	if (nullptr == m_autofillElements)
+		m_autofillElements = new WebCore::AutofillElements();
+	if (m_autofillElements)
+	{
+		if (m_autofillElements->computeAutofillElements(*input))
+		{
+			if (_fHasAutofill)
+				_fHasAutofill();
+		}
+		else
+		{
+			delete m_autofillElements;
+			m_autofillElements = nullptr;
+		}
+	}
+}
+
 bool WebPage::hasAutofillElements()
 {
-	auto client = downcast<WebEditorClient>(corePage()->editorClient());
-	return client.hasAutofillElements();
+	if (m_autofillElements)
+		return true;
+	return false;
 }
 
 void WebPage::clearAutofillElements()
 {
-	auto client = downcast<WebEditorClient>(corePage()->editorClient());
-	client.clearAutofillElements();
+	if (m_autofillElements)
+		delete m_autofillElements;
+	m_autofillElements = nullptr;
 }
 
 void WebPage::setAutofillElements(const WTF::String &login, const WTF::String &password)
 {
-	auto client = downcast<WebEditorClient>(corePage()->editorClient());
-	client.setAutofillElements(login, password);
+	if (m_autofillElements)
+		m_autofillElements->autofill(login, password);
 }
 
 bool WebPage::getAutofillElements(WTF::String &outlogin, WTF::String &outPassword)
 {
-	auto client = downcast<WebEditorClient>(corePage()->editorClient());
-	return client.getAutofillElements(outlogin, outPassword);
+	if (m_autofillElements)
+	{
+		if (m_autofillElements->username())
+		{
+			outlogin = m_autofillElements->username()->value();
+		}
+		
+		if (m_autofillElements->password())
+		{
+			outPassword = m_autofillElements->password()->value();
+		}
+		
+		return true;
+	}
+
+	return false;
 }
 
 void WebPage::addResourceRequest(unsigned long identifier, const WebCore::ResourceRequest& request)
@@ -1004,6 +1043,35 @@ double WebPage::pageScaleFactor() const
 double WebPage::viewScaleFactor() const
 {
     return m_page->viewScaleFactor();
+}
+
+float WebPage::pageZoomFactor() const
+{
+	if (m_mainFrame)
+	{
+		auto* coreFrame = m_mainFrame->coreFrame();
+		return coreFrame->pageZoomFactor();
+	}
+	return 1.f;
+}
+
+float WebPage::textZoomFactor() const
+{
+	if (m_mainFrame)
+	{
+		auto* coreFrame = m_mainFrame->coreFrame();
+		return coreFrame->textZoomFactor();
+	}
+	return 1.f;
+}
+
+void WebPage::setPageAndTextZoomFactors(float pageZoomFactor, float textZoomFactor)
+{
+	if (m_mainFrame)
+	{
+		auto* coreFrame = m_mainFrame->coreFrame();
+		coreFrame->setPageAndTextZoomFactors(pageZoomFactor, textZoomFactor);
+	}
 }
 
 void WebPage::scalePage(double scale, const IntPoint& origin)
@@ -1206,6 +1274,23 @@ void WebPage::scrollBy(const int xDelta, const int yDelta)
 
 	if (_fInvalidate)
 		_fInvalidate();
+}
+
+void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers)
+{
+	if (qualifiers & IEQUALIFIER_CONTROL)
+	{
+		float factor = pageZoomFactor();
+		if (yDelta < 0)
+			factor -= 0.05;
+		else
+			factor += 0.05;
+		setPageAndTextZoomFactors(factor, textZoomFactor());
+	}
+	else
+	{
+		scrollBy(xDelta, yDelta);
+	}
 }
 
 void WebPage::draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode)
@@ -1609,11 +1694,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							);
 						bool handled = bridge.handleWheelEvent(pke);
 						if (!handled)
-							scrollBy(0, (code == NM_WHEEL_UP) ? 50 : -50);
+							wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier);
 					}
 					else
 					{
-						scrollBy(0, (code == NM_WHEEL_UP) ? 50 : -50);
+						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier);
 					}
 					return true;
 				}

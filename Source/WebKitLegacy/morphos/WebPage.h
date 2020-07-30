@@ -17,6 +17,8 @@ namespace WebCore {
 	class ResourceError;
 	class ContextMenuItem;
 	class CertificateInfo;
+	class AutofillElements;
+	class HTMLInputElement;
 };
 
 struct RastPort;
@@ -110,6 +112,10 @@ public:
     double totalScaleFactor() const;
     double viewScaleFactor() const;
 
+    float pageZoomFactor() const;
+    float textZoomFactor() const;
+    void setPageAndTextZoomFactors(float pageZoomFactor, float textZoomFactor);
+
     bool mainFrameIsScrollable() const { return m_mainFrameIsScrollable; }
 
     void setAlwaysShowsHorizontalScroller(bool);
@@ -142,6 +148,7 @@ public:
 	
     void setFocusedElement(WebCore::Element *);
 	
+	void startedEditingElement(WebCore::HTMLInputElement *);
 	bool hasAutofillElements();
 	void clearAutofillElements();
 	void setAutofillElements(const WTF::String &login, const WTF::String &password);
@@ -154,6 +161,7 @@ protected:
     void repaint(const WebCore::IntRect&);
     void internalScroll(int scrollX, int scrollY);
 	void scrollBy(const int xDelta, const int yDelta);
+	void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers);
     void frameSizeChanged(WebCore::Frame& frame, int width, int height);
 
     void closeWindow();
@@ -169,10 +177,11 @@ private:
 	RefPtr<WebPageGroup> m_webPageGroup;
 	WebViewDrawContext  *m_drawContext { nullptr };
     WebCore::PageIdentifier m_pageID;
+    WebCore::AutofillElements *m_autofillElements { nullptr };
     WTF::HashSet<unsigned long> m_trackedNetworkResourceRequestIdentifiers;
     uint64_t m_pendingNavigationID { 0 };
-	int  m_clickCount { 0 };
 	uint32_t m_lastQualifier { 0 };
+	int  m_clickCount { 0 };
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };

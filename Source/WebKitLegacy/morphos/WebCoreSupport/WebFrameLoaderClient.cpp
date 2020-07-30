@@ -902,12 +902,22 @@ void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Completi
         return;
     }
 
+#if 0
+	auto& values = formState.textFieldValues();
+	for (auto const &e : values)
+	{
+		dprintf("xx %s - %s\n", e.first.utf8().data(), e.second.utf8().data());
+	}
+#endif
+
 	if (webPage->hasAutofillElements() && webPage->_fStoreAutofill)
 	{
 		WTF::String user, password;
 		webPage->getAutofillElements(user, password);
-		if (!user.isEmpty() || !password.isEmpty())
+		if (!password.isEmpty())
+		{
 			webPage->_fStoreAutofill(user, password);
+		}
 	}
 
 	notImplemented();

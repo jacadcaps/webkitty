@@ -886,9 +886,18 @@ dprintf("---------- objc fixup ------------\n");
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
 				id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
-				if (autoDelegate)
+				WebKit::WebPage *page = [privateObject page];
+				if (autoDelegate && page)
 				{
-					[autoDelegate webView:self selectedAutofillFieldAtURL:[self URL]];
+					WTF::String wLogin, wPassword;
+					page->getAutofillElements(wLogin, wPassword);
+					OBString *login = nil;
+					if (!wLogin.isEmpty())
+					{
+						auto ulogin = wLogin.utf8();
+						login = [OBString stringWithUTF8String:ulogin.data()];
+					}
+					[autoDelegate webView:self selectedAutofillFieldAtURL:[self URL] withPrefilledLogin:login];
 				}
 			};
 			
@@ -1493,6 +1502,24 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	return webPage->setAutofillElements(WTF::String::fromUTF8([login cString]), WTF::String::fromUTF8([password cString]));
+}
+
+- (float)textZoomFactor
+{
+	auto webPage = [_private page];
+	return webPage->textZoomFactor();
+}
+
+- (float)pageZoomFactor
+{
+	auto webPage = [_private page];
+	return webPage->pageZoomFactor();
+}
+
+- (void)setPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor
+{
+	auto webPage = [_private page];
+	webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
 }
 
 @end

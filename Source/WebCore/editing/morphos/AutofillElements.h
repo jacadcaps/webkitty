@@ -32,13 +32,14 @@ namespace WebCore {
 class AutofillElements {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    WEBCORE_EXPORT static Optional<AutofillElements> computeAutofillElements(Ref<HTMLInputElement>);
-    WEBCORE_EXPORT void autofill(String, String);
+	AutofillElements();
+
+    bool computeAutofillElements(Ref<HTMLInputElement>);
+    void autofill(String, String);
 
     const HTMLInputElement* username() const { return m_username.get(); }
     const HTMLInputElement* password() const { return m_password.get(); }
 private:
-    AutofillElements(RefPtr<HTMLInputElement>&&, RefPtr<HTMLInputElement>&&);
     RefPtr<HTMLInputElement> m_username;
     RefPtr<HTMLInputElement> m_password;
 };

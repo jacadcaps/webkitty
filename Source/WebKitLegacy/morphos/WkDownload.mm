@@ -84,6 +84,16 @@ void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle,
 	m_download = adoptRef(new WebCore::CurlDownload());
 	if (m_download)
 	{
+		auto uurl = response.url().string().utf8();
+		auto umime = response.mimeType().utf8();
+		auto uname = response.suggestedFilename().utf8();
+
+		if (0 == uname.length())
+			uname = WebCore::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
+		
+		[m_outerObject setFilename:[OBString stringWithUTF8String:uname.data()]];
+		m_size = response.expectedContentLength();
+	
 		m_download->init(*this, handle, request, response);
 	}
 }
@@ -141,20 +151,32 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 	if (m_download)
 	{
 		// (add received size to handle resuming)
-		m_size = m_receivedSize + response.expectedContentLength();
+		// try to keep m_size if already set! (see the case in which we dl from a pending response)
+		// the response here is often bogus in that case :|
+		if (0 == m_size || m_receivedSize)
+			m_size = m_receivedSize + response.expectedContentLength();
 		[[m_outerObject delegate] didReceiveResponse:m_outerObject];
-		
-		String suggestedFilename = response.suggestedFilename();
-		if (suggestedFilename.isEmpty())
-			suggestedFilename = FileSystem::pathGetFileName(response.url().string());
-		suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
-		
-		auto usuggestedFilename = suggestedFilename.utf8();
-		OBString *path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:[OBString stringWithUTF8String:usuggestedFilename.data()]];
+
+		OBString *path = [m_outerObject filename];
+
+		if (0 == [path length])
+		{
+			String suggestedFilename = response.suggestedFilename();
+			if (suggestedFilename.isEmpty())
+				suggestedFilename = response.url().lastPathComponent();
+			suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
+			
+			auto usuggestedFilename = suggestedFilename.utf8();
+			path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:[OBString stringWithUTF8String:usuggestedFilename.data()]];
+		}
+		else
+		{
+			path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:path];
+		}
 		
 		if (path)
 		{
-			[m_outerObject setFilename:[path copy]];
+			[m_outerObject setFilename:path];
 			m_download->setDestination(WTF::String::fromUTF8([path nativeCString]));
 		}
 		else
