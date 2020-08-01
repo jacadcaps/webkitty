@@ -437,8 +437,8 @@ static int _windowID = 1;
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
-		ADDBUTTON(@"MTDL", @"https://morphos-team.net/downloads");
 		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
+		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"GGlogin", @"https://accounts.google.com/");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");

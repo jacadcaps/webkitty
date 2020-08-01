@@ -399,9 +399,7 @@ void WebChromeClient::didFinishLoadingImageForElement(WebCore::HTMLImageElement&
 
 void WebChromeClient::setCursor(const Cursor& cursor)
 {
-	notImplemented();
-
-//    setLastSetCursorToCurrentCursor();
+	m_webPage.setCursor(int(cursor.platformCursor()));
 }
 
 void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)

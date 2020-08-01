@@ -40,6 +40,7 @@ list(APPEND WebCore_SOURCES
     editing/morphos/EditorMorphOS.cpp
     editing/morphos/AutofillElements.cpp
     platform/morphos/PasteboardMorphOS.cpp
+    platform/morphos/CursorMorphOS.cpp
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
     platform/morphos/ScrollbarThemeMorphOS.cpp

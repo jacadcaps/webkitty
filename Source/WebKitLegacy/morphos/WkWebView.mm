@@ -29,6 +29,7 @@
 
 #import <proto/dos.h>
 #import <proto/exec.h>
+#import <proto/intuition.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
@@ -945,7 +946,16 @@ dprintf("---------- objc fixup ------------\n");
 					}
 				}
 				return NO;
-
+			};
+			
+			webPage->_fSetCursor = [self](int cursor) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				if ([self window])
+				{
+					struct TagItem tags[] = { { WA_PointerType, (IPTR)cursor }, { TAG_DONE } };
+					SetWindowPointerA([self window], tags);
+				}
 			};
 			
 		} catch (...) {

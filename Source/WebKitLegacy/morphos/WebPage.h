@@ -154,6 +154,8 @@ public:
 	void setAutofillElements(const WTF::String &login, const WTF::String &password);
 	bool getAutofillElements(WTF::String &outlogin, WTF::String &outPassword);
 
+	void setCursor(int);
+
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
 
@@ -182,6 +184,7 @@ private:
     uint64_t m_pendingNavigationID { 0 };
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };
+	int  m_cursor { 0 };
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };

@@ -2029,6 +2029,11 @@ bool FrameView::shouldSetCursor() const
     return page && page->isVisible() && page->focusController().isActive();
 }
 
+void FrameView::setCursor(const Cursor& cursor)
+{
+	frame().page()->chrome().setCursor(cursor);
+}
+
 #if ENABLE(DARK_MODE_CSS)
 RenderObject* FrameView::rendererForColorScheme() const
 {

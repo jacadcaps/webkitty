@@ -514,6 +514,7 @@ public:
     IntPoint lastKnownMousePosition() const final;
     bool isHandlingWheelEvent() const final;
     bool shouldSetCursor() const;
+    void setCursor(const Cursor&) final;
 
     WEBCORE_EXPORT bool useDarkAppearance() const final;
     OptionSet<StyleColor::Options> styleColorOptions() const;

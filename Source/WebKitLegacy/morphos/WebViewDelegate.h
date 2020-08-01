@@ -60,6 +60,8 @@ struct WebViewDelegate
 
 	std::function<void()> _fHasAutofill;
 	std::function<void(const WTF::String &l, const WTF::String &p)> _fStoreAutofill;
+	
+	std::function<void(int)> _fSetCursor;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -91,5 +93,6 @@ struct WebViewDelegate
 		_fHasAutofill = nullptr;
 		_fStoreAutofill = nullptr;
 		_fNewTabWindow = nullptr;
+		_fSetCursor = nullptr;
 	};
 };

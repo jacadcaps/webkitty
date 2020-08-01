@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 31.07.2020
+	- Implemented mouse cursor support
+
 - 30.07.2020
 	- Improved password autofill code
 

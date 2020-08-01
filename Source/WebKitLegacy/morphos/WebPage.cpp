@@ -894,6 +894,17 @@ bool WebPage::getAutofillElements(WTF::String &outlogin, WTF::String &outPasswor
 	return false;
 }
 
+void WebPage::setCursor(int cursor)
+{
+	if (m_cursor != cursor)
+	{
+		m_cursor = cursor;
+
+		if (m_trackMouse && _fSetCursor)
+			_fSetCursor(m_cursor);
+	}
+}
+
 void WebPage::addResourceRequest(unsigned long identifier, const WebCore::ResourceRequest& request)
 {
     if (!request.url().protocolIsInHTTPFamily())
@@ -1654,7 +1665,14 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside || m_trackMouse)
 				{
 					bridge.handleMouseMoveEvent(pme);
+					if (_fSetCursor)
+						_fSetCursor(m_cursor);
 					return m_trackMouse;
+				}
+				else
+				{
+					if (_fSetCursor)
+						_fSetCursor(0);
 				}
 				break;
 			}
