@@ -30,8 +30,6 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 
-extern "C" { void dprintf(const char *,...); }
-
 namespace WebCore {
 
 static HashSet<StorageThread*>& activeStorageThreads()
@@ -49,8 +47,6 @@ StorageThread::StorageThread(Type type)
 
 StorageThread::~StorageThread()
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
-
     ASSERT(isMainThread());
     ASSERT(!m_thread);
 }
@@ -70,7 +66,6 @@ void StorageThread::start()
             });
         }
     }
-    dprintf("%s starting...\n", __PRETTY_FUNCTION__);
 
     activeStorageThreads().add(this);
 }
@@ -78,13 +73,11 @@ void StorageThread::start()
 void StorageThread::threadEntryPoint()
 {
     ASSERT(!isMainThread());
-dprintf("%s enter\n", __PRETTY_FUNCTION__);
 
     while (auto function = m_queue.waitForMessage()) {
         AutodrainedPool pool;
         (*function)();
     }
-dprintf("%s exit\n", __PRETTY_FUNCTION__);
 }
 
 void StorageThread::dispatch(Function<void ()>&& function)
@@ -96,7 +89,6 @@ void StorageThread::dispatch(Function<void ()>&& function)
 
 void StorageThread::terminate()
 {
-dprintf("%s %p\n", __PRETTY_FUNCTION__, m_thread.get());
 	if (!m_thread)
 		return;
     ASSERT(isMainThread());
@@ -112,12 +104,10 @@ dprintf("%s %p\n", __PRETTY_FUNCTION__, m_thread.get());
     m_thread->waitForCompletion();
     ASSERT(m_queue.killed());
     m_thread = nullptr;
-dprintf("%s exit\n", __PRETTY_FUNCTION__);
 }
 
 void StorageThread::performTerminate()
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
     ASSERT(!isMainThread());
     m_queue.kill();
 }

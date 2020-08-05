@@ -272,7 +272,11 @@ int Thread::waitForCompletion()
         handle = m_handle;
     }
 
-    int joinResult = pthread_join(handle, 0);
+	int joinResult;
+	do
+	{
+    	joinResult = pthread_join(handle, 0);
+	} while (joinResult == EINTR);
 
     if (joinResult == EDEADLK)
         LOG_ERROR("Thread %p was found to be deadlocked trying to quit", this);
