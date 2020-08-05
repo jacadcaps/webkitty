@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 05.08.2020
+	- Handle copy/paste/etc MUIKEY actions
+
 - 04.08.2020
 	- Fixed ThreadingPOSIX's waitForCompletion() to retry pthread_join should it
 	  return EINTR. Fixes the StorageThread crash on exit

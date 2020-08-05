@@ -1769,6 +1769,7 @@ bool WebPage::handleMUIKey(int muikey)
 {
 	if (!m_page)
 		return false;
+	const char *editorCommand = nullptr;
 
 	auto& focusController = m_page->focusController();
 	switch (muikey)
@@ -1781,10 +1782,32 @@ bool WebPage::handleMUIKey(int muikey)
 		return true;
 	case MUIKEY_GADGET_OFF:
 		return true;
+	case MUIKEY_CUT:
+		editorCommand = "Cut";
+		break;
+	case MUIKEY_COPY:
+		editorCommand = "Copy";
+		break;
+	case MUIKEY_PASTE:
+		editorCommand = "Paste";
+		break;
+	case MUIKEY_UNDO:
+		editorCommand = "Undo";
+		break;
+	case MUIKEY_REDO:
+		editorCommand = "Redo";
+		break;
 	default:
 		break;
 	}
 	
+	if (editorCommand && focusController.focusedFrame())
+	{
+		auto command = focusController.focusedFrame()->editor().command(editorCommand);
+		if (command.execute())
+			return true;
+	}
+
 	return false;
 }
 
