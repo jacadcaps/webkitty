@@ -66,6 +66,8 @@
 #include <WebCore/TextIterator.h>
 #include <WebCore/TextResourceDecoder.h>
 #include <WebCore/Node.h>
+#include <WebCore/NetworkingContext.h>
+#include <WebCore/NetworkStorageSession.h>
 #include <wtf/text/StringBuilder.h>
 
 #if PLATFORM(COCOA)

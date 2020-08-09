@@ -13,6 +13,11 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 09.08.2020
+	- Implemented http auth support in CurlDownload
+	- Corrected mouse offset in mmb hittest
+	- Fixed mouse cursor over links
+
 - 05.08.2020
 	- Handle copy/paste/etc MUIKEY actions
 

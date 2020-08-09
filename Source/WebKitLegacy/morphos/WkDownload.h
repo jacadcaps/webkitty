@@ -16,6 +16,7 @@
 
 - (void)downloadDidFinish:(WkDownload *)download;
 - (void)download:(WkDownload *)download didFailWithError:(WkError *)error;
+- (void)downloadNeedsAuthenticationCredentials:(WkDownload *)download;
 
 @end
 
@@ -37,6 +38,8 @@
 
 - (OBURL *)url;
 - (OBString *)filename;
+
+- (void)setLogin:(OBString *)login password:(OBString *)password;
 
 - (size_t)size;
 - (size_t)downloadedSize;

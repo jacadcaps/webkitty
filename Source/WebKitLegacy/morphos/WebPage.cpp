@@ -1608,8 +1608,10 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				case MIDDLEUP:
 					if (mouseInside || m_trackMouse)
 					{
-						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(pme.position(), WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
+						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 						bool isMouseDownOnLinkOrImage = hitTestResult.isOverLink() || hitTestResult.image();
+
 						if (isMouseDownOnLinkOrImage)
 						{
 							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))

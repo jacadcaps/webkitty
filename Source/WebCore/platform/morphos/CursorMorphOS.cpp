@@ -17,7 +17,7 @@ void Cursor::ensurePlatformCursor() const
         m_platformCursor = WebCore::PlatformCursor(POINTERTYPE_AIMING);
         break;
     case Cursor::Hand:
-        m_platformCursor = WebCore::PlatformCursor(POINTERTYPE_NORMAL);
+        m_platformCursor = WebCore::PlatformCursor(POINTERTYPE_SELECTLINK);
         break;
     case Cursor::IBeam:
         m_platformCursor = WebCore::PlatformCursor(POINTERTYPE_SELECTTEXT);

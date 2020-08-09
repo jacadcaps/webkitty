@@ -14,6 +14,8 @@
 #import <WebCore/FileChooser.h>
 #import <WebCore/TextEncoding.h>
 #import <WebCore/DOMWindow.h>
+#include <WebCore/AuthenticationChallenge.h>
+#include <WebCore/AuthenticationClient.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -406,6 +408,81 @@ namespace  {
 	{
 		_function(WebCore::PolicyAction::Ignore, _identifier);
 		_function = nullptr;
+	}
+}
+
+@end
+
+class WkAuthenticationChallenge : public RefCounted<WkAuthenticationChallenge>
+{
+public:
+    static Ref<WkAuthenticationChallenge> create(const WebCore::AuthenticationChallenge &challenge)
+    {
+        return WTF::adoptRef(*new WkAuthenticationChallenge(challenge));
+    }
+	WkAuthenticationChallenge(const WebCore::AuthenticationChallenge &challenge) :
+		_challenge(challenge)
+	{
+	}
+	WebCore::AuthenticationChallenge &challenge() { return _challenge; }
+private:
+	WebCore::AuthenticationChallenge _challenge;
+};
+
+@interface WkAuthenticationChallengeResponseDelegatePrivate : OBObject<WkAuthenticationChallengeResponseDelegate>
+{
+	// this wrapper class is only here cause GCC sucks...
+	//WebCore::AuthenticationChallenge _challenge;
+	RefPtr<WkAuthenticationChallenge> _challenge;
+}
+@end
+
+@implementation WkAuthenticationChallengeResponseDelegatePrivate
+
+- (id)initWithAuthenticationChallenge:(RefPtr<WkAuthenticationChallenge>)challenge
+{
+	if ((self = [super init]))
+	{
+		if (challenge)
+		{
+			_challenge = challenge;
+		}
+		else
+		{
+			[self release];
+			return nil;
+		}
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	if (_challenge)
+		_challenge->challenge().authenticationClient()->receivedCancellation(_challenge->challenge());
+
+	[super dealloc];
+}
+
+- (void)authenticateWithLogin:(OBString *)login password:(OBString *)password
+{
+	if (_challenge)
+	{
+		WTF::String sLogin = WTF::String::fromUTF8([login cString]);
+		WTF::String sPassword = WTF::String::fromUTF8([password cString]);
+		WebCore::Credential credential(sLogin, sPassword, WebCore::CredentialPersistence::CredentialPersistenceForSession);
+		_challenge->challenge().authenticationClient()->receivedCredential(_challenge->challenge(), credential);
+		_challenge = nullptr;
+	}
+}
+
+- (void)cancel
+{
+	if (_challenge)
+	{
+		_challenge->challenge().authenticationClient()->receivedRequestToContinueWithoutCredential(_challenge->challenge());
+		_challenge = nullptr;
 	}
 }
 
@@ -943,6 +1020,25 @@ dprintf("---------- objc fixup ------------\n");
 						WkWebView *newView = [[[self class] new] autorelease];
 						[newView load:url];
 						[networkDelegate webView:self createdNewWebView:newView];
+						return YES;
+					}
+				}
+				return NO;
+			};
+			
+			webPage->_fAuthChallenge = [self](const WebCore::AuthenticationChallenge &challenge) -> bool {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
+				if (networkDelegate)
+				{
+					WkAuthenticationChallengeResponseDelegatePrivate *responseDelegate =
+						[[[WkAuthenticationChallengeResponseDelegatePrivate alloc] initWithAuthenticationChallenge:WkAuthenticationChallenge::create(challenge)] autorelease];
+					if (responseDelegate)
+					{
+						[[OBRunLoop mainRunLoop] performSelector:@selector(webView:issuedAuthenticationChallengeAtURL:withResponseDelegate:)
+							target:networkDelegate withObject:self withObject:[self URL] withObject:responseDelegate];
+						return YES;
 					}
 				}
 				return NO;
@@ -1007,15 +1103,19 @@ dprintf("---------- objc fixup ------------\n");
 - (void)load:(OBURL *)url
 {
 	OBString *scheme = [url scheme];
-	if (0 == [scheme length])
+	
+	if (0 == [scheme length] && url)
 	{
 		url = [OBURL URLWithString:[OBString stringWithFormat:@"http://%@", [url absoluteString]]];
 	}
 
 	try {
 		const char *curi = [[url absoluteString] cString];
+		if (nullptr == curi)
+			curi = "about:blank";
 		auto webPage = [_private page];
 		[_private setURL:url];
+		[[_private networkDelegate] webView:self changedTitle:[url absoluteString]];
 		webPage->load(curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
@@ -1298,6 +1398,12 @@ dprintf("---------- objc fixup ------------\n");
 
 - (void)hide
 {
+	if ([self window])
+	{
+		struct TagItem tags[] = { { WA_PointerType, (IPTR)0 }, { TAG_DONE } };
+		SetWindowPointerA([self window], tags);
+	}
+
 	[super hide];
 
 	try {

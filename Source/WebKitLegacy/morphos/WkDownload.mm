@@ -1,5 +1,6 @@
 #import "WkDownload_private.h"
 #import "WkNetworkRequestMutable.h"
+#import "WkError_private.h"
 
 #undef __OBJC__
 #include "WebKit.h"
@@ -13,7 +14,7 @@
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x) x
+#define D(x)
 
 @class _WkDownload;
 
@@ -33,16 +34,19 @@ public:
     void didReceiveResponse(const WebCore::ResourceResponse& response) override;
     void didReceiveDataOfLength(int size) override;
     void didFinish() override;
-    void didFail() override;
+    void didFail(const WebCore::ResourceError &) override;
 
 	size_t size() const { return m_size; }
 	size_t downloadedSize() const { return m_receivedSize; }
+
+	void setUserPassword(const String& user, const String &password);
 
 private:
 	_WkDownload                  *m_outerObject; // weak
     RefPtr<WebCore::CurlDownload> m_download;
     size_t                        m_size { 0 };
     size_t                        m_receivedSize { 0 };
+    WTF::String                   m_user, m_password;
 };
 
 @interface _WkDownload : WkDownload
@@ -64,6 +68,7 @@ private:
 - (void)setPending:(BOOL)pending;
 - (void)setFailed:(BOOL)failed;
 - (void)setFinished:(BOOL)fini;
+- (void)cancelDueToAuthentication;
 
 @end
 
@@ -102,6 +107,8 @@ bool WebDownload::start()
 {
 	if (!m_download)
 		return false;
+
+	m_download->setUserPassword(m_user, m_password);
 	m_download->start();
 	
 	[[m_outerObject delegate] downloadDidBegin:m_outerObject];
@@ -140,7 +147,12 @@ bool WebDownload::cancelForResume()
 bool WebDownload::resume()
 {
 	if (m_download && m_download->isCancelled())
+	{
 		m_download->resume();
+		return true;
+	}
+
+	return false;
 }
 
 #pragma GCC pop_options
@@ -150,35 +162,47 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 	[m_outerObject retain];
 	if (m_download)
 	{
-		// (add received size to handle resuming)
-		// try to keep m_size if already set! (see the case in which we dl from a pending response)
-		// the response here is often bogus in that case :|
-		if (0 == m_size || m_receivedSize)
-			m_size = m_receivedSize + response.expectedContentLength();
-		[[m_outerObject delegate] didReceiveResponse:m_outerObject];
-
-		OBString *path = [m_outerObject filename];
-
-		if (0 == [path length])
+		if (response.httpStatusCode() < 400)
 		{
-			String suggestedFilename = response.suggestedFilename();
-			if (suggestedFilename.isEmpty())
-				suggestedFilename = response.url().lastPathComponent();
-			suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
+			// (add received size to handle resuming)
+			// try to keep m_size if already set! (see the case in which we dl from a pending response)
+			// the response here is often bogus in that case :|
+			if (0 == m_size || m_receivedSize)
+				m_size = m_receivedSize + response.expectedContentLength();
+			[[m_outerObject delegate] didReceiveResponse:m_outerObject];
+
+			OBString *path = [m_outerObject filename];
+
+			if (0 == [path length])
+			{
+				String suggestedFilename = response.suggestedFilename();
+				if (suggestedFilename.isEmpty())
+					suggestedFilename = response.url().lastPathComponent();
+				suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
+				
+				auto usuggestedFilename = suggestedFilename.utf8();
+				path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:[OBString stringWithUTF8String:usuggestedFilename.data()]];
+			}
+			else
+			{
+				path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:path];
+			}
 			
-			auto usuggestedFilename = suggestedFilename.utf8();
-			path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:[OBString stringWithUTF8String:usuggestedFilename.data()]];
+			if (path)
+			{
+				[m_outerObject setFilename:path];
+				m_download->setDestination(WTF::String::fromUTF8([path nativeCString]));
+			}
+			else
+			{
+				[m_outerObject cancel];
+			}
 		}
-		else
+		else if (response.isUnauthorized())
 		{
-			path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:path];
+			[m_outerObject cancelDueToAuthentication];
 		}
-		
-		if (path)
-		{
-			[m_outerObject setFilename:path];
-			m_download->setDestination(WTF::String::fromUTF8([path nativeCString]));
-		}
+		// todo: maybe proxy auth?
 		else
 		{
 			[m_outerObject cancel];
@@ -205,7 +229,7 @@ void WebDownload::didFinish()
 	[m_outerObject selfrelease];
 }
 
-void WebDownload::didFail()
+void WebDownload::didFail(const WebCore::ResourceError& error)
 {
 	[m_outerObject setPending:NO];
 	[m_outerObject setFailed:YES];
@@ -213,8 +237,17 @@ void WebDownload::didFail()
 	if (m_download)
 		m_download->setDeleteTmpFile(true);
 
-	[[m_outerObject delegate] download:m_outerObject didFailWithError:nil];
+	[[m_outerObject delegate] download:m_outerObject didFailWithError:[WkError errorWithResourceError:error]];
 	[m_outerObject selfrelease];
+}
+
+void WebDownload::setUserPassword(const String& user, const String &password)
+{
+	m_user = user;
+	m_password = password;
+	
+	if (m_download)
+		m_download->setUserPassword(m_user, m_password);
 }
 
 @implementation _WkDownload
@@ -307,12 +340,21 @@ void WebDownload::didFail()
 {
 	_isPending = false;
 	_download.cancel();
+	[_delegate download:self didFailWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:0]];
+}
+
+- (void)cancelDueToAuthentication
+{
+	_isPending = false;
+	_download.cancelForResume();
+	[_delegate downloadNeedsAuthenticationCredentials:self];
 }
 
 - (void)cancelForResume
 {
 	_isPending = false;
 	_download.cancelForResume();
+	[_delegate download:self didFailWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:0]];
 }
 
 - (BOOL)canResumeDownload
@@ -390,7 +432,12 @@ void WebDownload::didFail()
 
 - (BOOL)isFinished
 {
-	_isFinished;
+	return _isFinished;
+}
+
+- (void)setLogin:(OBString *)login password:(OBString *)password
+{
+	_download.setUserPassword(String::fromUTF8([login cString]), String::fromUTF8([password cString]));
 }
 
 @end
@@ -477,6 +524,11 @@ void WebDownload::didFail()
 - (OBString *)filename
 {
 	return nil;
+}
+
+- (void)setLogin:(OBString *)login password:(OBString *)password
+{
+
 }
 
 @end

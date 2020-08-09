@@ -70,6 +70,28 @@
 	return self;
 }
 
+- (id)initWithURL:(OBURL *)url errorType:(WkErrorType)type code:(int)code
+{
+	if ((self = [super init]))
+	{
+		_code = code;
+		_type = type;
+		_url = [url retain];
+		switch (_type)
+		{
+		case WkErrorType_Null: _domain = @"null"; _description = @""; break;
+		case WkErrorType_General: _domain = @"general"; _description = OBL(@"General Error", @"Error description"); break;
+		case WkErrorType_AccessControl: _domain = @"access"; _description = OBL(@"Access Control Error", @"Error description"); break;
+		case WkErrorType_Cancellation: _domain = @"cancellation"; _description = OBL(@"Cancelled", @"Error description"); break;
+		case WkErrorType_Timeout: _domain = @"timeout"; _description = OBL(@"Timed out", @"Error description"); break;
+		case WkErrorType_SSLConnection: _domain = @"ssl"; _description = OBL(@"SSL Error", @"Error description"); break;
+		case WkErrorType_SSLCertification: _domain = @"sslcertificate"; _description = OBL(@"Certificate Error", @"Error description"); break;
+		}
+	}
+	
+	return self;
+}
+
 - (void)dealloc
 {
 	[_url release];
@@ -116,6 +138,11 @@
 + (WkError *)errorWithResourceError:(const WebCore::ResourceError &)error
 {
 	return [[[WkErrorPrivate alloc] initWithResourceError:error] autorelease];
+}
+
++ (WkError *)errorWithURL:(OBURL *)url errorType:(WkErrorType)type code:(int)code
+{
+	return [[[WkErrorPrivate alloc] initWithURL:url errorType:type code:code] autorelease];
 }
 
 - (OBString *)domain

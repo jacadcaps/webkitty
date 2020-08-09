@@ -13,6 +13,7 @@ namespace WebCore {
 	class FileChooser;
 	class ResourceResponse;
 	class PolicyCheckIdentifier;
+	class AuthenticationChallenge;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -49,17 +50,22 @@ struct WebViewDelegate
 
 	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
 	
-	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)> _fDownload;
-	std::function<void(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&)> _fDownloadFromResource;
-	std::function<void(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function)> _fDownloadAsk;
+	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)>     _fDownload;
+	std::function<void(WebCore::ResourceHandle*, const WebCore::ResourceRequest&,
+		const WebCore::ResourceResponse&)>                                              _fDownloadFromResource;
+	std::function<void(const WebCore::ResourceResponse& response,
+		const WebCore::ResourceRequest& request, WebCore::PolicyCheckIdentifier identifier,
+		const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function)> _fDownloadAsk;
 	
 	std::function<void(const WTF::String &)>                                      _fAlert;
 	std::function<bool(const WTF::String &)>                                      _fConfirm;
 	std::function<bool(const WTF::String &, const WTF::String &, WTF::String &) > _fPrompt;
 	std::function<void(WebCore::FileChooser&)>                                    _fFile;
 
-	std::function<void()> _fHasAutofill;
+	std::function<void()>                                           _fHasAutofill;
 	std::function<void(const WTF::String &l, const WTF::String &p)> _fStoreAutofill;
+	
+	std::function<bool(const WebCore::AuthenticationChallenge&)>    _fAuthChallenge;
 	
 	std::function<void(int)> _fSetCursor;
 
@@ -94,5 +100,6 @@ struct WebViewDelegate
 		_fStoreAutofill = nullptr;
 		_fNewTabWindow = nullptr;
 		_fSetCursor = nullptr;
+		_fAuthChallenge = nullptr;
 	};
 };

@@ -65,6 +65,8 @@
 #include <WebCore/Widget.h>
 #include <WebCore/WindowFeatures.h>
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/AuthenticationChallenge.h>
+#include <WebCore/AuthenticationClient.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
@@ -201,9 +203,16 @@ bool WebFrameLoaderClient::shouldUseCredentialStorage(DocumentLoader*, unsigned 
     return true;
 }
 
-void WebFrameLoaderClient::dispatchDidReceiveAuthenticationChallenge(DocumentLoader*, unsigned long, const AuthenticationChallenge&)
+void WebFrameLoaderClient::dispatchDidReceiveAuthenticationChallenge(DocumentLoader*, unsigned long, const AuthenticationChallenge& challenge)
 {
-    ASSERT_NOT_REACHED();
+    WebPage* webPage = m_frame->page();
+    if (webPage && webPage->_fAuthChallenge)
+    {
+		if (webPage->_fAuthChallenge(challenge))
+			return;
+	}
+//	dprintf("challenge at %s\n", challenge.failureResponse().url().string().utf8().data());
+	challenge.authenticationClient()->receivedCancellation(challenge);
 }
 
 void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader*, unsigned long identifier, const ResourceResponse& response)

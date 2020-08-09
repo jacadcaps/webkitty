@@ -8,7 +8,7 @@ using namespace WebCore;
 
 void WebDragClient::willPerformDragDestinationAction(DragDestinationAction action, const DragData&)
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
 //    if (action == DragDestinationActionLoad)
 //        m_page->willPerformLoadDragDestinationAction();
 //    else
@@ -17,18 +17,18 @@ void WebDragClient::willPerformDragDestinationAction(DragDestinationAction actio
 
 void WebDragClient::willPerformDragSourceAction(DragSourceAction, const IntPoint&, DataTransfer&)
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
 }
 
 DragSourceAction WebDragClient::dragSourceActionMaskForPoint(const IntPoint&)
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
     return WebCore::DragSourceActionAny; //m_page->allowedDragSourceActions();
 }
 
 void WebDragClient::startDrag(DragItem, DataTransfer&, Frame&)
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
 }
 
 void WebDragClient::didConcludeEditDrag()

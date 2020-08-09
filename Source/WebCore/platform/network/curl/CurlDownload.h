@@ -44,7 +44,7 @@ public:
     virtual void didReceiveResponse(const ResourceResponse&) { }
     virtual void didReceiveDataOfLength(int) { }
     virtual void didFinish() { }
-    virtual void didFail() { }
+    virtual void didFail(const ResourceError &) { }
 };
 
 class CurlDownload final : public ThreadSafeRefCounted<CurlDownload>, public CurlRequestClient {
@@ -71,6 +71,7 @@ public:
     void setDeletesFileUponFailure(bool deletesFileUponFailure) { m_deletesFileUponFailure = deletesFileUponFailure; }
 
     void setDestination(const String& destination) { m_destination = destination; }
+	void setUserPassword(const String& user, const String &password) { m_user = user; m_password = password; }
 
 private:
     Ref<CurlRequest> createCurlRequest(ResourceRequest&);
@@ -91,6 +92,8 @@ private:
     bool m_deletesFileUponFailure { false };
     bool m_deleteTmpFile { false };
     String m_destination;
+    String m_user;
+    String m_password;
     unsigned m_redirectCount { 0 };
     RefPtr<CurlRequest> m_curlRequest;
 };

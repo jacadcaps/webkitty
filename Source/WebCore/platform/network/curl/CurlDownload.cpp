@@ -35,6 +35,8 @@
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
 #include "SynchronousLoaderClient.h"
+#include "ResourceHandle.h"
+#include "ResourceHandleInternal.h"
 
 namespace WebCore {
 
@@ -52,19 +54,31 @@ void CurlDownload::init(CurlDownloadListener& listener, const URL& url)
     m_request.setURL(url);
 }
 
-void CurlDownload::init(CurlDownloadListener& listener, ResourceHandle*, const ResourceRequest& request, const ResourceResponse&)
+void CurlDownload::init(CurlDownloadListener& listener, ResourceHandle* handle, const ResourceRequest& request, const ResourceResponse&)
 {
     m_listener = &listener;
     m_request = request.isolatedCopy();
+	
+	if (handle)
+	{
+		auto* internal = handle->getInternal();
+		if (internal && internal->m_curlRequest)
+		{
+			m_user = internal->m_curlRequest->user();
+			m_password = internal->m_curlRequest->password();
+		}
+	}
 }
 
 void CurlDownload::start()
 {
     ASSERT(isMainThread());
 
+	m_isCancelled = false;
     m_curlRequest = createCurlRequest(m_request);
     m_curlRequest->enableDownloadToFile();
     m_curlRequest->setDeletesDownloadFileOnCancelOrError(false);
+	m_curlRequest->setUserPass(m_user, m_password);
     m_curlRequest->start();
 }
 
@@ -79,6 +93,7 @@ void CurlDownload::resume()
 		m_isCancelled = false;
 		m_curlRequest = createCurlRequest(m_request);
 		m_curlRequest->resumeDownloadToFile(oldPath);
+		m_curlRequest->setUserPass(m_user, m_password);
 		m_curlRequest->start();
 	}
 }
@@ -148,7 +163,7 @@ void CurlDownload::curlDidComplete(CurlRequest& request, NetworkLoadMetrics&&)
         m_listener->didFinish();
 }
 
-void CurlDownload::curlDidFailWithError(CurlRequest& request, ResourceError&&, CertificateInfo&&)
+void CurlDownload::curlDidFailWithError(CurlRequest& request, ResourceError&&error, CertificateInfo&&)
 {
     ASSERT(isMainThread());
 
@@ -159,7 +174,7 @@ void CurlDownload::curlDidFailWithError(CurlRequest& request, ResourceError&&, C
         FileSystem::deleteFile(request.getDownloadedFilePath());
 
     if (m_listener)
-        m_listener->didFail();
+        m_listener->didFail(error);
 }
 
 bool CurlDownload::shouldRedirectAsGET(const ResourceRequest& request, bool crossOrigin)
@@ -190,7 +205,7 @@ void CurlDownload::willSendRequest()
 
     if (m_redirectCount++ > maxRedirects) {
         if (m_listener)
-            m_listener->didFail();
+            m_listener->didFail(ResourceError::httpError(CURLE_TOO_MANY_REDIRECTS, m_request.url()));
         return;
     }
 

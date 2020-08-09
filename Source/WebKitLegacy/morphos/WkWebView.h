@@ -30,6 +30,13 @@
 
 @end
 
+@protocol WkAuthenticationChallengeResponseDelegate <OBObject>
+
+- (void)authenticateWithLogin:(OBString *)login password:(OBString *)password;
+- (void)cancel;
+
+@end
+
 @protocol WkWebViewNetworkDelegate <OBObject>
 
 - (OBString *)userAgentForURL:(OBString *)url;
@@ -47,6 +54,8 @@
 - (void)webViewDidLoadInsecureContent:(WkWebView *)view;
 
 - (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
+
+- (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate;
 
 @end
 

@@ -285,7 +285,10 @@ static int _windowID = 1;
 
 - (void)navigate
 {
-	[_view load:[OBURL URLWithString:[_address contents]]];
+	OBString *urlString = [_address contents];
+	OBURL *url = [OBURL URLWithString:urlString];
+	dprintf("%s: %s -> %p\n", __PRETTY_FUNCTION__, [urlString cString], url);
+	[_view load:url];
 }
 
 - (void)postClose
@@ -589,6 +592,12 @@ static int _windowID = 1;
 	{
 	
 	}
+}
+
+- (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate
+{
+	dprintf("issuedAuthenticationChallengeAtURL...will cancel\n");
+	[delegate cancel];
 }
 
 - (OBString *)aslFile:(OBString *)oldpath title:(OBString *)title doSave:(BOOL)save reference:(MUIArea *)ref
@@ -938,6 +947,10 @@ static BrowserDownloadWindow *_instance;
 {
 	dprintf("%s\n", __PRETTY_FUNCTION__);
 	[_downloads redraw:[_downloads indexOfObject:download]];
+}
+
+- (void)downloadNeedsAuthenticationCredentials:(WkDownload *)download
+{
 }
 
 @end
