@@ -60,7 +60,10 @@ CurlRequest::CurlRequest(const ResourceRequest&request, CurlRequestClient* clien
     ASSERT(isMainThread());
 }
 
-CurlRequest::~CurlRequest() = default;
+CurlRequest::~CurlRequest()
+{
+	cleanupDownloadFile();
+}
 
 void CurlRequest::invalidateClient()
 {
@@ -484,7 +487,9 @@ void CurlRequest::didCompleteTransfer(CURLcode result)
             certificateInfo = WTFMove(*info);
 		}
 
+		m_cancelled = true;
         finalizeTransfer();
+		cleanupDownloadFile();
         callClient([error = WTFMove(resourceError), certificateInfo = WTFMove(certificateInfo)](CurlRequest& request, CurlRequestClient& client) mutable {
             client.curlDidFailWithError(request, WTFMove(error), WTFMove(certificateInfo));
         });
@@ -779,17 +784,43 @@ String CurlRequest::getDownloadedFilePath()
 void CurlRequest::writeDataToDownloadFileIfEnabled(const SharedBuffer& buffer)
 {
     {
-        LockHolder locker(m_downloadMutex);
+    	{
+			LockHolder locker(m_downloadMutex);
 
-        if (!m_isEnabledDownloadToFile)
-            return;
+			if (!m_isEnabledDownloadToFile)
+				return;
 
-        if (m_downloadFilePath.isEmpty())
-            m_downloadFilePath = FileSystem::openTemporaryFile("download", m_downloadFileHandle);
+			if (m_downloadFilePath.isEmpty())
+				m_downloadFilePath = FileSystem::openTemporaryFile("download", m_downloadFileHandle);
+		}
+
+#if OS(MORPHOS)
+        if (m_downloadFileHandle == FileSystem::invalidPlatformFileHandle)
+        {
+        	cancel();
+        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::Cancellation);
+			callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
+            	client.curlDidFailWithError(request, WTFMove(error), { });
+        	});
+		}
+#endif
     }
 
     if (m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
-        FileSystem::writeToFile(m_downloadFileHandle, buffer.data(), buffer.size());
+    {
+#if OS(MORPHOS)
+        if (-1 == FileSystem::writeToFile(m_downloadFileHandle, buffer.data(), buffer.size()))
+        {
+        	cancel();
+        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::Cancellation);
+			callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
+            	client.curlDidFailWithError(request, WTFMove(error), { });
+        	});
+		}
+#else
+		FileSystem::writeToFile(m_downloadFileHandle, buffer.data(), buffer.size());
+#endif
+	}
 }
 
 void CurlRequest::closeDownloadFile()

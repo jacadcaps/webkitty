@@ -13,6 +13,11 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 10.08.2020
+	- Improved file download speed
+	- Fail downloads if writing to file fails
+	- Reworked to clean up tmp download files on quit
+
 - 09.08.2020
 	- Implemented http auth support in CurlDownload
 	- Corrected mouse offset in mmb hittest

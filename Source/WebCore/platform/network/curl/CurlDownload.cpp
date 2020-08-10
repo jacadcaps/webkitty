@@ -77,7 +77,7 @@ void CurlDownload::start()
 	m_isCancelled = false;
     m_curlRequest = createCurlRequest(m_request);
     m_curlRequest->enableDownloadToFile();
-    m_curlRequest->setDeletesDownloadFileOnCancelOrError(false);
+    m_curlRequest->setDeletesDownloadFileOnCancelOrError(m_deleteTmpFile);
 	m_curlRequest->setUserPass(m_user, m_password);
     m_curlRequest->start();
 }
@@ -94,6 +94,7 @@ void CurlDownload::resume()
 		m_curlRequest = createCurlRequest(m_request);
 		m_curlRequest->resumeDownloadToFile(oldPath);
 		m_curlRequest->setUserPass(m_user, m_password);
+		m_curlRequest->setDeletesDownloadFileOnCancelOrError(m_deleteTmpFile);
 		m_curlRequest->start();
 	}
 }
@@ -106,6 +107,13 @@ bool CurlDownload::cancel()
         m_curlRequest->cancel();
 
     return true;
+}
+
+void CurlDownload::setDeleteTmpFile(bool deleteTmpFile)
+{
+	m_deleteTmpFile = deleteTmpFile;
+	if (m_curlRequest)
+		m_curlRequest->setDeletesDownloadFileOnCancelOrError(m_deleteTmpFile);
 }
 
 Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)

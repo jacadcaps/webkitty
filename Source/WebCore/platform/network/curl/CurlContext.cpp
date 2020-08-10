@@ -378,6 +378,10 @@ CurlHandle::CurlHandle()
     enableStdErrIfUsed();
 #endif
 
+#if OS(MORPHOS)
+    curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
+#endif
+
 // curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
 // curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
 }
