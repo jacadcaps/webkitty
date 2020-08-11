@@ -13,6 +13,9 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 11.08.2020
+	- Keyboard handling improvements
+
 - 10.08.2020
 	- Improved file download speed
 	- Fail downloads if writing to file fails

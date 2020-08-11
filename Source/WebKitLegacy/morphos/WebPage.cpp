@@ -1808,7 +1808,23 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								return true;
 							}
 							break;
-							
+
+						case RAWKEY_DOWN:
+							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							{
+								scrollBy(0, -50);
+								return true;
+							}
+							break;
+
+						case RAWKEY_UP:
+							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							{
+								scrollBy(0, 50);
+								return true;
+							}
+							break;
+
 						case RAWKEY_HOME:
 						case RAWKEY_END:
 							if (!up && m_mainFrame && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
