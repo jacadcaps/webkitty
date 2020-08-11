@@ -88,9 +88,9 @@ public:
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
-	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
+	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler);
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY);
-	bool handleMUIKey(int muikey);
+	bool handleMUIKey(int muikey, bool isDefaultHandler);
 
 	const WTF::Vector<WebCore::ContextMenuItem>& buildContextMenu(const int x, const int y);
 	void onContextMenuItemSelected(ULONG action, const char *title);

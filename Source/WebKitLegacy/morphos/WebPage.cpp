@@ -1561,7 +1561,7 @@ bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int 
 	return hitTestResult.isOverLink() || hitTestResult.image();
 }
 
-bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside)
+bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler)
 {
 	WebCore::Page *cp = corePage();
 	if (!cp)
@@ -1715,7 +1715,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case NM_WHEEL_DOWN:
 				if (mouseInside && !up)
 				{
-					if (m_isActive)
+					if (m_isActive || isDefaultHandler)
 					{
 						float wheelTicksY = 1;
 						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
@@ -1770,7 +1770,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				return true;
 			
 			default:
-				if (m_isActive)
+				if (m_isActive || isDefaultHandler)
 				{
 					bool handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
 
@@ -1844,8 +1844,10 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 	return false;
 }
 
-bool WebPage::handleMUIKey(int muikey)
+bool WebPage::handleMUIKey(int muikey, bool isDefaultHandler)
 {
+	if (!m_isActive && !isDefaultHandler)
+		return false;
 	if (!m_page)
 		return false;
 	const char *editorCommand = nullptr;
