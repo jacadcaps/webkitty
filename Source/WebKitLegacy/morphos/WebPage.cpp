@@ -143,6 +143,7 @@
 #include <proto/cybergraphics.h>
 #include <cybergraphx/cybergraphics.h>
 #include <intuition/intuition.h>
+#include <intuition/pointerclass.h>
 #include <intuition/intuimessageclass.h>
 #include <intuition/classusr.h>
 #include <clib/alib_protos.h>
@@ -410,7 +411,12 @@ public:
 		
 		return false;
 	}
-	
+
+	int pageHeight() const
+	{
+		return m_height;
+	}
+
 private:
 
 };
@@ -1548,6 +1554,13 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     return frame->editor().insertText(keyEvent->text(), &event);
 }
 
+bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY)
+{
+	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
+	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+	return hitTestResult.isOverLink() || hitTestResult.image();
+}
+
 bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside)
 {
 	WebCore::Page *cp = corePage();
@@ -1667,6 +1680,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside || m_trackMouse)
 				{
 					bridge.handleMouseMoveEvent(pme);
+					if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY))
+					{
+						_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
+						return m_trackMouse;
+					}
 					if (_fSetCursor)
 						_fSetCursor(m_cursor);
 					return m_trackMouse;
@@ -1684,7 +1702,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 	case IDCMP_RAWKEY:
 		{
 			Boopsiobject *oimsg = (Boopsiobject *)imsg;
-			ULONG key = 0;
 			ULONG code = imsg->Code & ~IECODE_UP_PREFIX;
 			BOOL up = (imsg->Code & IECODE_UP_PREFIX) == IECODE_UP_PREFIX;
 
@@ -1755,7 +1772,67 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			default:
 				if (m_isActive)
 				{
-					bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					bool handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+
+					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
+
+					if (!handled)
+					{
+						switch (code)
+						{
+						case RAWKEY_LALT:
+						case RAWKEY_RALT:
+							if (!up && _fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY))
+							{
+								_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
+							}
+							else if (up && _fSetCursor)
+							{
+								_fSetCursor(m_cursor);
+							}
+							break;
+						
+						case RAWKEY_PAGEUP:
+							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							{
+								scrollBy(0, m_drawContext->pageHeight());
+								return true;
+							}
+							break;
+
+						case RAWKEY_PAGEDOWN:
+						case RAWKEY_SPACE:
+							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							{
+								scrollBy(0, -m_drawContext->pageHeight());
+								return true;
+							}
+							break;
+							
+						case RAWKEY_HOME:
+						case RAWKEY_END:
+							if (!up && m_mainFrame && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							{
+								auto* coreFrame = m_mainFrame->coreFrame();
+								
+								if (coreFrame)
+								{
+									WebCore::FrameView *view = coreFrame->view();
+									WebCore::ScrollPosition sp = view->scrollPosition();
+									WebCore::ScrollPosition spMin = view->minimumScrollPosition();
+									WebCore::ScrollPosition spMax = view->maximumScrollPosition();
+
+									view->setScrollPosition(WebCore::ScrollPosition(sp.x(), code == RAWKEY_HOME ? spMin.y() : spMax.y()));
+									
+									if (_fInvalidate)
+										_fInvalidate();
+								}
+								return true;
+							}
+							break;
+						}
+						return false;
+					}
 					return true;
 				}
 				break;

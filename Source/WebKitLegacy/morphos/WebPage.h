@@ -89,6 +89,7 @@ public:
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside);
+	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY);
 	bool handleMUIKey(int muikey);
 
 	const WTF::Vector<WebCore::ContextMenuItem>& buildContextMenu(const int x, const int y);

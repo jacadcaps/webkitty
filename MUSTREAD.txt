@@ -17,6 +17,8 @@ Rough changelist:
 	- Improved file download speed
 	- Fail downloads if writing to file fails
 	- Reworked to clean up tmp download files on quit
+	- Mark assets that can be downloaded while holding ALT key + MMB by changing mouse pointer while holding ALT key
+	- Added space/pageup-down/home/end
 
 - 09.08.2020
 	- Implemented http auth support in CurlDownload
