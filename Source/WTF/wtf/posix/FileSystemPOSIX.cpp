@@ -487,7 +487,7 @@ HashMap<String, String> tmpPathPrefixes;
 void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
 {
 #if OS(MORPHOS)
-	tmpPathPrefixes.add(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
+	tmpPathPrefixes.set(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
 #endif
 }
 
