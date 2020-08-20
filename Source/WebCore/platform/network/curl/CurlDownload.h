@@ -33,6 +33,7 @@
 #include "CurlRequestClient.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include "NetworkingContext.h"
 
 namespace WebCore {
 
@@ -55,7 +56,7 @@ public:
     void ref() override { ThreadSafeRefCounted<CurlDownload>::ref(); }
     void deref() override { ThreadSafeRefCounted<CurlDownload>::deref(); }
 
-    void init(CurlDownloadListener&, const URL&);
+    void init(CurlDownloadListener&, const URL&, RefPtr<NetworkingContext>);
     void init(CurlDownloadListener&, ResourceHandle*, const ResourceRequest&, const ResourceResponse&);
 
     void setListener(CurlDownloadListener* listener) { m_listener = listener; }
@@ -91,11 +92,13 @@ private:
     ResourceResponse m_response;
     bool m_deletesFileUponFailure { false };
     bool m_deleteTmpFile { false };
+    bool m_isResume { false };
     String m_destination;
     String m_user;
     String m_password;
     unsigned m_redirectCount { 0 };
     RefPtr<CurlRequest> m_curlRequest;
+    RefPtr<NetworkingContext> m_context;
 };
 
 } // namespace WebCore

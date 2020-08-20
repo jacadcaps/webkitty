@@ -20,6 +20,7 @@
 #include <WebCore/ProcessWarming.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DOMWindow.h>
+#include <WebCore/FrameLoader.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -37,6 +38,7 @@
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
+#include "WebFrameNetworkingContext.h"
 // bloody include shit
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
@@ -92,6 +94,8 @@ void WebProcess::initialize(int sigbit)
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
+
+	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
 
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";

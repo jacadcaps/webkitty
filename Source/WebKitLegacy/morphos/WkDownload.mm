@@ -10,11 +10,12 @@
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/TextEncoding.h>
 #include <wtf/FileSystem.h>
+#include <WebProcess.h>
 #define __OBJC__
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x)
+#define D(x) 
 
 @class _WkDownload;
 
@@ -79,7 +80,8 @@ void WebDownload::initialize(_WkDownload *outer, OBURL *url)
 	if (m_download)
 	{
 		WTF::URL wurl(WTF::URL(), [[url absoluteString] cString]);
-		m_download->init(*this, wurl);
+		D(dprintf("initialize %s context %p\n", [[url absoluteString] cString], WebKit::WebProcess::singleton().networkingContext()));
+		m_download->init(*this, wurl, WebKit::WebProcess::singleton().networkingContext());
 	}
 }
 
@@ -96,6 +98,8 @@ void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle,
 		if (0 == uname.length())
 			uname = WebCore::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
 		
+		D(dprintf("initialize w/response %s\n", uurl.data()));
+		
 		[m_outerObject setFilename:[OBString stringWithUTF8String:uname.data()]];
 		m_size = response.expectedContentLength();
 	
@@ -110,6 +114,8 @@ bool WebDownload::start()
 
 	m_download->setUserPassword(m_user, m_password);
 	m_download->start();
+	
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	
 	[[m_outerObject delegate] downloadDidBegin:m_outerObject];
 	
@@ -173,6 +179,8 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 
 			OBString *path = [m_outerObject filename];
 
+			D(dprintf("%s: outer filename %s\n", __PRETTY_FUNCTION__, [path cString]));
+
 			if (0 == [path length])
 			{
 				String suggestedFilename = response.suggestedFilename();
@@ -188,6 +196,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 				path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:path];
 			}
 			
+			D(dprintf("%s: path %s\n", __PRETTY_FUNCTION__, [path cString]));
 			if (path)
 			{
 				[m_outerObject setFilename:path];
@@ -223,6 +232,8 @@ void WebDownload::didFinish()
 	m_download->setListener(nullptr);
 	m_download = nullptr;
 
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
 	[m_outerObject setFinished:YES];
 	[m_outerObject setPending:NO];
 	[[m_outerObject delegate] downloadDidFinish:m_outerObject];
@@ -234,6 +245,8 @@ void WebDownload::didFail(const WebCore::ResourceError& error)
 	[m_outerObject setPending:NO];
 	[m_outerObject setFailed:YES];
 	
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
 	if (m_download)
 		m_download->setDeleteTmpFile(true);
 

@@ -5,6 +5,7 @@
 #include <WebCore/FrameIdentifier.h>
 #include <pal/SessionID.h>
 #include "CacheModel.h"
+#include <WebCore/NetworkingContext.h>
 #include "ABPFilterParser/ABPFilterParser.h"
 
 namespace WebCore {
@@ -44,6 +45,7 @@ public:
     size_t webFrameCount() const { return m_frameMap.size(); }
 
 	PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
+	RefPtr<WebCore::NetworkingContext> networkingContext() { return m_dummyNetworkingContext; }
 
 	WebCore::CacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
 
@@ -75,6 +77,7 @@ protected:
     std::vector<char>    m_urlFilterData;
     Optional<PAL::SessionID> m_sessionID;
     Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
+    RefPtr<WebCore::NetworkingContext> m_dummyNetworkingContext;
 
     std::function<void()> m_fLastPageClosed;
 	

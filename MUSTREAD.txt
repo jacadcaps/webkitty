@@ -13,6 +13,14 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 20.08.2020
+	- Refactored WebCore/CurlDownload to download files if the original url ends in a redirect
+	- Refactored WebCore/CurlDownload and related parts of WebKitty to ensure cookies are properly
+	  set for downloads, fixes downloading files from sites that require a log-in
+
+- 18.08.2020
+	- Fixed setting the downloads path
+
 - 11.08.2020
 	- Keyboard handling improvements
 

@@ -37,6 +37,10 @@
 #include "SynchronousLoaderClient.h"
 #include "ResourceHandle.h"
 #include "ResourceHandleInternal.h"
+#include "NetworkStorageSession.h"
+#include "CookieJar.h"
+#include "CookieJarCurl.h"
+#include "SameSiteInfo.h"
 
 namespace WebCore {
 
@@ -48,10 +52,11 @@ CurlDownload::~CurlDownload()
         FileSystem::deleteFile(m_curlRequest->getDownloadedFilePath());
 }
 
-void CurlDownload::init(CurlDownloadListener& listener, const URL& url)
+void CurlDownload::init(CurlDownloadListener& listener, const URL& url, RefPtr<NetworkingContext> networkingContext)
 {
     m_listener = &listener;
     m_request.setURL(url);
+    m_context = networkingContext;
 }
 
 void CurlDownload::init(CurlDownloadListener& listener, ResourceHandle* handle, const ResourceRequest& request, const ResourceResponse&)
@@ -67,6 +72,7 @@ void CurlDownload::init(CurlDownloadListener& listener, ResourceHandle* handle, 
 			m_user = internal->m_curlRequest->user();
 			m_password = internal->m_curlRequest->password();
 		}
+		m_context = internal->m_context;
 	}
 }
 
@@ -75,6 +81,7 @@ void CurlDownload::start()
     ASSERT(isMainThread());
 
 	m_isCancelled = false;
+	m_isResume = false;
     m_curlRequest = createCurlRequest(m_request);
     m_curlRequest->enableDownloadToFile();
     m_curlRequest->setDeletesDownloadFileOnCancelOrError(m_deleteTmpFile);
@@ -91,6 +98,7 @@ void CurlDownload::resume()
 	{
 		String oldPath = m_curlRequest->getDownloadedFilePath();
 		m_isCancelled = false;
+		m_isResume = true;
 		m_curlRequest = createCurlRequest(m_request);
 		m_curlRequest->resumeDownloadToFile(oldPath);
 		m_curlRequest->setUserPass(m_user, m_password);
@@ -120,6 +128,17 @@ Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
 {
     // FIXME: Use a correct sessionID.
     auto curlRequest = CurlRequest::create(request, *this);
+	
+    if (m_context)
+    {
+        auto& storageSession = *m_context->storageSession();
+        auto& cookieJar = storageSession.cookieStorage();
+        auto includeSecureCookies = request.url().protocolIs("https") ? IncludeSecureCookies::Yes : IncludeSecureCookies::No;
+        String cookieHeaderField = cookieJar.cookieRequestHeaderFieldValue(storageSession, request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies).first;
+        if (!cookieHeaderField.isEmpty())
+            request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
+	}
+	
     return curlRequest;
 }
 
@@ -237,9 +256,18 @@ void CurlDownload::willSendRequest()
         newRequest.clearHTTPOrigin();
     }
 
+	String oldPath = m_curlRequest->getDownloadedFilePath();
     m_curlRequest->cancel();
 
     m_curlRequest = createCurlRequest(newRequest);
+    m_curlRequest->setDeletesDownloadFileOnCancelOrError(m_deleteTmpFile);
+	m_curlRequest->setUserPass(m_user, m_password);
+
+	if (m_isResume)
+		m_curlRequest->resumeDownloadToFile(oldPath);
+	else
+		m_curlRequest->enableDownloadToFile();
+
     m_curlRequest->start();
 }
 
