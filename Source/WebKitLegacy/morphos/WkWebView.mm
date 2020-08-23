@@ -1480,22 +1480,13 @@ dprintf("---------- objc fixup ------------\n");
 {
 	auto webPage = [_private page];
 
-//	if ((imsg && imsg->Class == IDCMP_RAWKEY) || muikey != MUIKEY_NONE)
-//	dprintf("%s: code %d muikey %d isdefault %d\n", __PRETTY_FUNCTION__, imsg->Code, muikey, [[self windowObject] defaultObject] == self);
+	if (muikey != MUIKEY_NONE && webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
+		return MUI_EventHandlerRC_Eat;
 
 	if (imsg)
-	{
 		if (webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg], [self isInObject:imsg], [[self windowObject] defaultObject] == self))
 			return MUI_EventHandlerRC_Eat;
-	}
-	else
-	{
-		auto webPage = [_private page];
-		if (webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
-			return MUI_EventHandlerRC_Eat;
-	}
 
-// dprintf("not handled\n");
 	return 0;
 }
 

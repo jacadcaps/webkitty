@@ -132,6 +132,10 @@
 #include "WebDocumentLoader.h"
 #include "WebDragClient.h"
 #include "WebProcess.h"
+#include <iostream>
+#include <vector>
+#include <functional>
+#include <string.h>
 
 #include <cairo.h>
 
@@ -141,6 +145,8 @@
 #include <proto/graphics.h>
 #include <proto/exec.h>
 #include <proto/cybergraphics.h>
+#include <proto/intuition.h>
+#include <proto/layers.h>
 #include <cybergraphx/cybergraphics.h>
 #include <intuition/intuition.h>
 #include <intuition/pointerclass.h>
@@ -195,6 +201,228 @@ extern "C" {
 using namespace std;
 using namespace WebCore;
 
+namespace {
+
+	inline constexpr int ceilingDivide(const int value, const int divider)
+	{
+		return 1 + ((value - 1) / divider);
+	}
+}
+
+class TiledDamage
+{
+	static constexpr int m_tileSize = 64;
+	static constexpr int m_bitDivider = 32;
+
+	class EncapsulatingRect
+	{
+	public:
+
+		EncapsulatingRect() = default;
+		~EncapsulatingRect() = default;
+
+		inline const int x() const { return m_x; }
+		inline const int y() const { return m_y; }
+		inline const int width() const { return m_width; }
+		inline const int height() const { return m_height; }
+
+		inline void encapsulateCoords(int x, int y, int width, int height)
+		{
+			if (isValid())
+			{
+				int maxX = std::max(x + width - 1, m_x + m_width - 1);
+				m_x = std::min(m_x, x);
+				m_width = (maxX - m_x) + 1;
+				int maxY = std::max(y + height - 1, m_y + m_height - 1);
+				m_y = std::min(m_y, y);
+				m_height = (maxY - m_y) + 1;
+			}
+			else
+			{
+				m_x = x;
+				m_y = y;
+				m_width = width;
+				m_height = height;
+			}
+		}
+		
+		inline void inflateWidthToPoint(int xPlusWidth)
+		{
+			m_width = xPlusWidth - m_x;
+		}
+
+		inline bool isValid() const { return m_width > 0; }
+
+		inline void reset()
+		{
+			m_width = -1;
+		}
+		
+		inline void clip(const int width, const int height)
+		{
+			m_width = std::min(m_width, width - m_x);
+			m_height = std::min(m_height, height - m_y);
+		}
+
+	protected:
+		int m_x;
+		int m_y;
+		int m_width = -1;
+		int m_height;
+	};
+
+public:
+
+	TiledDamage() = default;
+	~TiledDamage() = default;
+
+	inline int width() const { return m_width; }
+	inline int height() const { return m_height; }
+	inline int rows() const { return m_rows; }
+	inline int columns() const { return m_columns; }
+
+	void resize(const int width, const int height)
+	{
+		if (width != m_width || height != m_height)
+		{
+			m_width = width;
+			m_height = height;
+			
+			m_rows = ceilingDivide(width, m_tileSize);
+			m_columns = ceilingDivide(height, m_tileSize);
+			m_cells = m_rows * m_columns;
+			
+			m_damage.resize(m_cells);
+			for (int i = 0; i < m_cells; i++)
+				m_damage[i] = true;
+			
+			m_damageRect.reset();
+			m_damageRect.encapsulateCoords(0, 0, m_rows, m_columns);
+		}
+	}
+
+	void invalidate()
+	{
+		for (int i = 0; i < m_cells; i++)
+			m_damage[i] = true;
+		m_damageRect.reset();
+		m_damageRect.encapsulateCoords(0, 0, m_rows, m_columns);
+	}
+	
+	void invalidate(int x, int y, int width, int height)
+	{
+		if (x < 0)
+		{
+			width += x;
+			x = 0;
+		}
+		
+		if (y < 0)
+		{
+			height += y;
+			y = 0;
+		}
+
+		if (x + width > m_width)
+			width = m_width - x;
+		if (y + height > m_height)
+			height = m_height - y;
+
+		if (width < 0 || height < 0)
+			return;
+
+		// switch to tile bits from units...
+		int maxX = ceilingDivide(x + width, m_tileSize);
+		int maxY = ceilingDivide(y + height, m_tileSize);
+		x /= m_tileSize;
+		y /= m_tileSize;
+		width = maxX - x;
+		height = maxY - y;
+
+		// so now x and y are row and column numbers...
+		m_damageRect.encapsulateCoords(x, y, width, height);
+		
+		// damage the tiles...
+		int bitIndex = x + (y * m_rows);
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+				m_damage[bitIndex + j] = true;
+			bitIndex += m_rows;
+		}
+	}
+	
+	void visitDamagedTiles(std::function<void(const int x, const int y, const int width, const int height)> &&visitor)
+	{
+		EncapsulatingRect lastRect;
+		EncapsulatingRect rect;
+
+		for (int y = m_damageRect.y(); y < m_damageRect.y() + m_damageRect.height(); y++)
+		{
+			for (int x = m_damageRect.x(); x < m_damageRect.x() + m_damageRect.width(); x++)
+			{
+				if (m_damage[(y * m_rows) + x])
+				{
+					if (rect.isValid())
+					{
+						rect.inflateWidthToPoint(((x + 1) * m_tileSize));
+					}
+					else
+					{
+						rect.encapsulateCoords(x * m_tileSize, y * m_tileSize, m_tileSize, m_tileSize);
+					}
+				}
+				else if (rect.isValid())
+				{
+					rect.clip(m_width, m_height);
+					visitor(rect.x(), rect.y(), rect.width(), rect.height());
+					rect.reset();
+				}
+			}
+			
+			if (rect.isValid())
+			{
+				if (!lastRect.isValid() || (lastRect.x() == rect.x() && lastRect.width() == rect.width()))
+				{
+					lastRect.encapsulateCoords(rect.x(), rect.y(), rect.width(), rect.height());
+				}
+				else if (lastRect.isValid())
+				{
+					lastRect.clip(m_width, m_height);
+					visitor(lastRect.x(), lastRect.y(), lastRect.width(), lastRect.height());
+					lastRect.reset();
+					lastRect.encapsulateCoords(rect.x(), rect.y(), rect.width(), rect.height());
+				}
+				
+				rect.reset();
+			}
+		}
+
+		if (lastRect.isValid())
+		{
+			lastRect.clip(m_width, m_height);
+			visitor(lastRect.x(), lastRect.y(), lastRect.width(), lastRect.height());
+		}
+	}
+	
+	void clear()
+	{
+		m_damageRect.reset();
+		for (int i = 0; i < m_cells; i++)
+			m_damage[i] = false;
+	}
+	
+	bool hasDamage() const { return m_damageRect.isValid(); }
+
+protected:
+	std::vector<bool> m_damage;
+	EncapsulatingRect m_damageRect;
+	int m_width = 0;
+	int m_height = 0;
+	int m_rows;
+	int m_columns;
+	int m_cells;
+};
 namespace WebKit {
 
 class MediaRecorderProvider final : public WebCore::MediaRecorderProvider {
@@ -204,70 +432,83 @@ public:
 
 class WebViewDrawContext
 {
-	int m_width;
-	int m_height;
-	
-	WebCore::IntRect m_damage;
-	bool m_hasDamage = false;
-	bool m_needsRepaint = true;
-	
+	int m_width = -1;
+	int m_height = -1;
+	int m_scrollY = 0;
+
+	TiledDamage m_damage;
+
 	cairo_surface_t *m_surface = nullptr ;
 	cairo_t *m_cairo = nullptr ;
 	WebCore::PlatformContextCairo *m_platformContext = nullptr;
 
 public:
 	WebViewDrawContext(const int width, const int height)
-		: m_width(width)
-		, m_height(height)
-		, m_surface(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height))
-		, m_cairo(cairo_create(m_surface))
-		, m_platformContext(new WebCore::PlatformContextCairo(m_cairo))
+		: m_surface(nullptr)
+		, m_cairo(nullptr)
+		, m_platformContext(nullptr)
 	{
-	
+		resize(width, height);
 	}
 	
 	~WebViewDrawContext()
 	{
-		delete m_platformContext;
-		cairo_destroy(m_cairo);
-		cairo_surface_destroy(m_surface);
-	}
-	
-	void invalidate(const WebCore::IntRect& rect)
-	{
-		if (m_hasDamage)
-		{
-			m_damage.unite(rect);
-		}
-		else
-		{
-			m_damage = rect;
-			m_hasDamage = true;
-		}
-	}
-	
-	void invalidate()
-	{
-		m_needsRepaint = true;
+		if (m_platformContext)
+			delete m_platformContext;
+		if (m_cairo)
+			cairo_destroy(m_cairo);
+		if (m_surface)
+			cairo_surface_destroy(m_surface);
 	}
 	
 	const int width() const { return m_width; }
 	const int height() const { return m_height; }
 
-	void drawLayer(WebCore::GraphicsLayer *layer, WebCore::GraphicsContext& gc, WebCore::FloatRect &fr)
+	void invalidate(const WebCore::IntRect& rect)
 	{
-		layer->paintGraphicsLayerContents(gc, fr);
+		m_damage.invalidate(rect.x(), rect.y(), rect.width(), rect.height());
+	}
+	
+	void invalidate()
+	{
+		m_damage.invalidate();
+	}
+	
+	void repair(WebCore::FrameView *frameView)
+	{
+		WebCore::GraphicsContext gc(m_platformContext);
 		
-		const Vector<Ref<GraphicsLayer>>& children = layer->children();
-		for (auto it = children.begin(); it != children.end(); it++)
-		{
-			WebCore::GraphicsLayer *child = it->ptr();
-			dprintf("child %p pos %f %f size %f %f bounds %f %f backing %p\n", child, child->position().x(), child->position().y(),
-				child->size().width(), child->size().height(), child->boundsOrigin().x(), child->boundsOrigin().y(), child->tiledBacking());
-			WebCore::FloatRect xfr(fr.x() + child->position().x(), fr.y() + child->position().y(), child->size().width(), child->size().height());
-			drawLayer(child, gc, xfr);
-		}
+		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			WebCore::IntRect ir(x, y, width, height);
+			/// NOTE: bad shit happens when clipping is used w/o save/restore, cairo seems to be happily
+			/// trashing memory w/o this
+			gc.save();
+			/// NOTE: clipping IS important. WebCore will paint whole elements that overlap the paint area
+			/// in their actual bounds otherwise, but will not paint any children that do not (so a button
+			/// frame overlapping would clear button text if the text wasn't overlapping)
+			gc.clip(WebCore::FloatRect(x, y, width, height));
+			frameView->paint(gc, ir);
+			gc.restore();
+		});
+	}
+	
+	void repaint(RastPort *rp, const int outX, const int outY)
+	{
+		cairo_surface_flush(m_surface);
+		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
+		unsigned char *src = cairo_image_surface_get_data(m_surface);
 
+		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			WritePixelArray(src, x, y, stride, rp, outX + x, outY + y, width, height, RECTFMT_ARGB);
+		});
+	}
+	
+	void repaintAll(RastPort *rp, const int outX, const int outY)
+	{
+		cairo_surface_flush(m_surface);
+		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
+		unsigned char *src = cairo_image_surface_get_data(m_surface);
+		WritePixelArray(src, 0, 0, stride, rp, outX, outY, m_width, m_height, RECTFMT_ARGB);
 	}
 
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
@@ -275,109 +516,65 @@ public:
 	{
 		if (!m_platformContext)
 			return;
-		
-		if (m_needsRepaint)
+
+		struct Window *window = (struct Window *)rp->Layer->Window;
+		if (m_scrollY != scrollY && update && window)
 		{
-			WebCore::GraphicsContext gc(m_platformContext);
-			
-			WebCore::IntRect ir(scrollX, scrollY, m_width, m_height);
-			WebCore::FloatRect fr(0, 0, m_width, m_height);
+			int delta = scrollY - m_scrollY;
+			m_scrollY = scrollY;
 
-			gc.save();
-			gc.clip(fr);
-			gc.translate(-scrollX, -scrollY);
-			
-			frameView->paint(gc, ir);
-
-//			frameView->paintContentsForSnapshot(gc, ir, WebCore::FrameView::SelectionInSnapshot::ExcludeSelection,
-//				WebCore::FrameView::CoordinateSpaceForSnapshot::ViewCoordinates);
-
-#if 0
-			if (frameView->renderView() && frameView->renderView()->compositor().rootGraphicsLayer())
+			if (abs(delta) < m_height)
 			{
-				auto *rlayer = frameView->renderView()->compositor().rootGraphicsLayer();
-				const Vector<Ref<GraphicsLayer>>& children = rlayer->children();
-				for (auto it = children.begin(); it != children.end(); it++)
-				{
-					WebCore::GraphicsLayer *layer = it->ptr();
-					drawLayer(layer, gc, fr);
-				}
+				LockLayerUpdates(rp->Layer);
+			
+				m_damage.clear();
+				
+				if (delta > 0)
+					m_damage.invalidate(0, m_height - delta, m_width, delta);
+				else
+					m_damage.invalidate(0, 0, m_width, -delta);
+				
+				repair(frameView);
+
+//				struct Hook *backfillHook = rp->Layer->BackFill;
+//				rp->Layer->BackFill = (struct Hook *)LAYERS_NOBACKFILL;
+				ScrollWindowRaster(window, 0, delta, x, y, x + width - 1, y + height - 1);
+//				rp->Layer->BackFill = backfillHook;
+
+				cairo_surface_flush(m_surface);
+				const unsigned int stride = cairo_image_surface_get_stride(m_surface);
+				unsigned char *src = cairo_image_surface_get_data(m_surface);
+
+				if (delta > 0)
+					WritePixelArray(src, 0, height - delta, stride, rp, x, y + height - delta, width, delta, RECTFMT_ARGB);
+				else
+					WritePixelArray(src, 0, 0, stride, rp, x, y, width, -delta, RECTFMT_ARGB);
+				
+				UnlockLayerUpdates(rp->Layer);
+				
+				m_damage.invalidate();
+				return;
 			}
-
-#if 0
-				const FloatPoint position = layer->position();
-					layer->paintGraphicsLayerContents(gc, fr);
-					const Vector<Ref<GraphicsLayer>>& inchildren = rlayer->children();
-					for (auto it = inchildren.begin(); it != inchildren.end(); it++)
-					{
-						WebCore::GraphicsLayer *xlayer = it->ptr();
-						const FloatPoint position = xlayer->position();
-						xlayer->paintGraphicsLayerContents(gc, fr);
-						dprintf("subsublayer at %f %f\n", position.x(), position.y());
-					}
-				}
-			}
-#endif
-#endif
-
-			gc.restore();
-			cairo_surface_flush(m_surface);
-		}
-		// TODO: add damage bitmap
-		else if (m_hasDamage)
-		{
-			WebCore::GraphicsContext gc(m_platformContext);
-			
-			m_damage.intersect({ 0, 0, m_width, m_height });
-			
-			WebCore::IntRect ir(scrollX + m_damage.x(), scrollY + m_damage.y(), m_damage.width(), m_damage.height());
-			WebCore::FloatRect fr(m_damage.x(), m_damage.y(), m_damage.width(), m_damage.height());
-
-			gc.save();
-			gc.clip(fr);
-			gc.translate(-scrollX, -scrollY);
-			
-			frameView->paintContents(gc, ir);
-
-			gc.restore();
-			cairo_surface_flush(m_surface);
 		}
 
-		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
-		unsigned char *src = cairo_image_surface_get_data(m_surface);
-
-		if (update && !m_needsRepaint)
-		{
-			int dx = x + m_damage.x();
-			int dy = y + m_damage.y();
-			int dmaxx = dx + m_damage.width();
-			int dmaxy = dy + m_damage.height();
-
-			dmaxx = std::min(dmaxx, x + width);
-			dmaxy = std::min(dmaxy, y + height);
-
-			dx = std::min(dx, dmaxx);
-			dy = std::min(dy, dmaxy);
-
-			if (dx < dmaxx && dy < dmaxy)
-				WritePixelArray(src, m_damage.x(), m_damage.y(), stride, rp, dx, dy, dmaxx - dx, dmaxy - dy, RECTFMT_ARGB);
-		}
+		repair(frameView);
+		if (update)
+			repaint(rp, x, y);
 		else
-		{
-			WritePixelArray(src, 0, 0, stride, rp, x, y, width, height, RECTFMT_ARGB);
-		}
-		
-		m_hasDamage = false;
-		m_needsRepaint = false;
+			repaintAll(rp, x, y);
+		m_damage.clear();
 	}
 
 	bool resize(const int width, const int height)
 	{
 		if (width != m_width || height != m_height)
 		{
-			delete m_platformContext;
-			cairo_destroy(m_cairo);
-			cairo_surface_destroy(m_surface);
+			if (m_platformContext)
+				delete m_platformContext;
+			if (m_cairo)
+				cairo_destroy(m_cairo);
+			if (m_surface)
+				cairo_surface_destroy(m_surface);
 
 			m_surface = nullptr;
 			m_cairo = nullptr;
@@ -398,7 +595,8 @@ public:
 						m_cairo = nullptr;
 					}
 					
-					m_needsRepaint = true;
+
+					m_damage.resize(m_width, m_height);
 					return true;
 				}
 				else
@@ -412,10 +610,23 @@ public:
 		return false;
 	}
 
-	int pageHeight() const
+
+#if 0
+	void drawLayer(WebCore::GraphicsLayer *layer, WebCore::GraphicsContext& gc, WebCore::FloatRect &fr)
 	{
-		return m_height;
+		layer->paintGraphicsLayerContents(gc, fr);
+		
+		const Vector<Ref<GraphicsLayer>>& children = layer->children();
+		for (auto it = children.begin(); it != children.end(); it++)
+		{
+			WebCore::GraphicsLayer *child = it->ptr();
+			dprintf("child %p pos %f %f size %f %f bounds %f %f backing %p\n", child, child->position().x(), child->position().y(),
+				child->size().width(), child->size().height(), child->boundsOrigin().x(), child->boundsOrigin().y(), child->tiledBacking());
+			WebCore::FloatRect xfr(fr.x() + child->position().x(), fr.y() + child->position().y(), child->size().width(), child->size().height());
+			drawLayer(child, gc, xfr);
+		}
 	}
+#endif
 
 private:
 
@@ -1795,7 +2006,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEUP:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, m_drawContext->pageHeight());
+								scrollBy(0, m_drawContext->height());
 								return true;
 							}
 							break;
@@ -1804,7 +2015,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_SPACE:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -m_drawContext->pageHeight());
+								scrollBy(0, -m_drawContext->height());
 								return true;
 							}
 							break;

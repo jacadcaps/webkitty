@@ -13,6 +13,10 @@ There is a KNOWN crash on exit, it'll get fixed eventually :)
 
 Rough changelist:
 
+- 23.08.2020
+	- Rewritten display routines: they now repaint damage in 64x64 tiles
+	- Implemented a fast path for vertical scrolling of webpages
+
 - 20.08.2020
 	- Refactored WebCore/CurlDownload to download files if the original url ends in a redirect
 	- Refactored WebCore/CurlDownload and related parts of WebKitty to ensure cookies are properly
