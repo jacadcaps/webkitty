@@ -111,13 +111,6 @@ typedef enum {
 // changes
 + (BOOL)readyToQuit;
 
-// Sets a custom PEM file to be used to validate a connection to the given domain
-// 'key' is an optional password required to load the PEM file
-// Pass a nil pathToPEM to remove
-+ (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key;
-// Ignore SSL errors for this host. Persistent until app's demise
-+ (void)ignoreSSLErrorsForHost:(OBString *)host;
-
 // Load an URL into the main frame
 - (void)load:(OBURL *)url;
 // Load a HTML string into the main frame

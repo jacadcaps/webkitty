@@ -472,13 +472,6 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	return [[[_WkDownload alloc] initWithHandle:handle request:request response:response withDelegate:delegate] autorelease];
 }
 
-+ (void)setDownloadPath:(OBString *)path
-{
-	const char *cpath = [path nativeCString];
-	WebCore::CurlRequest::SetDownloadPath(WTF::String(cpath, strlen(cpath), MIBENUM_SYSTEM));
-	WTF::FileSystemImpl::setTemporaryFilePathForPrefix(cpath, "download");
-}
-
 - (void)start
 {
 

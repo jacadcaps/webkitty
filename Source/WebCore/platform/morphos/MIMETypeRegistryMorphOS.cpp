@@ -25,12 +25,20 @@
 
 #include "config.h"
 #include "MIMETypeRegistry.h"
+#include <wtf/NeverDestroyed.h>
+#include <wtf/HashMap.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringView.h>
+#include <wtf/text/WTFString.h>
+
+extern "C" { void dprintf(const char *,...); }
 
 namespace WebCore {
 
 // TODO: use code for Iris
 
-const TypeExtensionPair XcommonMediaTypes[] = {
+static const HashMap<String, String, ASCIICaseInsensitiveHash> hCommonMediaTypes(std::initializer_list<HashMap<String, String, ASCIICaseInsensitiveHash>::KeyValuePairType>{
     { "bmp"_s, "image/bmp"_s },
     { "css"_s, "text/css"_s },
     { "gif"_s, "image/gif"_s },
@@ -52,15 +60,16 @@ const TypeExtensionPair XcommonMediaTypes[] = {
     { "xsl"_s, "text/xsl"_s },
     { "xhtml"_s, "application/xhtml+xml"_s },
     { "wml"_s, "text/vnd.wap.wml"_s },
-    { "wmlc"_s, "application/vnd.wap.wmlc"_s },
-};
+    { "wmlc"_s, "application/vnd.wap.wmlc"_s }
+});
 
 String MIMETypeRegistry::getMIMETypeForExtension(const String& extension)
 {
-    for (auto& entry : XcommonMediaTypes) {
-        if (equalIgnoringASCIICase(extension, entry.extension.characters()))
-            return entry.type;
-    }
+	auto it = hCommonMediaTypes.find(extension);
+	if (it != hCommonMediaTypes.end())
+	{
+		return it->value;
+	}
     return emptyString();
 }
 
@@ -71,9 +80,9 @@ bool MIMETypeRegistry::isApplicationPluginMIMEType(const String&)
 
 String MIMETypeRegistry::getPreferredExtensionForMIMEType(const String& mimeType)
 {
-    for (auto& entry : XcommonMediaTypes) {
-        if (equalIgnoringASCIICase(mimeType, entry.type.characters()))
-            return entry.extension;
+    for (auto& kvpair : hCommonMediaTypes) {
+        if (equalIgnoringASCIICase(mimeType, kvpair.value))
+            return kvpair.key;
     }
     return emptyString();
 }

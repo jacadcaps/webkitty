@@ -435,6 +435,8 @@ class WebViewDrawContext
 	int m_width = -1;
 	int m_height = -1;
 	int m_scrollY = 0;
+	bool m_partialDamage = false;
+	bool m_didScroll = false;
 
 	TiledDamage m_damage;
 
@@ -463,9 +465,23 @@ public:
 	
 	const int width() const { return m_width; }
 	const int height() const { return m_height; }
+	void onDidScroll()
+	{
+		m_didScroll = true;
+	}
 
 	void invalidate(const WebCore::IntRect& rect)
 	{
+		int width = rect.width();
+		int height = rect.height();
+		
+		// WebCore does this for some reason...
+		if (width == 0 || height == 0)
+			return;
+
+		if (width < m_width || height < m_height)
+			m_partialDamage = true;
+
 		m_damage.invalidate(rect.x(), rect.y(), rect.width(), rect.height());
 	}
 	
@@ -518,7 +534,10 @@ public:
 			return;
 
 		struct Window *window = (struct Window *)rp->Layer->Window;
-		if (m_scrollY != scrollY && update && window)
+		
+		// Only trigger fast path if we've scrolled from outside (by scroller, etc) and there was
+		// no partial damage done to the site (meaning some components have displaced)
+		if (m_scrollY != scrollY && update && window && !m_partialDamage && m_didScroll)
 		{
 			int delta = scrollY - m_scrollY;
 			m_scrollY = scrollY;
@@ -527,19 +546,13 @@ public:
 			{
 				LockLayerUpdates(rp->Layer);
 			
-				m_damage.clear();
-				
 				if (delta > 0)
 					m_damage.invalidate(0, m_height - delta, m_width, delta);
 				else
 					m_damage.invalidate(0, 0, m_width, -delta);
-				
-				repair(frameView);
 
-//				struct Hook *backfillHook = rp->Layer->BackFill;
-//				rp->Layer->BackFill = (struct Hook *)LAYERS_NOBACKFILL;
+				repair(frameView);
 				ScrollWindowRaster(window, 0, delta, x, y, x + width - 1, y + height - 1);
-//				rp->Layer->BackFill = backfillHook;
 
 				cairo_surface_flush(m_surface);
 				const unsigned int stride = cairo_image_surface_get_stride(m_surface);
@@ -551,8 +564,9 @@ public:
 					WritePixelArray(src, 0, 0, stride, rp, x, y, width, -delta, RECTFMT_ARGB);
 				
 				UnlockLayerUpdates(rp->Layer);
-				
 				m_damage.invalidate();
+				m_partialDamage = false;
+				m_didScroll = false;
 				return;
 			}
 		}
@@ -563,6 +577,8 @@ public:
 		else
 			repaintAll(rp, x, y);
 		m_damage.clear();
+		m_partialDamage = false;
+		m_didScroll = false;
 	}
 
 	bool resize(const int width, const int height)
@@ -806,21 +822,20 @@ WebPage* WebPage::fromCorePage(WebCore::Page* page)
 
 void WebPage::load(const char *url)
 {
-	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
-	WebCore::ResourceRequest req(baseCoreURL);
+	static uint64_t navid = 1;
 
 	if (!m_mainFrame)
 		return;
 
     auto* coreFrame = m_mainFrame->coreFrame();
-
-	static uint64_t navid = 1;
+	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
+	WebCore::ResourceRequest request(baseCoreURL);
 	
 	corePage()->userInputBridge().stopLoadingFrame(coreFrame);
-
 	m_pendingNavigationID = navid ++;
+	coreFrame->loader().load(FrameLoadRequest(*coreFrame, request, ShouldOpenExternalURLsPolicy::ShouldNotAllow));
 
-    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+//    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 }
 
 void WebPage::loadData(const char *data, size_t length, const char *url)
@@ -1462,7 +1477,7 @@ void WebPage::setVisibleSize(const int width, const int height)
 
 void WebPage::setScroll(const int x, const int y)
 {
-	if (!m_mainFrame)
+	if (!m_mainFrame || !m_drawContext)
 		return;
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (!coreFrame)
@@ -1471,6 +1486,7 @@ void WebPage::setScroll(const int x, const int y)
 
 	m_ignoreScroll = true;
 	view->setScrollPosition(WebCore::ScrollPosition(x, y));
+	m_drawContext->onDidScroll();
 	m_ignoreScroll = false;
 
 	if (_fInvalidate)

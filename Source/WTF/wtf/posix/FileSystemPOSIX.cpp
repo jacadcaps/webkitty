@@ -484,6 +484,13 @@ end:
 
 HashMap<String, String> tmpPathPrefixes;
 
+String temporaryFilePathForPrefix(const String& prefix)
+{
+	if (tmpPathPrefixes.contains(prefix))
+		return tmpPathPrefixes.get(prefix);
+	return { };
+}
+
 void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
 {
 #if OS(MORPHOS)

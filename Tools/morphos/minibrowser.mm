@@ -333,7 +333,7 @@ static int _windowID = 1;
 	OBURL *url = [params lastObject];
 	OBString *certPath = [OBString stringWithFormat:@"T:%@.pem", [url host]];
 	[[cert certificate] writeToFile:certPath];
-	[WkWebView setCustomCertificate:certPath forHost:[url host] withKey:nil];
+	[WkGlobalSettings setCustomCertificate:certPath forHost:[url host] withKey:nil];
 }
 
 - (void)closeCertificate:(MUIWindow *)window
@@ -441,6 +441,7 @@ static int _windowID = 1;
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"MZ", @"https://morph.zone/");
+		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
 		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
 		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");

@@ -25,10 +25,6 @@
 + (WkDownload *)download:(OBURL *)url withDelegate:(id<WkDownloadDelegate>)delegate;
 + (WkDownload *)downloadRequest:(WkMutableNetworkRequest *)request withDelegate:(id<WkDownloadDelegate>)delegate;
 
-// Set the default download path for all new downloads, they'll be downloaded with a tmp name
-// and renamed to the name returned by decideFilenameForDownload:withSuggestedName: on success
-+ (void)setDownloadPath:(OBString *)path;
-
 - (void)start;
 - (void)cancel;
 - (void)cancelForResume;
