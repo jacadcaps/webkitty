@@ -1805,8 +1805,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 		{
 			if (imsg->Class == IDCMP_MOUSEMOVE)
 				m_clickCount = 0;
-			else
-				m_clickCount = 1;
+			else if (imsg->Code == SELECTDOWN || imsg->Code == MENUDOWN || imsg->Code == MIDDLEDOWN)
+				m_clickCount ++;
 
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),

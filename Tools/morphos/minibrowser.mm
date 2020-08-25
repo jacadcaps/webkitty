@@ -440,7 +440,7 @@ static int _windowID = 1;
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
-		ADDBUTTON(@"MZ", @"https://morph.zone/");
+		ADDBUTTON(@"DC", @"https://www.w3schools.com/jsref/tryit.asp?filename=tryjsref_ondblclick");
 		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
 		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
 		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");
