@@ -12,12 +12,16 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 25.08.2020
+	- Finished the WkHistory implementation
+
 - 24.08.2020
 	- Tweaked the way load requests are sent WebCore's way, fixes local file loading bailing out
 	  due to security polcies not being correctly updated in the Document
 	- Re-written WebCore/MIMETypeRegistryMorphOS, previously based on a non-working Sony implementation;
 	  fixes identifying a locally loaded html file as text/html
 	- Refactored internal global settings
+	- Fixed mouse click counts
 
 - 23.08.2020
 	- Rewritten display routines: they now repaint damage in 64x64 tiles

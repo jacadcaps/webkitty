@@ -4,8 +4,6 @@
 
 @interface WkBackForwardListItem : OBObject
 
-+ (id)itemWithURL:(OBURL *)url initialURL:(OBURL *)initialURL title:(OBString *)title;
-
 // URL of the webpage
 - (OBURL *)URL;
 // Initial request that created this item

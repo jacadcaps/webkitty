@@ -120,25 +120,9 @@ RefPtr<HistoryItem> BackForwardClientMorphOS::forwardItem()
 void BackForwardClientMorphOS::backListWithLimit(int limit, Vector<Ref<HistoryItem>>& list)
 {
     list.clear();
-    if (m_current != NoCurrentItemIndex) {
-        unsigned first = std::max(static_cast<int>(m_current) - limit, 0);
-        for (; first < m_current; ++first)
-            list.append(m_entries[first].get());
-    }
-	if (m_page->_fHistoryChanged)
-		m_page->_fHistoryChanged();
-}
 
-void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<HistoryItem>>& list)
-{
-    ASSERT(limit > -1);
-    list.clear();
     if (!m_entries.size())
-    {
-		if (m_page->_fHistoryChanged)
-			m_page->_fHistoryChanged();
         return;
-	}
 	
     unsigned lastEntry = m_entries.size() - 1;
     if (m_current < lastEntry) {
@@ -147,8 +131,16 @@ void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<Histor
         for (; limit <= last; ++limit)
             list.append(m_entries[limit].get());
     }
-	if (m_page->_fHistoryChanged)
-		m_page->_fHistoryChanged();
+}
+
+void BackForwardClientMorphOS::forwardListWithLimit(int limit, Vector<Ref<HistoryItem>>& list)
+{
+    list.clear();
+    if (m_current != NoCurrentItemIndex) {
+        unsigned first = std::max(static_cast<int>(m_current) - limit, 0);
+        for (; first < m_current; ++first)
+            list.append(m_entries[first].get());
+    }
 }
 
 int BackForwardClientMorphOS::capacity()

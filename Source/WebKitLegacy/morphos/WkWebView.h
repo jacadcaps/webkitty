@@ -4,6 +4,7 @@
 @class WkWebViewPrivate;
 @class WkMutableNetworkRequest;
 @class WkBackForwardList;
+@class WkBackForwardListItem;
 @class WkSettings;
 @class WkCertificate;
 @class WkCertificateChain;
@@ -127,6 +128,7 @@ typedef enum {
 - (BOOL)goBack;
 - (BOOL)goForward;
 
+- (void)goToItem:(WkBackForwardListItem *)item;
 - (WkBackForwardList *)backForwardList;
 
 - (void)reload;

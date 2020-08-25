@@ -126,6 +126,7 @@ namespace  {
 	id<WkWebViewDialogDelegate>          _dialogDelegate;
 	id<WkWebViewAutofillDelegate>        _autofillDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
+	WkBackForwardListPrivate            *_backForwardList;
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
@@ -156,6 +157,7 @@ namespace  {
 	[_url release];
 	[_title release];
 	[_protocolDelegates release];
+	[_backForwardList release];
 	
 	[super dealloc];
 }
@@ -362,6 +364,20 @@ namespace  {
 - (void)setHasOnlySecureContent:(BOOL)hasOnlySecureContent
 {
 	_hasOnlySecureContent = hasOnlySecureContent;
+}
+
+- (WkBackForwardListPrivate *)backForwardList
+{
+	if (nil == _backForwardList)
+	{
+		WTF::RefPtr<WebKit::BackForwardClientMorphOS> client = _page->backForwardClient();
+		if (client.get())
+		{
+			_backForwardList = [[WkBackForwardListPrivate backForwardListPrivate:client] retain];
+		}
+	}
+	
+	return _backForwardList;
 }
 
 @end
@@ -1175,17 +1191,19 @@ dprintf("---------- objc fixup ------------\n");
 	return NO;
 }
 
-- (WkBackForwardList *)backForwardList
+- (void)goToItem:(WkBackForwardListItem *)item
 {
 	try {
 		auto webPage = [_private page];
-		WTF::RefPtr<WebKit::BackForwardClientMorphOS> client = webPage->backForwardClient();
-		if (client.get())
-			return [WkBackForwardListPrivate backForwardListPrivate:client];
+		return webPage->goToItem([(WkBackForwardListItemPrivate *)item item]);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
-	return nil;
+}
+
+- (WkBackForwardList *)backForwardList
+{
+	return [_private backForwardList];
 }
 
 - (void)reload

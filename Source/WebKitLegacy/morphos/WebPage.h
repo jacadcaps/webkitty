@@ -19,6 +19,7 @@ namespace WebCore {
 	class CertificateInfo;
 	class AutofillElements;
 	class HTMLInputElement;
+	class HistoryItem;
 };
 
 struct RastPort;
@@ -73,6 +74,7 @@ public:
 	bool goForward();
 	bool canGoBack();
 	bool canGoForward();
+	void goToItem(WebCore::HistoryItem& item);
 
 	void willBeDisposed();
 

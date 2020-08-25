@@ -956,6 +956,11 @@ bool WebPage::canGoForward()
 	return m_page->backForward().canGoBackOrForward(1);
 }
 
+void WebPage::goToItem(WebCore::HistoryItem& item)
+{
+	m_page->goToItem(item, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
+}
+
 WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
 {
 	Ref<BackForwardClientMorphOS> client(static_cast<BackForwardClientMorphOS&>(m_page->backForward().client()));
