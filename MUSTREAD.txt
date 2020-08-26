@@ -12,6 +12,9 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 26.08.2020
+	- Fixed keyboard focus going back to MUI from the webview
+
 - 25.08.2020
 	- Finished the WkHistory implementation
 

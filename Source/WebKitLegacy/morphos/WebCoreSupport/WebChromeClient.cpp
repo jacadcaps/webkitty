@@ -116,6 +116,16 @@ bool WebChromeClient::canTakeFocus(FocusDirection direction)
 void WebChromeClient::takeFocus(FocusDirection direction)
 {
 	notImplemented();
+	if (FocusDirection::FocusDirectionBackward == direction)
+	{
+		if (m_webPage._fActivatePrevious)
+			m_webPage._fActivatePrevious();
+	}
+	else
+	{
+		if (m_webPage._fActivateNext)
+			m_webPage._fActivateNext();
+	}
 }
 
 void WebChromeClient::focusedElementChanged(Element* element)
