@@ -1479,15 +1479,9 @@ ObjectContentType WebFrameLoaderClient::objectContentType(const URL& url, const 
 
         // Try to guess the MIME type from the extension.
         mimeType = MIMETypeRegistry::getMIMETypeForExtension(extension);
-        if (mimeType.isEmpty()) {
-            // Check if there's a plug-in around that can handle the extension.
-            if (WebPage* webPage = m_frame->page()) {
-                if (pluginSupportsExtension(webPage->corePage()->pluginData(), extension))
-                    return ObjectContentType::PlugIn;
-            }
-            return ObjectContentType::Frame;
-        }
     }
+
+	D(dprintf("%s: mime %s image %d nonimage %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), MIMETypeRegistry::isSupportedImageMIMEType(mimeType),MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)));
 
     if (MIMETypeRegistry::isSupportedImageMIMEType(mimeType))
         return ObjectContentType::Image;

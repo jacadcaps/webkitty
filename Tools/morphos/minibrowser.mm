@@ -442,6 +442,7 @@ static int _windowID = 1;
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"B", @"https://pasteboard.co/HSta4X0.png");
+		ADDBUTTON(@"Img", @"https://morph.zone/images/avatar/users/120.jpg");
 		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
 		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
 		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");

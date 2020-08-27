@@ -12,6 +12,11 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 27.08.2020
+	- Fixed the MimeTypeRegistry in WebCore to allow jpg/tiff/bmp/ico files to be displayed in the
+	  browser
+	- Implemented WebCore/formatLocalizedString, fixes displaying image dimmensions when opening img urls
+
 - 26.08.2020
 	- Fixed keyboard focus going back to MUI from the webview
 
