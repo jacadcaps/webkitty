@@ -864,6 +864,13 @@ void WebPage::stop()
 		mainframe->loader().stopForUserCancel();
 }
 
+void WebPage::clear()
+{
+	auto *mainframe = mainFrame();
+	if (mainframe)
+		mainframe->loader().cancelAndClear();
+}
+
 WebCore::CertificateInfo WebPage::getCertificate(void)
 {
 	auto* coreFrame = m_mainFrame->coreFrame();

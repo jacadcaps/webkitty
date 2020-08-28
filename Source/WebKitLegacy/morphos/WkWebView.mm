@@ -125,12 +125,14 @@ namespace  {
 	id<WkDownloadDelegate>               _downloadDelegate;
 	id<WkWebViewDialogDelegate>          _dialogDelegate;
 	id<WkWebViewAutofillDelegate>        _autofillDelegate;
+	id<WkWebViewProgressDelegate>        _progressDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	WkBackForwardListPrivate            *_backForwardList;
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
 	bool                                 _isLiveResizing;
+	bool                                 _isHibernated;
 	bool                                 _hasOnlySecureContent;
 	OBURL                               *_url;
 	OBString                            *_title;
@@ -276,6 +278,16 @@ namespace  {
 	return _autofillDelegate;
 }
 
+- (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate
+{
+	_progressDelegate = delegate;
+}
+
+- (id<WkWebViewProgressDelegate>)progressDelegate
+{
+	return _progressDelegate;
+}
+
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
 {
 	if (nil == _protocolDelegates)
@@ -378,6 +390,25 @@ namespace  {
 	}
 	
 	return _backForwardList;
+}
+
+- (void)hibernate
+{
+	if (!_isHibernated)
+	{
+		_isHibernated = YES;
+		_page->clear();
+	}
+}
+
+- (void)clearHibernated
+{
+	_isHibernated = NO;
+}
+
+- (BOOL)isHibernated
+{
+	return _isHibernated;
 }
 
 @end
@@ -1045,6 +1076,27 @@ dprintf("---------- objc fixup ------------\n");
 				}
 			};
 			
+			webPage->_fProgressStarted = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+				[progressDelegate webViewDidStartProgress:self];
+			};
+
+			webPage->_fProgressUpdated = [self](float progress) {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+				[progressDelegate webView:self didUpdateProgress:progress];
+			};
+
+			webPage->_fProgressFinished = [self]() {
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+				[progressDelegate webViewDidFinishProgress:self];
+			};
+
 		} catch (...) {
 			[self release];
 			return nil;
@@ -1105,6 +1157,7 @@ dprintf("---------- objc fixup ------------\n");
 		if (nullptr == curi)
 			curi = "about:blank";
 		auto webPage = [_private page];
+		[_private clearHibernated];
 		[_private setURL:url];
 		[[_private networkDelegate] webView:self changedTitle:[url absoluteString]];
 		webPage->load(curi);
@@ -1126,6 +1179,7 @@ dprintf("---------- objc fixup ------------\n");
 	try {
 		const char *curi = [[base absoluteString] cString];
 		auto webPage = [_private page];
+		[_private clearHibernated];
 		webPage->loadData(reinterpret_cast<const char*>([data bytes]), [data length], curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
@@ -1210,7 +1264,16 @@ dprintf("---------- objc fixup ------------\n");
 {
 	try {
 		auto webPage = [_private page];
-		webPage->reload();
+		if ([_private isHibernated])
+		{
+			OBURL *url = [[_private url] retain];
+			[self load:url];
+			[url release];
+		}
+		else
+		{
+			webPage->reload();
+		}
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
@@ -1224,6 +1287,16 @@ dprintf("---------- objc fixup ------------\n");
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
+}
+
+- (void)hibernate
+{
+	[_private hibernate];
+}
+
+- (BOOL)isHibernated
+{
+	return [_private isHibernated];
 }
 
 - (OBString *)title
@@ -1596,6 +1669,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate
 {
 	[_private setAutofillDelegate:delegate];
+}
+
+- (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate
+{
+	[_private setProgressDelegate:delegate];
 }
 
 - (BOOL)hasAutofillElements

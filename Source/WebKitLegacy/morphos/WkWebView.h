@@ -102,6 +102,14 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewProgressDelegate <OBObject>
+
+- (void)webViewDidStartProgress:(WkWebView *)view;
+- (void)webView:(WkWebView *)view didUpdateProgress:(float)progress;
+- (void)webViewDidFinishProgress:(WkWebView *)view;
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -132,8 +140,10 @@ typedef enum {
 - (WkBackForwardList *)backForwardList;
 
 - (void)reload;
-
 - (void)stopLoading;
+
+- (void)hibernate;
+- (BOOL)isHibernated;
 
 - (OBString *)title;
 - (OBURL *)URL;
@@ -164,6 +174,7 @@ typedef enum {
 - (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate;
 - (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate;
 - (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate;
+- (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate;
 
 - (void)dumpDebug;
 

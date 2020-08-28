@@ -61,6 +61,7 @@ public:
 	void loadData(const char *data, size_t length, const char *url);
 	void reload();
 	void stop();
+	void clear();
 	
 	WebCore::CertificateInfo getCertificate(void);
 	

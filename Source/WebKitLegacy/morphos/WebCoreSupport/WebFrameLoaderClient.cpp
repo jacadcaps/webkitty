@@ -1613,7 +1613,10 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
     if (!webPage)
         return;
 
-	notImplemented();
+	// Don't load any icons, cause meh. Do this at some later stage perhaps?
+    auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
+	for (auto& icon : icons)
+		documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
 }
 
 void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, SharedBuffer* data)

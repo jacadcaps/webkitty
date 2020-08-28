@@ -43,9 +43,8 @@ void WebProgressTrackerClient::progressStarted(Frame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())
         return;
-
-//    m_webPage.setMainFrameProgressCompleted(false);
-//    m_webPage.send(Messages::WebPageProxy::DidStartProgress());
+	if (m_webPage._fProgressStarted)
+		m_webPage._fProgressStarted();
 }
 
 void WebProgressTrackerClient::progressEstimateChanged(Frame& originatingProgressFrame)
@@ -53,17 +52,17 @@ void WebProgressTrackerClient::progressEstimateChanged(Frame& originatingProgres
     if (!originatingProgressFrame.isMainFrame())
         return;
     
-    double progress = m_webPage.corePage()->progress().estimatedProgress();
-//    m_webPage.send(Messages::WebPageProxy::DidChangeProgress(progress));
+    float progress = m_webPage.corePage()->progress().estimatedProgress();
+	if (m_webPage._fProgressUpdated)
+		m_webPage._fProgressUpdated(progress);
 }
 
 void WebProgressTrackerClient::progressFinished(Frame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())
         return;
-
-//    m_webPage.setMainFrameProgressCompleted(true);
-//    m_webPage.send(Messages::WebPageProxy::DidFinishProgress());
+	if (m_webPage._fProgressFinished)
+		m_webPage._fProgressFinished();
 }
 
 } // namespace WebKit

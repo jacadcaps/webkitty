@@ -68,6 +68,10 @@ struct WebViewDelegate
 	std::function<bool(const WebCore::AuthenticationChallenge&)>    _fAuthChallenge;
 	
 	std::function<void(int)> _fSetCursor;
+	
+	std::function<void(void)>  _fProgressStarted;
+	std::function<void(float)> _fProgressUpdated;
+	std::function<void(void)>  _fProgressFinished;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -101,5 +105,8 @@ struct WebViewDelegate
 		_fNewTabWindow = nullptr;
 		_fSetCursor = nullptr;
 		_fAuthChallenge = nullptr;
+		_fProgressStarted = nullptr;
+		_fProgressUpdated = nullptr;
+		_fProgressFinished = nullptr;
 	};
 };
