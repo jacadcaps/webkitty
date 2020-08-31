@@ -1,5 +1,12 @@
 #import <ob/OBString.h>
 
+typedef enum
+{
+	WkSettings_Throttling_None,
+	WkSettings_Throttling_InvisibleBrowsers,
+	WkSettings_Throttling_All,
+} WkSettings_Throttling;
+
 @interface WkSettings : OBObject
 
 + (WkSettings *)settings;
@@ -12,6 +19,9 @@
 
 - (BOOL)thirdPartyCookiesAllowed;
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies;
+
+- (WkSettings_Throttling)throttling;
+- (void)setThrottling:(WkSettings_Throttling)throttling;
 
 @end
 

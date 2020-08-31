@@ -142,9 +142,6 @@ typedef enum {
 - (void)reload;
 - (void)stopLoading;
 
-- (void)hibernate;
-- (BOOL)isHibernated;
-
 - (OBString *)title;
 - (OBURL *)URL;
 - (WkCertificateChain *)certificateChain;

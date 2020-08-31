@@ -794,6 +794,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     m_page->setIsVisible(true);
     m_page->setIsInWindow(true);
 	m_page->setActivityState(ActivityState::WindowIsActive);
+//	m_page->setLowPowerModeEnabledOverrideForTesting(true);
 
 //    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
 }
@@ -862,13 +863,6 @@ void WebPage::stop()
 	auto *mainframe = mainFrame();
 	if (mainframe)
 		mainframe->loader().stopForUserCancel();
-}
-
-void WebPage::clear()
-{
-	auto *mainframe = mainFrame();
-	if (mainframe)
-		mainframe->loader().cancelAndClear();
 }
 
 WebCore::CertificateInfo WebPage::getCertificate(void)
@@ -1051,12 +1045,19 @@ void WebPage::goInactive()
 
 void WebPage::goVisible()
 {
+	m_isVisible = true;
 	corePage()->userInputBridge().focusSetActive(true);
 }
 
 void WebPage::goHidden()
 {
+	m_isVisible = false;
 	corePage()->userInputBridge().focusSetActive(false);
+}
+
+void WebPage::setLowPowerMode(bool lowPowerMode)
+{
+	corePage()->setLowPowerModeEnabledOverrideForTesting(lowPowerMode);
 }
 
 void WebPage::startLiveResize()

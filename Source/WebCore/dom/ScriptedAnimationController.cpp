@@ -44,11 +44,17 @@
 #include <wtf/SystemTracing.h>
 #include <wtf/text/StringBuilder.h>
 
+#if OS(MORPHOS)
+static const Seconds fullSpeedAnimationInterval { 30_ms };
+static const Seconds halfSpeedThrottlingAnimationInterval { 60_ms };
+static const Seconds aggressiveThrottlingAnimationInterval { 10_s };
+#else
 // Allow a little more than 60fps to make sure we can at least hit that frame rate.
 static const Seconds fullSpeedAnimationInterval { 15_ms };
 // Allow a little more than 30fps to make sure we can at least hit that frame rate.
 static const Seconds halfSpeedThrottlingAnimationInterval { 30_ms };
 static const Seconds aggressiveThrottlingAnimationInterval { 10_s };
+#endif
 
 #define RELEASE_LOG_IF_ALLOWED(fmt, ...) RELEASE_LOG_IF(page() && page()->isAlwaysOnLoggingAllowed(), PerformanceLogging, "%p - ScriptedAnimationController::" fmt, this, ##__VA_ARGS__)
 

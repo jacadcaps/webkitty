@@ -29,6 +29,7 @@ namespace WebCore {
 
 @interface WkSettingsPrivate : WkSettings
 {
+	WkSettings_Throttling _throttling;
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
@@ -44,6 +45,7 @@ namespace WebCore {
 		_script = YES;
 		_adBlocker = YES;
 		_thCookies = YES;
+		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 	}
 	
 	return self;
@@ -79,6 +81,16 @@ namespace WebCore {
 	_thCookies = allowCookies;
 }
 
+- (WkSettings_Throttling)throttling
+{
+	return _throttling;
+}
+
+- (void)setThrottling:(WkSettings_Throttling)throttling
+{
+	_throttling = throttling;
+}
+
 @end
 
 @implementation WkSettings
@@ -112,6 +124,15 @@ namespace WebCore {
 }
 
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies
+{
+}
+
+- (WkSettings_Throttling)throttling
+{
+	return WkSettings_Throttling_InvisibleBrowsers;
+}
+
+- (void)setThrottling:(WkSettings_Throttling)throttling
 {
 }
 

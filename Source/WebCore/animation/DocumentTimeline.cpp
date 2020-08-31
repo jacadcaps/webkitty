@@ -46,8 +46,13 @@
 #include "Settings.h"
 #include <JavaScriptCore/VM.h>
 
+#if OS(MORPHOS)
+static const Seconds defaultAnimationInterval { 30_ms };
+static const Seconds throttledAnimationInterval { 60_ms };
+#else
 static const Seconds defaultAnimationInterval { 15_ms };
 static const Seconds throttledAnimationInterval { 30_ms };
+#endif
 
 namespace WebCore {
 

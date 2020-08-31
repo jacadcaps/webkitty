@@ -441,6 +441,7 @@ static int _windowID = 1;
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
+		ADDBUTTON(@"Crash", @"https://www.webdesignerdepot.com/2013/07/50-inspiring-animated-gifs/");
 		ADDBUTTON(@"B", @"https://pasteboard.co/HSta4X0.png");
 		ADDBUTTON(@"Img", @"https://morph.zone/images/avatar/users/120.jpg");
 		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");

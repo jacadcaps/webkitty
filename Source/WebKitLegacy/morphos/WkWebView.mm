@@ -128,11 +128,11 @@ namespace  {
 	id<WkWebViewProgressDelegate>        _progressDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	WkBackForwardListPrivate            *_backForwardList;
+	WkSettings_Throttling                _throttling;
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
 	bool                                 _isLiveResizing;
-	bool                                 _isHibernated;
 	bool                                 _hasOnlySecureContent;
 	OBURL                               *_url;
 	OBString                            *_title;
@@ -142,6 +142,16 @@ namespace  {
 @end
 
 @implementation WkWebViewPrivate
+
+- (id)init
+{
+	if ((self = [super init]))
+	{
+		_throttling = WkSettings_Throttling_InvisibleBrowsers;
+		_hasOnlySecureContent = YES;
+	}
+	return self;
+}
 
 - (void)dealloc
 {
@@ -392,23 +402,14 @@ namespace  {
 	return _backForwardList;
 }
 
-- (void)hibernate
+- (WkSettings_Throttling)throttling
 {
-	if (!_isHibernated)
-	{
-		_isHibernated = YES;
-		_page->clear();
-	}
+	return _throttling;
 }
 
-- (void)clearHibernated
+- (void)setThrottling:(WkSettings_Throttling)throttling
 {
-	_isHibernated = NO;
-}
-
-- (BOOL)isHibernated
-{
-	return _isHibernated;
+	_throttling = throttling;
 }
 
 @end
@@ -543,7 +544,7 @@ static inline bool wkIsMainThread() {
 
 static inline void validateObjCContext() {
 	if (!wkIsMainThread()) {
-dprintf("---------- objc fixup ------------\n");
+		dprintf("---------- objc fixup ------------\n");
 		FindTask(0)->tc_ETask->OBContext = _globalOBContext; // fixup ObjC threading
 	}
 }
@@ -685,6 +686,8 @@ dprintf("---------- objc fixup ------------\n");
 			}
 			
 			auto webPage = [_private page];
+
+			webPage->setLowPowerMode(true);
 
 			webPage->_fInvalidate = [self]() { [self invalidated]; };
 
@@ -1157,7 +1160,6 @@ dprintf("---------- objc fixup ------------\n");
 		if (nullptr == curi)
 			curi = "about:blank";
 		auto webPage = [_private page];
-		[_private clearHibernated];
 		[_private setURL:url];
 		[[_private networkDelegate] webView:self changedTitle:[url absoluteString]];
 		webPage->load(curi);
@@ -1179,7 +1181,6 @@ dprintf("---------- objc fixup ------------\n");
 	try {
 		const char *curi = [[base absoluteString] cString];
 		auto webPage = [_private page];
-		[_private clearHibernated];
 		webPage->loadData(reinterpret_cast<const char*>([data bytes]), [data length], curi);
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
@@ -1264,16 +1265,7 @@ dprintf("---------- objc fixup ------------\n");
 {
 	try {
 		auto webPage = [_private page];
-		if ([_private isHibernated])
-		{
-			OBURL *url = [[_private url] retain];
-			[self load:url];
-			[url release];
-		}
-		else
-		{
-			webPage->reload();
-		}
+		webPage->reload();
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
@@ -1287,16 +1279,6 @@ dprintf("---------- objc fixup ------------\n");
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}
-}
-
-- (void)hibernate
-{
-	[_private hibernate];
-}
-
-- (BOOL)isHibernated
-{
-	return [_private isHibernated];
 }
 
 - (OBString *)title
@@ -1379,6 +1361,7 @@ dprintf("---------- objc fixup ------------\n");
 	[settings setAdBlockerEnabled:webPage->adBlockingEnabled()];
 	[settings setJavaScriptEnabled:webPage->javaScriptEnabled()];
 	[settings setThirdPartyCookiesAllowed:webPage->thirdPartyCookiesAllowed()];
+	[settings setThrottling:[_private throttling]];
 	return nil;
 }
 
@@ -1388,6 +1371,20 @@ dprintf("---------- objc fixup ------------\n");
 	webPage->setJavaScriptEnabled([settings javaScriptEnabled]);
 	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
 	webPage->setThirdPartyCookiesAllowed([settings thirdPartyCookiesAllowed]);
+	[_private setThrottling:[settings throttling]];
+
+	switch ([settings throttling])
+	{
+	case WkSettings_Throttling_None:
+		webPage->setLowPowerMode(false);
+		break;
+	case WkSettings_Throttling_InvisibleBrowsers:
+		webPage->setLowPowerMode(!webPage->isVisible());
+		break;
+	case WkSettings_Throttling_All:
+		webPage->setLowPowerMode(true);
+		break;
+	}
 }
 
 - (void)dumpDebug
@@ -1447,6 +1444,9 @@ dprintf("---------- objc fixup ------------\n");
 			auto webPage = [_private page];
 			webPage->goVisible();
 			
+			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+				webPage->setLowPowerMode(false);
+			
 			if ([_private documentWidth])
 			{
 				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
@@ -1475,6 +1475,10 @@ dprintf("---------- objc fixup ------------\n");
 	try {
 		auto webPage = [_private page];
 		webPage->goHidden();
+
+		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+			webPage->setLowPowerMode(true);
+
 	} catch (std::exception &ex) {
 		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
 	}

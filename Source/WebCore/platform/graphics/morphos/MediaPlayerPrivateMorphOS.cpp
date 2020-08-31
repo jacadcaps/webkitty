@@ -10,7 +10,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/WTFString.h>
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 

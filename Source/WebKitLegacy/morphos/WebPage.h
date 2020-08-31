@@ -61,7 +61,6 @@ public:
 	void loadData(const char *data, size_t length, const char *url);
 	void reload();
 	void stop();
-	void clear();
 	
 	WebCore::CertificateInfo getCertificate(void);
 	
@@ -145,8 +144,11 @@ public:
     void goActive();
     void goInactive();
     void goVisible();
+    bool isVisible() const { return m_isVisible; }
     void goHidden();
 	
+	void setLowPowerMode(bool lowPowerMode);
+
 	void startLiveResize();
 	void endLiveResize();
 	
@@ -201,6 +203,7 @@ private:
     bool m_adBlocking { true };
     bool m_justWentActive { false };
     bool m_isActive { false };
+    bool m_isVisible { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
 };

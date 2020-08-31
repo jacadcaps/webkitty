@@ -47,10 +47,15 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static const Seconds animationTimerDelay { 30_ms };
+static const Seconds animationTimerThrottledDelay { 60_ms };
+#else
 // Allow a little more than 60fps to make sure we can at least hit that frame rate.
 static const Seconds animationTimerDelay { 15_ms };
 // Allow a little more than 30fps to make sure we can at least hit that frame rate.
 static const Seconds animationTimerThrottledDelay { 30_ms };
+#endif
 
 class AnimationPrivateUpdateBlock {
 public:
