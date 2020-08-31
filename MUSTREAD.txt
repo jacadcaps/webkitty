@@ -12,6 +12,9 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 31.08.2020
+	- Implemented throttling w/ settings
+
 - 27.08.2020
 	- Fixed the MimeTypeRegistry in WebCore to allow jpg/tiff/bmp/ico files to be displayed in the
 	  browser
