@@ -1710,4 +1710,32 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
 }
 
+- (int)pageWidth
+{
+	return [_private documentWidth];
+}
+
+- (int)pageHeight
+{
+	return [_private documentHeight];
+}
+
+- (int)visibleWidth
+{
+	auto webPage = [_private page];
+	return webPage->size().width();
+}
+
+- (int)visibleHeight
+{
+	auto webPage = [_private page];
+	return webPage->size().height();
+}
+
+- (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height
+{
+	auto webPage = [_private page];
+	return webPage->drawRect(x, y, width, height, rp);
+}
+
 @end

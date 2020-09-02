@@ -16,11 +16,12 @@ list(APPEND WTF_SOURCES
 
         morphos/LanguageMorphOS.cpp
         morphos/Misc.cpp
+
+        morphos/MemoryPressureHandlerMorphOS.cpp
     )
 
     list(APPEND WTF_SOURCES
         generic/MemoryFootprintGeneric.cpp
-        generic/MemoryPressureHandlerGeneric.cpp
     )
 
     list(APPEND WTF_SOURCES

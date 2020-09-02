@@ -177,4 +177,11 @@ typedef enum {
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 
+- (int)pageWidth;
+- (int)pageHeight;
+- (int)visibleWidth;
+- (int)visibleHeight;
+
+- (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
+
 @end

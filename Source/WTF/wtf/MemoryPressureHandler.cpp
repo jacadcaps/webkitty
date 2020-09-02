@@ -51,6 +51,8 @@ MemoryPressureHandler& MemoryPressureHandler::singleton()
 MemoryPressureHandler::MemoryPressureHandler()
 #if OS(LINUX)
     : m_holdOffTimer(RunLoop::main(), this, &MemoryPressureHandler::holdOffTimerFired)
+#elif OS(MORPHOS)
+    : m_morphosMeasurementTimer(RunLoop::main(), this, &MemoryPressureHandler::morphosMeasurementTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::main(), this, &MemoryPressureHandler::windowsMeasurementTimerFired)
 #endif

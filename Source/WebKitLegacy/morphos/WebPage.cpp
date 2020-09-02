@@ -1600,6 +1600,60 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode);
 }
 
+bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame || !m_drawContext)
+		return false;
+    WebCore::FrameView* frameView = coreFrame->view();
+    if (!frameView)
+    	return false;
+
+	auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+	if (nullptr == surface)
+		return false;
+	auto *cairo = cairo_create(surface);
+	if (nullptr == cairo)
+	{
+		cairo_surface_destroy(surface);
+		return false;
+	}
+
+	try {
+		WebCore::PlatformContextCairo context(cairo);
+		WebCore::GraphicsContext gc(&context);
+		gc.save();
+		gc.clip(WebCore::IntRect(x, y, width, height));
+
+		OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
+		OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
+
+		paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
+		paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
+
+		frameView->setPaintBehavior(paintBehavior);
+		frameView->paint(gc, WebCore::IntRect(x, y, width, height));
+		frameView->setPaintBehavior(oldBehavior);
+
+		cairo_surface_flush(surface);
+		const unsigned int stride = cairo_image_surface_get_stride(surface);
+		unsigned char *src = cairo_image_surface_get_data(surface);
+
+		WritePixelArray(src, 0, 0, stride, rp, 0, 0, width, height, RECTFMT_ARGB);
+
+		gc.restore();
+	} catch (...) {
+		cairo_destroy(cairo);
+		cairo_surface_destroy(surface);
+		return false;
+	}
+
+	cairo_destroy(cairo);
+	cairo_surface_destroy(surface);
+
+	return true;
+}
+
 static inline WebCore::MouseButton imsgToButton(IntuiMessage *imsg)
 {
 	if (IDCMP_MOUSEBUTTONS == imsg->Class || IDCMP_MOUSEMOVE == imsg->Class)

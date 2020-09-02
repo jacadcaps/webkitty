@@ -12,6 +12,12 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 2.09.2020
+	- Implemented WTF/MemoryPressureHandler
+	- Fixes in ImageDecoder/JPEG for out-of-memory crashes
+	- Fixes in cairo surface for out-of-memory crashes
+	- Implemented screenshots
+
 - 31.08.2020
 	- Implemented throttling w/ settings
 

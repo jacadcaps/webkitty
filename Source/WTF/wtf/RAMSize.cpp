@@ -63,7 +63,7 @@ static size_t computeRAMSize()
     sysinfo(&si);
     return si.totalram * si.mem_unit;
 #elif OS(MORPHOS)
-	return AvailMem(MEMF_ANY);
+	return AvailMem(MEMF_TOTAL);
 #else
 #error "Missing a platform specific way of determining the available RAM"
 #endif // OS(LINUX)
