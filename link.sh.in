@@ -4,6 +4,7 @@
 ../../Source/WebCore/PAL/pal/libPAL.a \
 ../../Source/JavaScriptCore/libJavaScriptCore.a \
 ../../Source/WTF/wtf/libWTF.a \
+../../Source/bmalloc/libbmalloc.a \
 -Wl,--no-whole-archive \
 ../../../ffmpeg/instdir/lib/libavdevice.a \
 ../../../ffmpeg/instdir/lib/libavformat.a \
