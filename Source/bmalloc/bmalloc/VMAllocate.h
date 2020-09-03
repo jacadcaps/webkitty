@@ -66,8 +66,8 @@ inline size_t vmPageSize()
     static size_t cached;
     if (!cached) {
 #if BOS(MORPHOS)
-        long pageSize = 32;
-        NewGetSystemAttrsA(&pageSize, sizeof(pageSize), SYSTEMINFOTYPE_PPC_DCACHEL1LINESIZE, NULL);
+        long pageSize = 4096;
+        NewGetSystemAttrsA(&pageSize, sizeof(pageSize), SYSTEMINFOTYPE_PAGESIZE, NULL);
 #else
         long pageSize = sysconf(_SC_PAGESIZE);
         if (pageSize < 0)
