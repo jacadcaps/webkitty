@@ -58,7 +58,7 @@ class BadFingerprint {
     return static_cast<uint32_t>(strlen(data)) + 1;
   }
 
-  uint32_t Deserialize(char *buffer, uint32_t bufferSize) {
+  uint32_t Deserialize(char *buffer, uint32_t /*bufferSize*/) {
     uint32_t len = static_cast<uint32_t>(strlen(buffer));
     data = new char[len + 1];
     memcpy(data, buffer, len + 1);
@@ -93,7 +93,9 @@ class BadFingerprintsHashSet : public HashSet<BadFingerprint> {
     outFile << "const char *badSubstrings[] = {\"http\", \"www\" };"
       << std::endl;
     outFile.close();
-    #endif
+#else
+	(void)filename;
+#endif
   }
 };
 

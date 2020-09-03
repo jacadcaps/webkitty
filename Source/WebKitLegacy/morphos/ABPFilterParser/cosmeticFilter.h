@@ -52,7 +52,7 @@ class CosmeticFilter {
     return static_cast<uint32_t>(strlen(data)) + 1;
   }
 
-  uint32_t Deserialize(char *buffer, uint32_t bufferSize) {
+  uint32_t Deserialize(char *buffer, uint32_t /*bufferSize*/) {
     int len = static_cast<int>(strlen(buffer));
     data = new char[len + 1];
     memcpy(data, buffer, len + 1);

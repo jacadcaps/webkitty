@@ -1619,34 +1619,28 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 		return false;
 	}
 
-	try {
-		WebCore::PlatformContextCairo context(cairo);
-		WebCore::GraphicsContext gc(&context);
-		gc.save();
-		gc.clip(WebCore::IntRect(x, y, width, height));
+	WebCore::PlatformContextCairo context(cairo);
+	WebCore::GraphicsContext gc(&context);
+	gc.save();
+	gc.clip(WebCore::IntRect(x, y, width, height));
 
-		OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
-		OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
+	OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
+	OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
 
-		paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
-		paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
+	paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
+	paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
 
-		frameView->setPaintBehavior(paintBehavior);
-		frameView->paint(gc, WebCore::IntRect(x, y, width, height));
-		frameView->setPaintBehavior(oldBehavior);
+	frameView->setPaintBehavior(paintBehavior);
+	frameView->paint(gc, WebCore::IntRect(x, y, width, height));
+	frameView->setPaintBehavior(oldBehavior);
 
-		cairo_surface_flush(surface);
-		const unsigned int stride = cairo_image_surface_get_stride(surface);
-		unsigned char *src = cairo_image_surface_get_data(surface);
+	cairo_surface_flush(surface);
+	const unsigned int stride = cairo_image_surface_get_stride(surface);
+	unsigned char *src = cairo_image_surface_get_data(surface);
 
-		WritePixelArray(src, 0, 0, stride, rp, 0, 0, width, height, RECTFMT_ARGB);
+	WritePixelArray(src, 0, 0, stride, rp, 0, 0, width, height, RECTFMT_ARGB);
 
-		gc.restore();
-	} catch (...) {
-		cairo_destroy(cairo);
-		cairo_surface_destroy(surface);
-		return false;
-	}
+	gc.restore();
 
 	cairo_destroy(cairo);
 	cairo_surface_destroy(surface);

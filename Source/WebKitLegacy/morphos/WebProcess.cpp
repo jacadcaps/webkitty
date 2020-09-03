@@ -222,12 +222,8 @@ void WebProcess::waitForThreads()
 
 void WebProcess::handleSignals(const uint32_t sigmask)
 {
-	try {
-		dispatchFunctionsFromMainThread();
-		WTF::RunLoop::iterate();
-	} catch (std::exception &ex) {
-		dprintf("%s: webkit threw %s\n", ex.what());
-	}
+	dispatchFunctionsFromMainThread();
+	WTF::RunLoop::iterate();
 }
 
 WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const

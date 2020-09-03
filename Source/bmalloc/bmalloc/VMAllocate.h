@@ -141,6 +141,7 @@ inline void* tryVMAllocate(size_t vmSize, VMTag usage = VMTag::Malloc)
 {
     vmValidate(vmSize);
 #if BOS(MORPHOS)
+	(void)usage;
     void* result = memalign(vmPageSize(), vmSize);
     if (result == NULL)
         return nullptr;
@@ -184,6 +185,7 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage = VMTag::Malloc)
     // MAP_ANON guarantees the memory is zeroed. This will also cause
     // page faults on accesses to this range following this call.
 #if BOS(MORPHOS)
+	(void)usage;
     if (p)
         memset(p, 0, vmSize);
 #else
@@ -201,6 +203,7 @@ inline void* tryVMAllocate(size_t vmAlignment, size_t vmSize, VMTag usage = VMTa
     vmValidate(vmAlignment);
 
 #if BOS(MORPHOS)
+	(void)usage;
     char* aligned = static_cast<char*>(memalign(vmAlignment, vmSize));
 #else
     size_t mappedSize = vmAlignment + vmSize;
