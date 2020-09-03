@@ -205,6 +205,8 @@ inline void* tryVMAllocate(size_t vmAlignment, size_t vmSize, VMTag usage = VMTa
 #if BOS(MORPHOS)
 	(void)usage;
     char* aligned = static_cast<char*>(memalign(vmAlignment, vmSize));
+    if (aligned)
+        memset(aligned, 0, vmSize);
 #else
     size_t mappedSize = vmAlignment + vmSize;
     if (mappedSize < vmAlignment || mappedSize < vmSize) // Check for overflow
