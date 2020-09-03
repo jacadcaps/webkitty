@@ -204,7 +204,7 @@ inline void* tryVMAllocate(size_t vmAlignment, size_t vmSize, VMTag usage = VMTa
 
 #if BOS(MORPHOS)
 	(void)usage;
-    char* aligned = static_cast<char*>(memalign(vmAlignment, vmSize));
+    char* aligned = static_cast<char*>(memalign(max(vmPageSize(), vmAlignment), vmSize));
     if (aligned)
         memset(aligned, 0, vmSize);
 #else
@@ -247,7 +247,9 @@ inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)
 #elif BOS(FREEBSD)
     SYSCALL(madvise(p, vmSize, MADV_FREE));
 #elif BOS(MORPHOS)
-    // do nothing
+    // after MADV_DONTNEED the accessed memory is zero filled
+    if (p)
+        memset(p, 0, vmSize);
 #else
     SYSCALL(madvise(p, vmSize, MADV_DONTNEED));
 #if BOS(LINUX)
