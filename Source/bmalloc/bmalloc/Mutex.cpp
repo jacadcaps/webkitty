@@ -29,6 +29,10 @@
 #include "ScopeExit.h"
 #include <thread>
 
+#if BOS(MORPHOS)
+#include <sched.h>
+#endif
+
 namespace bmalloc {
 
 void Mutex::lockSlowCase()
