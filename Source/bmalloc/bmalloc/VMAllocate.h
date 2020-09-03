@@ -46,7 +46,14 @@
 
 #if BOS(MORPHOS)
 #include <exec/system.h>
+#include <proto/exec.h>
 #include <stdlib.h>
+#if 0
+extern "C" { void dprintf(const char *fmt, ...); }
+#define DPRINTF(x...) dprintf(x)
+#else
+#define DPRINTF(x...) do {} while(0)
+#endif
 #endif
 
 namespace bmalloc {
@@ -68,6 +75,7 @@ inline size_t vmPageSize()
 #if BOS(MORPHOS)
         long pageSize = 4096;
         NewGetSystemAttrsA(&pageSize, sizeof(pageSize), SYSTEMINFOTYPE_PAGESIZE, NULL);
+        DPRINTF("%s: => pageSize %lu\n", __PRETTY_FUNCTION__, pageSize);
 #else
         long pageSize = sysconf(_SC_PAGESIZE);
         if (pageSize < 0)
@@ -143,6 +151,7 @@ inline void* tryVMAllocate(size_t vmSize, VMTag usage = VMTag::Malloc)
 #if BOS(MORPHOS)
 	(void)usage;
     void* result = memalign(vmPageSize(), vmSize);
+    DPRINTF("%s: vmSize %lu => result %p\n", __PRETTY_FUNCTION__, vmSize, result);
     if (result == NULL)
         return nullptr;
     memset(result, 0, vmSize);
@@ -165,6 +174,7 @@ inline void vmDeallocate(void* p, size_t vmSize)
 {
     vmValidate(p, vmSize);
 #if BOS(MORPHOS)
+    DPRINTF("%s: p %p vmSize %lu\n", __PRETTY_FUNCTION__, p, vmSize);
     free(p);
 #else
     munmap(p, vmSize);
@@ -186,6 +196,7 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage = VMTag::Malloc)
     // page faults on accesses to this range following this call.
 #if BOS(MORPHOS)
 	(void)usage;
+    DPRINTF("%s: p %p vmSize %lu\n", __PRETTY_FUNCTION__, p, vmSize);
     if (p)
         memset(p, 0, vmSize);
 #else
@@ -205,6 +216,7 @@ inline void* tryVMAllocate(size_t vmAlignment, size_t vmSize, VMTag usage = VMTa
 #if BOS(MORPHOS)
 	(void)usage;
     char* aligned = static_cast<char*>(memalign(max(vmPageSize(), vmAlignment), vmSize));
+    DPRINTF("%s: vmAlignment %lu vmSize %lu => aligned %p\n", __PRETTY_FUNCTION__, vmAlignment, vmSize, aligned);
     if (aligned)
         memset(aligned, 0, vmSize);
 #else
@@ -247,7 +259,8 @@ inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)
 #elif BOS(FREEBSD)
     SYSCALL(madvise(p, vmSize, MADV_FREE));
 #elif BOS(MORPHOS)
-    // after MADV_DONTNEED the accessed memory is zero filled
+    // after MADV_DONTNEED the accessed memory is zero filled, emulate that
+    DPRINTF("%s: p %p vmSize %lu\n", __PRETTY_FUNCTION__, p, vmSize);
     if (p)
         memset(p, 0, vmSize);
 #else
@@ -265,6 +278,7 @@ inline void vmAllocatePhysicalPages(void* p, size_t vmSize)
     SYSCALL(madvise(p, vmSize, MADV_FREE_REUSE));
 #elif BOS(MORPHOS)
     // do nothing
+    DPRINTF("%s: p %p vmSize %lu\n", __PRETTY_FUNCTION__, p, vmSize);
 #else
     SYSCALL(madvise(p, vmSize, MADV_NORMAL));
 #if BOS(LINUX)
