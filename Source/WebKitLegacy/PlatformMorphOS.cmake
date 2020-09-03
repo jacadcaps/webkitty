@@ -71,15 +71,15 @@ list(APPEND WebKitLegacy_ABP
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport} ${WebKitLegacy_ABP})
 
-set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkCertificate.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkCertificateViewer.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkError.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
-set_source_files_properties(morphos/WkFileDialog.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString")
+set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkCertificate.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkCertificateViewer.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkError.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkFileDialog.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

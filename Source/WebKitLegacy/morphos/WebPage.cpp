@@ -221,10 +221,10 @@ class TiledDamage
 		EncapsulatingRect() = default;
 		~EncapsulatingRect() = default;
 
-		inline const int x() const { return m_x; }
-		inline const int y() const { return m_y; }
-		inline const int width() const { return m_width; }
-		inline const int height() const { return m_height; }
+		inline int x() const { return m_x; }
+		inline int y() const { return m_y; }
+		inline int width() const { return m_width; }
+		inline int height() const { return m_height; }
 
 		inline void encapsulateCoords(int x, int y, int width, int height)
 		{
@@ -463,8 +463,8 @@ public:
 			cairo_surface_destroy(m_surface);
 	}
 	
-	const int width() const { return m_width; }
-	const int height() const { return m_height; }
+	int width() const { return m_width; }
+	int height() const { return m_height; }
 	void onDidScroll()
 	{
 		m_didScroll = true;
@@ -532,6 +532,8 @@ public:
 	{
 		if (!m_platformContext)
 			return;
+
+		(void)scrollX;
 
 		struct Window *window = (struct Window *)rp->Layer->Window;
 		
@@ -682,6 +684,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     JSC::initializeThreading();
     RunLoop::initializeMainRunLoop();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
+
+	(void)parameters;
 
 //	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
     static bool didOneTimeInitialization;
@@ -1169,10 +1173,14 @@ void WebPage::addResourceRequest(unsigned long identifier, const WebCore::Resour
 void WebPage::removeResourceRequest(unsigned long identifier)
 {
     if (!m_trackedNetworkResourceRequestIdentifiers.remove(identifier))
+    {
         return;
+	}
 
 	if (m_trackedNetworkResourceRequestIdentifiers.isEmpty() && _fDidStopLoading)
+	{
 		_fDidStopLoading();
+	}
 }
 
 void WebPage::didStartPageTransition()
@@ -1225,8 +1233,10 @@ void WebPage::didCommitLoad(WebFrame* frame)
 void WebPage::didFinishDocumentLoad(WebFrame& frame)
 {
     if (!frame.isMainFrame())
+    {
         return;
-	
+	}
+
 	corePage()->resumeActiveDOMObjectsAndAnimations();
 
 #if ENABLE(VIEWPORT_RESIZING) && 0
@@ -1339,13 +1349,19 @@ void WebPage::scalePage(double scale, const IntPoint& origin)
 
     // We can't early return before setPageScaleFactor because the origin might be different.
     if (!willChangeScaleFactor)
+    {
         return;
+	}
 
 	if (m_drawContext)
+	{
 		m_drawContext->invalidate();
-
+	}
+	
 	if (_fInvalidate)
+	{
 		_fInvalidate();
+	}
 }
 
 void WebPage::setAlwaysShowsHorizontalScroller(bool alwaysShowsHorizontalScroller)
@@ -1398,6 +1414,9 @@ void WebPage::repaint(const WebCore::IntRect& rect)
 
 void WebPage::internalScroll(int scrollX, int scrollY)
 {
+	(void)scrollX;
+	(void)scrollY;
+
 	if (!m_ignoreScroll)
 	{
 		if (!m_mainFrame)
@@ -1554,10 +1573,15 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (!coreFrame || !m_drawContext)
+	{
 		return;
+	}
+	
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)
-    	return;
+	{
+		return;
+	}
 
     m_page->updateRendering();
 
@@ -1566,12 +1590,12 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 //	frameView->updateCompositingLayersAfterLayout();
 	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
 #endif
-	IntSize s = frameView->autoSizingIntrinsicContentSize();
+//	IntSize s = frameView->autoSizingIntrinsicContentSize();
 	auto scroll = frameView->scrollPosition();
 
 //	dprintf("draw to %p at %d %d : %dx%d, %d %d renderable %d\n", rp, x,y, width, height, s.width(), s.height(), frameView->isSoftwareRenderable());
 
-	FrameTree& tree = coreFrame->tree();
+	// FrameTree& tree = coreFrame->tree();
 
 #if 0
     for (Frame* child = tree.firstRenderedChild(); child; child = child->tree().traverseNextRendered(coreFrame)) {
@@ -1604,14 +1628,22 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (!coreFrame || !m_drawContext)
+	{
 		return false;
+	}
+	
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)
+    {
     	return false;
+	}
 
 	auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
 	if (nullptr == surface)
+	{
 		return false;
+	}
+
 	auto *cairo = cairo_create(surface);
 	if (nullptr == cairo)
 	{
@@ -1846,6 +1878,7 @@ bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int 
 {
 	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
 	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+	(void)imsg;
 	return hitTestResult.isOverLink() || hitTestResult.image();
 }
 
@@ -1989,7 +2022,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 		
 	case IDCMP_RAWKEY:
 		{
-			Boopsiobject *oimsg = (Boopsiobject *)imsg;
 			ULONG code = imsg->Code & ~IECODE_UP_PREFIX;
 			BOOL up = (imsg->Code & IECODE_UP_PREFIX) == IECODE_UP_PREFIX;
 

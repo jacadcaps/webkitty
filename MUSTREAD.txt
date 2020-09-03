@@ -12,6 +12,9 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 3.09.2020
+	- Tweaked compilation options to save about 8MB in binary size
+
 - 2.09.2020
 	- Implemented WTF/MemoryPressureHandler
 	- Fixes in ImageDecoder/JPEG for out-of-memory crashes
