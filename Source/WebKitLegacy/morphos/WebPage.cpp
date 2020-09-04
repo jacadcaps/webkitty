@@ -1653,26 +1653,32 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 
 	WebCore::PlatformContextCairo context(cairo);
 	WebCore::GraphicsContext gc(&context);
+	WebCore::IntRect rect(0, 0,width, height);
 	gc.save();
-	gc.clip(WebCore::IntRect(x, y, width, height));
+	gc.clip(rect);
 
 	OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
 	OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
+	auto oldScroll = frameView->scrollPosition();
 
 	paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
 	paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
-
 	frameView->setPaintBehavior(paintBehavior);
-	frameView->paint(gc, WebCore::IntRect(x, y, width, height));
+	m_ignoreScroll = true;
+	frameView->WebCore::ScrollView::scrollTo(WebCore::ScrollPosition(x, y));
+
+	frameView->paint(gc, rect);
+
 	frameView->setPaintBehavior(oldBehavior);
+	frameView->WebCore::ScrollView::scrollTo(oldScroll);
+	gc.restore();
+	m_ignoreScroll = false;
 
 	cairo_surface_flush(surface);
 	const unsigned int stride = cairo_image_surface_get_stride(surface);
 	unsigned char *src = cairo_image_surface_get_data(surface);
 
 	WritePixelArray(src, 0, 0, stride, rp, 0, 0, width, height, RECTFMT_ARGB);
-
-	gc.restore();
 
 	cairo_destroy(cairo);
 	cairo_surface_destroy(surface);
@@ -1874,11 +1880,15 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     return frame->editor().insertText(keyEvent->text(), &event);
 }
 
-bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY)
+bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL)
 {
 	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
 	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 	(void)imsg;
+	if (hitTestResult.isOverLink())
+		outURL = hitTestResult.absoluteLinkURL();
+	else if (hitTestResult.image())
+		outURL = hitTestResult.absoluteImageURL();
 	return hitTestResult.isOverLink() || hitTestResult.image();
 }
 
@@ -2001,11 +2011,24 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside || m_trackMouse)
 				{
 					bridge.handleMouseMoveEvent(pme);
-					if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY))
+					WTF::URL hoverURL;
+					bool downloadable = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
+
+					if (m_hoveredURL != hoverURL)
+					{
+						m_hoveredURL = hoverURL;
+						if (_fHoveredURLChanged)
+						{
+							_fHoveredURLChanged(m_hoveredURL);
+						}
+					}
+
+					if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && downloadable)
 					{
 						_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
 						return m_trackMouse;
 					}
+
 					if (_fSetCursor)
 						_fSetCursor(m_cursor);
 					return m_trackMouse;
@@ -2097,11 +2120,13 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 					if (!handled)
 					{
+						WTF::URL ignored;
+
 						switch (code)
 						{
 						case RAWKEY_LALT:
 						case RAWKEY_RALT:
-							if (!up && _fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY))
+							if (!up && _fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY, ignored))
 							{
 								_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
 							}

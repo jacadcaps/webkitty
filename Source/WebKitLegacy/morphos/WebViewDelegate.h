@@ -72,6 +72,8 @@ struct WebViewDelegate
 	std::function<void(void)>  _fProgressStarted;
 	std::function<void(float)> _fProgressUpdated;
 	std::function<void(void)>  _fProgressFinished;
+	
+	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -108,5 +110,6 @@ struct WebViewDelegate
 		_fProgressStarted = nullptr;
 		_fProgressUpdated = nullptr;
 		_fProgressFinished = nullptr;
+		_fHoveredURLChanged = nullptr;
 	};
 };

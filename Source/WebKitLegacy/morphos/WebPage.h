@@ -91,7 +91,7 @@ public:
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler);
-	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY);
+	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
 	bool handleMUIKey(int muikey, bool isDefaultHandler);
 
 	const WTF::Vector<WebCore::ContextMenuItem>& buildContextMenu(const int x, const int y);
@@ -208,6 +208,7 @@ private:
     bool m_isVisible { false };
     WebCore::Element *m_focusedElement { nullptr };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
+    WTF::URL m_hoveredURL;
 };
 
 }

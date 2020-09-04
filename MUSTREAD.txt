@@ -12,6 +12,10 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 4.09.2020
+	- Screenshot offset fixes
+	- Implemented hovered URL interface
+
 - 3.09.2020
 	- Tweaked compilation options to save about 8MB in binary size
 

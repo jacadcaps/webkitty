@@ -20,6 +20,9 @@
 
 #import <ob/OBFramework.h>
 #import <mui/MUIFramework.h>
+#import <proto/muimaster.h>
+#import <proto/graphics.h>
+#import <proto/layers.h>
 
 #import "WkWebView.h"
 #import "WkHistory_private.h"
@@ -119,7 +122,7 @@ namespace  {
 {
 	WTF::RefPtr<WebKit::WebPage>         _page;
 	id<WkWebViewScrollingDelegate>       _scrollingDelegate;
-	id<WkWebViewNetworkDelegate>         _networkDelegate;
+	id<WkWebViewClientDelegate>         _clientDelegate;
 	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
 	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
 	id<WkDownloadDelegate>               _downloadDelegate;
@@ -136,6 +139,7 @@ namespace  {
 	bool                                 _hasOnlySecureContent;
 	OBURL                               *_url;
 	OBString                            *_title;
+	OBURL                               *_hover;
 	int                                  _scrollX, _scrollY;
 	int                                  _documentWidth, _documentHeight;
 }
@@ -168,6 +172,7 @@ namespace  {
 	
 	[_url release];
 	[_title release];
+	[_hover release];
 	[_protocolDelegates release];
 	[_backForwardList release];
 	
@@ -201,14 +206,14 @@ namespace  {
 	return _scrollingDelegate;
 }
 
-- (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate
+- (void)setClientDelegate:(id<WkWebViewClientDelegate>)delegate
 {
-	_networkDelegate = delegate;
+	_clientDelegate = delegate;
 }
 
-- (id<WkWebViewNetworkDelegate>)networkDelegate
+- (id<WkWebViewClientDelegate>)clientDelegate
 {
-	return _networkDelegate;
+	return _clientDelegate;
 }
 
 - (void)setConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)consoleDelegate
@@ -410,6 +415,17 @@ namespace  {
 - (void)setThrottling:(WkSettings_Throttling)throttling
 {
 	_throttling = throttling;
+}
+
+- (void)setHover:(OBURL *)hover
+{
+	[_hover autorelease];
+	_hover = [hover retain];
+}
+
+- (OBURL *)hover
+{
+	return _hover;
 }
 
 @end
@@ -671,439 +687,447 @@ static inline void validateObjCContext() {
 			return nil;
 		}
 
-		try {
-			auto& webProcess = WebKit::WebProcess::singleton();
-			auto identifier = WebCore::PageIdentifier::generate();
+		auto& webProcess = WebKit::WebProcess::singleton();
+		auto identifier = WebCore::PageIdentifier::generate();
 
-			WebKit::WebPageCreationParameters parameters;
-			webProcess.createWebPage(identifier, WTFMove(parameters));
-    		[_private setPage:webProcess.webPage(identifier)];
+		WebKit::WebPageCreationParameters parameters;
+		webProcess.createWebPage(identifier, WTFMove(parameters));
+		[_private setPage:webProcess.webPage(identifier)];
 
-			if (![_private page])
-			{
-				[self release];
-				return nil;
-			}
-			
-			auto webPage = [_private page];
-
-			webPage->setLowPowerMode(true);
-
-			webPage->_fInvalidate = [self]() { [self invalidated]; };
-
-			webPage->_fSetDocumentSize = [self](int width, int height) {
-				[self setDocumentWidth:width height:height];
-			};
-			
-			webPage->_fScroll = [self](int sx, int sy) {
-				[self scrollToX:sx y:sy];
-			};
-			
-			webPage->_fActivateNext = [self]() {
-				[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Next];
-			};
-			
-			webPage->_fActivatePrevious = [self]() {
-				[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Prev];
-			};
-
-			webPage->_fGoActive = [self]() {
-				[[self windowObject] setActiveObject:self];
-			};
-			
-			webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					auto uurl = url.utf8();
-					OBString *overload = [networkDelegate userAgentForURL:[OBString stringWithUTF8String:uurl.data()]];
-
-					if (overload)
-						return WTF::String::fromUTF8([overload cString]);
-				}
-				return WTF::String::fromUTF8("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
-			};
-			
-			webPage->_fChangedTitle = [self](const WTF::String& title) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				auto utitle = title.utf8();
-				OBString *otitle = [OBString stringWithUTF8String:utitle.data()];
-				[privateObject setTitle:otitle];
-				[networkDelegate webView:self changedTitle:otitle];
-			};
-
-			webPage->_fChangedURL = [self](const WTF::String& url) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				auto uurl = url.utf8();
-				OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-				[privateObject setHasOnlySecureContent:YES];
-				[privateObject setURL:ourl];
-				[networkDelegate webView:self changedDocumentURL:ourl];
-			};
-			
-			webPage->_fDidStartLoading = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				[privateObject setIsLoading:YES];
-				[networkDelegate webView:self documentReady:NO];
-			};
-
-			webPage->_fDidStopLoading = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				[privateObject setIsLoading:NO];
-				[networkDelegate webView:self documentReady:YES];
-			};
-
-			webPage->_fDidLoadInsecureContent = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				[privateObject setHasOnlySecureContent:NO];
-				[networkDelegate webViewDidLoadInsecureContent:self];
-			};
-			
-			webPage->_fCanOpenWindow = [self](const WTF::String& url, const WebCore::WindowFeatures&) -> bool {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					auto uurl = url.utf8();
-					OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-					return [networkDelegate webView:self wantsToCreateNewViewWithURL:url options:nil];
-				}
-				return NO;
-			};
-			
-			webPage->_fDoOpenWindow = [self]() -> WebCore::Page * {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (!networkDelegate)
-					return nullptr;
-
-				WkWebView *newView = [[[self class] new] autorelease];
-				WkWebViewPrivate *newPrivateObject = [newView privateObject];
-				WebKit::WebPage *page = [newPrivateObject page];
-				if (page && page->corePage())
-				{
-					[networkDelegate webView:self createdNewWebView:newView];
-					return page->corePage();
-				}
-				return nullptr;
-			};
-			
-			webPage->_fPopup = [self](const WebCore::IntRect& pos, const WTF::Vector<WTF::String>& items) -> int {
-				validateObjCContext();
-				MUIMenu *menu = [[MUIMenu new] autorelease];
-				int index = 0;
-				for (const WTF::String &entry : items)
-				{
-					auto uentry = entry.utf8();
-					[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:uentry.data()] shortcut:nil userData:++index]];
-				}
-				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
-				if (strip)
-				{
-					// 0 on failure, all our menus return 1, 2...
-					int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
-					[strip release];
-					// 0 = first entry, -1 = error
-					return rc - 1;
-				}
-				return -1;
-			};
-			
-			webPage->_fHistoryChanged = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewBackForwardListDelegate> delegate = [privateObject backForwardDelegate];
-				[delegate webViewChangedBackForwardList:self];
-			};
-			
-			webPage->_fConsole = [self](const WTF::String&message, int level, unsigned int line) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewDebugConsoleDelegate> delegate = [privateObject consoleDelegate];
-				if (delegate)
-				{
-					auto umessage = message.utf8();
-					OBString *log = [OBString stringWithUTF8String:umessage.data()];
-
-					[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
-				}
-			};
-			
-			webPage->_fDidFailWithError = [self](const WebCore::ResourceError &error) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					[networkDelegate webView:self documentReady:YES];
-					[networkDelegate webView:self didFailLoadingWithError:[WkError errorWithResourceError:error]];
-				}
-			};
-			
-			webPage->_fCanHandleRequest = [self](const WebCore::ResourceRequest &request) {
-				if (request.httpMethod() == "GET")
-				{
-					const WTF::URL &url = request.url();
-					WTF::String protocol = url.protocol().toString();
-
-					// bypass standard protocols...
-					if (protocol == "http" || protocol == "https" || protocol == "ftp")
-						return true;
-					
-					validateObjCContext();
-					WkWebViewPrivate *privateObject = [self privateObject];
-
-					auto uprotocol = protocol.utf8();
-					OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
-					id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
-					if (delegate)
-					{
-						auto uurl = url.string().utf8();
-						OBString *args = @"";
-						if (uurl.length() > protocol.length() + 1)
-							args = [OBString stringWithUTF8String:uurl.data() + protocol.length() + 1];
-						[delegate webView:self wantsToNavigateToCustomProtocol:oprotocol withArguments:args];
-						return false;
-					}
-				}
-
-				return true;
-			};
-			
-			webPage->_fDownload = [self](const WTF::URL &url, const WTF::String &suggestedName) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
-				if (downloadDelegate)
-				{
-					auto uurl = url.string().utf8();
-					WkDownload *download = [WkDownload download:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] withDelegate:downloadDelegate];
-					[download start];
-				}
-			};
-			
-			webPage->_fDownloadFromResource = [self](WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
-				if (downloadDelegate)
-				{
-					WkDownload *download = [WkDownload downloadWithHandle:handle request:request response:response withDelegate:downloadDelegate];
-					[download start];
-				}
-			};
-			
-			webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request,
-				WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					WkDownloadResponseDelegatePrivate *responsePrivate = [[[WkDownloadResponseDelegatePrivate alloc] initWithPolicyCheckIdentifier:identifier function:std::move(function)] autorelease];
-					auto uurl = response.url().string().utf8();
-					auto umime = response.mimeType().utf8();
-					auto uname = response.suggestedFilename().utf8();
-					
-					if (0 == uname.length())
-						uname = WebCore::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
-					
-					[networkDelegate webView:self
-						confirmDownloadOfURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
-						mimeType:[OBString stringWithUTF8String:umime.data()]
-						size:response.expectedContentLength()
-						withSuggestedName:[OBString stringWithUTF8String:uname.data()]
-						withResponseDelegate:responsePrivate];
-					return;
-				}
-				function(WebCore::PolicyAction::Ignore, identifier);
-			};
-
-			webPage->_fAlert = [self](const WTF::String &alert) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
-				if (dialogDelegate)
-				{
-					auto uurl = alert.utf8();
-					[dialogDelegate webView:self wantsToShowJavaScriptAlertWithMessage:[OBString stringWithUTF8String:uurl.data()]];
-				}
-			};
-
-			webPage->_fConfirm = [self](const WTF::String &confirm) -> bool {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
-				if (dialogDelegate)
-				{
-					auto uurl = confirm.utf8();
-					return [dialogDelegate webView:self wantsToShowJavaScriptConfirmPanelWithMessage:[OBString stringWithUTF8String:uurl.data()]];
-				}
-				return false;
-			};
-			
-			webPage->_fPrompt = [self](const WTF::String &prompt, const WTF::String &defaults, WTF::String &out) -> bool {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
-				if (dialogDelegate)
-				{
-					auto uprompt = prompt.utf8();
-					auto udefaults = defaults.utf8();
-					OBString *rc = [dialogDelegate webView:self wantsToShowJavaScriptPromptPanelWithMessage:[OBString stringWithUTF8String:uprompt.data()] defaultValue:[OBString stringWithUTF8String:udefaults.data()]];
-					if (rc)
-					{
-						out = WTF::String::fromUTF8([rc cString]);
-						return true;
-					}
-				}
-				return false;
-			};
-			
-			webPage->_fFile = [self](WebCore::FileChooser&chooser) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
-				if (dialogDelegate)
-				{
-					WkFileDialogResponseHandlerPrivate *fd = [[[WkFileDialogResponseHandlerPrivate alloc] initWithChooser:chooser] autorelease];
-					[dialogDelegate webView:self wantsToOpenFileSelectionPanelWithSettings:fd responseHandler:fd];
-				}
-			};
-			
-			webPage->_fHasAutofill = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
-				WebKit::WebPage *page = [privateObject page];
-				if (autoDelegate && page)
-				{
-					WTF::String wLogin, wPassword;
-					page->getAutofillElements(wLogin, wPassword);
-					OBString *login = nil;
-					if (!wLogin.isEmpty())
-					{
-						auto ulogin = wLogin.utf8();
-						login = [OBString stringWithUTF8String:ulogin.data()];
-					}
-					[autoDelegate webView:self selectedAutofillFieldAtURL:[self URL] withPrefilledLogin:login];
-				}
-			};
-			
-			webPage->_fStoreAutofill = [self](const WTF::String &l, const WTF::String &p) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
-				if (autoDelegate)
-				{
-					auto ul = l.utf8();
-					auto up = p.utf8();
-					[autoDelegate webView:self willSubmitFormWithLogin:[OBString stringWithUTF8String:ul.data()] password:[OBString stringWithUTF8String:up.data()] atURL:[self URL]];
-				}
-			};
-			
-			webPage->_fNewTabWindow = [self](const WTF::URL& inurl, WebViewDelegateOpenWindowMode mode) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					auto uurl = inurl.string().utf8();
-					OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-					OBString *modeKey;
-					
-					switch (mode)
-					{
-					case WebViewDelegateOpenWindowMode::NewWindow:
-						modeKey = kWebViewNetworkDelegateOption_NewWindow;
-						break;
-					case WebViewDelegateOpenWindowMode::BackgroundTab:
-						modeKey = kWebViewNetworkDelegateOption_NewTab;
-						break;
-					default:
-						modeKey = kWebViewNetworkDelegateOption;
-						break;
-					}
-
-					if ([networkDelegate webView:self wantsToCreateNewViewWithURL:url
-						options:[OBDictionary dictionaryWithObject:modeKey forKey:kWebViewNetworkDelegateOption]])
-					{
-						WkWebView *newView = [[[self class] new] autorelease];
-						[newView load:url];
-						[networkDelegate webView:self createdNewWebView:newView];
-						return YES;
-					}
-				}
-				return NO;
-			};
-			
-			webPage->_fAuthChallenge = [self](const WebCore::AuthenticationChallenge &challenge) -> bool {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewNetworkDelegate> networkDelegate = [privateObject networkDelegate];
-				if (networkDelegate)
-				{
-					WkAuthenticationChallengeResponseDelegatePrivate *responseDelegate =
-						[[[WkAuthenticationChallengeResponseDelegatePrivate alloc] initWithAuthenticationChallenge:WkAuthenticationChallenge::create(challenge)] autorelease];
-					if (responseDelegate)
-					{
-						[[OBRunLoop mainRunLoop] performSelector:@selector(webView:issuedAuthenticationChallengeAtURL:withResponseDelegate:)
-							target:networkDelegate withObject:self withObject:[self URL] withObject:responseDelegate];
-						return YES;
-					}
-				}
-				return NO;
-			};
-			
-			webPage->_fSetCursor = [self](int cursor) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				if ([self window])
-				{
-					struct TagItem tags[] = { { WA_PointerType, (IPTR)cursor }, { TAG_DONE } };
-					SetWindowPointerA([self window], tags);
-				}
-			};
-			
-			webPage->_fProgressStarted = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
-				[progressDelegate webViewDidStartProgress:self];
-			};
-
-			webPage->_fProgressUpdated = [self](float progress) {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
-				[progressDelegate webView:self didUpdateProgress:progress];
-			};
-
-			webPage->_fProgressFinished = [self]() {
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
-				[progressDelegate webViewDidFinishProgress:self];
-			};
-
-		} catch (...) {
+		if (![_private page])
+		{
 			[self release];
 			return nil;
 		}
+		
+		auto webPage = [_private page];
+
+		webPage->setLowPowerMode(true);
+
+		webPage->_fInvalidate = [self]() { [self invalidated]; };
+
+		webPage->_fSetDocumentSize = [self](int width, int height) {
+			[self setDocumentWidth:width height:height];
+		};
+		
+		webPage->_fScroll = [self](int sx, int sy) {
+			[self scrollToX:sx y:sy];
+		};
+		
+		webPage->_fActivateNext = [self]() {
+			[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Next];
+		};
+		
+		webPage->_fActivatePrevious = [self]() {
+			[[self windowObject] setActiveObjectSpecial:MUIV_Window_ActiveObject_Prev];
+		};
+
+		webPage->_fGoActive = [self]() {
+			[[self windowObject] setActiveObject:self];
+		};
+		
+		webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				auto uurl = url.utf8();
+				OBString *overload = [clientDelegate userAgentForURL:[OBString stringWithUTF8String:uurl.data()]];
+
+				if (overload)
+					return WTF::String::fromUTF8([overload cString]);
+			}
+			return WTF::String::fromUTF8("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
+		};
+		
+		webPage->_fChangedTitle = [self](const WTF::String& title) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			auto utitle = title.utf8();
+			OBString *otitle = [OBString stringWithUTF8String:utitle.data()];
+			[privateObject setTitle:otitle];
+			[clientDelegate webView:self changedTitle:otitle];
+		};
+
+		webPage->_fChangedURL = [self](const WTF::String& url) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			auto uurl = url.utf8();
+			OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+			[privateObject setHasOnlySecureContent:YES];
+			[privateObject setURL:ourl];
+			[clientDelegate webView:self changedDocumentURL:ourl];
+		};
+		
+		webPage->_fDidStartLoading = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			[privateObject setIsLoading:YES];
+			[clientDelegate webView:self documentReady:NO];
+		};
+
+		webPage->_fDidStopLoading = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			[privateObject setIsLoading:NO];
+			[clientDelegate webView:self documentReady:YES];
+		};
+
+		webPage->_fDidLoadInsecureContent = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			[privateObject setHasOnlySecureContent:NO];
+			[clientDelegate webViewDidLoadInsecureContent:self];
+		};
+		
+		webPage->_fCanOpenWindow = [self](const WTF::String& url, const WebCore::WindowFeatures&) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				auto uurl = url.utf8();
+				OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+				return [clientDelegate webView:self wantsToCreateNewViewWithURL:url options:nil];
+			}
+			return NO;
+		};
+		
+		webPage->_fDoOpenWindow = [self]() -> WebCore::Page * {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (!clientDelegate)
+				return nullptr;
+
+			WkWebView *newView = [[[self class] new] autorelease];
+			WkWebViewPrivate *newPrivateObject = [newView privateObject];
+			WebKit::WebPage *page = [newPrivateObject page];
+			if (page && page->corePage())
+			{
+				[clientDelegate webView:self createdNewWebView:newView];
+				return page->corePage();
+			}
+			return nullptr;
+		};
+		
+		webPage->_fPopup = [self](const WebCore::IntRect& pos, const WTF::Vector<WTF::String>& items) -> int {
+			validateObjCContext();
+			MUIMenu *menu = [[MUIMenu new] autorelease];
+			int index = 0;
+			for (const WTF::String &entry : items)
+			{
+				auto uentry = entry.utf8();
+				[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:uentry.data()] shortcut:nil userData:++index]];
+			}
+			MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
+			if (strip)
+			{
+				// 0 on failure, all our menus return 1, 2...
+				int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
+				[strip release];
+				// 0 = first entry, -1 = error
+				return rc - 1;
+			}
+			return -1;
+		};
+		
+		webPage->_fHistoryChanged = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewBackForwardListDelegate> delegate = [privateObject backForwardDelegate];
+			[delegate webViewChangedBackForwardList:self];
+		};
+		
+		webPage->_fConsole = [self](const WTF::String&message, int level, unsigned int line) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewDebugConsoleDelegate> delegate = [privateObject consoleDelegate];
+			if (delegate)
+			{
+				auto umessage = message.utf8();
+				OBString *log = [OBString stringWithUTF8String:umessage.data()];
+
+				[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
+			}
+		};
+		
+		webPage->_fDidFailWithError = [self](const WebCore::ResourceError &error) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				[clientDelegate webView:self documentReady:YES];
+				[clientDelegate webView:self didFailLoadingWithError:[WkError errorWithResourceError:error]];
+			}
+		};
+		
+		webPage->_fCanHandleRequest = [self](const WebCore::ResourceRequest &request) {
+			if (request.httpMethod() == "GET")
+			{
+				const WTF::URL &url = request.url();
+				WTF::String protocol = url.protocol().toString();
+
+				// bypass standard protocols...
+				if (protocol == "http" || protocol == "https" || protocol == "ftp")
+					return true;
+				
+				validateObjCContext();
+				WkWebViewPrivate *privateObject = [self privateObject];
+
+				auto uprotocol = protocol.utf8();
+				OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
+				id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
+				if (delegate)
+				{
+					auto uurl = url.string().utf8();
+					OBString *args = @"";
+					if (uurl.length() > protocol.length() + 1)
+						args = [OBString stringWithUTF8String:uurl.data() + protocol.length() + 1];
+					[delegate webView:self wantsToNavigateToCustomProtocol:oprotocol withArguments:args];
+					return false;
+				}
+			}
+
+			return true;
+		};
+		
+		webPage->_fDownload = [self](const WTF::URL &url, const WTF::String &) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
+			if (downloadDelegate)
+			{
+				auto uurl = url.string().utf8();
+				WkDownload *download = [WkDownload download:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] withDelegate:downloadDelegate];
+				[download start];
+			}
+		};
+		
+		webPage->_fDownloadFromResource = [self](WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
+			if (downloadDelegate)
+			{
+				WkDownload *download = [WkDownload downloadWithHandle:handle request:request response:response withDelegate:downloadDelegate];
+				[download start];
+			}
+		};
+		
+		webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest&,
+			WebCore::PolicyCheckIdentifier identifier, const WTF::String&, WebCore::FramePolicyFunction&& function) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				WkDownloadResponseDelegatePrivate *responsePrivate = [[[WkDownloadResponseDelegatePrivate alloc] initWithPolicyCheckIdentifier:identifier function:std::move(function)] autorelease];
+				auto uurl = response.url().string().utf8();
+				auto umime = response.mimeType().utf8();
+				auto uname = response.suggestedFilename().utf8();
+				
+				if (0 == uname.length())
+					uname = WebCore::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
+				
+				[clientDelegate webView:self
+					confirmDownloadOfURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
+					mimeType:[OBString stringWithUTF8String:umime.data()]
+					size:response.expectedContentLength()
+					withSuggestedName:[OBString stringWithUTF8String:uname.data()]
+					withResponseDelegate:responsePrivate];
+				return;
+			}
+			function(WebCore::PolicyAction::Ignore, identifier);
+		};
+
+		webPage->_fAlert = [self](const WTF::String &alert) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+			if (dialogDelegate)
+			{
+				auto uurl = alert.utf8();
+				[dialogDelegate webView:self wantsToShowJavaScriptAlertWithMessage:[OBString stringWithUTF8String:uurl.data()]];
+			}
+		};
+
+		webPage->_fConfirm = [self](const WTF::String &confirm) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+			if (dialogDelegate)
+			{
+				auto uurl = confirm.utf8();
+				return [dialogDelegate webView:self wantsToShowJavaScriptConfirmPanelWithMessage:[OBString stringWithUTF8String:uurl.data()]];
+			}
+			return false;
+		};
+		
+		webPage->_fPrompt = [self](const WTF::String &prompt, const WTF::String &defaults, WTF::String &out) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+			if (dialogDelegate)
+			{
+				auto uprompt = prompt.utf8();
+				auto udefaults = defaults.utf8();
+				OBString *rc = [dialogDelegate webView:self wantsToShowJavaScriptPromptPanelWithMessage:[OBString stringWithUTF8String:uprompt.data()] defaultValue:[OBString stringWithUTF8String:udefaults.data()]];
+				if (rc)
+				{
+					out = WTF::String::fromUTF8([rc cString]);
+					return true;
+				}
+			}
+			return false;
+		};
+		
+		webPage->_fFile = [self](WebCore::FileChooser&chooser) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewDialogDelegate> dialogDelegate = [privateObject dialogDelegate];
+			if (dialogDelegate)
+			{
+				WkFileDialogResponseHandlerPrivate *fd = [[[WkFileDialogResponseHandlerPrivate alloc] initWithChooser:chooser] autorelease];
+				[dialogDelegate webView:self wantsToOpenFileSelectionPanelWithSettings:fd responseHandler:fd];
+			}
+		};
+		
+		webPage->_fHasAutofill = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
+			WebKit::WebPage *page = [privateObject page];
+			if (autoDelegate && page)
+			{
+				WTF::String wLogin, wPassword;
+				page->getAutofillElements(wLogin, wPassword);
+				OBString *login = nil;
+				if (!wLogin.isEmpty())
+				{
+					auto ulogin = wLogin.utf8();
+					login = [OBString stringWithUTF8String:ulogin.data()];
+				}
+				[autoDelegate webView:self selectedAutofillFieldAtURL:[self URL] withPrefilledLogin:login];
+			}
+		};
+		
+		webPage->_fStoreAutofill = [self](const WTF::String &l, const WTF::String &p) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewAutofillDelegate> autoDelegate = [privateObject autofillDelegate];
+			if (autoDelegate)
+			{
+				auto ul = l.utf8();
+				auto up = p.utf8();
+				[autoDelegate webView:self willSubmitFormWithLogin:[OBString stringWithUTF8String:ul.data()] password:[OBString stringWithUTF8String:up.data()] atURL:[self URL]];
+			}
+		};
+		
+		webPage->_fNewTabWindow = [self](const WTF::URL& inurl, WebViewDelegateOpenWindowMode mode) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				auto uurl = inurl.string().utf8();
+				OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+				OBString *modeKey;
+				
+				switch (mode)
+				{
+				case WebViewDelegateOpenWindowMode::NewWindow:
+					modeKey = kWebViewClientDelegateOption_NewWindow;
+					break;
+				case WebViewDelegateOpenWindowMode::BackgroundTab:
+					modeKey = kWebViewClientDelegateOption_NewTab;
+					break;
+				default:
+					modeKey = kWebViewClientDelegateOption;
+					break;
+				}
+
+				if ([clientDelegate webView:self wantsToCreateNewViewWithURL:url
+					options:[OBDictionary dictionaryWithObject:modeKey forKey:kWebViewClientDelegateOption]])
+				{
+					WkWebView *newView = [[[self class] new] autorelease];
+					[newView load:url];
+					[clientDelegate webView:self createdNewWebView:newView];
+					return YES;
+				}
+			}
+			return NO;
+		};
+		
+		webPage->_fAuthChallenge = [self](const WebCore::AuthenticationChallenge &challenge) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				WkAuthenticationChallengeResponseDelegatePrivate *responseDelegate =
+					[[[WkAuthenticationChallengeResponseDelegatePrivate alloc] initWithAuthenticationChallenge:WkAuthenticationChallenge::create(challenge)] autorelease];
+				if (responseDelegate)
+				{
+					[[OBRunLoop mainRunLoop] performSelector:@selector(webView:issuedAuthenticationChallengeAtURL:withResponseDelegate:)
+						target:clientDelegate withObject:self withObject:[self URL] withObject:responseDelegate];
+					return YES;
+				}
+			}
+			return NO;
+		};
+		
+		webPage->_fSetCursor = [self](int cursor) {
+			validateObjCContext();
+			if ([self window])
+			{
+				struct TagItem tags[] = { { WA_PointerType, (IPTR)cursor }, { TAG_DONE, 0 } };
+				SetWindowPointerA([self window], tags);
+			}
+		};
+		
+		webPage->_fProgressStarted = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+			[progressDelegate webViewDidStartProgress:self];
+		};
+
+		webPage->_fProgressUpdated = [self](float progress) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+			[progressDelegate webView:self didUpdateProgress:progress];
+		};
+
+		webPage->_fProgressFinished = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+			[progressDelegate webViewDidFinishProgress:self];
+		};
+		
+		webPage->_fHoveredURLChanged = [self](const WTF::URL &url) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			if (url.string().length() > 0)
+			{
+				auto uurl = url.string().utf8();
+				[privateObject setHover:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+			}
+			else
+			{
+				[privateObject setHover:nil];
+			}
+			[[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
+		};
 	}
 	
 	return self;
@@ -1111,14 +1135,12 @@ static inline void validateObjCContext() {
 
 - (void)dealloc
 {
-	try {
-		auto webPage = [_private page];
-		if (webPage)
-		{
-			webPage->willBeDisposed();
-			WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
-		}
-	} catch (...) {};
+	auto webPage = [_private page];
+	if (webPage)
+	{
+		webPage->willBeDisposed();
+		WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
+	}
 
 	[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(timedOut) target:_private] repeats:NO];
 	[_private release];
@@ -1128,12 +1150,8 @@ static inline void validateObjCContext() {
 
 - (void)scrollToLeft:(int)left top:(int)top
 {
-	try {
-		auto webPage = [_private page];
-		webPage->setScroll(left, top);
-	} catch (std::exception& ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	webPage->setScroll(left, top);
 }
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
@@ -1141,9 +1159,9 @@ static inline void validateObjCContext() {
 	[_private setScrollingDelegate:delegate];
 }
 
-- (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate
+- (void)setClientDelegate:(id<WkWebViewClientDelegate>)delegate
 {
-	[_private setNetworkDelegate:delegate];
+	[_private setClientDelegate:delegate];
 }
 
 - (void)load:(OBURL *)url
@@ -1155,17 +1173,13 @@ static inline void validateObjCContext() {
 		url = [OBURL URLWithString:[OBString stringWithFormat:@"http://%@", [url absoluteString]]];
 	}
 
-	try {
-		const char *curi = [[url absoluteString] cString];
-		if (nullptr == curi)
-			curi = "about:blank";
-		auto webPage = [_private page];
-		[_private setURL:url];
-		[[_private networkDelegate] webView:self changedTitle:[url absoluteString]];
-		webPage->load(curi);
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	const char *curi = [[url absoluteString] cString];
+	if (nullptr == curi)
+		curi = "about:blank";
+	auto webPage = [_private page];
+	[_private setURL:url];
+	[[_private clientDelegate] webView:self changedTitle:[url absoluteString]];
+	webPage->load(curi);
 }
 
 - (void)loadHTMLString:(OBString *)string baseURL:(OBURL *)base
@@ -1178,18 +1192,15 @@ static inline void validateObjCContext() {
 
 	OBData *data = [string dataWithEncoding:MIBENUM_UTF_8];
 
-	try {
-		const char *curi = [[base absoluteString] cString];
-		auto webPage = [_private page];
-		webPage->loadData(reinterpret_cast<const char*>([data bytes]), [data length], curi);
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	const char *curi = [[base absoluteString] cString];
+	auto webPage = [_private page];
+	webPage->loadData(reinterpret_cast<const char*>([data bytes]), [data length], curi);
 }
 
 - (void)loadRequest:(WkMutableNetworkRequest *)request
 {
-
+	(void)request;
+	dprintf("%s: not implemented\n", __PRETTY_FUNCTION__);
 }
 
 - (BOOL)loading
@@ -1204,56 +1215,33 @@ static inline void validateObjCContext() {
 
 - (BOOL)canGoBack
 {
-	try {
-		auto webPage = [_private page];
-		return webPage->canGoBack();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-	return NO;
+	auto webPage = [_private page];
+	return webPage->canGoBack();
 }
 
 - (BOOL)canGoForward
 {
-	try {
-		auto webPage = [_private page];
-		return webPage->canGoForward();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-	return NO;
+	auto webPage = [_private page];
+	return webPage->canGoForward();
 }
 
 - (BOOL)goBack
 {
-	try {
-		auto webPage = [_private page];
-		return webPage->goBack();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	return webPage->goBack();
 	return NO;
 }
 
 - (BOOL)goForward
 {
-	try {
-		auto webPage = [_private page];
-		return webPage->goForward();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-	return NO;
+	auto webPage = [_private page];
+	return webPage->goForward();
 }
 
 - (void)goToItem:(WkBackForwardListItem *)item
 {
-	try {
-		auto webPage = [_private page];
-		return webPage->goToItem([(WkBackForwardListItemPrivate *)item item]);
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	return webPage->goToItem([(WkBackForwardListItemPrivate *)item item]);
 }
 
 - (WkBackForwardList *)backForwardList
@@ -1263,22 +1251,14 @@ static inline void validateObjCContext() {
 
 - (void)reload
 {
-	try {
-		auto webPage = [_private page];
-		webPage->reload();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	webPage->reload();
 }
 
 - (void)stopLoading
 {
-	try {
-		auto webPage = [_private page];
-		webPage->stop();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	webPage->stop();
 }
 
 - (OBString *)title
@@ -1289,6 +1269,11 @@ static inline void validateObjCContext() {
 - (OBURL *)URL
 {
 	return [_private url];
+}
+
+- (OBURL *)hoveredURL
+{
+	return [_private hover];
 }
 
 - (WkCertificateChain *)certificateChain
@@ -1326,32 +1311,21 @@ static inline void validateObjCContext() {
 
 - (void)runJavaScript:(OBString *)javascript
 {
-	try {
-		auto webPage = [_private page];
-		[self retain];
-		webPage->run([javascript cString]);
-		[self autorelease];
-	} catch (std::exception &ex) {
-		[self autorelease];
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	[self retain];
+	webPage->run([javascript cString]);
+	[self autorelease];
 }
 
 - (OBString *)evaluateJavaScript:(OBString *)javascript
 {
-	try {
-		[self retain];
-		auto webPage = [_private page];
-		OBString *out = (id)webPage->evaluate([javascript cString], [](const char *res) {
-			return (void *)[OBString stringWithUTF8String:res];
-		});
-		[self autorelease];
-		return out;
-	} catch (std::exception &ex) {
-		[self autorelease];
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
-	return nil;
+	[self retain];
+	auto webPage = [_private page];
+	OBString *out = (id)webPage->evaluate([javascript cString], [](const char *res) {
+		return (void *)[OBString stringWithUTF8String:res];
+	});
+	[self autorelease];
+	return out;
 }
 
 - (WkSettings *)settings
@@ -1418,20 +1392,19 @@ static inline void validateObjCContext() {
 	minmaxinfo->MaxHeight = MUI_MAXMAX;
 }
 
+#define DIM2WIDTH(dim) ( ((LONG)dim) & 0xffff )
+#define DIM2HEIGHT(dim)( ((LONG)dim) >> 16 )
+
 - (BOOL)draw:(ULONG)flags
 {
 	[super draw:flags];
 	
 	LONG iw = [self innerWidth];
 	LONG ih = [self innerHeight];
-	
-	try {
-		auto webPage = [_private page];
-		webPage->setVisibleSize(int(iw), int(ih));
-		webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+
+	auto webPage = [_private page];
+	webPage->setVisibleSize(int(iw), int(ih));
+	webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
 
 	return TRUE;
 }
@@ -1440,21 +1413,17 @@ static inline void validateObjCContext() {
 {
 	if ([super show:clip])
 	{
-		try {
-			auto webPage = [_private page];
-			webPage->goVisible();
-			
-			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-				webPage->setLowPowerMode(false);
-			
-			if ([_private documentWidth])
-			{
-				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
-					height:[_private documentHeight]];
-				[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
-			}
-		} catch (std::exception &ex) {
-			dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
+		auto webPage = [_private page];
+		webPage->goVisible();
+		
+		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+			webPage->setLowPowerMode(false);
+		
+		if ([_private documentWidth])
+		{
+			[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+				height:[_private documentHeight]];
+			[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
 		}
 		return YES;
 	}
@@ -1466,22 +1435,17 @@ static inline void validateObjCContext() {
 {
 	if ([self window])
 	{
-		struct TagItem tags[] = { { WA_PointerType, (IPTR)0 }, { TAG_DONE } };
+		struct TagItem tags[] = { { WA_PointerType, (IPTR)0 }, { TAG_DONE, 0 } };
 		SetWindowPointerA([self window], tags);
 	}
 
 	[super hide];
 
-	try {
-		auto webPage = [_private page];
-		webPage->goHidden();
+	auto webPage = [_private page];
+	webPage->goHidden();
 
-		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-			webPage->setLowPowerMode(true);
-
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+		webPage->setLowPowerMode(true);
 }
 
 - (void)initResize:(ULONG)flags
@@ -1513,12 +1477,8 @@ static inline void validateObjCContext() {
 	[_private setIsActive:true];
 	[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
 
-	try {
-		auto webPage = [_private page];
-		webPage->goActive();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	webPage->goActive();
 }
 
 - (void)becomeInactive
@@ -1526,12 +1486,8 @@ static inline void validateObjCContext() {
 	[_private setIsActive:false];
 	[[self windowObject] setDisableKeys:0];
 
-	try {
-		auto webPage = [_private page];
-		webPage->goInactive();
-	} catch (std::exception &ex) {
-		dprintf("%s: exception %s\n", __PRETTY_FUNCTION__, ex.what());
-	}
+	auto webPage = [_private page];
+	webPage->goInactive();
 }
 
 - (void)goInactive:(ULONG)flags
@@ -1592,6 +1548,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	auto items = webPage->buildContextMenu(mx - [self left], my - [self top]);
+
+	(void)mxp;
+	(void)myp;
 
 	if (0 == items.size())
 		return 0;

@@ -30,7 +30,7 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkDownload.h>
 #import <WebKitLegacy/morphos/WkFileDialog.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewNetworkDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -406,7 +406,7 @@ static int _windowID = 1;
 		[_address setMaxLen:4000];
 		[_address setCycleChain:YES];
 		
-		[_view setNetworkDelegate:self];
+		[_view setClientDelegate:self];
 		[_view setBackForwardListDelegate:self];
 		[_view setCustomProtocolHandler:self forProtocol:@"mini"];
 		[_view setDownloadDelegate:[BrowserDownloadWindow sharedInstance]];
@@ -477,7 +477,7 @@ static int _windowID = 1;
 - (void)dealloc
 {
 	dprintf("%s\n", __PRETTY_FUNCTION__);
-	[_view setNetworkDelegate:nil];
+	[_view setClientDelegate:nil];
 	[_view setScrollingDelegate:nil];
 	[_view setDownloadDelegate:nil];
 	[_view setAutofillDelegate:nil];
@@ -513,6 +513,11 @@ static int _windowID = 1;
 	[_address noNotifySetContents:[newurl absoluteString]];
 	[_lastError release];
 	_lastError = nil;
+}
+
+- (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL
+{
+
 }
 
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready

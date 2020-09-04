@@ -13,9 +13,9 @@
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
 
-#define kWebViewNetworkDelegateOption @"mode"
-#define kWebViewNetworkDelegateOption_NewWindow @"window"
-#define kWebViewNetworkDelegateOption_NewTab @"tab"
+#define kWebViewClientDelegateOption @"mode"
+#define kWebViewClientDelegateOption_NewWindow @"window"
+#define kWebViewClientDelegateOption_NewTab @"tab"
 
 @protocol WkWebViewScrollingDelegate <OBObject>
 
@@ -38,12 +38,13 @@
 
 @end
 
-@protocol WkWebViewNetworkDelegate <OBObject>
+@protocol WkWebViewClientDelegate <OBObject>
 
 - (OBString *)userAgentForURL:(OBString *)url;
 
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
 - (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
+- (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL;
 
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready;
 
@@ -144,6 +145,7 @@ typedef enum {
 
 - (OBString *)title;
 - (OBURL *)URL;
+- (OBURL *)hoveredURL;
 - (WkCertificateChain *)certificateChain;
 
 - (OBString *)html;
@@ -165,7 +167,7 @@ typedef enum {
 - (void)setPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor;
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate;
-- (void)setNetworkDelegate:(id<WkWebViewNetworkDelegate>)delegate;
+- (void)setClientDelegate:(id<WkWebViewClientDelegate>)delegate;
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate;
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate;
 - (void)setDownloadDelegate:(id<WkDownloadDelegate>)delegate;

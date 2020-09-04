@@ -120,6 +120,9 @@ link.sh: link.sh.in
 	gcc -xc -E -P -C -o$@ -nostdinc $@.in -D_IN_ROOTPATH=$(ROOTPATH)
 	chmod u+x $@
 
+libwebkit.a:
+	(cd cross-build/Source/WebKitLegacy && make)
+
 clean:
 	rm -rf morphos.cmake cross-build WebKitBuild build link.sh
 
