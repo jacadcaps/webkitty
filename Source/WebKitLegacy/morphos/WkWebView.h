@@ -184,6 +184,8 @@ typedef enum {
 - (int)visibleWidth;
 - (int)visibleHeight;
 
+- (void)primeLayoutForWidth:(int)width height:(int)height;
+
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
 
 @end

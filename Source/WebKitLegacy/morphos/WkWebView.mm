@@ -1691,6 +1691,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return webPage->size().height();
 }
 
+- (void)primeLayoutForWidth:(int)width height:(int)height
+{
+	auto webPage = [_private page];
+	webPage->setVisibleSize(width, height);
+	WebKit::WebProcess::singleton().handleSignals(0); // needed or we'll paint all black
+}
+
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height
 {
 	auto webPage = [_private page];
