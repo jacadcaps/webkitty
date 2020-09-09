@@ -29,7 +29,8 @@ namespace WebCore {
 
 @interface WkSettingsPrivate : WkSettings
 {
-	WkSettings_Throttling _throttling;
+	WkSettings_Throttling    _throttling;
+	WkSettings_Interpolation _interpolation;
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
@@ -46,6 +47,7 @@ namespace WebCore {
 		_adBlocker = YES;
 		_thCookies = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
+		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 	}
 	
 	return self;
@@ -91,6 +93,16 @@ namespace WebCore {
 	_throttling = throttling;
 }
 
+- (WkSettings_Interpolation)interpolation
+{
+	return _interpolation;
+}
+
+- (void)setInterpolation:(WkSettings_Interpolation)interpolation
+{
+	_interpolation = interpolation;
+}
+
 @end
 
 @implementation WkSettings
@@ -134,6 +146,16 @@ namespace WebCore {
 
 - (void)setThrottling:(WkSettings_Throttling)throttling
 {
+}
+
+- (WkSettings_Interpolation)interpolation
+{
+	return WkSettings_Interpolation_Medium;
+}
+
+- (void)setInterpolation:(WkSettings_Interpolation)interpolation
+{
+
 }
 
 @end

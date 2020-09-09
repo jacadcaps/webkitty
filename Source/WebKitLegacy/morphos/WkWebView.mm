@@ -35,6 +35,8 @@
 #import <proto/dos.h>
 #import <proto/exec.h>
 #import <proto/intuition.h>
+#import <proto/openurl.h>
+#import <libraries/openurl.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
@@ -876,8 +878,23 @@ static inline void validateObjCContext() {
 				WTF::String protocol = url.protocol().toString();
 
 				// bypass standard protocols...
-				if (protocol == "http" || protocol == "https" || protocol == "ftp")
+				if (protocol == "http" || protocol == "https" || protocol == "file" || protocol == "about")
+				{
 					return true;
+				}
+
+				if (protocol == "ftp" || protocol == "mailto")
+				{
+					auto udata = url.string().ascii();
+					struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+					URL_OpenA((STRPTR)udata.data(), urltags);
+					return false;
+				}
+				
+				if (protocol == "ftps")
+				{
+					return false;
+				}
 				
 				validateObjCContext();
 				WkWebViewPrivate *privateObject = [self privateObject];
@@ -1328,6 +1345,23 @@ static inline void validateObjCContext() {
 	return out;
 }
 
+- (WkSettings_Interpolation)interpolation
+{
+	auto webPage = [_private page];
+	switch (webPage->interpolationQuality())
+	{
+	case WebCore::InterpolationQuality::High:
+		return WkSettings_Interpolation_High;
+	case WebCore::InterpolationQuality::DoNotInterpolate:
+	case WebCore::InterpolationQuality::Low:
+		return WkSettings_Interpolation_Low;
+	case WebCore::InterpolationQuality::Default:
+	case WebCore::InterpolationQuality::Medium:
+	default:
+		return WkSettings_Interpolation_Medium;
+	}
+}
+
 - (WkSettings *)settings
 {
 	WkSettings *settings = [[WkSettings new] autorelease];
@@ -1336,7 +1370,8 @@ static inline void validateObjCContext() {
 	[settings setJavaScriptEnabled:webPage->javaScriptEnabled()];
 	[settings setThirdPartyCookiesAllowed:webPage->thirdPartyCookiesAllowed()];
 	[settings setThrottling:[_private throttling]];
-	return nil;
+	[settings setInterpolation:[self interpolation]];
+	return settings;
 }
 
 - (void)setSettings:(WkSettings *)settings
@@ -1357,6 +1392,22 @@ static inline void validateObjCContext() {
 		break;
 	case WkSettings_Throttling_All:
 		webPage->setLowPowerMode(true);
+		break;
+	}
+	
+	switch ([settings interpolation])
+	{
+	case WkSettings_Interpolation_Low:
+		webPage->setInterpolationQuality(WebCore::InterpolationQuality::DoNotInterpolate);
+		break;
+
+	case WkSettings_Interpolation_High:
+		webPage->setInterpolationQuality(WebCore::InterpolationQuality::High);
+		break;
+
+	case WkSettings_Interpolation_Medium:
+	default:
+		webPage->setInterpolationQuality(WebCore::InterpolationQuality::Default);
 		break;
 	}
 }

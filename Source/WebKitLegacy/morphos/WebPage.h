@@ -4,6 +4,7 @@
 #include <wtf/Vector.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/Color.h>
+#include <WebCore/GraphicsTypes.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -130,6 +131,9 @@ public:
 	bool handleEditingKeyboardEvent(WebCore::KeyboardEvent& event);
 
     const Optional<WebCore::Color>& backgroundColor() const { return m_backgroundColor; }
+	
+    void setInterpolationQuality(WebCore::InterpolationQuality quality) { m_interpolation = quality; }
+    WebCore::InterpolationQuality interpolationQuality() const { return m_interpolation; }
 
     WebCore::IntSize size() const;
     WebCore::IntRect bounds() const { return WebCore::IntRect(WebCore::IntPoint(), size()); }
@@ -188,6 +192,7 @@ private:
 	WebViewDrawContext  *m_drawContext { nullptr };
     WebCore::PageIdentifier m_pageID;
     WebCore::AutofillElements *m_autofillElements { nullptr };
+    WebCore::InterpolationQuality m_interpolation = WebCore::InterpolationQuality::Default;
     WTF::HashSet<unsigned long> m_trackedNetworkResourceRequestIdentifiers;
     uint64_t m_pendingNavigationID { 0 };
 	uint32_t m_lastQualifier { 0 };

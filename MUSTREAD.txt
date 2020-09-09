@@ -12,8 +12,12 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 8.09.2020
+	- Route ftp and mailto to OpenURL
+
 - 5.09.2020
 	- Added an API to pre-layout invisible browsers
+	- Enabled legacy HTTP0.9 support
 
 - 4.09.2020
 	- Screenshot offset fixes

@@ -7,6 +7,13 @@ typedef enum
 	WkSettings_Throttling_All,
 } WkSettings_Throttling;
 
+typedef enum
+{
+	WkSettings_Interpolation_Low,
+	WkSettings_Interpolation_Medium,
+	WkSettings_Interpolation_High,
+} WkSettings_Interpolation;
+
 @interface WkSettings : OBObject
 
 + (WkSettings *)settings;
@@ -22,6 +29,9 @@ typedef enum
 
 - (WkSettings_Throttling)throttling;
 - (void)setThrottling:(WkSettings_Throttling)throttling;
+
+- (WkSettings_Interpolation)interpolation;
+- (void)setInterpolation:(WkSettings_Interpolation)interpolation;
 
 @end
 

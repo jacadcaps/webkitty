@@ -490,10 +490,15 @@ public:
 		m_damage.invalidate();
 	}
 	
-	void repair(WebCore::FrameView *frameView)
+	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation)
 	{
 		WebCore::GraphicsContext gc(m_platformContext);
 		
+		if (WebCore::InterpolationQuality::Default != interpolation)
+		{
+			gc.setImageInterpolationQuality(interpolation);
+		}
+
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
 			WebCore::IntRect ir(x, y, width, height);
 			/// NOTE: bad shit happens when clipping is used w/o save/restore, cairo seems to be happily
@@ -528,7 +533,7 @@ public:
 	}
 
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
-		int scrollX, int scrollY, bool update)
+		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation)
 	{
 		if (!m_platformContext)
 			return;
@@ -553,7 +558,7 @@ public:
 				else
 					m_damage.invalidate(0, 0, m_width, -delta);
 
-				repair(frameView);
+				repair(frameView, interpolation);
 				ScrollWindowRaster(window, 0, delta, x, y, x + width - 1, y + height - 1);
 
 				cairo_surface_flush(m_surface);
@@ -573,7 +578,7 @@ public:
 			}
 		}
 
-		repair(frameView);
+		repair(frameView, interpolation);
 		if (update)
 			repaint(rp, x, y);
 		else
@@ -1621,7 +1626,7 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 		}
 	}
 #endif
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode);
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, m_interpolation);
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -1656,6 +1661,7 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 	WebCore::IntRect rect(0, 0,width, height);
 	gc.save();
 	gc.clip(rect);
+	gc.setImageInterpolationQuality(WebCore::InterpolationQuality::Default);
 
 	OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
 	OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;

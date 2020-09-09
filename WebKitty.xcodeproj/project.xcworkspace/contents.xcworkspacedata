@@ -2,7 +2,7 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:../Source/bmalloc">
+      location = "group:../Source/WebInspectorUI">
    </FileRef>
    <FileRef
       location = "group:../Source/JavaScriptCore">
