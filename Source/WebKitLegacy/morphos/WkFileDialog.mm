@@ -5,6 +5,7 @@
 #include <WebCore/CurlDownload.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/TextEncoding.h>
+#include "WebProcess.h"
 #define __OBJC__
 #import <ob/OBFramework.h>
 
@@ -21,22 +22,33 @@
 
 - (void)cancelled
 {
+	if (_chooser)
+	{
+		WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+	}
     _chooser = nullptr;
 }
 
 - (void)selectedFile:(OBString *)file
 {
-	if (file)
+	if (file && _chooser)
 	{
 		const char *cpath = [file nativeCString];
 		_chooser->chooseFile(WTF::String(cpath, strlen(cpath), MIBENUM_SYSTEM));
 	}
 	_chooser = nullptr;
+
+	WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 }
 
 - (void)selectedFiles:(OBArray /* OBString */ *)files
 {
 	ULONG count = [files count];
+
+	if (!_chooser)
+	{
+		return;
+	}
 
 	if (0 == count)
 	{
@@ -59,6 +71,8 @@
 		_chooser->chooseFiles(names);
 		_chooser = nullptr;
 	}
+	
+	WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 }
 
 - (BOOL)allowsDirectories

@@ -12,6 +12,9 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 9.09.2020
+	- Fixed a display issue after closing file selector asl
+
 - 8.09.2020
 	- Route ftp and mailto to OpenURL
 

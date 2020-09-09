@@ -276,6 +276,16 @@ WebPage* WebProcess::focusedWebPage() const
 
 }
 
+void WebProcess::returnedFromConstrainedRunLoop()
+{
+	handleSignals(0);
+
+	for (auto& object : m_pageMap.values())
+	{
+		object->invalidate();
+	}
+}
+
 WebFrame* WebProcess::webFrame(WebCore::FrameIdentifier frameID) const
 {
     return m_frameMap.get(frameID);

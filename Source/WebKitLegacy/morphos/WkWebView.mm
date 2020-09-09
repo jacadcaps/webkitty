@@ -57,7 +57,7 @@ namespace  {
 
 @interface WkWebView ()
 
-- (void)invalidated;
+- (void)invalidated:(BOOL)force;
 - (void)scrollToX:(int)sx y:(int)sy;
 - (void)setDocumentWidth:(int)width height:(int)height;
 
@@ -706,7 +706,7 @@ static inline void validateObjCContext() {
 
 		webPage->setLowPowerMode(true);
 
-		webPage->_fInvalidate = [self]() { [self invalidated]; };
+		webPage->_fInvalidate = [self](bool force) { [self invalidated:force]; };
 
 		webPage->_fSetDocumentSize = [self](int width, int height) {
 			[self setDocumentWidth:width height:height];
@@ -1457,6 +1457,8 @@ static inline void validateObjCContext() {
 	webPage->setVisibleSize(int(iw), int(ih));
 	webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
 
+	[_private setDrawPending:false];
+
 	return TRUE;
 }
 
@@ -1624,15 +1626,20 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	if ([_private drawPending])
 	{
 		[self redraw:MADF_DRAWUPDATE];
-		[_private setDrawPending:false];
 	}
 }
 
-- (void)invalidated
+- (void)lateRedraw
 {
-	if (![_private drawPending])
+	[self redraw:MADF_DRAWOBJECT];
+}
+
+- (void)invalidated:(BOOL)force
+{
+	if (![_private drawPending] || force)
 	{
-		[[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
+		[[OBRunLoop mainRunLoop] performSelector:
+			force ? @selector(lateRedraw) : @selector(lateDraw) target:self];
 		[_private setDrawPending:true];
 	}
 }

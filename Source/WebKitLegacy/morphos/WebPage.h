@@ -167,6 +167,7 @@ public:
 	void setCursor(int);
 
 	bool drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp);
+	void invalidate();
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);

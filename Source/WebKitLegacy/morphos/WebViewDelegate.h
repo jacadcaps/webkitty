@@ -25,7 +25,7 @@ enum class WebViewDelegateOpenWindowMode
 
 struct WebViewDelegate
 {
-	std::function<void()>             _fInvalidate;
+	std::function<void(bool force)>   _fInvalidate;
 	std::function<void(int, int)>     _fScroll;
 	std::function<void(int, int)>     _fSetDocumentSize;
 	std::function<void()>             _fActivateNext;

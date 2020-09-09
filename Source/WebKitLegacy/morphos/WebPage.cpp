@@ -540,8 +540,9 @@ public:
 
 		(void)scrollX;
 
+#if 1
 		struct Window *window = (struct Window *)rp->Layer->Window;
-		
+
 		// Only trigger fast path if we've scrolled from outside (by scroller, etc) and there was
 		// no partial damage done to the site (meaning some components have displaced)
 		if (m_scrollY != scrollY && update && window && !m_partialDamage && m_didScroll)
@@ -577,6 +578,7 @@ public:
 				return;
 			}
 		}
+#endif
 
 		repair(frameView, interpolation);
 		if (update)
@@ -1365,7 +1367,7 @@ void WebPage::scalePage(double scale, const IntPoint& origin)
 	
 	if (_fInvalidate)
 	{
-		_fInvalidate();
+		_fInvalidate(false);
 	}
 }
 
@@ -1405,7 +1407,7 @@ void WebPage::repaint(const WebCore::IntRect& rect)
 //	DumpTaskState(FindTask(0));
 
 #if 0
-	dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, rect.x(), rect.y(), rect.width(), rect.height());
+	// dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, rect.x(), rect.y(), rect.width(), rect.height());
 	dprintf("%s %ld:%ld x %ld:%ld\n", __PRETTY_FUNCTION__, realRect.x(), realRect.y(),
 		realRect.width(), realRect.height());
 #endif
@@ -1414,7 +1416,7 @@ void WebPage::repaint(const WebCore::IntRect& rect)
 		m_drawContext->invalidate(realRect);
 
 	if (_fInvalidate)
-		_fInvalidate();
+		_fInvalidate(false);
 }
 
 void WebPage::internalScroll(int scrollX, int scrollY)
@@ -1434,7 +1436,7 @@ void WebPage::internalScroll(int scrollX, int scrollY)
 		if (_fScroll)
 			_fScroll(sp.x(), sp.y());
 		if (_fInvalidate)
-			_fInvalidate();
+			_fInvalidate(false);
 	}
 }
 
@@ -1527,7 +1529,7 @@ void WebPage::setScroll(const int x, const int y)
 	m_ignoreScroll = false;
 
 	if (_fInvalidate)
-		_fInvalidate();
+		_fInvalidate(false);
 }
 
 void WebPage::scrollBy(const int xDelta, const int yDelta)
@@ -1554,7 +1556,7 @@ void WebPage::scrollBy(const int xDelta, const int yDelta)
 	view->setScrollPosition(WebCore::ScrollPosition(x, y));
 
 	if (_fInvalidate)
-		_fInvalidate();
+		_fInvalidate(false);
 }
 
 void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers)
@@ -1627,6 +1629,14 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	}
 #endif
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, m_interpolation);
+}
+
+void WebPage::invalidate()
+{
+	if (m_drawContext)
+		m_drawContext->invalidate();
+	if (_fInvalidate)
+		_fInvalidate(true);
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -2191,7 +2201,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 									view->setScrollPosition(WebCore::ScrollPosition(sp.x(), code == RAWKEY_HOME ? spMin.y() : spMax.y()));
 									
 									if (_fInvalidate)
-										_fInvalidate();
+										_fInvalidate(false);
 								}
 								return true;
 							}
