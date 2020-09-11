@@ -56,6 +56,7 @@ void calculateMemoryCacheSizes(CacheModel cacheModel, unsigned& cacheTotalCapaci
 
         cacheMinDeadCapacity = 0;
         cacheMaxDeadCapacity = 0;
+        deadDecodedDataDeletionInterval = 10_s;
 
         break;
     }
@@ -82,6 +83,7 @@ void calculateMemoryCacheSizes(CacheModel cacheModel, unsigned& cacheTotalCapaci
 
         cacheMinDeadCapacity = cacheTotalCapacity / 8;
         cacheMaxDeadCapacity = cacheTotalCapacity / 4;
+        deadDecodedDataDeletionInterval = 15_s;
 
         break;
     }
@@ -116,7 +118,7 @@ void calculateMemoryCacheSizes(CacheModel cacheModel, unsigned& cacheTotalCapaci
         // can prove that the overall system gain would justify the regression.
         cacheMaxDeadCapacity = std::max(24u, cacheMaxDeadCapacity);
 
-        deadDecodedDataDeletionInterval = 60_s;
+        deadDecodedDataDeletionInterval = 30_s;
 
         break;
     }
@@ -165,12 +167,6 @@ void calculateURLCacheSizes(CacheModel cacheModel, uint64_t diskFreeSize, unsign
     case CacheModel::PrimaryWebBrowser: {
         uint64_t memorySize = ramSize() / MB;
 
-#if PLATFORM(IOS_FAMILY)
-        if (memorySize >= 1024)
-            urlCacheMemoryCapacity = 16 * MB;
-        else
-            urlCacheMemoryCapacity = 8 * MB;
-#else
         // Foundation memory cache capacity (in bytes)
         // (These values are small because WebCore does most caching itself.)
         if (memorySize >= 1024)
@@ -181,7 +177,6 @@ void calculateURLCacheSizes(CacheModel cacheModel, uint64_t diskFreeSize, unsign
             urlCacheMemoryCapacity = 1 * MB;
         else
             urlCacheMemoryCapacity = 512 * KB;
-#endif
 
         // Disk cache capacity (in bytes)
         if (diskFreeSize >= 16384)

@@ -111,6 +111,12 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewContextMenuDelegate <OBObject>
+
+
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -187,5 +193,7 @@ typedef enum {
 - (void)primeLayoutForWidth:(int)width height:(int)height;
 
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
+
+- (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
 
 @end

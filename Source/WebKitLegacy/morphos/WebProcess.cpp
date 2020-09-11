@@ -380,6 +380,11 @@ void WebProcess::dumpWebCoreStatistics()
     dprintf(ss.release().utf8().data());
 }
 
+void reactOnMemoryPressureInWebKit()
+{
+	WebProcess::singleton().clearResourceCaches();
+}
+
 void WebProcess::garbageCollectJavaScriptObjects()
 {
     GCController::singleton().garbageCollectNow();
@@ -404,7 +409,6 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     if (m_hasSetCacheModel && (cacheModel == m_cacheModel))
         return;
 
-    m_hasSetCacheModel = true;
     m_cacheModel = cacheModel;
 
     unsigned cacheTotalCapacity = 0;
@@ -419,8 +423,13 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     memoryCache.setCapacities(cacheMinDeadCapacity, cacheMaxDeadCapacity, cacheTotalCapacity);
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
     BackForwardCache::singleton().setMaxSize(pageCacheSize);
-    CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
 
+	if (!m_hasSetCacheModel)
+	{
+    	CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
+	}
+
+    m_hasSetCacheModel = true;
     D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));
 }
 

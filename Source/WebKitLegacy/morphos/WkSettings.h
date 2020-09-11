@@ -42,6 +42,15 @@ typedef enum
 	WkGlobalSettings_Antialias_Subpixel
 } WkGlobalSettings_Antialias;
 
+typedef enum
+{
+	// Most of the in-memory caches are off or at a low threshold, whole-page cache is off
+	WkGlobalSettings_Caching_Minimal,
+	// Cache a couple of whole-pages to allow faster back/forward navigation, cache more
+	// resources in RAM, depending on system total RAM available
+	WkGlobalSettings_Caching_Balanced,
+} WkGlobalSettings_Caching;
+
 @interface WkGlobalSettings : OBObject
 
 // Set the default download path for all new downloads, they'll be downloaded with a tmp name
@@ -58,5 +67,9 @@ typedef enum
 + (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key;
 // Ignore SSL errors for this host. Persistent until app's demise
 + (void)ignoreSSLErrorsForHost:(OBString *)host;
+
+// Set the caching model, defaults to Balanced
++ (void)setCaching:(WkGlobalSettings_Caching)caching;
++ (WkGlobalSettings_Caching)caching;
 
 @end

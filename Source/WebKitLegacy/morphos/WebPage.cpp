@@ -764,6 +764,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
     settings.setSubpixelAntialiasedLayerTextEnabled(true);
+    settings.setAuthorAndUserStylesEnabled(true);
+    settings.setFixedFontFamily("Courier New");
+    settings.setDefaultFixedFontSize(13);
 
 #if 1
 	settings.setForceCompositingMode(false);

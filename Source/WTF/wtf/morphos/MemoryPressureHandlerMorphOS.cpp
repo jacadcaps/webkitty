@@ -30,6 +30,10 @@
 
 extern "C" { void dprintf(const char *,...); }
 
+namespace WebKit {
+	extern void reactOnMemoryPressureInWebKit();
+}
+
 namespace WTF {
 
 void MemoryPressureHandler::platformReleaseMemory(Critical)
@@ -72,6 +76,7 @@ void MemoryPressureHandler::morphosMeasurementTimerFired()
 	{
         setUnderMemoryPressure(true);
         releaseMemory(Critical::Yes);
+        WebKit::reactOnMemoryPressureInWebKit();
         return;
 	}
 }

@@ -12,6 +12,12 @@ DO report crashes while browsing pages though, thank you!
 
 Rough changelist:
 
+- 10.9.2020
+	- Updated easylist.dat
+	- Implemented caching model settings and flushing of remaining memory
+	  caches on memory pressure events
+	- Setup the default fixed font family&size
+
 - 9.09.2020
 	- Fixed a display issue after closing file selector asl
 
