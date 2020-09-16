@@ -5,6 +5,7 @@
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsTypes.h>
+#include <WebCore/FindOptions.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -95,7 +96,6 @@ public:
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
 	bool handleMUIKey(int muikey, bool isDefaultHandler);
 
-	const WTF::Vector<WebCore::ContextMenuItem>& buildContextMenu(const int x, const int y);
 	void onContextMenuItemSelected(ULONG action, const char *title);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
@@ -169,6 +169,22 @@ public:
 	bool drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp);
 	void invalidate();
 
+	bool search(const WTF::String &string, WebCore::FindOptions &options, bool& outWrapped);
+	
+	void loadUserStyleSheet(const WTF::String &path);
+
+	enum class ContextMenuHandling // keep in sync with WkSettings!!
+	{
+		Default,
+		Override,
+		OverrideWithShift,
+		OverrideWithAlt,
+		OverrideWithControl,
+	};
+	
+	void setContextMenuHandling(ContextMenuHandling handling) { m_cmHandling = handling; }
+	ContextMenuHandling contextMenuHandling() const { return m_cmHandling; }
+
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
 
@@ -213,6 +229,7 @@ private:
     bool m_isActive { false };
     bool m_isVisible { false };
     WebCore::Element *m_focusedElement { nullptr };
+    ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
     WTF::URL m_hoveredURL;
 };

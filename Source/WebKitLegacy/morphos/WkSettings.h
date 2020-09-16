@@ -14,6 +14,24 @@ typedef enum
 	WkSettings_Interpolation_High,
 } WkSettings_Interpolation;
 
+typedef enum
+{
+	WkSettings_UserStyleSheet_Builtin,
+	WkSettings_UserStyleSheet_MUI,
+	WkSettings_UserStyleSheet_Custom,
+} WkSettings_UserStyleSheet;
+
+typedef enum
+{
+	WkSettings_ContextMenuHandling_Default,
+	// Do not send button2 events to the DOM, instead, build a context menu from the hittest immediately
+	WkSettings_ContextMenuHandling_Override,
+	// Do not send button2 events if a qualifier key is pressed
+	WkSettings_ContextMenuHandling_OverrideWithShift,
+	WkSettings_ContextMenuHandling_OverrideWithAlt,
+	WkSettings_ContextMenuHandling_OverrideWithControl,
+} WkSettings_ContextMenuHandling;
+
 @interface WkSettings : OBObject
 
 + (WkSettings *)settings;
@@ -32,6 +50,15 @@ typedef enum
 
 - (WkSettings_Interpolation)interpolation;
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation;
+
+- (WkSettings_UserStyleSheet)styleSheet;
+- (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet;
+
+- (OBString *)customStyleSheetPath;
+- (void)setCustomStyleSheetPath:(OBString *)path;
+
+- (WkSettings_ContextMenuHandling)contextMenuHandling;
+- (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling;
 
 @end
 
@@ -71,5 +98,9 @@ typedef enum
 // Set the caching model, defaults to Balanced
 + (void)setCaching:(WkGlobalSettings_Caching)caching;
 + (WkGlobalSettings_Caching)caching;
+
++ (void)setDiskCachingLimit:(QUAD)limit;
++ (QUAD)diskCachingLimit;
++ (QUAD)calculatedMaximumDiskCachingLimit;
 
 @end

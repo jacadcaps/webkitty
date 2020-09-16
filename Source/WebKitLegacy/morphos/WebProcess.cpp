@@ -73,6 +73,30 @@ namespace WTF {
 
 namespace WebKit {
 
+QUAD calculateMaxCacheSize(const char *path)
+{
+	BPTR lock = Lock(path, ACCESS_READ);
+
+	if (lock)
+	{
+		struct InfoData idata = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+		Info(lock, &idata);
+		QUAD total = idata.id_BytesPerBlock;
+		QUAD used = idata.id_BytesPerBlock;
+		total *= idata.id_NumBlocks;
+		used *= idata.id_NumBlocksUsed;
+		UnLock(lock);
+		if (total > 0)
+		{
+			QUAD free = total - used;
+			free /= 2;
+			return std::min(0xffffffffll, free);
+		}
+	}
+	
+	return 0;
+}
+
 WebProcess::WebProcess()
 	: m_sessionID(PAL::SessionID::defaultSessionID())
 	, m_cacheStorageProvider(CacheStorageProvider::create())
@@ -89,6 +113,7 @@ void WebProcess::initialize(int sigbit)
 {
 	m_sigTask = FindTask(0);
 	m_sigMask = 1UL << sigbit;
+	m_diskCacheSize = calculateMaxCacheSize("PROGDIR:Cache/Curl");
 	setCacheModel(CacheModel::PrimaryWebBrowser);
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
@@ -107,7 +132,7 @@ void WebProcess::initialize(int sigbit)
 	{
 		long long size;
 
-		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull)
+		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ll)
 		{
 			m_urlFilterData.resize(size + 1);
 			if (size == WTF::FileSystemImpl::readFromFile(fh, &m_urlFilterData[0], int(size)))
@@ -130,7 +155,7 @@ void WebProcess::initialize(int sigbit)
 		if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
 		{
 			long long size;
-			if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull)
+			if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ll)
 			{
 				char *buffer = (char *)malloc(size + 1);
 				if (buffer)
@@ -220,7 +245,7 @@ void WebProcess::waitForThreads()
 	D(dprintf("..done waiting\n"));
 }
 
-void WebProcess::handleSignals(const uint32_t sigmask)
+void WebProcess::handleSignals(const uint32_t /* sigmask */)
 {
 	dispatchFunctionsFromMainThread();
 	WTF::RunLoop::iterate();
@@ -427,10 +452,21 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
 	if (!m_hasSetCacheModel)
 	{
     	CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
+		CurlCacheManager::singleton().setStorageSizeLimit(m_diskCacheSize);
 	}
 
     m_hasSetCacheModel = true;
     D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));
+}
+
+QUAD WebProcess::maxDiskCacheSize() const
+{
+	return calculateMaxCacheSize("PROGDIR:Cache/Curl");
+}
+
+void WebProcess::setDiskCacheSize(QUAD sizeMax)
+{
+	CurlCacheManager::singleton().setStorageSizeLimit(std::min(sizeMax, calculateMaxCacheSize("PROGDIR:Cache/Curl")));
 }
 
 void WebProcess::signalMainThread()
@@ -472,7 +508,7 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
 	{
 		long long size;
-		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ull && size < (32ull * 1024ull))
+		if (WTF::FileSystemImpl::getFileSize(fh, size) && size > 0ll && size < (32ll * 1024ll))
 		{
 			char buffer[size];
 			if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))

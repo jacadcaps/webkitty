@@ -73,6 +73,9 @@
 
 #define D(x)
 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
+
 namespace WebKit {
 using namespace WebCore;
 

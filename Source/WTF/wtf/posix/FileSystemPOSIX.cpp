@@ -421,6 +421,13 @@ String stringFromFileSystemRepresentation(const char* path)
 CString fileSystemRepresentation(const String& path)
 {
 #if OS(MORPHOS)
+	// some fixes for unix style path fuckups here...
+	// file:///progdir:foo will give us /progdir:foo, so let's account for that
+	if (path.contains(':') && path.startsWith('/'))
+	{
+		String sub = path.substring(1);
+		return sub.native();
+	}
 	return path.native();
 #else
     return path.utf8();

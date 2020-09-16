@@ -795,7 +795,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
-//	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:resource/userStyleSheet.css")));
+	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:Resources/morphos.css")));
 
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
     static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
@@ -1495,6 +1495,7 @@ void WebPage::setVisibleSize(const int width, const int height)
 	{
 
   		auto* coreFrame = m_mainFrame->coreFrame();
+//  		coreFrame->document()->updateStyleIfNeeded();
 		coreFrame->view()->resize(width, height);
 
 //		corePage()->mainFrame().view()->enableAutoSizeMode(true, { width, height });
@@ -1640,6 +1641,34 @@ void WebPage::invalidate()
 		m_drawContext->invalidate();
 	if (_fInvalidate)
 		_fInvalidate(true);
+}
+
+bool WebPage::search(const WTF::String &string, WebCore::FindOptions &options, bool& outWrapped)
+{
+	WebCore::Page *cp = corePage();
+
+	if (cp)
+	{
+		WebCore::DidWrap didWrap(WebCore::DidWrap::No);
+		bool found = cp->findString(string, options, &didWrap);
+		outWrapped = didWrap == WebCore::DidWrap::Yes;
+		return found;
+	}
+	
+	return false;
+}
+
+void WebPage::loadUserStyleSheet(const WTF::String &path)
+{
+	WebCore::Settings& settings = m_page->settings();
+	if (path.length() == 0)
+	{
+		settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:Resources/morphos.css")));
+	}
+	else
+	{
+		settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), path));
+	}
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -1930,6 +1959,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				m_clickCount = 0;
 			else if (imsg->Code == SELECTDOWN || imsg->Code == MENUDOWN || imsg->Code == MIDDLEDOWN)
 				m_clickCount ++;
+			
+			WebCore::SyntheticClickType clickType = WebCore::SyntheticClickType::NoTap;
+			if (imsg->Code == SELECTDOWN)
+				clickType = WebCore::SyntheticClickType::OneFingerTap;
+			else if (imsg->Code == MENUDOWN)
+				clickType = WebCore::SyntheticClickType::TwoFingerTap;
 
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),
@@ -1943,27 +1978,27 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0,
 				WTF::WallTime::fromRawSeconds(imsg->Seconds),
 				0.0,
-				WebCore::SyntheticClickType::NoTap);
+				clickType);
 			
 			m_lastQualifier = imsg->Qualifier;
-			
+
 			switch (imsg->Class)
 			{
 			case IDCMP_MOUSEBUTTONS:
 				switch (imsg->Code)
 				{
 				case SELECTDOWN:
-				case MENUDOWN:
 					if (mouseInside)
 					{
 						if (_fGoActive)
 							_fGoActive();
 
-						bool eat = bridge.handleMousePressEvent(pme);
+						bridge.handleMousePressEvent(pme);
 						m_trackMouse = true;
-						return eat;
+						return true;
 					}
 					break;
+
 				case MIDDLEDOWN:
 					if (mouseInside)
 						return true;
@@ -2015,12 +2050,107 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						return true;
 					}
 					break;
+				case MENUDOWN:
+					if (mouseInside)
+					{
+						if (_fGoActive)
+							_fGoActive();
+
+						bool doEvent = true;
+						
+						switch (m_cmHandling)
+						{
+						case ContextMenuHandling::Override:
+							doEvent = false;
+							break;
+						case ContextMenuHandling::OverrideWithControl:
+							doEvent = (imsg->Qualifier & IEQUALIFIER_CONTROL) != 0;
+							break;
+						case ContextMenuHandling::OverrideWithAlt:
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0;
+							break;
+						case ContextMenuHandling::OverrideWithShift:
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0;
+							break;
+						case ContextMenuHandling::Default:
+						default:
+							break;
+						}
+
+						if (doEvent)
+							bridge.handleMousePressEvent(pme);
+
+						m_trackMouse = true;
+						return true;
+					}
+					break;
+				case MENUUP:
+					if (mouseInside || m_trackMouse)
+					{
+						bool doEvent = true;
+						
+						switch (m_cmHandling)
+						{
+						case ContextMenuHandling::Override:
+							doEvent = false;
+							break;
+						case ContextMenuHandling::OverrideWithControl:
+							doEvent = (imsg->Qualifier & IEQUALIFIER_CONTROL) == 0;
+							break;
+						case ContextMenuHandling::OverrideWithAlt:
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) == 0;
+							break;
+						case ContextMenuHandling::OverrideWithShift:
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) == 0;
+							break;
+						case ContextMenuHandling::Default:
+						default:
+							break;
+						}
+						
+						bool eat = false;
+						// note: what if setting changes inbetween a mouse down / up?
+						if (doEvent)
+							eat = bridge.handleMouseReleaseEvent(pme);
+
+						if (!eat)
+						{
+							auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
+							auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+							m_page->contextMenuController().clearContextMenu();
+    						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+    						if (targetFrame)
+    						{
+								eat = bridge.handleContextMenuEvent(pme, *targetFrame);
+								if (m_page->contextMenuController().contextMenu() &&
+									m_page->contextMenuController().contextMenu()->items().size())
+								{
+									if (_fContextMenu)
+									{
+										_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
+									}
+								}
+								else if (!doEvent)
+								{
+									// force a context menu!
+									_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+								}
+							}
+							else if (!doEvent && mouseInside)
+							{
+								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+							}
+						}
+						m_trackMouse = false;
+						return eat;
+					}
+					break;
 				default:
 					if (mouseInside || m_trackMouse)
 					{
-						bool eat = bridge.handleMouseReleaseEvent(pme);
+						bridge.handleMouseReleaseEvent(pme);
 						m_trackMouse = false;
-						return eat;
+						return true;
 					}
 					break;
 				}
@@ -2269,48 +2399,6 @@ bool WebPage::handleMUIKey(int muikey, bool isDefaultHandler)
 	}
 
 	return false;
-}
-
-const WTF::Vector<WebCore::ContextMenuItem>& WebPage::buildContextMenu(const int x, const int y)
-{
-	static WTF::Vector<WebCore::ContextMenuItem> _empty;
-	WebCore::PlatformMouseEvent pme(
-		WebCore::IntPoint(x, y),
-		WebCore::IntPoint(x, y),
-		WebCore::MouseButton::RightButton,
-		WebCore::PlatformEvent::Type::MousePressed,
-		m_clickCount,
-		(m_lastQualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
-		(m_lastQualifier & IEQUALIFIER_CONTROL) != 0,
-		(m_lastQualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
-		(m_lastQualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0,
-		WTF::WallTime::now(),
-		0.0,
-		WebCore::SyntheticClickType::NoTap);
-
-
-	WebCore::Page *page = corePage();
-	if (!page)
-		return _empty;
-    auto* coreFrame = m_mainFrame->coreFrame();
-
-	// kill any previous context menu
-    page->contextMenuController().clearContextMenu();
-	bool handledEvent = coreFrame->eventHandler().sendContextMenuEvent(pme);
-
-	if (!handledEvent)
-		return _empty;
-
-	// Re-get page, since it might have gone away during event handling.
-	page = coreFrame->page();
-	if (!page)
-		return _empty;
-
-	auto* contextMenu = page->contextMenuController().contextMenu();
-	if (!contextMenu)
-		return _empty;
-
-	return contextMenu->items();
 }
 
 void WebPage::onContextMenuItemSelected(ULONG action, const char *title)

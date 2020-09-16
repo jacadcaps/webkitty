@@ -13,6 +13,9 @@
 #import <WebProcess.h>
 #define __OBJC__
 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
+
 typedef enum _cairo_antialias {
     CAIRO_ANTIALIAS_DEFAULT,
     CAIRO_ANTIALIAS_NONE,
@@ -29,8 +32,11 @@ namespace WebCore {
 
 @interface WkSettingsPrivate : WkSettings
 {
-	WkSettings_Throttling    _throttling;
-	WkSettings_Interpolation _interpolation;
+	WkSettings_Throttling          _throttling;
+	WkSettings_Interpolation       _interpolation;
+	WkSettings_UserStyleSheet      _userStyleSheet;
+	WkSettings_ContextMenuHandling _contextMenu;
+	OBString                      *_userStyleSheetFile;
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
@@ -48,6 +54,7 @@ namespace WebCore {
 		_thCookies = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
+		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
 	}
 	
 	return self;
@@ -103,6 +110,37 @@ namespace WebCore {
 	_interpolation = interpolation;
 }
 
+- (WkSettings_UserStyleSheet)styleSheet
+{
+	return _userStyleSheet;
+}
+
+- (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet
+{
+	_userStyleSheet = styleSheet;
+}
+
+- (OBString *)customStyleSheetPath
+{
+	return _userStyleSheetFile;
+}
+
+- (void)setCustomStyleSheetPath:(OBString *)path
+{
+	[_userStyleSheetFile autorelease];
+	_userStyleSheetFile = [path copy];
+}
+
+- (WkSettings_ContextMenuHandling)contextMenuHandling
+{
+	return _contextMenu;
+}
+
+- (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling
+{
+	_contextMenu = handling;
+}
+
 @end
 
 @implementation WkSettings
@@ -156,6 +194,33 @@ namespace WebCore {
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation
 {
 
+}
+
+- (WkSettings_UserStyleSheet)styleSheet
+{
+	return WkSettings_UserStyleSheet_MUI;
+}
+
+- (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet
+{
+}
+
+- (OBString *)customStyleSheetPath
+{
+	return nil;
+}
+
+- (void)setCustomStyleSheetPath:(OBString *)path
+{
+}
+
+- (WkSettings_ContextMenuHandling)contextMenuHandling
+{
+	return WkSettings_ContextMenuHandling_Default;
+}
+
+- (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling
+{
 }
 
 @end
@@ -224,5 +289,34 @@ static cairo_antialias_t defaultAA;
 	}
 }
 
-@end
++ (void)setCaching:(WkGlobalSettings_Caching)caching
+{
+	WebKit::CacheModel cacheModel = WebKit::CacheModel::PrimaryWebBrowser;
+	if (WkGlobalSettings_Caching_Minimal == caching)
+		cacheModel = WebKit::CacheModel::DocumentViewer;
+	WebKit::WebProcess::singleton().setCacheModel(cacheModel);
+}
 
++ (WkGlobalSettings_Caching)caching
+{
+	if (WebKit::WebProcess::singleton().cacheModel() != WebKit::CacheModel::PrimaryWebBrowser)
+		return WkGlobalSettings_Caching_Minimal;
+	return WkGlobalSettings_Caching_Balanced;
+}
+
++ (void)setDiskCachingLimit:(QUAD)limit
+{
+	WebKit::WebProcess::singleton().setDiskCacheSize(limit);
+}
+
++ (QUAD)diskCachingLimit
+{
+	return WebKit::WebProcess::singleton().diskCacheSize();
+}
+
++ (QUAD)calculatedMaximumDiskCachingLimit
+{
+	return WebKit::WebProcess::singleton().maxDiskCacheSize();
+}
+
+@end

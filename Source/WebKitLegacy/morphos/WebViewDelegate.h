@@ -4,6 +4,7 @@
 #include <wtf/Vector.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/FrameLoaderClient.h>
+#include <WebCore/ContextMenuItem.h>
 
 namespace WebCore {
 	class Page;
@@ -14,6 +15,7 @@ namespace WebCore {
 	class ResourceResponse;
 	class PolicyCheckIdentifier;
 	class AuthenticationChallenge;
+	class HitTestResult;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -47,6 +49,7 @@ struct WebViewDelegate
 	std::function<void(const WTF::URL& url, WebViewDelegateOpenWindowMode mode)> _fNewTabWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
+	std::function<void(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
 
 	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
 	
@@ -90,6 +93,7 @@ struct WebViewDelegate
 		_fCanOpenWindow = nullptr;
 		_fDoOpenWindow = nullptr;
 		_fPopup = nullptr;
+		_fContextMenu = nullptr;
 		_fHistoryChanged = nullptr;
 		_fConsole = nullptr;
 		_fDidFailWithError = nullptr;
@@ -112,4 +116,6 @@ struct WebViewDelegate
 		_fProgressFinished = nullptr;
 		_fHoveredURLChanged = nullptr;
 	};
+	
+	WebViewDelegate() { clearDelegateCallbacks(); };
 };

@@ -1,16 +1,14 @@
 Early beta of a new WebKit port. Technically, this is a port of WebKit2 into WebKit_Legacy ;)
-
-You must copy the MOSSYS data into the correct path before running.
 Will not work or will crash unless you're on a very recent 3.14 installation.
 
-There's plenty of debug enabled. Live with it.
-
-Some things do not yet work - do NOT report them. I will be deleting bugtracker entries about sites not working,
-missing features, etc. MiniBrowser is NOT the designated brower application. It will NOT support tabs, etc.
-
-DO report crashes while browsing pages though, thank you!
-
 Rough changelist:
+
+- 16.8.2020
+	- Caching and disk caching settings
+	- Re-implemented RMB handling to fix JS context menu events support
+	- Added a default morphos.css to fix missing checkmarks/radios on some pages
+	- CSS settings
+	- Search in page functionality
 
 - 10.9.2020
 	- Updated easylist.dat

@@ -50,6 +50,11 @@ public:
 	WebCore::CacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
 
 	void setCacheModel(WebKit::CacheModel cacheModel);
+	WebKit::CacheModel cacheModel() const { return m_cacheModel; }
+	
+	void setDiskCacheSize(QUAD sizeMax);
+	QUAD diskCacheSize() const { return m_diskCacheSize; }
+	QUAD maxDiskCacheSize() const;
 
 	void dumpWebCoreStatistics();
 	
@@ -75,6 +80,7 @@ protected:
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
+    QUAD m_diskCacheSize;
     ABP::ABPFilterParser m_urlFilter;
     std::vector<char>    m_urlFilterData;
     Optional<PAL::SessionID> m_sessionID;

@@ -14,8 +14,10 @@
 #import <WebCore/FileChooser.h>
 #import <WebCore/TextEncoding.h>
 #import <WebCore/DOMWindow.h>
-#include <WebCore/AuthenticationChallenge.h>
-#include <WebCore/AuthenticationClient.h>
+#import <WebCore/FindOptions.h>
+#import <WebCore/AuthenticationChallenge.h>
+#import <WebCore/AuthenticationClient.h>
+#import <WebCore/HitTestResult.h>
 #define __OBJC__
 
 #import <ob/OBFramework.h>
@@ -40,6 +42,9 @@
 
 #import <cairo.h>
 struct Library *FreetypeBase;
+
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
 
 extern "C" { void dprintf(const char *, ...); }
 
@@ -134,6 +139,8 @@ namespace  {
 	OBMutableDictionary                 *_protocolDelegates;
 	WkBackForwardListPrivate            *_backForwardList;
 	WkSettings_Throttling                _throttling;
+	WkSettings_UserStyleSheet            _userStyleSheet;
+	OBString                            *_userStyleSheetFile;
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
@@ -155,6 +162,8 @@ namespace  {
 	{
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_hasOnlySecureContent = YES;
+		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
+		_userStyleSheetFile = @"PROGDIR:Resources/morphos.css";
 	}
 	return self;
 }
@@ -177,6 +186,7 @@ namespace  {
 	[_hover release];
 	[_protocolDelegates release];
 	[_backForwardList release];
+	[_userStyleSheetFile release];
 	
 	[super dealloc];
 }
@@ -430,6 +440,27 @@ namespace  {
 	return _hover;
 }
 
+- (WkSettings_UserStyleSheet)styleSheet
+{
+	return _userStyleSheet;
+}
+
+- (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet
+{
+	_userStyleSheet = styleSheet;
+}
+
+- (OBString *)customStyleSheetPath
+{
+	return _userStyleSheetFile;
+}
+
+- (void)setCustomStyleSheetPath:(OBString *)path
+{
+	[_userStyleSheetFile autorelease];
+	_userStyleSheetFile = [path copy];
+}
+
 @end
 
 @interface WkDownloadResponseDelegatePrivate : OBObject<WkConfirmDownloadResponseDelegate>
@@ -617,6 +648,34 @@ static inline void validateObjCContext() {
 - (WkWebViewPrivate *)privateObject
 {
 	return _private;
+}
+
+static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::ContextMenuItem> &items)
+{
+	for (const WebCore::ContextMenuItem& item : items)
+	{
+		auto title = item.title().utf8();
+
+		switch (item.type())
+		{
+		case WebCore::ContextMenuItemType::ActionType:
+			[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:ULONG(item.action())]];
+			break;
+		case WebCore::ContextMenuItemType::CheckableActionType:
+			[menu addObject:[MUIMenuitem checkmarkItemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:int(item.action()) checked:item.checked()]];
+			break;
+		case WebCore::ContextMenuItemType::SeparatorType:
+			[menu addObject:[MUIMenuitem barItem]];
+			break;
+		case WebCore::ContextMenuItemType::SubmenuType:
+			{
+				MUIMenu *submenu = [MUIMenu menuWithTitle:[OBString stringWithUTF8String:title.data()] objects:nil, nil];
+				[menu addObject:submenu];
+				populateContextMenu(submenu, item.subMenuItems());
+			}
+			break;
+		}
+	}
 }
 
 - (id)init
@@ -838,6 +897,29 @@ static inline void validateObjCContext() {
 				return rc - 1;
 			}
 			return -1;
+		};
+		
+		webPage->_fContextMenu = [self](const WebCore::IntPoint& pos, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest) -> void {
+			validateObjCContext();
+			if (items.size() > 0)
+			{
+				WkWebViewPrivate *privateObject = [self privateObject];
+				WebKit::WebPage *page = [privateObject page];
+				MUIMenu *menu = [[MUIMenu new] autorelease];
+				populateContextMenu(menu, items);
+				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
+				if (strip)
+				{
+					// 0 on failure, all our menus return 1, 2...
+					int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
+					if (rc)
+					{
+						MUIMenuitem *item = [strip findUData:rc];
+						page->onContextMenuItemSelected(rc, [[item title] cString]);
+					}
+					[strip release];
+				}
+			}
 		};
 		
 		webPage->_fHistoryChanged = [self]() {
@@ -1362,6 +1444,21 @@ static inline void validateObjCContext() {
 	}
 }
 
+- (OBString *)resolveCSSFilePath
+{
+	// empty string always results in WebPage reverting to the built-in morphos.css!
+	switch ([_private styleSheet])
+	{
+	case WkSettings_UserStyleSheet_MUI:
+		return [self cSSFilePath];
+	case WkSettings_UserStyleSheet_Custom:
+		return [_private customStyleSheetPath];
+	case WkSettings_UserStyleSheet_Builtin:
+	default:
+		return @"";
+	}
+}
+
 - (WkSettings *)settings
 {
 	WkSettings *settings = [[WkSettings new] autorelease];
@@ -1371,6 +1468,9 @@ static inline void validateObjCContext() {
 	[settings setThirdPartyCookiesAllowed:webPage->thirdPartyCookiesAllowed()];
 	[settings setThrottling:[_private throttling]];
 	[settings setInterpolation:[self interpolation]];
+	[settings setStyleSheet:[_private styleSheet]];
+	[settings setCustomStyleSheetPath:[_private customStyleSheetPath]];
+	[settings setContextMenuHandling:WkSettings_ContextMenuHandling(webPage->contextMenuHandling())];
 	return settings;
 }
 
@@ -1380,7 +1480,11 @@ static inline void validateObjCContext() {
 	webPage->setJavaScriptEnabled([settings javaScriptEnabled]);
 	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
 	webPage->setThirdPartyCookiesAllowed([settings thirdPartyCookiesAllowed]);
+	webPage->setContextMenuHandling(WebKit::WebPage::ContextMenuHandling([settings contextMenuHandling]));
+
 	[_private setThrottling:[settings throttling]];
+	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];
+	[_private setStyleSheet:[settings styleSheet]];
 
 	switch ([settings throttling])
 	{
@@ -1429,6 +1533,15 @@ static inline void validateObjCContext() {
 		_flags(meBoopsi) |= MADF_KNOWSACTIVE;
 	}
 	return meBoopsi;
+}
+
+- (BOOL)setup
+{
+	OBString *cssPath = [self resolveCSSFilePath];
+	auto webPage = [_private page];
+	if (webPage)
+		webPage->loadUserStyleSheet(WTF::String::fromUTF8([cssPath cString]));
+	return [super setup];
 }
 
 - (void)askMinMax:(struct MUI_MinMax *)minmaxinfo
@@ -1569,6 +1682,7 @@ static inline void validateObjCContext() {
 	return 0;
 }
 
+#if 0
 static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::ContextMenuItem> &items)
 {
 	for (const WebCore::ContextMenuItem& item : items)
@@ -1620,6 +1734,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	webPage->onContextMenuItemSelected([item userData], [[item title] cString]);
 }
+#endif
 
 - (void)lateDraw
 {
@@ -1760,6 +1875,27 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	return webPage->drawRect(x, y, width, height, rp);
+}
+
+- (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection
+{
+    if (![string length])
+        return NO;
+	auto webPage = [_private page];
+	auto frame = webPage->mainFrame();
+	WebCore::FindOptions options;
+
+	if (!forward)
+		options.add(WebCore::FindOptionFlag::Backwards);
+	if (!caseFlag)
+		options.add(WebCore::FindOptionFlag::CaseInsensitive);
+	if (wrapFlag)
+		options.add(WebCore::FindOptionFlag::WrapAround);
+	if (startInSelection)
+		options.add(WebCore::FindOptionFlag::StartInSelection);
+
+	bool outWrapped = false;
+	return webPage->search(WTF::String::fromUTF8([string cString]), options, outWrapped);
 }
 
 @end
