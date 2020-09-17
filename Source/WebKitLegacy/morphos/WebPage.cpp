@@ -2057,6 +2057,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							_fGoActive();
 
 						bool doEvent = true;
+						bool eat = false;
 						
 						switch (m_cmHandling)
 						{
@@ -2078,49 +2079,20 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 
 						if (doEvent)
-							bridge.handleMousePressEvent(pme);
-
-						m_trackMouse = true;
-						return true;
-					}
-					break;
-				case MENUUP:
-					if (mouseInside || m_trackMouse)
-					{
-						bool doEvent = true;
-						
-						switch (m_cmHandling)
 						{
-						case ContextMenuHandling::Override:
-							doEvent = false;
-							break;
-						case ContextMenuHandling::OverrideWithControl:
-							doEvent = (imsg->Qualifier & IEQUALIFIER_CONTROL) == 0;
-							break;
-						case ContextMenuHandling::OverrideWithAlt:
-							doEvent = (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) == 0;
-							break;
-						case ContextMenuHandling::OverrideWithShift:
-							doEvent = (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) == 0;
-							break;
-						case ContextMenuHandling::Default:
-						default:
-							break;
+							eat = bridge.handleMousePressEvent(pme);
+							// don't send rmb up if we haven't sent rmb down
+							m_trackMouse = true;
 						}
 						
-						bool eat = false;
-						// note: what if setting changes inbetween a mouse down / up?
-						if (doEvent)
-							eat = bridge.handleMouseReleaseEvent(pme);
-
 						if (!eat)
 						{
 							auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
 							auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 							m_page->contextMenuController().clearContextMenu();
-    						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-    						if (targetFrame)
-    						{
+							Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+							if (targetFrame)
+							{
 								eat = bridge.handleContextMenuEvent(pme, *targetFrame);
 								if (m_page->contextMenuController().contextMenu() &&
 									m_page->contextMenuController().contextMenu()->items().size())
@@ -2128,21 +2100,30 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 									if (_fContextMenu)
 									{
 										_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
+										WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 									}
 								}
 								else if (!doEvent)
 								{
 									// force a context menu!
 									_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+									WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 								}
 							}
 							else if (!doEvent && mouseInside)
 							{
 								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 							}
 						}
+						return true;
+					}
+					break;
+				case MENUUP:
+					if (m_trackMouse)
+					{
 						m_trackMouse = false;
-						return eat;
+						return bridge.handleMouseReleaseEvent(pme);
 					}
 					break;
 				default:

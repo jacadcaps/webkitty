@@ -3,14 +3,24 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
-- 16.8.2020
+- 17.09.2020
+	- Fixed CurlCacheManager to load/save its index in the right spots
+	- Made it possible to disable the CurlCacheManager by setting a 0 max size
+	- Fixed 32bit overflows in CurlCacheManager - it won't handle 4GB files, but
+	  it won't mess up when the total size count goes over
+
+- 17.09.2020
+	- Context menu handling tweaks, popup back to rmb press
+	- Custom CSS loading fixed
+
+- 16.09.2020
 	- Caching and disk caching settings
 	- Re-implemented RMB handling to fix JS context menu events support
 	- Added a default morphos.css to fix missing checkmarks/radios on some pages
 	- CSS settings
 	- Search in page functionality
 
-- 10.9.2020
+- 10.09.2020
 	- Updated easylist.dat
 	- Implemented caching model settings and flushing of remaining memory
 	  caches on memory pressure events

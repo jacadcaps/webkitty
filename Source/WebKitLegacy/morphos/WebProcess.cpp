@@ -182,7 +182,7 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
 						}
 						else
 						{
-							dprintf(">> failed opening fiel for write\n");
+							dprintf(">> failed opening easylist.dat for write\n");
 						}
 						delete[] sbuffer;
 					}
@@ -203,7 +203,8 @@ void WebProcess::terminate()
 	WebCore::CurlContext::singleton().stopThread();
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
-
+	CurlCacheManager::singleton().setStorageSizeLimit(0);
+	
 	waitForThreads();
 
     GCController::singleton().garbageCollectNow();
@@ -466,7 +467,8 @@ QUAD WebProcess::maxDiskCacheSize() const
 
 void WebProcess::setDiskCacheSize(QUAD sizeMax)
 {
-	CurlCacheManager::singleton().setStorageSizeLimit(std::min(sizeMax, calculateMaxCacheSize("PROGDIR:Cache/Curl")));
+	m_diskCacheSize = std::min(sizeMax, calculateMaxCacheSize("PROGDIR:Cache/Curl"));
+	CurlCacheManager::singleton().setStorageSizeLimit(m_diskCacheSize);
 }
 
 void WebProcess::signalMainThread()

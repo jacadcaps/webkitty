@@ -1540,7 +1540,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	OBString *cssPath = [self resolveCSSFilePath];
 	auto webPage = [_private page];
 	if (webPage)
-		webPage->loadUserStyleSheet(WTF::String::fromUTF8([cssPath cString]));
+		webPage->loadUserStyleSheet(WTF::String::fromUTF8([[OBString stringWithFormat:@"file:///%@", cssPath] cString]));
 	return [super setup];
 }
 
