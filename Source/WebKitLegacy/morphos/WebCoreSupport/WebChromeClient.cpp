@@ -185,13 +185,12 @@ bool WebChromeClient::statusbarVisible()
 
 void WebChromeClient::setScrollbarsVisible(bool b)
 {
-	notImplemented();
+	m_webPage.setAllowsScrolling(b);
 }
 
 bool WebChromeClient::scrollbarsVisible()
 {
-	notImplemented();
-	return false;
+	m_webPage.allowsScrolling();
 }
 
 void WebChromeClient::setMenubarVisible(bool visible)

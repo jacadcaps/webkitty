@@ -1536,11 +1536,11 @@ void WebPage::setScroll(const int x, const int y)
 		_fInvalidate(false);
 }
 
-void WebPage::scrollBy(const int xDelta, const int yDelta)
+void WebPage::scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame)
 {
 	if (!m_mainFrame)
 		return;
-	auto* coreFrame = m_mainFrame->coreFrame();
+	auto* coreFrame = inFrame ? inFrame : m_mainFrame->coreFrame();
 	if (!coreFrame)
 		return;
 	WebCore::FrameView *view = coreFrame->view();
@@ -1563,7 +1563,7 @@ void WebPage::scrollBy(const int xDelta, const int yDelta)
 		_fInvalidate(false);
 }
 
-void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers)
+void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers, WebCore::Frame *inFrame)
 {
 	if (qualifiers & IEQUALIFIER_CONTROL)
 	{
@@ -1576,7 +1576,7 @@ void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qual
 	}
 	else
 	{
-		scrollBy(xDelta, yDelta);
+		scrollBy(xDelta, yDelta, inFrame);
 	}
 }
 
@@ -1669,6 +1669,21 @@ void WebPage::loadUserStyleSheet(const WTF::String &path)
 	{
 		settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), path));
 	}
+}
+
+bool WebPage::allowsScrolling()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+		return coreFrame->view()->canHaveScrollbars();
+	return false;
+}
+
+void WebPage::setAllowsScrolling(bool allows)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+		coreFrame->view()->setCanHaveScrollbars(allows);
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -2051,13 +2066,14 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					}
 					break;
 				case MENUDOWN:
+					// This is consistent with Safari
+					// Other browsers are a mess: Vivaldi does Down, Up, ContextMenu, Firefox & Chrome do Down, ContextMenu, Up
 					if (mouseInside)
 					{
 						if (_fGoActive)
 							_fGoActive();
 
 						bool doEvent = true;
-						bool eat = false;
 						
 						switch (m_cmHandling)
 						{
@@ -2065,66 +2081,58 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							doEvent = false;
 							break;
 						case ContextMenuHandling::OverrideWithControl:
-							doEvent = (imsg->Qualifier & IEQUALIFIER_CONTROL) != 0;
+							doEvent = (imsg->Qualifier & IEQUALIFIER_CONTROL) == 0;
 							break;
 						case ContextMenuHandling::OverrideWithAlt:
-							doEvent = (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0;
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) == 0;
 							break;
 						case ContextMenuHandling::OverrideWithShift:
-							doEvent = (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0;
+							doEvent = (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) == 0;
 							break;
 						case ContextMenuHandling::Default:
 						default:
 							break;
 						}
 
-						if (doEvent)
+						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
+						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						m_page->contextMenuController().clearContextMenu();
+						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+						if (targetFrame)
 						{
-							eat = bridge.handleMousePressEvent(pme);
-							// don't send rmb up if we haven't sent rmb down
-							m_trackMouse = true;
-						}
-						
-						if (!eat)
-						{
-							auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
-							auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
-							m_page->contextMenuController().clearContextMenu();
-							Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-							if (targetFrame)
+							if (doEvent)
 							{
-								eat = bridge.handleContextMenuEvent(pme, *targetFrame);
-								if (m_page->contextMenuController().contextMenu() &&
-									m_page->contextMenuController().contextMenu()->items().size())
-								{
-									if (_fContextMenu)
-									{
-										_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
-										WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
-									}
-								}
-								else if (!doEvent)
-								{
-									// force a context menu!
-									_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
-									WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
-								}
+								bridge.handleContextMenuEvent(pme, *targetFrame);
 							}
-							else if (!doEvent && mouseInside)
+						}
+
+						if (m_page->contextMenuController().contextMenu() &&
+							m_page->contextMenuController().contextMenu()->items().size())
+						{
+							if (_fContextMenu)
 							{
-								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
 								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 							}
 						}
+						else if (_fContextMenu)
+						{
+							// force a context menu!
+							_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+							WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+						}
+
 						return true;
 					}
 					break;
 				case MENUUP:
+#if 0
 					if (m_trackMouse)
 					{
 						m_trackMouse = false;
 						return bridge.handleMouseReleaseEvent(pme);
 					}
+#endif
 					break;
 				default:
 					if (mouseInside || m_trackMouse)
@@ -2188,7 +2196,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case NM_WHEEL_DOWN:
 				if (mouseInside && !up)
 				{
-					if (m_isActive || isDefaultHandler)
+					if (1) //m_isActive || isDefaultHandler)
 					{
 						float wheelTicksY = 1;
 						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
@@ -2202,9 +2210,13 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
 							(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
 							);
+						
+						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
+						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 						bool handled = bridge.handleWheelEvent(pke);
 						if (!handled)
-							wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier);
+							wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier, targetFrame);
 					}
 					else
 					{
@@ -2269,7 +2281,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEUP:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, m_drawContext->height());
+								scrollBy(0, m_drawContext->height(), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -2278,7 +2290,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_SPACE:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -m_drawContext->height());
+								scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -2286,7 +2298,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_DOWN:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -50);
+								scrollBy(0, -50, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -2294,7 +2306,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_UP:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, 50);
+								scrollBy(0, 50, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -2303,7 +2315,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_END:
 							if (!up && m_mainFrame && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								auto* coreFrame = m_mainFrame->coreFrame();
+								auto* coreFrame = m_page->focusController().focusedFrame() ? m_page->focusController().focusedFrame() : m_mainFrame->coreFrame();
 								
 								if (coreFrame)
 								{

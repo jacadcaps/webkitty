@@ -172,6 +172,9 @@ public:
 	bool search(const WTF::String &string, WebCore::FindOptions &options, bool& outWrapped);
 	
 	void loadUserStyleSheet(const WTF::String &path);
+	
+	bool allowsScrolling();
+	void setAllowsScrolling(bool allows);
 
 	enum class ContextMenuHandling // keep in sync with WkSettings!!
 	{
@@ -191,8 +194,8 @@ protected:
 	// WebChrome methods
     void repaint(const WebCore::IntRect&);
     void internalScroll(int scrollX, int scrollY);
-	void scrollBy(const int xDelta, const int yDelta);
-	void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers);
+	void scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame = nullptr);
+	void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers, WebCore::Frame *inFrame = nullptr);
     void frameSizeChanged(WebCore::Frame& frame, int width, int height);
 
     void closeWindow();

@@ -441,7 +441,7 @@ static int _windowID = 1;
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
-		ADDBUTTON(@"Captcha", @"https://www.hermes.com/de/de/story/106191-birkin-eu-de/");
+		ADDBUTTON(@"Scroll", @"http://saku.bbs.fi/cgi-bin/discus/show.cgi?tpc=2593&post=54149");
 		ADDBUTTON(@"B", @"https://pasteboard.co/HSta4X0.png");
 		ADDBUTTON(@"Img", @"https://morph.zone/images/avatar/users/120.jpg");
 		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
