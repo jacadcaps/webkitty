@@ -59,10 +59,10 @@ list(APPEND WebCore_SOURCES
     platform/text/hyphen/HyphenationLibHyphen.cpp
     rendering/RenderThemeMorphOS.cpp
     page/morphos/DragControllerMorphOS.cpp
-    platform/audio/FFTFrameStub.cpp
     platform/audio/morphos/AudioDestinationMorphOS.cpp
     platform/audio/morphos/AudioBusMorphOS.cpp
     platform/audio/morphos/AudioFileReaderMorphOS.cpp
+    platform/audio/morphos/FFTFrameMorphOS.cpp
     platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
     platform/graphics/morphos/acinerella.c
 )

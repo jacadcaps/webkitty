@@ -106,6 +106,11 @@ private:
     AudioFloatArray m_imagData;
 #endif
 
+#if OS(MORPHOS)
+    AudioFloatArray m_realData;
+    AudioFloatArray m_imagData;
+#endif
+
 #if USE(WEBAUDIO_GSTREAMER)
     GstFFTF32* m_fft;
     GstFFTF32* m_inverseFft;
