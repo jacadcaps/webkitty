@@ -63,6 +63,7 @@ public:
 	void clearResourceCaches();
 	
 	void handleSignals(const uint32_t sigmask);
+	float timeToNextTimerEvent();
 	void signalMainThread();
 	
 	bool shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader);

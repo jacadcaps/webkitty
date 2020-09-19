@@ -56,6 +56,9 @@ namespace  {
 	static bool _readyToQuitPending;
 	static bool _wasInstantiatedOnce;
 	static OBSignalHandler *_signalHandler;
+	static OBScheduledTimer *_heartBeatTimer;
+	static OBScheduledTimer *_fastSinleBeatTimer;
+	static OBPerform        *_timerPerform;
 	APTR   _globalOBContext;
 	struct Task *_mainThread;
 }
@@ -603,7 +606,27 @@ static inline void validateObjCContext() {
 	if (_signalHandler == handler)
 	{
 		static const uint32_t mask = uint32_t(1UL << [handler sigBit]);
+
 		WebKit::WebProcess::singleton().handleSignals(mask);
+
+		float nextTimerEvent = WebKit::WebProcess::singleton().timeToNextTimerEvent();
+		if (nextTimerEvent <= 0.0)
+		{
+			// yield and repeat
+			[_signalHandler fire];
+		}
+		else if (nextTimerEvent < 0.25)
+		{
+			[_fastSinleBeatTimer invalidate];
+			[_fastSinleBeatTimer release];
+			_fastSinleBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:nextTimerEvent perform:_timerPerform repeats:NO] retain];
+		}
+		else
+		{
+			[_fastSinleBeatTimer invalidate];
+			[_fastSinleBeatTimer release];
+			_fastSinleBeatTimer = nil;
+		}
 	}
 }
 
@@ -633,6 +656,14 @@ static inline void validateObjCContext() {
 		{
 			_readyToQuitPending = NO;
 			_shutdown = YES;
+			[_heartBeatTimer invalidate];
+			[_heartBeatTimer release];
+			_heartBeatTimer = nil;
+			[_fastSinleBeatTimer invalidate];
+			[_fastSinleBeatTimer release];
+			_fastSinleBeatTimer = nil;
+			[_timerPerform release];
+			_timerPerform = nil;
 			[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 			[_signalHandler release];
 			WebKit::WebProcess::singleton().terminate();
@@ -722,7 +753,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					[_signalHandler setDelegate:(id)[self class]];
 					[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
 					
-					[OBScheduledTimer scheduledTimerWithInterval:0.1 perform:[OBPerform performSelector:@selector(fire) target:[self class]] repeats:YES];
+					_timerPerform = [[OBPerform performSelector:@selector(fire) target:[self class]] retain];
+					_heartBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:0.25 perform:_timerPerform repeats:YES] retain];
 					
 					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
 					WebKit::WebProcess::singleton().setLastPageClosedCallback([]() {
@@ -1237,8 +1269,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	if (webPage)
 	{
-		webPage->willBeDisposed();
 		WebKit::WebProcess::singleton().removeWebPage(webPage->pageID());
+		webPage->willBeDisposed();
 	}
 
 	[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(timedOut) target:_private] repeats:NO];

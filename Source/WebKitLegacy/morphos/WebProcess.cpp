@@ -208,7 +208,7 @@ void WebProcess::terminate()
 	waitForThreads();
 
     GCController::singleton().garbageCollectNow();
-    FontCache::singleton().invalidate();
+//    FontCache::singleton().invalidate(); // trashes memory like fuck on https://testdrive-archive.azurewebsites.net/Graphics/CanvasPinball/default.html
     MemoryCache::singleton().setDisabled(true);
 	WTF::Thread::deleteTLSKey();
 	D(dprintf("%s done\n", __PRETTY_FUNCTION__));
@@ -250,6 +250,11 @@ void WebProcess::handleSignals(const uint32_t /* sigmask */)
 {
 	dispatchFunctionsFromMainThread();
 	WTF::RunLoop::iterate();
+}
+
+float WebProcess::timeToNextTimerEvent()
+{
+	return WTF::RunLoop::secondsUntilNextIterate().value();
 }
 
 WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const

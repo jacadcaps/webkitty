@@ -3,6 +3,11 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 19.09.2020
+	- Exposed time-to-next-event from the RunLoop so that the outer MorphOS runloop can
+	  provide better performance to timer-driven webapps
+	- Fixed a memory trash on exit
+
 - 18.09.2020
 	- Context menu handling in-line with Safari's behaviour now
 	- Fixed scrolling of sub-frames using wheel and keys

@@ -988,7 +988,7 @@ void WebPage::willBeDisposed()
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
 	clearDelegateCallbacks();
-	stop();
+//	stop();
 	if (mainframe)
 		mainframe->loader().detachFromParent();
 	D(dprintf("%s done mf %p\n", __PRETTY_FUNCTION__, mainframe));
