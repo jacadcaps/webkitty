@@ -1,3 +1,0 @@
-
-FAIL PannerNode AudioParam automation works properly undefined is not an object (evaluating 'panner.positionX.value = -1')
-

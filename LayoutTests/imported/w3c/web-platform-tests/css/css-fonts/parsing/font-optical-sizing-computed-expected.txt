@@ -1,4 +1,0 @@
-
-PASS Property font-optical-sizing value 'auto' computes to 'auto' 
-PASS Property font-optical-sizing value 'none' computes to 'none' 
-

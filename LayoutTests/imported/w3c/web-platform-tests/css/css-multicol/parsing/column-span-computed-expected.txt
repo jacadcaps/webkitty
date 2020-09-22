@@ -1,4 +1,0 @@
-
-PASS Property column-span value 'none' computes to 'none' 
-PASS Property column-span value 'all' computes to 'all' 
-

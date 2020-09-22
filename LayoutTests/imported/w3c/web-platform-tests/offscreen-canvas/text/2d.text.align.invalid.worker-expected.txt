@@ -1,3 +1,0 @@
-
-FAIL 2d assert_equals: ctx.textAlign === 'start' (got bogus[string], expected start[string]) expected "start" but got "bogus"
-

@@ -1,3 +1,0 @@
-
-FAIL [[CanBlock]] in a DedicatedWorkerGlobalScope Can't find variable: SharedArrayBuffer
-

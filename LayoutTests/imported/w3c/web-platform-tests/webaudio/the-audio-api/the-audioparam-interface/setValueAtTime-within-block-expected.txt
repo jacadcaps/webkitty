@@ -1,4 +1,0 @@
-
-FAIL Test setValueAtTime with start time not on a block boundary undefined is not an object (evaluating 'context.startRendering().
-    then')
-

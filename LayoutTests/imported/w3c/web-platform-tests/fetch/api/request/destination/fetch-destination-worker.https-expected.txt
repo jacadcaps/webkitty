@@ -1,4 +1,0 @@
-
-PASS Initialize global state 
-PASS Worker fetches with a "worker" Request.destination 
-

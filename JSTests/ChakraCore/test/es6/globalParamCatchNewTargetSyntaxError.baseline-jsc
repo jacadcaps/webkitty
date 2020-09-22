@@ -1,2 +1,0 @@
-Exception: SyntaxError: Unexpected identifier 'a'. Cannot declare a lexical variable twice: 'a'.
-at globalParamCatchNewTargetSyntaxError.js:7

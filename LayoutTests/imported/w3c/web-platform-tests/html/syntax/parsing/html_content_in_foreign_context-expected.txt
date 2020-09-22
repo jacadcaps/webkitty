@@ -1,3 +1,0 @@
-
-FAIL HTML namespace nodes should exit foreign contexts assert_true: The /p tag did not exit the svg expected true got false
-

@@ -1,5 +1,0 @@
-
-PASS readAsText 
-PASS readAsDataURL 
-PASS readAsArrayBuffer 
-

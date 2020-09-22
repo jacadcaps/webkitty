@@ -1,4 +1,0 @@
-
-PASS MediaRecorder will stop recording and fire a stop event when all tracks are ended 
-PASS MediaRecorder will stop recording and fire a stop event when stop() is called 
-

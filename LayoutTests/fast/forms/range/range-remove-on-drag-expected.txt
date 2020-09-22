@@ -1,2 +1,0 @@
-CONSOLE MESSAGE: line 10: Test Passed! WebKit didn't crash.
-

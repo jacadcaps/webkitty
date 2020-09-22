@@ -1,3 +1,0 @@
-
-FAIL  Link with javascript onclick and href script order  assert_array_equals: property 1, expected "after script" but got "href"
- Test

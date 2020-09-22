@@ -1,4 +1,0 @@
-  
-
-PASS Images without alt attribute or with an empty alt attribute render as replaced elements regardless of src 
-

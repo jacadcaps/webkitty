@@ -1,4 +1,0 @@
-
-
-FAIL Cue line position from settings assert_equals: expected (string) "auto" but got (number) -1
-

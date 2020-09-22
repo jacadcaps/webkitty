@@ -1,5 +1,0 @@
-
-PASS Property font-variant-position value 'normal' computes to 'normal' 
-PASS Property font-variant-position value 'sub' computes to 'sub' 
-PASS Property font-variant-position value 'super' computes to 'super' 
-
