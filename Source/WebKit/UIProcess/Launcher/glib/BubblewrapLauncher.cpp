@@ -276,7 +276,7 @@ enum class BindFlags {
 
 static void bindIfExists(Vector<CString>& args, const char* path, BindFlags bindFlags = BindFlags::ReadOnly)
 {
-    if (!path)
+    if (!path || path[0] == '\0')
         return;
 
     const char* bindType;
@@ -379,6 +379,18 @@ static void bindPulse(Vector<CString>& args)
 
     // This is the ultimate fallback to raw ALSA
     bindIfExists(args, "/dev/snd", BindFlags::Device);
+}
+
+static void bindSndio(Vector<CString>& args)
+{
+    bindIfExists(args, "/tmp/sndio", BindFlags::ReadWrite);
+
+    GUniquePtr<char> sndioUidDir(g_strdup_printf("/tmp/sndio-%d", getuid()));
+    bindIfExists(args, sndioUidDir.get(), BindFlags::ReadWrite);
+
+    const char* homeDir = g_get_home_dir();
+    GUniquePtr<char> sndioHomeDir(g_build_filename(homeDir, ".sndio", nullptr));
+    bindIfExists(args, sndioHomeDir.get(), BindFlags::ReadWrite);
 }
 
 static void bindFonts(Vector<CString>& args)
@@ -569,8 +581,8 @@ static int setupSeccomp()
     // can do, and we should support code portability between different
     // container tools.
     //
-    // This syscall blacklist is copied from linux-user-chroot, which was in turn
-    // clearly influenced by the Sandstorm.io blacklist.
+    // This syscall block list is copied from linux-user-chroot, which was in turn
+    // clearly influenced by the Sandstorm.io block list.
     //
     // If you make any changes here, I suggest sending the changes along
     // to other sandbox maintainers. Using the libseccomp list is also
@@ -578,7 +590,7 @@ static int setupSeccomp()
     // https://groups.google.com/forum/#!topic/libseccomp
     //
     // A non-exhaustive list of links to container tooling that might
-    // want to share this blacklist:
+    // want to share this block list:
     //
     //  https://github.com/sandstorm-io/sandstorm
     //    in src/sandstorm/supervisor.c++
@@ -586,12 +598,21 @@ static int setupSeccomp()
     //    in common/flatpak-run.c
     //  https://git.gnome.org/browse/linux-user-chroot
     //    in src/setup-seccomp.c
+
+#if defined(__s390__) || defined(__s390x__) || defined(__CRIS__)
+    // Architectures with CONFIG_CLONE_BACKWARDS2: the child stack
+    // and flags arguments are reversed so the flags come second.
+    struct scmp_arg_cmp cloneArg = SCMP_A1(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER);
+#else
+    // Normally the flags come first.
     struct scmp_arg_cmp cloneArg = SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER);
+#endif
+
     struct scmp_arg_cmp ttyArg = SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu, TIOCSTI);
     struct {
         int scall;
         struct scmp_arg_cmp* arg;
-    } syscallBlacklist[] = {
+    } syscallBlockList[] = {
         // Block dmesg
         { SCMP_SYS(syslog), nullptr },
         // Useless old syscall.
@@ -637,11 +658,11 @@ static int setupSeccomp()
     if (!seccomp)
         g_error("Failed to init seccomp");
 
-    for (auto& rule : syscallBlacklist) {
+    for (auto& rule : syscallBlockList) {
         int scall = rule.scall;
         int r;
         if (rule.arg)
-            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), scall, 1, rule.arg);
+            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), scall, 1, *rule.arg);
         else
             r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), scall, 0);
         if (r == -EFAULT) {
@@ -700,8 +721,7 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
 #if ENABLE(NETSCAPE_PLUGIN_API)
     // It is impossible to know what access arbitrary plugins need and since it is for legacy
     // reasons lets just leave it unsandboxed.
-    if (launchOptions.processType == ProcessLauncher::ProcessType::Plugin64
-        || launchOptions.processType == ProcessLauncher::ProcessType::Plugin32)
+    if (launchOptions.processType == ProcessLauncher::ProcessType::Plugin)
         return adoptGRef(g_subprocess_launcher_spawnv(launcher, argv, error));
 #endif
 
@@ -807,6 +827,7 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
         bindDBusSession(sandboxArgs, proxy);
         // FIXME: We should move to Pipewire as soon as viable, Pulse doesn't restrict clients atm.
         bindPulse(sandboxArgs);
+        bindSndio(sandboxArgs);
         bindFonts(sandboxArgs);
         bindGStreamerData(sandboxArgs);
         bindOpenGL(sandboxArgs);

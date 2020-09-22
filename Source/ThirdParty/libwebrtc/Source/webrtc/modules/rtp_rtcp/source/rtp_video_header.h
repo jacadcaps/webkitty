@@ -15,6 +15,7 @@
 #include "absl/container/inlined_vector.h"
 #include "absl/types/optional.h"
 #include "absl/types/variant.h"
+#include "api/transport/rtp/dependency_descriptor.h"
 #include "api/video/color_space.h"
 #include "api/video/video_codec_type.h"
 #include "api/video/video_content_type.h"
@@ -24,14 +25,34 @@
 #include "api/video/video_timing.h"
 #include "common_types.h"  // NOLINT(build/include)
 #include "modules/video_coding/codecs/h264/include/h264_globals.h"
+#ifndef DISABLE_H265
+#include "modules/video_coding/codecs/h265/include/h265_globals.h"
+#endif
 #include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
 #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 
 namespace webrtc {
+// Details passed in the rtp payload for legacy generic rtp packetizer.
+// TODO(bugs.webrtc.org/9772): Deprecate in favor of passing generic video
+// details in an rtp header extension.
+struct RTPVideoHeaderLegacyGeneric {
+  uint16_t picture_id;
+};
+
+#ifndef DISABLE_H265
 using RTPVideoTypeHeader = absl::variant<absl::monostate,
                                          RTPVideoHeaderVP8,
                                          RTPVideoHeaderVP9,
-                                         RTPVideoHeaderH264>;
+                                         RTPVideoHeaderH264,
+                                         RTPVideoHeaderH265,
+                                         RTPVideoHeaderLegacyGeneric>;
+#else
+using RTPVideoTypeHeader = absl::variant<absl::monostate,
+                                         RTPVideoHeaderVP8,
+                                         RTPVideoHeaderVP9,
+                                         RTPVideoHeaderH264,
+                                         RTPVideoHeaderLegacyGeneric>;
+#endif
 
 struct RTPVideoHeader {
   struct GenericDescriptorInfo {
@@ -42,8 +63,8 @@ struct RTPVideoHeader {
     int64_t frame_id = 0;
     int spatial_index = 0;
     int temporal_index = 0;
+    absl::InlinedVector<DecodeTargetIndication, 10> decode_target_indications;
     absl::InlinedVector<int64_t, 5> dependencies;
-    absl::InlinedVector<int, 5> higher_spatial_layers;
     bool discardable = false;
   };
 

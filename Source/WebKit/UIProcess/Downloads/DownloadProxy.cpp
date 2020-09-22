@@ -28,9 +28,11 @@
 
 #include "APIData.h"
 #include "APIDownloadClient.h"
+#include "APIFrameInfo.h"
 #include "AuthenticationChallengeProxy.h"
 #include "DataReference.h"
 #include "DownloadProxyMap.h"
+#include "FrameInfoData.h"
 #include "NetworkProcessMessages.h"
 #include "NetworkProcessProxy.h"
 #include "WebPageProxy.h"
@@ -38,6 +40,7 @@
 #include "WebProcessPool.h"
 #include "WebProtectionSpace.h"
 #include <WebCore/MIMETypeRegistry.h>
+#include <WebCore/ResourceResponseBase.h>
 #include <wtf/FileSystem.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
@@ -50,18 +53,15 @@ static uint64_t generateDownloadID()
     static uint64_t uniqueDownloadID = 0;
     return ++uniqueDownloadID;
 }
-    
-Ref<DownloadProxy> DownloadProxy::create(DownloadProxyMap& downloadProxyMap, WebsiteDataStore& dataStore, WebProcessPool& processPool, const ResourceRequest& resourceRequest)
-{
-    return adoptRef(*new DownloadProxy(downloadProxyMap, dataStore, processPool, resourceRequest));
-}
 
-DownloadProxy::DownloadProxy(DownloadProxyMap& downloadProxyMap, WebsiteDataStore& dataStore, WebProcessPool& processPool, const ResourceRequest& resourceRequest)
+DownloadProxy::DownloadProxy(DownloadProxyMap& downloadProxyMap, WebsiteDataStore& dataStore, WebProcessPool& processPool, const ResourceRequest& resourceRequest, const FrameInfoData& frameInfoData, WebPageProxy* originatingPage)
     : m_downloadProxyMap(downloadProxyMap)
     , m_dataStore(&dataStore)
     , m_processPool(&processPool)
     , m_downloadID(generateDownloadID())
     , m_request(resourceRequest)
+    , m_originatingPage(makeWeakPtr(originatingPage))
+    , m_frameInfo(API::FrameInfo::create(FrameInfoData { frameInfoData }, originatingPage))
 {
 }
 
@@ -98,11 +98,6 @@ void DownloadProxy::processDidClose()
 WebPageProxy* DownloadProxy::originatingPage() const
 {
     return m_originatingPage.get();
-}
-
-void DownloadProxy::setOriginatingPage(WebPageProxy* page)
-{
-    m_originatingPage = makeWeakPtr(page);
 }
 
 #if PLATFORM(COCOA)
@@ -171,12 +166,12 @@ void DownloadProxy::didReceiveResponse(const ResourceResponse& response)
     m_processPool->downloadClient().didReceiveResponse(*this, response);
 }
 
-void DownloadProxy::didReceiveData(uint64_t length)
+void DownloadProxy::didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite)
 {
     if (!m_processPool)
         return;
 
-    m_processPool->downloadClient().didReceiveData(*this, length);
+    m_processPool->downloadClient().didReceiveData(*this, bytesWritten, totalBytesWritten, totalBytesExpectedToWrite);
 }
 
 void DownloadProxy::decideDestinationWithSuggestedFilenameAsync(DownloadID downloadID, const String& suggestedFilename)
@@ -184,7 +179,7 @@ void DownloadProxy::decideDestinationWithSuggestedFilenameAsync(DownloadID downl
     if (!m_processPool)
         return;
     
-    m_processPool->downloadClient().decideDestinationWithSuggestedFilename(*this, suggestedFilename, [this, protectedThis = makeRef(*this), downloadID = downloadID] (AllowOverwrite allowOverwrite, String destination) {
+    m_processPool->downloadClient().decideDestinationWithSuggestedFilename(*this, ResourceResponseBase::sanitizeSuggestedFilename(suggestedFilename), [this, protectedThis = makeRef(*this), downloadID = downloadID] (AllowOverwrite allowOverwrite, String destination) {
         SandboxExtension::Handle sandboxExtensionHandle;
         if (!destination.isNull())
             SandboxExtension::createHandle(destination, SandboxExtension::Type::ReadWrite, sandboxExtensionHandle);

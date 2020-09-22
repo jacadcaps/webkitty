@@ -31,7 +31,8 @@
 #include "api/video_codecs/video_encoder_factory.h"
 #include "media/engine/encoder_simulcast_proxy.h"
 
-typedef struct __CVBuffer* CVPixelBufferRef;
+using CVPixelBufferRef = struct __CVBuffer*;
+using CVPixelBufferPoolRef = struct __CVPixelBufferPool*;
 
 namespace webrtc {
 
@@ -39,60 +40,23 @@ class VideoDecoderFactory;
 class VideoEncoderFactory;
 class VideoFrame;
 
-enum class WebKitCodecSupport { H264, H264AndVP8 };
+enum class WebKitH265 { Off, On };
+enum class WebKitVP9 { Off, On };
 
-std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitCodecSupport);
-std::unique_ptr<webrtc::VideoDecoderFactory> createWebKitDecoderFactory(WebKitCodecSupport);
+std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitH265, WebKitVP9);
+std::unique_ptr<webrtc::VideoDecoderFactory> createWebKitDecoderFactory(WebKitH265, WebKitVP9);
 
 void setApplicationStatus(bool isActive);
 
 void setH264HardwareEncoderAllowed(bool);
 bool isH264HardwareEncoderAllowed();
 
+void setH264LowLatencyEncoderEnabled(bool);
+bool isH264LowLatencyEncoderEnabled();
+
 CVPixelBufferRef pixelBufferFromFrame(const VideoFrame&, const std::function<CVPixelBufferRef(size_t, size_t)>&);
 rtc::scoped_refptr<webrtc::VideoFrameBuffer> pixelBufferToFrame(CVPixelBufferRef);
 
-using WebKitVideoDecoder = void*;
-using VideoDecoderCreateCallback = WebKitVideoDecoder(*)(const SdpVideoFormat& format);
-using VideoDecoderReleaseCallback = int32_t(*)(WebKitVideoDecoder);
-using VideoDecoderDecodeCallback = int32_t(*)(WebKitVideoDecoder, uint32_t timeStamp, const uint8_t*, size_t length);
-using VideoDecoderRegisterDecodeCompleteCallback = int32_t(*)(WebKitVideoDecoder, void* decodedImageCallback);
-
-void setVideoDecoderCallbacks(VideoDecoderCreateCallback, VideoDecoderReleaseCallback, VideoDecoderDecodeCallback, VideoDecoderRegisterDecodeCompleteCallback);
-
-class RemoteVideoDecoderFactory final : public VideoDecoderFactory {
-public:
-    explicit RemoteVideoDecoderFactory(std::unique_ptr<VideoDecoderFactory>&&);
-    ~RemoteVideoDecoderFactory() = default;
-
-private:
-    std::vector<SdpVideoFormat> GetSupportedFormats() const final;
-    std::unique_ptr<VideoDecoder> CreateVideoDecoder(const SdpVideoFormat& format) final;
-
-    std::unique_ptr<VideoDecoderFactory> m_internalFactory;
-};
-
-class RemoteVideoDecoder final : public webrtc::VideoDecoder {
-public:
-    explicit RemoteVideoDecoder(WebKitVideoDecoder);
-    ~RemoteVideoDecoder() = default;
-
-    static void decodeComplete(void* callback, uint32_t timeStamp, CVPixelBufferRef, uint32_t timeStampRTP);
-
-private:
-    int32_t InitDecode(const VideoCodec*, int32_t number_of_cores) final;
-    int32_t Decode(const EncodedImage&, bool missing_frames, int64_t render_time_ms) final;
-    int32_t RegisterDecodeCompleteCallback(DecodedImageCallback*) final;
-    int32_t Release() final;
-    const char* ImplementationName() const final { return "RemoteVideoToolBox"; }
-
-    WebKitVideoDecoder m_internalDecoder;
-};
-
-using LocalDecoder = void*;
-using LocalDecoderCallback = void (^)(CVPixelBufferRef, uint32_t timeStamp, uint32_t timeStampNs);
-void* createLocalDecoder(LocalDecoderCallback);
-void releaseLocalDecoder(LocalDecoder);
-int32_t decodeFrame(LocalDecoder, uint32_t timeStamp, const uint8_t*, size_t);
+CVPixelBufferPoolRef createPixelBufferPool(size_t width, size_t height);
 
 }

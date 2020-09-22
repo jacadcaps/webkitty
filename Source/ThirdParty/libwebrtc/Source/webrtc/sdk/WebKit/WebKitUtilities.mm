@@ -25,76 +25,12 @@
 
 #include "WebKitUtilities.h"
 
-//#include "Common/RTCUIApplicationStatusObserver.h"
-#import "WebRTC/RTCVideoCodecH264.h"
-
-#include "api/video/video_frame.h"
-#include "helpers/scoped_cftyperef.h"
 #include "native/src/objc_frame_buffer.h"
-#include "rtc_base/time_utils.h"
-#include "sdk/objc/components/video_codec/nalu_rewriter.h"
 #include "third_party/libyuv/include/libyuv/convert_from.h"
-#include "webrtc/rtc_base/checks.h"
-#include "Framework/Headers/WebRTC/RTCVideoCodecFactory.h"
-#include "Framework/Headers/WebRTC/RTCVideoFrame.h"
+#include "libyuv/cpu_id.h"
+#include "libyuv/row.h"
 #include "Framework/Headers/WebRTC/RTCVideoFrameBuffer.h"
-#include "Framework/Native/api/video_decoder_factory.h"
-#include "Framework/Native/api/video_encoder_factory.h"
-#include "VideoProcessingSoftLink.h"
-#include "WebKitEncoder.h"
 
-#include <mutex>
-
-/*
-#if !defined(WEBRTC_IOS)
-__attribute__((objc_runtime_name("WK_RTCUIApplicationStatusObserver")))
-@interface RTCUIApplicationStatusObserver : NSObject
-
-+ (instancetype)sharedInstance;
-+ (void)prepareForUse;
-
-- (BOOL)isApplicationActive;
-
-@end
-#endif
-
-@implementation RTCUIApplicationStatusObserver {
-    BOOL _isActive;
-}
-
-+ (instancetype)sharedInstance {
-    static id sharedInstance;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        sharedInstance = [[self alloc] init];
-    });
-
-    return sharedInstance;
-}
-
-+ (void)prepareForUse {
-    __unused RTCUIApplicationStatusObserver *observer = [self sharedInstance];
-}
-
-- (id)init {
-    _isActive = YES;
-    return self;
-}
-
-- (void)setActive {
-    _isActive = YES;
-}
-
-- (void)setInactive {
-    _isActive = NO;
-}
-
-- (BOOL)isApplicationActive {
-    return _isActive;
-}
-
-@end
-*/
 namespace webrtc {
 
 void setApplicationStatus(bool isActive)
@@ -105,30 +41,6 @@ void setApplicationStatus(bool isActive)
     else
         [[RTCUIApplicationStatusObserver sharedInstance] setInactive];
  */
-}
-
-std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitCodecSupport codecSupport)
-{
-#if ENABLE_VCP_ENCODER || ENABLE_VCP_VTB_ENCODER
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        webrtc::VPModuleInitialize();
-    });
-#endif
-
-    auto internalFactory = ObjCToNativeVideoEncoderFactory(codecSupport == WebKitCodecSupport::H264AndVP8 ? [[RTCDefaultVideoEncoderFactory alloc] init] : [[RTCVideoEncoderFactoryH264 alloc] init]);
-    return std::make_unique<VideoEncoderFactoryWithSimulcast>(std::move(internalFactory));
-}
-
-static bool h264HardwareEncoderAllowed = true;
-void setH264HardwareEncoderAllowed(bool allowed)
-{
-    h264HardwareEncoderAllowed = allowed;
-}
-
-bool isH264HardwareEncoderAllowed()
-{
-    return h264HardwareEncoderAllowed;
 }
 
 rtc::scoped_refptr<webrtc::VideoFrameBuffer> pixelBufferToFrame(CVPixelBufferRef pixelBuffer)
@@ -167,14 +79,135 @@ static bool CopyVideoFrameToPixelBuffer(const webrtc::I420BufferInterface* frame
     return true;
 }
 
+// MergeUVPlane_16 merges two separate U and V planes into a single, interleaved
+// plane, while simultaneously scaling the output. Use '64' in the scale field to
+// shift 10-bit data from the LSB of the 16-bit int to the MSB.
+// NOTE: This method is based on libyuv::MergeUVPlane. If libyuv ever supports
+// this operation directly, we should replace the below with it.
+// NOTE: libyuv only has an opmitization of MergeUVRow_16 for AVX2 intrinsics.
+// Calling this method on a CPU without AVX2 will fall back to a standard C
+// implementation, and will probably be super slow. Add new MergeUVRow_16
+// implementations as they become available in libyuv.
+void MergeUVPlane_16(const uint16_t* src_u, int src_stride_u, const uint16_t* src_v, int src_stride_v, uint16_t* dst_uv, int dst_stride_uv, int width, int height, int scale) {
+    void (*MergeUVRow_16)(const uint16_t* src_u, const uint16_t* src_v, uint16_t* dst_uv, int scale, int width) = libyuv::MergeUVRow_16_C;
+    // Negative height means invert the image.
+    if (height < 0) {
+        height = -height;
+        dst_uv = dst_uv + (height - 1) * dst_stride_uv;
+        dst_stride_uv = -dst_stride_uv;
+    }
+    // Coalesce rows.
+    if (src_stride_u == width && src_stride_v == width && dst_stride_uv == width * 2) {
+        width *= height;
+        height = 1;
+        src_stride_u = src_stride_v = dst_stride_uv = 0;
+    }
+#if defined(HAS_MERGEUVROW_16_AVX2)
+    if (libyuv::TestCpuFlag(libyuv::kCpuHasAVX2))
+        MergeUVRow_16 = libyuv::MergeUVRow_16_AVX2;
+#endif
+
+    for (int y = 0; y < height; ++y) {
+        // Merge a row of U and V into a row of UV.
+        MergeUVRow_16(src_u, src_v, dst_uv, scale, width);
+        src_u += src_stride_u / sizeof(uint16_t);
+        src_v += src_stride_v / sizeof(uint16_t);
+        dst_uv += dst_stride_uv / sizeof(uint16_t);
+    }
+}
+
+// CopyPlane_16 will copy a plane of 16-bit data from one location to another,
+// while simultaneously scaling the output. Use '64' in the scale field to
+// shift 10-bit data from the LSB of a 16-bit int to the MSB.
+// NOTE: This method is based on MergeUVPlane_16 above, but operates on a
+// single plane, rater than interleaving two planes. If libyuv ever supports
+// this operation directly, we should replace the below with it.
+// NOTE: libyuv only has an opmitization of MergeUVRow_16 for AVX2 intrinsics.
+// Calling this method on a CPU without AVX2 will fall back to a standard C
+// implementation, and will probably be super slow. Add new MergeUVRow_16
+// implementations as they become available in libyuv.
+void CopyPlane_16(const uint16_t* src, int src_stride, uint16_t* dst, int dst_stride, int width, int height, int scale)
+{
+    void (*MultiplyRow_16)(const uint16_t* src_y, uint16_t* dst_y, int scale, int width) = libyuv::MultiplyRow_16_C;
+    // Negative height means invert the image.
+    if (height < 0) {
+        height = -height;
+        dst = dst + (height - 1) * dst_stride;
+        dst_stride = -dst_stride;
+    }
+    // Coalesce rows.
+    if (src_stride == width && dst_stride == width * 2) {
+        width *= height;
+        height = 1;
+        src_stride = dst_stride = 0;
+    }
+#if defined(HAS_MERGEUVROW_16_AVX2)
+    if (libyuv::TestCpuFlag(libyuv::kCpuHasAVX2))
+        MultiplyRow_16 = libyuv::MultiplyRow_16_AVX2;
+#endif
+
+    for (int y = 0; y < height; ++y) {
+        MultiplyRow_16(src, dst, scale, width);
+        src += src_stride / sizeof(uint16_t);
+        dst += dst_stride / sizeof(uint16_t);
+    }
+}
+
+static bool CopyVideoFrameToPixelBuffer(const webrtc::I010BufferInterface* frame, CVPixelBufferRef pixel_buffer)
+{
+    RTC_DCHECK(pixel_buffer);
+    RTC_DCHECK(CVPixelBufferGetPixelFormatType(pixel_buffer) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange || CVPixelBufferGetPixelFormatType(pixel_buffer) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange);
+    RTC_DCHECK_EQ(CVPixelBufferGetHeightOfPlane(pixel_buffer, 0), static_cast<size_t>(frame->height()));
+    RTC_DCHECK_EQ(CVPixelBufferGetWidthOfPlane(pixel_buffer, 0), static_cast<size_t>(frame->width()));
+
+    if (CVPixelBufferLockBaseAddress(pixel_buffer, 0) != kCVReturnSuccess)
+        return false;
+
+    auto src_y = const_cast<uint16_t*>(frame->DataY());
+    auto src_u = const_cast<uint16_t*>(frame->DataU());
+    auto src_v = const_cast<uint16_t*>(frame->DataV());
+    auto src_width_y = frame->width();
+    auto src_height_y = frame->height();
+    auto src_stride_y = frame->StrideY() * sizeof(uint16_t);
+    auto src_width_uv = frame->ChromaWidth();
+    auto src_height_uv = frame->ChromaHeight();
+    auto src_stride_u = frame->StrideU() * sizeof(uint16_t);
+    auto src_stride_v = frame->StrideV() * sizeof(uint16_t);
+
+    auto* dst_y = reinterpret_cast<uint16_t*>(CVPixelBufferGetBaseAddressOfPlane(pixel_buffer, 0));
+    auto dst_stride_y = CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, 0);
+    auto dst_width_y = CVPixelBufferGetWidthOfPlane(pixel_buffer, 0);
+    auto dst_height_y = CVPixelBufferGetHeightOfPlane(pixel_buffer, 0);
+
+    auto* dst_uv = reinterpret_cast<uint16_t*>(CVPixelBufferGetBaseAddressOfPlane(pixel_buffer, 1));
+    auto dst_stride_uv = CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, 1);
+    auto dst_width_uv = CVPixelBufferGetWidthOfPlane(pixel_buffer, 1);
+    auto dst_height_uv = CVPixelBufferGetHeightOfPlane(pixel_buffer, 1);
+
+    if (src_width_y != dst_width_y
+        || src_height_y != dst_height_y
+        || src_width_uv != dst_width_uv
+        || src_height_uv != dst_height_uv)
+        return false;
+
+    CopyPlane_16(src_y, src_stride_y, dst_y, dst_stride_y, dst_width_y, dst_height_y, 64);
+    MergeUVPlane_16(src_u, src_stride_u, src_v, src_stride_v, dst_uv, dst_stride_uv, dst_width_uv, dst_height_uv, 64);
+
+    CVPixelBufferUnlockBaseAddress(pixel_buffer, 0);
+    return true;
+}
+
 CVPixelBufferRef pixelBufferFromFrame(const VideoFrame& frame, const std::function<CVPixelBufferRef(size_t, size_t)>& makePixelBuffer)
 {
     if (frame.video_frame_buffer()->type() != VideoFrameBuffer::Type::kNative) {
-        rtc::scoped_refptr<const I420BufferInterface> buffer = frame.video_frame_buffer()->GetI420();
+        auto pixelBuffer = makePixelBuffer(frame.video_frame_buffer()->width(), frame.video_frame_buffer()->height());
+        if (!pixelBuffer)
+            return nullptr;
 
-        auto pixelBuffer = makePixelBuffer(buffer->width(), buffer->height());
-        if (pixelBuffer)
+        if (frame.video_frame_buffer()->type() == VideoFrameBuffer::Type::kI420)
             CopyVideoFrameToPixelBuffer(frame.video_frame_buffer()->GetI420(), pixelBuffer);
+        else if (frame.video_frame_buffer()->type() == VideoFrameBuffer::Type::kI010)
+            CopyVideoFrameToPixelBuffer(frame.video_frame_buffer()->GetI010(), pixelBuffer);
         return pixelBuffer;
     }
 
@@ -186,117 +219,29 @@ CVPixelBufferRef pixelBufferFromFrame(const VideoFrame& frame, const std::functi
     return rtcPixelBuffer.pixelBuffer;
 }
 
-struct VideoDecoderCallbacks {
-    VideoDecoderCreateCallback createCallback;
-    VideoDecoderReleaseCallback releaseCallback;
-    VideoDecoderDecodeCallback decodeCallback;
-    VideoDecoderRegisterDecodeCompleteCallback registerDecodeCompleteCallback;
-};
-
-static VideoDecoderCallbacks& videoDecoderCallbacks() {
-    static VideoDecoderCallbacks callbacks;
-    return callbacks;
-}
-
-void setVideoDecoderCallbacks(VideoDecoderCreateCallback createCallback, VideoDecoderReleaseCallback releaseCallback, VideoDecoderDecodeCallback decodeCallback, VideoDecoderRegisterDecodeCompleteCallback registerDecodeCompleteCallback)
+CVPixelBufferPoolRef createPixelBufferPool(size_t width, size_t height)
 {
-    auto& callbacks = videoDecoderCallbacks();
-    callbacks.createCallback = createCallback;
-    callbacks.releaseCallback = releaseCallback;
-    callbacks.decodeCallback = decodeCallback;
-    callbacks.registerDecodeCompleteCallback = registerDecodeCompleteCallback;
-}
+    const OSType videoCaptureFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+    auto pixelAttributes = @{
+        (__bridge NSString *)kCVPixelBufferWidthKey: @(width),
+        (__bridge NSString *)kCVPixelBufferHeightKey: @(height),
+        (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(videoCaptureFormat),
+        (__bridge NSString *)kCVPixelBufferCGImageCompatibilityKey: @NO,
+#if defined(WEBRTC_IOS)
+        (__bridge NSString *)kCVPixelFormatOpenGLESCompatibility : @YES,
+#else
+        (__bridge NSString *)kCVPixelBufferOpenGLCompatibilityKey : @YES,
+#endif
+        (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{ }
+    };
 
-RemoteVideoDecoder::RemoteVideoDecoder(WebKitVideoDecoder internalDecoder)
-    : m_internalDecoder(internalDecoder)
-{
-}
+    CVPixelBufferPoolRef pool = nullptr;
+    auto status = CVPixelBufferPoolCreate(kCFAllocatorDefault, nullptr, (__bridge CFDictionaryRef)pixelAttributes, &pool);
 
-void RemoteVideoDecoder::decodeComplete(void* callback, uint32_t timeStamp, CVPixelBufferRef pixelBuffer, uint32_t timeStampRTP)
-{
-    auto videoFrame = VideoFrame::Builder().set_video_frame_buffer(pixelBufferToFrame(pixelBuffer))
-        .set_timestamp_rtp(timeStampRTP)
-        .set_timestamp_ms(0)
-        .set_rotation((VideoRotation)RTCVideoRotation_0)
-        .build();
-    videoFrame.set_timestamp(timeStamp);
+    if (status != kCVReturnSuccess)
+        return nullptr;
 
-    static_cast<DecodedImageCallback*>(callback)->Decoded(videoFrame);
-}
-
-int32_t RemoteVideoDecoder::InitDecode(const VideoCodec* codec_settings, int32_t number_of_cores)
-{
-    return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t RemoteVideoDecoder::Decode(const EncodedImage& input_image, bool missing_frames, int64_t render_time_ms)
-{
-    return videoDecoderCallbacks().decodeCallback(m_internalDecoder, input_image.Timestamp(), input_image.data(), input_image.size());
-}
-
-int32_t RemoteVideoDecoder::RegisterDecodeCompleteCallback(DecodedImageCallback* callback)
-{
-    return videoDecoderCallbacks().registerDecodeCompleteCallback(m_internalDecoder, callback);
-}
-
-int32_t RemoteVideoDecoder::Release()
-{
-    return videoDecoderCallbacks().releaseCallback(m_internalDecoder);
-}
-
-RemoteVideoDecoderFactory::RemoteVideoDecoderFactory(std::unique_ptr<VideoDecoderFactory>&& internalFactory)
-    : m_internalFactory(std::move(internalFactory))
-{
-}
-
-std::vector<SdpVideoFormat> RemoteVideoDecoderFactory::GetSupportedFormats() const
-{
-    std::vector<SdpVideoFormat> supported_formats;
-    supported_formats.push_back(SdpVideoFormat { "H264" });
-    supported_formats.push_back(SdpVideoFormat { "VP8" });
-    return supported_formats;
-}
-
-std::unique_ptr<VideoDecoder> RemoteVideoDecoderFactory::CreateVideoDecoder(const SdpVideoFormat& format)
-{
-    if (!videoDecoderCallbacks().createCallback)
-        return m_internalFactory->CreateVideoDecoder(format);
-
-    auto identifier = videoDecoderCallbacks().createCallback(format);
-    if (!identifier)
-        return m_internalFactory->CreateVideoDecoder(format);
-
-    return std::make_unique<RemoteVideoDecoder>(identifier);
-}
-
-std::unique_ptr<webrtc::VideoDecoderFactory> createWebKitDecoderFactory(WebKitCodecSupport codecSupport)
-{
-    auto internalFactory = ObjCToNativeVideoDecoderFactory(codecSupport == WebKitCodecSupport::H264AndVP8 ? [[RTCDefaultVideoDecoderFactory alloc] init] : [[RTCVideoDecoderFactoryH264 alloc] init]);
-    if (videoDecoderCallbacks().createCallback)
-        return std::make_unique<RemoteVideoDecoderFactory>(std::move(internalFactory));
-    return internalFactory;
-}
-
-void* createLocalDecoder(LocalDecoderCallback callback)
-{
-    auto decoder = [[RTCVideoDecoderH264 alloc] init];
-    [decoder setCallback:^(RTCVideoFrame *frame) {
-        auto *buffer = (RTCCVPixelBuffer *)frame.buffer;
-        callback(buffer.pixelBuffer, frame.timeStampNs, frame.timeStamp);
-    }];
-    return (__bridge_retained void*)decoder;
-}
-
-void releaseLocalDecoder(LocalDecoder localDecoder)
-{
-    RTCVideoDecoderH264* decoder = (__bridge_transfer RTCVideoDecoderH264 *)(localDecoder);
-    [decoder releaseDecoder];
-}
-
-int32_t decodeFrame(LocalDecoder localDecoder, uint32_t timeStamp, const uint8_t* data, size_t size)
-{
-    RTCVideoDecoderH264* decoder = (__bridge RTCVideoDecoderH264 *)(localDecoder);
-    return [decoder decodeData: data size: size timeStamp: timeStamp];
+    return pool;
 }
 
 }

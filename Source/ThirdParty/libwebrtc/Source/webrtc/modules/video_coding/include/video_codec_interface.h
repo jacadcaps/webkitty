@@ -19,6 +19,11 @@
 #include "api/video_codecs/video_encoder.h"
 #include "common_video/generic_frame_descriptor/generic_frame_info.h"
 #include "modules/include/module_common_types.h"
+#include "modules/video_coding/codecs/h264/include/h264_globals.h"
+#ifndef DISABLE_H265
+#include "modules/video_coding/codecs/h265/include/h265_globals.h"
+#endif
+#include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -67,6 +72,7 @@ struct CodecSpecificInfoVP9 {
 
   // SS data.
   size_t num_spatial_layers;  // Always populated.
+  size_t first_active_layer;
   bool spatial_layer_resolution_present;
   uint16_t width[kMaxVp9NumberOfSpatialLayers];
   uint16_t height[kMaxVp9NumberOfSpatialLayers];
@@ -89,10 +95,20 @@ struct CodecSpecificInfoH264 {
 };
 static_assert(std::is_pod<CodecSpecificInfoH264>::value, "");
 
+#ifndef DISABLE_H265
+struct CodecSpecificInfoH265 {
+  H265PacketizationMode packetization_mode;
+  bool idr_frame;
+};
+#endif
+
 union CodecSpecificInfoUnion {
   CodecSpecificInfoVP8 VP8;
   CodecSpecificInfoVP9 VP9;
   CodecSpecificInfoH264 H264;
+#ifndef DISABLE_H265
+  CodecSpecificInfoH265 H265;
+#endif
 };
 static_assert(std::is_pod<CodecSpecificInfoUnion>::value, "");
 

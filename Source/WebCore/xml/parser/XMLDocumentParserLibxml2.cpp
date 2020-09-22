@@ -38,8 +38,13 @@
 #include "FrameLoader.h"
 #include "HTMLEntityParser.h"
 #include "HTMLHtmlElement.h"
+#include "HTMLParserIdioms.h"
 #include "HTMLTemplateElement.h"
+#include "HTTPParsers.h"
 #include "InlineClassicScript.h"
+#include "MIMETypeRegistry.h"
+#include "Page.h"
+#include "PageConsoleClient.h"
 #include "PendingScript.h"
 #include "ProcessingInstruction.h"
 #include "ResourceError.h"
@@ -375,6 +380,20 @@ private:
     unsigned m_currentOffset;
 };
 
+static bool externalEntityMimeTypeAllowed(const ResourceResponse& response)
+{
+    String contentType = response.httpHeaderField(HTTPHeaderName::ContentType);
+    String mimeType = extractMIMETypeFromMediaType(contentType);
+    if (mimeType.isEmpty()) {
+        // Same logic as XMLHttpRequest::responseMIMEType(). Keep them in sync.
+        if (response.isInHTTPFamily())
+            mimeType = contentType;
+        else
+            mimeType = response.mimeType();
+    }
+    return MIMETypeRegistry::isXMLMIMEType(mimeType) || MIMETypeRegistry::isXMLEntityMIMEType(mimeType);
+}
+
 static inline void setAttributes(Element* element, Vector<Attribute>& attributeVector, ParserContentPolicy parserContentPolicy)
 {
     if (!scriptingContentIsAllowed(parserContentPolicy))
@@ -435,33 +454,42 @@ static void* openFunc(const char* uri)
     ASSERT(XMLDocumentParserScope::currentCachedResourceLoader);
     ASSERT(libxmlLoaderThread == &Thread::current());
 
-    URL url(URL(), uri);
+    CachedResourceLoader& cachedResourceLoader = *XMLDocumentParserScope::currentCachedResourceLoader;
+    Document* document = cachedResourceLoader.document();
+    // Same logic as HTMLBaseElement::href(). Keep them in sync.
+    auto* encoding = (document && document->decoder()) ? document->decoder()->encodingForURLParsing() : nullptr;
+    URL url(document ? document->url() : URL(), stripLeadingAndTrailingHTMLSpaces(uri), encoding);
 
     if (!shouldAllowExternalLoad(url))
         return &globalDescriptor;
 
-    ResourceError error;
     ResourceResponse response;
     RefPtr<SharedBuffer> data;
 
-
     {
-        CachedResourceLoader* cachedResourceLoader = XMLDocumentParserScope::currentCachedResourceLoader;
+        ResourceError error;
         XMLDocumentParserScope scope(nullptr);
         // FIXME: We should restore the original global error handler as well.
 
-        if (cachedResourceLoader->frame()) {
+        if (cachedResourceLoader.frame()) {
             FetchOptions options;
             options.mode = FetchOptions::Mode::SameOrigin;
             options.credentials = FetchOptions::Credentials::Include;
-            cachedResourceLoader->frame()->loader().loadResourceSynchronously(url, ClientCredentialPolicy::MayAskClientForCredentials, options, { }, error, response, data);
+            cachedResourceLoader.frame()->loader().loadResourceSynchronously(url, ClientCredentialPolicy::MayAskClientForCredentials, options, { }, error, response, data);
+
+            if (response.url().isEmpty()) {
+                if (Page* page = document ? document->page() : nullptr)
+                    page->console().addMessage(MessageSource::Security, MessageLevel::Error, makeString("Did not parse external entity resource at '", url.stringCenterEllipsizedToLength(), "' because cross-origin loads are not allowed."));
+                return &globalDescriptor;
+            }
+            if (!externalEntityMimeTypeAllowed(response)) {
+                if (Page* page = document ? document->page() : nullptr)
+                    page->console().addMessage(MessageSource::Security, MessageLevel::Error, makeString("Did not parse external entity resource at '", url.stringCenterEllipsizedToLength(), "' because only XML MIME types are allowed."));
+                return &globalDescriptor;
+            }
         }
     }
 
-    // We have to check the URL again after the load to catch redirects.
-    // See <https://bugs.webkit.org/show_bug.cgi?id=21963>.
-    if (!shouldAllowExternalLoad(response.url()))
-        return &globalDescriptor;
     Vector<char> buffer;
     if (data)
         buffer.append(data->data(), data->size());
@@ -791,7 +819,7 @@ void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlCha
         downcast<HTMLHtmlElement>(newElement.get()).insertedByParser();
 
     if (!m_parsingFragment && isFirstElement && document()->frame())
-        document()->frame()->injectUserScripts(InjectAtDocumentStart);
+        document()->frame()->injectUserScripts(UserScriptInjectionTime::DocumentStart);
 }
 
 void XMLDocumentParser::endElementNs()

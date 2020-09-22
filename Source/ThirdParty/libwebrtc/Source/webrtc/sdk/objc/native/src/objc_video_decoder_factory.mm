@@ -22,7 +22,6 @@
 
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_decoder.h"
-#include "modules/include/module_common_types.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
@@ -98,7 +97,10 @@ std::unique_ptr<VideoDecoder> ObjCVideoDecoderFactory::CreateVideoDecoder(
     if ([codecName isEqualToString:codecInfo.name]) {
       id<RTCVideoDecoder> decoder = [decoder_factory_ createDecoder:codecInfo];
 
-      if ([decoder isKindOfClass:[RTCWrappedNativeVideoDecoder class]]) {
+      // Because of symbol conflict, isKindOfClass doesn't work as expected.
+      // See https://bugs.webkit.org/show_bug.cgi?id=198782.
+      // if ([decoder isKindOfClass:[RTCWrappedNativeVideoDecoder class]]) {
+      if ([codecName isEqual:@"VP8"] || [codecName isEqual:@"VP9"]) {
         return [(RTCWrappedNativeVideoDecoder *)decoder releaseWrappedDecoder];
       } else {
         return std::unique_ptr<ObjCVideoDecoder>(new ObjCVideoDecoder(decoder));
