@@ -90,9 +90,23 @@ void CurlCacheManager::setCacheDirectory(const String& directory)
     loadIndex();
 }
 
-void CurlCacheManager::setStorageSizeLimit(size_t sizeLimit)
+void CurlCacheManager::setStorageSizeLimit(CurlCacheSizeType sizeLimit)
 {
     m_storageSizeLimit = sizeLimit;
+
+	if (!m_cacheDir.isEmpty())
+	{
+		if (sizeLimit == 0)
+		{
+			saveIndex();
+			m_disabled = true;
+		}
+		else
+		{
+			m_disabled = false;
+			loadIndex();
+		}
+	}
 }
 
 void CurlCacheManager::loadIndex()

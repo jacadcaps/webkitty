@@ -50,6 +50,11 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *,...); }
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info, WebCore::DocumentLoader& loader);
+#endif
+
 namespace WebCore {
 
 namespace ContentExtensions {
@@ -180,6 +185,17 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
     }
 
     ResourceLoadInfo resourceLoadInfo = { url, mainDocumentURL, resourceType };
+	ContentRuleListResults results;
+
+#if OS(MORPHOS)
+	if (!shouldLoadResource(resourceLoadInfo, initiatingDocumentLoader))
+	{
+		ContentRuleListResults::Result result;
+		results.summary.blockedLoad = true;
+		result.blockedLoad = true;
+		results.results.append({ "x-morphos-blocker", WTFMove(result) });
+	}
+#else
     auto actions = actionsForResourceLoad(resourceLoadInfo);
 
     ContentRuleListResults results;
@@ -234,6 +250,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
         results.results.uncheckedAppend({ contentRuleListIdentifier, WTFMove(result) });
     }
 
+#endif
     if (currentDocument) {
         if (results.summary.madeHTTPS) {
             ASSERT(url.protocolIs("http") || url.protocolIs("ws"));

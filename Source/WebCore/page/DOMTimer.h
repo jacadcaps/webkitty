@@ -46,11 +46,19 @@ class DOMTimer final : public RefCounted<DOMTimer>, public SuspendableTimerBase 
 public:
     WEBCORE_EXPORT virtual ~DOMTimer();
 
+#if OS(MORPHOS)
+    static Seconds defaultMinimumInterval() { return 20_ms; }
+    static Seconds defaultAlignmentInterval() { return 0_s; }
+    static Seconds defaultAlignmentIntervalInLowPowerMode() { return 60_ms; }
+    static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 60_ms; }
+    static Seconds hiddenPageAlignmentInterval() { return 1_s; }
+#else
     static Seconds defaultMinimumInterval() { return 4_ms; }
     static Seconds defaultAlignmentInterval() { return 0_s; }
     static Seconds defaultAlignmentIntervalInLowPowerMode() { return 30_ms; }
     static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 30_ms; }
     static Seconds hiddenPageAlignmentInterval() { return 1_s; }
+#endif
 
     // Creates a new timer owned by specified ScriptExecutionContext, starts it
     // and returns its Id.

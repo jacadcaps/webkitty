@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <wtf/FastMalloc.h>
 #include "StorageAreaSync.h"
 
 #include "StorageAreaImpl.h"
@@ -525,6 +526,10 @@ void StorageAreaSync::deleteEmptyDatabase()
                 LOG_ERROR("Failed to delete database file %s\n", databaseFilename.utf8().data());
         }
     }
+    else
+    {
+    	m_database.close();
+	}
 }
 
 void StorageAreaSync::scheduleSync()

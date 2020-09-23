@@ -30,7 +30,14 @@
 #include "CryptoAlgorithmIdentifier.h"
 #include <array>
 #include <cstring>
+#if OS(MORPHOS)
+#define _NO_PPCINLINE
+typedef uint32_t socklen_t;
 #include <gcrypt.h>
+#undef _NO_PPCINLINE
+#else
+#include <gcrypt.h>
+#endif
 #include <pal/crypto/CryptoDigest.h>
 #include <pal/crypto/gcrypt/Handle.h>
 #include <pal/crypto/gcrypt/Utilities.h>

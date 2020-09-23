@@ -818,7 +818,7 @@ void ContextMenuController::populate()
     ContextMenuItem RevealImageItem(ActionType, ContextMenuItemTagRevealImage, contextMenuItemTagRevealImage());
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(WIN)
+#if PLATFORM(GTK) || PLATFORM(WIN) || OS(MORPHOS)
     ContextMenuItem ShareMenuItem;
 #else
     ContextMenuItem ShareMenuItem(SubmenuType, ContextMenuItemTagShareMenu, emptyString());

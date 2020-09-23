@@ -26,10 +26,11 @@
  */
 
 #include "config.h"
-#include "GraphicsContextGLOpenGL.h"
 
 #if ENABLE(WEBGL) && USE(CAIRO)
 
+#include "GraphicsContextGLOpenGL.h"
+#include "GraphicsContext3D.h"
 #include "CairoUtilities.h"
 #include "GraphicsContextGLImageExtractor.h"
 #include "Image.h"

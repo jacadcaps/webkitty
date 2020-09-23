@@ -101,6 +101,10 @@
 #include <crt_externs.h>
 #endif
 
+#if OS(MORPHOS)
+unsigned long __stack = 2 * 1024 * 1024;
+#endif
+
 #if PLATFORM(GTK)
 #include <locale.h>
 #endif

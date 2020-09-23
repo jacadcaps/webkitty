@@ -231,9 +231,9 @@ void SQLiteDatabase::close()
         }
         if (m_useWAL) {
             SQLiteTransactionInProgressAutoCounter transactionCounter;
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
         } else
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
     }
 
     m_openingThread = nullptr;

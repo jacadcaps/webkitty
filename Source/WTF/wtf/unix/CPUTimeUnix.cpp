@@ -31,6 +31,10 @@
 #include <time.h>
 #include <wtf/Optional.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *fmt, ...); }
+#endif
+
 namespace WTF {
 
 static Seconds timevalToSeconds(const struct timeval& value)
@@ -40,10 +44,15 @@ static Seconds timevalToSeconds(const struct timeval& value)
 
 Optional<CPUTime> CPUTime::get()
 {
+#if OS(MORPHOS)
+    dprintf("%s: called!\n", __PRETTY_FUNCTION__);
+    return CPUTime {  MonotonicTime::now(), Seconds(0), Seconds(0) };
+#else
     struct rusage resource { };
     int ret = getrusage(RUSAGE_SELF, &resource);
     ASSERT_UNUSED(ret, !ret);
     return CPUTime { MonotonicTime::now(), timevalToSeconds(resource.ru_utime), timevalToSeconds(resource.ru_stime) };
+#endif
 }
 
 Seconds CPUTime::forCurrentThread()

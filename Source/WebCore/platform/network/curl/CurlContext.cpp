@@ -46,6 +46,17 @@
 #include <shlwapi.h>
 #endif
 
+#if OS(MORPHOS)
+#include <exec/libraries.h>
+#include <proto/exec.h>
+#include <ppcinline/macros.h>
+extern "C" {
+LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
+                struct timeval *timeout, ULONG *maskp);
+void dprintf(const char *fmt, ... );
+};
+#endif
+
 namespace WebCore {
 
 class EnvironmentVariableReader {
@@ -139,6 +150,13 @@ CurlContext::~CurlContext()
         fclose(m_logFile);
 #endif
 }
+
+#if OS(MORPHOS)
+void CurlContext::stopThread()
+{
+	m_scheduler->stopCurlThread();
+}
+#endif
 
 void CurlContext::initShareHandle()
 {
@@ -266,6 +284,11 @@ CURLMcode CurlMultiHandle::getFdSet(fd_set& readFdSet, fd_set& writeFdSet, fd_se
     return curl_multi_fdset(m_multiHandle, &readFdSet, &writeFdSet, &excFdSet, &maxFd);
 }
 
+CURLMcode CurlMultiHandle::getTimeout(long &timeout)
+{
+	return curl_multi_timeout(m_multiHandle, &timeout);
+}
+
 CURLMcode CurlMultiHandle::perform(int& runningHandles)
 {
     return curl_multi_perform(m_multiHandle, &runningHandles);
@@ -277,6 +300,76 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 }
 
 // CurlHandle -------------------------------------------------
+
+static
+void dump(const char *text, unsigned char *ptr, size_t size)
+{
+  size_t i;
+  size_t c;
+  unsigned int width=0x10;
+	
+  dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
+          text, (long)size, (long)size);
+	
+  for(i=0; i<size; i+= width) {
+    dprintf( "%4.4lx: ", (long)i);
+ 
+    /* show hex to the left */
+    for(c = 0; c < width; c++) {
+      if(i+c < size)
+        dprintf("%02x ", ptr[i+c]);
+      else
+        dprintf("   ");
+    }
+ 
+    /* show data on the right */
+    for(c = 0; (c < width) && (i+c < size); c++) {
+      char x = (ptr[i+c] >= 0x20 && ptr[i+c] < 0x80) ? ptr[i+c] : '.';
+      dprintf("%c", x);
+    }
+ 
+    dprintf("\n"); /* newline */
+  }
+}
+	
+static
+int my_trace(CURL *handle, curl_infotype type,
+             char *data, size_t size,
+             void *userp)
+{
+  const char *text;
+  (void)handle; /* prevent compiler warning */
+  (void)userp;
+	
+  switch (type) {
+  case CURLINFO_TEXT:
+    dprintf("== Info: %s", data);
+  default: /* in case a new one is introduced to shock us */
+    return 0;
+ 
+  case CURLINFO_HEADER_OUT:
+    text = "=> Send header";
+    break;
+  case CURLINFO_DATA_OUT:
+    text = "=> Send data";
+    break;
+  case CURLINFO_SSL_DATA_OUT:
+    text = "=> Send SSL data";
+    break;
+  case CURLINFO_HEADER_IN:
+    text = "<= Recv header";
+    break;
+  case CURLINFO_DATA_IN:
+    text = "<= Recv data";
+    break;
+  case CURLINFO_SSL_DATA_IN:
+    text = "<= Recv SSL data";
+    break;
+  }
+	
+  dump(text, (unsigned char *)data, size);
+  return 0;
+}
 
 CurlHandle::CurlHandle()
 {
@@ -296,6 +389,13 @@ CurlHandle::CurlHandle()
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
+
+#if OS(MORPHOS)
+    curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
+#endif
+
+// curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+// curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
 }
 
 CurlHandle::~CurlHandle()
@@ -311,11 +411,19 @@ const String CurlHandle::errorDescription(CURLcode errorCode)
 
 void CurlHandle::enableSSLForHost(const String& host)
 {
+#if OS(MORPHOS)
+	bool caCertOverride = false;
+#endif
     auto& sslHandle = CurlContext::singleton().sslHandle();
     if (auto sslClientCertificate = sslHandle.getSSLClientCertificate(host)) {
+#if OS(MORPHOS)
+        setCACertPath(sslClientCertificate->first.utf8().data());
+        caCertOverride = true;
+#else
         setSslCert(sslClientCertificate->first.utf8().data());
         setSslCertType("P12");
         setSslKeyPassword(sslClientCertificate->second.utf8().data());
+#endif
     }
 
     if (sslHandle.canIgnoreAnyHTTPSCertificatesForHost(host) || sslHandle.shouldIgnoreSSLErrors()) {
@@ -332,7 +440,11 @@ void CurlHandle::enableSSLForHost(const String& host)
 
     setSslCtxCallbackFunction(willSetupSslCtxCallback, this);
 
-#if !OS(WINDOWS)
+#if OS(MORPHOS)
+	if (caCertOverride)
+		setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
+	else
+#endif
     if (auto* path = WTF::get_if<String>(sslHandle.getCACertInfo()))
         setCACertPath(path->utf8().data());
 #endif
@@ -520,6 +632,11 @@ void CurlHandle::setHttpCustomRequest(const String& method)
 {
     enableHttp();
     curl_easy_setopt(m_handle, CURLOPT_CUSTOMREQUEST, method.ascii().data());
+}
+
+void CurlHandle::setResumeOffset(long long offset)
+{
+	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
 }
 
 void CurlHandle::enableAcceptEncoding()
@@ -927,8 +1044,69 @@ CURLcode CurlHandle::send(const uint8_t* buffer, size_t bufferSize, size_t& byte
 
 CURLcode CurlHandle::receive(uint8_t* buffer, size_t bufferSize, size_t& bytesRead)
 {
-    return curl_easy_recv(m_handle, buffer, bufferSize, &bytesRead);
+	return curl_easy_recv(m_handle, buffer, bufferSize, &bytesRead);
 }
+
+#if 0
+Optional<CurlSocketHandle::WaitResult> CurlSocketHandle::wait(const Seconds& timeout, bool alsoWaitForWrite)
+{
+    curl_socket_t socket;
+    CURLcode errorCode = curl_easy_getinfo(handle(), CURLINFO_ACTIVESOCKET, &socket);
+    if (errorCode != CURLE_OK) {
+        m_errorHandler(errorCode);
+        return WTF::nullopt;
+    }
+
+    int64_t usec = timeout.microsecondsAs<int64_t>();
+
+    struct timeval selectTimeout;
+    if (usec <= 0) {
+        selectTimeout.tv_sec = 0;
+        selectTimeout.tv_usec = 0;
+    } else {
+        selectTimeout.tv_sec = usec / 1000000;
+        selectTimeout.tv_usec = usec % 1000000;
+    }
+
+    int rc = 0;
+    int maxfd = static_cast<int>(socket) + 1;
+    fd_set fdread;
+    fd_set fdwrite;
+    fd_set fderr;
+
+    // Retry 'select' if it was interrupted by a process signal.
+    do {
+        FD_ZERO(&fdread);
+        FD_SET(socket, &fdread);
+
+        FD_ZERO(&fdwrite);
+        if (alsoWaitForWrite)
+            FD_SET(socket, &fdwrite);
+
+        FD_ZERO(&fderr);
+        FD_SET(socket, &fderr);
+
+#if OS(MORPHOS)
+	ULONG maskp = 0;
+	rc = WaitSelect(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout, &maskp);
+#else
+        rc = ::select(maxfd, &fdread, &fdwrite, &fderr, &selectTimeout);
+#endif
+#if OS(MORPHOS)
+	} while (0);
+#else
+    } while (rc == -1 && errno == EINTR);
+#endif
+
+    if (rc <= 0)
+        return WTF::nullopt;
+
+    WaitResult result;
+    result.readable = FD_ISSET(socket, &fdread) || FD_ISSET(socket, &fderr);
+    result.writable = FD_ISSET(socket, &fdwrite);
+    return result;
+}
+#endif
 
 }
 

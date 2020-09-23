@@ -92,7 +92,7 @@ Ref<SharedBuffer> SharedBuffer::create(Vector<uint8_t>&& vector)
     return adoptRef(*new SharedBuffer { vector.data(), vector.size() });
 }
 
-void SharedBuffer::combineIntoOneSegment() const
+void SharedBuffer::combineIntoOneSegmentLocked() const
 {
 #if ASSERT_ENABLED
     // FIXME: We ought to be able to set this to true and have no assertions fire.
@@ -113,7 +113,13 @@ void SharedBuffer::combineIntoOneSegment() const
     ASSERT(internallyConsistent());
 }
 
-const char* SharedBuffer::data() const
+void SharedBuffer::combineIntoOneSegment() const
+{
+	auto locker = holdLock(m_rwLock.write());
+	combineIntoOneSegmentLocked();
+}
+
+const char* SharedBuffer::dataUnlocked() const
 {
     if (!m_segments.size())
         return nullptr;
@@ -127,8 +133,17 @@ const uint8_t* SharedBuffer::dataAsUInt8Ptr() const
     return reinterpret_cast<const uint8_t*>(data());
 }
 
+const char* SharedBuffer::data() const
+{
+    if (!m_segments.size())
+        return nullptr;
+    combineIntoOneSegmentLocked();
+    return m_segments[0].segment->data();
+}
+
 SharedBufferDataView SharedBuffer::getSomeData(size_t position) const
 {
+	auto locker = holdLock(m_rwLock.write());
     RELEASE_ASSERT(position < m_size);
     auto comparator = [](const size_t& position, const DataSegmentVectorEntry& entry) {
         return position < entry.beginPosition;
@@ -150,6 +165,7 @@ String SharedBuffer::toHexString() const
 
 RefPtr<ArrayBuffer> SharedBuffer::tryCreateArrayBuffer() const
 {
+	auto locker = holdLock(m_rwLock.read());
     auto arrayBuffer = ArrayBuffer::tryCreateUninitialized(static_cast<unsigned>(size()), sizeof(char));
     if (!arrayBuffer) {
         WTFLogAlways("SharedBuffer::tryCreateArrayBuffer Unable to create buffer. Requested size was %zu\n", size());
@@ -169,6 +185,7 @@ RefPtr<ArrayBuffer> SharedBuffer::tryCreateArrayBuffer() const
 
 void SharedBuffer::append(const SharedBuffer& data)
 {
+	auto locker = holdLock(m_rwLock.write());
     ASSERT(!m_hasBeenCombinedIntoOneSegment);
     m_segments.reserveCapacity(m_segments.size() + data.m_segments.size());
     for (const auto& element : data.m_segments) {
@@ -180,6 +197,7 @@ void SharedBuffer::append(const SharedBuffer& data)
 
 void SharedBuffer::append(const char* data, size_t length)
 {
+	auto locker = holdLock(m_rwLock.write());
     ASSERT(!m_hasBeenCombinedIntoOneSegment);
     Vector<char> vector;
     vector.append(data, length);
@@ -190,6 +208,7 @@ void SharedBuffer::append(const char* data, size_t length)
 
 void SharedBuffer::append(Vector<char>&& data)
 {
+	auto locker = holdLock(m_rwLock.write());
     ASSERT(!m_hasBeenCombinedIntoOneSegment);
     auto dataSize = data.size();
     m_segments.append({m_size, DataSegment::create(WTFMove(data))});
@@ -199,6 +218,7 @@ void SharedBuffer::append(Vector<char>&& data)
 
 void SharedBuffer::clear()
 {
+	auto locker = holdLock(m_rwLock.write());
     m_size = 0;
     m_segments.clear();
     ASSERT(internallyConsistent());
@@ -206,6 +226,7 @@ void SharedBuffer::clear()
 
 Ref<SharedBuffer> SharedBuffer::copy() const
 {
+	auto locker = holdLock(m_rwLock.read());
     Ref<SharedBuffer> clone = adoptRef(*new SharedBuffer);
     clone->m_size = m_size;
     clone->m_segments.reserveInitialCapacity(m_segments.size());

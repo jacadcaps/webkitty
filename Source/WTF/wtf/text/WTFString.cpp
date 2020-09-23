@@ -35,6 +35,11 @@
 #include <wtf/unicode/CharacterNames.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
+#if OS(MORPHOS)
+#include <proto/charsets.h>
+#include <libraries/charsets.h>
+#endif
+
 namespace WTF {
 
 using namespace Unicode;
@@ -789,6 +794,54 @@ CString String::latin1() const
 
     return result;
 }
+
+#if OS(MORPHOS)
+String::String(const char * characters, unsigned inlength, unsigned mib)
+{
+	if (characters)
+	{
+		auto length = GetLength(reinterpret_cast<APTR>(const_cast<char *>(characters)), inlength, mib);
+		UChar *outBytes = nullptr;
+		m_impl = StringImpl::createUninitialized(length, outBytes);
+		if (m_impl)
+		{
+			struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE } };
+			ConvertTagList(reinterpret_cast<APTR>(const_cast<char *>(characters)), inlength, reinterpret_cast<APTR>(outBytes),
+				length * sizeof(UChar), mib, MIBENUM_UTF_16, tags);
+		}
+	}
+}
+
+CString String::native() const
+{
+	// string > MorphOS' default codepage string - required for FS access, etc
+    unsigned length = this->length();
+
+    if (!length)
+        return CString("", 0);
+
+	struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE } };
+
+    if (is8Bit())
+    {
+    	char* characterBuffer;
+		CString result = CString::newUninitialized(length, characterBuffer);
+		ConvertTagList(reinterpret_cast<APTR>(const_cast<unsigned char *>(this->characters8())), length, reinterpret_cast<APTR>(characterBuffer),
+			length, MIBENUM_ISO_8859_1, MIBENUM_SYSTEM, tags);
+		return result;
+	}
+
+    const UChar* characters = this->characters16();
+
+    char* characterBuffer;
+    CString result = CString::newUninitialized(length, characterBuffer);
+
+	ConvertTagList(reinterpret_cast<APTR>(const_cast<UChar *>(characters)), length * sizeof(UChar), reinterpret_cast<APTR>(characterBuffer),
+		length, MIBENUM_UTF_16, MIBENUM_SYSTEM, tags);
+
+    return result;
+}
+#endif
 
 Expected<CString, UTF8ConversionError> String::tryGetUtf8(ConversionMode mode) const
 {

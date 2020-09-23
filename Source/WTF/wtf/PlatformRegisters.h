@@ -34,6 +34,7 @@
 #include <signal.h>
 #elif OS(WINDOWS)
 #include <windows.h>
+#elif OS(MORPHOS)
 #else
 #include <ucontext.h>
 #endif

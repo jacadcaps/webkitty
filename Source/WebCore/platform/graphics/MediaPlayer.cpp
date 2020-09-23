@@ -57,6 +57,11 @@
 #endif
 #endif // USE(GSTREAMER)
 
+#if OS(MORPHOS)
+#include "morphos/MediaPlayerPrivateMorphOS.h"
+#define PlatformMediaEngineClassName MediaPlayerPrivateMorphOS
+#endif
+
 #if USE(MEDIA_FOUNDATION)
 #include "MediaPlayerPrivateMediaFoundation.h"
 #define PlatformMediaEngineClassName MediaPlayerPrivateMediaFoundation
