@@ -141,9 +141,11 @@ if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     )
 endif ()
 
-set(bmalloc_LIBRARIES
-    ${CMAKE_DL_LIBS}
-)
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(bmalloc_LIBRARIES
+        ${CMAKE_DL_LIBS}
+    )
+endif ()
 
 set(bmalloc_INTERFACE_LIBRARIES bmalloc)
 set(bmalloc_INTERFACE_INCLUDE_DIRECTORIES ${bmalloc_FRAMEWORK_HEADERS_DIR})

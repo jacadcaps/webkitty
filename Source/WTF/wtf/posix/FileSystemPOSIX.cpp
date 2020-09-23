@@ -36,7 +36,9 @@
 #include <libgen.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#if !OS(MORPHOS)
 #include <sys/statvfs.h>
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #include <wtf/EnumTraits.h>
@@ -44,6 +46,13 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/text/StringHash.h>
+#include <wtf/HashMap.h>
+
+#if OS(MORPHOS)
+#include <libraries/charsets.h>
+#include <proto/dos.h>
+#endif
 
 namespace WTF {
 
@@ -302,6 +311,9 @@ Optional<FileMetadata> fileMetadataFollowingSymlinks(const String& path)
 
 bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath)
 {
+#if OS(MORPHOS)
+    return false;
+#else
     CString targetPathFSRep = fileSystemRepresentation(targetPath);
     if (!targetPathFSRep.data() || targetPathFSRep.data()[0] == '\0')
         return false;
@@ -311,11 +323,16 @@ bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath
         return false;
 
     return !symlink(targetPathFSRep.data(), symbolicLinkPathFSRep.data());
+#endif
 }
 
 String pathByAppendingComponent(const String& path, const String& component)
 {
+#if OS(MORPHOS)
+    if (path.endsWith('/') || path.endsWith(':'))
+#else
     if (path.endsWith('/'))
+#endif
         return path + component;
     return path + "/" + component;
 }
@@ -408,13 +425,27 @@ String stringFromFileSystemRepresentation(const char* path)
 {
     if (!path)
         return String();
-
+#if OS(MORPHOS)
+	return String(path, strlen(path), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(path);
+#endif
 }
 
 CString fileSystemRepresentation(const String& path)
 {
+#if OS(MORPHOS)
+	// some fixes for unix style path fuckups here...
+	// file:///progdir:foo will give us /progdir:foo, so let's account for that
+	if (path.contains(':') && path.startsWith('/'))
+	{
+		String sub = path.substring(1);
+		return sub.native();
+	}
+	return path.native();
+#else
     return path.utf8();
+#endif
 }
 #endif
 
@@ -434,27 +465,35 @@ bool moveFile(const String& oldPath, const String& newPath)
 
 bool getVolumeFreeSpace(const String& path, uint64_t& freeSpace)
 {
+#if OS(MORPHOS)
+	return false;
+#else
     struct statvfs fileSystemStat;
     if (statvfs(fileSystemRepresentation(path).data(), &fileSystemStat)) {
         freeSpace = fileSystemStat.f_bavail * fileSystemStat.f_frsize;
         return true;
     }
     return false;
+#endif
 }
 
-String openTemporaryFile(const String& prefix, PlatformFileHandle& handle, const String& suffix)
+String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle& handle, const String& suffix)
 {
     // FIXME: Suffix is not supported, but OK for now since the code using it is macOS-port-only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
     char buffer[PATH_MAX];
-    const char* tmpDir = getenv("TMPDIR");
-
-    if (!tmpDir)
-        tmpDir = "/tmp";
-
-    if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", tmpDir, prefix.utf8().data()) >= PATH_MAX)
+#if OS(MORPHOS)
+	stccpy(buffer, fileSystemRepresentation(tmpPath).data(), sizeof(buffer));
+	if (0 == AddPart(buffer, fileSystemRepresentation(prefix).data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+#else
+    if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", fileSystemRepresentation(tmpPath).data(), fileSystemRepresentation(prefix).data()) >= PATH_MAX)
         goto end;
+#endif
 
     handle = mkstemp(buffer);
     if (handle < 0)
@@ -466,10 +505,48 @@ end:
     handle = invalidPlatformFileHandle;
     return String();
 }
+
+HashMap<String, String> tmpPathPrefixes;
+
+String temporaryFilePathForPrefix(const String& prefix)
+{
+	if (tmpPathPrefixes.contains(prefix))
+		return tmpPathPrefixes.get(prefix);
+	return { };
+}
+
+void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
+{
+#if OS(MORPHOS)
+	tmpPathPrefixes.set(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
+#endif
+}
+
+String openTemporaryFile(const String& prefix, PlatformFileHandle& handle, const String& suffix)
+{
+#if OS(MORPHOS)
+	const char* tmpDir = "PROGDIR:Tmp";
+	if (tmpPathPrefixes.contains(prefix))
+	{
+		return openTemporaryFile(tmpPathPrefixes.get(prefix), prefix, handle, suffix);
+	}
+	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle, suffix);
+#else
+    const char* tmpDir = getenv("TMPDIR");
+
+    if (!tmpDir)
+        tmpDir = "/tmp";
+
+	return openTemporaryFile(String::fromUTF8(tmpDir), prefix, handle);
+#endif
+}
 #endif // !PLATFORM(COCOA)
 
 bool hardLink(const String& source, const String& destination)
 {
+#if OS(MORPHOS)
+    return false;
+#else
     if (source.isEmpty() || destination.isEmpty())
         return false;
 
@@ -482,6 +559,7 @@ bool hardLink(const String& source, const String& destination)
         return false;
 
     return !link(fsSource.data(), fsDestination.data());
+#endif
 }
 
 bool hardLinkOrCopyFile(const String& source, const String& destination)

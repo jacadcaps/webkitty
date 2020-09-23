@@ -72,6 +72,14 @@
 #include <sys/syscall.h>
 #endif
 
+#if OS(MORPHOS)
+#include <semaphore.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <pthread.h>
+extern "C" { int pthread_setname_np(pthread_t thread, const char *name); }
+#endif
+
 namespace WTF {
 
 static Lock globalSuspendLock;
@@ -113,6 +121,7 @@ static LazyNeverDestroyed<Semaphore> globalSemaphoreForSuspendResume;
 
 static std::atomic<Thread*> targetThread { nullptr };
 
+#if !OS(MORPHOS)
 void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
 {
     // Touching a global variable atomic types from signal handlers is allowed.
@@ -170,7 +179,7 @@ void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
     // Allow resume caller to see that this thread is resumed.
     globalSemaphoreForSuspendResume->post();
 }
-
+#endif
 #endif // !OS(DARWIN)
 
 void Thread::initializePlatformThreading()
@@ -178,6 +187,7 @@ void Thread::initializePlatformThreading()
 #if !OS(DARWIN)
     globalSemaphoreForSuspendResume.construct(0);
 
+#if !OS(MORPHOS)
     // Signal handlers are process global configuration.
     // Intentionally block SigThreadSuspendResume in the handler.
     // SigThreadSuspendResume will be allowed in the handler by sigsuspend.
@@ -188,6 +198,7 @@ void Thread::initializePlatformThreading()
     action.sa_sigaction = &signalHandlerSuspendResume;
     action.sa_flags = SA_RESTART | SA_SIGINFO;
     sigaction(SigThreadSuspendResume, &action, 0);
+#endif
 #endif
 }
 
@@ -200,7 +211,7 @@ ThreadIdentifier Thread::currentID()
 
 void Thread::initializeCurrentThreadEvenIfNonWTFCreated()
 {
-#if !OS(DARWIN)
+#if !OS(DARWIN) && !OS(MORPHOS)
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SigThreadSuspendResume);
@@ -240,6 +251,11 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
     pthread_setname_np(normalizeThreadName(threadName));
 #elif OS(LINUX)
     prctl(PR_SET_NAME, normalizeThreadName(threadName));
+#elif OS(MORPHOS)
+	char nameBuffer[256];
+	strcpy(nameBuffer, "WkWebView:");
+	stccpy(nameBuffer + 10, threadName, sizeof(nameBuffer) - 10);
+	pthread_setname_np(pthread_self(), nameBuffer);
 #else
     UNUSED_PARAM(threadName);
 #endif
@@ -271,7 +287,11 @@ int Thread::waitForCompletion()
         handle = m_handle;
     }
 
-    int joinResult = pthread_join(handle, 0);
+	int joinResult;
+	do
+	{
+    	joinResult = pthread_join(handle, 0);
+	} while (joinResult == EINTR);
 
     if (joinResult == EDEADLK)
         LOG_ERROR("Thread %p was found to be deadlocked trying to quit", this);
@@ -313,11 +333,15 @@ Thread& Thread::initializeCurrentTLS()
 
 bool Thread::signal(int signalNumber)
 {
+//#if !OS(MORPHOS)
     auto locker = holdLock(m_mutex);
     if (hasExited())
         return false;
     int errNo = pthread_kill(m_handle, signalNumber);
     return !errNo; // A 0 errNo means success.
+//#else
+//    return false;
+//#endif
 }
 
 auto Thread::suspend() -> Expected<void, PlatformSuspendError>
@@ -340,7 +364,7 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
     if (result != KERN_SUCCESS)
         return makeUnexpected(result);
     return { };
-#else
+#elif !OS(MORPHOS)
     if (!m_suspendCount) {
         // Ideally, we would like to use pthread_sigqueue. It allows us to pass the argument to the signal handler.
         // But it can be used in a few platforms, like Linux.
@@ -360,8 +384,8 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
         }
     }
     ++m_suspendCount;
-    return { };
 #endif
+    return { };
 }
 
 void Thread::resume()
@@ -370,7 +394,7 @@ void Thread::resume()
     LockHolder locker(globalSuspendLock);
 #if OS(DARWIN)
     thread_resume(m_platformThread);
-#else
+#elif !OS(MORPHOS)
     if (m_suspendCount == 1) {
         // When allowing SigThreadSuspendResume interrupt in the signal handler by sigsuspend and SigThreadSuspendResume is actually issued,
         // the signal handler itself will be called once again.
@@ -449,6 +473,18 @@ void Thread::establishPlatformSpecificHandle(pthread_t handle)
     m_platformThread = pthread_mach_thread_np(handle);
 #endif
 }
+
+#if OS(MORPHOS)
+void Thread::deleteTLSKey()
+{
+#if !HAVE(FAST_TLS)
+    // Make sure that the Thread::destructTLS is not called for the main thread
+    threadSpecificSet(s_key, NULL);
+    // Actually delete the TLS key
+    threadSpecificKeyDelete(s_key);
+#endif
+}
+#endif
 
 #if !HAVE(FAST_TLS)
 void Thread::initializeTLSKey()
@@ -541,8 +577,7 @@ bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
         return false;
 
     if (absoluteTime > WallTime::fromRawSeconds(INT_MAX)) {
-        wait(mutex);
-        return true;
+        return pthread_cond_wait(&m_condition, &mutex.impl()) == 0;
     }
 
     double rawSeconds = absoluteTime.secondsSinceEpoch().value();

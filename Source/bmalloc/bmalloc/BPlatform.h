@@ -96,6 +96,10 @@
 #define BPLATORM_PLAYSTATION 1
 #endif
 
+#ifdef __MORPHOS__
+#define BOS_MORPHOS 1
+#endif
+
 /* ==== Policy decision macros: these define policy choices for a particular port. ==== */
 
 /* BUSE() - use a particular third-party library or optional OS service */

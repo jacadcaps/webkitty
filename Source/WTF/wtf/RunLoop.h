@@ -107,6 +107,7 @@ public:
     // Run the single iteration of the RunLoop. It consumes the pending tasks and expired timers, but it won't be blocked.
     WTF_EXPORT_PRIVATE static void iterate();
     WTF_EXPORT_PRIVATE static void setWakeUpCallback(WTF::Function<void()>&&);
+    static Seconds secondsUntilNextIterate();
 #endif
 
 #if USE(WINDOWS_EVENT_LOOP)

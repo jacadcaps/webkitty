@@ -208,9 +208,36 @@ EncodedJSValue JSC_HOST_CALL genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
     scope.assertNoException();
     RELEASE_ASSERT(!thisObject->isNeutered());
 
-    if (std::isnan(static_cast<double>(*targetOption))) {
+    double targetOptionLittleEndianAsDouble;
+#if CPU(BIG_ENDIAN)
+	switch (ViewClass::TypedArrayStorageType) {
+	case TypeFloat32:
+	case TypeFloat64:
+		targetOptionLittleEndianAsDouble = static_cast<double>(*targetOption);
+	default:
+		// typed array views are commonly expected to be little endian views of the underlying data
+		targetOptionLittleEndianAsDouble = static_cast<double>(flipBytes(*targetOption));
+	}
+#else
+	targetOptionLittleEndianAsDouble = static_cast<double>(*targetOption);
+#endif
+
+    if (std::isnan(targetOptionLittleEndianAsDouble)) {
         for (; index < length; ++index) {
-            if (std::isnan(static_cast<double>(array[index])))
+            double arrayElementLittleEndianAsDouble;
+#if CPU(BIG_ENDIAN)
+			switch (ViewClass::TypedArrayStorageType) {
+			case TypeFloat32:
+			case TypeFloat64:
+				arrayElementLittleEndianAsDouble = static_cast<double>(array[index]);
+			default:
+				// typed array views are commonly expected to be little endian views of the underlying data
+				arrayElementLittleEndianAsDouble = static_cast<double>(flipBytes(array[index]));
+			}
+#else
+			arrayElementLittleEndianAsDouble = static_cast<double>(array[index]);
+#endif
+            if (std::isnan(arrayElementLittleEndianAsDouble))
                 return JSValue::encode(jsBoolean(true));
         }
     } else {

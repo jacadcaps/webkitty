@@ -7,9 +7,14 @@ if ("${JavaScriptCore_LIBRARY_TYPE}" MATCHES "STATIC")
 endif ()
 
 set(jsc_LIBRARIES
-    ${CMAKE_DL_LIBS}
     WebKit::JavaScriptCore
 )
+
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(jsc_LIBRARIES $(jsc_LIBRARIES)
+        ${CMAKE_DL_LIBS}
+    )
+endif ()
 
 set(jsc_PRIVATE_INCLUDE_DIRECTORIES
     ${JavaScriptCore_INCLUDE_DIRECTORIES}

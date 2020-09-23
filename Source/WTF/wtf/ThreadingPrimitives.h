@@ -48,6 +48,10 @@
 #endif
 #endif
 
+#if OS(MORPHOS)
+#undef IMPORT
+#endif
+
 namespace WTF {
 
 using ThreadFunction = void (*)(void* argument);

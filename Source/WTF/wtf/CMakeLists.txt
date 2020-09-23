@@ -515,23 +515,28 @@ set(WTF_PRIVATE_INCLUDE_DIRECTORIES
     "${WTF_DIR}/wtf/unicode"
 )
 
-set(WTF_LIBRARIES
-    ${CMAKE_DL_LIBS}
-)
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(WTF_LIBRARIES
+        ${CMAKE_DL_LIBS}
+    )
+endif ()
 
 if (NOT USE_SYSTEM_MALLOC)
     list(APPEND WTF_LIBRARIES WebKit::bmalloc)
 endif ()
 
 list(APPEND WTF_LIBRARIES
-    ICU::data
     ICU::i18n
     ICU::uc
+    ICU::data
 )
 
 set(WTF_INTERFACE_LIBRARIES WTF)
 set(WTF_INTERFACE_INCLUDE_DIRECTORIES ${WTF_FRAMEWORK_HEADERS_DIR})
 set(WTF_INTERFACE_DEPENDENCIES WTF_CopyHeaders)
+if (CMAKE_CXX_COMPILER MATCHES ".*ppc-morphos.*")
+  list(APPEND WTF_LIBRARIES "-lsyscall -laboxstubs")
+endif ()
 
 WEBKIT_FRAMEWORK_DECLARE(WTF)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()

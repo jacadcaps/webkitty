@@ -27,6 +27,7 @@
 #pragma once
 
 #include "ResourceErrorBase.h"
+#include "CertificateInfo.h"
 
 namespace WebCore {
 
@@ -52,6 +53,9 @@ public:
 
     bool isSSLConnectError() const;
     WEBCORE_EXPORT bool isSSLCertVerificationError() const;
+	
+    Optional<CertificateInfo> certificateInfo() const { return m_certificateInfo; }
+    void setCertificateInfo(CertificateInfo&&info) { m_certificateInfo = WTFMove(info); };
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
@@ -61,6 +65,8 @@ private:
     static const char* const curlErrorDomain;
 
     unsigned m_sslErrors { 0 };
+	
+    Optional<CertificateInfo> m_certificateInfo;
 };
 
 } // namespace WebCore

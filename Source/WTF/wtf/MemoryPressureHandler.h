@@ -205,6 +205,11 @@ private:
     void holdOffTimerFired();
 #endif
 
+#if OS(MORPHOS)
+    RunLoop::Timer<MemoryPressureHandler> m_morphosMeasurementTimer;
+    void morphosMeasurementTimerFired();
+#endif
+
 #if PLATFORM(COCOA)
     dispatch_queue_t m_dispatchQueue { nullptr };
 #endif

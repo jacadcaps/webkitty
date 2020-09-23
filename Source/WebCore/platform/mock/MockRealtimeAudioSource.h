@@ -50,7 +50,7 @@ public:
 protected:
     MockRealtimeAudioSource(String&& deviceID, String&& name, String&& hashSalt);
 
-    virtual void render(Seconds) = 0;
+    virtual void render(Seconds) { };
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) override;
 
     static Seconds renderInterval() { return 60_ms; }

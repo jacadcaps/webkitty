@@ -41,6 +41,10 @@ OBJC_CLASS NSEvent;
 OBJC_CLASS WebEvent;
 #endif
 
+#if OS(MORPHOS)
+struct IntuiMessage;
+#endif
+
 namespace WebCore {
 
     class PlatformKeyboardEvent : public PlatformEvent {
@@ -132,6 +136,10 @@ namespace WebCore {
         PlatformKeyboardEvent(HWND, WPARAM, LPARAM, Type, bool);
 #endif
 
+#if OS(MORPHOS)
+		PlatformKeyboardEvent(struct IntuiMessage *imsg);
+#endif
+
 #if PLATFORM(GTK)
         // Used by WebKit2
         static String keyValueForGdkKeyCode(unsigned);
@@ -182,6 +190,9 @@ namespace WebCore {
 #else
         RetainPtr<::WebEvent> m_Event;
 #endif
+#endif
+#if OS(MORPHOS)
+	struct IntuiMessage *m_intuiMessage;
 #endif
         // The modifier state is optional, since it is not needed in the UI process or in legacy WebKit.
         static Optional<OptionSet<Modifier>> s_currentModifiers;

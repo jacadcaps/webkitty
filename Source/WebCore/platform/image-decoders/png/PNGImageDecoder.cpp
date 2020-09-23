@@ -39,6 +39,11 @@
  */
 
 #include "config.h"
+
+#if OS(MORPHOS)
+#define __WANT_PNG_1_6__
+#endif
+
 #include "PNGImageDecoder.h"
 
 #include "Color.h"
@@ -50,6 +55,9 @@
 #define JMPBUF(png_ptr) png_jmpbuf(png_ptr)
 #else
 #define JMPBUF(png_ptr) png_ptr->jmpbuf
+#if OS(MORPHOS)
+#error "Fail"
+#endif
 #endif
 
 namespace WebCore {

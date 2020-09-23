@@ -79,7 +79,7 @@ static unsigned appendActionBytecodeSize(uint64_t action)
     
 void DFABytecodeCompiler::emitAppendAction(uint64_t action)
 {
-    // High bits are used to store flags. See compileRuleList.
+    // High bits are used to store flags. See
     if (action & ActionFlagMask) {
         if (action & IfConditionFlag)
             append<DFABytecodeInstruction>(m_bytecode, DFABytecodeInstruction::TestFlagsAndAppendActionWithIfCondition);
