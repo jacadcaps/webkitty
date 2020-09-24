@@ -5,6 +5,7 @@ Rough changelist:
 
 - 23.09.2020
 	- Rebased to WebKitGkt 2.30.0 (Sep 2020)
+	- Fixed a crash when attempting to play videos
 
 - 19.09.2020
 	- Exposed time-to-next-event from the RunLoop so that the outer MorphOS runloop can

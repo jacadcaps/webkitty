@@ -792,6 +792,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setWebAudioEnabled(true);
 	settings.setMediaEnabled(true);
 
+//     settings.setStorageBlockingPolicy(SecurityOrigin::StorageBlockingPolicy::BlockAllStorage);
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 	settings.setLocalStorageEnabled(true);
 	

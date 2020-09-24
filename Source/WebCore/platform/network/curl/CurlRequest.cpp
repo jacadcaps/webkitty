@@ -187,9 +187,9 @@ void CurlRequest::resume()
 /* `this` is protected inside this method. */
 void CurlRequest::callClient(Function<void(CurlRequest&, CurlRequestClient&)>&& task)
 {
-    runOnMainThread([this, protectedThis = makeRef(*this), protectedClient = makeRef(*m_client), task = WTFMove(task)]() mutable {
+    runOnMainThread([this, protectedThis = makeRef(*this), task = WTFMove(task)]() mutable {
         if (m_client)
-            task(*this, protectedClient);
+            task(*this, *m_client);
     });
 }
 
@@ -629,7 +629,7 @@ void CurlRequest::invokeDidReceiveResponse(const CurlResponse& response, Action 
 
     // FIXME: Replace this isolatedCopy with WTFMove.
     callClient([response = response.isolatedCopy()](CurlRequest& request, CurlRequestClient& client) mutable {
-        client.curlDidReceiveResponse(request, WTFMove(response));
+       	client.curlDidReceiveResponse(request, WTFMove(response));
     });
 }
 
