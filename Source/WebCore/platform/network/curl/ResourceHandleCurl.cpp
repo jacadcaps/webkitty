@@ -83,7 +83,11 @@ bool ResourceHandle::start()
 
     d->m_startTime = MonotonicTime::now();
 
-    d->m_curlRequest = createCurlRequest(WTFMove(request));
+    if (d->m_curlRequest) {
+        d->m_curlRequest->invalidateClient();
+	}
+
+	d->m_curlRequest = createCurlRequest(WTFMove(request));
 
     if (auto credential = getCredential(d->m_firstRequest, false)) {
         d->m_curlRequest->setUserPass(credential->user(), credential->password());
@@ -396,7 +400,11 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
         return;
     }
 
-    auto requestCopy = handle->firstRequest();
+    if (handle->d->m_curlRequest) {
+        handle->d->m_curlRequest->invalidateClient();
+	}
+
+	auto requestCopy = handle->firstRequest();
     handle->d->m_curlRequest = handle->createCurlRequest(WTFMove(requestCopy));
 
     if (auto credential = handle->getCredential(handle->d->m_firstRequest, false)) {

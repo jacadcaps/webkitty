@@ -3,6 +3,13 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 24.09.2020
+	- Fixed a crash related to media playback attempts
+	- Minor fixes for potential issues in Curl backend
+	- Disabled SQLite WAL mode
+
+(23.09.2020) Changes were backed out for now
+
 - 19.09.2020
 	- Exposed time-to-next-event from the RunLoop so that the outer MorphOS runloop can
 	  provide better performance to timer-driven webapps

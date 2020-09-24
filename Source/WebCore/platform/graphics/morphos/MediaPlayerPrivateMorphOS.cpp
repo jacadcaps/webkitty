@@ -215,7 +215,7 @@ MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 {
-	return nullptr;
+	return makeUnique<PlatformTimeRanges>();
 }
 
 void MediaPlayerPrivateMorphOS::paint(GraphicsContext&, const FloatRect&)

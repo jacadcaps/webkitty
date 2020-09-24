@@ -162,6 +162,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode)
 
 void SQLiteDatabase::useWALJournalMode()
 {
+#if !OS(MORPHOS)
     m_useWAL = true;
     {
         SQLiteStatement walStatement(*this, "PRAGMA journal_mode=WAL;"_s);
@@ -184,6 +185,7 @@ void SQLiteDatabase::useWALJournalMode()
         } else
             LOG_ERROR("SQLite database failed to checkpoint: %s", lastErrorMsg());
     }
+#endif
 }
 
 void SQLiteDatabase::close()
