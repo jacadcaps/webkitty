@@ -240,8 +240,10 @@ void DocumentLoader::setMainDocumentError(const ResourceError& error)
     if (!error.isNull())
         RELEASE_LOG_IF_ALLOWED("setMainDocumentError: (frame = %p, main = %d, type = %d, code = %d)", m_frame, m_frame->isMainFrame(), static_cast<int>(error.type()), error.errorCode());
 
-    m_mainDocumentError = error;    
-    frameLoader()->client().setMainDocumentError(this, error);
+    m_mainDocumentError = error;
+    if (frameLoader()) {
+        frameLoader()->client().setMainDocumentError(this, error);
+	}
 }
 
 void DocumentLoader::mainReceivedError(const ResourceError& error)
@@ -253,6 +255,9 @@ void DocumentLoader::mainReceivedError(const ResourceError& error)
 
     if (!error.isNull())
         RELEASE_LOG_IF_ALLOWED("mainReceivedError: (frame = %p, main = %d, type = %d, code = %d)", m_frame, m_frame->isMainFrame(), static_cast<int>(error.type()), error.errorCode());
+
+    RefPtr<Frame> protectedFrame(m_frame);
+    Ref<DocumentLoader> protectedThis(*this);
 
     if (m_identifierForLoadWithoutResourceLoader) {
         ASSERT(!mainResourceLoader());
@@ -269,7 +274,9 @@ void DocumentLoader::mainReceivedError(const ResourceError& error)
 
     setMainDocumentError(error);
     clearMainResourceLoader();
-    frameLoader()->receivedMainResourceError(error);
+    if (frameLoader()) {
+		frameLoader()->receivedMainResourceError(error);
+	}
 }
 
 // Cancels the data source's pending loads.  Conceptually, a data source only loads

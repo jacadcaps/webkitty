@@ -50,6 +50,11 @@ extern "C" { void dprintf(const char *, ...); }
 
 #define D(x) 
 
+// #define VALIDATE_ALLOCS 15.f
+#ifdef VALIDATE_ALLOCS
+extern "C" { ULONG MEM_ValidateAllocs(ULONG flags); }
+#endif
+
 namespace  {
 	static int _viewInstanceCount;
 	static bool _shutdown;
@@ -610,16 +615,20 @@ static inline void validateObjCContext() {
 		WebKit::WebProcess::singleton().handleSignals(mask);
 
 		float nextTimerEvent = WebKit::WebProcess::singleton().timeToNextTimerEvent();
+
+#if 0
 		if (nextTimerEvent <= 0.0)
 		{
 			// yield and repeat
 			[_signalHandler fire];
 		}
-		else if (nextTimerEvent < 0.25)
+		else
+#endif
+		if (nextTimerEvent < 0.25)
 		{
 			[_fastSinleBeatTimer invalidate];
 			[_fastSinleBeatTimer release];
-			_fastSinleBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:nextTimerEvent perform:_timerPerform repeats:NO] retain];
+			_fastSinleBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:std::max(nextTimerEvent, 0.02f) perform:_timerPerform repeats:NO] retain];
 		}
 		else
 		{
@@ -634,6 +643,13 @@ static inline void validateObjCContext() {
 {
 	[self performWithSignalHandler:_signalHandler];
 }
+
+#ifdef VALIDATE_ALLOCS
++ (void)validateAllocs
+{
+	MEM_ValidateAllocs(1);
+}
+#endif
 
 + (void)_lastPageClosed
 {
@@ -755,7 +771,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					
 					_timerPerform = [[OBPerform performSelector:@selector(fire) target:[self class]] retain];
 					_heartBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:0.25 perform:_timerPerform repeats:YES] retain];
-					
+
+#ifdef VALIDATE_ALLOCS
+					[OBScheduledTimer scheduledTimerWithInterval:VALIDATE_ALLOCS perform:[OBPerform performSelector:@selector(validateAllocs) target:[self class]] repeats:YES];
+#endif
+
 					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
 					WebKit::WebProcess::singleton().setLastPageClosedCallback([]() {
 						[WkWebView _lastPageClosed];
