@@ -78,8 +78,8 @@ bool CurlCacheEntry::isLoading() const
 // Cache manager should invalidate the entry on false
 bool CurlCacheEntry::isCached()
 {
-    if (!FileSystem::fileExists(m_contentFilename) || !FileSystem::fileExists(m_headerFilename))
-        return false;
+	if (0 == entrySize())
+		return false;
 
     if (!m_headerParsed) {
         if (!loadResponseHeaders())
@@ -90,9 +90,6 @@ bool CurlCacheEntry::isCached()
         m_headerParsed = false;
         return false;
     }
-
-    if (!entrySize())
-        return false;
 
     return true;
 }
@@ -234,7 +231,7 @@ bool CurlCacheEntry::loadFileToBuffer(const String& filepath, Vector<char>& buff
     }
 
     long long filesize = -1;
-    if (!FileSystem::getFileSize(filepath, filesize)) {
+    if (!FileSystem::getFileSize(inputFile, filesize)) {
         LOG(Network, "Cache Error: Could not get file size of %s\n", filepath.latin1().data());
         FileSystem::closeFile(inputFile);
         return false;
