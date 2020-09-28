@@ -1419,4 +1419,11 @@ void WebFrameLoaderClient::didCreateWindow(DOMWindow& window)
 {
 }
 
+#if ENABLE(APPLICATION_MANIFEST)
+void WebFrameLoaderClient::finishedLoadingApplicationManifest(uint64_t, const Optional<WebCore::ApplicationManifest>&)
+{
+
+}
+#endif
+
 } // namespace WebKit
