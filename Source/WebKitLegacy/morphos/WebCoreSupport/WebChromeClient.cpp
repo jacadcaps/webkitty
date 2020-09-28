@@ -24,6 +24,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
+
 #include "WebChromeClient.h"
 
 //#include "WebElementPropertyBag.h"
@@ -190,7 +193,7 @@ void WebChromeClient::setScrollbarsVisible(bool b)
 
 bool WebChromeClient::scrollbarsVisible()
 {
-	m_webPage.allowsScrolling();
+	return m_webPage.allowsScrolling();
 }
 
 void WebChromeClient::setMenubarVisible(bool visible)
@@ -430,8 +433,7 @@ notImplemented();
 
 void WebChromeClient::scheduleCompositingLayerFlush()
 {
-notImplemented();
-//    m_webPage.flushPendingGraphicsLayerChangesSoon();
+	// needed with layering, may be used by some odd timer crap with requestANimationFrame()...
 }
 
 bool WebChromeClient::selectItemWritingDirectionIsNatural()
