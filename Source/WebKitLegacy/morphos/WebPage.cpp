@@ -196,7 +196,7 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
-#define D(x) 
+#define D(x)
 
 using namespace std;
 using namespace WebCore;
@@ -768,6 +768,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setFixedFontFamily("Courier New");
     settings.setDefaultFixedFontSize(13);
     settings.setResizeObserverEnabled(true);
+	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -826,7 +827,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 WebPage::~WebPage()
 {
-	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+	clearDelegateCallbacks();
 	delete m_drawContext;
 	delete m_autofillElements;
 }
@@ -1174,7 +1176,7 @@ void WebPage::setCursor(int cursor)
 	{
 		m_cursor = cursor;
 
-		if (m_trackMouse && _fSetCursor)
+		if (!m_trackMouse && _fSetCursor)
 			_fSetCursor(m_cursor);
 	}
 }
@@ -2142,24 +2144,27 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 							}
 						}
-						else if (_fContextMenu)
+						else if (_fContextMenu && !doEvent)
 						{
 							// force a context menu!
 							_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
 							WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+						}
+						else if (doEvent)
+						{
+							bridge.handleMousePressEvent(pme);
+							m_trackMouse = true;
 						}
 
 						return true;
 					}
 					break;
 				case MENUUP:
-#if 0
 					if (m_trackMouse)
 					{
 						m_trackMouse = false;
 						return bridge.handleMouseReleaseEvent(pme);
 					}
-#endif
 					break;
 				default:
 					if (mouseInside || m_trackMouse)

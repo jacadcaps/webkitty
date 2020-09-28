@@ -3,6 +3,12 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 28.09.2020:
+	- Fixed not to select items/text on rmb
+	- Fixed rmb handling on Google Maps, etc
+	- Streamlined Curl cache setup to avoid scanning the cache files twice
+	- Optimized Curl caches scan by about 10%
+
 - 27.09.2020:
 	- Tweaked various WebKit settings to be more in-line with Safari
 	- Fixed CSS animations
