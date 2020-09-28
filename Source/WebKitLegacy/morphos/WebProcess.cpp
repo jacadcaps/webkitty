@@ -115,17 +115,17 @@ void WebProcess::initialize(int sigbit)
 {
 	m_sigTask = FindTask(0);
 	m_sigMask = 1UL << sigbit;
-	m_diskCacheSize = calculateMaxCacheSize("PROGDIR:Cache/Curl");
-	setCacheModel(CacheModel::PrimaryWebBrowser);
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
 
+#if 0 // debug
 	{
 		JSLockHolder lock(commonVM());
 		PageConsoleClient::setShouldPrintExceptions(true);
 	}
+#endif
 
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsEnabled(true);
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCSSIntegrationEnabled(false);
@@ -339,14 +339,21 @@ WebFrame* WebProcess::webFrame(WebCore::FrameIdentifier frameID) const
 
 void WebProcess::addWebFrame(WebCore::FrameIdentifier frameID, WebFrame* frame)
 {
-	D(dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID));
+	D(dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID.toUInt64()));
+
+	// fallbacks if WkSettings weren't applied yet
+	if (!m_hasSetCacheModel)
+		setCacheModel(CacheModel::PrimaryWebBrowser);
+
+	if (ms_diskCacheSizeUninitialized == m_diskCacheSize)
+		setDiskCacheSize(ms_diskCacheSizeUninitialized);
 
     m_frameMap.set(frameID, frame);
 }
 
 void WebProcess::removeWebFrame(WebCore::FrameIdentifier frameID)
 {
-	D(dprintf("%s %llu\n", __PRETTY_FUNCTION__, frameID));
+	D(dprintf("%s %llu knowsFrames %ld\n", __PRETTY_FUNCTION__, frameID.toUInt64(), m_frameMap.size()));
 
     m_frameMap.remove(frameID);
 
@@ -455,6 +462,8 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     if (m_hasSetCacheModel && (cacheModel == m_cacheModel))
         return;
 
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+
     m_cacheModel = cacheModel;
 
     unsigned cacheTotalCapacity = 0;
@@ -470,12 +479,6 @@ void WebProcess::setCacheModel(CacheModel cacheModel)
     memoryCache.setDeadDecodedDataDeletionInterval(deadDecodedDataDeletionInterval);
     BackForwardCache::singleton().setMaxSize(pageCacheSize);
 
-	if (!m_hasSetCacheModel)
-	{
-    	CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
-		CurlCacheManager::singleton().setStorageSizeLimit(m_diskCacheSize);
-	}
-
     m_hasSetCacheModel = true;
     D(dprintf("CACHES SETUP, total %d\n", cacheTotalCapacity));
 }
@@ -487,8 +490,16 @@ QUAD WebProcess::maxDiskCacheSize() const
 
 void WebProcess::setDiskCacheSize(QUAD sizeMax)
 {
+	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+	bool wasUnset = ms_diskCacheSizeUninitialized == m_diskCacheSize;
+
 	m_diskCacheSize = std::min(sizeMax, calculateMaxCacheSize("PROGDIR:Cache/Curl"));
 	CurlCacheManager::singleton().setStorageSizeLimit(m_diskCacheSize);
+
+	if (wasUnset && (m_diskCacheSize > 0) && (m_diskCacheSize < ms_diskCacheSizeUninitialized))
+	{
+    	CurlCacheManager::singleton().setCacheDirectory(String("PROGDIR:Cache/Curl"));
+	}
 }
 
 void WebProcess::signalMainThread()
