@@ -815,8 +815,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		
 		auto webPage = [_private page];
 
-		webPage->setLowPowerMode(true);
-
 		webPage->_fInvalidate = [self](bool force) { [self invalidated:force]; };
 
 		webPage->_fSetDocumentSize = [self](int width, int height) {
@@ -991,6 +989,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				OBString *log = [OBString stringWithUTF8String:umessage.data()];
 
 				[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
+			}
+			else
+			{
+				// dprintf("CONSOLE(%d@%d): %s\n", level, line, message.utf8().data());
 			}
 		};
 		
@@ -1631,18 +1633,22 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	if ([super show:clip])
 	{
-		auto webPage = [_private page];
-		webPage->goVisible();
-		
-		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-			webPage->setLowPowerMode(false);
-		
-		if ([_private documentWidth])
+		if (![_private isLiveResizing])
 		{
-			[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
-				height:[_private documentHeight]];
-			[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+			auto webPage = [_private page];
+			webPage->goVisible();
+			
+			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+				webPage->setLowPowerMode(false);
+			
+			if ([_private documentWidth])
+			{
+				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+					height:[_private documentHeight]];
+				[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+			}
 		}
+
 		return YES;
 	}
 	
@@ -1659,11 +1665,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	[super hide];
 
-	auto webPage = [_private page];
-	webPage->goHidden();
+	if (![_private isLiveResizing])
+	{
+		auto webPage = [_private page];
+		webPage->goHidden();
 
-	if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-		webPage->setLowPowerMode(true);
+		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+			webPage->setLowPowerMode(true);
+	}
 }
 
 - (void)initResize:(ULONG)flags
@@ -1934,7 +1943,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
     if (![string length])
         return NO;
 	auto webPage = [_private page];
-	auto frame = webPage->mainFrame();
 	WebCore::FindOptions options;
 
 	if (!forward)

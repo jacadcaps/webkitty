@@ -3,6 +3,14 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 27.09.2020:
+	- Tweaked various WebKit settings to be more in-line with Safari
+	- Fixed CSS animations
+	- Fixed requestAnimationFrame support
+	- Fixed throttling handling
+	- Enabled ResizeObserver support
+	(All of the above fix Twitter, Bing Maps and (partially) Google Maps)
+
 - 24.09.2020
 	- Fixed a crash related to media playback attempts
 	- Minor fixes for potential issues in Curl backend

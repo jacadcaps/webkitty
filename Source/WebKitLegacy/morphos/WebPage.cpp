@@ -767,6 +767,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setAuthorAndUserStylesEnabled(true);
     settings.setFixedFontFamily("Courier New");
     settings.setDefaultFixedFontSize(13);
+    settings.setResizeObserverEnabled(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -776,7 +777,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 	settings.setAcceleratedFiltersEnabled(false);
-//    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
+    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #else
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
@@ -791,6 +792,16 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 	settings.setLocalStorageEnabled(true);
+	
+// 	settings.setDeveloperExtrasEnabled(true);
+	settings.setXSSAuditorEnabled(true);
+	settings.setVisualViewportAPIEnabled(true);
+	
+	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
+	settings.setAnimatedImageAsyncDecodingEnabled(false);
+
+	settings.setViewportFitEnabled(true);
+	settings.setConstantPropertiesEnabled(true);
 	
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
@@ -1060,12 +1071,14 @@ void WebPage::goInactive()
 void WebPage::goVisible()
 {
 	m_isVisible = true;
+	corePage()->setIsVisible(true);
 	corePage()->userInputBridge().focusSetActive(true);
 }
 
 void WebPage::goHidden()
 {
 	m_isVisible = false;
+	corePage()->setIsVisible(false);
 	corePage()->userInputBridge().focusSetActive(false);
 }
 
@@ -1084,6 +1097,8 @@ void WebPage::endLiveResize()
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	coreFrame->view()->willEndLiveResize();
+	corePage()->setIsVisible(true);
+	corePage()->userInputBridge().focusSetActive(true);
 }
 
 void WebPage::setFocusedElement(WebCore::Element *element)
@@ -1497,6 +1512,8 @@ void WebPage::setVisibleSize(const int width, const int height)
   		auto* coreFrame = m_mainFrame->coreFrame();
 //  		coreFrame->document()->updateStyleIfNeeded();
 		coreFrame->view()->resize(width, height);
+		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
+		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
 
 //		corePage()->mainFrame().view()->enableAutoSizeMode(true, { width, height });
 #if 0
@@ -1685,6 +1702,18 @@ void WebPage::setAllowsScrolling(bool allows)
 	if (coreFrame)
 		coreFrame->view()->setCanHaveScrollbars(allows);
 }
+
+#if 0
+void WebPage::flushCompositing()
+{
+dprintf("flushing compositing...\n");
+	m_page->updateRendering();
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+		coreFrame->view()->flushCompositingStateIncludingSubframes();
+}
+#endif
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
 {
@@ -1972,14 +2001,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 		{
 			if (imsg->Class == IDCMP_MOUSEMOVE)
 				m_clickCount = 0;
-			else if (imsg->Code == SELECTDOWN || imsg->Code == MENUDOWN || imsg->Code == MIDDLEDOWN)
+			else if (imsg->Code == SELECTDOWN || imsg->Code == MIDDLEDOWN)
 				m_clickCount ++;
 			
 			WebCore::SyntheticClickType clickType = WebCore::SyntheticClickType::NoTap;
 			if (imsg->Code == SELECTDOWN)
 				clickType = WebCore::SyntheticClickType::OneFingerTap;
-			else if (imsg->Code == MENUDOWN)
-				clickType = WebCore::SyntheticClickType::TwoFingerTap;
 
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),
@@ -2198,7 +2225,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					if (1) //m_isActive || isDefaultHandler)
 					{
-						float wheelTicksY = 1;
+						float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
 						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
 						WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
 							WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),

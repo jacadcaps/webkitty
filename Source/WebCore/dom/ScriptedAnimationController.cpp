@@ -260,6 +260,9 @@ void ScriptedAnimationController::scheduleAnimation()
     if (!requestAnimationFrameEnabled())
         return;
 
+// not ideal, but this goes through some odd layer flushing and break shit
+// tried implementing it in chrome, but it probably needs full layering to really work
+#if !OS(MORPHOS)
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
     if (!m_isUsingTimer && !isThrottled()) {
         if (auto* page = this->page()) {
@@ -269,6 +272,7 @@ void ScriptedAnimationController::scheduleAnimation()
 
         m_isUsingTimer = true;
     }
+#endif
 #endif
     if (m_animationTimer.isActive())
         return;

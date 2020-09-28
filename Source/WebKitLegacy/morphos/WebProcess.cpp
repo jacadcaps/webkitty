@@ -21,6 +21,8 @@
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DOMWindow.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/PageConsoleClient.h>
+#include <WebCore/RuntimeEnabledFeatures.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -119,6 +121,19 @@ void WebProcess::initialize(int sigbit)
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
+
+	{
+		JSLockHolder lock(commonVM());
+		PageConsoleClient::setShouldPrintExceptions(true);
+	}
+
+	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsEnabled(true);
+	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCSSIntegrationEnabled(false);
+	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsMutableTimelinesEnabled(true);
+	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCompositeOperationsEnabled(true);
+	
+	RuntimeEnabledFeatures::sharedFeatures().setDataTransferItemsEnabled(true);
+	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
 
 	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
 
