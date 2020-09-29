@@ -778,8 +778,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 	settings.setAcceleratedFiltersEnabled(false);
-    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #else
+	// see https://bugtracker.morphos.net/view.php?id=4722 why this has to be off
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
 
