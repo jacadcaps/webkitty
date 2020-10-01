@@ -56,7 +56,7 @@ extern "C" {
 	void dprintf(const char *, ...);
 };
 
-#define D(x) 
+#define D(x)
 
 /// TODO
 /// MemoryPressureHandler !
@@ -78,6 +78,12 @@ namespace WebKit {
 QUAD calculateMaxCacheSize(const char *path)
 {
 	BPTR lock = Lock(path, ACCESS_READ);
+
+	if (0 == lock)
+	{
+		WTF::FileSystemImpl::makeAllDirectories(WTF::String::fromUTF8(path));
+		lock = Lock(path, ACCESS_READ);
+	}
 
 	if (lock)
 	{
@@ -490,11 +496,12 @@ QUAD WebProcess::maxDiskCacheSize() const
 
 void WebProcess::setDiskCacheSize(QUAD sizeMax)
 {
-	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	bool wasUnset = ms_diskCacheSizeUninitialized == m_diskCacheSize;
 
 	m_diskCacheSize = std::min(sizeMax, calculateMaxCacheSize("PROGDIR:Cache/Curl"));
 	CurlCacheManager::singleton().setStorageSizeLimit(m_diskCacheSize);
+
+	D(dprintf("%s %lld %d\n", __PRETTY_FUNCTION__, m_diskCacheSize, wasUnset));
 
 	if (wasUnset && (m_diskCacheSize > 0) && (m_diskCacheSize < ms_diskCacheSizeUninitialized))
 	{
