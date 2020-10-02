@@ -33,6 +33,7 @@
 		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
 		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
 		0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0178C4042486D3EC00B5BA7F /* WkDownload.mm */; };
+		01951354252624890017D692 /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01951352252624880017D692 /* WkHitTest.mm */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
 		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
@@ -125,6 +126,9 @@
 		01816F15242B985E007717A6 /* BackForwardClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BackForwardClient.h; path = Source/WebKitLegacy/morphos/BackForwardClient.h; sourceTree = "<group>"; };
 		01816F17242B985E007717A6 /* WkWebView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WkWebView.h; path = Source/WebKitLegacy/morphos/WkWebView.h; sourceTree = "<group>"; };
 		01816F18242B985E007717A6 /* WebApplicationCache.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebApplicationCache.h; path = Source/WebKitLegacy/morphos/WebApplicationCache.h; sourceTree = "<group>"; };
+		01951351252624880017D692 /* WkHitTest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest.h; path = Source/WebKitLegacy/morphos/WkHitTest.h; sourceTree = "<group>"; };
+		01951352252624880017D692 /* WkHitTest.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHitTest.mm; path = Source/WebKitLegacy/morphos/WkHitTest.mm; sourceTree = "<group>"; };
+		01951353252624890017D692 /* WkHitTest_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest_private.h; path = Source/WebKitLegacy/morphos/WkHitTest_private.h; sourceTree = "<group>"; };
 		0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebContextMenuClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebContextMenuClient.cpp; sourceTree = "<group>"; };
 		0198443E242FECDF0057CD22 /* WebEditorClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebEditorClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebEditorClient.h; sourceTree = "<group>"; };
 		0198443F242FECE00057CD22 /* WebFrameNetworkingContext.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrameNetworkingContext.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameNetworkingContext.h; sourceTree = "<group>"; };
@@ -250,6 +254,9 @@
 				013D3C79245F22E600805F29 /* WkHistory_private.h */,
 				01B27291245EF46B00B7277E /* WkHistory.h */,
 				01B27292245EF46B00B7277E /* WkHistory.mm */,
+				01951353252624890017D692 /* WkHitTest_private.h */,
+				01951351252624880017D692 /* WkHitTest.h */,
+				01951352252624880017D692 /* WkHitTest.mm */,
 				01F884E9245C58DE00088E76 /* WkNetworkRequestMutable.h */,
 				01F884EA245C58DE00088E76 /* WkNetworkRequestMutable.mm */,
 				013D3C9224633B0B00805F29 /* WkSettings.h */,
@@ -352,6 +359,7 @@
 				011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */,
 				0138E9312433BA2F00B53904 /* WebPageGroup.cpp in Sources */,
 				013D3C8A246042EC00805F29 /* cosmeticFilter.cpp in Sources */,
+				01951354252624890017D692 /* WkHitTest.mm in Sources */,
 				014836F42483321500C3E7F0 /* WkError.mm in Sources */,
 				011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */,
 				011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */,

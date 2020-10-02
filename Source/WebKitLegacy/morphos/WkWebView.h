@@ -9,6 +9,9 @@
 @class WkCertificate;
 @class WkCertificateChain;
 @class WkError;
+@class WkHitTest;
+@class MUIMenu;
+@class MUIMenuitem;
 @protocol WkFileDialogSettings;
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
@@ -113,7 +116,8 @@ typedef enum {
 
 @protocol WkWebViewContextMenuDelegate <OBObject>
 
-
+- (void)webView:(WkWebView *)view needsToPopulateMenu:(MUIMenu *)menu withHitTest:(WkHitTest *)hitTest;
+- (void)webView:(WkWebView *)view didSelectMenuitemWithUserDatra:(LONG)userData withHitTest:(WkHitTest *)hitTest;
 
 @end
 
@@ -180,6 +184,7 @@ typedef enum {
 - (void)setDialogDelegate:(id<WkWebViewDialogDelegate>)delegate;
 - (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate;
 - (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate;
+- (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
 
 - (void)dumpDebug;
 

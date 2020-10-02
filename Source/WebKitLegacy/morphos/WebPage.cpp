@@ -2436,5 +2436,78 @@ void WebPage::onContextMenuItemSelected(ULONG action, const char *title)
 	page->contextMenuController().contextMenuItemSelected(cmaction, wtftitle);
 }
 
+WebCore::Frame * WebPage::fromHitTest(WebCore::HitTestResult &hitTest) const
+{
+	return hitTest.innerNonSharedNode()->document().frame();
+}
+
+bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		Ref<Frame> protector(*frame);
+		frame->editor().copyImage(hitTest);
+	}
+	
+	return false;
+}
+
+bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const
+{
+	return false;
+}
+
+void WebPage::hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, const WTF::String &text) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().insertText(text, nullptr);
+	}
+}
+
+void WebPage::hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Cut").execute();
+	}
+}
+
+void WebPage::hitTestCopySelectedText(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Copy").execute();
+	}
+}
+
+void WebPage::hitTestPaste(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Paste").execute();
+	}
+}
+
+void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("SelectAll").execute();
+	}
+}
+
+void WebPage::startDownload(const WTF::URL &url)
+{
+	if (m_mainFrame)
+		m_mainFrame->startDownload(url);
+}
+
 }
 

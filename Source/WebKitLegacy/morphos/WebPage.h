@@ -187,6 +187,18 @@ public:
 	
 	void setContextMenuHandling(ContextMenuHandling handling) { m_cmHandling = handling; }
 	ContextMenuHandling contextMenuHandling() const { return m_cmHandling; }
+	
+	// WkHitTest support...
+	WebCore::Frame *fromHitTest(WebCore::HitTestResult &hitTest) const;
+	bool hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const;
+	bool hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const;
+	void hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, const WTF::String &text) const;
+	void hitTestCopySelectedText(WebCore::HitTestResult &hitTest) const;
+	void hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const;
+	void hitTestPaste(WebCore::HitTestResult &hitTest) const;
+	void hitTestSelectAll(WebCore::HitTestResult &hitTest) const;
+
+	void startDownload(const WTF::URL &url);
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
