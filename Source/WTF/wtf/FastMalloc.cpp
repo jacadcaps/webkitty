@@ -52,6 +52,7 @@
 
 #if OS(MORPHOS)
 #include <cstdint>
+extern "C" { void dprintf(const char *,... ); }
 #endif
 
 namespace WTF {
@@ -141,8 +142,10 @@ void* fastAlignedMalloc(size_t alignment, size_t size)
 {
     ASSERT_IS_WITHIN_LIMIT(size);
     void* p = _aligned_malloc(size, alignment);
-    if (UNLIKELY(!p))
+    if (UNLIKELY(!p)) {
+		dprintf("Failed allocating %lu bytes of memory aligned to %lu. WebKitty will now crash...\n", size, alignment);
         CRASH();
+	}
     return p;
 }
 

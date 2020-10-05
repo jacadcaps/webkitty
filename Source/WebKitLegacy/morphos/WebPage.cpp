@@ -770,6 +770,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setAuthorAndUserStylesEnabled(true);
     settings.setFixedFontFamily("Courier New");
     settings.setDefaultFixedFontSize(13);
+    settings.setResizeObserverEnabled(true);
+	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -795,7 +797,17 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //     settings.setStorageBlockingPolicy(SecurityOrigin::StorageBlockingPolicy::BlockAllStorage);
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 	settings.setLocalStorageEnabled(true);
-	
+
+// 	settings.setDeveloperExtrasEnabled(true);
+	settings.setXSSAuditorEnabled(true);
+	settings.setVisualViewportAPIEnabled(true);
+
+	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
+	settings.setAnimatedImageAsyncDecodingEnabled(false);
+
+	settings.setViewportFitEnabled(true);
+	settings.setConstantPropertiesEnabled(true);
+
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
@@ -820,7 +832,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 WebPage::~WebPage()
 {
-	D(dprintf("%s\n", __PRETTY_FUNCTION__));
+	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+	clearDelegateCallbacks();
 	delete m_drawContext;
 	delete m_autofillElements;
 }
@@ -1057,12 +1070,14 @@ void WebPage::goInactive()
 void WebPage::goVisible()
 {
 	m_isVisible = true;
+	corePage()->setIsVisible(true);
 	corePage()->userInputBridge().focusSetActive(true);
 }
 
 void WebPage::goHidden()
 {
 	m_isVisible = false;
+	corePage()->setIsVisible(false);
 	corePage()->userInputBridge().focusSetActive(false);
 }
 
@@ -1081,6 +1096,8 @@ void WebPage::endLiveResize()
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	coreFrame->view()->willEndLiveResize();
+	corePage()->setIsVisible(true);
+	corePage()->userInputBridge().focusSetActive(true);
 }
 
 void WebPage::setFocusedElement(WebCore::Element *element)
@@ -1156,7 +1173,7 @@ void WebPage::setCursor(int cursor)
 	{
 		m_cursor = cursor;
 
-		if (m_trackMouse && _fSetCursor)
+		if (!m_trackMouse && _fSetCursor)
 			_fSetCursor(m_cursor);
 	}
 }
@@ -1479,6 +1496,8 @@ void WebPage::setVisibleSize(const int width, const int height)
   		auto* coreFrame = m_mainFrame->coreFrame();
 //  		coreFrame->document()->updateStyleIfNeeded();
 		coreFrame->view()->resize(width, height);
+		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
+		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
 
 //		corePage()->mainFrame().view()->enableAutoSizeMode(true, { width, height });
 #if 0
@@ -1665,6 +1684,18 @@ void WebPage::setAllowsScrolling(bool allows)
 	if (coreFrame)
 		coreFrame->view()->setCanHaveScrollbars(allows);
 }
+
+#if 0
+void WebPage::flushCompositing()
+{
+dprintf("flushing compositing...\n");
+	m_page->updateRendering();
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+		coreFrame->view()->flushCompositingStateIncludingSubframes();
+}
+#endif
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
 {
@@ -1953,14 +1984,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 		{
 			if (imsg->Class == IDCMP_MOUSEMOVE)
 				m_clickCount = 0;
-			else if (imsg->Code == SELECTDOWN || imsg->Code == MENUDOWN || imsg->Code == MIDDLEDOWN)
+			else if (imsg->Code == SELECTDOWN || imsg->Code == MIDDLEDOWN)
 				m_clickCount ++;
 			
 			WebCore::SyntheticClickType clickType = WebCore::SyntheticClickType::NoTap;
 			if (imsg->Code == SELECTDOWN)
 				clickType = WebCore::SyntheticClickType::OneFingerTap;
-			else if (imsg->Code == MENUDOWN)
-				clickType = WebCore::SyntheticClickType::TwoFingerTap;
 
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),
@@ -2098,11 +2127,16 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 							}
 						}
-						else if (_fContextMenu)
+						else if (_fContextMenu && !doEvent)
 						{
 							// force a context menu!
 							_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
 							WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+						}
+						else if (doEvent)
+						{
+							bridge.handleMousePressEvent(pme);
+							m_trackMouse = true;
 						}
 
 						return true;
@@ -2181,7 +2215,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					if (1) //m_isActive || isDefaultHandler)
 					{
-						float wheelTicksY = 1;
+						float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
 						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
 						WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
 							WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
@@ -2386,6 +2420,78 @@ void WebPage::onContextMenuItemSelected(ULONG action, const char *title)
 	if (!page)
 		return;
 	page->contextMenuController().contextMenuItemSelected(cmaction, wtftitle);
+}
+
+WebCore::Frame * WebPage::fromHitTest(WebCore::HitTestResult &hitTest) const
+{
+	return hitTest.innerNonSharedNode()->document().frame();
+}
+
+bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		Ref<Frame> protector(*frame);
+		frame->editor().copyImage(hitTest);
+	}
+
+	return false;
+}
+
+bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const
+{
+	return false;
+}
+
+void WebPage::hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, const WTF::String &text) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().insertText(text, nullptr);
+	}
+}
+
+void WebPage::hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Cut").execute();
+	}
+}
+
+void WebPage::hitTestCopySelectedText(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Copy").execute();
+	}
+}
+
+void WebPage::hitTestPaste(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("Paste").execute();
+	}
+}
+
+void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().command("SelectAll").execute();
+	}
+}
+
+void WebPage::startDownload(const WTF::URL &url)
+{
+	m_mainFrame->startDownload(url);
 }
 
 }

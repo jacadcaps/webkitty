@@ -58,6 +58,9 @@
 #include <WebCore/ApplicationCacheStorage.h>
 #include "PopupMenu.h"
 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
+
 using namespace WebCore;
 
 namespace WebKit {
@@ -190,13 +193,12 @@ void WebChromeClient::setScrollbarsVisible(bool b)
 
 bool WebChromeClient::scrollbarsVisible()
 {
-	m_webPage.allowsScrolling();
+	return m_webPage.allowsScrolling();
 }
 
 void WebChromeClient::setMenubarVisible(bool visible)
 {
 	notImplemented();
-
 }
 
 bool WebChromeClient::menubarVisible()

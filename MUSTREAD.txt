@@ -3,6 +3,29 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 02.10.2020:
+	- Disabled OscillatorNode support since it seems to be trashing memory
+	  on pages like Yahoo's login and possibly Google Drive
+
+- 28.09.2020:
+	- Fixed not to select items/text on rmb
+	- Fixed rmb handling on Google Maps, etc
+	- Streamlined Curl cache setup to avoid scanning the cache files twice
+	- Optimized Curl caches scan by about 10%
+
+- 27.09.2020:
+	- Tweaked various WebKit settings to be more in-line with Safari
+	- Fixed CSS animations
+	- Fixed requestAnimationFrame support
+	- Fixed throttling handling
+	- Enabled ResizeObserver support
+	(All of the above fix Twitter, Bing Maps and (partially) Google Maps)
+
+- 24.09.2020
+	- Fixed a crash related to media playback attempts
+	- Minor fixes for potential issues in Curl backend
+	- Disabled SQLite WAL mode
+
 - 23.09.2020
 	- Rebased to WebKitGkt 2.30.0 (Sep 2020)
 	- Fixed a crash when attempting to play videos
