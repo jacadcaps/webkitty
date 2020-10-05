@@ -81,7 +81,8 @@ protected:
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
-    QUAD m_diskCacheSize;
+    static const QUAD ms_diskCacheSizeUninitialized = 0x7FFFFFFFFFFFFFFFll;
+    QUAD m_diskCacheSize { ms_diskCacheSizeUninitialized };
     ABP::ABPFilterParser m_urlFilter;
     std::vector<char>    m_urlFilterData;
     Optional<PAL::SessionID> m_sessionID;

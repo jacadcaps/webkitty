@@ -20,6 +20,8 @@
 #import <WebCore/HitTestResult.h>
 #define __OBJC__
 
+#import "WkHitTest_private.h"
+
 #import <ob/OBFramework.h>
 #import <mui/MUIFramework.h>
 #import <proto/muimaster.h>
@@ -51,7 +53,10 @@ extern "C" { LONG MEM_ValidateAllocs(LONG); }
 
 #define D(x) 
 
-// #define MEMORY_CHECK_FREQUENCY 2.5f
+// #define VALIDATE_ALLOCS 15.f
+#ifdef VALIDATE_ALLOCS
+extern "C" { ULONG MEM_ValidateAllocs(ULONG flags); }
+#endif
 
 namespace  {
 	static int _viewInstanceCount;
@@ -142,6 +147,7 @@ namespace  {
 	id<WkWebViewDialogDelegate>          _dialogDelegate;
 	id<WkWebViewAutofillDelegate>        _autofillDelegate;
 	id<WkWebViewProgressDelegate>        _progressDelegate;
+	id<WkWebViewContextMenuDelegate>     _contextMenuDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	WkBackForwardListPrivate            *_backForwardList;
 	WkSettings_Throttling                _throttling;
@@ -212,6 +218,11 @@ namespace  {
 - (WebKit::WebPage *)page
 {
 	return _page.get();
+}
+
+- (WTF::RefPtr<WebKit::WebPage>)pageRefPtr
+{
+	return _page;
 }
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
@@ -319,6 +330,16 @@ namespace  {
 - (id<WkWebViewProgressDelegate>)progressDelegate
 {
 	return _progressDelegate;
+}
+
+- (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate
+{
+	_contextMenuDelegate = delegate;
+}
+
+- (id<WkWebViewContextMenuDelegate>)contextMenuDelegate
+{
+	return _contextMenuDelegate;
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
@@ -633,8 +654,8 @@ static inline void validateObjCContext() {
 	}
 }
 
-#ifdef MEMORY_CHECK_FREQUENCY
-+ (void)checkMemory
+#ifdef VALIDATE_ALLOCS
++ (void)validateAllocs
 {
 	MEM_ValidateAllocs(1);
 }
@@ -769,8 +790,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					_timerPerform = [[OBPerform performSelector:@selector(fire) target:[self class]] retain];
 					_heartBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:0.25 perform:_timerPerform repeats:YES] retain];
 
-#ifdef MEMORY_CHECK_FREQUENCY
- 					[OBScheduledTimer scheduledTimerWithInterval:5.0 perform:[OBPerform performSelector:@selector(checkMemory) target:[self class]] repeats:YES];
+#ifdef VALIDATE_ALLOCS
+ 					[OBScheduledTimer scheduledTimerWithInterval:VALIDATE_ALLOCS perform:[OBPerform performSelector:@selector(checkMemory) target:[self class]] repeats:YES];
 #endif
 
 					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
@@ -811,8 +832,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		}
 		
 		auto webPage = [_private page];
-
-		webPage->setLowPowerMode(true);
 
 		webPage->_fInvalidate = [self](bool force) { [self invalidated:force]; };
 
@@ -950,12 +969,19 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		
 		webPage->_fContextMenu = [self](const WebCore::IntPoint& pos, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest) -> void {
 			validateObjCContext();
-			if (items.size() > 0)
-			{
-				WkWebViewPrivate *privateObject = [self privateObject];
-				WebKit::WebPage *page = [privateObject page];
-				MUIMenu *menu = [[MUIMenu new] autorelease];
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
+			WebKit::WebPage *page = [privateObject page];
+			MUIMenu *menu = [[MUIMenu new] autorelease];
+			WkHitTest *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
+
+			if (contextMenuDelegate)
+				[contextMenuDelegate webView:self needsToPopulateMenu:menu withHitTest:wkhit];
+			else
 				populateContextMenu(menu, items);
+
+			if ([menu count])
+			{
 				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
 				if (strip)
 				{
@@ -963,12 +989,21 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
 					if (rc)
 					{
-						MUIMenuitem *item = [strip findUData:rc];
-						page->onContextMenuItemSelected(rc, [[item title] cString]);
+						if (contextMenuDelegate)
+						{
+							[contextMenuDelegate webView:self didSelectMenuitemWithUserDatra:rc withHitTest:wkhit];
+						}
+						else
+						{
+							MUIMenuitem *item = [strip findUData:rc];
+							page->onContextMenuItemSelected(rc, [[item title] cString]);
+						}
 					}
 					[strip release];
 				}
 			}
+
+			[wkhit release];
 		};
 		
 		webPage->_fHistoryChanged = [self]() {
@@ -1626,22 +1661,26 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (BOOL)show:(struct LongRect *)clip
 {
-	if ([super show:clip])
-	{
-		auto webPage = [_private page];
-		webPage->goVisible();
-		
-		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-			webPage->setLowPowerMode(false);
-		
-		if ([_private documentWidth])
+ 	if ([super show:clip])
+ 	{
+		if (![_private isLiveResizing])
 		{
-			[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
-				height:[_private documentHeight]];
-			[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+			auto webPage = [_private page];
+			webPage->goVisible();
+
+			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+				webPage->setLowPowerMode(false);
+
+			if ([_private documentWidth])
+			{
+				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+					height:[_private documentHeight]];
+				[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+			}
 		}
-		return YES;
-	}
+
+ 		return YES;
+ 	}
 	
 	return NO;
 }
@@ -1656,11 +1695,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	[super hide];
 
-	auto webPage = [_private page];
-	webPage->goHidden();
+	if (![_private isLiveResizing])
+	{
+		auto webPage = [_private page];
+		webPage->goHidden();
 
-	if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
-		webPage->setLowPowerMode(true);
+		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
+			webPage->setLowPowerMode(true);
+	}
 }
 
 - (void)initResize:(ULONG)flags
@@ -1730,60 +1772,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	return 0;
 }
-
-#if 0
-static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::ContextMenuItem> &items)
-{
-	for (const WebCore::ContextMenuItem& item : items)
-	{
-		auto title = item.title().utf8();
-
-		switch (item.type())
-		{
-		case WebCore::ContextMenuItemType::ActionType:
-			[menu addObject:[MUIMenuitem itemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:ULONG(item.action())]];
-			break;
-		case WebCore::ContextMenuItemType::CheckableActionType:
-			[menu addObject:[MUIMenuitem checkmarkItemWithTitle:[OBString stringWithUTF8String:title.data()] shortcut:nil userData:int(item.action()) checked:item.checked()]];
-			break;
-		case WebCore::ContextMenuItemType::SeparatorType:
-			[menu addObject:[MUIMenuitem barItem]];
-			break;
-		case WebCore::ContextMenuItemType::SubmenuType:
-			{
-				MUIMenu *submenu = [MUIMenu menuWithTitle:[OBString stringWithUTF8String:title.data()] objects:nil, nil];
-				[menu addObject:submenu];
-				populateContextMenu(submenu, item.subMenuItems());
-			}
-			break;
-		}
-	}
-}
-
-- (IPTR)contextMenuAdd:(MUIMenustrip *)menustrip mx:(LONG)mx my:(LONG)my mxp:(LONG *)mxp myp:(LONG *)myp
-{
-	auto webPage = [_private page];
-	auto items = webPage->buildContextMenu(mx - [self left], my - [self top]);
-
-	(void)mxp;
-	(void)myp;
-
-	if (0 == items.size())
-		return 0;
-
-	MUIMenu *menu = [MUIMenu menuWithTitle:[[MUIApplication currentApplication] title] objects:nil, nil];
-	[menustrip addObject:menu];
-	populateContextMenu(menu, items);
-
-	return 0;
-}
-
-- (void)contextMenuChoice:(MUIMenuitem *)item
-{
-	auto webPage = [_private page];
-	webPage->onContextMenuItemSelected([item userData], [[item title] cString]);
-}
-#endif
 
 - (void)lateDraw
 {
@@ -1861,6 +1849,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[_private setProgressDelegate:delegate];
 }
 
+- (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate
+{
+	[_private setContextMenuDelegate:delegate];
+}
+
 - (BOOL)hasAutofillElements
 {
 	auto webPage = [_private page];
@@ -1931,7 +1924,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
     if (![string length])
         return NO;
 	auto webPage = [_private page];
-	auto frame = webPage->mainFrame();
 	WebCore::FindOptions options;
 
 	if (!forward)

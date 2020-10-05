@@ -133,6 +133,10 @@ protected:
     void setNeedsOneShotDrawingSynchronization() final { }
     void scheduleRenderingUpdate() final { }
 	
+	// for some odd ScriptedAnimationController mode to work... otherwise stops ticking
+	// not used atm due to patches elsewhere, but let's keep that
+	bool needsImmediateRenderingUpdate() const final { return true; }
+	
  	CompositingTriggerFlags allowedCompositingTriggers() const { return static_cast<CompositingTriggerFlags>(0); }
 #if 0
     CompositingTriggerFlags allowedCompositingTriggers() const final
