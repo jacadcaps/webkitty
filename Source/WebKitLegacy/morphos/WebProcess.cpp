@@ -128,7 +128,7 @@ void WebProcess::initialize(int sigbit)
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 	PAL::GCrypt::initialize();
 
-#if 0 // debug
+#if 1 // debug
 	{
 		JSLockHolder lock(commonVM());
 		PageConsoleClient::setShouldPrintExceptions(true);

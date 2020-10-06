@@ -1024,6 +1024,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 				[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
 			}
+			else
+			{
+				dprintf("C(%d@%d): %s\n", level, line, message.utf8().data());
+			}
 		};
 		
 		webPage->_fDidFailWithError = [self](const WebCore::ResourceError &error) {
