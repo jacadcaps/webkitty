@@ -199,6 +199,7 @@ public:
 	void hitTestSelectAll(WebCore::HitTestResult &hitTest) const;
 
 	void startDownload(const WTF::URL &url);
+	void flushCompositing();
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -243,6 +244,7 @@ private:
     bool m_justWentActive { false };
     bool m_isActive { false };
     bool m_isVisible { false };
+    bool m_needsCompositingFlush { false };
     WebCore::Element *m_focusedElement { nullptr };
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };

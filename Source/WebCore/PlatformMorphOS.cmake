@@ -12,9 +12,7 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     ${WEBCORE_DIR}/platform
     ${WEBCORE_DIR}/platform/morphos
     ${WEBCORE_DIR}/platform/generic
-    ${WEBCORE_DIR}/platform/graphics/egl
-    ${WEBCORE_DIR}/platform/graphics/opengl
-    ${WEBCORE_DIR}/platform/graphics/libwpe
+    ${WEBCORE_DIR}/platform/graphics/morphos
     ${WEBCORE_DIR}/platform/mediacapabilities
 )
 
@@ -65,6 +63,7 @@ list(APPEND WebCore_SOURCES
     platform/audio/morphos/AudioFileReaderMorphOS.cpp
     platform/audio/morphos/FFTFrameMorphOS.cpp
     platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
+    platform/graphics/morphos/DisplayRefreshMonitorMorphOS.cpp
 )
 
 if (ENABLE_ACINERELLA)

@@ -131,7 +131,7 @@ protected:
     // Sets a flag to specify that the next time content is drawn to the window,
     // the changes appear on the screen in synchrony with updates to GraphicsLayers.
     void setNeedsOneShotDrawingSynchronization() final { }
-    void scheduleRenderingUpdate() final { }
+    void scheduleRenderingUpdate() final;
 	
 	// for some odd ScriptedAnimationController mode to work... otherwise stops ticking
 	// not used atm due to patches elsewhere, but let's keep that

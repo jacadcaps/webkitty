@@ -1595,6 +1595,17 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 
     m_page->updateRendering();
 
+	if (m_needsCompositingFlush)
+	{
+		m_needsCompositingFlush = false;
+
+		OptionSet<FinalizeRenderingUpdateFlags> flags;
+		m_page->finalizeRenderingUpdate(flags);
+
+		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
+		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
+	}
+
 #if 0
 	frameView->updateLayoutAndStyleIfNeededRecursive();
 //	frameView->updateCompositingLayersAfterLayout();
@@ -1685,17 +1696,14 @@ void WebPage::setAllowsScrolling(bool allows)
 		coreFrame->view()->setCanHaveScrollbars(allows);
 }
 
-#if 0
 void WebPage::flushCompositing()
 {
-dprintf("flushing compositing...\n");
-	m_page->updateRendering();
+	m_needsCompositingFlush = true;
 
-	auto* coreFrame = m_mainFrame->coreFrame();
-	if (coreFrame)
-		coreFrame->view()->flushCompositingStateIncludingSubframes();
+	if (_fInvalidate)
+		_fInvalidate(false);
+
 }
-#endif
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
 {

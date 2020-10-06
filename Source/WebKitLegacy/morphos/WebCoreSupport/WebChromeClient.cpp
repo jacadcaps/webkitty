@@ -430,6 +430,11 @@ notImplemented();
     // FIXME: If we want view-relative page overlays in Legacy WebKit on Windows, this would be the place to hook them up.
 }
 
+void WebChromeClient::scheduleRenderingUpdate()
+{
+	m_webPage.flushCompositing();
+}
+
 bool WebChromeClient::selectItemWritingDirectionIsNatural()
 {
     return false;

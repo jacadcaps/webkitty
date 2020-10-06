@@ -81,7 +81,7 @@ AutofillElements::AutofillElements()
 bool AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
 {
     if (!start->document().page())
-        false;
+        return false;
     FocusController& focusController = start->document().page()->focusController();
     if (start->isPasswordField()) {
         RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
