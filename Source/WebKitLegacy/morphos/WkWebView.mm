@@ -969,44 +969,41 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		
 		webPage->_fContextMenu = [self](const WebCore::IntPoint& pos, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest) -> void {
 			validateObjCContext();
-			if (items.size() > 0)
-			{
-				WkWebViewPrivate *privateObject = [self privateObject];
-				id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
-				WebKit::WebPage *page = [privateObject page];
-				MUIMenu *menu = [[MUIMenu new] autorelease];
-				WkHitTest *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
+			WebKit::WebPage *page = [privateObject page];
+			MUIMenu *menu = [[MUIMenu new] autorelease];
+			WkHitTest *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
 
-				if (contextMenuDelegate)
-					[contextMenuDelegate webView:self needsToPopulateMenu:menu withHitTest:wkhit];
-				else
-					populateContextMenu(menu, items);
-		
-				if ([menu count])
+			if (contextMenuDelegate)
+				[contextMenuDelegate webView:self needsToPopulateMenu:menu withHitTest:wkhit];
+			else
+				populateContextMenu(menu, items);
+	
+			if ([menu count])
+			{
+				MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
+				if (strip)
 				{
-					MUIMenustrip *strip = [[MUIMenustrip menustripWithObjects:menu, nil] retain];
-					if (strip)
+					// 0 on failure, all our menus return 1, 2...
+					int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
+					if (rc)
 					{
-						// 0 on failure, all our menus return 1, 2...
-						int rc = [strip popup:self flags:0 x:[self left] + pos.x() y:[self top] + pos.y()];
-						if (rc)
+						if (contextMenuDelegate)
 						{
-							if (contextMenuDelegate)
-							{
-								[contextMenuDelegate webView:self didSelectMenuitemWithUserDatra:rc withHitTest:wkhit];
-							}
-							else
-							{
-								MUIMenuitem *item = [strip findUData:rc];
-								page->onContextMenuItemSelected(rc, [[item title] cString]);
-							}
+							[contextMenuDelegate webView:self didSelectMenuitemWithUserDatra:rc withHitTest:wkhit];
 						}
-						[strip release];
+						else
+						{
+							MUIMenuitem *item = [strip findUData:rc];
+							page->onContextMenuItemSelected(rc, [[item title] cString]);
+						}
 					}
+					[strip release];
 				}
-				
-				[wkhit release];
 			}
+			
+			[wkhit release];
 		};
 		
 		webPage->_fHistoryChanged = [self]() {
