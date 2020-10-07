@@ -3,6 +3,10 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 07.10.2020:
+	- Fixed loading data from cache (resulted in missing mime type due to incorrect
+	  order of loading events)
+
 - 02.10.2020:
 	- Disabled OscillatorNode support since it seems to be trashing memory
 	  on pages like Yahoo's login and possibly Google Drive
