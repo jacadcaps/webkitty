@@ -8,6 +8,7 @@ Rough changelist:
 	  order of loading events)
 	- Shift + space does reverse scroll
 	- CSS file path fix
+	- Fixed an issue with sticky scrollers
 
 - 02.10.2020:
 	- Disabled OscillatorNode support since it seems to be trashing memory

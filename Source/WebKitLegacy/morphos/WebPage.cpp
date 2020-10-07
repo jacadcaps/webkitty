@@ -2090,8 +2090,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								}
 							}
 						}
+						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
-						return true;
+						return wasTrackMouse;
 					}
 					break;
 				case MENUDOWN:
@@ -2170,8 +2171,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					if (mouseInside || m_trackMouse)
 					{
 						bridge.handleMouseReleaseEvent(pme);
+						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
-						return true;
+						return wasTrackMouse;
 					}
 					break;
 				}

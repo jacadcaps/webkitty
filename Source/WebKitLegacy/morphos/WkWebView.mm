@@ -1775,8 +1775,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		return MUI_EventHandlerRC_Eat;
 
 	if (imsg)
-		if (webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg], [self isInObject:imsg], [[self windowObject] defaultObject] == self))
+	{
+		if (webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg],
+			[self isInObject:imsg], [[self windowObject] defaultObject] == self))
+		{
 			return MUI_EventHandlerRC_Eat;
+		}
+	}
 
 	return 0;
 }
