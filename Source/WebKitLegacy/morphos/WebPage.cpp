@@ -2319,10 +2319,24 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							break;
 
 						case RAWKEY_PAGEDOWN:
-						case RAWKEY_SPACE:
-							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
 								scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
+								return true;
+							}
+							break;
+							
+						case RAWKEY_SPACE:
+							if (!up && m_drawContext)
+							{
+								if (0 == (imsg->Qualifier & KEYQUALIFIERS))
+								{
+									scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
+								}
+								else if (((IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT) & (imsg->Qualifier & KEYQUALIFIERS)) != 0)
+								{
+									scrollBy(0, m_drawContext->height(), m_page->focusController().focusedFrame());
+								}
 								return true;
 							}
 							break;

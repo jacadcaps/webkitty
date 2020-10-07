@@ -6,6 +6,8 @@ Rough changelist:
 - 07.10.2020:
 	- Fixed loading data from cache (resulted in missing mime type due to incorrect
 	  order of loading events)
+	- Shift + space does reverse scroll
+	- CSS file path fix
 
 - 02.10.2020:
 	- Disabled OscillatorNode support since it seems to be trashing memory
