@@ -363,7 +363,15 @@ bool makeAllDirectories(const String& path)
 
 String pathGetFileName(const String& path)
 {
+#if OS(MORPHOS)
+    auto position = path.reverseFind('/');
+    if (position == notFound) {
+        position = path.reverseFind(':');
+    }
+    return path.substring(position + 1);
+#else
     return path.substring(path.reverseFind('/') + 1);
+#endif
 }
 
 String directoryName(const String& path)
