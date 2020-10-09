@@ -515,6 +515,11 @@ static int _windowID = 1;
 	_lastError = nil;
 }
 
+- (void)webView:(WkWebView *)view changedFavIcon:(WkFavIcon *)favicon
+{
+
+}
+
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL
 {
 

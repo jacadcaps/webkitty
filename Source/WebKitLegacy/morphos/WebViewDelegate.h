@@ -5,6 +5,7 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ContextMenuItem.h>
+#include <WebCore/Image.h>
 
 namespace WebCore {
 	class Page;
@@ -77,6 +78,8 @@ struct WebViewDelegate
 	std::function<void(void)>  _fProgressFinished;
 	
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
+	
+	std::function<void(WebCore::NativeImagePtr)> _fFavIconLoaded;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;

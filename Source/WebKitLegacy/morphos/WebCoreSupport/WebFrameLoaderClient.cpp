@@ -67,9 +67,12 @@
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
+#include <WebCore/BitmapImage.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
+#include <wtf/HexNumber.h>
+#include <wtf/MD5.h>
 
 #define D(x)
 
@@ -1284,11 +1287,6 @@ RefPtr<Widget> WebFrameLoaderClient::createJavaAppletWidget(const IntSize& plugi
     return nullptr;
 }
 
-static bool pluginSupportsExtension(const PluginData& pluginData, const String& extension)
-{
-    return false;
-}
-
 ObjectContentType WebFrameLoaderClient::objectContentType(const URL& url, const String& mimeTypeIn)
 {
     // FIXME: This should eventually be merged with WebCore::FrameLoader::defaultObjectContentType.
@@ -1398,21 +1396,94 @@ void WebFrameLoaderClient::didRestoreScrollPosition()
 {
 }
 
+static String generateFileNameForIcon(const WTF::URL &inURL)
+{
+    CString url(inURL.host().toString().latin1());
+
+    MD5 md5;
+    md5.addBytes(reinterpret_cast<const uint8_t*>(url.data()), url.length());
+
+    MD5::Digest sum;
+    md5.checksum(sum);
+    uint8_t* rawdata = sum.data();
+
+    StringBuilder baseNameBuilder;
+    for (size_t i = 0; i < MD5::hashSize; i++)
+        baseNameBuilder.append(WTF::hex(rawdata[i], WTF::Lowercase));
+	String out("PROGDIR:Cache/FavIcons/");
+    out.append(baseNameBuilder.toString());
+	return out;
+}
+
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
 {
-    WebPage* webPage = m_frame ? m_frame->page() : nullptr;
-    if (!webPage)
-        return;
-
-	// Don't load any icons, cause meh. Do this at some later stage perhaps?
     auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
+	const String fileName(generateFileNameForIcon(documentLoader->url()));
+
+	{
+		RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
+		if (buffer.get())
+		{
+			m_iconIdentifier = 0;
+			finishedLoadingIcon(0, buffer.get());
+
+			for (auto& icon : icons)
+				documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+			
+			return;
+		}
+	}
+
 	for (auto& icon : icons)
-		documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+	{
+		if (icon.first.type == WebCore::LinkIconType::Favicon && !m_iconIdentifier)
+		{
+			m_iconIdentifier = 1;
+			documentLoader->didGetLoadDecisionForIcon(true, icon.second, m_iconIdentifier);
+		}
+		else
+		{
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+		}
+	}
 }
 
 void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, SharedBuffer* data)
 {
-	notImplemented();
+	if (m_iconIdentifier == callbackIdentifier)
+	{
+		if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
+		{
+			auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
+			const String fileName(generateFileNameForIcon(documentLoader->url()));
+			WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
+			if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
+			{
+				if (data->size() != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))
+				{
+					WTF::FileSystemImpl::closeFile(file);
+					WTF::FileSystemImpl::deleteFile(fileName);
+				}
+				else
+				{
+					WTF::FileSystemImpl::closeFile(file);
+				}
+			
+			}
+		}
+		m_iconIdentifier = 0;
+
+		if (data && data->size())
+		{
+			auto image = WebCore::BitmapImage::create();
+			if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
+				return;
+			NativeImagePtr nativeImage = image->nativeImage();
+			WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+			if (webPage && webPage->_fFavIconLoaded)
+				webPage->_fFavIconLoaded(nativeImage);
+		}
+	}
 }
 
 void WebFrameLoaderClient::didCreateWindow(DOMWindow& window)

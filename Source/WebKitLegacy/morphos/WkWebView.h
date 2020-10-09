@@ -10,6 +10,7 @@
 @class WkCertificateChain;
 @class WkError;
 @class WkHitTest;
+@class WkFavIcon;
 @class MUIMenu;
 @class MUIMenuitem;
 @protocol WkFileDialogSettings;
@@ -48,6 +49,7 @@
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
 - (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL;
+- (void)webView:(WkWebView *)view changedFavIcon:(WkFavIcon *)favicon;
 
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready;
 

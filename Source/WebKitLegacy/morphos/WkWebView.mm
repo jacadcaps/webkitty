@@ -35,6 +35,7 @@
 #import "WkError_private.h"
 #import "WkDownload_private.h"
 #import "WkFileDialog_private.h"
+#import "WkFavIcon_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -1314,6 +1315,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[privateObject setHover:nil];
 			}
 			[[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
+		};
+		
+		webPage->_fFavIconLoaded = [self](WebCore::NativeImagePtr ptr) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:ptr]];
+			}
 		};
 	}
 	

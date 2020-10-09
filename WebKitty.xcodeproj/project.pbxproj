@@ -31,6 +31,7 @@
 		013D3C8B246042EC00805F29 /* filter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C82246042EC00805F29 /* filter.cpp */; };
 		013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C9324633B0B00805F29 /* WkSettings.mm */; };
 		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
+		01411B45252F9B740065948A /* WkFavIcon.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01411B44252F9B740065948A /* WkFavIcon.mm */; };
 		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
 		0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0178C4042486D3EC00B5BA7F /* WkDownload.mm */; };
 		01951354252624890017D692 /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01951352252624880017D692 /* WkHitTest.mm */; };
@@ -109,6 +110,9 @@
 		013D3C962463448600805F29 /* morphos.cmake.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = morphos.cmake.in; sourceTree = "<group>"; };
 		013D3C972463448600805F29 /* MUSTREAD.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = MUSTREAD.txt; sourceTree = "<group>"; };
 		013D3C992463448700805F29 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
+		01411B42252F9B740065948A /* WkFavIcon_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFavIcon_private.h; path = Source/WebKitLegacy/morphos/WkFavIcon_private.h; sourceTree = "<group>"; };
+		01411B43252F9B740065948A /* WkFavIcon.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFavIcon.h; path = Source/WebKitLegacy/morphos/WkFavIcon.h; sourceTree = "<group>"; };
+		01411B44252F9B740065948A /* WkFavIcon.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkFavIcon.mm; path = Source/WebKitLegacy/morphos/WkFavIcon.mm; sourceTree = "<group>"; };
 		014836F22483321500C3E7F0 /* WkError.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkError.mm; path = Source/WebKitLegacy/morphos/WkError.mm; sourceTree = "<group>"; };
 		014836F32483321500C3E7F0 /* WkError.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError.h; path = Source/WebKitLegacy/morphos/WkError.h; sourceTree = "<group>"; };
 		014836F52483327400C3E7F0 /* WkError_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError_private.h; path = Source/WebKitLegacy/morphos/WkError_private.h; sourceTree = "<group>"; };
@@ -248,6 +252,9 @@
 				014836F52483327400C3E7F0 /* WkError_private.h */,
 				014836F32483321500C3E7F0 /* WkError.h */,
 				014836F22483321500C3E7F0 /* WkError.mm */,
+				01411B42252F9B740065948A /* WkFavIcon_private.h */,
+				01411B43252F9B740065948A /* WkFavIcon.h */,
+				01411B44252F9B740065948A /* WkFavIcon.mm */,
 				0103C81724B945410060E2F0 /* WkFileDialog_private.h */,
 				0103C81424B945160060E2F0 /* WkFileDialog.h */,
 				0103C81524B945160060E2F0 /* WkFileDialog.mm */,
@@ -348,6 +355,7 @@
 				01B27293245EF46B00B7277E /* WkHistory.mm in Sources */,
 				01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */,
 				0120E5F924590B9E003150E3 /* PopupMenu.cpp in Sources */,
+				01411B45252F9B740065948A /* WkFavIcon.mm in Sources */,
 				0138E9342433C21500B53904 /* WebProgressTrackerClient.cpp in Sources */,
 				013D3C9424633B0B00805F29 /* WkSettings.mm in Sources */,
 				0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */,
