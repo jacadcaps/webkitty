@@ -16,6 +16,7 @@ namespace WebCore {
 	class PolicyCheckIdentifier;
 	class AuthenticationChallenge;
 	class HitTestResult;
+	class SharedBuffer;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -77,6 +78,9 @@ struct WebViewDelegate
 	std::function<void(void)>  _fProgressFinished;
 	
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
+	
+	std::function<bool(const WTF::URL &url)> _fFavIconLoad;
+	std::function<void(WebCore::SharedBuffer *)> _fFavIconLoaded;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -115,6 +119,8 @@ struct WebViewDelegate
 		_fProgressUpdated = nullptr;
 		_fProgressFinished = nullptr;
 		_fHoveredURLChanged = nullptr;
+		_fFavIconLoaded = nullptr;
+		_fFavIconLoad = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

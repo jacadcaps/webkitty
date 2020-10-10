@@ -143,6 +143,8 @@ void WebProcess::initialize(int sigbit)
 
 	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
 
+	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
+
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";
 	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat";
