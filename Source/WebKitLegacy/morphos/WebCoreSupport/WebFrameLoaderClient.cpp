@@ -1396,9 +1396,9 @@ void WebFrameLoaderClient::didRestoreScrollPosition()
 {
 }
 
-static String generateFileNameForIcon(const WTF::URL &inURL)
+String generateFileNameForIcon(const WTF::String &inHost)
 {
-    CString url(inURL.host().toString().latin1());
+    CString url(inHost.utf8());
 
     MD5 md5;
     md5.addBytes(reinterpret_cast<const uint8_t*>(url.data()), url.length());
@@ -1417,8 +1417,16 @@ static String generateFileNameForIcon(const WTF::URL &inURL)
 
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
     auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
-	const String fileName(generateFileNameForIcon(documentLoader->url()));
+	const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
+
+	if (webPage && webPage->_fFavIconLoad && !webPage->_fFavIconLoad(documentLoader->url()))
+	{
+		for (auto& icon : icons)
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+		return;
+	}
 
 	{
 		RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
@@ -1455,7 +1463,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, Shar
 		if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
 		{
 			auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
-			const String fileName(generateFileNameForIcon(documentLoader->url()));
+			const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
 			WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
 			if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
 			{
@@ -1475,13 +1483,9 @@ void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, Shar
 
 		if (data && data->size())
 		{
-			auto image = WebCore::BitmapImage::create();
-			if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
-				return;
-			NativeImagePtr nativeImage = image->nativeImage();
 			WebPage* webPage = m_frame ? m_frame->page() : nullptr;
 			if (webPage && webPage->_fFavIconLoaded)
-				webPage->_fFavIconLoaded(nativeImage);
+				webPage->_fFavIconLoaded(data);
 		}
 	}
 }

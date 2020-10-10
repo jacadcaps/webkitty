@@ -1317,13 +1317,25 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
 		};
 		
-		webPage->_fFavIconLoaded = [self](WebCore::NativeImagePtr ptr) {
+		webPage->_fFavIconLoad = [self](const WTF::URL &url) -> bool {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			if (clientDelegate)
 			{
-				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:ptr]];
+				auto uurl = url.string().utf8();
+				return [clientDelegate webView:self shouldLoadFavIconForURL:(OBURL *)[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+			}
+			return false;
+		};
+		
+		webPage->_fFavIconLoaded = [self](WebCore::SharedBuffer *data) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data]];
 			}
 		};
 	}

@@ -49,6 +49,8 @@
 - (void)webView:(WkWebView *)view changedTitle:(OBString *)newtitle;
 - (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL;
+
+- (BOOL)webView:(WkWebView *)view shouldLoadFavIconForURL:(OBURL *)url;
 - (void)webView:(WkWebView *)view changedFavIcon:(WkFavIcon *)favicon;
 
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready;

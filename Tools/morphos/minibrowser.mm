@@ -520,6 +520,11 @@ static int _windowID = 1;
 
 }
 
+- (BOOL)webView:(WkWebView *)view shouldLoadFavIconForURL:(OBURL *)url
+{
+	return NO;
+}
+
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL
 {
 

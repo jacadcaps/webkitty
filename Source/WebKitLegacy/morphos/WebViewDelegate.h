@@ -5,7 +5,6 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ContextMenuItem.h>
-#include <WebCore/Image.h>
 
 namespace WebCore {
 	class Page;
@@ -17,6 +16,7 @@ namespace WebCore {
 	class PolicyCheckIdentifier;
 	class AuthenticationChallenge;
 	class HitTestResult;
+	class SharedBuffer;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -79,7 +79,8 @@ struct WebViewDelegate
 	
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
 	
-	std::function<void(WebCore::NativeImagePtr)> _fFavIconLoaded;
+	std::function<bool(const WTF::URL &url)> _fFavIconLoad;
+	std::function<void(WebCore::SharedBuffer *)> _fFavIconLoaded;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -118,6 +119,8 @@ struct WebViewDelegate
 		_fProgressUpdated = nullptr;
 		_fProgressFinished = nullptr;
 		_fHoveredURLChanged = nullptr;
+		_fFavIconLoaded = nullptr;
+		_fFavIconLoad = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };
