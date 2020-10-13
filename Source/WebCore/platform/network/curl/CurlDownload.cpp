@@ -126,9 +126,6 @@ void CurlDownload::setDeleteTmpFile(bool deleteTmpFile)
 
 Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
 {
-    // FIXME: Use a correct sessionID.
-    auto curlRequest = CurlRequest::create(request, *this);
-	
     if (m_context)
     {
         auto& storageSession = *m_context->storageSession();
@@ -138,7 +135,9 @@ Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
         if (!cookieHeaderField.isEmpty())
             request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
 	}
-	
+
+    // FIXME: Use a correct sessionID.
+    auto curlRequest = CurlRequest::create(request, *this);
     return curlRequest;
 }
 
