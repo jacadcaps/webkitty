@@ -1329,13 +1329,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return false;
 		};
 		
-		webPage->_fFavIconLoaded = [self](WebCore::SharedBuffer *data) {
+		webPage->_fFavIconLoaded = [self](WebCore::SharedBuffer *data, const WTF::URL &url) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			if (clientDelegate)
 			{
-				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data]];
+				auto uurl = url.host().toString().utf8();
+				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data forHost:[OBString stringWithUTF8String:uurl.data()]]];
 			}
 		};
 	}

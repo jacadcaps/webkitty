@@ -1460,9 +1460,9 @@ void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, Shar
 {
 	if (m_iconIdentifier == callbackIdentifier)
 	{
+		auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
 		if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
 		{
-			auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
 			const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
 			WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
 			if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
@@ -1485,7 +1485,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, Shar
 		{
 			WebPage* webPage = m_frame ? m_frame->page() : nullptr;
 			if (webPage && webPage->_fFavIconLoaded)
-				webPage->_fFavIconLoaded(data);
+				webPage->_fFavIconLoaded(data, documentLoader->url());
 		}
 	}
 }

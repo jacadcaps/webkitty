@@ -1,6 +1,7 @@
 #undef __OBJC__
 #import "WebKit.h"
 #import <WebCore/SharedBuffer.h>
+#import <WebCore/BitmapImage.h>
 #define __OBJC__
 #import "WkFavIcon_private.h"
 #import <proto/graphics.h>
@@ -105,46 +106,102 @@ namespace WebKit {
 
 @implementation WkFavIconPrivate
 
-- (WkFavIconPrivate *)initWithSharedData:(WebCore::SharedBuffer *)data
+- (BOOL)loadSharedData:(WebCore::SharedBuffer *)data
+{
+#if 1
+    auto image = WebCore::BitmapImage::create();
+    if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
+        return NO;
+	
+	auto native = image->nativeImageForCurrentFrame();
+
+	unsigned char *imgdata;
+	int width, height, stride;
+
+	cairo_surface_flush (native.get());
+
+	imgdata = cairo_image_surface_get_data (native.get());
+	width = cairo_image_surface_get_width (native.get());
+	height = cairo_image_surface_get_height (native.get());
+	stride = cairo_image_surface_get_stride (native.get());
+
+	UBYTE *bytes = (UBYTE *)MediaAllocVec(width * height * 4);
+
+	if (bytes == nullptr)
+		return NO;
+
+	for (int i = 0; i < height; i++)
+	{
+		memcpy(bytes + (i * width * 4), imgdata + (i * stride), width * 4);
+	}
+
+	@synchronized (self) {
+		if (_dataPrescaled)
+			MediaFreeVec(_dataPrescaled);
+		_dataPrescaled = bytes;
+		_widthPrescaled = width;
+		_heightPrescaled = height;
+		_useAlpha = YES; //!
+	}
+
+	return YES;
+#else // no .icu files :/
+
+	UQUAD size = data->size();
+	struct TagItem imageTags[] = {
+		{ MMA_StreamType, (IPTR)"memory.stream" },
+		{ MMA_StreamHandle, (IPTR)data->data() },
+		{ MMA_StreamLength, (IPTR)&size },
+		{ MMA_MediaType, MMT_PICTURE },
+		{ MMA_Video_UseAlpha, TRUE },
+		{ TAG_DONE, 0 }
+	};
+
+	Boopsiobject *image = MediaNewObjectTagList(imageTags);
+
+	if (image)
+	{
+		APTR data;
+		LONG w, h;
+		LONG alpha;
+		
+		w = MediaGetPort(image, 0, MMA_Video_Width);
+		h = MediaGetPort(image, 0, MMA_Video_Height);
+		alpha = MediaGetPort(image, 0, MMA_Video_UseAlpha);
+
+		data = MediaAllocVec(w * h * 4);
+		if (data)
+		{
+			if (DoMethod(image, MMM_Pull, 0, (IPTR)data, w * h * 4))
+			{
+				@synchronized (self) {
+					if (_dataPrescaled)
+						MediaFreeVec(_dataPrescaled);
+					_dataPrescaled = (UBYTE *)data;
+					_widthPrescaled = w;
+					_heightPrescaled = h;
+					_useAlpha = alpha;
+					DisposeObject(image);
+					return YES;
+				}
+			}
+
+			MediaFreeVec(data);
+		}
+		
+		DisposeObject(image);
+	}
+	return NO;
+#endif
+}
+
+- (WkFavIconPrivate *)initWithSharedData:(WebCore::SharedBuffer *)data forHost:(OBString *)host
 {
 	if ((self = [super init]))
 	{
-		UQUAD size = data->size();
-		struct TagItem imageTags[] = {
-			{ MMA_StreamType, (IPTR)"memory.stream" },
-			{ MMA_StreamHandle, (IPTR)data->data() },
-			{ MMA_StreamLength, (IPTR)&size },
-			{ MMA_MediaType, MMT_PICTURE },
-			{ MMA_Video_UseAlpha, TRUE },
-			{ TAG_DONE, 0 }
-		};
-
-		Boopsiobject *image = MediaNewObjectTagList(imageTags);
-
-		if (image)
-		{
-			APTR data;
-			LONG w, h;
-			
-			w = MediaGetPort(image, 0, MMA_Video_Width);
-			h = MediaGetPort(image, 0, MMA_Video_Height);
-			_useAlpha = MediaGetPort(image, 0, MMA_Video_UseAlpha);
-
-			data = MediaAllocVec(w * h * 4);
-			if (data)
-			{
-				if (DoMethod(image, MMM_Pull, 0, (IPTR)data, w * h * 4))
-				{
-					_dataPrescaled = (UBYTE *)data;
-					_width = w;
-					_height = h;
-				}
-			}
-			
-			DisposeObject(image);
-		}
+		_host = WTF::String::fromUTF8([[host lowercaseString] cString]);
 		
-		if (NULL == _dataPrescaled)
+		if (![self loadSharedData:data])
 		{
 			[self release];
 			return nil;
@@ -156,53 +213,88 @@ namespace WebKit {
 
 - (void)askMinMax:(struct MUI_MinMax *)minmaxinfo
 {
-	if (_data)
+	minmaxinfo->MinWidth += 12;
+	minmaxinfo->MinHeight += 12;
+	
+	minmaxinfo->DefWidth += 18;
+	minmaxinfo->DefHeight += 18;
+
+	minmaxinfo->MaxWidth += 64;
+	minmaxinfo->MaxHeight += 64;
+}
+
+- (void)onThreadDone
+{
+	[self redraw:MADF_DRAWUPDATE];
+}
+
+- (void)thread:(OBNumber *)targetHeight
+{
+
+	if (nullptr == _dataPrescaled)
 	{
-		minmaxinfo->MinWidth += _width;
-		minmaxinfo->MinHeight += _height;
-
-		minmaxinfo->DefWidth += _width;
-		minmaxinfo->DefHeight += _height;
-
-		minmaxinfo->MaxWidth += 32;
-		minmaxinfo->MaxHeight += _height;
+		RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(WebKit::generateFileNameForIcon(_host));
+		if (buffer.get() && buffer->size())
+		{
+			[self loadSharedData:buffer.get()];
+		}
 	}
-	else
+
+	if (_dataPrescaled)
 	{
-		minmaxinfo->DefWidth += 18;
-		minmaxinfo->DefHeight += 18;
+		UBYTE *data;
+		LONG height = [targetHeight longValue];
 		
-		minmaxinfo->MaxWidth = 32;
-		minmaxinfo->MaxHeight = 32;
+		int xwidth = _widthPrescaled, xheight = _heightPrescaled, xstride = _widthPrescaled * 4;
+
+		float ratio = ((float)height) / ((float)xheight);
+		LONG width = floor(((float)xwidth) * ratio);
+		
+		data = (UBYTE *)malloc(width * height * 4);
+
+		if (data)
+		{
+			kieroscale32(_dataPrescaled, xwidth, xheight, width, height, xstride, width*4, data);
+			MediaFreeVec(_dataPrescaled);
+			_dataPrescaled = NULL;
+			
+			@synchronized (self) {
+				if (_data)
+					free(_data);
+				_data = data;
+				_width = width;
+				_height = height;
+			}
+			
+			[[OBRunLoop mainRunLoop] performSelector:@selector(onThreadDone) target:self];
+		}
 	}
+}
+
+- (void)onShowTimer
+{
+	[_loadResizeTimer invalidate];
+	[_loadResizeTimer release];
+	_loadResizeTimer = nil;
+	
+	[OBThread startWithObject:self selector:@selector(thread:) argument:[OBNumber numberWithLong:[self innerHeight]]];
 }
 
 - (BOOL)show:(struct LongRect *)clip
 {
 	if ([super show:clip])
 	{
-		// The size is known at this time... so it's time to load/decode the imagery
-		if (_dataPrescaled)
+		if (_loadResizeTimer)
 		{
-			LONG height = [self innerHeight];
-			
-			int xwidth = _width, xheight = _height, xstride = _width * 4;
-
-			float ratio = ((float)height) / ((float)xheight);
-			LONG width = floor(((float)xwidth) * ratio);
-			
-			_data = (UBYTE *)malloc(width * height * 4);
-
-			if (_data)
-			{
-				kieroscale32(_dataPrescaled, xwidth, xheight, width, height, xstride, width*4, _data);
-				MediaFreeVec(_dataPrescaled);
-				_dataPrescaled = NULL;
-			}
-			
-			_width = width;
-			_height = height;
+			[_loadResizeTimer invalidate];
+			[_loadResizeTimer release];
 		}
+		
+		if ([self innerHeight] != _height || !_data)
+		{
+			_loadResizeTimer = [[OBScheduledTimer scheduledTimerWithInterval:1.0 perform:[OBPerform performSelector:@selector(onShowTimer) target:self] repeats:NO] retain];
+		}
+
 		return YES;
 	}
 	
@@ -215,6 +307,11 @@ namespace WebKit {
 		free(_data);
 	if (_dataPrescaled)
 		MediaFreeVec(_dataPrescaled);
+	if (_loadResizeTimer)
+	{
+		[_loadResizeTimer invalidate];
+		[_loadResizeTimer release];
+	}
 	[super dealloc];
 }
 
@@ -222,23 +319,27 @@ namespace WebKit {
 {
 	[super draw:flags];
 
-	if (_data)
-	{
-		if (_useAlpha)
-			WritePixelArrayAlpha(_data, 0, 0, _width * 4, [self rastPort],
-				[self left] + (([self innerWidth] - _width) / 2), [self top], _width, _height, 0xFFFFFFFF);
-		else
-			WritePixelArray(_data, 0, 0, _width * 4, [self rastPort],
-				[self left] + (([self innerWidth] - _width) / 2), [self top], _width, _height, RECTFMT_ARGB);
+	@synchronized (self) {
+
+		if (_data && nullptr == _dataPrescaled)
+		{
+			if (_useAlpha)
+				WritePixelArrayAlpha(_data, 0, 0, _width * 4, [self rastPort],
+					[self left] + (([self innerWidth] - _width) / 2), [self top], _width, _height, 0xFFFFFFFF);
+			else
+				WritePixelArray(_data, 0, 0, _width * 4, [self rastPort],
+					[self left] + (([self innerWidth] - _width) / 2), [self top], _width, _height, RECTFMT_ARGB);
+		}
 	}
+
 	return YES;
 }
 
-+ (WkFavIconPrivate *)cacheIconWithData:(WebCore::SharedBuffer *)data
++ (WkFavIconPrivate *)cacheIconWithData:(WebCore::SharedBuffer *)data forHost:(OBString *)host
 {
 	if (data && data->size())
 	{
-		return [[[self alloc] initWithSharedData:data] autorelease];
+		return [[[self alloc] initWithSharedData:data forHost:host] autorelease];
 	}
 	
 	return nil;
@@ -253,7 +354,7 @@ namespace WebKit {
 	RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(WebKit::generateFileNameForIcon(WTF::String::fromUTF8([host cString])));
 	if (buffer.get() && buffer->size())
 	{
-		return [[[WkFavIconPrivate alloc] initWithSharedData:buffer.get()] autorelease];
+		return [[[WkFavIconPrivate alloc] initWithSharedData:buffer.get() forHost:host] autorelease];
 	}
 	
 	return nil;
