@@ -808,7 +808,7 @@ String::String(const char * characters, unsigned inlength, unsigned mib)
 		m_impl = StringImpl::createUninitialized(length, outBytes);
 		if (m_impl)
 		{
-			struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE } };
+			struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE, 0 } };
 			ConvertTagList(reinterpret_cast<APTR>(const_cast<char *>(characters)), inlength, reinterpret_cast<APTR>(outBytes),
 				length * sizeof(UChar), mib, MIBENUM_UTF_16, tags);
 		}
@@ -823,7 +823,7 @@ CString String::native() const
     if (!length)
         return CString("", 0);
 
-	struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE } };
+	struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE, 0 } };
 
     if (is8Bit())
     {
@@ -841,7 +841,6 @@ CString String::native() const
 
 	ConvertTagList(reinterpret_cast<APTR>(const_cast<UChar *>(characters)), length * sizeof(UChar), reinterpret_cast<APTR>(characterBuffer),
 		length, MIBENUM_UTF_16, MIBENUM_SYSTEM, tags);
-
     return result;
 }
 #endif

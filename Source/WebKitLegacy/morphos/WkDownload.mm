@@ -200,7 +200,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			if (path)
 			{
 				[m_outerObject setFilename:path];
-				m_download->setDestination(WTF::String::fromUTF8([path nativeCString]));
+				m_download->setDestination(WTF::String::fromUTF8([path cString]));
 			}
 			else
 			{
