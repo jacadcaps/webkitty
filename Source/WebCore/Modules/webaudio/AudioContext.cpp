@@ -660,7 +660,12 @@ ExceptionOr<Ref<DynamicsCompressorNode>> AudioContext::createDynamicsCompressor(
 ExceptionOr<Ref<AnalyserNode>> AudioContext::createAnalyser()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    
+	
+#if OS(MORPHOS)
+// TODO: fix me. does some odd memtrashing :/
+return Exception { InvalidStateError };
+#endif
+	
     ASSERT(isMainThread());
     if (m_isStopScheduled)
         return Exception { InvalidStateError };
