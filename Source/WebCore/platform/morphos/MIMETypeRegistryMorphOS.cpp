@@ -60,7 +60,10 @@ static const HashMap<String, String, ASCIICaseInsensitiveHash> hCommonMediaTypes
     { "xsl"_s, "text/xsl"_s },
     { "xhtml"_s, "application/xhtml+xml"_s },
     { "wml"_s, "text/vnd.wap.wml"_s },
-    { "wmlc"_s, "application/vnd.wap.wmlc"_s }
+    { "wmlc"_s, "application/vnd.wap.wmlc"_s },
+#if USE(WEBP)
+    { "webp"_s, "image/webp"_s },
+#endif
 });
 
 String MIMETypeRegistry::getMIMETypeForExtension(const String& extension)
