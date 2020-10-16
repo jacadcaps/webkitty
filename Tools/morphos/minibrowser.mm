@@ -1019,6 +1019,7 @@ static BrowserDownloadWindow *_instance;
 #define VERSION   "$VER: MiniBrowser 1.0 (19.04.2020) (C)2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 #define COPYRIGHT @"2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 
+__attribute__ ((visibility ("default")))
 int muiMain(int argc, char *argv[])
 {
     signal(SIGINT, SIG_IGN);

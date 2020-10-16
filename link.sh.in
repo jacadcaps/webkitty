@@ -1,4 +1,4 @@
-/gg/bin/ppc-morphos-g++-9 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
+/gg/bin/ppc-morphos-g++-10 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
 ../../Source/WebKitLegacy/libWebKit.a \
 ../../Source/WebCore/libWebCore.a \
 ../../Source/WebCore/PAL/pal/libPAL.a \
