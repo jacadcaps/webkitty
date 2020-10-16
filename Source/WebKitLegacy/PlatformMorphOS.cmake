@@ -47,6 +47,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkFileDialog.mm
     morphos/WkHitTest.mm
     morphos/WkFavIcon.mm
+    morphos/WkPrinting.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -84,6 +85,7 @@ set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS "-Wno
 set_source_files_properties(morphos/WkFileDialog.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
 set_source_files_properties(morphos/WkHitTest.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
 set_source_files_properties(morphos/WkFavIcon.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set_source_files_properties(morphos/WkPrinting.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}
