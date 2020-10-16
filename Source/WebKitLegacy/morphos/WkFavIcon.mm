@@ -11,95 +11,6 @@
 #import <proto/cybergraphics.h>
 #import <cairo.h>
 
-#include <proto/multimedia.h>
-#include <classes/multimedia/multimedia.h>
-#include <classes/multimedia/video.h>
-
-static inline void getbilinearpixel32(unsigned char *data,int rowbytes,int px,int py ,unsigned char *dest)
-{
-	int px0,py0;
-	unsigned int dx,dy;
-	unsigned int dx1,dy1;
-
-	unsigned int w;
-
-	unsigned int p1, p2;
-	unsigned int pp1,pp2;
-	unsigned int ww=(1<<7);
-	px0 = px >> 16;                         /* round down */
-	py0 = py >> 16;
-	dx = px & 0x0000ffff;					/* get the fraction */
-	dy = py & 0x0000ffff;
-
-	dx1 = 65535 - dx;
-	dy1 = 65535 - dy;
-
-	data = data + py0 * rowbytes + px0 * 4;
-
-	/* apply weights */
-
-	w = dx1 *dy1 >> 25;
-	p1 = *(unsigned int*)data;
-	p2 = p1 & 0x00ff00ff;
-	p1 = (p1 & 0xff00ff00)>>8;
-	pp1 = p1 * w;
-	pp2 = p2 * w;
-	ww-=w;
-
-	data += 4;
-	w = dx * dy1 >> 25;
-	p1 = *(unsigned int*)data;
-	p2 = p1 & 0x00ff00ff;
-	p1 = (p1 & 0xff00ff00)>>8;
-	pp1 += p1 * w;
-	pp2 += p2 * w;
-	ww-=w;
-
-	data += rowbytes - 4;
-	w = dx1 *dy >> 25;
-	p1 = *(unsigned int*)data;
-	p2 = p1 & 0x00ff00ff;
-	p1 = (p1 & 0xff00ff00)>>8;
-	pp1 += p1 * w;
-	pp2 += p2 * w;
-	ww-=w;
-
-	data += 4;
-	w = ww;
-	p1 = *(unsigned int*)data;
-	p2 = p1 & 0x00ff00ff;
-	p1 = (p1 & 0xff00ff00)>>8;
-	pp1 += p1 * w;
-	pp2 += p2 * w;
-
-	pp1 = (pp1 << 1) & 0xff00ff00;
-	pp2 = (pp2 >> 7) & 0x00ff00ff;
-
-	*(unsigned int*)dest = pp1 | pp2;
-}
-
-static void kieroscale32(UBYTE *src, int srcwidth, int srcheight, int destwidth, int destheight, int rowbytes, int destrowbytes, UBYTE *buffermem)
-{
-	int py = 0;
-	int ystep = (srcheight - 1) * 65536 / destheight;
-	int cx,cy;
-
-	for (cy = 0; cy < destheight; cy++)
-	{
-		int xstep = (srcwidth - 1) * 65536 / destwidth;
-		int px = 0;
-		UBYTE *dst = buffermem + (cy * destrowbytes);
-
-		for (cx = 0; cx < destwidth; cx++)
-		{
-			getbilinearpixel32(src, rowbytes, px, py, dst);
-			dst += 4;
-			px += xstep;
-		}
-		py += ystep;
-	}
-}
-
 namespace WebKit {
 	String generateFileNameForIcon(const WTF::String &inHost);
 }
@@ -108,7 +19,6 @@ namespace WebKit {
 
 - (BOOL)loadSharedData:(WebCore::SharedBuffer *)data
 {
-#if 1
     auto image = WebCore::BitmapImage::create();
     if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
         return NO;
@@ -116,7 +26,7 @@ namespace WebKit {
 	auto native = image->nativeImageForCurrentFrame();
 
 	unsigned char *imgdata;
-	int width, height, stride;
+	int width, height, stride, cairo_stride;
 
 	cairo_surface_flush (native.get());
 
@@ -124,20 +34,21 @@ namespace WebKit {
 	width = cairo_image_surface_get_width (native.get());
 	height = cairo_image_surface_get_height (native.get());
 	stride = cairo_image_surface_get_stride (native.get());
+	cairo_stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, width);
 
-	UBYTE *bytes = (UBYTE *)MediaAllocVec(width * height * 4);
+	UBYTE *bytes = (UBYTE *)malloc(cairo_stride * height);
 
 	if (bytes == nullptr)
 		return NO;
 
 	for (int i = 0; i < height; i++)
 	{
-		memcpy(bytes + (i * width * 4), imgdata + (i * stride), width * 4);
+		memcpy(bytes + (i * width * 4), imgdata + (i * stride), cairo_stride);
 	}
 
 	@synchronized (self) {
 		if (_dataPrescaled)
-			MediaFreeVec(_dataPrescaled);
+			free(_dataPrescaled);
 		_dataPrescaled = bytes;
 		_widthPrescaled = width;
 		_heightPrescaled = height;
@@ -145,54 +56,6 @@ namespace WebKit {
 	}
 
 	return YES;
-#else // no .icu files :/
-
-	UQUAD size = data->size();
-	struct TagItem imageTags[] = {
-		{ MMA_StreamType, (IPTR)"memory.stream" },
-		{ MMA_StreamHandle, (IPTR)data->data() },
-		{ MMA_StreamLength, (IPTR)&size },
-		{ MMA_MediaType, MMT_PICTURE },
-		{ MMA_Video_UseAlpha, TRUE },
-		{ TAG_DONE, 0 }
-	};
-
-	Boopsiobject *image = MediaNewObjectTagList(imageTags);
-
-	if (image)
-	{
-		APTR data;
-		LONG w, h;
-		LONG alpha;
-		
-		w = MediaGetPort(image, 0, MMA_Video_Width);
-		h = MediaGetPort(image, 0, MMA_Video_Height);
-		alpha = MediaGetPort(image, 0, MMA_Video_UseAlpha);
-
-		data = MediaAllocVec(w * h * 4);
-		if (data)
-		{
-			if (DoMethod(image, MMM_Pull, 0, (IPTR)data, w * h * 4))
-			{
-				@synchronized (self) {
-					if (_dataPrescaled)
-						MediaFreeVec(_dataPrescaled);
-					_dataPrescaled = (UBYTE *)data;
-					_widthPrescaled = w;
-					_heightPrescaled = h;
-					_useAlpha = alpha;
-					DisposeObject(image);
-					return YES;
-				}
-			}
-
-			MediaFreeVec(data);
-		}
-		
-		DisposeObject(image);
-	}
-	return NO;
-#endif
 }
 
 - (WkFavIconPrivate *)initWithSharedData:(WebCore::SharedBuffer *)data forHost:(OBString *)host
@@ -245,7 +108,7 @@ namespace WebKit {
 		UBYTE *data;
 		LONG height = [targetHeight longValue];
 		
-		int xwidth = _widthPrescaled, xheight = _heightPrescaled, xstride = _widthPrescaled * 4;
+		int xwidth = _widthPrescaled, xheight = _heightPrescaled;
 
 		float ratio = ((float)height) / ((float)xheight);
 		LONG width = floor(((float)xwidth) * ratio);
@@ -254,8 +117,46 @@ namespace WebKit {
 
 		if (data)
 		{
-			kieroscale32(_dataPrescaled, xwidth, xheight, width, height, xstride, width*4, data);
-			MediaFreeVec(_dataPrescaled);
+			auto surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+			auto source_surface = cairo_image_surface_create_for_data(_dataPrescaled, CAIRO_FORMAT_ARGB32,
+				xwidth, xheight, cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, xwidth));
+			auto cairo = cairo_create(surface);
+
+			if (surface && source_surface && cairo)
+			{
+				cairo_save(cairo);
+				cairo_set_source_rgba(cairo, 0, 0, 0, 0);
+				cairo_rectangle(cairo, 0, 0, width, height);
+				cairo_scale(cairo, ((double)width) / ((double)xwidth), ((double)height) / ((double)xheight));
+				cairo_pattern_set_filter(cairo_get_source(cairo), CAIRO_FILTER_GOOD);
+				cairo_set_source_surface(cairo, source_surface, 0, 0);
+				cairo_paint(cairo);
+
+				unsigned char *imgdata;
+				int width, height, stride;
+
+				cairo_surface_flush(surface);
+				imgdata = cairo_image_surface_get_data(surface);
+				width = cairo_image_surface_get_width (surface);
+				height = cairo_image_surface_get_height(surface);
+				stride = cairo_image_surface_get_stride(surface);
+
+				for (int i = 0; i < height; i++)
+				{
+					memcpy(data + (i * width * 4), imgdata + (i * stride), width * 4);
+				}
+			}
+			else
+			{
+				free(data);
+				data = nullptr;
+			}
+
+			cairo_destroy(cairo);
+			cairo_surface_destroy(source_surface);
+			cairo_surface_destroy(surface);
+
+			free(_dataPrescaled);
 			_dataPrescaled = NULL;
 			
 			@synchronized (self) {
@@ -306,7 +207,7 @@ namespace WebKit {
 	if (_data)
 		free(_data);
 	if (_dataPrescaled)
-		MediaFreeVec(_dataPrescaled);
+		free(_dataPrescaled);
 	if (_loadResizeTimer)
 	{
 		[_loadResizeTimer invalidate];

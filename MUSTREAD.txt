@@ -3,6 +3,9 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 15.10.2020:
+	- Switched to cairo scaling for favicons
+
 - 13.10.2020:
 	- Disabled another use of FFT
 	- Corrected download file cookies and output file name
