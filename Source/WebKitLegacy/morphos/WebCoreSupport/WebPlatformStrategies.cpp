@@ -55,19 +55,23 @@ PasteboardStrategy* WebPlatformStrategies::createPasteboardStrategy()
     return nullptr;
 }
 
+class WebBlobRegistry final : public BlobRegistry {
+private:
+    void registerFileBlobURL(const URL& url, Ref<BlobDataFileReference>&& reference, const String& contentType) final { m_blobRegistry.registerFileBlobURL(url, WTFMove(reference), contentType); }
+    void registerBlobURL(const URL& url, Vector<BlobPart>&& parts, const String& contentType) final { m_blobRegistry.registerBlobURL(url, WTFMove(parts), contentType); }
+    void registerBlobURL(const URL& url, const URL& srcURL) final { m_blobRegistry.registerBlobURL(url, srcURL); }
+    void registerBlobURLOptionallyFileBacked(const URL& url, const URL& srcURL, RefPtr<BlobDataFileReference>&& reference, const String& contentType) final { m_blobRegistry.registerBlobURLOptionallyFileBacked(url, srcURL, WTFMove(reference), contentType); }
+    void registerBlobURLForSlice(const URL& url, const URL& srcURL, long long start, long long end) final { m_blobRegistry.registerBlobURLForSlice(url, srcURL, start, end); }
+    void unregisterBlobURL(const URL& url) final { m_blobRegistry.unregisterBlobURL(url); }
+    unsigned long long blobSize(const URL& url) final { return m_blobRegistry.blobSize(url); }
+    void writeBlobsToTemporaryFiles(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&& completionHandler) final { m_blobRegistry.writeBlobsToTemporaryFiles(blobURLs, WTFMove(completionHandler)); }
+
+    BlobRegistryImpl* blobRegistryImpl() final { return &m_blobRegistry; }
+
+    BlobRegistryImpl m_blobRegistry;
+};
+
 BlobRegistry* WebPlatformStrategies::createBlobRegistry()
 {
-    using namespace WebCore;
-    class EmptyBlobRegistry : public WebCore::BlobRegistry {
-        void registerFileBlobURL(const URL&, Ref<BlobDataFileReference>&&, const String& contentType) final { ASSERT_NOT_REACHED(); }
-        void registerBlobURL(const URL&, Vector<BlobPart>&&, const String& contentType) final { ASSERT_NOT_REACHED(); }
-        void registerBlobURL(const URL&, const URL& srcURL) final { ASSERT_NOT_REACHED(); }
-        void registerBlobURLOptionallyFileBacked(const URL&, const URL& srcURL, RefPtr<BlobDataFileReference>&&, const String& contentType) final { ASSERT_NOT_REACHED(); }
-        void registerBlobURLForSlice(const URL&, const URL& srcURL, long long start, long long end) final { ASSERT_NOT_REACHED(); }
-        void unregisterBlobURL(const URL&) final { ASSERT_NOT_REACHED(); }
-        unsigned long long blobSize(const URL&) final { ASSERT_NOT_REACHED(); return 0; }
-        void writeBlobsToTemporaryFiles(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&&) final { ASSERT_NOT_REACHED(); }
-    };
-    static NeverDestroyed<EmptyBlobRegistry> blobRegistry;
-    return &blobRegistry.get();
+    return new WebBlobRegistry;
 }

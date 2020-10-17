@@ -3,6 +3,9 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 16.10.2020:
+	- Fixed the blob registry (blob: support)
+
 - 15.10.2020:
 	- Switched to cairo scaling for favicons
 
