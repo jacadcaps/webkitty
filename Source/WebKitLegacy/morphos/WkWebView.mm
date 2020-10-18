@@ -1184,7 +1184,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			if (dialogDelegate)
 			{
 				WkFileDialogResponseHandlerPrivate *fd = [[[WkFileDialogResponseHandlerPrivate alloc] initWithChooser:chooser] autorelease];
-				[dialogDelegate webView:self wantsToOpenFileSelectionPanelWithSettings:fd responseHandler:fd];
+				[[OBRunLoop mainRunLoop] performSelector:@selector(webView:wantsToOpenFileSelectionPanelWithSettings:responseHandler:) target:dialogDelegate withObject:self withObject:fd withObject:fd];
+//				[dialogDelegate webView:self wantsToOpenFileSelectionPanelWithSettings:fd responseHandler:fd];
 			}
 		};
 		

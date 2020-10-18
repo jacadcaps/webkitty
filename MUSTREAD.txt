@@ -3,6 +3,10 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 16.10.2020:
+	- Fixed the blob registry (blob: support)
+	- Fixed a crash on exit due to WebCore not terminating one of its worker threads (at all)
+
 - 15.10.2020:
 	- Switched to cairo scaling for favicons
 
