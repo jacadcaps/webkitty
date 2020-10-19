@@ -12,6 +12,10 @@
 - (float)width;
 - (float)height;
 
+// without margins
+- (float)contentWidth;
+- (float)contentHeight;
+
 - (float)marginLeft;
 - (float)marginRight;
 - (float)marginTop;
@@ -20,11 +24,6 @@
 @end
 
 @interface WkPrintingProfile : OBObject
-
-+ (OBArray /* OBString */ *)allProfiles;
-+ (OBString *)defaultProfile;
-
-+ (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile;
 
 - (OBArray /* WkPrintingPage */*)pageFormats;
 - (WkPrintingPage *)defaultPageFormat;
@@ -36,7 +35,7 @@
 
 @end
 
-@interface WkPrintingPreview : MUIArea
+@interface WkPrintingPreview : MUIGroup
 
 + (WkPrintingPreview *)previewWithState:(WkPrintingState *)state;
 

@@ -3,6 +3,9 @@
 #import <proto/obframework.h>
 #import <proto/ppd.h>
 #import <proto/exec.h>
+#import "WkWebView.h"
+
+extern "C" { void dprintf(const char *,...); }
 
 template <class T> class ForListNodes {
 public:
@@ -81,6 +84,16 @@ protected:
 - (float)height
 {
 	return _height;
+}
+
+- (float)contentWidth
+{
+	return _width - (_marginLeft + _marginRight);
+}
+
+- (float)contentHeight
+{
+	return _height - (_marginTop + _marginBottom);
 }
 
 - (float)marginLeft
@@ -349,6 +362,16 @@ protected:
 	return 1.0f;
 }
 
+- (float)contentWidth
+{
+	return 1.0f;
+}
+
+- (float)contentHeight
+{
+	return 1.0f;
+}
+
 - (float)marginLeft
 {
 	return 1.0f;
@@ -367,6 +390,83 @@ protected:
 - (float)marginBottom
 {
 	return 1.0f;
+}
+
+@end
+
+@implementation WkPrintingStatePrivate
+
+- (id)initWithWebView:(WkWebView *)view frame:(WebCore::Frame *)frame
+{
+	if ((self = [super init]))
+	{
+		_webView = [view retain];
+		_context = new WebCore::PrintContext(frame);
+		_profiles = [[WkPrintingProfile allProfiles] retain];
+		
+		dprintf("profiles %d\n", [_profiles count]);
+		
+		OBString *defaultProfile = [WkPrintingProfile defaultProfile];
+		[self setProfile:[WkPrintingProfile spoolInfoForProfile:defaultProfile]];
+		if (!_profile)
+			[self setProfile:[WkPrintingProfile spoolInfoForProfile:[_profiles firstObject]]];
+	}
+
+	return self;
+}
+
+- (void)dealloc
+{
+	delete _context;
+	[_webView release];
+	[_profile release];
+	[_profiles release];
+	[super dealloc];
+}
+
+- (WkWebView *)webView
+{
+	return _webView;
+}
+
+- (WkPrintingProfile *)profile
+{
+	return _profile;
+}
+
+- (void)setProfile:(WkPrintingProfile *)profile
+{
+	[_profile autorelease];
+	_profile = [profile retain];
+
+	WkPrintingPage *page = [_profile selectedPageFormat];
+
+	if (_context && page)
+	{
+		float scaleFactor = _context->computeAutomaticScaleFactor(
+			WebCore::FloatSize([page contentWidth] * 72.f, [page contentHeight] * 72.f));
+		
+		dprintf("scalefactor %f from %f %f\n", scaleFactor, [page contentWidth], [page contentHeight]);
+	}
+}
+
+@end
+
+@implementation WkPrintingState
+
+- (WkWebView *)webView
+{
+	return nil;
+}
+
+- (WkPrintingProfile *)profile
+{
+	return nil;
+}
+
+- (void)setProfile:(WkPrintingProfile *)profile
+{
+	(void)profile;
 }
 
 @end

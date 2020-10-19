@@ -370,12 +370,19 @@ static int _windowID = 1;
 	[window notify:@selector(closeRequest) trigger:YES performSelector:@selector(closeCertificate:) withTarget:self withObject:window];
 }
 
+- (void)onPrinting
+{
+	WkPrintingState *state = [_view newPrintingState];
+	[state autorelease];
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
 	{
 		MUIButton *button;
 		MUIButton *debug;
+		MUIButton *print;
 
 		self.rootObject = [MUIGroup groupWithObjects:
 			_topGroup = [MUIGroup horizontalGroupWithObjects:
@@ -392,6 +399,7 @@ static int _windowID = 1;
 				debug = [MUIButton buttonWithLabel:@"Debug Stats"],
 				[MUICheckmark checkmarkWithLabel:@"AdBlocker" checkmark:&_adBlock],
 				[MUICheckmark checkmarkWithLabel:@"JS" checkmark:&_script],
+				print = [MUIButton buttonWithLabel:@"Printing"],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -436,6 +444,8 @@ static int _windowID = 1;
 		[_forward setDisabled:YES];
 
 		[_certificate notify:@selector(selected) trigger:NO performSelector:@selector(showCertificate) withTarget:self];
+		
+		[print notify:@selector(selector) trigger:NO performSelector:@selector(onPrinting) withTarget:self];
 		
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \

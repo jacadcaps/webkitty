@@ -11,6 +11,7 @@
 @class WkError;
 @class WkHitTest;
 @class WkFavIcon;
+@class WkPrintingState;
 @class MUIMenu;
 @class MUIMenuitem;
 @protocol WkFileDialogSettings;
@@ -204,5 +205,7 @@ typedef enum {
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
 
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
+
+- (WkPrintingState *)newPrintingState;
 
 @end

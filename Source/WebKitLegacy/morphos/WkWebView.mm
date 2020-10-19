@@ -36,6 +36,7 @@
 #import "WkDownload_private.h"
 #import "WkFileDialog_private.h"
 #import "WkFavIcon_private.h"
+#import "WkPrinting_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -1983,6 +1984,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	bool outWrapped = false;
 	return webPage->search(WTF::String::fromUTF8([string cString]), options, outWrapped);
+}
+
+- (WkPrintingState *)newPrintingState
+{
+	auto webPage = [_private page];
+	return [[WkPrintingStatePrivate alloc] initWithWebView:self frame:webPage->mainFrame()];
 }
 
 @end
