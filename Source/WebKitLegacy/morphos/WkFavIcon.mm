@@ -189,6 +189,7 @@ namespace WebKit {
 		{
 			[_loadResizeTimer invalidate];
 			[_loadResizeTimer release];
+			_loadResizeTimer = nil;
 		}
 		
 		if ([self innerHeight] != _height || !_data)
