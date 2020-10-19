@@ -65,7 +65,7 @@ namespace  {
 	static bool _wasInstantiatedOnce;
 	static OBSignalHandler *_signalHandler;
 	static OBScheduledTimer *_heartBeatTimer;
-	static OBScheduledTimer *_fastSinleBeatTimer;
+	static OBScheduledTimer *_fastSingleBeatTimer;
 	static OBPerform        *_timerPerform;
 	APTR   _globalOBContext;
 	struct Task *_mainThread;
@@ -635,25 +635,33 @@ static inline void validateObjCContext() {
 
 		float nextTimerEvent = WebKit::WebProcess::singleton().timeToNextTimerEvent();
 
-#if 0
-		if (nextTimerEvent <= 0.0)
+		if (nextTimerEvent <= 0.001)
 		{
-			// yield and repeat
-			[_signalHandler fire];
+			for (int i = 0; i < 5 && nextTimerEvent <= 0.001 ; i++)
+			{
+				WebKit::WebProcess::singleton().handleSignals(mask);
+				nextTimerEvent = WebKit::WebProcess::singleton().timeToNextTimerEvent();
+			}
+
+			if (nextTimerEvent <= 0.001)
+			{
+				// yield and repeat
+				[_signalHandler fire];
+				return;
+			}
 		}
-		else
-#endif
+		
 		if (nextTimerEvent < 0.25)
 		{
-			[_fastSinleBeatTimer invalidate];
-			[_fastSinleBeatTimer release];
-			_fastSinleBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:std::max(nextTimerEvent, 0.02f) perform:_timerPerform repeats:NO] retain];
+			[_fastSingleBeatTimer invalidate];
+			[_fastSingleBeatTimer release];
+			_fastSingleBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:nextTimerEvent perform:_timerPerform repeats:NO] retain];
 		}
 		else
 		{
-			[_fastSinleBeatTimer invalidate];
-			[_fastSinleBeatTimer release];
-			_fastSinleBeatTimer = nil;
+			[_fastSingleBeatTimer invalidate];
+			[_fastSingleBeatTimer release];
+			_fastSingleBeatTimer = nil;
 		}
 	}
 }
@@ -694,9 +702,9 @@ static inline void validateObjCContext() {
 			[_heartBeatTimer invalidate];
 			[_heartBeatTimer release];
 			_heartBeatTimer = nil;
-			[_fastSinleBeatTimer invalidate];
-			[_fastSinleBeatTimer release];
-			_fastSinleBeatTimer = nil;
+			[_fastSingleBeatTimer invalidate];
+			[_fastSingleBeatTimer release];
+			_fastSingleBeatTimer = nil;
 			[_timerPerform release];
 			_timerPerform = nil;
 			[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
