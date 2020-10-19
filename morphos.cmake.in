@@ -4,7 +4,7 @@ SET(CMAKE_SYSTEM_VERSION 1)
 SET(CMAKE_C_COMPILER /gg/bin/ppc-morphos-gcc-10)
 SET(CMAKE_CXX_COMPILER /gg/bin/ppc-morphos-g++-10)
 
-SET(CMAKE_CXX_FLAGS "-O3 -DNDEBUG -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes")
+SET(CMAKE_CXX_FLAGS "-O3 -DNDEBUG -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -mcpu=740 -mtune=970 -fvisibility=hidden")
 SET(CMAKE_CXX_FLAGS_RELEASE "")
 SET(CMAKE_CXX_FLAGS_DEBUG "-noixemul -mlongcall -Wno-ignored-attributes")
 SET(CMAKE_CXX_FLAGS_RELEASE_INIT "")
