@@ -243,6 +243,7 @@ private:
     bool m_justWentActive { false };
     bool m_isActive { false };
     bool m_isVisible { false };
+    bool m_transitioning { false };
     WebCore::Element *m_focusedElement { nullptr };
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };

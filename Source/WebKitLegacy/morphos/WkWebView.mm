@@ -36,6 +36,7 @@
 #import "WkDownload_private.h"
 #import "WkFileDialog_private.h"
 #import "WkFavIcon_private.h"
+#import "WkUserScript_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -711,6 +712,7 @@ static inline void validateObjCContext() {
 			[_signalHandler release];
 			WebKit::WebProcess::singleton().terminate();
 			[WkCertificate shutdown];
+			[WkUserScripts shutdown];
 			CloseLibrary(FreetypeBase);
 			return YES;
 		}

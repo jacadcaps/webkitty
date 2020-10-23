@@ -97,6 +97,8 @@
 #include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/ScriptState.h>
 #include <WebCore/AutofillElements.h>
+#include <JavaScriptCore/VM.h>
+#include <WebCore/CommonVM.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -714,7 +716,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         didOneTimeInitialization = true;
      }
 
-	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
+	m_webPageGroup = WebPageGroup::getOrCreate("meh", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
 
 #if 0
@@ -823,6 +825,17 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	m_page->setLowPowerModeEnabledOverrideForTesting(true);
 
 //    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
+#if 0
+m_worldForUserScripts = DOMWrapperWorld::create(WebCore::commonVM(), DOMWrapperWorld::Type::User);
+
+bool ok;
+WTF::FileSystemImpl::MappedFileData mdata(String::fromUTF8("PROGDIR:templates/eruda.js"), WTF::FileSystemImpl::MappedFileMode::Private, ok);
+if (ok)
+{
+dprintf("attempt user content... %d\n", mdata.size());
+m_webPageGroup->userContentController().addUserScript(*m_worldForUserScripts.get(), makeUnique<WebCore::UserScript>(String::fromUTF8((const char *)mdata.data(), mdata.size()), URL(), Vector<String>(), Vector<String>(), WebCore::InjectAtDocumentEnd, WebCore::InjectInTopFrameOnly));
+}
+#endif
 }
 
 WebPage::~WebPage()
@@ -1212,10 +1225,12 @@ void WebPage::removeResourceRequest(unsigned long identifier)
 
 void WebPage::didStartPageTransition()
 {
+	m_transitioning = true;
 }
 
 void WebPage::didCompletePageTransition()
 {
+	m_transitioning = false;
 }
 
 void WebPage::didCommitLoad(WebFrame* frame)
@@ -1224,6 +1239,8 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     if (!frame->isMainFrame())
         return;
+
+	m_transitioning = false;
 
 #if 0
     // If previous URL is invalid, then it's not a real page that's being navigated away from.
@@ -1724,6 +1741,9 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 	{
 		return false;
 	}
+	
+	if (m_transitioning)
+		return false;
 	
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)

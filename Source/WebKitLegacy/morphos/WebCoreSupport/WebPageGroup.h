@@ -26,6 +26,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
+#include <WebCore/DOMWrapperWorld.h>
 
 namespace WebCore {
 class StorageNamespaceProvider;
@@ -50,6 +51,7 @@ public:
     WebCore::StorageNamespaceProvider& storageNamespaceProvider();
     WebCore::UserContentController& userContentController() { return m_userContentController.get(); }
     WebVisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
+    WebCore::DOMWrapperWorld* wrapperWorldForUserScripts() { return m_worldForUserScripts.get(); }
 
 private:
     WebPageGroup(const String& name, const String& localStorageDatabasePath);
@@ -59,6 +61,7 @@ private:
 
     String m_localStorageDatabasePath;
     RefPtr<WebCore::StorageNamespaceProvider> m_storageNamespaceProvider;
+	RefPtr<WebCore::DOMWrapperWorld> m_worldForUserScripts;
 
     Ref<WebCore::UserContentController> m_userContentController;
     Ref<WebVisitedLinkStore> m_visitedLinkStore;
