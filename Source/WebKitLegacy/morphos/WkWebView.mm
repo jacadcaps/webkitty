@@ -1567,6 +1567,23 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 }
 
+- (WkSettings_Interpolation)interpolationForImageViews
+{
+	auto webPage = [_private page];
+	switch (webPage->interpolationQualityForImageViews())
+	{
+	case WebCore::InterpolationQuality::High:
+		return WkSettings_Interpolation_High;
+	case WebCore::InterpolationQuality::DoNotInterpolate:
+	case WebCore::InterpolationQuality::Low:
+		return WkSettings_Interpolation_Low;
+	case WebCore::InterpolationQuality::Default:
+	case WebCore::InterpolationQuality::Medium:
+	default:
+		return WkSettings_Interpolation_Medium;
+	}
+}
+
 - (OBString *)resolveCSSFilePath
 {
 	// empty string always results in WebPage reverting to the built-in morphos.css!
@@ -1591,6 +1608,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setThirdPartyCookiesAllowed:webPage->thirdPartyCookiesAllowed()];
 	[settings setThrottling:[_private throttling]];
 	[settings setInterpolation:[self interpolation]];
+	[settings setInterpolationForImageViews:[self interpolationForImageViews]];
 	[settings setStyleSheet:[_private styleSheet]];
 	[settings setCustomStyleSheetPath:[_private customStyleSheetPath]];
 	[settings setContextMenuHandling:WkSettings_ContextMenuHandling(webPage->contextMenuHandling())];
@@ -1635,6 +1653,22 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	case WkSettings_Interpolation_Medium:
 	default:
 		webPage->setInterpolationQuality(WebCore::InterpolationQuality::Default);
+		break;
+	}
+
+	switch ([settings interpolationForImageViews])
+	{
+	case WkSettings_Interpolation_Low:
+		webPage->setInterpolationQualityForImageViews(WebCore::InterpolationQuality::DoNotInterpolate);
+		break;
+
+	case WkSettings_Interpolation_High:
+		webPage->setInterpolationQualityForImageViews(WebCore::InterpolationQuality::High);
+		break;
+
+	case WkSettings_Interpolation_Medium:
+	default:
+		webPage->setInterpolationQualityForImageViews(WebCore::InterpolationQuality::Default);
 		break;
 	}
 }

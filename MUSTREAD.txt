@@ -3,6 +3,17 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 23.10.2020:
+	- Reduced the # of SQL writes (mostly syncs on quit now, beware)
+	- Separate interpolation setting for standalone image views
+
+- 21.10.2020:
+	- Enabled intersection observer in WebCore
+	- Tweaked release asserts in WebKit to be properly debug-noisy
+
+- 20.10.2020:
+	- Fixed a crash in favicons
+
 - 16.10.2020:
 	- Fixed the blob registry (blob: support)
 	- Fixed a crash on exit due to WebCore not terminating one of its worker threads (at all)

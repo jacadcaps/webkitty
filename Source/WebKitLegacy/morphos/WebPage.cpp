@@ -1230,7 +1230,6 @@ void WebPage::didStartPageTransition()
 
 void WebPage::didCompletePageTransition()
 {
-	m_transitioning = false;
 }
 
 void WebPage::didCommitLoad(WebFrame* frame)
@@ -1668,7 +1667,12 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 		}
 	}
 #endif
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, m_interpolation);
+
+	auto interpolation = m_interpolation;
+	if (frameView->frame().document()->isImageDocument())
+		interpolation = m_imageInterpolation;
+
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
 
 void WebPage::invalidate()

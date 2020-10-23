@@ -34,6 +34,7 @@ namespace WebCore {
 {
 	WkSettings_Throttling          _throttling;
 	WkSettings_Interpolation       _interpolation;
+	WkSettings_Interpolation       _interpolationForImageViews;
 	WkSettings_UserStyleSheet      _userStyleSheet;
 	WkSettings_ContextMenuHandling _contextMenu;
 	OBString                      *_userStyleSheetFile;
@@ -54,6 +55,7 @@ namespace WebCore {
 		_thCookies = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
+		_interpolationForImageViews = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
 	}
 	
@@ -108,6 +110,16 @@ namespace WebCore {
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation
 {
 	_interpolation = interpolation;
+}
+
+- (WkSettings_Interpolation)interpolationForImageViews
+{
+	return _interpolationForImageViews;
+}
+
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation
+{
+	_interpolationForImageViews = interpolation;
 }
 
 - (WkSettings_UserStyleSheet)styleSheet
