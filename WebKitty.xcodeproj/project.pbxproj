@@ -37,6 +37,7 @@
 		01951354252624890017D692 /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01951352252624880017D692 /* WkHitTest.mm */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
+		01D0B8A72540C6E000F6A2BD /* WkUserScript.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01D0B8A52540C6E000F6A2BD /* WkUserScript.mm */; };
 		01E13644242BB118007BA528 /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F11242B985D007717A6 /* BackForwardClient.cpp */; };
 		01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F14242B985D007717A6 /* WebApplicationCache.cpp */; };
 		01E13646242BB118007BA528 /* WebFrame.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01816F10242B985D007717A6 /* WebFrame.cpp */; };
@@ -146,6 +147,9 @@
 		01984446242FECE00057CD22 /* WebFrameLoaderClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrameLoaderClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameLoaderClient.h; sourceTree = "<group>"; };
 		01B27291245EF46B00B7277E /* WkHistory.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory.h; path = Source/WebKitLegacy/morphos/WkHistory.h; sourceTree = "<group>"; };
 		01B27292245EF46B00B7277E /* WkHistory.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHistory.mm; path = Source/WebKitLegacy/morphos/WkHistory.mm; sourceTree = "<group>"; };
+		01D0B8A52540C6E000F6A2BD /* WkUserScript.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkUserScript.mm; path = Source/WebKitLegacy/morphos/WkUserScript.mm; sourceTree = "<group>"; };
+		01D0B8A62540C6E000F6A2BD /* WkUserScript.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript.h; path = Source/WebKitLegacy/morphos/WkUserScript.h; sourceTree = "<group>"; };
+		01D0B8A8254104B700F6A2BD /* WkUserScript_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript_private.h; path = Source/WebKitLegacy/morphos/WkUserScript_private.h; sourceTree = "<group>"; };
 		01E871E224526E3800DCCEB4 /* WebDragClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDragClient.cpp; path = Source/WebKitLegacy/morphos/WebDragClient.cpp; sourceTree = "<group>"; };
 		01E871E324526E3800DCCEB4 /* WebDragClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDragClient.h; path = Source/WebKitLegacy/morphos/WebDragClient.h; sourceTree = "<group>"; };
 		01F87DA42436CBE3008754BB /* CacheModel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CacheModel.cpp; path = Source/WebKitLegacy/morphos/CacheModel.cpp; sourceTree = "<group>"; };
@@ -275,6 +279,9 @@
 				01FC28A52538E4D600DFA0BC /* WkPrinting.mm */,
 				013D3C9224633B0B00805F29 /* WkSettings.h */,
 				013D3C9324633B0B00805F29 /* WkSettings.mm */,
+				01D0B8A8254104B700F6A2BD /* WkUserScript_private.h */,
+				01D0B8A62540C6E000F6A2BD /* WkUserScript.h */,
+				01D0B8A52540C6E000F6A2BD /* WkUserScript.mm */,
 				01816F17242B985E007717A6 /* WkWebView.h */,
 				01816F13242B985D007717A6 /* WkWebView.mm */,
 			);
@@ -386,6 +393,7 @@
 				011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */,
 				01F96C49243389D200A3D191 /* WebPage.cpp in Sources */,
 				01E13646242BB118007BA528 /* WebFrame.cpp in Sources */,
+				01D0B8A72540C6E000F6A2BD /* WkUserScript.mm in Sources */,
 				011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */,
 				0138E92A2433A9CE00B53904 /* WebProcess.cpp in Sources */,
 				01F87DA62436CBE3008754BB /* CacheModel.cpp in Sources */,

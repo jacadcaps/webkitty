@@ -97,6 +97,8 @@
 #include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/ScriptState.h>
 #include <WebCore/AutofillElements.h>
+#include <JavaScriptCore/VM.h>
+#include <WebCore/CommonVM.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 
@@ -714,7 +716,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         didOneTimeInitialization = true;
      }
 
-	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
+	m_webPageGroup = WebPageGroup::getOrCreate("meh", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
 
 #if 0
@@ -823,6 +825,17 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	m_page->setLowPowerModeEnabledOverrideForTesting(true);
 
 //    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
+#if 0
+m_worldForUserScripts = DOMWrapperWorld::create(WebCore::commonVM(), DOMWrapperWorld::Type::User);
+
+bool ok;
+WTF::FileSystemImpl::MappedFileData mdata(String::fromUTF8("PROGDIR:templates/eruda.js"), WTF::FileSystemImpl::MappedFileMode::Private, ok);
+if (ok)
+{
+dprintf("attempt user content... %d\n", mdata.size());
+m_webPageGroup->userContentController().addUserScript(*m_worldForUserScripts.get(), makeUnique<WebCore::UserScript>(String::fromUTF8((const char *)mdata.data(), mdata.size()), URL(), Vector<String>(), Vector<String>(), WebCore::InjectAtDocumentEnd, WebCore::InjectInTopFrameOnly));
+}
+#endif
 }
 
 WebPage::~WebPage()
@@ -1212,6 +1225,7 @@ void WebPage::removeResourceRequest(unsigned long identifier)
 
 void WebPage::didStartPageTransition()
 {
+	m_transitioning = true;
 }
 
 void WebPage::didCompletePageTransition()
@@ -1224,6 +1238,8 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     if (!frame->isMainFrame())
         return;
+
+	m_transitioning = false;
 
 #if 0
     // If previous URL is invalid, then it's not a real page that's being navigated away from.
@@ -1651,7 +1667,12 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 		}
 	}
 #endif
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, m_interpolation);
+
+	auto interpolation = m_interpolation;
+	if (frameView->frame().document()->isImageDocument())
+		interpolation = m_imageInterpolation;
+
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
 
 void WebPage::invalidate()
@@ -1724,6 +1745,9 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 	{
 		return false;
 	}
+	
+	if (m_transitioning)
+		return false;
 	
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)
@@ -2292,7 +2316,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					bool handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
 
-					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
+					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
 
 					if (!handled)
 					{

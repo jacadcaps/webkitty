@@ -141,6 +141,11 @@ void WebProcess::initialize(int sigbit)
 	RuntimeEnabledFeatures::sharedFeatures().setDataTransferItemsEnabled(true);
 	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
 
+	RuntimeEnabledFeatures::sharedFeatures().setIntersectionObserverEnabled(true);
+	
+	// TODO: implement workers!
+	// RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
+
 	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
 
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");

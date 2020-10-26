@@ -51,6 +51,9 @@ typedef enum
 - (WkSettings_Interpolation)interpolation;
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation;
 
+- (WkSettings_Interpolation)interpolationForImageViews;
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation;
+
 - (WkSettings_UserStyleSheet)styleSheet;
 - (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet;
 
