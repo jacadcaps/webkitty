@@ -445,7 +445,7 @@ static int _windowID = 1;
 
 		[_certificate notify:@selector(selected) trigger:NO performSelector:@selector(showCertificate) withTarget:self];
 		
-		[print notify:@selector(selector) trigger:NO performSelector:@selector(onPrinting) withTarget:self];
+		[print notify:@selector(selected) trigger:NO performSelector:@selector(onPrinting) withTarget:self];
 		
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \

@@ -33,6 +33,8 @@
 - (OBString *)manufacturer;
 - (LONG)psLevel;
 
+- (BOOL)isPDFFilePrinter;
+
 @end
 
 @interface WkPrintingPreview : MUIGroup

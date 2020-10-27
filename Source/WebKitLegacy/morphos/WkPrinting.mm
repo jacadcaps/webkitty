@@ -241,6 +241,35 @@ protected:
 
 @end
 
+@interface WkPrintingPDFProfile : WkPrintingProfilePrivate
+@end
+
+@implementation WkPrintingPDFProfile
+
+- (BOOL)isPDFFilePrinter
+{
+	return YES;
+}
+
+- (OBString *)printerModel
+{
+	return @"PDF";
+}
+
+- (OBString *)manufacturer
+{
+	return @"MorphOS Team";
+}
+
+- (OBArray*)pageFormats
+{
+	OBMutableArray *out = [OBMutableArray array];
+	[out addObject:[WkPrintingPagePrivate pageWithName:@"A4" key:@"A4" width:8.3f height:11.7f marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+	return out;
+}
+
+@end
+
 @implementation WkPrintingProfile
 
 + (OBArray /* OBString */ *)allProfiles
@@ -308,6 +337,11 @@ protected:
 	return [[[WkPrintingProfilePrivate alloc] initWithProfile:profile] autorelease];
 }
 
++ (WkPrintingProfile *)pdfProfile
+{
+	return [[[WkPrintingPDFProfile alloc] init] autorelease];
+}
+
 - (OBArray /* WkPrintingPage */*)pageFormats
 {
 	return nil;
@@ -336,6 +370,11 @@ protected:
 - (LONG)psLevel
 {
 	return 2;
+}
+
+- (BOOL)isPDFFilePrinter
+{
+	return NO;
 }
 
 @end
@@ -410,6 +449,8 @@ protected:
 		[self setProfile:[WkPrintingProfile spoolInfoForProfile:defaultProfile]];
 		if (!_profile)
 			[self setProfile:[WkPrintingProfile spoolInfoForProfile:[_profiles firstObject]]];
+		if (!_profile)
+			[self setProfile:[WkPrintingProfilePrivate pdfProfile]];
 	}
 
 	return self;
@@ -439,7 +480,14 @@ protected:
 	[_profile autorelease];
 	_profile = [profile retain];
 
+dprintf("%s: profile %p context %p\n", __PRETTY_FUNCTION__, profile, _context);
+
 	WkPrintingPage *page = [_profile selectedPageFormat];
+	
+	if (nil == page)
+	{
+		page = [[_profile pageFormats] firstObject];
+	}
 
 	if (_context && page)
 	{
@@ -447,6 +495,12 @@ protected:
 			WebCore::FloatSize([page contentWidth] * 72.f, [page contentHeight] * 72.f));
 		
 		dprintf("scalefactor %f from %f %f\n", scaleFactor, [page contentWidth], [page contentHeight]);
+		
+		float pageHeight;
+		_context->computePageRects(WebCore::FloatRect([page marginLeft], [page marginTop], [page contentWidth], [page contentHeight]),
+			0.f, 0.f, scaleFactor, pageHeight);
+
+		dprintf("cpheight %f, count %d\n", pageHeight, _context->pageCount());
 	}
 }
 

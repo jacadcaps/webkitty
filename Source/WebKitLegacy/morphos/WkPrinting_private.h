@@ -21,6 +21,7 @@ namespace WebCore {
 + (OBString *)defaultProfile;
 
 + (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile;
++ (WkPrintingProfile *)pdfProfile;
 
 @end
 
