@@ -121,7 +121,7 @@ void ResourceLoader::releaseResources()
 
 void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<void(bool)>&& completionHandler)
 {
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
     if (!m_documentLoader) {
         // We should always have a DocumentLoader at this point, but crash reports indicate that it is sometimes null.
         // See https://bugs.webkit.org/show_bug.cgi?id=187360
@@ -136,7 +136,7 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
     
     m_loadTiming.markStartTimeAndFetchStart();
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
     // If the documentLoader was detached while this ResourceLoader was waiting its turn
     // in ResourceLoadScheduler queue, don't continue.
     if (!m_documentLoader->frame()) {
@@ -166,7 +166,7 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     willSendRequestInternal(WTFMove(clientRequest), ResourceResponse(), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](ResourceRequest&& request) mutable {
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
         // If this ResourceLoader was stopped as a result of willSendRequest, bail out.
         if (m_reachedTerminalState)
             return completionHandler(false);
@@ -212,6 +212,9 @@ void ResourceLoader::start()
     if (m_documentLoader->scheduleArchiveLoad(*this, m_request))
         return;
 #endif
+
+	if (!m_documentLoader)
+		return;
 
     if (m_documentLoader->applicationCacheHost().maybeLoadResource(*this, m_request, m_request.url()))
         return;
