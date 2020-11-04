@@ -155,6 +155,7 @@ namespace  {
 	WkSettings_Throttling                _throttling;
 	WkSettings_UserStyleSheet            _userStyleSheet;
 	OBString                            *_userStyleSheetFile;
+	WkPrintingStatePrivate              *_printingState;
 	bool                                 _drawPending;
 	bool                                 _isActive;
 	bool                                 _isLoading;
@@ -165,6 +166,7 @@ namespace  {
 	OBURL                               *_hover;
 	int                                  _scrollX, _scrollY;
 	int                                  _documentWidth, _documentHeight;
+	float                                _savedPageZoom, _savedTextZoom;
 }
 @end
 
@@ -201,6 +203,8 @@ namespace  {
 	[_protocolDelegates release];
 	[_backForwardList release];
 	[_userStyleSheetFile release];
+	[_printingState invalidate];
+	[_printingState release];
 	
 	[super dealloc];
 }
@@ -488,6 +492,40 @@ namespace  {
 {
 	[_userStyleSheetFile autorelease];
 	_userStyleSheetFile = [path copy];
+}
+
+- (WkPrintingState *)beingPrintingWithWebView:(WkWebView *)view
+{
+	if (nil == _printingState)
+	{
+		_savedPageZoom = _page->pageZoomFactor();
+		_savedTextZoom = _page->textZoomFactor();
+		_printingState = [[WkPrintingStatePrivate alloc] initWithWebView:view frame:_page->mainFrame()];
+	}
+	return _printingState;
+}
+
+- (WkPrintingStatePrivate *)printingState
+{
+	return _printingState;
+}
+
+- (void)endPrinting
+{
+	if (_printingState)
+	{
+		_page->setPageAndTextZoomFactors(_savedPageZoom, _savedTextZoom);
+		_page->printingFinished();
+		[_printingState invalidate];
+		[_printingState release];
+		_printingState = nil;
+	}
+}
+
+- (void)setSavedPageZoom:(float)page textZoom:(float)text
+{
+	_savedTextZoom = text;
+	_savedPageZoom = page;
 }
 
 @end
@@ -1730,7 +1768,19 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	auto webPage = [_private page];
 	webPage->setVisibleSize(int(iw), int(ih));
-	webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
+	
+	WkPrintingStatePrivate *printingState = [_private printingState];
+	if (printingState)
+	{
+		WebCore::FloatBoxExtent margins([printingState marginTop] * 72.f, [printingState marginRight] * 72.f,
+			[printingState marginBottom] * 72.f, [printingState marginLeft] * 72.f);
+		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedPage],
+			margins, [printingState context]);
+	}
+	else
+	{
+		webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
+	}
 
 	[_private setDrawPending:false];
 
@@ -1751,9 +1801,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			
 			if ([_private documentWidth])
 			{
-				[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
-					height:[_private documentHeight]];
-				[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+				if ([_private printingState])
+				{
+					[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:1 height:1];
+				}
+				else
+				{
+					[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+						height:[_private documentHeight]];
+					[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+				}
 			}
 		}
 
@@ -1809,11 +1866,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	[super goActive:flags];
 
-	[_private setIsActive:true];
-	[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
+	if (![_private printingState])
+	{
+		[_private setIsActive:true];
+		[[self windowObject] setDisableKeys:(1<<MUIKEY_WINDOW_CLOSE)|(1<<MUIKEY_GADGET_NEXT)|(1<<MUIKEY_GADGET_PREV)];
 
-	auto webPage = [_private page];
-	webPage->goActive();
+		auto webPage = [_private page];
+		webPage->goActive();
+	}
 }
 
 - (void)becomeInactive
@@ -1840,6 +1900,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (ULONG)handleEvent:(struct IntuiMessage *)imsg muikey:(LONG)muikey
 {
 	auto webPage = [_private page];
+
+	if ([_private printingState])
+		return 0;
 
 	if (muikey != MUIKEY_NONE && webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
 		return MUI_EventHandlerRC_Eat;
@@ -1894,7 +1957,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDocumentWidth:(int)width height:(int)height
 {
 	[_private setDocumentWidth:width height:height];
-	[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:width height:height];
+	if (![_private printingState])
+	{
+		[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:width height:height];
+	}
 }
 
 - (void)setBackForwardListDelegate:(id<WkWebViewBackForwardListDelegate>)delegate
@@ -1963,6 +2029,20 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)setPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor
 {
+	if ([_private printingState])
+	{
+		[_private setSavedPageZoom:pageFactor textZoom:textFactor];
+	}
+	else
+	{
+		auto webPage = [_private page];
+		webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
+	}
+}
+
+- (void)internalSetPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor
+{
+	// used by WkPrinting!
 	auto webPage = [_private page];
 	webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
 }
@@ -2022,10 +2102,79 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return webPage->search(WTF::String::fromUTF8([string cString]), options, outWrapped);
 }
 
-- (WkPrintingState *)newPrintingState
+- (WkPrintingState *)beginPrinting
+{
+	if (nil == [_private printingState])
+	{
+		[_private beingPrintingWithWebView:self];
+		if ([_private printingState])
+		{
+			[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:1 height:1];
+			[self becomeInactive];
+			[self redraw:MADF_DRAWOBJECT];
+		}
+	}
+
+	return [_private printingState];
+}
+
+- (void)spool:(OBArray /* WkPrintingRange */ *)ranges
+{
+	[self spool:ranges toFile:nil];
+}
+
+- (void)spool:(OBArray /* WkPrintingRange */ *)ranges toFile:(OBString *)file
 {
 	auto webPage = [_private page];
-	return [[WkPrintingStatePrivate alloc] initWithWebView:self frame:webPage->mainFrame()];
+	WkPrintingStatePrivate *state = [_private printingState];
+	WkPrintingProfile *profile = [state profile];
+	WkPrintingPage *page = [profile selectedPageFormat];
+
+	if (state && webPage && profile && page)
+	{
+		WebCore::FloatBoxExtent margins([state marginTop] * 72.f, [state marginRight] * 72.f,
+			[state marginBottom] * 72.f, [state marginLeft] * 72.f);
+		if ([profile isPDFFilePrinter])
+		{
+			webPage->pdfStart([page width] * 72.f, [page height] * 72.f, [state landscape], margins, [state context], [file nativeCString]);
+		}
+		else
+		{
+
+		}
+
+		OBEnumerator *e = [ranges objectEnumerator];
+		WkPrintingRange *range;
+		
+		while ((range = [e nextObject]))
+		{
+			for (LONG i = [range pageStart]; i <= [range pageEnd]; i++)
+				webPage->printSpool([state context], i - 1);
+		}
+
+		webPage->printingFinished();
+	}
+}
+
+- (BOOL)isPrinting
+{
+	return [_private printingState] != nil;
+}
+
+- (void)endPrinting
+{
+	[_private endPrinting];
+	[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:[_private documentWidth]
+		height:[_private documentHeight]];
+	[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
+	[self redraw:MADF_DRAWOBJECT];
+}
+
+- (void)updatePrinting
+{
+	auto webPage = [_private page];
+	webPage->printingFinished();
+	[self redraw:MADF_DRAWOBJECT];
 }
 
 @end

@@ -58,9 +58,23 @@ namespace WebCore {
 	WkWebView             *_webView;
 	WebCore::PrintContext *_context;
 	WkPrintingProfile     *_profile;
-	OBArray               *_profiles;
+	OBMutableArray        *_profiles;
+	float                  _marginLeft;
+	float                  _marginRight;
+	float                  _marginTop;
+	float                  _marginBottom;
+	float                  _scale;
+	bool                   _defaultMargins;
+	bool                   _landscape;
+	LONG                   _previewedPage;
+	LONG                   _pagesPerSheet;
 }
 
 - (id)initWithWebView:(WkWebView *)view frame:(WebCore::Frame *)frame;
+- (void)invalidate;
+
+- (WebCore::PrintContext *)context;
+
+- (void)needsRedraw;
 
 @end

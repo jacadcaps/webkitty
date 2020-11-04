@@ -3,9 +3,15 @@
 #import <proto/obframework.h>
 #import <proto/ppd.h>
 #import <proto/exec.h>
+#import <mui/MUIFramework.h>
 #import "WkWebView.h"
 
 extern "C" { void dprintf(const char *,...); }
+
+@interface WkWebView ()
+- (void)updatePrinting;
+- (void)internalSetPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor;
+@end
 
 template <class T> class ForListNodes {
 public:
@@ -215,7 +221,11 @@ protected:
 			return info;
 	}
 
-	return [self defaultPageFormat];
+	WkPrintingPage *def = [self defaultPageFormat];
+	if (def)
+		return def;
+	
+	return [[self pageFormats] firstObject];
 }
 
 - (OBString *)printerModel
@@ -239,12 +249,44 @@ protected:
 	return 3;
 }
 
+- (OBString *)name
+{
+	return _profile;
+}
+
 @end
 
 @interface WkPrintingPDFProfile : WkPrintingProfilePrivate
+{
+	WkPrintingStatePrivate *_state; // WEAK!
+	WkPrintingPage         *_page;
+	OBArray                *_formats;
+}
 @end
 
 @implementation WkPrintingPDFProfile
+
+- (id)initWithState:(WkPrintingStatePrivate *)state
+{
+	if ((self = [super init]))
+	{
+		_state = state; // CAUTION
+	}
+
+	return self;
+}
+
+- (void)dealloc
+{
+	[_page release];
+	[_formats release];
+	[super dealloc];
+}
+
+- (void)clearState
+{
+	_state = nil;
+}
 
 - (BOOL)isPDFFilePrinter
 {
@@ -263,9 +305,53 @@ protected:
 
 - (OBArray*)pageFormats
 {
-	OBMutableArray *out = [OBMutableArray array];
-	[out addObject:[WkPrintingPagePrivate pageWithName:@"A4" key:@"A4" width:8.3f height:11.7f marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
-	return out;
+	if (!_formats)
+	{
+		OBMutableArray *out = [OBMutableArray array];
+		[out addObject:[WkPrintingPagePrivate pageWithName:@"A4" key:@"A4" width:8.3f height:11.7f
+			marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+		[out addObject:[WkPrintingPagePrivate pageWithName:@"A3" key:@"A3" width:11.7f height:16.5f
+			marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+		[out addObject:[WkPrintingPagePrivate pageWithName:@"A2" key:@"A2" width:16.5f height:23.4f
+			marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+		[out addObject:[WkPrintingPagePrivate pageWithName:@"US Letter" key:@"USLetter" width:8.5f height:11.f
+			marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+		[out addObject:[WkPrintingPagePrivate pageWithName:@"US Legal" key:@"USLetter" width:8.5f height:14.f
+			marginLeft:0.2 marginRight:0.2 marginTop:0.2 marginBottom:0.2]];
+		_formats = [out retain];
+	}
+	
+	return _formats;
+}
+
+- (BOOL)canSelectPageFormat
+{
+	return YES;
+}
+
+- (void)setSelectedPageFormat:(WkPrintingPage *)page
+{
+	if (page)
+	{
+		[_page autorelease];
+		_page = [page retain];
+		// force refresh on page change
+		[_state setProfile:[_state profile]];
+	}
+}
+
+- (WkPrintingPage *)selectedPageFormat
+{
+	if (_page)
+		return _page;
+	
+	// force array generation
+	return [[self pageFormats] firstObject];
+}
+
+- (OBString *)name
+{
+	return @"PDF";
 }
 
 @end
@@ -334,12 +420,24 @@ protected:
 
 + (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile
 {
-	return [[[WkPrintingProfilePrivate alloc] initWithProfile:profile] autorelease];
+	if (profile)
+		return [[[WkPrintingProfilePrivate alloc] initWithProfile:profile] autorelease];
+	return nil;
 }
 
-+ (WkPrintingProfile *)pdfProfile
++ (WkPrintingProfile *)pdfProfileWithState:(WkPrintingStatePrivate *)state
 {
-	return [[[WkPrintingPDFProfile alloc] init] autorelease];
+	return [[[WkPrintingPDFProfile alloc] initWithState:state] autorelease];
+}
+
+- (BOOL)canSelectPageFormat
+{
+	return NO;
+}
+
+- (void)setSelectedPageFormat:(WkPrintingPage *)page
+{
+	(void)page;
 }
 
 - (OBArray /* WkPrintingPage */*)pageFormats
@@ -375,6 +473,11 @@ protected:
 - (BOOL)isPDFFilePrinter
 {
 	return NO;
+}
+
+- (OBString *)name
+{
+	return @"?";
 }
 
 @end
@@ -439,18 +542,31 @@ protected:
 {
 	if ((self = [super init]))
 	{
-		_webView = [view retain];
+		_webView = view;
 		_context = new WebCore::PrintContext(frame);
-		_profiles = [[WkPrintingProfile allProfiles] retain];
-		
-		dprintf("profiles %d\n", [_profiles count]);
-		
+		OBArray *profileNames = [WkPrintingProfile allProfiles];
+		_profiles = [[OBMutableArray arrayWithCapacity:[profileNames count] + 1] retain];
+		_scale = 1.0f;
+
 		OBString *defaultProfile = [WkPrintingProfile defaultProfile];
-		[self setProfile:[WkPrintingProfile spoolInfoForProfile:defaultProfile]];
+		OBEnumerator *eNames = [profileNames objectEnumerator];
+		OBString *name;
+
+		[_profiles addObject:[WkPrintingProfilePrivate pdfProfileWithState:self]];
+
+		while ((name = [eNames nextObject]))
+		{
+			WkPrintingProfile *profile = [WkPrintingProfile spoolInfoForProfile:name];
+			if (profile)
+			{
+				[_profiles addObject:profile];
+				if ([name isEqualToString:defaultProfile])
+					[self setProfile:_profile];
+			}
+		}
+
 		if (!_profile)
-			[self setProfile:[WkPrintingProfile spoolInfoForProfile:[_profiles firstObject]]];
-		if (!_profile)
-			[self setProfile:[WkPrintingProfilePrivate pdfProfile]];
+			[self setProfile:[_profiles firstObject]];
 	}
 
 	return self;
@@ -459,7 +575,13 @@ protected:
 - (void)dealloc
 {
 	delete _context;
-	[_webView release];
+	OBEnumerator *e = [_profiles objectEnumerator];
+	WkPrintingPDFProfile *profile;
+	while ((profile = [e nextObject]))
+	{
+		if ([profile isKindOfClass:[WkPrintingPDFProfile class]])
+			[(id)profile clearState];
+	}
 	[_profile release];
 	[_profiles release];
 	[super dealloc];
@@ -475,32 +597,173 @@ protected:
 	return _profile;
 }
 
+- (OBArray * /* WkPrintingProfile */)allProfiles
+{
+	return _profiles;
+}
+
 - (void)setProfile:(WkPrintingProfile *)profile
 {
 	[_profile autorelease];
 	_profile = [profile retain];
 
-dprintf("%s: profile %p context %p\n", __PRETTY_FUNCTION__, profile, _context);
-
 	WkPrintingPage *page = [_profile selectedPageFormat];
-	
-	if (nil == page)
-	{
-		page = [[_profile pageFormats] firstObject];
-	}
 
 	if (_context && page)
 	{
-		float scaleFactor = _context->computeAutomaticScaleFactor(
-			WebCore::FloatSize([page contentWidth] * 72.f, [page contentHeight] * 72.f));
-		
-		dprintf("scalefactor %f from %f %f\n", scaleFactor, [page contentWidth], [page contentHeight]);
-		
-		float pageHeight;
-		_context->computePageRects(WebCore::FloatRect([page marginLeft], [page marginTop], [page contentWidth], [page contentHeight]),
-			0.f, 0.f, scaleFactor, pageHeight);
+		_context->end();
 
-		dprintf("cpheight %f, count %d\n", pageHeight, _context->pageCount());
+		_defaultMargins = YES;
+		
+		float contentWidth = [page contentWidth];
+		float contentHeight = [page contentHeight];
+		
+		_marginLeft = [page marginLeft];
+		_marginTop = [page marginTop];
+		_marginRight = [page marginRight];
+		_marginBottom = [page marginBottom];
+
+		if (_landscape)
+		{
+			contentHeight = [page contentWidth];
+			contentWidth = [page contentHeight];
+
+			_marginLeft = [page marginTop];
+			_marginTop = [page marginLeft];
+			_marginRight = [page marginBottom];
+			_marginBottom = [page marginRight];
+		}
+
+		// works, so meh
+		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
+
+		// RectEdges(U&& top, U&& right, U&& bottom, U&& left)
+		WebCore::FloatBoxExtent margins(_marginTop * 72.f, _marginRight * 72.f, _marginBottom * 72.f, _marginLeft * 72.f);
+		auto computedPageSize = _context->computedPageSize(WebCore::FloatSize(contentWidth * 72.f, contentHeight * 72.f), margins);
+
+		_context->begin(computedPageSize.width(), computedPageSize.height());
+
+		float fullPageHeight;
+		_context->computePageRects(WebCore::FloatRect(0, 0, computedPageSize.width(), computedPageSize.height()), 0, 0,
+			1.0f, fullPageHeight, true);
+	}
+	
+	[self needsRedraw];
+}
+
+- (void)invalidate
+{
+	if (_context)
+		delete _context;
+	_context = nullptr;
+	_webView = nil;
+}
+
+- (void)needsRedraw
+{
+	[_webView updatePrinting];
+}
+
+- (LONG)pages
+{
+	if (_context)
+		return _context->pageCount();
+	return 1;
+}
+
+- (WebCore::PrintContext *)context
+{
+	return _context;
+}
+
+- (float)userScalingFactor
+{
+	return _scale;
+}
+
+- (void)setUserScalingFactor:(float)scaling
+{
+	if (_scale != scaling)
+	{
+		_scale = scaling;
+		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
+		[self setProfile:_profile];
+	}
+}
+
+- (float)marginLeft
+{
+	return _marginLeft;
+}
+
+- (float)marginTop
+{
+	return _marginTop;
+}
+
+- (float)marginRight
+{
+	return _marginRight;
+}
+
+- (float)marginBottom
+{
+	return _marginBottom;
+}
+
+- (void)setMarginLeft:(float)left top:(float)top right:(float)right bottom:(float)bottom
+{
+	_defaultMargins = NO;
+	_marginLeft = left;
+	_marginTop = top;
+	_marginBottom = bottom;
+	_marginRight = right;
+	[self setProfile:_profile];
+}
+
+- (void)resetMarginsToPaperDefaults
+{
+	_defaultMargins = YES;
+	_marginLeft = [[_profile selectedPageFormat] marginLeft];
+	_marginTop = [[_profile selectedPageFormat] marginTop];
+	_marginRight = [[_profile selectedPageFormat] marginRight];
+	_marginBottom = [[_profile selectedPageFormat] marginBottom];
+	[self setProfile:_profile];
+}
+
+- (void)setLandscape:(BOOL)landscape
+{
+	_landscape = landscape;
+	[self setProfile:_profile];
+	[self needsRedraw];
+}
+
+- (BOOL)landscape
+{
+	return _landscape;
+}
+
+- (LONG)pagesPerSheet
+{
+	return _pagesPerSheet;
+}
+
+- (void)setPagesPerSheet:(LONG)pps
+{
+	_pagesPerSheet = pps;
+}
+
+- (LONG)previevedPage
+{
+	return _previewedPage;
+}
+
+- (void)setPrevievedPage:(LONG)page
+{
+	if (_previewedPage != page && (_context && page < LONG(_context->pageCount())))
+	{
+		_previewedPage = page;
+		[self needsRedraw];
 	}
 }
 
@@ -523,4 +786,153 @@ dprintf("%s: profile %p context %p\n", __PRETTY_FUNCTION__, profile, _context);
 	(void)profile;
 }
 
+- (OBArray * /* WkPrintingProfile */)allProfiles
+{
+	return nil;
+}
+
+- (LONG)pages
+{
+	return 1;
+}
+
+- (LONG)previevedPage
+{
+	return 0;
+}
+
+- (void)setPrevievedPage:(LONG)page
+{
+	(void)page;
+}
+
+- (float)userScalingFactor
+{
+	return 1.0f;
+}
+
+- (void)setUserScalingFactor:(float)scaling
+{
+	(void)scaling;
+}
+
+- (float)marginLeft
+{
+	return 0.2f;
+}
+
+- (float)marginTop
+{
+	return 0.2f;
+}
+
+- (float)marginRight
+{
+	return 0.2f;
+}
+
+- (float)marginBottom
+{
+	return 0.2f;
+}
+
+- (void)setMarginLeft:(float)left top:(float)top right:(float)right bottom:(float)bottom
+{
+	(void)left;
+	(void)right;
+	(void)top;
+	(void)bottom;
+}
+
+- (void)resetMarginsToPaperDefaults
+{
+
+}
+
+- (LONG)pagesPerSheet
+{
+	return 1;
+}
+
+- (void)setPagesPerSheet:(LONG)pps
+{
+	(void)pps;
+}
+
+- (void)setLandscape:(BOOL)landscape
+{
+	(void)landscape;
+}
+
+- (BOOL)landscape
+{
+	return NO;
+}
+
 @end
+
+@interface WkPrintingRangePrivate : WkPrintingRange
+{
+	LONG _start;
+	LONG _end;
+}
+@end
+
+@implementation WkPrintingRangePrivate
+
+- (id)initWithStart:(LONG)start end:(LONG)end
+{
+	if ((self = [super init]))
+	{
+		_start = start;
+		_end = end;
+	}
+	return self;
+}
+
+- (LONG)pageStart
+{
+	return _start;
+}
+
+- (LONG)pageEnd
+{
+	return _end;
+}
+
+@end
+
+@implementation WkPrintingRange
+
++ (WkPrintingRange *)rangeWithPage:(LONG)pageNo
+{
+	return [[[WkPrintingRangePrivate alloc] initWithStart:pageNo end:pageNo] autorelease];
+}
+
++ (WkPrintingRange *)rangeFromPage:(LONG)pageStart toPage:(LONG)pageEnd
+{
+	return [[[WkPrintingRangePrivate alloc] initWithStart:pageStart end:pageEnd] autorelease];
+}
+
++ (WkPrintingRange *)rangeFromPage:(LONG)pageStart count:(LONG)count
+{
+	return [[[WkPrintingRangePrivate alloc] initWithStart:pageStart end:pageStart + count - 1] autorelease];
+}
+
+- (LONG)pageStart
+{
+	return 1;
+}
+
+- (LONG)pageEnd
+{
+	return 1;
+}
+
+- (LONG)count
+{
+	return 1 + ([self pageEnd] - [self pageStart]);
+}
+
+@end
+

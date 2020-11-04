@@ -37,8 +37,8 @@
 
 - (void)setLogin:(OBString *)login password:(OBString *)password;
 
-- (size_t)size;
-- (size_t)downloadedSize;
+- (QUAD)size;
+- (QUAD)downloadedSize;
 
 - (BOOL)isPending;
 - (BOOL)isFailed;

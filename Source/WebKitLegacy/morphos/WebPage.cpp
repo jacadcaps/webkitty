@@ -51,6 +51,7 @@
 #include <WebCore/Notification.h>
 #include <WebCore/NotificationController.h>
 #include <WebCore/Page.h>
+#include <WebCore/PrintContext.h>
 //#include <WebCore/PageCache.h>
 #include <WebCore/PageConfiguration.h>
 #include <WebCore/PageGroup.h>
@@ -140,6 +141,8 @@
 #include <string.h>
 
 #include <cairo.h>
+#include <cairo-pdf.h>
+#include <cairo-ps.h>
 
 #include <utility>
 #include <cstdio>
@@ -150,6 +153,8 @@
 #include <proto/intuition.h>
 #include <proto/layers.h>
 #include <cybergraphx/cybergraphics.h>
+#include <proto/graphics.h>
+#include <graphics/rpattr.h>
 #include <intuition/intuition.h>
 #include <intuition/pointerclass.h>
 #include <intuition/intuimessageclass.h>
@@ -659,6 +664,138 @@ private:
 
 };
 
+class WebViewPrintingContext
+{
+public:
+	WebViewPrintingContext() = default;
+	~WebViewPrintingContext()
+	{
+		if (_surface)
+			cairo_surface_destroy(_surface);
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+	}
+
+	cairo_surface_t *surface() { return _surface; }
+	int width() { return _surface ? cairo_image_surface_get_width(_surface) : -1; }
+	int height() { return _surface ? cairo_image_surface_get_height(_surface) : -1; }
+
+	bool ensureSurface(int width, int height, int forPage)
+	{
+		if (width == this->width() && height == this->height() && forPage == _selectedPage)
+			return false;
+
+		if (_surface)
+			cairo_surface_destroy(_surface);
+
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		_surfaceScaled = nullptr;
+
+		_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+		_selectedPage = forPage;
+		return true;
+	}
+	
+	bool ensurePrintSurface(float width, float height, bool landscape, int psLevel, WebCore::FloatBoxExtent& margins)
+	{
+		return false;
+	}
+
+	bool ensurePrintSurface(float width, float height, bool landscape, const char *file, WebCore::FloatBoxExtent& margins)
+	{
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		_printCairo = nullptr;
+		
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+
+		_margins = margins;
+		_landscape = landscape;
+		_printSurface = cairo_pdf_surface_create(file, width, height);
+		_printWidth = width;
+		_printHeight = height;
+		
+		if (_printSurface)
+		{
+			_printCairo = cairo_create(_printSurface);
+			if (_printCairo)
+				return true;
+		}
+		return false;
+	}
+	
+	void startPage()
+	{
+		if (_landscape)
+			cairo_pdf_surface_set_size(_printSurface, _printHeight, _printWidth);
+		else
+			cairo_pdf_surface_set_size(_printSurface, _printWidth, _printHeight);
+	}
+
+	void endPage()
+	{
+		cairo_show_page(_printCairo);
+	}
+	
+	float pageWidth() { return _printWidth; }
+	float pageHeight() { return _printHeight; }
+
+	cairo_t *printCairo() { return _printCairo; }
+	cairo_surface_t *printSurface() { return _printSurface; }
+	WebCore::FloatBoxExtent margins() { return _margins; }
+	bool landscape() { return _landscape; }
+
+	cairo_surface_t *scaledSurface(int width, int height)
+	{
+		if (!_surface)
+			return nullptr;
+		if (_surfaceScaled && cairo_image_surface_get_width(_surfaceScaled) == width && cairo_image_surface_get_height(_surfaceScaled) == height)
+			return _surfaceScaled;
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		_surfaceScaled = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+		if (_surfaceScaled)
+		{
+			auto cairo = cairo_create(_surfaceScaled);
+			if (cairo)
+			{
+				cairo_save(cairo);
+				cairo_set_source_rgba(cairo, 0, 0, 0, 0);
+				cairo_rectangle(cairo, 0, 0, width, height);
+				cairo_scale(cairo, ((double)width) / ((double)this->width()), ((double)height) / ((double)this->height()));
+				cairo_pattern_set_filter(cairo_get_source(cairo), CAIRO_FILTER_GOOD);
+				cairo_set_source_surface(cairo, _surface, 0, 0);
+				cairo_paint(cairo);
+				cairo_surface_flush(_surfaceScaled);
+				cairo_destroy(cairo);
+			}
+			else
+			{
+				if (_surfaceScaled)
+					cairo_surface_destroy(_surfaceScaled);
+				_surfaceScaled = nullptr;
+			}
+		}
+		return _surfaceScaled;
+	}
+	
+protected:
+	int _selectedPage { -1 };
+	float _printWidth, _printHeight;
+	bool _landscape;
+	cairo_surface_t *_surface { nullptr };
+	cairo_surface_t *_surfaceScaled { nullptr };
+	cairo_surface_t *_printSurface { nullptr };
+	cairo_t *_printCairo { nullptr };
+	WebCore::FloatBoxExtent _margins;
+};
+
 WebCore::Page* core(WebPage *webpage)
 {
 	if (webpage)
@@ -842,6 +979,7 @@ WebPage::~WebPage()
 {
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 	clearDelegateCallbacks();
+	delete m_printingContext;
 	delete m_drawContext;
 	delete m_autofillElements;
 }
@@ -1237,7 +1375,9 @@ void WebPage::didCommitLoad(WebFrame* frame)
 //    resetFocusedElementForFrame(frame);
 
     if (!frame->isMainFrame())
+    {
         return;
+	}
 
 	m_transitioning = false;
 
@@ -1674,6 +1814,195 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
+
+void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
+	LONG previewedPage, const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context)
+{
+	if (!context || previewedPage >= LONG(context->pageCount()))
+	{
+		SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+		RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+		return;
+	}
+
+	// this is the visible area we want to paint in
+	float width = paintWidth;
+	float height = paintHeight;
+
+	// leave out some margins...
+	width *= 0.8f;
+	height *= 0.8f;
+
+	// check the page margins...
+	WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(margins);
+
+	// the surface in which the page will be printed to
+	WebCore::IntSize surfaceSize(context->pageRect(previewedPage).width() + computedMargins.left() + computedMargins.right(),
+		context->pageRect(previewedPage).height() + computedMargins.top() + computedMargins.bottom());
+
+	// Given width and height, calculate a scaling factor so that the whole page fits
+	// inside the given constraints. May want to add some margins while at it too...
+	// This is the surface will paint to the rastport
+	float scaleWidth = width / (float)surfaceSize.width();
+	float scaleHeight = height / (float)surfaceSize.height();
+	float scale = scaleWidth < scaleHeight ? scaleWidth : scaleHeight;
+
+	auto scaledSize = WebCore::ceiledIntSize(WebCore::LayoutSize(float(surfaceSize.width()) * scale, float(surfaceSize.height()) * scale));
+
+	bool repaintSurface = false;
+	
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+		if (!m_printingContext)
+		{
+			SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+			RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+			return;
+		}
+		repaintSurface = true;
+	}
+	
+	if (m_printingContext->ensureSurface(surfaceSize.width(), surfaceSize.height(), previewedPage))
+	{
+		repaintSurface = true;
+	}
+
+	if (repaintSurface)
+	{
+		auto *surface = m_printingContext->surface();
+		auto *cairo = cairo_create(surface);
+
+		if (cairo)
+		{
+//			cairo_set_source_rgb(cairo, 0.0f, 1.0, 1.0);
+			cairo_set_source_rgb(cairo, 1.0, 1.0, 1.0);
+			cairo_paint(cairo);
+
+			WebCore::PlatformContextCairo ccontext(cairo);
+			WebCore::GraphicsContext gc(&ccontext);
+			WebCore::IntRect rect(context->pageRect(previewedPage));
+			rect.move(computedMargins.left(), computedMargins.top());
+			gc.save();
+			gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+
+			gc.translate(computedMargins.left(), computedMargins.top());
+
+			context->spoolPage(gc, previewedPage, context->pageRect(previewedPage).width());
+
+			gc.restore();
+
+			cairo_surface_flush(surface);
+			cairo_destroy(cairo);
+		}
+	}
+
+	SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+	RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+
+	auto *surface = m_printingContext->scaledSurface(scaledSize.width(), scaledSize.height());
+	
+	const unsigned int stride = cairo_image_surface_get_stride(surface);
+	unsigned char *src = cairo_image_surface_get_data(surface);
+
+	SetRPAttrs(rp, RPTAG_FgColor, 0, RPTAG_PenMode, FALSE, TAG_DONE);
+
+	int paintX = x + ((paintWidth - scaledSize.width()) / 2);
+	int paintY = y + ((paintHeight - scaledSize.height()) / 2);
+
+	RectFill(rp, paintX - 1, paintY - 1, paintX + scaledSize.width(), paintY - 1);
+	RectFill(rp, paintX - 1, paintY + scaledSize.height(), paintX + scaledSize.width(), paintY + scaledSize.height());
+
+	RectFill(rp, paintX - 1, paintY - 1, paintX - 1, paintY + scaledSize.height() - 1);
+	RectFill(rp, paintX + scaledSize.width(), paintY - 1, paintX + scaledSize.width(), paintY + scaledSize.height() - 1);
+
+	WritePixelArray(src, 0, 0, stride, rp, paintX, paintY,
+		scaledSize.width(), scaledSize.height(), RECTFMT_ARGB);
+
+}
+
+void WebPage::printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context,
+	int psLevel, std::function<bool(const unsigned char *bytes, size_t length)> &&writeCallback)
+{
+}
+
+void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent& margins,
+	WebCore::PrintContext *context, const char *file)
+{
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+	}
+
+	if (!m_printingContext)
+	{
+		return;
+	}
+	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, file, margins);
+}
+
+// O0 or crashes. wtf?
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
+
+bool WebPage::printSpool(WebCore::PrintContext *context, int pageNo)
+{
+	if (m_printingContext && m_printingContext->printCairo())
+	{
+		auto *cairo = m_printingContext->printCairo();
+//		cairo_set_source_rgb(cairo, 1.0, 1.0, 1.0);
+//		cairo_paint(cairo);
+
+		m_printingContext->startPage();
+
+		// cairo_pdf_surface_set_size(m_printingContext->printSurface(), width, height);
+
+		WebCore::PlatformContextCairo ccontext(cairo);
+		WebCore::GraphicsContext gc(&ccontext);
+		WebCore::IntRect rect(context->pageRect(pageNo));
+		WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(m_printingContext->margins());
+		rect.move(computedMargins.left(), computedMargins.top());
+
+		gc.save();
+		gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+
+		float surfaceWidth = m_printingContext->pageWidth() - (computedMargins.left() + computedMargins.right());
+		if (m_printingContext->landscape())
+			surfaceWidth = m_printingContext->pageHeight() - (computedMargins.top() + computedMargins.bottom());
+		float printRectWidth = context->pageRect(pageNo).width();
+		float scale = surfaceWidth / printRectWidth;
+
+		gc.scale(scale);
+
+		if (m_printingContext->landscape())
+			gc.translate(computedMargins.top(), computedMargins.left());
+		else
+			gc.translate(computedMargins.left(), computedMargins.top());
+
+#if 0
+		cairo_matrix_t matrix;
+		if (m_printingContext->landscape())
+		{
+			cairo_matrix_init(&matrix, 0, -1, 1, 0, 0, 0);
+			cairo_transform(cairo, &matrix);
+		}
+#endif
+
+		context->spoolPage(gc, pageNo, context->pageRect(pageNo).width());
+		gc.restore();
+
+		m_printingContext->endPage();
+
+	}
+}
+
+void WebPage::printingFinished(void)
+{
+	delete m_printingContext;
+	m_printingContext = nullptr;
+}
+
+#pragma GCC pop_options
 
 void WebPage::invalidate()
 {

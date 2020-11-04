@@ -6,6 +6,7 @@
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsTypes.h>
 #include <WebCore/FindOptions.h>
+#include <WebCore/LengthBox.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -22,6 +23,7 @@ namespace WebCore {
 	class AutofillElements;
 	class HTMLInputElement;
 	class HistoryItem;
+	class PrintContext;
 };
 
 struct RastPort;
@@ -33,6 +35,7 @@ class WebPage;
 class WebPageGroup;
 class WebFrame;
 class WebViewDrawContext;
+class WebViewPrintingContext;
 class WebChromeClient;
 class WebPageCreationParameters;
 class WebDocumentLoader;
@@ -95,6 +98,13 @@ public:
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler);
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
 	bool handleMUIKey(int muikey, bool isDefaultHandler);
+
+	void printPreview(struct RastPort *rp, const int x, const int y, const int width, const int height, LONG previewedPage, const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context);
+	void printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, int psLevel,
+		std::function<bool(const unsigned char *bytes, size_t length)> &&writeCallback);
+	void pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, const char *file);
+	bool printSpool(WebCore::PrintContext *context, int pageNo);
+	void printingFinished(void);
 
 	void onContextMenuItemSelected(ULONG action, const char *title);
 
@@ -225,6 +235,7 @@ private:
 	std::unique_ptr<WebCore::Page> m_page;
 	RefPtr<WebPageGroup> m_webPageGroup;
 	WebViewDrawContext  *m_drawContext { nullptr };
+	WebViewPrintingContext *m_printingContext { nullptr };
     WebCore::PageIdentifier m_pageID;
     WebCore::AutofillElements *m_autofillElements { nullptr };
     WebCore::InterpolationQuality m_interpolation = WebCore::InterpolationQuality::Default;

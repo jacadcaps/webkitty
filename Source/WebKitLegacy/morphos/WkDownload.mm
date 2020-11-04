@@ -37,16 +37,16 @@ public:
     void didFinish() override;
     void didFail(const WebCore::ResourceError &) override;
 
-	size_t size() const { return m_size; }
-	size_t downloadedSize() const { return m_receivedSize; }
+	QUAD size() const { return m_size; }
+	QUAD downloadedSize() const { return m_receivedSize; }
 
 	void setUserPassword(const String& user, const String &password);
 
 private:
 	_WkDownload                  *m_outerObject; // weak
     RefPtr<WebCore::CurlDownload> m_download;
-    size_t                        m_size { 0 };
-    size_t                        m_receivedSize { 0 };
+    QUAD                      m_size { 0 };
+    QUAD                      m_receivedSize { 0 };
     WTF::String                   m_user, m_password;
 };
 
@@ -408,12 +408,12 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	_filename = [filename retain];
 }
 
-- (size_t)size
+- (QUAD)size
 {
 	return _download.size();
 }
 
-- (size_t)downloadedSize
+- (QUAD)downloadedSize
 {
 	return _download.downloadedSize();
 }
@@ -497,12 +497,12 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
 }
 
-- (size_t)size
+- (QUAD)size
 {
 	return 0;
 }
 
-- (size_t)downloadedSize
+- (QUAD)downloadedSize
 {
 	return 0;
 }

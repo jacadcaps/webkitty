@@ -37,5 +37,5 @@ _IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
 _IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
 -lsyscall -lpthread \
 CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
--lob.framework -lmui.framework \
+-lob_debug.framework -lmui_debug.framework \
 -lobjc -lc -lgcc -lauto

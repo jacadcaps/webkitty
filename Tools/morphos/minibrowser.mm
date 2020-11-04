@@ -29,6 +29,7 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkError.h>
 #import <WebKitLegacy/morphos/WkDownload.h>
 #import <WebKitLegacy/morphos/WkFileDialog.h>
+#import <WebKitLegacy/morphos/WkPrinting.h>
 
 @interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
 {
@@ -372,8 +373,49 @@ static int _windowID = 1;
 
 - (void)onPrinting
 {
-	WkPrintingState *state = [_view newPrintingState];
-	[state autorelease];
+	if ([_view isPrinting])
+		[_view endPrinting];
+	else
+		[_view beginPrinting];
+}
+
+- (void)onPrintingPDF
+{
+	WkPrintingState *state = [_view beginPrinting];
+	[_view spool:[OBArray arrayWithObject:[WkPrintingRange rangeFromPage:0 count:[state pages]]] toFile:@"RAM:webkitty.pdf"];
+}
+
+- (void)onPrintingPaper
+{
+	WkPrintingState *state = [_view beginPrinting];
+	WkPrintingProfile *profile = [state profile];
+	if ([profile canSelectPageFormat])
+	{
+		OBArray *pages = [profile pageFormats];
+		ULONG index = [pages indexOfObject:[profile selectedPageFormat]];
+		if (OBNotFound == index || ([pages count] - 1 == index))
+			[profile setSelectedPageFormat:[pages firstObject]];
+		else
+			[profile setSelectedPageFormat:[pages objectAtIndex:index + 1]];
+	}
+}
+
+- (void)onPrintingPage
+{
+	WkPrintingState *state = [_view beginPrinting];
+	if ([state pages] > 1)
+	{
+		if ([state previevedPage] + 1 == [state pages])
+			[state setPrevievedPage:0];
+		else
+			[state setPrevievedPage:[state previevedPage] + 1];
+	}
+}
+
+- (void)onPrintingLandscape
+{
+	WkPrintingState *state = [_view beginPrinting];
+	[state setLandscape:[state landscape] ? NO : YES];
 }
 
 - (id)initWithView:(WkWebView *)view
@@ -382,7 +424,7 @@ static int _windowID = 1;
 	{
 		MUIButton *button;
 		MUIButton *debug;
-		MUIButton *print;
+		MUIButton *print,*printNextPaper, *printNextPage, *printPDF, *printLandscape;
 
 		self.rootObject = [MUIGroup groupWithObjects:
 			_topGroup = [MUIGroup horizontalGroupWithObjects:
@@ -400,6 +442,10 @@ static int _windowID = 1;
 				[MUICheckmark checkmarkWithLabel:@"AdBlocker" checkmark:&_adBlock],
 				[MUICheckmark checkmarkWithLabel:@"JS" checkmark:&_script],
 				print = [MUIButton buttonWithLabel:@"Printing"],
+				printNextPaper = [MUIButton buttonWithLabel:@"Paper >>"],
+				printNextPage = [MUIButton buttonWithLabel:@"Page >> "],
+				printLandscape = [MUIButton buttonWithLabel:@"Landscape"],
+				printPDF = [MUIButton buttonWithLabel:@"PDF"],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -446,17 +492,18 @@ static int _windowID = 1;
 		[_certificate notify:@selector(selected) trigger:NO performSelector:@selector(showCertificate) withTarget:self];
 		
 		[print notify:@selector(selected) trigger:NO performSelector:@selector(onPrinting) withTarget:self];
-		
+		[printNextPaper notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPaper) withTarget:self];
+		[printNextPage notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPage) withTarget:self];
+		[printPDF notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPDF) withTarget:self];
+		[printLandscape notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingLandscape) withTarget:self];
+
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"Scroll", @"http://saku.bbs.fi/cgi-bin/discus/show.cgi?tpc=2593&post=54149");
-		ADDBUTTON(@"Canv", @"https://testdrive-archive.azurewebsites.net/Graphics/CanvasPinball/default.html");
-		ADDBUTTON(@"B", @"https://pasteboard.co/HSta4X0.png");
-		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
-		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
-		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");
+		ADDBUTTON(@"Print", @"http://tunkki.dk/~jaca/texttest.htm");
+		ADDBUTTON(@"Zone", @"https://morph.zone");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"GGlogin", @"https://accounts.google.com/");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");

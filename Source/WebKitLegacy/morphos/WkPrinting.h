@@ -25,6 +25,8 @@
 
 @interface WkPrintingProfile : OBObject
 
+- (OBString *)name;
+
 - (OBArray /* WkPrintingPage */*)pageFormats;
 - (WkPrintingPage *)defaultPageFormat;
 - (WkPrintingPage *)selectedPageFormat;
@@ -33,31 +35,62 @@
 - (OBString *)manufacturer;
 - (LONG)psLevel;
 
+- (BOOL)canSelectPageFormat;
+- (void)setSelectedPageFormat:(WkPrintingPage *)page;
+
 - (BOOL)isPDFFilePrinter;
 
 @end
 
-@interface WkPrintingPreview : MUIGroup
+@interface WkPrintingRange : OBObject
 
-+ (WkPrintingPreview *)previewWithState:(WkPrintingState *)state;
+// Do note that page numbering begins from 1!
 
-- (WkPrintingState *)printingState;
++ (WkPrintingRange *)rangeWithPage:(LONG)pageNo;
++ (WkPrintingRange *)rangeFromPage:(LONG)pageStart toPage:(LONG)pageEnd;
++ (WkPrintingRange *)rangeFromPage:(LONG)pageStart count:(LONG)count;
 
-@end
-
-@interface WkPrintingSettingsGroup : MUIGroup
-
-+ (WkPrintingSettingsGroup *)settingsWithState:(WkPrintingSettingsGroup *)state;
-
-- (WkPrintingState *)printingState;
+- (LONG)pageStart;
+- (LONG)pageEnd;
+- (LONG)count;
 
 @end
 
 @interface WkPrintingState : OBObject
 
+// Associated WkWebView
 - (WkWebView *)webView;
 
+// Selected printer
 - (WkPrintingProfile *)profile;
 - (void)setProfile:(WkPrintingProfile *)profile;
+
+- (OBArray * /* WkPrintingProfile */)allProfiles;
+
+// Calculated # of pages
+- (LONG)pages;
+
+// Previewed page no
+- (LONG)previevedPage;
+- (void)setPrevievedPage:(LONG)page;
+
+// 1.0 for 100%
+- (float)userScalingFactor;
+- (void)setUserScalingFactor:(float)scaling;
+
+- (float)marginLeft;
+- (float)marginTop;
+- (float)marginRight;
+- (float)marginBottom;
+
+- (void)setMarginLeft:(float)left top:(float)top right:(float)right bottom:(float)bottom;
+- (void)resetMarginsToPaperDefaults;
+
+- (void)setLandscape:(BOOL)landscape;
+- (BOOL)landscape;
+
+// Only when printing to PostScript targets (no PDF)
+- (LONG)pagesPerSheet;
+- (void)setPagesPerSheet:(LONG)pps;
 
 @end
