@@ -1815,8 +1815,9 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
 
-void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
-	LONG previewedPage, const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context)
+void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight, LONG previewedPage, 
+	float printableWidth, float printableHeight,
+	const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context)
 {
 	if (!context || previewedPage >= LONG(context->pageCount()))
 	{
@@ -1836,18 +1837,25 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 	// check the page margins...
 	WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(margins);
 
-	// the surface in which the page will be printed to
-	WebCore::IntSize surfaceSize(context->pageRect(previewedPage).width() + computedMargins.left() + computedMargins.right(),
-		context->pageRect(previewedPage).height() + computedMargins.top() + computedMargins.bottom());
+	if (printableWidth > printableHeight) // landscape
+	{
+		// RectEdges(U&& top, U&& right, U&& bottom, U&& left)
+		WebCore::FloatBoxExtent margins(computedMargins.left(), computedMargins.bottom(), computedMargins.right(), computedMargins.top());
+		computedMargins = margins;
+	}
 
+	// the surface in which the page will be printed to
+	float surfaceWidthF = printableWidth + computedMargins.left() + computedMargins.right();
+	float surfaceHeightF = printableHeight + computedMargins.top() + computedMargins.bottom();
+	
 	// Given width and height, calculate a scaling factor so that the whole page fits
 	// inside the given constraints. May want to add some margins while at it too...
 	// This is the surface will paint to the rastport
-	float scaleWidth = width / (float)surfaceSize.width();
-	float scaleHeight = height / (float)surfaceSize.height();
+	float scaleWidth = width / surfaceWidthF;
+	float scaleHeight = height / surfaceHeightF;
 	float scale = scaleWidth < scaleHeight ? scaleWidth : scaleHeight;
 
-	auto scaledSize = WebCore::ceiledIntSize(WebCore::LayoutSize(float(surfaceSize.width()) * scale, float(surfaceSize.height()) * scale));
+	auto scaledSize = WebCore::ceiledIntSize(WebCore::LayoutSize(surfaceWidthF * scale, surfaceHeightF * scale));
 
 	bool repaintSurface = false;
 	
@@ -1863,7 +1871,7 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 		repaintSurface = true;
 	}
 	
-	if (m_printingContext->ensureSurface(surfaceSize.width(), surfaceSize.height(), previewedPage))
+	if (m_printingContext->ensureSurface(ceilf(surfaceWidthF), ceilf(surfaceHeightF), previewedPage))
 	{
 		repaintSurface = true;
 	}
@@ -1881,12 +1889,14 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 
 			WebCore::PlatformContextCairo ccontext(cairo);
 			WebCore::GraphicsContext gc(&ccontext);
-			WebCore::IntRect rect(context->pageRect(previewedPage));
-			rect.move(computedMargins.left(), computedMargins.top());
+
 			gc.save();
 			gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+			
+			float printScale = printableWidth / context->pageRect(previewedPage).width();
 
-			gc.translate(computedMargins.left(), computedMargins.top());
+			gc.scale(printScale);
+			gc.translate(computedMargins.left() / printScale, computedMargins.top() / printScale);
 
 			context->spoolPage(gc, previewedPage, context->pageRect(previewedPage).width());
 
@@ -1921,12 +1931,12 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 
 }
 
-void WebPage::printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context,
+void WebPage::printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent margins, WebCore::PrintContext *context,
 	int psLevel, std::function<bool(const unsigned char *bytes, size_t length)> &&writeCallback)
 {
 }
 
-void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent& margins,
+void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent margins,
 	WebCore::PrintContext *context, const char *file)
 {
 	if (!m_printingContext)
@@ -1966,27 +1976,14 @@ bool WebPage::printSpool(WebCore::PrintContext *context, int pageNo)
 		gc.save();
 		gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
 
-		float surfaceWidth = m_printingContext->pageWidth() - (computedMargins.left() + computedMargins.right());
+		float surfaceWidth = m_printingContext->pageWidth();// - (computedMargins.left() + computedMargins.right());
 		if (m_printingContext->landscape())
-			surfaceWidth = m_printingContext->pageHeight() - (computedMargins.top() + computedMargins.bottom());
+			surfaceWidth = m_printingContext->pageHeight();// - (computedMargins.left() + computedMargins.right());
 		float printRectWidth = context->pageRect(pageNo).width();
 		float scale = surfaceWidth / printRectWidth;
 
 		gc.scale(scale);
-
-		if (m_printingContext->landscape())
-			gc.translate(computedMargins.top(), computedMargins.left());
-		else
-			gc.translate(computedMargins.left(), computedMargins.top());
-
-#if 0
-		cairo_matrix_t matrix;
-		if (m_printingContext->landscape())
-		{
-			cairo_matrix_init(&matrix, 0, -1, 1, 0, 0, 0);
-			cairo_transform(cairo, &matrix);
-		}
-#endif
+		gc.translate(computedMargins.left(), computedMargins.top());
 
 		context->spoolPage(gc, pageNo, context->pageRect(pageNo).width());
 		gc.restore();

@@ -99,10 +99,16 @@ public:
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
 	bool handleMUIKey(int muikey, bool isDefaultHandler);
 
-	void printPreview(struct RastPort *rp, const int x, const int y, const int width, const int height, LONG previewedPage, const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context);
-	void printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, int psLevel,
+	// printableWidth/Height and margins are in points/pixels (not inches)
+	void printPreview(struct RastPort *rp,
+		const int x, const int y, const int width, const int height, LONG previewedPage,
+		float printableWidth, float printableHeight,
+		const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context);
+	void printStart(float printableWidth, float printableHeight, WebCore::FloatBoxExtent margins, WebCore::PrintContext *context, int psLevel,
 		std::function<bool(const unsigned char *bytes, size_t length)> &&writeCallback);
-	void pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, const char *file);
+	void pdfStart(float printableWidth, float printableHeight, bool landscape, WebCore::FloatBoxExtent margins,
+		WebCore::PrintContext *context, const char *file);
+
 	bool printSpool(WebCore::PrintContext *context, int pageNo);
 	void printingFinished(void);
 

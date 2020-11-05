@@ -602,6 +602,66 @@ protected:
 	return _profiles;
 }
 
+- (WkPrintingPage *)pageWithMarginsApplied
+{
+	WkPrintingPage *page = [_profile selectedPageFormat];
+	
+	if (_defaultMargins)
+		return page;
+	
+	return [WkPrintingPagePrivate pageWithName:[page name] key:[page key] width:[page width] height:[page height]
+		marginLeft:_marginLeft marginRight:_marginRight marginTop:_marginTop marginBottom:_marginBottom];
+}
+
+- (void)recalculatePages
+{
+	WkPrintingPage *page = [self pageWithMarginsApplied];
+
+	if (page)
+	{
+		float contentWidth = [page contentWidth];
+		float contentHeight = [page contentHeight];
+
+		if (_landscape)
+		{
+			contentHeight = [page contentWidth];
+			contentWidth = [page contentHeight];
+		}
+
+		_context->end();
+
+		float mleft, mright, mtop, mbottom;
+
+		if (0 && _landscape)
+		{
+			mleft = _marginTop;
+			mtop = _marginLeft;
+			mright = _marginBottom;
+			mbottom = _marginRight;
+		}
+		else
+		{
+			mleft = _marginLeft;
+			mright = _marginRight;
+			mtop = _marginTop;
+			mbottom = _marginBottom;
+		}
+
+		// works, so meh
+		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
+
+		// RectEdges(U&& top, U&& right, U&& bottom, U&& left)
+		WebCore::FloatBoxExtent margins(mtop * 72.f, mright * 72.f, mbottom * 72.f, mleft * 72.f);
+		auto computedPageSize = _context->computedPageSize(WebCore::FloatSize(contentWidth * 72.f, contentHeight * 72.f), margins);
+		_context->begin(computedPageSize.width(), computedPageSize.height());
+
+		float fullPageHeight;
+		_context->computePageRects(WebCore::FloatRect(0, 0, computedPageSize.width(), computedPageSize.height()), 0, 0,
+			1.0f, fullPageHeight, true);
+		[self needsRedraw];
+	}
+}
+
 - (void)setProfile:(WkPrintingProfile *)profile
 {
 	[_profile autorelease];
@@ -611,44 +671,15 @@ protected:
 
 	if (_context && page)
 	{
-		_context->end();
-
 		_defaultMargins = YES;
-		
-		float contentWidth = [page contentWidth];
-		float contentHeight = [page contentHeight];
 		
 		_marginLeft = [page marginLeft];
 		_marginTop = [page marginTop];
 		_marginRight = [page marginRight];
 		_marginBottom = [page marginBottom];
 
-		if (_landscape)
-		{
-			contentHeight = [page contentWidth];
-			contentWidth = [page contentHeight];
-
-			_marginLeft = [page marginTop];
-			_marginTop = [page marginLeft];
-			_marginRight = [page marginBottom];
-			_marginBottom = [page marginRight];
-		}
-
-		// works, so meh
-		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
-
-		// RectEdges(U&& top, U&& right, U&& bottom, U&& left)
-		WebCore::FloatBoxExtent margins(_marginTop * 72.f, _marginRight * 72.f, _marginBottom * 72.f, _marginLeft * 72.f);
-		auto computedPageSize = _context->computedPageSize(WebCore::FloatSize(contentWidth * 72.f, contentHeight * 72.f), margins);
-
-		_context->begin(computedPageSize.width(), computedPageSize.height());
-
-		float fullPageHeight;
-		_context->computePageRects(WebCore::FloatRect(0, 0, computedPageSize.width(), computedPageSize.height()), 0, 0,
-			1.0f, fullPageHeight, true);
+		[self recalculatePages];
 	}
-	
-	[self needsRedraw];
 }
 
 - (void)invalidate
@@ -686,8 +717,7 @@ protected:
 	if (_scale != scaling)
 	{
 		_scale = scaling;
-		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
-		[self setProfile:_profile];
+		[self recalculatePages];
 	}
 }
 
@@ -718,7 +748,7 @@ protected:
 	_marginTop = top;
 	_marginBottom = bottom;
 	_marginRight = right;
-	[self setProfile:_profile];
+	[self recalculatePages];
 }
 
 - (void)resetMarginsToPaperDefaults
@@ -728,14 +758,13 @@ protected:
 	_marginTop = [[_profile selectedPageFormat] marginTop];
 	_marginRight = [[_profile selectedPageFormat] marginRight];
 	_marginBottom = [[_profile selectedPageFormat] marginBottom];
-	[self setProfile:_profile];
+	[self recalculatePages];
 }
 
 - (void)setLandscape:(BOOL)landscape
 {
 	_landscape = landscape;
-	[self setProfile:_profile];
-	[self needsRedraw];
+	[self recalculatePages];
 }
 
 - (BOOL)landscape
@@ -764,6 +793,20 @@ protected:
 	{
 		_previewedPage = page;
 		[self needsRedraw];
+	}
+}
+
+- (WebCore::FloatBoxExtent)printMargins
+{
+	if (0 && [self landscape])
+	{
+		return WebCore::FloatBoxExtent(_marginLeft * 72.f, _marginBottom * 72.f,
+			_marginRight * 72.f, _marginTop * 72.f);
+	}
+	else
+	{
+		return WebCore::FloatBoxExtent(_marginTop * 72.f, _marginRight * 72.f,
+			_marginBottom * 72.f, _marginLeft * 72.f);
 	}
 }
 
@@ -867,6 +910,11 @@ protected:
 - (BOOL)landscape
 {
 	return NO;
+}
+
+- (WkPrintingPage *)pageWithMarginsApplied
+{
+	return nil;
 }
 
 @end

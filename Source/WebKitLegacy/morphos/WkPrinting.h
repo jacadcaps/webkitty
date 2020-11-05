@@ -9,6 +9,7 @@
 - (OBString *)name;
 - (OBString *)key;
 
+// page sizes in inches
 - (float)width;
 - (float)height;
 
@@ -16,6 +17,7 @@
 - (float)contentWidth;
 - (float)contentHeight;
 
+// margin sizes in inches
 - (float)marginLeft;
 - (float)marginRight;
 - (float)marginTop;
@@ -78,6 +80,7 @@
 - (float)userScalingFactor;
 - (void)setUserScalingFactor:(float)scaling;
 
+// margin sizes in inches
 - (float)marginLeft;
 - (float)marginTop;
 - (float)marginRight;
@@ -85,6 +88,8 @@
 
 - (void)setMarginLeft:(float)left top:(float)top right:(float)right bottom:(float)bottom;
 - (void)resetMarginsToPaperDefaults;
+
+- (WkPrintingPage *)pageWithMarginsApplied;
 
 - (void)setLandscape:(BOOL)landscape;
 - (BOOL)landscape;

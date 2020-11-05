@@ -77,4 +77,6 @@ namespace WebCore {
 
 - (void)needsRedraw;
 
+- (WebCore::FloatBoxExtent)printMargins;
+
 @end

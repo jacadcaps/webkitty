@@ -1772,10 +1772,25 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	WkPrintingStatePrivate *printingState = [_private printingState];
 	if (printingState)
 	{
-		WebCore::FloatBoxExtent margins([printingState marginTop] * 72.f, [printingState marginRight] * 72.f,
-			[printingState marginBottom] * 72.f, [printingState marginLeft] * 72.f);
+		WkPrintingPage *page = [printingState pageWithMarginsApplied];
+
+		float contentWidth;
+		float contentHeight;
+		
+		if ([printingState landscape])
+		{
+			contentWidth = [page contentHeight] * 72.f;
+			contentHeight = [page contentWidth] * 72.f;
+		}
+		else
+		{
+			contentWidth = [page contentWidth] * 72.f;
+			contentHeight = [page contentHeight] * 72.f;
+		}
+
 		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedPage],
-			margins, [printingState context]);
+			contentWidth, contentHeight,
+			[printingState printMargins], [printingState context]);
 	}
 	else
 	{
@@ -2127,16 +2142,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	WkPrintingStatePrivate *state = [_private printingState];
-	WkPrintingProfile *profile = [state profile];
-	WkPrintingPage *page = [profile selectedPageFormat];
+	WkPrintingPage *page = [state pageWithMarginsApplied];
 
-	if (state && webPage && profile && page)
+	if (state && webPage && page)
 	{
-		WebCore::FloatBoxExtent margins([state marginTop] * 72.f, [state marginRight] * 72.f,
-			[state marginBottom] * 72.f, [state marginLeft] * 72.f);
-		if ([profile isPDFFilePrinter])
+		if ([[state profile] isPDFFilePrinter])
 		{
-			webPage->pdfStart([page width] * 72.f, [page height] * 72.f, [state landscape], margins, [state context], [file nativeCString]);
+			webPage->pdfStart([page contentWidth] * 72.f, [page contentHeight] * 72.f, [state landscape],
+				[state printMargins], [state context], [file nativeCString]);
 		}
 		else
 		{
