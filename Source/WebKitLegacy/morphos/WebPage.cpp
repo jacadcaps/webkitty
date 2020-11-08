@@ -775,7 +775,6 @@ public:
 		
 		if (_psFile != 0)
 		{
-	dprintf("ensure rotate? %d\n", needsToRotatePageForPrinting(landscape, pagesPerSheet));
 			if (needsToRotatePageForPrinting(landscape, pagesPerSheet))
 				_printSurface = cairo_ps_surface_create_for_stream(pswritefunc, (void *)_psFile, height + margins.top() + margins.bottom(), width + margins.left() + margins.right());
 			else
@@ -832,17 +831,14 @@ public:
 		}
 		else
 		{
-dprintf("start ps %f %f %d\n", fullwidth, fullheight, _landscape);
 			if (fullwidth > fullheight)
 			{
-dprintf("landscape\n");
 				cairo_ps_surface_set_size(_printSurface, fullheight, fullwidth);
 				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
 				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Landscape");
 			}
 			else
 			{
-dprintf("portrait\n");
 				cairo_ps_surface_set_size(_printSurface, fullwidth, fullheight);
 				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
 				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Portrait");
@@ -931,19 +927,15 @@ static void doPrint(float printableWidth, float printableHeight, WebCore::FloatB
 	float printScale;
 	float printScaleXt;
 
-	if (needsToRotate && 0)
+	if (needsToRotate)
 	{
-		printScale = (printableHeight - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).height();
-		printScaleXt = (printableWidth - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).width();
-dprintf("scale %f to %f -> %f ntr\n", printableHeight, float(context->pageRect(sheet * pagesPerSheet).height()), printScale);
-dprintf("scale %f to %f -> %f ntr\n", printableWidth, float(context->pageRect(sheet * pagesPerSheet).width()), printScaleXt);
+		printScale = (printableHeight - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).width();
+		printScaleXt = (printableWidth - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).height();
 	}
 	else
 	{
 		printScale = (printableWidth - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).width();
 		printScaleXt = (printableHeight - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).height();
-dprintf("scale %f to %f -> %f\n", printableWidth, float(context->pageRect(sheet * pagesPerSheet).width()), printScale);
-dprintf("scale %f to %f -> %f\n", printableHeight, float(context->pageRect(sheet * pagesPerSheet).height()), printScaleXt);
 	}
 
 	if (printScaleXt < printScale)
@@ -956,32 +948,39 @@ dprintf("scale %f to %f -> %f\n", printableHeight, float(context->pageRect(sheet
 
 	if (landscape)
 	{
-		translateMarginLeft = computedMargins.top() / printScale;
-		translateMarginTop = computedMargins.right() / printScale;
-
 		if (needsToRotate)
 		{
+			translateMarginLeft = computedMargins.left() / printScale;
+			translateMarginTop = computedMargins.top() / printScale;
+
 			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
 			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
 		}
 		else
 		{
+			translateMarginLeft = computedMargins.top() / printScale;
+			translateMarginTop = computedMargins.right() / printScale;
+
 			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
 			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
 		}
 	}
 	else
 	{
-		translateMarginLeft = computedMargins.left() / printScale;
-		translateMarginTop = computedMargins.top() / printScale;
 
 		if (needsToRotate)
 		{
+			translateMarginLeft = computedMargins.top() / printScale;
+			translateMarginTop = computedMargins.left() / printScale;
+
 			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
 			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
 		}
 		else
 		{
+			translateMarginLeft = computedMargins.left() / printScale;
+			translateMarginTop = computedMargins.top() / printScale;
+
 			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
 			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
 		}
