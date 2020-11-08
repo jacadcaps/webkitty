@@ -500,7 +500,10 @@ namespace  {
 	{
 		_savedPageZoom = _page->pageZoomFactor();
 		_savedTextZoom = _page->textZoomFactor();
-		_printingState = [[WkPrintingStatePrivate alloc] initWithWebView:view frame:_page->mainFrame()];
+
+		// 2 steps: avoid early re-draw of contents!
+		_printingState = [WkPrintingStatePrivate alloc];
+		_printingState = [_printingState initWithWebView:view frame:_page->mainFrame()];
 	}
 	return _printingState;
 }
@@ -1774,23 +1777,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	{
 		WkPrintingPage *page = [printingState pageWithMarginsApplied];
 
-		float contentWidth;
-		float contentHeight;
-		
-		if ([printingState landscape])
-		{
-			contentWidth = [page contentHeight] * 72.f;
-			contentHeight = [page contentWidth] * 72.f;
-		}
-		else
-		{
-			contentWidth = [page contentWidth] * 72.f;
-			contentHeight = [page contentHeight] * 72.f;
-		}
+		float contentWidth = [page contentWidth] * 72.f;
+		float contentHeight = [page contentHeight] * 72.f;
 
-		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedPage],
-			contentWidth, contentHeight,
-			[printingState printMargins], [printingState context]);
+		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedSheet] - 1,
+			[printingState pagesPerSheet], contentWidth, contentHeight, [printingState landscape],
+			[printingState printMargins], [printingState context], [printingState shouldPrintBackgrounds]);
 	}
 	else
 	{
@@ -2133,12 +2125,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return [_private printingState];
 }
 
-- (void)spool:(OBArray /* WkPrintingRange */ *)ranges
-{
-	[self spool:ranges toFile:nil];
-}
-
-- (void)spool:(OBArray /* WkPrintingRange */ *)ranges toFile:(OBString *)file
+- (void)spoolToFile:(OBString *)file
 {
 	auto webPage = [_private page];
 	WkPrintingStatePrivate *state = [_private printingState];
@@ -2149,22 +2136,33 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		if ([[state profile] isPDFFilePrinter])
 		{
 			webPage->pdfStart([page contentWidth] * 72.f, [page contentHeight] * 72.f, [state landscape],
-				[state printMargins], [state context], [file nativeCString]);
+				[state pagesPerSheet], [state printMargins], [state context], [state shouldPrintBackgrounds], [file nativeCString]);
 		}
 		else
 		{
-
+			if (0 == [file length])
+			{
+				OBMutableString *path = [OBMutableString stringWithCapacity:256];
+				[path appendString:@"PRINTER:"];
+				[path appendFormat:@"PROFILE=\"%@\" COPIES=%ld FORMAT=PS", [[state profile] name], [state copies]];
+				file = path;
+			}
+			webPage->printStart([page contentWidth] * 72.f, [page contentHeight] * 72.f, [state landscape],
+				[state pagesPerSheet], [state printMargins], [state context], [[state profile] psLevel], [state shouldPrintBackgrounds], [file nativeCString]);
 		}
 
-		OBEnumerator *e = [ranges objectEnumerator];
-		WkPrintingRange *range;
-		
-		while ((range = [e nextObject]))
+		BOOL doOdd = [state parity] != WkPrintingState_Parity_EvenSheets;
+		BOOL doEven = [state parity] != WkPrintingState_Parity_OddSheets;
+
+		WkPrintingRange *range = [state printingRange];
+		for (LONG i = [range pageStart]; i <= [range pageEnd]; i++)
 		{
-			for (LONG i = [range pageStart]; i <= [range pageEnd]; i++)
+			if (((i & 1) == 1) && doOdd)
+				webPage->printSpool([state context], i - 1);
+			else if (((i & 1) == 0) && doEven)
 				webPage->printSpool([state context], i - 1);
 		}
-
+		
 		webPage->printingFinished();
 	}
 }

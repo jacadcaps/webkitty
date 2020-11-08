@@ -66,8 +66,12 @@ namespace WebCore {
 	float                  _scale;
 	bool                   _defaultMargins;
 	bool                   _landscape;
-	LONG                   _previewedPage;
+	bool                   _printBackgrounds;
+	LONG                   _previewedSheet;
 	LONG                   _pagesPerSheet;
+	LONG                   _copies;
+	WkPrintingRange       *_range;
+	WkPrintingState_Parity _parity;
 }
 
 - (id)initWithWebView:(WkWebView *)view frame:(WebCore::Frame *)frame;
@@ -78,5 +82,7 @@ namespace WebCore {
 - (void)needsRedraw;
 
 - (WebCore::FloatBoxExtent)printMargins;
+
+- (WkPrintingPage *)pageWithMarginsApplied;
 
 @end

@@ -154,6 +154,8 @@
 #include <proto/layers.h>
 #include <cybergraphx/cybergraphics.h>
 #include <proto/graphics.h>
+#include <proto/dos.h>
+#include <dos/dos.h>
 #include <graphics/rpattr.h>
 #include <intuition/intuition.h>
 #include <intuition/pointerclass.h>
@@ -664,6 +666,49 @@ private:
 
 };
 
+static bool needsToRotatePageForPrinting(bool landscape, int pagesPerSheet)
+{
+	(void)landscape;
+	if (pagesPerSheet == 2 || pagesPerSheet == 6)
+		return true;
+	return false;
+}
+
+static int numColumnsForPrinting(bool landscape, int pagesPerSheet)
+{
+	switch (pagesPerSheet)
+	{
+	case 9:
+		return 3;
+	case 6:
+		return landscape ? 2 : 3;
+	case 4:
+		return 2;
+	case 2:
+		return landscape ? 1 : 2;
+	default:
+		return 1;
+	}
+}
+
+static int numRowsForPrinting(bool landscape, int pagesPerSheet)
+{
+	switch (pagesPerSheet)
+	{
+	case 9:
+		return 3;
+	case 6:
+		return landscape ? 3 : 2;
+	case 4:
+		return 2;
+	case 2:
+		return landscape ? 2 : 1;
+	default:
+		return 1;
+	}
+}
+
+
 class WebViewPrintingContext
 {
 public:
@@ -678,6 +723,8 @@ public:
 			cairo_destroy(_printCairo);
 		if (_printSurface)
 			cairo_surface_destroy(_printSurface);
+		if (_psFile)
+			Close(_psFile);
 	}
 
 	cairo_surface_t *surface() { return _surface; }
@@ -701,12 +748,14 @@ public:
 		return true;
 	}
 	
-	bool ensurePrintSurface(float width, float height, bool landscape, int psLevel, WebCore::FloatBoxExtent& margins)
+	static cairo_status_t pswritefunc(void *closure, const unsigned char *data, unsigned int length)
 	{
-		return false;
+		BPTR out = BPTR(closure);
+		Write(out, APTR(data), length);
+		return CAIRO_STATUS_SUCCESS;
 	}
-
-	bool ensurePrintSurface(float width, float height, bool landscape, const char *file, WebCore::FloatBoxExtent& margins)
+	
+	bool ensurePrintSurface(float width, float height, bool landscape, int psLevel, LONG pagesPerSheet, const char *file, WebCore::FloatBoxExtent& margins)
 	{
 		if (_printCairo)
 			cairo_destroy(_printCairo);
@@ -717,10 +766,55 @@ public:
 
 		_margins = margins;
 		_landscape = landscape;
-		_printSurface = cairo_pdf_surface_create(file, width + margins.left() + margins.right(), height + margins.top() + margins.bottom());
 		_printWidth = width;
 		_printHeight = height;
+		_pps = pagesPerSheet;
+		_isPDF = false;
+
+		_psFile = Open(file, MODE_NEWFILE);
 		
+		if (_psFile != 0)
+		{
+	dprintf("ensure rotate? %d\n", needsToRotatePageForPrinting(landscape, pagesPerSheet));
+			if (needsToRotatePageForPrinting(landscape, pagesPerSheet))
+				_printSurface = cairo_ps_surface_create_for_stream(pswritefunc, (void *)_psFile, height + margins.top() + margins.bottom(), width + margins.left() + margins.right());
+			else
+				_printSurface = cairo_ps_surface_create_for_stream(pswritefunc, (void *)_psFile, width + margins.left() + margins.right(), height + margins.top() + margins.bottom());
+
+			if (_printSurface)
+			{
+				cairo_ps_surface_restrict_to_level(_printSurface, psLevel == 0 ? CAIRO_PS_LEVEL_2 : CAIRO_PS_LEVEL_3);
+				_printCairo = cairo_create(_printSurface);
+				if (_printCairo)
+					return true;
+			}
+			Close(_psFile);
+			_psFile = 0;
+		}
+		
+		return false;
+	}
+
+	bool ensurePrintSurface(float width, float height, bool landscape, LONG pagesPerSheet, const char *file, WebCore::FloatBoxExtent& margins)
+	{
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		_printCairo = nullptr;
+		
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+		
+		if (_psFile)
+			Close(_psFile);
+
+		_margins = margins;
+		_landscape = landscape;
+		_printWidth = width;
+		_printHeight = height;
+		_pps = pagesPerSheet;
+		_isPDF = true;
+
+		_printSurface = cairo_pdf_surface_create(file, width + margins.left() + margins.right(), height + margins.top() + margins.bottom());
 		if (_printSurface)
 		{
 			_printCairo = cairo_create(_printSurface);
@@ -730,13 +824,30 @@ public:
 		return false;
 	}
 	
-	void startPage()
+	void startPage(float fullwidth, float fullheight)
 	{
-		if (_landscape)
-			cairo_pdf_surface_set_size(_printSurface, _printHeight + _margins.top() + _margins.bottom(), _printWidth + _margins.left() + _margins.right());
+		if (_isPDF)
+		{
+			cairo_pdf_surface_set_size(_printSurface, fullwidth, fullheight);
+		}
 		else
-			cairo_pdf_surface_set_size(_printSurface,
-				_printWidth + _margins.left() + _margins.right(), _printHeight + _margins.top() + _margins.bottom());
+		{
+dprintf("start ps %f %f %d\n", fullwidth, fullheight, _landscape);
+			if (fullwidth > fullheight)
+			{
+dprintf("landscape\n");
+				cairo_ps_surface_set_size(_printSurface, fullheight, fullwidth);
+				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
+				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Landscape");
+			}
+			else
+			{
+dprintf("portrait\n");
+				cairo_ps_surface_set_size(_printSurface, fullwidth, fullheight);
+				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
+				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Portrait");
+			}
+		}
 	}
 
 	void endPage()
@@ -751,6 +862,9 @@ public:
 	cairo_surface_t *printSurface() { return _printSurface; }
 	WebCore::FloatBoxExtent margins() { return _margins; }
 	bool landscape() { return _landscape; }
+	LONG pagesPerSheet() { return _pps; }
+	bool isPDF() { return _isPDF; }
+	bool isPS() { return _psFile != 0; }
 
 	cairo_surface_t *scaledSurface(int width, int height)
 	{
@@ -789,13 +903,121 @@ public:
 protected:
 	int _selectedPage { -1 };
 	float _printWidth, _printHeight;
-	bool _landscape;
+	bool _landscape { false };
+	bool _isPDF { false };
+	BPTR _psFile { 0 };
+	LONG _pps;
 	cairo_surface_t *_surface { nullptr };
 	cairo_surface_t *_surfaceScaled { nullptr };
 	cairo_surface_t *_printSurface { nullptr };
 	cairo_t *_printCairo { nullptr };
 	WebCore::FloatBoxExtent _margins;
 };
+
+static void doPrint(float printableWidth, float printableHeight, WebCore::FloatBoxExtent &computedMargins, LONG sheet, LONG pagesPerSheet, bool landscape, bool isPreview, cairo_t *cairo, WebViewPrintingContext *printingContext, WebCore::PrintContext *context)
+{
+	cairo_set_source_rgb(cairo, 1.0, 1.0, 1.0);
+	cairo_paint(cairo);
+
+	WebCore::PlatformContextCairo ccontext(cairo);
+	WebCore::GraphicsContext gc(&ccontext);
+
+	gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+
+	int numColumns = numColumnsForPrinting(landscape, pagesPerSheet);
+	int numRows = numRowsForPrinting(landscape, pagesPerSheet);
+	bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+
+	float printScale;
+	float printScaleXt;
+
+	if (needsToRotate && 0)
+	{
+		printScale = (printableHeight - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).height();
+		printScaleXt = (printableWidth - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).width();
+dprintf("scale %f to %f -> %f ntr\n", printableHeight, float(context->pageRect(sheet * pagesPerSheet).height()), printScale);
+dprintf("scale %f to %f -> %f ntr\n", printableWidth, float(context->pageRect(sheet * pagesPerSheet).width()), printScaleXt);
+	}
+	else
+	{
+		printScale = (printableWidth - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).width();
+		printScaleXt = (printableHeight - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).height();
+dprintf("scale %f to %f -> %f\n", printableWidth, float(context->pageRect(sheet * pagesPerSheet).width()), printScale);
+dprintf("scale %f to %f -> %f\n", printableHeight, float(context->pageRect(sheet * pagesPerSheet).height()), printScaleXt);
+	}
+
+	if (printScaleXt < printScale)
+		printScale = printScaleXt;
+
+	float translateMarginLeft;
+	float translateMarginTop;
+	float translateColumn;
+	float translateRow;
+
+	if (landscape)
+	{
+		translateMarginLeft = computedMargins.top() / printScale;
+		translateMarginTop = computedMargins.right() / printScale;
+
+		if (needsToRotate)
+		{
+			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+		}
+		else
+		{
+			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+		}
+	}
+	else
+	{
+		translateMarginLeft = computedMargins.left() / printScale;
+		translateMarginTop = computedMargins.top() / printScale;
+
+		if (needsToRotate)
+		{
+			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+		}
+		else
+		{
+			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+		}
+	}
+
+	int printIndex = 0;
+	for (int i = sheet * pagesPerSheet; i < (sheet + 1) * pagesPerSheet; i++)
+	{
+		cairo_matrix_t matrix;
+		if (i >= int(context->pageCount()))
+			break;
+		int column = printIndex % numColumns;
+		int row = printIndex / numColumns;
+
+		gc.save();
+		
+		if (((landscape && !needsToRotate) || (!landscape && needsToRotate)) && printingContext->isPS() && !isPreview)
+		{
+			if (needsToRotate)
+				cairo_translate(cairo, 0, printableHeight + computedMargins.top() + computedMargins.bottom());
+			else
+				cairo_translate(cairo, 0, printableWidth + computedMargins.top() + computedMargins.bottom());
+			cairo_matrix_init (&matrix, 0, -1, 1, 0, 0,  0);
+			cairo_transform(cairo, &matrix);
+		}
+		
+		gc.scale(printScale);
+
+		gc.translate(translateMarginLeft + (translateColumn * float(column)), translateMarginTop + (translateRow * float(row)));
+		context->spoolPage(gc, i, context->pageRect(i).width());
+		
+		printIndex ++;
+		gc.restore();
+	}
+
+}
 
 WebCore::Page* core(WebPage *webpage)
 {
@@ -1816,11 +2038,11 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
 
-void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight, LONG previewedPage, 
-	float printableWidth, float printableHeight,
-	const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context)
+void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
+	LONG sheet, LONG pagesPerSheet, float printableWidth, float printableHeight, bool landscape,
+	const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, bool printBackgrounds)
 {
-	if (!context || previewedPage >= LONG(context->pageCount()))
+	if (!context)
 	{
 		SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
 		RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
@@ -1841,11 +2063,28 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 	// the surface in which the page will be printed to
 	float surfaceWidthF = printableWidth + computedMargins.left() + computedMargins.right();
 	float surfaceHeightF = printableHeight + computedMargins.top() + computedMargins.bottom();
-	
-	if (printableWidth > printableHeight)
+
+	if (landscape)
 	{
+		std::swap(printableWidth, printableHeight);
 	 	surfaceWidthF = printableWidth + computedMargins.top() + computedMargins.bottom();
 		surfaceHeightF = printableHeight + computedMargins.left() + computedMargins.right();
+	}
+	
+	bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+	
+	if (needsToRotate)
+	{
+		if (landscape)
+		{
+	 		surfaceHeightF = printableWidth + computedMargins.top() + computedMargins.bottom();
+			surfaceWidthF = printableHeight + computedMargins.left() + computedMargins.right();
+		}
+		else
+		{
+			surfaceHeightF = printableWidth + computedMargins.left() + computedMargins.right();
+			surfaceWidthF = printableHeight + computedMargins.top() + computedMargins.bottom();
+		}
 	}
 	
 	// Given width and height, calculate a scaling factor so that the whole page fits
@@ -1871,10 +2110,13 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 		repaintSurface = true;
 	}
 	
-	if (m_printingContext->ensureSurface(ceilf(surfaceWidthF), ceilf(surfaceHeightF), previewedPage))
+	if (m_printingContext->ensureSurface(ceilf(surfaceWidthF), ceilf(surfaceHeightF), sheet * pagesPerSheet))
 	{
 		repaintSurface = true;
 	}
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
 
 	if (repaintSurface)
 	{
@@ -1884,27 +2126,7 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 		if (cairo)
 		{
 //			cairo_set_source_rgb(cairo, 0.0f, 1.0, 1.0);
-			cairo_set_source_rgb(cairo, 1.0, 1.0, 1.0);
-			cairo_paint(cairo);
-
-			WebCore::PlatformContextCairo ccontext(cairo);
-			WebCore::GraphicsContext gc(&ccontext);
-
-			gc.save();
-			gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
-			
-			float printScale = printableWidth / context->pageRect(previewedPage).width();
-
-			gc.scale(printScale);
-
-			if (printableWidth > printableHeight)
-				gc.translate(computedMargins.top() / printScale, computedMargins.right() / printScale);
-			else
-				gc.translate(computedMargins.left() / printScale, computedMargins.top() / printScale);
-
-			context->spoolPage(gc, previewedPage, context->pageRect(previewedPage).width());
-
-			gc.restore();
+			doPrint(printableWidth, printableHeight, computedMargins, sheet, pagesPerSheet, landscape, true, cairo, m_printingContext, context);
 
 			cairo_surface_flush(surface);
 			cairo_destroy(cairo);
@@ -1935,14 +2157,12 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 
 }
 
-void WebPage::printStart(float pageWidth, float pageHeight, WebCore::FloatBoxExtent margins, WebCore::PrintContext *context,
-	int psLevel, std::function<bool(const unsigned char *bytes, size_t length)> &&writeCallback)
+void WebPage::printStart(float pageWidth, float pageHeight, bool landscape, LONG pagesPerSheet,
+	WebCore::FloatBoxExtent margins, WebCore::PrintContext *context,
+	int psLevel, bool printBackgrounds, const char *file)
 {
-}
+	(void)context;
 
-void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, WebCore::FloatBoxExtent margins,
-	WebCore::PrintContext *context, const char *file)
-{
 	if (!m_printingContext)
 	{
 		m_printingContext = new WebViewPrintingContext();
@@ -1952,47 +2172,88 @@ void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, WebCor
 	{
 		return;
 	}
-	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, file, margins);
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
+
+	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, psLevel, pagesPerSheet, file, margins);
+}
+
+void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, LONG pagesPerSheet,
+	WebCore::FloatBoxExtent margins, WebCore::PrintContext *context, bool printBackgrounds, const char *file)
+{
+	(void)context;
+
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+	}
+
+	if (!m_printingContext)
+	{
+		return;
+	}
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
+
+	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, pagesPerSheet, file, margins);
 }
 
 // O0 or crashes. wtf?
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
 
-bool WebPage::printSpool(WebCore::PrintContext *context, int pageNo)
+bool WebPage::printSpool(WebCore::PrintContext *context, int sheetNoZeroBased)
 {
 	if (m_printingContext && m_printingContext->printCairo())
 	{
 		auto *cairo = m_printingContext->printCairo();
 
-		m_printingContext->startPage();
-
-		WebCore::PlatformContextCairo ccontext(cairo);
-		WebCore::GraphicsContext gc(&ccontext);
 		WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(m_printingContext->margins());
 
-		gc.save();
-		gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+		float printableWidth = m_printingContext->pageWidth();
+		float printableHeight = m_printingContext->pageHeight();
+		bool landscape = m_printingContext->landscape();
+		LONG pagesPerSheet = m_printingContext->pagesPerSheet();
 
-		float surfaceWidth = m_printingContext->pageWidth();// - (computedMargins.left() + computedMargins.right());
+		// the surface in which the page will be printed to
+		float surfaceWidthF = printableWidth + computedMargins.left() + computedMargins.right();
+		float surfaceHeightF = printableHeight + computedMargins.top() + computedMargins.bottom();
+
 		if (m_printingContext->landscape())
-			surfaceWidth = m_printingContext->pageHeight();// - (computedMargins.left() + computedMargins.right());
-		float printRectWidth = context->pageRect(pageNo).width();
-		float scale = surfaceWidth / printRectWidth;
-
-		gc.scale(scale);
+		{
+			std::swap(printableWidth, printableHeight);
+			surfaceWidthF = printableWidth + computedMargins.top() + computedMargins.bottom();
+			surfaceHeightF = printableHeight + computedMargins.left() + computedMargins.right();
+		}
 		
-		if (m_printingContext->landscape())
-			gc.translate(computedMargins.top() / scale, computedMargins.right() / scale);
-		else
-			gc.translate(computedMargins.left() / scale, computedMargins.top() / scale);
+		bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+		
+		if (needsToRotate)
+		{
+			if (landscape)
+			{
+				surfaceHeightF = printableWidth + computedMargins.top() + computedMargins.bottom();
+				surfaceWidthF = printableHeight + computedMargins.left() + computedMargins.right();
+			}
+			else
+			{
+				surfaceHeightF = printableWidth + computedMargins.left() + computedMargins.right();
+				surfaceWidthF = printableHeight + computedMargins.top() + computedMargins.bottom();
+			}
+		}
 
-		context->spoolPage(gc, pageNo, context->pageRect(pageNo).width());
-		gc.restore();
+		m_printingContext->startPage(surfaceWidthF, surfaceHeightF);
+
+		doPrint(printableWidth, printableHeight, computedMargins, sheetNoZeroBased, pagesPerSheet, landscape, false, cairo, m_printingContext, context);
 
 		m_printingContext->endPage();
 
+		return true;
 	}
+	
+	return false;
 }
 
 void WebPage::printingFinished(void)

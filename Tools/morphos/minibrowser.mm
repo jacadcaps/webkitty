@@ -382,7 +382,7 @@ static int _windowID = 1;
 - (void)onPrintingPDF
 {
 	WkPrintingState *state = [_view beginPrinting];
-	[_view spool:[OBArray arrayWithObject:[WkPrintingRange rangeFromPage:0 count:[state pages]]] toFile:@"RAM:webkitty.pdf"];
+	[_view spoolToFile:@"RAM:webkitty.pdf"];
 }
 
 - (void)onPrintingPaper
@@ -405,10 +405,10 @@ static int _windowID = 1;
 	WkPrintingState *state = [_view beginPrinting];
 	if ([state pages] > 1)
 	{
-		if ([state previevedPage] + 1 == [state pages])
-			[state setPrevievedPage:0];
+		if ([state previevedSheet] + 1 == [state sheets])
+			[state setPrevievedSheet:0];
 		else
-			[state setPrevievedPage:[state previevedPage] + 1];
+			[state setPrevievedSheet:[state previevedSheet] + 1];
 	}
 }
 
@@ -418,6 +418,19 @@ static int _windowID = 1;
 	[state setLandscape:[state landscape] ? NO : YES];
 }
 
+- (void)onPPS:(ULONG)active
+{
+	WkPrintingState *state = [_view beginPrinting];
+	switch (active)
+	{
+	case 1: [state setPagesPerSheet:2]; break;
+	case 2: [state setPagesPerSheet:4]; break;
+	case 3: [state setPagesPerSheet:6]; break;
+	case 4: [state setPagesPerSheet:9]; break;
+	case 0: default: [state setPagesPerSheet:1]; break;
+	}
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
@@ -425,6 +438,7 @@ static int _windowID = 1;
 		MUIButton *button;
 		MUIButton *debug;
 		MUIButton *print,*printNextPaper, *printNextPage, *printPDF, *printLandscape;
+		MUICycle *pps;
 
 		self.rootObject = [MUIGroup groupWithObjects:
 			_topGroup = [MUIGroup horizontalGroupWithObjects:
@@ -446,6 +460,7 @@ static int _windowID = 1;
 				printNextPage = [MUIButton buttonWithLabel:@"Page >> "],
 				printLandscape = [MUIButton buttonWithLabel:@"Landscape"],
 				printPDF = [MUIButton buttonWithLabel:@"PDF"],
+				pps = [MUICycle cycleWithEntryList:@"1", @"2", @"4", @"6", @"9", nil],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -496,6 +511,7 @@ static int _windowID = 1;
 		[printNextPage notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPage) withTarget:self];
 		[printPDF notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPDF) withTarget:self];
 		[printLandscape notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingLandscape) withTarget:self];
+		[pps notify:@selector(active) performSelector:@selector(onPPS:) withRawTriggerValueTarget:self];
 
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \

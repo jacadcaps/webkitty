@@ -547,6 +547,10 @@ protected:
 		OBArray *profileNames = [WkPrintingProfile allProfiles];
 		_profiles = [[OBMutableArray arrayWithCapacity:[profileNames count] + 1] retain];
 		_scale = 1.0f;
+		_pagesPerSheet = 1;
+		_printBackgrounds = YES;
+		_previewedSheet = 1;
+		_copies = 1;
 
 		OBString *defaultProfile = [WkPrintingProfile defaultProfile];
 		OBEnumerator *eNames = [profileNames objectEnumerator];
@@ -584,6 +588,7 @@ protected:
 	}
 	[_profile release];
 	[_profiles release];
+	[_range release];
 	[super dealloc];
 }
 
@@ -646,7 +651,7 @@ protected:
 			mtop = _marginTop;
 			mbottom = _marginBottom;
 		}
-
+		
 		// works, so meh
 		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
 
@@ -657,7 +662,11 @@ protected:
 
 		float fullPageHeight;
 		_context->computePageRects(WebCore::FloatRect(0, 0, computedPageSize.width(), computedPageSize.height()), 0, 0,
-			1.0f, fullPageHeight, true);
+			1.0f, fullPageHeight, false);
+
+		if (_previewedSheet > LONG(_context->pageCount()))
+			_previewedSheet = 1;
+
 		[self needsRedraw];
 	}
 }
@@ -695,16 +704,50 @@ protected:
 	[_webView updatePrinting];
 }
 
-- (LONG)pages
-{
-	if (_context)
-		return _context->pageCount();
-	return 1;
-}
-
 - (WebCore::PrintContext *)context
 {
 	return _context;
+}
+
+- (WebCore::FloatBoxExtent)printMargins
+{
+	return WebCore::FloatBoxExtent(_marginTop * 72.f, _marginRight * 72.f,
+			_marginBottom * 72.f, _marginLeft * 72.f);
+}
+
+// ---- Page and layout setup
+
+- (void)setLandscape:(BOOL)landscape
+{
+	_landscape = landscape;
+	[self recalculatePages];
+}
+
+- (BOOL)landscape
+{
+	return _landscape;
+}
+
+- (LONG)pagesPerSheet
+{
+	return _pagesPerSheet;
+}
+
+- (void)setPagesPerSheet:(LONG)pps
+{
+	switch (pps)
+	{
+	case 1:
+	case 2:
+	case 4:
+	case 6:
+	case 9:
+		break;
+	default:
+		pps = 1;
+	}
+	_pagesPerSheet = pps;
+	[self recalculatePages];
 }
 
 - (float)userScalingFactor
@@ -761,53 +804,122 @@ protected:
 	[self recalculatePages];
 }
 
-- (void)setLandscape:(BOOL)landscape
+// ---- Print job setup
+
+- (void)validatePrintingRange
 {
-	_landscape = landscape;
-	[self recalculatePages];
+	if (_range && [_range pageStart] >= 1 && [_range pageEnd] <= [self sheets])
+		return;
+	[_range autorelease];
+	_range = nil;
 }
 
-- (BOOL)landscape
+- (WkPrintingRange *)printingRange
 {
-	return _landscape;
+	[self validatePrintingRange];
+
+	if (_range)
+		return _range;
+	return [WkPrintingRange rangeFromPage:1 count:[self sheets]];
 }
 
-- (LONG)pagesPerSheet
+- (void)setPrintingRange:(WkPrintingRange *)range
 {
-	return _pagesPerSheet;
+	[_range autorelease];
+	_range = [range retain];
 }
 
-- (void)setPagesPerSheet:(LONG)pps
+- (WkPrintingState_Parity)parity
 {
-	_pagesPerSheet = pps;
+	return _parity;
 }
 
-- (LONG)previevedPage
+- (void)setParity:(WkPrintingState_Parity)parity
 {
-	return _previewedPage;
+	_parity = parity;
 }
 
-- (void)setPrevievedPage:(LONG)page
+- (LONG)copies
 {
-	if (_previewedPage != page && (_context && page < LONG(_context->pageCount())))
+	return _copies;
+}
+
+- (void)setCopies:(LONG)numCopies
+{
+	if (numCopies < 1)
+		numCopies = 1;
+	if (numCopies > 50)
+		numCopies = 50;
+	_copies = numCopies;
+}
+
+// ---- Info and preview
+
+- (LONG)pages
+{
+	if (_context)
+		return _context->pageCount();
+	return 1;
+}
+
+- (LONG)sheets
+{
+	if (_context)
 	{
-		_previewedPage = page;
+		if (_pagesPerSheet > 1)
+			return (_context->pageCount() / _pagesPerSheet) + ((_context->pageCount() % _pagesPerSheet) != 0 ? 1 : 0);
+		return _context->pageCount();
+	}
+
+	return 1;
+}
+
+- (LONG)printJobSheets
+{
+	WkPrintingRange *range = [self printingRange];
+	LONG start = [range pageStart];
+	LONG end = [range pageEnd];
+	LONG count = 0;
+	
+	for (LONG i = start; i <= end; i++)
+	{
+		if ((i & 1) == 0) // even steven
+		{
+			if (_parity != WkPrintingState_Parity_OddSheets)
+				count ++;
+		}
+		else // odd steven
+		{
+			if (_parity != WkPrintingState_Parity_EvenSheets)
+				count ++;
+		}
+	}
+	
+	return count;
+}
+
+- (LONG)previevedSheet
+{
+	return _previewedSheet;
+}
+
+- (void)setPrevievedSheet:(LONG)sheet
+{
+	if (_previewedSheet != sheet && sheet >= 1 && sheet <= [self sheets])
+	{
+		_previewedSheet = sheet;
 		[self needsRedraw];
 	}
 }
 
-- (WebCore::FloatBoxExtent)printMargins
+- (BOOL)shouldPrintBackgrounds
 {
-	if (0 && [self landscape])
-	{
-		return WebCore::FloatBoxExtent(_marginLeft * 72.f, _marginBottom * 72.f,
-			_marginRight * 72.f, _marginTop * 72.f);
-	}
-	else
-	{
-		return WebCore::FloatBoxExtent(_marginTop * 72.f, _marginRight * 72.f,
-			_marginBottom * 72.f, _marginLeft * 72.f);
-	}
+	return _printBackgrounds;
+}
+
+- (void)setShouldPrintBackgrounds:(BOOL)printBackgrounds
+{
+	_printBackgrounds = printBackgrounds;
 }
 
 @end
@@ -839,14 +951,34 @@ protected:
 	return 1;
 }
 
-- (LONG)previevedPage
+- (LONG)sheets
+{
+	return 1;
+}
+
+- (LONG)printJobSheets
+{
+	return 1;
+}
+
+- (WkPrintingRange *)printingRange
+{
+	return nil;
+}
+
+- (void)setPrintingRange:(WkPrintingRange *)range
+{
+	(void)range;
+}
+
+- (LONG)previevedSheet
 {
 	return 0;
 }
 
-- (void)setPrevievedPage:(LONG)page
+- (void)setPrevievedSheet:(LONG)sheet
 {
-	(void)page;
+	(void)sheet;
 }
 
 - (float)userScalingFactor
@@ -857,6 +989,16 @@ protected:
 - (void)setUserScalingFactor:(float)scaling
 {
 	(void)scaling;
+}
+
+- (WkPrintingState_Parity)parity
+{
+	return WkPrintingState_Parity_AllSheets;
+}
+
+- (void)setParity:(WkPrintingState_Parity)parity
+{
+	(void)parity;
 }
 
 - (float)marginLeft
@@ -912,9 +1054,24 @@ protected:
 	return NO;
 }
 
-- (WkPrintingPage *)pageWithMarginsApplied
+- (BOOL)shouldPrintBackgrounds
 {
-	return nil;
+	return NO;
+}
+
+- (void)setShouldPrintBackgrounds:(BOOL)printBackgrounds
+{
+	(void)printBackgrounds;
+}
+
+- (LONG)copies
+{
+	return 1;
+}
+
+- (void)setCopies:(LONG)numCopies
+{
+	(void)numCopies;
 }
 
 @end

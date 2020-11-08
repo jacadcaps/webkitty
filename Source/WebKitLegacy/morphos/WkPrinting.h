@@ -63,20 +63,26 @@
 // Associated WkWebView
 - (WkWebView *)webView;
 
+// --- Printer Selection
+
 // Selected printer
 - (WkPrintingProfile *)profile;
 - (void)setProfile:(WkPrintingProfile *)profile;
 
+// All available printer profiles
 - (OBArray * /* WkPrintingProfile */)allProfiles;
 
-// Calculated # of pages
-- (LONG)pages;
+// ---- Page and layout setup
 
-// Previewed page no
-- (LONG)previevedPage;
-- (void)setPrevievedPage:(LONG)page;
+// Orientation of the page
+- (void)setLandscape:(BOOL)landscape;
+- (BOOL)landscape;
 
-// 1.0 for 100%
+// How many pages to layout on 1 sheet (accepted values: 1, 2, 4, 6, 9)
+- (LONG)pagesPerSheet;
+- (void)setPagesPerSheet:(LONG)pps;
+
+// 1.0 for 100% scales text on the page
 - (float)userScalingFactor;
 - (void)setUserScalingFactor:(float)scaling;
 
@@ -89,13 +95,43 @@
 - (void)setMarginLeft:(float)left top:(float)top right:(float)right bottom:(float)bottom;
 - (void)resetMarginsToPaperDefaults;
 
-- (WkPrintingPage *)pageWithMarginsApplied;
+// ---- Print job setup
 
-- (void)setLandscape:(BOOL)landscape;
-- (BOOL)landscape;
+// Which sheets to print
+- (WkPrintingRange *)printingRange;
+- (void)setPrintingRange:(WkPrintingRange *)range;
 
-// Only when printing to PostScript targets (no PDF)
-- (LONG)pagesPerSheet;
-- (void)setPagesPerSheet:(LONG)pps;
+typedef enum
+{
+	WkPrintingState_Parity_AllSheets,
+	WkPrintingState_Parity_OddSheets,
+	WkPrintingState_Parity_EvenSheets,
+} WkPrintingState_Parity;
+
+// whether to print odd/even sheets or all sheets (within the printingRange)
+- (WkPrintingState_Parity)parity;
+- (void)setParity:(WkPrintingState_Parity)parity;
+
+- (BOOL)shouldPrintBackgrounds;
+- (void)setShouldPrintBackgrounds:(BOOL)printBackgrounds;
+
+- (LONG)copies;
+- (void)setCopies:(LONG)numCopies;
+
+// ---- Info and preview
+
+// Number of pages, disregarding pages per sheet and odd/even page printing
+- (LONG)pages;
+
+// Calculated # of sheets of paper, affected by pages per sheet
+- (LONG)sheets;
+
+// Total # of sheets to print (affected by parity)
+- (LONG)printJobSheets;
+
+// Previewed sheet number - this is affected by all page layout setup attributes
+// This is a value between 1 and -sheets
+- (LONG)previevedSheet;
+- (void)setPrevievedSheet:(LONG)sheet;
 
 @end

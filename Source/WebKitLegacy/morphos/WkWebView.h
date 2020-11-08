@@ -207,8 +207,7 @@ typedef enum {
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
 
 - (WkPrintingState *)beginPrinting;
-- (void)spool:(OBArray /* WkPrintingRange */ *)ranges;
-- (void)spool:(OBArray /* WkPrintingRange */ *)ranges toFile:(OBString *)file;
+- (void)spoolToFile:(OBString *)file;
 - (BOOL)isPrinting;
 - (void)endPrinting;
 
