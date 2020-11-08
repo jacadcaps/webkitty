@@ -952,6 +952,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[clientDelegate webView:self documentReady:NO];
 		};
 
+		webPage->_fPrint = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			[clientDelegate webViewRequestedPrinting:self];
+		};
+		
 		webPage->_fDidStopLoading = [self]() {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
@@ -2125,7 +2132,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return [_private printingState];
 }
 
-- (void)spoolToFile:(OBString *)file
+- (void)spoolToFile:(OBString *)file withDelegate:(id<WkPrintingStateDelegate>)delegate
 {
 	auto webPage = [_private page];
 	WkPrintingStatePrivate *state = [_private printingState];
@@ -2153,14 +2160,22 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 		BOOL doOdd = [state parity] != WkPrintingState_Parity_EvenSheets;
 		BOOL doEven = [state parity] != WkPrintingState_Parity_OddSheets;
+		
+		float progress = 0;
+		[delegate printingState:state updatedProgress:progress];
 
 		WkPrintingRange *range = [state printingRange];
+		LONG printed = 0;
 		for (LONG i = [range pageStart]; i <= [range pageEnd]; i++)
 		{
 			if (((i & 1) == 1) && doOdd)
 				webPage->printSpool([state context], i - 1);
 			else if (((i & 1) == 0) && doEven)
 				webPage->printSpool([state context], i - 1);
+
+			printed++;
+			progress = float(printed) / float([range count]);
+			[delegate printingState:state updatedProgress:progress];
 		}
 		
 		webPage->printingFinished();

@@ -370,7 +370,8 @@ void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmb
 
 void WebChromeClient::print(Frame& frame)
 {
-	notImplemented();
+	if (m_webPage._fPrint)
+		m_webPage._fPrint();
 }
 
 void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& databaseIdentifier, DatabaseDetails)

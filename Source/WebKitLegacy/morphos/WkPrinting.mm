@@ -920,6 +920,7 @@ protected:
 - (void)setShouldPrintBackgrounds:(BOOL)printBackgrounds
 {
 	_printBackgrounds = printBackgrounds;
+	[self needsRedraw];
 }
 
 @end

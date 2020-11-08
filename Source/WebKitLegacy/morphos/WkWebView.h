@@ -17,6 +17,7 @@
 @protocol WkFileDialogSettings;
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
+@protocol WkPrintingStateDelegate;
 
 #define kWebViewClientDelegateOption @"mode"
 #define kWebViewClientDelegateOption_NewWindow @"window"
@@ -66,6 +67,8 @@
 - (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
 
 - (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate;
+
+- (void)webViewRequestedPrinting:(WkWebView *)view;
 
 @end
 
@@ -207,7 +210,7 @@ typedef enum {
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
 
 - (WkPrintingState *)beginPrinting;
-- (void)spoolToFile:(OBString *)file;
+- (void)spoolToFile:(OBString *)file withDelegate:(id<WkPrintingStateDelegate>)delegate;
 - (BOOL)isPrinting;
 - (void)endPrinting;
 

@@ -58,6 +58,12 @@
 
 @end
 
+@protocol WkPrintingStateDelegate <OBObject>
+
+- (void)printingState:(WkPrintingState *)state updatedProgress:(float)progress;
+
+@end
+
 @interface WkPrintingState : OBObject
 
 // Associated WkWebView

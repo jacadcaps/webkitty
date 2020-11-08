@@ -382,7 +382,7 @@ static int _windowID = 1;
 - (void)onPrintingPDF
 {
 	WkPrintingState *state = [_view beginPrinting];
-	[_view spoolToFile:@"RAM:webkitty.pdf"];
+	[_view spoolToFile:@"RAM:webkitty.pdf" withDelegate:nil];
 }
 
 - (void)onPrintingPaper
@@ -691,6 +691,10 @@ static int _windowID = 1;
 {
 	dprintf("issuedAuthenticationChallengeAtURL...will cancel\n");
 	[delegate cancel];
+}
+
+- (void)webViewRequestedPrinting:(WkWebView *)view
+{
 }
 
 - (OBString *)aslFile:(OBString *)oldpath title:(OBString *)title doSave:(BOOL)save reference:(MUIArea *)ref
