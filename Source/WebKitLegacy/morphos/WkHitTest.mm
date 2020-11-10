@@ -2,10 +2,12 @@
 #import "WebKit.h"
 #import "WebPage.h"
 #import <WebCore/Image.h>
+#import "WebEditorClient.h"
 #define __OBJC__
 
 #import "WkHitTest_private.h"
 #import <ob/OBURL.h>
+#import <ob/OBArrayMutable.h>
 
 @implementation WkHitTestPrivate
 
@@ -34,6 +36,11 @@
 + (id)hitTestFromHitTestResult:(const WebCore::HitTestResult &)hittest onWebPage:(const WTF::RefPtr<WebKit::WebPage> &)webPage
 {
 	return [[[self alloc] initFromHitTestResult:hittest onWebPage:webPage] autorelease];
+}
+
+- (WebCore::HitTestResult *)hitTestInternal
+{
+	return _hitTest;
 }
 
 - (OBString *)stringFromWTFString:(const WTF::String &)string
@@ -70,6 +77,78 @@
 - (BOOL)isContentEditable
 {
 	return _hitTest->isContentEditable();
+}
+
+- (OBString *)misspelledWord
+{
+	auto miss = _page->misspelledWord(*_hitTest);
+	if (miss.length())
+	{
+		auto umiss = miss.utf8();
+		return [OBString stringWithUTF8String:umiss.data()];
+	}
+	return nil;
+}
+
+- (OBArray *)guessesForMisspelledWord
+{
+	OBMutableArray *out = [OBMutableArray arrayWithCapacity:16];
+	auto list = _page->misspelledWordSuggestions(*_hitTest);
+	for (WTF::String &s : list)
+	{
+		auto us = s.utf8();
+		[out addObject:[OBString stringWithUTF8String:us.data()]];
+	}
+
+	return out;
+}
+
+- (OBString *)enabledDictionary
+{
+	WTF::String lang = WebKit::WebEditorClient::getSpellCheckingLanguage();
+	WTF::String defalang;
+	WTF::Vector<WTF::String> languages;
+	WebKit::WebEditorClient::getAvailableDictionaries(languages, defalang);
+	if (lang.length())
+	{
+		auto ulang = lang.utf8();
+		return [OBString stringWithUTF8String:ulang.data()];
+	}
+	if (defalang.length())
+	{
+		auto ulang = defalang.utf8();
+		return [OBString stringWithUTF8String:ulang.data()];
+	}
+	return nil;
+}
+
+- (OBArray /* OBString */ *)availableDictionaries
+{
+	WTF::String defalang;
+	WTF::Vector<WTF::String> languages;
+	WebKit::WebEditorClient::getAvailableDictionaries(languages, defalang);
+	OBMutableArray *out = [OBMutableArray arrayWithCapacity:languages.size()];
+	for (const WTF::String &s : languages)
+	{
+		auto ulang = s.utf8();
+		[out addObject:[OBString stringWithUTF8String:ulang.data()]];
+	}
+	return out;
+}
+
+- (void)learnMissspelledWord
+{
+	_page->learnMisspelled(*_hitTest);
+}
+
+- (void)ignoreMisspelledWord
+{
+	_page->ignoreMisspelled(*_hitTest);
+}
+
+- (void)replaceMisspelledWord:(OBString *)correctWord
+{
+	_page->replaceMisspelled(*_hitTest, WTF::String::fromUTF8([correctWord cString]));
 }
 
 - (OBURL *)linkURL
@@ -190,6 +269,41 @@
 	return NO;
 }
 
+- (OBString *)misspelledWord
+{
+	return nil;
+}
+
+- (OBArray *)guessesForMisspelledWord
+{
+	return nil;
+}
+
+- (OBArray /* OBString */ *)availableDictionaries
+{
+	return nil;
+}
+
+- (OBString *)enabledDictionary
+{
+	return nil;
+}
+
+- (void)learnMissspelledWord
+{
+
+}
+
+- (void)ignoreMisspelledWord
+{
+
+}
+
+- (void)replaceMisspelledWord:(OBString *)correctWord
+{
+	(void)correctWord;
+}
+
 - (OBURL *)linkURL
 {
 	return nil;
@@ -227,6 +341,7 @@
 
 - (BOOL)copyImageToClipboard
 {
+	return NO;
 }
 
 - (BOOL)saveImageToFile:(OBString *)path

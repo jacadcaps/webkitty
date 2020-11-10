@@ -11,6 +11,7 @@
 #import <WebCore/TextEncoding.h>
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>
+#import "WebEditorClient.h"
 #define __OBJC__
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -208,6 +209,15 @@ namespace WebCore {
 
 }
 
+- (WkSettings_Interpolation)interpolationForImageViews
+{
+	return WkSettings_Interpolation_Medium;
+}
+
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation
+{
+}
+
 - (WkSettings_UserStyleSheet)styleSheet
 {
 	return WkSettings_UserStyleSheet_MUI;
@@ -329,6 +339,27 @@ static cairo_antialias_t defaultAA;
 + (QUAD)calculatedMaximumDiskCachingLimit
 {
 	return WebKit::WebProcess::singleton().maxDiskCacheSize();
+}
+
++ (void)setSpellCheckingEnabled:(BOOL)spellcheckingenabled
+{
+	WebKit::WebEditorClient::setSpellCheckingEnabled(spellcheckingenabled);
+}
+
++ (BOOL)spellCheckingEnabled
+{
+	return WebKit::WebEditorClient::getSpellCheckingEnabled();
+}
+
++ (void)setDictionaryLanguage:(OBString *)language
+{
+	WebKit::WebEditorClient::setSpellCheckingLanguage(WTF::String::fromUTF8([language cString]));
+}
+
++ (OBString *)dictionaryLanguage
+{
+	auto udata = WebKit::WebEditorClient::getSpellCheckingLanguage().utf8();
+	return [OBString stringWithUTF8String:udata.data()];
 }
 
 @end

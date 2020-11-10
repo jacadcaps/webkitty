@@ -10,6 +10,13 @@
 - (OBString *)textContent;
 
 - (BOOL)isContentEditable;
+- (OBString *)misspelledWord;
+- (OBArray /* OBString */ *)guessesForMisspelledWord;
+- (OBArray /* OBString */ *)availableDictionaries;
+- (OBString *)enabledDictionary;
+- (void)learnMissspelledWord;
+- (void)ignoreMisspelledWord;
+- (void)replaceMisspelledWord:(OBString *)correctWord;
 
 - (OBURL *)linkURL;
 

@@ -1033,7 +1033,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
 			WebKit::WebPage *page = [privateObject page];
 			MUIMenu *menu = [[MUIMenu new] autorelease];
-			WkHitTest *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
+			WkHitTestPrivate *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
+			
+			if ([wkhit isContentEditable])
+			{
+				page->markWord(*[wkhit hitTestInternal]);
+				[self redraw:MADF_DRAWUPDATE];
+			}
 
 			if (contextMenuDelegate)
 				[contextMenuDelegate webView:self needsToPopulateMenu:menu withHitTest:wkhit];

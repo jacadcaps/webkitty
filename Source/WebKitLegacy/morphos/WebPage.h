@@ -216,8 +216,15 @@ public:
 	void hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const;
 	void hitTestPaste(WebCore::HitTestResult &hitTest) const;
 	void hitTestSelectAll(WebCore::HitTestResult &hitTest) const;
+	WTF::String misspelledWord(WebCore::HitTestResult &hitTest);
+	WTF::Vector<WTF::String> misspelledWordSuggestions(WebCore::HitTestResult &hitTest);
+	void markWord(WebCore::HitTestResult &hitTest);
+	void learnMisspelled(WebCore::HitTestResult &hitTest);
+	void ignoreMisspelled(WebCore::HitTestResult &hitTest);
+	void replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement);
 
 	void startDownload(const WTF::URL &url);
+	
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);

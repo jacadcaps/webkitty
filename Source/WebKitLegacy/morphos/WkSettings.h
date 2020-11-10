@@ -106,4 +106,9 @@ typedef enum
 + (QUAD)diskCachingLimit;
 + (QUAD)calculatedMaximumDiskCachingLimit;
 
++ (void)setSpellCheckingEnabled:(BOOL)spellcheckingenabled;
++ (BOOL)spellCheckingEnabled;
++ (void)setDictionaryLanguage:(OBString *)language;
++ (OBString *)dictionaryLanguage;
+
 @end

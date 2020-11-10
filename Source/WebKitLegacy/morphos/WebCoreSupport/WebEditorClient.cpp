@@ -41,6 +41,10 @@
 #include <WebCore/VisibleSelection.h>
 #include <WebCore/AutofillElements.h>
 #include <wtf/text/StringView.h>
+#include <proto/exec.h>
+#include <proto/spellchecker.h>
+#include <libraries/spellchecker.h>
+#include <unicode/ubrk.h>
 
 using namespace WebCore;
 using namespace HTMLNames;
@@ -48,6 +52,23 @@ using namespace HTMLNames;
 // WebEditorClient ------------------------------------------------------------------
 
 namespace WebKit {
+
+struct Library *WebEditorClient::m_spellcheckerLibrary;
+APTR WebEditorClient::m_spellDictionary;
+WTF::String WebEditorClient::m_language;
+
+struct WebEditorClientCleanup
+{
+	~WebEditorClientCleanup() {
+		if (WebEditorClient::m_spellDictionary)
+			CloseDictionary(WebEditorClient::m_spellDictionary);
+		WebEditorClient::m_spellDictionary = nullptr;
+		if (WebEditorClient::m_spellcheckerLibrary)
+			CloseLibrary(WebEditorClient::m_spellcheckerLibrary);
+		WebEditorClient::m_spellcheckerLibrary = nullptr;
+	}
+};
+static WebEditorClientCleanup __weCleanup;
 
 WebEditorClient::WebEditorClient(WebPage* webPage)
     : m_webPage(webPage)
@@ -60,15 +81,105 @@ WebEditorClient::~WebEditorClient()
 {
 }
 
+void WebEditorClient::setSpellCheckingEnabled(bool enabled)
+{
+	if (!m_spellcheckerLibrary)
+	{
+		m_spellcheckerLibrary = OpenLibrary("spellchecker.library", 0);
+	}
+
+	struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+	if (SpellCheckerBase)
+	{
+		if (!enabled && m_spellDictionary)
+		{
+			CloseDictionary(m_spellDictionary);
+			m_spellDictionary = nullptr;
+		}
+
+		if (enabled && !m_spellDictionary)
+		{
+			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)m_language.utf8().data()}, {TAG_DONE, 0} };
+			m_spellDictionary = OpenDictionary(nullptr, dicttags);
+		}
+	}
+}
+
+void WebEditorClient::setSpellCheckingLanguage(const WTF::String &language)
+{
+	if (m_language != language)
+	{
+		m_language = language;
+
+		if (m_spellDictionary)
+		{
+			CloseDictionary(m_spellDictionary);
+			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)m_language.utf8().data()}, {TAG_DONE, 0} };
+			m_spellDictionary = OpenDictionary(nullptr, dicttags);
+		}
+	}
+}
+
+void WebEditorClient::getGuessesForWord(const WTF::String &word, WTF::Vector<WTF::String> &outGuesses)
+{
+    outGuesses.clear();
+
+	struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+	(void)SpellCheckerBase;
+
+	if (m_spellDictionary)
+	{
+		STRPTR *suggestions = Suggest(m_spellDictionary, word.utf8().data(), NULL);
+		if (suggestions)
+		{
+			int i = 0;
+			while (suggestions[i])
+			{
+				outGuesses.append(WTF::String::fromUTF8(suggestions[i]));
+				i++;
+			}
+		}
+	}
+}
+
+void WebEditorClient::getAvailableDictionaries(WTF::Vector<WTF::String> &outDictionaries, WTF::String &outDefault)
+{
+	if (!m_spellcheckerLibrary)
+	{
+		m_spellcheckerLibrary = OpenLibrary("spellchecker.library", 0);
+	}
+	struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+	if (SpellCheckerBase)
+	{
+		char buffer[4096];
+		STRPTR defaultLanguage = NULL;
+		struct TagItem tags[] = {{SCA_UTF8, TRUE}, {SCA_Default, (IPTR)&defaultLanguage}, {TAG_DONE,0}};
+		STRPTR *l = (STRPTR *)ListDictionaries(buffer, sizeof(buffer), tags);
+		if (l)
+		{
+			if (defaultLanguage && *defaultLanguage)
+				outDefault = WTF::String::fromUTF8(defaultLanguage);
+			for (int i = 0; l[i]; i++)
+			{
+				outDictionaries.constructAndAppend(WTF::String::fromUTF8(l[i]));
+			}
+		}
+	}
+}
+
+void WebEditorClient::replaceMisspelledWord(const WTF::String& replacement)
+{
+
+}
+	
 bool WebEditorClient::isContinuousSpellCheckingEnabled()
 {
-    notImplemented();
-	return false;
+	return m_spellDictionary != nullptr;
 }
 
 void WebEditorClient::toggleContinuousSpellChecking()
 {
-    notImplemented();
+	setSpellCheckingEnabled(m_spellDictionary != nullptr);
 }
 
 bool WebEditorClient::isGrammarCheckingEnabled()
@@ -92,7 +203,6 @@ int WebEditorClient::spellCheckerDocumentTag()
 
 bool WebEditorClient::shouldBeginEditing(WebCore::Range* range)
 {
-    notImplemented();
     return true;
 }
 
@@ -460,20 +570,69 @@ bool WebEditorClient::shouldEraseMarkersAfterChangeSelection(TextCheckingType) c
 
 void WebEditorClient::ignoreWordInSpellDocument(const String& word)
 {
-	notImplemented();
+	m_ignoredWords.add(word);
 }
 
 void WebEditorClient::learnWord(const String& word)
 {
-	notImplemented();
+	if (m_spellDictionary)
+	{
+		struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+		(void)SpellCheckerBase;
+		Learn(m_spellDictionary, word.utf8().data());
+	}
 }
 
 void WebEditorClient::checkSpellingOfString(StringView text, int* misspellingLocation, int* misspellingLength)
 {
     *misspellingLocation = -1;
     *misspellingLength = 0;
+	auto string = text.toStringWithoutCopying();
+	auto len = string.length();
+	unsigned start = len;
+	unsigned end = 0;
+	unsigned i = 0;
 
-	notImplemented();
+	for (; i < len; i++)
+	{
+		if (u_isalnum(string[i]))
+		{
+			start = i;
+			end = i;
+			break;
+		}
+	}
+	
+	if (start == len)
+	{
+		return;
+	}
+
+	for (; i < len; i++)
+	{
+		auto ch = string[i];
+
+		if (ch != '\'' && !u_isalnum(ch))
+		{
+			break;
+		}
+		end = i;
+	}
+	
+	if (start <= end)
+	{
+		struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+		(void)SpellCheckerBase;
+
+		auto word = string.substring(start, end - start + 1);
+		auto uword = word.utf8();
+
+		if (!SpellCheck(m_spellDictionary, uword.data(), NULL) && !m_ignoredWords.contains(word))
+		{
+			*misspellingLocation = start;
+			*misspellingLength = end - start + 1;
+		}
+	}
 }
 
 String WebEditorClient::getAutoCorrectSuggestionForMisspelledWord(const String& inputWord)
@@ -512,8 +671,24 @@ bool WebEditorClient::spellingUIIsShowing()
 void WebEditorClient::getGuessesForWord(const String& word, const String& context, const VisibleSelection&, Vector<String>& guesses)
 {
     guesses.clear();
+#if 0
+	struct Library *SpellCheckerBase = m_spellcheckerLibrary;
+	(void)SpellCheckerBase;
 
-	notImplemented();
+	if (m_spellDictionary)
+	{
+		STRPTR *suggestions = Suggest(m_spellDictionary, word.utf8().data(), NULL);
+		if (suggestions)
+		{
+			int i = 0;
+			while (suggestions[i])
+			{
+				guesses.append(WTF::String::fromUTF8(suggestions[i]));
+				i++;
+			}
+		}
+	}
+#endif
 }
 
 void WebEditorClient::willSetInputMethodState()

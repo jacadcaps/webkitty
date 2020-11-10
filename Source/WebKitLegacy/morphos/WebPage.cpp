@@ -3131,6 +3131,87 @@ void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
 	}
 }
 
+WTF::String WebPage::misspelledWord(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		return frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+	}
+	
+	return WTF::String();
+}
+
+void WebPage::markWord(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->selection().moveTo(frame->visiblePositionForPoint(hitTest.roundedPointInInnerNodeFrame()));
+
+		VisibleSelection selection = frame->selection().selection();
+		if (!selection.isContentEditable() || selection.isNone())
+			return;
+
+		VisibleSelection wordSelection(selection.base());
+		wordSelection.expandUsingGranularity(WordGranularity);
+		
+		frame->selection().setSelection(wordSelection);
+	}
+}
+
+WTF::Vector<WTF::String> WebPage::misspelledWordSuggestions(WebCore::HitTestResult &hitTest)
+{
+	WTF::Vector<WTF::String> out;
+
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		WebEditorClient::getGuessesForWord(miss, out);
+	}
+
+	return out;
+}
+
+void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().learnSpelling();
+	}
+}
+
+void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		frame->editor().ignoreSpelling();
+	}
+}
+
+void WebPage::replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		VisibleSelection selection = frame->selection().selection();
+		if (!selection.isContentEditable() || selection.isNone())
+			return;
+
+		VisibleSelection wordSelection(selection.base());
+		wordSelection.expandUsingGranularity(WordGranularity);
+		RefPtr<Range> wordRange = wordSelection.toNormalizedRange();
+		if (!wordRange)
+			return;
+
+
+		frame->editor().replaceRangeForSpellChecking(*(wordRange.get()), replacement);
+	}
+}
+
 void WebPage::startDownload(const WTF::URL &url)
 {
 	if (m_mainFrame)
