@@ -1255,7 +1255,11 @@ void WebPage::reload()
 {
 	auto *mainframe = mainFrame();
 	if (mainframe)
-		mainframe->loader().reload();
+	{
+		OptionSet<ReloadOption> options;
+		options.add(ReloadOption::FromOrigin);
+		mainframe->loader().reload(options);
+	}
 }
 
 void WebPage::stop()

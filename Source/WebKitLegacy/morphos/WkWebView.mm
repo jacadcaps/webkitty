@@ -948,7 +948,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
-			[privateObject setIsLoading:YES];
 			[clientDelegate webView:self documentReady:NO];
 		};
 
@@ -963,7 +962,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
-			[privateObject setIsLoading:NO];
 			[clientDelegate webView:self documentReady:YES];
 		};
 
@@ -1351,6 +1349,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+			[privateObject setIsLoading:YES];
 			[progressDelegate webViewDidStartProgress:self];
 		};
 
@@ -1365,6 +1364,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
+			[privateObject setIsLoading:NO];
 			[progressDelegate webViewDidFinishProgress:self];
 		};
 		

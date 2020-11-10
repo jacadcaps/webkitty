@@ -175,7 +175,7 @@ namespace WebKit {
 - (void)onShowTimer
 {
 	[_loadResizeTimer invalidate];
-	[_loadResizeTimer release];
+	[_loadResizeTimer autorelease];
 	_loadResizeTimer = nil;
 	
 	[OBThread startWithObject:self selector:@selector(thread:) argument:[OBNumber numberWithLong:[self innerHeight]]];
@@ -188,7 +188,7 @@ namespace WebKit {
 		if (_loadResizeTimer)
 		{
 			[_loadResizeTimer invalidate];
-			[_loadResizeTimer release];
+			[_loadResizeTimer autorelease];
 			_loadResizeTimer = nil;
 		}
 		
@@ -212,7 +212,7 @@ namespace WebKit {
 	if (_loadResizeTimer)
 	{
 		[_loadResizeTimer invalidate];
-		[_loadResizeTimer release];
+		[_loadResizeTimer autorelease];
 	}
 	[super dealloc];
 }
