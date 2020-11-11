@@ -555,6 +555,8 @@ bool JPEGImageDecoder::outputScanlines(ScalableImageDecoderFrame& buffer)
 		if (!buffer.backingStore())
 			return false;
         auto* currentAddress = buffer.backingStore()->pixelAt(0, sourceY);
+        if (!currentAddress)
+        	return false;
         for (int x = 0; x < width; ++x) {
             setPixel<colorSpace>(buffer, currentAddress, samples, x);
             ++currentAddress;
