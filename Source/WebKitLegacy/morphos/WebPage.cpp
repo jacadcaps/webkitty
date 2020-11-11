@@ -2441,7 +2441,7 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
-static const unsigned CommandKey = 1 << 0;
+static const unsigned ControlKey = 1 << 0;
 static const unsigned AltKey = 1 << 1;
 static const unsigned ShiftKey = 1 << 2;
 
@@ -2461,12 +2461,12 @@ struct KeyPressEntry {
 static const KeyDownEntry keyDownEntries[] = {
     { VK_LEFT,   0,                  "MoveLeft"                                    },
     { VK_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
-    { VK_LEFT,   CommandKey,            "MoveWordLeft"                                },
-    { VK_LEFT,   CommandKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
+    { VK_LEFT,   ControlKey,            "MoveWordLeft"                                },
+    { VK_LEFT,   ControlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
     { VK_RIGHT,  0,                  "MoveRight"                                   },
     { VK_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
-    { VK_RIGHT,  CommandKey,            "MoveWordRight"                               },
-    { VK_RIGHT,  CommandKey | ShiftKey, "MoveWordRightAndModifySelection"             },
+    { VK_RIGHT,  ControlKey,            "MoveWordRight"                               },
+    { VK_RIGHT,  ControlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
     { VK_UP,     0,                  "MoveUp"                                      },
     { VK_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
     { VK_PRIOR,  ShiftKey,           "MovePageUpAndModifySelection"                },
@@ -2477,51 +2477,51 @@ static const KeyDownEntry keyDownEntries[] = {
     { VK_NEXT,   0,                  "MovePageDown"                                },
     { VK_HOME,   0,                  "MoveToBeginningOfLine"                       },
     { VK_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
-    { VK_HOME,   CommandKey,            "MoveToBeginningOfDocument"                   },
-    { VK_HOME,   CommandKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
+    { VK_HOME,   ControlKey,            "MoveToBeginningOfDocument"                   },
+    { VK_HOME,   ControlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
 
     { VK_END,    0,                  "MoveToEndOfLine"                             },
     { VK_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
-    { VK_END,    CommandKey,            "MoveToEndOfDocument"                         },
-    { VK_END,    CommandKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
+    { VK_END,    ControlKey,            "MoveToEndOfDocument"                         },
+    { VK_END,    ControlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
 
     { VK_BACK,   0,                  "DeleteBackward"                              },
     { VK_BACK,   ShiftKey,           "DeleteBackward"                              },
     { VK_DELETE, 0,                  "DeleteForward"                               },
-    { VK_BACK,   CommandKey,            "DeleteWordBackward"                          },
-    { VK_DELETE, CommandKey,            "DeleteWordForward"                           },
+    { VK_BACK,   ControlKey,            "DeleteWordBackward"                          },
+    { VK_DELETE, ControlKey,            "DeleteWordForward"                           },
 	
-    { 'B',       CommandKey,            "ToggleBold"                                  },
-    { 'I',       CommandKey,            "ToggleItalic"                                },
+    { 'B',       ControlKey,            "ToggleBold"                                  },
+    { 'I',       ControlKey,            "ToggleItalic"                                },
 
     { VK_ESCAPE, 0,                  "Cancel"                                      },
-    { VK_OEM_PERIOD, CommandKey,        "Cancel"                                      },
+    { VK_OEM_PERIOD, ControlKey,        "Cancel"                                      },
     { VK_TAB,    0,                  "InsertTab"                                   },
     { VK_TAB,    ShiftKey,           "InsertBacktab"                               },
     { VK_RETURN, 0,                  "InsertNewline"                               },
-    { VK_RETURN, CommandKey,            "InsertNewline"                               },
+    { VK_RETURN, ControlKey,            "InsertNewline"                               },
     { VK_RETURN, AltKey,             "InsertNewline"                               },
     { VK_RETURN, ShiftKey,           "InsertNewline"                               },
     { VK_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
 
     // It's not quite clear whether clipboard shortcuts and Undo/Redo should be handled
     // in the application or in WebKit. We chose WebKit.
-    { 'C',       CommandKey,            "Copy"                                        },
-    { 'V',       CommandKey,            "Paste"                                       },
-    { 'X',       CommandKey,            "Cut"                                         },
-    { 'A',       CommandKey,            "SelectAll"                                   },
-    { VK_INSERT, CommandKey,            "Copy"                                        },
+    { 'C',       ControlKey,            "Copy"                                        },
+    { 'V',       ControlKey,            "Paste"                                       },
+    { 'X',       ControlKey,            "Cut"                                         },
+    { 'A',       ControlKey,            "SelectAll"                                   },
+    { VK_INSERT, ControlKey,            "Copy"                                        },
     { VK_DELETE, ShiftKey,           "Cut"                                         },
     { VK_INSERT, ShiftKey,           "Paste"                                       },
-    { 'Z',       CommandKey,            "Undo"                                        },
-    { 'Z',       CommandKey | ShiftKey, "Redo"                                        },
+    { 'Z',       ControlKey,            "Undo"                                        },
+    { 'Z',       ControlKey | ShiftKey, "Redo"                                        },
 };
 
 static const KeyPressEntry keyPressEntries[] = {
     { '\t',   0,                  "InsertTab"                                   },
     { '\t',   ShiftKey,           "InsertBacktab"                               },
     { '\r',   0,                  "InsertNewline"                               },
-    { '\r',   CommandKey,            "InsertNewline"                               },
+    { '\r',   ControlKey,            "InsertNewline"                               },
     { '\r',   AltKey,             "InsertNewline"                               },
     { '\r',   ShiftKey,           "InsertNewline"                               },
     { '\r',   AltKey | ShiftKey,  "InsertNewline"                               },
@@ -2550,8 +2550,8 @@ static const char* interpretKeyEvent(const KeyboardEvent* evt)
         modifiers |= ShiftKey;
     if (evt->altKey())
         modifiers |= AltKey;
-    if (evt->metaKey())
-        modifiers |= CommandKey;
+    if (evt->ctrlKey())
+        modifiers |= ControlKey;
 
     if (evt->type() == eventNames().keydownEvent) {
         int mapKey = modifiers << 16 | evt->keyCode();
