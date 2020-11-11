@@ -2172,7 +2172,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[path appendString:@"PRINTER:"];
 				[path appendFormat:@"PROFILE=\"%@\" COPIES=%ld FORMAT=PS", [[state profile] name], [state copies]];
 				if ([[state profile] canSelectPageFormat])
-					[path appendFormat:@" ARGS=\"SIZE=%@\"", [[[state profile] selectedPageFormat] key]];
+					[path appendFormat:@" SIZE=\"%@\"", [[[state profile] selectedPageFormat] key]];
 				file = path;
 			}
 			webPage->printStart([page contentWidth] * 72.f, [page contentHeight] * 72.f, [state landscape],
