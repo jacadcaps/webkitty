@@ -126,35 +126,6 @@ protected:
 
 @implementation WkPrintingProfilePrivate
 
-- (id)initWithProfile:(OBString *)profile
-{
-	if ((self = [super init]))
-	{
-		_profile = [profile retain];
-
-		struct Library *PPDBase = _ppdBase = OpenLibrary("ppd.library", 50);
-		if (PPDBase)
-		{
-			PPD_ERROR err;
-			const char *path = [[OBString stringWithFormat:@"SYS:Prefs/Printers/Profiles/%@", _profile] nativeCString];
-			_ppd = OpenPPDFromIFF((STRPTR)path, &err);
-		}
-	}
-
-	return self;
-}
-
-- (void)dealloc
-{
-	struct Library *PPDBase = _ppdBase;
-	if (_ppd)
-		ClosePPD(_ppd);
-	if (_ppdBase)
-		CloseLibrary(_ppdBase);
-	[_profile release];
-	[super dealloc];
-}
-
 - (WkPrintingPage *)pageForNode:(PAGE_SIZE_NODE *)node
 {
 	if (!node)
@@ -178,6 +149,58 @@ protected:
 
 	return [WkPrintingPagePrivate pageWithName:[OBString stringWithUTF8String:node->Full_Name] key:[OBString stringWithUTF8String:node->Name] width:w height:h
 		marginLeft:margins[0] marginRight:margins[1] marginTop:margins[2] marginBottom:margins[3]];
+}
+
+- (id)initWithProfile:(OBString *)profile state:(WkPrintingState *)state
+{
+	if ((self = [super init]))
+	{
+		_profile = [profile retain];
+		_state = (id)state; // !
+
+		struct Library *PPDBase = _ppdBase = OpenLibrary("ppd.library", 50);
+		if (PPDBase)
+		{
+			PPD_ERROR err;
+			const char *path = [[OBString stringWithFormat:@"SYS:Prefs/Printers/Profiles/%@", _profile] nativeCString];
+			_ppd = OpenPPDFromIFF((STRPTR)path, &err);
+			
+			if (_ppd)
+			{
+				_page = [[self pageForNode:_ppd->SelectedPageSize] retain];
+				
+				if (!_page)
+				{
+					_page = [[self defaultPageFormat] retain];
+				}
+				
+				if (!_page)
+				{
+					_page = [[[self pageFormats] firstObject] retain];
+				}
+			}
+		}
+	}
+
+	return self;
+}
+
+- (void)dealloc
+{
+	struct Library *PPDBase = _ppdBase;
+	(void)PPDBase;
+	if (_ppd)
+		ClosePPD(_ppd);
+	if (_ppdBase)
+		CloseLibrary(_ppdBase);
+	[_page release];
+	[_profile release];
+	[super dealloc];
+}
+
+- (void)clearState
+{
+	_state = nil;
 }
 
 - (OBArray*)pageFormats
@@ -212,20 +235,25 @@ protected:
 	return nil;
 }
 
+- (BOOL)canSelectPageFormat
+{
+	return YES; // temp
+}
+
+- (void)setSelectedPageFormat:(WkPrintingPage *)page
+{
+	if (page)
+	{
+		[_page autorelease];
+		_page = [page retain];
+		// force refresh on page change
+		[_state setProfile:[_state profile]];
+	}
+}
+
 - (WkPrintingPage *)selectedPageFormat
 {
-	if (_ppd)
-	{
-		WkPrintingPage *info = [self pageForNode:_ppd->SelectedPageSize];
-		if (info)
-			return info;
-	}
-
-	WkPrintingPage *def = [self defaultPageFormat];
-	if (def)
-		return def;
-	
-	return [[self pageFormats] firstObject];
+	return _page;
 }
 
 - (OBString *)printerModel
@@ -258,8 +286,6 @@ protected:
 
 @interface WkPrintingPDFProfile : WkPrintingProfilePrivate
 {
-	WkPrintingStatePrivate *_state; // WEAK!
-	WkPrintingPage         *_page;
 	OBArray                *_formats;
 }
 @end
@@ -278,7 +304,6 @@ protected:
 
 - (void)dealloc
 {
-	[_page release];
 	[_formats release];
 	[super dealloc];
 }
@@ -418,10 +443,10 @@ protected:
 	return defaultProfile;
 }
 
-+ (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile
++ (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile withState:(WkPrintingState *)state
 {
 	if (profile)
-		return [[[WkPrintingProfilePrivate alloc] initWithProfile:profile] autorelease];
+		return [[[WkPrintingProfilePrivate alloc] initWithProfile:profile state:state] autorelease];
 	return nil;
 }
 
@@ -560,7 +585,7 @@ protected:
 
 		while ((name = [eNames nextObject]))
 		{
-			WkPrintingProfile *profile = [WkPrintingProfile spoolInfoForProfile:name];
+			WkPrintingProfile *profile = [WkPrintingProfile spoolInfoForProfile:name withState:self];
 			if (profile)
 			{
 				[_profiles addObject:profile];
@@ -637,20 +662,10 @@ protected:
 
 		float mleft, mright, mtop, mbottom;
 
-		if (0 && _landscape)
-		{
-			mleft = _marginTop;
-			mtop = _marginLeft;
-			mright = _marginBottom;
-			mbottom = _marginRight;
-		}
-		else
-		{
-			mleft = _marginLeft;
-			mright = _marginRight;
-			mtop = _marginTop;
-			mbottom = _marginBottom;
-		}
+		mleft = _marginLeft;
+		mright = _marginRight;
+		mtop = _marginTop;
+		mbottom = _marginBottom;
 		
 		// works, so meh
 		[_webView internalSetPageZoomFactor:1.0f textZoomFactor:_scale];
@@ -923,6 +938,125 @@ protected:
 	[self needsRedraw];
 }
 
+- (OBDictionary *)settings
+{
+	OBMutableDictionary *out = [OBMutableDictionary dictionaryWithCapacity:16];
+	[out setObject:[_profile name] forKey:@"profile"];
+	[out setObject:[[_profile selectedPageFormat] key] forKey:@"pageFormat"];
+	if (!_defaultMargins)
+	{
+		[out setObject:[OBArray arrayWithObjects:[OBNumber numberWithFloat:_marginLeft], [OBNumber numberWithFloat:_marginRight],
+			[OBNumber numberWithFloat:_marginTop], [OBNumber numberWithFloat:_marginBottom], nil] forKey:@"margins"];
+	}
+	[out setObject:[OBNumber numberWithFloat:_scale] forKey:@"scale"];
+	[out setObject:[OBNumber numberWithBool:_landscape] forKey:@"landscape"];
+	[out setObject:[OBNumber numberWithBool:_printBackgrounds] forKey:@"backgrounds"];
+	return out;
+}
+
+- (void)setSettings:(OBDictionary *)settings
+{
+	OBString *profileName = [settings objectForKey:@"profile"];
+	OBString *pageFormat = [settings objectForKey:@"pageFormat"];
+	OBArray *margins = [settings objectForKey:@"margins"];
+	OBNumber *scale = [settings objectForKey:@"scale"];
+	OBNumber *landscape = [settings objectForKey:@"landscape"];
+	OBNumber *backgrounds = [settings objectForKey:@"backgrounds"];
+	
+	if (!profileName || ![profileName isKindOfClass:[OBString class]])
+		return;
+	
+	if (!pageFormat || ![pageFormat isKindOfClass:[OBString class]])
+		return;
+	
+	if (margins && ![margins isKindOfClass:[OBArray class]])
+		return;
+
+	if (!scale || ![scale isKindOfClass:[OBNumber class]])
+		return;
+
+	if (!landscape || ![landscape isKindOfClass:[OBNumber class]])
+		return;
+
+	if (!backgrounds || ![backgrounds isKindOfClass:[OBNumber class]])
+		return;
+
+	WkPrintingProfile *someprofile;
+	OBEnumerator *e = [_profiles objectEnumerator];
+	
+	while ((someprofile = [e nextObject]))
+	{
+		if ([[someprofile name] isEqualToString:profileName])
+		{
+			[_profile autorelease];
+			_profile = [someprofile retain];
+			break;
+		}
+	}
+
+	if ([_profile canSelectPageFormat])
+	{
+		WkPrintingPage *somepage;
+		e = [[_profile pageFormats] objectEnumerator];
+		while ((somepage = [e nextObject]))
+		{
+			if ([[somepage key] isEqualToString:pageFormat])
+			{
+				[_profile setSelectedPageFormat:somepage];
+				break;
+			}
+		}
+	}
+
+	_scale = [scale floatValue];
+	_landscape = [landscape boolValue];
+	_printBackgrounds = [backgrounds boolValue];
+	
+	if (margins && [margins count] == 4)
+	{
+		OBNumber *margin;
+		LONG index = 0;
+
+		_defaultMargins = NO;
+
+		e = [margins objectEnumerator];
+		while ((margin = [e nextObject]))
+		{
+			if ([margin respondsToSelector:@selector(floatValue)])
+			{
+				switch (index)
+				{
+				case 0:
+					_marginLeft = [margin floatValue];
+					break;
+				case 1:
+					_marginRight = [margin floatValue];
+					break;
+				case 2:
+					_marginTop = [margin floatValue];
+					break;
+				case 3:
+					_marginBottom = [margin floatValue];
+					break;
+				default: break;
+				}
+			}
+			
+			index++;
+		}
+	}
+	else
+	{
+		_defaultMargins = YES;
+		_marginLeft = [[_profile selectedPageFormat] marginLeft];
+		_marginTop = [[_profile selectedPageFormat] marginTop];
+		_marginRight = [[_profile selectedPageFormat] marginRight];
+		_marginBottom = [[_profile selectedPageFormat] marginBottom];
+	}
+
+	[self recalculatePages];
+}
+
 @end
 
 @implementation WkPrintingState
@@ -1073,6 +1207,16 @@ protected:
 - (void)setCopies:(LONG)numCopies
 {
 	(void)numCopies;
+}
+
+- (OBDictionary *)settings
+{
+	return nil;
+}
+
+- (void)setSettings:(OBDictionary *)settings
+{
+	(void)settings;
 }
 
 @end

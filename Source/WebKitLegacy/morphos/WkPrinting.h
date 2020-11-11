@@ -140,4 +140,10 @@ typedef enum
 - (LONG)previevedSheet;
 - (void)setPrevievedSheet:(LONG)sheet;
 
+// ---- Settings
+
+// Obtain and apply settings in JSON format
+- (OBDictionary *)settings;
+- (void)setSettings:(OBDictionary *)settings;
+
 @end

@@ -494,16 +494,18 @@ namespace  {
 	_userStyleSheetFile = [path copy];
 }
 
-- (WkPrintingState *)beingPrintingWithWebView:(WkWebView *)view
+- (WkPrintingState *)beingPrintingWithWebView:(WkWebView *)view settings:(OBDictionary *)settings
 {
 	if (nil == _printingState)
 	{
 		_savedPageZoom = _page->pageZoomFactor();
 		_savedTextZoom = _page->textZoomFactor();
 
-		// 2 steps: avoid early re-draw of contents!
-		_printingState = [WkPrintingStatePrivate alloc];
-		_printingState = [_printingState initWithWebView:view frame:_page->mainFrame()];
+		_drawPending = YES; // ignore some repaints..
+
+		auto *state = [[WkPrintingStatePrivate alloc] initWithWebView:view frame:_page->mainFrame()];
+		[state setSettings:settings];
+		_printingState = state;
 	}
 	return _printingState;
 }
@@ -2122,17 +2124,28 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return webPage->search(WTF::String::fromUTF8([string cString]), options, outWrapped);
 }
 
+- (void)beganPrinting
+{
+	if ([_private printingState])
+	{
+		[self becomeInactive];
+		[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:1 height:1];
+		[self redraw:MADF_DRAWUPDATE];
+	}
+}
+
 - (WkPrintingState *)beginPrinting
+{
+	return [self beginPrintingWithSettings:nil];
+}
+
+- (WkPrintingState *)beginPrintingWithSettings:(OBDictionary *)settings
 {
 	if (nil == [_private printingState])
 	{
-		[_private beingPrintingWithWebView:self];
+		[_private beingPrintingWithWebView:self settings:settings];
 		if ([_private printingState])
-		{
-			[[_private scrollingDelegate] webView:self changedContentsSizeToWidth:1 height:1];
-			[self becomeInactive];
-			[self redraw:MADF_DRAWOBJECT];
-		}
+			[[OBRunLoop mainRunLoop] performSelector:@selector(beganPrinting) target:self];
 	}
 
 	return [_private printingState];
@@ -2158,6 +2171,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				OBMutableString *path = [OBMutableString stringWithCapacity:256];
 				[path appendString:@"PRINTER:"];
 				[path appendFormat:@"PROFILE=\"%@\" COPIES=%ld FORMAT=PS", [[state profile] name], [state copies]];
+				if ([[state profile] canSelectPageFormat])
+					[path appendFormat:@" ARGS=\"SIZE=%@\"", [[[state profile] selectedPageFormat] key]];
 				file = path;
 			}
 			webPage->printStart([page contentWidth] * 72.f, [page contentHeight] * 72.f, [state landscape],
@@ -2204,9 +2219,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)updatePrinting
 {
-	auto webPage = [_private page];
-	webPage->printingFinished();
-	[self redraw:MADF_DRAWOBJECT];
+	if ([_private printingState])
+	{
+		auto webPage = [_private page];
+		webPage->printingFinished();
+		[self redraw:MADF_DRAWOBJECT];
+	}
 }
 
 @end

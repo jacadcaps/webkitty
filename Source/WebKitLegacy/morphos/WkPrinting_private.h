@@ -8,7 +8,7 @@
 #import "WkPrinting.h"
 #import <libraries/ppd.h>
 
-@class WkWebView, OBArray;
+@class WkWebView, OBArray, WkPrintingStatePrivate;
 
 namespace WebCore {
 	class Frame;
@@ -20,19 +20,19 @@ namespace WebCore {
 + (OBArray /* OBString */ *)allProfiles;
 + (OBString *)defaultProfile;
 
-+ (WkPrintingProfile *)spoolInfoForProfile:(OBString *)profile;
-+ (WkPrintingProfile *)pdfProfile;
-
 @end
 
 @interface WkPrintingProfilePrivate : WkPrintingProfile
 {
-	Library  *_ppdBase;
-	OBString *_profile;
-	PPD      *_ppd;
+	WkPrintingStatePrivate *_state; // WEAK
+	Library                *_ppdBase;
+	OBString               *_profile;
+	PPD                    *_ppd;
+	WkPrintingPage         *_page;
 }
 
-- (id)initWithProfile:(OBString *)profile;
+- (id)initWithProfile:(OBString *)profile state:(WkPrintingState *)state;
+- (void)clearState;
 
 @end
 

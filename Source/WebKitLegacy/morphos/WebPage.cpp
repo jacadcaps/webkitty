@@ -2045,7 +2045,7 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 	LONG sheet, LONG pagesPerSheet, float printableWidth, float printableHeight, bool landscape,
 	const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, bool printBackgrounds)
 {
-	if (!context)
+	if (!context || context->pageCount() < 1)
 	{
 		SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
 		RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
