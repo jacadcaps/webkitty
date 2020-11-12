@@ -237,7 +237,7 @@ protected:
 
 - (BOOL)canSelectPageFormat
 {
-	return YES; // temp
+	return NO;
 }
 
 - (void)setSelectedPageFormat:(WkPrintingPage *)page
