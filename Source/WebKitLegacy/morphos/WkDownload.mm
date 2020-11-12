@@ -15,7 +15,7 @@
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x) 
+#define D(x)
 
 @class _WkDownload;
 
@@ -70,6 +70,7 @@ private:
 - (void)setFailed:(BOOL)failed;
 - (void)setFinished:(BOOL)fini;
 - (void)cancelDueToAuthentication;
+- (void)updateURL:(OBURL *)url;
 
 @end
 
@@ -177,6 +178,10 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 				m_size = m_receivedSize + response.expectedContentLength();
 			[[m_outerObject delegate] didReceiveResponse:m_outerObject];
 
+			// redirection
+			auto uurl = response.url().string().utf8();
+			[m_outerObject updateURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+
 			OBString *path = [m_outerObject filename];
 
 			D(dprintf("%s: outer filename %s\n", __PRETTY_FUNCTION__, [path cString]));
@@ -247,8 +252,12 @@ void WebDownload::didFail(const WebCore::ResourceError& error)
 	
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 
+	// allow resuming
 	if (m_download)
-		m_download->setDeleteTmpFile(true);
+	{
+		m_download->cancel();
+		m_download->setDeleteTmpFile(false);
+	}
 
 	[[m_outerObject delegate] download:m_outerObject didFailWithError:[WkError errorWithResourceError:error]];
 	[m_outerObject selfrelease];
@@ -406,6 +415,18 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 {
 	[_filename autorelease];
 	_filename = [filename retain];
+}
+
+- (void)updateURL:(OBURL *)url
+{
+	if (![_url isEqual:url])
+	{
+		[_url autorelease];
+		_url = [url retain];
+		[_delegate download:self didRedirect:_url];
+		
+		D(dprintf("%s: >> %s\n", __PRETTY_FUNCTION__, [[_url absoluteString] cString]));
+	}
 }
 
 - (QUAD)size

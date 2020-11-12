@@ -5,6 +5,7 @@
 #import <proto/exec.h>
 #import <mui/MUIFramework.h>
 #import "WkWebView.h"
+#import <exec/resident.h>
 
 extern "C" { void dprintf(const char *,...); }
 
@@ -237,6 +238,9 @@ protected:
 
 - (BOOL)canSelectPageFormat
 {
+	struct Resident *rt = FindResident("MorphOS");
+	if (rt->rt_Version > 3 || rt->rt_Revision >= 15)
+		return YES;
 	return NO;
 }
 

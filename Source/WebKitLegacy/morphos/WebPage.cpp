@@ -163,6 +163,8 @@
 #include <intuition/classusr.h>
 #include <clib/alib_protos.h>
 #include <devices/rawkeycodes.h>
+#include <proto/openurl.h>
+#include <libraries/openurl.h>
 
 // we cannot include libraries/mui.h here...
 enum
@@ -3218,8 +3220,23 @@ void WebPage::replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::Stri
 
 void WebPage::startDownload(const WTF::URL &url)
 {
-	if (m_mainFrame)
+	auto protocol = url.protocol().toString();
+	if (WTF::equalIgnoringASCIICase(protocol, "ftp"))
+	{
+		auto udata = url.string().ascii();
+		struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+		URL_OpenA((STRPTR)udata.data(), urltags);
+	}
+	else if (WTF::equalIgnoringASCIICase(protocol, "mailto"))
+	{
+		auto udata = url.string().ascii();
+		struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+		URL_OpenA((STRPTR)udata.data(), urltags);
+	}
+	else if (m_mainFrame)
+	{
 		m_mainFrame->startDownload(url);
+	}
 }
 
 }

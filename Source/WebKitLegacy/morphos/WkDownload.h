@@ -5,6 +5,7 @@
 @protocol WkDownloadDelegate <OBObject>
 
 - (void)downloadDidBegin:(WkDownload *)download;
+- (void)download:(WkDownload *)download didRedirect:(OBURL *)newURL;
 
 // Size should be known at the time of this callback, provided the server gave us one
 - (void)didReceiveResponse:(WkDownload *)download;
