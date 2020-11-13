@@ -107,6 +107,18 @@ void CurlDownload::resume()
 	}
 }
 
+long long CurlDownload::resumeOffset()
+{
+    ASSERT(isMainThread());
+
+    if (m_curlRequest)
+    {
+    	return m_curlRequest->resumeOffset();
+	}
+
+	return 0;
+}
+
 bool CurlDownload::cancel()
 {
     m_isCancelled = true;

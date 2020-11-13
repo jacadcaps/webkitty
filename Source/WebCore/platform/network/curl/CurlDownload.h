@@ -67,6 +67,7 @@ public:
     bool isCancelled() { return m_isCancelled; }
 
 	void setDeleteTmpFile(bool deleteTmpFile);
+	long long resumeOffset();
 
     bool deletesFileUponFailure() const { return m_deletesFileUponFailure; }
     void setDeletesFileUponFailure(bool deletesFileUponFailure) { m_deletesFileUponFailure = deletesFileUponFailure; }

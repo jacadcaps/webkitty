@@ -82,6 +82,7 @@ public:
     void cancel();
     WEBCORE_EXPORT void suspend();
     WEBCORE_EXPORT void resume();
+    long long resumeOffset() { return m_downloadResumeOffset; }
 
     const ResourceRequest& resourceRequest() const { return m_request; }
     bool isCancelled();

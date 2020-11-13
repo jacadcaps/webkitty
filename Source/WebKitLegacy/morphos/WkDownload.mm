@@ -156,6 +156,7 @@ bool WebDownload::resume()
 	if (m_download && m_download->isCancelled())
 	{
 		m_download->resume();
+		m_receivedSize = m_download->resumeOffset();
 		return true;
 	}
 
@@ -175,7 +176,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			// try to keep m_size if already set! (see the case in which we dl from a pending response)
 			// the response here is often bogus in that case :|
 			if (0 == m_size || m_receivedSize)
-				m_size = m_receivedSize + response.expectedContentLength();
+				m_size = m_download->resumeOffset() + response.expectedContentLength();
 			[[m_outerObject delegate] didReceiveResponse:m_outerObject];
 
 			// redirection

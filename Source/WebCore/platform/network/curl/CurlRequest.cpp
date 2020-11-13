@@ -773,6 +773,10 @@ void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
 		m_downloadFilePath = tmpDownloadPath;
 		m_downloadResumeOffset = FileSystem::seekFile(m_downloadFileHandle, 0, FileSystem::FileSeekOrigin::End);
 	}
+	else
+	{
+		m_downloadResumeOffset = 0;
+	}
 }
 
 String CurlRequest::getDownloadedFilePath()
