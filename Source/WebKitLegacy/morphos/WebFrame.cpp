@@ -148,10 +148,6 @@ WebFrame::~WebFrame()
 {
     ASSERT(!m_coreFrame);
 
-    auto willSubmitFormCompletionHandlers = WTFMove(m_willSubmitFormCompletionHandlers);
-    for (auto& completionHandler : willSubmitFormCompletionHandlers.values())
-        completionHandler();
-
 #ifndef NDEBUG
     webFrameCounter.decrement();
 #endif
@@ -192,8 +188,13 @@ FrameInfoData WebFrame::info() const
 
 void WebFrame::invalidate()
 {
-    WebProcess::singleton().removeWebFrame(m_frameID);
     m_coreFrame = 0;
+
+    auto willSubmitFormCompletionHandlers = WTFMove(m_willSubmitFormCompletionHandlers);
+    for (auto& completionHandler : willSubmitFormCompletionHandlers.values())
+        completionHandler();
+
+    WebProcess::singleton().removeWebFrame(m_frameID);
 }
 
 #if 0

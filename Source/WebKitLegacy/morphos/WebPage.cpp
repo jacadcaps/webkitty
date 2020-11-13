@@ -1119,7 +1119,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
-    settings.setDeferredCSSParserEnabled(true);
+    settings.setDeferredCSSParserEnabled(false);
     settings.setDeviceWidth(1920);
     settings.setDeviceHeight(1080);
     settings.setDiagnosticLoggingEnabled(true);
