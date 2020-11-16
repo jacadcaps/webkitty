@@ -129,6 +129,12 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewEditorDelegate <OBObject>
+
+- (void)webViewUpdatedUndoRedoList:(WkWebView *)view;
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -193,26 +199,32 @@ typedef enum {
 - (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate;
 - (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate;
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
-
-- (void)dumpDebug;
+- (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
+
+- (void)dumpDebug;
 
 - (int)pageWidth;
 - (int)pageHeight;
 - (int)visibleWidth;
 - (int)visibleHeight;
 
-- (void)primeLayoutForWidth:(int)width height:(int)height;
-
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
-
-- (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
+- (void)primeLayoutForWidth:(int)width height:(int)height;
 
 - (WkPrintingState *)beginPrinting;
 - (WkPrintingState *)beginPrintingWithSettings:(OBDictionary *)settings;
 - (void)spoolToFile:(OBString *)file withDelegate:(id<WkPrintingStateDelegate>)delegate;
 - (BOOL)isPrinting;
 - (void)endPrinting;
+
+- (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
+
+- (BOOL)canUndo;
+- (void)undo;
+
+- (BOOL)canRedo;
+- (void)redo;
 
 @end

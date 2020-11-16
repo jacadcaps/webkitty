@@ -40,6 +40,7 @@
 #include <WebCore/UserTypingGestureIndicator.h>
 #include <WebCore/VisibleSelection.h>
 #include <WebCore/AutofillElements.h>
+#include <WebCore/UndoStep.h>
 #include <wtf/text/StringView.h>
 #include <proto/exec.h>
 #include <proto/spellchecker.h>
@@ -72,9 +73,7 @@ static WebEditorClientCleanup __weCleanup;
 
 WebEditorClient::WebEditorClient(WebPage* webPage)
     : m_webPage(webPage)
-    , m_undoTarget(0)
 {
-//    m_undoTarget = new WebEditorUndoTarget();
 }
 
 WebEditorClient::~WebEditorClient()
@@ -355,70 +354,6 @@ void WebEditorClient::textDidChangeInTextArea(Element* e)
     //notImplemented();
 }
 
-#if 0
-class WebEditorUndoCommand final : public IWebUndoCommand
-{
-public:
-    WebEditorUndoCommand(UndoStep&, bool isUndo);
-    void execute();
-
-    // IUnknown
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppvObject);
-    virtual ULONG STDMETHODCALLTYPE AddRef();
-    virtual ULONG STDMETHODCALLTYPE Release();
-
-private:
-    ULONG m_refCount;
-    Ref<UndoStep> m_step;
-    bool m_isUndo;
-};
-
-WebEditorUndoCommand::WebEditorUndoCommand(UndoStep& step, bool isUndo)
-    : m_refCount(1)
-    , m_step(step)
-    , m_isUndo(isUndo)
-{ 
-}
-
-void WebEditorUndoCommand::execute()
-{
-    if (m_isUndo)
-        m_step->unapply();
-    else
-        m_step->reapply();
-}
-
-HRESULT WebEditorUndoCommand::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppvObject)
-{
-    if (!ppvObject)
-        return E_POINTER;
-    *ppvObject = nullptr;
-    if (IsEqualGUID(riid, IID_IUnknown))
-        *ppvObject = static_cast<IWebUndoCommand*>(this);
-    else if (IsEqualGUID(riid, IID_IWebUndoCommand))
-        *ppvObject = static_cast<IWebUndoCommand*>(this);
-    else
-        return E_NOINTERFACE;
-
-    AddRef();
-    return S_OK;
-}
-
-ULONG WebEditorUndoCommand::AddRef()
-{
-    return ++m_refCount;
-}
-
-ULONG WebEditorUndoCommand::Release()
-{
-    ULONG newRef = --m_refCount;
-    if (!newRef)
-        delete(this);
-
-    return newRef;
-}
-#endif
-
 static String undoNameForEditAction(EditAction editAction)
 {
     switch (editAction) {
@@ -483,42 +418,24 @@ static String undoNameForEditAction(EditAction editAction)
 
 void WebEditorClient::registerUndoStep(UndoStep& step)
 {
-	notImplemented();
-#if 0
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webPage->uiDelegate(&uiDelegate))) {
-        String actionName = undoNameForEditAction(step.editingAction());
-        WebEditorUndoCommand* undoCommand = new WebEditorUndoCommand(step, true);
-        if (!undoCommand)
-            return;
-        uiDelegate->registerUndoWithTarget(m_undoTarget, 0, undoCommand);
-        undoCommand->Release(); // the undo manager owns the reference
-        if (!actionName.isEmpty())
-            uiDelegate->setActionTitle(BString(actionName));
-        uiDelegate->Release();
-    }
-#endif
+	m_undo.append(WebEditorUndoStep::create(step));
+	if (m_webPage && m_webPage->_fUndoRedoChanged)
+		m_webPage->_fUndoRedoChanged();
 }
 
 void WebEditorClient::registerRedoStep(UndoStep& step)
 {
-	notImplemented();
-#if 0
-    IWebUIDelegate* uiDelegate = 0;
-    if (SUCCEEDED(m_webPage->uiDelegate(&uiDelegate))) {
-        WebEditorUndoCommand* undoCommand = new WebEditorUndoCommand(step, false);
-        if (!undoCommand)
-            return;
-        uiDelegate->registerUndoWithTarget(m_undoTarget, 0, undoCommand);
-        undoCommand->Release(); // the undo manager owns the reference
-        uiDelegate->Release();
-    }
-#endif
+	m_redo.append(WebEditorUndoStep::create(step));
+	if (m_webPage && m_webPage->_fUndoRedoChanged)
+		m_webPage->_fUndoRedoChanged();
 }
 
 void WebEditorClient::clearUndoRedoOperations()
 {
-	notImplemented();
+	m_undo.clear();
+	m_redo.clear();
+	if (m_webPage && m_webPage->_fUndoRedoChanged)
+		m_webPage->_fUndoRedoChanged();
 }
 
 bool WebEditorClient::canCopyCut(Frame*, bool defaultValue) const
@@ -533,24 +450,36 @@ bool WebEditorClient::canPaste(Frame*, bool defaultValue) const
 
 bool WebEditorClient::canUndo() const
 {
-	notImplemented();
-	return false;
+	return !m_undo.isEmpty();
 }
 
 bool WebEditorClient::canRedo() const
 {
-	notImplemented();
-	return false;
+	return !m_redo.isEmpty();
 }
 
 void WebEditorClient::undo()
 {
-	notImplemented();
+	if (!m_undo.isEmpty())
+	{
+		auto last = m_undo.last();
+		m_undo.removeLast();
+		last->unapply();
+		if (m_webPage && m_webPage->_fUndoRedoChanged)
+			m_webPage->_fUndoRedoChanged();
+	}
 }
 
 void WebEditorClient::redo()
 {
-	notImplemented();
+	if (!m_redo.isEmpty())
+	{
+		auto last = m_redo.last();
+		m_redo.removeLast();
+		last->reapply();
+		if (m_webPage && m_webPage->_fUndoRedoChanged)
+			m_webPage->_fUndoRedoChanged();
+	}
 }
 
 void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)

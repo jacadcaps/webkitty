@@ -29,6 +29,7 @@
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/EditorClient.h>
 #include <WebCore/TextCheckerClient.h>
+#include <WebCore/UndoStep.h>
 
 namespace WebCore {
 class Element;
@@ -38,8 +39,34 @@ namespace WebKit {
 
 class WebPage;
 class WebNotification;
-class WebEditorUndoTarget;
 struct WebEditorClientCleanup;
+
+class WebEditorUndoStep : public WTF::RefCounted<WebEditorUndoStep>
+{
+public:
+    static Ref<WebEditorUndoStep> create(WebCore::UndoStep& step)
+    {
+        return adoptRef(*new WebEditorUndoStep(step));
+    }
+	
+	WebEditorUndoStep(WebCore::UndoStep& step)
+		: m_undoStep(step)
+	{
+	}
+	
+	void unapply()
+	{
+		m_undoStep->unapply();
+	}
+	
+	void reapply()
+	{
+		m_undoStep->reapply();
+	}
+
+private:
+	Ref<WebCore::UndoStep> m_undoStep;
+};
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient {
 	WTF_MAKE_FAST_ALLOCATED;
@@ -147,8 +174,9 @@ private:
 
 protected:
     WebPage* m_webPage;
-    WebEditorUndoTarget* m_undoTarget;
     WTF::HashSet<WTF::String> m_ignoredWords;
+    WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_undo;
+    WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_redo;
 	
     static struct Library *m_spellcheckerLibrary;
     static APTR m_spellDictionary;

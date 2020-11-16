@@ -225,6 +225,10 @@ public:
 
 	void startDownload(const WTF::URL &url);
 	
+	bool canUndo();
+	bool canRedo();
+	void undo();
+	void redo();
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);

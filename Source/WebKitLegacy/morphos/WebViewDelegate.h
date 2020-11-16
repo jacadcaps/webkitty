@@ -83,6 +83,8 @@ struct WebViewDelegate
 	std::function<void(WebCore::SharedBuffer *, const WTF::URL &url)> _fFavIconLoaded;
 
 	std::function<void(void)> _fPrint;
+	
+	std::function<void(void)> _fUndoRedoChanged;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -124,6 +126,7 @@ struct WebViewDelegate
 		_fFavIconLoaded = nullptr;
 		_fFavIconLoad = nullptr;
 		_fPrint = nullptr;
+		_fUndoRedoChanged = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

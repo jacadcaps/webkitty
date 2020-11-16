@@ -3239,5 +3239,48 @@ void WebPage::startDownload(const WTF::URL &url)
 	}
 }
 
+bool WebPage::canUndo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		return editor.canUndo();
+	}
+
+	return false;
 }
 
+bool WebPage::canRedo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		return editor.canRedo();
+	}
+
+	return false;
+}
+
+void WebPage::undo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		editor.undo();
+	}
+}
+
+void WebPage::redo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		editor.redo();
+	}
+}
+
+}

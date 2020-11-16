@@ -2227,4 +2227,34 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 }
 
+- (BOOL)canUndo
+{
+	auto webPage = [_private page];
+	if (webPage)
+		return webPage->canUndo();
+	return NO;
+}
+
+- (void)undo
+{
+	auto webPage = [_private page];
+	if (webPage)
+		webPage->undo();
+}
+
+- (BOOL)canRedo
+{
+	auto webPage = [_private page];
+	if (webPage)
+		return webPage->canRedo();
+	return NO;
+}
+
+- (void)redo
+{
+	auto webPage = [_private page];
+	if (webPage)
+		webPage->redo();
+}
+
 @end
