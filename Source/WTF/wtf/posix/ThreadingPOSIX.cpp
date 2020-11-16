@@ -71,7 +71,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
-extern "C" { int pthread_setname_np(pthread_t thread, const char *name); }
+extern "C" {
+int pthread_setname_np(pthread_t thread, const char *name);
+#include <exec/tasks.h>
+#include <exec/libraries.h>
+#include <proto/exec.h>
+}
 #endif
 
 namespace WTF {
@@ -492,6 +497,23 @@ Thread& Thread::initializeTLS(Ref<Thread>&& thread)
     return threadInTLS;
 }
 
+#if OS(MORPHOS)
+extern "C" {
+
+// Hack to workaround a bug in exec pre-51.48
+void *get_thread_pointer(void)
+{
+    const struct Library *lib = (const struct Library *) SysBase;
+    if (lib->lib_Version == 51 &&
+        (lib->lib_Revision == 46 ||
+         lib->lib_Revision == 47))
+        return (void *) FindTask(NULL)->tc_UserData;
+    return NULL;
+}
+
+}
+#endif
+
 void Thread::destructTLS(void* data)
 {
     Thread* thread = static_cast<Thread*>(data);
@@ -506,6 +528,14 @@ void Thread::destructTLS(void* data)
     thread->m_isDestroyedOnce = true;
     // Re-setting the value for key causes another destructTLS() call after all other thread-specific destructors were called.
 #if !HAVE(FAST_TLS)
+#if OS(MORPHOS)
+    // Hack to workaround a bug in exec pre-51.48
+    const struct Library *lib = (const struct Library *) SysBase;
+    if (lib->lib_Version == 51 &&
+        (lib->lib_Revision == 46 ||
+         lib->lib_Revision == 47))
+        FindTask(NULL)->tc_UserData = thread;
+#endif
     ASSERT(s_key != InvalidThreadSpecificKey);
     threadSpecificSet(s_key, thread);
 #else
