@@ -246,6 +246,11 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
 	strcpy(nameBuffer, "WkWebView:");
 	stccpy(nameBuffer + 10, threadName, sizeof(nameBuffer) - 10);
 	pthread_setname_np(pthread_self(), nameBuffer);
+	// Enable priority changes with MorphOS libpthread
+#ifdef SCHED_MORPHOS
+	const struct sched_param param = {FindTask(NULL)->tc_Node.ln_Pri};
+	pthread_setschedparam(pthread_self(), SCHED_MORPHOS, &param);
+#endif
 #else
     UNUSED_PARAM(threadName);
 #endif
