@@ -97,7 +97,7 @@ namespace WebCore {
 
 - (BOOL)localStorageEnabled
 {
-	return _localStorage
+	return _localStorage;
 }
 
 - (void)setLocalStorageEnabled:(BOOL)enabled
