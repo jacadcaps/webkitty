@@ -1147,9 +1147,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
 
-//	settings.setTreatsAnyTextCSSLinkAsStylesheet(true);
-//	settings.setUsePreHTML5ParserQuirks(true);
-
 	settings.setWebGLEnabled(false);
 
 	settings.setWebAudioEnabled(true);
@@ -1159,7 +1156,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);
 	
-// 	settings.setDeveloperExtrasEnabled(true);
 	settings.setXSSAuditorEnabled(true);
 	settings.setVisualViewportAPIEnabled(true);
 	
@@ -1169,7 +1165,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
 	
-//	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
+	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:Resources/morphos.css")));
@@ -1177,28 +1173,11 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
     static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
 
-//    m_page->mainFrame().tree().setName(toString("frameName"));
-//    m_page->mainFrame().init();
-
     m_page->layoutIfNeeded();
 
     m_page->setIsVisible(true);
     m_page->setIsInWindow(true);
 	m_page->setActivityState(ActivityState::WindowIsActive);
-//	m_page->setLowPowerModeEnabledOverrideForTesting(true);
-
-//    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
-#if 0
-m_worldForUserScripts = DOMWrapperWorld::create(WebCore::commonVM(), DOMWrapperWorld::Type::User);
-
-bool ok;
-WTF::FileSystemImpl::MappedFileData mdata(String::fromUTF8("PROGDIR:templates/eruda.js"), WTF::FileSystemImpl::MappedFileMode::Private, ok);
-if (ok)
-{
-dprintf("attempt user content... %d\n", mdata.size());
-m_webPageGroup->userContentController().addUserScript(*m_worldForUserScripts.get(), makeUnique<WebCore::UserScript>(String::fromUTF8((const char *)mdata.data(), mdata.size()), URL(), Vector<String>(), Vector<String>(), WebCore::InjectAtDocumentEnd, WebCore::InjectInTopFrameOnly));
-}
-#endif
 }
 
 WebPage::~WebPage()
