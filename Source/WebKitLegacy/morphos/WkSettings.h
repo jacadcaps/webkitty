@@ -45,6 +45,9 @@ typedef enum
 - (BOOL)thirdPartyCookiesAllowed;
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies;
 
+- (BOOL)localStorageEnabled;
+- (void)setLocalStorageEnabled:(BOOL)enabled;
+
 - (WkSettings_Throttling)throttling;
 - (void)setThrottling:(WkSettings_Throttling)throttling;
 

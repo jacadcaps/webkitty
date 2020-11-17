@@ -6,7 +6,10 @@
 #include <pal/SessionID.h>
 #include "CacheModel.h"
 #include <WebCore/NetworkingContext.h>
-#include "ABPFilterParser/ABPFilterParser.h"
+
+#if !MORPHOS_MINIMAL
+	#include "ABPFilterParser/ABPFilterParser.h"
+#endif
 
 namespace WebCore {
 	class DocumentLoader;
@@ -83,8 +86,10 @@ protected:
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
     static const QUAD ms_diskCacheSizeUninitialized = 0x7FFFFFFFFFFFFFFFll;
     QUAD m_diskCacheSize { ms_diskCacheSizeUninitialized };
+#if (!MORPHOS_MINIMAL)
     ABP::ABPFilterParser m_urlFilter;
     std::vector<char>    m_urlFilterData;
+#endif
     Optional<PAL::SessionID> m_sessionID;
     Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
     RefPtr<WebCore::NetworkingContext> m_dummyNetworkingContext;

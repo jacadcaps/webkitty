@@ -42,6 +42,7 @@ namespace WebCore {
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
+	bool _localStorage;
 }
 @end
 
@@ -54,6 +55,7 @@ namespace WebCore {
 		_script = YES;
 		_adBlocker = YES;
 		_thCookies = YES;
+		_localStorage = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_interpolationForImageViews = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
@@ -91,6 +93,16 @@ namespace WebCore {
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies
 {
 	_thCookies = allowCookies;
+}
+
+- (BOOL)localStorageEnabled
+{
+	return _localStorage
+}
+
+- (void)setLocalStorageEnabled:(BOOL)enabled
+{
+	_localStorage = enabled;
 }
 
 - (WkSettings_Throttling)throttling
@@ -188,6 +200,16 @@ namespace WebCore {
 
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies
 {
+}
+
+- (BOOL)localStorageEnabled
+{
+	return YES;
+}
+
+- (void)setLocalStorageEnabled:(BOOL)enabled
+{
+
 }
 
 - (WkSettings_Throttling)throttling

@@ -172,6 +172,9 @@ public:
 	
 	void setLowPowerMode(bool lowPowerMode);
 
+	bool localStorageEnabled();
+	void setLocalStorageEnabled(bool enabled);
+
 	void startLiveResize();
 	void endLiveResize();
 	

@@ -50,7 +50,11 @@ typedef uint32_t socklen_t;
 #include <pal/crypto/gcrypt/Initialization.h>
 #include <proto/dos.h>
 
-#define USE_ADFILTER 1
+#if (MORPHOS_MINIMAL)
+	#define USE_ADFILTER 0
+#else
+	#define USE_ADFILTER 1
+#endif
 
 extern "C" {
 	void dprintf(const char *, ...);
@@ -523,6 +527,7 @@ void WebProcess::signalMainThread()
 
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
+#if USE_ADFILTER
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
 	if (!frame)
 		return false;
@@ -537,7 +542,11 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 	{
 		return false;
 	}
-
+#else
+	(void)url;
+	(void)mainPageURL;
+	(void)loader;
+#endif
 	return true;
 }
 

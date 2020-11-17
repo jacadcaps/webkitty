@@ -132,11 +132,7 @@
 		01816F15242B985E007717A6 /* BackForwardClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BackForwardClient.h; path = Source/WebKitLegacy/morphos/BackForwardClient.h; sourceTree = "<group>"; };
 		01816F17242B985E007717A6 /* WkWebView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WkWebView.h; path = Source/WebKitLegacy/morphos/WkWebView.h; sourceTree = "<group>"; };
 		01816F18242B985E007717A6 /* WebApplicationCache.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebApplicationCache.h; path = Source/WebKitLegacy/morphos/WebApplicationCache.h; sourceTree = "<group>"; };
-		01927B502549961C00554030 /* WebKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKit; path = Source/WebKit; sourceTree = "<group>"; };
-		01927B512549961C00554030 /* WebKitLegacy */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKitLegacy; path = Source/WebKitLegacy; sourceTree = "<group>"; };
-		01927B522549961C00554030 /* JavaScriptCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JavaScriptCore; path = Source/JavaScriptCore; sourceTree = "<group>"; };
-		01927B532549961C00554030 /* WebCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebCore; path = Source/WebCore; sourceTree = "<group>"; };
-		01927B542549961D00554030 /* WTF */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WTF; path = Source/WTF; sourceTree = "<group>"; };
+		018F0C932563592600AF7F0D /* OptionsMorphOS.cmake */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = OptionsMorphOS.cmake; path = Source/cmake/OptionsMorphOS.cmake; sourceTree = "<group>"; };
 		01951351252624880017D692 /* WkHitTest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest.h; path = Source/WebKitLegacy/morphos/WkHitTest.h; sourceTree = "<group>"; };
 		01951352252624880017D692 /* WkHitTest.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHitTest.mm; path = Source/WebKitLegacy/morphos/WkHitTest.mm; sourceTree = "<group>"; };
 		01951353252624890017D692 /* WkHitTest_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest_private.h; path = Source/WebKitLegacy/morphos/WkHitTest_private.h; sourceTree = "<group>"; };
@@ -203,11 +199,6 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
-				01927B522549961C00554030 /* JavaScriptCore */,
-				01927B532549961C00554030 /* WebCore */,
-				01927B502549961C00554030 /* WebKit */,
-				01927B512549961C00554030 /* WebKitLegacy */,
-				01927B542549961D00554030 /* WTF */,
 				013D3C7A246042CE00805F29 /* ABP */,
 				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
 				01816F15242B985E007717A6 /* BackForwardClient.h */,
@@ -219,6 +210,7 @@
 				011B866D242BBBF100749380 /* minibrowser.mm */,
 				013D3C962463448600805F29 /* morphos.cmake.in */,
 				013D3C972463448600805F29 /* MUSTREAD.txt */,
+				018F0C932563592600AF7F0D /* OptionsMorphOS.cmake */,
 				0120E5F724590B9E003150E3 /* PlatformMorphOS.cmake */,
 				0120E5F624590B9D003150E3 /* PopupMenu.cpp */,
 				0120E5F824590B9E003150E3 /* PopupMenu.h */,

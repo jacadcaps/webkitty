@@ -1,4 +1,4 @@
-add_definitions(-DUSE_CAIRO=1 -DUSE_CURL=1 -DWEBKIT_EXPORTS=1 -DWEBCORE_EXPORT=WTF_EXPORT_DECLARATION -DPAL_EXPORT=WTF_EXPORT -DJS_EXPORT_PRIVATE=WTF_EXPORT -DUSE_SYSTEM_MALLOC)
+add_definitions(-DUSE_CAIRO=1 -DUSE_CURL=1 -DWEBKIT_EXPORTS=1 -DWEBCORE_EXPORT=WTF_EXPORT_DECLARATION -DPAL_EXPORT=WTF_EXPORT -DJS_EXPORT_PRIVATE=WTF_EXPORT -DUSE_SYSTEM_MALLOC -DMORPHOS_MINIMAL=${MORPHOS_MINIMAL})
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
@@ -65,13 +65,15 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebProgressTrackerClient.cpp
 )
 
-list(APPEND WebKitLegacy_ABP
-	morphos/ABPFilterParser/ABPFilterParser.cpp
-	morphos/ABPFilterParser/BloomFilter.cpp
-	morphos/ABPFilterParser/cosmeticFilter.cpp
-	morphos/ABPFilterParser/filter.cpp
-	morphos/ABPFilterParser/hashFn.cpp
-)
+if (NOT MORPHOS_MINIMAL)
+	list(APPEND WebKitLegacy_ABP
+		morphos/ABPFilterParser/ABPFilterParser.cpp
+		morphos/ABPFilterParser/BloomFilter.cpp
+		morphos/ABPFilterParser/cosmeticFilter.cpp
+		morphos/ABPFilterParser/filter.cpp
+		morphos/ABPFilterParser/hashFn.cpp
+	)
+endif()
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport} ${WebKitLegacy_ABP})
 

@@ -2,7 +2,10 @@ include(platform/Cairo.cmake)
 include(platform/Curl.cmake)
 include(platform/FreeType.cmake)
 include(platform/ImageDecoders.cmake)
-include(platform/GCrypt.cmake)
+
+if (NOT MORPHOS_MINIMAL)
+	include(platform/GCrypt.cmake)
+endif()
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_LIBRARIES_DIR}/include"
@@ -44,7 +47,6 @@ list(APPEND WebCore_SOURCES
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
     platform/morphos/ScrollbarThemeMorphOS.cpp
-#    platform/morphos/EventLoopMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp
     platform/morphos/DragDataMorphOS.cpp
     platform/morphos/SelectionData.cpp
@@ -59,12 +61,17 @@ list(APPEND WebCore_SOURCES
     platform/text/hyphen/HyphenationLibHyphen.cpp
     rendering/RenderThemeMorphOS.cpp
     page/morphos/DragControllerMorphOS.cpp
-    platform/audio/morphos/AudioDestinationMorphOS.cpp
-    platform/audio/morphos/AudioBusMorphOS.cpp
-    platform/audio/morphos/AudioFileReaderMorphOS.cpp
-    platform/audio/morphos/FFTFrameMorphOS.cpp
-    platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
-    platform/graphics/morphos/acinerella.c
 )
+
+if (NOT MORPHOS_MINIMAL)
+	list(APPEND WebCore_SOURCES
+		platform/audio/morphos/AudioDestinationMorphOS.cpp
+		platform/audio/morphos/AudioBusMorphOS.cpp
+		platform/audio/morphos/AudioFileReaderMorphOS.cpp
+		platform/audio/morphos/FFTFrameMorphOS.cpp
+		platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
+		platform/graphics/morphos/acinerella.c
+	)
+endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os")

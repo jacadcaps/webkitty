@@ -1119,7 +1119,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
-    settings.setDeferredCSSParserEnabled(false);
+    settings.setDeferredCSSParserEnabled(true);
     settings.setDeviceWidth(1920);
     settings.setDeviceHeight(1080);
     settings.setDiagnosticLoggingEnabled(true);
@@ -1466,6 +1466,18 @@ void WebPage::goHidden()
 void WebPage::setLowPowerMode(bool lowPowerMode)
 {
 	corePage()->setLowPowerModeEnabledOverrideForTesting(lowPowerMode);
+}
+
+bool WebPage::localStorageEnabled()
+{
+	WebCore::Settings& settings = m_page->settings();
+	return settings.localStorageEnabled();
+}
+
+void WebPage::setLocalStorageEnabled(bool enabled)
+{
+	WebCore::Settings& settings = m_page->settings();
+	settings.setLocalStorageEnabled(enabled);
 }
 
 void WebPage::startLiveResize()
