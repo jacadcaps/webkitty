@@ -174,6 +174,9 @@ public:
 
 	bool localStorageEnabled();
 	void setLocalStorageEnabled(bool enabled);
+	
+	bool offlineCacheEnabled();
+	void setOfflineCacheEnabled(bool enabled);
 
 	void startLiveResize();
 	void endLiveResize();

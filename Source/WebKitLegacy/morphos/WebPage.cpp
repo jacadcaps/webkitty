@@ -1132,6 +1132,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDefaultFixedFontSize(13);
     settings.setResizeObserverEnabled(true);
 	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
+	settings.setShouldRespectImageOrientation(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1156,6 +1157,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 	settings.setLocalStorageEnabled(true);
+	settings.setOfflineWebApplicationCacheEnabled(true);
 	
 // 	settings.setDeveloperExtrasEnabled(true);
 	settings.setXSSAuditorEnabled(true);
@@ -1478,6 +1480,18 @@ void WebPage::setLocalStorageEnabled(bool enabled)
 {
 	WebCore::Settings& settings = m_page->settings();
 	settings.setLocalStorageEnabled(enabled);
+}
+
+bool WebPage::offlineCacheEnabled()
+{
+	WebCore::Settings& settings = m_page->settings();
+	return settings.offlineWebApplicationCacheEnabled();
+}
+
+void WebPage::setOfflineCacheEnabled(bool enabled)
+{
+	WebCore::Settings& settings = m_page->settings();
+	settings.setOfflineWebApplicationCacheEnabled(enabled);
 }
 
 void WebPage::startLiveResize()

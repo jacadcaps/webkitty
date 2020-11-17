@@ -28,5 +28,5 @@
 
 String WebDatabaseProvider::indexedDatabaseDirectoryPath()
 {
-    return String("PROGDIR:Database/___IndexedDB");
+    return String("PROGDIR:Cache/___IndexedDB");
 }

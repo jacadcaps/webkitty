@@ -43,6 +43,7 @@ namespace WebCore {
 	bool _adBlocker;
 	bool _thCookies;
 	bool _localStorage;
+	bool _offlineCache;
 }
 @end
 
@@ -56,6 +57,7 @@ namespace WebCore {
 		_adBlocker = YES;
 		_thCookies = YES;
 		_localStorage = YES;
+		_offlineCache = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_interpolationForImageViews = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
@@ -103,6 +105,16 @@ namespace WebCore {
 - (void)setLocalStorageEnabled:(BOOL)enabled
 {
 	_localStorage = enabled;
+}
+
+- (BOOL)offlineWebApplicationCacheEnabled
+{
+	return _offlineCache;
+}
+
+- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled
+{
+	_offlineCache = enabled;
 }
 
 - (WkSettings_Throttling)throttling
@@ -210,6 +222,15 @@ namespace WebCore {
 - (void)setLocalStorageEnabled:(BOOL)enabled
 {
 
+}
+
+- (BOOL)offlineWebApplicationCacheEnabled
+{
+	return YES;
+}
+
+- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled
+{
 }
 
 - (WkSettings_Throttling)throttling

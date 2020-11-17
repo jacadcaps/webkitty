@@ -1670,6 +1670,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setCustomStyleSheetPath:[_private customStyleSheetPath]];
 	[settings setContextMenuHandling:WkSettings_ContextMenuHandling(webPage->contextMenuHandling())];
 	[settings setLocalStorageEnabled:webPage->localStorageEnabled()];
+	[settings setOfflineWebApplicationCacheEnabled:webPage->offlineCacheEnabled()];
 	return settings;
 }
 
@@ -1681,6 +1682,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setThirdPartyCookiesAllowed([settings thirdPartyCookiesAllowed]);
 	webPage->setContextMenuHandling(WebKit::WebPage::ContextMenuHandling([settings contextMenuHandling]));
 	webPage->setLocalStorageEnabled([settings localStorageEnabled]);
+	webPage->setOfflineCacheEnabled([settings offlineWebApplicationCacheEnabled]);
 
 	[_private setThrottling:[settings throttling]];
 	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];
