@@ -261,6 +261,7 @@ public:
     void enableConnectionOnly();
 
     void enableAcceptEncoding();
+    void disableAcceptEncoding();
     void enableAllowedProtocols();
 
     void setHttpAuthUserPass(const String&, const String&, long authType = CURLAUTH_ANY);
