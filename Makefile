@@ -161,7 +161,7 @@ libwebkit.a:
 	(cd cross-build/Source/WebKitLegacy && make)
 
 clean:
-	rm -rf morphos.cmake cross-build WebKitBuild build link.sh
+	rm -rf morphos.cmake cross-build cross-build-mini WebKitBuild build link.sh
 
 install:
 

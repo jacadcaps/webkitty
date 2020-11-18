@@ -121,6 +121,28 @@ WebProcess& WebProcess::singleton()
     return process;
 }
 
+class DownloadsNetworkingContext : public NetworkingContext {
+public:
+    static Ref<DownloadsNetworkingContext> create()
+    {
+        return adoptRef(*new DownloadsNetworkingContext());
+    }
+
+    bool shouldClearReferrerOnHTTPSToHTTPRedirect() const override
+    {
+		return true;
+    }
+	NetworkStorageSession* storageSession() const
+	{
+		return &NetworkStorageSessionMap::defaultStorageSession();
+	}
+protected:
+    DownloadsNetworkingContext()
+    {
+    }
+};
+
+
 void WebProcess::initialize(int sigbit)
 {
 	m_sigTask = FindTask(0);
@@ -150,7 +172,7 @@ void WebProcess::initialize(int sigbit)
 	// TODO: implement workers!
 	// RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
 
-	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
+	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
 
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
 

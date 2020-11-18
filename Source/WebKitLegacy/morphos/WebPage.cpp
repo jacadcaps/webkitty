@@ -1122,7 +1122,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDeferredCSSParserEnabled(true);
     settings.setDeviceWidth(1920);
     settings.setDeviceHeight(1080);
-    settings.setDiagnosticLoggingEnabled(true);
     settings.setEditableImagesEnabled(true);
     settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
@@ -1165,7 +1164,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
 	
-	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
+// crashy
+//    settings.setDiagnosticLoggingEnabled(true);
+//	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:Resources/morphos.css")));

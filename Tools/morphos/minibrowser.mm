@@ -30,8 +30,10 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkDownload.h>
 #import <WebKitLegacy/morphos/WkFileDialog.h>
 #import <WebKitLegacy/morphos/WkPrinting.h>
+#import <WebKitLegacy/morphos/WkNetworkRequestMutable.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate,
+	WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate, WkMutableNetworkRequestTarget>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -431,13 +433,29 @@ static int _windowID = 1;
 	}
 }
 
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didCompleteWithData:(OBData *)data
+{
+	dprintf("%s: handler %p data %ld\n", __PRETTY_FUNCTION__, handler, [data length]);
+}
+
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didFailWithError:(WkError *)error data:(OBData *)data
+{
+	dprintf("%s: handler %p error %d data %ld\n", __PRETTY_FUNCTION__, handler, [error errorCode], [data length]);
+}
+
+- (void)doRequest
+{
+	WkMutableNetworkRequest *request = [WkMutableNetworkRequest requestWithURL:[OBURL URLWithString:@"https://morph.zone/news/"]];
+	[WkMutableNetworkRequest performRequest:request withTarget:self];
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
 	{
 		MUIButton *button;
 		MUIButton *debug;
-		MUIButton *print,*printNextPaper, *printNextPage, *printPDF, *printLandscape;
+		MUIButton *print,*printNextPaper, *printNextPage, *printPDF, *printLandscape, *request;
 		MUICycle *pps;
 
 		self.rootObject = [MUIGroup groupWithObjects:
@@ -461,6 +479,7 @@ static int _windowID = 1;
 				printLandscape = [MUIButton buttonWithLabel:@"Landscape"],
 				printPDF = [MUIButton buttonWithLabel:@"PDF"],
 				pps = [MUICycle cycleWithEntryList:@"1", @"2", @"4", @"6", @"9", nil],
+				request = [MUIButton buttonWithLabel:@"HTTP Request"],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -512,6 +531,7 @@ static int _windowID = 1;
 		[printPDF notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPDF) withTarget:self];
 		[printLandscape notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingLandscape) withTarget:self];
 		[pps notify:@selector(active) performSelector:@selector(onPPS:) withRawTriggerValueTarget:self];
+		[request notify:@selector(selected) trigger:NO performSelector:@selector(doRequest) withTarget:self];
 
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \

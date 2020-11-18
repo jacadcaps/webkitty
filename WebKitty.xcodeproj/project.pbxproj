@@ -148,6 +148,7 @@
 		01984446242FECE00057CD22 /* WebFrameLoaderClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrameLoaderClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameLoaderClient.h; sourceTree = "<group>"; };
 		01B27291245EF46B00B7277E /* WkHistory.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory.h; path = Source/WebKitLegacy/morphos/WkHistory.h; sourceTree = "<group>"; };
 		01B27292245EF46B00B7277E /* WkHistory.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHistory.mm; path = Source/WebKitLegacy/morphos/WkHistory.mm; sourceTree = "<group>"; };
+		01C521132565909300199418 /* WkNetworkRequestMutable_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNetworkRequestMutable_private.h; path = Source/WebKitLegacy/morphos/WkNetworkRequestMutable_private.h; sourceTree = "<group>"; };
 		01D0B8A52540C6E000F6A2BD /* WkUserScript.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkUserScript.mm; path = Source/WebKitLegacy/morphos/WkUserScript.mm; sourceTree = "<group>"; };
 		01D0B8A62540C6E000F6A2BD /* WkUserScript.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript.h; path = Source/WebKitLegacy/morphos/WkUserScript.h; sourceTree = "<group>"; };
 		01D0B8A8254104B700F6A2BD /* WkUserScript_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript_private.h; path = Source/WebKitLegacy/morphos/WkUserScript_private.h; sourceTree = "<group>"; };
@@ -274,6 +275,7 @@
 				01951353252624890017D692 /* WkHitTest_private.h */,
 				01951351252624880017D692 /* WkHitTest.h */,
 				01951352252624880017D692 /* WkHitTest.mm */,
+				01C521132565909300199418 /* WkNetworkRequestMutable_private.h */,
 				01F884E9245C58DE00088E76 /* WkNetworkRequestMutable.h */,
 				01F884EA245C58DE00088E76 /* WkNetworkRequestMutable.mm */,
 				01FC28A42538E4D600DFA0BC /* WkPrinting_private.h */,

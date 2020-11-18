@@ -1,20 +1,9 @@
-#import "WkNetworkRequestMutable.h"
+#import "WkNetworkRequestMutable_private.h"
+#import "WkError_private.h"
 #import <ob/OBFramework.h>
 
-@interface WkMutableNetworkRequestPrivate : WkMutableNetworkRequest
-{
-	OBURL *_url;
-	OBURL *_mainDocumentURL;
-	WkMutableNetworkRequestCachePolicy _cachePolicy;
-	float _timeout;
-	OBString *_httpMethod;
-	OBString *_clientCertificate;
-	OBData *_httpBody;
-	OBMutableDictionary *_headers;
-	BOOL _shouldHandleCoookies;
-	BOOL _allowsAnyClientCertificate;
-}
-@end
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
 
 @implementation WkMutableNetworkRequestPrivate
 
@@ -185,7 +174,205 @@
 
 @end
 
+WebCore::ResourceRequest WkMutableNetworkRequestPrivateTranslator::fromNetworkRequest(WkMutableNetworkRequestPrivate *request)
+{
+	WebCore::ResourceRequest out;
+	
+	out.setURL(WTF::URL(WTF::URL(),	WTF::String::fromUTF8([[[request URL] absoluteString] cString])));
+
+	switch ([request cachePolicy])
+	{
+	case WkMutableNetworkRequestReloadIgnoringCacheData:
+		out.setCachePolicy(WebCore::ResourceRequestCachePolicy::ReloadIgnoringCacheData);
+		break;
+	case WkMutableNetworkRequestReturnCacheDataDontLoad:
+		out.setCachePolicy(WebCore::ResourceRequestCachePolicy::ReturnCacheDataDontLoad);
+		break;
+	case WkMutableNetworkRequestReturnCacheDataElseLoad:
+		out.setCachePolicy(WebCore::ResourceRequestCachePolicy::ReturnCacheDataElseLoad);
+		break;
+	case WkMutableNetworkRequestUseProtocolCachePolicy: default: break;
+	}
+
+	out.setTimeoutInterval([request timeoutInterval]);
+	out.setHTTPMethod(WTF::String::fromUTF8([[request HTTPMethod] cString]));
+
+	OBData *body = [request HTTPBody];
+	if ([body length])
+	{
+		out.setHTTPBody(WebCore::FormData::create([body bytes], [body length]));
+	}
+
+	OBDictionary *headers = [request allHTTPHeaderFields];
+	OBEnumerator *e = [headers keyEnumerator];
+	OBString *header;
+	while ((header = [e nextObject]))
+	{
+		OBString *val = [headers objectForKey:header];
+		if (val)
+		{
+			out.setHTTPHeaderField(WTF::String::fromUTF8([header cString]), WTF::String::fromUTF8([val cString]));
+		}
+	}
+
+	if ([request mainDocumentURL])
+		out.setHTTPReferrer(WTF::String::fromUTF8([[[request mainDocumentURL] absoluteString] cString]));
+
+	out.setAllowCookies([request HTTPShouldHandleCookies]);
+
+#if 0
+	// NOT YET IMPLEMENTED!
+
+- (BOOL)allowsAnyHTTPSClientCertificate;
+- (void)setAllowsAnyHTTPSClientCertificate:(BOOL)allowsany;
+
+- (OBString *)clientCertificate;
+- (void)setClientCertificate:(OBString *)certificate;
+#endif
+
+	return out;
+}
+
+@interface WkMutableNetworkRequestHandlerImpl : OBObject<WkMutableNetworkRequestHandler>
+{
+	id<WkMutableNetworkRequestTarget> _target;
+	id<WkNetworkRequest>              _request;
+	void                             *_innerClient;
+}
+
+- (void)onError:(WkError *)error withData:(OBData *)data;
+- (void)onFinishWithData:(OBData *)data;
+
+@end
+
+class WkMutableNetworkRequestClient final : private WebCore::ResourceHandleClient {
+public:
+	WkMutableNetworkRequestClient(WkMutableNetworkRequestHandlerImpl *parent, const WebCore::ResourceRequest& request)
+		: m_parent([parent retain])
+	{
+		m_handle = WebCore::ResourceHandle::create(WebKit::WebProcess::singleton().networkingContext().get(), request, this, false, false, true);
+		if (nullptr == m_handle)
+		{
+			[m_parent onError:[WkError errorWithURL:nil errorType:WkErrorType_Cancellation code:0] withData:nil];
+			[m_parent autorelease];
+			m_parent = nil;
+		}
+	}
+	~WkMutableNetworkRequestClient() = default;
+	void cancel() {
+		if (m_handle)
+			m_handle->cancel();
+		m_handle = nullptr;
+	}
+private:
+    void didReceiveBuffer(WebCore::ResourceHandle*, Ref<WebCore::SharedBuffer>&&buffer, int encodedDataLength) final {
+    	if (m_resourceData)
+    		m_resourceData->append(buffer);
+		else
+			m_resourceData = &buffer.get();
+	}
+	
+    void didFinishLoading(WebCore::ResourceHandle*) final {
+    	OBData *resp = nil;
+    	if (m_resourceData && m_resourceData->size())
+    	{
+    		resp = [OBData dataWithBytes:m_resourceData->data() length:m_resourceData->size()];
+		}
+		m_handle = nullptr;
+		[m_parent onFinishWithData:resp];
+    	[m_parent autorelease];
+    	m_parent = nil;
+	}
+    void didFail(WebCore::ResourceHandle*, const WebCore::ResourceError&error) final {
+    	OBData *resp = nil;
+    	if (m_resourceData && m_resourceData->size())
+    	{
+    		resp = [OBData dataWithBytes:m_resourceData->data() length:m_resourceData->size()];
+		}
+		m_handle = nullptr;
+		[m_parent onError:[WkError errorWithResourceError:error] withData:resp];
+    	[m_parent autorelease];
+    	m_parent = nil;
+	}
+    void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completion) final {
+		m_currentRequest = WTFMove(request);
+		completion(WebCore::ResourceRequest { m_currentRequest });
+	}
+    void didReceiveResponseAsync(WebCore::ResourceHandle*, WebCore::ResourceResponse&&, CompletionHandler<void()>&& completion) {
+    	completion();
+	}
+private:
+	WkMutableNetworkRequestHandlerImpl *m_parent = nil;
+    RefPtr<WebCore::SharedBuffer> m_resourceData;
+    RefPtr<WebCore::ResourceHandle> m_handle;
+    WebCore::ResourceRequest m_currentRequest;
+};
+
+@implementation WkMutableNetworkRequestHandlerImpl
+
+- (id)initRequest:(id<WkNetworkRequest>)request withTarget:(id<WkMutableNetworkRequestTarget>)target
+{
+	if ((self = [super init]))
+	{
+		_request = [request copy];
+		_target = [target retain];
+		_innerClient = (void *)new WkMutableNetworkRequestClient(self, WkMutableNetworkRequestPrivateTranslator::fromNetworkRequest(request));
+		if (nullptr == _innerClient)
+		{
+			[_target request:self didFailWithError:[WkError errorWithURL:nil errorType:WkErrorType_Cancellation code:0] data:0];
+			[self release];
+			return nil;
+		}
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	delete static_cast<WkMutableNetworkRequestClient *>(_innerClient);
+	[_target release];
+	[_request release];
+	[super dealloc];
+}
+
+- (void)cancel
+{
+	static_cast<WkMutableNetworkRequestClient *>(_innerClient)->cancel();
+}
+
+- (void)onError:(WkError *)error withData:(OBData *)data
+{
+	[_target request:self didFailWithError:error data:data];
+	[_target autorelease];
+	_target = nil;
+}
+
+- (void)onFinishWithData:(OBData *)data
+{
+	[_target request:self didCompleteWithData:data];
+	[_target autorelease];
+	_target = nil;
+}
+
+- (id<WkNetworkRequest>)request
+{
+	return _request;
+}
+
+- (id<WkMutableNetworkRequestTarget>)target
+{
+	return _target;
+}
+
+@end
+
 @implementation WkMutableNetworkRequest
+
++ (id<WkMutableNetworkRequestHandler>)performRequest:(id<WkNetworkRequest>)request withTarget:(id<WkMutableNetworkRequestTarget>)target
+{
+	return [[[WkMutableNetworkRequestHandlerImpl alloc] initRequest:request withTarget:target] autorelease];
+}
 
 + (id)requestWithURL:(OBURL *)url
 {
