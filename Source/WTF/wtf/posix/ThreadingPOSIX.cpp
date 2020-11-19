@@ -75,6 +75,7 @@ extern "C" {
 int pthread_setname_np(pthread_t thread, const char *name);
 #include <exec/tasks.h>
 #include <exec/libraries.h>
+#include <exec/system.h>
 #include <proto/exec.h>
 }
 #endif
@@ -248,8 +249,14 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
 	pthread_setname_np(pthread_self(), nameBuffer);
 	// Enable priority changes with MorphOS libpthread
 #ifdef SCHED_MORPHOS
-	const struct sched_param param = {FindTask(NULL)->tc_Node.ln_Pri};
-	pthread_setschedparam(pthread_self(), SCHED_MORPHOS, &param);
+	// The priority changes are only necessary with the old scheduler
+	ULONG flag;
+	if (!NewGetSystemAttrsA(&flag, sizeof(flag), SYSTEMINFOTYPE_NEWSCHEDULER, NULL) ||
+	    !flag)
+	{
+		const struct sched_param param = {FindTask(NULL)->tc_Node.ln_Pri};
+		pthread_setschedparam(pthread_self(), SCHED_MORPHOS, &param);
+	}
 #endif
 #else
     UNUSED_PARAM(threadName);
