@@ -150,6 +150,8 @@ namespace  {
 	id<WkWebViewAutofillDelegate>        _autofillDelegate;
 	id<WkWebViewProgressDelegate>        _progressDelegate;
 	id<WkWebViewContextMenuDelegate>     _contextMenuDelegate;
+	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
+	id<WkWebViewEditorDelegate>          _editorDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
 	WkBackForwardListPrivate            *_backForwardList;
 	WkSettings_Throttling                _throttling;
@@ -346,6 +348,26 @@ namespace  {
 - (id<WkWebViewContextMenuDelegate>)contextMenuDelegate
 {
 	return _contextMenuDelegate;
+}
+
+- (void)setAllRequestsHandler:(id<WkWebViewAllRequestsHandlerDelegate>)delegate
+{
+	_allRequestsDelegate = delegate;
+}
+
+- (id<WkWebViewAllRequestsHandlerDelegate>)allRequestsHandler
+{
+	return _allRequestsDelegate;
+}
+
+- (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
+{
+	_editorDelegate = delegate;
+}
+
+- (id<WkWebViewEditorDelegate>)editorDelegate
+{
+	return _editorDelegate;
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
@@ -1108,45 +1130,51 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		};
 		
 		webPage->_fCanHandleRequest = [self](const WebCore::ResourceRequest &request) {
-			if (request.httpMethod() == "GET")
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			const WTF::URL &url = request.url();
+
+			id<WkWebViewAllRequestsHandlerDelegate> allHandler = [privateObject allRequestsHandler];
+			if (allHandler)
 			{
-				const WTF::URL &url = request.url();
-				WTF::String protocol = url.protocol().toString();
-
-				// bypass standard protocols...
-				if (protocol == "http" || protocol == "https" || protocol == "file" || protocol == "about")
-				{
-					return true;
-				}
-
-				if (protocol == "ftp" || protocol == "mailto")
-				{
-					auto udata = url.string().ascii();
-					struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
-					URL_OpenA((STRPTR)udata.data(), urltags);
+				auto uurl = url.string().utf8();
+				OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
+				if (![allHandler webView:self wantsToNavigateToURL:url])
 					return false;
-				}
-				
-				if (protocol == "ftps")
-				{
-					return false;
-				}
-				
-				validateObjCContext();
-				WkWebViewPrivate *privateObject = [self privateObject];
+			}
 
-				auto uprotocol = protocol.utf8();
-				OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
-				id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
-				if (delegate)
-				{
-					auto uurl = url.string().utf8();
-					OBString *args = @"";
-					if (uurl.length() > protocol.length() + 1)
-						args = [OBString stringWithUTF8String:uurl.data() + protocol.length() + 1];
-					[delegate webView:self wantsToNavigateToCustomProtocol:oprotocol withArguments:args];
-					return false;
-				}
+			WTF::String protocol = url.protocol().toString();
+
+			// bypass standard protocols...
+			if (protocol == "http" || protocol == "https" || protocol == "file" || protocol == "about")
+			{
+				return true;
+			}
+
+			if (protocol == "ftp" || protocol == "mailto")
+			{
+				auto udata = url.string().ascii();
+				struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+				URL_OpenA((STRPTR)udata.data(), urltags);
+				return false;
+			}
+			
+			if (protocol == "ftps")
+			{
+				return false;
+			}
+
+			auto uprotocol = protocol.utf8();
+			OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
+			id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
+			if (delegate)
+			{
+				auto uurl = url.string().utf8();
+				OBString *args = @"";
+				if (uurl.length() > protocol.length() + 1)
+					args = [OBString stringWithUTF8String:uurl.data() + protocol.length() + 1];
+				[delegate webView:self wantsToNavigateToCustomProtocol:oprotocol withArguments:args];
+				return false;
 			}
 
 			return true;
@@ -1592,7 +1620,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	[self retain];
+	bool wasEnabled = webPage->javaScriptEnabled();
+	if (!wasEnabled)
+		webPage->setJavaScriptEnabled(true);
 	webPage->run([javascript cString]);
+	if (!wasEnabled)
+		webPage->setJavaScriptEnabled(false);
 	[self autorelease];
 }
 
@@ -1600,11 +1633,28 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	[self retain];
 	auto webPage = [_private page];
+	bool wasEnabled = webPage->javaScriptEnabled();
+	if (!wasEnabled)
+		webPage->setJavaScriptEnabled(true);
 	OBString *out = (id)webPage->evaluate([javascript cString], [](const char *res) {
 		return (void *)[OBString stringWithUTF8String:res];
 	});
+	if (!wasEnabled)
+		webPage->setJavaScriptEnabled(false);
 	[self autorelease];
 	return out;
+}
+
+- (void)setEditable:(BOOL)editable
+{
+	auto webPage = [_private page];
+	webPage->setEditable(editable);
+}
+
+- (BOOL)editable
+{
+	auto webPage = [_private page];
+	return webPage->editable();
 }
 
 - (WkSettings_Interpolation)interpolation
@@ -1997,6 +2047,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate
 {
 	[_private setConsoleDelegate:delegate];
+}
+
+- (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate
+{
+	[_private setAllRequestsHandler:delegate];
+}
+
+- (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
+{
+	[_private setEditorDelegate:delegate];
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol

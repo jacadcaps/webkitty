@@ -92,6 +92,12 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewAllRequestsHandlerDelegate <OBObject>
+
+- (BOOL)webView:(WkWebView *)view wantsToNavigateToURL:(OBURL *)url;
+
+@end
+
 @protocol WkWebViewNetworkProtocolHandlerDelegate <OBObject>
 
 - (void)webView:(WkWebView *)view wantsToNavigateToCustomProtocol:(OBString *)protocol withArguments:(OBString *)arguments;
@@ -181,6 +187,9 @@ typedef enum {
 - (void)runJavaScript:(OBString *)javascript;
 - (OBString *)evaluateJavaScript:(OBString *)javascript;
 
+- (void)setEditable:(BOOL)editable;
+- (BOOL)editable;
+
 - (void)scrollToLeft:(int)left top:(int)top;
 
 - (BOOL)hasAutofillElements;
@@ -200,6 +209,7 @@ typedef enum {
 - (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate;
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
+- (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 

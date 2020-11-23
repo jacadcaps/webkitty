@@ -200,6 +200,9 @@ public:
 	
 	bool allowsScrolling();
 	void setAllowsScrolling(bool allows);
+	
+	bool editable();
+	void setEditable(bool editable);
 
 	enum class ContextMenuHandling // keep in sync with WkSettings!!
 	{

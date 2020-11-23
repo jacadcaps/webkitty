@@ -233,11 +233,12 @@ LINKFILES := \
 
 .PHONY: linkpackage
 linkpackage:
-	rm -rf linkpackage
-	mkdir linkpackage
+	@rm -rf linkpackage
+	@mkdir linkpackage
 	@for i in $(LINKFILES); \
-	do echo -n "ppc-morphos-strip --strip-unneeded $$i -o linkpackage/">.run.sh; \
+	do echo -n "ppc-morphos-strip --strip-debug $$i -o linkpackage/">.run.sh; \
 	echo $$i | rev | cut -d'/' -f-1 | rev >>.run.sh ; \
+	echo "Copying and stripping $$i"; \
 	bash ./.run.sh; \
 	done
-	rm ./.run.sh
+	@rm ./.run.sh

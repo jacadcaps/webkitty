@@ -1152,9 +1152,11 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setMediaEnabled(true);
 
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
+#if (!MORPHOS_MINIMAL)
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);
-	
+#endif
+
 	settings.setXSSAuditorEnabled(true);
 	settings.setVisualViewportAPIEnabled(true);
 	
@@ -2324,6 +2326,16 @@ void WebPage::setAllowsScrolling(bool allows)
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (coreFrame)
 		coreFrame->view()->setCanHaveScrollbars(allows);
+}
+
+bool WebPage::editable()
+{
+	return m_page->isEditable();
+}
+
+void WebPage::setEditable(bool editable)
+{
+	m_page->setEditable(editable);
 }
 
 #if 0

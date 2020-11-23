@@ -47,7 +47,9 @@ LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
                 struct timeval *timeout, ULONG *maskp);
 }
 typedef uint32_t socklen_t;
+#if (!MORPHOS_MINIMAL)
 #include <pal/crypto/gcrypt/Initialization.h>
+#endif
 #include <proto/dos.h>
 
 #if (MORPHOS_MINIMAL)
@@ -150,7 +152,10 @@ void WebProcess::initialize(int sigbit)
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
+
+#if (!MORPHOS_MINIMAL)
 	PAL::GCrypt::initialize();
+#endif
 
 #if 0 // debug
 	{
