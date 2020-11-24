@@ -53,7 +53,14 @@ public:
 
     Ref<Thread> thread;
     
+#if OS(MORPHOS)
+    // Since it seems that the ParkingLot::unparkOneImpl might get called
+    // while already holding the parkingLock, make sure we use a recursive
+    // mutex to avoid deadlocking. - Piru
+    Mutex parkingLock = Mutex(PTHREAD_MUTEX_RECURSIVE);
+#else
     Mutex parkingLock;
+#endif
     ThreadCondition parkingCondition;
 
     const void* address { nullptr };
@@ -422,18 +429,6 @@ void ensureHashtableSize(unsigned numThreads)
     unlockHashtable(bucketsToUnlock);
 }
 
-#if OS(MORPHOS)
-// A bit ugly but avoid a deadlock at app exit. If the thread is cancelled it already holds
-// the parkingLock. In this case the TLS destructors would result in a deadlock. Avoid this
-// by adding a thread-cancellation cleanup handler that unlocks the lock. - Piru
-ThreadData* myThreadData();
-static void parkinglockunlocker(void *arg)
-{
-    ThreadData* me = myThreadData();
-    me->parkingLock.unlock();
-}
-#endif
-
 ThreadData::ThreadData()
     : thread(Thread::current())
 {
@@ -446,9 +441,6 @@ ThreadData::ThreadData()
     }
 
     ensureHashtableSize(currentNumThreads);
-#if OS(MORPHOS)
-    pthread_cleanup_push(parkinglockunlocker, NULL);
-#endif
 }
 
 ThreadData::~ThreadData()
