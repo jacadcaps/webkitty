@@ -556,6 +556,20 @@ void Thread::destructTLS(void* data)
 #endif
 }
 
+#if OS(MORPHOS)
+Mutex::Mutex(int type)
+{
+    pthread_mutexattr_t attr;
+    int result;
+    pthread_mutexattr_init(&attr);
+    result = pthread_mutexattr_settype(&attr, type);
+    ASSERT_UNUSED(result, !result);
+    result = pthread_mutex_init(&m_mutex, &attr);
+    ASSERT_UNUSED(result, !result);
+    pthread_mutexattr_destroy(&attr);
+}
+#endif
+
 Mutex::~Mutex()
 {
     int result = pthread_mutex_destroy(&m_mutex);
