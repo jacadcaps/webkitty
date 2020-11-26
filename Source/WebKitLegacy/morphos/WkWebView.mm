@@ -78,6 +78,7 @@ namespace  {
 - (void)invalidated:(BOOL)force;
 - (void)scrollToX:(int)sx y:(int)sy;
 - (void)setDocumentWidth:(int)width height:(int)height;
+- (void)recalculatePrinting;
 
 @end
 
@@ -986,6 +987,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			[self recalculatePrinting];
 			[clientDelegate webView:self documentReady:YES];
 		};
 
@@ -1395,6 +1397,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewProgressDelegate> progressDelegate = [privateObject progressDelegate];
 			[privateObject setIsLoading:NO];
+			[self recalculatePrinting];
 			[progressDelegate webViewDidFinishProgress:self];
 		};
 		
@@ -2289,6 +2292,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->printingFinished();
 		[self redraw:MADF_DRAWOBJECT];
 	}
+}
+
+- (void)recalculatePrinting
+{
+	[[_private printingState] recalculatePages];
 }
 
 - (BOOL)canUndo

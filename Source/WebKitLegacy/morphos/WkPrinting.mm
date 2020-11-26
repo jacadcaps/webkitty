@@ -276,8 +276,8 @@ protected:
 
 - (LONG)psLevel
 {
-	if (_ppd)
-		return _ppd->Parameters.PS_Level;
+	if (_ppd && _ppd->Parameters.PS_Level == 2)
+		return 2;
 	return 3;
 }
 
@@ -687,6 +687,8 @@ protected:
 			_previewedSheet = 1;
 
 		[self needsRedraw];
+		
+		[[OBNotificationCenter defaultCenter] postNotificationName:kWkPrintingStateRecalculated object:self];
 	}
 }
 

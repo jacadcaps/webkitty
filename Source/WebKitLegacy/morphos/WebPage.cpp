@@ -784,7 +784,7 @@ public:
 
 			if (_printSurface)
 			{
-				cairo_ps_surface_restrict_to_level(_printSurface, psLevel == 0 ? CAIRO_PS_LEVEL_2 : CAIRO_PS_LEVEL_3);
+				cairo_ps_surface_restrict_to_level(_printSurface, psLevel == 2 ? CAIRO_PS_LEVEL_2 : CAIRO_PS_LEVEL_3);
 				_printCairo = cairo_create(_printSurface);
 				if (_printCairo)
 					return true;
@@ -2061,6 +2061,8 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 		RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
 		return;
 	}
+
+	m_page->updateRendering();
 
 	// this is the visible area we want to paint in
 	float width = paintWidth;

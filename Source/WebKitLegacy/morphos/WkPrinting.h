@@ -4,6 +4,9 @@
 
 @class WkWebView, WkPrintingState;
 
+// Notification on layout recalcs
+#define kWkPrintingStateRecalculated @"wkPrintingStateRecalculated"
+
 @interface WkPrintingPage : OBObject
 
 - (OBString *)name;
