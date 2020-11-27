@@ -2338,6 +2338,12 @@ bool WebPage::editable()
 void WebPage::setEditable(bool editable)
 {
 	m_page->setEditable(editable);
+
+	if (editable)
+	{
+		auto* coreFrame = m_mainFrame->coreFrame();
+		coreFrame->document()->securityOrigin().grantLoadLocalResources();
+	}
 }
 
 #if 0
