@@ -131,6 +131,12 @@ protected:
 {
 	if (!node)
 		return nil;
+	
+	if (!node->Name || !*node->Name)
+		return nil;
+	
+	if (!node->Full_Name || !*node->Full_Name)
+		return nil;
 
 	float w = node->Width;
 	float h = node->Height;
@@ -215,7 +221,9 @@ protected:
 
 		while ((node = fn.nextNode()))
 		{
-			[out addObject:[self pageForNode:node]];
+			WkPrintingPage *page = [self pageForNode:node];
+			if (page)
+				[out addObject:page];
 		}
 	}
 	else

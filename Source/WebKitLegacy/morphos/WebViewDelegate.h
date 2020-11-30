@@ -34,6 +34,7 @@ struct WebViewDelegate
 	std::function<void()>             _fActivateNext;
 	std::function<void()>             _fActivatePrevious;
 	std::function<void()>             _fGoActive;
+	std::function<void()>             _fGoInactive;
 
 	std::function<WTF::String(const WTF::String&)>       _fUserAgentForURL;
 	std::function<void(const WTF::String&)>              _fChangedTitle;
@@ -93,6 +94,7 @@ struct WebViewDelegate
 		_fActivateNext = nullptr;
 		_fActivatePrevious = nullptr;
 		_fGoActive = nullptr;
+		_fGoInactive = nullptr;
 		_fUserAgentForURL = nullptr;
 		_fChangedTitle = nullptr;
 		_fChangedURL = nullptr;

@@ -932,7 +932,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->_fGoActive = [self]() {
 			[[self windowObject] setActiveObject:self];
 		};
-		
+
+		webPage->_fGoInactive = [self]() {
+			[[self windowObject] setActiveObject:nil];
+		};
+
 		webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];

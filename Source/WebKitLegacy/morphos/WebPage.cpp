@@ -2934,7 +2934,24 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			default:
 				if (m_isActive || isDefaultHandler)
 				{
-					bool handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					bool handled = false;
+					bool doHandle = true;
+
+					if (0 != ((IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND) & imsg->Qualifier))
+						doHandle = false;
+
+					if (m_isActive && code == RAWKEY_ESCAPE)
+					{
+						handled = true;
+						doHandle = false;
+						if (_fGoInactive)
+							_fGoInactive();
+					}
+
+					if (doHandle)
+					{
+						handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					}
 
 					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
 
