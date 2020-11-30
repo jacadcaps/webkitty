@@ -124,6 +124,15 @@ void ResourceHandle::addCacheValidationHeaders(ResourceRequest& request)
 
     d->m_addedCacheValidationHeaders = false;
 
+	switch (request.cachePolicy())
+	{
+	case ResourceRequestCachePolicy::ReloadIgnoringCacheData:
+	case ResourceRequestCachePolicy::DoNotUseAnyCache:
+		return;
+	default:
+		break;
+	}
+	
     auto hasCacheHeaders = request.httpHeaderFields().contains(HTTPHeaderName::IfModifiedSince) || request.httpHeaderFields().contains(HTTPHeaderName::IfNoneMatch);
     if (hasCacheHeaders)
         return;
