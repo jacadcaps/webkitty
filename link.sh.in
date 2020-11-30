@@ -35,6 +35,7 @@ _IN_ROOTPATH/gen/host/libnix/lib/libgpg-error.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libtasn1.a \
 _IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
 _IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libopenjp2.a \
 -lsyscall -lpthread \
 CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
 -lob_debug.framework -lmui_debug.framework \

@@ -21,6 +21,10 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DRAG_SUPPORT PRIVATE ON)
 # Filtering, JS injections and other crap
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_EXTENSIONS PRIVATE ON)
 
+WEBKIT_OPTION_DEFINE(USE_OPENJPEG "Whether to enable support for JPEG2000 images." PUBLIC ON)
+# needs lib
+#WEBKIT_OPTION_DEFINE(USE_WOFF2 "Whether to enable support for WOFF2 Web Fonts." PUBLIC ON)
+
 # Must for google maps, etc
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_RESIZE_OBSERVER PRIVATE ON)
 
@@ -96,6 +100,7 @@ find_package(Nghttp2 REQUIRED)
 find_package(Hyphen REQUIRED)
 find_package(LibPSL REQUIRED)
 find_package(WebP REQUIRED)
+find_package(OpenJPEG 2.2.0 REQUIRED)
 
 if (NOT MORPHOS_MINIMAL)
 	find_package(ffmpeg REQUIRED)

@@ -97,6 +97,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
 		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
 		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
@@ -126,6 +127,7 @@ configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.bu
 		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a -DHARFBUZZ_LIBRARIES="$(GEN)/lib/libnghttp2.a" \
 		-DICU_ROOT="$(LIB)/libicu/instdir/" \
@@ -229,7 +231,8 @@ LINKFILES := \
 	$(ROOTPATH)/lib/libicu/instdir/lib/libicuuc.a \
 	$(ROOTPATH)/lib/libicu/instdir/lib/libicudata.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
-	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a
+	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a
 
 .PHONY: linkpackage
 linkpackage:
