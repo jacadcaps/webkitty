@@ -2874,36 +2874,58 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case NM_WHEEL_DOWN:
 				if (mouseInside && !up)
 				{
-					if (1) //m_isActive || isDefaultHandler)
-					{
-						float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
-						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
-						WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
-							WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
-							0, deltaY,
-							0, wheelTicksY,
-							ScrollByPixelWheelEvent,
-							(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
-							(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
-							(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
-							(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
-							);
-						
-						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
-						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
-						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-						bool handled = bridge.handleWheelEvent(pke);
-						if (!handled)
-							wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier, targetFrame);
-					}
-					else
-					{
-						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier);
-					}
+					float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
+					float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
+					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+						0, deltaY,
+						0, wheelTicksY,
+						ScrollByPixelWheelEvent,
+						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+						);
+					
+					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					bool handled = bridge.handleWheelEvent(pke);
+					if (!handled)
+						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier, targetFrame);
+
 					return true;
 				}
 				break;
 			
+			case NM_WHEEL_LEFT:
+			case NM_WHEEL_RIGHT:
+				if (mouseInside && !up)
+				{
+					float wheelTicksX = (code == NM_WHEEL_LEFT) ? 1 : -1;
+					float deltaX = (code == NM_WHEEL_LEFT) ? 50.0f : -50.0f;
+					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+						deltaX, 0,
+						wheelTicksX, 0,
+						ScrollByPixelWheelEvent,
+						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+						);
+					
+					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					bool handled = bridge.handleWheelEvent(pke);
+					if (!handled)
+						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 50 : -50, 0, imsg->Qualifier, targetFrame);
+
+					return true;
+				}
+				break;
+				
 			case RAWKEY_TAB:
 				if (!m_isActive)
 					return false;
