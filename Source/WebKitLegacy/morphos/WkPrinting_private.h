@@ -79,7 +79,7 @@ namespace WebCore {
 
 - (WebCore::PrintContext *)context;
 
-- (void)needsRedraw;
+- (void)needsRedraw:(BOOL)sheetChange;
 - (void)recalculatePages;
 
 - (WebCore::FloatBoxExtent)printMargins;

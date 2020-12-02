@@ -11,6 +11,7 @@ extern "C" { void dprintf(const char *,...); }
 
 @interface WkWebView ()
 - (void)updatePrinting;
+- (void)updatePrintPreviewSheet;
 - (void)internalSetPageZoomFactor:(float)pageFactor textZoomFactor:(float)textFactor;
 @end
 
@@ -937,7 +938,7 @@ protected:
 	if (_previewedSheet != sheet && sheet >= 1 && sheet <= [self sheets])
 	{
 		_previewedSheet = sheet;
-		[self needsRedraw];
+		[_webView updatePrintPreviewSheet];
 	}
 }
 

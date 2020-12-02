@@ -28,6 +28,9 @@
 - (void)webView:(WkWebView *)view changedContentsSizeToWidth:(int)width height:(int)height;
 - (void)webView:(WkWebView *)view scrolledToLeft:(int)left top:(int)top;
 
+- (void)webView:(WkWebView *)view changedContentsSizeToShowPrintingSheets:(int)sheets;
+- (void)webView:(WkWebView *)view scrolledToSheet:(int)sheet;
+
 @end
 
 @protocol WkConfirmDownloadResponseDelegate <OBObject>
@@ -227,6 +230,7 @@ typedef enum {
 - (WkPrintingState *)beginPrintingWithSettings:(OBDictionary *)settings;
 - (void)spoolToFile:(OBString *)file withDelegate:(id<WkPrintingStateDelegate>)delegate;
 - (BOOL)isPrinting;
+- (WkPrintingState *)printingState;
 - (void)endPrinting;
 
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;

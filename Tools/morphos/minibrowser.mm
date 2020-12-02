@@ -131,23 +131,34 @@ extern "C" {
 	
 	if (_documentWidth > 0)
 	{
-		if (_documentWidth >= _viewWidth)
+		if ([_view isPrinting])
 		{
-			[_horiz noNotifySetEntries:_documentWidth];
-			[_horiz noNotifySetPropVisible:_viewWidth];
-		}
-		else
-		{
+			[_vert noNotifySetEntries:[[_view printingState] sheets]];
+			[_vert noNotifySetPropVisible:1];
+			[_vert noNotifySetFirst:[[_view printingState] previevedSheet]];
+
 			[_horiz noNotifySetEntries:1];
 		}
-		
-		if (_documentHeight >= _viewHeight)
-		{
-			[_vert noNotifySetEntries:_documentHeight];
-			[_vert noNotifySetPropVisible:_viewHeight];
-		}
 		else
-			[_vert noNotifySetEntries:1];
+		{
+			if (_documentWidth >= _viewWidth)
+			{
+				[_horiz noNotifySetEntries:_documentWidth];
+				[_horiz noNotifySetPropVisible:_viewWidth];
+			}
+			else
+			{
+				[_horiz noNotifySetEntries:1];
+			}
+			
+			if (_documentHeight >= _viewHeight)
+			{
+				[_vert noNotifySetEntries:_documentHeight];
+				[_vert noNotifySetPropVisible:_viewHeight];
+			}
+			else
+				[_vert noNotifySetEntries:1];
+		}
 	}
 	else
 	{
@@ -173,9 +184,27 @@ extern "C" {
 	[_vert noNotifySetFirst:top];
 }
 
+- (void)webView:(WkWebView *)view changedContentsSizeToShowPrintingSheets:(int)sheets
+{
+	_needsUpdate = true;
+	[[OBRunLoop mainRunLoop] performSelector:@selector(updateScrollers) target:self];
+}
+
+- (void)webView:(WkWebView *)view scrolledToSheet:(int)sheet
+{
+	[_vert noNotifySetFirst:sheet - 1];
+}
+
 - (void)doScroll
 {
-	[_view scrollToLeft:[_horiz first] top:[_vert first]];
+	if ([_view isPrinting])
+	{
+		[[_view printingState] setPrevievedSheet:[_vert first] + 1];
+	}
+	else
+	{
+		[_view scrollToLeft:[_horiz first] top:[_vert first]];
+	}
 }
 
 - (BOOL)show:(struct LongRect *)clip

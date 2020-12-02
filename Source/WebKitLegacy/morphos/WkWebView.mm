@@ -885,7 +885,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		}
 
 		self.fillArea = NO;
-		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER | IDCMP_RAWKEY;
+		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER | IDCMP_RAWKEY | IDCMP_INACTIVEWINDOW;
 		[self setEventHandlerGUIMode:YES];
 		self.cycleChain = YES;
 
@@ -1859,6 +1859,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedSheet] - 1,
 			[printingState pagesPerSheet], contentWidth, contentHeight, [printingState landscape],
 			[printingState printMargins], [printingState context], [printingState shouldPrintBackgrounds]);
+
+		OBString *info = [OBString stringWithFormat:@"%d/%d", [printingState previevedSheet], [printingState sheets]];
+		ULONG dim = [self textDim:info len:-1 preparse:0 flags:0];
+		[self text:[self left] + ((iw-DIM2WIDTH(dim))/2) top:[self bottom] - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
 	}
 	else
 	{
@@ -1982,11 +1986,34 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (ULONG)handleEvent:(struct IntuiMessage *)imsg muikey:(LONG)muikey
 {
+	WkPrintingState *printingState = [_private printingState];
 	auto webPage = [_private page];
 
-	if ([_private printingState])
+	if (printingState)
+	{
+		if (imsg && imsg->Class == IDCMP_RAWKEY)
+		{
+			LONG previewedSheet = [printingState previevedSheet];
+			if (imsg->Code == NM_WHEEL_UP)
+			{
+				if (previewedSheet > 1)
+					[printingState setPrevievedSheet:previewedSheet - 1];
+			}
+			else if (imsg->Code == NM_WHEEL_DOWN)
+			{
+				if (previewedSheet < [printingState sheets])
+					[printingState setPrevievedSheet:previewedSheet + 1];
+			}
+			else
+			{
+				return 0;
+			}
+			
+			return MUI_EventHandlerRC_Eat;
+		}
 		return 0;
-
+	}
+	
 	if (muikey != MUIKEY_NONE && webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
 		return MUI_EventHandlerRC_Eat;
 
@@ -2279,6 +2306,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return [_private printingState] != nil;
 }
 
+- (WkPrintingState *)printingState
+{
+	return [_private printingState];
+}
+
 - (void)endPrinting
 {
 	[_private endPrinting];
@@ -2295,6 +2327,19 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		auto webPage = [_private page];
 		webPage->printingFinished();
 		[self redraw:MADF_DRAWOBJECT];
+		[[_private scrollingDelegate] webView:self changedContentsSizeToShowPrintingSheets:[[_private printingState] sheets]];
+		[[_private scrollingDelegate] webView:self scrolledToSheet:[[_private printingState] previevedSheet]];
+	}
+}
+
+- (void)updatePrintPreviewSheet
+{
+	if ([_private printingState])
+	{
+		auto webPage = [_private page];
+		webPage->printingFinished();
+		[self redraw:MADF_DRAWOBJECT];
+		[[_private scrollingDelegate] webView:self scrolledToSheet:[[_private printingState] previevedSheet]];
 	}
 }
 

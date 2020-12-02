@@ -271,6 +271,7 @@ private:
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };
 	int  m_cursor { 0 };
+	int  m_middleClick[2];
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };
@@ -278,6 +279,8 @@ private:
     bool m_alwaysShowsVerticalScroller { false };
     bool m_mainFrameIsScrollable { true };
     bool m_trackMouse { false };
+    bool m_trackMiddle { false };
+    bool m_trackMiddleDidScroll { false };
     bool m_ignoreScroll { false };
     bool m_orphaned { false };
     bool m_adBlocking { true };

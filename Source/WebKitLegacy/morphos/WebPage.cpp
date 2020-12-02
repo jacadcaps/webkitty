@@ -551,7 +551,7 @@ public:
 
 		(void)scrollX;
 
-#if 1
+#if 0 // doesn't repaint correctly
 		struct Window *window = (struct Window *)rp->Layer->Window;
 
 		// Only trigger fast path if we've scrolled from outside (by scroller, etc) and there was
@@ -2620,6 +2620,8 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
 
 bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL)
 {
+	if (m_trackMiddleDidScroll && m_trackMiddle)
+		return false;
 	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
 	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 	(void)imsg;
@@ -2689,10 +2691,17 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 				case MIDDLEDOWN:
 					if (mouseInside)
+					{
+						m_trackMiddle = true;
+						m_trackMouse = true;
+						m_trackMiddleDidScroll = false;
+						m_middleClick[0] = mouseX;
+						m_middleClick[1] = mouseY;
 						return true;
+					}
 					break;
 				case MIDDLEUP:
-					if (mouseInside || m_trackMouse)
+					if (!m_trackMiddleDidScroll && (mouseInside || m_trackMouse))
 					{
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
 						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
@@ -2736,8 +2745,10 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
+						m_trackMiddle = false;
 						return wasTrackMouse;
 					}
+					m_trackMiddle = false;
 					break;
 				case MENUDOWN:
 					// This is consistent with Safari
@@ -2826,23 +2837,43 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case IDCMP_MOUSEHOVER:
 				if (mouseInside || m_trackMouse)
 				{
-					bridge.handleMouseMoveEvent(pme);
-					WTF::URL hoverURL;
-					bool downloadable = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
-
-					if (m_hoveredURL != hoverURL)
+					int deltaX = 0;
+					int deltaY = 0;
+					
+					if (m_trackMiddle)
 					{
-						m_hoveredURL = hoverURL;
-						if (_fHoveredURLChanged)
-						{
-							_fHoveredURLChanged(m_hoveredURL);
-						}
+						deltaX = m_middleClick[0] - mouseX;
+						deltaY = m_middleClick[1] - mouseY;
+						m_middleClick[0] = mouseX;
+						m_middleClick[1] = mouseY;
 					}
 
-					if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && downloadable)
+					if (m_trackMiddleDidScroll || (abs(deltaX) > 0) || (abs(deltaY) > 0))
 					{
-						_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
-						return m_trackMouse;
+						scrollBy(-deltaX, -deltaY);
+						m_trackMiddleDidScroll = true;
+					}
+
+					if (!m_trackMiddleDidScroll)
+					{
+						bridge.handleMouseMoveEvent(pme);
+						WTF::URL hoverURL;
+						bool downloadable = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
+
+						if (m_hoveredURL != hoverURL)
+						{
+							m_hoveredURL = hoverURL;
+							if (_fHoveredURLChanged)
+							{
+								_fHoveredURLChanged(m_hoveredURL);
+							}
+						}
+
+						if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && downloadable)
+						{
+							_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
+							return m_trackMouse;
+						}
 					}
 
 					if (_fSetCursor)
@@ -2875,7 +2906,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside && !up)
 				{
 					float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
-					float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
+					float deltaY = (code == NM_WHEEL_UP) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep();
 					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
 						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
 						0, deltaY,
@@ -2892,7 +2923,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
-						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier, targetFrame);
+						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep(), imsg->Qualifier, targetFrame);
 
 					return true;
 				}
@@ -2903,7 +2934,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				if (mouseInside && !up)
 				{
 					float wheelTicksX = (code == NM_WHEEL_LEFT) ? 1 : -1;
-					float deltaX = (code == NM_WHEEL_LEFT) ? 50.0f : -50.0f;
+					float deltaX = (code == NM_WHEEL_LEFT) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep();
 					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
 						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
 						deltaX, 0,
@@ -2920,7 +2951,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
-						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 50 : -50, 0, imsg->Qualifier, targetFrame);
+						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep(), 0, imsg->Qualifier, targetFrame);
 
 					return true;
 				}
@@ -2998,7 +3029,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEUP:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, m_drawContext->height(), m_page->focusController().focusedFrame());
+								scrollBy(0, Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3006,7 +3037,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEDOWN:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
+								scrollBy(0, -Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3016,11 +3047,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							{
 								if (0 == (imsg->Qualifier & KEYQUALIFIERS))
 								{
-									scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
+									scrollBy(0, -Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
 								}
 								else if (((IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT) & (imsg->Qualifier & KEYQUALIFIERS)) != 0)
 								{
-									scrollBy(0, m_drawContext->height(), m_page->focusController().focusedFrame());
+									scrollBy(0, Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
 								}
 								return true;
 							}
@@ -3029,7 +3060,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_DOWN:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -50, m_page->focusController().focusedFrame());
+								scrollBy(0, -Scrollbar::pixelsPerLineStep(), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3037,7 +3068,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_UP:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, 50, m_page->focusController().focusedFrame());
+								scrollBy(0, Scrollbar::pixelsPerLineStep(), m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3071,6 +3102,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				break;
 			}
 		}
+		break;
+		
+	case IDCMP_INACTIVEWINDOW:
+		m_trackMiddle = false;
+		m_trackMouse = false;
 		break;
 	}
 
