@@ -242,10 +242,16 @@ public:
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
 
-	// WebChrome methods
+	enum class WebPageScrollByMode
+	{
+		Pixels,
+		Units,
+		Pages
+	};
+
     void repaint(const WebCore::IntRect&);
     void internalScroll(int scrollX, int scrollY);
-	void scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame = nullptr);
+	void scrollBy(int xDelta, int yDelta, WebPageScrollByMode mode, WebCore::Frame *inFrame = nullptr);
 	void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers, WebCore::Frame *inFrame = nullptr);
     void frameSizeChanged(WebCore::Frame& frame, int width, int height);
 

@@ -1947,7 +1947,7 @@ void WebPage::setScroll(const int x, const int y)
 		_fInvalidate(false);
 }
 
-void WebPage::scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame)
+void WebPage::scrollBy(int xDelta, int yDelta, WebPage::WebPageScrollByMode mode, WebCore::Frame *inFrame)
 {
 	if (!m_mainFrame)
 		return;
@@ -1958,6 +1958,17 @@ void WebPage::scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFra
 	WebCore::ScrollPosition sp = view->scrollPosition();
 	WebCore::ScrollPosition spMin = view->minimumScrollPosition();
 	WebCore::ScrollPosition spMax = view->maximumScrollPosition();
+
+	if (mode == WebPageScrollByMode::Pages)
+	{
+		xDelta *= Scrollbar::pageStep(view->visibleWidth());
+		yDelta *= Scrollbar::pageStep(view->visibleHeight());
+	}
+	else if (mode == WebPageScrollByMode::Units)
+	{
+		xDelta *= Scrollbar::pixelsPerLineStep();
+		yDelta *= Scrollbar::pixelsPerLineStep();
+	}
 
 	int x = sp.x() - xDelta;
 	int y = sp.y() - yDelta;
@@ -1987,7 +1998,7 @@ void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qual
 	}
 	else
 	{
-		scrollBy(xDelta, yDelta, inFrame);
+		scrollBy(xDelta, yDelta, WebPageScrollByMode::Units, inFrame);
 	}
 }
 
@@ -2850,7 +2861,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 					if (m_trackMiddleDidScroll || (abs(deltaX) > 0) || (abs(deltaY) > 0))
 					{
-						scrollBy(-deltaX, -deltaY);
+						scrollBy(-deltaX, -deltaY, WebPageScrollByMode::Pixels);
 						m_trackMiddleDidScroll = true;
 					}
 
@@ -2923,7 +2934,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
-						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep(), imsg->Qualifier, targetFrame);
+						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
 
 					return true;
 				}
@@ -2951,7 +2962,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
-						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep(), 0, imsg->Qualifier, targetFrame);
+						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
 
 					return true;
 				}
@@ -3029,7 +3040,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEUP:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
+								scrollBy(0, 1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3037,7 +3048,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_PAGEDOWN:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
+								scrollBy(0, -1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3047,11 +3058,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							{
 								if (0 == (imsg->Qualifier & KEYQUALIFIERS))
 								{
-									scrollBy(0, -Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
+									scrollBy(0, -1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
 								}
 								else if (((IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT) & (imsg->Qualifier & KEYQUALIFIERS)) != 0)
 								{
-									scrollBy(0, Scrollbar::pageStep(m_page->focusController().focusedFrame()->view()->visibleHeight()), m_page->focusController().focusedFrame());
+									scrollBy(0, 1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
 								}
 								return true;
 							}
@@ -3060,7 +3071,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_DOWN:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -Scrollbar::pixelsPerLineStep(), m_page->focusController().focusedFrame());
+								scrollBy(0, -1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -3068,7 +3079,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_UP:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, Scrollbar::pixelsPerLineStep(), m_page->focusController().focusedFrame());
+								scrollBy(0, 1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
