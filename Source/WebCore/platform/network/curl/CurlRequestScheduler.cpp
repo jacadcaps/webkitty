@@ -209,6 +209,18 @@ void CurlRequestScheduler::workerThread()
                 usleep(100 * 1000); // nothing to do, wait 100ms
                 rc = 0;
             }
+            // With MorphOS stop the thread if WaitSelect() fails. This can happen
+            // for three reasons:
+            // - ENOMEM - Memory allocation failed
+            // - EINTR  - CTRL-C signal has been met
+            // - EBADFD - bad file descriptor was passed
+            //
+            // Regardless why it happens we better stop processing.
+            if (rc == -1) {
+                auto locker = holdLock(m_mutex);
+                m_runThread = false;
+                break;
+            }
 #endif
         } while (rc == -1 && errno == EINTR);
 
