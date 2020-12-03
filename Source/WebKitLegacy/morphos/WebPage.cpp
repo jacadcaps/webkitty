@@ -1563,8 +1563,7 @@ void WebPage::setCursor(int cursor)
 	{
 		m_cursor = cursor;
 
-		if (!m_trackMouse && _fSetCursor)
-			_fSetCursor(m_cursor);
+		_fSetCursor(mouseCursorToSet(0, true));
 	}
 }
 
@@ -2631,8 +2630,6 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
 
 bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL)
 {
-	if (m_trackMiddleDidScroll && m_trackMiddle)
-		return false;
 	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
 	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 	(void)imsg;
@@ -2641,6 +2638,29 @@ bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int 
 	else if (hitTestResult.image())
 		outURL = hitTestResult.absoluteImageURL();
 	return hitTestResult.isOverLink() || hitTestResult.image();
+}
+
+int WebPage::mouseCursorToSet(ULONG qualifiers, bool mouseInside)
+{
+	if (m_trackMiddleDidScroll && m_trackMiddle)
+	{
+		return POINTERTYPE_VERTICALRESIZE;
+	}
+	
+	if (m_cursorLock != POINTERTYPE_NORMAL)
+		return m_cursorLock;
+	
+	if (mouseInside || m_trackMouse)
+	{
+		if (m_cursorOverLink && (qualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)))
+		{
+			return POINTERTYPE_ALTERNATIVECHOICE;
+		}
+	
+		return m_cursor;
+	}
+	
+	return POINTERTYPE_NORMAL;
 }
 
 bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler)
@@ -2760,6 +2780,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						return wasTrackMouse;
 					}
 					m_trackMiddle = false;
+					m_trackMouse = false;
 					break;
 				case MENUDOWN:
 					// This is consistent with Safari
@@ -2803,12 +2824,20 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 
 						if (m_page->contextMenuController().contextMenu() &&
-							m_page->contextMenuController().contextMenu()->items().size())
+							m_page->contextMenuController().contextMenu()->items().size() > 1)
 						{
 							if (_fContextMenu)
 							{
-								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
-								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+								bool didDisplayMenu = _fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
+								if (didDisplayMenu)
+								{
+									WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+								}
+								else
+								{
+									bridge.handleMousePressEvent(pme);
+									m_trackMouse = true;
+								}
 							}
 						}
 						else if (_fContextMenu && !doEvent)
@@ -2848,6 +2877,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case IDCMP_MOUSEHOVER:
 				if (mouseInside || m_trackMouse)
 				{
+					WTF::URL hoverURL;
+					m_cursorOverLink = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
+
 					int deltaX = 0;
 					int deltaY = 0;
 					
@@ -2855,12 +2887,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					{
 						deltaX = m_middleClick[0] - mouseX;
 						deltaY = m_middleClick[1] - mouseY;
-						m_middleClick[0] = mouseX;
-						m_middleClick[1] = mouseY;
 					}
 
-					if (m_trackMiddleDidScroll || (abs(deltaX) > 0) || (abs(deltaY) > 0))
+					if (m_trackMiddleDidScroll || (abs(deltaX) > 5) || (abs(deltaY) > 5))
 					{
+						m_middleClick[0] = mouseX;
+						m_middleClick[1] = mouseY;
 						scrollBy(-deltaX, -deltaY, WebPageScrollByMode::Pixels);
 						m_trackMiddleDidScroll = true;
 					}
@@ -2868,8 +2900,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					if (!m_trackMiddleDidScroll)
 					{
 						bridge.handleMouseMoveEvent(pme);
-						WTF::URL hoverURL;
-						bool downloadable = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
 
 						if (m_hoveredURL != hoverURL)
 						{
@@ -2879,20 +2909,16 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								_fHoveredURLChanged(m_hoveredURL);
 							}
 						}
-
-						if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && downloadable)
-						{
-							_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
-							return m_trackMouse;
-						}
 					}
 
 					if (_fSetCursor)
-						_fSetCursor(m_cursor);
+						_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
+
 					return m_trackMouse;
 				}
 				else
 				{
+					m_cursorOverLink = false;
 					if (_fSetCursor)
 						_fSetCursor(0);
 				}
@@ -3021,20 +3047,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 					if (!handled)
 					{
-						WTF::URL ignored;
-
 						switch (code)
 						{
 						case RAWKEY_LALT:
 						case RAWKEY_RALT:
-							if (!up && _fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY, ignored))
-							{
-								_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
-							}
-							else if (up && _fSetCursor)
-							{
-								_fSetCursor(m_cursor);
-							}
+							if (_fSetCursor)
+								_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
 							break;
 						
 						case RAWKEY_PAGEUP:

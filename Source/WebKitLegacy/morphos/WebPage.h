@@ -261,6 +261,8 @@ protected:
 
     bool transparent() const { return m_transparent; }
     bool usesLayeredWindow() const { return m_usesLayeredWindow; }
+	
+    int mouseCursorToSet(ULONG qualifiers, bool mouseInside);
 
 private:
     RefPtr<WebFrame> m_mainFrame { nullptr };
@@ -277,6 +279,7 @@ private:
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };
 	int  m_cursor { 0 };
+	int  m_cursorLock { 0 };
 	int  m_middleClick[2];
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
@@ -294,6 +297,7 @@ private:
     bool m_isActive { false };
     bool m_isVisible { false };
     bool m_transitioning { false };
+    bool m_cursorOverLink { false };
     WebCore::Element *m_focusedElement { nullptr };
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };

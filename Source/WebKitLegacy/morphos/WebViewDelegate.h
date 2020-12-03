@@ -51,7 +51,7 @@ struct WebViewDelegate
 	std::function<void(const WTF::URL& url, WebViewDelegateOpenWindowMode mode)> _fNewTabWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
-	std::function<void(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
+	std::function<bool(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
 
 	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
 	

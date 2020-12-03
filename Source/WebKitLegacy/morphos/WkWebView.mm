@@ -1055,14 +1055,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return -1;
 		};
 		
-		webPage->_fContextMenu = [self](const WebCore::IntPoint& pos, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest) -> void {
+		webPage->_fContextMenu = [self](const WebCore::IntPoint& pos, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest) -> bool {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
 			WebKit::WebPage *page = [privateObject page];
 			MUIMenu *menu = [[MUIMenu new] autorelease];
 			WkHitTestPrivate *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
-			
+
 			if ([wkhit isContentEditable])
 			{
 				page->markWord(*[wkhit hitTestInternal]);
@@ -1098,6 +1098,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 			
 			[wkhit release];
+			return [menu count] > 0;
 		};
 		
 		webPage->_fHistoryChanged = [self]() {
