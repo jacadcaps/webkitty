@@ -69,10 +69,13 @@ Vector<String> platformUserPreferredLanguages()
 				if (0 == strcmp(mappings[i].locName, locale->loc_PrefLanguages[index]))
 				{
 					languages.append(mappings[i].code);
+					break;
 				}
 			}
 			index++;
 		}
+
+		CloseLocale(locale);
 	}
 
 	if (languages.isEmpty())
