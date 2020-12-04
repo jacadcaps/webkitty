@@ -206,8 +206,7 @@ void CurlRequestScheduler::workerThread()
             }
 #if OS(MORPHOS)
             else {
-                usleep(100 * 1000); // nothing to do, wait 100ms
-                rc = 0;
+                rc = usleep(100 * 1000); // nothing to do, wait 100ms
             }
             // With MorphOS stop the thread if WaitSelect() fails. This can happen
             // for three reasons:

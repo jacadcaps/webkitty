@@ -531,19 +531,6 @@ diff -ruN ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252.orig/libavutil/ppc/cpu
  #elif defined(__APPLE__) || defined(__OpenBSD__)
  #ifdef __OpenBSD__
      int sels[2] = {CTL_MACHDEP, CPU_ALTIVEC};
-diff -ruN ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252.orig/libavutil/time.c ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252/libavutil/time.c
---- ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252.orig/libavutil/time.c	2013-12-12 15:23:39.000000000 +0100
-+++ ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252/libavutil/time.c	2013-11-27 08:10:44.000000000 +0100
-@@ -60,7 +60,8 @@
-     while (nanosleep(&ts, &ts) < 0 && errno == EINTR);
-     return 0;
- #elif HAVE_USLEEP
--    return usleep(usec);
-+    usleep(usec);
-+    return 0;
- #elif HAVE_SLEEP
-     Sleep(usec / 1000);
-     return 0;
 diff -ruN ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252.orig/libswscale/swscale_internal.h ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252/libswscale/swscale_internal.h
 --- ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252.orig/libswscale/swscale_internal.h	2013-12-12 15:23:39.000000000 +0100
 +++ ffmpeg-a12b4bd107cf028e44cab8dafca61a866cecd252/libswscale/swscale_internal.h	2013-11-27 07:50:33.000000000 +0100
