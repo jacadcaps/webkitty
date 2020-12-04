@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include <wtf/Language.h>
+#include <wtf/HashMap.h>
 
 #include <wtf/text/WTFString.h>
 
@@ -35,12 +36,47 @@ namespace WTF {
 
 Vector<String> platformUserPreferredLanguages()
 {
+	struct mapping { const char *locName; const char *code; };
+	static const mapping mappings[] = {
+		{ "dansk", "da" },
+		{ "deutsch", "de" },
+		{ "english", "en" },
+		{ "espa\xF1ol", "sp" },
+		{ "fran\xE7" "ais", "fr" },
+		{ "greek", "gr" },
+		{ "italiano", "it" },
+		{ "magyar", "hu" },
+		{ "nederlands", "nl" },
+		{ "norsk", "no" },
+		{ "polski", "pl" },
+		{ "portugu\xEAs", "pt" },
+		{ "suomi", "fi" },
+		{ "svenska", "sv" },
+		{ "t\xFCrkiye", "tr" },
+		{ "\xE8" "e\xB9tina", "cs" }
+	};
     Vector<String> languages;
 
-//	struct Locale *locale = OpenLocale(NULL);
-// TODO: locale
+	struct Locale *locale = OpenLocale(NULL);
 
-	languages.append("en-US");
+	if (locale)
+	{
+		int index = 0;
+		while (locale->loc_PrefLanguages[index])
+		{
+			for (size_t i = 0; i < sizeof(mappings)/sizeof(mapping); i++)
+			{
+				if (0 == strcmp(mappings[i].locName, locale->loc_PrefLanguages[index]))
+				{
+					languages.append(mappings[i].code);
+				}
+			}
+			index++;
+		}
+	}
+
+	if (languages.isEmpty())
+		languages.append("en");
 
     return languages;
 }
