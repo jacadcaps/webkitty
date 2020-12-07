@@ -1063,7 +1063,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			MUIMenu *menu = [[MUIMenu new] autorelease];
 			WkHitTestPrivate *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
 
-			if ([wkhit isContentEditable])
+			if ([wkhit isContentEditable] && 0 == [[wkhit selectedText] length])
 			{
 				page->markWord(*[wkhit hitTestInternal]);
 				[self redraw:MADF_DRAWUPDATE];

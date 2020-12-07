@@ -174,6 +174,8 @@ void WebProcess::initialize(int sigbit)
 
 	RuntimeEnabledFeatures::sharedFeatures().setIntersectionObserverEnabled(true);
 	
+	RuntimeEnabledFeatures::sharedFeatures().setKeygenElementEnabled(true);
+	
 	// TODO: implement workers!
 	// RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
 

@@ -82,21 +82,26 @@ bool Pasteboard::hasData()
 
 Vector<String> Pasteboard::typesSafeForBindings(const String&)
 {
-    notImplemented();
-    return { };
+	Vector<String> types;
+	
+	types.append("text/plain"_s);
+	types.append("text/uri-list"_s);
+	types.append("text/html"_s);
+
+    return types;
 }
 
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 {
     Vector<String> types;
-//    platformStrategies()->pasteboardStrategy()->getTypes(types);
-     notImplemented();
+	types.append("text/plain"_s);
+	types.append("text/uri-list"_s);
+	types.append("text/html"_s);
     return types;
 }
 
 String Pasteboard::readOrigin()
 {
-    notImplemented(); // webkit.org/b/177633: [GTK] Move to new Pasteboard API
     return { };
 }
 
@@ -113,9 +118,28 @@ static ClipboardDataType selectionDataTypeFromHTMLClipboardType(const String& ty
 
 String Pasteboard::readString(const String& type)
 {
-//    return platformStrategies()->pasteboardStrategy()->readStringFromPasteboard(0, type);
-     notImplemented();
-    return { };
+	String out;
+
+	if (type == "text/plain")
+	{
+		const char *clipcontents;
+
+		struct Library *ClipboardBase;
+		if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
+		{
+			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
+			clipcontents = (const char *)ReadClipTextA(tags);
+			if (nullptr != clipcontents)
+			{
+				out = String::fromUTF8(clipcontents);
+				FreeClipText(clipcontents);
+			}
+			
+			CloseLibrary(ClipboardBase);
+		}
+	}
+
+    return out;
 }
 
 String Pasteboard::readStringInCustomData(const String&)
