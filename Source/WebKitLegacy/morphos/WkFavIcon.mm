@@ -24,6 +24,8 @@ namespace WebKit {
         return NO;
 	
 	auto native = image->nativeImageForCurrentFrame();
+	if (!native.get())
+		return NO;
 
 	unsigned char *imgdata;
 	int width, height, stride, cairo_stride;
@@ -31,6 +33,9 @@ namespace WebKit {
 	cairo_surface_flush (native.get());
 
 	imgdata = cairo_image_surface_get_data (native.get());
+	if (nullptr == imgdata)
+		return NO;
+
 	width = cairo_image_surface_get_width (native.get());
 	height = cairo_image_surface_get_height (native.get());
 	stride = cairo_image_surface_get_stride (native.get());
