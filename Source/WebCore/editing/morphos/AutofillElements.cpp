@@ -81,7 +81,7 @@ AutofillElements::AutofillElements()
 bool AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
 {
     if (!start->document().page())
-        false;
+        return false;
     FocusController& focusController = start->document().page()->focusController();
     if (start->isPasswordField()) {
         RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
@@ -121,7 +121,7 @@ bool AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
 			m_username = nullptr;
 			m_password = start.ptr();
 
-			if (start.ptr())
+			if (start.ptr() && start->form())
 			{
 				auto elements = start->form()->elementsForNativeBindings();
 				for (unsigned i = 0; i < elements->length(); i++)
