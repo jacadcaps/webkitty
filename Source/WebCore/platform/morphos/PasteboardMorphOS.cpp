@@ -84,6 +84,7 @@ Vector<String> Pasteboard::typesSafeForBindings(const String&)
 {
 	Vector<String> types;
 	
+	types.append("text/plain;charset=utf-8"_s);
 	types.append("text/plain"_s);
 	types.append("text/uri-list"_s);
 	types.append("text/html"_s);
@@ -94,6 +95,7 @@ Vector<String> Pasteboard::typesSafeForBindings(const String&)
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 {
     Vector<String> types;
+	types.append("text/plain;charset=utf-8"_s);
 	types.append("text/plain"_s);
 	types.append("text/uri-list"_s);
 	types.append("text/html"_s);
@@ -120,7 +122,7 @@ String Pasteboard::readString(const String& type)
 {
 	String out;
 
-	if (type == "text/plain")
+	if (type == "text/plain" || type == "text/plain;charset=utf-8")
 	{
 		const char *clipcontents;
 
