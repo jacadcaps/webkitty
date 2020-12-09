@@ -44,6 +44,7 @@
 #import <proto/intuition.h>
 #import <proto/openurl.h>
 #import <libraries/openurl.h>
+#import <pthread.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
@@ -760,7 +761,19 @@ static inline void validateObjCContext() {
 	@synchronized ([WkWebView class])
 	{
 		if (!_readyToQuitPending)
+		{
 			WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
+			// As soon as possible ask all sub-threads to stop processing. This
+			// will send SIGBREAKF_CTRL_C to all sub-threads. They will take some
+			// time to shut down on the background, so better start the process
+			// as soon as possible.
+			pthread_t tid, self = pthread_self();
+			for (tid = 1; tid < PTHREAD_THREADS_MAX; tid++)
+			{
+				if (tid != self)
+					pthread_kill(tid, SIGINT);
+			}
+		}
 		_readyToQuitPending = YES;
 		if (_viewInstanceCount == 0 &&
 			WebKit::WebProcess::singleton().webFrameCount() == 0)
