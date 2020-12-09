@@ -531,8 +531,9 @@ constexpr bool assertionFailureDueToUnreachableCode = false;
 
 #if OS(MORPHOS)
 #define RELEASE_ASSERT(assertion, ...) do { \
-    if (UNLIKELY(!(assertion))) \
+    if (UNLIKELY(!(assertion))) { \
         dprintf("WTFReleaseAssert in %s/%d\n", __FILE__, __LINE__); CRASH(); \
+	}\
 } while (0)
 #else
 #define RELEASE_ASSERT(assertion, ...) do { \
