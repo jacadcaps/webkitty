@@ -104,7 +104,7 @@ QUAD calculateMaxCacheSize(const char *path)
 		{
 			QUAD free = total - used;
 			free /= 2;
-			return std::min(0xffffffffll, free);
+			return std::min(512ll * 1024ll * 1024ll, free);
 		}
 	}
 	

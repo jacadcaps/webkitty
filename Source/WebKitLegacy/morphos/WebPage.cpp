@@ -3283,16 +3283,18 @@ void WebPage::markWord(WebCore::HitTestResult &hitTest)
 	WebCore::Frame *frame = fromHitTest(hitTest);
 	if (frame)
 	{
-		frame->selection().moveTo(frame->visiblePositionForPoint(hitTest.roundedPointInInnerNodeFrame()));
-
 		VisibleSelection selection = frame->selection().selection();
 		if (!selection.isContentEditable() || selection.isNone())
 			return;
 
+		frame->selection().moveTo(frame->visiblePositionForPoint(hitTest.roundedPointInInnerNodeFrame()));
+
+#if 0
 		VisibleSelection wordSelection(selection.base());
 		wordSelection.expandUsingGranularity(WordGranularity);
 		
 		frame->selection().setSelection(wordSelection);
+#endif
 	}
 }
 
