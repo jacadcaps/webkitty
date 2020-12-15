@@ -25,8 +25,10 @@
 
 #include "config.h"
 #include "RenderThemeMorphOS.h"
-
 #include "NotImplemented.h"
+#include "UserAgentScripts.h"
+#include "UserAgentStyleSheets.h"
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
@@ -40,5 +42,20 @@ void RenderThemeMorphOS::updateCachedSystemFontDescription(CSSValueID, FontCasca
 {
     notImplemented();
 }
+
+#if ENABLE(VIDEO)
+String RenderThemeMorphOS::mediaControlsStyleSheet()
+{
+    return String(mediaControlsBaseUserAgentStyleSheet, sizeof(mediaControlsBaseUserAgentStyleSheet));
+}
+
+String RenderThemeMorphOS::mediaControlsScript()
+{
+    StringBuilder scriptBuilder;
+    scriptBuilder.appendCharacters(mediaControlsLocalizedStringsJavaScript, sizeof(mediaControlsLocalizedStringsJavaScript));
+    scriptBuilder.appendCharacters(mediaControlsBaseJavaScript, sizeof(mediaControlsBaseJavaScript));
+    return scriptBuilder.toString();
+}
+#endif
 
 } // namespace WebCore

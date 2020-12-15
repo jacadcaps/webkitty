@@ -23,12 +23,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#ifdef _WIN32
-#define CALL_CONVT __cdecl
-#define EXTERN extern __declspec(dllexport)
-#else
 #define CALL_CONVT
-#define EXTERN extern
+#define EXTERN
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 /**
@@ -483,6 +482,10 @@ EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
 struct AVFrame;
 EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
+
+#ifdef __cplusplus
+} //end extern "C"
+#endif
 
 #endif /* _ACINERELLA_H_ */
 

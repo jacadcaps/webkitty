@@ -6,27 +6,19 @@
 
 #include "MediaPlayerPrivate.h"
 #include "PlatformLayer.h"
+#include "MediaPlayerMorphOS.h"
+#include "AcinerellaClient.h"
 
 namespace WebCore {
 
-struct MediaPlayerPrivateMorphOSSettings
-{
-	MediaPlayerPrivateMorphOSSettings()
-		: m_enableVideo(false)
-		, m_enableAudio(false)
-		, m_enableOgg(true)
-		, m_enableFlv(true)
-		, m_enableWebm(true)
-	{
-	}
-	bool m_enableVideo;
-	bool m_enableAudio;
-	bool m_enableOgg;
-	bool m_enableFlv;
-	bool m_enableWebm;
-};
+namespace Acinerella {
+	class Acinerella;
+}
 
-class MediaPlayerPrivateMorphOS : public MediaPlayerPrivateInterface, public CanMakeWeakPtr<MediaPlayerPrivateMorphOS, WeakPtrFactoryInitialization::Eager>
+template<typename T>
+using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
+
+class MediaPlayerPrivateMorphOS : public MediaPlayerPrivateInterface, public Acinerella::AcinerellaClient, public CanMakeWeakPtr<MediaPlayerPrivateMorphOS, WeakPtrFactoryInitialization::Eager>
 {
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -37,8 +29,6 @@ public:
     static MediaPlayer::SupportsType extendedSupportsType(const MediaEngineSupportParameters&, MediaPlayer::SupportsType);
     static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 	
-    static MediaPlayerPrivateMorphOSSettings &settings();
-
     void load(const String&) final;
     void cancelLoad() final;
     void prepareToPlay() final;
@@ -64,10 +54,18 @@ public:
     void paint(GraphicsContext&, const FloatRect&) final;
     bool didLoadingProgress() const final;
 	
+	bool accEnableAudio() const override;
+	bool accEnableVideo() const override;
+	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state);
+	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state);
+
 protected:
 	MediaPlayer* m_player;
+	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
+
+friend class Acinerella::Acinerella;
 };
 
 };

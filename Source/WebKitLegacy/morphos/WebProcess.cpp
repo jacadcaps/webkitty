@@ -23,6 +23,7 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
+#include <WebCore/MediaPlayerMorphOS.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -182,6 +183,10 @@ void WebProcess::initialize(int sigbit)
 	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
 
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
+
+	MediaPlayerMorphOSSettings::settings().m_enableAudio = true;
+	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
+	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";

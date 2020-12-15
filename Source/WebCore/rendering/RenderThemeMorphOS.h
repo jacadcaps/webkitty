@@ -35,6 +35,12 @@ public:
 
 private:
     void updateCachedSystemFontDescription(CSSValueID systemFontID, FontCascadeDescription&) const final;
+
+#if ENABLE(VIDEO)
+    // Media controls
+    String mediaControlsStyleSheet() final;
+    String mediaControlsScript() final;
+#endif
 };
 
 } // namespace WebCore
