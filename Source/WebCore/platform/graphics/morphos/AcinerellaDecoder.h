@@ -22,12 +22,34 @@ namespace Acinerella {
 
 class Acinerella;
 
+class AcinerellaDecodedFrame
+{
+public:
+	explicit AcinerellaDecodedFrame(ac_decoder *decoder) : m_frame(ac_alloc_decoder_frame(decoder)) { }
+	explicit AcinerellaDecodedFrame() : m_frame(nullptr) { }
+	explicit AcinerellaDecodedFrame(const AcinerellaDecodedFrame &) = delete;
+	explicit AcinerellaDecodedFrame(AcinerellaDecodedFrame &) = delete;
+	explicit AcinerellaDecodedFrame(AcinerellaDecodedFrame && otter) : m_frame(otter.m_frame) { otter.m_frame = nullptr; }
+	~AcinerellaDecodedFrame() { ac_free_decoder_frame(m_frame); }
+	
+	AcinerellaDecodedFrame & operator=(const AcinerellaDecodedFrame &) = delete;
+	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame &) = delete;
+	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame && otter) { std::swap(m_frame, otter.m_frame); return *this; }
+
+	ac_decoder_frame *frame() { return m_frame; }
+	const ac_decoder_frame *frame() const { return m_frame; }
+
+protected:
+	ac_decoder_frame *m_frame;
+};
+
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
 {
 public:
-	AcinerellaDecoder(Acinerella &parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
-	virtual ~AcinerellaDecoder() { }
+	AcinerellaDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
+	virtual ~AcinerellaDecoder();
 
+	// call from: Acinerella thread
 	void terminate();
 	bool isValid() const { return !!m_decoder; }
 
@@ -37,27 +59,55 @@ public:
 
 	virtual bool isPlaying() const = 0;
 	virtual bool isAudio() const = 0;
+	virtual bool isReadyToPlay() const = 0;
 
-	Seconds const &duration() const { return m_duration; }
-	virtual Seconds position() const = 0;
+	float duration() const { return m_duration; }
+	float bitRate() const { return m_bitrate; }
+	virtual float position() const = 0;
+	virtual float bufferSize() const = 0;
 
 protected:
+	// call from: Own thread
 	void threadEntryPoint();
+	// call from: Any thread
 	void dispatch(Function<void ()>&& function);
+	// call from: Acinerella thread
 	void performTerminate();
+
+	// call from: Own thread
+	bool decodeNextFrame();
+	void decodeUntilBufferFull();
+
+	// call from: Own thread
+	virtual bool onThreadInitialize() { return true; }
+	virtual void onThreadShutdown() { }
+
+	// call from: Own thread, under m_lock!
+	virtual void onFrameDecoded(const AcinerellaDecodedFrame &) { }
+
+	// call from: Own thread
 	virtual void startPlaying() = 0;
 	virtual void stopPlaying() = 0;
-	virtual int warmUpQueueSize() const = 0;
+
+	// call from: Any thread
+	virtual float readAheadTime() const = 0;
 
 protected:
-    RefPtr<Thread>                   m_thread;
-    MessageQueue<Function<void ()>>  m_queue;
+	Acinerella                        *m_parent; // valid until terminate is called
+    RefPtr<Thread>                     m_thread;
+    MessageQueue<Function<void ()>>    m_queue;
 
-	RefPtr<AcinerellaMuxedBuffer>    m_muxer;
-    deleted_unique_ptr<ac_decoder>   m_decoder;
-	Seconds                          m_duration;
+	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
+    deleted_unique_ptr<ac_decoder>     m_decoder;
+	float                              m_duration;
+	int                                m_bitrate;
 	
-	bool                             m_terminating = false;
+	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
+	std::queue<AcinerellaDecodedFrame> m_freeFrames;
+	Lock                               m_lock;
+
+	bool                               m_playing = false;
+	bool                               m_terminating = false;
 };
 
 }

@@ -5,6 +5,8 @@
 #if ENABLE(VIDEO)
 
 #include "AcinerellaDecoder.h"
+#include <devices/ahi.h>
+#include <exec/libraries.h>
 
 namespace WebCore {
 namespace Acinerella {
@@ -12,25 +14,50 @@ namespace Acinerella {
 class AcinerellaAudioDecoder : public AcinerellaDecoder
 {
 public:
-	AcinerellaAudioDecoder(Acinerella &parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
+	AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
 
 	int rate() const { return m_audioRate; }
 	int channels() const { return m_audioChannels; }
 	int bits() const { return m_audioBits; }
 	
 	bool isAudio() const override { return true; }
-	int warmUpQueueSize() const override { return 3; }
+	float readAheadTime() const override { return 5.f; }
 
+	bool isReadyToPlay() const override;
 	void startPlaying() override;
 	void stopPlaying() override;
 
 	bool isPlaying() const override;
-	Seconds position() const override;
+	float position() const override;
+	float bufferSize() const override { return m_bufferedSeconds; }
 
 protected:
-	int     m_audioRate;
-	int     m_audioChannels;
-	int     m_audioBits;
+	bool onThreadInitialize() override;
+	void onThreadShutdown() override;
+	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
+
+	static void soundFunc();
+	void fillBuffer(int index);
+	void ahiThreadEntryPoint();
+
+protected:
+	Library        *m_ahiBase = nullptr;
+	MsgPort        *m_ahiPort = nullptr;
+	AHIRequest     *m_ahiIO = nullptr;
+	AHIAudioCtrl   *m_ahiControl = nullptr;
+	AHISampleInfo   m_ahiSample[2];
+	uint32_t        m_ahiSampleLength; // *2 for bytes
+	uint32_t        m_ahiSampleBeingPlayed;
+	uint32_t        m_ahiFrameOffset; //
+	BinarySemaphore m_ahiSampleConsumed;
+	RefPtr<Thread>  m_ahiThread;
+	bool            m_ahiThreadShuttingDown = false;
+
+	uint32_t        m_bufferedSamples = 0;
+	volatile float  m_bufferedSeconds = 0.f;
+	int             m_audioRate;
+	int             m_audioChannels;
+	int             m_audioBits;
 };
 
 }

@@ -36,10 +36,12 @@ public:
 	
 	// Acinerella Thread Methods
 	virtual int read(uint8_t *outBuffer, int size) = 0;
+	int64_t length() { return m_length; }
 
 protected:
 	String                           m_url;
     int                              m_readAhead;
+    int64_t                          m_length;
 };
 
 class AcinerellaPackage

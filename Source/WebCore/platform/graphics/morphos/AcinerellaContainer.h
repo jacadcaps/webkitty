@@ -36,6 +36,8 @@ public:
 
 	void play();
 	void pause();
+	
+	float duration();
 
 protected:
 	ac_instance *ac() { return m_ac.get(); }
@@ -52,6 +54,11 @@ protected:
 	int64_t seek(int64_t pos, int whence);
 
 	void demuxNextPackage();
+	
+	void onDecoderReadyToPlay(AcinerellaDecoder& decoder);
+	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing);
+	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer);
+	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buffer);
 
 protected:
 	static int acOpenCallback(void *me);
@@ -68,6 +75,8 @@ protected:
 	RefPtr<AcinerellaMuxedBuffer>    m_muxer;
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
+
+	float                            m_duration;
 
     RefPtr<Thread>                   m_thread;
     MessageQueue<Function<void ()>>  m_queue;

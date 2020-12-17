@@ -46,9 +46,16 @@ void Acinerella::pause()
 
 void Acinerella::terminate()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("ac%s: %p\n", __func__, this));
 	m_terminating = true;
 	m_client = nullptr;
+
+	// Prevent muxer from obtaining more data
+	if (m_networkBuffer)
+		m_networkBuffer->stop();
+
+	D(dprintf("ac%s: %p network done\n", __func__, this));
+
 	if (!m_thread)
 		return;
 	ASSERT(isMainThread());
@@ -64,17 +71,9 @@ void Acinerella::terminate()
 	ASSERT(m_queue.killed());
 	m_thread = nullptr;
 	
-	if (m_networkBuffer)
-		m_networkBuffer->stop();
 	m_networkBuffer = nullptr;
 
-	if (m_videoDecoder)
-		m_videoDecoder->terminate();
-	
-	if (m_audioDecoder)
-		m_audioDecoder->terminate();
-
-	D(dprintf("%s: %p done\n", __func__, this));
+	D(dprintf("ac%s: %p done\n", __func__, this));
 }
 
 void Acinerella::threadEntryPoint()
@@ -86,10 +85,27 @@ void Acinerella::threadEntryPoint()
 		{
 			(*function)();
 		}
-		
-		// make sure this is disposed on the thread!
-		m_ac.reset();
 	}
+
+	if (m_videoDecoder)
+		m_videoDecoder->terminate();
+
+	D(dprintf("ac%s: %p video done\n", __func__, this));
+
+	if (m_audioDecoder)
+		m_audioDecoder->terminate();
+
+	D(dprintf("ac%s: %p audio done\n", __func__, this));
+
+	if (m_muxer)
+		m_muxer->terminate();
+
+	D(dprintf("ac%s: %p muxer done\n", __func__, this));
+
+	// make sure this is disposed on the thread!
+	m_ac.reset();
+
+	D(dprintf("%s: %p exits...\n", __func__, this));
 }
 
 void Acinerella::dispatch(Function<void ()>&& function)
@@ -104,8 +120,6 @@ void Acinerella::performTerminate()
 	D(dprintf("%s: %p\n", __func__, this));
 	ASSERT(!isMainThread());
 	m_queue.kill();
-	if (m_muxer)
-		m_muxer->terminate();
 }
 
 bool Acinerella::initialize()
@@ -161,16 +175,45 @@ bool Acinerella::initialize()
 					}, audioIndex, videoIndex);
 
 				if (-1 != audioIndex)
-					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(*this, m_muxer, audioIndex, info));
+					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(this, m_muxer, audioIndex, info));
 				
 				m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
 				m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 
+				float audioDuration = 0;
+				float videoDuration = 0;
+
 				if (m_audioDecoder)
+				{
 					m_audioDecoder->warmUp();
+					audioDuration = m_audioDecoder->duration();
+					if (audioDuration <= 0.f && m_networkBuffer->length() > 0)
+					{
+						double total = m_networkBuffer->length();
+						total *= 8;
+						total /= m_audioDecoder->bitRate();
+						audioDuration = total;
+					}
+				}
 				
 				if (m_videoDecoder)
+				{
 					m_videoDecoder->warmUp();
+					videoDuration = m_videoDecoder->duration();
+					if (videoDuration <= 0.f && m_networkBuffer->length() > 0)
+					{
+						double total = m_networkBuffer->length();
+						total *= 8;
+						total /= m_videoDecoder->bitRate();
+						videoDuration = total;
+					}
+				}
+				
+				m_duration = std::max(audioDuration, videoDuration);
+				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+					if (m_client)
+						m_client->accSetDuration(m_duration);
+				});
 			}
 		}
 	}
@@ -187,6 +230,36 @@ void Acinerella::demuxNextPackage()
 		AcinerellaPackage package(ac_read_package(m_ac.get()));
 		m_muxer->push(WTFMove(package));
 	}
+}
+
+void Acinerella::onDecoderReadyToPlay(AcinerellaDecoder& decoder)
+{
+	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
+	});
+}
+
+void Acinerella::onDecoderPlaying(AcinerellaDecoder& decoder, bool playing)
+{
+	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+	});
+}
+
+void Acinerella::onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer)
+{
+	WTF::callOnMainThread([this, buffer, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accSetBufferLength(buffer);
+	});
+}
+
+void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buffer)
+{
+	WTF::callOnMainThread([this, buffer, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accSetPosition(buffer);
+	});
 }
 
 // callback from acinerella on acinerella's main thread!
@@ -216,7 +289,7 @@ int Acinerella::close()
 // callback from acinerella on acinerella's main thread!
 int Acinerella::read(uint8_t *buf, int size)
 {
-	D(dprintf("%s: %p\n", __func__, this));
+// 	D(dprintf("%s: %p\n", __func__, this));
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{

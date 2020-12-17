@@ -8,7 +8,7 @@
 #include "AcinerellaContainer.h"
 
 #define D(x) x
-#define DM(x)
+#define DM(x) 
 
 namespace WebCore {
 
@@ -85,7 +85,14 @@ public:
 		s_getSupportedTypes(types);
 		DM(dprintf("%s: contains? %d\n", __PRETTY_FUNCTION__, types.contains(containerType)));
 		if (types.contains(containerType))
+		{
+			if (!parameters.type.codecs().isEmpty())
+			{
+				if (parameters.type.codecs().size() == 1 && parameters.type.codecs().contains("opus"))
+					return MediaPlayer::SupportsType::IsNotSupported;
+			}
 			return parameters.type.codecs().isEmpty() ? MediaPlayer::SupportsType::MayBeSupported : MediaPlayer::SupportsType::IsSupported;
+		}
 		DM(dprintf("%s: not supported %s\n", __PRETTY_FUNCTION__, parameters.type.raw().utf8().data()));
         return MediaPlayer::SupportsType::IsNotSupported;
     }
@@ -204,7 +211,7 @@ bool MediaPlayerPrivateMorphOS::seeking() const
 
 bool MediaPlayerPrivateMorphOS::paused() const
 {
-	return true;
+	return false;
 }
 
 MediaPlayer::NetworkState MediaPlayerPrivateMorphOS::networkState() const
@@ -260,6 +267,36 @@ void MediaPlayerPrivateMorphOS::accSetReadyState(WebCore::MediaPlayerEnums::Read
 		{
 			m_readyState = state;
 			m_player->readyStateChanged();
+		}
+	});
+}
+
+void MediaPlayerPrivateMorphOS::accSetBufferLength(float buffer)
+{
+	WTF::callOnMainThread([this, buffer, protectedThis = makeWeakPtr(this)]() {
+		if (protectedThis)
+		{
+		}
+	});
+}
+
+void MediaPlayerPrivateMorphOS::accSetPosition(float pos)
+{
+	WTF::callOnMainThread([this, pos, protectedThis = makeWeakPtr(this)]() {
+		if (protectedThis)
+		{
+			m_player->timeChanged();
+		}
+	});
+}
+
+void MediaPlayerPrivateMorphOS::accSetDuration(float dur)
+{
+	WTF::callOnMainThread([this, dur, protectedThis = makeWeakPtr(this)]() {
+		if (protectedThis)
+		{
+			m_duration = dur;
+			m_player->durationChanged();
 		}
 	});
 }

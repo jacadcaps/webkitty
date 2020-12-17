@@ -38,6 +38,9 @@ public:
     void pause() final;
     FloatSize naturalSize() const final;
 
+    float duration() const final { return m_duration; }
+    float currentTime() const final { return m_currentTime; }
+
     bool hasVideo() const final;
     bool hasAudio() const final;
 
@@ -56,14 +59,19 @@ public:
 	
 	bool accEnableAudio() const override;
 	bool accEnableVideo() const override;
-	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state);
-	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state);
+	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
+	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
+	void accSetBufferLength(float buffer) override;
+	void accSetPosition(float buffer) override;
+	void accSetDuration(float buffer) override;
 
 protected:
 	MediaPlayer* m_player;
 	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
+	float m_duration = 0.f;
+	float m_currentTime = 0.f;
 
 friend class Acinerella::Acinerella;
 };

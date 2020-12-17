@@ -19,7 +19,7 @@
 #include <queue>
 #include "AcinerellaDecoder.h"
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -97,23 +97,17 @@ public:
 					auto buffer = m_buffer.front();
 					int write = std::min(int(buffer->size() - m_bufferRead), sizeLeft);
 
-					D(dprintf("%s: %p write %ld br %ld sl %ld sw %ld\n", __func__, this, write, m_bufferRead, sizeLeft, sizeWritten));
-
 					memcpy(outBuffer + sizeWritten, buffer->data() + m_bufferRead, write);
 					m_bufferRead += write;
 					m_bufferPositionAbs += write;
 					sizeLeft -= write;
 					sizeWritten += write;
 
-					D(dprintf("%s: %p nbr %ld w %ld\n", __func__, this, m_bufferRead, m_bufferPositionAbs));
-
 					if (m_bufferRead == int(buffer->size()))
 					{
 						m_buffer.pop();
 						m_bufferSize -= m_bufferRead;
 						m_bufferRead = 0;
-						
-						D(dprintf("%s: pop!\n", __func__));
 						
 						// Check if we don't need to resume reading...
 						if (m_isPaused && m_bufferRead < (m_readAhead / 2))
@@ -196,6 +190,7 @@ public:
 		{
 			D(dprintf("%s(%p)..\n", __func__, this));
 			m_response = ResourceResponse(response);
+			m_length = reinterpret_cast<int64_t>(m_response.expectedContentLength());
 
 			if (m_response.shouldRedirect())
 			{
@@ -457,7 +452,7 @@ bool AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder, AcinerellaPa
 					outPackage = WTFMove(m_videoPackages.front());
 					m_videoPackages.pop();
 					hasPackage = true;
-					requestMore = m_audioPackages.size() < m_audioQueueAheadSize;
+					requestMore = m_videoPackages.size() < m_videoQueueAheadSize;
 				}
 				else if (m_queueCompleteOrError)
 				{
