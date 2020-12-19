@@ -12,7 +12,7 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) x
+#define D(x) 
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info)
 	: AcinerellaDecoder(parent, buffer, index, info)

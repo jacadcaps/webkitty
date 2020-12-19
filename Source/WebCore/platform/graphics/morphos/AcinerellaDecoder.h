@@ -13,6 +13,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <memory>
 #include "AcinerellaBuffer.h"
+#include "AcinerellaPointer.h"
 
 template<typename T>
 using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
@@ -25,22 +26,25 @@ class Acinerella;
 class AcinerellaDecodedFrame
 {
 public:
-	explicit AcinerellaDecodedFrame(ac_decoder *decoder) : m_frame(ac_alloc_decoder_frame(decoder)) { }
+	explicit AcinerellaDecodedFrame(RefPtr<AcinerellaPointer> pointer, ac_decoder *decoder) : m_pointer(pointer), m_frame(ac_alloc_decoder_frame(decoder)) { }
 	explicit AcinerellaDecodedFrame() : m_frame(nullptr) { }
 	explicit AcinerellaDecodedFrame(const AcinerellaDecodedFrame &) = delete;
 	explicit AcinerellaDecodedFrame(AcinerellaDecodedFrame &) = delete;
-	explicit AcinerellaDecodedFrame(AcinerellaDecodedFrame && otter) : m_frame(otter.m_frame) { otter.m_frame = nullptr; }
+	explicit AcinerellaDecodedFrame(AcinerellaDecodedFrame && otter) : m_pointer(otter.m_pointer), m_frame(otter.m_frame) { otter.m_pointer = nullptr; otter.m_frame = nullptr; }
 	~AcinerellaDecodedFrame() { ac_free_decoder_frame(m_frame); }
 	
 	AcinerellaDecodedFrame & operator=(const AcinerellaDecodedFrame &) = delete;
 	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame &) = delete;
-	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame && otter) { std::swap(m_frame, otter.m_frame); return *this; }
+	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame && otter) { std::swap(m_pointer, otter.m_pointer); std::swap(m_frame, otter.m_frame); return *this; }
 
 	ac_decoder_frame *frame() { return m_frame; }
 	const ac_decoder_frame *frame() const { return m_frame; }
+	
+	RefPtr<AcinerellaPointer> &pointer() { return m_pointer; }
 
 protected:
-	ac_decoder_frame *m_frame;
+	RefPtr<AcinerellaPointer> m_pointer;
+	ac_decoder_frame         *m_frame;
 };
 
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
@@ -51,7 +55,6 @@ public:
 
 	// call from: Acinerella thread
 	void terminate();
-	bool isValid() const { return !!m_decoder; }
 
 	void warmUp();
 	void play();
@@ -98,7 +101,6 @@ protected:
     MessageQueue<Function<void ()>>    m_queue;
 
 	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
-    deleted_unique_ptr<ac_decoder>     m_decoder;
 	float                              m_duration;
 	int                                m_bitrate;
 	

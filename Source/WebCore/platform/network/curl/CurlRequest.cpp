@@ -137,6 +137,11 @@ void CurlRequest::startWithJobManager()
 void CurlRequest::cancel()
 {
     ASSERT(isMainThread());
+	
+	if (!isMainThread())
+	{
+		dprintf("!!CurlReqest::cancel() called on wrong thread!!\n");
+	}
 
     {
         auto locker = holdLock(m_statusMutex);

@@ -8,7 +8,7 @@
 #include "AcinerellaContainer.h"
 
 #define D(x) x
-#define DM(x) 
+#define DM(x) x
 
 namespace WebCore {
 
@@ -49,6 +49,11 @@ public:
 				types.add(String("audio/ogg"));
 			if (MediaPlayerMorphOSSettings::settings().m_enableWebm)
 				types.add(String("audio/webm"));
+
+			types.add(String("audio/x-mpegurl"));
+			types.add(String("audio/x-scpls"));
+			types.add(String("audio/mpa"));
+			types.add(String("audio/mpa-robust"));
 		}
 		
 		if (MediaPlayerMorphOSSettings::settings().m_enableVideo)
@@ -66,6 +71,12 @@ public:
 			}
 			if (MediaPlayerMorphOSSettings::settings().m_enableWebm)
 				types.add(String("video/webm"));
+		}
+		
+		if (MediaPlayerMorphOSSettings::settings().m_enableAudio || MediaPlayerMorphOSSettings::settings().m_enableVideo)
+		{
+			types.add(String("application/x-mpegurl"));
+			types.add(String("application/vnd.apple.mpegurl"));
 		}
     }
 

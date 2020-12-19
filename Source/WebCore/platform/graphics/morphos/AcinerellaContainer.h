@@ -12,6 +12,7 @@
 #include "AcinerellaClient.h"
 #include "AcinerellaBuffer.h"
 #include "AcinerellaDecoder.h"
+#include "AcinerellaPointer.h"
 #include "acinerella.h"
 
 template<typename T>
@@ -40,13 +41,14 @@ public:
 	float duration();
 
 protected:
-	ac_instance *ac() { return m_ac.get(); }
+	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
 
 	void threadEntryPoint();
 	void dispatch(Function<void ()>&& function);
 	void performTerminate();
 
 	bool initialize();
+	void initializeAfterDiscontinuity();
 
 	int open();
 	int close();
@@ -69,7 +71,8 @@ protected:
 protected:
 	AcinerellaClient                *m_client;
 	String                           m_url;
-    deleted_unique_ptr<ac_instance>  m_ac;
+	RefPtr<AcinerellaPointer>        m_acinerella;
+	Lock                             m_acinerellaLock;
 	RefPtr<AcinerellaNetworkBuffer>  m_networkBuffer;
 
 	RefPtr<AcinerellaMuxedBuffer>    m_muxer;

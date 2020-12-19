@@ -6,7 +6,7 @@
 #include "AcinerellaAudioDecoder.h"
 #include "AcinerellaBuffer.h"
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -102,8 +102,11 @@ void Acinerella::threadEntryPoint()
 
 	D(dprintf("ac%s: %p muxer done\n", __func__, this));
 
-	// make sure this is disposed on the thread!
-	m_ac.reset();
+	{
+		auto lock = holdLock(m_acinerellaLock);
+		m_acinerella = nullptr;
+		m_muxer = nullptr;
+	}
 
 	D(dprintf("%s: %p exits...\n", __func__, this));
 }
@@ -125,23 +128,23 @@ void Acinerella::performTerminate()
 bool Acinerella::initialize()
 {
 	D(dprintf("%s: %p\n", __func__, this));
-	m_ac = deleted_unique_ptr<ac_instance>(ac_init(), [](ac_instance*instance){ ac_free(instance); });
-	if (m_ac)
+	m_acinerella = AcinerellaPointer::create();
+	if (m_acinerella)
 	{
-		if (-1 == ac_open(m_ac.get(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
+		if (-1 == ac_open(m_acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 		{
-			m_ac.reset();
+			m_acinerella = nullptr;
 		}
 		else
 		{
-			D(dprintf("ac initialized, stream count %d\n", m_ac->stream_count));
+			D(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
 			int audioIndex = -1;
 			int videoIndex = -1;
 
-			for (int i = m_ac->stream_count - 1; i >= 0; --i)
+			for (int i = m_acinerella->instance()->stream_count - 1; i >= 0; --i)
 			{
 				ac_stream_info info;
-				ac_get_stream_info(m_ac.get(), i, &info);
+				ac_get_stream_info(m_acinerella->instance(), i, &info);
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
@@ -165,7 +168,6 @@ bool Acinerella::initialize()
 			if (-1 != audioIndex || -1 != videoIndex)
 			{
 				ac_stream_info info;
-				ac_get_stream_info(m_ac.get(), audioIndex, &info);
 
 				m_muxer = AcinerellaMuxedBuffer::create([this, protectedThis = makeRef(*this)]() {
 						// look ma, a lambda within a lambda
@@ -175,10 +177,16 @@ bool Acinerella::initialize()
 					}, audioIndex, videoIndex);
 
 				if (-1 != audioIndex)
+				{
+					ac_get_stream_info(m_acinerella->instance(), audioIndex, &info);
+					m_acinerella->setAudioDecoder(ac_create_decoder(m_acinerella->instance(), audioIndex));
 					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(this, m_muxer, audioIndex, info));
+				}
 				
 				m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
 				m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+
+				m_muxer->setDropVideoPackages(m_videoDecoder ? false : true);
 
 				float audioDuration = 0;
 				float videoDuration = 0;
@@ -218,17 +226,86 @@ bool Acinerella::initialize()
 		}
 	}
 
-	if (m_ac)
+	if (m_acinerella)
 		return true;
 	return false;
 }
 
+void Acinerella::initializeAfterDiscontinuity()
+{
+	auto acinerella = AcinerellaPointer::create();
+	if (-1 == ac_open(acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
+	{
+		// TODO failure path - signal to client
+	}
+	else
+	{
+		D(dprintf("ac initialized, stream count %d\n", acinerella->instance()->stream_count));
+		int audioIndex = -1;
+		int videoIndex = -1;
+
+		for (int i = acinerella->instance()->stream_count - 1; i >= 0; --i)
+		{
+			ac_stream_info info;
+			ac_get_stream_info(acinerella->instance(), i, &info);
+			switch (info.stream_type)
+			{
+			case AC_STREAM_TYPE_VIDEO:
+				D(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+				if (-1 == videoIndex && m_enableVideo)
+					videoIndex = i;
+				break;
+
+			case AC_STREAM_TYPE_AUDIO:
+				D(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
+					info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
+				if (-1 == audioIndex && m_enableAudio)
+					audioIndex = i;
+				break;
+				
+			case AC_STREAM_TYPE_UNKNOWN:
+				break;
+			}
+		}
+
+		if (-1 != audioIndex || -1 != videoIndex)
+		{
+			if (-1 != audioIndex)
+				acinerella->setAudioDecoder(ac_create_decoder(m_acinerella->instance(), audioIndex));
+			
+			{
+				auto lock = holdLock(m_acinerellaLock);
+				m_acinerella = acinerella;
+			}
+
+			// Flush packet!
+			AcinerellaPackage package(acinerella, ac_flush_packet());
+			m_muxer->push(WTFMove(package));
+			D(dprintf("muxer sent an ac_flush_packet!\n"));
+
+			if (m_audioDecoder)
+				m_audioDecoder->warmUp();
+			if (m_videoDecoder)
+				m_videoDecoder->warmUp();
+		}
+	}
+}
+
 void Acinerella::demuxNextPackage()
 {
-	if (m_muxer)
+	RefPtr<AcinerellaPointer> acinerella;
+	RefPtr<AcinerellaMuxedBuffer> muxer;
+
 	{
-		AcinerellaPackage package(ac_read_package(m_ac.get()));
-		m_muxer->push(WTFMove(package));
+		auto lock = holdLock(m_acinerellaLock);
+		acinerella = m_acinerella;
+		muxer = m_muxer;
+	}
+
+	if (muxer && acinerella && acinerella->instance())
+	{
+		AcinerellaPackage package(acinerella, ac_read_package(acinerella->instance()));
+		muxer->push(WTFMove(package));
 	}
 }
 
@@ -293,9 +370,18 @@ int Acinerella::read(uint8_t *buf, int size)
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{
-		return buffer->read(buf, size);
+		int rc = buffer->read(buf, size);
+		if (rc == AcinerellaNetworkBuffer::eRead_Discontinuity)
+		{
+			rc = AcinerellaNetworkBuffer::eRead_EOF;
+			dispatch([this, protectedThis = makeRef(*this)]() {
+				initializeAfterDiscontinuity();
+			});
+		}
+		return rc;
 	}
-	return -1;
+
+	return AcinerellaNetworkBuffer::eRead_EOF;
 }
 
 // callback from acinerella on acinerella's main thread!

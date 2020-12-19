@@ -4,28 +4,21 @@
 #include "acinerella.h"
 #include "AcinerellaContainer.h"
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info)
+AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &)
 	: m_parent(parent)
 	, m_muxer(buffer)
 {
-	m_decoder = deleted_unique_ptr<ac_decoder>(ac_create_decoder(parent->ac(), index), [](ac_decoder*decoder){ ac_free_decoder(decoder); });
-
-	D(dprintf("%s: %p valid %d ac %p %d decoder %p\n", __func__, this, isValid(), parent->ac(), index, m_decoder.get()));
-
-	if (isValid())
-	{
-		m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
-		m_bitrate = parent->ac()->info.bitrate;
-		D(dprintf("%s: %p starting thread; duration %lld br %ld\n", __func__, this, parent->ac()->info.duration, parent->ac()->info.bitrate));
-		m_thread = Thread::create("Acinerella Decoder", [this] {
-			threadEntryPoint();
-		});
-	}
+	m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
+	m_bitrate = parent->ac()->info.bitrate;
+	D(dprintf("%s: %p starting thread; duration %lld br %ld\n", __func__, this, parent->ac()->info.duration, parent->ac()->info.bitrate));
+	m_thread = Thread::create("Acinerella Decoder", [this] {
+		threadEntryPoint();
+	});
 }
 
 AcinerellaDecoder::~AcinerellaDecoder()
@@ -52,37 +45,51 @@ void AcinerellaDecoder::pause()
 
 bool AcinerellaDecoder::decodeNextFrame()
 {
-	D(dprintf("%s: get package..\n", __func__));
 	AcinerellaPackage buffer;
 	if (m_muxer->nextPackage(*this, buffer))
 	{
-// TODO: handle flushing here!!
 		AcinerellaDecodedFrame frame;
-		
+		auto *decoder = buffer.acinerella() ? (isAudio() ? buffer.acinerella()->audioDecoder() : buffer.acinerella()->videoDecoder()) : nullptr;
+
+		// used both if acinerella sends us stuff AND in case of discontinuity
+		// either way, we must flush caches here!
+		if (ac_flush_packet() == buffer.package())
+		{
+			D(dprintf("%s: got flush packet!\n", __func__));
+			ac_flush_buffers(decoder);
+			while (!m_freeFrames.empty())
+			{
+				m_freeFrames.pop();
+			}
+			
+			return true;
+		}
+
 		{
 			auto lock = holdLock(m_lock);
 			if (!m_freeFrames.empty())
 			{
 				// move-assign (copies the pointer and puts a nullptr on the freeFrames queue's front obj)
 				frame = WTFMove(m_freeFrames.front());
-				// D(dprintf("reused frame %p, move ok? %p\n", frame.frame(), m_freeFrames.front().frame()));
+//				D(dprintf("reused frame %p, move ok? %p pointer %p\n", frame.frame(), m_freeFrames.front().frame(), frame.pointer().get()));
 				m_freeFrames.pop();
 			}
 			else
 			{
-				frame = AcinerellaDecodedFrame(m_decoder.get());
+				frame = AcinerellaDecodedFrame(buffer.acinerella(), decoder);
 			}
 		}
 		
-		if (frame.frame())
+		D(dprintf("%s: frame %p package %p decoder %p ac %p frameptr %p\n", __func__,
+			frame.frame(), buffer.package(), decoder, buffer.acinerella().get(), frame.pointer().get()));
+		if (buffer.package() && buffer.acinerella() && frame.frame() && decoder)
 		{
-			D(dprintf("%s: got frame!\n", __func__));
-			if (1 == ac_decode_package_ex(buffer.package(), m_decoder.get(), frame.frame()))
+			if (1 == ac_decode_package_ex(buffer.package(), decoder, frame.frame()))
 			{
-				D(dprintf("%s: decoded frame\n", __func__));
 				auto lock = holdLock(m_lock);
 				onFrameDecoded(frame);
 				m_decodedFrames.emplace(WTFMove(frame));
+//				D(dprintf("%s: decoded frames %d\n", __func__, m_decodedFrames.size()));
 				return true;
 			}
 		}
