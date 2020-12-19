@@ -196,6 +196,9 @@ void AcinerellaNetworkBufferHLS::stop()
 	{
 		auto lock = holdLock(m_lock);
 		m_chunkRequest = nullptr;
+		
+		if (m_chunkRequestInRead)
+			m_chunkRequestInRead->stop();
 	}
 
 	m_event.signal();

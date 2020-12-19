@@ -19,9 +19,9 @@ struct HLSStreamInfo
 
 struct HLSChunk
 {
-	String         m_url;
-	uint64_t       m_mediaSequence;
-	float          m_duration;
+	String    m_url;
+	int64_t   m_mediaSequence;
+	float     m_duration;
 };
 
 class HLSStream
