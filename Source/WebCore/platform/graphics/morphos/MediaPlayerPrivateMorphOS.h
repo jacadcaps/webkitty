@@ -51,6 +51,8 @@ public:
     void setVolume(float) final;
     void setMuted(bool) final;
 
+	bool supportsScanning() const { return true; }
+
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
     std::unique_ptr<PlatformTimeRanges> buffered() const final;

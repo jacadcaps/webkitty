@@ -61,8 +61,10 @@ public:
 	void pause();
 
 	virtual bool isPlaying() const = 0;
-	virtual bool isAudio() const = 0;
 	virtual bool isReadyToPlay() const = 0;
+
+	virtual bool isAudio() const = 0;
+	void setVolume(float volume);
 
 	float duration() const { return m_duration; }
 	float bitRate() const { return m_bitrate; }
@@ -91,6 +93,7 @@ protected:
 	// call from: Own thread
 	virtual void startPlaying() = 0;
 	virtual void stopPlaying() = 0;
+	virtual void doSetVolume(float) { };
 
 	// call from: Any thread
 	virtual float readAheadTime() const = 0;

@@ -36,9 +36,17 @@ public:
 	void terminate();
 
 	void play();
+
 	void pause();
-	
+	bool paused();
+
 	float duration();
+	
+	bool hasAudio() { return m_audioDecoder.get(); }
+	bool hasVideo() { return m_videoDecoder.get(); }
+	
+	void setVolume(float volume);
+	float volume() const { return m_volume; }
 
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
@@ -54,7 +62,7 @@ protected:
 	int close();
 	int read(uint8_t *buf, int size);
 	int64_t seek(int64_t pos, int whence);
-
+	
 	void demuxNextPackage();
 	
 	void onDecoderReadyToPlay(AcinerellaDecoder& decoder);
@@ -80,12 +88,14 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
 	float                            m_duration;
+	float                            m_volume;
 
     RefPtr<Thread>                   m_thread;
     MessageQueue<Function<void ()>>  m_queue;
     bool                             m_terminating = false;
     bool                             m_enableAudio = true;
     bool                             m_enableVideo = false;
+    bool                             m_paused = false;
 };
 
 }

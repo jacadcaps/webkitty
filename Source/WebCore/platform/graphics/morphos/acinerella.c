@@ -469,6 +469,8 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 	self->pFormatCtx->pb = self->pIo;
 	AV_ERR(avformat_open_input(&(self->pFormatCtx), "", fmt, NULL));
 
+	av_log_set_level(AV_LOG_QUIET);
+
 	return finalize_open(pacInstance);
 
 error:

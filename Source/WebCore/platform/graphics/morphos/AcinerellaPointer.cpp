@@ -5,7 +5,7 @@
 #include <wtf/RefPtr.h>
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {

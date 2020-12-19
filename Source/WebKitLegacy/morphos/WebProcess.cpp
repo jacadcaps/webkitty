@@ -185,6 +185,7 @@ void WebProcess::initialize(int sigbit)
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
 
 	MediaPlayerMorphOSSettings::settings().m_enableAudio = true;
+	MediaPlayerMorphOSSettings::settings().m_enableVideo = true;
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 

@@ -7,8 +7,8 @@
 #include "NotImplemented.h"
 #include "AcinerellaContainer.h"
 
-#define D(x) x
-#define DM(x) x
+#define D(x)
+#define DM(x) 
 
 namespace WebCore {
 
@@ -202,11 +202,15 @@ FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
 
 bool MediaPlayerPrivateMorphOS::hasVideo() const
 {
+	if (m_acinerella)
+		return m_acinerella->hasVideo();
 	return false;
 }
 
 bool MediaPlayerPrivateMorphOS::hasAudio() const
 {
+	if (m_acinerella)
+		return m_acinerella->hasAudio();
 	return false;
 }
 
@@ -222,6 +226,8 @@ bool MediaPlayerPrivateMorphOS::seeking() const
 
 bool MediaPlayerPrivateMorphOS::paused() const
 {
+	if (m_acinerella)
+		return m_acinerella->paused();
 	return false;
 }
 
@@ -287,6 +293,8 @@ void MediaPlayerPrivateMorphOS::accSetBufferLength(float buffer)
 	WTF::callOnMainThread([this, buffer, protectedThis = makeWeakPtr(this)]() {
 		if (protectedThis)
 		{
+			m_player->bufferedTimeRangesChanged();
+			m_player->seekableTimeRangesChanged();
 		}
 	});
 }
@@ -296,6 +304,8 @@ void MediaPlayerPrivateMorphOS::accSetPosition(float pos)
 	WTF::callOnMainThread([this, pos, protectedThis = makeWeakPtr(this)]() {
 		if (protectedThis)
 		{
+			D(dprintf("%s: timechanged to %f\n", __func__, this, pos));
+			m_currentTime = pos;
 			m_player->timeChanged();
 		}
 	});

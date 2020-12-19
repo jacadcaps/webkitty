@@ -5,7 +5,7 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) x
+#define D(x) 
 
 class HLSMasterPlaylistParser
 {

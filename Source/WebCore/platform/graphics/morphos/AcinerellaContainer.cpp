@@ -26,6 +26,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 
 void Acinerella::play()
 {
+	m_paused = false;
 	dispatch([this] {
 		if (m_audioDecoder)
 			m_audioDecoder->play();
@@ -36,11 +37,26 @@ void Acinerella::play()
 
 void Acinerella::pause()
 {
+	m_paused = true;
 	dispatch([this] {
 		if (m_audioDecoder)
 			m_audioDecoder->pause();
 		if (m_videoDecoder)
 			m_videoDecoder->pause();
+	});
+}
+
+bool Acinerella::paused()
+{
+	return m_paused;
+}
+
+void Acinerella::setVolume(float volume)
+{
+	m_volume = volume;
+	dispatch([this, volume] {
+		if (m_audioDecoder)
+			m_audioDecoder->setVolume(volume);
 	});
 }
 
@@ -313,7 +329,10 @@ void Acinerella::onDecoderReadyToPlay(AcinerellaDecoder& decoder)
 {
 	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 		if (m_client)
+		{
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
+			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+		}
 	});
 }
 

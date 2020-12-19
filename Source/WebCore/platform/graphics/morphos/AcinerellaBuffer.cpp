@@ -558,7 +558,7 @@ void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
 					m_videoPackages.emplace(WTFMove(package));
 				}
 				
-				wantMore = (m_audioPackages.size() < m_audioQueueAheadSize) || (m_videoPackages.size() < m_videoQueueAheadSize);
+				wantMore = ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)));
 			}
 			
 			if (index == m_audioPackageIndex)
@@ -568,6 +568,11 @@ void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
 			
 			// no need to lock since it can only be cleared from within the same thread as this function is called on
 			if (wantMore && m_sinkFunction)
+				m_sinkFunction();
+		}
+		else if ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)))
+		{
+			if (m_sinkFunction)
 				m_sinkFunction();
 		}
 	}

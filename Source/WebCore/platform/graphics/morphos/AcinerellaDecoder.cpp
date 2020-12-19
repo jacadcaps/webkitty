@@ -43,6 +43,12 @@ void AcinerellaDecoder::pause()
 	dispatch([this](){ stopPlaying(); });
 }
 
+void AcinerellaDecoder::setVolume(float volume)
+{
+	if (isAudio())
+		dispatch([this, volume](){ doSetVolume(volume); });
+}
+
 bool AcinerellaDecoder::decodeNextFrame()
 {
 	AcinerellaPackage buffer;

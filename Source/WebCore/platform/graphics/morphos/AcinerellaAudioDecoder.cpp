@@ -26,6 +26,29 @@ AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<Aciner
 void AcinerellaAudioDecoder::startPlaying()
 {
 	D(dprintf("%s:\n", __func__));
+	if (m_ahiControl)
+	{
+		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
+		m_playing = true;
+	}
+}
+
+void AcinerellaAudioDecoder::stopPlaying()
+{
+	if (m_ahiControl)
+	{
+		AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE);
+		m_playing = false;
+	}
+}
+
+void AcinerellaAudioDecoder::doSetVolume(float volume)
+{
+	if (m_ahiControl)
+	{
+		AHI_SetVol(0, (LONG) (float(0x10000L) * volume),
+			0x8000L, m_ahiControl, AHISF_IMM);
+	}
 }
 
 bool AcinerellaAudioDecoder::isReadyToPlay() const
@@ -121,6 +144,7 @@ bool AcinerellaAudioDecoder::onThreadInitialize()
 										AHIP_Sound, 0, AHIP_Offset, 0, AHIP_Length, 0,
 										AHIP_EndChannel, 0,
 										TAG_DONE);
+									m_playing = true;
 								}
 								else
 								{
@@ -208,14 +232,9 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	m_bufferedSeconds = float(m_bufferedSamples) / float(m_audioRate);
 }
 
-void AcinerellaAudioDecoder::stopPlaying()
-{
-
-}
-
 bool AcinerellaAudioDecoder::isPlaying() const
 {
-	return false;
+	return m_playing;
 }
 
 float AcinerellaAudioDecoder::position() const

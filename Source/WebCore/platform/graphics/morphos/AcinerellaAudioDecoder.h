@@ -24,14 +24,16 @@ public:
 	float readAheadTime() const override { return 5.f; }
 
 	bool isReadyToPlay() const override;
-	void startPlaying() override;
-	void stopPlaying() override;
 
 	bool isPlaying() const override;
 	float position() const override;
 	float bufferSize() const override { return m_bufferedSeconds; }
 
 protected:
+	void startPlaying() override;
+	void stopPlaying() override;
+	void doSetVolume(float volume) override;
+
 	bool onThreadInitialize() override;
 	void onThreadShutdown() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
@@ -55,6 +57,7 @@ protected:
 
 	uint32_t        m_bufferedSamples = 0;
 	volatile float  m_bufferedSeconds = 0.f;
+	volatile bool   m_playing = false;
 	int             m_audioRate;
 	int             m_audioChannels;
 	int             m_audioBits;
