@@ -23,12 +23,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#ifdef _WIN32
-#define CALL_CONVT __cdecl
-#define EXTERN extern __declspec(dllexport)
-#else
 #define CALL_CONVT
-#define EXTERN extern
+#define EXTERN
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 /**
@@ -300,6 +299,28 @@ typedef ac_package *lp_ac_package;
 typedef void *lp_ac_proberesult;
 
 /**
+ * Contains information about an Acinerella video/audio decoder.
+ */
+typedef struct _ac_decoder_frame {
+	/**
+	 * The timecode of the currently decoded picture in seconds.
+	 */
+	double timecode;
+	
+	/**
+	 * Pointer to the buffer which contains the data.
+	 */
+	uint8_t *pBuffer;
+
+	/**
+	 * Size of the data in the buffer.
+	 */
+	int buffer_size;
+} ac_decoder_frame;
+
+typedef ac_decoder_frame *lp_ac_decoder_frame;
+
+/**
  * Callback function used to ask the application to read data. Should return
  * the number of bytes read or an value smaller than zero if an error occured.
  */
@@ -444,6 +465,9 @@ EXTERN void CALL_CONVT ac_free_decoder(lp_ac_decoder pDecoder);
 EXTERN int CALL_CONVT
     ac_decode_package(lp_ac_package pPackage, lp_ac_decoder pDecoder);
 
+EXTERN int CALL_CONVT
+    ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
+
 /**
  * Seeks to the given target position in the file. The seek funtion is not able
  * to seek a single audio/video stream but seeks the whole file forward. The
@@ -483,6 +507,13 @@ EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
 struct AVFrame;
 EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
+
+EXTERN lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder);
+EXTERN void ac_free_decoder_frame(lp_ac_decoder_frame pFrame);
+
+#ifdef __cplusplus
+} //end extern "C"
+#endif
 
 #endif /* _ACINERELLA_H_ */
 

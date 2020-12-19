@@ -479,5 +479,17 @@ bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameVi
     return false;
 }
 
+#if ENABLE(VIDEO)
+void WebChromeClient::setUpPlaybackControlsManager(WebCore::HTMLMediaElement&)
+{
+// dprintf("%s:\n", __PRETTY_FUNCTION__);
+}
+
+void WebChromeClient::clearPlaybackControlsManager()
+{
+// dprintf("%s:\n", __PRETTY_FUNCTION__);
+}
+#endif
+
 }
 
