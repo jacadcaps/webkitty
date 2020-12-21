@@ -6,7 +6,7 @@
 #include "AcinerellaAudioDecoder.h"
 #include "AcinerellaBuffer.h"
 
-#define D(x) 
+#define D(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -15,7 +15,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	: m_client(client)
 	, m_url(url)
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("%s: %p url '%s'\n", __func__, this, url.utf8().data()));
 	m_networkBuffer = AcinerellaNetworkBuffer::create(m_url);
 	m_enableAudio = client->accEnableAudio();
 	m_enableVideo = client->accEnableVideo();
@@ -246,6 +246,7 @@ bool Acinerella::initialize()
 		if (-1 == ac_open(m_acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 		{
 			m_acinerella = nullptr;
+			D(dprintf("---- ac failed to open :(\n"));
 		}
 		else
 		{
@@ -516,6 +517,7 @@ int Acinerella::read(uint8_t *buf, int size)
 int64_t Acinerella::seek(int64_t pos, int whence)
 {
 	D(dprintf("%s: %p seek (%d %lld)\n", "acSeek", this, whence, pos));
+
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{
@@ -526,7 +528,7 @@ int64_t Acinerella::seek(int64_t pos, int whence)
 		switch (whence)
 		{
 		case SEEK_END:
-			newPosition = streamLength - pos;
+			newPosition = streamLength + pos;
 			break;
 		case SEEK_CUR:
 			newPosition = streamPos + pos;
@@ -542,12 +544,17 @@ int64_t Acinerella::seek(int64_t pos, int whence)
 		if (streamLength && newPosition > streamLength)
 			newPosition = streamLength;
 		
-		m_readPosition = newPosition;
+		if (streamPos != newPosition)
+			m_readPosition = newPosition;
+		else
+			m_readPosition = -1;
 		
-		D(dprintf("%s: %p seek to %lld (%d %lld)\n", "acSeek", this, m_readPosition, whence, pos));
+		D(dprintf("%s: %p seek to %lld (%d %lld)\n", "acSeek", this, newPosition, whence, pos));
+		
+		return newPosition;
 	}
 
-	return m_readPosition >= -1 ? 0 : -1;
+	return -1;
 }
 
 int Acinerella::acOpenCallback(void *me)

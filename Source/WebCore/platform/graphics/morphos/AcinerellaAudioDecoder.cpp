@@ -195,8 +195,6 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 	{
 		m_ahiThreadShuttingDown = true;
 		m_ahiSampleConsumed.signal();
-		m_ahiThread->waitForCompletion();
-		D(dprintf("%s: AHI thread shut down... \n", __func__));
 	}
 
 	if (m_ahiControl)
@@ -204,6 +202,12 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 		AHI_FreeAudio(m_ahiControl);
 		m_ahiControl = nullptr;
 		D(dprintf("%s: AHI control disposed\n", __func__));
+	}
+
+	if (m_ahiThread)
+	{
+		m_ahiThread->waitForCompletion();
+		D(dprintf("%s: AHI thread shut down... \n", __func__));
 	}
 
 	for (int i = 0; i < 2; i++)

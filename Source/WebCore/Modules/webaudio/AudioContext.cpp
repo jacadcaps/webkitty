@@ -598,11 +598,6 @@ ExceptionOr<Ref<ScriptProcessorNode>> AudioContext::createScriptProcessor(size_t
 
 ExceptionOr<Ref<BiquadFilterNode>> AudioContext::createBiquadFilter()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -616,11 +611,6 @@ ExceptionOr<Ref<BiquadFilterNode>> AudioContext::createBiquadFilter()
 
 ExceptionOr<Ref<WaveShaperNode>> AudioContext::createWaveShaper()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -633,11 +623,6 @@ ExceptionOr<Ref<WaveShaperNode>> AudioContext::createWaveShaper()
 
 ExceptionOr<Ref<PannerNode>> AudioContext::createPanner()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -650,11 +635,6 @@ ExceptionOr<Ref<PannerNode>> AudioContext::createPanner()
 
 ExceptionOr<Ref<ConvolverNode>> AudioContext::createConvolver()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -667,11 +647,6 @@ ExceptionOr<Ref<ConvolverNode>> AudioContext::createConvolver()
 
 ExceptionOr<Ref<DynamicsCompressorNode>> AudioContext::createDynamicsCompressor()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -686,10 +661,6 @@ ExceptionOr<Ref<AnalyserNode>> AudioContext::createAnalyser()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
 	
-#if OS(MORPHOS)
-// TODO: fix me. does some odd memtrashing :/
-return Exception { InvalidStateError };
-#endif
 	
     ASSERT(isMainThread());
     if (m_isStopScheduled)
@@ -701,11 +672,6 @@ return Exception { InvalidStateError };
 
 ExceptionOr<Ref<GainNode>> AudioContext::createGain()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -718,11 +684,6 @@ ExceptionOr<Ref<GainNode>> AudioContext::createGain()
 
 ExceptionOr<Ref<DelayNode>> AudioContext::createDelay(double maxDelayTime)
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -735,11 +696,6 @@ ExceptionOr<Ref<DelayNode>> AudioContext::createDelay(double maxDelayTime)
 
 ExceptionOr<Ref<ChannelSplitterNode>> AudioContext::createChannelSplitter(size_t numberOfOutputs)
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -755,11 +711,6 @@ ExceptionOr<Ref<ChannelSplitterNode>> AudioContext::createChannelSplitter(size_t
 
 ExceptionOr<Ref<ChannelMergerNode>> AudioContext::createChannelMerger(size_t numberOfInputs)
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -775,11 +726,6 @@ ExceptionOr<Ref<ChannelMergerNode>> AudioContext::createChannelMerger(size_t num
 
 ExceptionOr<Ref<OscillatorNode>> AudioContext::createOscillator()
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
@@ -799,11 +745,6 @@ ExceptionOr<Ref<OscillatorNode>> AudioContext::createOscillator()
 
 ExceptionOr<Ref<PeriodicWave>> AudioContext::createPeriodicWave(Float32Array& real, Float32Array& imaginary)
 {
-#if OS(MORPHOS)
-	// There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
-	// But so far - impossible to pinpoint where exactly
-	return Exception { InvalidStateError };
-#endif
     ALWAYS_LOG(LOGIDENTIFIER);
     
     ASSERT(isMainThread());
