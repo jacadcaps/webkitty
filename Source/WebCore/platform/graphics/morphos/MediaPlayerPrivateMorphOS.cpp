@@ -32,6 +32,7 @@ public:
     	{
 			types.add(String("audio/aac"));
 			types.add(String("audio/basic"));
+			types.add(String("audio/mp3"));
 			types.add(String("audio/mp4"));
 			types.add(String("audio/flac"));
 			types.add(String("audio/mpeg"));
@@ -87,24 +88,51 @@ public:
 
     static MediaPlayer::SupportsType s_supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters)
     {
-		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d\n", __PRETTY_FUNCTION__,
-			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream));
+    	if (startsWithLettersIgnoringASCIICase(parameters.type.raw(), "image/"))
+    		return MediaPlayer::SupportsType::IsNotSupported;
+    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
+    		return MediaPlayer::SupportsType::IsNotSupported;
+
+		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d profiles %d\n", __func__,
+			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream,
+			parameters.type.profiles().size()));
        	auto containerType = parameters.type.containerType();
 		if (containerType.isEmpty())
+		{
+			DM(dprintf("%s: container empty, assume 'maybe'\n", __func__));
 			return MediaPlayer::SupportsType::MayBeSupported;
+		}
 		HashSet<String, ASCIICaseInsensitiveHash> types;
 		s_getSupportedTypes(types);
-		DM(dprintf("%s: contains? %d\n", __PRETTY_FUNCTION__, types.contains(containerType)));
+		DM(dprintf("%s: '%s' contained in list? %d\n", __func__, parameters.type.containerType().utf8().data(), types.contains(containerType)));
 		if (types.contains(containerType))
 		{
-			if (!parameters.type.codecs().isEmpty())
+			auto codecs = parameters.type.codecs();
+			if (codecs.isEmpty())
 			{
-				if (parameters.type.codecs().size() == 1 && parameters.type.codecs().contains("opus"))
-					return MediaPlayer::SupportsType::IsNotSupported;
+				DM(dprintf("%s: codecs empty, assume 'maybe'\n", __func__));
+				return MediaPlayer::SupportsType::MayBeSupported;
 			}
-			return parameters.type.codecs().isEmpty() ? MediaPlayer::SupportsType::MayBeSupported : MediaPlayer::SupportsType::IsSupported;
+
+#if 0
+			DM(dprintf("%s: lists %d codecs\n", __func__, codecs.size()));
+			for (size_t i = 0; i < codecs.size(); i++)
+			{
+				auto &codec = codecs.at(i);
+				if (startsWithLettersIgnoringASCIICase(codec, "opus") || startsWithLettersIgnoringASCIICase(codec, "vp"))
+				{
+					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
+					return MediaPlayer::SupportsType::IsNotSupported;
+				}
+				else
+				{
+					DM(dprintf("%s: we should be OK with codec %s\n", __func__, codec.utf8().data()));
+				}
+			}
+#endif
+			return  MediaPlayer::SupportsType::IsSupported;
 		}
-		DM(dprintf("%s: not supported %s\n", __PRETTY_FUNCTION__, parameters.type.raw().utf8().data()));
+		DM(dprintf("%s: not supported!\n", __func__));
         return MediaPlayer::SupportsType::IsNotSupported;
     }
 	
@@ -153,6 +181,13 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
     m_acinerella = Acinerella::Acinerella::create(this, url);
 }
 
+#if ENABLE(MEDIA_SOURCE)
+void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient*)
+{
+	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.string().utf8().data()));
+}
+#endif
+
 void MediaPlayerPrivateMorphOS::cancelLoad()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
@@ -163,6 +198,8 @@ void MediaPlayerPrivateMorphOS::cancelLoad()
 void MediaPlayerPrivateMorphOS::prepareToPlay()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+	if (m_acinerella)
+		m_acinerella->warmUp();
 }
 
 bool MediaPlayerPrivateMorphOS::canSaveMediaData() const
@@ -188,11 +225,15 @@ void MediaPlayerPrivateMorphOS::pause()
 void MediaPlayerPrivateMorphOS::setVolume(float volume)
 {
 	D(dprintf("%s: vol %f\n", __PRETTY_FUNCTION__, volume));
+	if (m_acinerella)
+		m_acinerella->setVolume(volume);
 }
 
 void MediaPlayerPrivateMorphOS::setMuted(bool muted)
 {
 	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, muted));
+	if (m_acinerella)
+		m_acinerella->setMuted(muted);
 }
 
 FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
@@ -221,7 +262,17 @@ void MediaPlayerPrivateMorphOS::setVisible(bool visible)
 
 bool MediaPlayerPrivateMorphOS::seeking() const
 {
+	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, m_acinerella?m_acinerella->isSeeking():false));
+	if (m_acinerella)
+		return m_acinerella->isSeeking();
 	return false;
+}
+
+void MediaPlayerPrivateMorphOS::seek(float time)
+{
+	D(dprintf("%s: %f\n", __PRETTY_FUNCTION__, time));
+	if (m_acinerella)
+		return m_acinerella->seek(time);
 }
 
 bool MediaPlayerPrivateMorphOS::paused() const
@@ -254,6 +305,13 @@ void MediaPlayerPrivateMorphOS::paint(GraphicsContext&, const FloatRect&)
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
 {
 	return false;
+}
+
+float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
+{
+	if (m_acinerella && m_acinerella->canSeek())
+		return m_duration;
+	return 0.f;
 }
 
 bool MediaPlayerPrivateMorphOS::accEnableAudio() const

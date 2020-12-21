@@ -46,14 +46,14 @@ void RenderThemeMorphOS::updateCachedSystemFontDescription(CSSValueID, FontCasca
 #if ENABLE(VIDEO)
 String RenderThemeMorphOS::mediaControlsStyleSheet()
 {
-    return String(mediaControlsBaseUserAgentStyleSheet, sizeof(mediaControlsBaseUserAgentStyleSheet));
+    return String(mediaControlsAppleUserAgentStyleSheet, sizeof(mediaControlsAppleUserAgentStyleSheet));
 }
 
 String RenderThemeMorphOS::mediaControlsScript()
 {
     StringBuilder scriptBuilder;
     scriptBuilder.appendCharacters(mediaControlsLocalizedStringsJavaScript, sizeof(mediaControlsLocalizedStringsJavaScript));
-    scriptBuilder.appendCharacters(mediaControlsBaseJavaScript, sizeof(mediaControlsBaseJavaScript));
+    scriptBuilder.appendCharacters(mediaControlsAppleJavaScript, sizeof(mediaControlsAppleJavaScript));
     return scriptBuilder.toString();
 }
 #endif

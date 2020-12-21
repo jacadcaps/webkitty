@@ -416,6 +416,10 @@ error:
 	return -1;
 }
 
+void __av_log_default_callback(void *ig, int no, const char *re, va_list me)
+{
+}
+
 int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
                        ac_openclose_callback open_proc,
                        ac_read_callback read_proc, ac_seek_callback seek_proc,
@@ -425,6 +429,9 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 	if (pacInstance->opened) {
 		return -1;
 	}
+
+	av_log_set_level(AV_LOG_QUIET);
+	av_log_set_callback(&__av_log_default_callback);
 
 	// Reference at the underlying lp_ac_data instance
 	lp_ac_data self = ((lp_ac_data)pacInstance);
@@ -468,8 +475,6 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 	ERR(self->pFormatCtx = avformat_alloc_context());
 	self->pFormatCtx->pb = self->pIo;
 	AV_ERR(avformat_open_input(&(self->pFormatCtx), "", fmt, NULL));
-
-	av_log_set_level(AV_LOG_QUIET);
 
 	return finalize_open(pacInstance);
 
@@ -755,6 +760,18 @@ error:
 	return NULL;
 }
 
+int ac_get_audio_rate(lp_ac_decoder pDecoder)
+{
+	lp_ac_audio_decoder audioDecoder = (lp_ac_audio_decoder)pDecoder;
+	if (audioDecoder)
+	{
+		if (audioDecoder->pSwrCtx)
+			return 44100;
+		return audioDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+	}
+	return 44100; // wat? :)
+}
+
 // Init a audio decoder
 static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
                                      lp_ac_stream_info info, int nb,
@@ -812,9 +829,9 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 
 #if 1
 	// Always output AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, maximum 48kHz
-	if (layout != AV_CH_LAYOUT_STEREO || fmt != AV_SAMPLE_FMT_S16 || rate > 48000) {
+	if (layout != AV_CH_LAYOUT_STEREO || fmt != AV_SAMPLE_FMT_S16 || rate > 44100) {
 		ERR(pDecoder->pSwrCtx = swr_alloc_set_opts(NULL, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16,
-		                                           rate <= 48000 ? rate : 48000,
+		                                           44100, // ahi sucks so may as well convert ourselves to a common format
 		                                           layout, fmt, rate, 0, NULL));
 		AV_ERR(swr_init(pDecoder->pSwrCtx));
 	}
@@ -928,10 +945,16 @@ static int ac_decode_audio_package(lp_ac_package pPackage,
 	const int sample_size = 2; // AV_SAMPLE_FMT_S16 => 2 bytes per sample
 	const int sample_count = pDecoder->pFrame->nb_samples;
 	const int channel_count = 2; // AV_CH_LAYOUT_STEREO => 2 channels
-	const size_t buffer_size = sample_size * sample_count * channel_count;
+	size_t buffer_size = sample_size * sample_count * channel_count;
 
 	if (pDecoder->pSwrCtx) {
 		// Only realloc if the buffer is too small
+		int src_rate = pDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+		int dst_nb_samples = av_rescale_rnd(swr_get_delay(pDecoder->pSwrCtx, src_rate) +
+			sample_count, 44100, src_rate, AV_ROUND_UP);
+
+		buffer_size = sample_size * dst_nb_samples * channel_count;
+
 		if (pDecoder->own_buffer_size < buffer_size) {
 			void *newbuffer;
 			ERR(newbuffer = av_realloc(pDecoder->decoder.pBuffer, buffer_size));
@@ -939,10 +962,10 @@ static int ac_decode_audio_package(lp_ac_package pPackage,
 			pDecoder->own_buffer_size = buffer_size;
 		}
 		int rc = swr_convert(pDecoder->pSwrCtx, &(pDecoder->decoder.pBuffer),
-		                     sample_count, (const uint8_t **)(pDecoder->pFrame->data),
+		                     dst_nb_samples, (const uint8_t **)(pDecoder->pFrame->data),
 		                     sample_count);
 		AV_ERR(rc);
-		pDecoder->decoder.buffer_size = sample_size * rc * channel_count;
+		pDecoder->decoder.buffer_size = av_samples_get_buffer_size(&buffer_size, 2, rc, AV_SAMPLE_FMT_S16, 1);
 	} else {
 		// No conversion needs to be done, simply set the buffer pointer
 		pDecoder->decoder.pBuffer = pDecoder->pFrame->data[0];
@@ -1010,19 +1033,24 @@ static int ac_decode_audio_package_ex(lp_ac_package pPackage,
 	const int sample_size = 2; // AV_SAMPLE_FMT_S16 => 2 bytes per sample
 	const int sample_count = frame->pFrame->nb_samples;
 	const int channel_count = 2; // AV_CH_LAYOUT_STEREO => 2 channels
-	const size_t buffer_size = sample_size * sample_count * channel_count;
+	size_t buffer_size = sample_size * sample_count * channel_count;
 
 	if (pDecoder->pSwrCtx) {
+		int src_rate = pDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+		int dst_nb_samples = av_rescale_rnd(swr_get_delay(pDecoder->pSwrCtx, src_rate) +
+			sample_count, 44100, src_rate, AV_ROUND_UP);
+
+		buffer_size = sample_size * dst_nb_samples * channel_count;
 		// Only realloc if the buffer is too small
 		if (frame->own_buffer_size < buffer_size) {
 			ERR(frame->frame.pBuffer = av_realloc(frame->frame.pBuffer, buffer_size));
 			frame->own_buffer_size = buffer_size;
 		}
 		int rc = swr_convert(pDecoder->pSwrCtx, &(frame->frame.pBuffer),
-		                     sample_count, (const uint8_t **)(frame->pFrame->data),
+		                     dst_nb_samples, (const uint8_t **)(frame->pFrame->data),
 		                     sample_count);
 		AV_ERR(rc);
-		frame->frame.buffer_size = sample_size * rc * channel_count;
+		frame->frame.buffer_size = av_samples_get_buffer_size(&buffer_size, 2, rc, AV_SAMPLE_FMT_S16, 1);
 	} else {
 		// No conversion needs to be done, simply set the buffer pointer
 		frame->frame.pBuffer = frame->pFrame->data[0];

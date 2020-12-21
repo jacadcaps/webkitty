@@ -82,12 +82,12 @@ if (NOT MORPHOS_MINIMAL)
 	)
 
 	list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsBase.css
+		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.css
 	)
 
 	set(WebCore_USER_AGENT_SCRIPTS
 		${WEBCORE_DIR}/en.lproj/mediaControlsLocalizedStrings.js
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsBase.js
+		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
 	)
 
 	set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/platform/rendering/RenderThemeMorphOS.cpp)

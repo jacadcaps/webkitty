@@ -56,7 +56,7 @@ public:
 	void start(uint64_t from = 0) override;
 	void stop() override;
 
-	int read(uint8_t *outBuffer, int size) override;
+	int read(uint8_t *outBuffer, int size, int64_t ignore) override;
 
 protected:
 

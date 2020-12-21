@@ -511,6 +511,8 @@ EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
 EXTERN lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder);
 EXTERN void ac_free_decoder_frame(lp_ac_decoder_frame pFrame);
 
+EXTERN int CALL_CONVT ac_get_audio_rate(lp_ac_decoder pDecoder);
+
 #ifdef __cplusplus
 } //end extern "C"
 #endif

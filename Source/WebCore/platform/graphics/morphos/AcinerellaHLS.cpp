@@ -330,7 +330,7 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 }
 
 // acinerella decoder thread
-int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size)
+int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignore)
 {
 	D(dprintf("%s(%p): requested %ld\n", __PRETTY_FUNCTION__, this, size));
 

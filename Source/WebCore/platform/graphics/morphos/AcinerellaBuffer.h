@@ -43,8 +43,10 @@ public:
 	static const int eRead_Error = -1;
 	static const int eRead_EOF = 0;
 	
-	virtual int read(uint8_t *outBuffer, int size) = 0;
+	virtual int read(uint8_t *outBuffer, int size, int64_t position = -1) = 0;
+
 	int64_t length() { return m_length; }
+	virtual int64_t position() { return 0; }
 
 protected:
 	String                           m_url;

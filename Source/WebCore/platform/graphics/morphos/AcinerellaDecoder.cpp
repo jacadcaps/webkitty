@@ -32,6 +32,12 @@ void AcinerellaDecoder::warmUp()
 	dispatch([this]{ decodeUntilBufferFull(); });
 }
 
+void AcinerellaDecoder::flushAndWarmUp()
+{
+	D(dprintf("%s: %p\n", __func__, this));
+	dispatch([this]{ flush(); decodeUntilBufferFull(); });
+}
+
 void AcinerellaDecoder::play()
 {
 	D(dprintf("%s: %p\n", __func__, this));
@@ -63,9 +69,9 @@ bool AcinerellaDecoder::decodeNextFrame()
 		{
 			D(dprintf("%s: got flush packet!\n", __func__));
 			ac_flush_buffers(decoder);
-			while (!m_freeFrames.empty())
+			while (!m_decodedFrames.empty())
 			{
-				m_freeFrames.pop();
+				m_decodedFrames.pop();
 			}
 			
 			return true;
@@ -86,8 +92,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 			}
 		}
 		
-		D(dprintf("%s: frame %p package %p decoder %p ac %p frameptr %p\n", __func__,
-			frame.frame(), buffer.package(), decoder, buffer.acinerella().get(), frame.pointer().get()));
+		D(dprintf("%s: frame %p package %p decoder %p ac %p frameptr %p buffer %p size %d\n", __func__,
+			frame.frame(), buffer.package(), decoder, buffer.acinerella().get(), frame.pointer().get(), frame.frame()->pBuffer, frame.frame()->buffer_size));
 		if (buffer.package() && buffer.acinerella() && frame.frame() && decoder)
 		{
 			if (1 == ac_decode_package_ex(buffer.package(), decoder, frame.frame()))
@@ -119,15 +125,23 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 	}
 	
 	m_parent->onDecoderReadyToPlay(*this);
-	float position = 0;
+}
 
-	{
-		auto lock = holdLock(m_lock);
-		if (!m_decodedFrames.empty())
-			position = m_decodedFrames.front().frame()->timecode;
-	}
+void AcinerellaDecoder::flush()
+{
+	auto lock = holdLock(m_lock);
 
-	m_parent->onDecoderUpdatedPosition(*this, position);
+	while (!m_freeFrames.empty())
+		m_freeFrames.pop();
+	
+	while (!m_decodedFrames.empty())
+		m_decodedFrames.pop();
+}
+
+void AcinerellaDecoder::onPositionChanged()
+{
+	D(dprintf("%s: %p\n", __func__, this));
+	m_parent->onDecoderUpdatedPosition(*this, position());
 }
 
 void AcinerellaDecoder::terminate()

@@ -30,6 +30,9 @@ public:
     static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 	
     void load(const String&) final;
+#if ENABLE(MEDIA_SOURCE)
+    void load(const String& url, MediaSourcePrivateClient*) final;
+#endif
     void cancelLoad() final;
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
@@ -39,6 +42,7 @@ public:
     FloatSize naturalSize() const final;
 
     float duration() const final { return m_duration; }
+	float maxTimeSeekable() const final;
     float currentTime() const final { return m_currentTime; }
 
     bool hasVideo() const final;
@@ -52,6 +56,7 @@ public:
     void setMuted(bool) final;
 
 	bool supportsScanning() const { return true; }
+    void seek(float) final;
 
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;

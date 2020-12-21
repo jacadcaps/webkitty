@@ -1,4 +1,5 @@
 #include "AcinerellaAudioDecoder.h"
+#include "AcinerellaContainer.h"
 
 #if ENABLE(VIDEO)
 #include <proto/ahi.h>
@@ -12,15 +13,17 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
+#define D(x)
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info)
 	: AcinerellaDecoder(parent, buffer, index, info)
-	, m_audioRate(info.additional_info.audio_info.samples_per_second)
+	, m_audioRate(ac_get_audio_rate(parent->acinerellaPointer()->audioDecoder()))
 	, m_audioChannels(info.additional_info.audio_info.channel_count)
 	, m_audioBits(info.additional_info.audio_info.bit_depth)
 {
 	D(dprintf("%s: %p\n", __func__, this));
+	for (int i = 0; i < 2; i++)
+		m_ahiSample[i].ahisi_Address = nullptr;
 }
 
 void AcinerellaAudioDecoder::startPlaying()
@@ -239,7 +242,7 @@ bool AcinerellaAudioDecoder::isPlaying() const
 
 float AcinerellaAudioDecoder::position() const
 {
-	return 0.f;
+	return m_position;
 }
 
 #undef AHI_BASE_NAME
@@ -263,6 +266,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 	uint32_t offset = 0;
 	uint32_t bytesLeft = m_ahiSampleLength * 4;
 	bool didPopFrames = false;
+	bool didSetTimecode = false;
 
 	// D(dprintf("%s: sample %d, next index: %d\n", __func__, m_ahiSampleBeingPlayed, index));
 
@@ -281,10 +285,15 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			offset += copyBytes;
 			bytesLeft -= copyBytes;
 
+			if (!didSetTimecode)
+			{
+				m_ahiSampleTimestamp[index] = frame->timecode;
+				didSetTimecode = true;
+			}
+		
 			if (frame->buffer_size == m_ahiFrameOffset)
 			{
 //				D(dprintf("%s: pop frame sized %d\n", __func__, frame->buffer_size));
-
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
 				m_bufferedSeconds = float(m_bufferedSamples) / float(m_audioRate);
 				m_freeFrames.emplace(WTFMove(m_decodedFrames.front()));
@@ -311,11 +320,16 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 
 
 	// D(dprintf("%s: done, bleft %d offset %d\n", __func__, bytesLeft, offset));
+	float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
 
 	if (didPopFrames)
-		dispatch([this, protectedThis(makeRef(*this))]() {
+		dispatch([this, positionToAnnounce, protectedThis(makeRef(*this))]() {
 			if (!m_ahiThreadShuttingDown)
+			{
 				decodeUntilBufferFull();
+				m_position = positionToAnnounce;
+				onPositionChanged();
+			}
 		});
 }
 

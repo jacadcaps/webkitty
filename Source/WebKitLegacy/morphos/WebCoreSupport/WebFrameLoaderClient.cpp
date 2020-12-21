@@ -1032,8 +1032,8 @@ bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest& request) cons
 bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
 {
     bool canShow = MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
-        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType);
-//        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
+        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
+        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
 // dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow);
     return canShow;
 }

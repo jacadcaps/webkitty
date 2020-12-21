@@ -57,6 +57,8 @@ public:
 	void terminate();
 
 	void warmUp();
+	void flushAndWarmUp();
+
 	void play();
 	void pause();
 
@@ -82,6 +84,8 @@ protected:
 	// call from: Own thread
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
+	void onPositionChanged();
+	void flush();
 
 	// call from: Own thread
 	virtual bool onThreadInitialize() { return true; }

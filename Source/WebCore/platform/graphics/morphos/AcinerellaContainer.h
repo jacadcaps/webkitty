@@ -34,6 +34,7 @@ public:
 	}
 
 	void terminate();
+	void warmUp();
 
 	void play();
 
@@ -46,7 +47,14 @@ public:
 	bool hasVideo() { return m_videoDecoder.get(); }
 	
 	void setVolume(float volume);
+	void setMuted(bool muted);
 	float volume() const { return m_volume; }
+
+	bool canSeek();
+	bool isSeeking();
+	void seek(float time);
+
+	RefPtr<AcinerellaPointer> &acinerellaPointer() { return m_acinerella; }
 
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
@@ -57,6 +65,8 @@ protected:
 
 	bool initialize();
 	void initializeAfterDiscontinuity();
+	
+	void startSeeking(float pos);
 
 	int open();
 	int close();
@@ -88,7 +98,12 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
 	float                            m_duration;
-	float                            m_volume;
+	float                            m_volume = 1.f;
+	bool                             m_muted = false;
+	bool                             m_canSeek = true;
+	bool                             m_isSeeking = false;
+	
+	int64_t                          m_readPosition = -1;
 
     RefPtr<Thread>                   m_thread;
     MessageQueue<Function<void ()>>  m_queue;

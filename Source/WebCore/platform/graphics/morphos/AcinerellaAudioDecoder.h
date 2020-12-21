@@ -48,6 +48,7 @@ protected:
 	AHIRequest     *m_ahiIO = nullptr;
 	AHIAudioCtrl   *m_ahiControl = nullptr;
 	AHISampleInfo   m_ahiSample[2];
+	float           m_ahiSampleTimestamp[2];
 	uint32_t        m_ahiSampleLength; // *2 for bytes
 	uint32_t        m_ahiSampleBeingPlayed;
 	uint32_t        m_ahiFrameOffset; //
@@ -58,6 +59,7 @@ protected:
 	uint32_t        m_bufferedSamples = 0;
 	volatile float  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
+	float           m_position = 0.f;
 	int             m_audioRate;
 	int             m_audioChannels;
 	int             m_audioBits;

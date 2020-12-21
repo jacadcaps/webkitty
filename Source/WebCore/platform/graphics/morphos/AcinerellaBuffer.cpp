@@ -83,12 +83,36 @@ public:
 		D(dprintf("%s(%p) ..\n", __PRETTY_FUNCTION__, this));
 	}
 	
-	int read(uint8_t *outBuffer, int size) override
+	int64_t position() override
 	{
-		D(dprintf("%s(%p): requested %ld\n", __PRETTY_FUNCTION__, this, size));
+		return int64_t(m_bufferPositionAbs);
+	}
+
+	int read(uint8_t *outBuffer, int size, int64_t readPosition) override
+	{
+		D(dprintf("%s(%p): requested %ld from %lld (current %lld)\n", "nbRead", this, size, readPosition, m_bufferPositionAbs));
 		int sizeWritten = 0;
 		int sizeLeft = size;
-		
+
+		if (-1 != readPosition && m_bufferPositionAbs != readPosition)
+		{
+			m_seekProcessed = false;
+
+			D(dprintf("%s: seek to %llu\n", "nbRead", readPosition));
+
+			WTF::callOnMainThread([this, seekTo = readPosition, protect = makeRef(*this)]() {
+				start(seekTo);
+				m_seekProcessed = true;
+			});
+
+			while (!m_finishedLoading && !m_seekProcessed)
+			{
+				m_eventSemaphore.waitFor(10_s);
+			}
+
+			D(dprintf("%s: seek to %llu processed...\n", "nbRead", m_bufferPositionAbs));
+		}
+
 		while (sizeWritten < size)
 		{
 			{
@@ -127,7 +151,7 @@ public:
 				break;
 		}
 
-		D(dprintf("%s(%p): written %ld\n", __PRETTY_FUNCTION__, this, sizeWritten));
+		D(dprintf("%s(%p): written %ld\n", "nbRead", this, sizeWritten));
 		return sizeWritten;
 	}
 	
@@ -309,6 +333,7 @@ protected:
 	bool                             m_finishedLoading = false;
 	bool                             m_didFailLoading = false;
 	bool                             m_isPaused = false;
+	bool                             m_seekProcessed = true;
 };
 
 AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(const String &url, size_t readAhead)
@@ -547,7 +572,8 @@ void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
 				if (package.isFlushPackage())
 				{
 					m_audioPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
-					m_videoPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
+					if (!m_dropVideoPackages)
+						m_videoPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
 				}
 				else if (index == m_audioPackageIndex)
 				{
