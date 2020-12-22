@@ -523,13 +523,10 @@ void ResourceHandle::continueAfterWillSendRequest(ResourceRequest&& request)
     ASSERT(isMainThread());
 
     // willSendRequest might cancel the load.
-    if (cancelledOrClientless() || !d->m_curlRequest)
-        return;
-
-    if (request.isNull()) {
+    if (cancelledOrClientless() || !d->m_curlRequest || request.isNull()) {
         cancel();
         return;
-    }
+	}
 
     auto shouldForwardCredential = protocolHostAndPortAreEqual(request.url(), delegate()->response().url());
     auto credential = getCredential(request, true);
