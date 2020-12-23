@@ -120,7 +120,7 @@ typedef ac_audio_decoder *lp_ac_audio_decoder;
 struct _ac_package_data {
 	ac_package package;
 	AVPacket *pPack;
-	int pts;
+	int64_t pts;
 };
 
 typedef struct _ac_package_data ac_package_data;

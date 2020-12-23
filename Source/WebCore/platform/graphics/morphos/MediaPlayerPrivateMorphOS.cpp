@@ -7,7 +7,9 @@
 #include "NotImplemented.h"
 #include "AcinerellaContainer.h"
 
-#define D(x)
+#include "HTMLMediaElement.h"
+
+#define D(x) 
 #define DM(x) 
 
 namespace WebCore {
@@ -152,6 +154,10 @@ MediaPlayerPrivateMorphOS::~MediaPlayerPrivateMorphOS()
 {
 	if (m_acinerella)
 		m_acinerella->terminate();
+
+	// remove all pending requests that could be referencing 'this'
+	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
+		MediaPlayerMorphOSSettings::settings().m_loadCancelled(this);
 }
 
 void MediaPlayerPrivateMorphOS::registerMediaEngine(MediaEngineRegistrar registrar)
@@ -173,12 +179,36 @@ bool MediaPlayerPrivateMorphOS::supportsKeySystem(const String&, const String&)
 void MediaPlayerPrivateMorphOS::load(const String& url)
 {
 	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
-    m_networkState = MediaPlayer::NetworkState::Loading;
-    m_player->networkStateChanged();
-    m_readyState = MediaPlayer::ReadyState::HaveNothing;
-    m_player->readyStateChanged();
-	
-    m_acinerella = Acinerella::Acinerella::create(this, url);
+
+	cancelLoad();
+
+	if (startsWithLettersIgnoringASCIICase(url, "about:"))
+		return;
+
+	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
+	{
+		HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
+		MediaPlayerMorphOSSettings::settings().m_preloadCheck(this, url, element->document().page(), [this, url](bool doLoad) {
+			if (doLoad)
+			{
+				m_networkState = MediaPlayer::NetworkState::Loading;
+				m_player->networkStateChanged();
+				m_readyState = MediaPlayer::ReadyState::HaveNothing;
+				m_player->readyStateChanged();
+				
+				m_acinerella = Acinerella::Acinerella::create(this, url);
+			}
+		});
+	}
+	else
+	{
+		m_networkState = MediaPlayer::NetworkState::Loading;
+		m_player->networkStateChanged();
+		m_readyState = MediaPlayer::ReadyState::HaveNothing;
+		m_player->readyStateChanged();
+		
+		m_acinerella = Acinerella::Acinerella::create(this, url);
+	}
 }
 
 #if ENABLE(MEDIA_SOURCE)
@@ -191,8 +221,14 @@ void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient
 void MediaPlayerPrivateMorphOS::cancelLoad()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
-	notImplemented();
 
+	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
+		MediaPlayerMorphOSSettings::settings().m_loadCancelled(this);
+	
+	pause();
+	
+	if (m_acinerella)
+		m_acinerella->terminate();
 }
 
 void MediaPlayerPrivateMorphOS::prepareToPlay()

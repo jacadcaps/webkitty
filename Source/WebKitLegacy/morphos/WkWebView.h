@@ -144,6 +144,12 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewMediaDelegate <OBObject>
+
+- (void)webView:(WkWebView *)view wantsTo:(int)foo;
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;

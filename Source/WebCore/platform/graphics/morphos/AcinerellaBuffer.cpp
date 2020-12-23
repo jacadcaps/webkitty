@@ -20,7 +20,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#define D(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -33,7 +33,15 @@ public:
 	{
 	
 	}
-	virtual ~AcinerellaNetworkBufferInternal() = default;
+	
+	~AcinerellaNetworkBufferInternal()
+	{
+		if (m_curlRequest)
+		{
+dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
+			m_curlRequest->cancel();
+		}
+	}
 
 	void ref() override { ThreadSafeRefCounted<AcinerellaNetworkBuffer>::ref(); }
 	void deref() override { ThreadSafeRefCounted<AcinerellaNetworkBuffer>::deref(); }
@@ -50,16 +58,16 @@ public:
 			auto lock = holdLock(m_bufferLock);
 			while (!m_buffer.empty())
 				m_buffer.pop();
+
+			m_finishedLoading = false;
+			m_didFailLoading = false;
+
+			m_bufferRead = 0;
+			m_bufferPositionAbs = from;
+			m_bufferSize = 0;
+			m_redirectCount = 0;
+			m_isPaused = false;
 		}
-
-		m_finishedLoading = false;
-		m_didFailLoading = false;
-
-		m_bufferRead = 0;
-		m_bufferPositionAbs = from;
-		m_bufferSize = 0;
-		m_redirectCount = 0;
-		m_isPaused = false;
 
 		m_request = ResourceRequest(m_url);
 		m_curlRequest = createCurlRequest(m_request);
@@ -78,6 +86,7 @@ public:
 			m_curlRequest->cancel();
 		m_curlRequest = nullptr;
 		m_finishedLoading = true;
+		m_isPaused = false;
 		
 		m_eventSemaphore.signal();
 		D(dprintf("%s(%p) ..\n", __PRETTY_FUNCTION__, this));
@@ -93,8 +102,9 @@ public:
 		D(dprintf("%s(%p): requested %ld from %lld (current %lld)\n", "nbRead", this, size, readPosition, m_bufferPositionAbs));
 		int sizeWritten = 0;
 		int sizeLeft = size;
+		bool resume = false;
 
-		if (-1 != readPosition && m_bufferPositionAbs != readPosition)
+		if (-1 != readPosition && int64_t(m_bufferPositionAbs) != readPosition)
 		{
 			m_seekProcessed = false;
 
@@ -115,6 +125,8 @@ public:
 
 		while (sizeWritten < size)
 		{
+			bool canReadMore = false;
+
 			{
 				auto lock = holdLock(m_bufferLock);
 				if (!m_buffer.empty())
@@ -137,18 +149,32 @@ public:
 						// Check if we don't need to resume reading...
 						if (m_isPaused && m_bufferRead < (m_readAhead / 2))
 						{
-							WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-								continueBuffering();
-							});
+							resume = true;
 						}
 					}
+					
+					canReadMore = !m_buffer.empty();
 				}
 			}
 			
-			if (sizeWritten < size && !m_finishedLoading)
+			if (sizeWritten < size && !m_finishedLoading && !canReadMore)
+			{
+				WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+					continueBuffering();
+				});
 				m_eventSemaphore.waitFor(10_s);
+			}
 			else if (m_finishedLoading)
+			{
 				break;
+			}
+		}
+
+		if (resume)
+		{
+			WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+				continueBuffering();
+			});
 		}
 
 		D(dprintf("%s(%p): written %ld\n", "nbRead", this, sizeWritten));
@@ -157,12 +183,32 @@ public:
 	
 	void continueBuffering()
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
-		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && m_curlRequest && !m_finishedLoading)
+		D(dprintf("%s(%p): pau %d underbuf %d fini %d\n", __PRETTY_FUNCTION__, this, m_isPaused, m_bufferRead < (m_readAhead / 2), m_finishedLoading));
+		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && !m_finishedLoading)
 		{
+			if (m_curlRequest)
+			{
+				m_curlRequest->resume();
+			}
+			else
+			{
+				uint64_t abs;
+
+				{
+					auto lock = holdLock(m_bufferLock);
+					abs = m_bufferPositionAbs + m_bufferSize;
+				}
+
+				m_request = ResourceRequest(m_url);
+				m_curlRequest = createCurlRequest(m_request);
+				if (m_curlRequest)
+				{
+					m_curlRequest->setResumeOffset(static_cast<long long>(abs));
+					m_curlRequest->start();
+				}
+			}
 			D(dprintf("%s(%p): resuming...\n", __PRETTY_FUNCTION__, this));
 			m_isPaused = false;
-			m_curlRequest->resume();
 		}
 	}
 	
@@ -309,11 +355,11 @@ public:
 		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 		if (m_curlRequest.get() == &request)
 		{
-			m_finishedLoading = true;
-			m_didFailLoading = true;
-			m_eventSemaphore.signal();
 			m_curlRequest->cancel();
 			m_curlRequest = nullptr;
+			m_isPaused = true;
+			m_didFailLoading = true;
+			m_eventSemaphore.signal();
 		}
 	}
 protected:
@@ -540,176 +586,6 @@ protected:
 RefPtr<AcinerellaNetworkFileRequest> AcinerellaNetworkFileRequest::create(const String &url, Function<void(bool)>&& onFinished)
 {
 	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTFMove(onFinished)));
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-AcinerellaMuxedBuffer::AcinerellaMuxedBuffer(Function<void()>&& sinkFunction, int audioIndex, int videoIndex, unsigned int audioQueueSize, unsigned int videoQueueSize)
-	: m_sinkFunction(WTFMove(sinkFunction))
-	, m_audioPackageIndex(audioIndex)
-	, m_audioQueueAheadSize(audioQueueSize)
-	, m_videoPackageIndex(videoIndex)
-	, m_videoQueueAheadSize(videoQueueSize)
-{
-}
-
-void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
-{
-	// is this a valid package?
-	if (!!package)
-	{
-		const auto index = package.index();
-		
-		D(dprintf("%s: type %s\n", __PRETTY_FUNCTION__, index == m_audioPackageIndex ? "audio" : (index == m_videoPackageIndex ? "video" : "drop")));
-		
-		if (index == m_audioPackageIndex || (!m_dropVideoPackages && (index == m_videoPackageIndex)) || package.isFlushPackage())
-		{
-			bool wantMore = false;
-
-			{
-				auto lock = holdLock(m_lock);
-
-				if (package.isFlushPackage())
-				{
-					m_audioPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
-					if (!m_dropVideoPackages)
-						m_videoPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
-				}
-				else if (index == m_audioPackageIndex)
-				{
-					m_audioPackages.emplace(WTFMove(package));
-				}
-				else
-				{
-					m_videoPackages.emplace(WTFMove(package));
-				}
-				
-				wantMore = ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)));
-			}
-			
-			if (index == m_audioPackageIndex)
-				m_audioEvent.signal();
-			else
-				m_videoEvent.signal();
-			
-			// no need to lock since it can only be cleared from within the same thread as this function is called on
-			if (wantMore && m_sinkFunction)
-				m_sinkFunction();
-		}
-		else if ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)))
-		{
-			if (m_sinkFunction)
-				m_sinkFunction();
-		}
-	}
-	else
-	{
-		m_queueCompleteOrError = true;
-		m_audioEvent.signal();
-		m_videoEvent.signal();
-	}
-}
-
-void AcinerellaMuxedBuffer::flush()
-{
-	{
-		auto lock = holdLock(m_lock);
-		m_queueCompleteOrError = false;
-		while (!m_audioPackages.empty())
-			m_audioPackages.pop();
-		while (!m_videoPackages.empty())
-			m_videoPackages.pop();
-	}
-}
-
-void AcinerellaMuxedBuffer::terminate()
-{
-	{
-		auto lock = holdLock(m_lock);
-		m_sinkFunction = nullptr;
-		m_queueCompleteOrError = true;
-	}
-
-	m_audioEvent.signal();
-	m_videoEvent.signal();
-}
-
-bool AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder, AcinerellaPackage &outPackage)
-{
-	D(dprintf("%s: isAudio %d\n", __PRETTY_FUNCTION__, decoder.isAudio()));
-
-	if (decoder.isAudio())
-	{
-		for (;;)
-		{
-			bool requestMore = false;
-			bool hasPackage = false;
-
-			{
-				auto lock = holdLock(m_lock);
-				if (!m_audioPackages.empty())
-				{
-					outPackage = WTFMove(m_audioPackages.front());
-					m_audioPackages.pop();
-					hasPackage = true;
-					requestMore = m_audioPackages.size() < m_audioQueueAheadSize;
-				}
-				else if (m_queueCompleteOrError)
-				{
-					return false;
-				}
-				else
-				{
-					requestMore = true;
-				}
-
-				if (requestMore && m_sinkFunction)
-					m_sinkFunction();
-			}
-			
-			if (hasPackage)
-				return true;
-			
-			m_audioEvent.waitFor(15_s);
-		}
-	}
-	else
-	{
-		for (;;)
-		{
-			bool requestMore = false;
-			bool hasPackage = false;
-
-			{
-				auto lock = holdLock(m_lock);
-				if (!m_videoPackages.empty())
-				{
-					outPackage = WTFMove(m_videoPackages.front());
-					m_videoPackages.pop();
-					hasPackage = true;
-					requestMore = m_videoPackages.size() < m_videoQueueAheadSize;
-				}
-				else if (m_queueCompleteOrError)
-				{
-					return false;
-				}
-				else
-				{
-					requestMore = true;
-				}
-			
-				if (requestMore && m_sinkFunction)
-					m_sinkFunction();
-			}
-			
-			if (hasPackage)
-				return true;
-			
-			m_videoEvent.waitFor(15_s);
-		}
-	}
-
-	return false;
 }
 
 }

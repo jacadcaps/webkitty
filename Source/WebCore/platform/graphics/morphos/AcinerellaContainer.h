@@ -11,6 +11,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include "AcinerellaClient.h"
 #include "AcinerellaBuffer.h"
+#include "AcinerellaMuxer.h"
 #include "AcinerellaDecoder.h"
 #include "AcinerellaPointer.h"
 #include "acinerella.h"

@@ -288,6 +288,24 @@ namespace WebCore {
 {
 }
 
+- (BOOL)requiresUserGestureForMediaPlayback
+{
+	return YES;
+}
+
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired
+{
+}
+
+- (BOOL)invisiblePlaybackNotAllowed
+{
+	return YES;
+}
+
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback
+{
+}
+
 @end
 
 @implementation WkGlobalSettings

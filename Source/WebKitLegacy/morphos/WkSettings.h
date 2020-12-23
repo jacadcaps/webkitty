@@ -69,6 +69,12 @@ typedef enum
 - (WkSettings_ContextMenuHandling)contextMenuHandling;
 - (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling;
 
+- (BOOL)requiresUserGestureForMediaPlayback;
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired;
+
+- (BOOL)invisiblePlaybackNotAllowed;
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback;
+
 @end
 
 typedef enum

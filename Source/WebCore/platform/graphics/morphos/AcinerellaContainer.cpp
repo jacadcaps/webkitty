@@ -199,6 +199,14 @@ void Acinerella::threadEntryPoint()
 		}
 	}
 
+	// MUST be terminated first - this does not wait as we have no thread
+	// but the decoder threads may be waiting for data and this will
+	// unblock them!
+	if (m_muxer)
+		m_muxer->terminate();
+
+	D(dprintf("ac%s: %p muxer done\n", __func__, this));
+
 	if (m_videoDecoder)
 		m_videoDecoder->terminate();
 
@@ -208,11 +216,6 @@ void Acinerella::threadEntryPoint()
 		m_audioDecoder->terminate();
 
 	D(dprintf("ac%s: %p audio done\n", __func__, this));
-
-	if (m_muxer)
-		m_muxer->terminate();
-
-	D(dprintf("ac%s: %p muxer done\n", __func__, this));
 
 	{
 		auto lock = holdLock(m_acinerellaLock);

@@ -74,6 +74,7 @@ if (NOT MORPHOS_MINIMAL)
 		platform/graphics/morphos/acinerella.c
 		platform/graphics/morphos/AcinerellaPointer.cpp
 		platform/graphics/morphos/AcinerellaBuffer.cpp
+		platform/graphics/morphos/AcinerellaMuxer.cpp
 		platform/graphics/morphos/AcinerellaHLS.cpp
 		platform/graphics/morphos/AcinerellaDecoder.cpp
 		platform/graphics/morphos/AcinerellaAudioDecoder.cpp

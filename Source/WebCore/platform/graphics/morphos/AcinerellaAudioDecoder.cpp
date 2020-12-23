@@ -13,7 +13,7 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x)
+#define D(x) 
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info)
 	: AcinerellaDecoder(parent, buffer, index, info)
@@ -23,7 +23,10 @@ AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<Aciner
 {
 	D(dprintf("%s: %p\n", __func__, this));
 	for (int i = 0; i < 2; i++)
+	{
 		m_ahiSample[i].ahisi_Address = nullptr;
+		m_ahiSampleTimestamp[i] = 0.f;
+	}
 }
 
 void AcinerellaAudioDecoder::startPlaying()
@@ -106,7 +109,7 @@ bool AcinerellaAudioDecoder::onThreadInitialize()
 					{
 						m_ahiSampleLength = maxSamples * m_audioRate / mixFreq;
 						
-						m_ahiSampleLength = std::max(m_ahiSampleLength, (m_audioRate / m_ahiSampleLength) * m_ahiSampleLength);
+						m_ahiSampleLength = std::max(m_ahiSampleLength, (m_audioRate / 2 / m_ahiSampleLength) * m_ahiSampleLength);
 						
 						D(dprintf("%s: sample length: %d\n", __func__, m_ahiSampleLength));
 
@@ -293,6 +296,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			{
 				m_ahiSampleTimestamp[index] = frame->timecode;
 				didSetTimecode = true;
+				D(dprintf("%s: set timecode %f\n", __func__, float(frame->timecode)));
 			}
 		
 			if (frame->buffer_size == m_ahiFrameOffset)
@@ -323,8 +327,8 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 
 
 
-	// D(dprintf("%s: done, bleft %d offset %d\n", __func__, bytesLeft, offset));
 	float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
+	D(dprintf("%s: done, bleft %d offset %d postoannounce %f\n", __func__, bytesLeft, offset, positionToAnnounce));
 
 	if (didPopFrames)
 		dispatch([this, positionToAnnounce, protectedThis(makeRef(*this))]() {

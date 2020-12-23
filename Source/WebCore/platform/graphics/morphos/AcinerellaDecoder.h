@@ -13,6 +13,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <memory>
 #include "AcinerellaBuffer.h"
+#include "AcinerellaMuxer.h"
 #include "AcinerellaPointer.h"
 
 template<typename T>
