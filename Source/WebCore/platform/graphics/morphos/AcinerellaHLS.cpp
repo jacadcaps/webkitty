@@ -2,6 +2,8 @@
 
 #if ENABLE(VIDEO)
 
+#include <proto/exec.h>
+
 namespace WebCore {
 namespace Acinerella {
 
@@ -126,7 +128,7 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 
 				m_chunks.emplace(WTFMove(chunk));
 			}
-			dprintf("parse l '%s' (got %d)\n", line.utf8().data(), m_chunks.size());
+			// dprintf("parse l '%s' (got %d)\n", line.utf8().data(), m_chunks.size());
 		}
 	}
 }
@@ -156,9 +158,10 @@ AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(const String &url, size_t
 
 AcinerellaNetworkBufferHLS::~AcinerellaNetworkBufferHLS()
 {
+	D(dprintf("%s(%p) \n", __func__, this));
 	stop();
 	if (m_chunkRequestInRead)
-		m_chunkRequestInRead->stop();
+		m_chunkRequestInRead->die();
 }
 
 // main thread
@@ -198,15 +201,16 @@ void AcinerellaNetworkBufferHLS::stop()
 		m_chunkRequest = nullptr;
 		
 		if (m_chunkRequestInRead)
-			m_chunkRequestInRead->stop();
+			m_chunkRequestInRead->die();
 	}
 
 	m_event.signal();
 
 	D(dprintf("%s(%p) killing old chunks\n", __func__, this));
+	auto lock = holdLock(m_lock);
 	while (!m_chunksRequestPreviouslyRead.empty())
 	{
-		m_chunksRequestPreviouslyRead.front()->stop();
+		m_chunksRequestPreviouslyRead.front()->die();
 		m_chunksRequestPreviouslyRead.pop();
 	}
 }
@@ -327,6 +331,22 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 		// wake up the ::read
 		m_event.signal();
 	}
+}
+
+int64_t AcinerellaNetworkBufferHLS::length()
+{
+	auto lock = holdLock(m_lock);
+	if (m_chunkRequestInRead)
+		return m_chunkRequestInRead->length();
+	return -1;
+}
+
+int64_t AcinerellaNetworkBufferHLS::position()
+{
+	auto lock = holdLock(m_lock);
+	if (m_chunkRequestInRead)
+		return m_chunkRequestInRead->position();
+	return 0;
 }
 
 // acinerella decoder thread

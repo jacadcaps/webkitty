@@ -20,7 +20,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x)
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -49,6 +49,9 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 	void start(uint64_t from = 0) override
 	{
 		D(dprintf("%s(%p) - from %llu\n", __PRETTY_FUNCTION__, this, from));
+
+		if (m_dead)
+			return;
 
 		if (m_curlRequest)
 			m_curlRequest->cancel();
@@ -184,7 +187,7 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 	void continueBuffering()
 	{
 		D(dprintf("%s(%p): pau %d underbuf %d fini %d\n", __PRETTY_FUNCTION__, this, m_isPaused, m_bufferRead < (m_readAhead / 2), m_finishedLoading));
-		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && !m_finishedLoading)
+		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && !m_finishedLoading && !m_dead)
 		{
 			if (m_curlRequest)
 			{

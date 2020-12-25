@@ -5,7 +5,7 @@
 #include <wtf/RefPtr.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -26,7 +26,7 @@ AcinerellaPointer::AcinerellaPointer(ac_instance *instance)
 
 AcinerellaPointer::~AcinerellaPointer()
 {
-	D(dprintf("%s(%p): killing... %p\n", __PRETTY_FUNCTION__, this, m_instance.get()));
+	D(dprintf("%s(%p): killing %p, audiodec %p\n", __PRETTY_FUNCTION__, this, m_instance.get(), m_audioDecoder.get()));
 	m_audioDecoder.reset();
 	m_videoDecoder.reset();
 	m_instance.reset();

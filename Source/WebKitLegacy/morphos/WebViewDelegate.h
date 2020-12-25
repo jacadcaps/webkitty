@@ -87,6 +87,9 @@ struct WebViewDelegate
 	
 	std::function<void(void)> _fUndoRedoChanged;
 
+	std::function<void(void *player, const String &url, WebCore::Page *page, WTF::Function<void(bool doLoad)> loadFunc)> _fMediaAdded;
+	std::function<void(void *player)> _fMediaRemoved;
+
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
 		_fScroll = nullptr;

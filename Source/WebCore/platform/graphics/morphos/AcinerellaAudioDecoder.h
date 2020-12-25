@@ -14,7 +14,7 @@ namespace Acinerella {
 class AcinerellaAudioDecoder : public AcinerellaDecoder
 {
 public:
-	AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
+	AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
 
 	int rate() const { return m_audioRate; }
 	int channels() const { return m_audioChannels; }

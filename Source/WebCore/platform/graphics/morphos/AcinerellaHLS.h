@@ -58,6 +58,9 @@ public:
 
 	int read(uint8_t *outBuffer, int size, int64_t ignore) override;
 
+	int64_t length() override;
+	int64_t position() override;
+
 protected:
 
 	void masterPlaylistReceived(bool succ);

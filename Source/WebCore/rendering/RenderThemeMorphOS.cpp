@@ -26,8 +26,10 @@
 #include "config.h"
 #include "RenderThemeMorphOS.h"
 #include "NotImplemented.h"
+#if ENABLE(VIDEO)
 #include "UserAgentScripts.h"
 #include "UserAgentStyleSheets.h"
+#endif
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {

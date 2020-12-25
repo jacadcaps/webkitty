@@ -44,6 +44,8 @@ namespace WebCore {
 	bool _thCookies;
 	bool _localStorage;
 	bool _offlineCache;
+	bool _invisiblePlaybackNotAllowed;
+	bool _requiresUserGestureForMediaPlayback;
 }
 @end
 
@@ -62,6 +64,8 @@ namespace WebCore {
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_interpolationForImageViews = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
+		_invisiblePlaybackNotAllowed = YES;
+		_requiresUserGestureForMediaPlayback = YES;
 	}
 	
 	return self;
@@ -176,6 +180,26 @@ namespace WebCore {
 - (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling
 {
 	_contextMenu = handling;
+}
+
+- (BOOL)requiresUserGestureForMediaPlayback
+{
+	return _requiresUserGestureForMediaPlayback;
+}
+
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired
+{
+	_requiresUserGestureForMediaPlayback = gestureRequired;
+}
+
+- (BOOL)invisiblePlaybackNotAllowed
+{
+	return _invisiblePlaybackNotAllowed;
+}
+
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback
+{
+	_invisiblePlaybackNotAllowed = invisiblePlayback;
 }
 
 @end
@@ -421,6 +445,15 @@ static cairo_antialias_t defaultAA;
 {
 	auto udata = WebKit::WebEditorClient::getSpellCheckingLanguage().utf8();
 	return [OBString stringWithUTF8String:udata.data()];
+}
+
++ (BOOL)supportsMediaPlayback
+{
+#if ENABLE(VIDEO)
+	return YES;
+#else
+	return NO;
+#endif
 }
 
 @end

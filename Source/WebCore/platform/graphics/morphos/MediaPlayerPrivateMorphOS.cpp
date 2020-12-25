@@ -48,10 +48,8 @@ public:
 			types.add(String("audio/x-pn-wav"));
 			types.add(String("audio/x-wav"));
 
-			if (MediaPlayerMorphOSSettings::settings().m_enableOgg)
-				types.add(String("audio/ogg"));
-			if (MediaPlayerMorphOSSettings::settings().m_enableWebm)
-				types.add(String("audio/webm"));
+			types.add(String("audio/ogg"));
+			types.add(String("audio/webm"));
 
 			types.add(String("audio/x-mpegurl"));
 			types.add(String("audio/x-scpls"));
@@ -67,15 +65,12 @@ public:
 			types.add(String("video/vnd.objectvideo"));
 			types.add(String("video/x-flv"));
 
-			if (MediaPlayerMorphOSSettings::settings().m_enableOgg)
-			{
-				types.add(String("video/ogg"));
-				types.add(String("video/x-theora+ogg"));
-			}
-			if (MediaPlayerMorphOSSettings::settings().m_enableWebm)
-				types.add(String("video/webm"));
+			types.add(String("video/ogg"));
+			types.add(String("video/x-theora+ogg"));
+			types.add(String("video/webm"));
 		}
 		
+		// HLS
 		if (MediaPlayerMorphOSSettings::settings().m_enableAudio || MediaPlayerMorphOSSettings::settings().m_enableVideo)
 		{
 			types.add(String("application/x-mpegurl"));
@@ -341,6 +336,13 @@ void MediaPlayerPrivateMorphOS::paint(GraphicsContext&, const FloatRect&)
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
 {
 	return false;
+}
+
+MediaPlayer::MovieLoadType MediaPlayerPrivateMorphOS::movieLoadType() const
+{
+	if (m_acinerella)
+		return m_acinerella->isLive() ? MediaPlayer::MovieLoadType::LiveStream : MediaPlayer::MovieLoadType::Download;
+	return MediaPlayer::MovieLoadType::Download;
 }
 
 float MediaPlayerPrivateMorphOS::maxTimeSeekable() const

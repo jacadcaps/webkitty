@@ -1176,6 +1176,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 #if ENABLE(VIDEO)
 	settings.setInvisibleAutoplayNotPermitted(true);
 	settings.setAudioPlaybackRequiresUserGesture(true);
+	settings.setVideoPlaybackRequiresUserGesture(true);
 #endif
 
     m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
@@ -1421,6 +1422,39 @@ bool WebPage::thirdPartyCookiesAllowed() const
 void WebPage::setThirdPartyCookiesAllowed(bool blocked)
 {
 	m_page->settings().setIsThirdPartyCookieBlockingDisabled(blocked);
+}
+
+void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
+{
+#if ENABLE(VIDEO)
+	m_page->settings().setAudioPlaybackRequiresUserGesture(requiresGesture);
+	m_page->settings().setVideoPlaybackRequiresUserGesture(requiresGesture);
+#endif
+}
+
+bool WebPage::requiresUserGestureForMediaPlayback()
+{
+#if ENABLE(VIDEO)
+	return m_page->settings().audioPlaybackRequiresUserGesture();
+#else
+	return YES;
+#endif
+}
+
+void WebPage::setInvisiblePlaybackNotAllowed(bool invisible)
+{
+#if ENABLE(VIDEO)
+	m_page->settings().setInvisibleAutoplayNotPermitted(invisible);
+#endif
+}
+
+bool WebPage::invisiblePlaybackNotAllowed()
+{
+#if ENABLE(VIDEO)
+	return m_page->settings().invisibleAutoplayNotPermitted();
+#else
+	return YES;
+#endif
 }
 
 void WebPage::goActive()

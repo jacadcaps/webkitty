@@ -51,7 +51,7 @@ protected:
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
 {
 public:
-	AcinerellaDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info);
+	AcinerellaDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
 	virtual ~AcinerellaDecoder();
 
 	// call from: Acinerella thread
@@ -113,11 +113,11 @@ protected:
 	int                                m_bitrate;
 	
 	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
-	std::queue<AcinerellaDecodedFrame> m_freeFrames;
 	Lock                               m_lock;
 
 	bool                               m_playing = false;
 	bool                               m_terminating = false;
+	bool                               m_isLive = false;
 };
 
 }

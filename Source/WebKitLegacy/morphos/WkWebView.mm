@@ -1742,6 +1742,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setContextMenuHandling:WkSettings_ContextMenuHandling(webPage->contextMenuHandling())];
 	[settings setLocalStorageEnabled:webPage->localStorageEnabled()];
 	[settings setOfflineWebApplicationCacheEnabled:webPage->offlineCacheEnabled()];
+	[settings setInvisiblePlaybackNotAllowed:webPage->invisiblePlaybackNotAllowed()];
+	[settings setRequiresUserGestureForMediaPlayback:webPage->requiresUserGestureForMediaPlayback()];
 	return settings;
 }
 
@@ -1754,6 +1756,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setContextMenuHandling(WebKit::WebPage::ContextMenuHandling([settings contextMenuHandling]));
 	webPage->setLocalStorageEnabled([settings localStorageEnabled]);
 	webPage->setOfflineCacheEnabled([settings offlineWebApplicationCacheEnabled]);
+	webPage->setInvisiblePlaybackNotAllowed([settings invisiblePlaybackNotAllowed]);
+	webPage->setRequiresUserGestureForMediaPlayback([settings requiresUserGestureForMediaPlayback]);
 
 	[_private setThrottling:[settings throttling]];
 	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];

@@ -54,6 +54,8 @@ public:
 	bool canSeek();
 	bool isSeeking();
 	void seek(float time);
+	
+	bool isLive();
 
 	RefPtr<AcinerellaPointer> &acinerellaPointer() { return m_acinerella; }
 
@@ -103,6 +105,7 @@ protected:
 	bool                             m_muted = false;
 	bool                             m_canSeek = true;
 	bool                             m_isSeeking = false;
+	bool                             m_isLive = false;
 	
 	int64_t                          m_readPosition = -1;
 

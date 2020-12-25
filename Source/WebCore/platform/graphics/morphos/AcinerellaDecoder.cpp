@@ -3,15 +3,17 @@
 #if ENABLE(VIDEO)
 #include "acinerella.h"
 #include "AcinerellaContainer.h"
+#include <proto/exec.h>
 
 #define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &)
+AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &, bool isLiveStream)
 	: m_parent(parent)
 	, m_muxer(buffer)
+	, m_isLive(isLiveStream)
 {
 	m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
 	m_bitrate = parent->ac()->info.bitrate;
@@ -68,32 +70,25 @@ bool AcinerellaDecoder::decodeNextFrame()
 		if (ac_flush_packet() == buffer.package())
 		{
 			D(dprintf("%s: got flush packet!\n", __func__));
-			ac_flush_buffers(decoder);
-			while (!m_decodedFrames.empty())
-			{
-				m_decodedFrames.pop();
-			}
 			
+			if (!m_isLive)
+			{
+				ac_flush_buffers(decoder);
+				
+				while (!m_decodedFrames.empty())
+				{
+					m_decodedFrames.pop();
+				}
+			}
+
 			return true;
 		}
 
-		{
-			auto lock = holdLock(m_lock);
-			if (!m_freeFrames.empty())
-			{
-				// move-assign (copies the pointer and puts a nullptr on the freeFrames queue's front obj)
-				frame = WTFMove(m_freeFrames.front());
-//				D(dprintf("reused frame %p, move ok? %p pointer %p\n", frame.frame(), m_freeFrames.front().frame(), frame.pointer().get()));
-				m_freeFrames.pop();
-			}
-			else
-			{
-				frame = AcinerellaDecodedFrame(buffer.acinerella(), decoder);
-			}
-		}
-		
+		frame = AcinerellaDecodedFrame(buffer.acinerella(), decoder);
+
 		D(dprintf("%s: frame %p package %p decoder %p ac %p frameptr %p buffer %p size %d\n", __func__,
 			frame.frame(), buffer.package(), decoder, buffer.acinerella().get(), frame.pointer().get(), frame.frame()->pBuffer, frame.frame()->buffer_size));
+
 		if (buffer.package() && buffer.acinerella() && frame.frame() && decoder)
 		{
 			if (1 == ac_decode_package_ex(buffer.package(), decoder, frame.frame()))
@@ -131,9 +126,6 @@ void AcinerellaDecoder::flush()
 {
 	auto lock = holdLock(m_lock);
 
-	while (!m_freeFrames.empty())
-		m_freeFrames.pop();
-	
 	while (!m_decodedFrames.empty())
 		m_decodedFrames.pop();
 }
@@ -173,6 +165,8 @@ void AcinerellaDecoder::terminate()
 
 void AcinerellaDecoder::threadEntryPoint()
 {
+	SetTaskPri(FindTask(0), 5);
+
 	D(dprintf("%s: %p\n", __func__, this));
 	if (!onThreadInitialize())
 	{

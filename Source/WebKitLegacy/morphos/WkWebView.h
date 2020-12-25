@@ -144,9 +144,20 @@ typedef enum {
 
 @end
 
+@protocol WkMediaLoadResponseHandler <OBObject>
+
+- (OBURL *)mediaURL;
+- (OBURL *)pageURL;
+
+- (void)proceed;
+- (void)cancel;
+
+@end
+
 @protocol WkWebViewMediaDelegate <OBObject>
 
-- (void)webView:(WkWebView *)view wantsTo:(int)foo;
+- (void)webView:(WkWebView *)view wantsToLoadMediaWithURL:(OBURL *)url withResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
+- (void)webView:(WkWebView *)view cancelledMediaLoadWithResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
 
 @end
 

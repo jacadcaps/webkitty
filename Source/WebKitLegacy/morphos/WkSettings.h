@@ -123,4 +123,7 @@ typedef enum
 + (void)setDictionaryLanguage:(OBString *)language;
 + (OBString *)dictionaryLanguage;
 
+// Whether media playback was enabled at compile time
++ (BOOL)supportsMediaPlayback;
+
 @end

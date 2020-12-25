@@ -154,6 +154,12 @@ public:
     void setInterpolationQualityForImageViews(WebCore::InterpolationQuality quality) { m_imageInterpolation = quality; }
     WebCore::InterpolationQuality interpolationQualityForImageViews() const { return m_imageInterpolation; }
 
+	void setRequiresUserGestureForMediaPlayback(bool requiresGesture);
+	bool requiresUserGestureForMediaPlayback();
+	
+	void setInvisiblePlaybackNotAllowed(bool invisible);
+	bool invisiblePlaybackNotAllowed();
+
     WebCore::IntSize size() const;
     WebCore::IntRect bounds() const { return WebCore::IntRect(WebCore::IntPoint(), size()); }
 

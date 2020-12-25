@@ -63,7 +63,8 @@ public:
     std::unique_ptr<PlatformTimeRanges> buffered() const final;
     void paint(GraphicsContext&, const FloatRect&) final;
     bool didLoadingProgress() const final;
-	
+	MediaPlayer::MovieLoadType movieLoadType() const final;
+
 	bool accEnableAudio() const override;
 	bool accEnableVideo() const override;
 	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;

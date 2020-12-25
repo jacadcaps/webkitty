@@ -5,8 +5,9 @@
 #include "AcinerellaContainer.h"
 #include "AcinerellaAudioDecoder.h"
 #include "AcinerellaBuffer.h"
+#include <proto/exec.h>
 
-#define D(x)
+#define D(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -19,8 +20,13 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	m_networkBuffer = AcinerellaNetworkBuffer::create(m_url);
 	m_enableAudio = client->accEnableAudio();
 	m_enableVideo = client->accEnableVideo();
+	m_isLive = m_url.endsWithIgnoringASCIICase("m3u8");
+
 	if (m_networkBuffer)
+	{
 		m_canSeek = m_networkBuffer->canSeek();
+		m_networkBuffer->start();
+	}
 	ref();
 	m_thread = Thread::create("Acinerella", [this] {
 		threadEntryPoint();
@@ -91,6 +97,11 @@ void Acinerella::seek(float time)
 	});
 }
 
+bool Acinerella::isLive()
+{
+	return m_isLive;
+}
+
 void Acinerella::startSeeking(float pos)
 {
 	if (m_isSeeking)
@@ -152,7 +163,7 @@ void Acinerella::terminate()
 
 	// Prevent muxer from obtaining more data
 	if (m_networkBuffer)
-		m_networkBuffer->stop();
+		m_networkBuffer->die();
 
 	D(dprintf("ac%s: %p network done\n", __func__, this));
 
@@ -190,6 +201,8 @@ void Acinerella::warmUp()
 
 void Acinerella::threadEntryPoint()
 {
+	SetTaskPri(FindTask(0), 5);
+
 	D(dprintf("%s: %p\n", __func__, this));
 	if (initialize())
 	{
@@ -296,11 +309,16 @@ bool Acinerella::initialize()
 				{
 					ac_get_stream_info(m_acinerella->instance(), audioIndex, &info);
 					m_acinerella->setAudioDecoder(ac_create_decoder(m_acinerella->instance(), audioIndex));
-					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(this, m_muxer, audioIndex, info));
+					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(this, m_muxer, audioIndex, info, m_isLive));
 				}
 				
-				m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
-				m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+					if (m_client)
+					{
+						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
+						m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+					}
+				});
 
 				m_muxer->setDropVideoPackages(m_videoDecoder ? false : true);
 
@@ -385,7 +403,7 @@ void Acinerella::initializeAfterDiscontinuity()
 		if (-1 != audioIndex || -1 != videoIndex)
 		{
 			if (-1 != audioIndex)
-				acinerella->setAudioDecoder(ac_create_decoder(m_acinerella->instance(), audioIndex));
+				acinerella->setAudioDecoder(ac_create_decoder(acinerella->instance(), audioIndex));
 			
 			{
 				auto lock = holdLock(m_acinerellaLock);
@@ -465,11 +483,6 @@ void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buff
 int Acinerella::open()
 {
 	D(dprintf("%s: %p\n", "acOpen" , this));
-	ref();
-	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
-		if (m_networkBuffer)
-			m_networkBuffer->start();
-	});
 	return 0;
 }
 
@@ -477,13 +490,6 @@ int Acinerella::open()
 int Acinerella::close()
 {
 	D(dprintf("%s: %p\n", "acClose" , this));
-	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
-		D(dprintf("%s: %p .. \n", "acClose", this));
-		if (m_networkBuffer)
-			m_networkBuffer->stop();
-		m_networkBuffer = nullptr;
-		deref();
-	});
 	return 0;
 }
 
@@ -519,7 +525,7 @@ int Acinerella::read(uint8_t *buf, int size)
 // callback from acinerella on acinerella's main thread!
 int64_t Acinerella::seek(int64_t pos, int whence)
 {
-	D(dprintf("%s: %p seek (%d %lld)\n", "acSeek", this, whence, pos));
+	D(dprintf("%s: %p seek (%d %lld) canSeek %d\n", "acSeek", this, whence, pos, m_canSeek));
 
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)

@@ -37,7 +37,8 @@ public:
 	virtual void start(uint64_t from = 0) = 0;
 	virtual void stop() = 0;
 	virtual bool canSeek() { return true; }
-	
+	void die() { m_dead = true; stop(); }
+
 	// Acinerella Thread Methods
 	static const int eRead_Discontinuity = -2;
 	static const int eRead_Error = -1;
@@ -45,13 +46,14 @@ public:
 	
 	virtual int read(uint8_t *outBuffer, int size, int64_t position = -1) = 0;
 
-	int64_t length() { return m_length; }
+	virtual int64_t length() { return m_length; }
 	virtual int64_t position() { return 0; }
 
 protected:
-	String                           m_url;
-    int                              m_readAhead;
-    int64_t                          m_length;
+	String     m_url;
+    int64_t    m_length;
+    int        m_readAhead;
+    bool       m_dead = false;
 };
 
 class AcinerellaNetworkFileRequest : public ThreadSafeRefCounted<AcinerellaNetworkFileRequest>
