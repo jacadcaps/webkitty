@@ -43,7 +43,10 @@ void AcinerellaDecoder::flushAndWarmUp()
 void AcinerellaDecoder::play()
 {
 	D(dprintf("%s: %p\n", __func__, this));
-	dispatch([this](){ startPlaying(); });
+	dispatch([this](){
+		decodeUntilBufferFull();
+		startPlaying();
+	});
 }
 
 void AcinerellaDecoder::pause()
@@ -69,7 +72,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 		// either way, we must flush caches here!
 		if (ac_flush_packet() == buffer.package())
 		{
-			D(dprintf("%s: got flush packet!\n", __func__));
+			D(dprintf("%s: got flush packet! (live %d)\n", __func__, m_isLive));
 			
 			if (!m_isLive)
 			{

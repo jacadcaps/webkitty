@@ -7,7 +7,7 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) 
+#define D(x) x
 
 class HLSMasterPlaylistParser
 {
@@ -261,7 +261,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			// start loading chunks!
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
-				D(dprintf("%s(%p) chunk '%s'\n", __func__, this, m_stream.current().m_url.utf8().data()));
+				D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
 				auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
 				m_stream.pop();
 				
@@ -304,8 +304,8 @@ void AcinerellaNetworkBufferHLS::refreshTimerFired()
 // main thread
 void AcinerellaNetworkBufferHLS::chunkSwallowed()
 {
-	D(dprintf("%s(%p): cr %p \n", __func__, this, m_chunkRequest.get()));
-
+	D(dprintf("%s(%p): cr %p streams %d\n", __func__, this, m_chunkRequest.get(), m_stream.size()));
+return;
 	{
 		auto lock = holdLock(m_lock);
 		while (!m_chunksRequestPreviouslyRead.empty())
@@ -317,7 +317,7 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 	if (!m_stream.empty())
 	{
-		D(dprintf("%s(%p): load '%s' \n", __func__, this, m_stream.current().m_url.utf8().data()));
+		D(dprintf("%s(%p): load '%s' queue %d\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size()));
 		auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
 		m_stream.pop();
 		
@@ -330,6 +330,10 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 		
 		// wake up the ::read
 		m_event.signal();
+	}
+	else
+	{
+		D(dprintf("%s:(%p): ran out of chunks!!\n", __func__, this));
 	}
 }
 
@@ -356,6 +360,8 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignor
 
 	while (!m_stopping)
 	{
+		bool needsToWait = false;
+
 		if (m_chunkRequestInRead)
 		{
 			int read = m_chunkRequestInRead->read(outBuffer, size);
@@ -370,7 +376,8 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignor
 			}
 			else
 			{
-				D(dprintf("%s(%p): read %d from chunk %p\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get()));
+				D(dprintf("%s(%p): read %d from chunk %p bytesleft %lld\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get(),
+					m_chunkRequestInRead->length() - m_chunkRequestInRead->position()));
 				return read;
 			}
 		}
@@ -379,17 +386,17 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignor
 			auto lock = holdLock(m_lock);
 			m_chunkRequestInRead = m_chunkRequest;
 			m_chunkRequest = nullptr;
+			needsToWait = m_chunkRequestInRead.get() == nullptr;
 			D(dprintf("%s(%p): chunk swapped to %p\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get()));
 		}
 
-		if (m_chunkRequestInRead)
+		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+			chunkSwallowed();
+		});
+
+		if (needsToWait)
 		{
-			WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-				chunkSwallowed();
-			});
-		}
-		else
-		{
+			D(dprintf("%s: read stall!\n", __PRETTY_FUNCTION__));
 			m_event.waitFor(10_s);
 		}
 	}

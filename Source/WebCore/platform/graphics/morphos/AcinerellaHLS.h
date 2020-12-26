@@ -56,6 +56,8 @@ public:
 	void start(uint64_t from = 0) override;
 	void stop() override;
 
+	bool canSeek() { return false; }
+
 	int read(uint8_t *outBuffer, int size, int64_t ignore) override;
 
 	int64_t length() override;

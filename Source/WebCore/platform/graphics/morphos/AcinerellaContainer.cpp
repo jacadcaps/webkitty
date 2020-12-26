@@ -7,7 +7,7 @@
 #include "AcinerellaBuffer.h"
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -158,6 +158,7 @@ void Acinerella::startSeeking(float pos)
 void Acinerella::terminate()
 {
 	D(dprintf("ac%s: %p\n", __func__, this));
+DumpTaskState(FindTask(0));
 	m_terminating = true;
 	m_client = nullptr;
 
@@ -496,11 +497,13 @@ int Acinerella::close()
 // callback from acinerella on acinerella's main thread!
 int Acinerella::read(uint8_t *buf, int size)
 {
- 	D(dprintf("%s: %p %d\n", "acRead", this, size));
+ 	D(dprintf("%s: %p size %d\n", "acRead", this, size));
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{
 		int rc = buffer->read(buf, size, m_readPosition);
+
+ 		D(dprintf("%s: %p >> rc %d\n", "acRead", this, rc));
 
 		if (rc >= 0)
 			m_readPosition = -1;
@@ -525,26 +528,35 @@ int Acinerella::read(uint8_t *buf, int size)
 // callback from acinerella on acinerella's main thread!
 int64_t Acinerella::seek(int64_t pos, int whence)
 {
-	D(dprintf("%s: %p seek (%d %lld) canSeek %d\n", "acSeek", this, whence, pos, m_canSeek));
-
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
-	if (buffer)
+	if (buffer && m_canSeek)
 	{
 		int64_t newPosition = pos;
 		auto streamPos = buffer->position();
 		auto streamLength = buffer->length();
+		
+		// we're not actually seeking until a read happens,
+		// so this var may contain the value from a previous seek call
+		if (m_readPosition != -1)
+			streamPos = m_readPosition;
+
+		D(dprintf("%s(%p): seek (whence %d pos %lld) streamPos %lld length %lld\n", "acSeek", this, whence, pos, streamPos, streamLength));
 
 		switch (whence)
 		{
 		case SEEK_END:
+			D(dprintf("SEEK_END: %lld + %lld\n", streamLength, pos));
 			newPosition = streamLength + pos;
 			break;
 		case SEEK_CUR:
+			D(dprintf("SEEK_CUR: %lld + %lld\n", streamPos, pos));
 			newPosition = streamPos + pos;
 			break;
 		case AVSEEK_SIZE:
+			D(dprintf("AVSEEK_SIZE: %lld\n", streamLength));
 			return streamLength;
 		default:
+			D(dprintf("SEEK_POS: %lld\n", pos));
 			break;
 		}
 		
@@ -558,7 +570,7 @@ int64_t Acinerella::seek(int64_t pos, int whence)
 		else
 			m_readPosition = -1;
 		
-		D(dprintf("%s: %p seek to %lld (%d %lld)\n", "acSeek", this, newPosition, whence, pos));
+		D(dprintf("%s(%p):>> seek to %lld/rp %lld (%d %lld)\n", "acSeek", this, newPosition, m_readPosition, whence, pos));
 		
 		return newPosition;
 	}

@@ -118,7 +118,7 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 				m_seekProcessed = true;
 			});
 
-			while (!m_finishedLoading && !m_seekProcessed)
+			while (!m_dead && !m_seekProcessed)
 			{
 				m_eventSemaphore.waitFor(10_s);
 			}
@@ -142,6 +142,8 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 					m_bufferPositionAbs += write;
 					sizeLeft -= write;
 					sizeWritten += write;
+
+					D(dprintf("%s: read %d from current block\n", "nbRead", write));
 
 					if (m_bufferRead == int(buffer->size()))
 					{
@@ -264,7 +266,10 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 		{
 			D(dprintf("%s(%p)..\n", __PRETTY_FUNCTION__, this));
 			m_response = ResourceResponse(response);
-			m_length = reinterpret_cast<int64_t>(m_response.expectedContentLength());
+			
+			// only set on 1st request (or when we're reading from pos=0)
+			if (0 == m_bufferPositionAbs)
+				m_length = reinterpret_cast<int64_t>(m_response.expectedContentLength());
 
 			if (m_response.shouldRedirect())
 			{

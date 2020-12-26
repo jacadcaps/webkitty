@@ -272,6 +272,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 {
 	uint32_t offset = 0;
 	uint32_t bytesLeft = m_ahiSampleLength * 4;
+	D(size_t framesLeft = 0);
 	bool didPopFrames = false;
 	bool didSetTimecode = false;
 
@@ -309,6 +310,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				didPopFrames = true;
 			}
 		}
+		D(framesLeft = m_decodedFrames.size());
 	}
 
 	// Clear remaining buffer in case of an underrun
@@ -327,15 +329,19 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 
 
 	float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
-	D(dprintf("%s: done, bleft %d offset %d postoannounce %f\n", __func__, bytesLeft, offset, positionToAnnounce));
+	D(dprintf("%s: done, bleft %d offset %d postoannounce %f framesLeft: %d timeleft %f\n", __func__, bytesLeft, offset, positionToAnnounce, framesLeft, m_bufferedSeconds));
 
 	if (didPopFrames)
 		dispatch([this, positionToAnnounce, protectedThis(makeRef(*this))]() {
 			if (!m_ahiThreadShuttingDown)
 			{
+				if (!m_isLive)
+				{
+					m_position = positionToAnnounce;
+					onPositionChanged();
+				}
+
 				decodeUntilBufferFull();
-				m_position = positionToAnnounce;
-				onPositionChanged();
 			}
 		});
 }
