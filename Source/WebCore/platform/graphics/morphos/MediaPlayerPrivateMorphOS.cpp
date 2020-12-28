@@ -8,6 +8,7 @@
 #include "AcinerellaContainer.h"
 
 #include "HTMLMediaElement.h"
+#include "Frame.h"
 
 #define D(x) 
 #define DM(x) 
@@ -150,9 +151,11 @@ MediaPlayerPrivateMorphOS::~MediaPlayerPrivateMorphOS()
 	if (m_acinerella)
 		m_acinerella->terminate();
 
+	HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
+
 	// remove all pending requests that could be referencing 'this'
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
-		MediaPlayerMorphOSSettings::settings().m_loadCancelled(this);
+		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
 }
 
 void MediaPlayerPrivateMorphOS::registerMediaEngine(MediaEngineRegistrar registrar)
@@ -180,30 +183,12 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 	if (startsWithLettersIgnoringASCIICase(url, "about:"))
 		return;
 
-	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
-	{
-		HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
-		MediaPlayerMorphOSSettings::settings().m_preloadCheck(this, url, element->document().page(), [this, url](bool doLoad) {
-			if (doLoad)
-			{
-				m_networkState = MediaPlayer::NetworkState::Loading;
-				m_player->networkStateChanged();
-				m_readyState = MediaPlayer::ReadyState::HaveNothing;
-				m_player->readyStateChanged();
-				
-				m_acinerella = Acinerella::Acinerella::create(this, url);
-			}
-		});
-	}
-	else
-	{
-		m_networkState = MediaPlayer::NetworkState::Loading;
-		m_player->networkStateChanged();
-		m_readyState = MediaPlayer::ReadyState::HaveNothing;
-		m_player->readyStateChanged();
-		
-		m_acinerella = Acinerella::Acinerella::create(this, url);
-	}
+	m_networkState = MediaPlayer::NetworkState::Loading;
+	m_player->networkStateChanged();
+	m_readyState = MediaPlayer::ReadyState::HaveNothing;
+	m_player->readyStateChanged();
+
+	m_acinerella = Acinerella::Acinerella::create(this, url);
 }
 
 #if ENABLE(MEDIA_SOURCE)
@@ -217,11 +202,14 @@ void MediaPlayerPrivateMorphOS::cancelLoad()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 
+	HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
+
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
-		MediaPlayerMorphOSSettings::settings().m_loadCancelled(this);
+		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
 	
+	m_prepareToPlay = m_acInitialized = false;
 	pause();
-	
+
 	if (m_acinerella)
 		m_acinerella->terminate();
 }
@@ -229,7 +217,8 @@ void MediaPlayerPrivateMorphOS::cancelLoad()
 void MediaPlayerPrivateMorphOS::prepareToPlay()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
-	if (m_acinerella)
+	m_prepareToPlay = true;
+	if (m_acinerella && m_acInitialized)
 		m_acinerella->warmUp();
 }
 
@@ -306,6 +295,13 @@ void MediaPlayerPrivateMorphOS::seek(float time)
 		return m_acinerella->seek(time);
 }
 
+bool MediaPlayerPrivateMorphOS::ended() const
+{
+	if (m_acinerella)
+		return m_acinerella->ended();
+	return true;
+}
+
 bool MediaPlayerPrivateMorphOS::paused() const
 {
 	if (m_acinerella)
@@ -352,6 +348,27 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 	return 0.f;
 }
 
+void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
+{
+	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck && m_acinerella)
+	{
+		MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
+			if (doLoad)
+			{
+				m_acInitialized = true;
+				if (m_prepareToPlay && m_acinerella)
+					m_acinerella->warmUp();
+			}
+		});
+	}
+	else
+	{
+		m_acInitialized = true;
+		if (m_prepareToPlay && m_acinerella)
+			m_acinerella->warmUp();
+	}
+}
+
 bool MediaPlayerPrivateMorphOS::accEnableAudio() const
 {
 	return MediaPlayerMorphOSSettings::settings().m_enableAudio;
@@ -364,58 +381,40 @@ bool MediaPlayerPrivateMorphOS::accEnableVideo() const
 
 void MediaPlayerPrivateMorphOS::accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state)
 {
-	WTF::callOnMainThread([this, state, protectedThis = makeWeakPtr(this)]() {
-		if (protectedThis)
-		{
-			m_networkState = state;
-			m_player->networkStateChanged();
-		}
-	});
+	m_networkState = state;
+	m_player->networkStateChanged();
 }
 
 void MediaPlayerPrivateMorphOS::accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state)
 {
-	WTF::callOnMainThread([this, state, protectedThis = makeWeakPtr(this)]() {
-		if (protectedThis)
-		{
-			m_readyState = state;
-			m_player->readyStateChanged();
-		}
-	});
+	m_readyState = state;
+	m_player->readyStateChanged();
 }
 
 void MediaPlayerPrivateMorphOS::accSetBufferLength(float buffer)
 {
-	WTF::callOnMainThread([this, buffer, protectedThis = makeWeakPtr(this)]() {
-		if (protectedThis)
-		{
-			m_player->bufferedTimeRangesChanged();
-			m_player->seekableTimeRangesChanged();
-		}
-	});
+	m_player->bufferedTimeRangesChanged();
+	m_player->seekableTimeRangesChanged();
 }
 
 void MediaPlayerPrivateMorphOS::accSetPosition(float pos)
 {
-	WTF::callOnMainThread([this, pos, protectedThis = makeWeakPtr(this)]() {
-		if (protectedThis)
-		{
-			D(dprintf("%s: timechanged to %f\n", __func__, this, pos));
-			m_currentTime = pos;
-			m_player->timeChanged();
-		}
-	});
+	D(dprintf("%s: timechanged to %f\n", __func__, this, pos));
+	m_currentTime = pos;
+	m_player->timeChanged();
 }
 
 void MediaPlayerPrivateMorphOS::accSetDuration(float dur)
 {
-	WTF::callOnMainThread([this, dur, protectedThis = makeWeakPtr(this)]() {
-		if (protectedThis)
-		{
-			m_duration = dur;
-			m_player->durationChanged();
-		}
-	});
+	m_duration = dur;
+	m_player->durationChanged();
+}
+
+void MediaPlayerPrivateMorphOS::accEnded()
+{
+	m_currentTime = m_duration;
+	m_player->timeChanged();
+	m_player->characteristicChanged();
 }
 
 }

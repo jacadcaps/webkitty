@@ -7,7 +7,7 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) x
+#define D(x) 
 
 class HLSMasterPlaylistParser
 {
@@ -280,10 +280,10 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 
 	float duration = m_stream.targetDuration();
 	if (duration <= 1.f && !m_stream.empty())
-		duration = m_stream.current().m_duration;
+		duration = std::min(m_stream.current().m_duration, duration);
 	if (duration <= 1.f)
 		duration = 3.f;
-	duration *= 1.5;
+	duration *= 0.5;
 	D(dprintf("%s(%p): refresh in %f \n", __func__, this, duration));
 	m_playlistRefreshTimer.startOneShot(Seconds(duration));
 
@@ -305,7 +305,7 @@ void AcinerellaNetworkBufferHLS::refreshTimerFired()
 void AcinerellaNetworkBufferHLS::chunkSwallowed()
 {
 	D(dprintf("%s(%p): cr %p streams %d\n", __func__, this, m_chunkRequest.get(), m_stream.size()));
-return;
+
 	{
 		auto lock = holdLock(m_lock);
 		while (!m_chunksRequestPreviouslyRead.empty())
@@ -342,7 +342,7 @@ int64_t AcinerellaNetworkBufferHLS::length()
 	auto lock = holdLock(m_lock);
 	if (m_chunkRequestInRead)
 		return m_chunkRequestInRead->length();
-	return -1;
+	return 0;
 }
 
 int64_t AcinerellaNetworkBufferHLS::position()
@@ -354,7 +354,7 @@ int64_t AcinerellaNetworkBufferHLS::position()
 }
 
 // acinerella decoder thread
-int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignore)
+int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readPosition)
 {
 	D(dprintf("%s(%p): requested %ld\n", __PRETTY_FUNCTION__, this, size));
 
@@ -364,14 +364,17 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t ignor
 
 		if (m_chunkRequestInRead)
 		{
-			int read = m_chunkRequestInRead->read(outBuffer, size);
+			int read = m_chunkRequestInRead->read(outBuffer, size, readPosition);
 
 			if (0 == read)
 			{
-				auto lock = holdLock(m_lock);
-				m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
-				m_chunkRequestInRead = nullptr;
-				D(dprintf("%s(%p): discontinuity! \n", __PRETTY_FUNCTION__, this));
+				{
+					auto lock = holdLock(m_lock);
+					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+					m_chunkRequestInRead = nullptr;
+					D(dprintf("%s(%p): discontinuity! \n", __PRETTY_FUNCTION__, this));
+				}
+
 				return eRead_Discontinuity;
 			}
 			else

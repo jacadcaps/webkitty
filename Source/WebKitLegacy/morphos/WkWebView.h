@@ -152,6 +152,18 @@ typedef enum {
 - (void)proceed;
 - (void)cancel;
 
+- (BOOL)hasAudio;
+- (BOOL)hasVideo;
+
+- (float)duration;
+
+- (int)audioRate;
+- (int)audioChannels;
+- (int)audioBits;
+
+- (int)videoWidth;
+- (int)videoHeight;
+
 @end
 
 @protocol WkWebViewMediaDelegate <OBObject>
@@ -230,6 +242,7 @@ typedef enum {
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 

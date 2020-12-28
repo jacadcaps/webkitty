@@ -18,6 +18,7 @@
 #import <WebCore/AuthenticationChallenge.h>
 #import <WebCore/AuthenticationClient.h>
 #import <WebCore/HitTestResult.h>
+#import <WebCore/MediaPlayerMorphOS.h>
 #define __OBJC__
 
 #import "WkHitTest_private.h"
@@ -100,42 +101,157 @@ namespace  {
 
 + (id)container:(id)object
 {
-        WkWeakContainer *container = [WkWeakContainer new];
-        container->_object = object;
-        return [container autorelease];
+	WkWeakContainer *container = [WkWeakContainer new];
+	container->_object = object;
+	return [container autorelease];
 }
 
 - (id)containedObject
 {
-        return _object;
+	return _object;
 }
 
 - (id)performSelector:(SEL)selector
 {
-        return [_object performSelector:selector];
+	return [_object performSelector:selector];
 }
 
 - (id)performSelector:(SEL)selector withObject:(id)object
 {
-        return [_object performSelector:selector withObject:object];
+	return [_object performSelector:selector withObject:object];
 }
 
 - (id)performSelector:(SEL)selector withObject:(id)object withObject:(id)object2
 {
-        return [_object performSelector:selector withObject:object withObject:object2];
+	return [_object performSelector:selector withObject:object withObject:object2];
 }
 
 - (BOOL)isEqual:(id)otherObject
 {
-        static Class myClass = [WkWeakContainer class];
-        if ([otherObject isKindOfClass:myClass])
-                return [_object isEqual:[(WkWeakContainer *)otherObject containedObject]];
-        return [_object isEqual:otherObject];
+	static Class myClass = [WkWeakContainer class];
+	if ([otherObject isKindOfClass:myClass])
+			return [_object isEqual:[(WkWeakContainer *)otherObject containedObject]];
+	return [_object isEqual:otherObject];
 }
 
 - (ULONG)hash
 {
-        return [_object hash];
+	return [_object hash];
+}
+
+@end
+
+@interface WkMediaLoadResponseHandlerPrivate : OBObject<WkMediaLoadResponseHandler>
+{
+	WTF::Function<void(bool doLoad)>  _loadFunction;
+	WebCore::MediaPlayerMorphOSInfo   _info;
+	OBURL                            *_url;
+	OBURL                            *_pageURL;
+	void                             *_playerRef;
+}
+@end
+
+@implementation WkMediaLoadResponseHandlerPrivate
+
+- (id)initWithPlayer:(void *)playerRef url:(OBURL *)url pageURL:(OBURL *)pageurl info:(WebCore::MediaPlayerMorphOSInfo &)info callback:(WTF::Function<void(bool doLoad)>&&)func
+{
+	if ((self = [super init]))
+	{
+		_loadFunction = WTFMove(func);
+		_url = [url retain];
+		_pageURL = [pageurl retain];
+		_playerRef = playerRef;
+		_info = info;
+	}
+	else
+	{
+		func(true);
+	}
+	
+	return self;
+}
+
+- (void)invalidate
+{
+	_playerRef = nullptr;
+	_loadFunction = nullptr;
+}
+
+- (void)dealloc
+{
+	[self invalidate];
+	[_url release];
+	[_pageURL release];
+	[super dealloc];
+}
+
+- (OBURL *)mediaURL
+{
+	return _url;
+}
+
+- (OBURL *)pageURL
+{
+	return  _pageURL;
+}
+
+- (IPTR)playerRef
+{
+	return (IPTR)_playerRef;
+}
+
+- (void)proceed
+{
+	if (_loadFunction)
+		_loadFunction(true);
+	[self invalidate];
+}
+
+- (void)cancel
+{
+	if (_loadFunction)
+		_loadFunction(false);
+	[self invalidate];
+}
+
+- (BOOL)hasAudio
+{
+	return _info.m_frequency != 0;
+}
+
+- (BOOL)hasVideo
+{
+	return _info.m_width != 0;
+}
+
+- (float)duration
+{
+	return _info.m_duration;
+}
+
+- (int)audioRate
+{
+	return _info.m_frequency;
+}
+
+- (int)audioChannels
+{
+	return _info.m_channels;
+}
+
+- (int)audioBits
+{
+	return _info.m_bits;
+}
+
+- (int)videoWidth
+{
+	return _info.m_width;
+}
+
+- (int)videoHeight
+{
+	return _info.m_height;
 }
 
 @end
@@ -154,7 +270,9 @@ namespace  {
 	id<WkWebViewContextMenuDelegate>     _contextMenuDelegate;
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
 	id<WkWebViewEditorDelegate>          _editorDelegate;
+	id<WkWebViewMediaDelegate>           _mediaDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
+	OBMutableDictionary                 *_mediaPlayers;
 	WkBackForwardListPrivate            *_backForwardList;
 	WkSettings_Throttling                _throttling;
 	WkSettings_UserStyleSheet            _userStyleSheet;
@@ -209,6 +327,8 @@ namespace  {
 	[_userStyleSheetFile release];
 	[_printingState invalidate];
 	[_printingState release];
+	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
+	[_mediaPlayers release];
 	
 	[super dealloc];
 }
@@ -370,6 +490,16 @@ namespace  {
 - (id<WkWebViewEditorDelegate>)editorDelegate
 {
 	return _editorDelegate;
+}
+
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)md
+{
+	_mediaDelegate = md;
+}
+
+- (id<WkWebViewMediaDelegate>)mediaDelegate
+{
+	return _mediaDelegate;
 }
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
@@ -555,6 +685,39 @@ namespace  {
 {
 	_savedTextZoom = text;
 	_savedPageZoom = page;
+}
+
+- (void)playerAdded:(WkMediaLoadResponseHandlerPrivate *)handler
+{
+	if (handler)
+	{
+		OBNumber *ref = [OBNumber numberWithUnsignedLong:[handler playerRef]];
+		WkMediaLoadResponseHandlerPrivate *existing = [_mediaPlayers objectForKey:ref];
+		if (existing)
+		{
+			[existing invalidate];
+		}
+		if (nil == _mediaPlayers)
+			_mediaPlayers = [OBMutableDictionary new];
+		[_mediaPlayers setObject:handler forKey:ref];
+	}
+}
+
+- (WkMediaLoadResponseHandlerPrivate *)handlerForPlayer:(void *)playerRef
+{
+	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
+	return [_mediaPlayers objectForKey:ref];
+}
+
+- (void)playerRemoved:(void *)playerRef
+{
+	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
+	WkMediaLoadResponseHandlerPrivate *handler = [_mediaPlayers objectForKey:ref];
+	if (handler)
+	{
+		[handler invalidate];
+		[_mediaPlayers removeObjectForKey:ref];
+	}
 }
 
 @end
@@ -1456,6 +1619,38 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data forHost:[OBString stringWithUTF8String:uurl.data()]]];
 			}
 		};
+		
+		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info, WTF::Function<void(bool doLoad)> &&loadFunc) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
+			if (mediaDelegate)
+			{
+				auto uurl = url.utf8();
+				WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
+					url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)];
+				if (handler)
+				{
+					[privateObject playerAdded:handler];
+					[handler release];
+					
+					[mediaDelegate webView:self wantsToLoadMediaWithURL:[handler mediaURL] withResponseHandler:handler];
+				}
+			}
+		};
+		
+		webPage->_fMediaRemoved = [self](void *player) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
+			if (mediaDelegate)
+			{
+				WkMediaLoadResponseHandlerPrivate *handler = [privateObject handlerForPlayer:player];
+				if (handler)
+					[mediaDelegate webView:self cancelledMediaLoadWithResponseHandler:handler];
+			}
+			[privateObject playerRemoved:player];
+		};
 	}
 	
 	return self;
@@ -2099,6 +2294,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate
 {
 	[_private setConsoleDelegate:delegate];
+}
+
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate
+{
+	[_private setMediaDelegate:delegate];
 }
 
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate

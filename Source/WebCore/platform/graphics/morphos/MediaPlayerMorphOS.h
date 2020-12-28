@@ -7,7 +7,17 @@
 namespace WebCore {
 
 class NetworkingContext;
-class Page;
+class MediaPlayer;
+
+struct MediaPlayerMorphOSInfo
+{
+	float m_duration;
+	int   m_frequency;
+	int   m_bits;
+	int   m_channels;
+	int   m_width;
+	int   m_height;
+};
 
 struct MediaPlayerMorphOSSettings
 {
@@ -20,8 +30,8 @@ public:
 	
 	NetworkingContext *m_networkingContextForRequests = nullptr;
 
-	Function<void(void *player, const String &url, WebCore::Page *page, Function<void(bool doLoad)>)> m_preloadCheck;
-	Function<void(void *player)> m_loadCancelled;
+	Function<void(WebCore::MediaPlayer *player, const String &url, MediaPlayerMorphOSInfo &info, Function<void(bool doLoad)>&&)> m_preloadCheck;
+	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 };
 
 }

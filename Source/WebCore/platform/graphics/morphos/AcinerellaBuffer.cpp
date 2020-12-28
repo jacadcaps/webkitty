@@ -102,7 +102,7 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 
 	int read(uint8_t *outBuffer, int size, int64_t readPosition) override
 	{
-		D(dprintf("%s(%p): requested %ld from %lld (current %lld)\n", "nbRead", this, size, readPosition, m_bufferPositionAbs));
+		D(dprintf("%s(%p): requested %ld from %lld (current %lld max %lld)\n", "nbRead", this, size, readPosition, m_bufferPositionAbs, m_length));
 		int sizeWritten = 0;
 		int sizeLeft = size;
 		bool resume = false;
@@ -169,7 +169,7 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 				});
 				m_eventSemaphore.waitFor(10_s);
 			}
-			else if (m_finishedLoading)
+			else if (m_finishedLoading && !canReadMore)
 			{
 				break;
 			}

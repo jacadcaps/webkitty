@@ -58,7 +58,6 @@ public:
 	void terminate();
 
 	void warmUp();
-	void flushAndWarmUp();
 
 	void play();
 	void pause();
@@ -73,6 +72,8 @@ public:
 	float bitRate() const { return m_bitrate; }
 	virtual float position() const = 0;
 	virtual float bufferSize() const = 0;
+	
+	int index() const { return m_index; }
 
 protected:
 	// call from: Own thread
@@ -86,7 +87,8 @@ protected:
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
 	void onPositionChanged();
-	void flush();
+	void onEnded();
+	virtual void flush();
 
 	// call from: Own thread
 	virtual bool onThreadInitialize() { return true; }
@@ -111,6 +113,7 @@ protected:
 	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
 	float                              m_duration;
 	int                                m_bitrate;
+	int                                m_index;
 	
 	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
 	Lock                               m_lock;

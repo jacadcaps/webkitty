@@ -6,6 +6,7 @@
 #include <proto/exec.h>
 
 #define D(x) 
+#define DNF(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -14,6 +15,7 @@ AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedB
 	: m_parent(parent)
 	, m_muxer(buffer)
 	, m_isLive(isLiveStream)
+	, m_index(index)
 {
 	m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
 	m_bitrate = parent->ac()->info.bitrate;
@@ -32,12 +34,6 @@ void AcinerellaDecoder::warmUp()
 {
 	D(dprintf("%s: %p\n", __func__, this));
 	dispatch([this]{ decodeUntilBufferFull(); });
-}
-
-void AcinerellaDecoder::flushAndWarmUp()
-{
-	D(dprintf("%s: %p\n", __func__, this));
-	dispatch([this]{ flush(); decodeUntilBufferFull(); });
 }
 
 void AcinerellaDecoder::play()
@@ -63,6 +59,7 @@ void AcinerellaDecoder::setVolume(float volume)
 bool AcinerellaDecoder::decodeNextFrame()
 {
 	AcinerellaPackage buffer;
+
 	if (m_muxer->nextPackage(*this, buffer))
 	{
 		AcinerellaDecodedFrame frame;
@@ -70,18 +67,14 @@ bool AcinerellaDecoder::decodeNextFrame()
 
 		// used both if acinerella sends us stuff AND in case of discontinuity
 		// either way, we must flush caches here!
-		if (ac_flush_packet() == buffer.package())
+		if (buffer.isFlushPackage())
 		{
-			D(dprintf("%s: got flush packet! (live %d)\n", __func__, m_isLive));
+			DNF(dprintf("%s: got flush packet! (live %d)\n", __func__, m_isLive));
 			
 			if (!m_isLive)
 			{
 				ac_flush_buffers(decoder);
-				
-				while (!m_decodedFrames.empty())
-				{
-					m_decodedFrames.pop();
-				}
+				flush();
 			}
 
 			return true;
@@ -89,8 +82,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 
 		frame = AcinerellaDecodedFrame(buffer.acinerella(), decoder);
 
-		D(dprintf("%s: frame %p package %p decoder %p ac %p frameptr %p buffer %p size %d\n", __func__,
-			frame.frame(), buffer.package(), decoder, buffer.acinerella().get(), frame.pointer().get(), frame.frame()->pBuffer, frame.frame()->buffer_size));
+		DNF(dprintf("%s: frame %p package %p index %d decoder %p ac %p frameptr %p buffer %p size %d\n", __func__,
+			frame.frame(), buffer.package(), buffer.index(), decoder, buffer.acinerella().get(), frame.pointer().get(), frame.frame()->pBuffer, frame.frame()->buffer_size));
 
 		if (buffer.package() && buffer.acinerella() && frame.frame() && decoder)
 		{
@@ -98,13 +91,16 @@ bool AcinerellaDecoder::decodeNextFrame()
 			{
 				auto lock = holdLock(m_lock);
 				onFrameDecoded(frame);
+				DNF(dprintf("%s: decoded frame @ %f\n", __func__, float(frame.frame()->timecode)));
 				m_decodedFrames.emplace(WTFMove(frame));
-//				D(dprintf("%s: decoded frames %d\n", __func__, m_decodedFrames.size()));
 				return true;
 			}
+			
+			D(dprintf("%s: failed decoding frame\n", __func__));
 		}
 		else
 		{
+			D(dprintf("%s: invalid input!\n", __func__));
 			return false;
 		}
 		
@@ -135,8 +131,14 @@ void AcinerellaDecoder::flush()
 
 void AcinerellaDecoder::onPositionChanged()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("%s: %p to %f\n", __func__, this, position()));
 	m_parent->onDecoderUpdatedPosition(*this, position());
+}
+
+void AcinerellaDecoder::onEnded()
+{
+	D(dprintf("%s: %p\n", __func__, this));
+	m_parent->onDecoderEnded(*this);
 }
 
 void AcinerellaDecoder::terminate()

@@ -57,6 +57,7 @@ public:
 
 	bool supportsScanning() const { return true; }
     void seek(float) final;
+    bool ended() const final;
 
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
@@ -65,6 +66,7 @@ public:
     bool didLoadingProgress() const final;
 	MediaPlayer::MovieLoadType movieLoadType() const final;
 
+	void accInitialized(MediaPlayerMorphOSInfo info) override;
 	bool accEnableAudio() const override;
 	bool accEnableVideo() const override;
 	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
@@ -72,6 +74,7 @@ public:
 	void accSetBufferLength(float buffer) override;
 	void accSetPosition(float buffer) override;
 	void accSetDuration(float buffer) override;
+	void accEnded() override;
 
 protected:
 	MediaPlayer* m_player;
@@ -80,6 +83,8 @@ protected:
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
 	float m_duration = 0.f;
 	float m_currentTime = 0.f;
+	bool  m_prepareToPlay = false;
+	bool  m_acInitialized = false;
 
 friend class Acinerella::Acinerella;
 };

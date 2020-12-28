@@ -38,6 +38,8 @@
 #include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/ResourceLoadInfo.h>
 #include <WebCore/CurlContext.h>
+#include <WebCore/HTMLMediaElement.h>
+#include <WebCore/Page.h>
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
@@ -190,12 +192,39 @@ void WebProcess::initialize(int sigbit)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 	
-	MediaPlayerMorphOSSettings::settings().m_preloadCheck = [](void *player, const String &url, WebCore::Page *page, Function<void(bool doLoad)> load) {
+	MediaPlayerMorphOSSettings::settings().m_preloadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, Function<void(bool doLoad)> &&load) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaAdded)
+				{
+					webpage->_fMediaAdded(player, url, info, WTFMove(load));
+					return;
+				}
+
+				load(true);
+				return;
+			}
+		}
+
 		load(true);
 	};
 	
-	MediaPlayerMorphOSSettings::settings().m_loadCancelled = [](void *player) {
-	
+	MediaPlayerMorphOSSettings::settings().m_loadCancelled = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaRemoved)
+				webpage->_fMediaRemoved(player);
+		}
 	};
 #endif
 

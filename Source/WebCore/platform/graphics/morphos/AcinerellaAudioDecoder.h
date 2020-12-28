@@ -34,9 +34,10 @@ protected:
 	void stopPlaying() override;
 	void doSetVolume(float volume) override;
 
-	bool onThreadInitialize() override;
 	void onThreadShutdown() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
+	void flush() override;
+	bool initializeAudio();
 
 	static void soundFunc();
 	void fillBuffer(int index);

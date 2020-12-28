@@ -56,6 +56,9 @@ public:
 	void seek(float time);
 	
 	bool isLive();
+	bool ended();
+	
+	const String &url() const { return m_url; }
 
 	RefPtr<AcinerellaPointer> &acinerellaPointer() { return m_acinerella; }
 
@@ -82,6 +85,7 @@ protected:
 	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing);
 	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer);
 	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buffer);
+	void onDecoderEnded(AcinerellaDecoder& decoder);
 
 protected:
 	static int acOpenCallback(void *me);
@@ -102,10 +106,13 @@ protected:
 
 	float                            m_duration;
 	float                            m_volume = 1.f;
+	float                            m_seekingPosition;
 	bool                             m_muted = false;
 	bool                             m_canSeek = true;
 	bool                             m_isSeeking = false;
 	bool                             m_isLive = false;
+	bool                             m_ended = false;
+	bool                             m_seekingForward;
 	
 	int64_t                          m_readPosition = -1;
 

@@ -8,6 +8,7 @@
 #include <proto/exec.h>
 
 #define D(x) 
+#define DIO(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -37,6 +38,8 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 
 void Acinerella::play()
 {
+	if (m_ended)
+		return;
 	m_paused = false;
 	dispatch([this] {
 		if (m_audioDecoder)
@@ -48,6 +51,9 @@ void Acinerella::play()
 
 void Acinerella::pause()
 {
+	if (m_ended)
+		return;
+
 	m_paused = true;
 	dispatch([this] {
 		if (m_audioDecoder)
@@ -102,12 +108,18 @@ bool Acinerella::isLive()
 	return m_isLive;
 }
 
+bool Acinerella::ended()
+{
+	return m_ended;
+}
+
 void Acinerella::startSeeking(float pos)
 {
 	if (m_isSeeking)
 		return;
 
 	m_isSeeking = true;
+	m_seekingPosition = pos;
 
 	if (m_audioDecoder)
 		m_audioDecoder->pause();
@@ -116,6 +128,8 @@ void Acinerella::startSeeking(float pos)
 	
 	float currentPosition = m_audioDecoder ? m_audioDecoder->position() : (m_videoDecoder ? m_videoDecoder->position() : 0.f);
 	D(dprintf("ac%s(%p): %f current %f \n", __func__, this, pos, currentPosition));
+
+	m_seekingForward = pos > currentPosition;
 
 	RefPtr<AcinerellaPointer> acinerella;
 	RefPtr<AcinerellaMuxedBuffer> muxer;
@@ -158,7 +172,6 @@ void Acinerella::startSeeking(float pos)
 void Acinerella::terminate()
 {
 	D(dprintf("ac%s: %p\n", __func__, this));
-DumpTaskState(FindTask(0));
 	m_terminating = true;
 	m_client = nullptr;
 
@@ -353,7 +366,32 @@ bool Acinerella::initialize()
 				m_duration = std::max(audioDuration, videoDuration);
 				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 					if (m_client)
+					{
 						m_client->accSetDuration(m_duration);
+						MediaPlayerMorphOSInfo minfo;
+						minfo.m_duration = m_duration;
+
+						if (m_audioDecoder)
+						{
+							RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
+							minfo.m_frequency = audio->rate();
+							minfo.m_bits = audio->bits();
+							minfo.m_channels = audio->channels();
+						}
+						else
+						{
+							minfo.m_frequency = 0;
+						}
+						
+						if (m_videoDecoder)
+						{
+						}
+						else
+						{
+							minfo.m_width = minfo.m_height = 0;
+						}
+						m_client->accInitialized(minfo);
+					}
 				});
 			}
 		}
@@ -467,43 +505,56 @@ void Acinerella::onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float 
 	});
 }
 
-void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buffer)
+void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float pos)
 {
-	if (m_isSeeking)
+	D(dprintf("%s: %p\n", __func__ , this));
+	if (m_isSeeking && pos >= (m_seekingPosition - 5.f) && pos <= (m_seekingPosition + 5.f))
 	{
 		D(dprintf("--endseeking\n"));
 		m_isSeeking = false;
 	}
-	WTF::callOnMainThread([this, buffer, protectedThis = makeRef(*this)]() {
+	WTF::callOnMainThread([this, pos, protectedThis = makeRef(*this)]() {
 		if (m_client)
-			m_client->accSetPosition(buffer);
+			m_client->accSetPosition(pos);
 	});
 }
+
+void Acinerella::onDecoderEnded(AcinerellaDecoder& decoder)
+{
+	D(dprintf("%s: %p\n", __func__ , this));
+	m_ended = true;
+	m_paused = true;
+
+	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accEnded();
+	});
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // callback from acinerella on acinerella's main thread!
 int Acinerella::open()
 {
-	D(dprintf("%s: %p\n", "acOpen" , this));
 	return 0;
 }
 
 // callback from acinerella on acinerella's main thread!
 int Acinerella::close()
 {
-	D(dprintf("%s: %p\n", "acClose" , this));
 	return 0;
 }
 
 // callback from acinerella on acinerella's main thread!
 int Acinerella::read(uint8_t *buf, int size)
 {
- 	D(dprintf("%s: %p size %d\n", "acRead", this, size));
+ 	DIO(dprintf("%s: %p size %d\n", "acRead", this, size));
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{
 		int rc = buffer->read(buf, size, m_readPosition);
 
- 		D(dprintf("%s: %p >> rc %d\n", "acRead", this, rc));
+ 		DIO(dprintf("%s: %p >> rc %d\n", "acRead", this, rc));
 
 		if (rc >= 0)
 			m_readPosition = -1;
@@ -540,23 +591,23 @@ int64_t Acinerella::seek(int64_t pos, int whence)
 		if (m_readPosition != -1)
 			streamPos = m_readPosition;
 
-		D(dprintf("%s(%p): seek (whence %d pos %lld) streamPos %lld length %lld\n", "acSeek", this, whence, pos, streamPos, streamLength));
+		DIO(dprintf("%s(%p): seek (whence %d pos %lld) streamPos %lld length %lld\n", "acSeek", this, whence, pos, streamPos, streamLength));
 
 		switch (whence)
 		{
 		case SEEK_END:
-			D(dprintf("SEEK_END: %lld + %lld\n", streamLength, pos));
+			DIO(dprintf("SEEK_END: %lld + %lld\n", streamLength, pos));
 			newPosition = streamLength + pos;
 			break;
 		case SEEK_CUR:
-			D(dprintf("SEEK_CUR: %lld + %lld\n", streamPos, pos));
+			DIO(dprintf("SEEK_CUR: %lld + %lld\n", streamPos, pos));
 			newPosition = streamPos + pos;
 			break;
 		case AVSEEK_SIZE:
-			D(dprintf("AVSEEK_SIZE: %lld\n", streamLength));
+			DIO(dprintf("AVSEEK_SIZE: %lld\n", streamLength));
 			return streamLength;
 		default:
-			D(dprintf("SEEK_POS: %lld\n", pos));
+			DIO(dprintf("SEEK_POS: %lld\n", pos));
 			break;
 		}
 		
@@ -570,7 +621,7 @@ int64_t Acinerella::seek(int64_t pos, int whence)
 		else
 			m_readPosition = -1;
 		
-		D(dprintf("%s(%p):>> seek to %lld/rp %lld (%d %lld)\n", "acSeek", this, newPosition, m_readPosition, whence, pos));
+		DIO(dprintf("%s(%p):>> seek to %lld/rp %lld (%d %lld)\n", "acSeek", this, newPosition, m_readPosition, whence, pos));
 		
 		return newPosition;
 	}

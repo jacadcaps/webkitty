@@ -1024,6 +1024,9 @@ static int ac_decode_audio_package_ex(lp_ac_package pPackage,
 
 	AV_ERR(len = avcodec_decode_audio4(pDecoder->pCodecCtx, frame->pFrame,
 	                                   &got_frame, pkt->pPack));
+	
+	if (got_frame == 0)
+		return 0;
 #endif /* LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57,64,0) */
 
 
@@ -1078,11 +1081,7 @@ static int ac_decode_audio_package_ex(lp_ac_package pPackage,
 	}
 #endif
 
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57,64,0)
 	return 1;
-#else
-	return got_frame;
-#endif /* LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57,64,0) */
 
 error:
 	return 0;
