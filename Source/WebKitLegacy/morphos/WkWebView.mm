@@ -141,6 +141,7 @@ namespace  {
 
 @end
 
+#if ENABLE(VIDEO)
 @interface WkMediaLoadResponseHandlerPrivate : OBObject<WkMediaLoadResponseHandler>
 {
 	WTF::Function<void(bool doLoad)>  _loadFunction;
@@ -255,6 +256,7 @@ namespace  {
 }
 
 @end
+#endif
 
 @interface WkWebViewPrivate : OBObject
 {
@@ -272,7 +274,9 @@ namespace  {
 	id<WkWebViewEditorDelegate>          _editorDelegate;
 	id<WkWebViewMediaDelegate>           _mediaDelegate;
 	OBMutableDictionary                 *_protocolDelegates;
+#if ENABLE(VIDEO)
 	OBMutableDictionary                 *_mediaPlayers;
+#endif
 	WkBackForwardListPrivate            *_backForwardList;
 	WkSettings_Throttling                _throttling;
 	WkSettings_UserStyleSheet            _userStyleSheet;
@@ -327,9 +331,11 @@ namespace  {
 	[_userStyleSheetFile release];
 	[_printingState invalidate];
 	[_printingState release];
+#if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
-	
+#endif
+
 	[super dealloc];
 }
 
@@ -687,6 +693,7 @@ namespace  {
 	_savedPageZoom = page;
 }
 
+#if ENABLE(VIDEO)
 - (void)playerAdded:(WkMediaLoadResponseHandlerPrivate *)handler
 {
 	if (handler)
@@ -719,6 +726,7 @@ namespace  {
 		[_mediaPlayers removeObjectForKey:ref];
 	}
 }
+#endif
 
 @end
 
@@ -1619,7 +1627,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data forHost:[OBString stringWithUTF8String:uurl.data()]]];
 			}
 		};
-		
+
+#if ENABLE(VIDEO)
 		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info, WTF::Function<void(bool doLoad)> &&loadFunc) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
@@ -1651,6 +1660,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 			[privateObject playerRemoved:player];
 		};
+#endif
 	}
 	
 	return self;

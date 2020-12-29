@@ -1437,7 +1437,7 @@ bool WebPage::requiresUserGestureForMediaPlayback()
 #if ENABLE(VIDEO)
 	return m_page->settings().audioPlaybackRequiresUserGesture();
 #else
-	return YES;
+	return true;
 #endif
 }
 
@@ -1453,7 +1453,7 @@ bool WebPage::invisiblePlaybackNotAllowed()
 #if ENABLE(VIDEO)
 	return m_page->settings().invisibleAutoplayNotPermitted();
 #else
-	return YES;
+	return true;
 #endif
 }
 
