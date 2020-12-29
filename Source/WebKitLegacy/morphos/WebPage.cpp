@@ -2820,6 +2820,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					}
 					m_trackMiddle = false;
 					m_trackMouse = false;
+					m_trackMiddleDidScroll = false;
+					if (_fSetCursor)
+						_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
 					break;
 				case MENUDOWN:
 					// This is consistent with Safari
