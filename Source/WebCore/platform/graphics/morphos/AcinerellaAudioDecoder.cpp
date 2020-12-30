@@ -262,22 +262,25 @@ float AcinerellaAudioDecoder::position() const
 
 void AcinerellaAudioDecoder::flush()
 {
-	AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE);
-	AHI_UnloadSound(0, m_ahiControl);
-	AHI_UnloadSound(1, m_ahiControl);
+	if (m_ahiControl)
+	{
+		AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE);
+		AHI_UnloadSound(0, m_ahiControl);
+		AHI_UnloadSound(1, m_ahiControl);
 
-	AcinerellaDecoder::flush();
+		AcinerellaDecoder::flush();
 
-	m_ahiSampleBeingPlayed = 0;
-	m_ahiFrameOffset = 0;
+		m_ahiSampleBeingPlayed = 0;
+		m_ahiFrameOffset = 0;
 
-	AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl);
-	AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl);
+		AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl);
+		AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl);
 
-	decodeUntilBufferFull();
+		decodeUntilBufferFull();
 
-	fillBuffer(0);
-	AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
+		fillBuffer(0);
+		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
+	}
 }
 
 #undef AHI_BASE_NAME

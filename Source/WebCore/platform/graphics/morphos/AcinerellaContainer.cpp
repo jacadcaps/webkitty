@@ -106,7 +106,8 @@ void Acinerella::seek(float time)
 
 bool Acinerella::isLive()
 {
-	return m_isLive;
+	// internally, m_isLive means HLS, but we also signal live to DOM if there's no seeking in the stream
+	return m_isLive || !m_canSeek;
 }
 
 bool Acinerella::ended()
@@ -374,8 +375,6 @@ bool Acinerella::initialize()
 				else
 					m_duration = std::numeric_limits<float>::infinity();
 				
-				dprintf("reported duration %f\n", m_duration);
-				
 				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 					if (m_client)
 					{
@@ -402,6 +401,7 @@ bool Acinerella::initialize()
 						{
 							minfo.m_width = minfo.m_height = 0;
 						}
+						minfo.m_isLive = m_isLive || !m_canSeek;
 						m_client->accInitialized(minfo);
 					}
 				});

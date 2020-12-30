@@ -156,6 +156,7 @@ typedef enum {
 - (BOOL)hasVideo;
 
 - (float)duration;
+- (BOOL)isLive;
 
 - (int)audioRate;
 - (int)audioChannels;

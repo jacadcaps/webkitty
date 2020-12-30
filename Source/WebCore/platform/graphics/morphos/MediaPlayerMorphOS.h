@@ -17,6 +17,7 @@ struct MediaPlayerMorphOSInfo
 	int   m_channels;
 	int   m_width;
 	int   m_height;
+	bool  m_isLive;
 };
 
 struct MediaPlayerMorphOSSettings

@@ -230,6 +230,11 @@ namespace  {
 	return _info.m_duration;
 }
 
+- (BOOL)isLive
+{
+	return _info.m_isLive;
+}
+
 - (int)audioRate
 {
 	return _info.m_frequency;
