@@ -16,8 +16,8 @@ public:
 	virtual void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) = 0;
 	virtual void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) = 0;
 	virtual void accSetBufferLength(float buffer) = 0;
-	virtual void accSetPosition(float buffer) = 0;
-	virtual void accSetDuration(float buffer) = 0;
+	virtual void accSetPosition(float position) = 0;
+	virtual void accSetDuration(float duration) = 0;
 	virtual void accEnded() = 0;
 };
 

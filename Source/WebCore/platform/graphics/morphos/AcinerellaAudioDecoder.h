@@ -21,7 +21,7 @@ public:
 	int bits() const { return m_audioBits; }
 	
 	bool isAudio() const override { return true; }
-	float readAheadTime() const override { return 5.f; }
+	float readAheadTime() const override { return m_isLive ? 15.f : 5.f; }
 
 	bool isReadyToPlay() const override;
 

@@ -10,7 +10,7 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 
-#define D(x) 
+#define D(x)
 #define DM(x) 
 
 namespace WebCore {
@@ -90,6 +90,8 @@ public:
     		return MediaPlayer::SupportsType::IsNotSupported;
     	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
     		return MediaPlayer::SupportsType::IsNotSupported;
+    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "data:"))
+    		return MediaPlayer::SupportsType::IsNotSupported;
 
 		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d profiles %d\n", __func__,
 			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream,
@@ -151,8 +153,6 @@ MediaPlayerPrivateMorphOS::~MediaPlayerPrivateMorphOS()
 	if (m_acinerella)
 		m_acinerella->terminate();
 
-	HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
-
 	// remove all pending requests that could be referencing 'this'
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
 		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
@@ -201,8 +201,6 @@ void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient
 void MediaPlayerPrivateMorphOS::cancelLoad()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
-
-	HTMLMediaElement *element = reinterpret_cast<HTMLMediaElement *>(&m_player->client());
 
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
 		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
@@ -277,6 +275,7 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 
 void MediaPlayerPrivateMorphOS::setVisible(bool visible)
 {
+	(void)visible;
 	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
 }
 
@@ -321,7 +320,7 @@ MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 {
-	return makeUnique<PlatformTimeRanges>();
+	return makeUnique<PlatformTimeRanges>(MediaTime::createWithFloat(m_currentTime), MediaTime::createWithFloat(m_currentTime + 6));
 }
 
 void MediaPlayerPrivateMorphOS::paint(GraphicsContext&, const FloatRect&)
@@ -393,6 +392,7 @@ void MediaPlayerPrivateMorphOS::accSetReadyState(WebCore::MediaPlayerEnums::Read
 
 void MediaPlayerPrivateMorphOS::accSetBufferLength(float buffer)
 {
+	(void)buffer;
 	m_player->bufferedTimeRangesChanged();
 	m_player->seekableTimeRangesChanged();
 }
@@ -406,6 +406,7 @@ void MediaPlayerPrivateMorphOS::accSetPosition(float pos)
 
 void MediaPlayerPrivateMorphOS::accSetDuration(float dur)
 {
+	D(dprintf("%s: changed to %f\n", __func__, this, dur));
 	m_duration = dur;
 	m_player->durationChanged();
 }

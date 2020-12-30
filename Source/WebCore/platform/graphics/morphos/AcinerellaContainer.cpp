@@ -21,11 +21,10 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	m_networkBuffer = AcinerellaNetworkBuffer::create(m_url);
 	m_enableAudio = client->accEnableAudio();
 	m_enableVideo = client->accEnableVideo();
-	m_isLive = m_url.endsWithIgnoringASCIICase("m3u8");
+	m_isLive = m_url.contains("m3u8");
 
 	if (m_networkBuffer)
 	{
-		m_canSeek = m_networkBuffer->canSeek();
 		m_networkBuffer->start();
 	}
 	ref();
@@ -38,6 +37,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 
 void Acinerella::play()
 {
+	D(dprintf("%s: paused %d ended %d\n", __PRETTY_FUNCTION__, m_paused, m_ended));
 	if (m_ended)
 		return;
 	m_paused = false;
@@ -51,6 +51,7 @@ void Acinerella::play()
 
 void Acinerella::pause()
 {
+	D(dprintf("%s: paused %d ended %d\n", __PRETTY_FUNCTION__, m_paused, m_ended));
 	if (m_ended)
 		return;
 
@@ -284,6 +285,9 @@ bool Acinerella::initialize()
 			int audioIndex = -1;
 			int videoIndex = -1;
 
+			// update once we know the size
+			m_canSeek = m_networkBuffer->canSeek();
+
 			for (int i = m_acinerella->instance()->stream_count - 1; i >= 0; --i)
 			{
 				ac_stream_info info;
@@ -363,7 +367,15 @@ bool Acinerella::initialize()
 					}
 				}
 				
-				m_duration = std::max(audioDuration, videoDuration);
+				// known length? assume our length is fine
+				// unknown? assume Inf
+				if (m_networkBuffer->length() > 0)
+					m_duration = std::max(audioDuration, videoDuration);
+				else
+					m_duration = std::numeric_limits<float>::infinity();
+				
+				dprintf("reported duration %f\n", m_duration);
+				
 				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 					if (m_client)
 					{
@@ -473,10 +485,16 @@ void Acinerella::demuxNextPackage()
 		muxer = m_muxer;
 	}
 
+	D(dprintf("%s: %p %p %p\n", __func__ , this, muxer.get(), acinerella.get(), acinerella->instance()));
+
 	if (muxer && acinerella && acinerella->instance())
 	{
 		AcinerellaPackage package(acinerella, ac_read_package(acinerella->instance()));
-		muxer->push(WTFMove(package));
+		// don't send EOF singnalling packages to muxer if this is a live stream!
+		if (!m_isLive || !!package)
+		{
+			muxer->push(WTFMove(package));
+		}
 	}
 }
 
@@ -487,6 +505,7 @@ void Acinerella::onDecoderReadyToPlay(AcinerellaDecoder& decoder)
 		{
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+			D(dprintf("%s: %p READY TO PLAY!\n", __func__ , this));
 		}
 	});
 }
@@ -516,6 +535,15 @@ void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float pos)
 	WTF::callOnMainThread([this, pos, protectedThis = makeRef(*this)]() {
 		if (m_client)
 			m_client->accSetPosition(pos);
+	});
+}
+
+void Acinerella::onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration)
+{
+	WTF::callOnMainThread([this, duration, protectedThis = makeRef(*this)]() {
+		m_duration = duration;
+		if (m_client)
+			m_client->accSetDuration(duration);
 	});
 }
 

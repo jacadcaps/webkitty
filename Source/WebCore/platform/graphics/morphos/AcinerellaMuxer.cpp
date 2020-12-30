@@ -20,7 +20,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#define D(x)
 
 namespace WebCore {
 namespace Acinerella {

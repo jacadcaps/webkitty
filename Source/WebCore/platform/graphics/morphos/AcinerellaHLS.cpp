@@ -7,7 +7,7 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) 
+#define D(x)
 
 class HLSMasterPlaylistParser
 {
@@ -46,7 +46,7 @@ public:
 				}
 				else if (hopingForM3U8)
 				{
-					if (line.endsWith("m3u8"))
+					if (line.contains("m3u8"))
 					{
 						if (line.contains(':'))
 						{

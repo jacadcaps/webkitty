@@ -246,6 +246,8 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
 	m_bufferedSamples += frame.frame()->buffer_size / 4; // 16bitStereo = 4BPF
 	m_bufferedSeconds = float(m_bufferedSamples) / float(m_audioRate);
+
+	D(dprintf("%s: buffered %f\n", __func__, m_bufferedSeconds));
 }
 
 bool AcinerellaAudioDecoder::isPlaying() const
@@ -325,7 +327,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				D(dprintf("%s: set timecode %f\n", __func__, float(frame->timecode)));
 			}
 		
-			if (frame->buffer_size == m_ahiFrameOffset)
+			if (frame->buffer_size == int(m_ahiFrameOffset))
 			{
 				D(dprintf("%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, float(frame->timecode)));
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
@@ -351,25 +353,38 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				}
 #endif
 
-
-
-	float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
-	// D(dprintf("%s: done, bleft %d offset %d postoannounce %f framesLeft: %d timeleft %f\n", __func__, bytesLeft, offset, positionToAnnounce, framesLeft, m_bufferedSeconds));
-
-	if (didPopFrames)
+	if (m_isLive)
 	{
-		dispatch([this, positionToAnnounce, protectedThis(makeRef(*this))]() {
-			if (!m_ahiThreadShuttingDown)
-			{
-				if (!m_isLive)
+		if (didPopFrames)
+		{
+			dispatch([this, protectedThis(makeRef(*this))]() {
+				if (!m_ahiThreadShuttingDown)
+				{
+					m_position += 0.5f;
+					m_duration += 0.5f;
+					onPositionChanged();
+					onDurationChanged();
+					decodeUntilBufferFull();
+				}
+			});
+		}
+	}
+	else
+	{
+		float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
+		// D(dprintf("%s: done, bleft %d offset %d postoannounce %f framesLeft: %d timeleft %f\n", __func__, bytesLeft, offset, positionToAnnounce, framesLeft, m_bufferedSeconds));
+
+		if (didPopFrames)
+		{
+			dispatch([this, positionToAnnounce, protectedThis(makeRef(*this))]() {
+				if (!m_ahiThreadShuttingDown)
 				{
 					m_position = positionToAnnounce;
 					onPositionChanged();
+					decodeUntilBufferFull();
 				}
-
-				decodeUntilBufferFull();
-			}
-		});
+			});
+		}
 	}
 	
 	if ((bytesLeft == m_ahiSampleLength * 4) && m_position + 1.5f > m_duration && !m_isLive)

@@ -5,8 +5,8 @@
 #include "AcinerellaContainer.h"
 #include <proto/exec.h>
 
-#define D(x) 
-#define DNF(x)
+#define D(x)
+#define DNF(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -14,10 +14,15 @@ namespace Acinerella {
 AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &, bool isLiveStream)
 	: m_parent(parent)
 	, m_muxer(buffer)
-	, m_isLive(isLiveStream)
 	, m_index(index)
+	, m_isLive(isLiveStream)
 {
 	m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
+
+	// simulated duration of 3 chunks
+	if (m_isLive)
+		m_duration = 15.f;
+
 	m_bitrate = parent->ac()->info.bitrate;
 	D(dprintf("%s: %p starting thread; duration %lld br %ld\n", __func__, this, parent->ac()->info.duration, parent->ac()->info.bitrate));
 	m_thread = Thread::create("Acinerella Decoder", [this] {
@@ -133,6 +138,12 @@ void AcinerellaDecoder::onPositionChanged()
 {
 	D(dprintf("%s: %p to %f\n", __func__, this, position()));
 	m_parent->onDecoderUpdatedPosition(*this, position());
+}
+
+void AcinerellaDecoder::onDurationChanged()
+{
+	D(dprintf("%s: %p to %f\n", __func__, this, duration()));
+	m_parent->onDecoderUpdatedDuration(*this, duration());
 }
 
 void AcinerellaDecoder::onEnded()

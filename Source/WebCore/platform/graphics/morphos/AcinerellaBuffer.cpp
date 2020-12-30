@@ -100,6 +100,11 @@ dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 		return int64_t(m_bufferPositionAbs);
 	}
 
+	bool canSeek() override
+	{
+		return m_length > 0;
+	}
+
 	int read(uint8_t *outBuffer, int size, int64_t readPosition) override
 	{
 		D(dprintf("%s(%p): requested %ld from %lld (current %lld max %lld)\n", "nbRead", this, size, readPosition, m_bufferPositionAbs, m_length));
@@ -399,7 +404,7 @@ AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(const String &url, size_t readA
 
 RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::create(const String &url, size_t readAhead)
 {
-	if (url.endsWithIgnoringASCIICase("m3u8"))
+	if (url.contains("m3u8"))
 		return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferHLS(url, readAhead)));
 	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(url, readAhead)));
 }

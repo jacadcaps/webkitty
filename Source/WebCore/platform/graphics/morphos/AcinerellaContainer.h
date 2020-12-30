@@ -84,7 +84,8 @@ protected:
 	void onDecoderReadyToPlay(AcinerellaDecoder& decoder);
 	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing);
 	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer);
-	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float buffer);
+	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position);
+	void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration);
 	void onDecoderEnded(AcinerellaDecoder& decoder);
 
 protected:

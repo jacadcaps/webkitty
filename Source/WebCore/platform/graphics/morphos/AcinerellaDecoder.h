@@ -87,6 +87,7 @@ protected:
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
 	void onPositionChanged();
+	void onDurationChanged();
 	void onEnded();
 	virtual void flush();
 
