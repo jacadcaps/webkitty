@@ -1249,7 +1249,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewContextMenuDelegate> contextMenuDelegate = [privateObject contextMenuDelegate];
 			WebKit::WebPage *page = [privateObject page];
-			MUIMenu *menu = [[MUIMenu new] autorelease];
+			MUIMenu *menu = [MUIMenu new];
 			WkHitTestPrivate *wkhit = contextMenuDelegate ? [[WkHitTestPrivate hitTestFromHitTestResult:hitTest onWebPage:[privateObject pageRefPtr]] retain] : nil;
 
 			if ([wkhit isContentEditable] && 0 == [[wkhit selectedText] length])
@@ -1286,8 +1286,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				}
 			}
 			
+			bool ok = [menu count] > 0;
 			[wkhit release];
-			return [menu count] > 0;
+			[menu release];
+			return ok;
 		};
 		
 		webPage->_fHistoryChanged = [self]() {
@@ -1330,6 +1332,30 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WkWebViewPrivate *privateObject = [self privateObject];
 			const WTF::URL &url = request.url();
 
+			WTF::String protocol = url.protocol().toString();
+
+			// bypass standard protocols...
+			if (protocol == "http" || protocol == "https" || protocol == "file" || protocol == "about" || protocol == "blob")
+			{
+				return true;
+			}
+
+			auto uprotocol = protocol.utf8();
+			OBString *oprotocol = [OBString stringWithUTF8String:uprotocol.data()];
+			id<WkWebViewNetworkProtocolHandlerDelegate> delegate = [privateObject protocolDelegateForProtocol:oprotocol];
+			if (delegate)
+			{
+				return true;
+			}
+
+			return false;
+		};
+		
+		webPage->_fShouldNavigateToURL = [self](const WTF::URL &url, bool window) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			WTF::String protocol = url.protocol().toString();
+
 			id<WkWebViewAllRequestsHandlerDelegate> allHandler = [privateObject allRequestsHandler];
 			if (allHandler)
 			{
@@ -1339,24 +1365,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					return false;
 			}
 
-			WTF::String protocol = url.protocol().toString();
-
-			// bypass standard protocols...
-			if (protocol == "http" || protocol == "https" || protocol == "file" || protocol == "about")
-			{
-				return true;
-			}
-
-			if (protocol == "ftp" || protocol == "mailto")
+			if (protocol == "ftp" || protocol == "mailto" || protocol == "ftps")
 			{
 				auto udata = url.string().ascii();
 				struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
 				URL_OpenA((STRPTR)udata.data(), urltags);
-				return false;
-			}
-			
-			if (protocol == "ftps")
-			{
 				return false;
 			}
 

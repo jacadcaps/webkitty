@@ -566,37 +566,17 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Navigati
         return;
     }
 
+	if (webPage && webPage->_fShouldNavigateToURL)
+	{
+		if (!webPage->_fShouldNavigateToURL(request.url(), true))
+		{
+        	function(PolicyAction::Ignore, identifier);
+			return;
+		}
+	}
+
 	notImplemented();
 	function(PolicyAction::Use, identifier);
-#if 0
-    RefPtr<API::Object> userData;
-
-    auto action = InjectedBundleNavigationAction::create(m_frame, navigationAction, formState);
-
-    // Notify the bundle client.
-    WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNewWindowAction(webPage, m_frame, action.ptr(), request, frameName, userData);
-    if (policy == WKBundlePagePolicyActionUse) {
-        function(PolicyAction::Use, identifier);
-        return;
-    }
-
-    uint64_t listenerID = m_frame->setUpPolicyListener(identifier, WTFMove(function), WebFrame::ForNavigationAction::No);
-
-    NavigationActionData navigationActionData;
-    navigationActionData.navigationType = action->navigationType();
-    navigationActionData.modifiers = action->modifiers();
-    navigationActionData.mouseButton = action->mouseButton();
-    navigationActionData.syntheticClickType = action->syntheticClickType();
-    navigationActionData.clickLocationInRootViewCoordinates = action->clickLocationInRootViewCoordinates();
-    navigationActionData.userGestureTokenIdentifier = WebProcess::singleton().userGestureTokenIdentifier(navigationAction.userGestureToken());
-    navigationActionData.canHandleRequest = webPage->canHandleRequest(request);
-    navigationActionData.shouldOpenExternalURLsPolicy = navigationAction.shouldOpenExternalURLsPolicy();
-    navigationActionData.downloadAttribute = navigationAction.downloadAttribute();
-
-    WebCore::Frame* coreFrame = m_frame ? m_frame->coreFrame() : nullptr;
-    webPage->send(Messages::WebPageProxy::DecidePolicyForNewWindowAction(m_frame->frameID(), SecurityOriginData::fromFrame(coreFrame), identifier, navigationActionData, request,
-        frameName, listenerID, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
-#endif
 }
 
 void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePolicies)
@@ -629,6 +609,16 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         function(PolicyAction::Ignore, requestIdentifier);
         return;
     }
+
+	if (webPage && webPage->_fShouldNavigateToURL)
+	{
+		if (!webPage->_fShouldNavigateToURL(request.url(), false))
+		{
+        	function(PolicyAction::Ignore, requestIdentifier);
+			return;
+		}
+	}
+
 	notImplemented();
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
 

@@ -2816,6 +2816,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
 						m_trackMiddle = false;
+						m_trackMiddleDidScroll = false;
 						return wasTrackMouse;
 					}
 					m_trackMiddle = false;
