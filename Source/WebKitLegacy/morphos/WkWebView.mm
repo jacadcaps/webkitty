@@ -46,6 +46,7 @@
 #import <proto/openurl.h>
 #import <libraries/openurl.h>
 #import <pthread.h>
+#import <hardware/atomic.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
@@ -1679,6 +1680,31 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[privateObject playerRemoved:player];
 		};
 #endif
+	}
+	
+	return self;
+}
+
+- (id)release
+{
+	int32_t count = ATOMIC_SUB((LONG*)&_useCount, 1);
+	
+	if (0 == count)
+	{
+		OBRunLoop *mainRunLoop = [OBRunLoop mainRunLoop];
+		
+		if (wkIsMainThread())
+		{
+			[self dealloc];
+		}
+		else
+		{
+			ATOMIC_ADD((LONG*)&_useCount, 1);
+			WTF::callOnMainThread([self]() {
+				[self release];
+			});
+		}
+		return nil;
 	}
 	
 	return self;
