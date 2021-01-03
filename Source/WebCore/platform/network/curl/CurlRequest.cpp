@@ -138,15 +138,15 @@ void CurlRequest::cancel()
 {
     ASSERT(isMainThread());
 	
-	if (!isMainThread())
-	{
-		dprintf("!!CurlReqest::cancel() called on wrong thread!!\n");
-	}
-
     {
         auto locker = holdLock(m_statusMutex);
         if (m_cancelled)
+        {
+        	// must make sure invalidateClient is called or we could end up with
+        	// it dying while we still reference it
+    		invalidateClient();
             return;
+		}
 
         m_cancelled = true;
     }
