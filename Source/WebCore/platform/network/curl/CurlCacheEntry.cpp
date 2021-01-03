@@ -65,6 +65,25 @@ CurlCacheEntry::CurlCacheEntry(const String& url, ResourceHandle* job, const Str
     m_contentFilename.append(".content");
 }
 
+CurlCacheEntry::CurlCacheEntry(const String& url, uint64_t entrySize, double expireDate, const String& cacheDir)
+    : m_headerFilename(cacheDir)
+    , m_contentFilename(cacheDir)
+    , m_contentFile(FileSystem::invalidPlatformFileHandle)
+    , m_entrySize(entrySize)
+    , m_expireDate(WallTime::fromRawSeconds(expireDate))
+    , m_headerParsed(false)
+    , m_isLoading(false)
+    , m_job(nullptr)
+{
+    generateBaseFilename(url.latin1());
+
+    m_headerFilename.append(m_basename);
+    m_headerFilename.append(".header");
+
+    m_contentFilename.append(m_basename);
+    m_contentFilename.append(".content");
+}
+
 CurlCacheEntry::~CurlCacheEntry()
 {
     closeContentFile();
@@ -94,7 +113,20 @@ bool CurlCacheEntry::isCached()
     return true;
 }
 
-bool CurlCacheEntry::saveCachedData(const char* data, size_t size)
+bool CurlCacheEntry::isValid()
+{
+	if (0 == entrySize())
+		return false;
+
+    if (m_expireDate < WallTime::now()) {
+        m_headerParsed = false;
+        return false;
+    }
+
+    return true;
+}
+
+bool CurlCacheEntry::saveCachedData(const char* data, uint64_t size)
 {
     if (!openContentFile())
         return false;
@@ -325,7 +357,7 @@ void CurlCacheEntry::setIsLoading(bool isLoading)
         closeContentFile();
 }
 
-size_t CurlCacheEntry::entrySize()
+uint64_t CurlCacheEntry::entrySize()
 {
     if (!m_entrySize) {
         long long headerFileSize;
