@@ -260,6 +260,10 @@ static void buildMediaEnginesVector()
 #if PLATFORM(WIN)
         MediaPlayerPrivateAVFoundationCF::registerMediaEngine(addMediaEngine);
 #endif
+
+#if ENABLE(VIDEO) && OS(MORPHOS)
+		MediaPlayerPrivateMorphOS::registerMediaEngine(addMediaEngine);
+#endif
     }
 #endif // USE(AVFOUNDATION)
 

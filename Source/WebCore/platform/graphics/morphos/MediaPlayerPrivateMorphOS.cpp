@@ -88,10 +88,16 @@ public:
     {
     	if (startsWithLettersIgnoringASCIICase(parameters.type.raw(), "image/"))
     		return MediaPlayer::SupportsType::IsNotSupported;
-    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
-    		return MediaPlayer::SupportsType::IsNotSupported;
     	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "data:"))
     		return MediaPlayer::SupportsType::IsNotSupported;
+
+#if ENABLE(MEDIA_SOURCE)
+    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
+    		return MediaPlayer::SupportsType::MayBeSupported;
+#else
+    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
+    		return MediaPlayer::SupportsType::IsNotSupported;
+#endif
 
 		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d profiles %d\n", __func__,
 			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream,
@@ -194,7 +200,7 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 #if ENABLE(MEDIA_SOURCE)
 void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient*)
 {
-	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.string().utf8().data()));
+	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
 }
 #endif
 

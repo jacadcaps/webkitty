@@ -395,6 +395,12 @@ protected:
 	bool                             m_seekProcessed = true;
 };
 
+class AcinerellaNetworkBufferPlatformMediaResourceLoader : public AcinerellaNetworkBuffer
+{
+	// MediaResourceLoader::requestResource
+	// static gboolean webKitWebSrcMakeRequest(GstBaseSrc* baseSrc, bool notifyAsyncCompletion)
+};
+
 AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(const String &url, size_t readAhead)
 	: m_url(url)
 	, m_readAhead(readAhead)
