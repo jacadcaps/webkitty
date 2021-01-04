@@ -1672,9 +1672,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				if (handler)
 				{
 					[privateObject playerAdded:handler];
-					[handler release];
-					
 					[mediaDelegate webView:self wantsToLoadMediaWithURL:[handler mediaURL] withResponseHandler:handler];
+					[handler release];
 				}
 			}
 		};
