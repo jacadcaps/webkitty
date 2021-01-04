@@ -31,7 +31,8 @@ public:
 	
 	NetworkingContext *m_networkingContextForRequests = nullptr;
 
-	Function<void(WebCore::MediaPlayer *player, const String &url, MediaPlayerMorphOSInfo &info, Function<void(bool doLoad)>&&)> m_preloadCheck;
+	Function<bool(WebCore::MediaPlayer *player, const String &url)> m_preloadCheck;
+	Function<void(WebCore::MediaPlayer *player, const String &url, MediaPlayerMorphOSInfo &info, Function<void(bool doLoad)>&&)> m_loadCheck;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 };
 

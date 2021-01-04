@@ -189,6 +189,18 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 	if (startsWithLettersIgnoringASCIICase(url, "about:"))
 		return;
 
+	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
+	{
+		if (!MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, url))
+		{
+			m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
+			m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
+			m_player->networkStateChanged();
+			m_player->readyStateChanged();
+			return;
+		}
+	}
+
 	m_networkState = MediaPlayer::NetworkState::Loading;
 	m_player->networkStateChanged();
 	m_readyState = MediaPlayer::ReadyState::HaveNothing;
@@ -355,9 +367,9 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
-	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck && m_acinerella)
+	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
 	{
-		MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
+		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
 			if (doLoad)
 			{
 				m_acInitialized = true;
@@ -422,6 +434,14 @@ void MediaPlayerPrivateMorphOS::accEnded()
 	m_currentTime = m_duration;
 	m_player->timeChanged();
 	m_player->characteristicChanged();
+}
+
+void MediaPlayerPrivateMorphOS::accFailed()
+{
+	m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
+	m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
+	m_player->networkStateChanged();
+	m_player->readyStateChanged();
 }
 
 }

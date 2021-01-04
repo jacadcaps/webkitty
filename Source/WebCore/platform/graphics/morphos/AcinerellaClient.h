@@ -19,6 +19,7 @@ public:
 	virtual void accSetPosition(float position) = 0;
 	virtual void accSetDuration(float duration) = 0;
 	virtual void accEnded() = 0;
+	virtual void accFailed() = 0;
 };
 
 }

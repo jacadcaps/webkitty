@@ -368,43 +368,53 @@ bool Acinerella::initialize()
 					}
 				}
 				
-				// known length? assume our length is fine
-				// unknown? assume Inf
-				if (m_networkBuffer->length() > 0)
-					m_duration = std::max(audioDuration, videoDuration);
-				else
-					m_duration = std::numeric_limits<float>::infinity();
-				
-				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
-					if (m_client)
-					{
-						m_client->accSetDuration(m_duration);
-						MediaPlayerMorphOSInfo minfo;
-						minfo.m_duration = m_duration;
+				if (m_audioDecoder || m_videoDecoder)
+				{
+					// known length? assume our length is fine
+					// unknown? assume Inf
+					if (m_networkBuffer->length() > 0)
+						m_duration = std::max(audioDuration, videoDuration);
+					else
+						m_duration = std::numeric_limits<float>::infinity();
+					
+					WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+						if (m_client)
+						{
+							m_client->accSetDuration(m_duration);
+							MediaPlayerMorphOSInfo minfo;
+							minfo.m_duration = m_duration;
 
-						if (m_audioDecoder)
-						{
-							RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
-							minfo.m_frequency = audio->rate();
-							minfo.m_bits = audio->bits();
-							minfo.m_channels = audio->channels();
+							if (m_audioDecoder)
+							{
+								RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
+								minfo.m_frequency = audio->rate();
+								minfo.m_bits = audio->bits();
+								minfo.m_channels = audio->channels();
+							}
+							else
+							{
+								minfo.m_frequency = 0;
+							}
+							
+							if (m_videoDecoder)
+							{
+							}
+							else
+							{
+								minfo.m_width = minfo.m_height = 0;
+							}
+							minfo.m_isLive = m_isLive || !m_canSeek;
+							m_client->accInitialized(minfo);
 						}
-						else
-						{
-							minfo.m_frequency = 0;
-						}
-						
-						if (m_videoDecoder)
-						{
-						}
-						else
-						{
-							minfo.m_width = minfo.m_height = 0;
-						}
-						minfo.m_isLive = m_isLive || !m_canSeek;
-						m_client->accInitialized(minfo);
-					}
-				});
+					});
+				}
+				else
+				{
+					WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+						if (m_client)
+							m_client->accFailed();
+					});
+				}
 			}
 		}
 	}

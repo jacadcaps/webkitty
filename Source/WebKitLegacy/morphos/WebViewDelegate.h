@@ -89,6 +89,7 @@ struct WebViewDelegate
 	
 	std::function<void(void)> _fUndoRedoChanged;
 
+	std::function<bool(void *player, const String &url)> _fAttemptMedia;
 	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WTF::Function<void(bool doLoad)> &&loadFunc)> _fMediaAdded;
 	std::function<void(void *player)> _fMediaRemoved;
 
@@ -135,6 +136,9 @@ struct WebViewDelegate
 		_fPrint = nullptr;
 		_fUndoRedoChanged = nullptr;
 		_fShouldNavigateToURL = nullptr;
+		_fAttemptMedia = nullptr;
+		_fMediaAdded = nullptr;
+		_fMediaRemoved = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

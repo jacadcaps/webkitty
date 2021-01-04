@@ -1648,6 +1648,18 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		};
 
 #if ENABLE(VIDEO)
+		webPage->_fAttemptMedia = [self](void *player, const String &url) -> bool {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
+			if (mediaDelegate)
+			{
+				auto uurl = url.utf8();
+				return [mediaDelegate webView:self shouldBePermittedToPreloadMediaWithURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+			}
+			return YES;
+		};
+	
 		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info, WTF::Function<void(bool doLoad)> &&loadFunc) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];

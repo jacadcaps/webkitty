@@ -169,6 +169,7 @@ typedef enum {
 
 @protocol WkWebViewMediaDelegate <OBObject>
 
+- (BOOL)webView:(WkWebView *)view shouldBePermittedToPreloadMediaWithURL:(OBURL *)url;
 - (void)webView:(WkWebView *)view wantsToLoadMediaWithURL:(OBURL *)url withResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
 - (void)webView:(WkWebView *)view cancelledMediaLoadWithResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
 

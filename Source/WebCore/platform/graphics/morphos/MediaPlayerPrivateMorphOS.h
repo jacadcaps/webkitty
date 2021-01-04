@@ -75,6 +75,7 @@ public:
 	void accSetPosition(float buffer) override;
 	void accSetDuration(float buffer) override;
 	void accEnded() override;
+	void accFailed() override;
 
 protected:
 	MediaPlayer* m_player;

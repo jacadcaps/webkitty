@@ -192,7 +192,30 @@ void WebProcess::initialize(int sigbit)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 	
-	MediaPlayerMorphOSSettings::settings().m_preloadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, Function<void(bool doLoad)> &&load) {
+	MediaPlayerMorphOSSettings::settings().m_preloadCheck = [this](WebCore::MediaPlayer *player, const String &url) -> bool {
+		for (auto& webpage : m_pageMap.values())
+		{
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fAttemptMedia)
+				{
+					return webpage->_fAttemptMedia(player, url);
+				}
+			}
+		}
+		
+		return true;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, Function<void(bool doLoad)> &&load) {
 		for (auto& webpage : m_pageMap.values())
 		{
 			bool found = false;
