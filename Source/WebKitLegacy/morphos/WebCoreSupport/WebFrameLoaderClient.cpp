@@ -543,7 +543,8 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
         return;
     }
 
-	if (!canShowMIMEType(response.mimeType()))
+	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
+	if (!canShowMIMEType(response.mimeType()) && request.isTopSite())
 	{
 		// should we download this??
 		if (webPage->_fDownloadAsk)
