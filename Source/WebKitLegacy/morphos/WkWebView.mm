@@ -47,9 +47,12 @@
 #import <libraries/openurl.h>
 #import <pthread.h>
 #import <hardware/atomic.h>
+#import <exec/system.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
+
+#include "libeventprofiler.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -82,6 +85,7 @@ namespace  {
 - (void)scrollToX:(int)sx y:(int)sy;
 - (void)setDocumentWidth:(int)width height:(int)height;
 - (void)recalculatePrinting;
+- (void)lateDraw;
 
 @end
 
@@ -266,39 +270,45 @@ namespace  {
 
 @interface WkWebViewPrivate : OBObject
 {
-	WTF::RefPtr<WebKit::WebPage>         _page;
-	id<WkWebViewScrollingDelegate>       _scrollingDelegate;
-	id<WkWebViewClientDelegate>         _clientDelegate;
-	id<WkWebViewBackForwardListDelegate> _backForwardDelegate;
-	id<WkWebViewDebugConsoleDelegate>    _consoleDelegate;
-	id<WkDownloadDelegate>               _downloadDelegate;
-	id<WkWebViewDialogDelegate>          _dialogDelegate;
-	id<WkWebViewAutofillDelegate>        _autofillDelegate;
-	id<WkWebViewProgressDelegate>        _progressDelegate;
-	id<WkWebViewContextMenuDelegate>     _contextMenuDelegate;
+	WTF::RefPtr<WebKit::WebPage>            _page;
+	id<WkWebViewScrollingDelegate>          _scrollingDelegate;
+	id<WkWebViewClientDelegate>             _clientDelegate;
+	id<WkWebViewBackForwardListDelegate>    _backForwardDelegate;
+	id<WkWebViewDebugConsoleDelegate>       _consoleDelegate;
+	id<WkDownloadDelegate>                  _downloadDelegate;
+	id<WkWebViewDialogDelegate>             _dialogDelegate;
+	id<WkWebViewAutofillDelegate>           _autofillDelegate;
+	id<WkWebViewProgressDelegate>           _progressDelegate;
+	id<WkWebViewContextMenuDelegate>        _contextMenuDelegate;
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
-	id<WkWebViewEditorDelegate>          _editorDelegate;
-	id<WkWebViewMediaDelegate>           _mediaDelegate;
-	OBMutableDictionary                 *_protocolDelegates;
+	id<WkWebViewEditorDelegate>             _editorDelegate;
+	id<WkWebViewMediaDelegate>              _mediaDelegate;
+	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
-	OBMutableDictionary                 *_mediaPlayers;
+	OBMutableDictionary                    *_mediaPlayers;
 #endif
-	WkBackForwardListPrivate            *_backForwardList;
-	WkSettings_Throttling                _throttling;
-	WkSettings_UserStyleSheet            _userStyleSheet;
-	OBString                            *_userStyleSheetFile;
-	WkPrintingStatePrivate              *_printingState;
-	bool                                 _drawPending;
-	bool                                 _isActive;
-	bool                                 _isLoading;
-	bool                                 _isLiveResizing;
-	bool                                 _hasOnlySecureContent;
-	OBURL                               *_url;
-	OBString                            *_title;
-	OBURL                               *_hover;
-	int                                  _scrollX, _scrollY;
-	int                                  _documentWidth, _documentHeight;
-	float                                _savedPageZoom, _savedTextZoom;
+	WkBackForwardListPrivate               *_backForwardList;
+	WkSettings_Throttling                   _throttling;
+	WkSettings_UserStyleSheet               _userStyleSheet;
+	OBString                               *_userStyleSheetFile;
+	WkPrintingStatePrivate                 *_printingState;
+	bool                                    _drawPending;
+	bool                                    _isActive;
+	bool                                    _isLoading;
+	bool                                    _isLiveResizing;
+	bool                                    _hasOnlySecureContent;
+	bool                                    _isHandlingUserInput;
+	OBURL                                  *_url;
+	OBString                               *_title;
+	OBURL                                  *_hover;
+	int                                     _scrollX, _scrollY;
+	int                                     _documentWidth, _documentHeight;
+	float                                   _savedPageZoom, _savedTextZoom;
+	UQUAD                                   _drawTime;
+	ULONG                                   _drawTimeBase;
+	UQUAD                                   _drawTimeLast;
+	OBPerform                              *_paintPerform;
+	OBScheduledTimer                       *_paintTimer;
 }
 @end
 
@@ -312,6 +322,8 @@ namespace  {
 		_hasOnlySecureContent = YES;
 		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
 		_userStyleSheetFile = @"PROGDIR:Resources/morphos.css";
+		
+		NewGetSystemAttrsA(&_drawTimeBase, sizeof(_drawTimeBase), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
 	}
 	return self;
 }
@@ -337,6 +349,9 @@ namespace  {
 	[_userStyleSheetFile release];
 	[_printingState invalidate];
 	[_printingState release];
+	[_paintPerform release];
+	[_paintTimer invalidate];
+	[_paintTimer release];
 #if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
@@ -419,9 +434,62 @@ namespace  {
 	return _url;
 }
 
-- (void)setDrawPending:(bool)drawPending
+- (void)setDrawPendingWithSchedule:(BOOL)schedule
 {
-	_drawPending = drawPending;
+	if (!_drawPending)
+	{
+		[_paintTimer invalidate];
+		[_paintTimer release];
+		_paintTimer = nil;
+
+		_drawPending = YES;
+		
+		if (schedule && _isHandlingUserInput)
+		{
+			[[OBRunLoop mainRunLoop] perform:_paintPerform];
+			return;
+		}
+		
+		if (schedule && _paintPerform)
+		{
+			static double divider = (double)_drawTimeBase;
+			double interval = _drawTime;
+			interval /= divider;
+			interval *= 3.0;
+			double timeSinceLast = (__builtin_ppc_get_timebase() - _drawTimeLast);
+			timeSinceLast /= divider;
+			if (timeSinceLast > interval)
+				interval = (1.0 / 60.0);
+			if (interval < (1.0 / 60.0))
+				interval = (1.0 / 60.0);
+			if (interval > 1.0)
+				interval = 1.0;
+
+			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:_paintPerform repeats:NO] retain];
+		}
+	}
+}
+
+- (void)drawFinishedIn:(UQUAD)timebaseticks
+{
+	_drawPending = NO;
+	_drawTime = timebaseticks;
+	_drawTimeLast = __builtin_ppc_get_timebase();
+}
+
+- (void)setPaintPerform:(OBPerform *)paint
+{
+	[_paintTimer invalidate];
+	[_paintTimer release];
+	_paintTimer = nil;
+
+	[_paintPerform autorelease];
+	_paintPerform = [paint retain];
+}
+
+- (void)setIsHandlingUserInput:(BOOL)handling
+{
+	_isHandlingUserInput = handling;
 }
 
 - (void)setBackForwardDelegate:(id<WkWebViewBackForwardListDelegate>)backForwardDelegate
@@ -530,6 +598,11 @@ namespace  {
 - (bool)drawPending
 {
 	return _drawPending;
+}
+
+- (bool)drawPendingWithSchedule
+{
+	return _drawPending && _paintTimer;
 }
 
 - (void)setIsActive:(bool)isactive
@@ -670,7 +743,7 @@ namespace  {
 		_drawPending = YES; // ignore some repaints..
 
 		auto *state = [[WkPrintingStatePrivate alloc] initWithWebView:view frame:_page->mainFrame()];
-		[state setSettings:settings];
+		[state setSettings:(id)settings];
 		_printingState = state;
 	}
 	return _printingState;
@@ -877,7 +950,9 @@ static inline void validateObjCContext() {
 	{
 		static const uint32_t mask = uint32_t(1UL << [handler sigBit]);
 
+		EP_BEGIN(WebKitSignals);
 		WebKit::WebProcess::singleton().handleSignals(mask);
+		EP_END(WebKitSignals);
 
 		float nextTimerEvent = WebKit::WebProcess::singleton().timeToNextTimerEvent();
 
@@ -897,6 +972,7 @@ static inline void validateObjCContext() {
 			}
 		}
 		
+		// note: we have an additional 4Hz heartbeat timer running all the time!
 		if (nextTimerEvent < 0.25)
 		{
 			[_fastSingleBeatTimer invalidate];
@@ -1702,8 +1778,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	
 	if (0 == count)
 	{
-		OBRunLoop *mainRunLoop = [OBRunLoop mainRunLoop];
-		
 		if (wkIsMainThread())
 		{
 			[self dealloc];
@@ -1739,7 +1813,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)scrollToLeft:(int)left top:(int)top
 {
 	auto webPage = [_private page];
+	[_private setIsHandlingUserInput:YES];
 	webPage->setScroll(left, top);
+	[_private setIsHandlingUserInput:NO];
 }
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
@@ -1764,6 +1840,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	const char *curi = [[url absoluteString] cString];
 	if (nullptr == curi)
 		curi = "about:blank";
+
+	EP_EVENTSTR(curi);
+
 	auto webPage = [_private page];
 	[_private setURL:url];
 	[[_private clientDelegate] webView:self changedTitle:[url absoluteString]];
@@ -2118,17 +2197,23 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (BOOL)draw:(ULONG)flags
 {
+	EP_SCOPE(draw);
+	UQUAD drawStartTS = __builtin_ppc_get_timebase();
+
 	[super draw:flags];
 	
 	LONG iw = [self innerWidth];
 	LONG ih = [self innerHeight];
 
+	EP_BEGIN(setVisibleSize);
 	auto webPage = [_private page];
 	webPage->setVisibleSize(int(iw), int(ih));
+	EP_END(setVisibleSize);
 	
 	WkPrintingStatePrivate *printingState = [_private printingState];
 	if (printingState)
 	{
+		EP_SCOPE(printPreview);
 		WkPrintingPage *page = [printingState pageWithMarginsApplied];
 
 		float contentWidth = [page contentWidth] * 72.f;
@@ -2144,10 +2229,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 	else
 	{
+		EP_SCOPE(pageDraw);
 		webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
 	}
 
-	[_private setDrawPending:false];
+	UQUAD drawEndTS = __builtin_ppc_get_timebase();
+	[_private drawFinishedIn:(UQUAD)drawEndTS - drawStartTS];
 
 	return TRUE;
 }
@@ -2163,6 +2250,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			
 			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 				webPage->setLowPowerMode(false);
+			
+			[_private setPaintPerform:[OBPerform performSelector:@selector(lateDraw) target:self]];
 			
 			if ([_private documentWidth])
 			{
@@ -2199,6 +2288,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	{
 		auto webPage = [_private page];
 		webPage->goHidden();
+
+		[_private setPaintPerform:nil];
 
 		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 			webPage->setLowPowerMode(true);
@@ -2292,18 +2383,25 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		return 0;
 	}
 	
+	[_private setIsHandlingUserInput:YES];
+	
 	if (muikey != MUIKEY_NONE && webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
+	{
+		[_private setIsHandlingUserInput:NO];
 		return MUI_EventHandlerRC_Eat;
+	}
 
 	if (imsg)
 	{
 		if (webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg],
 			[self isInObject:imsg], [[self windowObject] defaultObject] == self))
 		{
+			[_private setIsHandlingUserInput:NO];
 			return MUI_EventHandlerRC_Eat;
 		}
 	}
 
+	[_private setIsHandlingUserInput:NO];
 	return 0;
 }
 
@@ -2324,9 +2422,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	if (![_private drawPending] || force)
 	{
-		[[OBRunLoop mainRunLoop] performSelector:
-			force ? @selector(lateRedraw) : @selector(lateDraw) target:self];
-		[_private setDrawPending:true];
+		[_private setDrawPendingWithSchedule:!force];
+
+		if (force)
+		{
+			[[OBRunLoop mainRunLoop] performSelector:@selector(lateRedraw) target:self];
+		}
 	}
 }
 
@@ -2335,10 +2436,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[_private setScrollX:sx y:sy];
 	[[_private scrollingDelegate] webView:self scrolledToLeft:sx top:sy];
 
-	if (![_private drawPending])
+	// don't use draw scheduling - we want to have scrolling as fast as possible
+	if (![_private drawPending] || [_private drawPendingWithSchedule])
 	{
+		[_private setDrawPendingWithSchedule:NO];
 		[[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
-		[_private setDrawPending:true];
 	}
 }
 

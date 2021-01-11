@@ -166,6 +166,8 @@
 #include <proto/openurl.h>
 #include <libraries/openurl.h>
 
+#include "libeventprofiler.h"
+
 // we cannot include libraries/mui.h here...
 enum
 {
@@ -483,6 +485,7 @@ public:
 
 	void invalidate(const WebCore::IntRect& rect)
 	{
+		EP_SCOPE(invalidate);
 		int width = rect.width();
 		int height = rect.height();
 		
@@ -498,11 +501,13 @@ public:
 	
 	void invalidate()
 	{
+		EP_SCOPE(invalidateall);
 		m_damage.invalidate();
 	}
 	
 	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation)
 	{
+		EP_SCOPE(repair);
 		WebCore::GraphicsContext gc(m_platformContext);
 		
 		if (WebCore::InterpolationQuality::Default != interpolation)
@@ -511,6 +516,7 @@ public:
 		}
 
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			EP_SCOPE(tile)
 			WebCore::IntRect ir(x, y, width, height);
 			/// NOTE: bad shit happens when clipping is used w/o save/restore, cairo seems to be happily
 			/// trashing memory w/o this
@@ -519,27 +525,33 @@ public:
 			/// in their actual bounds otherwise, but will not paint any children that do not (so a button
 			/// frame overlapping would clear button text if the text wasn't overlapping)
 			gc.clip(WebCore::FloatRect(x, y, width, height));
+			EP_BEGIN(paint);
 			frameView->paint(gc, ir);
+			EP_END(paint);
 			gc.restore();
 		});
 	}
 	
 	void repaint(RastPort *rp, const int outX, const int outY)
 	{
+		EP_SCOPE(repaint);
 		cairo_surface_flush(m_surface);
 		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
 		unsigned char *src = cairo_image_surface_get_data(m_surface);
 
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			EP_SCOPE(wpa);
 			WritePixelArray(src, x, y, stride, rp, outX + x, outY + y, width, height, RECTFMT_ARGB);
 		});
 	}
 	
 	void repaintAll(RastPort *rp, const int outX, const int outY)
 	{
+		EP_SCOPE(repaint);
 		cairo_surface_flush(m_surface);
 		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
 		unsigned char *src = cairo_image_surface_get_data(m_surface);
+		EP_SCOPE(wpa);
 		WritePixelArray(src, 0, 0, stride, rp, outX, outY, m_width, m_height, RECTFMT_ARGB);
 	}
 
@@ -548,6 +560,7 @@ public:
 	{
 		if (!m_platformContext)
 			return;
+		EP_SCOPE(draw);
 
 		(void)scrollX;
 
@@ -603,6 +616,7 @@ public:
 
 	bool resize(const int width, const int height)
 	{
+		EP_SCOPE(resize);
 		if (width != m_width || height != m_height)
 		{
 			if (m_platformContext)
