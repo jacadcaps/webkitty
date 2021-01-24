@@ -70,7 +70,7 @@ namespace  {
 	static int _viewInstanceCount;
 	static bool _shutdown;
 	static bool _readyToQuitPending;
-	static bool _wasInstantiatedOnce;
+	static bool _initializedOK;
 	static OBSignalHandler *_signalHandler;
 	static OBScheduledTimer *_heartBeatTimer;
 	static OBScheduledTimer *_fastSingleBeatTimer;
@@ -1087,6 +1087,57 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 }
 
++ (void)initialize
+{
+	@synchronized (self)
+	{
+		_mainThread = FindTask(0);
+		_globalOBContext = _mainThread->tc_ETask->OBContext;
+
+		FreetypeBase = OpenLibrary("freetype.library", 0);
+		if (FreetypeBase)
+		{
+			BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
+			if (0 == icuDir)
+			{
+				[MUIRequest request:nil title:@"WebKit Installation Error"
+					message:@"ICU data files must be present in MOSSYS:Data/ICU/icudt54b"
+					buttons:[OBArray arrayWithObject:@"Exit"]];
+				CloseLibrary(FreetypeBase);
+				FreetypeBase = NULL;
+				return;
+			}
+			else
+			{
+				UnLock(icuDir);
+			}
+			
+			// MUST be done before 1st WebPage is instantiated!
+			cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
+			if (dummysurface)
+				cairo_surface_destroy(dummysurface);
+			
+			_signalHandler = [OBSignalHandler new];
+			[_signalHandler setDelegate:(id)[self class]];
+			[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
+			
+			_timerPerform = [[OBPerform performSelector:@selector(fire) target:[self class]] retain];
+			_heartBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:0.25 perform:_timerPerform repeats:YES] retain];
+
+#ifdef VALIDATE_ALLOCS
+			[OBScheduledTimer scheduledTimerWithInterval:VALIDATE_ALLOCS perform:[OBPerform performSelector:@selector(validateAllocs) target:[self class]] repeats:YES];
+#endif
+
+			WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
+			WebKit::WebProcess::singleton().setLastPageClosedCallback([]() {
+				[WkWebView _lastPageClosed];
+			});
+
+			_initializedOK = YES;
+		}
+	}
+}
+
 - (id)init
 {
 	if ((self = [super init]))
@@ -1100,54 +1151,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 
 			_viewInstanceCount ++;
-
-			if (!_wasInstantiatedOnce)
-			{
-				FreetypeBase = OpenLibrary("freetype.library", 0);
-				if (FreetypeBase)
-				{
-					BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
-					if (0 == icuDir)
-					{
-						[MUIRequest request:nil title:@"WebKit Installation Error"
-							message:@"ICU data files must be present in MOSSYS:Data/ICU/icudt54b"
-							buttons:[OBArray arrayWithObject:@"Exit"]];
-						CloseLibrary(FreetypeBase);
-						FreetypeBase = NULL;
-						[self release];
-						return nil;
-					}
-					else
-					{
-						UnLock(icuDir);
-					}
-					
-					// MUST be done before 1st WebPage is instantiated!
-					cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
-					if (dummysurface)
-						cairo_surface_destroy(dummysurface);
-					
-					_signalHandler = [OBSignalHandler new];
-					[_signalHandler setDelegate:(id)[self class]];
-					[[OBRunLoop mainRunLoop] addSignalHandler:_signalHandler];
-					
-					_timerPerform = [[OBPerform performSelector:@selector(fire) target:[self class]] retain];
-					_heartBeatTimer = [[OBScheduledTimer scheduledTimerWithInterval:0.25 perform:_timerPerform repeats:YES] retain];
-
-#ifdef VALIDATE_ALLOCS
-					[OBScheduledTimer scheduledTimerWithInterval:VALIDATE_ALLOCS perform:[OBPerform performSelector:@selector(validateAllocs) target:[self class]] repeats:YES];
-#endif
-
-					WebKit::WebProcess::singleton().initialize(int([_signalHandler sigBit]));
-					WebKit::WebProcess::singleton().setLastPageClosedCallback([]() {
-						[WkWebView _lastPageClosed];
-					});
-					
-					_wasInstantiatedOnce = true;
-					_mainThread = FindTask(0);
-					_globalOBContext = _mainThread->tc_ETask->OBContext;
-				}
-			}
+		}
+		
+		if (!_initializedOK)
+		{
+			[self release];
+			return nil;
 		}
 
 		self.fillArea = NO;

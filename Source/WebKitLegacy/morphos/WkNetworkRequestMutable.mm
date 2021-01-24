@@ -1,5 +1,6 @@
 #import "WkNetworkRequestMutable_private.h"
 #import "WkError_private.h"
+#import "WkWebView.h"
 #import <ob/OBFramework.h>
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -371,16 +372,19 @@ private:
 
 + (id<WkMutableNetworkRequestHandler>)performRequest:(id<WkNetworkRequest>)request withTarget:(id<WkMutableNetworkRequestTarget>)target
 {
+	[WkWebView class]; // force a warm-up via +initialize
 	return [[[WkMutableNetworkRequestHandlerImpl alloc] initRequest:request withTarget:target] autorelease];
 }
 
 + (id)requestWithURL:(OBURL *)url
 {
+	[WkWebView class]; // force a warm-up via +initialize
 	return [[[WkMutableNetworkRequestPrivate alloc] initWithURL:url] autorelease];
 }
 
 + (id)requestWithURL:(OBURL *)url cachePolicy:(WkMutableNetworkRequestCachePolicy)cachePolicy timeoutInterval:(float)timeout
 {
+	[WkWebView class]; // force a warm-up via +initialize
 	return [[[WkMutableNetworkRequestPrivate alloc] initWithURL:url cachePolicy:cachePolicy timeoutInterval:timeout] autorelease];
 }
 
