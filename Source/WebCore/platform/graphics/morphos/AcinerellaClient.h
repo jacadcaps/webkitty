@@ -1,8 +1,12 @@
 #pragma once
 #include "MediaPlayerEnums.h"
 #include "MediaPlayerMorphOS.h"
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
+
+class PlatformMediaResourceLoader;
+
 namespace Acinerella {
 
 #include <wtf/Seconds.h>
@@ -20,6 +24,9 @@ public:
 	virtual void accSetDuration(float duration) = 0;
 	virtual void accEnded() = 0;
 	virtual void accFailed() = 0;
+	
+	virtual RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() = 0;
+	virtual String accReferrer() = 0;
 };
 
 }

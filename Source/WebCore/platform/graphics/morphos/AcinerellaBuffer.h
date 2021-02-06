@@ -16,20 +16,32 @@
 #include <queue>
 
 namespace WebCore {
+
+class PlatformMediaResourceLoader;
+
 namespace Acinerella {
 
 class AcinerellaMuxedBuffer;
 class AcinerellaDecoder;
 
+class AcinerellaNetworkBufferResourceLoaderProvider
+{
+public:
+    virtual void ref() = 0;
+    virtual void deref() = 0;
+	virtual RefPtr<PlatformMediaResourceLoader> createResourceLoader() = 0;
+	virtual String referrer() = 0;
+};
+
 class AcinerellaNetworkBuffer : public ThreadSafeRefCounted<AcinerellaNetworkBuffer>
 {
 protected:
-	AcinerellaNetworkBuffer(const String &url, size_t readAhead);
+	AcinerellaNetworkBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead);
 public:
-	virtual ~AcinerellaNetworkBuffer() = default;
+	virtual ~AcinerellaNetworkBuffer();
 
-	static RefPtr<AcinerellaNetworkBuffer> create(const String &url, size_t readAhead = 1 * 1024 * 1024);
-	static RefPtr<AcinerellaNetworkBuffer> createDisregardingFileType(const String &url, size_t readAhead = 1 * 1024 * 1024);
+	static RefPtr<AcinerellaNetworkBuffer> create(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead = 1 * 1024 * 1024);
+	static RefPtr<AcinerellaNetworkBuffer> createDisregardingFileType(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead = 1 * 1024 * 1024);
 
 	const String &url() const { return m_url; }
 
@@ -37,7 +49,7 @@ public:
 	virtual void start(uint64_t from = 0) = 0;
 	virtual void stop() = 0;
 	virtual bool canSeek() { return true; }
-	void die() { m_dead = true; stop(); }
+	void die();
 
 	// Acinerella Thread Methods
 	static const int eRead_Discontinuity = -2;
@@ -50,10 +62,11 @@ public:
 	virtual int64_t position() { return 0; }
 
 protected:
-	String     m_url;
-    int64_t    m_length;
-    int        m_readAhead;
-    bool       m_dead = false;
+	AcinerellaNetworkBufferResourceLoaderProvider *m_provider;
+	String                                         m_url;
+    int64_t                                        m_length;
+    int                                            m_readAhead;
+    bool                                           m_dead = false;
 };
 
 class AcinerellaNetworkFileRequest : public ThreadSafeRefCounted<AcinerellaNetworkFileRequest>

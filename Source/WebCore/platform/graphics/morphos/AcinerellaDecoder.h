@@ -48,10 +48,23 @@ protected:
 	ac_decoder_frame         *m_frame;
 };
 
+class AcinerellaDecoderClient
+{
+public:
+	virtual RefPtr<AcinerellaPointer> &acinerellaPointer() = 0;
+
+	virtual void onDecoderReadyToPlay(AcinerellaDecoder& decoder) = 0;
+	virtual void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing) = 0;
+	virtual void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer) = 0;
+	virtual void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position) = 0;
+	virtual void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration) = 0;
+	virtual void onDecoderEnded(AcinerellaDecoder& decoder) = 0;
+};
+
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
 {
 public:
-	AcinerellaDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
+	AcinerellaDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
 	virtual ~AcinerellaDecoder();
 
 	// call from: Acinerella thread
@@ -66,6 +79,8 @@ public:
 	virtual bool isReadyToPlay() const = 0;
 
 	virtual bool isAudio() const = 0;
+	virtual bool isVideo() const = 0;
+	virtual bool isText() const = 0;
 	void setVolume(float volume);
 
 	float duration() const { return m_duration; }
@@ -107,7 +122,7 @@ protected:
 	virtual float readAheadTime() const = 0;
 
 protected:
-	Acinerella                        *m_parent; // valid until terminate is called
+	AcinerellaDecoderClient           *m_client; // valid until terminate is called
     RefPtr<Thread>                     m_thread;
     MessageQueue<Function<void ()>>    m_queue;
 

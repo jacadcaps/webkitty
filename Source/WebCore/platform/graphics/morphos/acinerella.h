@@ -430,6 +430,8 @@ EXTERN void CALL_CONVT ac_free_package(lp_ac_package pPackage);
 EXTERN lp_ac_decoder CALL_CONVT
     ac_create_decoder(lp_ac_instance pacInstance, int nb);
 
+EXTERN const char *ac_codec_name(lp_ac_instance pacInstance, int nb);
+
 /**
  * Callback function used to configure the codec context (AVCodecContext *).
  * The return value 0 indicates failure, 1 indicates success.

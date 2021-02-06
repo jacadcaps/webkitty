@@ -149,8 +149,8 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 	return *this;
 }
 
-AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(const String &url, size_t readAhead)
-	: AcinerellaNetworkBuffer(url, readAhead)
+AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+	: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
 	, m_playlistRefreshTimer(RunLoop::current(), this, &AcinerellaNetworkBufferHLS::refreshTimerFired)
 {
 	D(dprintf("%s(%p) - url %s\n", __func__, this, url.utf8().data()));
@@ -168,6 +168,7 @@ AcinerellaNetworkBufferHLS::~AcinerellaNetworkBufferHLS()
 void AcinerellaNetworkBufferHLS::start(uint64_t from)
 {
 	D(dprintf("%s(%p) - from %llu\n", __func__, this, from));
+	(void)from;
 
 	if (!m_hasMasterList)
 	{
@@ -262,7 +263,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
 				D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-				auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
+				auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
 				m_stream.pop();
 				
 				{
@@ -318,7 +319,7 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 	if (!m_stream.empty())
 	{
 		D(dprintf("%s(%p): load '%s' queue %d\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size()));
-		auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
+		auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
 		m_stream.pop();
 		
 		{

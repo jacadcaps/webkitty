@@ -80,6 +80,12 @@ if (NOT MORPHOS_MINIMAL)
 		platform/graphics/morphos/AcinerellaAudioDecoder.cpp
 		platform/graphics/morphos/AcinerellaContainer.cpp
 		platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
+		platform/graphics/morphos/MediaSourcePrivateMorphOS.cpp
+		platform/graphics/morphos/MediaSourceBufferPrivateMorphOS.cpp
+		platform/graphics/morphos/AudioTrackPrivateMorphOS.cpp
+		platform/graphics/morphos/VideoTrackPrivateMorphOS.cpp
+		platform/graphics/morphos/MediaDescriptionMorphOS.cpp
+		platform/graphics/morphos/MediaSampleMorphOS.cpp
 	)
 
 	list(APPEND WebCore_USER_AGENT_STYLE_SHEETS

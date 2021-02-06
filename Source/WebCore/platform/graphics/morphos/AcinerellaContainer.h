@@ -22,13 +22,13 @@ using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
 namespace WebCore {
 namespace Acinerella {
 
-class Acinerella : public ThreadSafeRefCounted<Acinerella>
+class Acinerella : public ThreadSafeRefCounted<Acinerella>, public AcinerellaNetworkBufferResourceLoaderProvider, public AcinerellaDecoderClient
 {
 friend class AcinerellaDecoder;
 friend class AcinerellaMuxedBuffer;
 public:
 	Acinerella(AcinerellaClient *client, const String &url);
-	~Acinerella() = default;
+	virtual ~Acinerella() = default;
 
 	static RefPtr<Acinerella> create(AcinerellaClient *client, const String &url) {
 		return WTF::adoptRef(*new Acinerella(client, url));
@@ -60,7 +60,12 @@ public:
 	
 	const String &url() const { return m_url; }
 
-	RefPtr<AcinerellaPointer> &acinerellaPointer() { return m_acinerella; }
+	RefPtr<AcinerellaPointer> &acinerellaPointer() override { return m_acinerella; }
+
+    void ref() override;
+    void deref() override;
+	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;
+	String referrer() override;
 
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
@@ -81,12 +86,12 @@ protected:
 	
 	void demuxNextPackage();
 	
-	void onDecoderReadyToPlay(AcinerellaDecoder& decoder);
-	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing);
-	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer);
-	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position);
-	void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration);
-	void onDecoderEnded(AcinerellaDecoder& decoder);
+	void onDecoderReadyToPlay(AcinerellaDecoder& decoder) override;
+	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing) override;
+	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer) override;
+	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position) override;
+	void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration) override;
+	void onDecoderEnded(AcinerellaDecoder& decoder) override;
 
 protected:
 	static int acOpenCallback(void *me);

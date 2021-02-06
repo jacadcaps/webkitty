@@ -27,31 +27,21 @@ AcinerellaPointer::AcinerellaPointer(ac_instance *instance)
 AcinerellaPointer::~AcinerellaPointer()
 {
 	D(dprintf("%s(%p): killing %p, audiodec %p\n", __PRETTY_FUNCTION__, this, m_instance.get(), m_audioDecoder.get()));
-	m_audioDecoder.reset();
-	m_videoDecoder.reset();
-	m_instance.reset();
 }
 
 void AcinerellaPointer::setInstance(ac_instance *instance)
 {
-	m_audioDecoder.reset();
-	m_videoDecoder.reset();
+	for (int i = 0; i < maxDecoders; i++)
+		m_decoders[i].reset();
 	m_instance.reset();
 	
 	m_instance = deleted_unique_ptr<ac_instance>(instance, [](ac_instance*instance){ ac_free(instance); });
 	D(dprintf("%s(%p): set %p\n", __PRETTY_FUNCTION__, this, m_instance.get()));
 }
 
-void AcinerellaPointer::setAudioDecoder(ac_decoder *decoder)
+void AcinerellaPointer::setDecoder(int i, ac_decoder *decoder)
 {
-	m_audioDecoder.reset();
-	m_audioDecoder = deleted_unique_ptr<ac_decoder>(decoder, [](ac_decoder* decoder){ ac_free_decoder(decoder); });
-}
-
-void AcinerellaPointer::setVideoDecoder(ac_decoder *decoder)
-{
-	m_videoDecoder.reset();
-	m_videoDecoder = deleted_unique_ptr<ac_decoder>(decoder, [](ac_decoder* decoder){ ac_free_decoder(decoder); });
+	m_decoders[i] = deleted_unique_ptr<ac_decoder>(decoder, [](ac_decoder* decoder){ ac_free_decoder(decoder); });
 }
 
 }

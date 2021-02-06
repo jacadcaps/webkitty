@@ -16,11 +16,12 @@
 #include <WebCore/CurlRequestClient.h>
 #include <WebCore/CurlRequest.h>
 #include <WebCore/SharedBuffer.h>
+#include <WebCore/PlatformMediaResourceLoader.h>
 #include <queue>
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#define D(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -28,8 +29,8 @@ namespace Acinerella {
 class AcinerellaNetworkBufferInternal : public AcinerellaNetworkBuffer, public CurlRequestClient
 {
 public:
-	AcinerellaNetworkBufferInternal(const String &url, size_t readAhead)
-		: AcinerellaNetworkBuffer(url, readAhead)
+	AcinerellaNetworkBufferInternal(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+		: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
 	{
 	
 	}
@@ -395,29 +396,164 @@ protected:
 	bool                             m_seekProcessed = true;
 };
 
+#if 0
 class AcinerellaNetworkBufferPlatformMediaResourceLoader : public AcinerellaNetworkBuffer
 {
+	class AcinerellaPlatformMediaResourceClient : public PlatformMediaResourceClient
+	{
+		WTF_MAKE_FAST_ALLOCATED;
+		WTF_MAKE_NONCOPYABLE(AcinerellaPlatformMediaResourceClient);
+	public:
+		AcinerellaPlatformMediaResourceClient()
+		{
+		}
+
+		void dataReceived(PlatformMediaResource&, const char* bytes, int size) override
+		{
+			D(dprintf("%s(%p): %ld\n", __PRETTY_FUNCTION__, this, size));
+		}
+		
+		void accessControlCheckFailed(PlatformMediaResource&, const ResourceError&) override
+		{
+			D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		}
+		
+		void loadFailed(PlatformMediaResource&, const ResourceError& error) override
+		{
+			D(dprintf("%s(%p) %s %d '%s'\n", __PRETTY_FUNCTION__, this, error.domain().utf8().data(), error.errorCode(), error.localizedDescription().utf8().data()));
+		}
+		
+		void loadFinished(PlatformMediaResource&) override
+		{
+			D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		}
+	};
+
+public:
+	AcinerellaNetworkBufferPlatformMediaResourceLoader(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+		: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
+	{
+	
+	}
+	
+	~AcinerellaNetworkBufferPlatformMediaResourceLoader()
+	{
+	
+	}
+	
+	void start(uint64_t from) override
+	{
+		stop();
+		
+		D(dprintf("%s(%p): %s\n", __PRETTY_FUNCTION__, this, m_url.utf8().data()));
+		
+		if (m_provider)
+		{
+			URL url = URL(URL(), m_url);
+			ResourceRequest request(url);
+			request.setAllowCookies(true);
+			request.setFirstPartyForCookies(url);
+			request.setHTTPReferrer(m_provider->referrer());
+			request.clearHTTPAcceptEncoding();
+
+    		if (m_url.contains("movies.apple.com") || m_url.contains("trailers.apple.com"))
+    		{
+        		request.setHTTPUserAgent("Quicktime/7.6.6");
+			}
+			
+			if (0 != from)
+			{
+				String range = "bytes=";
+				range.append(String::number(from));
+				range.append("-");
+				request.setHTTPHeaderField(HTTPHeaderName::Range, range);
+			}
+			
+			request.setHTTPHeaderField(HTTPHeaderName::IcyMetadata, "1");
+
+			if (!m_loader)
+				m_loader = m_provider->createResourceLoader();
+			
+			if (!!m_loader)
+			{
+				PlatformMediaResourceLoader::LoadOptions loadOptions = 0;
+				if (request.url().protocolIsBlob())
+				{
+					loadOptions |= PlatformMediaResourceLoader::LoadOption::BufferData;
+				}
+
+				D(dprintf("%s(%p): isBlob %d\n", __PRETTY_FUNCTION__, this, request.url().protocolIsBlob()));
+
+				m_resource = m_loader->requestResource(ResourceRequest(request), loadOptions);
+				if (!!m_resource)
+				{
+					m_resource->setClient(makeUnique<AcinerellaPlatformMediaResourceClient>());
+				}
+			}
+		}
+	}
+	
+	void stop()
+	{
+		if (!!m_resource)
+		{
+			m_resource->stop();
+			m_resource = nullptr;
+		}
+	}
+	
+	int read(uint8_t *outBuffer, int size, int64_t position) override
+	{
+		return -1;
+	}
 	// MediaResourceLoader::requestResource
 	// static gboolean webKitWebSrcMakeRequest(GstBaseSrc* baseSrc, bool notifyAsyncCompletion)
+	
+private:
+	RefPtr<PlatformMediaResourceLoader> m_loader;
+	RefPtr<PlatformMediaResource>       m_resource;
 };
+#endif
 
-AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(const String &url, size_t readAhead)
-	: m_url(url)
+AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+	: m_provider(resourceProvider)
+	, m_url(url)
 	, m_readAhead(readAhead)
 {
 	D(dprintf("%s(%p) - %s\n", __PRETTY_FUNCTION__, this, url.utf8().data()));
+	if (m_provider)
+		m_provider->ref();
 }
 
-RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::create(const String &url, size_t readAhead)
+AcinerellaNetworkBuffer::~AcinerellaNetworkBuffer()
 {
+	if (m_provider)
+		m_provider->deref();
+}
+
+void AcinerellaNetworkBuffer::die()
+{
+	if (m_provider)
+		m_provider->deref();
+	m_provider = nullptr;
+	m_dead = true;
+	stop();
+}
+
+RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::create(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+{
+#if 0
+	if (startsWithLettersIgnoringASCIICase(url, "blob:"))
+		return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferPlatformMediaResourceLoader(resourceProvider, url, readAhead)));
+#endif
 	if (url.contains("m3u8"))
-		return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferHLS(url, readAhead)));
-	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(url, readAhead)));
+		return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferHLS(resourceProvider, url, readAhead)));
+	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(resourceProvider, url, readAhead)));
 }
 
-RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::createDisregardingFileType(const String &url, size_t readAhead)
+RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::createDisregardingFileType(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
 {
-	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(url, readAhead)));
+	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(resourceProvider, url, readAhead)));
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -533,12 +533,16 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 {
     WebPage* webPage = m_frame ? m_frame->page() : nullptr;
 
+	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+
     if (!webPage) {
+    	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
         function(PolicyAction::Ignore, identifier);
         return;
     }
 
     if (!request.url().string()) {
+    	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
         function(PolicyAction::Use, identifier);
         return;
     }
@@ -552,9 +556,11 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 			webPage->_fDownloadAsk(response, request, identifier, downloadAttribute, std::move(function));
 			return;
 		}
+    	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
 		function(PolicyAction::Ignore, identifier);
 	}
 
+   	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
 	function(PolicyAction::Use, identifier);
 }
 
@@ -606,6 +612,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
     FormState* formState, PolicyDecisionMode policyDecisionMode, WebCore::PolicyCheckIdentifier requestIdentifier, FramePolicyFunction&& function)
 {
     WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+	
+	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+	
     if (!webPage) {
         function(PolicyAction::Ignore, requestIdentifier);
         return;
@@ -747,6 +756,9 @@ void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Completi
         return;
     }
 
+D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
+
 #if 0
 	auto& values = formState.textFieldValues();
 	for (auto const &e : values)
@@ -820,6 +832,8 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 
 void WebFrameLoaderClient::startDownload(const ResourceRequest& request, const String& suggestedName)
 {
+D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+
     m_frame->startDownload(request, suggestedName);
 }
 

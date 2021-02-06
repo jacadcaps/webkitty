@@ -9,6 +9,10 @@
 #include "MediaPlayerMorphOS.h"
 #include "AcinerellaClient.h"
 
+#if ENABLE(MEDIA_SOURCE)
+#include "MediaSourcePrivateMorphOS.h"
+#endif
+
 namespace WebCore {
 
 namespace Acinerella {
@@ -76,6 +80,12 @@ public:
 	void accSetDuration(float buffer) override;
 	void accEnded() override;
 	void accFailed() override;
+	RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() override;
+	String accReferrer() override;
+
+#if ENABLE(MEDIA_SOURCE)
+	void onTrackEnabled(int index, bool enabled);
+#endif
 
 protected:
 	MediaPlayer* m_player;
@@ -86,6 +96,10 @@ protected:
 	float m_currentTime = 0.f;
 	bool  m_prepareToPlay = false;
 	bool  m_acInitialized = false;
+
+#if ENABLE(MEDIA_SOURCE)
+	RefPtr<MediaSourcePrivateMorphOS> m_mediaSourcePrivate;
+#endif
 
 friend class Acinerella::Acinerella;
 };

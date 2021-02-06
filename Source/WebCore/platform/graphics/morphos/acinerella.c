@@ -887,6 +887,12 @@ lp_ac_decoder CALL_CONVT ac_create_decoder_ex(lp_ac_instance pacInstance, int nb
 	return (lp_ac_decoder)result;
 }
 
+const char *ac_codec_name(lp_ac_instance pacInstance, int nb) {
+	lp_ac_data self = ((lp_ac_data)(pacInstance));
+	AVCodecContext *pCodecCtx = self->pFormatCtx->streams[nb]->codec;
+	return avcodec_get_name(pCodecCtx->codec_id);
+}
+
 static int ac_decode_video_package(lp_ac_package pPackage,
                                    lp_ac_video_decoder pDecoder) {
 	lp_ac_package_data pkt = ((lp_ac_package_data)pPackage);

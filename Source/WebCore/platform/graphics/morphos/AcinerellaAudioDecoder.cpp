@@ -15,9 +15,9 @@ namespace Acinerella {
 
 #define D(x) 
 
-AcinerellaAudioDecoder::AcinerellaAudioDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
-	: AcinerellaDecoder(parent, buffer, index, info, isLiveStream)
-	, m_audioRate(ac_get_audio_rate(parent->acinerellaPointer()->audioDecoder()))
+AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
+	: AcinerellaDecoder(client, buffer, index, info, isLiveStream)
+	, m_audioRate(ac_get_audio_rate(client->acinerellaPointer()->decoder(index)))
 	, m_audioChannels(info.additional_info.audio_info.channel_count)
 	, m_audioBits(info.additional_info.audio_info.bit_depth)
 {

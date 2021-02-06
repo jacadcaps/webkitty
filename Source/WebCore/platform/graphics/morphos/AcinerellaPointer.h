@@ -19,20 +19,17 @@ public:
 	~AcinerellaPointer();
 	
 	static RefPtr<AcinerellaPointer> create(ac_instance *instance = nullptr);
+	static constexpr int maxDecoders = 32;
 
 	void setInstance(ac_instance *instance);
 	ac_instance *instance() { return m_instance.get(); }
 
-	void setAudioDecoder(ac_decoder *);
-	ac_decoder *audioDecoder() { return m_audioDecoder.get(); };
-
-	void setVideoDecoder(ac_decoder *);
-	ac_decoder *videoDecoder() { return m_videoDecoder.get(); };
+	void setDecoder(int index, ac_decoder *);
+	ac_decoder *decoder(int index) { return m_decoders[index].get(); };
 
 protected:
 	deleted_unique_ptr<ac_instance> m_instance;
-	deleted_unique_ptr<ac_decoder>  m_audioDecoder;
-	deleted_unique_ptr<ac_decoder>  m_videoDecoder;
+	deleted_unique_ptr<ac_decoder>  m_decoders[maxDecoders];
 };
 
 }

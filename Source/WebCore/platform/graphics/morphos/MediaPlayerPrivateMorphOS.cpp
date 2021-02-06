@@ -10,8 +10,8 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 
-#define D(x)
-#define DM(x) 
+#define D(x) x
+#define DM(x) x
 
 namespace WebCore {
 
@@ -120,12 +120,11 @@ public:
 				return MediaPlayer::SupportsType::MayBeSupported;
 			}
 
-#if 0
 			DM(dprintf("%s: lists %d codecs\n", __func__, codecs.size()));
 			for (size_t i = 0; i < codecs.size(); i++)
 			{
 				auto &codec = codecs.at(i);
-				if (startsWithLettersIgnoringASCIICase(codec, "opus") || startsWithLettersIgnoringASCIICase(codec, "vp"))
+				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0!
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
@@ -135,7 +134,7 @@ public:
 					DM(dprintf("%s: we should be OK with codec %s\n", __func__, codec.utf8().data()));
 				}
 			}
-#endif
+
 			return  MediaPlayer::SupportsType::IsSupported;
 		}
 		DM(dprintf("%s: not supported!\n", __func__));
@@ -210,9 +209,37 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient*)
+void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient* client)
 {
 	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
+	cancelLoad();
+
+	if (startsWithLettersIgnoringASCIICase(url, "about:"))
+		return;
+
+	m_mediaSourcePrivate = MediaSourcePrivateMorphOS::create(*this, *client);
+
+
+#if 0
+	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
+	{
+		if (!MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, url))
+		{
+			m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
+			m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
+			m_player->networkStateChanged();
+			m_player->readyStateChanged();
+			return;
+		}
+	}
+
+	m_networkState = MediaPlayer::NetworkState::Loading;
+	m_player->networkStateChanged();
+	m_readyState = MediaPlayer::ReadyState::HaveNothing;
+	m_player->readyStateChanged();
+
+	m_acinerella = Acinerella::Acinerella::create(this, url);
+#endif
 }
 #endif
 
@@ -222,6 +249,10 @@ void MediaPlayerPrivateMorphOS::cancelLoad()
 
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
 		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
+	
+	if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->orphan();
+	m_mediaSourcePrivate = nullptr;
 	
 	m_prepareToPlay = m_acInitialized = false;
 	pause();
@@ -234,6 +265,9 @@ void MediaPlayerPrivateMorphOS::prepareToPlay()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 	m_prepareToPlay = true;
+	if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->warmUp();
+
 	if (m_acinerella && m_acInitialized)
 		m_acinerella->warmUp();
 }
@@ -373,6 +407,7 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 			if (doLoad)
 			{
 				m_acInitialized = true;
+				m_player->characteristicChanged();
 				if (m_prepareToPlay && m_acinerella)
 					m_acinerella->warmUp();
 			}
@@ -381,6 +416,7 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 	else
 	{
 		m_acInitialized = true;
+		m_player->characteristicChanged();
 		if (m_prepareToPlay && m_acinerella)
 			m_acinerella->warmUp();
 	}
@@ -443,6 +479,23 @@ void MediaPlayerPrivateMorphOS::accFailed()
 	m_player->networkStateChanged();
 	m_player->readyStateChanged();
 }
+
+RefPtr<PlatformMediaResourceLoader> MediaPlayerPrivateMorphOS::accCreateResourceLoader()
+{
+	return m_player->createResourceLoader();
+}
+
+String MediaPlayerPrivateMorphOS::accReferrer()
+{
+	return m_player->referrer();
+}
+
+#if ENABLE(MEDIA_SOURCE)
+void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
+{
+	// TODO: enable/disable track via source
+}
+#endif
 
 }
 

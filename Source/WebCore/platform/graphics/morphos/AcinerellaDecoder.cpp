@@ -5,26 +5,27 @@
 #include "AcinerellaContainer.h"
 #include <proto/exec.h>
 
-#define D(x)
-#define DNF(x) 
+#define D(x) x
+#define DNF(x) x
 
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaDecoder::AcinerellaDecoder(Acinerella *parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &, bool isLiveStream)
-	: m_parent(parent)
+AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &, bool isLiveStream)
+	: m_client(client)
 	, m_muxer(buffer)
 	, m_index(index)
 	, m_isLive(isLiveStream)
 {
-	m_duration = std::max(ac_get_stream_duration(parent->ac(), index), double(parent->ac()->info.duration)/1000.0);
+	auto ac = client->acinerellaPointer()->instance();
+	m_duration = std::max(ac_get_stream_duration(ac, index), double(ac->info.duration)/1000.0);
 
 	// simulated duration of 3 chunks
 	if (m_isLive)
 		m_duration = 15.f;
 
-	m_bitrate = parent->ac()->info.bitrate;
-	D(dprintf("%s: %p starting thread; duration %lld br %ld\n", __func__, this, parent->ac()->info.duration, parent->ac()->info.bitrate));
+	m_bitrate = ac->info.bitrate;
+	D(dprintf("%s: %p starting thread; duration %lld br %ld\n", __func__, this, ac->info.duration, ac->info.bitrate));
 	m_thread = Thread::create("Acinerella Decoder", [this] {
 		threadEntryPoint();
 	});
@@ -68,7 +69,10 @@ bool AcinerellaDecoder::decodeNextFrame()
 	if (m_muxer->nextPackage(*this, buffer))
 	{
 		AcinerellaDecodedFrame frame;
-		auto *decoder = buffer.acinerella() ? (isAudio() ? buffer.acinerella()->audioDecoder() : buffer.acinerella()->videoDecoder()) : nullptr;
+		auto *decoder = buffer.acinerella() ? buffer.acinerella()->decoder(m_index) : nullptr;
+
+		if (!decoder)
+			return false;
 
 		// used both if acinerella sends us stuff AND in case of discontinuity
 		// either way, we must flush caches here!
@@ -123,7 +127,7 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 			break;
 	}
 	
-	m_parent->onDecoderReadyToPlay(*this);
+	m_client->onDecoderReadyToPlay(*this);
 }
 
 void AcinerellaDecoder::flush()
@@ -137,19 +141,19 @@ void AcinerellaDecoder::flush()
 void AcinerellaDecoder::onPositionChanged()
 {
 	D(dprintf("%s: %p to %f\n", __func__, this, position()));
-	m_parent->onDecoderUpdatedPosition(*this, position());
+	m_client->onDecoderUpdatedPosition(*this, position());
 }
 
 void AcinerellaDecoder::onDurationChanged()
 {
 	D(dprintf("%s: %p to %f\n", __func__, this, duration()));
-	m_parent->onDecoderUpdatedDuration(*this, duration());
+	m_client->onDecoderUpdatedDuration(*this, duration());
 }
 
 void AcinerellaDecoder::onEnded()
 {
 	D(dprintf("%s: %p\n", __func__, this));
-	m_parent->onDecoderEnded(*this);
+	m_client->onDecoderEnded(*this);
 }
 
 void AcinerellaDecoder::terminate()
@@ -173,7 +177,7 @@ void AcinerellaDecoder::terminate()
 	D(dprintf("%s: %p completed\n", __func__, this));
 	ASSERT(m_queue.killed());
 	m_thread = nullptr;
-	m_parent = nullptr;
+	m_client = nullptr;
 	m_muxer = nullptr;
 
 	D(dprintf("%s: %p done\n", __func__, this));
