@@ -21,7 +21,7 @@ struct HLSChunk
 {
 	String    m_url;
 	int64_t   m_mediaSequence;
-	float     m_duration;
+	double    m_duration;
 };
 
 class HLSStream

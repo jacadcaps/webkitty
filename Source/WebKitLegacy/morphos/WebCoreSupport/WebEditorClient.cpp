@@ -98,7 +98,8 @@ void WebEditorClient::setSpellCheckingEnabled(bool enabled)
 
 		if (enabled && !m_spellDictionary)
 		{
-			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)m_language.utf8().data()}, {TAG_DONE, 0} };
+			auto ulanguage = m_language.utf8();
+			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)ulanguage.data()}, {TAG_DONE, 0} };
 			m_spellDictionary = OpenDictionary(nullptr, dicttags);
 		}
 	}
@@ -113,7 +114,8 @@ void WebEditorClient::setSpellCheckingLanguage(const WTF::String &language)
 		if (m_spellDictionary)
 		{
 			CloseDictionary(m_spellDictionary);
-			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)m_language.utf8().data()}, {TAG_DONE, 0} };
+			auto ulanguage = m_language.utf8();
+			struct TagItem dicttags[] = {{ SCA_UTF8, TRUE}, { m_language.length() ? SCA_Name : TAG_IGNORE, (IPTR)ulanguage.data()}, {TAG_DONE, 0} };
 			m_spellDictionary = OpenDictionary(nullptr, dicttags);
 		}
 	}
@@ -128,6 +130,7 @@ void WebEditorClient::getGuessesForWord(const WTF::String &word, WTF::Vector<WTF
 
 	if (m_spellDictionary)
 	{
+		// NOTE: utf8() returns a temporary object, so this is fine inside a function call, but not fine inside a taglist
 		STRPTR *suggestions = Suggest(m_spellDictionary, word.utf8().data(), NULL);
 		if (suggestions)
 		{
@@ -508,7 +511,8 @@ void WebEditorClient::learnWord(const String& word)
 	{
 		struct Library *SpellCheckerBase = m_spellcheckerLibrary;
 		(void)SpellCheckerBase;
-		Learn(m_spellDictionary, word.utf8().data());
+		auto uword = word.utf8();
+		Learn(m_spellDictionary, uword.data());
 	}
 }
 

@@ -645,7 +645,6 @@ public:
 						m_cairo = nullptr;
 					}
 					
-
 					m_damage.resize(m_width, m_height);
 					return true;
 				}
@@ -1146,6 +1145,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setResizeObserverEnabled(true);
 	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
 	settings.setShouldRespectImageOrientation(true);
+	settings.setTextAreasAreResizable(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1547,6 +1547,13 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 {
 	// this is called by the Chrome
 	m_focusedElement = element;
+}
+
+WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
+{
+	if (e)
+		return e->boundsInRootViewSpace();
+	return { };
 }
 
 void WebPage::startedEditingElement(WebCore::HTMLInputElement *input)
@@ -3374,7 +3381,8 @@ void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
 	WebCore::Frame *frame = fromHitTest(hitTest);
 	if (frame)
 	{
-		frame->editor().learnSpelling();
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->learnWord(miss);
 	}
 }
 
@@ -3383,7 +3391,8 @@ void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
 	WebCore::Frame *frame = fromHitTest(hitTest);
 	if (frame)
 	{
-		frame->editor().ignoreSpelling();
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->ignoreWordInSpellDocument(miss);
 	}
 }
 

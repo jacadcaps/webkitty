@@ -21,27 +21,24 @@ namespace Acinerella {
 class AcinerellaMuxedBuffer;
 class AcinerellaDecoder;
 
-class AcinerellaPackage
+class AcinerellaPackage : public ThreadSafeRefCounted<AcinerellaPackage>
 {
-public:
-	explicit AcinerellaPackage(RefPtr<AcinerellaPointer>&pointer, ac_package *package) : m_acinerella(pointer), m_package(package) { }
-	explicit AcinerellaPackage() : m_package(nullptr) { }
-	explicit AcinerellaPackage(const AcinerellaPackage &) = delete;
-	explicit AcinerellaPackage(AcinerellaPackage &) = delete;
-	explicit AcinerellaPackage(AcinerellaPackage && otter) : m_acinerella(otter.m_acinerella), m_package(otter.m_package) { otter.m_acinerella = nullptr; otter.m_package = nullptr; }
-	~AcinerellaPackage() { if (m_package) ac_free_package(m_package); }
-
-	AcinerellaPackage& operator=(AcinerellaPackage&& otter) {
-		std::swap(otter.m_acinerella, m_acinerella);
-		std::swap(otter.m_package, m_package);
-		return *this;
-	}
+	AcinerellaPackage(RefPtr<AcinerellaPointer>&pointer, ac_package *package) : m_acinerella(pointer), m_package(package) { }
+	AcinerellaPackage& operator=(AcinerellaPackage&& otter) = delete;
 	AcinerellaPackage& operator=(AcinerellaPackage const & otter) = delete;
+
+public:
+    static Ref<AcinerellaPackage> create(RefPtr<AcinerellaPointer>&pointer, ac_package *package)
+    {
+        return adoptRef(*new AcinerellaPackage(pointer, package));
+    }
+
+	~AcinerellaPackage() { if (m_package) ac_free_package(m_package); }
 
 	ac_package *package() { return m_package; }
 	int index() const { return m_package ? m_package->stream_index : -1; }
-	bool isFlushPackage() { return m_package == ac_flush_packet(); }
-	explicit operator bool() const { return nullptr != m_package; }
+	bool isFlushPackage() const { return m_package == ac_flush_packet(); }
+	bool isValid() const { return nullptr != m_package; }
 
 	RefPtr<AcinerellaPointer>& acinerella() { return m_acinerella; }
 
@@ -64,19 +61,19 @@ public:
 	static constexpr int queueReadAheadSize = 128;
 
 	void setSinkFunction(Function<void()>&& sinkFunction);
-	void setDecoderMask(uint32_t mask);
+	void setDecoderMask(uint32_t mask, uint32_t audioMask = 0);
 
 	// To be called on Acinerella thread
-	void push(AcinerellaPackage&&package);
+	void push(RefPtr<AcinerellaPackage> &package);
 	void flush();
 	void terminate();
 
 	// This is meant to be called from the decoder threads. Will block until a valid package can be returned
 	// Returns false on error or EOS
-	bool nextPackage(AcinerellaDecoder &decoder, AcinerellaPackage &outPackage);
+	RefPtr<AcinerellaPackage> nextPackage(AcinerellaDecoder &decoder);
 
 protected:
-	typedef std::queue<AcinerellaPackage> AcinerellaPackageQueue;
+	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
 
 	inline bool isDecoderValid(int index) {
 		return 0 != (m_decoderMask & (1UL << index));
@@ -113,6 +110,8 @@ protected:
 
 	bool needsToCallSinkFunction() {
 		bool hasNonFullQueues = false;
+		if (m_queueCompleteOrError)
+			return false;
 		whileValidDecoders([&](AcinerellaPackageQueue& queue, BinarySemaphore&) -> bool {
 			if (queue.size() < queueReadAheadSize) {
 				hasNonFullQueues = true;
@@ -130,6 +129,7 @@ protected:
 	Lock                    m_lock;
 
 	uint32_t                m_decoderMask = 0;
+	uint32_t                m_audioDecoderMask = 0;
 	bool                    m_queueCompleteOrError = false;
 };
 

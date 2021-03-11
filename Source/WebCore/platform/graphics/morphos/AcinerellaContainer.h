@@ -19,6 +19,8 @@
 template<typename T>
 using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
 
+struct Window;
+
 namespace WebCore {
 namespace Acinerella {
 
@@ -42,18 +44,18 @@ public:
 	void pause();
 	bool paused();
 
-	float duration();
+	double duration();
 	
 	bool hasAudio() { return m_audioDecoder.get(); }
 	bool hasVideo() { return m_videoDecoder.get(); }
 	
-	void setVolume(float volume);
+	void setVolume(double volume);
 	void setMuted(bool muted);
-	float volume() const { return m_volume; }
+	double volume() const { return m_volume; }
 
 	bool canSeek();
 	bool isSeeking();
-	void seek(float time);
+	void seek(double time);
 	
 	bool isLive();
 	bool ended();
@@ -67,6 +69,9 @@ public:
 	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;
 	String referrer() override;
 
+	void paint(GraphicsContext&, const FloatRect&);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
+
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
 
@@ -77,7 +82,7 @@ protected:
 	bool initialize();
 	void initializeAfterDiscontinuity();
 	
-	void startSeeking(float pos);
+	void startSeeking(double pos);
 
 	int open();
 	int close();
@@ -86,12 +91,14 @@ protected:
 	
 	void demuxNextPackage();
 	
-	void onDecoderReadyToPlay(AcinerellaDecoder& decoder) override;
-	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing) override;
-	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer) override;
-	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position) override;
-	void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration) override;
-	void onDecoderEnded(AcinerellaDecoder& decoder) override;
+	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) override;
+	void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) override;
+	void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) override;
+	void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) override;
+	void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
 
 protected:
 	static int acOpenCallback(void *me);
@@ -110,9 +117,9 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
-	float                            m_duration;
-	float                            m_volume = 1.f;
-	float                            m_seekingPosition;
+	double                           m_duration;
+	double                           m_volume = 1.f;
+	double                           m_seekingPosition;
 	bool                             m_muted = false;
 	bool                             m_canSeek = true;
 	bool                             m_isSeeking = false;

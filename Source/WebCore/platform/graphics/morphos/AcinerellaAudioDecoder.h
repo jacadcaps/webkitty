@@ -13,8 +13,12 @@ namespace Acinerella {
 
 class AcinerellaAudioDecoder : public AcinerellaDecoder
 {
-public:
 	AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
+public:
+	static RefPtr<AcinerellaAudioDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
+	{
+		return WTF::adoptRef(*new AcinerellaAudioDecoder(client, buffer, index, info, isLive));
+	}
 
 	int rate() const { return m_audioRate; }
 	int channels() const { return m_audioChannels; }
@@ -24,18 +28,19 @@ public:
 	bool isVideo() const override { return false; }
 	bool isText() const override { return false; }
 	
-	float readAheadTime() const override { return m_isLive ? 15.f : 5.f; }
+	double readAheadTime() const override { return m_isLive ? 15.0 : 5.0; }
 
 	bool isReadyToPlay() const override;
 
 	bool isPlaying() const override;
-	float position() const override;
-	float bufferSize() const override { return m_bufferedSeconds; }
+	double position() const override;
+	double bufferSize() const override { return m_bufferedSeconds; }
+	void paint(GraphicsContext&, const FloatRect&) override { }
 
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;
-	void doSetVolume(float volume) override;
+	void doSetVolume(double volume) override;
 
 	void onThreadShutdown() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
@@ -52,7 +57,7 @@ protected:
 	AHIRequest     *m_ahiIO = nullptr;
 	AHIAudioCtrl   *m_ahiControl = nullptr;
 	AHISampleInfo   m_ahiSample[2];
-	float           m_ahiSampleTimestamp[2];
+	double          m_ahiSampleTimestamp[2];
 	uint32_t        m_ahiSampleLength; // *2 for bytes
 	uint32_t        m_ahiSampleBeingPlayed;
 	uint32_t        m_ahiFrameOffset; //
@@ -61,9 +66,9 @@ protected:
 	bool            m_ahiThreadShuttingDown = false;
 
 	uint32_t        m_bufferedSamples = 0;
-	volatile float  m_bufferedSeconds = 0.f;
+	volatile double m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
-	float           m_position = 0.f;
+	double          m_position = 0.f;
 	int             m_audioRate;
 	int             m_audioChannels;
 	int             m_audioBits;

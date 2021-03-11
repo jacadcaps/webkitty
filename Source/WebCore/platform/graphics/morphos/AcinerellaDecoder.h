@@ -20,6 +20,10 @@ template<typename T>
 using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
 
 namespace WebCore {
+
+class GraphicsContext;
+class FloatRect;
+
 namespace Acinerella {
 
 class Acinerella;
@@ -39,6 +43,7 @@ public:
 	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame && otter) { std::swap(m_pointer, otter.m_pointer); std::swap(m_frame, otter.m_frame); return *this; }
 
 	ac_decoder_frame *frame() { return m_frame; }
+	double pts() const { return m_frame ? m_frame->timecode : 0.f; }
 	const ac_decoder_frame *frame() const { return m_frame; }
 	
 	RefPtr<AcinerellaPointer> &pointer() { return m_pointer; }
@@ -53,18 +58,21 @@ class AcinerellaDecoderClient
 public:
 	virtual RefPtr<AcinerellaPointer> &acinerellaPointer() = 0;
 
-	virtual void onDecoderReadyToPlay(AcinerellaDecoder& decoder) = 0;
-	virtual void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing) = 0;
-	virtual void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer) = 0;
-	virtual void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position) = 0;
-	virtual void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration) = 0;
-	virtual void onDecoderEnded(AcinerellaDecoder& decoder) = 0;
+	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) = 0;
+	virtual void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) = 0;
+	virtual void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) = 0;
+	virtual void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) = 0;
+	virtual void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
 };
 
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
 {
-public:
+protected:
 	AcinerellaDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
+public:
 	virtual ~AcinerellaDecoder();
 
 	// call from: Acinerella thread
@@ -83,11 +91,13 @@ public:
 	virtual bool isText() const = 0;
 	void setVolume(float volume);
 
-	float duration() const { return m_duration; }
-	float bitRate() const { return m_bitrate; }
-	virtual float position() const = 0;
-	virtual float bufferSize() const = 0;
-	
+	double duration() const { return m_duration; }
+	double bitRate() const { return m_bitrate; }
+	virtual double position() const = 0;
+	virtual double bufferSize() const = 0;
+
+	virtual void paint(GraphicsContext&, const FloatRect&) = 0;
+
 	int index() const { return m_index; }
 
 protected:
@@ -116,10 +126,10 @@ protected:
 	// call from: Own thread
 	virtual void startPlaying() = 0;
 	virtual void stopPlaying() = 0;
-	virtual void doSetVolume(float) { };
+	virtual void doSetVolume(double) { };
 
 	// call from: Any thread
-	virtual float readAheadTime() const = 0;
+	virtual double readAheadTime() const = 0;
 
 protected:
 	AcinerellaDecoderClient           *m_client; // valid until terminate is called
@@ -127,7 +137,7 @@ protected:
     MessageQueue<Function<void ()>>    m_queue;
 
 	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
-	float                              m_duration;
+	double                             m_duration;
 	int                                m_bitrate;
 	int                                m_index;
 	

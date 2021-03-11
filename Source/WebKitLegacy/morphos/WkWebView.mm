@@ -309,6 +309,12 @@ namespace  {
 	UQUAD                                   _drawTimeLast;
 	OBPerform                              *_paintPerform;
 	OBScheduledTimer                       *_paintTimer;
+	struct Window                          *_window;
+	int                                     _mleft, _mtop, _mbottom, _mright;
+#if ENABLE(VIDEO)
+	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int width, int height)> _overlayCallback;
+	WebCore::Element *_overlayElement;
+#endif
 }
 @end
 
@@ -443,7 +449,7 @@ namespace  {
 		_paintTimer = nil;
 
 		_drawPending = YES;
-		
+
 		if (schedule && _isHandlingUserInput)
 		{
 			[[OBRunLoop mainRunLoop] perform:_paintPerform];
@@ -462,8 +468,8 @@ namespace  {
 				interval = (1.0 / 60.0);
 			if (interval < (1.0 / 60.0))
 				interval = (1.0 / 60.0);
-			if (interval > 1.0)
-				interval = 1.0;
+			if (interval > 0.7)
+				interval = 0.7;
 
 			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:_paintPerform repeats:NO] retain];
 		}
@@ -485,6 +491,11 @@ namespace  {
 
 	[_paintPerform autorelease];
 	_paintPerform = [paint retain];
+}
+
+- (BOOL)isHandlingUserInput
+{
+	return _isHandlingUserInput;
 }
 
 - (void)setIsHandlingUserInput:(BOOL)handling
@@ -635,6 +646,47 @@ namespace  {
 	_isLiveResizing = resizing;
 }
 
+#if ENABLE(VIDEO)
+- (void)callOverlayCallback
+{
+	if (!!_overlayCallback && _overlayElement)
+	{
+		if (_window)
+		{
+			WebCore::IntRect ePos = _page->getElementBounds(_overlayElement);
+			ULONG il = _mleft - _window->BorderLeft;
+			ULONG it = _mtop - _window->BorderTop;
+			ULONG iw, ih;
+			
+			GetAttr(WA_InnerWidth, (Boopsiobject *)_window, &iw);
+			GetAttr(WA_InnerHeight, (Boopsiobject *)_window, &ih);
+			
+			_overlayCallback(_window, _scrollX, _scrollY,
+				il + ePos.x(),
+				it + ePos.y(),
+				iw - (il + ePos.maxX()),
+				ih - (it + ePos.maxY()));
+		}
+		else
+		{
+			_overlayCallback(nullptr, _scrollX, _scrollY, 0, 0, 0, 0);
+		}
+	}
+}
+#endif
+
+- (void)setMLeft:(int)left mTop:(int)mtop mRight:(int)mright mBottom:(int)mbottom
+{
+	_mleft = left;
+	_mtop = mtop;
+	_mright = mright;
+	_mbottom = mbottom;
+
+#if ENABLE(VIDEO)
+	[self callOverlayCallback];
+#endif
+}
+
 - (void)setDocumentWidth:(int)width height:(int)height
 {
 	_documentWidth = width;
@@ -655,6 +707,10 @@ namespace  {
 {
 	_scrollX = sx;
 	_scrollY = sy;
+
+#if ENABLE(VIDEO)
+	[self callOverlayCallback];
+#endif
 }
 
 - (int)scrollX
@@ -804,7 +860,35 @@ namespace  {
 		[handler invalidate];
 		[_mediaPlayers removeObjectForKey:ref];
 	}
+// todo: match to player
+dprintf("!!removing player!!\n");
+		_overlayCallback = nullptr;
+		_overlayElement = nullptr;
 }
+
+- (void)setWindow:(struct Window *)window
+{
+	if (_window != window)
+	{
+		_window = window;
+		[self callOverlayCallback];
+	}
+}
+
+- (void)setOverlayCallback:(void *)playerRef element:(WebCore::Element *)element callback:(Function<void(void *windowPtr,
+	int scrollX, int scrollY, int left, int right, int bottom, int height)>&&)cb
+{
+	if (!!_overlayCallback)
+	{
+		_overlayCallback(nullptr, 0, 0, 0, 0, 0, 0);
+	}
+	
+	_overlayCallback = WTFMove(cb);
+	_overlayElement = element;
+	
+	[self callOverlayCallback];
+}
+
 #endif
 
 @end
@@ -1775,6 +1859,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 			[privateObject playerRemoved:player];
 		};
+		
+		webPage->_fMediaSetOverlayCallback = [self](void *player, WebCore::Element* element, WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom)> && callback) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject setOverlayCallback:player element:element callback:WTFMove(callback)];
+		};
 #endif
 	}
 	
@@ -2244,6 +2334,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	UQUAD drawEndTS = __builtin_ppc_get_timebase();
 	[_private drawFinishedIn:(UQUAD)drawEndTS - drawStartTS];
+	[_private setWindow:[self window]];
 
 	return TRUE;
 }
@@ -2252,15 +2343,18 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	if ([super show:clip])
 	{
-		if (![_private isLiveResizing])
+		auto webPage = [_private page];
+
+		// isVisible check workarounds an out-of-order initResize/hide in 3.15 :|
+		if (![_private isLiveResizing] || !webPage->isVisible())
 		{
-			auto webPage = [_private page];
 			webPage->goVisible();
 			
 			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 				webPage->setLowPowerMode(false);
 			
 			[_private setPaintPerform:[OBPerform performSelector:@selector(lateDraw) target:self]];
+			[_private setMLeft:[self left] mTop:[self top] mRight:[self right] mBottom:[self bottom]];
 			
 			if ([_private documentWidth])
 			{
@@ -2275,6 +2369,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					[[_private scrollingDelegate] webView:self scrolledToLeft:[_private scrollX] top:[_private scrollY]];
 				}
 			}
+		}
+		else
+		{
+			[_private setMLeft:[self left] mTop:[self top] mRight:[self right] mBottom:[self bottom]];
 		}
 
 		return YES;
@@ -2299,6 +2397,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->goHidden();
 
 		[_private setPaintPerform:nil];
+		[_private setWindow:nullptr];
 
 		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 			webPage->setLowPowerMode(true);
@@ -2429,7 +2528,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)invalidated:(BOOL)force
 {
-	if (![_private drawPending] || force)
+	if (![_private drawPending] || force || [_private isHandlingUserInput])
 	{
 		[_private setDrawPendingWithSchedule:!force];
 

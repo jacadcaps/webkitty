@@ -4,6 +4,9 @@
 
 #include <wtf/Function.h>
 
+#define EP_PROFILING 0
+#include <libeventprofiler.h>
+
 namespace WebCore {
 
 class NetworkingContext;
@@ -34,6 +37,9 @@ public:
 	Function<bool(WebCore::MediaPlayer *player, const String &url)> m_preloadCheck;
 	Function<void(WebCore::MediaPlayer *player, const String &url, MediaPlayerMorphOSInfo &info, Function<void(bool doLoad)>&&)> m_loadCheck;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
+	
+	Function<void(WebCore::MediaPlayer *player,
+		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom)>&&)> m_overlayRequest;
 };
 
 }

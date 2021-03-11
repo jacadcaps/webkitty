@@ -88,7 +88,7 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 	if (lines.size() >= 2 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
 	{
 		bool hopingForURL = false;
-		float duration = 0.f;
+		double duration = 0.f;
 		m_mediaSequence = -1;
 
 		for (size_t i = 1; i < lines.size(); i++)
@@ -103,7 +103,7 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
 			{
-				duration = line.substring(8).toFloat();
+				duration = line.substring(8).toDouble();
 				hopingForURL = true;
 			}
 			else if (hopingForURL && !startsWithLettersIgnoringASCIICase(line,"#"))
@@ -279,11 +279,11 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 		}
 	}
 
-	float duration = m_stream.targetDuration();
-	if (duration <= 1.f && !m_stream.empty())
+	double duration = m_stream.targetDuration();
+	if (duration <= 1.0 && !m_stream.empty())
 		duration = std::min(m_stream.current().m_duration, duration);
-	if (duration <= 1.f)
-		duration = 3.f;
+	if (duration <= 1.0)
+		duration = 3.0;
 	duration *= 0.5;
 	D(dprintf("%s(%p): refresh in %f \n", __func__, this, duration));
 	m_playlistRefreshTimer.startOneShot(Seconds(duration));

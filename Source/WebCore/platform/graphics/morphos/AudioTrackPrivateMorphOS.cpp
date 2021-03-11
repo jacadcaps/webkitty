@@ -2,7 +2,7 @@
 
 #include "AudioTrackPrivateMorphOS.h"
 
-#define D(x) x
+#define D(x) 
 
 #if ENABLE(VIDEO) && ENABLE(VIDEO_TRACK)
 

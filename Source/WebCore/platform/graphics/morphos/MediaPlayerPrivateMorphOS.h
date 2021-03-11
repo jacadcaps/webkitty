@@ -75,15 +75,18 @@ public:
 	bool accEnableVideo() const override;
 	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
 	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
-	void accSetBufferLength(float buffer) override;
-	void accSetPosition(float buffer) override;
-	void accSetDuration(float buffer) override;
+	void accSetBufferLength(double buffer) override;
+	void accSetPosition(double buffer) override;
+	void accSetDuration(double buffer) override;
 	void accEnded() override;
 	void accFailed() override;
 	RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() override;
 	String accReferrer() override;
+	void accNextFrameReady() override;
+	void accSetVideoSize(int width, int height) override;
+	void accNoFramesReady() override;
 
-#if ENABLE(MEDIA_SOURCE)
+#if ENABLE(VIDEO_TRACK)
 	void onTrackEnabled(int index, bool enabled);
 #endif
 
@@ -92,10 +95,14 @@ protected:
 	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
-	float m_duration = 0.f;
-	float m_currentTime = 0.f;
+	double m_duration = 0.f;
+	double m_currentTime = 0.f;
+	int   m_width = 320;
+	int   m_height = 240;
 	bool  m_prepareToPlay = false;
 	bool  m_acInitialized = false;
+	bool  m_visible = false;
+	bool  m_didDrawFrame = false;
 
 #if ENABLE(MEDIA_SOURCE)
 	RefPtr<MediaSourcePrivateMorphOS> m_mediaSourcePrivate;

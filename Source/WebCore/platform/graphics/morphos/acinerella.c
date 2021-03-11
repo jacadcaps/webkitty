@@ -200,9 +200,11 @@ void CALL_CONVT ac_free(lp_ac_instance pacInstance) {
 	}
 }
 
+extern void dprintf(const char *,...);
+
 static int io_read(void *opaque, uint8_t *buf, int buf_size) {
 	lp_ac_data self = ((lp_ac_data)opaque);
-
+dprintf("io_read %d\n", __LINE__);
 	// If there is still memory in the probe buffer, consume this memory first
 	if (self->probe_buffer &&
 	    self->probe_buffer_offs < self->probe_buffer_size) {
@@ -210,12 +212,14 @@ static int io_read(void *opaque, uint8_t *buf, int buf_size) {
 		size_t cnt =
 		    MIN(buf_size, self->probe_buffer_size - self->probe_buffer_offs);
 		memcpy(buf, self->probe_buffer + self->probe_buffer_offs, cnt);
+dprintf("io_read %d\n", __LINE__);
 
 		// Advance the read/write pointers
 		self->probe_buffer_offs += cnt;
 		buf += cnt;
 		buf_size -= cnt;
 
+dprintf("io_read %d\n", __LINE__);
 		// Free the probe buffer once all bytes have been read
 		if (self->probe_buffer_offs == self->probe_buffer_size) {
 			av_free(self->probe_buffer);
@@ -224,21 +228,27 @@ static int io_read(void *opaque, uint8_t *buf, int buf_size) {
 			self->probe_buffer_offs = 0;
 		}
 
+dprintf("io_read %d\n", __LINE__);
 		// If the caller requester more bytes than in the probe
 		// buffer, read them using read_proc, if available.
 		if (buf_size && self->read_proc != NULL) {
+dprintf("io_read %d\n", __LINE__);
 			int rest = self->read_proc(self->sender, buf, buf_size);
 			if (rest != -1) {
 				cnt += rest;
 			}
 		}
+dprintf("io_read %d\n", __LINE__);
 		return (int) cnt;
 	}
 
+dprintf("io_read %d\n", __LINE__);
 	// Read more data by using the read_proc
 	if (self->read_proc != NULL) {
+dprintf("io_read %d\n", __LINE__);
 		return self->read_proc(self->sender, buf, buf_size);
 	}
+dprintf("io_read %d\n", __LINE__);
 
 	return -1;
 }
@@ -684,6 +694,8 @@ static enum AVPixelFormat convert_pix_format(ac_output_format fmt) {
 			return AV_PIX_FMT_YUV420P;
 		case AC_OUTPUT_YUV422:
 			return AV_PIX_FMT_YUYV422;
+		case AC_OUTPUT_ARGB32:
+			return AV_PIX_FMT_ARGB;
 	}
 	return AV_PIX_FMT_RGB24;
 }
@@ -713,6 +725,9 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 	// Call codec_proc if provided
 	if (codec_proc != NULL) {
 		ERR(codec_proc(pCodecCtx));
+	}
+	else {
+		pCodecCtx->skip_loop_filter = AVDISCARD_ALL;
 	}
 
 	// Set a few properties
@@ -1257,6 +1272,32 @@ int CALL_CONVT ac_get_package_size(lp_ac_package pPackage) {
 	if (pPackage == ac_flush_packet())
 		return 0;
 	return self->pPack->size;
+}
+
+double CALL_CONVT ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->pts) / tb.den;
+}
+
+double CALL_CONVT ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->dts) / tb.den;
+}
+
+double CALL_CONVT ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->duration) / tb.den;
 }
 
 static const ac_package_data flush_pkt = {{0}, NULL, 0};

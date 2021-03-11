@@ -33,35 +33,42 @@ void AcinerellaMuxedBuffer::setSinkFunction(Function<void()>&& sinkFunction)
 	m_sinkFunction = WTFMove(sinkFunction);
 }
 
-void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask)
+void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask, uint32_t audioMask)
 {
 	auto lock = holdLock(m_lock);
 	m_decoderMask = mask;
+	m_audioDecoderMask = audioMask;
 }
 
-void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
+void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 {
+	EP_SCOPE(push);
+	D(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package->index(), package->isFlushPackage(), m_decoderMask));
+
 	// is this a valid package?
-	if (!!package)
+	if (package && package->isValid())
 	{
-		const auto index = package.index();
+		const auto index = package->index();
 		bool wantMore = false;
 		
-		D(dprintf("%s: package index %lu isFlush %d\n", __PRETTY_FUNCTION__, index, package.isFlushPackage()));
-
 		{
 			auto lock = holdLock(m_lock);
 
 			// Flush goes into all valid queues!
-			if (package.isFlushPackage())
+			if (package->isFlushPackage())
 			{
 				forValidDecoders([&](AcinerellaPackageQueue& queue, BinarySemaphore&) {
-					queue.emplace(AcinerellaPackage(package.acinerella(), package.package()));
+					queue.emplace(package);
 				});
 			}
 			else if (isDecoderValid(index))
 			{
-				m_packages[index].emplace(WTFMove(package));
+				m_packages[index].emplace(package);
+				D(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
+			}
+			else
+			{
+				D(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
 			}
 			
 			wantMore = needsToCallSinkFunction();
@@ -77,10 +84,10 @@ void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
 	else
 	{
 		m_queueCompleteOrError = true;
+		D(dprintf("%s: EOS!!\n", __PRETTY_FUNCTION__));
 	
 		forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore& event) {
-			while (!queue.empty())
-				event.signal();
+			event.signal();
 		});
 	}
 }
@@ -100,6 +107,7 @@ void AcinerellaMuxedBuffer::flush()
 void AcinerellaMuxedBuffer::terminate()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	EP_SCOPE(terminate);
 
 	{
 		auto lock = holdLock(m_lock);
@@ -107,35 +115,35 @@ void AcinerellaMuxedBuffer::terminate()
 		m_queueCompleteOrError = true;
 	}
 
-	forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore& event) {
+	forValidDecoders([](AcinerellaPackageQueue&, BinarySemaphore& event) {
 		event.signal();
 	});
 }
 
-bool AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder, AcinerellaPackage &outPackage)
+RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder)
 {
-	D(dprintf("%s: isAudio %d index %lu\n", __PRETTY_FUNCTION__, decoder.isAudio(), decoder.index()));
+	D(dprintf("%s: isAudio %d index %lu\n", __func__, decoder.isAudio(), decoder.index()));
+	EP_SCOPE(nextPackage);
 
 	const auto index = decoder.index();
 
 	for (;;)
 	{
 		bool requestMore = false;
-		bool hasPackage = false;
+		RefPtr<AcinerellaPackage> hasPackage = nullptr;
 
 		{
 			auto lock = holdLock(m_lock);
 			D(dprintf("%s: packages %d complete %d\n", __func__, m_packages[index].size(), m_queueCompleteOrError));
 			if (!m_packages[index].empty())
 			{
-				outPackage = WTFMove(m_packages[index].front());
+				hasPackage = m_packages[index].front();
 				m_packages[index].pop();
-				hasPackage = true;
 				requestMore = m_packages[index].size() < queueReadAheadSize;
 			}
 			else if (m_queueCompleteOrError)
 			{
-				return false;
+				return nullptr;
 			}
 			else
 			{
@@ -143,16 +151,20 @@ bool AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder, AcinerellaPa
 			}
 
 			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
+			{
+				D(dprintf("%s: calling sink..\n", __func__));
 				m_sinkFunction();
+			}
 		}
 		
 		if (hasPackage)
-			return true;
+			return hasPackage;
 		
+		EP_EVENT(wait);
 		m_events[index].waitFor(10_s);
 	}
 
-	return false;
+	return nullptr;
 }
 
 }

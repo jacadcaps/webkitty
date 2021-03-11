@@ -6,6 +6,9 @@
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ContextMenuItem.h>
 
+#define EP_PROFILING 0
+#include <libeventprofiler.h>
+
 namespace WebCore {
 	class Page;
 	class WindowFeatures;
@@ -17,6 +20,7 @@ namespace WebCore {
 	class AuthenticationChallenge;
 	class HitTestResult;
 	class SharedBuffer;
+	class Element;
 	struct MediaPlayerMorphOSInfo;
 };
 
@@ -92,6 +96,9 @@ struct WebViewDelegate
 	std::function<bool(void *player, const String &url)> _fAttemptMedia;
 	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WTF::Function<void(bool doLoad)> &&loadFunc)> _fMediaAdded;
 	std::function<void(void *player)> _fMediaRemoved;
+	std::function<void(void *player, WebCore::Element* element,
+		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom)> && callback)>
+		_fMediaSetOverlayCallback;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;

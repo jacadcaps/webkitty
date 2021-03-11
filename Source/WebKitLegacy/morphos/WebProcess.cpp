@@ -189,6 +189,7 @@ void WebProcess::initialize(int sigbit)
 #if ENABLE(VIDEO)
 	MediaPlayerMorphOSSettings::settings().m_enableAudio = true;
 	MediaPlayerMorphOSSettings::settings().m_enableVideo = true;
+	MediaPlayerMorphOSSettings::settings().m_decodeVideo = true;
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 	
@@ -248,6 +249,32 @@ void WebProcess::initialize(int sigbit)
 			if (webpage->_fMediaRemoved)
 				webpage->_fMediaRemoved(player);
 		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayRequest = [this](WebCore::MediaPlayer *player,
+		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int width, int height)>&& overlaycallback) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaSetOverlayCallback)
+				{
+					webpage->_fMediaSetOverlayCallback(player, pElement, WTFMove(overlaycallback));
+					return;
+				}
+			}
+		}
+
 	};
 #endif
 

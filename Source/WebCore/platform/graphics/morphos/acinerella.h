@@ -77,7 +77,8 @@ typedef enum _ac_output_format {
 	AC_OUTPUT_RGBA32 = 2,
 	AC_OUTPUT_BGRA32 = 3,
 	AC_OUTPUT_YUV422 = 4,
-	AC_OUTPUT_YUV420P = 5
+	AC_OUTPUT_YUV420P = 5,
+	AC_OUTPUT_ARGB32 = 6,
 } ac_output_format;
 
 /*Contains information about the whole file/stream that has been opened. Default
@@ -514,6 +515,10 @@ EXTERN lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder);
 EXTERN void ac_free_decoder_frame(lp_ac_decoder_frame pFrame);
 
 EXTERN int CALL_CONVT ac_get_audio_rate(lp_ac_decoder pDecoder);
+
+EXTERN double ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage);
+EXTERN double ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage);
+EXTERN double ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage);
 
 #ifdef __cplusplus
 } //end extern "C"

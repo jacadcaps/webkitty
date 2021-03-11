@@ -2,7 +2,7 @@
 
 #include "VideoTrackPrivateMorphOS.h"
 
-#define D(x) x
+#define D(x) 
 
 #if ENABLE(VIDEO) && ENABLE(VIDEO_TRACK)
 
@@ -12,7 +12,7 @@ VideoTrackPrivateMorphOS::VideoTrackPrivateMorphOS(WeakPtr<MediaPlayerPrivateMor
 	: m_index(index)
 	, m_player(player)
 {
-	m_id = "A" + String::number(index);
+	m_id = "V" + String::number(index);
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 }
 

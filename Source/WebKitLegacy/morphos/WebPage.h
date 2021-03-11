@@ -188,6 +188,7 @@ public:
 	void endLiveResize();
 	
     void setFocusedElement(WebCore::Element *);
+    WebCore::IntRect getElementBounds(WebCore::Element *);
 	
 	void startedEditingElement(WebCore::HTMLInputElement *);
 	bool hasAutofillElements();

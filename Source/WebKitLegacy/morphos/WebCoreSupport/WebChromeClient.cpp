@@ -461,11 +461,14 @@ RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& 
 
 bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool requestingKeyboardAccess)
 {
-	return false;
+	if (requestingKeyboardAccess)
+		return false;
+	return true;
 }
 
 void WebChromeClient::enterFullScreenForElement(Element& element)
 {
+	
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element)

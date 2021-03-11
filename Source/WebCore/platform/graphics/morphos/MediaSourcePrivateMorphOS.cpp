@@ -7,6 +7,7 @@
 #include "MediaPlayerPrivateMorphOS.h"
 
 #define D(x) x
+// #pragma GCC optimize ("O0")
 
 namespace WebCore {
 
@@ -63,7 +64,7 @@ MediaPlayer::ReadyState MediaSourcePrivateMorphOS::readyState() const
 
 void MediaSourcePrivateMorphOS::setReadyState(MediaPlayer::ReadyState rs)
 {
-	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, int(rs)));
+//	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, int(rs)));
 	m_player.accSetReadyState(rs);
 }
 
@@ -77,6 +78,12 @@ void MediaSourcePrivateMorphOS::seekCompleted()
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
+void MediaSourcePrivateMorphOS::orphan()
+{
+	m_orphaned = true;
+	m_paintingBuffer = nullptr;
+}
+
 void MediaSourcePrivateMorphOS::warmUp()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
@@ -87,11 +94,74 @@ void MediaSourcePrivateMorphOS::warmUp()
 	m_player.accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
 }
 
+void MediaSourcePrivateMorphOS::play()
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	for (auto& sourceBufferPrivate : m_sourceBuffers)
+		sourceBufferPrivate->play();
+	m_paused = false;
+}
+
+// TODO locks for painting buffer access
+
+void MediaSourcePrivateMorphOS::pause()
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	for (auto& sourceBufferPrivate : m_sourceBuffers)
+		sourceBufferPrivate->pause();
+	m_paused = true;
+}
+
+void MediaSourcePrivateMorphOS::seek(double time)
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	if (m_seeking)
+		return;
+	
+	m_seeking = true;
+
+    for (auto& sourceBufferPrivate : m_sourceBuffers)
+        sourceBufferPrivate->seekToTime(time);
+
+}
+
+void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
+{
+	if (!!m_paintingBuffer)
+		m_paintingBuffer->paint(gc, rect);
+}
+
+void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom)
+{
+	if (!!m_paintingBuffer)
+		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom);
+}
+
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 // TMP: needs to pass this to player
 	warmUp();
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
+{
+	m_paintingBuffer = buffer;
+	m_player.accNextFrameReady();
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
+{
+	if (m_paintingBuffer == buffer)
+		m_paintingBuffer = nullptr;
+	m_sourceBuffers.remove(buffer);
+	buffer->clearMediaSource();
+}
+
+void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double position)
+{
+	if (m_paintingBuffer)
+		m_paintingBuffer->setAudioPresentationTime(position);
 }
 
 }

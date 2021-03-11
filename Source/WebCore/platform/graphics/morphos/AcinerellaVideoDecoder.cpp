@@ -24,11 +24,12 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x) x
+#define D(x) 
 #define DSYNC(x) x
 
 // #pragma GCC optimize ("O0")
 
+#define FORCEDECODE
 
 namespace WebCore {
 namespace Acinerella {
@@ -40,7 +41,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	m_frameDuration = 1.f / m_fps;
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
-	D(dprintf("%s: %p fps %f\n", __func__, this, m_fps));
+	D(dprintf("%s: %p fps %f\n", __func__, this, float(m_fps)));
 	
 	auto decoder = client->acinerellaPointer()->decoder(index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
@@ -79,9 +80,9 @@ bool AcinerellaVideoDecoder::isPlaying() const
 	return m_playing;
 }
 
-float AcinerellaVideoDecoder::position() const
+double AcinerellaVideoDecoder::position() const
 {
-	return 0.5f;
+	return m_position;
 }
 
 void AcinerellaVideoDecoder::startPlaying()
@@ -98,6 +99,9 @@ void AcinerellaVideoDecoder::stopPlaying()
 	D(dprintf("%s: %p\n", __func__, this));
 	m_playing = false;
 	m_pullEvent.signal();
+
+	auto lock = holdLock(m_audioLock);
+	m_hasAudioPosition = false;
 }
 
 void AcinerellaVideoDecoder::onThreadShutdown()
@@ -121,12 +125,35 @@ void AcinerellaVideoDecoder::flush()
 
 }
 
+void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
+{
+	D(dprintf("%s: %p -> %f\n", __func__, this, float(apts)));
+	auto lock = holdLock(m_audioLock);
+	m_audioPositionRealTime = MonotonicTime::now();
+	m_audioPosition = apts;
+	m_hasAudioPosition = true;
+}
+
+bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
+{
+	auto lock = holdLock(m_audioLock);
+
+	if (m_hasAudioPosition)
+	{
+		// Audio should be here...
+		time = m_audioPosition + (MonotonicTime::now() - m_audioPositionRealTime).value();
+		return true;
+	}
+	
+	return false;
+}
+
 void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom)
 {
 	{
 		auto lock = holdLock(m_lock);
 		
-		D(dprintf("%s: window %p\n", __func__, w));
+		D(dprintf("%s: window %p %d %d %d %d\n", __func__, w, mleft, mtop, mright, mbottom));
 		
 		if (m_overlayWindow != w)
 		{
@@ -175,37 +202,45 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 
 void AcinerellaVideoDecoder::updateOverlayCoords()
 {
-	int visibleWidth = m_paintX2 - m_paintX + 1;
-	int visibleHeight = m_paintY2 - m_paintY + 1;
+	int visibleWidth = m_outerX2 - m_outerX + 1;
+	int visibleHeight = m_outerY2 - m_outerY + 1;
 	int offsetX = 0;
 	int offsetY = 0;
 
-	float frameRatio = float(m_frameWidth) / float(m_frameHeight);
-	float frameRevRatio = float(m_frameHeight) / float(m_frameWidth);
-	float visibleRatio = float(visibleWidth) / float(visibleHeight);
+	double frameRatio = double(m_frameWidth) / double(m_frameHeight);
+	double frameRevRatio = double(m_frameHeight) / double(m_frameWidth);
+	double visibleRatio = double(visibleWidth) / double(visibleHeight);
 
 	if (frameRatio < visibleRatio)
 	{
-		offsetX = visibleWidth - (float(visibleHeight) * frameRatio);
+		offsetX = visibleWidth - (double(visibleHeight) * frameRatio);
 		offsetX /= 2;
 	}
 	else
 	{
-		offsetY = visibleHeight - (float(visibleWidth) * frameRevRatio);
+		offsetY = visibleHeight - (double(visibleWidth) * frameRevRatio);
 		offsetY /= 2;
 	}
+	offsetX = 0;
+	offsetY = 0;
 
 	auto lock = holdLock(m_lock);
 	if (m_overlayHandle)
 	{
 		SetVLayerAttrTags(m_overlayHandle,
-			VOA_LeftIndent, m_outerX + m_paintX + offsetX,
-			VOA_TopIndent, m_outerY + m_paintY + offsetY,
-			VOA_RightIndent, m_overlayWindow->Width - ((m_paintX2 - offsetX) + m_outerX),
-			VOA_BottomIndent, m_overlayWindow->Height - ((m_paintY2 - offsetY) + m_outerY),
+			VOA_LeftIndent, m_outerX + offsetX,
+			VOA_TopIndent, m_outerY + offsetY,
+			VOA_RightIndent, m_outerX2 + offsetX,
+			VOA_BottomIndent, m_outerY2 + offsetY,
 			TAG_DONE);
-		D(dprintf("%s: setting vlayer bounds %d %d %d %d\n", __func__, m_outerX + m_paintX, m_outerY + m_paintY,
-			m_overlayWindow->Width - (m_paintX2 + m_outerX), m_overlayWindow->Height - (m_paintY2 + m_outerY)));
+
+		D(dprintf("%s: setting vlayer bounds %d %d %d %d win %d %d\n", __func__,
+			m_outerX + offsetX,
+			m_outerY + offsetY,
+			m_outerX2 + offsetX,
+			m_outerY2 + offsetY,
+			m_overlayWindow->Width,
+			m_overlayWindow->Height));
 	}
 }
 
@@ -275,7 +310,7 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 				if (pattern)
 				{
 					cairo_matrix_t matrix;
-					cairo_matrix_init_scale(&matrix, float(m_frameWidth) / rect.width(), float(m_frameHeight) / rect.height());
+					cairo_matrix_init_scale(&matrix, double(m_frameWidth) / rect.width(), double(m_frameHeight) / rect.height());
 					cairo_pattern_set_matrix(pattern, &matrix);
 					cairo_pattern_set_filter(pattern, CAIRO_FILTER_FAST);
 					cairo_set_source(cr, pattern);
@@ -297,7 +332,7 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 
 		if (m_accumulatedCairoCount % int(m_fps))
 			D(dprintf("%s: paint time %f, avg %f\n", __func__, float(decodingTime.value()),
-				float(m_accumulatedCairoTime.value() / double(m_accumulatedCairoCount))));
+				float(m_accumulatedCairoTime.value() / float(m_accumulatedCairoCount))));
 				
 	}
 #endif
@@ -384,12 +419,19 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 	{
 		m_pullEvent.waitFor(5_s);
 
+#ifdef FORCEDECODE
+		if (m_playing && !m_terminating)
+#else
 		if (m_playing && !m_terminating && m_overlayHandle)
+#endif
 		{
+			D(dprintf("%s: %p nf\n", __func__, this));
+			bool dropFrame = false;
+
 			while (m_playing)
 			{
 				Seconds sleepFor = 0_s;
-				float pts;
+				double pts;
 
 				// Grab time point (disregarding time it takes to swap vlayer buffers)
 				auto timeDisplayed = MonotonicTime::now();
@@ -398,16 +440,66 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					auto lock = holdLock(m_lock);
 
 					// Show previous frame
-					SwapVLayerBuffer(m_overlayHandle);
+					if (dropFrame)
+					{
+						if (m_decodedFrames.size())
+						{
+							m_position = pts = m_decodedFrames.front().pts();
+							m_decodedFrames.pop();
+							dropFrame = false;
+						}
+						else
+						{
+							break;
+						}
+					}
+					else
+					{
+						if (m_overlayHandle)
+							SwapVLayerBuffer(m_overlayHandle);
 
+						if (m_decodedFrames.size())
+						{
+							// Store current frame's pts
+							m_position = pts = m_decodedFrames.front().pts();
+							
+							// Blit the frame into overlay backbuffer
+							blitFrameLocked();
+
+							// Pop the frame
+							m_decodedFrames.pop();
+						}
+						else
+						{
+							break;
+						}
+					}
+				}
+
+				decodeUntilBufferFull();
+				
+				{
+					auto lock = holdLock(m_lock);
+
+					// Get next presentation time
 					if (m_decodedFrames.size())
 					{
-						// Store current frame's pts
-						pts = m_decodedFrames.front().pts();
-						// Blit the frame into overlay backbuffer
-						blitFrameLocked();
-						// Pop the frame
-						m_decodedFrames.pop();
+						double nextPts = m_decodedFrames.front().pts();
+
+						double audioAt;
+						if (getAudioPresentationTime(audioAt))
+						{
+							sleepFor = Seconds((pts - audioAt) + (nextPts - pts));
+						}
+						else
+						{
+							// Sleep for the duration of last frame - time we've already spent
+							sleepFor = Seconds(nextPts - pts);
+							sleepFor -= MonotonicTime::now() - timeDisplayed;
+						}
+
+						DSYNC(dprintf("[V]%s: pts %f next frame in %f diff pts %f audio at %f\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
+							float(audioAt)));
 					}
 					else
 					{
@@ -415,64 +507,13 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					}
 				}
 
-				decodeUntilBufferFull();
-				// Get next presentation time
-				float nextPts = m_decodedFrames.front().pts();
-				// Sleep for the duration of last frame - time we've already spent
-				sleepFor = Seconds(nextPts - pts);
-				sleepFor -= MonotonicTime::now() - timeDisplayed;
-
-				DSYNC(dprintf("[V]%s: pts %f next frame in %f diff pts %f\n", __func__, pts, float(sleepFor.value()), nextPts - pts));
-
-				if (sleepFor.value() > 0.0 && pts >= m_audioPosition)
+				if (sleepFor.value() > 0.0)
 					m_pullEvent.waitFor(sleepFor);
+				else if (sleepFor.value() < -(m_frameDuration * 3.0))
+					dropFrame = true;
 			}
 		}
 
-#if 0
-
-		while (m_playing && !m_terminating && m_overlayHandle)
-		{
-			MonotonicTime mtStart = MonotonicTime::now();
-			{
-				EP_SCOPE(pullFrame);
-				auto lock = holdLock(m_lock);
-				if (m_decodedFrames.size())
-				{
-					const auto *frame = m_decodedFrames.front().frame();
-					auto *avFrame = ac_get_frame(m_decodedFrames.front().pointer()->decoder(m_index));
-					presentationTime = frame->timecode;
-
-//					auto surface = cairo_image_surface_create_for_data(avFrame->data[0], CAIRO_FORMAT_RGB24, m_frameWidth, m_frameHeight, avFrame->linesize[0]);
-
-//					WritePixelArray(avFrame->data[0], 0, 0, avFrame->linesize[0], win->RPort, 0, 0, m_frameWidth, m_frameHeight, RECTFMT_ARGB);
-
-					blitFrameLocked();
-
-					SwapVLayerBuffer(m_overlayHandle);
-
-					m_decodedFrames.pop();
-					m_bufferedSeconds -= m_frameDuration;
-				}
-			}
-//			m_client->onDecoderReadyToPaint(makeRef(*this));
-
-			decodeUntilBufferFull();
-			MonotonicTime mtEnd = MonotonicTime::now();
-			Seconds decodingTime = (mtEnd - mtStart);
-			m_accumulatedDecodingCount ++;
-			m_accumulatedDecodingTime += decodingTime;
-			Seconds sleepFor = Seconds(m_frameDuration) - (decodingTime);
-			if (sleepFor.value() > 0.0)
-			{
-				EP_SCOPE(sleep);
-				m_pullEvent.waitFor(sleepFor);
-			}
-			if (m_accumulatedDecodingCount % int(m_fps))
-				DSYNC(dprintf("[V]%s: pts %f decode time %f, avg %f\n", __func__, presentationTime, float(decodingTime.value()),
-					float(m_accumulatedDecodingTime.value() / double(m_accumulatedDecodingCount))));
-		}
-#endif
 	}
 }
 

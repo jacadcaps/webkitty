@@ -1,5 +1,6 @@
 #include "AcinerellaAudioDecoder.h"
 #include "AcinerellaContainer.h"
+#include "MediaPlayerMorphOS.h"
 
 #if ENABLE(VIDEO)
 #include <proto/ahi.h>
@@ -10,10 +11,13 @@
 namespace WebCore {
 namespace Acinerella {
 
+// #pragma GCC optimize ("O0")
+
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
 #define D(x) 
+#define DSYNC(x) x
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
 	: AcinerellaDecoder(client, buffer, index, info, isLiveStream)
@@ -32,6 +36,7 @@ AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, 
 void AcinerellaAudioDecoder::startPlaying()
 {
 	D(dprintf("%s:\n", __func__));
+	EP_EVENT(start);
 	initializeAudio();
 	
 	if (m_ahiControl)
@@ -43,6 +48,7 @@ void AcinerellaAudioDecoder::startPlaying()
 
 void AcinerellaAudioDecoder::stopPlaying()
 {
+	EP_EVENT(stop);
 	if (m_ahiControl)
 	{
 		AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE);
@@ -50,11 +56,11 @@ void AcinerellaAudioDecoder::stopPlaying()
 	}
 }
 
-void AcinerellaAudioDecoder::doSetVolume(float volume)
+void AcinerellaAudioDecoder::doSetVolume(double volume)
 {
 	if (m_ahiControl)
 	{
-		AHI_SetVol(0, (LONG) (float(0x10000L) * volume),
+		AHI_SetVol(0, (LONG) (double(0x10000L) * volume),
 			0x8000L, m_ahiControl, AHISF_IMM);
 	}
 }
@@ -67,6 +73,7 @@ bool AcinerellaAudioDecoder::isReadyToPlay() const
 bool AcinerellaAudioDecoder::initializeAudio()
 {
 	D(dprintf("%s:\n", __func__));
+	EP_SCOPE(initializeAudio);
 	
 	if (m_ahiControl)
 		return true;
@@ -194,6 +201,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 void AcinerellaAudioDecoder::onThreadShutdown()
 {
 	D(dprintf("%s:\n", __func__));
+	EP_SCOPE(onShutdown);
 
 	if (m_ahiControl)
 	{
@@ -217,6 +225,7 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 	{
 		m_ahiThread->waitForCompletion();
 		D(dprintf("%s: AHI thread shut down... \n", __func__));
+		m_ahiThread = nullptr;
 	}
 
 	for (int i = 0; i < 2; i++)
@@ -245,7 +254,7 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
 	m_bufferedSamples += frame.frame()->buffer_size / 4; // 16bitStereo = 4BPF
-	m_bufferedSeconds = float(m_bufferedSamples) / float(m_audioRate);
+	m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
 
 	D(dprintf("%s: buffered %f\n", __func__, m_bufferedSeconds));
 }
@@ -255,13 +264,15 @@ bool AcinerellaAudioDecoder::isPlaying() const
 	return m_playing;
 }
 
-float AcinerellaAudioDecoder::position() const
+double AcinerellaAudioDecoder::position() const
 {
 	return m_position;
 }
 
 void AcinerellaAudioDecoder::flush()
 {
+	D(dprintf("%s: flushing audio\n", __func__));
+	EP_SCOPE(flush);
 	if (m_ahiControl)
 	{
 		AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE);
@@ -272,6 +283,8 @@ void AcinerellaAudioDecoder::flush()
 
 		m_ahiSampleBeingPlayed = 0;
 		m_ahiFrameOffset = 0;
+		m_bufferedSeconds = 0;
+		m_bufferedSamples = 0;
 
 		AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl);
 		AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl);
@@ -300,13 +313,14 @@ void AcinerellaAudioDecoder::soundFunc()
 
 void AcinerellaAudioDecoder::fillBuffer(int index)
 {
+	EP_SCOPE(fillBuffer);
 	uint32_t offset = 0;
 	uint32_t bytesLeft = m_ahiSampleLength * 4;
 	D(size_t framesLeft = 0);
 	bool didPopFrames = false;
 	bool didSetTimecode = false;
 
-	// D(dprintf("%s: sample %d, next index: %d\n", __func__, m_ahiSampleBeingPlayed, index));
+	D(dprintf("%s: sample %d, next index: %d\n", __func__, m_ahiSampleBeingPlayed, index));
 
 	{
 		auto lock = holdLock(m_lock);
@@ -315,7 +329,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			const auto *frame = m_decodedFrames.front().frame();
 			size_t copyBytes = std::min(frame->buffer_size - m_ahiFrameOffset, bytesLeft);
 			
-			// D(dprintf("%s: cb %d of %d afo %d bs %d\n", __func__, copyBytes, offset, m_ahiFrameOffset, frame->buffer_size));
+			D(dprintf("%s: cb %d of %d afo %d bs %d\n", __func__, copyBytes, offset, m_ahiFrameOffset, frame->buffer_size));
 			
 			memcpy(reinterpret_cast<uint8_t*>(m_ahiSample[index].ahisi_Address) + offset, frame->pBuffer + m_ahiFrameOffset, copyBytes);
 			
@@ -327,14 +341,14 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			{
 				m_ahiSampleTimestamp[index] = frame->timecode;
 				didSetTimecode = true;
-				D(dprintf("%s: set timecode %f\n", __func__, float(frame->timecode)));
+				D(dprintf("%s: set timecode %f\n", __func__, double(frame->timecode)));
 			}
 		
 			if (frame->buffer_size == int(m_ahiFrameOffset))
 			{
-				D(dprintf("%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, float(frame->timecode)));
+				D(dprintf("%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, double(frame->timecode)));
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
-				m_bufferedSeconds = float(m_bufferedSamples) / float(m_audioRate);
+				m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
 				m_decodedFrames.pop();
 				m_ahiFrameOffset = 0;
 				didPopFrames = true;
@@ -374,8 +388,9 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 	}
 	else
 	{
-		float positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
-		// D(dprintf("%s: done, bleft %d offset %d postoannounce %f framesLeft: %d timeleft %f\n", __func__, bytesLeft, offset, positionToAnnounce, framesLeft, m_bufferedSeconds));
+		double positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
+		
+		DSYNC(dprintf("[A] %s: PTS %f, bleft %d offset %d timeleft %f\n", __func__, positionToAnnounce, bytesLeft, offset, m_bufferedSeconds));
 
 		if (didPopFrames)
 		{

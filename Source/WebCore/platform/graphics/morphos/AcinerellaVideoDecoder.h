@@ -28,15 +28,15 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	float readAheadTime() const override { return -1.f; }
+	double readAheadTime() const override { return -1.f; }
 	
-	float framesPerSecond() const { return m_fps; }
+	double framesPerSecond() const { return m_fps; }
 
 	bool isReadyToPlay() const override;
 
 	bool isPlaying() const override;
-	float position() const override;
-	float bufferSize() const override { return m_bufferedSeconds; }
+	double position() const override;
+	double bufferSize() const override { return m_bufferedSeconds; }
 	void paint(GraphicsContext&, const FloatRect&) override;
 
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
@@ -44,7 +44,7 @@ public:
 	int frameWidth() const { return m_frameWidth; }
 	int frameHeight() const { return m_frameHeight; }
 	
-	void setAudioPresentationTime(float apts) { m_audioPosition = apts; }
+	void setAudioPresentationTime(double apts);
 
 protected:
 	void startPlaying() override;
@@ -59,19 +59,25 @@ protected:
 	
 	void updateOverlayCoords();
 
+	bool getAudioPresentationTime(double &time);
+
 protected:
 	RefPtr<Thread>  m_pullThread;
 	BinarySemaphore m_pullEvent;
 	
 	uint32_t        m_bufferedSamples = 0;
-	volatile float  m_bufferedSeconds = 0.f;
+	volatile double m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
 	int             m_frameWidth;
 	int             m_frameHeight;
-	float           m_position = 0.f;
-	float           m_fps;
-	float           m_frameDuration;
-	float           m_audioPosition = 0.f;
+	double          m_position = 0.f;
+	double          m_fps;
+	double          m_frameDuration;
+
+	Lock            m_audioLock;
+	double          m_audioPosition = 0.f;
+	MonotonicTime   m_audioPositionRealTime;
+	bool            m_hasAudioPosition = false;
 	
 	Seconds         m_accumulatedDecodingTime;
 	int             m_accumulatedDecodingCount = 0;
