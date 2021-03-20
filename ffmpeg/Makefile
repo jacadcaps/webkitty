@@ -1,4 +1,4 @@
-FFMPEG_VERSION=2.8.17
+FFMPEG_VERSION=4.3.2
 OPUS_VERSION=1.3.1
 
 all: .buildstamp
@@ -15,7 +15,7 @@ all: .buildstamp
 	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
 	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -Os -I$(abspath instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib)" \
 		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
-		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect --enable-memalign-hack \
+		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
 		--disable-pthreads --disable-shared --disable-indevs --disable-protocols --enable-protocol=file --disable-network --disable-encoders --disable-decoders \
 		 --disable-hwaccels --disable-muxers --disable-demuxers --disable-parsers --disable-bsfs --disable-devices --disable-filters --enable-decoder=aac \
 		--enable-decoder=aac_latm --enable-decoder=h264 --enable-decoder=mp3 --enable-decoder=theora --enable-decoder=vorbis --enable-demuxer=aac --enable-demuxer=aac_latm \
@@ -23,16 +23,17 @@ all: .buildstamp
 		--enable-bsf=h264_mp4toannexb --enable-decoder=pcm --enable-decoder=wav --enable-decoder=flac --enable-demuxer=flac --enable-parser=flac \
 		--enable-demuxer=flv --enable-decoder=flv --enable-decoder=h263 --enable-decoder=vp8 --enable-demuxer=vp8 --enable-parser=vp8 \
 		--enable-decoder=vp9 --enable-demuxer=vp9 --enable-parser=vp9 --enable-bsf=aac_adtstoasc --enable-decoder=mpeg4 --enable-parser=mpeg4video \
-		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts)
+		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts \
+		--disable-altivec --disable-ffmpeg --disable-ffplay)
 	# Disable the global enabling of Altivec
-	cat ffmpeg-$(FFMPEG_VERSION)/config.mak | sed "s/-maltivec -mabi=altivec//" > ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp && mv ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp ffmpeg-$(FFMPEG_VERSION)/config.mak
+	#cat ffmpeg-$(FFMPEG_VERSION)/config.mak | sed "s/-maltivec -mabi=altivec//" > ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp && mv ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp ffmpeg-$(FFMPEG_VERSION)/config.mak
 	# And enable it again for certain files...
-	(head -n -1 ffmpeg-$(FFMPEG_VERSION)/config.mak; echo 'include config.altivec'; echo 'endif # FFMPEG_CONFIG_MAK') >ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp && mv ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp ffmpeg-$(FFMPEG_VERSION)/config.mak
+	#(head -n -1 ffmpeg-$(FFMPEG_VERSION)/config.mak; echo 'include config.altivec'; echo 'endif # FFMPEG_CONFIG_MAK') >ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp && mv ffmpeg-$(FFMPEG_VERSION)/config.mak.tmp ffmpeg-$(FFMPEG_VERSION)/config.mak
 	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) -j$(shell nproc))
 	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) install)
 	# FFMPEG seems to forget to install these. Or maybe they're not meant for apps. In any case...
-	cp ffmpeg-$(FFMPEG_VERSION)/libavformat/url.h instdir/include/libavformat
-	cp ffmpeg-$(FFMPEG_VERSION)/libavcodec/audioconvert.h instdir/include/libavcodec
+	#cp ffmpeg-$(FFMPEG_VERSION)/libavformat/url.h instdir/include/libavformat
+	#cp ffmpeg-$(FFMPEG_VERSION)/libavcodec/audioconvert.h instdir/include/libavcodec
 	touch $@
 
 clean:
