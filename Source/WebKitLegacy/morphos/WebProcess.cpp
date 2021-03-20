@@ -82,6 +82,30 @@ namespace WTF {
 	}
 }
 
+#if 0
+#include <wtf/threads/BinarySemaphore.h>
+#include <proto/dos.h>
+class blocktest
+{
+	BinarySemaphore bLock;
+	BinarySemaphore bLock2;
+public:
+	blocktest() {
+		Thread::create("blockthread", [this] {
+			dprintf("calling waitFor\n");
+//			bLock2.signal();
+			bLock.waitFor(100_s);
+			dprintf("block unlocked!\n");
+		});
+//		bLock2.waitFor(2_s);
+		Delay(200);
+		dprintf("signalling..\n");
+		bLock.signal();
+	}
+};
+static blocktest bt;
+#endif
+
 namespace WebKit {
 
 QUAD calculateMaxCacheSize(const char *path)

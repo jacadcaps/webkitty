@@ -151,9 +151,9 @@ void Acinerella::startSeeking(double pos)
 	m_seekingPosition = pos;
 
 	if (m_audioDecoder)
-		m_audioDecoder->pause();
+		m_audioDecoder->pause(true);
 	if (m_videoDecoder)
-		m_videoDecoder->pause();
+		m_videoDecoder->pause(true);
 	
 	double currentPosition = m_audioDecoder ? m_audioDecoder->position() : (m_videoDecoder ? m_videoDecoder->position() : 0.f);
 	D(dprintf("ac%s(%p): %f current %f \n", __func__, this, pos, currentPosition));
@@ -363,7 +363,7 @@ bool Acinerella::initialize()
 				{
 					ac_get_stream_info(m_acinerella->instance(), audioIndex, &info);
 					m_acinerella->setDecoder(audioIndex, ac_create_decoder(m_acinerella->instance(), audioIndex));
-					m_audioDecoder = AcinerellaAudioDecoder::create(this, m_muxer, audioIndex, info, m_isLive);
+					m_audioDecoder = AcinerellaAudioDecoder::create(this, m_acinerella, m_muxer, audioIndex, info, m_isLive);
 					if (!!m_audioDecoder)
 						decoderMask |= (1UL << audioIndex);
 				}
@@ -372,7 +372,7 @@ bool Acinerella::initialize()
 				{
 					ac_get_stream_info(m_acinerella->instance(), videoIndex, &info);
 					m_acinerella->setDecoder(videoIndex, ac_create_decoder(m_acinerella->instance(), videoIndex));
-					m_videoDecoder = AcinerellaVideoDecoder::create(this, m_muxer, videoIndex, info, m_isLive);
+					m_videoDecoder = AcinerellaVideoDecoder::create(this, m_acinerella, m_muxer, videoIndex, info, m_isLive);
 					if (!!m_videoDecoder)
 						decoderMask |= (1UL << videoIndex);
 				}

@@ -460,6 +460,12 @@ void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
 
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
 {
+	if (m_didLoadingProgress)
+	{
+		m_didLoadingProgress = false;
+		return true;
+	}
+
 	return false;
 }
 

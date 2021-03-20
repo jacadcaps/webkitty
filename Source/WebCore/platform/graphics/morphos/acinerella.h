@@ -30,6 +30,12 @@
 extern "C" {
 #endif
 
+#define AC_BUFSIZE (1024 * 4)
+
+#define INT64_MAX 9223372036854775807LL
+#define INT64_MIN (-INT64_MAX-1)
+#define UINT64_MAX 18446744073709551615ULL
+
 /**
  * Defines the type of an Acinerella media stream. Currently only video and
  * audio streams are supported, subtitle and data streams will be marked as
@@ -505,6 +511,7 @@ EXTERN lp_ac_proberesult CALL_CONVT
  */
 EXTERN double ac_get_stream_duration(lp_ac_instance pacInstance, int nb);
 EXTERN int CALL_CONVT ac_get_package_size(lp_ac_package pPackage);
+EXTERN char CALL_CONVT ac_get_package_keyframe(lp_ac_package pPackage);
 EXTERN void CALL_CONVT ac_flush_buffers(lp_ac_decoder pDecoder);
 EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
@@ -519,6 +526,8 @@ EXTERN int CALL_CONVT ac_get_audio_rate(lp_ac_decoder pDecoder);
 EXTERN double ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage);
 EXTERN double ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage);
 EXTERN double ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage);
+
+EXTERN void ac_decoder_fake_seek(lp_ac_decoder pDecoder);
 
 #ifdef __cplusplus
 } //end extern "C"

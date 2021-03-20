@@ -44,10 +44,10 @@ protected:
     MediaTime m_dts;
     MediaTime m_duration;
     String m_trackId;
-    size_t m_size { 0 };
+    size_t m_size;
     RefPtr<Acinerella::AcinerellaPackage> m_sample;
     FloatSize m_presentationSize;
-    MediaSample::SampleFlags m_flags { MediaSample::IsSync };
+    MediaSample::SampleFlags m_flags;
 };
 
 }

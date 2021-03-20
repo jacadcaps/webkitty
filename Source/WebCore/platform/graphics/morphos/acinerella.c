@@ -36,7 +36,6 @@
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
-#define AC_BUFSIZE 1024 * 64
 #define PROBE_BUF_MIN 1024
 #define PROBE_BUF_MAX (1 << 15)
 
@@ -78,6 +77,7 @@ struct _ac_decoder_data {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 };
 
 typedef struct _ac_decoder_data ac_decoder_data;
@@ -87,6 +87,7 @@ struct _ac_video_decoder {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 	AVCodec *pCodec;
 	AVCodecContext *pCodecCtx;
 	AVFrame *pFrame;
@@ -101,6 +102,7 @@ struct _ac_audio_decoder {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 	AVCodec *pCodec;
 	AVCodecContext *pCodecCtx;
 	AVFrame *pFrame;
@@ -200,11 +202,9 @@ void CALL_CONVT ac_free(lp_ac_instance pacInstance) {
 	}
 }
 
-extern void dprintf(const char *,...);
-
 static int io_read(void *opaque, uint8_t *buf, int buf_size) {
 	lp_ac_data self = ((lp_ac_data)opaque);
-dprintf("io_read %d\n", __LINE__);
+
 	// If there is still memory in the probe buffer, consume this memory first
 	if (self->probe_buffer &&
 	    self->probe_buffer_offs < self->probe_buffer_size) {
@@ -212,14 +212,12 @@ dprintf("io_read %d\n", __LINE__);
 		size_t cnt =
 		    MIN(buf_size, self->probe_buffer_size - self->probe_buffer_offs);
 		memcpy(buf, self->probe_buffer + self->probe_buffer_offs, cnt);
-dprintf("io_read %d\n", __LINE__);
 
 		// Advance the read/write pointers
 		self->probe_buffer_offs += cnt;
 		buf += cnt;
 		buf_size -= cnt;
 
-dprintf("io_read %d\n", __LINE__);
 		// Free the probe buffer once all bytes have been read
 		if (self->probe_buffer_offs == self->probe_buffer_size) {
 			av_free(self->probe_buffer);
@@ -228,27 +226,22 @@ dprintf("io_read %d\n", __LINE__);
 			self->probe_buffer_offs = 0;
 		}
 
-dprintf("io_read %d\n", __LINE__);
 		// If the caller requester more bytes than in the probe
 		// buffer, read them using read_proc, if available.
 		if (buf_size && self->read_proc != NULL) {
-dprintf("io_read %d\n", __LINE__);
 			int rest = self->read_proc(self->sender, buf, buf_size);
 			if (rest != -1) {
 				cnt += rest;
 			}
 		}
-dprintf("io_read %d\n", __LINE__);
+
 		return (int) cnt;
 	}
 
-dprintf("io_read %d\n", __LINE__);
 	// Read more data by using the read_proc
 	if (self->read_proc != NULL) {
-dprintf("io_read %d\n", __LINE__);
 		return self->read_proc(self->sender, buf, buf_size);
 	}
-dprintf("io_read %d\n", __LINE__);
 
 	return -1;
 }
@@ -897,6 +890,7 @@ lp_ac_decoder CALL_CONVT ac_create_decoder_ex(lp_ac_instance pacInstance, int nb
 		result->decoder.timecode = 0;
 		result->last_timecode = 0;
 		result->sought = 1;
+		result->doseek = 1;
 	}
 
 	return (lp_ac_decoder)result;
@@ -1150,22 +1144,25 @@ int CALL_CONVT ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecod
 		dec_dat->last_timecode = pDecoder->timecode;
 		pDecoder->timecode = ((lp_ac_package_data)pPackage)->pts * timebase;
 
-		double delta = pDecoder->timecode - dec_dat->last_timecode;
-		double max_delta, min_delta;
+		if (dec_dat->doseek)
+		{
+			double delta = pDecoder->timecode - dec_dat->last_timecode;
+			double max_delta, min_delta;
 
-		if (dec_dat->sought > 0) {
-			max_delta = 120.0;
-			min_delta = -120.0;
-			--dec_dat->sought;
-		} else {
-			max_delta = 4.0;
-			min_delta = 0.0;
-		}
-
-		if ((delta < min_delta) || (delta > max_delta)) {
-			pDecoder->timecode = dec_dat->last_timecode;
 			if (dec_dat->sought > 0) {
-				++dec_dat->sought;
+				max_delta = 120.0;
+				min_delta = -120.0;
+				--dec_dat->sought;
+			} else {
+				max_delta = 4.0;
+				min_delta = 0.0;
+			}
+
+			if ((delta < min_delta) || (delta > max_delta)) {
+				pDecoder->timecode = dec_dat->last_timecode;
+				if (dec_dat->sought > 0) {
+					++dec_dat->sought;
+				}
 			}
 		}
 	}
@@ -1185,6 +1182,13 @@ int CALL_CONVT ac_decode_package(lp_ac_package pPackage,
                                  lp_ac_decoder pDecoder) {
 	return ac_decode_package_ex(pPackage, pDecoder, NULL);
 }
+
+void ac_decoder_fake_seek(lp_ac_decoder pDecoder)
+{
+	lp_ac_decoder_data dec_dat = (lp_ac_decoder_data)pDecoder;
+	dec_dat->doseek = 0;
+}
+
 
 // Seek function
 int CALL_CONVT ac_seek(lp_ac_decoder pDecoder, int dir, int64_t target_pos) {
@@ -1272,6 +1276,14 @@ int CALL_CONVT ac_get_package_size(lp_ac_package pPackage) {
 	if (pPackage == ac_flush_packet())
 		return 0;
 	return self->pPack->size;
+}
+
+EXTERN char CALL_CONVT ac_get_package_keyframe(lp_ac_package pPackage)
+{
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0;
+	return (self->pPack->flags & AV_PKT_FLAG_KEY) ? 1 : 0;
 }
 
 double CALL_CONVT ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage) {

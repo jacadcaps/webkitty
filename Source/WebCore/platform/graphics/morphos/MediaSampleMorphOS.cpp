@@ -20,6 +20,8 @@ MediaSampleMorphOS::MediaSampleMorphOS(RefPtr<Acinerella::AcinerellaPackage>& sa
 		m_pts = MediaTime::createWithDouble(ac_get_package_pts(sample->acinerella()->instance(), sample->package()));
 		m_dts = MediaTime::createWithDouble(ac_get_package_dts(sample->acinerella()->instance(), sample->package()));
 		m_duration = MediaTime::createWithDouble(ac_get_package_duration(sample->acinerella()->instance(), sample->package()));
+		m_size = ac_get_package_size(sample->package());
+		m_flags = ac_get_package_keyframe(sample->package()) ? MediaSample::SampleFlags::IsSync : MediaSample::SampleFlags::None;
 		
 		if (ac_get_package_duration(sample->acinerella()->instance(), sample->package()) <= 0.0f)
 			m_duration = MediaTime::createWithDouble(0.02);

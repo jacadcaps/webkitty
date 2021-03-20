@@ -114,15 +114,16 @@ void MediaSourcePrivateMorphOS::pause()
 
 void MediaSourcePrivateMorphOS::seek(double time)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	D(dprintf("%s: %f\n", __PRETTY_FUNCTION__, float(time)));
 	if (m_seeking)
 		return;
 	
 	m_seeking = true;
 
     for (auto& sourceBufferPrivate : m_sourceBuffers)
-        sourceBufferPrivate->seekToTime(time);
+        sourceBufferPrivate->willSeek(time);
 
+	m_client->seekToTime(MediaTime::createWithDouble(time));
 }
 
 void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
@@ -148,6 +149,8 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
 {
 	m_paintingBuffer = buffer;
 	m_player.accNextFrameReady();
+
+	m_seeking = false;
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
@@ -162,6 +165,8 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 {
 	if (m_paintingBuffer)
 		m_paintingBuffer->setAudioPresentationTime(position);
+		
+	m_seeking = false;
 }
 
 }

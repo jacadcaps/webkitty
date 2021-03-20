@@ -34,16 +34,16 @@
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
-	: AcinerellaDecoder(client, buffer, index, info, isLiveStream)
+AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
+	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
 {
 	m_fps = info.additional_info.video_info.frames_per_second;
 	m_frameDuration = 1.f / m_fps;
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
-	D(dprintf("%s: %p fps %f\n", __func__, this, float(m_fps)));
+	D(dprintf("[VD]%s: %p fps %f\n", __func__, this, float(m_fps)));
 	
-	auto decoder = client->acinerellaPointer()->decoder(index);
+	auto decoder = acinerella->decoder(index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
 	
 	m_pullThread = Thread::create("Acinerella Video Pump", [this] {
@@ -54,7 +54,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 
 AcinerellaVideoDecoder::~AcinerellaVideoDecoder()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 	
 	if (!!m_pullThread)
 	{
@@ -68,6 +68,12 @@ AcinerellaVideoDecoder::~AcinerellaVideoDecoder()
 		DetachVLayer(m_overlayHandle);
 		DeleteVLayerHandle(m_overlayHandle);
 	}
+}
+
+void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerella)
+{
+	auto decoder = acinerella->decoder(m_index);
+	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
 }
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
@@ -87,7 +93,7 @@ double AcinerellaVideoDecoder::position() const
 
 void AcinerellaVideoDecoder::startPlaying()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 	m_playing = true;
 	onPositionChanged();
 	m_pullEvent.signal();
@@ -96,7 +102,7 @@ void AcinerellaVideoDecoder::startPlaying()
 
 void AcinerellaVideoDecoder::stopPlaying()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 	m_playing = false;
 	m_pullEvent.signal();
 
@@ -106,17 +112,17 @@ void AcinerellaVideoDecoder::stopPlaying()
 
 void AcinerellaVideoDecoder::onThreadShutdown()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 	m_pullEvent.signal();
 	m_pullEvent.signal();
 	m_pullThread->waitForCompletion();
 	m_pullThread = nullptr;
-	D(dprintf("%s: %p done\n", __func__, this));
+	D(dprintf("[VD]%s: %p done\n", __func__, this));
 }
 
 void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 	m_bufferedSeconds += m_frameDuration;
 }
 
@@ -127,7 +133,7 @@ void AcinerellaVideoDecoder::flush()
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
 {
-	D(dprintf("%s: %p -> %f\n", __func__, this, float(apts)));
+	D(dprintf("[VD]%s: %p -> %f\n", __func__, this, float(apts)));
 	auto lock = holdLock(m_audioLock);
 	m_audioPositionRealTime = MonotonicTime::now();
 	m_audioPosition = apts;
@@ -153,7 +159,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 	{
 		auto lock = holdLock(m_lock);
 		
-		D(dprintf("%s: window %p %d %d %d %d\n", __func__, w, mleft, mtop, mright, mbottom));
+		D(dprintf("[VD]%s: window %p %d %d %d %d\n", __func__, w, mleft, mtop, mright, mbottom));
 		
 		if (m_overlayWindow != w)
 		{
@@ -178,12 +184,12 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 				{
 					AttachVLayerTags(m_overlayHandle, m_overlayWindow, VOA_ColorKeyFill, FALSE, TAG_DONE);
 					m_overlayFillColor = GetVLayerAttr(m_overlayHandle, VOA_ColorKey);
-					D(dprintf("%s: fill %08lx\n", __func__, m_overlayFillColor));
+					D(dprintf("[VD]%s: fill %08lx\n", __func__, m_overlayFillColor));
 					m_pullEvent.signal();
 				}
 				else
 				{
-					D(dprintf("%s: failed creating vlayer for size %d %d\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight));
+					D(dprintf("[VD]%s: failed creating vlayer for size %d %d\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight));
 				}
 			}
 		}
@@ -234,7 +240,7 @@ void AcinerellaVideoDecoder::updateOverlayCoords()
 			VOA_BottomIndent, m_outerY2 + offsetY,
 			TAG_DONE);
 
-		D(dprintf("%s: setting vlayer bounds %d %d %d %d win %d %d\n", __func__,
+		D(dprintf("[VD]%s: setting vlayer bounds %d %d %d %d win %d %d\n", __func__,
 			m_outerX + offsetX,
 			m_outerY + offsetY,
 			m_outerX2 + offsetX,
@@ -331,7 +337,7 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 		m_accumulatedCairoTime += decodingTime;
 
 		if (m_accumulatedCairoCount % int(m_fps))
-			D(dprintf("%s: paint time %f, avg %f\n", __func__, float(decodingTime.value()),
+			D(dprintf("[VD]%s: paint time %f, avg %f\n", __func__, float(decodingTime.value()),
 				float(m_accumulatedCairoTime.value() / float(m_accumulatedCairoCount))));
 				
 	}
@@ -413,7 +419,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 
 void AcinerellaVideoDecoder::pullThreadEntryPoint()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[VD]%s: %p\n", __func__, this));
 
 	while (!m_terminating)
 	{
@@ -425,7 +431,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 		if (m_playing && !m_terminating && m_overlayHandle)
 #endif
 		{
-			D(dprintf("%s: %p nf\n", __func__, this));
+			D(dprintf("[VD]%s: %p nf\n", __func__, this));
 			bool dropFrame = false;
 
 			while (m_playing)
@@ -477,6 +483,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				}
 
 				decodeUntilBufferFull();
+				double audioAt;
+				bool canDropFrames = false;
 				
 				{
 					auto lock = holdLock(m_lock);
@@ -486,10 +494,11 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					{
 						double nextPts = m_decodedFrames.front().pts();
 
-						double audioAt;
 						if (getAudioPresentationTime(audioAt))
 						{
 							sleepFor = Seconds((pts - audioAt) + (nextPts - pts));
+							if (audioAt > 1.0)
+								canDropFrames = true;
 						}
 						else
 						{
@@ -508,9 +517,21 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				}
 
 				if (sleepFor.value() > 0.0)
+				{
+					if (sleepFor.value() > 1.0)
+						sleepFor = Seconds(1.0);
+						
 					m_pullEvent.waitFor(sleepFor);
+				}
+				else if (canDropFrames && sleepFor.value() < -4.0)
+				{
+					DSYNC(dprintf("[V]%s: dropping video frames until %f\n", __func__, float(audioAt)));
+					dropUntilPTS(audioAt);
+				}
 				else if (sleepFor.value() < -(m_frameDuration * 3.0))
+				{
 					dropFrame = true;
+				}
 			}
 		}
 

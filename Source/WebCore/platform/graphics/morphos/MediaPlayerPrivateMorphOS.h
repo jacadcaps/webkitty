@@ -86,6 +86,8 @@ public:
 	void accSetVideoSize(int width, int height) override;
 	void accNoFramesReady() override;
 
+	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
+
 #if ENABLE(VIDEO_TRACK)
 	void onTrackEnabled(int index, bool enabled);
 #endif
@@ -103,6 +105,7 @@ protected:
 	bool  m_acInitialized = false;
 	bool  m_visible = false;
 	bool  m_didDrawFrame = false;
+	mutable bool  m_didLoadingProgress = false;
 
 #if ENABLE(MEDIA_SOURCE)
 	RefPtr<MediaSourcePrivateMorphOS> m_mediaSourcePrivate;

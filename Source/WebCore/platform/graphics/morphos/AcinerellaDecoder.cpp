@@ -9,20 +9,20 @@
 #define D(x)
 #define DNF(x)
 #define DI(x)
-#define DBF(x) x
+#define DBF(x) 
 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
+AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
 	: m_client(client)
 	, m_muxer(buffer)
 	, m_index(index)
 	, m_isLive(isLiveStream)
 {
-	auto ac = client->acinerellaPointer()->instance();
+	auto ac = acinerella->instance();
 	m_duration = std::max(ac_get_stream_duration(ac, index), double(ac->info.duration)/1000.0);
 
 	// simulated duration of 3 chunks
@@ -30,6 +30,7 @@ AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<Aci
 		m_duration = 15.f;
 
 	m_bitrate = ac->info.bitrate;
+	m_lastDecoder = acinerella->decoder(m_index);
 }
 
 AcinerellaDecoder::~AcinerellaDecoder()
@@ -60,9 +61,13 @@ void AcinerellaDecoder::play()
 	});
 }
 
-void AcinerellaDecoder::pause()
+void AcinerellaDecoder::pause(bool willSeek)
 {
-	dispatch([this](){ stopPlaying(); });
+	dispatch([this, willSeek](){
+		stopPlaying();
+		if (willSeek)
+			flush();
+	});
 }
 
 void AcinerellaDecoder::setVolume(float volume)
@@ -89,6 +94,12 @@ bool AcinerellaDecoder::decodeNextFrame()
 		if (!decoder)
 			return false;
 
+		if (m_lastDecoder != decoder)
+		{
+			m_lastDecoder = decoder;
+			onDecoderChanged(buffer->acinerella());
+		}
+
 		// used both if acinerella sends us stuff AND in case of discontinuity
 		// either way, we must flush caches here!
 		if (buffer->isFlushPackage())
@@ -111,6 +122,36 @@ bool AcinerellaDecoder::decodeNextFrame()
 
 		if (buffer->package() && buffer->acinerella() && frame.frame() && decoder)
 		{
+			double pts = ac_get_package_pts(buffer->acinerella()->instance(), buffer->package());
+
+			if (m_droppingFrames)
+			{
+dprintf(">> pts %f drop %f\n", float(pts), float(m_dropToPTS));
+				if (pts < m_dropToPTS)
+				{
+					return true;
+				}
+				else
+				{
+					m_droppingUntilKeyFrame = true;
+					m_droppingFrames = false;
+					return true;
+				}
+			}
+			else if (m_droppingUntilKeyFrame)
+			{
+dprintf("waitkf %f\n", float(pts));
+				if (ac_get_package_keyframe(buffer->package()))
+				{
+dprintf("got Kf! %f\n", float(pts));
+					m_droppingUntilKeyFrame = false;
+				}
+				else
+				{
+					return true;
+				}
+			}
+		
 			if (1 == ac_decode_package_ex(buffer->package(), decoder, frame.frame()))
 			{
 #if defined(EP_PROFILING) && EP_PROFILING
@@ -162,6 +203,22 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 
 	DBF(dprintf("[%s]%s: %p - buffer full\n", isAudio() ? "A":"V", __func__, this));
 	m_client->onDecoderReadyToPlay(makeRef(*this));
+}
+
+void AcinerellaDecoder::dropUntilPTS(double pts)
+{
+	EP_SCOPE(untilBufferFull);
+
+	DBF(dprintf("[%s]%s: %p - start!\n", isAudio() ? "A":"V", __func__, this));
+
+	m_droppingFrames = true;
+	m_droppingUntilKeyFrame = false;
+	m_dropToPTS = pts;
+
+	while (!m_terminating && (m_droppingFrames || m_droppingUntilKeyFrame))
+		decodeNextFrame();
+
+	decodeUntilBufferFull();
 }
 
 void AcinerellaDecoder::flush()

@@ -16,16 +16,17 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
+#define D(x) x
 #define DSYNC(x) x
+#define DSPAM(x)
 
-AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
-	: AcinerellaDecoder(client, buffer, index, info, isLiveStream)
-	, m_audioRate(ac_get_audio_rate(client->acinerellaPointer()->decoder(index)))
+AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
+	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
+	, m_audioRate(ac_get_audio_rate(acinerella->decoder(index)))
 	, m_audioChannels(info.additional_info.audio_info.channel_count)
 	, m_audioBits(info.additional_info.audio_info.bit_depth)
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	D(dprintf("[AD]%s: %p\n", __func__, this));
 	for (int i = 0; i < 2; i++)
 	{
 		m_ahiSample[i].ahisi_Address = nullptr;
@@ -35,7 +36,7 @@ AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, 
 
 void AcinerellaAudioDecoder::startPlaying()
 {
-	D(dprintf("%s:\n", __func__));
+	D(dprintf("[AD]%s: %p\n", __func__, this));
 	EP_EVENT(start);
 	initializeAudio();
 	
@@ -48,6 +49,7 @@ void AcinerellaAudioDecoder::startPlaying()
 
 void AcinerellaAudioDecoder::stopPlaying()
 {
+	D(dprintf("[AD]%s: %p\n", __func__, this));
 	EP_EVENT(stop);
 	if (m_ahiControl)
 	{
@@ -72,7 +74,7 @@ bool AcinerellaAudioDecoder::isReadyToPlay() const
 
 bool AcinerellaAudioDecoder::initializeAudio()
 {
-	D(dprintf("%s:\n", __func__));
+	D(dprintf("[AD]%s:\n", __func__));
 	EP_SCOPE(initializeAudio);
 	
 	if (m_ahiControl)
@@ -87,7 +89,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 			{
 				m_ahiBase = reinterpret_cast<Library *>(m_ahiIO->ahir_Std.io_Device);
 
-				D(dprintf("%s: ahiBase %p\n", __func__, m_ahiBase));
+				D(dprintf("[AD]%s: ahiBase %p\n", __func__, m_ahiBase));
 
 				static struct EmulLibEntry GATE_SoundFunc = {
 					TRAP_LIB, 0, (void (*)(void))AcinerellaAudioDecoder::soundFunc
@@ -116,7 +118,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 						AHIC_MixFreq_Query, reinterpret_cast<IPTR>(&mixFreq),
 						TAG_DONE);
 					
-					D(dprintf("%s: control allocated\n", __func__));
+					D(dprintf("[AD]%s: control allocated\n", __func__));
 					
 					if (maxSamples && mixFreq)
 					{
@@ -124,7 +126,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 						
 						m_ahiSampleLength = std::max(m_ahiSampleLength, (m_audioRate / 2 / m_ahiSampleLength) * m_ahiSampleLength);
 						
-						D(dprintf("%s: sample length: %d\n", __func__, m_ahiSampleLength));
+						D(dprintf("[AD]%s: sample length: %d\n", __func__, m_ahiSampleLength));
 
 						for (int i = 0; i < 2; i++)
 						{
@@ -152,10 +154,10 @@ bool AcinerellaAudioDecoder::initializeAudio()
 							if (0 == AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl)
 								&& 0 == AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl))
 							{
-								D(dprintf("%s: samples loaded - samplelen %d\n", __func__, m_ahiSampleLength));
+								D(dprintf("[AD]%s: samples loaded - samplelen %d\n", __func__, m_ahiSampleLength));
 								if (0 == AHI_ControlAudio(m_ahiControl, AHIC_Play, FALSE, TAG_DONE))
 								{
-									D(dprintf("%s: calling AHI_Play!\n", __func__));
+									D(dprintf("[AD]%s: calling AHI_Play!\n", __func__));
 									AHI_Play(m_ahiControl,
 										AHIP_BeginChannel, 0,
 										AHIP_Freq, m_audioRate,
@@ -167,7 +169,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 								}
 								else
 								{
-									D(dprintf("%s: AHI_ControlAudio failed\n", __func__));
+									D(dprintf("[AD]%s: AHI_ControlAudio failed\n", __func__));
 								}
 							}
 							
@@ -200,7 +202,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 
 void AcinerellaAudioDecoder::onThreadShutdown()
 {
-	D(dprintf("%s:\n", __func__));
+	D(dprintf("[AD]%s:\n", __func__));
 	EP_SCOPE(onShutdown);
 
 	if (m_ahiControl)
@@ -218,13 +220,13 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 	{
 		AHI_FreeAudio(m_ahiControl);
 		m_ahiControl = nullptr;
-		D(dprintf("%s: AHI control disposed\n", __func__));
+		D(dprintf("[AD]%s: AHI control disposed\n", __func__));
 	}
 
 	if (m_ahiThread)
 	{
 		m_ahiThread->waitForCompletion();
-		D(dprintf("%s: AHI thread shut down... \n", __func__));
+		D(dprintf("[AD]%s: AHI thread shut down... \n", __func__));
 		m_ahiThread = nullptr;
 	}
 
@@ -248,7 +250,7 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 		m_ahiPort = nullptr;
 	}
 
-	D(dprintf("%s: done\n", __func__));
+	D(dprintf("[AD]%s: done\n", __func__));
 }
 
 void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
@@ -256,7 +258,7 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	m_bufferedSamples += frame.frame()->buffer_size / 4; // 16bitStereo = 4BPF
 	m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
 
-	D(dprintf("%s: buffered %f\n", __func__, m_bufferedSeconds));
+	DSPAM(dprintf("[AD]%s: buffered %f\n", __func__, m_bufferedSeconds));
 }
 
 bool AcinerellaAudioDecoder::isPlaying() const
@@ -271,7 +273,7 @@ double AcinerellaAudioDecoder::position() const
 
 void AcinerellaAudioDecoder::flush()
 {
-	D(dprintf("%s: flushing audio\n", __func__));
+	D(dprintf("[AD]%s: flushing audio\n", __func__));
 	EP_SCOPE(flush);
 	if (m_ahiControl)
 	{
@@ -289,10 +291,13 @@ void AcinerellaAudioDecoder::flush()
 		AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl);
 		AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl);
 
-		decodeUntilBufferFull();
+		if (m_playing)
+		{
+			decodeUntilBufferFull();
 
-		fillBuffer(0);
-		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
+			fillBuffer(0);
+			AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
+		}
 	}
 }
 
@@ -306,7 +311,7 @@ void AcinerellaAudioDecoder::soundFunc()
 	me->m_ahiSampleBeingPlayed ++;
 	AHI_SetSound(0, me->m_ahiSampleBeingPlayed % 2, 0, 0, me->m_ahiControl, 0);
 
-	// D(dprintf("%s: setSound %d (%d)\n", __func__, me->m_ahiSampleBeingPlayed % 2, me->m_ahiSampleBeingPlayed));
+	// D(dprintf("[AD]%s: setSound %d (%d)\n", __func__, me->m_ahiSampleBeingPlayed % 2, me->m_ahiSampleBeingPlayed));
 
 	me->m_ahiSampleConsumed.signal();
 }
@@ -320,7 +325,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 	bool didPopFrames = false;
 	bool didSetTimecode = false;
 
-	D(dprintf("%s: sample %d, next index: %d\n", __func__, m_ahiSampleBeingPlayed, index));
+	DSPAM(dprintf("[AD]%s: sample %d, next index: %d\n", __func__, m_ahiSampleBeingPlayed, index));
 
 	{
 		auto lock = holdLock(m_lock);
@@ -329,7 +334,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			const auto *frame = m_decodedFrames.front().frame();
 			size_t copyBytes = std::min(frame->buffer_size - m_ahiFrameOffset, bytesLeft);
 			
-			D(dprintf("%s: cb %d of %d afo %d bs %d\n", __func__, copyBytes, offset, m_ahiFrameOffset, frame->buffer_size));
+			DSPAM(dprintf("[AD]%s: cb %d of %d afo %d bs %d\n", __func__, copyBytes, offset, m_ahiFrameOffset, frame->buffer_size));
 			
 			memcpy(reinterpret_cast<uint8_t*>(m_ahiSample[index].ahisi_Address) + offset, frame->pBuffer + m_ahiFrameOffset, copyBytes);
 			
@@ -341,12 +346,12 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 			{
 				m_ahiSampleTimestamp[index] = frame->timecode;
 				didSetTimecode = true;
-				D(dprintf("%s: set timecode %f\n", __func__, double(frame->timecode)));
+				DSPAM(dprintf("[AD]%s: set timecode %f\n", __func__, double(frame->timecode)));
 			}
 		
 			if (frame->buffer_size == int(m_ahiFrameOffset))
 			{
-				D(dprintf("%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, double(frame->timecode)));
+				DSPAM(dprintf("[AD]%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, double(frame->timecode)));
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
 				m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
 				m_decodedFrames.pop();

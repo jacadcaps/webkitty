@@ -10,10 +10,13 @@
 #include "AcinerellaMuxer.h"
 #include "AcinerellaDecoder.h"
 #include "MediaPlayerMorphOS.h"
+#include "SourceBufferPrivateClient.h"
+#include "MediaSample.h"
 
 #include <wtf/Function.h>
 #include <wtf/MessageQueue.h>
 #include <wtf/Threading.h>
+#include <wtf/StdList.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
@@ -24,6 +27,65 @@ namespace WebCore {
 class GraphicsContext;
 class FloatRect;
 class MediaSourcePrivateMorphOS;
+class MediaPlayerPrivateMorphOS;
+
+class MediaSourceChunkReader : public WTF::ThreadSafeRefCounted<MediaSourceChunkReader>
+{
+public:
+	typedef Function<void(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info)> InitializationCallback;
+	typedef Function<void(bool)> ChunkDecodedCallback;
+protected:
+	MediaSourceChunkReader(WeakPtr<MediaPlayerPrivateMorphOS>, InitializationCallback &&, ChunkDecodedCallback &&);
+public:
+	~MediaSourceChunkReader() = default;
+
+	typedef WTF::StdList<WTF::RefPtr<WebCore::MediaSample>> MediaSamplesList;
+
+    static Ref<MediaSourceChunkReader> create(WeakPtr<MediaPlayerPrivateMorphOS> player, InitializationCallback &&icb, ChunkDecodedCallback && ccb) {
+		return adoptRef(*new MediaSourceChunkReader(player, WTFMove(icb), WTFMove(ccb)));
+	}
+
+	void decode(Vector<unsigned char>&&);
+	void signalEOF();
+	void getSamples(MediaSamplesList& outSamples);
+	void terminate();
+
+	RefPtr<Acinerella::AcinerellaPointer>& acinerella() { return m_acinerella; }
+
+protected:
+	bool initialize();
+	void getMeta(WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
+	void decodeAllMediaSamples();
+	void dispatch(Function<void ()>&& function);
+
+	bool keepDecoding();
+
+	int read(uint8_t *buf, int size);
+	static int acReadCallback(void *me, uint8_t *buf, int size);
+
+protected:
+	InitializationCallback                m_initializationCallback;
+	ChunkDecodedCallback                  m_chunkDecodedCallback;
+
+	RefPtr<Acinerella::AcinerellaPointer> m_acinerella;
+	uint32_t                              m_audioDecoderMask = 0;
+	uint32_t                              m_videoDecoderMask = 0;
+	WeakPtr<MediaPlayerPrivateMorphOS>    m_player;
+	MediaSamplesList                      m_samples;
+
+    RefPtr<Thread>                        m_thread;
+    MessageQueue<Function<void ()>>       m_queue;
+	BinarySemaphore                       m_event;
+	Lock                                  m_lock;
+	bool                                  m_terminating = false;
+
+	Vector<unsigned char>                 m_buffer;
+	Vector<unsigned char>                 m_leftOver;
+	int                                   m_bufferPosition = 0;
+	bool                                  m_bufferEOF = false;
+
+	int                                   m_decodeCount = 0;
+};
 
 class MediaSourceBufferPrivateMorphOS final : public SourceBufferPrivate, public Acinerella::AcinerellaDecoderClient {
 public:
@@ -36,7 +98,7 @@ public:
 	void warmUp();
     void clearMediaSource();
 
-	void seekToTime(float time);
+	void willSeek(double seekTo);
 
 	const MediaPlayerMorphOSInfo &info() { return m_info; }
 
@@ -63,30 +125,19 @@ private:
     void notifyClientWhenReadyForMoreSamples(const AtomString&)  override;
 
 	void flush();
-
-	bool demuxNext();
+	void becomeReadyForMoreSamples(void);
 
     MediaPlayer::ReadyState readyState() const override;
     void setReadyState(MediaPlayer::ReadyState) override;
 
-	bool initialize();
-	bool initializeMetaData();
-	void reinitialize();
+	void initialize(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
+	void appendComplete(bool success);
+
 	void threadEntryPoint();
 	void dispatch(Function<void ()>&& function);
 	void performTerminate();
 
-	void pumpThread();
-
-	int read(uint8_t *buf, int size);
-	int64_t seek(int64_t pos, int whence);
-
-	static int acReadCallback(void *me, uint8_t *buf, int size);
-	static int64_t acSeekCallback(void *me, int64_t pos, int whence);
-
 	// AcinerellaDecoderClient
-	RefPtr<Acinerella::AcinerellaPointer> &acinerellaPointer() override { return m_acinerella; }
-
 	void onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<Acinerella::AcinerellaDecoder> decoder, bool playing) override;
 	void onDecoderUpdatedBufferLength(RefPtr<Acinerella::AcinerellaDecoder> decoder, double buffer) override;
@@ -99,15 +150,10 @@ private:
 private:
 	MediaSourcePrivateMorphOS                    *m_mediaSource;
 	SourceBufferPrivateClient                    *m_client;
-	RefPtr<Acinerella::AcinerellaPointer>         m_acinerella;
+	RefPtr<MediaSourceChunkReader>                m_reader;
 	RefPtr<Acinerella::AcinerellaMuxedBuffer>     m_muxer;
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	RefPtr<Acinerella::AcinerellaDecoder>         m_paintingDecoder;
-	Vector<unsigned char>                         m_buffer;
-	Vector<unsigned char>                         m_initializationBuffer;
-	int                                           m_bufferPosition = 0;
-	int                                           m_initializationBufferPosition = 0;
-	bool                                          m_bufferEOF = false;
 
     RefPtr<Thread>                                m_thread;
     MessageQueue<Function<void ()>>               m_queue;
@@ -119,12 +165,14 @@ private:
 	bool                                          m_enableAudio = true;
 	bool                                          m_terminating = false;
 
-    RefPtr<Thread>                                m_pumpThread;
-	BinarySemaphore                               m_pumpEvent;
-	bool                                          m_doPump = false;
-
 	MediaPlayerMorphOSInfo                        m_info;
 	bool                                          m_metaInitDone = false;
+	bool                                          m_readyForMoreSamples = false;
+	
+	bool                                          m_seeking = false;
+	double                                        m_seekTime;
+	
+	int                                           m_enqueueCount = 0;
 };
 
 }

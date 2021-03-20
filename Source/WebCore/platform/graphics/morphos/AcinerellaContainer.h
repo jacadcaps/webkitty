@@ -62,8 +62,6 @@ public:
 	
 	const String &url() const { return m_url; }
 
-	RefPtr<AcinerellaPointer> &acinerellaPointer() override { return m_acinerella; }
-
     void ref() override;
     void deref() override;
 	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;

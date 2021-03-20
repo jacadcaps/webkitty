@@ -694,6 +694,7 @@ void SourceBuffer::sourceBufferPrivateAppendComplete(AppendResult result)
         if (trackBuffer.needsReenqueueing) {
             DEBUG_LOG(LOGIDENTIFIER, "reenqueuing at time ", currentMediaTime);
             reenqueueMediaForTime(trackBuffer, trackID, currentMediaTime);
+ dprintf("- pmd %p %d\n", this, __LINE__);
         } else
             provideMediaData(trackBuffer, trackID);
     }
@@ -2033,6 +2034,7 @@ void SourceBuffer::sourceBufferPrivateDidBecomeReadyForMoreSamples(const AtomStr
 
 void SourceBuffer::provideMediaData(TrackBuffer& trackBuffer, const AtomString& trackID)
 {
+dprintf("- pmd %p %d seek %d\n", this, __LINE__, m_source->isSeeking());
     if (m_source->isSeeking())
         return;
 
@@ -2047,6 +2049,7 @@ void SourceBuffer::provideMediaData(TrackBuffer& trackBuffer, const AtomString& 
         if (!m_private->isReadyForMoreSamples(trackID)) {
             DEBUG_LOG(LOGIDENTIFIER, "bailing early, track id ", trackID, " is not ready for more data");
             m_private->notifyClientWhenReadyForMoreSamples(trackID);
+dprintf("- pmd %p %d\n", this, __LINE__);
             break;
         }
 
@@ -2057,7 +2060,8 @@ void SourceBuffer::provideMediaData(TrackBuffer& trackBuffer, const AtomString& 
 
         if (sample->decodeTime() > trackBuffer.enqueueDiscontinuityBoundary) {
             DEBUG_LOG(LOGIDENTIFIER, "bailing early because of unbuffered gap, new sample: ", sample->decodeTime(), " >= the current discontinuity boundary: ", trackBuffer.enqueueDiscontinuityBoundary);
-            break;
+ dprintf("- pmd %p %d\n", this, __LINE__);
+           break;
         }
 
         // Remove the sample from the decode queue now.

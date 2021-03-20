@@ -13,11 +13,11 @@ namespace Acinerella {
 
 class AcinerellaAudioDecoder : public AcinerellaDecoder
 {
-	AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
+	AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
 public:
-	static RefPtr<AcinerellaAudioDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
+	static RefPtr<AcinerellaAudioDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
 	{
-		return WTF::adoptRef(*new AcinerellaAudioDecoder(client, buffer, index, info, isLive));
+		return WTF::adoptRef(*new AcinerellaAudioDecoder(client, acinerella, buffer, index, info, isLive));
 	}
 
 	int rate() const { return m_audioRate; }

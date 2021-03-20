@@ -56,8 +56,6 @@ protected:
 class AcinerellaDecoderClient
 {
 public:
-	virtual RefPtr<AcinerellaPointer> &acinerellaPointer() = 0;
-
 	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) = 0;
 	virtual void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) = 0;
@@ -71,7 +69,7 @@ public:
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
 {
 protected:
-	AcinerellaDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
+	AcinerellaDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
 public:
 	virtual ~AcinerellaDecoder();
 
@@ -81,7 +79,7 @@ public:
 	void warmUp();
 
 	void play();
-	void pause();
+	void pause(bool willSeek = false);
 
 	virtual bool isPlaying() const = 0;
 	virtual bool isReadyToPlay() const = 0;
@@ -111,6 +109,7 @@ protected:
 	// call from: Own thread
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
+	void dropUntilPTS(double pts);
 	void onPositionChanged();
 	void onDurationChanged();
 	void onEnded();
@@ -121,6 +120,7 @@ protected:
 	virtual void onThreadShutdown() { }
 
 	// call from: Own thread, under m_lock!
+	virtual void onDecoderChanged(RefPtr<AcinerellaPointer>) { }
 	virtual void onFrameDecoded(const AcinerellaDecodedFrame &) { }
 
 	// call from: Own thread
@@ -144,9 +144,15 @@ protected:
 	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
 	Lock                               m_lock;
 
+	ac_decoder                        *m_lastDecoder = nullptr;
+
 	bool                               m_playing = false;
 	bool                               m_terminating = false;
 	bool                               m_isLive = false;
+	
+	bool                               m_droppingFrames = false;
+	bool                               m_droppingUntilKeyFrame = false;
+	double                             m_dropToPTS;
 };
 
 }

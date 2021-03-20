@@ -13,11 +13,11 @@ namespace Acinerella {
 
 class AcinerellaVideoDecoder : public AcinerellaDecoder
 {
-	AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
+	AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
 public:
-	static RefPtr<AcinerellaVideoDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
+	static RefPtr<AcinerellaVideoDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
 	{
-		return WTF::adoptRef(*new AcinerellaVideoDecoder(client, buffer, index, info, isLive));
+		return WTF::adoptRef(*new AcinerellaVideoDecoder(client, acinerella, buffer, index, info, isLive));
 	}
 
 	~AcinerellaVideoDecoder();
@@ -52,6 +52,7 @@ protected:
 
 	void onThreadShutdown() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
+	void onDecoderChanged(RefPtr<AcinerellaPointer> acinerella) override;
 	void flush() override;
 
 	void pullThreadEntryPoint();
