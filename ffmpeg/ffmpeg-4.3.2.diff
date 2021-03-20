@@ -1,0 +1,109 @@
+--- ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c.orig	2021-03-20 23:55:56.060481391 +0200
++++ ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c	2021-03-20 23:55:57.632472590 +0200
+@@ -100,6 +100,7 @@
+ #include "yuv2rgb_altivec.h"
+ 
+ #if HAVE_ALTIVEC
++#include <altivec.h>
+ 
+ #undef PROFILE_THE_BEAST
+ #undef INC_SCALING
+--- ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c.orig	2021-03-21 00:06:08.809052262 +0200
++++ ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c	2021-03-21 00:06:55.092793241 +0200
+@@ -89,6 +89,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <inttypes.h>
++#include <assert.h>
+ 
+ #include "config.h"
+ #include "libswscale/rgb2rgb.h"
+@@ -142,6 +143,7 @@
+  *           brgb|rgbr|gbrg|brgb
+  *           1001 0010 0100 1001
+  *           a67b 89cA BdCD eEFf
++ *
+  */
+ static const vector unsigned char
+     perm_rgb_0 = { 0x00, 0x01, 0x10, 0x02, 0x03, 0x11, 0x04, 0x05,
+@@ -306,6 +308,9 @@
+     vector signed short R1, G1, B1;                                           \
+     vector unsigned char R, G, B;                                             \
+                                                                               \
++    const vector unsigned char *y1ivP, *y2ivP, *uivP, *vivP;                  \
++    vector unsigned char align_perm;                                          \
++                                                                              \
+     vector signed short lCY       = c->CY;                                    \
+     vector signed short lOY       = c->OY;                                    \
+     vector signed short lCRV      = c->CRV;                                   \
+@@ -336,13 +341,26 @@
+         vec_dstst(oute, (0x02000002 | (((w * 3 + 32) / 32) << 16)), 1);       \
+                                                                               \
+         for (j = 0; j < w / 16; j++) {                                        \
+-            y0 = vec_xl(0, y1i);                                              \
++            y1ivP = (const vector unsigned char *) y1i;                       \
++            y2ivP = (const vector unsigned char *) y2i;                       \
++            uivP  = (const vector unsigned char *) ui;                        \
++            vivP  = (const vector unsigned char *) vi;                        \
++                                                                              \
++            align_perm = vec_lvsl(0, y1i);                                    \
++            y0 = (vector unsigned char)                                       \
++                     vec_perm(y1ivP[0], y1ivP[1], align_perm);                \
++                                                                              \
++            align_perm = vec_lvsl(0, y2i);                                    \
++            y1 = (vector unsigned char)                                       \
++                     vec_perm(y2ivP[0], y2ivP[1], align_perm);                \
+                                                                               \
+-            y1 = vec_xl(0, y2i);                                              \
+-                                                                              \
+-            u = (vector signed char) vec_xl(0, ui);                           \
++            align_perm = vec_lvsl(0, ui);                                     \
++            u = (vector signed char)                                          \
++                    vec_perm(uivP[0], uivP[1], align_perm);                   \
+                                                                               \
+-            v = (vector signed char) vec_xl(0, vi);                           \
++            align_perm = vec_lvsl(0, vi);                                     \
++            v = (vector signed char)                                          \
++                    vec_perm(vivP[0], vivP[1], align_perm);                   \
+                                                                               \
+             u = (vector signed char)                                          \
+                     vec_sub(u,                                                \
+@@ -585,7 +603,7 @@
+     return NULL;
+ }
+ 
+-av_cold void ff_yuv2rgb_init_tables_ppc(SwsContext *c,
++static av_cold void __attribute__ ((noinline)) ff_yuv2rgb_init_tables_altivec(SwsContext *c,
+                                         const int inv_table[4],
+                                         int brightness,
+                                         int contrast,
+@@ -618,6 +636,18 @@
+ #endif /* HAVE_ALTIVEC */
+ }
+ 
++av_cold void ff_yuv2rgb_init_tables_ppc(SwsContext *c,
++                                        const int inv_table[4],
++                                        int brightness,
++                                        int contrast,
++                                        int saturation)
++{
++#if HAVE_ALTIVEC
++    if (av_get_cpu_flags() & AV_CPU_FLAG_ALTIVEC)
++        ff_yuv2rgb_init_tables_altivec(c, inv_table, brightness, contrast, saturation);
++#endif /* HAVE_ALTIVEC */
++}
++
+ #if HAVE_ALTIVEC
+ 
+ static av_always_inline void yuv2packedX_altivec(SwsContext *c,
+--- ffmpeg-4.3.2/configure.orig	2021-02-20 22:27:47.000000000 +0200
++++ ffmpeg-4.3.2/configure	2021-03-21 00:42:46.284754818 +0200
+@@ -5231,7 +5231,7 @@
+ # some compilers silently accept -std=c11, so we also need to check that the
+ # version macro is defined properly
+ test_cflags_cc -std=c11 ctype.h "__STDC_VERSION__ >= 201112L" &&
+-    add_cflags -std=c11 ||
++    add_cflags -std=gnu11 ||
+     check_cflags -std=c99
+ 
+ check_cppflags -D_FILE_OFFSET_BITS=64
