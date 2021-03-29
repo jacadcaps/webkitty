@@ -240,7 +240,8 @@ void WebProcess::initialize(int sigbit)
 		return true;
 	};
 
-	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, Function<void(bool doLoad)> &&load) {
+	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
+		Function<void(bool doLoad)> &&load, Function<void()> &&yieldFunc) {
 		for (auto& webpage : m_pageMap.values())
 		{
 			bool found = false;
@@ -255,7 +256,7 @@ void WebProcess::initialize(int sigbit)
 			{
 				if (webpage->_fMediaAdded)
 				{
-					webpage->_fMediaAdded(player, url, info, WTFMove(load));
+					webpage->_fMediaAdded(player, url, info, WTFMove(load), WTFMove(yieldFunc));
 					return;
 				}
 
@@ -274,9 +275,17 @@ void WebProcess::initialize(int sigbit)
 				webpage->_fMediaRemoved(player);
 		}
 	};
+
+	MediaPlayerMorphOSSettings::settings().m_willPlay = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaWillPlay)
+				webpage->_fMediaWillPlay(player);
+		}
+	};
 	
 	MediaPlayerMorphOSSettings::settings().m_overlayRequest = [this](WebCore::MediaPlayer *player,
-		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int width, int height)>&& overlaycallback) {
+		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&& overlaycallback) {
 		for (auto& webpage : m_pageMap.values())
 		{
 			WebCore::Element* pElement;

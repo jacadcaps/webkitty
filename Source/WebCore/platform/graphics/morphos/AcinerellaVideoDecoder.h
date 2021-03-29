@@ -28,7 +28,7 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return -1.f; }
+	double readAheadTime() const override { return 1.5f; }
 	
 	double framesPerSecond() const { return m_fps; }
 
@@ -39,21 +39,24 @@ public:
 	double bufferSize() const override { return m_bufferedSeconds; }
 	void paint(GraphicsContext&, const FloatRect&) override;
 
-	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 	int frameWidth() const { return m_frameWidth; }
 	int frameHeight() const { return m_frameHeight; }
 	
 	void setAudioPresentationTime(double apts);
+	void setCanDropKeyFrames(bool canDropKeyFrames) { m_canDropKeyFrames = canDropKeyFrames; }
 
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;
+	void onGetReadyToPlay() override;
 
 	void onThreadShutdown() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
 	void onDecoderChanged(RefPtr<AcinerellaPointer> acinerella) override;
 	void flush() override;
+	void onCoolDown() override;
 
 	void pullThreadEntryPoint();
 	void blitFrameLocked();
@@ -65,10 +68,12 @@ protected:
 protected:
 	RefPtr<Thread>  m_pullThread;
 	BinarySemaphore m_pullEvent;
+	BinarySemaphore m_frameEvent;
 	
 	uint32_t        m_bufferedSamples = 0;
-	volatile double m_bufferedSeconds = 0.f;
+	volatile float  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
+	bool            m_waitingToPlay = false;
 	int             m_frameWidth;
 	int             m_frameHeight;
 	double          m_position = 0.f;
@@ -76,7 +81,7 @@ protected:
 	double          m_frameDuration;
 
 	Lock            m_audioLock;
-	double          m_audioPosition = 0.f;
+	double          m_audioPosition = 0.0;
 	MonotonicTime   m_audioPositionRealTime;
 	bool            m_hasAudioPosition = false;
 	
@@ -87,9 +92,12 @@ protected:
 	int             m_accumulatedCairoCount = 0;
 	
 	bool            m_fakeDecode = false;
+	bool            m_canDropKeyFrames = false;
 	
 	int             m_paintX, m_paintY, m_paintX2 = 0, m_paintY2;
 	int             m_outerX, m_outerY, m_outerX2 = 0, m_outerY2;
+	int             m_windowWidth, m_windowHeight;
+	int             m_visibleWidth, m_visibleHeight;
 	
 	uint32_t               m_overlayFillColor = 0;
 	struct ::VLayerHandle *m_overlayHandle = nullptr;

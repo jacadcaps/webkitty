@@ -50,12 +50,13 @@ public:
     void orphan();
     WeakPtr<MediaPlayerPrivateMorphOS> player() { return makeWeakPtr(m_player); }
     void warmUp();
+    void coolDown();
 
 	void play();
 	void pause();
 
 	void paint(GraphicsContext&, const FloatRect&);
-	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 private:
     MediaPlayerPrivateMorphOS&                       m_player;

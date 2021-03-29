@@ -150,6 +150,7 @@ namespace  {
 @interface WkMediaLoadResponseHandlerPrivate : OBObject<WkMediaLoadResponseHandler>
 {
 	WTF::Function<void(bool doLoad)>  _loadFunction;
+	WTF::Function<void()>             _yieldFunction;
 	WebCore::MediaPlayerMorphOSInfo   _info;
 	OBURL                            *_url;
 	OBURL                            *_pageURL;
@@ -159,11 +160,14 @@ namespace  {
 
 @implementation WkMediaLoadResponseHandlerPrivate
 
-- (id)initWithPlayer:(void *)playerRef url:(OBURL *)url pageURL:(OBURL *)pageurl info:(WebCore::MediaPlayerMorphOSInfo &)info callback:(WTF::Function<void(bool doLoad)>&&)func
+- (id)initWithPlayer:(void *)playerRef url:(OBURL *)url pageURL:(OBURL *)pageurl info:(WebCore::MediaPlayerMorphOSInfo &)info
+	callback:(WTF::Function<void(bool doLoad)>&&)func
+	yieldCallback:(WTF::Function<void()>&&)yield
 {
 	if ((self = [super init]))
 	{
 		_loadFunction = WTFMove(func);
+		_yieldFunction = WTFMove(yield);
 		_url = [url retain];
 		_pageURL = [pageurl retain];
 		_playerRef = playerRef;
@@ -181,6 +185,7 @@ namespace  {
 {
 	_playerRef = nullptr;
 	_loadFunction = nullptr;
+	_yieldFunction = nullptr;
 }
 
 - (void)dealloc
@@ -210,7 +215,7 @@ namespace  {
 {
 	if (_loadFunction)
 		_loadFunction(true);
-	[self invalidate];
+	_loadFunction = nullptr;
 }
 
 - (void)cancel
@@ -218,6 +223,13 @@ namespace  {
 	if (_loadFunction)
 		_loadFunction(false);
 	[self invalidate];
+}
+
+- (void)yield:(void *)playerRef
+{
+dprintf("yield: pr %p myref %p\n", playerRef, _playerRef);
+	if (_yieldFunction && playerRef != _playerRef)
+		_yieldFunction();
 }
 
 - (BOOL)hasAudio
@@ -312,8 +324,9 @@ namespace  {
 	struct Window                          *_window;
 	int                                     _mleft, _mtop, _mbottom, _mright;
 #if ENABLE(VIDEO)
-	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int width, int height)> _overlayCallback;
+	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
 	WebCore::Element *_overlayElement;
+	void *_overlayPlayer;
 #endif
 }
 @end
@@ -657,19 +670,24 @@ namespace  {
 			ULONG il = _mleft - _window->BorderLeft;
 			ULONG it = _mtop - _window->BorderTop;
 			ULONG iw, ih;
+	
+//
+//			ePos.scale(_page->pageZoomFactor());
 			
 			GetAttr(WA_InnerWidth, (Boopsiobject *)_window, &iw);
 			GetAttr(WA_InnerHeight, (Boopsiobject *)_window, &ih);
-			
+
 			_overlayCallback(_window, _scrollX, _scrollY,
 				il + ePos.x(),
 				it + ePos.y(),
 				iw - (il + ePos.maxX()),
-				ih - (it + ePos.maxY()));
+				ih - (it + ePos.maxY()),
+				ePos.width(),
+				ePos.height());
 		}
 		else
 		{
-			_overlayCallback(nullptr, _scrollX, _scrollY, 0, 0, 0, 0);
+			_overlayCallback(nullptr, _scrollX, _scrollY, 0, 0, 0, 0, 0, 0);
 		}
 	}
 }
@@ -691,6 +709,10 @@ namespace  {
 {
 	_documentWidth = width;
 	_documentHeight = height;
+
+#if ENABLE(VIDEO)
+	[self callOverlayCallback];
+#endif
 }
 
 - (int)documentWidth
@@ -855,15 +877,29 @@ namespace  {
 {
 	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
 	WkMediaLoadResponseHandlerPrivate *handler = [_mediaPlayers objectForKey:ref];
+
 	if (handler)
 	{
 		[handler invalidate];
 		[_mediaPlayers removeObjectForKey:ref];
 	}
-// todo: match to player
-dprintf("!!removing player!!\n");
+	
+	if (playerRef == _overlayPlayer)
+	{
 		_overlayCallback = nullptr;
 		_overlayElement = nullptr;
+	}
+}
+
+- (void)playerWillPlay:(void *)playerRef
+{
+	OBEnumerator *e = [_mediaPlayers objectEnumerator];
+	WkMediaLoadResponseHandlerPrivate *handler;
+	
+	while (handler = [e nextObject])
+	{
+		[handler yield:playerRef];
+	}
 }
 
 - (void)setWindow:(struct Window *)window
@@ -875,18 +911,21 @@ dprintf("!!removing player!!\n");
 	}
 }
 
-- (void)setOverlayCallback:(void *)playerRef element:(WebCore::Element *)element callback:(Function<void(void *windowPtr,
-	int scrollX, int scrollY, int left, int right, int bottom, int height)>&&)cb
+- (void)setOverlayCallback:(void *)playerRef element:(WebCore::Element *)element
+	callback:(Function<void(void *windowPtr, int scrollX, int scrollY, int left, int right, int rigth, int bottom, int width, int height)>&&)cb
 {
 	if (!!_overlayCallback)
 	{
-		_overlayCallback(nullptr, 0, 0, 0, 0, 0, 0);
+		_overlayCallback(nullptr, 0, 0, 0, 0, 0, 0, 0, 0);
 	}
 	
 	_overlayCallback = WTFMove(cb);
 	_overlayElement = element;
 	
 	[self callOverlayCallback];
+	
+	// Workaround some positioning issues
+	[[OBRunLoop mainRunLoop] performSelector:@selector(callOverlayCallback) target:self];
 }
 
 #endif
@@ -1294,6 +1333,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 		webPage->_fGoInactive = [self]() {
 			[[self windowObject] setActiveObject:nil];
+		};
+		
+		webPage->_fZoomChangedByWheel = [self]() {
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject callOverlayCallback];
 		};
 
 		webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
@@ -1829,7 +1873,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return YES;
 		};
 	
-		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info, WTF::Function<void(bool doLoad)> &&loadFunc) {
+		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info,
+			WTF::Function<void(bool doLoad)> &&loadFunc, WTF::Function<void()> &&yieldFunc) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
@@ -1837,7 +1882,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			{
 				auto uurl = url.utf8();
 				WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
-					url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)];
+					url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)
+					yieldCallback:WTFMove(yieldFunc)];
 				if (handler)
 				{
 					[privateObject playerAdded:handler];
@@ -1860,10 +1906,17 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[privateObject playerRemoved:player];
 		};
 		
-		webPage->_fMediaSetOverlayCallback = [self](void *player, WebCore::Element* element, WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom)> && callback) {
+		webPage->_fMediaSetOverlayCallback = [self](void *player, WebCore::Element* element, WTF::Function<void(void *windowPtr,
+			int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			[privateObject setOverlayCallback:player element:element callback:WTFMove(callback)];
+		};
+		
+		webPage->_fMediaWillPlay = [self](void *player) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject playerWillPlay:player];
 		};
 #endif
 	}
@@ -2650,6 +2703,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	{
 		auto webPage = [_private page];
 		webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
+		[_private callOverlayCallback];
 	}
 }
 

@@ -94,6 +94,13 @@ void MediaSourcePrivateMorphOS::warmUp()
 	m_player.accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
 }
 
+void MediaSourcePrivateMorphOS::coolDown()
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	for (auto& sourceBufferPrivate : m_sourceBuffers)
+		sourceBufferPrivate->coolDown();
+}
+
 void MediaSourcePrivateMorphOS::play()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
@@ -132,10 +139,10 @@ void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect
 		m_paintingBuffer->paint(gc, rect);
 }
 
-void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom)
+void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
 	if (!!m_paintingBuffer)
-		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom);
+		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)

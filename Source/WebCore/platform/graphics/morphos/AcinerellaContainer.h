@@ -38,6 +38,7 @@ public:
 
 	void terminate();
 	void warmUp();
+	void coolDown();
 
 	void play();
 
@@ -68,7 +69,7 @@ public:
 	String referrer() override;
 
 	void paint(GraphicsContext&, const FloatRect&);
-	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
@@ -81,6 +82,7 @@ protected:
 	void initializeAfterDiscontinuity();
 	
 	void startSeeking(double pos);
+	bool areDecodersReadyToPlay();
 
 	int open();
 	int close();
@@ -89,6 +91,7 @@ protected:
 	
 	void demuxNextPackage();
 	
+	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) override;
 	void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) override;
@@ -124,6 +127,7 @@ protected:
 	bool                             m_isLive = false;
 	bool                             m_ended = false;
 	bool                             m_seekingForward;
+	bool                             m_waitReady = false;
 	
 	int64_t                          m_readPosition = -1;
 

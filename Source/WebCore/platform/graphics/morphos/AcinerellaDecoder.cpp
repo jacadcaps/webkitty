@@ -6,7 +6,7 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DNF(x)
 #define DI(x)
 #define DBF(x) 
@@ -49,7 +49,31 @@ void AcinerellaDecoder::warmUp()
 	}
 
 	D(dprintf("[%s]%s: %p\n", isAudio() ? "A":"V",__func__, this));
-	dispatch([this]{ decodeUntilBufferFull(); });
+	dispatch([this] {
+		decodeUntilBufferFull();
+		m_client->onDecoderWarmedUp(makeRef(*this));
+	});
+}
+
+void AcinerellaDecoder::coolDown()
+{
+	D(dprintf("[%s]%s: %p\n", isAudio() ? "A":"V",__func__, this));
+	dispatch([this] {
+		stopPlaying();
+		onCoolDown();
+	});
+}
+
+void AcinerellaDecoder::prePlay()
+{
+	D(dprintf("[%s]%s: %p\n", isAudio() ? "A":"V",__func__, this));
+	dispatch([this](){
+		decodeUntilBufferFull();
+		onGetReadyToPlay();
+		if (isReadyToPlay()) {
+			onReadyToPlay();
+		}
+	});
 }
 
 void AcinerellaDecoder::play()
@@ -57,8 +81,17 @@ void AcinerellaDecoder::play()
 	D(dprintf("[%s]%s: %p\n", isAudio() ? "A":"V",__func__, this));
 	dispatch([this](){
 		decodeUntilBufferFull();
-		startPlaying();
+		onGetReadyToPlay();
+		if (isReadyToPlay())
+		{
+			startPlaying();
+		}
 	});
+}
+
+void AcinerellaDecoder::onReadyToPlay()
+{
+	m_client->onDecoderReadyToPlay(makeRef(*this));
 }
 
 void AcinerellaDecoder::pause(bool willSeek)
@@ -89,7 +122,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 	if ((buffer = m_muxer->nextPackage(*this)))
 	{
 		AcinerellaDecodedFrame frame;
-		auto *decoder = buffer->acinerella() ? buffer->acinerella()->decoder(m_index) : nullptr;
+		auto acinerella = buffer->acinerella();
+		auto *decoder = !!acinerella ? acinerella->decoder(m_index) : nullptr;
 
 		if (!decoder)
 			return false;
@@ -97,7 +131,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 		if (m_lastDecoder != decoder)
 		{
 			m_lastDecoder = decoder;
-			onDecoderChanged(buffer->acinerella());
+			onDecoderChanged(acinerella);
 		}
 
 		// used both if acinerella sends us stuff AND in case of discontinuity
@@ -115,14 +149,9 @@ bool AcinerellaDecoder::decodeNextFrame()
 			return true;
 		}
 
-		frame = AcinerellaDecodedFrame(buffer->acinerella(), decoder);
-
-		DNF(dprintf("[%s]%s: frame %p package %p index %d decoder %p ac %p frameptr %p buffer %p size %d\n", isAudio() ? "A":"V", __func__,
-			frame.frame(), buffer->package(), buffer->index(), decoder, buffer->acinerella().get(), frame.pointer().get(), frame.frame()->pBuffer, frame.frame()->buffer_size));
-
-		if (buffer->package() && buffer->acinerella() && frame.frame() && decoder)
+		if (buffer->package())
 		{
-			double pts = ac_get_package_pts(buffer->acinerella()->instance(), buffer->package());
+			double pts = ac_get_package_pts(acinerella->instance(), buffer->package());
 
 			if (m_droppingFrames)
 			{
@@ -151,34 +180,46 @@ dprintf("got Kf! %f\n", float(pts));
 					return true;
 				}
 			}
-		
-			if (1 == ac_decode_package_ex(buffer->package(), decoder, frame.frame()))
-			{
-#if defined(EP_PROFILING) && EP_PROFILING
-				{
-					char buffer[128];
-					sprintf(buffer, "frame TS %f", float(frame.frame()->timecode));
-					EP_EVENTSTR(buffer);
-				}
-#endif
-				auto lock = holdLock(m_lock);
-				onFrameDecoded(frame);
-				DNF(dprintf("[%s]%s: decoded frame @ %f\n", isAudio() ? "A":"V", __func__, float(frame.frame()->timecode)));
-				m_decodedFrames.emplace(WTFMove(frame));
-				return true;
-			}
-			
-			D(dprintf("[%s]%s: failed decoding frame\n", isAudio() ? "A":"V", __func__));
 		}
-		else
-		{
-			D(dprintf("[%s]%s: invalid input!\n", isAudio() ? "A":"V", __func__));
+
+		auto rcPush = ac_push_package(decoder, buffer->package());
+		if (rcPush != PUSH_PACKAGE_SUCCESS)
 			return false;
+
+		for (;;)
+		{
+			AcinerellaDecodedFrame frame = AcinerellaDecodedFrame(acinerella, decoder);
+			auto rcFrame = ac_receive_frame(decoder, frame.frame());
+			
+			switch (rcFrame)
+			{
+			case RECEIVE_FRAME_SUCCESS:
+				{
+#if defined(EP_PROFILING) && EP_PROFILING
+					{
+						char buffer[128];
+						sprintf(buffer, "frame TS %f", float(frame.frame()->timecode));
+						EP_EVENTSTR(buffer);
+					}
+#endif
+					auto lock = holdLock(m_lock);
+					onFrameDecoded(frame);
+					DNF(dprintf("[%s]%s: decoded frame @ %f\n", isAudio() ? "A":"V", __func__, float(frame.frame()->timecode)));
+					m_decodedFrames.emplace(WTFMove(frame));
+				}
+				break;
+			case RECEIVE_FRAME_NEED_PACKET:
+				// we'll have to call decodeNextFrame again
+				return true;
+			case RECEIVE_FRAME_ERROR:
+				return false;
+			case RECEIVE_FRAME_EOF:
+				m_decoderEOF = true;
+				return false;
+			}
 		}
-		
-		return true;
 	}
-	
+
 	return false;
 }
 
@@ -188,21 +229,13 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 
 	DBF(dprintf("[%s]%s: %p - start!\n", isAudio() ? "A":"V", __func__, this));
 
-	if (readAheadTime() > 0.f)
+	do
 	{
-		do
-		{
-			if (!decodeNextFrame())
-				break;
-		} while (bufferSize() < readAheadTime());
-	}
-	else
-	{
-		decodeNextFrame();
-	}
+		if (!decodeNextFrame())
+			break;
+	} while (bufferSize() < readAheadTime());
 
 	DBF(dprintf("[%s]%s: %p - buffer full\n", isAudio() ? "A":"V", __func__, this));
-	m_client->onDecoderReadyToPlay(makeRef(*this));
 }
 
 void AcinerellaDecoder::dropUntilPTS(double pts)

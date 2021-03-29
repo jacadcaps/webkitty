@@ -2054,6 +2054,9 @@ void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qual
 		else
 			factor += 0.05;
 		setPageAndTextZoomFactors(factor, textZoomFactor());
+		
+		if (_fZoomChangedByWheel)
+			_fZoomChangedByWheel();
 	}
 	else
 	{

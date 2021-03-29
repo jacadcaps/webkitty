@@ -10,8 +10,10 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x)
-#define DIO(x) 
+#define D(x) 
+#define DNP(x) 
+#define DIO(x)
+#define DINIT(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -43,12 +45,29 @@ void Acinerella::play()
 	D(dprintf("%s: paused %d ended %d\n", __PRETTY_FUNCTION__, m_paused, m_ended));
 	if (m_ended)
 		return;
+
 	m_paused = false;
+	m_waitReady = true;
+
 	dispatch([this] {
-		if (m_audioDecoder)
-			m_audioDecoder->play();
-		if (m_videoDecoder)
-			m_videoDecoder->play();
+		if (areDecodersReadyToPlay())
+		{
+			D(dprintf("%s: calling play()...\n", __PRETTY_FUNCTION__));
+			m_waitReady = false;
+			if (m_audioDecoder)
+				m_audioDecoder->play();
+			if (m_videoDecoder)
+				m_videoDecoder->play();
+		}
+		else
+		{
+			D(dprintf("%s: calling prePlay()...\n", __PRETTY_FUNCTION__));
+			m_waitReady = true;
+			if (m_audioDecoder)
+				m_audioDecoder->prePlay();
+			if (m_videoDecoder)
+				m_videoDecoder->prePlay();
+		}
 	});
 }
 
@@ -59,6 +78,8 @@ void Acinerella::pause()
 		return;
 
 	m_paused = true;
+	m_waitReady = false;
+
 	dispatch([this] {
 		if (m_audioDecoder)
 			m_audioDecoder->pause();
@@ -195,6 +216,14 @@ void Acinerella::startSeeking(double pos)
 
 }
 
+bool Acinerella::areDecodersReadyToPlay()
+{
+	bool audioReady = !m_audioDecoder || m_audioDecoder->isReadyToPlay();
+	bool videoReady = !m_videoDecoder || m_videoDecoder->isReadyToPlay();
+	D(dprintf("%s: audio %d video %d\n", __func__, audioReady, videoReady));
+	return audioReady && videoReady;
+}
+
 void Acinerella::terminate()
 {
 	D(dprintf("ac%s: %p\n", __func__, this));
@@ -231,12 +260,24 @@ void Acinerella::terminate()
 void Acinerella::warmUp()
 {
 	dispatch([this]() {
-		D(dprintf("%s: %p\n", __func__, this));
+		D(dprintf("warmUp: %p\n", this));
 		if (m_audioDecoder)
 			m_audioDecoder->warmUp();
 		if (m_videoDecoder)
 			m_videoDecoder->warmUp();
 	});
+}
+
+void Acinerella::coolDown()
+{
+	dispatch([this]() {
+		D(dprintf("coolDown: %p\n", this));
+		if (m_audioDecoder)
+			m_audioDecoder->coolDown();
+		if (m_videoDecoder)
+			m_videoDecoder->coolDown();
+	});
+
 }
 
 void Acinerella::threadEntryPoint()
@@ -285,12 +326,12 @@ void Acinerella::paint(GraphicsContext& gc, const FloatRect& rect)
 		m_videoDecoder->paint(gc, rect);
 }
 
-void Acinerella::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom)
+void Acinerella::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
 	if (!!m_videoDecoder)
 	{
 		auto *vd = static_cast<AcinerellaVideoDecoder*>(m_videoDecoder.get());
-		vd->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom);
+		vd->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 	}
 }
 
@@ -310,18 +351,18 @@ void Acinerella::performTerminate()
 
 bool Acinerella::initialize()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	DINIT(dprintf("%s: %p\n", __func__, this));
 	m_acinerella = AcinerellaPointer::create();
 	if (m_acinerella)
 	{
 		if (-1 == ac_open(m_acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 		{
 			m_acinerella = nullptr;
-			D(dprintf("---- ac failed to open :(\n"));
+			DINIT(dprintf("---- ac failed to open :(\n"));
 		}
 		else
 		{
-			D(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
+			DINIT(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
 			int audioIndex = -1;
 			int videoIndex = -1;
 
@@ -337,13 +378,13 @@ bool Acinerella::initialize()
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
-					D(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+					DINIT(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
 					if (-1 == videoIndex && m_enableVideo)
 						videoIndex = i;
 					break;
 
 				case AC_STREAM_TYPE_AUDIO:
-					D(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
+					DINIT(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
 						info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
 					if (-1 == audioIndex && m_enableAudio)
 						audioIndex = i;
@@ -559,7 +600,7 @@ void Acinerella::demuxNextPackage()
 		muxer = m_muxer;
 	}
 
-	D(dprintf("%s: %p %p %p\n", __func__ , this, muxer.get(), acinerella.get(), acinerella->instance()));
+	DNP(dprintf("%s: %p %p %p\n", __func__ , this, muxer.get(), acinerella.get(), acinerella->instance()));
 
 	if (muxer && acinerella && acinerella->instance())
 	{
@@ -572,16 +613,46 @@ void Acinerella::demuxNextPackage()
 	}
 }
 
-void Acinerella::onDecoderReadyToPlay(RefPtr<AcinerellaDecoder>)
+void Acinerella::onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder)
 {
 	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 		if (m_client)
 		{
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
-			D(dprintf("%s: %p READY TO PLAY!\n", __func__ , this));
 		}
 	});
+}
+
+void Acinerella::onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder)
+{
+	D(dprintf("%s:\n", __func__));
+
+	dispatch([this, protectedThis = makeRef(*this)]() {
+		D(dprintf("onDecoderReadyToPlay: ready %d\n", areDecodersReadyToPlay()));
+
+		if (areDecodersReadyToPlay()) {
+
+			if (m_waitReady) {
+				m_waitReady = false;
+			
+				if (m_audioDecoder)
+					m_audioDecoder->play();
+				if (m_videoDecoder)
+					m_videoDecoder->play();
+			}
+		}
+	});
+	
+	if (m_videoDecoder == decoder)
+	{
+		int width = static_cast<AcinerellaVideoDecoder *>(decoder.get())->frameWidth();
+		int height = static_cast<AcinerellaVideoDecoder *>(decoder.get())->frameHeight();
+		WTF::callOnMainThread([width, height, this, protect = makeRef(*this)]() {
+			if (m_client)
+				m_client->accSetVideoSize(width, height);
+		});
+	}
 }
 
 void Acinerella::onDecoderPlaying(RefPtr<AcinerellaDecoder>, bool /*playing*/)

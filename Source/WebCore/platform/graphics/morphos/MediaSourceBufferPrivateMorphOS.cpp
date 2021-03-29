@@ -25,6 +25,8 @@
 
 // #pragma GCC optimize ("O0")
 
+// #define DEBUG_FILE
+
 namespace WebCore {
 
 MediaSourceChunkReader::MediaSourceChunkReader(WeakPtr<MediaPlayerPrivateMorphOS> player, InitializationCallback &&icb, ChunkDecodedCallback &&ccb)
@@ -51,6 +53,14 @@ void MediaSourceChunkReader::terminate()
 
 	m_thread->waitForCompletion();
 	m_thread = nullptr;
+
+#ifdef DEBUG_FILE
+	if (0 != m_debugFile)
+	{
+		Close(m_debugFile);
+		m_debugFile = 0;
+	}
+#endif
 }
 
 void MediaSourceChunkReader::decode(Vector<unsigned char>&& data)
@@ -60,6 +70,17 @@ void MediaSourceChunkReader::decode(Vector<unsigned char>&& data)
 	{
 		auto lock = holdLock(m_lock);
 		m_buffer = WTFMove(data);
+
+#ifdef DEBUG_FILE
+		if (0 == m_debugFile)
+		{
+			char foo[32];
+			sprintf(foo, "ram:%08lx.mp4", this);
+			m_debugFile = Open(foo, MODE_NEWFILE);
+		}
+		if (m_debugFile)
+			Write(m_debugFile, m_buffer.data(), m_buffer.size());
+#endif
 	}
 
 	dispatch([this] {
@@ -682,6 +703,8 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 				DM(dprintf("[MS] video decoder created, duration %f\n", duration));
 				decoderIndexMask |= (1ULL << i);
 				ac_decoder_fake_seek(acinerella->decoder(i));
+				Acinerella::AcinerellaVideoDecoder *vdecoder = static_cast<Acinerella::AcinerellaVideoDecoder *>(m_decoders[i].get());
+				vdecoder->setCanDropKeyFrames(true); // needed for Media Source to function better on seek/catchup, we don't want this for single-file non-MS playback
 			}
 			break;
 
@@ -750,6 +773,20 @@ void MediaSourceBufferPrivateMorphOS::warmUp()
 	});
 }
 
+void MediaSourceBufferPrivateMorphOS::coolDown()
+{
+	dispatch([this]() {
+		for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
+		{
+			if (!!m_decoders[i])
+			{
+				D(dprintf("[MS] coolDown decoder index %d - %p\n", i, m_decoders[i].get()));
+				m_decoders[i]->coolDown();
+			}
+		}
+	});
+}
+
 void MediaSourceBufferPrivateMorphOS::threadEntryPoint()
 {
 	while (auto function = m_queue.waitForMessage())
@@ -805,6 +842,11 @@ void MediaSourceBufferPrivateMorphOS::pause()
 	});
 }
 
+void MediaSourceBufferPrivateMorphOS::onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder> decoder) 
+{
+
+}
+
 void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
 
@@ -854,13 +896,13 @@ void MediaSourceBufferPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect
 		m_paintingDecoder->paint(gc, rect);
 }
 
-void MediaSourceBufferPrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom)
+void MediaSourceBufferPrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
 	DI(dprintf("[MS]%s: %p decoder %p\n", __func__, this, m_paintingDecoder.get()));
 	if (!!m_paintingDecoder)
 	{
 		Acinerella::AcinerellaVideoDecoder *decoder = static_cast<Acinerella::AcinerellaVideoDecoder *>(m_paintingDecoder.get());
-		decoder->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom);
+		decoder->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 	}
 }
 

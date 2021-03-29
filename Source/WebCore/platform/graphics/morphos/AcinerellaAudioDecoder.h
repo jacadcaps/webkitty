@@ -46,6 +46,8 @@ protected:
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
 	void flush() override;
 	bool initializeAudio();
+	void onCoolDown() override;
+	void ahiCleanup();
 
 	static void soundFunc();
 	void fillBuffer(int index);
@@ -66,9 +68,10 @@ protected:
 	bool            m_ahiThreadShuttingDown = false;
 
 	uint32_t        m_bufferedSamples = 0;
-	volatile double m_bufferedSeconds = 0.f;
+	volatile float  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
-	double          m_position = 0.f;
+	double          m_position = 0.0;
+	bool            m_waitingToPlay = false;
 	int             m_audioRate;
 	int             m_audioChannels;
 	int             m_audioBits;

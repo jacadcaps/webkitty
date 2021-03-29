@@ -20,6 +20,8 @@
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
+#include <dos/dos.h>
+
 struct Window;
 
 namespace WebCore {
@@ -85,6 +87,8 @@ protected:
 	bool                                  m_bufferEOF = false;
 
 	int                                   m_decodeCount = 0;
+	
+	BPTR                                  m_debugFile = 0;
 };
 
 class MediaSourceBufferPrivateMorphOS final : public SourceBufferPrivate, public Acinerella::AcinerellaDecoderClient {
@@ -96,6 +100,7 @@ public:
 	void pause();
 
 	void warmUp();
+	void coolDown();
     void clearMediaSource();
 
 	void willSeek(double seekTo);
@@ -103,7 +108,7 @@ public:
 	const MediaPlayerMorphOSInfo &info() { return m_info; }
 
 	void paint(GraphicsContext&, const FloatRect&);
-	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 	void setAudioPresentationTime(double apts);
 
@@ -138,6 +143,7 @@ private:
 	void performTerminate();
 
 	// AcinerellaDecoderClient
+	void onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<Acinerella::AcinerellaDecoder> decoder, bool playing) override;
 	void onDecoderUpdatedBufferLength(RefPtr<Acinerella::AcinerellaDecoder> decoder, double buffer) override;

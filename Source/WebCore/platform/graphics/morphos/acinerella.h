@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define AC_BUFSIZE (1024 * 4)
+#define AC_BUFSIZE (1024 * 8)
 
 #define INT64_MAX 9223372036854775807LL
 #define INT64_MIN (-INT64_MAX-1)
@@ -477,6 +477,25 @@ EXTERN int CALL_CONVT
 EXTERN int CALL_CONVT
     ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
 
+typedef enum _ac_receive_frame_rc
+{
+	RECEIVE_FRAME_SUCCESS = 0,
+	RECEIVE_FRAME_NEED_PACKET,
+	RECEIVE_FRAME_EOF,
+	RECEIVE_FRAME_ERROR,
+} ac_receive_frame_rc;
+
+ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
+
+typedef enum _ac_push_package_rc
+{
+	PUSH_PACKAGE_SUCCESS,
+	PUSH_PACKAGE_NEED_RECEIVE,
+	PUSH_PACKAGE_ERROR
+} ac_push_package_rc;
+
+ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackage);
+
 /**
  * Seeks to the given target position in the file. The seek funtion is not able
  * to seek a single audio/video stream but seeks the whole file forward. The
@@ -517,6 +536,7 @@ EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
 struct AVFrame;
 EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
+EXTERN AVFrame * CALL_CONVT ac_get_frame_real(lp_ac_decoder_frame pFrame);
 
 EXTERN lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder);
 EXTERN void ac_free_decoder_frame(lp_ac_decoder_frame pFrame);

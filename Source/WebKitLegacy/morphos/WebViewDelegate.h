@@ -40,6 +40,7 @@ struct WebViewDelegate
 	std::function<void()>             _fActivatePrevious;
 	std::function<void()>             _fGoActive;
 	std::function<void()>             _fGoInactive;
+	std::function<void()>             _fZoomChangedByWheel;
 
 	std::function<WTF::String(const WTF::String&)>       _fUserAgentForURL;
 	std::function<void(const WTF::String&)>              _fChangedTitle;
@@ -94,10 +95,12 @@ struct WebViewDelegate
 	std::function<void(void)> _fUndoRedoChanged;
 
 	std::function<bool(void *player, const String &url)> _fAttemptMedia;
-	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WTF::Function<void(bool doLoad)> &&loadFunc)> _fMediaAdded;
+	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
+		WTF::Function<void(bool doLoad)> &&loadFunc, WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
 	std::function<void(void *player)> _fMediaRemoved;
+	std::function<void(void *player)> _fMediaWillPlay;
 	std::function<void(void *player, WebCore::Element* element,
-		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom)> && callback)>
+		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
 		_fMediaSetOverlayCallback;
 
 	void clearDelegateCallbacks() {
@@ -108,6 +111,7 @@ struct WebViewDelegate
 		_fActivatePrevious = nullptr;
 		_fGoActive = nullptr;
 		_fGoInactive = nullptr;
+		_fZoomChangedByWheel = nullptr;
 		_fUserAgentForURL = nullptr;
 		_fChangedTitle = nullptr;
 		_fChangedURL = nullptr;
@@ -146,6 +150,8 @@ struct WebViewDelegate
 		_fAttemptMedia = nullptr;
 		_fMediaAdded = nullptr;
 		_fMediaRemoved = nullptr;
+		_fMediaWillPlay = nullptr;
+		_fMediaSetOverlayCallback = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

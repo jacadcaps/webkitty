@@ -56,6 +56,7 @@ protected:
 class AcinerellaDecoderClient
 {
 public:
+	virtual void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) = 0;
 	virtual void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) = 0;
@@ -77,7 +78,9 @@ public:
 	void terminate();
 
 	void warmUp();
+	void coolDown();
 
+	void prePlay();
 	void play();
 	void pause(bool willSeek = false);
 
@@ -112,8 +115,11 @@ protected:
 	void dropUntilPTS(double pts);
 	void onPositionChanged();
 	void onDurationChanged();
+	void onReadyToPlay();
 	void onEnded();
 	virtual void flush();
+	virtual void onGetReadyToPlay() { };
+	virtual void onCoolDown() { };
 
 	// call from: Own thread
 	virtual bool onThreadInitialize() { return true; }
@@ -146,9 +152,9 @@ protected:
 
 	ac_decoder                        *m_lastDecoder = nullptr;
 
-	bool                               m_playing = false;
 	bool                               m_terminating = false;
 	bool                               m_isLive = false;
+	bool                               m_decoderEOF = false;
 	
 	bool                               m_droppingFrames = false;
 	bool                               m_droppingUntilKeyFrame = false;

@@ -58,6 +58,11 @@ void AcinerellaAudioDecoder::stopPlaying()
 	}
 }
 
+void AcinerellaAudioDecoder::onCoolDown()
+{
+	ahiCleanup();
+}
+
 void AcinerellaAudioDecoder::doSetVolume(double volume)
 {
 	if (m_ahiControl)
@@ -69,7 +74,7 @@ void AcinerellaAudioDecoder::doSetVolume(double volume)
 
 bool AcinerellaAudioDecoder::isReadyToPlay() const
 {
-	return true;
+	return bufferSize() >= readAheadTime();
 }
 
 bool AcinerellaAudioDecoder::initializeAudio()
@@ -202,8 +207,13 @@ bool AcinerellaAudioDecoder::initializeAudio()
 
 void AcinerellaAudioDecoder::onThreadShutdown()
 {
+	ahiCleanup();
+}
+
+void AcinerellaAudioDecoder::ahiCleanup()
+{
 	D(dprintf("[AD]%s:\n", __func__));
-	EP_SCOPE(onShutdown);
+	EP_SCOPE(ahiCleanup);
 
 	if (m_ahiControl)
 	{
