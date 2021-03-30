@@ -937,6 +937,18 @@ void MediaSourceBufferPrivateMorphOS::onDecoderNotReadyToPaint(RefPtr<Acinerella
 		m_paintingDecoder = nullptr;
 }
 
+void MediaSourceBufferPrivateMorphOS::onDecoderPaintUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+{
+	if (decoder == m_paintingDecoder)
+	{
+		WTF::callOnMainThread([this, protect = makeRef(*this), decoder]() {
+			if (m_mediaSource && !m_terminating) {
+				RefPtr<MediaSourceBufferPrivateMorphOS> me = makeRef(*this);
+				m_mediaSource->onSourceBufferFrameUpdate(me);
+			}
+		});
+	}
 }
 
+} // namespace
 #endif

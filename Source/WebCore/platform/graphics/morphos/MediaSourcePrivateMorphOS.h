@@ -38,6 +38,7 @@ public:
 	void onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>&);
+	void onSourceBufferFrameUpdate(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 
 	void onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double);
 

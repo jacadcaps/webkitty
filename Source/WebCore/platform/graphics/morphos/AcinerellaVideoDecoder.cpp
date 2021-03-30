@@ -296,15 +296,17 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 	cairo_fill(cr);
 	cairo_restore(cr);
 
-//	bool needsToSetCoords = m_paintX != rect.x() || m_paintY != rect.y() || m_paintX2 != ((rect.x() + rect.width()) - 1) || m_paintY2 != ((rect.y() + rect.height()) - 1);
+	bool needsToSetCoords = m_paintX != rect.x() || m_paintY != rect.y() || m_paintX2 != ((rect.x() + rect.width()) - 1) || m_paintY2 != ((rect.y() + rect.height()) - 1);
 
 	m_paintX = rect.x();
 	m_paintY = rect.y();
 	m_paintX2 = (rect.x() + rect.width()) - 1;
 	m_paintY2 = (rect.y() + rect.height()) - 1;
 
-//	if (needsToSetCoords)
-//		updateOverlayCoords();
+	if (needsToSetCoords && m_client)
+	{
+		m_client->onDecoderPaintUpdate(makeRef(*this));
+	}
 
 #if 0
 // ?!? WE cannot paint since the data is in planar yuv or some other cgxvideo format

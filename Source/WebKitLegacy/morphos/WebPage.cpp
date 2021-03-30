@@ -1179,7 +1179,11 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
-	
+
+#if ENABLE(FULLSCREEN_API)
+	settings.setFullScreenEnabled(true);
+#endif
+
 // crashy
 //    settings.setDiagnosticLoggingEnabled(true);
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
@@ -1546,12 +1550,37 @@ void WebPage::endLiveResize()
 void WebPage::setFocusedElement(WebCore::Element *element)
 {
 	// this is called by the Chrome
-	m_focusedElement = element;
+	if (element)
+		m_focusedElement = makeRef(*element);
+	else
+		m_focusedElement = nullptr;
+}
+
+void WebPage::setFullscreenElement(WebCore::Element *element)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+
+	if (element)
+	{
+		m_fullscreenElement = makeRef(*element);
+        m_fullscreenElement->document().fullscreenManager().willEnterFullscreen(*m_fullscreenElement);
+        m_fullscreenElement->document().fullscreenManager().didEnterFullscreen();
+	}
+	else
+	{
+		if (m_fullscreenElement)
+		{
+			m_fullscreenElement->document().fullscreenManager().willExitFullscreen();
+			m_fullscreenElement->document().fullscreenManager().didExitFullscreen();
+		}
+		
+		m_fullscreenElement = nullptr;
+	}
 }
 
 WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
 {
-	if (e)
+	if (e && e->isConnected())
 		return e->boundsInRootViewSpace();
 	return { };
 }

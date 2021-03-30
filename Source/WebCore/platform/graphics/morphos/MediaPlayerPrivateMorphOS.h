@@ -41,6 +41,9 @@ public:
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
 
+    bool supportsPictureInPicture() const override { return false; }
+    bool supportsFullscreen() const override { return true; }
+
 	void play() final;
     void pause() final;
     FloatSize naturalSize() const final;
@@ -85,7 +88,8 @@ public:
 	void accNextFrameReady() override;
 	void accSetVideoSize(int width, int height) override;
 	void accNoFramesReady() override;
-
+	void accFrameUpdateNeeded() override;
+	
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
 
 #if ENABLE(VIDEO_TRACK)

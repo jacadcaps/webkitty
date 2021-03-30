@@ -100,6 +100,7 @@ protected:
 	void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) override;
 
 protected:
 	static int acOpenCallback(void *me);

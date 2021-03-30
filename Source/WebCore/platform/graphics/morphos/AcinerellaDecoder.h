@@ -64,6 +64,7 @@ public:
 	virtual void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) = 0;
 	virtual void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
 };
 

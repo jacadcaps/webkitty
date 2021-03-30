@@ -152,6 +152,7 @@ private:
 	void onDecoderEnded(RefPtr<Acinerella::AcinerellaDecoder> decoder)  override;
 	void onDecoderReadyToPaint(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderNotReadyToPaint(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
+	void onDecoderPaintUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 
 private:
 	MediaSourcePrivateMorphOS                    *m_mediaSource;

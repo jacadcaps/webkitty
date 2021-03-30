@@ -461,6 +461,7 @@ void MediaPlayerPrivateMorphOS::accNextFrameReady()
 
 void MediaPlayerPrivateMorphOS::accNoFramesReady()
 {
+	// TODO: overlay shutdown?
 }
 
 void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
@@ -469,6 +470,12 @@ void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
 	m_height = height;
 	if (m_player)
 		m_player->sizeChanged();
+}
+
+void MediaPlayerPrivateMorphOS::accFrameUpdateNeeded() 
+{
+	if (MediaPlayerMorphOSSettings::settings().m_overlayUpdate)
+		MediaPlayerMorphOSSettings::settings().m_overlayUpdate(m_player);
 }
 
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
@@ -500,6 +507,13 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
 	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
 	{
+		if (info.m_width)
+		{
+			m_width = info.m_width;
+			m_height = info.m_height;
+		}
+		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+		
 		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
 			if (doLoad)
 			{
@@ -527,6 +541,12 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 	else
 	{
 		m_acInitialized = true;
+		if (info.m_width)
+		{
+			m_width = info.m_width;
+			m_height = info.m_height;
+		}
+		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 		m_player->characteristicChanged();
 		if (m_prepareToPlay && m_acinerella)
 			m_acinerella->warmUp();

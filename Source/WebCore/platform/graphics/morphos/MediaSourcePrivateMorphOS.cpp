@@ -160,6 +160,12 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
 	m_seeking = false;
 }
 
+void MediaSourcePrivateMorphOS::onSourceBufferFrameUpdate(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
+{
+	if (m_paintingBuffer == buffer)
+		m_player.accFrameUpdateNeeded();
+}
+
 void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
 	if (m_paintingBuffer == buffer)

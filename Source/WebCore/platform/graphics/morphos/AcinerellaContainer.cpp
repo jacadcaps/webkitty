@@ -422,7 +422,6 @@ bool Acinerella::initialize()
 					if (m_client)
 					{
 						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
-						m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 					}
 				});
 
@@ -732,7 +731,18 @@ void Acinerella::onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
 
 void Acinerella::onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
 {
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		if (m_client)
+			m_client->accNoFramesReady();
+	});
+}
 
+void Acinerella::onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder)
+{
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		if (m_client)
+			m_client->accFrameUpdateNeeded();
+	});
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////

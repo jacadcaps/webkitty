@@ -302,12 +302,37 @@ void WebProcess::initialize(int sigbit)
 			{
 				if (webpage->_fMediaSetOverlayCallback)
 				{
-					webpage->_fMediaSetOverlayCallback(player, pElement, WTFMove(overlaycallback));
-					return;
+					// Wrap pElement into a ref - that way, the callback set on webpage holds a ref to the element
+					// This is cause we cannot use RefPtr<Element> in ObjC code
+					webpage->_fMediaSetOverlayCallback(player, pElement, [ref = makeRef(*pElement), cb = WTFMove(overlaycallback)](void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height) {
+							cb(windowPtr, scrollX, scrollY, left, top, right, bottom, width, height);
+						});
 				}
+				return;
 			}
 		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayUpdate = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
 
+			if (found)
+			{
+				if (webpage->_fMediaUpdateOverlayCallback)
+					webpage->_fMediaUpdateOverlayCallback(player);
+				return;
+			}
+		}
 	};
 #endif
 

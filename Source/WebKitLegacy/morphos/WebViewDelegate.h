@@ -102,6 +102,7 @@ struct WebViewDelegate
 	std::function<void(void *player, WebCore::Element* element,
 		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
 		_fMediaSetOverlayCallback;
+	std::function<void(void *player)> _fMediaUpdateOverlayCallback;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -152,6 +153,7 @@ struct WebViewDelegate
 		_fMediaRemoved = nullptr;
 		_fMediaWillPlay = nullptr;
 		_fMediaSetOverlayCallback = nullptr;
+		_fMediaUpdateOverlayCallback = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

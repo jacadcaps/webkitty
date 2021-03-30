@@ -902,6 +902,14 @@ dprintf("yield: pr %p myref %p\n", playerRef, _playerRef);
 	}
 }
 
+- (void)playerNeedsUpdate:(void *)playerRef
+{
+	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
+	WkMediaLoadResponseHandlerPrivate *handler = [_mediaPlayers objectForKey:ref];
+	if (handler)
+		[self callOverlayCallback];
+}
+
 - (void)setWindow:(struct Window *)window
 {
 	if (_window != window)
@@ -1911,6 +1919,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			[privateObject setOverlayCallback:player element:element callback:WTFMove(callback)];
+		};
+		
+		webPage->_fMediaUpdateOverlayCallback = [self](void *player) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject playerNeedsUpdate:player];
 		};
 		
 		webPage->_fMediaWillPlay = [self](void *player) {
