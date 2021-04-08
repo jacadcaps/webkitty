@@ -10,10 +10,10 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x) x
 #define DNP(x) 
 #define DIO(x)
-#define DINIT(x) x
+#define DINIT(x)  x
 
 namespace WebCore {
 namespace Acinerella {
@@ -282,7 +282,7 @@ void Acinerella::coolDown()
 
 void Acinerella::threadEntryPoint()
 {
-	SetTaskPri(FindTask(0), 5);
+	SetTaskPri(FindTask(0), 1);
 
 	D(dprintf("%s: %p\n", __func__, this));
 	if (initialize())
@@ -378,7 +378,7 @@ bool Acinerella::initialize()
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
-					DINIT(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+					DINIT(dprintf("video stream: %dx%d index %d ev %d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height, i, m_enableVideo));
 					if (-1 == videoIndex && m_enableVideo)
 						videoIndex = i;
 					break;
@@ -394,6 +394,8 @@ bool Acinerella::initialize()
 					break;
 				}
 			}
+
+			DINIT(dprintf("ac init audio %d video %d\n", audioIndex, videoIndex));
 
 			if (-1 != audioIndex || -1 != videoIndex)
 			{
@@ -413,6 +415,7 @@ bool Acinerella::initialize()
 				{
 					ac_get_stream_info(m_acinerella->instance(), videoIndex, &info);
 					m_acinerella->setDecoder(videoIndex, ac_create_decoder(m_acinerella->instance(), videoIndex));
+					DINIT(dprintf("video decoder: %p\n", m_acinerella->decoder(videoIndex)));
 					m_videoDecoder = AcinerellaVideoDecoder::create(this, m_acinerella, m_muxer, videoIndex, info, m_isLive);
 					if (!!m_videoDecoder)
 						decoderMask |= (1UL << videoIndex);
@@ -453,11 +456,12 @@ bool Acinerella::initialize()
 				}
 				
 				m_muxer->setDecoderMask(decoderMask);
-				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)]() {
+				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)]() -> bool {
 					// look ma, a lambda within a lambda
 					protectedThis->dispatch([this]() {
 						demuxNextPackage();
 					});
+					return true;
 				});
 				
 				if (0 != decoderMask)
@@ -529,7 +533,7 @@ void Acinerella::initializeAfterDiscontinuity()
 	}
 	else
 	{
-		D(dprintf("ac initialized, stream count %d\n", acinerella->instance()->stream_count));
+		D(dprintf("[RE]ac initialized, stream count %d\n", acinerella->instance()->stream_count));
 		int audioIndex = -1;
 		int videoIndex = -1;
 
@@ -540,13 +544,13 @@ void Acinerella::initializeAfterDiscontinuity()
 			switch (info.stream_type)
 			{
 			case AC_STREAM_TYPE_VIDEO:
-				D(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+				D(dprintf("[RE]video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
 				if (-1 == videoIndex && m_enableVideo)
 					videoIndex = i;
 				break;
 
 			case AC_STREAM_TYPE_AUDIO:
-				D(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
+				D(dprintf("[RE]audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
 					info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
 				if (-1 == audioIndex && m_enableAudio)
 					audioIndex = i;
@@ -565,10 +569,15 @@ void Acinerella::initializeAfterDiscontinuity()
 		if (m_videoDecoder && m_videoDecoder->index() != videoIndex)
 			videoIndex = -1;
 
+		DINIT(dprintf("[RE]ac init audio %d video %d\n", audioIndex, videoIndex));
+
 		if (-1 != audioIndex || -1 != videoIndex)
 		{
 			if (-1 != audioIndex)
 				acinerella->setDecoder(audioIndex, ac_create_decoder(acinerella->instance(), audioIndex));
+			
+			if (-1 != videoIndex)
+				acinerella->setDecoder(videoIndex, ac_create_decoder(acinerella->instance(), videoIndex));
 			
 			{
 				auto lock = holdLock(m_acinerellaLock);
@@ -578,7 +587,7 @@ void Acinerella::initializeAfterDiscontinuity()
 			// Flush packet!
 			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_flush_packet());
 			m_muxer->push(package);
-			D(dprintf("muxer sent an ac_flush_packet!\n"));
+			DINIT(dprintf("[RE]muxer sent an ac_flush_packet!\n"));
 
 			if (m_audioDecoder)
 				m_audioDecoder->warmUp();

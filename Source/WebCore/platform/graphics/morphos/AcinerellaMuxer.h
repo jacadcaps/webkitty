@@ -60,17 +60,19 @@ public:
 	static constexpr int maxDecoders = 32;
 	static constexpr int queueReadAheadSize = 128;
 
-	void setSinkFunction(Function<void()>&& sinkFunction);
+	void setSinkFunction(Function<bool()>&& sinkFunction);
 	void setDecoderMask(uint32_t mask, uint32_t audioMask = 0);
 
 	// To be called on Acinerella thread
 	void push(RefPtr<AcinerellaPackage> &package);
 	void flush();
+	void flush(int decoderIndex);
 	void terminate();
 
 	// This is meant to be called from the decoder threads. Will block until a valid package can be returned
-	// Returns false on error or EOS
+	// or sinkfunction returns false (MediaStream)
 	RefPtr<AcinerellaPackage> nextPackage(AcinerellaDecoder &decoder);
+	bool isEOS() const { return m_queueCompleteOrError; }
 
 protected:
 	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
@@ -123,7 +125,7 @@ protected:
 	}
 
 protected:
-	Function<void()>        m_sinkFunction;
+	Function<bool()>        m_sinkFunction;
 	AcinerellaPackageQueue  m_packages[maxDecoders];
 	BinarySemaphore         m_events[maxDecoders];
 	Lock                    m_lock;

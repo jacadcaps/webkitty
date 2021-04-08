@@ -236,7 +236,6 @@ void WebProcess::initialize(int sigbit)
 				}
 			}
 		}
-		
 		return true;
 	};
 

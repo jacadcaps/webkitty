@@ -133,6 +133,7 @@ protected:
 	// call from: Own thread
 	virtual void startPlaying() = 0;
 	virtual void stopPlaying() = 0;
+	virtual void stopPlayingQuick() { };
 	virtual void doSetVolume(double) { };
 
 	// call from: Any thread
@@ -159,6 +160,8 @@ protected:
 	
 	bool                               m_droppingFrames = false;
 	bool                               m_droppingUntilKeyFrame = false;
+	bool                               m_needsKF = false;
+	bool                               m_readying = false;
 	double                             m_dropToPTS;
 };
 

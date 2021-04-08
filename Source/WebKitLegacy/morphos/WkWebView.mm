@@ -227,7 +227,6 @@ namespace  {
 
 - (void)yield:(void *)playerRef
 {
-dprintf("yield: pr %p myref %p\n", playerRef, _playerRef);
 	if (_yieldFunction && playerRef != _playerRef)
 		_yieldFunction();
 }

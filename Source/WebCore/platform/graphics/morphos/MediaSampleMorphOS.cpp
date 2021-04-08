@@ -46,6 +46,12 @@ void MediaSampleMorphOS::offsetTimestampsBy(const MediaTime& timestampOffset)
     // TODO: poke into acinerella buffers? gtk appears to be doing this
 }
 
+void MediaSampleMorphOS::setTimestamps(const MediaTime& pts, const MediaTime& dts)
+{
+	m_pts = pts;
+	m_dts = dts;
+}
+
 PlatformSample MediaSampleMorphOS::platformSample()
 {
 	PlatformSample sample = { PlatformSample::MorphOSSampleType, { .mosSample = m_sample.get() } };

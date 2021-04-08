@@ -24,9 +24,10 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x)
+#define D(x) 
 #define DSYNC(x) x
-#define DOVL(x) 
+#define DOVL(x)
+#define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -97,10 +98,11 @@ void AcinerellaVideoDecoder::startPlaying()
 	D(dprintf("[VD]%s: %p ovw %p\n", __func__, this, m_overlayWindow));
 	if (m_overlayWindow)
 	{
-		onPositionChanged();
-		m_pullEvent.signal();
 		m_playing = true;
 		m_waitingToPlay = false;
+		onPositionChanged();
+		m_pullEvent.signal();
+		m_frameEvent.signal();
 	}
 }
 
@@ -134,23 +136,32 @@ void AcinerellaVideoDecoder::onThreadShutdown()
 
 void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
-	D(dprintf("[VD]%s: %p\n", __func__, this));
+	DFRAME(dprintf("[VD]%s: %p\n", __func__, this));
 	m_bufferedSeconds += m_frameDuration;
 	m_pullEvent.signal();
 }
 
 void AcinerellaVideoDecoder::flush()
 {
-
+	DSYNC(dprintf("[VD]%s: %p\n", __func__, this));
+	AcinerellaDecoder::flush();
+	m_hasAudioPosition = false;
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
 {
-	D(dprintf("[VD]%s: %p -> %f\n", __func__, this, float(apts)));
-	auto lock = holdLock(m_audioLock);
-	m_audioPositionRealTime = MonotonicTime::now();
-	m_audioPosition = apts;
-	m_hasAudioPosition = true;
+	DSYNC(dprintf("[VD]%s: %p -> %f\n", __func__, this, float(apts)));
+	float delta;
+	{
+		auto lock = holdLock(m_audioLock);
+		m_audioPositionRealTime = MonotonicTime::now();
+		delta = fabs(m_audioPosition - apts);
+		m_audioPosition = apts;
+		m_hasAudioPosition = true;
+	}
+
+	if (delta > 2.0)
+		m_frameEvent.signal(); // abort a possible long sleep
 }
 
 bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
@@ -458,6 +469,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 void AcinerellaVideoDecoder::pullThreadEntryPoint()
 {
 	D(dprintf("[VD]%s: %p\n", __func__, this));
+	SetTaskPri(FindTask(0), 1);
 
 	while (!m_terminating)
 	{
@@ -472,7 +484,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 			D(dprintf("[VD]%s: %p nf\n", __func__, this));
 			bool dropFrame = false;
 
-			while (m_playing)
+			while (m_playing && !m_terminating)
 			{
 				Seconds sleepFor = 0_s;
 				double pts;
@@ -491,6 +503,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							m_position = pts = m_decodedFrames.front().pts();
 							m_decodedFrames.pop();
 							dropFrame = false;
+							m_frameCount++;
 						}
 						else
 						{
@@ -512,6 +525,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 							// Pop the frame
 							m_decodedFrames.pop();
+
+							m_frameCount++;
 						}
 						else
 						{
@@ -520,7 +535,22 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					}
 				}
 
-				dispatch([this]() {
+				bool changePosition = 0 == (m_frameCount % int(m_fps));
+
+				dispatch([this, changePosition]() {
+
+					if (m_isLive)
+					{
+						m_position += 1.f;
+						m_duration += 1.f;
+						onPositionChanged();
+						onDurationChanged();
+					}
+					else
+					{
+						onPositionChanged();
+					}
+
 					decodeUntilBufferFull();
 				});
 
@@ -549,8 +579,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 								sleepFor = Seconds(nextPts - pts);
 								sleepFor -= MonotonicTime::now() - timeDisplayed;
 							}
-
-							DSYNC(dprintf("[V]%s: pts %f next frame in %f diff pts %f audio at %f\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
+							
+							DSYNC(if (0 == (m_frameCount % int(m_fps))) dprintf("[V]%s: pts %f next frame in %f diff pts %f audio at %f\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
 								float(audioAt)));
 								
 							break;
@@ -563,8 +593,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				if (sleepFor.value() > 0.0)
 				{
 					if (sleepFor.value() > 1.0)
-						sleepFor = Seconds(1.0);
-						
+						DSYNC(dprintf("[V]%s: long sleep %f to catch to %f\n", __func__, float(sleepFor.value()), float(audioAt)));
+
 					m_frameEvent.waitFor(sleepFor);
 				}
 				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -4.0)
@@ -574,7 +604,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						dropUntilPTS(audioAt + 3.0);
 					});
 				}
-				else if (sleepFor.value() < -(m_frameDuration * 3.0))
+				else if (sleepFor.value() < -(m_frameDuration * 0.1))
 				{
 					dropFrame = true;
 				}

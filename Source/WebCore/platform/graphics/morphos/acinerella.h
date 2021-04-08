@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define AC_BUFSIZE (1024 * 8)
+#define AC_BUFSIZE (1024 * 4)
 
 #define INT64_MAX 9223372036854775807LL
 #define INT64_MIN (-INT64_MAX-1)

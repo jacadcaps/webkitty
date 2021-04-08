@@ -1303,7 +1303,6 @@ ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackag
 	                             ->pFormatCtx->streams[pPackage->stream_index]
 	                             ->time_base);
 	int rc = avcodec_send_packet(pCodecCtx, pkt->pPack);
-
 	switch (rc)
 	{
 	case 0:

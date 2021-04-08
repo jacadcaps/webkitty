@@ -126,4 +126,7 @@ typedef enum
 // Whether media playback was enabled at compile time
 + (BOOL)supportsMediaPlayback;
 
++ (BOOL)mediaSourceEnabled;
++ (void)setMediaSourceEnabled:(BOOL)enabled;
+
 @end

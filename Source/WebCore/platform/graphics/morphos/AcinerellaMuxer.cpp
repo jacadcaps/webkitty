@@ -20,14 +20,15 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#define D(x)
+#define DF(x) 
 
 namespace WebCore {
 namespace Acinerella {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void AcinerellaMuxedBuffer::setSinkFunction(Function<void()>&& sinkFunction)
+void AcinerellaMuxedBuffer::setSinkFunction(Function<bool()>&& sinkFunction)
 {
 	auto lock = holdLock(m_lock);
 	m_sinkFunction = WTFMove(sinkFunction);
@@ -98,9 +99,20 @@ void AcinerellaMuxedBuffer::flush()
 		auto lock = holdLock(m_lock);
 		m_queueCompleteOrError = false;
 		forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore&) {
+			DF(dprintf("[Mux]Flushing queue %p size %d\n", &queue, queue.size()));
 			while (!queue.empty())
 				queue.pop();
 		});
+	}
+}
+
+void AcinerellaMuxedBuffer::flush(int decoderIndex)
+{
+	{
+		auto lock = holdLock(m_lock);
+		m_queueCompleteOrError = false;
+		while (!m_packages[decoderIndex].empty())
+			m_packages[decoderIndex].pop();
 	}
 }
 
@@ -153,7 +165,8 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
 			{
 				D(dprintf("%s: calling sink..\n", __func__));
-				m_sinkFunction();
+				if (!m_sinkFunction())
+					return hasPackage;
 			}
 		}
 		

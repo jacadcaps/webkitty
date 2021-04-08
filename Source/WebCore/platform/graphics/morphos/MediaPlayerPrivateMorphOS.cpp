@@ -226,10 +226,6 @@ void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient
 	if (startsWithLettersIgnoringASCIICase(url, "about:"))
 		return;
 
-	m_mediaSourcePrivate = MediaSourcePrivateMorphOS::create(*this, *client);
-
-
-#if 0
 	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
 	{
 		if (!MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, url))
@@ -247,8 +243,7 @@ void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient
 	m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	m_player->readyStateChanged();
 
-	m_acinerella = Acinerella::Acinerella::create(this, url);
-#endif
+	m_mediaSourcePrivate = MediaSourcePrivateMorphOS::create(*this, *client, url);
 }
 #endif
 
@@ -505,22 +500,46 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
+
+#if ENABLE(MEDIA_SOURCE)
+	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && (m_acinerella || m_mediaSourcePrivate))
+#else
 	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
+#endif
 	{
+		String url;
+
 		if (info.m_width)
 		{
 			m_width = info.m_width;
 			m_height = info.m_height;
 		}
+
+		accSetVideoSize(m_width, m_height);
 		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
-		
-		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
+
+#if ENABLE(MEDIA_SOURCE)
+		if (m_mediaSourcePrivate)
+			url = m_mediaSourcePrivate->url();
+		else
+#endif
+			url = m_acinerella->url();
+
+		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, url, info, [this](bool doLoad) {
 			if (doLoad)
 			{
 				m_acInitialized = true;
+				accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 				m_player->characteristicChanged();
-				if (m_prepareToPlay && m_acinerella)
-					m_acinerella->warmUp();
+				if (m_prepareToPlay)
+				{
+					if (m_acinerella)
+						m_acinerella->warmUp();
+#if ENABLE(MEDIA_SOURCE)
+					if (m_mediaSourcePrivate)
+						m_mediaSourcePrivate->warmUp();
+#endif
+				}
 			}
 		},
 		[this]() {
@@ -546,10 +565,16 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 			m_width = info.m_width;
 			m_height = info.m_height;
 		}
+
+		accSetVideoSize(m_width, m_height);
 		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 		m_player->characteristicChanged();
 		if (m_prepareToPlay && m_acinerella)
 			m_acinerella->warmUp();
+#if ENABLE(MEDIA_SOURCE)
+		else if (m_prepareToPlay && m_mediaSourcePrivate)
+			m_mediaSourcePrivate->warmUp();
+#endif
 	}
 }
 

@@ -11,18 +11,19 @@
 
 namespace WebCore {
 
-Ref<MediaSourcePrivateMorphOS> MediaSourcePrivateMorphOS::create(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client)
+Ref<MediaSourcePrivateMorphOS> MediaSourcePrivateMorphOS::create(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client, const String &url)
 {
-    auto source = adoptRef(*new MediaSourcePrivateMorphOS(parent, client));
+    auto source = adoptRef(*new MediaSourcePrivateMorphOS(parent, client, url));
     client.setPrivateAndOpen(source.copyRef());
     return source;
 }
 
-MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client)
-    : m_player(parent)
+MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client, const String &url)
+    : m_player(makeWeakPtr(parent))
     , m_client(client)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	m_url = url.substring(5);
 }
 
 MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
@@ -34,6 +35,7 @@ MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
 
 MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const ContentType& contentType, RefPtr<SourceBufferPrivate>& buffer)
 {
+// TODO: mac impl checks if contentType is supported here
 	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, contentType.raw().utf8().data()));
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
 	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
@@ -44,11 +46,15 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
 void MediaSourcePrivateMorphOS::durationChanged()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+    if (m_player)
+		m_player->accSetDuration(duration().toDouble());
 }
 
-void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus)
+void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus status)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+//    if (status == EosNoError)
+ //       m_player.setNetworkState(MediaPlayer::NetworkState::Loaded);
 }
 
 void MediaSourcePrivateMorphOS::unmarkEndOfStream()
@@ -58,19 +64,45 @@ void MediaSourcePrivateMorphOS::unmarkEndOfStream()
 
 MediaPlayer::ReadyState MediaSourcePrivateMorphOS::readyState() const
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-	return m_player.readyState();
+//	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	if (m_player)
+		return m_player->readyState();
+    return m_readyState;
 }
 
 void MediaSourcePrivateMorphOS::setReadyState(MediaPlayer::ReadyState rs)
 {
 //	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, int(rs)));
-	m_player.accSetReadyState(rs);
+	m_readyState = rs;
+	if (m_player)
+		m_player->accSetReadyState(rs);
 }
 
 void MediaSourcePrivateMorphOS::waitForSeekCompleted()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	warmUp();
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferLoadingProgressed()
+{
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		D(dprintf("[MS]onSourceBufferLoadingProgressed: \n"));
+		setReadyState(MediaPlayer::ReadyState::HaveCurrentData);
+
+		if (m_player)
+			m_player->setLoadingProgresssed(true);
+	});
+}
+
+MediaTime MediaSourcePrivateMorphOS::duration()
+{
+	return m_client->duration();
+}
+
+std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateMorphOS::buffered()
+{
+	return m_client->buffered();
 }
 
 void MediaSourcePrivateMorphOS::seekCompleted()
@@ -80,18 +112,20 @@ void MediaSourcePrivateMorphOS::seekCompleted()
 
 void MediaSourcePrivateMorphOS::orphan()
 {
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_orphaned = true;
 	m_paintingBuffer = nullptr;
+	m_player.clear();
 }
 
 void MediaSourcePrivateMorphOS::warmUp()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-	for (auto& sourceBufferPrivate : m_sourceBuffers)
+	for (auto& sourceBufferPrivate : m_activeSourceBuffers)
 		sourceBufferPrivate->warmUp();
-	
-	m_player.accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
-	m_player.accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+
+	setReadyState(MediaPlayer::ReadyState::HaveCurrentData);
+	setReadyState(MediaPlayer::ReadyState::HaveFutureData);
 }
 
 void MediaSourcePrivateMorphOS::coolDown()
@@ -103,20 +137,32 @@ void MediaSourcePrivateMorphOS::coolDown()
 
 void MediaSourcePrivateMorphOS::play()
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-	for (auto& sourceBufferPrivate : m_sourceBuffers)
-		sourceBufferPrivate->play();
 	m_paused = false;
-}
 
-// TODO locks for painting buffer access
+	if (areDecodersReadyToPlay())
+	{
+		D(dprintf("%s: decoders ready!\n", __PRETTY_FUNCTION__));
+		m_waitReady = false;
+
+		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+			sourceBufferPrivate->play();
+	}
+	else
+	{
+		D(dprintf("%s: prePlay...\n", __PRETTY_FUNCTION__));
+		m_waitReady = true;
+		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+			sourceBufferPrivate->prePlay();
+	}
+}
 
 void MediaSourcePrivateMorphOS::pause()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-	for (auto& sourceBufferPrivate : m_sourceBuffers)
+	for (auto& sourceBufferPrivate : m_activeSourceBuffers)
 		sourceBufferPrivate->pause();
 	m_paused = true;
+	m_waitReady = false;
 }
 
 void MediaSourcePrivateMorphOS::seek(double time)
@@ -126,9 +172,11 @@ void MediaSourcePrivateMorphOS::seek(double time)
 		return;
 	
 	m_seeking = true;
+	m_waitReady = true;
 
-    for (auto& sourceBufferPrivate : m_sourceBuffers)
+    for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
         sourceBufferPrivate->willSeek(time);
+	}
 
 	m_client->seekToTime(MediaTime::createWithDouble(time));
 }
@@ -147,23 +195,65 @@ void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int s
 
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-// TMP: needs to pass this to player
-	warmUp();
+	D(dprintf("%s: allinitialized %d\n", __PRETTY_FUNCTION__, areDecodersInitialized()));
+	if (areDecodersInitialized())
+	{
+		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+
+			if (!m_initialized)
+			{
+				MediaPlayerMorphOSInfo info;
+
+				for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
+					auto &minfo = sourceBufferPrivate->info();
+
+					if (minfo.m_width) {
+						info.m_width = minfo.m_width;
+						info.m_height = minfo.m_height;
+					}
+					
+					if (minfo.m_channels) {
+						info.m_channels = minfo.m_channels;
+						info.m_bits = minfo.m_bits;
+						info.m_frequency = minfo.m_frequency;
+					}
+					
+					info.m_duration = duration().toFloat(); //! client provides us with the actual duration!
+				}
+
+				D(dprintf("%s: freq %d w %d h %d duration %f clientDuration %f\n", __PRETTY_FUNCTION__, info.m_frequency, info.m_width, info.m_height, float(info.m_duration), float(duration().toDouble())));
+				m_initialized = true;
+				if (m_player)
+					m_player->accInitialized(info);
+			}
+		});
+	}
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
 	m_paintingBuffer = buffer;
-	m_player.accNextFrameReady();
+	if (m_player)
+		m_player->accNextFrameReady();
 
 	m_seeking = false;
 }
 
+void MediaSourcePrivateMorphOS::onSourceBuffersReadyToPlay()
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	if (m_waitReady && areDecodersReadyToPlay())
+	{
+		play();
+	}
+}
+
 void MediaSourcePrivateMorphOS::onSourceBufferFrameUpdate(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
-	if (m_paintingBuffer == buffer)
-		m_player.accFrameUpdateNeeded();
+	if (m_paintingBuffer == buffer && m_player)
+	{
+		m_player->accFrameUpdateNeeded();
+	}
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
@@ -171,15 +261,87 @@ void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPr
 	if (m_paintingBuffer == buffer)
 		m_paintingBuffer = nullptr;
 	m_sourceBuffers.remove(buffer);
+	m_activeSourceBuffers.remove(buffer);
 	buffer->clearMediaSource();
 }
 
 void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double position)
 {
+	if (m_orphaned)
+		return;
+
 	if (m_paintingBuffer)
 		m_paintingBuffer->setAudioPresentationTime(position);
-		
+
+	if (position > (duration().toDouble() - 5.0))
+	{
+		// hack, we can only try and simulate an EOS like this :|
+	    for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+		{
+			sourceBufferPrivate->signalEOF();
+		}
+	}
+	
+	WTF::callOnMainThread([position, this, protect = makeRef(*this)]() {
+		if (m_player)
+			m_player->accSetPosition(position);
+	});
+
 	m_seeking = false;
+}
+
+bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()
+{
+    for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+	{
+		if (!sourceBufferPrivate->areDecodersReadyToPlay())
+			return false;
+	}
+
+	return true;
+}
+
+bool MediaSourcePrivateMorphOS::areDecodersInitialized()
+{
+    for (auto& sourceBufferPrivate : m_sourceBuffers)
+	{
+		if (!sourceBufferPrivate->isInitialized())
+			return false;
+	}
+
+	return true;
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, bool active)
+{
+    if (active && !m_activeSourceBuffers.contains(buffer))
+    {
+        m_activeSourceBuffers.add(buffer);
+        if (m_player)
+			m_player->onActiveSourceBuffersChanged();
+        durationChanged();
+    }
+
+    if (!active)
+    {
+		if (m_paintingBuffer == buffer)
+		{
+			m_paintingBuffer->setOverlayWindowCoords(nullptr, 0, 0, 0, 0, 0, 0, 0, 0);
+			m_paintingBuffer = nullptr;
+		}
+    
+		m_activeSourceBuffers.remove(buffer);
+        if (m_player)
+			m_player->onActiveSourceBuffersChanged();
+    }
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>&)
+{
+	m_paused = true;
+	m_ended = true;
+	if (m_player)
+		m_player->accEnded();
 }
 
 }

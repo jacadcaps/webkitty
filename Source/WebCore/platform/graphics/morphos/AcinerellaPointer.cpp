@@ -26,7 +26,7 @@ AcinerellaPointer::AcinerellaPointer(ac_instance *instance)
 
 AcinerellaPointer::~AcinerellaPointer()
 {
-	D(dprintf("%s(%p): killing %p, audiodec %p\n", __PRETTY_FUNCTION__, this, m_instance.get(), m_audioDecoder.get()));
+	D(dprintf("%s(%p): killing %p\n", __PRETTY_FUNCTION__, this, m_instance.get()));
 }
 
 void AcinerellaPointer::setInstance(ac_instance *instance)

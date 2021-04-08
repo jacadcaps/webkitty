@@ -14,13 +14,13 @@ class MediaPlayer;
 
 struct MediaPlayerMorphOSInfo
 {
-	float m_duration;
-	int   m_frequency;
+	float m_duration = 0;
+	int   m_frequency = 0;
 	int   m_bits;
-	int   m_channels;
-	int   m_width;
+	int   m_channels = 0;
+	int   m_width = 0;
 	int   m_height;
-	bool  m_isLive;
+	bool  m_isLive = false;
 };
 
 struct MediaPlayerMorphOSSettings

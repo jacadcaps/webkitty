@@ -23,7 +23,7 @@ all: .buildstamp
 		--enable-bsf=h264_mp4toannexb --enable-decoder=pcm --enable-decoder=wav --enable-decoder=flac --enable-demuxer=flac --enable-parser=flac \
 		--enable-demuxer=flv --enable-decoder=flv --enable-decoder=h263 --enable-decoder=vp8 --enable-demuxer=vp8 --enable-parser=vp8 \
 		--enable-decoder=vp9 --enable-demuxer=vp9 --enable-parser=vp9 --enable-bsf=aac_adtstoasc --enable-decoder=mpeg4 --enable-parser=mpeg4video \
-		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts \
+		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts --enable-demuxer=mpegtsraw --enable-parser=h264 \
 		--disable-ffmpeg --disable-ffplay)
 	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) -j$(shell nproc))
 	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) install)

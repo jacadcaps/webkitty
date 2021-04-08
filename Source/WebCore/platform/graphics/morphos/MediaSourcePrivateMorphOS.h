@@ -18,11 +18,11 @@ class MediaPlayerPrivateMorphOS;
 
 class MediaSourcePrivateMorphOS final : public MediaSourcePrivate {
 public:
-    static Ref<MediaSourcePrivateMorphOS> create(MediaPlayerPrivateMorphOS&, MediaSourcePrivateClient&);
+    static Ref<MediaSourcePrivateMorphOS> create(MediaPlayerPrivateMorphOS&, MediaSourcePrivateClient&, const String &url);
     virtual ~MediaSourcePrivateMorphOS();
 
 private:
-    MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS&, MediaSourcePrivateClient&);
+    MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS&, MediaSourcePrivateClient&, const String &url);
 
 public:
     // MediaSourcePrivate Overrides
@@ -34,13 +34,19 @@ public:
     void setReadyState(MediaPlayer::ReadyState) override;
     void waitForSeekCompleted() override;
     void seekCompleted() override;
-	
+
+    MediaTime duration();
+    std::unique_ptr<PlatformTimeRanges> buffered();
+
 	void onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferFrameUpdate(RefPtr<MediaSourceBufferPrivateMorphOS>&);
-
+	void onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>&, bool active);
+	void onSourceBuffersReadyToPlay();
 	void onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double);
+	void onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>&);
+	void onSourceBufferLoadingProgressed();
 
 	bool paused() const { return m_paused; }
 	bool ended() const { return m_ended; }
@@ -49,7 +55,8 @@ public:
 	void seek(double time);
 
     void orphan();
-    WeakPtr<MediaPlayerPrivateMorphOS> player() { return makeWeakPtr(m_player); }
+    WeakPtr<MediaPlayerPrivateMorphOS> &player() { return m_player; }
+    WeakPtr<MediaPlayerPrivateMorphOS> const &player() const { return m_player; }
     void warmUp();
     void coolDown();
 
@@ -59,15 +66,26 @@ public:
 	void paint(GraphicsContext&, const FloatRect&);
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
+	const String &url() const { return m_url; }
+
+protected:
+	bool areDecodersReadyToPlay();
+	bool areDecodersInitialized();
+
 private:
-    MediaPlayerPrivateMorphOS&                       m_player;
+	WeakPtr<MediaPlayerPrivateMorphOS>               m_player;
     Ref<MediaSourcePrivateClient>                    m_client;
+    String                                           m_url;
 	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_sourceBuffers;
+	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_activeSourceBuffers;
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
+	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;
 	bool                                             m_seeking = false;
+	bool                                             m_waitReady = false;
+	bool                                             m_initialized = false;
 };
 
 }

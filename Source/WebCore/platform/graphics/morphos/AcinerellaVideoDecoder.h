@@ -28,7 +28,7 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return 1.5f; }
+	double readAheadTime() const override { return 1.0f; }
 	
 	double framesPerSecond() const { return m_fps; }
 
@@ -50,6 +50,7 @@ public:
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;
+	void stopPlayingQuick() override { m_playing = false; };
 	void onGetReadyToPlay() override;
 
 	void onThreadShutdown() override;
@@ -76,6 +77,7 @@ protected:
 	bool            m_waitingToPlay = false;
 	int             m_frameWidth;
 	int             m_frameHeight;
+	int             m_frameCount = 0;
 	double          m_position = 0.f;
 	double          m_fps;
 	double          m_frameDuration;
@@ -84,12 +86,6 @@ protected:
 	double          m_audioPosition = 0.0;
 	MonotonicTime   m_audioPositionRealTime;
 	bool            m_hasAudioPosition = false;
-	
-	Seconds         m_accumulatedDecodingTime;
-	int             m_accumulatedDecodingCount = 0;
-	
-	Seconds         m_accumulatedCairoTime;
-	int             m_accumulatedCairoCount = 0;
 	
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;

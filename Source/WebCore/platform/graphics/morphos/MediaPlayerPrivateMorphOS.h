@@ -91,6 +91,7 @@ public:
 	void accFrameUpdateNeeded() override;
 	
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
+	void onActiveSourceBuffersChanged() { if (m_player) m_player->activeSourceBuffersChanged(); }
 
 #if ENABLE(VIDEO_TRACK)
 	void onTrackEnabled(int index, bool enabled);

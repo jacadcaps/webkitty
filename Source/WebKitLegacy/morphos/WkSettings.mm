@@ -9,6 +9,7 @@
 #import <WebCore/ResourceHandle.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/TextEncoding.h>
+#import <WebCore/MediaPlayerMorphOS.h>
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>
 #import "WebEditorClient.h"
@@ -454,6 +455,16 @@ static cairo_antialias_t defaultAA;
 #else
 	return NO;
 #endif
+}
+
++ (BOOL)mediaSourceEnabled
+{
+	return WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource;
+}
+
++ (void)setMediaSourceEnabled:(BOOL)enabled
+{
+	WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource = enabled;
 }
 
 @end

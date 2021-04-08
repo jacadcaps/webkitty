@@ -7,15 +7,18 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x)
+#define D(x) 
+
+static const String rnReplace("\r\n");
+static const String rnReplacement("\n");
 
 class HLSMasterPlaylistParser
 {
 public:
 	HLSMasterPlaylistParser(const String &baseURL, const String &sdata)
 	{
-		Vector<String> lines = sdata.split('\n');
-		
+		Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
+
 		// Must contain at the very least:
 		// #EXTM3U
 		// #EXT-X-VERSION:*
@@ -23,11 +26,12 @@ public:
 		// url
 		//
 		// So 4 lines at minimum, otherwise it won't be a valid playlist
-		if (lines.size() >= 4 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
+		if (lines.size() >= 4 && equalIgnoringASCIICase(lines[0], "#extm3u"))
 		{
 			// Format kida-verified. Look for Streams
 			HLSStreamInfo info;
 			bool hopingForM3U8 = false;
+			bool foundChunks = false;
 
 			for (size_t i = 2; i < lines.size(); i++)
 			{
@@ -66,11 +70,23 @@ public:
 						hopingForM3U8 = false;
 					}
 				}
+				else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
+				{
+					foundChunks = true;
+				}
 			}
 			
 			if (info.m_url.length())
 			{
 				m_streams.append(info);
+			}
+			
+			// this isn't master but a direct HLS link!
+			if (m_streams.size() == 0 && foundChunks)
+			{
+				info.m_url = baseURL;
+				m_streams.append(info);
+				D(dprintf("%s: this is no master HLS %s\n", __PRETTY_FUNCTION__, baseURL.utf8().data()));
 			}
 		}
 	}
@@ -83,7 +99,7 @@ protected:
 
 HLSStream::HLSStream(const String &baseURL, const String &sdata)
 {
-	Vector<String> lines = sdata.split('\n');
+	Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
 
 	if (lines.size() >= 2 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
 	{

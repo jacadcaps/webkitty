@@ -52,6 +52,8 @@ public:
 	void getSamples(MediaSamplesList& outSamples);
 	void terminate();
 
+	double highestPTS() const { return m_highestPTS; }
+
 	RefPtr<Acinerella::AcinerellaPointer>& acinerella() { return m_acinerella; }
 
 protected:
@@ -85,6 +87,8 @@ protected:
 	Vector<unsigned char>                 m_leftOver;
 	int                                   m_bufferPosition = 0;
 	bool                                  m_bufferEOF = false;
+	bool                                  m_readEOF = false;
+	double                                m_highestPTS = 0.0;
 
 	int                                   m_decodeCount = 0;
 	
@@ -97,20 +101,25 @@ public:
     virtual ~MediaSourceBufferPrivateMorphOS();
 
 	void play();
+	void prePlay();
 	void pause();
 
 	void warmUp();
 	void coolDown();
     void clearMediaSource();
+    void terminate();
 
 	void willSeek(double seekTo);
+	void signalEOF();
 
 	const MediaPlayerMorphOSInfo &info() { return m_info; }
+	bool isInitialized() { return m_metaInitDone; }
 
 	void paint(GraphicsContext&, const FloatRect&);
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 	void setAudioPresentationTime(double apts);
+	bool areDecodersReadyToPlay();
 
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
@@ -128,7 +137,8 @@ private:
     bool isReadyForMoreSamples(const AtomString&)  override;
     void setActive(bool) override;
     void notifyClientWhenReadyForMoreSamples(const AtomString&)  override;
-
+    bool canSetMinimumUpcomingPresentationTime(const AtomString&) const override;
+	
 	void flush();
 	void becomeReadyForMoreSamples(void);
 
@@ -171,6 +181,7 @@ private:
 	bool                                          m_enableVideo = false;
 	bool                                          m_enableAudio = true;
 	bool                                          m_terminating = false;
+	bool                                          m_eos = false;
 
 	MediaPlayerMorphOSInfo                        m_info;
 	bool                                          m_metaInitDone = false;

@@ -28,7 +28,7 @@ public:
 	bool isVideo() const override { return false; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return m_isLive ? 15.0 : 5.0; }
+	double readAheadTime() const override { return m_isLive ? 10.0 : 2.0; }
 
 	bool isReadyToPlay() const override;
 
@@ -50,7 +50,7 @@ protected:
 	void ahiCleanup();
 
 	static void soundFunc();
-	void fillBuffer(int index);
+	void fillBuffer(int index, bool initial);
 	void ahiThreadEntryPoint();
 
 protected:
