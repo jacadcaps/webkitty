@@ -16,7 +16,7 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x)
+#define D(x) 
 #define DSYNC(x) x
 #define DSPAM(x)
 #define DSPAMTS(x) 
@@ -149,8 +149,9 @@ bool AcinerellaAudioDecoder::initializeAudio()
 							m_ahiSampleBeingPlayed = 0;
 							m_ahiThreadShuttingDown = false;
 							m_ahiFrameOffset = 0;
+							m_didFlushBuffers = true;
 							
-							fillBuffer(0, true);
+							fillBuffer(0);
 							
 							m_ahiThread = Thread::create("Acinerella AHI Pump", [this] {
 								ahiThreadEntryPoint();
@@ -300,6 +301,7 @@ void AcinerellaAudioDecoder::flush()
 	m_ahiFrameOffset = 0;
 	m_bufferedSeconds = 0;
 	m_bufferedSamples = 0;
+	m_didFlushBuffers = true;
 
 	if (m_ahiControl)
 	{
@@ -323,7 +325,7 @@ void AcinerellaAudioDecoder::flush()
 	{
 		decodeUntilBufferFull();
 
-		fillBuffer(0, true);
+		fillBuffer(0);
 		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
 	}
 }
@@ -343,7 +345,7 @@ void AcinerellaAudioDecoder::soundFunc()
 	me->m_ahiSampleConsumed.signal();
 }
 
-void AcinerellaAudioDecoder::fillBuffer(int index, bool initial)
+void AcinerellaAudioDecoder::fillBuffer(int index)
 {
 	EP_SCOPE(fillBuffer);
 	uint32_t offset = 0;
@@ -372,8 +374,11 @@ void AcinerellaAudioDecoder::fillBuffer(int index, bool initial)
 			if (!didSetTimecode)
 			{
 				m_ahiSampleTimestamp[index] = frame->timecode;
-				if (initial && 0 == index) // index should always be 0 with initial
-					m_ahiSampleTimestamp[1] = m_ahiSampleTimestamp[0];
+				if (m_didFlushBuffers) // index should always be 0 with initial
+				{
+					m_ahiSampleTimestamp[1] = m_ahiSampleTimestamp[0] = frame->timecode;
+					m_didFlushBuffers = false;
+				}
 				didSetTimecode = true;
 				DSPAMTS(dprintf("[AD]%s: set timecode %f\n", __func__, float(frame->timecode)));
 			}
@@ -459,7 +464,7 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
 	{
 		m_ahiSampleConsumed.wait();
 		uint32_t index = m_ahiSampleBeingPlayed % 2; // this sample will play next
-		fillBuffer(index, false);
+		fillBuffer(index);
 	}
 }
 

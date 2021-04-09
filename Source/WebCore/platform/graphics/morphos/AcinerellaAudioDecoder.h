@@ -50,7 +50,7 @@ protected:
 	void ahiCleanup();
 
 	static void soundFunc();
-	void fillBuffer(int index, bool initial);
+	void fillBuffer(int index);
 	void ahiThreadEntryPoint();
 
 protected:
@@ -72,6 +72,7 @@ protected:
 	volatile bool   m_playing = false;
 	double          m_position = 0.0;
 	bool            m_waitingToPlay = false;
+	bool            m_didFlushBuffers = false;
 	int             m_audioRate;
 	int             m_audioChannels;
 	int             m_audioBits;

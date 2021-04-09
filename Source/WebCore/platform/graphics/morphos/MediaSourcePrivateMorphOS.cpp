@@ -108,6 +108,7 @@ std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateMorphOS::buffered()
 void MediaSourcePrivateMorphOS::seekCompleted()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	m_paused = false;
 }
 
 void MediaSourcePrivateMorphOS::orphan()
