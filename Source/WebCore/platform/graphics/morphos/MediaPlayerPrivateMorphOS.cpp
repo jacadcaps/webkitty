@@ -11,7 +11,7 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 
-#define D(x)
+#define D(x) x
 #define DM(x) x
 
 namespace WebCore {

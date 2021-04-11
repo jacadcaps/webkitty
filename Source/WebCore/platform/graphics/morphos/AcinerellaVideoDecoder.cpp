@@ -26,8 +26,8 @@
 
 #define D(x) x
 #define DSYNC(x) x
-#define DOVL(x) 
-#define DFRAME(x) x
+#define DOVL(x) x
+#define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -80,7 +80,7 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
 {
-	return bufferSize() >= readAheadTime() && m_overlayWindow;
+	return (bufferSize() >= readAheadTime()) && m_overlayWindow;
 }
 
 bool AcinerellaVideoDecoder::isPlaying() const
@@ -581,7 +581,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 								sleepFor -= MonotonicTime::now() - timeDisplayed;
 							}
 							
-							DSYNC(if (0 == (m_frameCount % int(m_fps))) dprintf("\033[36m[VD]%s: pts %f next frame in %f diff pts %f audio at %f\033[0m\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
+							DSYNC(dprintf("\033[36m[VD]%s: pts %f next frame in %f diff pts %f audio at %f\033[0m\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
 								float(audioAt)));
 								
 							break;

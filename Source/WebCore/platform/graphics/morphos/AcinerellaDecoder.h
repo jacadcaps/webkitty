@@ -162,6 +162,7 @@ protected:
 	bool                               m_droppingUntilKeyFrame = false;
 	bool                               m_needsKF = false;
 	bool                               m_readying = false;
+	bool                               m_warminUp = false;
 	double                             m_dropToPTS;
 };
 

@@ -7,9 +7,10 @@
 #include <proto/exec.h>
 
 #define D(x) x
-#define DNF(x) x
-#define DI(x)
-#define DBF(x)  x
+#define DNF(x)
+#define DI(x) 
+#define DBF(x)
+#define DPOS(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -50,9 +51,8 @@ void AcinerellaDecoder::warmUp()
 
 	D(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this));
 	dispatch([this] {
+		m_warminUp = true;
 		decodeUntilBufferFull();
-		if (bufferSize() < readAheadTime())
-			m_client->onDecoderWarmedUp(makeRef(*this));
 	});
 }
 
@@ -131,7 +131,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 	EP_SCOPE(DNF);
 	RefPtr<AcinerellaPackage> buffer;
 
-//	DNF(dprintf("[%s]%s: this %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DNF(dprintf("[%s]%s: this %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 
 	if (m_terminating)
 		return false;
@@ -268,6 +268,12 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 			break;
 	} while (bufferSize() < readAheadTime());
 
+	if (m_warminUp && bufferSize() >= readAheadTime())
+	{
+		m_warminUp = false;
+		m_client->onDecoderWarmedUp(makeRef(*this));
+	}
+
 	if (isReadyToPlay() && m_readying)
 	{
 		onReadyToPlay();
@@ -313,7 +319,7 @@ void AcinerellaDecoder::onPositionChanged()
 		EP_EVENTSTR(buffer);
 	}
 #endif
-	D(dprintf("[%s]%s: %p to %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, position()));
+	DPOS(dprintf("[%s]%s: %p to %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, position()));
 	m_client->onDecoderUpdatedPosition(makeRef(*this), position());
 }
 

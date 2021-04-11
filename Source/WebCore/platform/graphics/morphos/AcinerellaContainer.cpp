@@ -169,6 +169,7 @@ void Acinerella::startSeeking(double pos)
 		return;
 
 	m_isSeeking = true;
+	m_ended = false;
 	m_seekingPosition = pos;
 
 	if (m_audioDecoder)
@@ -209,11 +210,11 @@ void Acinerella::startSeeking(double pos)
 
 	D(dprintf("ac%s(%p): muxer flushed\n", __func__, this));
 
+	m_waitReady = true;
 	if (m_audioDecoder)
-	{
-		m_audioDecoder->play();
-	}
-
+		m_audioDecoder->prePlay();
+	if (m_videoDecoder)
+		m_videoDecoder->prePlay();
 }
 
 bool Acinerella::areDecodersReadyToPlay()
@@ -623,6 +624,7 @@ void Acinerella::demuxNextPackage()
 
 void Acinerella::onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder)
 {
+	D(dprintf("%s:\n", __func__));
 	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 		if (m_client)
 		{
