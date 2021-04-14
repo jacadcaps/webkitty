@@ -27,16 +27,37 @@ void AudioTrackPrivateMorphOS::disconnect()
 	m_player = nullptr;
 }
 
-void AudioTrackPrivateMorphOS::setEnabled(bool enabled)
+void AudioTrackPrivateMorphOS::setEnabled(bool setenabled)
 {
-	D(dprintf("%s(%p): %d\n", __PRETTY_FUNCTION__, this, enabled));
-	if (m_player)
-		m_player->onTrackEnabled(m_index, enabled);
+	if (setenabled != enabled())
+	{
+		AudioTrackPrivate::setEnabled(setenabled);
+		if (m_player)
+			m_player->onTrackEnabled(m_index, setenabled);
+	}
 }
 
-void AudioTrackPrivateMorphOS::markAsActive()
+AudioTrackPrivateMorphOSMS::AudioTrackPrivateMorphOSMS(MediaSourceBufferPrivateMorphOS *source, int index)
+    : AudioTrackPrivateMorphOS(nullptr, index)
+    , m_source(source)
 {
-	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+
+}
+
+void AudioTrackPrivateMorphOSMS::disconnect()
+{
+    m_source = nullptr;
+}
+
+void AudioTrackPrivateMorphOSMS::setEnabled(bool setenabled)
+{
+	if (setenabled != enabled())
+	{
+		AudioTrackPrivate::setEnabled(setenabled);
+		if (m_source)
+			m_source->onTrackEnabled(m_index, setenabled);
+	}
+
 }
 
 }

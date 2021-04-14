@@ -21,6 +21,7 @@ struct MediaPlayerMorphOSInfo
 	int   m_width = 0;
 	int   m_height;
 	bool  m_isLive = false;
+    bool  m_isDownloadable = false;
 };
 
 struct MediaPlayerMorphOSSettings
@@ -28,11 +29,24 @@ struct MediaPlayerMorphOSSettings
 public:
     static MediaPlayerMorphOSSettings &settings();
 
-	bool m_enableVideo = false;
-	bool m_enableAudio = false;
-	bool m_decodeVideo = false;
+	bool m_enableVideo = true;
+	bool m_enableAudio = true;
+	bool m_decodeVideo = true;
 	bool m_enableMediaSource = false;
-	
+    bool m_enableVP9 = false;
+    
+    // NOTE: keep in sync with WkGlobalSettings_LoopFilter
+    enum class SkipLoopFilter {
+        Default,
+        NonRef,
+        BiDirectional,
+        NonIntra,
+        NonKey,
+        All
+    };
+
+    SkipLoopFilter m_loopFilter = SkipLoopFilter::All;
+ 
 	NetworkingContext *m_networkingContextForRequests = nullptr;
 
 	Function<bool(WebCore::MediaPlayer *player, const String &url)> m_preloadCheck;

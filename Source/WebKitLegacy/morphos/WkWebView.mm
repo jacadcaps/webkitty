@@ -251,6 +251,11 @@ namespace  {
 	return _info.m_isLive;
 }
 
+- (BOOL)isDownloadable
+{
+    return _info.m_isDownloadable;
+}
+
 - (int)audioRate
 {
 	return _info.m_frequency;

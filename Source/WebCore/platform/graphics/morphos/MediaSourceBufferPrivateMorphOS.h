@@ -30,6 +30,7 @@ class GraphicsContext;
 class FloatRect;
 class MediaSourcePrivateMorphOS;
 class MediaPlayerPrivateMorphOS;
+class MediaSourceBufferPrivateMorphOS;
 
 class MediaSourceChunkReader : public WTF::ThreadSafeRefCounted<MediaSourceChunkReader>
 {
@@ -37,14 +38,14 @@ public:
 	typedef Function<void(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info)> InitializationCallback;
 	typedef Function<void(bool)> ChunkDecodedCallback;
 protected:
-	MediaSourceChunkReader(WeakPtr<MediaPlayerPrivateMorphOS>, InitializationCallback &&, ChunkDecodedCallback &&);
+	MediaSourceChunkReader(MediaSourceBufferPrivateMorphOS *, InitializationCallback &&, ChunkDecodedCallback &&);
 public:
 	~MediaSourceChunkReader() = default;
 
 	typedef WTF::StdList<WTF::RefPtr<WebCore::MediaSample>> MediaSamplesList;
 
-    static Ref<MediaSourceChunkReader> create(WeakPtr<MediaPlayerPrivateMorphOS> player, InitializationCallback &&icb, ChunkDecodedCallback && ccb) {
-		return adoptRef(*new MediaSourceChunkReader(player, WTFMove(icb), WTFMove(ccb)));
+    static Ref<MediaSourceChunkReader> create(MediaSourceBufferPrivateMorphOS *source, InitializationCallback &&icb, ChunkDecodedCallback && ccb) {
+		return adoptRef(*new MediaSourceChunkReader(source, WTFMove(icb), WTFMove(ccb)));
 	}
 
 	void decode(Vector<unsigned char>&&);
@@ -74,7 +75,7 @@ protected:
 	RefPtr<Acinerella::AcinerellaPointer> m_acinerella;
 	uint32_t                              m_audioDecoderMask = 0;
 	uint32_t                              m_videoDecoderMask = 0;
-	WeakPtr<MediaPlayerPrivateMorphOS>    m_player;
+	MediaSourceBufferPrivateMorphOS      *m_source;
 	MediaSamplesList                      m_samples;
 
     RefPtr<Thread>                        m_thread;
@@ -121,6 +122,8 @@ public:
 	void setAudioPresentationTime(double apts);
 	bool areDecodersReadyToPlay();
 
+    void onTrackEnabled(int index, bool enabled);
+
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
 
@@ -140,7 +143,7 @@ private:
     bool canSetMinimumUpcomingPresentationTime(const AtomString&) const override;
 	
 	void flush();
-	void becomeReadyForMoreSamples(void);
+	void becomeReadyForMoreSamples(int decoderIndex);
 
     MediaPlayer::ReadyState readyState() const override;
     void setReadyState(MediaPlayer::ReadyState) override;
@@ -184,8 +187,12 @@ private:
 	bool                                          m_eos = false;
 
 	MediaPlayerMorphOSInfo                        m_info;
+    WebCore::SourceBufferPrivateClient::InitializationSegment m_segment;
 	bool                                          m_metaInitDone = false;
-	bool                                          m_readyForMoreSamples = false;
+
+	bool                                          m_readyForMoreSamples = true;
+	bool                                          m_requestedMoreFrames = false;
+    bool                                          m_enqueuedSamples = false;
 	
 	bool                                          m_seeking = false;
 	double                                        m_seekTime;

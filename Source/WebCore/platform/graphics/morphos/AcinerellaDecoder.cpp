@@ -6,11 +6,11 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x) 
 #define DNF(x)
-#define DI(x) 
+#define DI(x)
 #define DBF(x)
-#define DPOS(x)
+#define DPOS(x) 
 
 // #pragma GCC optimize ("O0")
 
@@ -260,7 +260,7 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 {
 	EP_SCOPE(untilBufferFull);
 
-	DBF(dprintf("[%s]%s: %p - start!\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DBF(dprintf("[%s]%s: %p - start! wmup %d prep %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_warminUp, m_readying));
 
 	do
 	{

@@ -67,7 +67,7 @@
 
 - (void)webViewDidLoadInsecureContent:(WkWebView *)view;
 
-- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(QUAD) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
 
 - (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate;
 
@@ -157,6 +157,7 @@ typedef enum {
 
 - (float)duration;
 - (BOOL)isLive;
+- (BOOL)isDownloadable;
 
 - (int)audioRate;
 - (int)audioChannels;

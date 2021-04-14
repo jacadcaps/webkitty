@@ -89,7 +89,7 @@ protected:
 	int read(uint8_t *buf, int size);
 	int64_t seek(int64_t pos, int whence);
 	
-	void demuxNextPackage();
+	void demuxMorePackages();
 	
 	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;

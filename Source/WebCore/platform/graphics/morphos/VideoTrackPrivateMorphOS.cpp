@@ -21,20 +21,41 @@ VideoTrackPrivate::Kind VideoTrackPrivateMorphOS::kind() const
 	return VideoTrackPrivate::Kind();
 }
 
+void VideoTrackPrivateMorphOS::setSelected(bool setselected)
+{
+	if (setselected != selected())
+	{
+		VideoTrackPrivate::setSelected(setselected);
+		if (m_player)
+			m_player->onTrackEnabled(m_index, setselected);
+	}
+}
+
 void VideoTrackPrivateMorphOS::disconnect()
 {
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 	m_player = nullptr;
 }
 
-void VideoTrackPrivateMorphOS::setEnabled(bool)
+void VideoTrackPrivateMorphOSMS::setSelected(bool setselected)
 {
-	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+	if (setselected != selected())
+	{
+		VideoTrackPrivate::setSelected(setselected);
+        if (m_source)
+            m_source->onTrackEnabled(m_index, setselected);
+    }
 }
 
-void VideoTrackPrivateMorphOS::markAsActive()
+void VideoTrackPrivateMorphOSMS::disconnect()
 {
-	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+    m_source = nullptr;
+}
+
+VideoTrackPrivateMorphOSMS::VideoTrackPrivateMorphOSMS(MediaSourceBufferPrivateMorphOS *source, int index)
+    : VideoTrackPrivateMorphOS(nullptr, index)
+    , m_source(source)
+{
 }
 
 }

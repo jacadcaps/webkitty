@@ -16,9 +16,9 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
-#define DSYNC(x) x
-#define DSPAM(x)
+#define D(x)
+#define DSYNC(x) 
+#define DSPAM(x) 
 #define DSPAMTS(x) 
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)

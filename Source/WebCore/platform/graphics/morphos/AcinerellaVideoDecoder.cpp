@@ -24,9 +24,9 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x) x
-#define DSYNC(x) x
-#define DOVL(x) x
+#define D(x)
+#define DSYNC(x) 
+#define DOVL(x)
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -76,6 +76,7 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 {
 	auto decoder = acinerella->decoder(m_index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
+    ac_decoder_set_loopfilter(decoder, int(MediaPlayerMorphOSSettings::settings().m_loopFilter));
 }
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
@@ -101,6 +102,7 @@ void AcinerellaVideoDecoder::startPlaying()
 		m_playing = true;
 		m_waitingToPlay = false;
 		onPositionChanged();
+        ac_decoder_set_loopfilter(m_lastDecoder, int(MediaPlayerMorphOSSettings::settings().m_loopFilter));
 		m_pullEvent.signal();
 		m_frameEvent.signal();
 	}
@@ -539,19 +541,21 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				bool changePosition = 0 == (m_frameCount % int(m_fps));
 
 				dispatch([this, changePosition]() {
-
-					if (m_isLive)
-					{
-						m_position += 1.f;
-						m_duration += 1.f;
-						onPositionChanged();
-						onDurationChanged();
-					}
-					else
-					{
-						onPositionChanged();
-					}
-
+                    if (changePosition)
+                    {
+                        if (m_isLive)
+                        {
+                            m_position += 1.f;
+                            m_duration += 1.f;
+                            onPositionChanged();
+                            onDurationChanged();
+                        }
+                        else
+                        {
+                            onPositionChanged();
+                        }
+                    }
+                
 					decodeUntilBufferFull();
 				});
 

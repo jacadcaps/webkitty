@@ -11,8 +11,8 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 
-#define D(x) x
-#define DM(x) x
+#define D(x) 
+#define DM(x) 
 
 namespace WebCore {
 
@@ -133,11 +133,16 @@ public:
 			for (size_t i = 0; i < codecs.size(); i++)
 			{
 				auto &codec = codecs.at(i);
-				if (startsWithLettersIgnoringASCIICase(codec, "av01") || startsWithLettersIgnoringASCIICase(codec, "vp9")) // requires ffmpeg 4.0!
+				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0!
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
 				}
+                else if (startsWithLettersIgnoringASCIICase(codec, "vp9") && !MediaPlayerMorphOSSettings::settings().m_enableVP9)
+                {
+					DM(dprintf("%s: rejecting disabled codec %s\n", __func__, codec.utf8().data()));
+					return MediaPlayer::SupportsType::IsNotSupported;
+                }
 				else
 				{
 					DM(dprintf("%s: we should be OK with codec %s\n", __func__, codec.utf8().data()));
@@ -649,7 +654,7 @@ String MediaPlayerPrivateMorphOS::accReferrer()
 #if ENABLE(VIDEO_TRACK)
 void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 {
-	// TODO: enable/disable track via source
+	D(dprintf("%s: %p, track %p enabled %d\n", __func__, this, index, enabled));
 }
 #endif
 

@@ -548,7 +548,7 @@ EXTERN double ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPack
 EXTERN double ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage);
 
 EXTERN void ac_decoder_fake_seek(lp_ac_decoder pDecoder);
-
+EXTERN void ac_decoder_set_loopfilter(lp_ac_decoder pDecoder, int lflevel);
 #ifdef __cplusplus
 } //end extern "C"
 #endif

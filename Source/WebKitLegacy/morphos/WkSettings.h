@@ -93,6 +93,16 @@ typedef enum
 	WkGlobalSettings_Caching_Balanced,
 } WkGlobalSettings_Caching;
 
+typedef enum {
+    // Loop filter skipping setting / ffmpeg
+    WkGlobalSettings_LoopFilter_Default,
+    WkGlobalSettings_LoopFilter_NonRef,
+    WkGlobalSettings_LoopFilter_BiDirectional,
+    WkGlobalSettings_LoopFilter_NonIntra,
+    WkGlobalSettings_LoopFilter_NonKey,
+    WkGlobalSettings_LoopFilter_All
+} WkGlobalSettings_LoopFilter;
+
 @interface WkGlobalSettings : OBObject
 
 // Set the default download path for all new downloads, they'll be downloaded with a tmp name
@@ -128,5 +138,14 @@ typedef enum
 
 + (BOOL)mediaSourceEnabled;
 + (void)setMediaSourceEnabled:(BOOL)enabled;
+
++ (BOOL)vp9Enabled;
++ (void)setVp9Enabled:(BOOL)enabled;
+
++ (BOOL)videoDecodingEnabled;
++ (void)setVideoDecodingEnabled:(BOOL)enabled;
+
++ (WkGlobalSettings_LoopFilter)skipLoopFilter;
++ (void)setSkipLoopFilter:(WkGlobalSettings_LoopFilter)filterskip;
 
 @end

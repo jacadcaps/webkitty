@@ -20,7 +20,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x)
+#define D(x) 
 #define DF(x) 
 
 namespace WebCore {
@@ -28,7 +28,7 @@ namespace Acinerella {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void AcinerellaMuxedBuffer::setSinkFunction(Function<bool()>&& sinkFunction)
+void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex)>&& sinkFunction)
 {
 	auto lock = holdLock(m_lock);
 	m_sinkFunction = WTFMove(sinkFunction);
@@ -44,13 +44,12 @@ void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask, uint32_t audioMask)
 void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 {
 	EP_SCOPE(push);
-	D(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package->index(), package->isFlushPackage(), m_decoderMask));
+	D(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package ? package->index() : -1, package ? package->isFlushPackage() : 0, m_decoderMask));
 
 	// is this a valid package?
 	if (package && package->isValid())
 	{
 		const auto index = package->index();
-		bool wantMore = false;
 		
 		{
 			auto lock = holdLock(m_lock);
@@ -71,16 +70,10 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 			{
 				D(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
 			}
-			
-			wantMore = needsToCallSinkFunction();
 		}
 		
 		if (isDecoderValid(index))
 			m_events[index].signal();
-
-		// no need to lock since it can only be cleared from within the same thread as this function is called on
-		if (wantMore && m_sinkFunction)
-			m_sinkFunction();
 	}
 	else
 	{
@@ -165,7 +158,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
 			{
 				D(dprintf("%s: calling sink..\n", __func__));
-				if (!m_sinkFunction())
+				if (!m_sinkFunction(decoder.index()))
 					return hasPackage;
 			}
 		}

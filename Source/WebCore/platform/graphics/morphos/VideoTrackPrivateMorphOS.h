@@ -4,11 +4,12 @@
 
 #include "VideoTrackPrivate.h"
 #include "MediaPlayerPrivateMorphOS.h"
+#include "MediaSourceBufferPrivateMorphOS.h"
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class VideoTrackPrivateMorphOS final : public VideoTrackPrivate
+class VideoTrackPrivateMorphOS : public VideoTrackPrivate
 {
 public:
 
@@ -18,11 +19,8 @@ public:
     }
 
     Kind kind() const final;
-
-    void disconnect();
-
-    void setEnabled(bool);
-    void markAsActive();
+	void setSelected(bool selected) override;
+    virtual void disconnect();
 
     int trackIndex() const override { return m_index; }
 
@@ -30,7 +28,7 @@ public:
     AtomString label() const override { return AtomString(m_label); }
     AtomString language() const override { return AtomString(m_language); }
 
-private:
+protected:
     VideoTrackPrivateMorphOS(WeakPtr<MediaPlayerPrivateMorphOS>, int index);
 
 	int m_index;
@@ -38,6 +36,23 @@ private:
     String m_label;
     String m_language;
     WeakPtr<MediaPlayerPrivateMorphOS> m_player;
+};
+
+class VideoTrackPrivateMorphOSMS final : public VideoTrackPrivateMorphOS
+{
+public:
+
+    static RefPtr<VideoTrackPrivateMorphOSMS> create(MediaSourceBufferPrivateMorphOS* source, int index)
+    {
+        return adoptRef(*new VideoTrackPrivateMorphOSMS(source, index));
+    }
+
+	void setSelected(bool selected) override;
+    void disconnect() override;
+
+private:
+    VideoTrackPrivateMorphOSMS(MediaSourceBufferPrivateMorphOS *source, int index);
+    MediaSourceBufferPrivateMorphOS *m_source;
 };
 
 }

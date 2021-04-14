@@ -103,7 +103,10 @@ void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle,
 		
 		[m_outerObject setFilename:[OBString stringWithUTF8String:uname.data()]];
 		m_size = response.expectedContentLength();
-	
+  
+        if (-1ll == m_size)
+            m_size = 0;
+
 		m_download->init(*this, handle, request, response);
 	}
 }

@@ -10,10 +10,10 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x)
 #define DNP(x) 
 #define DIO(x)
-#define DINIT(x)  x
+#define DINIT(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -457,10 +457,10 @@ bool Acinerella::initialize()
 				}
 				
 				m_muxer->setDecoderMask(decoderMask);
-				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)]() -> bool {
+				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int) -> bool {
 					// look ma, a lambda within a lambda
 					protectedThis->dispatch([this]() {
-						demuxNextPackage();
+						demuxMorePackages();
 					});
 					return true;
 				});
@@ -500,6 +500,7 @@ bool Acinerella::initialize()
 						minfo.m_width = minfo.m_height = 0;
 					}
 					minfo.m_isLive = m_isLive || !m_canSeek;
+                    minfo.m_isDownloadable = !minfo.m_isLive;
 					
 					WTF::callOnMainThread([this, minfo, protectedThis = makeRef(*this)]() {
 						if (m_client)
@@ -598,7 +599,7 @@ void Acinerella::initializeAfterDiscontinuity()
 	}
 }
 
-void Acinerella::demuxNextPackage()
+void Acinerella::demuxMorePackages()
 {
 	RefPtr<AcinerellaPointer> acinerella;
 	RefPtr<AcinerellaMuxedBuffer> muxer;
@@ -613,11 +614,19 @@ void Acinerella::demuxNextPackage()
 
 	if (muxer && acinerella && acinerella->instance())
 	{
-		RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
-		// don't send EOF singnalling packages to muxer if this is a live stream!
-		if (!m_isLive || package->package())
+		for (int i = 0; i < 128; i++)
 		{
-			muxer->push(package);
+			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
+
+			// don't send EOF singnalling packages to muxer if this is a live stream!
+			if (!m_isLive || package->package())
+			{
+				muxer->push(package);
+			}
+			else if (!package->package())
+			{
+				break;
+			}
 		}
 	}
 }

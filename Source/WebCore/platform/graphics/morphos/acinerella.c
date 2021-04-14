@@ -771,6 +771,11 @@ error:
 	return NULL;
 }
 
+void ac_decoder_set_loopfilter(lp_ac_decoder pDecoder, int lflevel)
+{
+    ((lp_ac_video_decoder)pDecoder)->pCodecCtx->skip_loop_filter = lflevel;
+}
+
 int ac_get_audio_rate(lp_ac_decoder pDecoder)
 {
 	lp_ac_audio_decoder audioDecoder = (lp_ac_audio_decoder)pDecoder;

@@ -17,11 +17,11 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x)
 #define DM(x)
-#define DI(x) x
-#define DN(x) 
-#define DIO(x) 
+#define DI(x) 
+#define DN(x)    
+#define DIO(x)
 #define DIOCC(x)
 
 // #pragma GCC optimize ("O0")
@@ -30,10 +30,10 @@
 
 namespace WebCore {
 
-MediaSourceChunkReader::MediaSourceChunkReader(WeakPtr<MediaPlayerPrivateMorphOS> player, InitializationCallback &&icb, ChunkDecodedCallback &&ccb)
+MediaSourceChunkReader::MediaSourceChunkReader(MediaSourceBufferPrivateMorphOS *source, InitializationCallback &&icb, ChunkDecodedCallback &&ccb)
 	: m_initializationCallback(WTFMove(icb))
 	, m_chunkDecodedCallback(WTFMove(ccb))
-	, m_player(player)
+	, m_source(source)
 {
 	m_thread = Thread::create("Acinerella Media Source Chunk Reader", [this] {
 		while (auto function = m_queue.waitForMessage())
@@ -194,7 +194,7 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 			case AC_STREAM_TYPE_VIDEO:
 				{
 					WebCore::SourceBufferPrivateClient::InitializationSegment::VideoTrackInformation videoTrackInformation;
-					videoTrackInformation.track = VideoTrackPrivateMorphOS::create(m_player, i);
+					videoTrackInformation.track = VideoTrackPrivateMorphOSMS::create(m_source, i);
 					videoTrackInformation.description = MediaDescriptionMorphOS::createVideoWithCodec(ac_codec_name(metaCinerella->instance(), i));
 					initializationSegment.videoTracks.append(WTFMove(videoTrackInformation));
 					duration = std::max(duration, std::max(double(ac_get_stream_duration(metaCinerella->instance(), i)), double(metaCinerella->instance()->info.duration)/1000.0));
@@ -207,7 +207,7 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 			case AC_STREAM_TYPE_AUDIO:
 				{
 					WebCore::SourceBufferPrivateClient::InitializationSegment::AudioTrackInformation audioTrackInformation;
-					audioTrackInformation.track = AudioTrackPrivateMorphOS::create(m_player, i);
+					audioTrackInformation.track = AudioTrackPrivateMorphOSMS::create(m_source, i);
 					audioTrackInformation.description = MediaDescriptionMorphOS::createAudioWithCodec(ac_codec_name(metaCinerella->instance(), i));
 					initializationSegment.audioTracks.append(WTFMove(audioTrackInformation));
 					duration = std::max(duration, std::max(double(ac_get_stream_duration(metaCinerella->instance(), i)), double(metaCinerella->instance()->info.duration)/1000.0));
@@ -221,6 +221,7 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 		minfo.m_duration = duration;
 		minfo.m_isLive = false;
 		minfo.m_channels = 0;
+        minfo.m_isDownloadable = false;
 		m_highestPTS = duration; // we don't need to synchronize duration if we already know it
 	}
 }
@@ -393,7 +394,6 @@ int MediaSourceChunkReader::read(uint8_t *buf, int size)
 				}
 				else if (m_terminating || m_bufferEOF)
 				{
-	dprintf("XEOF\n");
 					return -1;
 				}
 				else if (0 == bufferSize)
@@ -432,7 +432,7 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
     : m_mediaSource(parent)
     , m_client(0)
 {
-	m_reader = MediaSourceChunkReader::create(parent->player(),
+	m_reader = MediaSourceChunkReader::create(this,
 		[this](bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info){
 			initialize(success, segment, info);
 		},
@@ -594,6 +594,7 @@ void MediaSourceBufferPrivateMorphOS::terminate()
 
 	m_thread->waitForCompletion();
 	m_thread = nullptr;
+    m_segment = WebCore::SourceBufferPrivateClient::InitializationSegment();
 	ASSERT(m_queue.killed());
 	DI(dprintf("[MS]%s %p done\n", __func__, this));
 
@@ -611,6 +612,36 @@ void MediaSourceBufferPrivateMorphOS::removedFromMediaSource()
 	RefPtr<MediaSourceBufferPrivateMorphOS> me = makeRef(*this);
 	if (m_mediaSource)
 		m_mediaSource->onSourceBufferRemoved(me);
+    m_segment = WebCore::SourceBufferPrivateClient::InitializationSegment();
+}
+
+void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
+{
+	D(dprintf("[MS]%s: %d enabled %d\n", __func__, index, enabled));
+    if (m_mediaSource)
+    {
+        if (enabled)
+        {
+            if (!!m_decoders[index])
+            {
+                if (m_mediaSource->paused())
+                {
+                    m_decoders[index]->warmUp();
+                }
+                else
+                {
+                    m_decoders[index]->play();
+                }
+            }
+        }
+        else if (!enabled)
+        {
+            if (!!m_decoders[index])
+            {
+                m_decoders[index]->coolDown();
+            }
+        }
+    }
 }
 
 void MediaSourceBufferPrivateMorphOS::flush(const AtomString&)
@@ -618,13 +649,28 @@ void MediaSourceBufferPrivateMorphOS::flush(const AtomString&)
 	D(dprintf("[MS]%s\n", __func__));
 }
 
-void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(void)
+void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 {
-	if (!m_readyForMoreSamples)
+	m_readyForMoreSamples = true;
+	
+	if (!!m_decoders[index])
 	{
-		D(dprintf("[MS]%s\n", __func__));
-		m_readyForMoreSamples = true;
-		// TODO?
+		WTF::callOnMainThread([this, protect = makeRef(*this), isVideo = m_decoders[index]->isVideo(), index]() {
+			AtomString id;
+
+			D(dprintf("[MS]becomeReadyForMoreSamples %d\n", index));
+
+			if (isVideo) {
+				id = "V" + String::number(index);
+			}
+			else {
+				id = "A" + String::number(index);
+			}
+
+			m_requestedMoreFrames = true;
+			if (m_client)
+				m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(id);
+		});
 	}
 }
 
@@ -645,10 +691,14 @@ void MediaSourceBufferPrivateMorphOS::enqueueSample(Ref<MediaSample>&&sample, co
 	auto msample = static_cast<MediaSampleMorphOS *>(&sample.get());
 	RefPtr<Acinerella::AcinerellaPackage> package = msample->package();
 
+    m_enqueuedSamples = true;
+
 	D(m_enqueueCount ++);
 	D(if (0 == (m_enqueueCount % 50) || (msample->isSync() && !(m_audioDecoderMask & (1uLL << package->index())))) dprintf("[MS][%s]%s PTS %f key %d\n", __func__, (m_audioDecoderMask & (1uLL << package->index())) ? "A":"V", msample->presentationTime().toFloat(), msample->isSync()));
 
+	m_requestedMoreFrames = false;
 	m_eos = false;
+
 	if (m_seeking)
 	{
 		double pts = msample->presentationTime().toDouble();
@@ -694,16 +744,21 @@ void MediaSourceBufferPrivateMorphOS::setActive(bool isActive)
 void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(const AtomString&trackID)
 {
 	D(dprintf("[MS]%s\n", __func__));
-    if (m_client)
-        m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(trackID);
+//    if (m_client)
+//        m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(trackID);
 }
 
 bool MediaSourceBufferPrivateMorphOS::canSetMinimumUpcomingPresentationTime(const AtomString&) const
 {
+	D(dprintf("[MS]%s\n", __func__));
 	// WARNING: HACK
 	// SourceBuffer calls this after a batch of enqueueSample calls
 	auto *me = const_cast<MediaSourceBufferPrivateMorphOS *>(this);
-	me->warmUp();
+    if (m_enqueuedSamples)
+    {
+        me->m_enqueuedSamples = false;
+        me->warmUp();
+    }
 	return false;
 }
 
@@ -735,6 +790,7 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 
 	m_muxer = Acinerella::AcinerellaMuxedBuffer::create();
 	m_info = minfo;
+    m_segment = segment;
 	m_audioDecoderMask = 0;
 
 	for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++)
@@ -782,8 +838,8 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 	if (decoderIndexMask != 0)
 	{
 		m_muxer->setDecoderMask(decoderIndexMask, m_audioDecoderMask);
-		m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)]() {
-			becomeReadyForMoreSamples();
+		m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int decoderIndex) {
+			becomeReadyForMoreSamples(decoderIndex);
 			return false; // avoid blocking the pipeline!
 		});
 
@@ -806,8 +862,6 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 void MediaSourceBufferPrivateMorphOS::warmUp()
 {
 	D(dprintf("[MS] warmUp\n"));
-
-	becomeReadyForMoreSamples();
 
 	dispatch([this]() {
 		for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
@@ -1036,6 +1090,34 @@ void MediaSourceBufferPrivateMorphOS::onDecoderPaintUpdate(RefPtr<Acinerella::Ac
 		});
 	}
 }
+
+#if 0
+void MediaSourceBufferPrivateMorphOS::onDecoderRanOutOfFrames(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+{
+	if (!m_requestedMoreFrames)
+	{
+		WTF::callOnMainThread([this, protect = makeRef(*this), decoder]() {
+			if (!m_requestedMoreFrames)
+			{
+				AtomString id;
+
+				dprintf("ODROOF!\n");
+
+				if (decoder->isVideo()) {
+					id = "V" + String::number(decoder->index());
+				}
+				else {
+					id = "A" + String::number(decoder->index());
+				}
+
+				m_requestedMoreFrames = true;
+				if (m_client)
+					m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(id);
+			}
+		});
+	}
+}
+#endif
 
 } // namespace
 #endif

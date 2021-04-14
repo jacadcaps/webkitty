@@ -6,7 +6,7 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
-#define D(x) x
+#define D(x) 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -35,12 +35,29 @@ MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
 
 MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const ContentType& contentType, RefPtr<SourceBufferPrivate>& buffer)
 {
-// TODO: mac impl checks if contentType is supported here
 	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, contentType.raw().utf8().data()));
+
+    MediaEngineSupportParameters parameters;
+    parameters.isMediaSource = true;
+    parameters.type = contentType;
+    if (MediaPlayerPrivateMorphOS::extendedSupportsType(parameters, MediaPlayer::SupportsType::MayBeSupported) == MediaPlayer::SupportsType::IsNotSupported)
+        return NotSupported;
+
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
 	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
 	m_sourceBuffers.add(sourceBufferPrivate);
 	return Ok;
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
+{
+	if (m_paintingBuffer == buffer)
+		m_paintingBuffer = nullptr;
+	m_sourceBuffers.remove(buffer);
+	m_activeSourceBuffers.remove(buffer);
+	buffer->clearMediaSource();
+	if (m_player)
+		m_player->notifyActiveSourceBuffersChanged();
 }
 
 void MediaSourcePrivateMorphOS::durationChanged()
@@ -220,6 +237,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 					}
 					
 					info.m_duration = duration().toFloat(); //! client provides us with the actual duration!
+                    info.m_isDownloadable = false;
 				}
 
 				D(dprintf("%s: freq %d w %d h %d duration %f clientDuration %f\n", __PRETTY_FUNCTION__, info.m_frequency, info.m_width, info.m_height, float(info.m_duration), float(duration().toDouble())));
@@ -257,14 +275,6 @@ void MediaSourcePrivateMorphOS::onSourceBufferFrameUpdate(RefPtr<MediaSourceBuff
 	}
 }
 
-void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
-{
-	if (m_paintingBuffer == buffer)
-		m_paintingBuffer = nullptr;
-	m_sourceBuffers.remove(buffer);
-	m_activeSourceBuffers.remove(buffer);
-	buffer->clearMediaSource();
-}
 
 void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double position)
 {

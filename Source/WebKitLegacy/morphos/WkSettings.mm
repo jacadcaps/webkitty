@@ -467,4 +467,34 @@ static cairo_antialias_t defaultAA;
 	WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource = enabled;
 }
 
++ (BOOL)vp9Enabled
+{
+    return WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9;
+}
+
++ (void)setVp9Enabled:(BOOL)enabled
+{
+    WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9 = enabled;
+}
+
++ (BOOL)videoDecodingEnabled
+{
+    return WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo;
+}
+
++ (void)setVideoDecodingEnabled:(BOOL)enabled
+{
+    WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo = enabled;
+}
+
++ (WkGlobalSettings_LoopFilter)skipLoopFilter
+{
+    return (WkGlobalSettings_LoopFilter)WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter;
+}
+
++ (void)setSkipLoopFilter:(WkGlobalSettings_LoopFilter)filterskip
+{
+    WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter = WebCore::MediaPlayerMorphOSSettings::SkipLoopFilter(filterskip);
+}
+
 @end
