@@ -20,6 +20,10 @@ template<typename T>
 using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
 
 namespace WebCore {
+
+class GraphicsContext;
+class FloatRect;
+
 namespace Acinerella {
 
 class Acinerella;
@@ -39,6 +43,7 @@ public:
 	AcinerellaDecodedFrame & operator=(AcinerellaDecodedFrame && otter) { std::swap(m_pointer, otter.m_pointer); std::swap(m_frame, otter.m_frame); return *this; }
 
 	ac_decoder_frame *frame() { return m_frame; }
+	double pts() const { return m_frame ? m_frame->timecode : 0.f; }
 	const ac_decoder_frame *frame() const { return m_frame; }
 	
 	RefPtr<AcinerellaPointer> &pointer() { return m_pointer; }
@@ -48,31 +53,53 @@ protected:
 	ac_decoder_frame         *m_frame;
 };
 
-class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
+class AcinerellaDecoderClient
 {
 public:
-	AcinerellaDecoder(Acinerella* parent, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
+	virtual void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) = 0;
+	virtual void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) = 0;
+	virtual void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) = 0;
+	virtual void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) = 0;
+	virtual void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
+};
+
+class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
+{
+protected:
+	AcinerellaDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream);
+public:
 	virtual ~AcinerellaDecoder();
 
 	// call from: Acinerella thread
 	void terminate();
 
 	void warmUp();
+	void coolDown();
 
+	void prePlay();
 	void play();
-	void pause();
+	void pause(bool willSeek = false);
 
 	virtual bool isPlaying() const = 0;
 	virtual bool isReadyToPlay() const = 0;
 
 	virtual bool isAudio() const = 0;
+	virtual bool isVideo() const = 0;
+	virtual bool isText() const = 0;
 	void setVolume(float volume);
 
-	float duration() const { return m_duration; }
-	float bitRate() const { return m_bitrate; }
-	virtual float position() const = 0;
-	virtual float bufferSize() const = 0;
-	
+	double duration() const { return m_duration; }
+	double bitRate() const { return m_bitrate; }
+	virtual double position() const = 0;
+	virtual double bufferSize() const = 0;
+
+	virtual void paint(GraphicsContext&, const FloatRect&) = 0;
+
 	int index() const { return m_index; }
 
 protected:
@@ -86,42 +113,57 @@ protected:
 	// call from: Own thread
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
+	void dropUntilPTS(double pts);
 	void onPositionChanged();
 	void onDurationChanged();
+	void onReadyToPlay();
 	void onEnded();
 	virtual void flush();
+	virtual void onGetReadyToPlay() { };
+	virtual void onCoolDown() { };
 
 	// call from: Own thread
 	virtual bool onThreadInitialize() { return true; }
 	virtual void onThreadShutdown() { }
 
 	// call from: Own thread, under m_lock!
+	virtual void onDecoderChanged(RefPtr<AcinerellaPointer>) { }
 	virtual void onFrameDecoded(const AcinerellaDecodedFrame &) { }
 
 	// call from: Own thread
 	virtual void startPlaying() = 0;
 	virtual void stopPlaying() = 0;
-	virtual void doSetVolume(float) { };
+	virtual void stopPlayingQuick() { };
+	virtual void doSetVolume(double) { };
 
 	// call from: Any thread
-	virtual float readAheadTime() const = 0;
+	virtual double readAheadTime() const = 0;
 
 protected:
-	Acinerella                        *m_parent; // valid until terminate is called
+	AcinerellaDecoderClient           *m_client; // valid until terminate is called
     RefPtr<Thread>                     m_thread;
     MessageQueue<Function<void ()>>    m_queue;
 
 	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
-	float                              m_duration;
+	double                             m_duration;
 	int                                m_bitrate;
 	int                                m_index;
 	
 	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
 	Lock                               m_lock;
 
-	bool                               m_playing = false;
+	ac_decoder                        *m_lastDecoder = nullptr;
+
 	bool                               m_terminating = false;
 	bool                               m_isLive = false;
+	bool                               m_decoderEOF = false;
+	
+	bool                               m_droppingFrames = false;
+	bool                               m_droppingUntilKeyFrame = false;
+	bool                               m_needsKF = false;
+	bool                               m_readying = false;
+	bool                               m_warminUp = false;
+	double                             m_dropToPTS;
 };
 
 }

@@ -188,7 +188,9 @@ public:
 	void endLiveResize();
 	
     void setFocusedElement(WebCore::Element *);
-	
+    WebCore::IntRect getElementBounds(WebCore::Element *);
+	void setFullscreenElement(WebCore::Element *);
+
 	void startedEditingElement(WebCore::HTMLInputElement *);
 	bool hasAutofillElements();
 	void clearAutofillElements();
@@ -271,7 +273,7 @@ protected:
     int mouseCursorToSet(ULONG qualifiers, bool mouseInside);
 
 private:
-    RefPtr<WebFrame> m_mainFrame { nullptr };
+    RefPtr<WebFrame> m_mainFrame;
 	std::unique_ptr<WebCore::Page> m_page;
 	RefPtr<WebPageGroup> m_webPageGroup;
 	WebViewDrawContext  *m_drawContext { nullptr };
@@ -304,7 +306,8 @@ private:
     bool m_isVisible { false };
     bool m_transitioning { false };
     bool m_cursorOverLink { false };
-    WebCore::Element *m_focusedElement { nullptr };
+    RefPtr<WebCore::Element> m_focusedElement;
+    RefPtr<WebCore::Element> m_fullscreenElement;
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
     WTF::URL m_hoveredURL;

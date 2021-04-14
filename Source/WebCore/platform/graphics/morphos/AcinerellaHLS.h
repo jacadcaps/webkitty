@@ -21,7 +21,7 @@ struct HLSChunk
 {
 	String    m_url;
 	int64_t   m_mediaSequence;
-	float     m_duration;
+	double    m_duration;
 };
 
 class HLSStream
@@ -50,7 +50,7 @@ protected:
 class AcinerellaNetworkBufferHLS : public AcinerellaNetworkBuffer
 {
 public:
-	AcinerellaNetworkBufferHLS(const String &url, size_t readAhead);
+	AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead);
 	virtual ~AcinerellaNetworkBufferHLS();
 
 	void start(uint64_t from = 0) override;

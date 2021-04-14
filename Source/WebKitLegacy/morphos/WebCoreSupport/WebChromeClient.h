@@ -162,6 +162,9 @@ protected:
 #if ENABLE(VIDEO)
     void setUpPlaybackControlsManager(WebCore::HTMLMediaElement&) override;
     void clearPlaybackControlsManager() override;
+
+    void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool standby) override;
+    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) override;
 #endif
 
 #if ENABLE(FULLSCREEN_API)
@@ -169,6 +172,8 @@ protected:
     void enterFullScreenForElement(WebCore::Element&) final;
     void exitFullScreenForElement(WebCore::Element*) final;
 #endif
+
+    bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) override;
 
     void wheelEventHandlersChanged(bool) final { }
 

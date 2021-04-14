@@ -714,7 +714,7 @@ static int _windowID = 1;
 	[delegate ignore];
 }
 
-- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t)size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(QUAD)size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
 {
 	dprintf("%s: url %s mime %s name '%s' delegate %p\n", __PRETTY_FUNCTION__, [[url absoluteString] cString], [mime cString], [suggestedName cString], delegate);
 //	[[OBRunLoop mainRunLoop] performSelector:@selector(ignore) target:delegate];

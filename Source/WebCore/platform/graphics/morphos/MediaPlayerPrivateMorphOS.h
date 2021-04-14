@@ -9,6 +9,10 @@
 #include "MediaPlayerMorphOS.h"
 #include "AcinerellaClient.h"
 
+#if ENABLE(MEDIA_SOURCE)
+#include "MediaSourcePrivateMorphOS.h"
+#endif
+
 namespace WebCore {
 
 namespace Acinerella {
@@ -36,6 +40,9 @@ public:
     void cancelLoad() final;
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
+
+    bool supportsPictureInPicture() const override { return false; }
+    bool supportsFullscreen() const override { return true; }
 
 	void play() final;
     void pause() final;
@@ -71,21 +78,43 @@ public:
 	bool accEnableVideo() const override;
 	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
 	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
-	void accSetBufferLength(float buffer) override;
-	void accSetPosition(float buffer) override;
-	void accSetDuration(float buffer) override;
+	void accSetBufferLength(double buffer) override;
+	void accSetPosition(double buffer) override;
+	void accSetDuration(double buffer) override;
 	void accEnded() override;
 	void accFailed() override;
+	RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() override;
+	String accReferrer() override;
+	void accNextFrameReady() override;
+	void accSetVideoSize(int width, int height) override;
+	void accNoFramesReady() override;
+	void accFrameUpdateNeeded() override;
+	
+	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
+	void onActiveSourceBuffersChanged() { if (m_player) m_player->activeSourceBuffersChanged(); }
+
+#if ENABLE(VIDEO_TRACK)
+	void onTrackEnabled(int index, bool enabled);
+#endif
 
 protected:
 	MediaPlayer* m_player;
 	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
-	float m_duration = 0.f;
-	float m_currentTime = 0.f;
+	double m_duration = 0.f;
+	double m_currentTime = 0.f;
+	int   m_width = 320;
+	int   m_height = 240;
 	bool  m_prepareToPlay = false;
 	bool  m_acInitialized = false;
+	bool  m_visible = false;
+	bool  m_didDrawFrame = false;
+	mutable bool  m_didLoadingProgress = false;
+
+#if ENABLE(MEDIA_SOURCE)
+	RefPtr<MediaSourcePrivateMorphOS> m_mediaSourcePrivate;
+#endif
 
 friend class Acinerella::Acinerella;
 };

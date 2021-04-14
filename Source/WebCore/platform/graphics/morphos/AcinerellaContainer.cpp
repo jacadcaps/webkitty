@@ -4,11 +4,16 @@
 
 #include "AcinerellaContainer.h"
 #include "AcinerellaAudioDecoder.h"
+#include "AcinerellaVideoDecoder.h"
 #include "AcinerellaBuffer.h"
+#include "AcinerellaMuxer.h"
+#include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x)
+#define DNP(x) 
 #define DIO(x)
+#define DINIT(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -18,7 +23,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	, m_url(url)
 {
 	D(dprintf("%s: %p url '%s'\n", __func__, this, url.utf8().data()));
-	m_networkBuffer = AcinerellaNetworkBuffer::create(m_url);
+	m_networkBuffer = AcinerellaNetworkBuffer::create(this, m_url);
 	m_enableAudio = client->accEnableAudio();
 	m_enableVideo = client->accEnableVideo();
 	m_isLive = m_url.contains("m3u8");
@@ -40,12 +45,29 @@ void Acinerella::play()
 	D(dprintf("%s: paused %d ended %d\n", __PRETTY_FUNCTION__, m_paused, m_ended));
 	if (m_ended)
 		return;
+
 	m_paused = false;
+	m_waitReady = true;
+
 	dispatch([this] {
-		if (m_audioDecoder)
-			m_audioDecoder->play();
-		if (m_videoDecoder)
-			m_videoDecoder->play();
+		if (areDecodersReadyToPlay())
+		{
+			D(dprintf("%s: calling play()...\n", __PRETTY_FUNCTION__));
+			m_waitReady = false;
+			if (m_audioDecoder)
+				m_audioDecoder->play();
+			if (m_videoDecoder)
+				m_videoDecoder->play();
+		}
+		else
+		{
+			D(dprintf("%s: calling prePlay()...\n", __PRETTY_FUNCTION__));
+			m_waitReady = true;
+			if (m_audioDecoder)
+				m_audioDecoder->prePlay();
+			if (m_videoDecoder)
+				m_videoDecoder->prePlay();
+		}
 	});
 }
 
@@ -56,6 +78,8 @@ void Acinerella::pause()
 		return;
 
 	m_paused = true;
+	m_waitReady = false;
+
 	dispatch([this] {
 		if (m_audioDecoder)
 			m_audioDecoder->pause();
@@ -69,7 +93,7 @@ bool Acinerella::paused()
 	return m_paused;
 }
 
-void Acinerella::setVolume(float volume)
+void Acinerella::setVolume(double volume)
 {
 	m_volume = volume;
 	dispatch([this, volume, muted = m_muted] {
@@ -97,7 +121,7 @@ bool Acinerella::isSeeking()
 	return m_isSeeking;
 }
 
-void Acinerella::seek(float time)
+void Acinerella::seek(double time)
 {
 	dispatch([this,time]() {
 		startSeeking(time);
@@ -115,20 +139,45 @@ bool Acinerella::ended()
 	return m_ended;
 }
 
-void Acinerella::startSeeking(float pos)
+void Acinerella::ref()
+{
+	ThreadSafeRefCounted<Acinerella>::ref();
+}
+
+void Acinerella::deref()
+{
+	ThreadSafeRefCounted<Acinerella>::deref();
+}
+
+RefPtr<PlatformMediaResourceLoader> Acinerella::createResourceLoader()
+{
+	if (m_client)
+		return m_client->accCreateResourceLoader();
+	return nullptr;
+}
+
+String Acinerella::referrer()
+{
+	if (m_client)
+		return m_client->accReferrer();
+	return String();
+}
+
+void Acinerella::startSeeking(double pos)
 {
 	if (m_isSeeking)
 		return;
 
 	m_isSeeking = true;
+	m_ended = false;
 	m_seekingPosition = pos;
 
 	if (m_audioDecoder)
-		m_audioDecoder->pause();
+		m_audioDecoder->pause(true);
 	if (m_videoDecoder)
-		m_videoDecoder->pause();
+		m_videoDecoder->pause(true);
 	
-	float currentPosition = m_audioDecoder ? m_audioDecoder->position() : (m_videoDecoder ? m_videoDecoder->position() : 0.f);
+	double currentPosition = m_audioDecoder ? m_audioDecoder->position() : (m_videoDecoder ? m_videoDecoder->position() : 0.f);
 	D(dprintf("ac%s(%p): %f current %f \n", __func__, this, pos, currentPosition));
 
 	m_seekingForward = pos > currentPosition;
@@ -144,31 +193,36 @@ void Acinerella::startSeeking(float pos)
 
 	int direction = int(pos - currentPosition);
 
-	if (acinerella && acinerella->audioDecoder())
-		ac_seek(acinerella->audioDecoder(), direction, int(pos * 1000.f)); // ac_seek takes millisecs
-	if (acinerella && acinerella->videoDecoder())
-		ac_seek(acinerella->videoDecoder(), direction, int(pos * 1000.f)); // ac_seek takes millisecs
+	if (acinerella && m_videoDecoder && acinerella->decoder(m_videoDecoder->index()))
+		ac_seek(acinerella->decoder(m_videoDecoder->index()), direction, int(pos * 1000.f)); // ac_seek takes millisecs
+
+	if (acinerella && m_audioDecoder && acinerella->decoder(m_audioDecoder->index()))
+		ac_seek(acinerella->decoder(m_audioDecoder->index()), direction, int(pos * 1000.f)); // ac_seek takes millisecs
 
 	D(dprintf("ac%s(%p): ac_Seek done\n", __func__, this));
 	
 	if (muxer)
 	{
 		muxer->flush();
-		AcinerellaPackage package(acinerella, ac_flush_packet());
-		muxer->push(WTFMove(package));
+		RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_flush_packet());
+		muxer->push(package);
 	}
 
 	D(dprintf("ac%s(%p): muxer flushed\n", __func__, this));
 
+	m_waitReady = true;
 	if (m_audioDecoder)
-	{
-		m_audioDecoder->play();
-	}
-	
+		m_audioDecoder->prePlay();
 	if (m_videoDecoder)
-	{
-		m_audioDecoder->play();
-	}
+		m_videoDecoder->prePlay();
+}
+
+bool Acinerella::areDecodersReadyToPlay()
+{
+	bool audioReady = !m_audioDecoder || m_audioDecoder->isReadyToPlay();
+	bool videoReady = !m_videoDecoder || m_videoDecoder->isReadyToPlay();
+	D(dprintf("%s: audio %d video %d\n", __func__, audioReady, videoReady));
+	return audioReady && videoReady;
 }
 
 void Acinerella::terminate()
@@ -207,7 +261,7 @@ void Acinerella::terminate()
 void Acinerella::warmUp()
 {
 	dispatch([this]() {
-		D(dprintf("%s: %p\n", __func__, this));
+		D(dprintf("warmUp: %p\n", this));
 		if (m_audioDecoder)
 			m_audioDecoder->warmUp();
 		if (m_videoDecoder)
@@ -215,9 +269,21 @@ void Acinerella::warmUp()
 	});
 }
 
+void Acinerella::coolDown()
+{
+	dispatch([this]() {
+		D(dprintf("coolDown: %p\n", this));
+		if (m_audioDecoder)
+			m_audioDecoder->coolDown();
+		if (m_videoDecoder)
+			m_videoDecoder->coolDown();
+	});
+
+}
+
 void Acinerella::threadEntryPoint()
 {
-	SetTaskPri(FindTask(0), 5);
+	SetTaskPri(FindTask(0), 1);
 
 	D(dprintf("%s: %p\n", __func__, this));
 	if (initialize())
@@ -255,6 +321,21 @@ void Acinerella::threadEntryPoint()
 	D(dprintf("%s: %p exits...\n", __func__, this));
 }
 
+void Acinerella::paint(GraphicsContext& gc, const FloatRect& rect)
+{
+	if (!!m_videoDecoder)
+		m_videoDecoder->paint(gc, rect);
+}
+
+void Acinerella::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
+{
+	if (!!m_videoDecoder)
+	{
+		auto *vd = static_cast<AcinerellaVideoDecoder*>(m_videoDecoder.get());
+		vd->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
+	}
+}
+
 void Acinerella::dispatch(Function<void ()>&& function)
 {
 	ASSERT(isMainThread());
@@ -271,38 +352,40 @@ void Acinerella::performTerminate()
 
 bool Acinerella::initialize()
 {
-	D(dprintf("%s: %p\n", __func__, this));
+	DINIT(dprintf("%s: %p\n", __func__, this));
 	m_acinerella = AcinerellaPointer::create();
 	if (m_acinerella)
 	{
 		if (-1 == ac_open(m_acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 		{
 			m_acinerella = nullptr;
-			D(dprintf("---- ac failed to open :(\n"));
+			DINIT(dprintf("---- ac failed to open :(\n"));
 		}
 		else
 		{
-			D(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
+			DINIT(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
 			int audioIndex = -1;
 			int videoIndex = -1;
 
 			// update once we know the size
 			m_canSeek = m_networkBuffer->canSeek();
 
-			for (int i = m_acinerella->instance()->stream_count - 1; i >= 0; --i)
+			m_muxer = AcinerellaMuxedBuffer::create();
+
+			for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, m_acinerella->instance()->stream_count); i++)
 			{
 				ac_stream_info info;
 				ac_get_stream_info(m_acinerella->instance(), i, &info);
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
-					D(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+					DINIT(dprintf("video stream: %dx%d index %d ev %d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height, i, m_enableVideo));
 					if (-1 == videoIndex && m_enableVideo)
 						videoIndex = i;
 					break;
 
 				case AC_STREAM_TYPE_AUDIO:
-					D(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
+					DINIT(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
 						info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
 					if (-1 == audioIndex && m_enableAudio)
 						audioIndex = i;
@@ -313,36 +396,41 @@ bool Acinerella::initialize()
 				}
 			}
 
+			DINIT(dprintf("ac init audio %d video %d\n", audioIndex, videoIndex));
+
 			if (-1 != audioIndex || -1 != videoIndex)
 			{
 				ac_stream_info info;
-
-				m_muxer = AcinerellaMuxedBuffer::create([this, protectedThis = makeRef(*this)]() {
-						// look ma, a lambda within a lambda
-						protectedThis->dispatch([this]() {
-							demuxNextPackage();
-						});
-					}, audioIndex, videoIndex);
+				uint32_t decoderMask = 0;
 
 				if (-1 != audioIndex)
 				{
 					ac_get_stream_info(m_acinerella->instance(), audioIndex, &info);
-					m_acinerella->setAudioDecoder(ac_create_decoder(m_acinerella->instance(), audioIndex));
-					m_audioDecoder = WTF::adoptRef(*new AcinerellaAudioDecoder(this, m_muxer, audioIndex, info, m_isLive));
+					m_acinerella->setDecoder(audioIndex, ac_create_decoder(m_acinerella->instance(), audioIndex));
+					m_audioDecoder = AcinerellaAudioDecoder::create(this, m_acinerella, m_muxer, audioIndex, info, m_isLive);
+					if (!!m_audioDecoder)
+						decoderMask |= (1UL << audioIndex);
 				}
-				
+
+				if (-1 != videoIndex)
+				{
+					ac_get_stream_info(m_acinerella->instance(), videoIndex, &info);
+					m_acinerella->setDecoder(videoIndex, ac_create_decoder(m_acinerella->instance(), videoIndex));
+					DINIT(dprintf("video decoder: %p\n", m_acinerella->decoder(videoIndex)));
+					m_videoDecoder = AcinerellaVideoDecoder::create(this, m_acinerella, m_muxer, videoIndex, info, m_isLive);
+					if (!!m_videoDecoder)
+						decoderMask |= (1UL << videoIndex);
+				}
+
 				WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 					if (m_client)
 					{
 						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
-						m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
 					}
 				});
 
-				m_muxer->setDropVideoPackages(m_videoDecoder ? false : true);
-
-				float audioDuration = 0;
-				float videoDuration = 0;
+				double audioDuration = 0;
+				double videoDuration = 0;
 
 				if (m_audioDecoder)
 				{
@@ -368,42 +456,56 @@ bool Acinerella::initialize()
 					}
 				}
 				
-				if (m_audioDecoder || m_videoDecoder)
+				m_muxer->setDecoderMask(decoderMask);
+				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int) -> bool {
+					// look ma, a lambda within a lambda
+					protectedThis->dispatch([this]() {
+						demuxMorePackages();
+					});
+					return true;
+				});
+				
+				if (0 != decoderMask)
 				{
 					// known length? assume our length is fine
 					// unknown? assume Inf
 					if (m_networkBuffer->length() > 0)
 						m_duration = std::max(audioDuration, videoDuration);
 					else
-						m_duration = std::numeric_limits<float>::infinity();
+						m_duration = std::numeric_limits<double>::infinity();
+			
+					MediaPlayerMorphOSInfo minfo;
+					minfo.m_duration = m_duration;
+
+					if (m_audioDecoder)
+					{
+						RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
+						minfo.m_frequency = audio->rate();
+						minfo.m_bits = audio->bits();
+						minfo.m_channels = audio->channels();
+					}
+					else
+					{
+						minfo.m_frequency = 0;
+					}
+			
+					if (m_videoDecoder)
+					{
+						RefPtr<AcinerellaVideoDecoder> video = static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get());
+						minfo.m_width = video->frameWidth();
+						minfo.m_height = video->frameHeight();
+					}
+					else
+					{
+						minfo.m_width = minfo.m_height = 0;
+					}
+					minfo.m_isLive = m_isLive || !m_canSeek;
+                    minfo.m_isDownloadable = !minfo.m_isLive;
 					
-					WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+					WTF::callOnMainThread([this, minfo, protectedThis = makeRef(*this)]() {
 						if (m_client)
 						{
 							m_client->accSetDuration(m_duration);
-							MediaPlayerMorphOSInfo minfo;
-							minfo.m_duration = m_duration;
-
-							if (m_audioDecoder)
-							{
-								RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
-								minfo.m_frequency = audio->rate();
-								minfo.m_bits = audio->bits();
-								minfo.m_channels = audio->channels();
-							}
-							else
-							{
-								minfo.m_frequency = 0;
-							}
-							
-							if (m_videoDecoder)
-							{
-							}
-							else
-							{
-								minfo.m_width = minfo.m_height = 0;
-							}
-							minfo.m_isLive = m_isLive || !m_canSeek;
 							m_client->accInitialized(minfo);
 						}
 					});
@@ -433,24 +535,24 @@ void Acinerella::initializeAfterDiscontinuity()
 	}
 	else
 	{
-		D(dprintf("ac initialized, stream count %d\n", acinerella->instance()->stream_count));
+		D(dprintf("[RE]ac initialized, stream count %d\n", acinerella->instance()->stream_count));
 		int audioIndex = -1;
 		int videoIndex = -1;
 
-		for (int i = acinerella->instance()->stream_count - 1; i >= 0; --i)
+		for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, m_acinerella->instance()->stream_count); i++)
 		{
 			ac_stream_info info;
 			ac_get_stream_info(acinerella->instance(), i, &info);
 			switch (info.stream_type)
 			{
 			case AC_STREAM_TYPE_VIDEO:
-				D(dprintf("video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
+				D(dprintf("[RE]video stream: %dx%d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height));
 				if (-1 == videoIndex && m_enableVideo)
 					videoIndex = i;
 				break;
 
 			case AC_STREAM_TYPE_AUDIO:
-				D(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
+				D(dprintf("[RE]audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
 					info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
 				if (-1 == audioIndex && m_enableAudio)
 					audioIndex = i;
@@ -460,11 +562,24 @@ void Acinerella::initializeAfterDiscontinuity()
 				break;
 			}
 		}
+		
+		// PROBLEM: indexes of both tracks MUST be the same as for the previous chunk
+		// for most HLS streams this should be the same...
+		if (m_audioDecoder && m_audioDecoder->index() != audioIndex)
+			audioIndex = -1;
+		
+		if (m_videoDecoder && m_videoDecoder->index() != videoIndex)
+			videoIndex = -1;
+
+		DINIT(dprintf("[RE]ac init audio %d video %d\n", audioIndex, videoIndex));
 
 		if (-1 != audioIndex || -1 != videoIndex)
 		{
 			if (-1 != audioIndex)
-				acinerella->setAudioDecoder(ac_create_decoder(acinerella->instance(), audioIndex));
+				acinerella->setDecoder(audioIndex, ac_create_decoder(acinerella->instance(), audioIndex));
+			
+			if (-1 != videoIndex)
+				acinerella->setDecoder(videoIndex, ac_create_decoder(acinerella->instance(), videoIndex));
 			
 			{
 				auto lock = holdLock(m_acinerellaLock);
@@ -472,9 +587,9 @@ void Acinerella::initializeAfterDiscontinuity()
 			}
 
 			// Flush packet!
-			AcinerellaPackage package(acinerella, ac_flush_packet());
-			m_muxer->push(WTFMove(package));
-			D(dprintf("muxer sent an ac_flush_packet!\n"));
+			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_flush_packet());
+			m_muxer->push(package);
+			DINIT(dprintf("[RE]muxer sent an ac_flush_packet!\n"));
 
 			if (m_audioDecoder)
 				m_audioDecoder->warmUp();
@@ -484,7 +599,7 @@ void Acinerella::initializeAfterDiscontinuity()
 	}
 }
 
-void Acinerella::demuxNextPackage()
+void Acinerella::demuxMorePackages()
 {
 	RefPtr<AcinerellaPointer> acinerella;
 	RefPtr<AcinerellaMuxedBuffer> muxer;
@@ -495,38 +610,77 @@ void Acinerella::demuxNextPackage()
 		muxer = m_muxer;
 	}
 
-	D(dprintf("%s: %p %p %p\n", __func__ , this, muxer.get(), acinerella.get(), acinerella->instance()));
+	DNP(dprintf("%s: %p %p %p\n", __func__ , this, muxer.get(), acinerella.get(), acinerella->instance()));
 
 	if (muxer && acinerella && acinerella->instance())
 	{
-		AcinerellaPackage package(acinerella, ac_read_package(acinerella->instance()));
-		// don't send EOF singnalling packages to muxer if this is a live stream!
-		if (!m_isLive || !!package)
+		for (int i = 0; i < 128; i++)
 		{
-			muxer->push(WTFMove(package));
+			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
+
+			// don't send EOF singnalling packages to muxer if this is a live stream!
+			if (!m_isLive || package->package())
+			{
+				muxer->push(package);
+			}
+			else if (!package->package())
+			{
+				break;
+			}
 		}
 	}
 }
 
-void Acinerella::onDecoderReadyToPlay(AcinerellaDecoder& decoder)
+void Acinerella::onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder)
 {
+	D(dprintf("%s:\n", __func__));
 	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 		if (m_client)
 		{
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
-			D(dprintf("%s: %p READY TO PLAY!\n", __func__ , this));
 		}
 	});
 }
 
-void Acinerella::onDecoderPlaying(AcinerellaDecoder& decoder, bool playing)
+void Acinerella::onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder)
 {
-	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+	D(dprintf("%s:\n", __func__));
+
+	dispatch([this, protectedThis = makeRef(*this)]() {
+		D(dprintf("onDecoderReadyToPlay: ready %d\n", areDecodersReadyToPlay()));
+
+		if (areDecodersReadyToPlay()) {
+
+			if (m_waitReady) {
+				m_waitReady = false;
+			
+				if (m_audioDecoder)
+					m_audioDecoder->play();
+				if (m_videoDecoder)
+					m_videoDecoder->play();
+			}
+		}
 	});
+	
+	if (m_videoDecoder == decoder)
+	{
+		int width = static_cast<AcinerellaVideoDecoder *>(decoder.get())->frameWidth();
+		int height = static_cast<AcinerellaVideoDecoder *>(decoder.get())->frameHeight();
+		WTF::callOnMainThread([width, height, this, protect = makeRef(*this)]() {
+			if (m_client)
+				m_client->accSetVideoSize(width, height);
+		});
+	}
 }
 
-void Acinerella::onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer)
+void Acinerella::onDecoderPlaying(RefPtr<AcinerellaDecoder>, bool /*playing*/)
+{
+//	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+//	});
+}
+
+void Acinerella::onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder>, double buffer)
 {
 	WTF::callOnMainThread([this, buffer, protectedThis = makeRef(*this)]() {
 		if (m_client)
@@ -534,21 +688,39 @@ void Acinerella::onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float 
 	});
 }
 
-void Acinerella::onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float pos)
+void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double pos)
 {
 	D(dprintf("%s: %p\n", __func__ , this));
-	if (m_isSeeking && pos >= (m_seekingPosition - 5.f) && pos <= (m_seekingPosition + 5.f))
+	if (decoder->isAudio() || !m_audioDecoder)
 	{
-		D(dprintf("--endseeking\n"));
-		m_isSeeking = false;
+		if (m_isSeeking && pos >= (m_seekingPosition - 5.f) && pos <= (m_seekingPosition + 5.f))
+		{
+			D(dprintf("--endseeking\n"));
+			m_isSeeking = false;
+	
+			if (m_videoDecoder)
+			{
+				m_videoDecoder->play();
+			}
+		}
 	}
-	WTF::callOnMainThread([this, pos, protectedThis = makeRef(*this)]() {
-		if (m_client)
-			m_client->accSetPosition(pos);
-	});
+
+	if (m_isSeeking)
+		return;
+
+	if (decoder->isAudio() && !!m_videoDecoder)
+		static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get())->setAudioPresentationTime(pos);
+	
+	if (decoder->isAudio() || !m_audioDecoder)
+	{
+		WTF::callOnMainThread([this, pos, protectedThis = makeRef(*this)]() {
+			if (m_client)
+				m_client->accSetPosition(pos);
+		});
+	}
 }
 
-void Acinerella::onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration)
+void Acinerella::onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder>, double duration)
 {
 	WTF::callOnMainThread([this, duration, protectedThis = makeRef(*this)]() {
 		m_duration = duration;
@@ -557,7 +729,7 @@ void Acinerella::onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float dura
 	});
 }
 
-void Acinerella::onDecoderEnded(AcinerellaDecoder& decoder)
+void Acinerella::onDecoderEnded(RefPtr<AcinerellaDecoder>)
 {
 	D(dprintf("%s: %p\n", __func__ , this));
 	m_ended = true;
@@ -566,6 +738,30 @@ void Acinerella::onDecoderEnded(AcinerellaDecoder& decoder)
 	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
 		if (m_client)
 			m_client->accEnded();
+	});
+}
+
+void Acinerella::onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
+{
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		if (m_client)
+			m_client->accNextFrameReady();
+	});
+}
+
+void Acinerella::onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
+{
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		if (m_client)
+			m_client->accNoFramesReady();
+	});
+}
+
+void Acinerella::onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder)
+{
+	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+		if (m_client)
+			m_client->accFrameUpdateNeeded();
 	});
 }
 

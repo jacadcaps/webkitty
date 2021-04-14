@@ -461,18 +461,43 @@ RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& 
 
 bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool requestingKeyboardAccess)
 {
-	return false;
+	if (requestingKeyboardAccess)
+		return false;
+	return true;
 }
 
 void WebChromeClient::enterFullScreenForElement(Element& element)
 {
+	m_webPage.setFullscreenElement(&element);
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element)
 {
+	m_webPage.setFullscreenElement(nullptr);
 }
 
 #endif
+
+#if ENABLE(VIDEO)
+
+void WebChromeClient::enterVideoFullscreenForVideoElement(HTMLVideoElement& videoElement, HTMLMediaElementEnums::VideoFullscreenMode, bool)
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+//    m_webView->enterVideoFullscreenForVideoElement(videoElement);
+}
+
+void WebChromeClient::exitVideoFullscreenForVideoElement(HTMLVideoElement& videoElement)
+{
+ //   m_webView->exitVideoFullscreenForVideoElement(videoElement);
+}
+
+#endif
+
+bool WebChromeClient::supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode)
+{
+dprintf("SUPPORTS FS!\n");
+	return true;
+}
 
 bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameView) const
 {

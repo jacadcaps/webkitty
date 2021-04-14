@@ -7,15 +7,18 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x)
+#define D(x) 
+
+static const String rnReplace("\r\n");
+static const String rnReplacement("\n");
 
 class HLSMasterPlaylistParser
 {
 public:
 	HLSMasterPlaylistParser(const String &baseURL, const String &sdata)
 	{
-		Vector<String> lines = sdata.split('\n');
-		
+		Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
+
 		// Must contain at the very least:
 		// #EXTM3U
 		// #EXT-X-VERSION:*
@@ -23,11 +26,12 @@ public:
 		// url
 		//
 		// So 4 lines at minimum, otherwise it won't be a valid playlist
-		if (lines.size() >= 4 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
+		if (lines.size() >= 4 && equalIgnoringASCIICase(lines[0], "#extm3u"))
 		{
 			// Format kida-verified. Look for Streams
 			HLSStreamInfo info;
 			bool hopingForM3U8 = false;
+			bool foundChunks = false;
 
 			for (size_t i = 2; i < lines.size(); i++)
 			{
@@ -66,11 +70,23 @@ public:
 						hopingForM3U8 = false;
 					}
 				}
+				else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
+				{
+					foundChunks = true;
+				}
 			}
 			
 			if (info.m_url.length())
 			{
 				m_streams.append(info);
+			}
+			
+			// this isn't master but a direct HLS link!
+			if (m_streams.size() == 0 && foundChunks)
+			{
+				info.m_url = baseURL;
+				m_streams.append(info);
+				D(dprintf("%s: this is no master HLS %s\n", __PRETTY_FUNCTION__, baseURL.utf8().data()));
 			}
 		}
 	}
@@ -83,12 +99,12 @@ protected:
 
 HLSStream::HLSStream(const String &baseURL, const String &sdata)
 {
-	Vector<String> lines = sdata.split('\n');
+	Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
 
 	if (lines.size() >= 2 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
 	{
 		bool hopingForURL = false;
-		float duration = 0.f;
+		double duration = 0.f;
 		m_mediaSequence = -1;
 
 		for (size_t i = 1; i < lines.size(); i++)
@@ -103,7 +119,7 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
 			{
-				duration = line.substring(8).toFloat();
+				duration = line.substring(8).toDouble();
 				hopingForURL = true;
 			}
 			else if (hopingForURL && !startsWithLettersIgnoringASCIICase(line,"#"))
@@ -149,8 +165,8 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 	return *this;
 }
 
-AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(const String &url, size_t readAhead)
-	: AcinerellaNetworkBuffer(url, readAhead)
+AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
+	: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
 	, m_playlistRefreshTimer(RunLoop::current(), this, &AcinerellaNetworkBufferHLS::refreshTimerFired)
 {
 	D(dprintf("%s(%p) - url %s\n", __func__, this, url.utf8().data()));
@@ -168,6 +184,7 @@ AcinerellaNetworkBufferHLS::~AcinerellaNetworkBufferHLS()
 void AcinerellaNetworkBufferHLS::start(uint64_t from)
 {
 	D(dprintf("%s(%p) - from %llu\n", __func__, this, from));
+	(void)from;
 
 	if (!m_hasMasterList)
 	{
@@ -262,7 +279,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
 				D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-				auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
+				auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
 				m_stream.pop();
 				
 				{
@@ -278,11 +295,11 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 		}
 	}
 
-	float duration = m_stream.targetDuration();
-	if (duration <= 1.f && !m_stream.empty())
+	double duration = m_stream.targetDuration();
+	if (duration <= 1.0 && !m_stream.empty())
 		duration = std::min(m_stream.current().m_duration, duration);
-	if (duration <= 1.f)
-		duration = 3.f;
+	if (duration <= 1.0)
+		duration = 3.0;
 	duration *= 0.5;
 	D(dprintf("%s(%p): refresh in %f \n", __func__, this, duration));
 	m_playlistRefreshTimer.startOneShot(Seconds(duration));
@@ -318,7 +335,7 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 	if (!m_stream.empty())
 	{
 		D(dprintf("%s(%p): load '%s' queue %d\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size()));
-		auto chunkRequest = AcinerellaNetworkBuffer::create(m_stream.current().m_url);
+		auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
 		m_stream.pop();
 		
 		{

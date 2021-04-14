@@ -82,6 +82,30 @@ namespace WTF {
 	}
 }
 
+#if 0
+#include <wtf/threads/BinarySemaphore.h>
+#include <proto/dos.h>
+class blocktest
+{
+	BinarySemaphore bLock;
+	BinarySemaphore bLock2;
+public:
+	blocktest() {
+		Thread::create("blockthread", [this] {
+			dprintf("calling waitFor\n");
+//			bLock2.signal();
+			bLock.waitFor(100_s);
+			dprintf("block unlocked!\n");
+		});
+//		bLock2.waitFor(2_s);
+		Delay(200);
+		dprintf("signalling..\n");
+		bLock.signal();
+	}
+};
+static blocktest bt;
+#endif
+
 namespace WebKit {
 
 QUAD calculateMaxCacheSize(const char *path)
@@ -187,8 +211,6 @@ void WebProcess::initialize(int sigbit)
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
 
 #if ENABLE(VIDEO)
-	MediaPlayerMorphOSSettings::settings().m_enableAudio = true;
-	MediaPlayerMorphOSSettings::settings().m_enableVideo = true;
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 	
@@ -211,11 +233,11 @@ void WebProcess::initialize(int sigbit)
 				}
 			}
 		}
-		
 		return true;
 	};
 
-	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, Function<void(bool doLoad)> &&load) {
+	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
+		Function<void(bool doLoad)> &&load, Function<void()> &&yieldFunc) {
 		for (auto& webpage : m_pageMap.values())
 		{
 			bool found = false;
@@ -230,7 +252,7 @@ void WebProcess::initialize(int sigbit)
 			{
 				if (webpage->_fMediaAdded)
 				{
-					webpage->_fMediaAdded(player, url, info, WTFMove(load));
+					webpage->_fMediaAdded(player, url, info, WTFMove(load), WTFMove(yieldFunc));
 					return;
 				}
 
@@ -247,6 +269,65 @@ void WebProcess::initialize(int sigbit)
 		{
 			if (webpage->_fMediaRemoved)
 				webpage->_fMediaRemoved(player);
+		}
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_willPlay = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaWillPlay)
+				webpage->_fMediaWillPlay(player);
+		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayRequest = [this](WebCore::MediaPlayer *player,
+		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&& overlaycallback) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaSetOverlayCallback)
+				{
+					// Wrap pElement into a ref - that way, the callback set on webpage holds a ref to the element
+					// This is cause we cannot use RefPtr<Element> in ObjC code
+					webpage->_fMediaSetOverlayCallback(player, pElement, [ref = makeRef(*pElement), cb = WTFMove(overlaycallback)](void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height) {
+							cb(windowPtr, scrollX, scrollY, left, top, right, bottom, width, height);
+						});
+				}
+				return;
+			}
+		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayUpdate = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaUpdateOverlayCallback)
+					webpage->_fMediaUpdateOverlayCallback(player);
+				return;
+			}
 		}
 	};
 #endif

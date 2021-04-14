@@ -20,76 +20,69 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x)
+#define D(x) 
+#define DF(x) 
 
 namespace WebCore {
 namespace Acinerella {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-AcinerellaMuxedBuffer::AcinerellaMuxedBuffer(Function<void()>&& sinkFunction, int audioIndex, int videoIndex, unsigned int audioQueueSize, unsigned int videoQueueSize)
-	: m_sinkFunction(WTFMove(sinkFunction))
-	, m_audioPackageIndex(audioIndex)
-	, m_audioQueueAheadSize(audioQueueSize)
-	, m_videoPackageIndex(videoIndex)
-	, m_videoQueueAheadSize(videoQueueSize)
+void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex)>&& sinkFunction)
 {
+	auto lock = holdLock(m_lock);
+	m_sinkFunction = WTFMove(sinkFunction);
 }
 
-void AcinerellaMuxedBuffer::push(AcinerellaPackage&&package)
+void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask, uint32_t audioMask)
 {
+	auto lock = holdLock(m_lock);
+	m_decoderMask = mask;
+	m_audioDecoderMask = audioMask;
+}
+
+void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
+{
+	EP_SCOPE(push);
+	D(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package ? package->index() : -1, package ? package->isFlushPackage() : 0, m_decoderMask));
+
 	// is this a valid package?
-	if (!!package)
+	if (package && package->isValid())
 	{
-		const auto index = package.index();
+		const auto index = package->index();
 		
-		D(dprintf("%s: type %s\n", __PRETTY_FUNCTION__, index == m_audioPackageIndex ? "audio" : (index == m_videoPackageIndex ? "video" : "drop")));
-		
-		if (index == m_audioPackageIndex || (!m_dropVideoPackages && (index == m_videoPackageIndex)) || package.isFlushPackage())
 		{
-			bool wantMore = false;
+			auto lock = holdLock(m_lock);
 
+			// Flush goes into all valid queues!
+			if (package->isFlushPackage())
 			{
-				auto lock = holdLock(m_lock);
-
-				if (package.isFlushPackage())
-				{
-					m_audioPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
-					if (!m_dropVideoPackages)
-						m_videoPackages.emplace(AcinerellaPackage(package.acinerella(), package.package()));
-				}
-				else if (index == m_audioPackageIndex)
-				{
-					m_audioPackages.emplace(WTFMove(package));
-				}
-				else
-				{
-					m_videoPackages.emplace(WTFMove(package));
-				}
-				
-				wantMore = ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)));
+				forValidDecoders([&](AcinerellaPackageQueue& queue, BinarySemaphore&) {
+					queue.emplace(package);
+				});
 			}
-			
-			if (index == m_audioPackageIndex)
-				m_audioEvent.signal();
+			else if (isDecoderValid(index))
+			{
+				m_packages[index].emplace(package);
+				D(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
+			}
 			else
-				m_videoEvent.signal();
-			
-			// no need to lock since it can only be cleared from within the same thread as this function is called on
-			if (wantMore && m_sinkFunction)
-				m_sinkFunction();
+			{
+				D(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
+			}
 		}
-		else if ((m_audioPackages.size() < m_audioQueueAheadSize) || (!m_dropVideoPackages && (m_videoPackages.size() < m_videoQueueAheadSize)))
-		{
-			if (m_sinkFunction)
-				m_sinkFunction();
-		}
+		
+		if (isDecoderValid(index))
+			m_events[index].signal();
 	}
 	else
 	{
 		m_queueCompleteOrError = true;
-		m_audioEvent.signal();
-		m_videoEvent.signal();
+		D(dprintf("%s: EOS!!\n", __PRETTY_FUNCTION__));
+	
+		forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore& event) {
+			event.signal();
+		});
 	}
 }
 
@@ -98,16 +91,28 @@ void AcinerellaMuxedBuffer::flush()
 	{
 		auto lock = holdLock(m_lock);
 		m_queueCompleteOrError = false;
-		while (!m_audioPackages.empty())
-			m_audioPackages.pop();
-		while (!m_videoPackages.empty())
-			m_videoPackages.pop();
+		forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore&) {
+			DF(dprintf("[Mux]Flushing queue %p size %d\n", &queue, queue.size()));
+			while (!queue.empty())
+				queue.pop();
+		});
+	}
+}
+
+void AcinerellaMuxedBuffer::flush(int decoderIndex)
+{
+	{
+		auto lock = holdLock(m_lock);
+		m_queueCompleteOrError = false;
+		while (!m_packages[decoderIndex].empty())
+			m_packages[decoderIndex].pop();
 	}
 }
 
 void AcinerellaMuxedBuffer::terminate()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	EP_SCOPE(terminate);
 
 	{
 		auto lock = holdLock(m_lock);
@@ -115,87 +120,57 @@ void AcinerellaMuxedBuffer::terminate()
 		m_queueCompleteOrError = true;
 	}
 
-	m_audioEvent.signal();
-	m_videoEvent.signal();
+	forValidDecoders([](AcinerellaPackageQueue&, BinarySemaphore& event) {
+		event.signal();
+	});
 }
 
-bool AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder, AcinerellaPackage &outPackage)
+RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder)
 {
-	D(dprintf("%s: isAudio %d\n", __PRETTY_FUNCTION__, decoder.isAudio()));
+	D(dprintf("%s: isAudio %d index %lu\n", __func__, decoder.isAudio(), decoder.index()));
+	EP_SCOPE(nextPackage);
 
-	if (decoder.isAudio())
+	const auto index = decoder.index();
+
+	for (;;)
 	{
-		for (;;)
+		bool requestMore = false;
+		RefPtr<AcinerellaPackage> hasPackage = nullptr;
+
 		{
-			bool requestMore = false;
-			bool hasPackage = false;
-
+			auto lock = holdLock(m_lock);
+			D(dprintf("%s: packages %d complete %d\n", __func__, m_packages[index].size(), m_queueCompleteOrError));
+			if (!m_packages[index].empty())
 			{
-				auto lock = holdLock(m_lock);
-				D(dprintf("%s: audiopackages %d complete %d\n", __func__, m_audioPackages.size(), m_queueCompleteOrError));
-				if (!m_audioPackages.empty())
-				{
-					outPackage = WTFMove(m_audioPackages.front());
-					m_audioPackages.pop();
-					hasPackage = true;
-					requestMore = m_audioPackages.size() < m_audioQueueAheadSize;
-				}
-				else if (m_queueCompleteOrError)
-				{
-					return false;
-				}
-				else
-				{
-					requestMore = true;
-				}
-
-				if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
-					m_sinkFunction();
+				hasPackage = m_packages[index].front();
+				m_packages[index].pop();
+				requestMore = m_packages[index].size() < queueReadAheadSize;
 			}
-			
-			if (hasPackage)
-				return true;
-			
-			m_audioEvent.waitFor(2_s);
-		}
-	}
-	else
-	{
-		for (;;)
-		{
-			bool requestMore = false;
-			bool hasPackage = false;
-
+			else if (m_queueCompleteOrError)
 			{
-				auto lock = holdLock(m_lock);
-				if (!m_videoPackages.empty())
-				{
-					outPackage = WTFMove(m_videoPackages.front());
-					m_videoPackages.pop();
-					hasPackage = true;
-					requestMore = m_videoPackages.size() < m_videoQueueAheadSize;
-				}
-				else if (m_queueCompleteOrError)
-				{
-					return false;
-				}
-				else
-				{
-					requestMore = true;
-				}
-			
-				if (requestMore && m_sinkFunction)
-					m_sinkFunction();
+				return nullptr;
 			}
-			
-			if (hasPackage)
-				return true;
-			
-			m_videoEvent.waitFor(2_s);
+			else
+			{
+				requestMore = true;
+			}
+
+			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
+			{
+				D(dprintf("%s: calling sink..\n", __func__));
+				if (!m_sinkFunction(decoder.index()))
+					return hasPackage;
+			}
 		}
+		
+		if (hasPackage)
+			return hasPackage;
+		
+		EP_EVENT(wait);
+		m_events[index].waitFor(10_s);
 	}
 
-	return false;
+	return nullptr;
 }
 
 }

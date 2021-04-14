@@ -645,7 +645,6 @@ public:
 						m_cairo = nullptr;
 					}
 					
-
 					m_damage.resize(m_width, m_height);
 					return true;
 				}
@@ -1146,6 +1145,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setResizeObserverEnabled(true);
 	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
 	settings.setShouldRespectImageOrientation(true);
+	settings.setTextAreasAreResizable(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1179,7 +1179,11 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
-	
+
+#if ENABLE(FULLSCREEN_API)
+	settings.setFullScreenEnabled(true);
+#endif
+
 // crashy
 //    settings.setDiagnosticLoggingEnabled(true);
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
@@ -1546,7 +1550,39 @@ void WebPage::endLiveResize()
 void WebPage::setFocusedElement(WebCore::Element *element)
 {
 	// this is called by the Chrome
-	m_focusedElement = element;
+	if (element)
+		m_focusedElement = makeRef(*element);
+	else
+		m_focusedElement = nullptr;
+}
+
+void WebPage::setFullscreenElement(WebCore::Element *element)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+
+	if (element)
+	{
+		m_fullscreenElement = makeRef(*element);
+        m_fullscreenElement->document().fullscreenManager().willEnterFullscreen(*m_fullscreenElement);
+        m_fullscreenElement->document().fullscreenManager().didEnterFullscreen();
+	}
+	else
+	{
+		if (m_fullscreenElement)
+		{
+			m_fullscreenElement->document().fullscreenManager().willExitFullscreen();
+			m_fullscreenElement->document().fullscreenManager().didExitFullscreen();
+		}
+		
+		m_fullscreenElement = nullptr;
+	}
+}
+
+WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
+{
+	if (e && e->isConnected())
+		return e->boundsInRootViewSpace();
+	return { };
 }
 
 void WebPage::startedEditingElement(WebCore::HTMLInputElement *input)
@@ -2047,6 +2083,9 @@ void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qual
 		else
 			factor += 0.05;
 		setPageAndTextZoomFactors(factor, textZoomFactor());
+		
+		if (_fZoomChangedByWheel)
+			_fZoomChangedByWheel();
 	}
 	else
 	{
@@ -3374,7 +3413,8 @@ void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
 	WebCore::Frame *frame = fromHitTest(hitTest);
 	if (frame)
 	{
-		frame->editor().learnSpelling();
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->learnWord(miss);
 	}
 }
 
@@ -3383,7 +3423,8 @@ void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
 	WebCore::Frame *frame = fromHitTest(hitTest);
 	if (frame)
 	{
-		frame->editor().ignoreSpelling();
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->ignoreWordInSpellDocument(miss);
 	}
 }
 

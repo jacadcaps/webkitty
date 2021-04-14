@@ -19,16 +19,18 @@
 template<typename T>
 using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
 
+struct Window;
+
 namespace WebCore {
 namespace Acinerella {
 
-class Acinerella : public ThreadSafeRefCounted<Acinerella>
+class Acinerella : public ThreadSafeRefCounted<Acinerella>, public AcinerellaNetworkBufferResourceLoaderProvider, public AcinerellaDecoderClient
 {
 friend class AcinerellaDecoder;
 friend class AcinerellaMuxedBuffer;
 public:
 	Acinerella(AcinerellaClient *client, const String &url);
-	~Acinerella() = default;
+	virtual ~Acinerella() = default;
 
 	static RefPtr<Acinerella> create(AcinerellaClient *client, const String &url) {
 		return WTF::adoptRef(*new Acinerella(client, url));
@@ -36,31 +38,38 @@ public:
 
 	void terminate();
 	void warmUp();
+	void coolDown();
 
 	void play();
 
 	void pause();
 	bool paused();
 
-	float duration();
+	double duration();
 	
 	bool hasAudio() { return m_audioDecoder.get(); }
 	bool hasVideo() { return m_videoDecoder.get(); }
 	
-	void setVolume(float volume);
+	void setVolume(double volume);
 	void setMuted(bool muted);
-	float volume() const { return m_volume; }
+	double volume() const { return m_volume; }
 
 	bool canSeek();
 	bool isSeeking();
-	void seek(float time);
+	void seek(double time);
 	
 	bool isLive();
 	bool ended();
 	
 	const String &url() const { return m_url; }
 
-	RefPtr<AcinerellaPointer> &acinerellaPointer() { return m_acinerella; }
+    void ref() override;
+    void deref() override;
+	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;
+	String referrer() override;
+
+	void paint(GraphicsContext&, const FloatRect&);
+	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 protected:
 	ac_instance *ac() { return m_acinerella ? m_acinerella->instance() : nullptr; }
@@ -72,21 +81,26 @@ protected:
 	bool initialize();
 	void initializeAfterDiscontinuity();
 	
-	void startSeeking(float pos);
+	void startSeeking(double pos);
+	bool areDecodersReadyToPlay();
 
 	int open();
 	int close();
 	int read(uint8_t *buf, int size);
 	int64_t seek(int64_t pos, int whence);
 	
-	void demuxNextPackage();
+	void demuxMorePackages();
 	
-	void onDecoderReadyToPlay(AcinerellaDecoder& decoder);
-	void onDecoderPlaying(AcinerellaDecoder& decoder, bool playing);
-	void onDecoderUpdatedBufferLength(AcinerellaDecoder& decoder, float buffer);
-	void onDecoderUpdatedPosition(AcinerellaDecoder& decoder, float position);
-	void onDecoderUpdatedDuration(AcinerellaDecoder& decoder, float duration);
-	void onDecoderEnded(AcinerellaDecoder& decoder);
+	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) override;
+	void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) override;
+	void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) override;
+	void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) override;
+	void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) override;
 
 protected:
 	static int acOpenCallback(void *me);
@@ -105,15 +119,16 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
-	float                            m_duration;
-	float                            m_volume = 1.f;
-	float                            m_seekingPosition;
+	double                           m_duration;
+	double                           m_volume = 1.f;
+	double                           m_seekingPosition;
 	bool                             m_muted = false;
 	bool                             m_canSeek = true;
 	bool                             m_isSeeking = false;
 	bool                             m_isLive = false;
 	bool                             m_ended = false;
 	bool                             m_seekingForward;
+	bool                             m_waitReady = false;
 	
 	int64_t                          m_readPosition = -1;
 

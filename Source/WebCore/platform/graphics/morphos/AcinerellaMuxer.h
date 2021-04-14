@@ -21,27 +21,24 @@ namespace Acinerella {
 class AcinerellaMuxedBuffer;
 class AcinerellaDecoder;
 
-class AcinerellaPackage
+class AcinerellaPackage : public ThreadSafeRefCounted<AcinerellaPackage>
 {
-public:
-	explicit AcinerellaPackage(RefPtr<AcinerellaPointer>&pointer, ac_package *package) : m_acinerella(pointer), m_package(package) { }
-	explicit AcinerellaPackage() : m_package(nullptr) { }
-	explicit AcinerellaPackage(const AcinerellaPackage &) = delete;
-	explicit AcinerellaPackage(AcinerellaPackage &) = delete;
-	explicit AcinerellaPackage(AcinerellaPackage && otter) : m_acinerella(otter.m_acinerella), m_package(otter.m_package) { otter.m_acinerella = nullptr; otter.m_package = nullptr; }
-	~AcinerellaPackage() { if (m_package) ac_free_package(m_package); }
-
-	AcinerellaPackage& operator=(AcinerellaPackage&& otter) {
-		std::swap(otter.m_acinerella, m_acinerella);
-		std::swap(otter.m_package, m_package);
-		return *this;
-	}
+	AcinerellaPackage(RefPtr<AcinerellaPointer>&pointer, ac_package *package) : m_acinerella(pointer), m_package(package) { }
+	AcinerellaPackage& operator=(AcinerellaPackage&& otter) = delete;
 	AcinerellaPackage& operator=(AcinerellaPackage const & otter) = delete;
+
+public:
+    static Ref<AcinerellaPackage> create(RefPtr<AcinerellaPointer>&pointer, ac_package *package)
+    {
+        return adoptRef(*new AcinerellaPackage(pointer, package));
+    }
+
+	~AcinerellaPackage() { if (m_package) ac_free_package(m_package); }
 
 	ac_package *package() { return m_package; }
 	int index() const { return m_package ? m_package->stream_index : -1; }
-	bool isFlushPackage() { return m_package == ac_flush_packet(); }
-	explicit operator bool() const { return nullptr != m_package; }
+	bool isFlushPackage() const { return m_package == ac_flush_packet(); }
+	bool isValid() const { return nullptr != m_package; }
 
 	RefPtr<AcinerellaPointer>& acinerella() { return m_acinerella; }
 
@@ -53,38 +50,89 @@ protected:
 class AcinerellaMuxedBuffer : public ThreadSafeRefCounted<AcinerellaMuxedBuffer>
 {
 public:
-	AcinerellaMuxedBuffer(Function<void()>&& sinkFunction, int audioIndex = -1, int videoIndex = -1, unsigned int audioQueueSize = 128, unsigned int videoQueueSize = 128);
-	~AcinerellaMuxedBuffer() { };
+	AcinerellaMuxedBuffer() = default;
+	~AcinerellaMuxedBuffer() = default;
 
-	static RefPtr<AcinerellaMuxedBuffer> create(Function<void()>&& sinkFunction, int audioIndex = -1, int videoIndex = -1, unsigned int audioQueueSize = 128, unsigned int videoQueueSize = 128) {
-		return WTF::adoptRef(*new AcinerellaMuxedBuffer(WTFMove(sinkFunction), audioIndex, videoIndex, audioQueueSize, videoQueueSize));
+	static RefPtr<AcinerellaMuxedBuffer> create() {
+		return WTF::adoptRef(*new AcinerellaMuxedBuffer());
 	}
 
+	static constexpr int maxDecoders = 32;
+	static constexpr int queueReadAheadSize = 128;
+
+	void setSinkFunction(Function<bool(int decoderIndex)>&& sinkFunction);
+	void setDecoderMask(uint32_t mask, uint32_t audioMask = 0);
+
 	// To be called on Acinerella thread
-	void push(AcinerellaPackage&&package);
+	void push(RefPtr<AcinerellaPackage> &package);
 	void flush();
+	void flush(int decoderIndex);
 	void terminate();
-	void setDropVideoPackages(bool drop) { m_dropVideoPackages = drop; }
 
 	// This is meant to be called from the decoder threads. Will block until a valid package can be returned
-	// Returns false on error or EOS
-	bool nextPackage(AcinerellaDecoder &decoder, AcinerellaPackage &outPackage);
-	
+	// or sinkfunction returns false (MediaStream)
+	RefPtr<AcinerellaPackage> nextPackage(AcinerellaDecoder &decoder);
+	bool isEOS() const { return m_queueCompleteOrError; }
+
 protected:
-	Function<void()>                 m_sinkFunction;
-	std::queue<AcinerellaPackage>    m_audioPackages;
-	std::queue<AcinerellaPackage>    m_videoPackages;
-	BinarySemaphore                  m_audioEvent;
-	BinarySemaphore                  m_videoEvent;
-	Lock                             m_lock;
+	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
 
-	int m_audioPackageIndex;
-	unsigned int m_audioQueueAheadSize;
-	int m_videoPackageIndex;
-	unsigned int m_videoQueueAheadSize;
+	inline bool isDecoderValid(int index) {
+		return 0 != (m_decoderMask & (1UL << index));
+	}
 
-	bool m_queueCompleteOrError = false;
-	bool m_dropVideoPackages = false;
+	inline void forValidDecoders(Function<void(AcinerellaPackageQueue& queue, BinarySemaphore& event)> &&function) {
+		uint32_t mask = m_decoderMask;
+		for (int i = 0; mask && (i < maxDecoders); i++) {
+			if (isDecoderValid(i)) {
+				function(m_packages[i], m_events[i]);
+				mask &= ~(1L << i);
+			}
+		}
+	}
+
+	inline void whileValidDecoders(Function<bool(AcinerellaPackageQueue& queue, BinarySemaphore& event)> &&function) {
+		uint32_t mask = m_decoderMask;
+		for (int i = 0; mask && (i < maxDecoders); i++) {
+			if (isDecoderValid(i)) {
+				if (!function(m_packages[i], m_events[i]))
+					return;
+				mask &= ~(1L << i);
+			}
+		}
+	}
+
+	inline void forInvalidDecoders(Function<void(AcinerellaPackageQueue& queue, BinarySemaphore& event)> &&function) {
+		for (int i = 0; i < maxDecoders; i++) {
+			if (!isDecoderValid(i)) {
+				function(m_packages[i], m_events[i]);
+			}
+		}
+	}
+
+	bool needsToCallSinkFunction() {
+		bool hasNonFullQueues = false;
+		if (m_queueCompleteOrError)
+			return false;
+		whileValidDecoders([&](AcinerellaPackageQueue& queue, BinarySemaphore&) -> bool {
+			if (queue.size() < queueReadAheadSize) {
+				hasNonFullQueues = true;
+				return false;
+			}
+			return true; // continue scanning
+		});
+		return hasNonFullQueues;
+	}
+
+protected:
+	Function<bool(int)>     m_sinkFunction;
+	AcinerellaPackageQueue  m_packages[maxDecoders];
+	BinarySemaphore         m_events[maxDecoders];
+	Lock                    m_lock;
+
+	uint32_t                m_decoderMask = 0;
+	uint32_t                m_audioDecoderMask = 0;
+	bool                    m_queueCompleteOrError = false;
 };
 
 }

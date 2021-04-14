@@ -142,7 +142,21 @@ OBMutableArray *_scripts;
 	{
 		auto group = WebKit::WebPageGroup::getOrCreate("meh", "PROGDIR:Cache/Storage");
 		WTF::Vector<WTF::String> white, black;
-		
+
+        OBEnumerator *e = [[script whiteList] objectEnumerator];
+        OBString *url;
+
+        while ((url = [e nextObject]))
+        {
+            white.append(WTF::String::fromUTF8([url cString]));
+        }
+        
+        e = [[script blackList] objectEnumerator];
+        while ((url = [e nextObject]))
+        {
+            black.append(WTF::String::fromUTF8([url cString]));
+        }
+  
 		group->userContentController().addUserScript(*group->wrapperWorldForUserScripts(),
 			makeUnique<WebCore::UserScript>(WTF::String::fromUTF8([scriptContents cString]),
 				WTF::URL(WTF::URL(), WTF::String([[OBString stringWithFormat:@"file:///script_%08lx", script] cString])),
@@ -171,7 +185,7 @@ OBMutableArray *_scripts;
 
 + (OBArray *)userScripts
 {
-	return [_scripts copy];
+	return [[_scripts copy] autorelease];
 }
 
 + (void)shutdown

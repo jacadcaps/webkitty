@@ -30,6 +30,12 @@
 extern "C" {
 #endif
 
+#define AC_BUFSIZE (1024 * 4)
+
+#define INT64_MAX 9223372036854775807LL
+#define INT64_MIN (-INT64_MAX-1)
+#define UINT64_MAX 18446744073709551615ULL
+
 /**
  * Defines the type of an Acinerella media stream. Currently only video and
  * audio streams are supported, subtitle and data streams will be marked as
@@ -77,7 +83,8 @@ typedef enum _ac_output_format {
 	AC_OUTPUT_RGBA32 = 2,
 	AC_OUTPUT_BGRA32 = 3,
 	AC_OUTPUT_YUV422 = 4,
-	AC_OUTPUT_YUV420P = 5
+	AC_OUTPUT_YUV420P = 5,
+	AC_OUTPUT_ARGB32 = 6,
 } ac_output_format;
 
 /*Contains information about the whole file/stream that has been opened. Default
@@ -430,6 +437,8 @@ EXTERN void CALL_CONVT ac_free_package(lp_ac_package pPackage);
 EXTERN lp_ac_decoder CALL_CONVT
     ac_create_decoder(lp_ac_instance pacInstance, int nb);
 
+EXTERN const char *ac_codec_name(lp_ac_instance pacInstance, int nb);
+
 /**
  * Callback function used to configure the codec context (AVCodecContext *).
  * The return value 0 indicates failure, 1 indicates success.
@@ -468,6 +477,25 @@ EXTERN int CALL_CONVT
 EXTERN int CALL_CONVT
     ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
 
+typedef enum _ac_receive_frame_rc
+{
+	RECEIVE_FRAME_SUCCESS = 0,
+	RECEIVE_FRAME_NEED_PACKET,
+	RECEIVE_FRAME_EOF,
+	RECEIVE_FRAME_ERROR,
+} ac_receive_frame_rc;
+
+ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
+
+typedef enum _ac_push_package_rc
+{
+	PUSH_PACKAGE_SUCCESS,
+	PUSH_PACKAGE_NEED_RECEIVE,
+	PUSH_PACKAGE_ERROR
+} ac_push_package_rc;
+
+ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackage);
+
 /**
  * Seeks to the given target position in the file. The seek funtion is not able
  * to seek a single audio/video stream but seeks the whole file forward. The
@@ -502,17 +530,25 @@ EXTERN lp_ac_proberesult CALL_CONVT
  */
 EXTERN double ac_get_stream_duration(lp_ac_instance pacInstance, int nb);
 EXTERN int CALL_CONVT ac_get_package_size(lp_ac_package pPackage);
+EXTERN char CALL_CONVT ac_get_package_keyframe(lp_ac_package pPackage);
 EXTERN void CALL_CONVT ac_flush_buffers(lp_ac_decoder pDecoder);
 EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
 struct AVFrame;
 EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
+EXTERN AVFrame * CALL_CONVT ac_get_frame_real(lp_ac_decoder_frame pFrame);
 
 EXTERN lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder);
 EXTERN void ac_free_decoder_frame(lp_ac_decoder_frame pFrame);
 
 EXTERN int CALL_CONVT ac_get_audio_rate(lp_ac_decoder pDecoder);
 
+EXTERN double ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage);
+EXTERN double ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage);
+EXTERN double ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage);
+
+EXTERN void ac_decoder_fake_seek(lp_ac_decoder pDecoder);
+EXTERN void ac_decoder_set_loopfilter(lp_ac_decoder pDecoder, int lflevel);
 #ifdef __cplusplus
 } //end extern "C"
 #endif

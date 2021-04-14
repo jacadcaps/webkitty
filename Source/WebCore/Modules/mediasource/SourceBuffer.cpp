@@ -2057,7 +2057,7 @@ void SourceBuffer::provideMediaData(TrackBuffer& trackBuffer, const AtomString& 
 
         if (sample->decodeTime() > trackBuffer.enqueueDiscontinuityBoundary) {
             DEBUG_LOG(LOGIDENTIFIER, "bailing early because of unbuffered gap, new sample: ", sample->decodeTime(), " >= the current discontinuity boundary: ", trackBuffer.enqueueDiscontinuityBoundary);
-            break;
+           break;
         }
 
         // Remove the sample from the decode queue now.

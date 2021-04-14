@@ -2,6 +2,7 @@
 
 #if ENABLE(VIDEO)
 
+#include "GraphicsContext.h"
 #include "MediaPlayer.h"
 #include "MediaSourcePrivateClient.h"
 #include "NotImplemented.h"
@@ -10,7 +11,7 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 
-#define D(x)
+#define D(x) 
 #define DM(x) 
 
 namespace WebCore {
@@ -91,17 +92,25 @@ public:
     	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "data:"))
     		return MediaPlayer::SupportsType::IsNotSupported;
 
-#if ENABLE(MEDIA_SOURCE)
-    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
-    		return MediaPlayer::SupportsType::MayBeSupported;
-#else
-    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
-    		return MediaPlayer::SupportsType::IsNotSupported;
-#endif
-
 		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d profiles %d\n", __func__,
 			parameters.url.string().utf8().data(), parameters.type.raw().utf8().data(), parameters.type.containerType().utf8().data(), parameters.isMediaSource, parameters.isMediaStream,
 			parameters.type.profiles().size()));
+
+//if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
+//	return MediaPlayer::SupportsType::IsNotSupported;
+
+		if (parameters.isMediaSource && !MediaPlayerMorphOSSettings::settings().m_enableMediaSource)
+			return MediaPlayer::SupportsType::IsNotSupported;
+
+    	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "blob:"))
+    	{
+#if ENABLE(MEDIA_SOURCE)
+			if (parameters.isMediaSource)
+				return MediaPlayer::SupportsType::MayBeSupported;
+#endif
+    		return MediaPlayer::SupportsType::IsNotSupported;
+		}
+		
        	auto containerType = parameters.type.containerType();
 		if (containerType.isEmpty())
 		{
@@ -120,22 +129,26 @@ public:
 				return MediaPlayer::SupportsType::MayBeSupported;
 			}
 
-#if 0
 			DM(dprintf("%s: lists %d codecs\n", __func__, codecs.size()));
 			for (size_t i = 0; i < codecs.size(); i++)
 			{
 				auto &codec = codecs.at(i);
-				if (startsWithLettersIgnoringASCIICase(codec, "opus") || startsWithLettersIgnoringASCIICase(codec, "vp"))
+				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0!
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
 				}
+                else if (startsWithLettersIgnoringASCIICase(codec, "vp9") && !MediaPlayerMorphOSSettings::settings().m_enableVP9)
+                {
+					DM(dprintf("%s: rejecting disabled codec %s\n", __func__, codec.utf8().data()));
+					return MediaPlayer::SupportsType::IsNotSupported;
+                }
 				else
 				{
 					DM(dprintf("%s: we should be OK with codec %s\n", __func__, codec.utf8().data()));
 				}
 			}
-#endif
+
 			return  MediaPlayer::SupportsType::IsSupported;
 		}
 		DM(dprintf("%s: not supported!\n", __func__));
@@ -210,9 +223,32 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient*)
+void MediaPlayerPrivateMorphOS::load(const String& url, MediaSourcePrivateClient* client)
 {
 	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
+	cancelLoad();
+
+	if (startsWithLettersIgnoringASCIICase(url, "about:"))
+		return;
+
+	if (MediaPlayerMorphOSSettings::settings().m_preloadCheck)
+	{
+		if (!MediaPlayerMorphOSSettings::settings().m_preloadCheck(m_player, url))
+		{
+			m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
+			m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
+			m_player->networkStateChanged();
+			m_player->readyStateChanged();
+			return;
+		}
+	}
+
+	m_networkState = MediaPlayer::NetworkState::Loading;
+	m_player->networkStateChanged();
+	m_readyState = MediaPlayer::ReadyState::HaveNothing;
+	m_player->readyStateChanged();
+
+	m_mediaSourcePrivate = MediaSourcePrivateMorphOS::create(*this, *client, url);
 }
 #endif
 
@@ -222,7 +258,13 @@ void MediaPlayerPrivateMorphOS::cancelLoad()
 
 	if (MediaPlayerMorphOSSettings::settings().m_loadCancelled)
 		MediaPlayerMorphOSSettings::settings().m_loadCancelled(m_player);
-	
+
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->orphan();
+	m_mediaSourcePrivate = nullptr;
+#endif
+
 	m_prepareToPlay = m_acInitialized = false;
 	pause();
 
@@ -234,6 +276,12 @@ void MediaPlayerPrivateMorphOS::prepareToPlay()
 {
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 	m_prepareToPlay = true;
+
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->warmUp();
+#endif
+
 	if (m_acinerella && m_acInitialized)
 		m_acinerella->warmUp();
 }
@@ -246,8 +294,16 @@ bool MediaPlayerPrivateMorphOS::canSaveMediaData() const
 
 void MediaPlayerPrivateMorphOS::play()
 {
+	if (MediaPlayerMorphOSSettings::settings().m_willPlay)
+		MediaPlayerMorphOSSettings::settings().m_willPlay(m_player);
+
 	if (m_acinerella)
 		m_acinerella->play();
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->play();
+#endif
+
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 }
 
@@ -255,6 +311,10 @@ void MediaPlayerPrivateMorphOS::pause()
 {
 	if (m_acinerella)
 		m_acinerella->pause();
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->pause();
+#endif
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 }
 
@@ -274,7 +334,7 @@ void MediaPlayerPrivateMorphOS::setMuted(bool muted)
 
 FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
 {
-	return { 320, 240 };
+	return { m_width, m_height };
 }
 
 bool MediaPlayerPrivateMorphOS::hasVideo() const
@@ -293,8 +353,8 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 
 void MediaPlayerPrivateMorphOS::setVisible(bool visible)
 {
-	(void)visible;
-	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
+	m_visible = visible;
+//	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
 }
 
 bool MediaPlayerPrivateMorphOS::seeking() const
@@ -302,6 +362,10 @@ bool MediaPlayerPrivateMorphOS::seeking() const
 	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, m_acinerella?m_acinerella->isSeeking():false));
 	if (m_acinerella)
 		return m_acinerella->isSeeking();
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->isSeeking();
+#endif
 	return false;
 }
 
@@ -310,12 +374,20 @@ void MediaPlayerPrivateMorphOS::seek(float time)
 	D(dprintf("%s: %f\n", __PRETTY_FUNCTION__, time));
 	if (m_acinerella)
 		return m_acinerella->seek(time);
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->seek(time);
+#endif
 }
 
 bool MediaPlayerPrivateMorphOS::ended() const
 {
 	if (m_acinerella)
 		return m_acinerella->ended();
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->ended();
+#endif
 	return true;
 }
 
@@ -323,7 +395,11 @@ bool MediaPlayerPrivateMorphOS::paused() const
 {
 	if (m_acinerella)
 		return m_acinerella->paused();
-	return false;
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->paused();
+#endif
+	return true;
 }
 
 MediaPlayer::NetworkState MediaPlayerPrivateMorphOS::networkState() const
@@ -338,16 +414,78 @@ MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 {
-	return makeUnique<PlatformTimeRanges>(MediaTime::createWithFloat(m_currentTime), MediaTime::createWithFloat(m_currentTime + 6));
+	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(m_currentTime), MediaTime::createWithDouble(m_currentTime + 6.0));
 }
 
-void MediaPlayerPrivateMorphOS::paint(GraphicsContext&, const FloatRect&)
+void MediaPlayerPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
 {
+	if (gc.paintingDisabled() || !m_visible)
+		return;
 
+	if (m_acinerella)
+		m_acinerella->paint(gc, rect);
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->paint(gc, rect);
+#endif
+}
+
+void MediaPlayerPrivateMorphOS::accNextFrameReady()
+{
+	if (!m_didDrawFrame)
+	{
+		if (m_player)
+		{
+			m_player->firstVideoFrameAvailable();
+			m_player->repaint();
+		}
+
+		m_didDrawFrame = true;
+
+		if (MediaPlayerMorphOSSettings::settings().m_overlayRequest)
+		{
+			MediaPlayerMorphOSSettings::settings().m_overlayRequest(m_player,
+				[weak = makeWeakPtr(this)](void *ptr, int sx, int sy, int ml, int mt, int mr, int mb, int w, int h) {
+				if (weak) {
+					if (weak->m_acinerella)
+						weak->m_acinerella->setOverlayWindowCoords((struct ::Window *)ptr, sx, sy, ml, mt, mr, mb, w, h);
+#if ENABLE(MEDIA_SOURCE)
+					else if (weak->m_mediaSourcePrivate)
+						weak->m_mediaSourcePrivate->setOverlayWindowCoords((struct ::Window *)ptr, sx, sy, ml, mt, mr, mb, w, h);
+#endif
+				}
+			});
+		}
+	}
+}
+
+void MediaPlayerPrivateMorphOS::accNoFramesReady()
+{
+	// TODO: overlay shutdown?
+}
+
+void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
+{
+	m_width = width;
+	m_height = height;
+	if (m_player)
+		m_player->sizeChanged();
+}
+
+void MediaPlayerPrivateMorphOS::accFrameUpdateNeeded() 
+{
+	if (MediaPlayerMorphOSSettings::settings().m_overlayUpdate)
+		MediaPlayerMorphOSSettings::settings().m_overlayUpdate(m_player);
 }
 
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
 {
+	if (m_didLoadingProgress)
+	{
+		m_didLoadingProgress = false;
+		return true;
+	}
+
 	return false;
 }
 
@@ -367,22 +505,81 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
+
+#if ENABLE(MEDIA_SOURCE)
+	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && (m_acinerella || m_mediaSourcePrivate))
+#else
 	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
+#endif
 	{
-		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, m_acinerella->url(), info, [this](bool doLoad) {
+		String url;
+
+		if (info.m_width)
+		{
+			m_width = info.m_width;
+			m_height = info.m_height;
+		}
+
+		accSetVideoSize(m_width, m_height);
+		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+
+#if ENABLE(MEDIA_SOURCE)
+		if (m_mediaSourcePrivate)
+			url = m_mediaSourcePrivate->url();
+		else
+#endif
+			url = m_acinerella->url();
+
+		MediaPlayerMorphOSSettings::settings().m_loadCheck(m_player, url, info, [this](bool doLoad) {
 			if (doLoad)
 			{
 				m_acInitialized = true;
-				if (m_prepareToPlay && m_acinerella)
-					m_acinerella->warmUp();
+				accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+				m_player->characteristicChanged();
+				if (m_prepareToPlay)
+				{
+					if (m_acinerella)
+						m_acinerella->warmUp();
+#if ENABLE(MEDIA_SOURCE)
+					if (m_mediaSourcePrivate)
+						m_mediaSourcePrivate->warmUp();
+#endif
+				}
 			}
+		},
+		[this]() {
+			if (m_acinerella) {
+				m_acinerella->pause();
+				m_acinerella->coolDown();
+			}
+#if ENABLE(MEDIA_SOURCE)
+			else if (m_mediaSourcePrivate) {
+				m_mediaSourcePrivate->pause();
+				m_mediaSourcePrivate->coolDown();
+			}
+#endif
+			m_didDrawFrame = false;
+			m_player->playbackStateChanged();
 		});
 	}
 	else
 	{
 		m_acInitialized = true;
+		if (info.m_width)
+		{
+			m_width = info.m_width;
+			m_height = info.m_height;
+		}
+
+		accSetVideoSize(m_width, m_height);
+		accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveMetadata);
+		m_player->characteristicChanged();
 		if (m_prepareToPlay && m_acinerella)
 			m_acinerella->warmUp();
+#if ENABLE(MEDIA_SOURCE)
+		else if (m_prepareToPlay && m_mediaSourcePrivate)
+			m_mediaSourcePrivate->warmUp();
+#endif
 	}
 }
 
@@ -408,23 +605,23 @@ void MediaPlayerPrivateMorphOS::accSetReadyState(WebCore::MediaPlayerEnums::Read
 	m_player->readyStateChanged();
 }
 
-void MediaPlayerPrivateMorphOS::accSetBufferLength(float buffer)
+void MediaPlayerPrivateMorphOS::accSetBufferLength(double buffer)
 {
 	(void)buffer;
 	m_player->bufferedTimeRangesChanged();
 	m_player->seekableTimeRangesChanged();
 }
 
-void MediaPlayerPrivateMorphOS::accSetPosition(float pos)
+void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 {
-	D(dprintf("%s: timechanged to %f\n", __func__, this, pos));
+	D(dprintf("%s: timechanged to %f\n", __func__, this, float(pos)));
 	m_currentTime = pos;
 	m_player->timeChanged();
 }
 
-void MediaPlayerPrivateMorphOS::accSetDuration(float dur)
+void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 {
-	D(dprintf("%s: changed to %f\n", __func__, this, dur));
+	D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
 	m_duration = dur;
 	m_player->durationChanged();
 }
@@ -443,6 +640,23 @@ void MediaPlayerPrivateMorphOS::accFailed()
 	m_player->networkStateChanged();
 	m_player->readyStateChanged();
 }
+
+RefPtr<PlatformMediaResourceLoader> MediaPlayerPrivateMorphOS::accCreateResourceLoader()
+{
+	return m_player->createResourceLoader();
+}
+
+String MediaPlayerPrivateMorphOS::accReferrer()
+{
+	return m_player->referrer();
+}
+
+#if ENABLE(VIDEO_TRACK)
+void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
+{
+	D(dprintf("%s: %p, track %p enabled %d\n", __func__, this, index, enabled));
+}
+#endif
 
 }
 
