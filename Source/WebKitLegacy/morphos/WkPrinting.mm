@@ -656,6 +656,11 @@ protected:
 		marginLeft:_marginLeft marginRight:_marginRight marginTop:_marginTop marginBottom:_marginBottom];
 }
 
+- (void)needsRedraw
+{
+	[_webView updatePrinting];
+}
+
 - (void)recalculatePages
 {
 	WkPrintingPage *page = [self pageWithMarginsApplied];
@@ -727,11 +732,6 @@ protected:
 		delete _context;
 	_context = nullptr;
 	_webView = nil;
-}
-
-- (void)needsRedraw
-{
-	[_webView updatePrinting];
 }
 
 - (WebCore::PrintContext *)context

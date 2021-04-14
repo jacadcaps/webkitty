@@ -459,42 +459,66 @@ static cairo_antialias_t defaultAA;
 
 + (BOOL)mediaSourceEnabled
 {
+#if ENABLE(VIDEO)
 	return WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource;
+#else
+    return NO;
+#endif
 }
 
 + (void)setMediaSourceEnabled:(BOOL)enabled
 {
+#if ENABLE(VIDEO)
 	WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource = enabled;
+#endif
 }
 
 + (BOOL)vp9Enabled
 {
+#if ENABLE(VIDEO)
     return WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9;
+#else
+    return NO;
+#endif
 }
 
 + (void)setVp9Enabled:(BOOL)enabled
 {
+#if ENABLE(VIDEO)
     WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9 = enabled;
+#endif
 }
 
 + (BOOL)videoDecodingEnabled
 {
+#if ENABLE(VIDEO)
     return WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo;
+#else
+    return NO;
+#endif
 }
 
 + (void)setVideoDecodingEnabled:(BOOL)enabled
 {
+#if ENABLE(VIDEO)
     WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo = enabled;
+#endif
 }
 
 + (WkGlobalSettings_LoopFilter)skipLoopFilter
 {
+#if ENABLE(VIDEO)
     return (WkGlobalSettings_LoopFilter)WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter;
+#else
+    return WkGlobalSettings_LoopFilter_All;
+#endif
 }
 
 + (void)setSkipLoopFilter:(WkGlobalSettings_LoopFilter)filterskip
 {
+#if ENABLE(VIDEO)
     WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter = WebCore::MediaPlayerMorphOSSettings::SkipLoopFilter(filterskip);
+#endif
 }
 
 @end

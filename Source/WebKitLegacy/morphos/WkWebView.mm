@@ -1347,10 +1347,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[[self windowObject] setActiveObject:nil];
 		};
 		
+#if ENABLE(VIDEO)
 		webPage->_fZoomChangedByWheel = [self]() {
 			WkWebViewPrivate *privateObject = [self privateObject];
 			[privateObject callOverlayCallback];
 		};
+#endif
 
 		webPage->_fUserAgentForURL = [self](const WTF::String& url) -> WTF::String {
 			validateObjCContext();
@@ -2405,8 +2407,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	UQUAD drawEndTS = __builtin_ppc_get_timebase();
 	[_private drawFinishedIn:(UQUAD)drawEndTS - drawStartTS];
+#if ENABLE(VIDEO)
 	[_private setWindow:[self window]];
-
+#endif
 	return TRUE;
 }
 
@@ -2468,7 +2471,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->goHidden();
 
 		[_private setPaintPerform:nil];
+#if ENABLE(VIDEO)
 		[_private setWindow:nullptr];
+#endif
 
 		if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 			webPage->setLowPowerMode(true);
@@ -2721,7 +2726,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	{
 		auto webPage = [_private page];
 		webPage->setPageAndTextZoomFactors(pageFactor, textFactor);
+#if ENABLE(VIDEO)
 		[_private callOverlayCallback];
+#endif
 	}
 }
 
