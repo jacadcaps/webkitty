@@ -325,21 +325,25 @@ bool MediaSourcePrivateMorphOS::areDecodersInitialized()
 
 void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, bool active)
 {
+	D(dprintf("%s: source %p active %d total active %d total %d\n", __PRETTY_FUNCTION__, buffer.get(), active, m_activeSourceBuffers.size(), m_sourceBuffers.size()));
     if (active && !m_activeSourceBuffers.contains(buffer))
     {
         m_activeSourceBuffers.add(buffer);
         if (m_player)
 			m_player->onActiveSourceBuffersChanged();
         durationChanged();
+        if (!m_paused)
+            buffer->play();
     }
-
-    if (!active)
+    else if (!active && m_activeSourceBuffers.contains(buffer))
     {
 		if (m_paintingBuffer == buffer)
 		{
 			m_paintingBuffer->setOverlayWindowCoords(nullptr, 0, 0, 0, 0, 0, 0, 0, 0);
 			m_paintingBuffer = nullptr;
 		}
+    
+        buffer->coolDown();
     
 		m_activeSourceBuffers.remove(buffer);
         if (m_player)

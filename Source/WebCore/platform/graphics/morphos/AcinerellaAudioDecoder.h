@@ -28,7 +28,7 @@ public:
 	bool isVideo() const override { return false; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return m_isLive ? 10.0 : 1.0; }
+	double readAheadTime() const override { return m_isLive ? 10.0 : 2.5; }
 
 	bool isReadyToPlay() const override;
 

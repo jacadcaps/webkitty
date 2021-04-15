@@ -17,12 +17,13 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DM(x)
 #define DI(x) 
 #define DN(x)    
 #define DIO(x)
 #define DIOCC(x)
+#define DBR(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -658,7 +659,7 @@ void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 		WTF::callOnMainThread([this, protect = makeRef(*this), isVideo = m_decoders[index]->isVideo(), index]() {
 			AtomString id;
 
-			D(dprintf("[MS]becomeReadyForMoreSamples %d\n", index));
+			DBR(dprintf("[MS]becomeReadyForMoreSamples %d\n", index));
 
 			if (isVideo) {
 				id = "V" + String::number(index);
@@ -750,7 +751,7 @@ void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(const 
 
 bool MediaSourceBufferPrivateMorphOS::canSetMinimumUpcomingPresentationTime(const AtomString&) const
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DBR(dprintf("[MS]%s\n", __func__));
 	// WARNING: HACK
 	// SourceBuffer calls this after a batch of enqueueSample calls
 	auto *me = const_cast<MediaSourceBufferPrivateMorphOS *>(this);
@@ -968,7 +969,7 @@ void MediaSourceBufferPrivateMorphOS::onDecoderWarmedUp(RefPtr<Acinerella::Acine
 
 void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	D(dprintf("%s: decoders ready: %d\n", __PRETTY_FUNCTION__, areDecodersReadyToPlay()));
 	if (areDecodersReadyToPlay())
 	{
 		if (m_mediaSource)
@@ -1050,7 +1051,10 @@ bool MediaSourceBufferPrivateMorphOS::areDecodersReadyToPlay()
 		if (!!m_decoders[i])
 		{
 			if (!m_decoders[i]->isReadyToPlay())
+            {
+                D(dprintf("[MS]%s: not yet ready index %d type %s\n", __func__, i, m_decoders[i]->isAudio() ? "A" : "V"));
 				return false;
+            }
 		}
 	}
 	return true;

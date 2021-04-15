@@ -479,12 +479,11 @@ namespace  {
 			double interval = _drawTime;
 			interval /= divider;
 			interval *= 3.0;
+
 			double timeSinceLast = (__builtin_ppc_get_timebase() - _drawTimeLast);
 			timeSinceLast /= divider;
-			if (timeSinceLast > interval)
-				interval = (1.0 / 60.0);
-			if (interval < (1.0 / 60.0))
-				interval = (1.0 / 60.0);
+			if (timeSinceLast > interval || interval < 0.016)
+				interval = 0.016;
 			if (interval > 0.7)
 				interval = 0.7;
 

@@ -203,8 +203,6 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 
 		if (m_overlayWindow != w)
 		{
-			bool callReadyToPlay = m_overlayHandle == nullptr;
-	
 			if (m_overlayHandle)
 			{
 				DetachVLayer(m_overlayHandle);
@@ -238,8 +236,8 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 				}
 			}
 			
-			if (callReadyToPlay && !m_terminating)
-				onReadyToPlay();
+            if (isReadyToPlay() && m_readying)
+                onReadyToPlay();
 		}
 	}
 
