@@ -122,6 +122,28 @@ std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateMorphOS::buffered()
 	return m_client->buffered();
 }
 
+void MediaSourcePrivateMorphOS::setVolume(double vol)
+{
+    if (vol != m_volume)
+    {
+        m_volume = vol;
+        
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+            sourceBufferPrivate->setVolume(vol);
+    }
+}
+
+void MediaSourcePrivateMorphOS::setMuted(bool muted)
+{
+    if (muted != m_muted)
+    {
+        m_muted = muted;
+        
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+            sourceBufferPrivate->setVolume(muted ? 0 : m_volume);
+    }
+}
+
 void MediaSourcePrivateMorphOS::seekCompleted()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
@@ -228,12 +250,14 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 					if (minfo.m_width) {
 						info.m_width = minfo.m_width;
 						info.m_height = minfo.m_height;
+                        m_hasVideo = true;
 					}
 					
 					if (minfo.m_channels) {
 						info.m_channels = minfo.m_channels;
 						info.m_bits = minfo.m_bits;
 						info.m_frequency = minfo.m_frequency;
+                        m_hasAudio = true;
 					}
 					
 					info.m_duration = duration().toFloat(); //! client provides us with the actual duration!

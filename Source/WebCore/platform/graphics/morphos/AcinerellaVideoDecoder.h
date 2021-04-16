@@ -7,6 +7,7 @@
 #include "AcinerellaDecoder.h"
 struct VLayerHandle;
 struct Window;
+struct Library;
 
 namespace WebCore {
 namespace Acinerella {
@@ -67,6 +68,7 @@ protected:
 	bool getAudioPresentationTime(double &time);
 
 protected:
+    ::Library      *m_cgxVideo;
 	RefPtr<Thread>  m_pullThread;
 	BinarySemaphore m_pullEvent;
 	BinarySemaphore m_frameEvent;

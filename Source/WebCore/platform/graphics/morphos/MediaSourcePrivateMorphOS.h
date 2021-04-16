@@ -67,6 +67,12 @@ public:
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 	const String &url() const { return m_url; }
+ 
+    bool hasVideo() const { return m_hasVideo; }
+    bool hasAudio() const { return m_hasVideo; }
+    
+    void setVolume(double vol);
+    void setMuted(bool muted);
 
 protected:
 	bool areDecodersReadyToPlay();
@@ -86,6 +92,11 @@ private:
 	bool                                             m_seeking = false;
 	bool                                             m_waitReady = false;
 	bool                                             m_initialized = false;
+    bool                                             m_hasVideo = false;
+    bool                                             m_hasAudio = false;
+	double                                           m_volume = 1.f;
+	bool                                             m_muted = false;
+
 };
 
 }

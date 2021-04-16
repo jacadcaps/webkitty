@@ -10,6 +10,8 @@
 
 #include "HTMLMediaElement.h"
 #include "Frame.h"
+#include <proto/exec.h>
+#include <exec/exec.h>
 
 #define D(x) 
 #define DM(x) 
@@ -29,6 +31,27 @@ public:
     MediaPlayerEnums::MediaEngineIdentifier identifier() const final { return MediaPlayerEnums::MediaEngineIdentifier::MorphOS; };
 
     std::unique_ptr<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer* player) const final { return makeUnique<MediaPlayerPrivateMorphOS>(player); }
+
+    static bool isCGXVideoValid()
+    {
+        static bool checkDone = false;
+        static bool valid;
+        if (!checkDone)
+        {
+            struct Library *cgx = OpenLibrary("cgxvideo.library", 43);
+            if (cgx)
+            {
+                valid = false;
+                if (cgx->lib_Version > 43)
+                    valid = true;
+                else if (cgx->lib_Revision >= 18)
+                    valid = true;
+                CloseLibrary(cgx);
+            }
+            checkDone = true;
+        }
+        return valid;
+    }
 
     static void s_getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types)
     {
@@ -90,6 +113,9 @@ public:
     	if (startsWithLettersIgnoringASCIICase(parameters.type.raw(), "image/"))
     		return MediaPlayer::SupportsType::IsNotSupported;
     	if (startsWithLettersIgnoringASCIICase(parameters.url.string(), "data:"))
+    		return MediaPlayer::SupportsType::IsNotSupported;
+
+        if (!isCGXVideoValid())
     		return MediaPlayer::SupportsType::IsNotSupported;
 
 		DM(dprintf("%s: url '%s' content '%s' ctype '%s' isource %d istream %d profiles %d\n", __func__,
@@ -323,6 +349,10 @@ void MediaPlayerPrivateMorphOS::setVolume(float volume)
 	D(dprintf("%s: vol %f\n", __PRETTY_FUNCTION__, volume));
 	if (m_acinerella)
 		m_acinerella->setVolume(volume);
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->setVolume(volume);
+#endif
 }
 
 void MediaPlayerPrivateMorphOS::setMuted(bool muted)
@@ -330,6 +360,10 @@ void MediaPlayerPrivateMorphOS::setMuted(bool muted)
 	D(dprintf("%s: %d\n", __PRETTY_FUNCTION__, muted));
 	if (m_acinerella)
 		m_acinerella->setMuted(muted);
+#if ENABLE(MEDIA_SOURCE)
+	else if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->setMuted(muted);
+#endif
 }
 
 FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
@@ -341,6 +375,10 @@ bool MediaPlayerPrivateMorphOS::hasVideo() const
 {
 	if (m_acinerella)
 		return m_acinerella->hasVideo();
+#if ENABLE(MEDIA_SOURCE)
+    else if (m_mediaSourcePrivate)
+        return m_mediaSourcePrivate->hasVideo();
+#endif
 	return false;
 }
 
@@ -348,6 +386,10 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 {
 	if (m_acinerella)
 		return m_acinerella->hasAudio();
+#if ENABLE(MEDIA_SOURCE)
+    else if (m_mediaSourcePrivate)
+        return m_mediaSourcePrivate->hasAudio();
+#endif
 	return false;
 }
 
@@ -414,6 +456,10 @@ MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 {
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->buffered();
+#endif
 	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(m_currentTime), MediaTime::createWithDouble(m_currentTime + 6.0));
 }
 
@@ -500,17 +546,16 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 {
 	if (m_acinerella && m_acinerella->canSeek())
 		return m_duration;
+#if ENABLE(MEDIA_SOURCE)
+	return m_duration;
+#endif
 	return 0.f;
 }
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
-
-#if ENABLE(MEDIA_SOURCE)
-	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && (m_acinerella || m_mediaSourcePrivate))
-#else
+    // We cannot meaningfully do this for MediaSource!
 	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
-#endif
 	{
 		String url;
 
@@ -540,7 +585,7 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 				{
 					if (m_acinerella)
 						m_acinerella->warmUp();
-#if ENABLE(MEDIA_SOURCE)
+#if ENABLE(MEDIA_SOURCE) // unused!
 					if (m_mediaSourcePrivate)
 						m_mediaSourcePrivate->warmUp();
 #endif

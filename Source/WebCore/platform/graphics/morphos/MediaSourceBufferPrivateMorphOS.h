@@ -113,6 +113,8 @@ public:
 	void willSeek(double seekTo);
 	void signalEOF();
 
+    void setVolume(double vol);
+
 	const MediaPlayerMorphOSInfo &info() { return m_info; }
 	bool isInitialized() { return m_metaInitDone; }
 

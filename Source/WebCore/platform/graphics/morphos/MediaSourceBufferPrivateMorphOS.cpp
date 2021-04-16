@@ -354,7 +354,6 @@ int MediaSourceChunkReader::read(uint8_t *buf, int size)
 				
 				if (m_bufferEOF)
 				{
-				dprintf("THEEOF\n");
 					return size - sizeLeft;
 				}
 				
@@ -529,6 +528,17 @@ void MediaSourceBufferPrivateMorphOS::willSeek(double time)
 void MediaSourceBufferPrivateMorphOS::signalEOF()
 {
 	m_reader->signalEOF();
+}
+
+void MediaSourceBufferPrivateMorphOS::setVolume(double vol)
+{
+	for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
+	{
+		if (!!m_decoders[i])
+		{
+			m_decoders[i]->setVolume(vol);
+		}
+	}
 }
 
 void MediaSourceBufferPrivateMorphOS::clearMediaSource()

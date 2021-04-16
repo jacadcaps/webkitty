@@ -19,8 +19,10 @@
 #include <intuition/intuition.h>
 #include <proto/cybergraphics.h>
 #include <cybergraphx/cybergraphics.h>
-#include <cybergraphx/cgxvideo.h>
+#define __NOLIBBASE__
 #include <proto/cgxvideo.h>
+#undef __NOLIBBASE__
+#include <cybergraphx/cgxvideo.h>
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
@@ -30,8 +32,9 @@
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
+// #define FORCEDECODE
 
-#define FORCEDECODE
+#define CGXVideoBase m_cgxVideo
 
 namespace WebCore {
 namespace Acinerella {
@@ -48,6 +51,8 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	auto decoder = acinerella->decoder(index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
 	
+    m_cgxVideo = OpenLibrary("cgxvideo.library", 43);
+ 
 	m_pullThread = Thread::create("Acinerella Video Pump", [this] {
 		pullThreadEntryPoint();
 	});
@@ -58,6 +63,9 @@ AcinerellaVideoDecoder::~AcinerellaVideoDecoder()
 {
 	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	
+    if (m_cgxVideo)
+        CloseLibrary(m_cgxVideo);
+ 
 	if (!!m_pullThread)
 	{
 		m_pullEvent.signal();
@@ -212,7 +220,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 
 			m_overlayWindow = w;
 			
-			if (m_overlayWindow && !m_terminating)
+			if (m_overlayWindow && !m_terminating && m_cgxVideo)
 			{
 				m_overlayHandle = CreateVLayerHandleTags(m_overlayWindow->WScreen,
 					VOA_SrcType, SRCFMT_YCbCr420,
