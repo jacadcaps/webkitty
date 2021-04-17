@@ -10,8 +10,8 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x)
-#define DNP(x) 
+#define D(x) 
+#define DNP(x)
 #define DIO(x)
 #define DINIT(x)
 
@@ -459,9 +459,12 @@ bool Acinerella::initialize()
 				m_muxer->setDecoderMask(decoderMask);
 				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int) -> bool {
 					// look ma, a lambda within a lambda
-					protectedThis->dispatch([this]() {
-						demuxMorePackages();
-					});
+                    if (!m_waitingForDemux) {
+                        m_waitingForDemux = true;
+                        protectedThis->dispatch([this]() {
+                            demuxMorePackages();
+                        });
+                    }
 					return true;
 				});
 				
@@ -623,12 +626,16 @@ void Acinerella::demuxMorePackages()
 			{
 				muxer->push(package);
 			}
-			else if (!package->package())
+
+			if (!package->package())
 			{
 				break;
 			}
 		}
 	}
+ 
+	DNP(dprintf("%s: done!\n", __func__ ));
+    m_waitingForDemux = false;
 }
 
 void Acinerella::onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder)

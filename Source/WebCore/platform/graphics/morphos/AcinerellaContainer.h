@@ -129,6 +129,7 @@ protected:
 	bool                             m_ended = false;
 	bool                             m_seekingForward;
 	bool                             m_waitReady = false;
+    volatile bool                    m_waitingForDemux = false;
 	
 	int64_t                          m_readPosition = -1;
 

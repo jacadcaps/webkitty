@@ -13,7 +13,7 @@
 #include <proto/exec.h>
 #include <exec/exec.h>
 
-#define D(x) 
+#define D(x)
 #define DM(x) 
 
 namespace WebCore {
@@ -151,6 +151,15 @@ public:
 			auto codecs = parameters.type.codecs();
 			if (codecs.isEmpty())
 			{
+                if (containerType.containsIgnoringASCIICase("vnd.apple.mpegurl") &&
+                    parameters.url.string().containsIgnoringASCIICase("googlevideo.com"))
+                {
+                    // no Youtube HLS
+                    DM(dprintf("%s: failing youtube-hls\n", __func__));
+                    return MediaPlayer::SupportsType::IsNotSupported;
+                }
+//    "application/vnd.apple.mpegurl" + googlevideo.com
+   
 				DM(dprintf("%s: codecs empty, assume 'maybe'\n", __func__));
 				return MediaPlayer::SupportsType::MayBeSupported;
 			}
@@ -224,6 +233,16 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
 
 	cancelLoad();
+
+    // sigh...
+    if (url.containsIgnoringASCIICase("googlevideo.com") && url.containsIgnoringASCIICase("m3u8"))
+    {
+        m_networkState = MediaPlayer::NetworkState::FormatError;
+        m_player->networkStateChanged();
+        m_readyState = MediaPlayer::ReadyState::HaveNothing;
+        m_player->readyStateChanged();
+        return;
+    }
 
 	if (startsWithLettersIgnoringASCIICase(url, "about:"))
 		return;

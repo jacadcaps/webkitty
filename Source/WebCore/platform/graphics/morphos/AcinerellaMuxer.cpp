@@ -167,7 +167,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			return hasPackage;
 		
 		EP_EVENT(wait);
-		m_events[index].waitFor(10_s);
+		m_events[index].waitFor(1_s);
 	}
 
 	return nullptr;

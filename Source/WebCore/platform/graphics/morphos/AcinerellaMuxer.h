@@ -58,7 +58,7 @@ public:
 	}
 
 	static constexpr int maxDecoders = 32;
-	static constexpr int queueReadAheadSize = 128;
+	static constexpr int queueReadAheadSize = 64;
 
 	void setSinkFunction(Function<bool(int decoderIndex)>&& sinkFunction);
 	void setDecoderMask(uint32_t mask, uint32_t audioMask = 0);

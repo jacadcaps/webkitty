@@ -16,8 +16,8 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x)
-#define DSYNC(x) 
+#define D(x) 
+#define DSYNC(x)  
 #define DSPAM(x) 
 #define DSPAMTS(x) 
 

@@ -274,7 +274,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			HLSStream stream(m_url, String::fromUTF8(buffer->data(), buffer->size()));
 			m_stream += stream; // append and merge :)
 			
-			D(dprintf("%s(%p) queue %d mediaseq %llu\n", __func__, this, m_stream.size(), m_stream.mediaSequence()));
+			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));
 			// start loading chunks!
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
@@ -373,7 +373,7 @@ int64_t AcinerellaNetworkBufferHLS::position()
 // acinerella decoder thread
 int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readPosition)
 {
-	D(dprintf("%s(%p): requested %ld\n", __PRETTY_FUNCTION__, this, size));
+	D(dprintf("%s(%p): requested %ld inread %p\n", __PRETTY_FUNCTION__, this, size, m_chunkRequestInRead.get()));
 
 	while (!m_stopping)
 	{
@@ -407,7 +407,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 			m_chunkRequestInRead = m_chunkRequest;
 			m_chunkRequest = nullptr;
 			needsToWait = m_chunkRequestInRead.get() == nullptr;
-			D(dprintf("%s(%p): chunk swapped to %p\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get()));
+			D(dprintf("%s(%p): chunk swapped to %p needswait %d\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get(), needsToWait));
 		}
 
 		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
