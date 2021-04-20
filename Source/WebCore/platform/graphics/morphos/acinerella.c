@@ -390,6 +390,9 @@ static void cpymetadatai(const AVFormatContext *ctx, const char *key,
 static int finalize_open(lp_ac_instance pacInstance) {
 	lp_ac_data self = ((lp_ac_data)pacInstance);
 
+    if (!self || !self->pFormatCtx)
+        return -1;
+
 	// Assume the stream is opened
 	pacInstance->opened = 1;
 

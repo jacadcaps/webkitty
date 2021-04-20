@@ -489,6 +489,22 @@ static cairo_antialias_t defaultAA;
 #endif
 }
 
++ (BOOL)hlsEnabled
+{
+#if ENABLE(VIDEO)
+    return WebCore::MediaPlayerMorphOSSettings::settings().m_enableHLS;
+#else
+    return NO;
+#endif
+}
+
++ (void)setHLSEnabled:(BOOL)enabled
+{
+#if ENABLE(VIDEO)
+    WebCore::MediaPlayerMorphOSSettings::settings().m_enableHLS = enabled;
+#endif
+}
+
 + (BOOL)videoDecodingEnabled
 {
 #if ENABLE(VIDEO)

@@ -26,9 +26,9 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x)
-#define DSYNC(x) 
-#define DOVL(x)
+#define D(x) x
+#define DSYNC(x) x
+#define DOVL(x) x
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -89,12 +89,17 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
 {
-	return (bufferSize() >= readAheadTime()) && m_overlayWindow;
+    if (!((bufferSize() >= readAheadTime()) && m_overlayWindow && !m_waitingReady))
+    {
+        D(dprintf("\033[35m[VD]%s: %p bf %f ovl %p wr %d\033[0m\n", __func__, this, float(bufferSize()), m_overlayWindow, m_waitingReady));
+    }
+    
+	return (bufferSize() >= readAheadTime()) && m_overlayWindow && !m_waitingReady;
 }
 
 bool AcinerellaVideoDecoder::isPlaying() const
 {
-	return m_playing || m_waitingToPlay;
+	return m_playing;
 }
 
 double AcinerellaVideoDecoder::position() const
@@ -144,7 +149,7 @@ void AcinerellaVideoDecoder::onThreadShutdown()
 	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
 }
 
-void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
+void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &)
 {
 	DFRAME(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	m_bufferedSeconds += m_frameDuration;
@@ -236,16 +241,17 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 					AttachVLayerTags(m_overlayHandle, m_overlayWindow, VOA_ColorKeyFill, FALSE, TAG_DONE);
 					m_overlayFillColor = GetVLayerAttr(m_overlayHandle, VOA_ColorKey);
 					DOVL(dprintf("\033[35m[VD]%s: fill %08lx\033[0m\n", __func__, m_overlayFillColor));
+                    if (m_readying)
+                        m_waitingReady = true;
+                    m_client->onDecoderReadyToPaint(makeRef(*this));
 					m_pullEvent.signal();
 				}
 				else
 				{
-					DOVL(dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight));
+                    // Keep this enabled!
+					dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight);
 				}
 			}
-			
-            if (isReadyToPlay() && m_readying)
-                onReadyToPlay();
 		}
 	}
 
@@ -302,7 +308,17 @@ void AcinerellaVideoDecoder::updateOverlayCoords()
 			m_outerY2 + offsetY,
 			m_overlayWindow->Width,
 			m_overlayWindow->Height));
-	}
+
+        // we're forcing a paint after overlay setup is done
+        // and don't want to signal readiness until this paint happens!
+        if ((bufferSize() >= readAheadTime()) && m_overlayWindow && m_waitingReady && m_readying)
+        {
+            m_waitingReady = false;
+    dprintf("oRTP! ----------\n");
+            onReadyToPlay();
+        }
+    
+    }
 }
 
 void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
@@ -316,12 +332,14 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 	cairo_fill(cr);
 	cairo_restore(cr);
 
-	bool needsToSetCoords = m_paintX != rect.x() || m_paintY != rect.y() || m_paintX2 != ((rect.x() + rect.width()) - 1) || m_paintY2 != ((rect.y() + rect.height()) - 1);
+	bool needsToSetCoords = m_paintX != rect.x() || m_paintY != rect.y() || m_paintX2 != ((rect.x() + rect.width()) - 1) || m_paintY2 != ((rect.y() + rect.height()) - 1) || m_waitingReady;
 
 	m_paintX = rect.x();
 	m_paintY = rect.y();
 	m_paintX2 = (rect.x() + rect.width()) - 1;
 	m_paintY2 = (rect.y() + rect.height()) - 1;
+
+	DOVL(dprintf("\033[35m[VD]%s: paint ntsc %d \033[0m\n", __func__, needsToSetCoords));
 
 	if (needsToSetCoords && m_client)
 	{
@@ -490,7 +508,10 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 		if (m_playing && !m_terminating && m_overlayHandle)
 #endif
 		{
-			D(dprintf("\033[36m[VD]%s: %p nf\033[0m\n", __func__, this));
+            {
+                D(auto lock = holdLock(m_lock));
+                D(dprintf("\033[36m[VD]%s: %p nf playing %d frames %d\033[0m\n", __func__, this, m_playing, m_decodedFrames.size()));
+            }
 			bool dropFrame = false;
 
 			while (m_playing && !m_terminating)
@@ -536,6 +557,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							m_decodedFrames.pop();
 
 							m_frameCount++;
+       
+                            if (m_droppingToPTS && m_position >= m_expectedPTSDrop)
+                                m_droppingToPTS = false;
 						}
 						else
 						{
@@ -603,17 +627,24 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 				if (sleepFor.value() > 0.0)
 				{
-					if (sleepFor.value() > 1.0)
-						DSYNC(dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n", __func__, float(sleepFor.value()), float(audioAt)));
+					DSYNC(if (sleepFor.value() > 1.0) dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n",
+                        __func__, float(sleepFor.value()), float(audioAt)));
 
+                    if (sleepFor.value() > 1.0)
+                        sleepFor = Seconds(1.0);
 					m_frameEvent.waitFor(sleepFor);
 				}
-				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -4.0)
+				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -3.0 && !m_droppingToPTS)
 				{
 					DSYNC(dprintf("\033[36m[VD]%s: dropping video frames until %f\033[0m\n", __func__, float(audioAt)));
+                    m_droppingToPTS = true;
+                    m_expectedPTSDrop = audioAt + 3.0;
+                    m_position = audioAt;
+                    onPositionChanged();
 					dispatch([this, audioAt]() {
 						dropUntilPTS(audioAt + 3.0);
 					});
+                    m_frameEvent.waitFor(Seconds(1.0));
 				}
 				else if (sleepFor.value() < -(m_frameDuration * 0.1))
 				{
