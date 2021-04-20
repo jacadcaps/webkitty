@@ -34,6 +34,7 @@ public:
 	bool m_decodeVideo = true;
 	bool m_enableMediaSource = false;
     bool m_enableVP9 = false;
+    bool m_enableHLS = true;
     
     // NOTE: keep in sync with WkGlobalSettings_LoopFilter
     enum class SkipLoopFilter {
@@ -54,7 +55,6 @@ public:
 		Function<void(bool doLoad)>&&, Function<void()> &&yieldFunc)> m_loadCheck;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 	Function<void(WebCore::MediaPlayer *player)> m_willPlay;
-    Function<void(void)> m_cgxVideoCheckFailed;
 
 	Function<void(WebCore::MediaPlayer *player,
 		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&&)> m_overlayRequest;
