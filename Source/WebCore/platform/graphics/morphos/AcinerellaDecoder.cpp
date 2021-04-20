@@ -6,11 +6,10 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x) 
-#define DPLAY(x) x
+#define D(x)  x
 #define DNF(x)
 #define DI(x)
-#define DBF(x) 
+#define DBF(x)
 #define DPOS(x) 
 
 // #pragma GCC optimize ("O0")
@@ -69,7 +68,7 @@ void AcinerellaDecoder::coolDown()
 
 void AcinerellaDecoder::prePlay()
 {
-	DPLAY(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this));
+	D(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this));
 	dispatch([this](){
 		decodeUntilBufferFull();
 		onGetReadyToPlay();
@@ -86,27 +85,18 @@ void AcinerellaDecoder::prePlay()
 
 void AcinerellaDecoder::play()
 {
-	DPLAY(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this));
+	D(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this));
 	dispatch([this](){
-        if (!isPlaying())
-        {
-            decodeUntilBufferFull();
-            onGetReadyToPlay();
-            if (isReadyToPlay())
-            {
-                DPLAY(dprintf("[%s]play: %p play!\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", this));
-                m_readying = false;
-                startPlaying();
-            }
-            else
-            {
-                DPLAY(dprintf("[%s]play: %p not ready to play just yet bs %f rahs %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", this, float(bufferSize()), float(readAheadTime())));
-            }
-        }
-        else
-        {
-            DPLAY(dprintf("[%s]play: %p already plaing\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", this));
-        }
+		decodeUntilBufferFull();
+		onGetReadyToPlay();
+		if (isReadyToPlay())
+		{
+			startPlaying();
+		}
+		else
+		{
+			D(dprintf("[%s]%s: %p not ready to play just yet bs %f rahs %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this, float(bufferSize()), float(readAheadTime())));
+		}
 	});
 }
 

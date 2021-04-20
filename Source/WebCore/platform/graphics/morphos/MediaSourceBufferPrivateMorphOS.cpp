@@ -17,14 +17,13 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x) 
 #define DM(x)
 #define DI(x) 
 #define DN(x)    
 #define DIO(x)
 #define DIOCC(x)
 #define DBR(x)
-#define DRTP(x) x
 
 // #pragma GCC optimize ("O0")
 
@@ -642,7 +641,7 @@ void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
                 }
                 else
                 {
-                    m_decoders[index]->prePlay();
+                    m_decoders[index]->play();
                 }
             }
         }
@@ -973,32 +972,14 @@ void MediaSourceBufferPrivateMorphOS::pause()
 	});
 }
 
-void MediaSourceBufferPrivateMorphOS::nudge()
-{
-	dispatch([this] {
-		D(dprintf("[MS]nudge: ... \n"));
-		for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
-        {
-            if (!!m_decoders[i])
-            {
-                if (!m_decoders[i]->isPlaying())
-                {
-                    m_decoders[i]->prePlay();
-                    m_decoders[i]->play();
-                }
-            }
-        }
-    });
-}
-
 void MediaSourceBufferPrivateMorphOS::onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder> decoder) 
 {
-	D(dprintf("%s: %c \n", __PRETTY_FUNCTION__, decoder->isAudio()? 'A':'V'));
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
 void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
-	DRTP(dprintf("%s: %c, decoders ready: %d\n", __PRETTY_FUNCTION__, decoder->isAudio()? 'A':'V', areDecodersReadyToPlay()));
+	D(dprintf("%s: decoders ready: %d\n", __PRETTY_FUNCTION__, areDecodersReadyToPlay()));
 	if (areDecodersReadyToPlay())
 	{
 		if (m_mediaSource)
@@ -1108,15 +1089,7 @@ void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPaint(RefPtr<Acinerella::A
 void MediaSourceBufferPrivateMorphOS::onDecoderNotReadyToPaint(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
 	if (decoder == m_paintingDecoder)
-    {
 		m_paintingDecoder = nullptr;
-        WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-			if (m_mediaSource && !m_terminating) {
-				RefPtr<MediaSourceBufferPrivateMorphOS> me = makeRef(*this);
-				m_mediaSource->onSourceBufferNotReadyToPaint(me);
-			}
-        });
-    }
 }
 
 void MediaSourceBufferPrivateMorphOS::onDecoderPaintUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder)

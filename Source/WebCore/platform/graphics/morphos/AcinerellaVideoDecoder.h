@@ -91,9 +91,6 @@ protected:
 	
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;
-    bool            m_waitingReady = false;
-    bool            m_droppingToPTS = false;
-    double          m_expectedPTSDrop;
 	
 	int             m_paintX, m_paintY, m_paintX2 = 0, m_paintY2;
 	int             m_outerX, m_outerY, m_outerX2 = 0, m_outerY2;

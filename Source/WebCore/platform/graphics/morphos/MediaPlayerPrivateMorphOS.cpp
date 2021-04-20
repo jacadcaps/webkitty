@@ -49,8 +49,6 @@ public:
                 CloseLibrary(cgx);
             }
             checkDone = true;
-            if (!valid)
-                dprintf("Wayfarer: please make sure cgxvideo.library 43.18 is installed in MOSSYS:Libs!\n");
         }
         return valid;
     }
@@ -98,7 +96,7 @@ public:
 		}
 		
 		// HLS
-		if (MediaPlayerMorphOSSettings::settings().m_enableHLS)
+		if (MediaPlayerMorphOSSettings::settings().m_enableAudio || MediaPlayerMorphOSSettings::settings().m_enableVideo)
 		{
 			types.add(String("application/x-mpegurl"));
 			types.add(String("application/vnd.apple.mpegurl"));
@@ -524,17 +522,11 @@ void MediaPlayerPrivateMorphOS::accNextFrameReady()
 			});
 		}
 	}
-    else
-    {
-        m_player->repaint();
-    }
 }
 
 void MediaPlayerPrivateMorphOS::accNoFramesReady()
 {
 	// TODO: overlay shutdown?
-	m_didDrawFrame = false;
-	m_player->repaint();
 }
 
 void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)

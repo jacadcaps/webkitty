@@ -104,7 +104,6 @@ public:
 	void play();
 	void prePlay();
 	void pause();
-    void nudge();
 
 	void warmUp();
 	void coolDown();

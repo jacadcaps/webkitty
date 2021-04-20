@@ -6,8 +6,7 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
-#define D(x)
-#define DRTP(x) x
+#define D(x) 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -22,7 +21,6 @@ Ref<MediaSourcePrivateMorphOS> MediaSourcePrivateMorphOS::create(MediaPlayerPriv
 MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client, const String &url)
     : m_player(makeWeakPtr(parent))
     , m_client(client)
-    , m_playWatchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_url = url.substring(5);
@@ -42,11 +40,8 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
     MediaEngineSupportParameters parameters;
     parameters.isMediaSource = true;
     parameters.type = contentType;
-
     if (MediaPlayerPrivateMorphOS::extendedSupportsType(parameters, MediaPlayer::SupportsType::MayBeSupported) == MediaPlayer::SupportsType::IsNotSupported)
-    {
         return NotSupported;
-    }
 
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
 	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
@@ -72,7 +67,7 @@ void MediaSourcePrivateMorphOS::durationChanged()
 		m_player->accSetDuration(duration().toDouble());
 }
 
-void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus )
+void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus status)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 //    if (status == EosNoError)
@@ -183,7 +178,6 @@ void MediaSourcePrivateMorphOS::coolDown()
 void MediaSourcePrivateMorphOS::play()
 {
 	m_paused = false;
-   	m_playWatchdogTimer.startOneShot(Seconds(1.0));
 
 	if (areDecodersReadyToPlay())
 	{
@@ -209,7 +203,6 @@ void MediaSourcePrivateMorphOS::pause()
 		sourceBufferPrivate->pause();
 	m_paused = true;
 	m_waitReady = false;
-   	m_playWatchdogTimer.stop();
 }
 
 void MediaSourcePrivateMorphOS::seek(double time)
@@ -240,7 +233,7 @@ void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int s
 		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 }
 
-void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &)
+void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)
 {
 	D(dprintf("%s: allinitialized %d\n", __PRETTY_FUNCTION__, areDecodersInitialized()));
 	if (areDecodersInitialized())
@@ -282,37 +275,16 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 
 void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
-	if (m_paintingBuffer != buffer)
-    {
-        if (m_player)
-        {
-            if (m_paintingBuffer)
-                m_player->accNoFramesReady();
-            else
-                m_player->accFrameUpdateNeeded();
-        }
+	m_paintingBuffer = buffer;
+	if (m_player)
+		m_player->accNextFrameReady();
 
-        m_paintingBuffer = buffer;
-
-        if (m_player)
-            m_player->accNextFrameReady();
-    }
 	m_seeking = false;
-}
-
-void MediaSourcePrivateMorphOS::onSourceBufferNotReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
-{
-    if (m_paintingBuffer == buffer)
-    {
-        m_paintingBuffer = nullptr;
-        if (m_player)
-            m_player->accNoFramesReady();
-    }
 }
 
 void MediaSourcePrivateMorphOS::onSourceBuffersReadyToPlay()
 {
-	DRTP(dprintf("%s: wr %d areready %d pased %d\n", __PRETTY_FUNCTION__, m_waitReady, areDecodersReadyToPlay(), m_paused));
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	if (m_waitReady && areDecodersReadyToPlay())
 	{
 		play();
@@ -361,7 +333,7 @@ bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()
 			return false;
 	}
 
-	return m_sourceBuffers.size() > 0;
+	return true;
 }
 
 bool MediaSourcePrivateMorphOS::areDecodersInitialized()
@@ -372,23 +344,7 @@ bool MediaSourcePrivateMorphOS::areDecodersInitialized()
 			return false;
 	}
 
-	return m_sourceBuffers.size() > 0;
-}
-
-void MediaSourcePrivateMorphOS::watchdogTimerFired()
-{
-    dprintf("WDT: paused %d init %d rdy %d asb %d seeking %d wardy %d\n", m_paused,
-        areDecodersInitialized(), areDecodersReadyToPlay(), m_activeSourceBuffers.size(), m_seeking, m_waitReady);
-
-    if (!m_paused)
-    {
-        if (!m_seeking && !m_waitReady)
-        {
-            for (auto& sourceBufferPrivate : m_activeSourceBuffers)
-                sourceBufferPrivate->nudge();
-        }
-       	m_playWatchdogTimer.startOneShot(Seconds(1.0));
-    }
+	return true;
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, bool active)
@@ -400,7 +356,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
         if (m_player)
 			m_player->onActiveSourceBuffersChanged();
         durationChanged();
-        if (!m_paused && !m_waitReady)
+        if (!m_paused)
             buffer->play();
     }
     else if (!active && m_activeSourceBuffers.contains(buffer))

@@ -142,9 +142,6 @@ typedef enum {
 + (BOOL)vp9Enabled;
 + (void)setVp9Enabled:(BOOL)enabled;
 
-+ (BOOL)hlsEnabled;
-+ (void)setHLSEnabled:(BOOL)enabled;
-
 + (BOOL)videoDecodingEnabled;
 + (void)setVideoDecodingEnabled:(BOOL)enabled;
 

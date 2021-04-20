@@ -353,18 +353,17 @@ void Acinerella::performTerminate()
 bool Acinerella::initialize()
 {
 	DINIT(dprintf("%s: %p\n", __func__, this));
-    RefPtr<AcinerellaPointer> acinerella(AcinerellaPointer::create());
-	if (acinerella && acinerella->instance())
+	m_acinerella = AcinerellaPointer::create();
+	if (m_acinerella)
 	{
-        m_acinerella = acinerella;
-		if (-1 == ac_open(acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
+		if (-1 == ac_open(m_acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 		{
 			m_acinerella = nullptr;
 			DINIT(dprintf("---- ac failed to open :(\n"));
 		}
 		else
 		{
-			DINIT(dprintf("ac initialized, stream count %d\n", acinerella->instance()->stream_count));
+			DINIT(dprintf("ac initialized, stream count %d\n", m_acinerella->instance()->stream_count));
 			int audioIndex = -1;
 			int videoIndex = -1;
 
@@ -373,10 +372,10 @@ bool Acinerella::initialize()
 
 			m_muxer = AcinerellaMuxedBuffer::create();
 
-			for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++)
+			for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, m_acinerella->instance()->stream_count); i++)
 			{
 				ac_stream_info info;
-				ac_get_stream_info(acinerella->instance(), i, &info);
+				ac_get_stream_info(m_acinerella->instance(), i, &info);
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
@@ -406,19 +405,19 @@ bool Acinerella::initialize()
 
 				if (-1 != audioIndex)
 				{
-					ac_get_stream_info(acinerella->instance(), audioIndex, &info);
-					acinerella->setDecoder(audioIndex, ac_create_decoder(acinerella->instance(), audioIndex));
-					m_audioDecoder = AcinerellaAudioDecoder::create(this, acinerella, m_muxer, audioIndex, info, m_isLive);
+					ac_get_stream_info(m_acinerella->instance(), audioIndex, &info);
+					m_acinerella->setDecoder(audioIndex, ac_create_decoder(m_acinerella->instance(), audioIndex));
+					m_audioDecoder = AcinerellaAudioDecoder::create(this, m_acinerella, m_muxer, audioIndex, info, m_isLive);
 					if (!!m_audioDecoder)
 						decoderMask |= (1UL << audioIndex);
 				}
 
 				if (-1 != videoIndex)
 				{
-					ac_get_stream_info(acinerella->instance(), videoIndex, &info);
-					acinerella->setDecoder(videoIndex, ac_create_decoder(acinerella->instance(), videoIndex));
-					DINIT(dprintf("video decoder: %p\n", acinerella->decoder(videoIndex)));
-					m_videoDecoder = AcinerellaVideoDecoder::create(this, acinerella, m_muxer, videoIndex, info, m_isLive);
+					ac_get_stream_info(m_acinerella->instance(), videoIndex, &info);
+					m_acinerella->setDecoder(videoIndex, ac_create_decoder(m_acinerella->instance(), videoIndex));
+					DINIT(dprintf("video decoder: %p\n", m_acinerella->decoder(videoIndex)));
+					m_videoDecoder = AcinerellaVideoDecoder::create(this, m_acinerella, m_muxer, videoIndex, info, m_isLive);
 					if (!!m_videoDecoder)
 						decoderMask |= (1UL << videoIndex);
 				}

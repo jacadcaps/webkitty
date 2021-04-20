@@ -1565,19 +1565,13 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 		m_fullscreenElement = makeRef(*element);
         m_fullscreenElement->document().fullscreenManager().willEnterFullscreen(*m_fullscreenElement);
         m_fullscreenElement->document().fullscreenManager().didEnterFullscreen();
-
-		if (_fZoomChangedByWheel)
-			_fZoomChangedByWheel();
-    }
+	}
 	else
 	{
 		if (m_fullscreenElement)
 		{
 			m_fullscreenElement->document().fullscreenManager().willExitFullscreen();
 			m_fullscreenElement->document().fullscreenManager().didExitFullscreen();
-
-            if (_fZoomChangedByWheel)
-                _fZoomChangedByWheel();
 		}
 		
 		m_fullscreenElement = nullptr;
