@@ -37,6 +37,8 @@ void VideoTrackPrivateMorphOS::disconnect()
 	m_player = nullptr;
 }
 
+#if ENABLE(MEDIA_SOURCE)
+
 void VideoTrackPrivateMorphOSMS::setSelected(bool setselected)
 {
 	if (setselected != selected())
@@ -57,6 +59,8 @@ VideoTrackPrivateMorphOSMS::VideoTrackPrivateMorphOSMS(MediaSourceBufferPrivateM
     , m_source(source)
 {
 }
+
+#endif
 
 }
 

@@ -31,8 +31,9 @@ public:
 	double readAheadTime() const override { return m_isLive ? 10.0 : 2.5; }
 
 	bool isReadyToPlay() const override;
-
 	bool isPlaying() const override;
+    bool isWarmedUp() const override;
+
 	double position() const override;
 	double bufferSize() const override { return m_bufferedSeconds; }
 	void paint(GraphicsContext&, const FloatRect&) override { }
@@ -43,6 +44,7 @@ protected:
 	void doSetVolume(double volume) override;
 
 	void onThreadShutdown() override;
+	void onGetReadyToPlay() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
 	void flush() override;
 	bool initializeAudio();

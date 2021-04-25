@@ -94,13 +94,15 @@ protected:
 	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) override;
+	void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) override;
+
 	void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) override;
 	void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) override;
 	void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) override;
-	void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) override;
-	void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
-	void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) override;
-	void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) override;
+
+	void onDecoderWantsToRender(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderRenderUpdate(RefPtr<AcinerellaDecoder> decoder) override;
+	void onDecoderNotReadyToRender(RefPtr<AcinerellaDecoder> decoder) override;
 
 protected:
 	static int acOpenCallback(void *me);

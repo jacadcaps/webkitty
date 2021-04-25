@@ -16,8 +16,8 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
-#define DSYNC(x)  
+#define D(x) x
+#define DSYNC(x)  x
 #define DSPAM(x) 
 #define DSPAMTS(x) 
 
@@ -75,7 +75,17 @@ void AcinerellaAudioDecoder::doSetVolume(double volume)
 
 bool AcinerellaAudioDecoder::isReadyToPlay() const
 {
+	return isWarmedUp() && m_ahiControl;
+}
+
+bool AcinerellaAudioDecoder::isWarmedUp() const
+{
 	return bufferSize() >= readAheadTime();
+}
+
+bool AcinerellaAudioDecoder::isPlaying() const
+{
+	return m_playing;
 }
 
 bool AcinerellaAudioDecoder::initializeAudio()
@@ -212,6 +222,12 @@ void AcinerellaAudioDecoder::onThreadShutdown()
 	ahiCleanup();
 }
 
+void AcinerellaAudioDecoder::onGetReadyToPlay()
+{
+	D(dprintf("[AD]%s: waplay %d readying %d warmup %d warmedup %d\n", __func__, m_waitingToPlay, m_readying, m_warminUp, isWarmedUp()));
+	initializeAudio();
+}
+
 void AcinerellaAudioDecoder::ahiCleanup()
 {
 	D(dprintf("[AD]%s:\n", __func__));
@@ -273,11 +289,6 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	DSPAM(dprintf("[AD]%s: buffered %f\n", __func__, m_bufferedSeconds));
 }
 
-bool AcinerellaAudioDecoder::isPlaying() const
-{
-	return m_playing;
-}
-
 double AcinerellaAudioDecoder::position() const
 {
 	return m_position;
@@ -297,7 +308,6 @@ void AcinerellaAudioDecoder::flush()
 	
 	AcinerellaDecoder::flush();
 
-	m_ahiSampleBeingPlayed = 0;
 	m_ahiFrameOffset = 0;
 	m_bufferedSeconds = 0;
 	m_bufferedSamples = 0;
@@ -305,6 +315,9 @@ void AcinerellaAudioDecoder::flush()
 
 	if (m_ahiControl)
 	{
+		bzero(m_ahiSample[0].ahisi_Address, m_ahiSampleLength * 4);
+		bzero(m_ahiSample[1].ahisi_Address, m_ahiSampleLength * 4);
+
 		AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl);
 		AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl);
 	}
@@ -325,7 +338,8 @@ void AcinerellaAudioDecoder::flush()
 	{
 		decodeUntilBufferFull();
 
-		fillBuffer(0);
+		uint32_t index = m_ahiSampleBeingPlayed % 2; // this sample will play next
+		fillBuffer(index);
 		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
 	}
 }
@@ -350,7 +364,6 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 	EP_SCOPE(fillBuffer);
 	uint32_t offset = 0;
 	uint32_t bytesLeft = m_ahiSampleLength * 4;
-	D(size_t framesLeft = 0);
 	bool didPopFrames = false;
 	bool didSetTimecode = false;
 
@@ -393,7 +406,6 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				didPopFrames = true;
 			}
 		}
-		D(framesLeft = m_decodedFrames.size());
 	}
 
 	// Clear remaining buffer in case of an underrun

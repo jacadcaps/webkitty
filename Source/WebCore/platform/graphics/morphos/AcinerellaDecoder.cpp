@@ -10,7 +10,7 @@
 #define DNF(x)
 #define DI(x)
 #define DBF(x)
-#define DPOS(x) 
+#define DPOS(x)  x
 
 // #pragma GCC optimize ("O0")
 
@@ -72,13 +72,11 @@ void AcinerellaDecoder::prePlay()
 	dispatch([this](){
 		decodeUntilBufferFull();
 		onGetReadyToPlay();
+		D(dprintf("[%s]prePlay: %p ready %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, isReadyToPlay()));
+		m_readying = true; // force onReadyToPlay() if ready
 		if (isReadyToPlay())
 		{
 			onReadyToPlay();
-		}
-		else
-		{
-			m_readying = true;
 		}
 	});
 }
@@ -102,8 +100,12 @@ void AcinerellaDecoder::play()
 
 void AcinerellaDecoder::onReadyToPlay()
 {
-	m_readying = false;
-	m_client->onDecoderReadyToPlay(makeRef(*this));
+	D(dprintf("[%s]%s: %p readying %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV",__func__, this, m_readying));
+	if (m_readying)
+	{
+		m_readying = false;
+		m_client->onDecoderReadyToPlay(makeRef(*this));
+	}
 }
 
 void AcinerellaDecoder::pause(bool willSeek)
@@ -279,7 +281,7 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 		onReadyToPlay();
 	}
 
-	DBF(dprintf("[%s]%s: %p - buffer full\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DBF(dprintf("[%s]%s: %p - buffer full (%f s)\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, float(bufferSize())));
 }
 
 void AcinerellaDecoder::dropUntilPTS(double pts)

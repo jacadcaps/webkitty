@@ -38,6 +38,7 @@ protected:
     WeakPtr<MediaPlayerPrivateMorphOS> m_player;
 };
 
+#if ENABLE(MEDIA_SOURCE)
 class VideoTrackPrivateMorphOSMS final : public VideoTrackPrivateMorphOS
 {
 public:
@@ -54,6 +55,7 @@ private:
     VideoTrackPrivateMorphOSMS(MediaSourceBufferPrivateMorphOS *source, int index);
     MediaSourceBufferPrivateMorphOS *m_source;
 };
+#endif
 
 }
 
