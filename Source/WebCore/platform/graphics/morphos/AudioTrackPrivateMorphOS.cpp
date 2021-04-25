@@ -37,6 +37,8 @@ void AudioTrackPrivateMorphOS::setEnabled(bool setenabled)
 	}
 }
 
+#if ENABLE(MEDIA_SOURCE)
+
 AudioTrackPrivateMorphOSMS::AudioTrackPrivateMorphOSMS(MediaSourceBufferPrivateMorphOS *source, int index)
     : AudioTrackPrivateMorphOS(nullptr, index)
     , m_source(source)
@@ -59,6 +61,8 @@ void AudioTrackPrivateMorphOSMS::setEnabled(bool setenabled)
 	}
 
 }
+
+#endif
 
 }
 

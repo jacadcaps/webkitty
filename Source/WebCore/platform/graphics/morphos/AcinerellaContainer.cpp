@@ -10,10 +10,10 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x) x
 #define DNP(x)
 #define DIO(x)
-#define DINIT(x)
+#define DINIT(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -688,6 +688,18 @@ void Acinerella::onDecoderPlaying(RefPtr<AcinerellaDecoder>, bool /*playing*/)
 //	});
 }
 
+void Acinerella::onDecoderEnded(RefPtr<AcinerellaDecoder>)
+{
+	D(dprintf("%s: %p\n", __func__ , this));
+	m_ended = true;
+	m_paused = true;
+
+	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accEnded();
+	});
+}
+
 void Acinerella::onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder>, double buffer)
 {
 	WTF::callOnMainThread([this, buffer, protectedThis = makeRef(*this)]() {
@@ -698,7 +710,7 @@ void Acinerella::onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder>, double 
 
 void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double pos)
 {
-	D(dprintf("%s: %p\n", __func__ , this));
+	D(dprintf("%s: %p %f\n", __func__ , this, float(pos)));
 	if (decoder->isAudio() || !m_audioDecoder)
 	{
 		if (m_isSeeking && pos >= (m_seekingPosition - 5.f) && pos <= (m_seekingPosition + 5.f))
@@ -706,6 +718,11 @@ void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, dou
 			D(dprintf("--endseeking\n"));
 			m_isSeeking = false;
 	
+			if (m_audioDecoder)
+			{
+				m_audioDecoder->play();
+			}
+
 			if (m_videoDecoder)
 			{
 				m_videoDecoder->play();
@@ -737,19 +754,8 @@ void Acinerella::onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder>, double dura
 	});
 }
 
-void Acinerella::onDecoderEnded(RefPtr<AcinerellaDecoder>)
-{
-	D(dprintf("%s: %p\n", __func__ , this));
-	m_ended = true;
-	m_paused = true;
 
-	WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
-		if (m_client)
-			m_client->accEnded();
-	});
-}
-
-void Acinerella::onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
+void Acinerella::onDecoderWantsToRender(RefPtr<AcinerellaDecoder> decoder)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 		if (m_client)
@@ -757,7 +763,7 @@ void Acinerella::onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
 	});
 }
 
-void Acinerella::onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
+void Acinerella::onDecoderNotReadyToRender(RefPtr<AcinerellaDecoder> decoder)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 		if (m_client)
@@ -765,7 +771,7 @@ void Acinerella::onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder)
 	});
 }
 
-void Acinerella::onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder)
+void Acinerella::onDecoderRenderUpdate(RefPtr<AcinerellaDecoder> decoder)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 		if (m_client)

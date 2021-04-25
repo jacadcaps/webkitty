@@ -26,9 +26,9 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x)
+#define D(x) x
 #define DSYNC(x) 
-#define DOVL(x)
+#define DOVL(x) x
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -89,12 +89,17 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
 {
-	return (bufferSize() >= readAheadTime()) && m_overlayWindow;
+	return isWarmedUp() && m_didShowFirstFrame;
+}
+
+bool AcinerellaVideoDecoder::isWarmedUp() const
+{
+	return bufferSize() >= readAheadTime();
 }
 
 bool AcinerellaVideoDecoder::isPlaying() const
 {
-	return m_playing || m_waitingToPlay;
+	return m_playing;
 }
 
 double AcinerellaVideoDecoder::position() const
@@ -105,10 +110,9 @@ double AcinerellaVideoDecoder::position() const
 void AcinerellaVideoDecoder::startPlaying()
 {
 	D(dprintf("\033[35m[VD]%s: %p ovw %p\033[0m\n", __func__, this, m_overlayWindow));
-	if (m_overlayWindow)
+	if (isReadyToPlay())
 	{
 		m_playing = true;
-		m_waitingToPlay = false;
 		onPositionChanged();
         ac_decoder_set_loopfilter(m_lastDecoder, int(MediaPlayerMorphOSSettings::settings().m_loopFilter));
 		m_pullEvent.signal();
@@ -119,15 +123,13 @@ void AcinerellaVideoDecoder::startPlaying()
 void AcinerellaVideoDecoder::onGetReadyToPlay()
 {
 	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
-	m_waitingToPlay = true;
-	m_client->onDecoderReadyToPaint(makeRef(*this));
+	m_client->onDecoderWantsToRender(makeRef(*this));
 }
 
 void AcinerellaVideoDecoder::stopPlaying()
 {
 	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	m_playing = false;
-	m_waitingToPlay = false;
 	m_pullEvent.signal();
 
 	auto lock = holdLock(m_audioLock);
@@ -149,6 +151,11 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	DFRAME(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	m_bufferedSeconds += m_frameDuration;
 	m_pullEvent.signal();
+	if (!m_didShowFirstFrame && m_overlayHandle)
+	{
+	// caled under locks!
+		showFirstFrame(false);
+	}
 }
 
 void AcinerellaVideoDecoder::flush()
@@ -219,6 +226,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 			}
 
 			m_overlayWindow = w;
+			m_didShowFirstFrame = false;
 			
 			if (m_overlayWindow && !m_terminating && m_cgxVideo)
 			{
@@ -237,21 +245,54 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 					m_overlayFillColor = GetVLayerAttr(m_overlayHandle, VOA_ColorKey);
 					DOVL(dprintf("\033[35m[VD]%s: fill %08lx\033[0m\n", __func__, m_overlayFillColor));
 					m_pullEvent.signal();
+					
+					dispatch([this]() {
+						showFirstFrame(true);
+					});
 				}
 				else
 				{
 					DOVL(dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight));
 				}
 			}
-			
-            if (isReadyToPlay() && m_readying)
-                onReadyToPlay();
 		}
 	}
 
 	if (m_overlayHandle && m_paintX2 > 0)
 	{
 		updateOverlayCoords();
+	}
+}
+
+void AcinerellaVideoDecoder::showFirstFrame(bool locks)
+{
+	bool didShowFrame = false;
+
+	if (locks)
+	{
+		auto lock = holdLock(m_lock);
+		if (m_decodedFrames.size())
+		{
+			m_position = m_decodedFrames.front().pts();
+			blitFrameLocked();
+			didShowFrame = true;
+		}
+	}
+	else
+	{
+		if (m_decodedFrames.size())
+		{
+			m_position = m_decodedFrames.front().pts();
+			blitFrameLocked();
+			didShowFrame = true;
+		}
+	}
+
+	if (didShowFrame)
+	{
+		m_didShowFirstFrame = true;
+		onPositionChanged();
+		onReadyToPlay();
 	}
 }
 
@@ -325,7 +366,7 @@ void AcinerellaVideoDecoder::paint(GraphicsContext& gc, const FloatRect& rect)
 
 	if (needsToSetCoords && m_client)
 	{
-		m_client->onDecoderPaintUpdate(makeRef(*this));
+		m_client->onDecoderRenderUpdate(makeRef(*this));
 	}
 
 #if 0
@@ -487,11 +528,12 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 #ifdef FORCEDECODE
 		if (m_playing && !m_terminating)
 #else
-		if (m_playing && !m_terminating && m_overlayHandle)
+		if ((!m_didShowFirstFrame || m_playing) && !m_terminating && m_overlayHandle)
 #endif
 		{
 			D(dprintf("\033[36m[VD]%s: %p nf\033[0m\n", __func__, this));
 			bool dropFrame = false;
+			bool didShowFrame = false;
 
 			while (m_playing && !m_terminating)
 			{
@@ -536,6 +578,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							m_decodedFrames.pop();
 
 							m_frameCount++;
+							didShowFrame = true;
 						}
 						else
 						{
@@ -546,7 +589,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 				bool changePosition = 0 == (m_frameCount % int(m_fps));
 
-				dispatch([this, changePosition]() {
+				dispatch([this, changePosition, didShowFrame]() {
                     if (changePosition)
                     {
                         if (m_isLive)
@@ -561,7 +604,13 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
                             onPositionChanged();
                         }
                     }
-                
+
+					if (didShowFrame && !m_didShowFirstFrame)
+					{
+						m_didShowFirstFrame = true;
+						onReadyToPlay();
+					}
+
 					decodeUntilBufferFull();
 				});
 

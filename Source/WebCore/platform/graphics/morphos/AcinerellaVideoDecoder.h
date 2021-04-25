@@ -33,6 +33,7 @@ public:
 	
 	double framesPerSecond() const { return m_fps; }
 
+	bool isWarmedUp() const override;
 	bool isReadyToPlay() const override;
 
 	bool isPlaying() const override;
@@ -62,6 +63,7 @@ protected:
 
 	void pullThreadEntryPoint();
 	void blitFrameLocked();
+	void showFirstFrame(bool lock);
 	
 	void updateOverlayCoords();
 
@@ -76,7 +78,6 @@ protected:
 	uint32_t        m_bufferedSamples = 0;
 	volatile float  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
-	bool            m_waitingToPlay = false;
 	int             m_frameWidth;
 	int             m_frameHeight;
 	int             m_frameCount = 0;
@@ -91,6 +92,7 @@ protected:
 	
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;
+	bool            m_didShowFirstFrame = false;
 	
 	int             m_paintX, m_paintY, m_paintX2 = 0, m_paintY2;
 	int             m_outerX, m_outerY, m_outerX2 = 0, m_outerY2;

@@ -58,14 +58,17 @@ class AcinerellaDecoderClient
 public:
 	virtual void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
+
 	virtual void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) = 0;
+	virtual void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) = 0;
+
 	virtual void onDecoderUpdatedBufferLength(RefPtr<AcinerellaDecoder> decoder, double buffer) = 0;
 	virtual void onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, double position) = 0;
 	virtual void onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration) = 0;
-	virtual void onDecoderEnded(RefPtr<AcinerellaDecoder> decoder) = 0;
-	virtual void onDecoderReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
-	virtual void onDecoderPaintUpdate(RefPtr<AcinerellaDecoder> decoder) = 0;
-	virtual void onDecoderNotReadyToPaint(RefPtr<AcinerellaDecoder> decoder) = 0;
+
+	virtual void onDecoderWantsToRender(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderRenderUpdate(RefPtr<AcinerellaDecoder> decoder) = 0;
+	virtual void onDecoderNotReadyToRender(RefPtr<AcinerellaDecoder> decoder) = 0;
 };
 
 class AcinerellaDecoder : public ThreadSafeRefCounted<AcinerellaDecoder>
@@ -78,19 +81,28 @@ public:
 	// call from: Acinerella thread
 	void terminate();
 
+    // buffer enough frames, signal warmedUp
 	void warmUp();
+    // true if enough data is buffered in the decoder
+    virtual bool isWarmedUp() const = 0;
+
+    // release AHI/overlay, etc
 	void coolDown();
 
+    // get ready to render 1st frame, setup (paused) AHI output, etc
+    // do everything required for play() to be instantneous
 	void prePlay();
+	virtual bool isReadyToPlay() const = 0;
+
 	void play();
 	void pause(bool willSeek = false);
-
 	virtual bool isPlaying() const = 0;
-	virtual bool isReadyToPlay() const = 0;
+    bool isEnded() const;
 
 	virtual bool isAudio() const = 0;
 	virtual bool isVideo() const = 0;
 	virtual bool isText() const = 0;
+
 	void setVolume(float volume);
 
 	double duration() const { return m_duration; }
@@ -148,21 +160,21 @@ protected:
 	double                             m_duration;
 	int                                m_bitrate;
 	int                                m_index;
+	bool                               m_isLive = false;
 	
 	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
 	Lock                               m_lock;
 
 	ac_decoder                        *m_lastDecoder = nullptr;
 
+	bool                               m_readying = false;
+	bool                               m_warminUp = false;
 	bool                               m_terminating = false;
-	bool                               m_isLive = false;
 	bool                               m_decoderEOF = false;
 	
 	bool                               m_droppingFrames = false;
 	bool                               m_droppingUntilKeyFrame = false;
 	bool                               m_needsKF = false;
-	bool                               m_readying = false;
-	bool                               m_warminUp = false;
 	double                             m_dropToPTS;
 };
 
