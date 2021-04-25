@@ -1070,7 +1070,7 @@ bool MediaSourceBufferPrivateMorphOS::areDecodersReadyToPlay()
 	return true;
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPaint(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+void MediaSourceBufferPrivateMorphOS::onDecoderWantsToRender(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
 	DI(if (!m_paintingDecoder) dprintf("[MS]%s: %p decoder %p\n", __func__, this, m_paintingDecoder.get()));
 	EP_EVENT(readyToPaint);
@@ -1086,13 +1086,13 @@ void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPaint(RefPtr<Acinerella::A
 	});
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderNotReadyToPaint(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+void MediaSourceBufferPrivateMorphOS::onDecoderNotReadyToRender(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
 	if (decoder == m_paintingDecoder)
 		m_paintingDecoder = nullptr;
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderPaintUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+void MediaSourceBufferPrivateMorphOS::onDecoderRenderUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder)
 {
 	if (decoder == m_paintingDecoder)
 	{
