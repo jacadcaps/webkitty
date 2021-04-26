@@ -26,9 +26,9 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x) x
+#define D(x)
 #define DSYNC(x) 
-#define DOVL(x) x
+#define DOVL(x)
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -163,7 +163,13 @@ void AcinerellaVideoDecoder::flush()
 	DSYNC(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	AcinerellaDecoder::flush();
 	m_hasAudioPosition = false;
+	m_bufferedSeconds = 0;
 	m_frameCount = 0;
+}
+
+void AcinerellaVideoDecoder::dumpStatus()
+{
+	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FFR %d\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame);
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
@@ -553,6 +559,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						{
 							m_position = pts = m_decodedFrames.front().pts();
 							m_decodedFrames.pop();
+							m_bufferedSeconds -= m_frameDuration;
 							dropFrame = false;
 							m_frameCount++;
 						}
@@ -576,6 +583,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 							// Pop the frame
 							m_decodedFrames.pop();
+							m_bufferedSeconds -= m_frameDuration;
 
 							m_frameCount++;
 							didShowFrame = true;

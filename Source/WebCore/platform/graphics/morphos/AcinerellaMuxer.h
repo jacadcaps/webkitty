@@ -74,6 +74,8 @@ public:
 	RefPtr<AcinerellaPackage> nextPackage(AcinerellaDecoder &decoder);
 	bool isEOS() const { return m_queueCompleteOrError; }
 
+	int packagesForDecoder(int decoderIndex);
+
 protected:
 	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
 

@@ -22,6 +22,7 @@ struct MediaPlayerMorphOSInfo
 	int   m_height;
 	bool  m_isLive = false;
     bool  m_isDownloadable = false;
+    bool  m_isMediaSource = false;
 };
 
 struct MediaPlayerMorphOSSettings

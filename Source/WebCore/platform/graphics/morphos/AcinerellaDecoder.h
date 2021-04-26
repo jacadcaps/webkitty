@@ -113,6 +113,8 @@ public:
 	virtual void paint(GraphicsContext&, const FloatRect&) = 0;
 
 	int index() const { return m_index; }
+	
+	virtual void dumpStatus() = 0;
 
 protected:
 	// call from: Own thread

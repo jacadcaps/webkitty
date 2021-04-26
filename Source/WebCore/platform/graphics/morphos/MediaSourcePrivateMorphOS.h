@@ -7,6 +7,7 @@
 #include "MediaSourcePrivate.h"
 #include "MediaSourceBufferPrivateMorphOS.h"
 #include <wtf/MediaTime.h>
+#include <wtf/RunLoop.h>
 
 struct Window;
 
@@ -73,10 +74,14 @@ public:
     
     void setVolume(double vol);
     void setMuted(bool muted);
+    
+    void dumpStatus();
 
 protected:
 	bool areDecodersReadyToPlay();
 	bool areDecodersInitialized();
+	
+	void watchdogTimerFired();
 
 private:
 	WeakPtr<MediaPlayerPrivateMorphOS>               m_player;
@@ -86,6 +91,7 @@ private:
 	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_activeSourceBuffers;
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
+	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_watchdogTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;

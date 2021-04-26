@@ -125,6 +125,7 @@ public:
 	bool areDecodersReadyToPlay();
 
     void onTrackEnabled(int index, bool enabled);
+    void dumpStatus();
 
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);

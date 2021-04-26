@@ -582,7 +582,7 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
     // We cannot meaningfully do this for MediaSource!
-	if (MediaPlayerMorphOSSettings::settings().m_loadCheck && m_acinerella)
+	if (MediaPlayerMorphOSSettings::settings().m_loadCheck)
 	{
 		String url;
 

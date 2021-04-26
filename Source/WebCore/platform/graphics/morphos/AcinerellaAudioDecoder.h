@@ -38,6 +38,8 @@ public:
 	double bufferSize() const override { return m_bufferedSeconds; }
 	void paint(GraphicsContext&, const FloatRect&) override { }
 
+	void dumpStatus() override;
+
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;

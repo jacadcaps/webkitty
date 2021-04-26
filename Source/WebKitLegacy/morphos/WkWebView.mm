@@ -898,7 +898,7 @@ namespace  {
 {
 	OBEnumerator *e = [_mediaPlayers objectEnumerator];
 	WkMediaLoadResponseHandlerPrivate *handler;
-	
+
 	while (handler = [e nextObject])
 	{
 		[handler yield:playerRef];
@@ -1890,19 +1890,25 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WTF::Function<void(bool doLoad)> &&loadFunc, WTF::Function<void()> &&yieldFunc) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
-			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
-			if (mediaDelegate)
+			auto uurl = url.utf8();
+			WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
+				url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)
+				yieldCallback:WTFMove(yieldFunc)];
+			if (handler)
 			{
-				auto uurl = url.utf8();
-				WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
-					url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)
-					yieldCallback:WTFMove(yieldFunc)];
-				if (handler)
+				[privateObject playerAdded:handler];
+
+				id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
+				if (mediaDelegate)
 				{
-					[privateObject playerAdded:handler];
 					[mediaDelegate webView:self wantsToLoadMediaWithURL:[handler mediaURL] withResponseHandler:handler];
-					[handler release];
 				}
+				else
+				{
+					[handler proceed];
+				}
+
+				[handler release];
 			}
 		};
 		

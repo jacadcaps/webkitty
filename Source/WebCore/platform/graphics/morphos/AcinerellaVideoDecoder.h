@@ -49,6 +49,8 @@ public:
 	void setAudioPresentationTime(double apts);
 	void setCanDropKeyFrames(bool canDropKeyFrames) { m_canDropKeyFrames = canDropKeyFrames; }
 
+	void dumpStatus() override;
+
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;

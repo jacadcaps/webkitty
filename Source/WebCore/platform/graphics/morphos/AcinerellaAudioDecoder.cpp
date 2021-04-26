@@ -16,7 +16,7 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) x
+#define D(x) 
 #define DSYNC(x)  x
 #define DSPAM(x) 
 #define DSPAMTS(x) 
@@ -342,6 +342,11 @@ void AcinerellaAudioDecoder::flush()
 		fillBuffer(index);
 		AHI_ControlAudio(m_ahiControl, AHIC_Play, TRUE, TAG_DONE);
 	}
+}
+
+void AcinerellaAudioDecoder::dumpStatus()
+{
+	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f POS %f\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()));
 }
 
 #undef AHI_BASE_NAME

@@ -6,7 +6,9 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
-#define D(x) 
+#define D(x)
+// #define USE_WDG
+#define DDUMP(x) x
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -21,6 +23,7 @@ Ref<MediaSourcePrivateMorphOS> MediaSourcePrivateMorphOS::create(MediaPlayerPriv
 MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client, const String &url)
     : m_player(makeWeakPtr(parent))
     , m_client(client)
+    , m_watchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_url = url.substring(5);
@@ -46,6 +49,8 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
 	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
 	m_sourceBuffers.add(sourceBufferPrivate);
+	if (!m_paused)
+		sourceBufferPrivate->prePlay();
 	return Ok;
 }
 
@@ -144,6 +149,20 @@ void MediaSourcePrivateMorphOS::setMuted(bool muted)
     }
 }
 
+void MediaSourcePrivateMorphOS::dumpStatus()
+{
+	dprintf("\033[37m[MS%p]: BUF %d ACT %d PAU %d SEE %d WAR %d INI %d AUD %d VID %d PAI %p\033[0m\n", this, m_sourceBuffers.size(), m_activeSourceBuffers.size(), m_paused, m_seeking, m_waitReady, m_initialized, m_hasAudio, m_hasVideo, m_paintingBuffer.get());
+    for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+		sourceBufferPrivate->dumpStatus();
+	dprintf("\033[37m[MS%p]: -- \033[0m\n", this);
+}
+
+void MediaSourcePrivateMorphOS::watchdogTimerFired()
+{
+	DDUMP(dumpStatus());
+	m_watchdogTimer.startOneShot(Seconds(1.0));
+}
+
 void MediaSourcePrivateMorphOS::seekCompleted()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
@@ -171,6 +190,7 @@ void MediaSourcePrivateMorphOS::warmUp()
 void MediaSourcePrivateMorphOS::coolDown()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	m_paused = true;
 	for (auto& sourceBufferPrivate : m_sourceBuffers)
 		sourceBufferPrivate->coolDown();
 }
@@ -178,6 +198,10 @@ void MediaSourcePrivateMorphOS::coolDown()
 void MediaSourcePrivateMorphOS::play()
 {
 	m_paused = false;
+
+#ifdef USE_WDG
+	m_watchdogTimer.startOneShot(Seconds(1.0));
+#endif
 
 	if (areDecodersReadyToPlay())
 	{
@@ -198,6 +222,8 @@ void MediaSourcePrivateMorphOS::play()
 
 void MediaSourcePrivateMorphOS::pause()
 {
+	m_watchdogTimer.stop();
+
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	for (auto& sourceBufferPrivate : m_activeSourceBuffers)
 		sourceBufferPrivate->pause();
@@ -262,6 +288,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 					
 					info.m_duration = duration().toFloat(); //! client provides us with the actual duration!
                     info.m_isDownloadable = false;
+                    info.m_isMediaSource = true;
 				}
 
 				D(dprintf("%s: freq %d w %d h %d duration %f clientDuration %f\n", __PRETTY_FUNCTION__, info.m_frequency, info.m_width, info.m_height, float(info.m_duration), float(duration().toDouble())));
@@ -357,7 +384,14 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
 			m_player->onActiveSourceBuffersChanged();
         durationChanged();
         if (!m_paused)
-            buffer->play();
+        {
+			m_waitReady = true;
+            buffer->prePlay();
+		}
+		else
+		{
+			buffer->warmUp();
+		}
     }
     else if (!active && m_activeSourceBuffers.contains(buffer))
     {

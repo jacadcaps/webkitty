@@ -6,11 +6,11 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x)  x
+#define D(x)
 #define DNF(x)
 #define DI(x)
 #define DBF(x)
-#define DPOS(x)  x
+#define DPOS(x)  
 
 // #pragma GCC optimize ("O0")
 

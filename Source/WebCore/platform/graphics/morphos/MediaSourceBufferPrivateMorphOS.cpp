@@ -24,6 +24,7 @@
 #define DIO(x)
 #define DIOCC(x)
 #define DBR(x)
+#define DRMS(x) 
 
 // #pragma GCC optimize ("O0")
 
@@ -641,7 +642,7 @@ void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
                 }
                 else
                 {
-                    m_decoders[index]->play();
+                    m_decoders[index]->prePlay();
                 }
             }
         }
@@ -655,6 +656,26 @@ void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
     }
 }
 
+void MediaSourceBufferPrivateMorphOS::dumpStatus()
+{
+	int numDec = 0;
+	for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
+	{
+		if (!!m_decoders[i])
+			numDec++;
+	}
+	dprintf("\033[36m[MSB%p]: DEC %d SEEK %d TERM %d RMS %d\033[0m\n", this, numDec, m_seeking, m_terminating, m_readyForMoreSamples);
+	for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
+	{
+		if (!!m_decoders[i])
+		{
+			dprintf("[%d]", m_muxer->packagesForDecoder(i));
+			m_decoders[i]->dumpStatus();
+		}
+	}
+	dprintf("\033[36m[MSB%p]: -- \033[0m\n", this);
+}
+
 void MediaSourceBufferPrivateMorphOS::flush(const AtomString&)
 {
 	D(dprintf("[MS]%s\n", __func__));
@@ -662,6 +683,7 @@ void MediaSourceBufferPrivateMorphOS::flush(const AtomString&)
 
 void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 {
+	DRMS(dprintf("[MS]%s\n", __func__));
 	m_readyForMoreSamples = true;
 	
 	if (!!m_decoders[index])

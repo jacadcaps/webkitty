@@ -173,6 +173,12 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 	return nullptr;
 }
 
+int AcinerellaMuxedBuffer::packagesForDecoder(int decoderIndex)
+{
+	auto lock = holdLock(m_lock);
+	return m_packages[decoderIndex].size();
+}
+
 }
 }
 #endif
