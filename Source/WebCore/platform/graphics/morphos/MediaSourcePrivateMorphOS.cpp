@@ -6,8 +6,8 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
-#define D(x)
-// #define USE_WDG
+#define D(x) x
+#define USE_WDG
 #define DDUMP(x) x
 // #pragma GCC optimize ("O0")
 
@@ -56,6 +56,7 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
 
 void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	if (m_paintingBuffer == buffer)
 		m_paintingBuffer = nullptr;
 	m_sourceBuffers.remove(buffer);
@@ -360,7 +361,7 @@ bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()
 			return false;
 	}
 
-	return true;
+	return m_activeSourceBuffers.size() > 0;
 }
 
 bool MediaSourcePrivateMorphOS::areDecodersInitialized()
@@ -376,7 +377,7 @@ bool MediaSourcePrivateMorphOS::areDecodersInitialized()
 
 void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, bool active)
 {
-	D(dprintf("%s: source %p active %d total active %d total %d\n", __PRETTY_FUNCTION__, buffer.get(), active, m_activeSourceBuffers.size(), m_sourceBuffers.size()));
+	D(dprintf("%s: source %p active %d total active %d total %d paus %d\n", __PRETTY_FUNCTION__, buffer.get(), active, m_activeSourceBuffers.size(), m_sourceBuffers.size(), m_paused));
     if (active && !m_activeSourceBuffers.contains(buffer))
     {
         m_activeSourceBuffers.add(buffer);
@@ -387,10 +388,12 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
         {
 			m_waitReady = true;
             buffer->prePlay();
+            D(dprintf("%s: preplay...\n", __PRETTY_FUNCTION__));
 		}
 		else
 		{
 			buffer->warmUp();
+            D(dprintf("%s: warmup...\n", __PRETTY_FUNCTION__));
 		}
     }
     else if (!active && m_activeSourceBuffers.contains(buffer))
