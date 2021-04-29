@@ -6,7 +6,7 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DNF(x)
 #define DI(x)
 #define DBF(x)

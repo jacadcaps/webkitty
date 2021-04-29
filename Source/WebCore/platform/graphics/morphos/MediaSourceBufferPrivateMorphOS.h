@@ -201,6 +201,8 @@ private:
 	double                                        m_seekTime;
 	
 	int                                           m_enqueueCount = 0;
+	int                                           m_appendCount = 0;
+	int                                           m_appendCompleteCount = 0;
 };
 
 }

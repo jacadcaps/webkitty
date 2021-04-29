@@ -36,6 +36,8 @@ public:
     void waitForSeekCompleted() override;
     void seekCompleted() override;
 
+    bool isLiveStream() const;
+
     MediaTime duration();
     std::unique_ptr<PlatformTimeRanges> buffered();
 
@@ -95,7 +97,6 @@ private:
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;
-	bool                                             m_seeking = false;
 	bool                                             m_waitReady = false;
 	bool                                             m_initialized = false;
     bool                                             m_hasVideo = false;
@@ -103,6 +104,9 @@ private:
 	double                                           m_volume = 1.f;
 	bool                                             m_muted = false;
 
+	double                                           m_seekingPos;
+	bool                                             m_seeking = false;
+	bool                                             m_clientSeekDone = false;
 };
 
 }

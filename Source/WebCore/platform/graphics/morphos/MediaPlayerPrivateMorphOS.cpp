@@ -142,7 +142,7 @@ public:
        	auto containerType = parameters.type.containerType();
 		if (containerType.isEmpty())
 		{
-			DM(dprintf("%s: container empty, assume 'maybe'\n", __func__));
+			DM(dprintf("%s: container empty, assume 'maybe'\n"));
 			return MediaPlayer::SupportsType::MayBeSupported;
 		}
 		HashSet<String, ASCIICaseInsensitiveHash> types;
@@ -162,7 +162,7 @@ public:
                 }
 //    "application/vnd.apple.mpegurl" + googlevideo.com
    
-				DM(dprintf("%s: codecs empty, assume 'maybe'\n", __func__));
+				DM(dprintf("%s: codecs empty, assume 'maybe' hlson %d\n", __func__, MediaPlayerMorphOSSettings::settings().m_enableHLS));
 				return MediaPlayer::SupportsType::MayBeSupported;
 			}
 

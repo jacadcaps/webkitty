@@ -181,6 +181,9 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 		// Need to build and forward the InitializationSegment now...
 		double duration = 0.0;
 		minfo.m_width = 0;
+		minfo.m_isLive = false;
+		minfo.m_channels = 0;
+        minfo.m_isDownloadable = false;
 
 		DM(dprintf("%s: streams %d\n", __func__, metaCinerella->instance()->stream_count));
 
@@ -214,6 +217,9 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 					initializationSegment.audioTracks.append(WTFMove(audioTrackInformation));
 					duration = std::max(duration, std::max(double(ac_get_stream_duration(metaCinerella->instance(), i)), double(metaCinerella->instance()->info.duration)/1000.0));
 					DM(dprintf("%s: audio %d %f\n", __func__, i, float(duration)));
+					minfo.m_channels = info.additional_info.audio_info.channel_count;
+					minfo.m_frequency = info.additional_info.audio_info.samples_per_second;
+					minfo.m_bits = info.additional_info.audio_info.bit_depth;
 				}
 				break;
 			}
@@ -221,9 +227,6 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 
 		initializationSegment.duration = MediaTime::createWithDouble(duration);
 		minfo.m_duration = duration;
-		minfo.m_isLive = false;
-		minfo.m_channels = 0;
-        minfo.m_isDownloadable = false;
 		m_highestPTS = duration; // we don't need to synchronize duration if we already know it
 	}
 }
@@ -232,7 +235,7 @@ bool MediaSourceChunkReader::keepDecoding()
 {
 	auto lock = holdLock(m_lock);
 
-//	D(dprintf("[MS]%s: term %d bs %d bp %d\n", __func__, m_terminating, m_buffer.size(), m_bufferPosition));
+// dprintf("[MS]%s: term %d bs %d bp %d eof %d reof %d lover %d\n", __func__, m_terminating, m_buffer.size(), m_bufferPosition, m_bufferEOF, m_readEOF, m_leftOver.size());
 
 	if (m_terminating || m_readEOF)
 		return false;
@@ -240,7 +243,7 @@ bool MediaSourceChunkReader::keepDecoding()
 	if (m_bufferEOF)
 		return true;
 
-	if (m_buffer.size() - m_bufferPosition < AC_BUFSIZE)
+	if (m_leftOver.size() > 0 && m_buffer.size() == 0)
 		return false;
 		
 	return true;
@@ -375,7 +378,7 @@ int MediaSourceChunkReader::read(uint8_t *buf, int size)
 					m_bufferPosition += toCopy;
 				}
 
-				if (m_bufferPosition >= int(m_buffer.size() - AC_BUFSIZE) && m_bufferPosition > 0)
+				if ((m_bufferPosition >= int(m_buffer.size() - AC_BUFSIZE)) && (m_bufferPosition > 0))
 				{
 					int leftOver = m_buffer.size() - m_bufferPosition;
 
@@ -465,6 +468,7 @@ void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
 	EP_EVENT(append);
 	D(dprintf("[MS]%s bytes %lu main %d\n", __func__, vector.size(), isMainThread()));
 	m_reader->decode(WTFMove(vector));
+	m_appendCount ++;
 //	m_client->sourceBufferPrivateAppendComplete(SourceBufferPrivateClient::ReadStreamFailed);
 }
 
@@ -477,7 +481,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 		{
 			MediaSourceChunkReader::MediaSamplesList samples;
 			m_reader->getSamples(samples);
-
+			m_appendCompleteCount ++;
 			DI(dprintf("[MS]%s: %p %d, queue %d samples\n", __func__, this, success, samples.size()));
 
 			for (auto sample : samples)
@@ -664,7 +668,7 @@ void MediaSourceBufferPrivateMorphOS::dumpStatus()
 		if (!!m_decoders[i])
 			numDec++;
 	}
-	dprintf("\033[36m[MSB%p]: DEC %d SEEK %d TERM %d RMS %d\033[0m\n", this, numDec, m_seeking, m_terminating, m_readyForMoreSamples);
+	dprintf("\033[36m[MSB%p]: DEC %d SEEK %d TERM %d RMS %d AC %d ACC %d ENQCNT %d\033[0m\n", this, numDec, m_seeking, m_terminating, m_readyForMoreSamples, m_appendCount, m_appendCompleteCount, m_enqueueCount);
 	for (int i = 0; i < Acinerella::AcinerellaMuxedBuffer::maxDecoders; i++)
 	{
 		if (!!m_decoders[i])
@@ -725,8 +729,8 @@ void MediaSourceBufferPrivateMorphOS::enqueueSample(Ref<MediaSample>&&sample, co
 	RefPtr<Acinerella::AcinerellaPackage> package = msample->package();
 
     m_enqueuedSamples = true;
+	m_enqueueCount ++;
 
-	D(m_enqueueCount ++);
 	D(if (0 == (m_enqueueCount % 50) || (msample->isSync() && !(m_audioDecoderMask & (1uLL << package->index())))) dprintf("[MS][%s]%s PTS %f key %d\n", __func__, (m_audioDecoderMask & (1uLL << package->index())) ? "A":"V", msample->presentationTime().toFloat(), msample->isSync()));
 
 	m_requestedMoreFrames = false;

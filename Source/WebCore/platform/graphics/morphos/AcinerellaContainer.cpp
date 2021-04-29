@@ -10,10 +10,10 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) x
 #define DNP(x)
 #define DIO(x)
-#define DINIT(x) 
+#define DINIT(x) x
 
 namespace WebCore {
 namespace Acinerella {

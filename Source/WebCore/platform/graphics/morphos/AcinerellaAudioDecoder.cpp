@@ -19,7 +19,7 @@ namespace Acinerella {
 #define D(x) 
 #define DSYNC(x) 
 #define DSPAM(x) 
-#define DSPAMTS(x) 
+#define DSPAMTS(x)
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
 	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
@@ -346,7 +346,9 @@ void AcinerellaAudioDecoder::flush()
 
 void AcinerellaAudioDecoder::dumpStatus()
 {
-	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f POS %f\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()));
+	auto lock = holdLock(m_lock);
+	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(),
+		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()));
 }
 
 #undef AHI_BASE_NAME
