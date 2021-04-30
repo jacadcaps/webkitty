@@ -1,3 +1,4 @@
+#define SYSTEM_PRIVATE
 #include "AcinerellaVideoDecoder.h"
 #include "AcinerellaContainer.h"
 
@@ -28,7 +29,7 @@
 
 #define D(x) 
 #define DSYNC(x)
-#define DOVL(x) 
+#define DOVL(x)
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -141,7 +142,16 @@ void AcinerellaVideoDecoder::onThreadShutdown()
 	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	m_pullEvent.signal();
 	m_frameEvent.signal();
-	m_pullThread->waitForCompletion();
+	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
+}
+
+void AcinerellaVideoDecoder::onTerminate()
+{
+	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
+	m_pullEvent.signal();
+	m_frameEvent.signal();
+	if (!!m_pullThread)
+		m_pullThread->waitForCompletion();
 	m_pullThread = nullptr;
 	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
 }
@@ -617,6 +627,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
                         {
                             onPositionChanged();
                         }
+                        
+                        HIDInput();
                     }
 
 					if (didShowFrame && !m_didShowFirstFrame)

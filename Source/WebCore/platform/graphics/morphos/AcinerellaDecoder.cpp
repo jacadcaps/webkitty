@@ -348,6 +348,8 @@ void AcinerellaDecoder::terminate()
 	if (!m_thread)
 		return;
 
+	onTerminate();
+
 	DI(dprintf("[%s]%s: %p disp..\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	m_queue.append(makeUnique<Function<void ()>>([this] {
 		performTerminate();

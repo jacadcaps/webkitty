@@ -58,6 +58,8 @@ protected:
 	void onGetReadyToPlay() override;
 
 	void onThreadShutdown() override;
+	void onTerminate() override;
+
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
 	void onDecoderChanged(RefPtr<AcinerellaPointer> acinerella) override;
 	void flush() override;

@@ -140,6 +140,9 @@ protected:
 	virtual bool onThreadInitialize() { return true; }
 	virtual void onThreadShutdown() { }
 
+	// call from: main thread/terminate
+	virtual void onTerminate() { }
+
 	// call from: Own thread, under m_lock!
 	virtual void onDecoderChanged(RefPtr<AcinerellaPointer>) { }
 	virtual void onFrameDecoded(const AcinerellaDecodedFrame &) { }
