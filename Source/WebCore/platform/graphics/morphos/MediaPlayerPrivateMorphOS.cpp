@@ -170,7 +170,20 @@ public:
 			for (size_t i = 0; i < codecs.size(); i++)
 			{
 				auto &codec = codecs.at(i);
-				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0!
+				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0 + additional libs
+				{
+					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
+					return MediaPlayer::SupportsType::IsNotSupported;
+				}
+#if 0
+				else if (startsWithLettersIgnoringASCIICase(codec, "hvc1")) // not enabled in ffmpeg (h265 variant)
+				{
+					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
+					return MediaPlayer::SupportsType::IsNotSupported;
+				}
+#endif
+				// higher profile h264 seem to fail decoding
+				else if (startsWithLettersIgnoringASCIICase(codec, "avc1.5") || startsWithLettersIgnoringASCIICase(codec, "avc1.6") || startsWithLettersIgnoringASCIICase(codec, "avc1.7") || startsWithLettersIgnoringASCIICase(codec, "avc1.8") || startsWithLettersIgnoringASCIICase(codec, "avc1.f"))
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
@@ -481,7 +494,7 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 	if (m_mediaSourcePrivate)
 		return m_mediaSourcePrivate->buffered();
 #endif
-	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(m_currentTime), MediaTime::createWithDouble(m_currentTime + 6.0));
+	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(m_currentTime), MediaTime::createWithDouble(m_currentTime + 10.0));
 }
 
 void MediaPlayerPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)

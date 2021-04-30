@@ -26,9 +26,9 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x)
-#define DSYNC(x) 
-#define DOVL(x)
+#define D(x) 
+#define DSYNC(x)
+#define DOVL(x) 
 #define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
@@ -169,7 +169,9 @@ void AcinerellaVideoDecoder::flush()
 
 void AcinerellaVideoDecoder::dumpStatus()
 {
-	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FFR %d\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame);
+	auto lock = holdLock(m_lock);
+	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d\033[0m\n",
+		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive);
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
@@ -329,8 +331,8 @@ void AcinerellaVideoDecoder::updateOverlayCoords()
 		offsetY = m_visibleHeight - (double(m_visibleWidth) * frameRevRatio);
 		offsetY /= 2;
 	}
-	offsetX = 0;
-	offsetY = 0;
+//	offsetX = 0;
+//	offsetY = 0;
 
 	auto lock = holdLock(m_lock);
 	if (m_overlayHandle)
@@ -557,7 +559,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					{
 						if (m_decodedFrames.size())
 						{
-							m_position = pts = m_decodedFrames.front().pts();
+							pts = m_decodedFrames.front().pts();
+							if (!m_isLive)
+								m_position = pts;
 							m_decodedFrames.pop();
 							m_bufferedSeconds -= m_frameDuration;
 							dropFrame = false;
@@ -576,7 +580,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						if (m_decodedFrames.size())
 						{
 							// Store current frame's pts
-							m_position = pts = m_decodedFrames.front().pts();
+							pts = m_decodedFrames.front().pts();
+							if (!m_isLive)
+								m_position = pts;
 							
 							// Blit the frame into overlay backbuffer
 							blitFrameLocked();
@@ -635,19 +641,26 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						{
 							double nextPts = m_decodedFrames.front().pts();
 
-							if (getAudioPresentationTime(audioAt))
+							if (nextPts <= pts || m_isLive)
 							{
-								sleepFor = Seconds((pts - audioAt) + (nextPts - pts));
-								if (audioAt > 1.0)
-									canDropFrames = true;
+								sleepFor = Seconds(m_frameDuration);
 							}
 							else
 							{
-								// Sleep for the duration of last frame - time we've already spent
-								sleepFor = Seconds(nextPts - pts);
-								sleepFor -= MonotonicTime::now() - timeDisplayed;
+								if (getAudioPresentationTime(audioAt))
+								{
+									sleepFor = Seconds((pts - audioAt) + (nextPts - pts));
+									if (audioAt > 1.0)
+										canDropFrames = true;
+								}
+								else
+								{
+									// Sleep for the duration of last frame - time we've already spent
+									sleepFor = Seconds(nextPts - pts);
+									sleepFor -= MonotonicTime::now() - timeDisplayed;
+								}
 							}
-							
+
 							DSYNC(dprintf("\033[36m[VD]%s: pts %f next frame in %f diff pts %f audio at %f\033[0m\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
 								float(audioAt)));
 								

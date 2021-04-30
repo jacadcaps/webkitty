@@ -9,6 +9,7 @@
 #include <wtf/Threading.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/RunLoop.h>
 #include "AcinerellaClient.h"
 #include "AcinerellaBuffer.h"
 #include "AcinerellaMuxer.h"
@@ -45,7 +46,7 @@ public:
 	void pause();
 	bool paused();
 
-	double duration();
+	double duration() const { return m_duration; }
 	
 	bool hasAudio() { return m_audioDecoder.get(); }
 	bool hasVideo() { return m_videoDecoder.get(); }
@@ -89,7 +90,7 @@ protected:
 	int read(uint8_t *buf, int size);
 	int64_t seek(int64_t pos, int whence);
 	
-	void demuxMorePackages();
+	void demuxMorePackages(bool untilEOS = false);
 	
 	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
@@ -104,6 +105,9 @@ protected:
 	void onDecoderRenderUpdate(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderNotReadyToRender(RefPtr<AcinerellaDecoder> decoder) override;
 
+	void watchdogTimerFired();
+	void dumpStatus();
+
 protected:
 	static int acOpenCallback(void *me);
 	static int acCloseCallback(void *me);
@@ -116,6 +120,7 @@ protected:
 	RefPtr<AcinerellaPointer>        m_acinerella;
 	Lock                             m_acinerellaLock;
 	RefPtr<AcinerellaNetworkBuffer>  m_networkBuffer;
+	RunLoop::Timer<Acinerella>       m_watchdogTimer;
 
 	RefPtr<AcinerellaMuxedBuffer>    m_muxer;
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;
@@ -131,6 +136,7 @@ protected:
 	bool                             m_ended = false;
 	bool                             m_seekingForward;
 	bool                             m_waitReady = false;
+	bool                             m_ioDiscontinuity = false;
     volatile bool                    m_waitingForDemux = false;
 	
 	int64_t                          m_readPosition = -1;

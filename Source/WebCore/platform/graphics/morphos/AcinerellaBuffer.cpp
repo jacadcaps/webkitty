@@ -39,7 +39,7 @@ public:
 	{
 		if (m_curlRequest)
 		{
-dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
+// dprintf("-- AcinerellaNetworkBufferInternal ORPHANED!!\n");
 			m_curlRequest->cancel();
 		}
 	}

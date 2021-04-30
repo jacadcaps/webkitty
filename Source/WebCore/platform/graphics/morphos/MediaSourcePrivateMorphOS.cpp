@@ -226,7 +226,7 @@ void MediaSourcePrivateMorphOS::play()
 	}
 	else
 	{
-		D(dprintf("%s: prePlay...\n", __PRETTY_FUNCTION__));
+		D(dprintf("%s: prePlay, act buffers %d\n", __PRETTY_FUNCTION__, m_activeSourceBuffers.size()));
 		m_waitReady = true;
 		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
 			sourceBufferPrivate->prePlay();
@@ -284,7 +284,7 @@ void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int s
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-		D(dprintf("onSourceBufferInitialized: allinitialized %d\n", areDecodersInitialized()));
+		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d csdone %d\n", areDecodersInitialized(), m_seeking, m_clientSeekDone));
 		if (areDecodersInitialized())
 		{
 			if (!m_initialized)
@@ -341,12 +341,13 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
 	if (m_player)
 		m_player->accNextFrameReady();
 
-	m_seeking = false;
+	if (m_clientSeekDone)
+		m_seeking = false;
 }
 
 void MediaSourcePrivateMorphOS::onSourceBuffersReadyToPlay()
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	D(dprintf("%s: ready %d\n", __PRETTY_FUNCTION__, areDecodersReadyToPlay()));
 	if (m_waitReady && areDecodersReadyToPlay())
 	{
 		play();
@@ -384,7 +385,8 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 			m_player->accSetPosition(position);
 	});
 
-	m_seeking = false;
+	if (m_clientSeekDone)
+		m_seeking = false;
 }
 
 bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()

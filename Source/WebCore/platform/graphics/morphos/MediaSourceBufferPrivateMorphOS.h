@@ -177,6 +177,7 @@ private:
 	RefPtr<Acinerella::AcinerellaMuxedBuffer>     m_muxer;
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	RefPtr<Acinerella::AcinerellaDecoder>         m_paintingDecoder;
+	bool                                          m_decodersStarved[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 
     RefPtr<Thread>                                m_thread;
     MessageQueue<Function<void ()>>               m_queue;

@@ -24,11 +24,12 @@ all: .buildstamp
 		--enable-demuxer=flv --enable-decoder=flv --enable-decoder=h263 --enable-decoder=vp8 --enable-demuxer=vp8 --enable-parser=vp8 \
 		--enable-decoder=vp9 --enable-demuxer=vp9 --enable-parser=vp9 --enable-bsf=aac_adtstoasc --enable-decoder=mpeg4 --enable-parser=mpeg4video \
 		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts --enable-demuxer=mpegtsraw --enable-parser=h264 \
+		--enable-demuxer=hevc --enable-decoder=hevc \
 		--disable-ffmpeg --disable-ffplay)
 	# remove "-maltivec -mabi=altivec" from generic CFLAGS
 	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	# add "-maltivec -mabi=altivec" to CFLAGS for specific files only
-	(for i in blockdsp h264chroma_init h264dsp fdctdsp fft_vsx fft_init h264qpel me_cmp idctdsp mpegaudiodsp_altivec mpegvideo_altivec hpeldsp_altivec pixblockdsp mpegvideodsp vp8dsp_altivec vp3dsp_altivec vorbisdsp_altivec; do echo -n "libavcodec/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(for i in blockdsp h264chroma_init h264dsp fdctdsp fft_vsx fft_init h264qpel me_cmp idctdsp mpegaudiodsp_altivec mpegvideo_altivec hpeldsp_altivec pixblockdsp mpegvideodsp vp8dsp_altivec vp3dsp_altivec vorbisdsp_altivec hevcdsp hevcdsp_template; do echo -n "libavcodec/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	(for i in hscale gamma alphablend hscale_fast_bilinear options input output rgb2rgb slice swscale_unscaled swscale utils vscale yuv2rgb ppc/swscale_altivec ppc/yuv2rgb_altivec ppc/swscale_vsx ppc/yuv2yuv_altivec; do echo -n "libswscale/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	(for i in float_dsp_altivec; do echo -n "libavutil/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	echo -e ": CFLAGS+= -maltivec -mabi=altivec\n" >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak

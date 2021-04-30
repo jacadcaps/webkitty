@@ -6,11 +6,11 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x)
 #define DNF(x)
 #define DI(x)
-#define DBF(x)
-#define DPOS(x)  
+#define DBF(x) 
+#define DPOS(x) 
 
 // #pragma GCC optimize ("O0")
 
@@ -304,6 +304,7 @@ void AcinerellaDecoder::dropUntilPTS(double pts)
 
 void AcinerellaDecoder::flush()
 {
+	D(dprintf("[%s]%s: islive %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_isLive));
 	auto lock = holdLock(m_lock);
 
 	while (!m_decodedFrames.empty())

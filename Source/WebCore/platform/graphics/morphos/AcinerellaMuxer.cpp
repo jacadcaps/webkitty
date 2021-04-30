@@ -28,7 +28,7 @@ namespace Acinerella {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex)>&& sinkFunction)
+void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex, int left)>&& sinkFunction)
 {
 	auto lock = holdLock(m_lock);
 	m_sinkFunction = WTFMove(sinkFunction);
@@ -135,6 +135,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 	for (;;)
 	{
 		bool requestMore = false;
+		int sizeLeft = 0;
 		RefPtr<AcinerellaPackage> hasPackage = nullptr;
 
 		{
@@ -144,7 +145,8 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			{
 				hasPackage = m_packages[index].front();
 				m_packages[index].pop();
-				requestMore = m_packages[index].size() < queueReadAheadSize;
+				sizeLeft = m_packages[index].size();
+				requestMore = sizeLeft < queueReadAheadSize;
 			}
 			else if (m_queueCompleteOrError)
 			{
@@ -158,7 +160,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
 			{
 				D(dprintf("%s: calling sink..\n", __func__));
-				if (!m_sinkFunction(decoder.index()))
+				if (!m_sinkFunction(decoder.index(), sizeLeft))
 					return hasPackage;
 			}
 		}

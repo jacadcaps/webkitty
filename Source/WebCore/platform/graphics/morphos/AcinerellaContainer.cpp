@@ -10,10 +10,13 @@
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <proto/exec.h>
 
-#define D(x) x
-#define DNP(x)
+#define D(x)
+#define DNP(x) 
 #define DIO(x)
-#define DINIT(x) x
+#define DINIT(x)
+
+// #define USE_WDG
+#define DDUMP(x) x
 
 namespace WebCore {
 namespace Acinerella {
@@ -21,6 +24,7 @@ namespace Acinerella {
 Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	: m_client(client)
 	, m_url(url)
+	, m_watchdogTimer(RunLoop::current(), this, &Acinerella::watchdogTimerFired)
 {
 	D(dprintf("%s: %p url '%s'\n", __func__, this, url.utf8().data()));
 	m_networkBuffer = AcinerellaNetworkBuffer::create(this, m_url);
@@ -48,6 +52,10 @@ void Acinerella::play()
 
 	m_paused = false;
 	m_waitReady = true;
+
+#ifdef USE_WDG
+	m_watchdogTimer.startOneShot(Seconds(1.0));
+#endif
 
 	dispatch([this] {
 		if (areDecodersReadyToPlay())
@@ -79,6 +87,8 @@ void Acinerella::pause()
 
 	m_paused = true;
 	m_waitReady = false;
+
+	m_watchdogTimer.stop();
 
 	dispatch([this] {
 		if (m_audioDecoder)
@@ -127,6 +137,25 @@ void Acinerella::seek(double time)
 		startSeeking(time);
 	});
 }
+
+void Acinerella::dumpStatus()
+{
+	dprintf("\033[37m[MS%p]: PAU %d SEE %d WAR %d DUR %f\033[0m\n", this,
+		m_paused, m_isSeeking, m_waitReady, float(duration()));
+	if (m_audioDecoder)
+		m_audioDecoder->dumpStatus();
+	if (m_videoDecoder)
+		m_videoDecoder->dumpStatus();
+	dprintf("\033[37m[MS%p]: -- \033[0m\n", this);
+
+}
+
+void Acinerella::watchdogTimerFired()
+{
+	DDUMP(dumpStatus());
+	m_watchdogTimer.startOneShot(Seconds(1.0));
+}
+
 
 bool Acinerella::isLive()
 {
@@ -458,7 +487,7 @@ bool Acinerella::initialize()
 				}
 				
 				m_muxer->setDecoderMask(decoderMask);
-				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int) -> bool {
+				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int, int) -> bool {
 					// look ma, a lambda within a lambda
                     if (!m_waitingForDemux) {
                         m_waitingForDemux = true;
@@ -532,6 +561,12 @@ bool Acinerella::initialize()
 
 void Acinerella::initializeAfterDiscontinuity()
 {
+	// Eat everything from the previous buffer!
+	D(dprintf("[RE]decode previous packages...\n"));
+	demuxMorePackages(true);
+
+	m_ioDiscontinuity = false;
+
 	auto acinerella = AcinerellaPointer::create();
 	if (-1 == ac_open(acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 	{
@@ -600,10 +635,17 @@ void Acinerella::initializeAfterDiscontinuity()
 			if (m_videoDecoder)
 				m_videoDecoder->warmUp();
 		}
+
+		WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+			if (m_client)
+			{
+				m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+			}
+		});
 	}
 }
 
-void Acinerella::demuxMorePackages()
+void Acinerella::demuxMorePackages(bool untilEOS)
 {
 	RefPtr<AcinerellaPointer> acinerella;
 	RefPtr<AcinerellaMuxedBuffer> muxer;
@@ -618,7 +660,9 @@ void Acinerella::demuxMorePackages()
 
 	if (muxer && acinerella && acinerella->instance())
 	{
-		for (int i = 0; i < 128; i++)
+		int packages = 0;
+
+		while (!m_terminating && (untilEOS || (packages < 128)))
 		{
 			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
 
@@ -632,6 +676,8 @@ void Acinerella::demuxMorePackages()
 			{
 				break;
 			}
+			
+			packages++;
 		}
 	}
  
@@ -797,6 +843,10 @@ int Acinerella::close()
 int Acinerella::read(uint8_t *buf, int size)
 {
  	DIO(dprintf("%s: %p size %d\n", "acRead", this, size));
+
+	if (m_ioDiscontinuity)
+		return AcinerellaNetworkBuffer::eRead_EOF;
+
 	RefPtr<AcinerellaNetworkBuffer> buffer(m_networkBuffer);
 	if (buffer)
 	{
@@ -809,7 +859,9 @@ int Acinerella::read(uint8_t *buf, int size)
 
 		if (rc == AcinerellaNetworkBuffer::eRead_Discontinuity)
 		{
+			DIO(dprintf("%s: %p >> eRead_EOF\n", "acRead", this));
 			rc = AcinerellaNetworkBuffer::eRead_EOF;
+			m_ioDiscontinuity = true;
 			dispatch([this, protectedThis = makeRef(*this)]() {
 				initializeAfterDiscontinuity();
 			});

@@ -29,7 +29,7 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return 2.0f; }
+	double readAheadTime() const override { return m_isLive ? 5.f : 2.0f; }
 	
 	double framesPerSecond() const { return m_fps; }
 
