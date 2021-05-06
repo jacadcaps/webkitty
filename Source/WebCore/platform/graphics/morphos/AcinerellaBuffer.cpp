@@ -267,7 +267,7 @@ public:
 	
 	void curlDidReceiveResponse(CurlRequest& request, CurlResponse&& response) override
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		D(dprintf("%s(%p): %s\n", __PRETTY_FUNCTION__, this, m_url.utf8().data()));
 		if (m_curlRequest.get() == &request)
 		{
 			D(dprintf("%s(%p)..\n", __PRETTY_FUNCTION__, this));
@@ -354,7 +354,7 @@ public:
 	
 	void curlDidComplete(CurlRequest& request, NetworkLoadMetrics&&) override
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		D(dprintf("%s(%p): %s %lld\n", __PRETTY_FUNCTION__, this, m_url.utf8().data(), m_length));
 		if (m_curlRequest.get() == &request)
 		{
 			m_finishedLoading = true;
@@ -631,7 +631,7 @@ public:
 	
 	void curlDidReceiveResponse(CurlRequest& request, CurlResponse&& response) override
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		D(dprintf("%s(%p): %s\n", __PRETTY_FUNCTION__, this, m_url.utf8().data()));
 		if (m_curlRequest.get() == &request)
 		{
 			D(dprintf("%s(%p)..\n", __PRETTY_FUNCTION__, this));
@@ -696,6 +696,7 @@ public:
 		{
 			if (buffer->size())
 			{
+				D(dprintf("%s(%p): append %d\n", __PRETTY_FUNCTION__, this, buffer->size()));
 				if (!m_buffer)
 					m_buffer = RefPtr<SharedBuffer>(WTFMove(buffer));
 				else
@@ -706,7 +707,7 @@ public:
 	
 	void curlDidComplete(CurlRequest& request, NetworkLoadMetrics&&) override
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
+		D(dprintf("%s(%p): %s %d OK %d onfini %d\n", __PRETTY_FUNCTION__, this, m_url.utf8().data(), m_buffer?m_buffer->size():0, m_curlRequest.get() == &request, !!m_onFinished));
 		if (m_curlRequest.get() == &request)
 		{
 			if (m_onFinished)

@@ -6,7 +6,7 @@ extern "C" { void dprintf(const char *,...); }
 namespace WebKit {
 using namespace WebCore;
 
-void WebDragClient::willPerformDragDestinationAction(DragDestinationAction action, const DragData&)
+void WebDragClient::willPerformDragDestinationAction(DragDestinationAction , const DragData&)
 {
 //	dprintf("%s\n", __PRETTY_FUNCTION__);
 //    if (action == DragDestinationActionLoad)

@@ -6,6 +6,7 @@
 namespace WebCore {
 
 class PlatformMediaResourceLoader;
+struct MediaPlayerMorphOSStreamSettings;
 
 namespace Acinerella {
 
@@ -14,9 +15,8 @@ namespace Acinerella {
 class AcinerellaClient
 {
 public:
+	virtual const MediaPlayerMorphOSStreamSettings& streamSettings() = 0;
 	virtual void accInitialized(MediaPlayerMorphOSInfo info) = 0;
-	virtual bool accEnableAudio() const = 0;
-	virtual bool accEnableVideo() const = 0;
 	virtual void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) = 0;
 	virtual void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) = 0;
 	virtual void accSetBufferLength(double buffer) = 0;
@@ -28,6 +28,7 @@ public:
 	virtual void accNextFrameReady() = 0;
 	virtual void accNoFramesReady() = 0;
 	virtual void accFrameUpdateNeeded() = 0;
+	virtual bool accCodecSupported(const String &codec) = 0;
 	
 	virtual RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() = 0;
 	virtual String accReferrer() = 0;

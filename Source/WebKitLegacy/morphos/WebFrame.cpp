@@ -86,13 +86,15 @@ using namespace WebCore;
 
 DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, webFrameCounter, ("WebFrame"));
 
+#if 0
 static uint64_t generateListenerID()
 {
     static uint64_t uniqueListenerID = 1;
     return uniqueListenerID++;
 }
+#endif
 
-Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage* page, WebCore::Frame* coreFrame)
+Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage*, WebCore::Frame* coreFrame)
 {
     auto frame = create(std::unique_ptr<WebFrameLoaderClient>(static_cast<WebFrameLoaderClient*>(&coreFrame->loader().client())));
 //    page->send(Messages::WebPageProxy::DidCreateMainFrame(frame->frameID()));
@@ -278,7 +280,7 @@ void WebFrame::startDownload(const WTF::URL &url, const String& suggestedName)
 		webpage->_fDownload(url, suggestedName.length() ? suggestedName : suggestedFilenameForResourceWithURL(url));
 }
 
-void WebFrame::startDownload(const WebCore::ResourceRequest& request, const String& suggestedName)
+void WebFrame::startDownload(const WebCore::ResourceRequest& , const String&)
 {
 	notImplemented();
 #if 0
@@ -532,7 +534,7 @@ bool WebFrame::requiresUnifiedScaleFactor() const
 	return true;
 }
 
-void WebFrame::setAccessibleName(const String& accessibleName)
+void WebFrame::setAccessibleName(const String&)
 {
 #if 0
     if (!AXObjectCache::accessibilityEnabled())
@@ -808,7 +810,7 @@ void WebFrame::setTextDirection(const String& direction)
         m_coreFrame->editor().setBaseWritingDirection(WritingDirection::RightToLeft);
 }
 
-void WebFrame::documentLoaderDetached(uint64_t navigationID)
+void WebFrame::documentLoaderDetached(uint64_t )
 {
 //    if (auto* page = this->page())
 //        page->send(Messages::WebPageProxy::DidDestroyNavigation(navigationID));

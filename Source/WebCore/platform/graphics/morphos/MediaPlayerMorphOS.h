@@ -11,6 +11,7 @@ namespace WebCore {
 
 class NetworkingContext;
 class MediaPlayer;
+class Page;
 
 struct MediaPlayerMorphOSInfo
 {
@@ -25,18 +26,10 @@ struct MediaPlayerMorphOSInfo
     bool  m_isMediaSource = false;
 };
 
-struct MediaPlayerMorphOSSettings
+struct MediaPlayerMorphOSStreamSettings
 {
-public:
-    static MediaPlayerMorphOSSettings &settings();
-
-	bool m_enableVideo = true;
-	bool m_enableAudio = true;
 	bool m_decodeVideo = true;
-	bool m_enableMediaSource = false;
-    bool m_enableVP9 = false;
-    bool m_enableHLS = true;
-    
+	
     // NOTE: keep in sync with WkGlobalSettings_LoopFilter
     enum class SkipLoopFilter {
         Default,
@@ -48,12 +41,24 @@ public:
     };
 
     SkipLoopFilter m_loopFilter = SkipLoopFilter::All;
- 
+};
+
+struct MediaPlayerMorphOSSettings
+{
+public:
+    static MediaPlayerMorphOSSettings &settings();
+
 	NetworkingContext *m_networkingContextForRequests = nullptr;
 
-	Function<bool(WebCore::MediaPlayer *player, const String &url)> m_preloadCheck;
-	Function<void(WebCore::MediaPlayer *player, const String &url, MediaPlayerMorphOSInfo &info,
-		Function<void(bool doLoad)>&&, Function<void()> &&yieldFunc)> m_loadCheck;
+	Function<bool(WebCore::Page *page, const String &host)> m_supportMediaForHost;
+	Function<bool(WebCore::Page *page, const String &host)> m_supportMediaSourceForHost;
+	Function<bool(WebCore::Page *page, const String &host)> m_supportHLSForHost;
+	Function<bool(WebCore::Page *page, const String &host)> m_supportVP9ForHost;
+	Function<bool(WebCore::Page *page, const String &host)> m_supportHVCForHost;
+
+	Function<void(WebCore::MediaPlayer *player, const String &url,
+		MediaPlayerMorphOSInfo &info, MediaPlayerMorphOSStreamSettings &settings,
+		Function<void()> &&yieldFunc)> m_load;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 	Function<void(WebCore::MediaPlayer *player)> m_willPlay;
 

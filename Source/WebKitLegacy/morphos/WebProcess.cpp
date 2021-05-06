@@ -213,31 +213,44 @@ void WebProcess::initialize(int sigbit)
 #if ENABLE(VIDEO)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
-	
-	MediaPlayerMorphOSSettings::settings().m_preloadCheck = [this](WebCore::MediaPlayer *player, const String &url) -> bool {
-		for (auto& webpage : m_pageMap.values())
-		{
-			bool found = false;
-			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
-				if (player == e.player().get())
-				{
-					found = true;
-				}
-			});
 
-			if (found)
-			{
-				if (webpage->_fAttemptMedia)
-				{
-					return webpage->_fAttemptMedia(player, url);
-				}
-			}
-		}
-		return true;
+	MediaPlayerMorphOSSettings::settings().m_supportMediaForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::Media);
+		return false;
 	};
 
-	MediaPlayerMorphOSSettings::settings().m_loadCheck = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
-		Function<void(bool doLoad)> &&load, Function<void()> &&yieldFunc) {
+	MediaPlayerMorphOSSettings::settings().m_supportMediaSourceForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::MediaSource);
+		return false;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_supportHLSForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HLS);
+		return false;
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_supportVP9ForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::VP9);
+		return false;
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_supportHVCForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HVC1);
+		return false;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_load = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
+		MediaPlayerMorphOSStreamSettings &settings, Function<void()> &&yieldFunc) {
 		for (auto& webpage : m_pageMap.values())
 		{
 			bool found = false;
@@ -252,16 +265,12 @@ void WebProcess::initialize(int sigbit)
 			{
 				if (webpage->_fMediaAdded)
 				{
-					webpage->_fMediaAdded(player, url, info, WTFMove(load), WTFMove(yieldFunc));
-					return;
+					webpage->_fMediaAdded(player, url, info, settings, WTFMove(yieldFunc));
 				}
 
-				load(true);
 				return;
 			}
 		}
-
-		load(true);
 	};
 	
 	MediaPlayerMorphOSSettings::settings().m_loadCancelled = [this](WebCore::MediaPlayer *player) {

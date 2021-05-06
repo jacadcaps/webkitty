@@ -8,6 +8,8 @@ namespace WebCore {
 namespace Acinerella {
 
 #define D(x) 
+#define DCONTENTS(x) 
+#define DIO(x)
 
 static const String rnReplace("\r\n");
 static const String rnReplacement("\n");
@@ -15,7 +17,7 @@ static const String rnReplacement("\n");
 class HLSMasterPlaylistParser
 {
 public:
-	HLSMasterPlaylistParser(const String &baseURL, const String &sdata)
+	HLSMasterPlaylistParser(const URL &baseURL, const String &sdata)
 	{
 		Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
 
@@ -37,13 +39,70 @@ public:
 			{
 				String& line = lines[i];
 
+				DCONTENTS(dprintf("[M]: %s\n", line.utf8().data()));
+
 				if (startsWithLettersIgnoringASCIICase(line, "#ext-x-stream-inf:"))
 				{
-					info.m_url = "";
-					info.m_codecs.clear();
-					info.m_bandwidth = 0;
+					// reset
+					info = { };
 
-// TODO: codecs, bandwidth, etc
+// #EXT-X-STREAM-INF:BANDWIDTH=5552610,CODECS="mp4a.40.2,avc1.4d402a",RESOLUTION=1920x1080,FRAME-RATE=60,VIDEO-RANGE=SDR,CLOSED-CAPTIONS=NONE
+
+					String params = line.substringSharingImpl(18); // skip over #EXT-X-STREAM-INF:
+
+					for (;;)
+					{
+						// find the next =
+						size_t pos = params.find('=');
+						if (WTF::notFound == pos)
+							break;
+
+						String key = params.substringSharingImpl(0, pos);
+						String param;
+
+						size_t epos = WTF::notFound;
+						if (params.characterAt(pos + 1) == '\"')
+						{
+							epos = params.find('\"', pos + 2);
+							if (WTF::notFound == epos)
+								break;
+							param = params.substring(pos+2, epos-(pos+2));
+							epos++;
+						}
+						else
+						{
+							epos = params.find(',');
+							if (WTF::notFound == epos)
+								break;
+							param = params.substring(pos+1, epos-(pos+1));
+						}
+						DCONTENTS(dprintf("[M]: %s = %s\n", key.utf8().data(), param.utf8().data()));
+
+						if (startsWithLettersIgnoringASCIICase(key, "resolution"))
+						{
+							auto res = param.convertToASCIILowercase().split('x');
+							if (res.size() == 2)
+							{
+								info.m_width = res[0].toInt();
+								info.m_height = res[1].toInt();
+							}
+						}
+						else if (startsWithLettersIgnoringASCIICase(key, "frame-rate"))
+						{
+							info.m_fps = param.toInt();
+						}
+						else if (startsWithLettersIgnoringASCIICase(key, "codecs"))
+						{
+							info.m_codecs = param.split(',');
+						}
+						else if (startsWithLettersIgnoringASCIICase(key, "bandwidth"))
+						{
+							info.m_bandwidth = param.toInt();
+						}
+
+						// skip to next
+						params = params.substring(epos+1);
+					}
 
 					// next line should be our link...
 					hopingForM3U8 = true;
@@ -52,19 +111,8 @@ public:
 				{
 					if (line.contains("m3u8"))
 					{
-						if (line.contains(':'))
-						{
-							info.m_url = line;
-						}
-						else
-						{
-							auto pos = baseURL.reverseFind('/');
-							if (pos != WTF::notFound)
-							{
-								info.m_url = baseURL.substring(0, pos + 1);
-								info.m_url.append(line);
-							}
-						}
+						info.m_url = URL(baseURL, line).string();
+						D(dprintf("[M]: append stream bw %d res %dx%d fps %d '%s'\n", info.m_bandwidth, info.m_width, info.m_height, info.m_fps, info.m_url.utf8().data()));
 						m_streams.append(info);
 						info.m_url = "";
 						hopingForM3U8 = false;
@@ -86,7 +134,7 @@ public:
 			{
 				info.m_url = baseURL;
 				m_streams.append(info);
-				D(dprintf("%s: this is no master HLS %s\n", __PRETTY_FUNCTION__, baseURL.utf8().data()));
+				D(dprintf("%s: this is no master HLS %s\n", __PRETTY_FUNCTION__, baseURL.string().utf8().data()));
 			}
 		}
 	}
@@ -97,7 +145,7 @@ protected:
 	Vector<HLSStreamInfo> m_streams;
 };
 
-HLSStream::HLSStream(const String &baseURL, const String &sdata)
+HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 {
 	Vector<String> lines = String(sdata).replace(rnReplace, rnReplacement).split('\n');
 
@@ -111,11 +159,18 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 		{
 			auto &line = lines[i];
 
+			DCONTENTS(dprintf("[P]: %s\n", line.utf8().data()));
+
 			if (startsWithLettersIgnoringASCIICase(line, "#ext-x-media-sequence"))
 			{
 				m_mediaSequence = line.substring(22).toUInt64();
 				D(dprintf("mediaseq: %llu\n", m_mediaSequence));
 				m_mediaSequence--; //! we want 1st added chunk to have the right sequence!
+			}
+			// #EXT-X-TARGETDURATION:1
+			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-targetduration:"))
+			{
+				m_targetDuration = line.substring(22).toDouble();
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
 			{
@@ -128,24 +183,19 @@ HLSStream::HLSStream(const String &baseURL, const String &sdata)
 				chunk.m_mediaSequence = ++m_mediaSequence;
 				chunk.m_duration = duration;
 
-				if (line.contains(':'))
-				{
-					chunk.m_url = line;
-				}
-				else
-				{
-					auto pos = baseURL.reverseFind('/');
-					if (pos != WTF::notFound)
-					{
-						chunk.m_url = baseURL.substring(0, pos + 1);
-						chunk.m_url.append(line);
-					}
-				}
-
+				chunk.m_url = URL(baseURL, line).string();
 				m_chunks.emplace(WTFMove(chunk));
 			}
+			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-endlist"))
+			{
+				m_ended = true;
+				break; // no chunks must follow this!
+			}
+			// #EXT-X-PROGRAM-DATE-TIME:2021-05-05T15:44:32.030+00:00
 			// dprintf("parse l '%s' (got %d)\n", line.utf8().data(), m_chunks.size());
 		}
+		
+		m_initialMediaSequence = m_mediaSequence;
 	}
 }
 
@@ -162,12 +212,31 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 		append.m_chunks.pop();
 	}
 
+	m_ended = append.m_ended;
+
+	// this would happen on initial append
+	if (-1 == m_initialMediaSequence)
+	{
+		m_initialMediaSequence = append.m_initialMediaSequence;
+		m_targetDuration = append.m_targetDuration;
+	}
+
 	return *this;
+}
+
+double HLSStream::initialTimeStamp() const
+{
+	if (-1 != m_initialMediaSequence)
+	{
+		return m_targetDuration * double(m_initialMediaSequence);
+	}
+	return 0.0;
 }
 
 AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
 	: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
 	, m_playlistRefreshTimer(RunLoop::current(), this, &AcinerellaNetworkBufferHLS::refreshTimerFired)
+	, m_baseURL({}, url)
 {
 	D(dprintf("%s(%p) - url %s\n", __func__, this, url.utf8().data()));
 }
@@ -242,14 +311,16 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 		m_hlsRequest->cancel();
 		if (buffer && buffer->size())
 		{
-			HLSMasterPlaylistParser parser(m_url, String::fromUTF8(buffer->data(), buffer->size()));
+			HLSMasterPlaylistParser parser(m_baseURL, String::fromUTF8(buffer->data(), buffer->size()));
 
 			m_hasMasterList = true;
 			m_streams = WTFMove(parser.streams());
 
 			if (m_streams.size())
 			{
-				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_streams[0].m_url, [this](bool succ) { childPlaylistReceived(succ); });
+				m_provider->selectStream();
+				D(dprintf("%s(%p): selected %dx%d %s \n", __func__, this, m_selectedStream.m_width, m_selectedStream.m_height, m_selectedStream.m_url.utf8().data()));
+				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this](bool succ) { childPlaylistReceived(succ); });
 				return;
 			}
 		}
@@ -258,6 +329,11 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
 	m_hlsRequest = nullptr;
+}
+
+void AcinerellaNetworkBufferHLS::selectStream(const HLSStreamInfo &stream)
+{
+	m_selectedStream = stream;
 }
 
 // main thread
@@ -271,7 +347,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 
 		if (buffer && buffer->size())
 		{
-			HLSStream stream(m_url, String::fromUTF8(buffer->data(), buffer->size()));
+			HLSStream stream(m_baseURL, String::fromUTF8(buffer->data(), buffer->size()));
 			m_stream += stream; // append and merge :)
 			
 			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));
@@ -279,7 +355,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
 				D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-				auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
+				auto chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
 				m_stream.pop();
 				
 				{
@@ -301,9 +377,17 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 	if (duration <= 1.0)
 		duration = 3.0;
 	duration *= 0.5;
-	D(dprintf("%s(%p): refresh in %f \n", __func__, this, duration));
-	m_playlistRefreshTimer.startOneShot(Seconds(duration));
-
+	
+	if (!m_stream.ended())
+	{
+		D(dprintf("%s(%p): refresh in %f \n", __func__, this, duration));
+		m_playlistRefreshTimer.startOneShot(Seconds(duration));
+	}
+	else
+	{
+		D(dprintf("%s(%p): --! stream ended ! \n", __func__, this));
+	}
+	
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
 	m_hlsRequest = nullptr;
@@ -315,7 +399,7 @@ void AcinerellaNetworkBufferHLS::refreshTimerFired()
 	D(dprintf("%s(%p) \n", __func__, this));
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
-	m_hlsRequest = AcinerellaNetworkFileRequest::create(m_streams[0].m_url, [this](bool succ) { childPlaylistReceived(succ); });
+	m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this](bool succ) { childPlaylistReceived(succ); });
 }
 
 // main thread
@@ -334,8 +418,8 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 	if (!m_stream.empty())
 	{
-		D(dprintf("%s(%p): load '%s' queue %d\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size()));
-		auto chunkRequest = AcinerellaNetworkBuffer::create(m_provider, m_stream.current().m_url);
+		auto chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
+		D(dprintf("%s(%p): load '%s' queue %d -> cr %p\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size(), chunkRequest.get()));
 		m_stream.pop();
 		
 		{
@@ -347,10 +431,6 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 		
 		// wake up the ::read
 		m_event.signal();
-	}
-	else
-	{
-		D(dprintf("%s:(%p): ran out of chunks!!\n", __func__, this));
 	}
 }
 
@@ -373,7 +453,7 @@ int64_t AcinerellaNetworkBufferHLS::position()
 // acinerella decoder thread
 int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readPosition)
 {
-	D(dprintf("%s(%p): requested %ld inread %p\n", __PRETTY_FUNCTION__, this, size, m_chunkRequestInRead.get()));
+	DIO(dprintf("%s(%p): requested %ld inread %p\n", __PRETTY_FUNCTION__, this, size, m_chunkRequestInRead.get()));
 
 	while (!m_stopping)
 	{
@@ -385,18 +465,21 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 
 			if (0 == read)
 			{
+				bool ended = false;
+
 				{
 					auto lock = holdLock(m_lock);
+					ended = m_stream.empty() && m_stream.ended();
 					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
 					m_chunkRequestInRead = nullptr;
-					D(dprintf("%s(%p): discontinuity! \n", __PRETTY_FUNCTION__, this));
+					DIO(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
 				}
 
-				return eRead_Discontinuity;
+				return ended ? eRead_EOF : eRead_Discontinuity;
 			}
 			else
 			{
-				D(dprintf("%s(%p): read %d from chunk %p bytesleft %lld\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get(),
+				DIO(dprintf("%s(%p): read %d from chunk %p bytesleft %lld\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get(),
 					m_chunkRequestInRead->length() - m_chunkRequestInRead->position()));
 				return read;
 			}
@@ -407,16 +490,20 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 			m_chunkRequestInRead = m_chunkRequest;
 			m_chunkRequest = nullptr;
 			needsToWait = m_chunkRequestInRead.get() == nullptr;
-			D(dprintf("%s(%p): chunk swapped to %p needswait %d\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get(), needsToWait));
+			DIO(dprintf("%s(%p): chunk swapped to %p needswait %d\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get(), needsToWait));
 		}
 
 		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 			chunkSwallowed();
 		});
 
+		if (m_ended)
+		{
+			return 0;
+		}
+
 		if (needsToWait)
 		{
-			D(dprintf("%s: read stall!\n", __PRETTY_FUNCTION__));
 			m_event.waitFor(10_s);
 		}
 	}
@@ -428,7 +515,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 		m_chunkRequestInRead = nullptr;
 	}
 
-	D(dprintf("%s(%p): failing out (%d)\n", __PRETTY_FUNCTION__, this, m_stopping));
+	DIO(dprintf("%s(%p): failing out (%d)\n", __PRETTY_FUNCTION__, this, m_stopping));
 	return -1;
 }
 

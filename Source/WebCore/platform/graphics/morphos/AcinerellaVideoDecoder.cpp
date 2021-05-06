@@ -47,7 +47,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	m_frameDuration = 1.f / m_fps;
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
-	D(dprintf("\033[35m[VD]%s: %p fps %f\033[0m\n", __func__, this, float(m_fps)));
+	D(dprintf("\033[35m[VD]%s: %p fps %f %dx%d\033[0m\n", __func__, this, float(m_fps), m_frameWidth, m_frameHeight));
 	
 	auto decoder = acinerella->decoder(index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
@@ -85,7 +85,7 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 {
 	auto decoder = acinerella->decoder(m_index);
 	ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
-    ac_decoder_set_loopfilter(decoder, int(MediaPlayerMorphOSSettings::settings().m_loopFilter));
+    ac_decoder_set_loopfilter(decoder, int(m_client->streamSettings().m_loopFilter));
 }
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
@@ -95,7 +95,7 @@ bool AcinerellaVideoDecoder::isReadyToPlay() const
 
 bool AcinerellaVideoDecoder::isWarmedUp() const
 {
-	return bufferSize() >= readAheadTime();
+	return (bufferSize() >= readAheadTime()) || m_decoderEOF;
 }
 
 bool AcinerellaVideoDecoder::isPlaying() const
@@ -115,7 +115,7 @@ void AcinerellaVideoDecoder::startPlaying()
 	{
 		m_playing = true;
 		onPositionChanged();
-        ac_decoder_set_loopfilter(m_lastDecoder, int(MediaPlayerMorphOSSettings::settings().m_loopFilter));
+        ac_decoder_set_loopfilter(m_lastDecoder, int(m_client->streamSettings().m_loopFilter));
 		m_pullEvent.signal();
 		m_frameEvent.signal();
 	}
@@ -156,10 +156,10 @@ void AcinerellaVideoDecoder::onTerminate()
 	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
 }
 
-void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
+void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &)
 {
-	DFRAME(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	m_bufferedSeconds += m_frameDuration;
+	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f]\033[0m\n", __func__, this, float(m_bufferedSeconds)));
 	m_pullEvent.signal();
 	if (!m_didShowFirstFrame && m_overlayHandle)
 	{
@@ -221,6 +221,9 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 		
 		DOVL(dprintf("\033[35m[VD]%s: window %p %d %d %d %d\033[0m\n", __func__, w, mleft, mtop, mright, mbottom));
 
+		(void)scrollx;
+		(void)scrolly;
+
 		m_outerX = mleft;
 		m_outerY = mtop;
 		m_outerX2 = mright;
@@ -270,7 +273,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 				}
 				else
 				{
-					DOVL(dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_overlayFillColor, m_frameWidth, m_frameHeight));
+					dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_frameWidth, m_frameHeight);
 				}
 			}
 		}
@@ -467,6 +470,47 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 		auto *frame = m_decodedFrames.front().frame();
 		auto *avFrame = ac_get_frame_real(frame);
 
+		if (avFrame && ((avFrame->width != m_frameWidth) || (avFrame->height != m_frameHeight)))
+		{
+			if (m_frameSizeTransition)
+				return;
+			m_frameSizeTransition = true;
+
+			WTF::callOnMainThread([this, width = avFrame->width, height = avFrame->height, protectedThis = makeRef(*this)]() {
+				auto lock = holdLock(m_lock);
+				
+				m_frameWidth = width;
+				m_frameHeight = height;
+
+				if (m_overlayHandle)
+				{
+					DetachVLayer(m_overlayHandle);
+					DeleteVLayerHandle(m_overlayHandle);
+					m_overlayHandle = nullptr;
+
+					m_overlayHandle = CreateVLayerHandleTags(m_overlayWindow->WScreen,
+						VOA_SrcType, SRCFMT_YCbCr420,
+						VOA_UseColorKey, TRUE,
+						VOA_UseBackfill, FALSE,
+						VOA_SrcWidth, m_frameWidth & -8,
+						VOA_SrcHeight, m_frameHeight & -2,
+						VOA_DoubleBuffer, TRUE,
+						TAG_DONE);
+				
+					if (m_overlayHandle)
+					{
+						AttachVLayerTags(m_overlayHandle, m_overlayWindow, VOA_ColorKeyFill, FALSE, TAG_DONE);
+						m_overlayFillColor = GetVLayerAttr(m_overlayHandle, VOA_ColorKey);
+					}
+
+				}
+
+				m_frameSizeTransition = false;
+			});
+
+			return;
+		}
+
 		if (avFrame && avFrame->data[0] && avFrame->data[1] && avFrame->data[2] &&
 			avFrame->linesize[0] > 0 && avFrame->linesize[1] > 0 && avFrame->linesize[2] > 0)
 		{
@@ -656,6 +700,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							if (nextPts <= pts || m_isLive)
 							{
 								sleepFor = Seconds(m_frameDuration);
+								sleepFor -= MonotonicTime::now() - timeDisplayed;
 							}
 							else
 							{
@@ -686,7 +731,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				if (sleepFor.value() > 0.0)
 				{
 					if (sleepFor.value() > 1.0)
+					{
 						DSYNC(dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n", __func__, float(sleepFor.value()), float(audioAt)));
+					}
 
 					m_frameEvent.waitFor(sleepFor);
 				}

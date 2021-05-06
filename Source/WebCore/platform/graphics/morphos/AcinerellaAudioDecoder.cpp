@@ -16,10 +16,10 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
+#define D(x)
 #define DSYNC(x) 
 #define DSPAM(x) 
-#define DSPAMTS(x)
+#define DSPAMTS(x) 
 
 AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
 	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
@@ -80,7 +80,7 @@ bool AcinerellaAudioDecoder::isReadyToPlay() const
 
 bool AcinerellaAudioDecoder::isWarmedUp() const
 {
-	return bufferSize() >= readAheadTime();
+	return (bufferSize() >= readAheadTime()) || m_decoderEOF;
 }
 
 bool AcinerellaAudioDecoder::isPlaying() const
@@ -347,7 +347,7 @@ void AcinerellaAudioDecoder::flush()
 void AcinerellaAudioDecoder::dumpStatus()
 {
 	auto lock = holdLock(m_lock);
-	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f\033[0m\n", __func__, isWarmedUp(), isReadyToPlay(), isPlaying(),
+	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f\033[0m\n", isWarmedUp(), isReadyToPlay(), isPlaying(),
 		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()));
 }
 

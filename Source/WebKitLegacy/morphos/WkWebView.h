@@ -144,38 +144,6 @@ typedef enum {
 
 @end
 
-@protocol WkMediaLoadResponseHandler <OBObject>
-
-- (OBURL *)mediaURL;
-- (OBURL *)pageURL;
-
-- (void)proceed;
-- (void)cancel;
-
-- (BOOL)hasAudio;
-- (BOOL)hasVideo;
-
-- (float)duration;
-- (BOOL)isLive;
-- (BOOL)isDownloadable;
-
-- (int)audioRate;
-- (int)audioChannels;
-- (int)audioBits;
-
-- (int)videoWidth;
-- (int)videoHeight;
-
-@end
-
-@protocol WkWebViewMediaDelegate <OBObject>
-
-- (BOOL)webView:(WkWebView *)view shouldBePermittedToPreloadMediaWithURL:(OBURL *)url;
-- (void)webView:(WkWebView *)view wantsToLoadMediaWithURL:(OBURL *)url withResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
-- (void)webView:(WkWebView *)view cancelledMediaLoadWithResponseHandler:(id<WkMediaLoadResponseHandler>)handler;
-
-@end
-
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -245,7 +213,6 @@ typedef enum {
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
-- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 

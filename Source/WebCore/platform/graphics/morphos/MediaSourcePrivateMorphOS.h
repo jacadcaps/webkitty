@@ -41,6 +41,7 @@ public:
     MediaTime duration();
     std::unique_ptr<PlatformTimeRanges> buffered();
 
+	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings();
 	void onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferReadyToPaint(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>&);
@@ -104,6 +105,7 @@ private:
 	double                                           m_volume = 1.f;
 	bool                                             m_muted = false;
 
+	double                                           m_position = 0;
 	double                                           m_seekingPos;
 	bool                                             m_seeking = false;
 	bool                                             m_clientSeekDone = false;

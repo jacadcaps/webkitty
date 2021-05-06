@@ -80,7 +80,7 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 		m_queueCompleteOrError = true;
 		D(dprintf("%s: EOS!!\n", __PRETTY_FUNCTION__));
 	
-		forValidDecoders([](AcinerellaPackageQueue& queue, BinarySemaphore& event) {
+		forValidDecoders([](AcinerellaPackageQueue&, BinarySemaphore& event) {
 			event.signal();
 		});
 	}

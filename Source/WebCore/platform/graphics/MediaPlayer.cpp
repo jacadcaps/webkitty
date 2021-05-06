@@ -502,6 +502,7 @@ const MediaPlayerFactory* MediaPlayer::nextBestMediaEngine(const MediaPlayerFact
     MediaEngineSupportParameters parameters;
     parameters.type = m_contentType;
     parameters.url = m_url;
+    parameters.page = client().mediaPlayerPage();
 #if ENABLE(MEDIA_SOURCE)
     parameters.isMediaSource = !!m_mediaSource;
 #endif

@@ -40,6 +40,7 @@ public:
     void cancelLoad() final;
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
+    bool canLoad(bool isMediaSource);
 
     bool supportsPictureInPicture() const override { return false; }
     bool supportsFullscreen() const override { return true; }
@@ -74,8 +75,6 @@ public:
 	MediaPlayer::MovieLoadType movieLoadType() const final;
 
 	void accInitialized(MediaPlayerMorphOSInfo info) override;
-	bool accEnableAudio() const override;
-	bool accEnableVideo() const override;
 	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
 	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
 	void accSetBufferLength(double buffer) override;
@@ -89,9 +88,12 @@ public:
 	void accSetVideoSize(int width, int height) override;
 	void accNoFramesReady() override;
 	void accFrameUpdateNeeded() override;
-	
+	bool accCodecSupported(const String &codec) override;
+
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
 	void onActiveSourceBuffersChanged() { if (m_player) m_player->activeSourceBuffersChanged(); }
+
+	const MediaPlayerMorphOSStreamSettings &streamSettings() { return m_streamSettings; }
 
 #if ENABLE(VIDEO_TRACK)
 	void onTrackEnabled(int index, bool enabled);
@@ -102,6 +104,7 @@ protected:
 	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
+	MediaPlayerMorphOSStreamSettings m_streamSettings;
 	double m_duration = 0.f;
 	double m_currentTime = 0.f;
 	int   m_width = 320;

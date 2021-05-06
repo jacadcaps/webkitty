@@ -31,6 +31,7 @@ public:
     virtual void deref() = 0;
 	virtual RefPtr<PlatformMediaResourceLoader> createResourceLoader() = 0;
 	virtual String referrer() = 0;
+	virtual void selectStream() = 0;
 };
 
 class AcinerellaNetworkBuffer : public ThreadSafeRefCounted<AcinerellaNetworkBuffer>
@@ -50,6 +51,9 @@ public:
 	virtual void stop() = 0;
 	virtual bool canSeek() { return true; }
 	void die();
+
+	virtual bool hasStreamSelection() const { return false; }
+	virtual double initialTimeStamp() const { return .0; }
 
 	// Acinerella Thread Methods
 	static const int eRead_Discontinuity = -2;

@@ -371,6 +371,10 @@ public:
     Vector<RefPtr<PlatformTextTrack>> outOfBandTrackSources() final;
 #endif
 
+#if OS(MORPHOS)
+	Page* mediaPlayerPage() final;
+#endif
+
     struct TrackGroup;
     void configureTextTrackGroupForLanguage(const TrackGroup&) const;
     void scheduleConfigureTextTracks();

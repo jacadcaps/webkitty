@@ -23,7 +23,7 @@ PopupMenuMorphOS::~PopupMenuMorphOS()
 
 }
 
-void PopupMenuMorphOS::show(const WebCore::IntRect& rect, WebCore::FrameView* view, int index)
+void PopupMenuMorphOS::show(const WebCore::IntRect& rect, WebCore::FrameView* view, int )
 {
 	WTF::Vector<WTF::String> items;
 	RefPtr<PopupMenu> protectedThis(this);

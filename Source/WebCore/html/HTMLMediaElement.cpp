@@ -4048,6 +4048,14 @@ void HTMLMediaElement::mediaPlayerDidRemoveVideoTrack(VideoTrackPrivate& track)
     track.willBeRemoved();
 }
 
+#if OS(MORPHOS)
+WebCore::Page* HTMLMediaElement::mediaPlayerPage()
+{
+    return document().page();
+}
+#endif
+
+
 void HTMLMediaElement::closeCaptionTracksChanged()
 {
     if (hasMediaControls())

@@ -147,9 +147,8 @@ namespace  {
 @end
 
 #if ENABLE(VIDEO)
-@interface WkMediaLoadResponseHandlerPrivate : OBObject<WkMediaLoadResponseHandler>
+@interface WkMediaLoadResponseHandlerPrivate : OBObject
 {
-	WTF::Function<void(bool doLoad)>  _loadFunction;
 	WTF::Function<void()>             _yieldFunction;
 	WebCore::MediaPlayerMorphOSInfo   _info;
 	OBURL                            *_url;
@@ -161,30 +160,22 @@ namespace  {
 @implementation WkMediaLoadResponseHandlerPrivate
 
 - (id)initWithPlayer:(void *)playerRef url:(OBURL *)url pageURL:(OBURL *)pageurl info:(WebCore::MediaPlayerMorphOSInfo &)info
-	callback:(WTF::Function<void(bool doLoad)>&&)func
 	yieldCallback:(WTF::Function<void()>&&)yield
 {
 	if ((self = [super init]))
 	{
-		_loadFunction = WTFMove(func);
 		_yieldFunction = WTFMove(yield);
 		_url = [url retain];
 		_pageURL = [pageurl retain];
 		_playerRef = playerRef;
 		_info = info;
 	}
-	else
-	{
-		func(true);
-	}
-	
 	return self;
 }
 
 - (void)invalidate
 {
 	_playerRef = nullptr;
-	_loadFunction = nullptr;
 	_yieldFunction = nullptr;
 }
 
@@ -211,17 +202,8 @@ namespace  {
 	return (IPTR)_playerRef;
 }
 
-- (void)proceed
-{
-	if (_loadFunction)
-		_loadFunction(true);
-	_loadFunction = nullptr;
-}
-
 - (void)cancel
 {
-	if (_loadFunction)
-		_loadFunction(false);
 	[self invalidate];
 }
 
@@ -298,7 +280,6 @@ namespace  {
 	id<WkWebViewContextMenuDelegate>        _contextMenuDelegate;
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
 	id<WkWebViewEditorDelegate>             _editorDelegate;
-	id<WkWebViewMediaDelegate>              _mediaDelegate;
 	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
@@ -329,8 +310,15 @@ namespace  {
 	int                                     _mleft, _mtop, _mbottom, _mright;
 #if ENABLE(VIDEO)
 	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
-	WebCore::Element *_overlayElement;
-	void *_overlayPlayer;
+	WebCore::Element                       *_overlayElement;
+	void                                   *_overlayPlayer;
+	WkSettings_LoopFilter                   _loopFilter;
+	bool                                    _mediaEnabled;
+	bool                                    _mediaSourceEnabled;
+	bool                                    _decodeVideo;
+	bool                                    _vp9;
+	bool                                    _hls;
+	bool                                    _hvc;
 #endif
 }
 @end
@@ -599,16 +587,6 @@ namespace  {
 	return _editorDelegate;
 }
 
-- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)md
-{
-	_mediaDelegate = md;
-}
-
-- (id<WkWebViewMediaDelegate>)mediaDelegate
-{
-	return _mediaDelegate;
-}
-
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol
 {
 	if (nil == _protocolDelegates)
@@ -854,7 +832,78 @@ namespace  {
 }
 
 #if ENABLE(VIDEO)
-- (void)playerAdded:(WkMediaLoadResponseHandlerPrivate *)handler
+
+- (void)setLoopFilter:(WkSettings_LoopFilter)loopFilter
+{
+	_loopFilter = loopFilter;
+}
+
+- (WkSettings_LoopFilter)loopfilter
+{
+	return _loopFilter;
+}
+
+- (void)setMediaEnabled:(BOOL)media
+{
+	_mediaEnabled = media;
+}
+
+- (BOOL)mediaEnabled
+{
+	return _mediaEnabled;
+}
+
+- (void)setMediaSourceEnabled:(BOOL)enabled
+{
+	_mediaSourceEnabled = enabled;
+}
+
+- (BOOL)mediaSourceEnabled
+{
+	return _mediaSourceEnabled;
+}
+
+- (BOOL)decodeVideo
+{
+	return _decodeVideo;
+}
+
+- (void)setDecodeVideo:(BOOL)dec
+{
+	_decodeVideo = dec;
+}
+
+- (BOOL)vp9
+{
+	return _vp9;
+}
+
+- (void)setVP9:(BOOL)vp9
+{
+	_vp9 = vp9;
+}
+
+- (BOOL)hls
+{
+	return _hls;
+}
+
+- (void)setHLS:(BOOL)enable
+{
+	_hls = enable;
+}
+
+- (BOOL)hvc
+{
+	return _hvc;
+}
+
+- (void)setHVC:(BOOL)hvc
+{
+	_hvc = hvc;
+}
+	
+- (void)playerAdded:(WkMediaLoadResponseHandlerPrivate *)handler withSettings:(WebCore::MediaPlayerMorphOSStreamSettings &)settings
 {
 	if (handler)
 	{
@@ -867,6 +916,8 @@ namespace  {
 		if (nil == _mediaPlayers)
 			_mediaPlayers = [OBMutableDictionary new];
 		[_mediaPlayers setObject:handler forKey:ref];
+		settings.m_decodeVideo = _decodeVideo;
+		settings.m_loopFilter = WebCore::MediaPlayerMorphOSStreamSettings::SkipLoopFilter(_loopFilter);
 	}
 }
 
@@ -899,7 +950,7 @@ namespace  {
 	OBEnumerator *e = [_mediaPlayers objectEnumerator];
 	WkMediaLoadResponseHandlerPrivate *handler;
 
-	while (handler = [e nextObject])
+	while ((handler = [e nextObject]))
 	{
 		[handler yield:playerRef];
 	}
@@ -937,6 +988,19 @@ namespace  {
 	
 	// Workaround some positioning issues
 	[[OBRunLoop mainRunLoop] performSelector:@selector(callOverlayCallback) target:self];
+}
+
+- (BOOL)supportsMediaType:(WebViewDelegate::mediaType) type
+{
+	switch (type)
+	{
+	case WebViewDelegate::mediaType::Media: return _mediaEnabled;
+	case WebViewDelegate::mediaType::MediaSource: return _mediaSourceEnabled;
+	case WebViewDelegate::mediaType::HLS: return _hls;
+	case WebViewDelegate::mediaType::VP9: return _vp9;
+	case WebViewDelegate::mediaType::HVC1: return _hvc;
+	}
+	return YES;
 }
 
 #endif
@@ -1874,40 +1938,17 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		};
 
 #if ENABLE(VIDEO)
-		webPage->_fAttemptMedia = [self](void *player, const String &url) -> bool {
-			validateObjCContext();
-			WkWebViewPrivate *privateObject = [self privateObject];
-			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
-			if (mediaDelegate)
-			{
-				auto uurl = url.utf8();
-				return [mediaDelegate webView:self shouldBePermittedToPreloadMediaWithURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
-			}
-			return YES;
-		};
-	
 		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info,
-			WTF::Function<void(bool doLoad)> &&loadFunc, WTF::Function<void()> &&yieldFunc) {
+			WebCore::MediaPlayerMorphOSStreamSettings& settings, WTF::Function<void()> &&yieldFunc) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			auto uurl = url.utf8();
 			WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
-				url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL] info:info callback:WTFMove(loadFunc)
-				yieldCallback:WTFMove(yieldFunc)];
+				url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL]
+				info:info yieldCallback:WTFMove(yieldFunc)];
 			if (handler)
 			{
-				[privateObject playerAdded:handler];
-
-				id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
-				if (mediaDelegate)
-				{
-					[mediaDelegate webView:self wantsToLoadMediaWithURL:[handler mediaURL] withResponseHandler:handler];
-				}
-				else
-				{
-					[handler proceed];
-				}
-
+				[privateObject playerAdded:handler withSettings:settings];
 				[handler release];
 			}
 		};
@@ -1915,13 +1956,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		webPage->_fMediaRemoved = [self](void *player) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
-			id<WkWebViewMediaDelegate> mediaDelegate = [privateObject mediaDelegate];
-			if (mediaDelegate)
-			{
-				WkMediaLoadResponseHandlerPrivate *handler = [privateObject handlerForPlayer:player];
-				if (handler)
-					[mediaDelegate webView:self cancelledMediaLoadWithResponseHandler:handler];
-			}
 			[privateObject playerRemoved:player];
 		};
 		
@@ -1942,6 +1976,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			[privateObject playerWillPlay:player];
+		};
+		
+		webPage->_fMediaSupportCheck = [self](WebViewDelegate::mediaType type) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			return [privateObject supportsMediaType:type];
 		};
 #endif
 	}
@@ -2260,6 +2300,15 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setOfflineWebApplicationCacheEnabled:webPage->offlineCacheEnabled()];
 	[settings setInvisiblePlaybackNotAllowed:webPage->invisiblePlaybackNotAllowed()];
 	[settings setRequiresUserGestureForMediaPlayback:webPage->requiresUserGestureForMediaPlayback()];
+#if ENABLE(VIDEO)
+	[settings setMediaEnabled:[_private mediaEnabled]];
+	[settings setMediaSourceEnabled:[_private mediaSourceEnabled]];
+	[settings setHLSEnabled:[_private hls]];
+	[settings setHVCEnabled:[_private hvc]];
+	[settings setVp9Enabled:[_private vp9]];
+	[settings setVideoDecodingEnabled:[_private decodeVideo]];
+	[settings setLoopFilter:[_private loopfilter]];
+#endif
 	return settings;
 }
 
@@ -2278,6 +2327,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[_private setThrottling:[settings throttling]];
 	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];
 	[_private setStyleSheet:[settings styleSheet]];
+
+#if ENABLE(VIDEO)
+	[_private setMediaEnabled:[settings mediaEnabled]];
+	[_private setMediaSourceEnabled:[settings mediaSourceEnabled]];
+	[_private setVP9:[settings vp9Enabled]];
+	[_private setHVC:[settings hvcEnabled]];
+	[_private setHLS:[settings hlsEnabled]];
+	[_private setDecodeVideo:[settings videoDecodingEnabled]];
+	[_private setLoopFilter:[settings loopFilter]];
+#endif
 
 	switch ([settings throttling])
 	{
@@ -2650,11 +2709,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setDebugConsoleDelegate:(id<WkWebViewDebugConsoleDelegate>)delegate
 {
 	[_private setConsoleDelegate:delegate];
-}
-
-- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate
-{
-	[_private setMediaDelegate:delegate];
 }
 
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate

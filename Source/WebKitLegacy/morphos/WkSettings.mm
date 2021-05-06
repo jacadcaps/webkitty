@@ -39,6 +39,7 @@ namespace WebCore {
 	WkSettings_Interpolation       _interpolationForImageViews;
 	WkSettings_UserStyleSheet      _userStyleSheet;
 	WkSettings_ContextMenuHandling _contextMenu;
+	WkSettings_LoopFilter          _loopFilter;
 	OBString                      *_userStyleSheetFile;
 	bool _script;
 	bool _adBlocker;
@@ -47,6 +48,12 @@ namespace WebCore {
 	bool _offlineCache;
 	bool _invisiblePlaybackNotAllowed;
 	bool _requiresUserGestureForMediaPlayback;
+	bool _mediaEnabled;
+	bool _mediaSourceEnabled;
+	bool _decodeVideo;
+	bool _vp9;
+	bool _hls;
+	bool _hvc;
 }
 @end
 
@@ -203,6 +210,76 @@ namespace WebCore {
 	_invisiblePlaybackNotAllowed = invisiblePlayback;
 }
 
+- (BOOL)mediaEnabled
+{
+    return _mediaEnabled;
+}
+
+- (void)setMediaEnabled:(BOOL)enabled
+{
+	_mediaEnabled = enabled;
+}
+
+- (BOOL)mediaSourceEnabled
+{
+    return _mediaSourceEnabled;
+}
+
+- (void)setMediaSourceEnabled:(BOOL)enabled
+{
+	_mediaSourceEnabled = enabled;
+}
+
+- (BOOL)vp9Enabled
+{
+    return _vp9;
+}
+
+- (void)setVp9Enabled:(BOOL)enabled
+{
+	_vp9 = enabled;
+}
+
+- (BOOL)hvcEnabled
+{
+	return _hvc;
+}
+
+- (void)setHVCEnabled:(BOOL)enabled
+{
+	_hvc = enabled;
+}
+
+- (BOOL)hlsEnabled
+{
+    return _hls;
+}
+
+- (void)setHLSEnabled:(BOOL)enabled
+{
+	_hls = enabled;
+}
+
+- (BOOL)videoDecodingEnabled
+{
+    return _decodeVideo;
+}
+
+- (void)setVideoDecodingEnabled:(BOOL)enabled
+{
+	_decodeVideo = enabled;
+}
+
+- (WkSettings_LoopFilter)loopFilter
+{
+    return _loopFilter;
+}
+
+- (void)setLoopFilter:(WkSettings_LoopFilter)filterskip
+{
+	_loopFilter = filterskip;
+}
+
 @end
 
 @implementation WkSettings
@@ -331,6 +408,69 @@ namespace WebCore {
 {
 }
 
+- (BOOL)mediaEnabled
+{
+    return NO;
+}
+
+- (void)setMediaEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)mediaSourceEnabled
+{
+    return NO;
+}
+
+- (void)setMediaSourceEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)vp9Enabled
+{
+    return NO;
+}
+
+- (void)setVp9Enabled:(BOOL)enabled
+{
+}
+
+- (BOOL)hvcEnabled
+{
+    return NO;
+}
+
+- (void)setHVCEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)hlsEnabled
+{
+    return NO;
+}
+
+- (void)setHLSEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)videoDecodingEnabled
+{
+    return NO;
+}
+
+- (void)setVideoDecodingEnabled:(BOOL)enabled
+{
+}
+
+- (WkSettings_LoopFilter)loopFilter
+{
+    return WkSettings_LoopFilter_All;
+}
+
+- (void)setLoopFilter:(WkSettings_LoopFilter)filterskip
+{
+}
+
 @end
 
 @implementation WkGlobalSettings
@@ -454,86 +594,6 @@ static cairo_antialias_t defaultAA;
 	return YES;
 #else
 	return NO;
-#endif
-}
-
-+ (BOOL)mediaSourceEnabled
-{
-#if ENABLE(VIDEO)
-	return WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource;
-#else
-    return NO;
-#endif
-}
-
-+ (void)setMediaSourceEnabled:(BOOL)enabled
-{
-#if ENABLE(VIDEO)
-	WebCore::MediaPlayerMorphOSSettings::settings().m_enableMediaSource = enabled;
-#endif
-}
-
-+ (BOOL)vp9Enabled
-{
-#if ENABLE(VIDEO)
-    return WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9;
-#else
-    return NO;
-#endif
-}
-
-+ (void)setVp9Enabled:(BOOL)enabled
-{
-#if ENABLE(VIDEO)
-    WebCore::MediaPlayerMorphOSSettings::settings().m_enableVP9 = enabled;
-#endif
-}
-
-+ (BOOL)hlsEnabled
-{
-#if ENABLE(VIDEO)
-    return WebCore::MediaPlayerMorphOSSettings::settings().m_enableHLS;
-#else
-    return NO;
-#endif
-}
-
-+ (void)setHLSEnabled:(BOOL)enabled
-{
-#if ENABLE(VIDEO)
-    WebCore::MediaPlayerMorphOSSettings::settings().m_enableHLS = enabled;
-#endif
-}
-
-+ (BOOL)videoDecodingEnabled
-{
-#if ENABLE(VIDEO)
-    return WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo;
-#else
-    return NO;
-#endif
-}
-
-+ (void)setVideoDecodingEnabled:(BOOL)enabled
-{
-#if ENABLE(VIDEO)
-    WebCore::MediaPlayerMorphOSSettings::settings().m_decodeVideo = enabled;
-#endif
-}
-
-+ (WkGlobalSettings_LoopFilter)skipLoopFilter
-{
-#if ENABLE(VIDEO)
-    return (WkGlobalSettings_LoopFilter)WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter;
-#else
-    return WkGlobalSettings_LoopFilter_All;
-#endif
-}
-
-+ (void)setSkipLoopFilter:(WkGlobalSettings_LoopFilter)filterskip
-{
-#if ENABLE(VIDEO)
-    WebCore::MediaPlayerMorphOSSettings::settings().m_loopFilter = WebCore::MediaPlayerMorphOSSettings::SkipLoopFilter(filterskip);
 #endif
 }
 

@@ -29,7 +29,7 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return m_isLive ? 5.f : 2.0f; }
+	double readAheadTime() const override { return m_frameHeight > 720 ? 0.5f : 1.f; }
 	
 	double framesPerSecond() const { return m_fps; }
 
@@ -97,6 +97,7 @@ protected:
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;
 	bool            m_didShowFirstFrame = false;
+	bool            m_frameSizeTransition = false;
 	
 	int             m_paintX, m_paintY, m_paintX2 = 0, m_paintY2;
 	int             m_outerX, m_outerY, m_outerX2 = 0, m_outerY2;

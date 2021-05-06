@@ -159,7 +159,7 @@ bool MediaSourceChunkReader::initialize()
 			case AC_STREAM_TYPE_AUDIO:
 				m_audioDecoderMask |= (1UL << i);
 				break;
-				
+			
 			default:
 				break;
 			}
@@ -221,6 +221,9 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 					minfo.m_frequency = info.additional_info.audio_info.samples_per_second;
 					minfo.m_bits = info.additional_info.audio_info.bit_depth;
 				}
+				break;
+
+			default:
 				break;
 			}
 		}
@@ -797,6 +800,7 @@ void MediaSourceBufferPrivateMorphOS::setActive(bool isActive)
 void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(const AtomString&trackID)
 {
 	D(dprintf("[MS]%s\n", __func__));
+	(void)trackID;
 //    if (m_client)
 //        m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(trackID);
 }
@@ -835,6 +839,11 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 	MediaPlayerMorphOSInfo& minfo)
 {
 	RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
+
+	if (!success)
+	{
+		return; // TODO: how do we handle this?
+	}
 
 	EP_SCOPE(initialize);
 	DM(dprintf("[MS]ac initialized, stream count %d\n", acinerella->instance()->stream_count));
@@ -1015,12 +1024,22 @@ void MediaSourceBufferPrivateMorphOS::pause()
 	});
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder> decoder) 
+const WebCore::MediaPlayerMorphOSStreamSettings& MediaSourceBufferPrivateMorphOS::streamSettings()
+{
+	static WebCore::MediaPlayerMorphOSStreamSettings defaults;
+	if (m_mediaSource)
+	{
+		return m_mediaSource->streamSettings();
+	}
+	return defaults;
+}
+
+void MediaSourceBufferPrivateMorphOS::onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder>)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder)
+void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder>)
 {
 	D(dprintf("%s: decoders ready: %d\n", __PRETTY_FUNCTION__, areDecodersReadyToPlay()));
 	if (areDecodersReadyToPlay())
@@ -1030,13 +1049,13 @@ void MediaSourceBufferPrivateMorphOS::onDecoderReadyToPlay(RefPtr<Acinerella::Ac
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderPlaying(RefPtr<Acinerella::AcinerellaDecoder> decoder, bool playing)
+void MediaSourceBufferPrivateMorphOS::onDecoderPlaying(RefPtr<Acinerella::AcinerellaDecoder>, bool)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedBufferLength(RefPtr<Acinerella::AcinerellaDecoder> decoder, double buffer)
+void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedBufferLength(RefPtr<Acinerella::AcinerellaDecoder>, double)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 
@@ -1055,7 +1074,7 @@ void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedPosition(RefPtr<Acinerella
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder> decoder, double duration)
+void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder>, double)
 {
 	// live streams
 }

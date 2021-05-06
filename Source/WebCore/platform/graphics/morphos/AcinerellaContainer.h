@@ -68,6 +68,7 @@ public:
     void deref() override;
 	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;
 	String referrer() override;
+	void selectStream() override;
 
 	void paint(GraphicsContext&, const FloatRect&);
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
@@ -91,7 +92,9 @@ protected:
 	int64_t seek(int64_t pos, int whence);
 	
 	void demuxMorePackages(bool untilEOS = false);
-	
+
+	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings() override;
+
 	void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<AcinerellaDecoder> decoder, bool playing) override;
@@ -127,6 +130,7 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
 	double                           m_duration;
+	double                           m_position;
 	double                           m_volume = 1.f;
 	double                           m_seekingPosition;
 	bool                             m_muted = false;
@@ -137,6 +141,7 @@ protected:
 	bool                             m_seekingForward;
 	bool                             m_waitReady = false;
 	bool                             m_ioDiscontinuity = false;
+	bool                             m_liveEnded = false;
     volatile bool                    m_waitingForDemux = false;
 	
 	int64_t                          m_readPosition = -1;
@@ -144,8 +149,6 @@ protected:
     RefPtr<Thread>                   m_thread;
     MessageQueue<Function<void ()>>  m_queue;
     bool                             m_terminating = false;
-    bool                             m_enableAudio = true;
-    bool                             m_enableVideo = false;
     bool                             m_paused = false;
 };
 

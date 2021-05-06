@@ -23,6 +23,7 @@ namespace WebCore {
 
 class GraphicsContext;
 class FloatRect;
+struct MediaPlayerMorphOSStreamSettings;
 
 namespace Acinerella {
 
@@ -56,6 +57,8 @@ protected:
 class AcinerellaDecoderClient
 {
 public:
+	virtual const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings() = 0;
+
 	virtual void onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder) = 0;
 	virtual void onDecoderReadyToPlay(RefPtr<AcinerellaDecoder> decoder) = 0;
 

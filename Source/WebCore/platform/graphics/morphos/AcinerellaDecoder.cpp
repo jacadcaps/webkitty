@@ -6,7 +6,7 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DNF(x)
 #define DI(x)
 #define DBF(x) 
@@ -25,6 +25,8 @@ AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<Aci
 {
 	auto ac = acinerella->instance();
 	m_duration = std::max(ac_get_stream_duration(ac, index), double(ac->info.duration)/1000.0);
+
+	(void)info;
 
 	// simulated duration of 3 chunks
 	if (m_isLive)

@@ -563,6 +563,9 @@ public:
 		EP_SCOPE(draw);
 
 		(void)scrollX;
+		(void)scrollY;
+		(void)width;
+		(void)height;
 
 #if 0 // doesn't repaint correctly
 		struct Window *window = (struct Window *)rp->Layer->Window;
@@ -1228,7 +1231,9 @@ const WebCore::Page *WebPage::corePage() const
 
 WebPage* WebPage::fromCorePage(WebCore::Page* page)
 {
-    return &static_cast<WebChromeClient&>(page->chrome().client()).page();
+	if (page)
+		return &static_cast<WebChromeClient&>(page->chrome().client()).page();
+	return nullptr;
 }
 
 void WebPage::load(const char *url)
@@ -1558,8 +1563,6 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 
 void WebPage::setFullscreenElement(WebCore::Element *element)
 {
-	auto* coreFrame = m_mainFrame->coreFrame();
-
 	if (element)
 	{
 		m_fullscreenElement = makeRef(*element);
@@ -3319,7 +3322,7 @@ bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
 	return false;
 }
 
-bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const
+bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &, const WTF::String &) const
 {
 	return false;
 }

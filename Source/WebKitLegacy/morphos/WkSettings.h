@@ -32,6 +32,16 @@ typedef enum
 	WkSettings_ContextMenuHandling_OverrideWithControl,
 } WkSettings_ContextMenuHandling;
 
+typedef enum {
+    // Loop filter skipping setting / ffmpeg
+    WkSettings_LoopFilter_Default,
+    WkSettings_LoopFilter_NonRef,
+    WkSettings_LoopFilter_BiDirectional,
+    WkSettings_LoopFilter_NonIntra,
+    WkSettings_LoopFilter_NonKey,
+    WkSettings_LoopFilter_All
+} WkSettings_LoopFilter;
+
 @interface WkSettings : OBObject
 
 + (WkSettings *)settings;
@@ -75,6 +85,27 @@ typedef enum
 - (BOOL)invisiblePlaybackNotAllowed;
 - (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback;
 
+- (BOOL)mediaEnabled;
+- (void)setMediaEnabled:(BOOL)enabled;
+
+- (BOOL)mediaSourceEnabled;
+- (void)setMediaSourceEnabled:(BOOL)enabled;
+
+- (BOOL)vp9Enabled;
+- (void)setVp9Enabled:(BOOL)enabled;
+
+- (BOOL)hvcEnabled;
+- (void)setHVCEnabled:(BOOL)enabled;
+
+- (BOOL)hlsEnabled;
+- (void)setHLSEnabled:(BOOL)enabled;
+
+- (BOOL)videoDecodingEnabled;
+- (void)setVideoDecodingEnabled:(BOOL)enabled;
+
+- (WkSettings_LoopFilter)loopFilter;
+- (void)setLoopFilter:(WkSettings_LoopFilter)loopFilter;
+
 @end
 
 typedef enum
@@ -92,16 +123,6 @@ typedef enum
 	// resources in RAM, depending on system total RAM available
 	WkGlobalSettings_Caching_Balanced,
 } WkGlobalSettings_Caching;
-
-typedef enum {
-    // Loop filter skipping setting / ffmpeg
-    WkGlobalSettings_LoopFilter_Default,
-    WkGlobalSettings_LoopFilter_NonRef,
-    WkGlobalSettings_LoopFilter_BiDirectional,
-    WkGlobalSettings_LoopFilter_NonIntra,
-    WkGlobalSettings_LoopFilter_NonKey,
-    WkGlobalSettings_LoopFilter_All
-} WkGlobalSettings_LoopFilter;
 
 @interface WkGlobalSettings : OBObject
 
@@ -135,20 +156,5 @@ typedef enum {
 
 // Whether media playback was enabled at compile time
 + (BOOL)supportsMediaPlayback;
-
-+ (BOOL)mediaSourceEnabled;
-+ (void)setMediaSourceEnabled:(BOOL)enabled;
-
-+ (BOOL)vp9Enabled;
-+ (void)setVp9Enabled:(BOOL)enabled;
-
-+ (BOOL)hlsEnabled;
-+ (void)setHLSEnabled:(BOOL)enabled;
-
-+ (BOOL)videoDecodingEnabled;
-+ (void)setVideoDecodingEnabled:(BOOL)enabled;
-
-+ (WkGlobalSettings_LoopFilter)skipLoopFilter;
-+ (void)setSkipLoopFilter:(WkGlobalSettings_LoopFilter)filterskip;
 
 @end

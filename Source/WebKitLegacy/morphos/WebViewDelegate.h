@@ -5,6 +5,7 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ContextMenuItem.h>
+#include <WebCore/MediaPlayerMorphOS.h>
 
 #define EP_PROFILING 0
 #include <libeventprofiler.h>
@@ -22,6 +23,7 @@ namespace WebCore {
 	class SharedBuffer;
 	class Element;
 	struct MediaPlayerMorphOSInfo;
+	struct MediaPlayerMorphOSStreamSettings;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -94,15 +96,23 @@ struct WebViewDelegate
 	
 	std::function<void(void)> _fUndoRedoChanged;
 
-	std::function<bool(void *player, const String &url)> _fAttemptMedia;
-	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
-		WTF::Function<void(bool doLoad)> &&loadFunc, WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
+	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WebCore::MediaPlayerMorphOSStreamSettings& settings,
+		WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
 	std::function<void(void *player)> _fMediaRemoved;
 	std::function<void(void *player)> _fMediaWillPlay;
 	std::function<void(void *player, WebCore::Element* element,
 		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
 		_fMediaSetOverlayCallback;
 	std::function<void(void *player)> _fMediaUpdateOverlayCallback;
+
+	enum class mediaType {
+		Media,
+		MediaSource,
+		HLS,
+		VP9,
+		HVC1,
+	};
+	std::function<bool(mediaType)> _fMediaSupportCheck;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -148,12 +158,12 @@ struct WebViewDelegate
 		_fPrint = nullptr;
 		_fUndoRedoChanged = nullptr;
 		_fShouldNavigateToURL = nullptr;
-		_fAttemptMedia = nullptr;
 		_fMediaAdded = nullptr;
 		_fMediaRemoved = nullptr;
 		_fMediaWillPlay = nullptr;
 		_fMediaSetOverlayCallback = nullptr;
 		_fMediaUpdateOverlayCallback = nullptr;
+		_fMediaSupportCheck = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

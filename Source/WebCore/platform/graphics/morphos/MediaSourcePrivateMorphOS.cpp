@@ -6,9 +6,10 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
+#define USE_WDG
+
 #define D(x)
-// #define USE_WDG
-#define DDUMP(x) x
+#define DDUMP(x) 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -43,14 +44,21 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
     MediaEngineSupportParameters parameters;
     parameters.isMediaSource = true;
     parameters.type = contentType;
+
     if (MediaPlayerPrivateMorphOS::extendedSupportsType(parameters, MediaPlayer::SupportsType::MayBeSupported) == MediaPlayer::SupportsType::IsNotSupported)
-        return NotSupported;
+	{
+		return NotSupported;
+	}
 
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
 	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
 	m_sourceBuffers.add(sourceBufferPrivate);
+
 	if (!m_paused)
+	{
 		sourceBufferPrivate->prePlay();
+	}
+	
 	return Ok;
 }
 
@@ -73,7 +81,7 @@ void MediaSourcePrivateMorphOS::durationChanged()
 		m_player->accSetDuration(duration().toDouble());
 }
 
-void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus status)
+void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus)
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 //    if (status == EosNoError)
@@ -164,7 +172,7 @@ void MediaSourcePrivateMorphOS::setMuted(bool muted)
 
 void MediaSourcePrivateMorphOS::dumpStatus()
 {
-	dprintf("\033[37m[MS%p]: BUF %d ACT %d PAU %d SEE %d WAR %d INI %d AUD %d VID %d PAI %p LIVE %d DUR %f\033[0m\n", this, m_sourceBuffers.size(), m_activeSourceBuffers.size(), m_paused, m_seeking, m_waitReady, m_initialized, m_hasAudio, m_hasVideo, m_paintingBuffer.get(), isLiveStream(), duration().toFloat());
+	dprintf("\033[37m[MS%p]: POS %f BUF %d ACT %d PAU %d SEE %d WAR %d INI %d AUD %d VID %d PAI %p LIVE %d DUR %f\033[0m\n", this, float(m_position), m_sourceBuffers.size(), m_activeSourceBuffers.size(), m_paused, m_seeking, m_waitReady, m_initialized, m_hasAudio, m_hasVideo, m_paintingBuffer.get(), isLiveStream(), duration().toFloat());
     for (auto& sourceBufferPrivate : m_activeSourceBuffers)
 		sourceBufferPrivate->dumpStatus();
 	dprintf("\033[37m[MS%p]: -- \033[0m\n", this);
@@ -173,6 +181,10 @@ void MediaSourcePrivateMorphOS::dumpStatus()
 void MediaSourcePrivateMorphOS::watchdogTimerFired()
 {
 	DDUMP(dumpStatus());
+
+	if (m_player)
+		m_player->accSetPosition(m_position);
+
 	m_watchdogTimer.startOneShot(Seconds(1.0));
 }
 
@@ -281,7 +293,17 @@ void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int s
 		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 }
 
-void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &source)
+const WebCore::MediaPlayerMorphOSStreamSettings& MediaSourcePrivateMorphOS::streamSettings()
+{
+	static WebCore::MediaPlayerMorphOSStreamSettings defaults;
+	if (m_player)
+	{
+		return m_player->streamSettings();
+	}
+	return defaults;
+}
+
+void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d csdone %d\n", areDecodersInitialized(), m_seeking, m_clientSeekDone));
@@ -380,10 +402,7 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 		}
 	}
 	
-	WTF::callOnMainThread([position, this, protect = makeRef(*this)]() {
-		if (m_player)
-			m_player->accSetPosition(position);
-	});
+	m_position = position;
 
 	if (m_clientSeekDone)
 		m_seeking = false;

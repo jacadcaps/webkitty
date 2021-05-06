@@ -159,6 +159,7 @@ private:
 	void performTerminate();
 
 	// AcinerellaDecoderClient
+	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings() override;
 	void onDecoderWarmedUp(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderReadyToPlay(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderPlaying(RefPtr<Acinerella::AcinerellaDecoder> decoder, bool playing) override;
