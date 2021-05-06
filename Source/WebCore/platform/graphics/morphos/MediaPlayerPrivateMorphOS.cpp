@@ -20,8 +20,6 @@
 
 namespace WebCore {
 
-
-
 MediaPlayerMorphOSSettings &MediaPlayerMorphOSSettings::settings()
 {
 	static MediaPlayerMorphOSSettings m_playerSettings;
@@ -207,12 +205,14 @@ public:
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
 				}
-				// higher profile h264 seem to fail decoding
+#if 0
+				// higher profile h264 seem to fail decoding (on vimeo, but work on yt!)
 				else if (startsWithLettersIgnoringASCIICase(codec, "avc1.5") || startsWithLettersIgnoringASCIICase(codec, "avc1.6") || startsWithLettersIgnoringASCIICase(codec, "avc1.7") || startsWithLettersIgnoringASCIICase(codec, "avc1.8") || startsWithLettersIgnoringASCIICase(codec, "avc1.f"))
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;
 				}
+#endif
 				else if (startsWithLettersIgnoringASCIICase(codec, "hvc1")) // not enabled in ffmpeg (h265 variant)
 				{
 					if (MediaPlayerMorphOSSettings::settings().m_supportHVCForHost && !MediaPlayerMorphOSSettings::settings().m_supportHVCForHost(page, host))

@@ -64,6 +64,13 @@ AcinerellaVideoDecoder::~AcinerellaVideoDecoder()
 {
 	D(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
 	
+	if (m_overlayHandle)
+	{
+		DetachVLayer(m_overlayHandle);
+		DeleteVLayerHandle(m_overlayHandle);
+		m_overlayHandle = nullptr;
+	}
+
     if (m_cgxVideo)
         CloseLibrary(m_cgxVideo);
  

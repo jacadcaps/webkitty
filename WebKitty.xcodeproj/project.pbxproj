@@ -20,6 +20,7 @@
 		011B867D242CFCD800749380 /* WebChromeClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8675242CFCD800749380 /* WebChromeClient.cpp */; };
 		011B867E242CFCD800749380 /* WebVisitedLinkStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */; };
 		0120E5F924590B9E003150E3 /* PopupMenu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0120E5F624590B9D003150E3 /* PopupMenu.cpp */; };
+		0124C6042644211E00B3A2A9 /* Gamepad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0124C6032644211E00B3A2A9 /* Gamepad.cpp */; };
 		0138E92A2433A9CE00B53904 /* WebProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E9282433A9CE00B53904 /* WebProcess.cpp */; };
 		0138E9312433BA2F00B53904 /* WebPageGroup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E92F2433BA2F00B53904 /* WebPageGroup.cpp */; };
 		0138E9342433C21500B53904 /* WebProgressTrackerClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0138E9322433C21500B53904 /* WebProgressTrackerClient.cpp */; };
@@ -82,6 +83,8 @@
 		0120E5F624590B9D003150E3 /* PopupMenu.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = PopupMenu.cpp; path = Source/WebKitLegacy/morphos/PopupMenu.cpp; sourceTree = "<group>"; };
 		0120E5F724590B9E003150E3 /* PlatformMorphOS.cmake */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = PlatformMorphOS.cmake; path = Source/WebKitLegacy/PlatformMorphOS.cmake; sourceTree = "<group>"; };
 		0120E5F824590B9E003150E3 /* PopupMenu.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PopupMenu.h; path = Source/WebKitLegacy/morphos/PopupMenu.h; sourceTree = "<group>"; };
+		0124C6032644211E00B3A2A9 /* Gamepad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Gamepad.cpp; path = Source/WebKitLegacy/morphos/Gamepad.cpp; sourceTree = "<group>"; };
+		0124C6052644245500B3A2A9 /* Gamepad.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Gamepad.h; path = Source/WebKitLegacy/morphos/Gamepad.h; sourceTree = "<group>"; };
 		0138E9272433A9CD00B53904 /* WebProcess.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebProcess.h; path = Source/WebKitLegacy/morphos/WebProcess.h; sourceTree = "<group>"; };
 		0138E9282433A9CE00B53904 /* WebProcess.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebProcess.cpp; path = Source/WebKitLegacy/morphos/WebProcess.cpp; sourceTree = "<group>"; };
 		0138E92D2433ADFF00B53904 /* FrameInfoData.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = FrameInfoData.h; path = Source/WebKitLegacy/morphos/FrameInfoData.h; sourceTree = "<group>"; };
@@ -206,6 +209,8 @@
 				01F87DA42436CBE3008754BB /* CacheModel.cpp */,
 				01F87DA52436CBE3008754BB /* CacheModel.h */,
 				0138E92D2433ADFF00B53904 /* FrameInfoData.h */,
+				0124C6032644211E00B3A2A9 /* Gamepad.cpp */,
+				0124C6052644245500B3A2A9 /* Gamepad.h */,
 				013D3C952463448600805F29 /* link.sh.in */,
 				013D3C992463448700805F29 /* Makefile */,
 				011B866D242BBBF100749380 /* minibrowser.mm */,
@@ -392,6 +397,7 @@
 				011B867B242CFCD800749380 /* WebFrameLoaderClient.cpp in Sources */,
 				0138E93724342FB700B53904 /* WebDocumentLoader.cpp in Sources */,
 				01E13648242BB118007BA528 /* WkWebView.mm in Sources */,
+				0124C6042644211E00B3A2A9 /* Gamepad.cpp in Sources */,
 				013D3C89246042EC00805F29 /* ABPFilterParser.cpp in Sources */,
 				0103C81624B945170060E2F0 /* WkFileDialog.mm in Sources */,
 				011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */,

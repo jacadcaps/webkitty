@@ -44,6 +44,8 @@
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
 #include "WebFrameNetworkingContext.h"
+#include "Gamepad.h"
+
 // bloody include shit
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
@@ -339,6 +341,10 @@ void WebProcess::initialize(int sigbit)
 			}
 		}
 	};
+#endif
+
+#if ENABLE(GAMEPAD)
+	GamepadProvider::setSharedProvider(GamepadProviderMorphOS::singleton());
 #endif
 
 #if USE_ADFILTER

@@ -35,6 +35,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/CacheModel.cpp
     morphos/WebDragClient.cpp
     morphos/PopupMenu.cpp
+    morphos/Gamepad.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_Classes

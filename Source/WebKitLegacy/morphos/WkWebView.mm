@@ -2443,6 +2443,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	EP_BEGIN(setVisibleSize);
 	auto webPage = [_private page];
+	if (!webPage)
+		return NO;
 	webPage->setVisibleSize(int(iw), int(ih));
 	EP_END(setVisibleSize);
 	

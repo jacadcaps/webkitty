@@ -18,6 +18,7 @@
 #include <proto/exec.h>
 
 #define D(x) 
+#define DR(x)
 #define DM(x)
 #define DI(x) 
 #define DN(x)    
@@ -68,7 +69,7 @@ void MediaSourceChunkReader::terminate()
 
 void MediaSourceChunkReader::decode(Vector<unsigned char>&& data)
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DR(dprintf("[MS]%s\n", __func__));
 
 	{
 		auto lock = holdLock(m_lock);
@@ -95,7 +96,7 @@ void MediaSourceChunkReader::decode(Vector<unsigned char>&& data)
 
 void MediaSourceChunkReader::signalEOF()
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DR(dprintf("[MS]%s\n", __func__));
 	m_bufferEOF = true;
 
 	dispatch([this] {
@@ -109,12 +110,12 @@ void MediaSourceChunkReader::getSamples(MediaSamplesList& outSamples)
 {
 	auto lock = holdLock(m_lock);
 	std::swap(outSamples, m_samples);
-	D(dprintf("[MS]%s: %d samples\n", __func__, outSamples.size()));
+	DR(dprintf("[MS]%s: %d samples\n", __func__, outSamples.size()));
 }
 
 void MediaSourceChunkReader::dispatch(Function<void ()>&& function)
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DR(dprintf("[MS]%s\n", __func__));
 	ASSERT(isMainThread());
 	ASSERT(!m_queue.killed() && m_thread);
 	m_queue.append(makeUnique<Function<void ()>>(WTFMove(function)));
@@ -122,14 +123,14 @@ void MediaSourceChunkReader::dispatch(Function<void ()>&& function)
 
 bool MediaSourceChunkReader::initialize()
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DR(dprintf("[MS]%s\n", __func__));
 	EP_SCOPE(initialize);
 
 	m_acinerella = Acinerella::AcinerellaPointer::create();
 
 	if (m_acinerella)
 	{
-		D(dprintf("[MS] ac_open()... \n"));
+		DR(dprintf("[MS] ac_open()... \n"));
 		int score;
 		auto probe = ac_probe_input_buffer(m_buffer.data(), m_buffer.size(), nullptr, &score);
 
@@ -141,7 +142,7 @@ bool MediaSourceChunkReader::initialize()
 			return false;
 		}
 		
-		D(dprintf("[MS] ac_open() success!\n"));
+		DR(dprintf("[MS] ac_open() success!\n"));
 		m_audioDecoderMask = 0;
 		m_videoDecoderMask = 0;
 		
@@ -173,7 +174,7 @@ bool MediaSourceChunkReader::initialize()
 
 void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::InitializationSegment& initializationSegment, MediaPlayerMorphOSInfo& minfo)
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DM(dprintf("[MS]%s\n", __func__));
 	auto metaCinerella = m_acinerella;
 
 	if (metaCinerella)
@@ -254,7 +255,7 @@ bool MediaSourceChunkReader::keepDecoding()
 
 void MediaSourceChunkReader::decodeAllMediaSamples()
 {
-	D(dprintf("[MS]%s\n", __func__));
+	DR(dprintf("[MS]%s\n", __func__));
 
 	if (!m_acinerella)
 	{
