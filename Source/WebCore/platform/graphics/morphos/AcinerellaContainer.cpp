@@ -15,7 +15,7 @@
 #define D(x) 
 #define DNP(x)
 #define DIO(x) 
-#define DINIT(x) 
+#define DINIT(x)
 
 #define DDUMP(x)
 
@@ -138,13 +138,13 @@ void Acinerella::seek(double time)
 
 void Acinerella::dumpStatus()
 {
-	dprintf("\033[37m[MS%p]: PAU %d SEE %d WAR %d DUR %f\033[0m\n", this,
+	dprintf("\033[37m[AC%p]: PAU %d SEE %d WAR %d DUR %f\033[0m\n", this,
 		m_paused, m_isSeeking, m_waitReady, float(duration()));
 	if (m_audioDecoder)
 		m_audioDecoder->dumpStatus();
 	if (m_videoDecoder)
 		m_videoDecoder->dumpStatus();
-	dprintf("\033[37m[MS%p]: -- \033[0m\n", this);
+	dprintf("\033[37m[AC%p]: -- \033[0m\n", this);
 }
 
 void Acinerella::watchdogTimerFired()
@@ -156,6 +156,7 @@ void Acinerella::watchdogTimerFired()
 	{
 		m_client->accSetPosition(m_position);
 		m_client->accSetDuration(m_duration);
+		m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
 	}
 }
 
@@ -239,6 +240,8 @@ void Acinerella::selectStream()
 	
 	if (selected.m_url.length())
 	{
+		DINIT(dprintf("HLS stream selected: %dx%d\n", selected.m_width, selected.m_height));
+		DINIT(for (const auto &codec : selected.m_codecs) { dprintf("\t\tcodec: %s\n", codec.utf8().data()); });
 		hls->selectStream(selected);
 	}
 }
@@ -563,7 +566,7 @@ bool Acinerella::initialize()
 
 					if (m_audioDecoder)
 					{
-						RefPtr<AcinerellaAudioDecoder> audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
+						AcinerellaAudioDecoder* audio = static_cast<AcinerellaAudioDecoder *>(m_audioDecoder.get());
 						minfo.m_frequency = audio->rate();
 						minfo.m_bits = audio->bits();
 						minfo.m_channels = audio->channels();
@@ -575,7 +578,7 @@ bool Acinerella::initialize()
 			
 					if (m_videoDecoder)
 					{
-						RefPtr<AcinerellaVideoDecoder> video = static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get());
+						AcinerellaVideoDecoder* video = static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get());
 						minfo.m_width = video->frameWidth();
 						minfo.m_height = video->frameHeight();
 					}

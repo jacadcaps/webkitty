@@ -30,7 +30,7 @@
 #define D(x) 
 #define DSYNC(x)
 #define DOVL(x)
-#define DFRAME(x)
+#define DFRAME(x) 
 
 // #pragma GCC optimize ("O0")
 // #define FORCEDECODE
@@ -163,10 +163,11 @@ void AcinerellaVideoDecoder::onTerminate()
 	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
 }
 
-void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &)
+void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
 	m_bufferedSeconds += m_frameDuration;
-	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f]\033[0m\n", __func__, this, float(m_bufferedSeconds)));
+	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f pts %f]\033[0m\n", __func__, this, float(m_bufferedSeconds), float(frame.pts())));
+	(void)frame;
 	m_pullEvent.signal();
 	if (!m_didShowFirstFrame && m_overlayHandle)
 	{

@@ -296,14 +296,38 @@ void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, con
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidPopStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchWillClose()

@@ -16,7 +16,7 @@
 #include <exec/exec.h>
 
 #define D(x)
-#define DM(x)
+#define DM(x) 
 
 namespace WebCore {
 

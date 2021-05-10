@@ -6,11 +6,12 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x) 
-#define DNF(x)
+#define D(x)
+#define DNF(x) 
 #define DI(x)
 #define DBF(x) 
-#define DPOS(x) 
+#define DPOS(x)
+#define DLIFETIME(x) 
 
 // #pragma GCC optimize ("O0")
 
@@ -23,6 +24,7 @@ AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<Aci
 	, m_index(index)
 	, m_isLive(isLiveStream)
 {
+	DLIFETIME(dprintf("%s: %p ++\033[0m\n", __func__, this));
 	auto ac = acinerella->instance();
 	m_duration = std::max(ac_get_stream_duration(ac, index), double(ac->info.duration)/1000.0);
 
@@ -38,7 +40,7 @@ AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<Aci
 
 AcinerellaDecoder::~AcinerellaDecoder()
 {
-	DI(dprintf("%s: %p\033[0m\n", __func__, this));
+	DLIFETIME(dprintf("%s: %p --\033[0m\n", __func__, this));
 }
 
 void AcinerellaDecoder::warmUp()
@@ -213,7 +215,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 		if (rcPush != PUSH_PACKAGE_SUCCESS)
 		{
 			DNF(dprintf("[%s]%s: failed ac_push_package %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, rcPush));
-			return false;
+			return true; // don't fail decoding - keep going instead!
 		}
 
 		for (;;)
@@ -345,26 +347,28 @@ void AcinerellaDecoder::terminate()
 {
 	EP_SCOPE(terminate);
 
-	DI(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DLIFETIME(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	m_terminating = true;
 	if (!m_thread)
 		return;
 
 	onTerminate();
 
-	DI(dprintf("[%s]%s: %p disp..\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DLIFETIME(dprintf("[%s]%s: %p disp..\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	m_queue.append(makeUnique<Function<void ()>>([this] {
 		performTerminate();
 	}));
 	m_thread->waitForCompletion();
 
-	DI(dprintf("[%s]%s: %p completed\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DLIFETIME(dprintf("[%s]%s: %p completed\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	ASSERT(m_queue.killed());
 	m_thread = nullptr;
 	m_client = nullptr;
 	m_muxer = nullptr;
+	while (!m_decodedFrames.empty())
+		m_decodedFrames.pop();
 
-	DI(dprintf("[%s]%s: %p done\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DLIFETIME(dprintf("[%s]%s: %p done\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 }
 
 void AcinerellaDecoder::threadEntryPoint()

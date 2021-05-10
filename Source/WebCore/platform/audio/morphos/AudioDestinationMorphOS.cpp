@@ -31,6 +31,8 @@
 #include "AudioSourceProvider.h"
 #include "NotImplemented.h"
 
+#define D(x) 
+
 namespace WebCore {
 
 static const unsigned framesToPull = 128;
@@ -57,6 +59,7 @@ AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float
 	, m_isPlaying(false)
 {
 	notImplemented();
+	D(dprintf("%s: rate %d\n", __PRETTY_FUNCTION__, m_sampleRate));
 }
 
 AudioDestinationMorphOS::~AudioDestinationMorphOS()
@@ -67,11 +70,12 @@ AudioDestinationMorphOS::~AudioDestinationMorphOS()
 void AudioDestinationMorphOS::start()
 {
 	notImplemented();
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
 void AudioDestinationMorphOS::stop()
 {
-
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
 }

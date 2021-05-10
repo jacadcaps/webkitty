@@ -640,6 +640,11 @@ void CALL_CONVT ac_get_stream_info(lp_ac_instance pacInstance, int nb,
 //
 
 lp_ac_package CALL_CONVT ac_read_package(lp_ac_instance pacInstance) {
+	if (NULL == pacInstance)
+		return NULL;
+	if (NULL == ((lp_ac_data)(pacInstance))->pFormatCtx->internal)
+		return NULL; // why?
+
 	// Allocate the result packet
 	lp_ac_package_data pkt;
 	ERR(pkt = av_malloc(sizeof(ac_package_data)));
@@ -669,6 +674,7 @@ void CALL_CONVT ac_free_package(lp_ac_package pPackage) {
 	if (pPackage && pPackage != ac_flush_packet()) {
 		lp_ac_package_data self = (lp_ac_package_data)pPackage;
 		av_packet_unref(self->pPack);
+		av_free_packet(self->pPack);
 		av_free(self->pPack);
 		av_free(self);
 	}
