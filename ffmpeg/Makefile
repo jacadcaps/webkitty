@@ -13,8 +13,8 @@ all: .buildstamp
 	rm -rf ffmpeg-$(FFMPEG_VERSION)
 	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
 	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
-	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib)" \
-		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
+	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
+		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
 		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
 		--enable-pthreads --disable-shared --disable-indevs --disable-protocols --enable-protocol=file --disable-network --disable-encoders --disable-decoders \
 		 --disable-hwaccels --disable-muxers --disable-demuxers --disable-parsers --disable-bsfs --disable-devices --disable-filters --enable-decoder=aac \
@@ -25,7 +25,8 @@ all: .buildstamp
 		--enable-decoder=vp9 --enable-demuxer=vp9 --enable-parser=vp9 --enable-bsf=aac_adtstoasc --enable-decoder=mpeg4 --enable-parser=mpeg4video \
 		--enable-demuxer=matroska --enable-libopus --enable-demuxer=opus --enable-decoder=opus --enable-demuxer=mpegts --enable-demuxer=mpegtsraw --enable-parser=h264 \
 		--enable-demuxer=hevc --enable-decoder=hevc \
-		--disable-ffmpeg --disable-ffplay)
+		--disable-ffmpeg --disable-ffplay --pkg-config-flags="--static" --pkg-config=pkg-config)
+#--enable-libaom --enable-decoder=libaom_av1 \
 	# remove "-maltivec -mabi=altivec" from generic CFLAGS
 	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	# add "-maltivec -mabi=altivec" to CFLAGS for specific files only
@@ -40,6 +41,20 @@ all: .buildstamp
 clean:
 	rm -rf instdir
 	rm -rf ffmpeg-$(FFMPEG_VERSION) .buildstamp
+	rm -rf aom aom-build .aom
 
 .PHONY: clean
+
+# disabled for now, does not appear to work
+.aom:
+	rm -rf aom aom-build
+	tar xf aom.tar.xz
+	(cd aom && patch -p1 <../aom.diff)
+	mkdir -p aom-build
+	(cd aom-build && cmake ../aom -DCMAKE_TOOLCHAIN_FILE=$(realpath ../morphos.cmake) -DCONFIG_AV1_DECODER=1 -DCONFIG_AV1_ENCODER=0 -DENABLE_TOOLS=0 \
+		-DAOM_TARGET_CPU=ppc -DCONFIG_RUNTIME_CPU_DETECT=0 -DENABLE_EXAMPLES=0 -DENABLE_TESTS=0 -DCMAKE_INSTALL_PREFIX="instdir" -DENABLE_VSX=0 )
+	(cd aom-build && $(MAKE) -j$(shell nproc))
+	(cd aom-build && $(MAKE) install)
+	cp aom-build/instdir/lib/pkgconfig/aom.pc aom-build/instdir/lib/pkgconfig/libaom.pc
+	touch .aom
 

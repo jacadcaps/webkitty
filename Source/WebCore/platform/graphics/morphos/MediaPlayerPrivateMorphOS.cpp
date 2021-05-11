@@ -200,7 +200,7 @@ public:
 			for (size_t i = 0; i < codecs.size(); i++)
 			{
 				auto &codec = codecs.at(i);
-				if (startsWithLettersIgnoringASCIICase(codec, "av01")) // requires ffmpeg 4.0 + additional libs
+				if (startsWithLettersIgnoringASCIICase(codec, "av01") || startsWithLettersIgnoringASCIICase(codec, "av1")) // requires ffmpeg 4.0 + additional libs
 				{
 					DM(dprintf("%s: rejecting unsupported codec %s\n", __func__, codec.utf8().data()));
 					return MediaPlayer::SupportsType::IsNotSupported;

@@ -21,10 +21,9 @@ Dummy/libdummy.a
 link.sh
 webkitty.tar.xz
 webkitty.lha
-ffmpeg/ffmpeg-2.8.15
 ffmpeg/instdir
 linkpackage*
-ffmpeg/ffmpeg-2.8.15_orig
 ffmpeg/opus*
-ffmpeg/ffmpeg-4.3.2
-
+ffmpeg/ffmpeg-4.*
+ffmpeg/aom-build
+ffmpeg/aom
