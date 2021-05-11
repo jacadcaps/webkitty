@@ -127,6 +127,8 @@ public:
     void onTrackEnabled(int index, bool enabled);
     void dumpStatus();
 
+	void getFrameCounts(unsigned& decoded, unsigned &dropped) const;
+
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
 

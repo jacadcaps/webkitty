@@ -54,6 +54,7 @@ public:
 	void setVolume(double volume);
 	void setMuted(bool muted);
 	double volume() const { return m_volume; }
+	bool muted() const { return m_muted; }
 
 	bool canSeek();
 	bool isSeeking();

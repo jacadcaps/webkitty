@@ -436,9 +436,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				if (!m_ahiThreadShuttingDown)
 				{
 					m_position += 0.5f;
-					m_duration += 0.5f;
 					onPositionChanged();
-					onDurationChanged();
 					decodeUntilBufferFull();
 				}
 			});

@@ -183,9 +183,17 @@ void MediaSourcePrivateMorphOS::watchdogTimerFired()
 	DDUMP(dumpStatus());
 
 	if (m_player)
+	{
 		m_player->accSetPosition(m_position);
-
-	m_watchdogTimer.startOneShot(Seconds(1.0));
+		if (!!m_paintingBuffer)
+		{
+			unsigned decoded, dropped;
+			m_paintingBuffer->getFrameCounts(decoded, dropped);
+			m_player->accSetFrameCounts(decoded, dropped);
+		}
+	}
+	
+	m_watchdogTimer.startOneShot(Seconds(0.5));
 }
 
 void MediaSourcePrivateMorphOS::seekCompleted()
@@ -225,7 +233,7 @@ void MediaSourcePrivateMorphOS::play()
 	m_paused = false;
 
 #ifdef USE_WDG
-	m_watchdogTimer.startOneShot(Seconds(1.0));
+	m_watchdogTimer.startOneShot(Seconds(0.5));
 #endif
 
 	if (areDecodersReadyToPlay())

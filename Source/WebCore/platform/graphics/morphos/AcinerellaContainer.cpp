@@ -53,7 +53,7 @@ void Acinerella::play()
 	m_waitReady = true;
 	m_liveEnded = false;
 
-	m_watchdogTimer.startOneShot(Seconds(1.0));
+	m_watchdogTimer.startOneShot(Seconds(0.5));
 
 	dispatch([this] {
 		if (areDecodersReadyToPlay())
@@ -150,13 +150,18 @@ void Acinerella::dumpStatus()
 void Acinerella::watchdogTimerFired()
 {
 	DDUMP(dumpStatus());
-	m_watchdogTimer.startOneShot(Seconds(1.0));
+	m_watchdogTimer.startOneShot(Seconds(0.5));
 
 	if (m_client)
 	{
 		m_client->accSetPosition(m_position);
 		m_client->accSetDuration(m_duration);
 		m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+		if (m_videoDecoder)
+		{
+			auto *vd = static_cast<AcinerellaVideoDecoder*>(m_videoDecoder.get());
+			m_client->accSetFrameCounts(vd->decodedFrameCount(), vd->droppedFrameCount());
+		}
 	}
 }
 
@@ -844,12 +849,6 @@ void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, dou
 	if (m_isSeeking)
 		return;
 
-	if (m_isLive)
-	{
-		pos += m_networkBuffer->initialTimeStamp();
-		D(if (decoder->isAudio()) dprintf("%s: %p adjusted pos to %f\n", __func__ , this, float(pos)));
-	}
-
 	if (decoder->isAudio() && !!m_videoDecoder)
 		static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get())->setAudioPresentationTime(pos);
 	
@@ -859,20 +858,13 @@ void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, dou
 	}
 }
 
-void Acinerella::onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder>, double duration)
+void Acinerella::onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration)
 {
-	if (m_isLive)
+	if (decoder->isAudio() || !m_audioDecoder)
 	{
-		duration += m_networkBuffer->initialTimeStamp();
-	}
-
-	WTF::callOnMainThread([this, duration, protectedThis = makeRef(*this)]() {
 		m_duration = duration;
-		if (m_client)
-			m_client->accSetDuration(m_duration);
-	});
+	}
 }
-
 
 void Acinerella::onDecoderWantsToRender(RefPtr<AcinerellaDecoder>)
 {

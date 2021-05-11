@@ -23,6 +23,7 @@ public:
 	virtual void accSetPosition(double position) = 0;
 	virtual void accSetDuration(double duration) = 0;
 	virtual void accSetVideoSize(int width, int height) = 0;
+	virtual void accSetFrameCounts(unsigned decoded, unsigned dropped) = 0;
 	virtual void accEnded() = 0;
 	virtual void accFailed() = 0;
 	virtual void accNextFrameReady() = 0;

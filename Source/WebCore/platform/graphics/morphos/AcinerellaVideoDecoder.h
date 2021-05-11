@@ -51,6 +51,9 @@ public:
 
 	void dumpStatus() override;
 
+	unsigned decodedFrameCount() const { return m_frameCount - m_droppedFrameCount; }
+	unsigned droppedFrameCount() const { return m_droppedFrameCount; }
+
 protected:
 	void startPlaying() override;
 	void stopPlaying() override;
@@ -84,7 +87,8 @@ protected:
 	volatile bool   m_playing = false;
 	int             m_frameWidth;
 	int             m_frameHeight;
-	int             m_frameCount = 0;
+	unsigned        m_frameCount = 0;
+	unsigned        m_droppedFrameCount = 0;
 	double          m_position = 0.f;
 	double          m_fps;
 	double          m_frameDuration;

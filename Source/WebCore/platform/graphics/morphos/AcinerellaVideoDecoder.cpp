@@ -589,7 +589,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 void AcinerellaVideoDecoder::pullThreadEntryPoint()
 {
 	D(dprintf("\033[36m[VD]%s: %p\033[0m\n", __func__, this));
-	SetTaskPri(FindTask(0), 1);
+	SetTaskPri(FindTask(0), 3);
 
 	while (!m_terminating)
 	{
@@ -628,6 +628,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							m_bufferedSeconds -= m_frameDuration;
 							dropFrame = false;
 							m_frameCount++;
+							m_droppedFrameCount++;
 						}
 						else
 						{
@@ -671,9 +672,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
                         if (m_isLive)
                         {
                             m_position += 1.f;
-                            m_duration += 1.f;
                             onPositionChanged();
-                            onDurationChanged();
                         }
                         else
                         {

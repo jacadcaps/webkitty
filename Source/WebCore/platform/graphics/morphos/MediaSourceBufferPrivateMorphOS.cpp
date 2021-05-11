@@ -685,6 +685,20 @@ void MediaSourceBufferPrivateMorphOS::dumpStatus()
 	dprintf("\033[36m[MSB%p]: -- \033[0m\n", this);
 }
 
+void MediaSourceBufferPrivateMorphOS::getFrameCounts(unsigned& decoded, unsigned &dropped) const
+{
+	Acinerella::AcinerellaVideoDecoder *decoder = static_cast<Acinerella::AcinerellaVideoDecoder *>(m_paintingDecoder.get());
+	if (decoder)
+	{
+		decoded = decoder->decodedFrameCount();
+		dropped = decoder->droppedFrameCount();
+	}
+	else
+	{
+		decoded = dropped = 0;
+	}
+}
+
 void MediaSourceBufferPrivateMorphOS::flush(const AtomString&)
 {
 	D(dprintf("[MS]%s\n", __func__));

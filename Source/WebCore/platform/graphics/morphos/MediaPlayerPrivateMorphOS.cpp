@@ -413,6 +413,18 @@ void MediaPlayerPrivateMorphOS::play()
 #endif
 
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+	
+	if (m_player)
+	{
+		if (m_acinerella)
+		{
+			m_player->muteChanged(m_acinerella->muted());
+			m_player->volumeChanged(m_acinerella->volume());
+		}
+		
+		m_player->rateChanged();
+		m_player->playbackStateChanged();
+	}
 }
 
 void MediaPlayerPrivateMorphOS::pause()
@@ -526,6 +538,14 @@ bool MediaPlayerPrivateMorphOS::paused() const
 	return true;
 }
 
+Optional<VideoPlaybackQualityMetrics> MediaPlayerPrivateMorphOS::videoPlaybackQualityMetrics()
+{
+	VideoPlaybackQualityMetrics metrics;
+	metrics.totalVideoFrames = m_decodedFrameCount;
+	metrics.droppedVideoFrames = m_droppedFrameCount;
+	return metrics;
+}
+
 MediaPlayer::NetworkState MediaPlayerPrivateMorphOS::networkState() const
 {
 	return m_networkState;
@@ -625,6 +645,12 @@ bool MediaPlayerPrivateMorphOS::accCodecSupported(const String &codec)
 	return MediaPlayerFactoryMediaSourceMorphOS::s_supportsTypeAndCodecs(parameters) == MediaPlayer::SupportsType::IsSupported;
 }
 
+void MediaPlayerPrivateMorphOS::accSetFrameCounts(unsigned decoded, unsigned dropped)
+{
+	m_decodedFrameCount = decoded;
+	m_droppedFrameCount = dropped;
+}
+
 bool MediaPlayerPrivateMorphOS::didLoadingProgress() const
 {
 	if (m_didLoadingProgress)
@@ -651,6 +677,13 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 	return m_duration;
 #endif
 	return 0.f;
+}
+
+MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
+{
+	if (m_acinerella && m_acinerella->isLive())
+		return MediaTime::invalidTime();
+	return MediaTime::createWithDouble(durationDouble());
 }
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)

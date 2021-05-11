@@ -50,6 +50,12 @@ public:
     FloatSize naturalSize() const final;
 
     float duration() const final { return m_duration; }
+    double durationDouble() const final { return m_duration; }
+    MediaTime durationMediaTime() const final;
+
+    unsigned decodedFrameCount() const { return m_decodedFrameCount; }
+    unsigned droppedFrameCount() const { return m_droppedFrameCount; }
+
 	float maxTimeSeekable() const final;
     float currentTime() const final { return m_currentTime; }
 
@@ -66,6 +72,8 @@ public:
 	bool supportsScanning() const { return true; }
     void seek(float) final;
     bool ended() const final;
+
+    Optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() final;
 
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
@@ -89,6 +97,7 @@ public:
 	void accNoFramesReady() override;
 	void accFrameUpdateNeeded() override;
 	bool accCodecSupported(const String &codec) override;
+	void accSetFrameCounts(unsigned decoded, unsigned dropped) override;
 
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
 	void onActiveSourceBuffersChanged() { if (m_player) m_player->activeSourceBuffersChanged(); }
@@ -113,6 +122,8 @@ protected:
 	bool  m_acInitialized = false;
 	bool  m_visible = false;
 	bool  m_didDrawFrame = false;
+	unsigned m_decodedFrameCount = 0;
+	unsigned m_droppedFrameCount = 0;
 	mutable bool  m_didLoadingProgress = false;
 
 #if ENABLE(MEDIA_SOURCE)
