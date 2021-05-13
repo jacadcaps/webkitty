@@ -1,15 +1,74 @@
---- ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c.orig	2021-03-20 23:55:56.060481391 +0200
-+++ ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c	2021-03-20 23:55:57.632472590 +0200
-@@ -100,6 +100,7 @@
- #include "yuv2rgb_altivec.h"
+diff -ruN ffmpeg-4.4_orig/configure ffmpeg-4.4_new/configure
+--- ffmpeg-4.4_orig/configure	2021-04-08 23:28:39.000000000 +0200
++++ ffmpeg-4.4_new/configure	2021-05-12 21:26:00.061832710 +0200
+@@ -5269,7 +5269,7 @@
+ # some compilers silently accept -std=c11, so we also need to check that the
+ # version macro is defined properly
+ test_cflags_cc -std=c11 ctype.h "__STDC_VERSION__ >= 201112L" &&
+-    add_cflags -std=c11 ||
++    add_cflags -std=gnu11 ||
+     check_cflags -std=c99
  
- #if HAVE_ALTIVEC
-+#include <altivec.h>
+ check_cppflags -D_FILE_OFFSET_BITS=64
+diff -ruN ffmpeg-4.4_orig/libavcodec/decode.c ffmpeg-4.4_new/libavcodec/decode.c
+--- ffmpeg-4.4_orig/libavcodec/decode.c	2021-04-08 23:28:39.000000000 +0200
++++ ffmpeg-4.4_new/libavcodec/decode.c	2021-05-13 17:17:07.615543477 +0200
+@@ -510,7 +510,9 @@
+     }
  
- #undef PROFILE_THE_BEAST
- #undef INC_SCALING
---- ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c.orig	2021-03-21 00:06:08.809052262 +0200
-+++ ffmpeg-4.3.2/libswscale/ppc/yuv2rgb_altivec.c	2021-03-21 00:06:55.092793241 +0200
+     if (got_frame)
+-        av_assert0(frame->buf[0]);
++	if (!frame->buf[0])
++		return AVERROR(EINVAL);
++//        av_assert0(frame->buf[0]);
+ 
+     return ret < 0 ? ret : 0;
+ }
+@@ -536,7 +538,9 @@
+     AVCodecInternal *avci = avctx->internal;
+     int ret;
+ 
+-    av_assert0(!frame->buf[0]);
++    if (frame->buf[0])
++	return AVERROR(EINVAL);
++//    av_assert0(!frame->buf[0]);
+ 
+     if (avctx->codec->receive_frame) {
+         ret = avctx->codec->receive_frame(avctx, frame);
+diff -ruN ffmpeg-4.4_orig/libavutil/ppc/cpu.c ffmpeg-4.4_new/libavutil/ppc/cpu.c
+--- ffmpeg-4.4_orig/libavutil/ppc/cpu.c	2020-07-09 11:17:46.000000000 +0200
++++ ffmpeg-4.4_new/libavutil/ppc/cpu.c	2021-05-12 21:26:00.061832710 +0200
+@@ -31,6 +31,11 @@
+ #include <sys/param.h>
+ #include <sys/sysctl.h>
+ #include <machine/cpu.h>
++#elif defined(__MORPHOS__)
++#include <exec/exec.h>
++#include <exec/system.h>
++#include <proto/exec.h>
++int altivec_disabled;
+ #elif defined(__AMIGAOS4__)
+ #include <exec/exec.h>
+ #include <interfaces/exec.h>
+@@ -56,6 +61,15 @@
+     if (result == VECTORTYPE_ALTIVEC)
+         return AV_CPU_FLAG_ALTIVEC;
+     return 0;
++#elif defined(__MORPHOS__)
++    ULONG result = 0;
++    if (altivec_disabled ||
++        !NewGetSystemAttrs(&result, sizeof(result), SYSTEMINFOTYPE_PPC_ALTIVEC, TAG_DONE) ||
++        !LIB_MINVER(&SysBase->LibNode, 50, 61))
++    {
++        result = 0;
++    }
++    return result != 0 ? AV_CPU_FLAG_ALTIVEC : 0;
+ #elif defined(__APPLE__) || defined(__OpenBSD__)
+ #ifdef __OpenBSD__
+     int sels[2] = {CTL_MACHDEP, CPU_ALTIVEC};
+diff -ruN ffmpeg-4.4_orig/libswscale/ppc/yuv2rgb_altivec.c ffmpeg-4.4_new/libswscale/ppc/yuv2rgb_altivec.c
+--- ffmpeg-4.4_orig/libswscale/ppc/yuv2rgb_altivec.c	2021-04-08 23:28:40.000000000 +0200
++++ ffmpeg-4.4_new/libswscale/ppc/yuv2rgb_altivec.c	2021-05-12 21:26:00.057832687 +0200
 @@ -89,6 +89,7 @@
  #include <stdlib.h>
  #include <string.h>
@@ -18,7 +77,15 @@
  
  #include "config.h"
  #include "libswscale/rgb2rgb.h"
-@@ -142,6 +143,7 @@
+@@ -101,6 +102,7 @@
+ #include "yuv2rgb_altivec.h"
+ 
+ #if HAVE_ALTIVEC
++#include <altivec.h>
+ 
+ #undef PROFILE_THE_BEAST
+ #undef INC_SCALING
+@@ -142,6 +144,7 @@
   *           brgb|rgbr|gbrg|brgb
   *           1001 0010 0100 1001
   *           a67b 89cA BdCD eEFf
@@ -26,7 +93,7 @@
   */
  static const vector unsigned char
      perm_rgb_0 = { 0x00, 0x01, 0x10, 0x02, 0x03, 0x11, 0x04, 0x05,
-@@ -306,6 +308,9 @@
+@@ -316,6 +319,9 @@
      vector signed short R1, G1, B1;                                           \
      vector unsigned char R, G, B;                                             \
                                                                                \
@@ -36,7 +103,7 @@
      vector signed short lCY       = c->CY;                                    \
      vector signed short lOY       = c->OY;                                    \
      vector signed short lCRV      = c->CRV;                                   \
-@@ -336,13 +341,26 @@
+@@ -346,13 +352,26 @@
          vec_dstst(oute, (0x02000002 | (((w * 3 + 32) / 32) << 16)), 1);       \
                                                                                \
          for (j = 0; j < w / 16; j++) {                                        \
@@ -68,7 +135,7 @@
                                                                                \
              u = (vector signed char)                                          \
                      vec_sub(u,                                                \
-@@ -585,7 +603,7 @@
+@@ -595,7 +614,7 @@
      return NULL;
  }
  
@@ -77,7 +144,7 @@
                                          const int inv_table[4],
                                          int brightness,
                                          int contrast,
-@@ -618,6 +636,18 @@
+@@ -628,6 +647,18 @@
  #endif /* HAVE_ALTIVEC */
  }
  
@@ -96,44 +163,3 @@
  #if HAVE_ALTIVEC
  
  static av_always_inline void yuv2packedX_altivec(SwsContext *c,
---- ffmpeg-4.3.2/configure.orig	2021-02-20 22:27:47.000000000 +0200
-+++ ffmpeg-4.3.2/configure	2021-03-21 00:42:46.284754818 +0200
-@@ -5231,7 +5231,7 @@
- # some compilers silently accept -std=c11, so we also need to check that the
- # version macro is defined properly
- test_cflags_cc -std=c11 ctype.h "__STDC_VERSION__ >= 201112L" &&
--    add_cflags -std=c11 ||
-+    add_cflags -std=gnu11 ||
-     check_cflags -std=c99
- 
- check_cppflags -D_FILE_OFFSET_BITS=64
---- ffmpeg-4.3.2/libavutil/ppc/cpu.c.orig	2020-07-09 12:17:46.000000000 +0300
-+++ ffmpeg-4.3.2/libavutil/ppc/cpu.c	2021-04-24 02:37:21.169032674 +0300
-@@ -31,6 +31,11 @@
- #include <sys/param.h>
- #include <sys/sysctl.h>
- #include <machine/cpu.h>
-+#elif defined(__MORPHOS__)
-+#include <exec/exec.h>
-+#include <exec/system.h>
-+#include <proto/exec.h>
-+int altivec_disabled;
- #elif defined(__AMIGAOS4__)
- #include <exec/exec.h>
- #include <interfaces/exec.h>
-@@ -56,6 +61,15 @@
-     if (result == VECTORTYPE_ALTIVEC)
-         return AV_CPU_FLAG_ALTIVEC;
-     return 0;
-+#elif defined(__MORPHOS__)
-+    ULONG result = 0;
-+    if (altivec_disabled ||
-+        !NewGetSystemAttrs(&result, sizeof(result), SYSTEMINFOTYPE_PPC_ALTIVEC, TAG_DONE) ||
-+        !LIB_MINVER(&SysBase->LibNode, 50, 61))
-+    {
-+        result = 0;
-+    }
-+    return result != 0 ? AV_CPU_FLAG_ALTIVEC : 0;
- #elif defined(__APPLE__) || defined(__OpenBSD__)
- #ifdef __OpenBSD__
-     int sels[2] = {CTL_MACHDEP, CPU_ALTIVEC};

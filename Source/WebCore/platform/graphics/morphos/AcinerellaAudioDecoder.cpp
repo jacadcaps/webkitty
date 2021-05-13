@@ -166,7 +166,6 @@ bool AcinerellaAudioDecoder::initializeAudio()
 							m_ahiThread = Thread::create("Acinerella AHI Pump", [this] {
 								ahiThreadEntryPoint();
 							});
-							m_ahiThread->changePriority(10);
 							
 							if (0 == AHI_LoadSound(0, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[0]), m_ahiControl)
 								&& 0 == AHI_LoadSound(1, AHIST_DYNAMICSAMPLE, reinterpret_cast<APTR>(&m_ahiSample[1]), m_ahiControl))
