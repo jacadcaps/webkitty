@@ -72,7 +72,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 	mkdir cross-build
 	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
-		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DENABLE_ACINERELLA=0 \
+		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=0 \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
 		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
 		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
@@ -88,8 +88,46 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
-		-DCairo_INCLUDE_DIR=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
-		-DCairo_LIBRARY="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
+		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a -DHARFBUZZ_LIBRARIES="$(GEN)/lib/libnghttp2.a" \
+		-DICU_ROOT="$(LIB)/libicu/instdir/" \
+		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicuuc.a" \
+		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicudata.a" \
+		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu/instdir/lib/libicui18n.a" \
+		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
+		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
+		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
+		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
+		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DAVUTIL_LIBRARY="ffmpeg/instdir/lib/libavutil.a" -DAVUTIL_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DSWSCALE_LIBRARY="ffmpeg/instdir/lib/libswscale.a" -DSWSCALE_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DOBJC_INCLUDE="$(OBJC)" \
+		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
+
+configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
+	rm -rf cross-build-mini
+	mkdir cross-build-mini
+	(cd cross-build-mini && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
+		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=1 \
+		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
+		-DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
+		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib/libxml2.a \
+		-DLIBXML2_INCLUDE_DIR="$(LIB)/libxml2/instdir/include/libxml2/" \
+		-DPNG_LIBRARIES=$(GEN)/libpng16/lib/libpng16.a \
+		-DPNG_PNG_INCLUDE_DIR=$(GEN)/libpng16/include/libpng16/ \
+		-DPNG_INCLUDE_DIRS=$(GEN)/libpng16/include/libpng16/ \
+		-DLIBXSLT_LIBRARIES=$(LIB)/libxslt/instdir/lib/libxslt.a \
+		-DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
+		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib/libsqlite3.a \
+		-DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
+		-DSQLite3_LIBRARY=$(LIB)/sqlite/instdir/include \
+		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
+		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
+		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a -DHARFBUZZ_LIBRARIES="$(GEN)/lib/libnghttp2.a" \
 		-DICU_ROOT="$(LIB)/libicu/instdir/" \
@@ -100,12 +138,6 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
-		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
-		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
-		-DAVUTIL_LIBRARY="ffmpeg/instdir/lib/libavutil.a" -DAVUTIL_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
-		-DSWSCALE_LIBRARY="ffmpeg/instdir/lib/libswscale.a" -DSWSCALE_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
-		-DFontconfig_LIBRARY="$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/libfontconfig-glue.a" \
-		-DFontconfig_INCLUDE_DIR="$(ROOTPATH)/morphoswb/libs/fontconfig/" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
@@ -116,6 +148,9 @@ build:
 	echo "Stripped binary in cross-build/Tools/morphos/MiniBrowser"
 
 #		-Wdev --debug-output --trace --trace-expand \
+
+build-mini:
+	(cd cross-build-mini && make -j$(shell nproc))
 
 morphos.cmake: morphos.cmake.in
 	gcc -xc -E -P -C -o$@ -nostdinc $@.in -D_IN_ROOTPATH=$(ROOTPATH) -D_IN_DUMMYPATH=$(realpath Dummy)
@@ -128,7 +163,7 @@ libwebkit.a:
 	(cd cross-build/Source/WebKitLegacy && make)
 
 clean:
-	rm -rf morphos.cmake cross-build WebKitBuild build link.sh
+	rm -rf morphos.cmake cross-build cross-build-mini WebKitBuild build link.sh
 
 install:
 
@@ -159,7 +194,7 @@ minirelease:
 	mkdir -p WebKitty/MOSSYS/Data/ICU
 	cp cross-build/Tools/morphos/MiniBrowser WebKitty/
 	cp -a Source/WebCore/Resources WebKitty/Resources
-	cp -a $(ROOTPATH)/lib/libicu/instdir/icu/67.1/icudt67b WebKitty/MOSSYS/Data/ICU/icudt67b
+	cp -a $(ROOTPATH)/lib/libicu/instdir/icu/54.2/icudt54b WebKitty/MOSSYS/Data/ICU/icudt54b
 #	( cd WebKitty/Resources && wget https://easylist.to/easylist/easylist.txt )
 	cp easylist/easylist.dat WebKitty/Resources
 	mkdir WebKitty/MiniResources
@@ -171,3 +206,42 @@ minirelease:
 
 putrelease: minirelease
 	scp webkitty.lha jaca@tunkki.dk:/home/jaca/public_html
+
+LINKFILES := \
+	cross-build-mini/Source/WebKitLegacy/libWebKit.a \
+	cross-build-mini/Source/WebCore/libWebCore.a \
+	cross-build-mini/Source/WebCore/PAL/pal/libPAL.a \
+	cross-build-mini/Source/JavaScriptCore/libJavaScriptCore.a \
+	cross-build-mini/Source/WTF/wtf/libWTF.a \
+	$(ROOTPATH)/lib/libxml2/instdir/lib/libxml2.a \
+	$(ROOTPATH)/lib/libxslt/instdir/lib/libxslt.a \
+	$(ROOTPATH)/lib/sqlite/instdir/lib/libsqlite3.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libz.a \
+	$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libcurl.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libssl.a \
+	$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libnghttp2.a \
+	$(ROOTPATH)/lib/libjpeg/libjpeg.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libpsl.a \
+	$(ROOTPATH)/gen/host/libnix/libpng16/lib/libpng16.a  \
+	$(ROOTPATH)/gen/host/libnix/lib/libhyphen.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libcrypto.a \
+	$(ROOTPATH)/lib/libicu/instdir/lib/libicui18n.a \
+	$(ROOTPATH)/lib/libicu/instdir/lib/libicuuc.a \
+	$(ROOTPATH)/lib/libicu/instdir/lib/libicudata.a \
+	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
+	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a
+
+.PHONY: linkpackage
+linkpackage:
+	@rm -rf linkpackage
+	@mkdir linkpackage
+	@for i in $(LINKFILES); \
+	do echo -n "ppc-morphos-strip --strip-debug $$i -o linkpackage/">.run.sh; \
+	echo $$i | rev | cut -d'/' -f-1 | rev >>.run.sh ; \
+	echo "Copying and stripping $$i"; \
+	bash ./.run.sh; \
+	done
+	@rm ./.run.sh
