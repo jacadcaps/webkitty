@@ -278,6 +278,10 @@ static void buildMediaEnginesVector()
     MediaPlayerPrivateHolePunch::registerMediaEngine(addMediaEngine);
 #endif
 
+#if ENABLE(VIDEO) && OS(MORPHOS)
+    MediaPlayerPrivateMorphOS::registerMediaEngine(addMediaEngine);
+#endif
+
     haveMediaEnginesVector() = true;
 }
 
@@ -497,6 +501,7 @@ const MediaPlayerFactory* MediaPlayer::nextBestMediaEngine(const MediaPlayerFact
     MediaEngineSupportParameters parameters;
     parameters.type = m_contentType;
     parameters.url = m_url;
+    parameters.page = client().mediaPlayerPage();
 #if ENABLE(MEDIA_SOURCE)
     parameters.isMediaSource = !!m_mediaSource;
 #endif

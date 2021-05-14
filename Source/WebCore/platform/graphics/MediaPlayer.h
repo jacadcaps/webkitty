@@ -84,6 +84,7 @@ struct SecurityOriginData;
 struct MediaEngineSupportParameters {
     ContentType type;
     URL url;
+    Page* page { nullptr };
     bool isMediaSource { false };
     bool isMediaStream { false };
     Vector<ContentType> contentTypesRequiringHardwareSupport;
@@ -126,7 +127,7 @@ struct MediaEngineSupportParameters {
         if (!typesRequiringHardware)
             return WTF::nullopt;
 
-        return {{ WTFMove(*type), WTFMove(*url), *isMediaSource, *isMediaStream, *typesRequiringHardware }};
+        return {{ WTFMove(*type), WTFMove(*url), nullptr, *isMediaSource, *isMediaStream, *typesRequiringHardware }};
     }
 };
 
@@ -276,6 +277,10 @@ public:
 #if !RELEASE_LOG_DISABLED
     virtual const void* mediaPlayerLogIdentifier() { return nullptr; }
     virtual const Logger& mediaPlayerLogger() = 0;
+#endif
+
+#if OS(MORPHOS)
+    virtual Page* mediaPlayerPage() { return nullptr; }
 #endif
 };
 
@@ -635,8 +640,10 @@ private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
 
+public:
     MediaPlayerClient& client() const { return *m_client; }
 
+private:
     const MediaPlayerFactory* nextBestMediaEngine(const MediaPlayerFactory*);
     void loadWithNextMediaEngine(const MediaPlayerFactory*);
     const MediaPlayerFactory* nextMediaEngine(const MediaPlayerFactory*);

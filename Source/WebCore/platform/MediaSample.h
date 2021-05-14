@@ -38,6 +38,10 @@ typedef struct _GstSample GstSample;
 
 namespace WebCore {
 
+namespace Acinerella {
+    class AcinerellaPackage;
+}
+
 class MockSampleBox;
 
 struct PlatformSample {
@@ -46,11 +50,13 @@ struct PlatformSample {
         MockSampleBoxType,
         CMSampleBufferType,
         GStreamerSampleType,
+        MorphOSSampleType,
     } type;
     union {
         MockSampleBox* mockSampleBox;
         CMSampleBufferRef cmSampleBuffer;
         GstSample* gstSample;
+        Acinerella::AcinerellaPackage* mosSample;
     } sample;
 };
 

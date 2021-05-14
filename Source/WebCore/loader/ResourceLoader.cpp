@@ -156,7 +156,7 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     willSendRequestInternal(WTFMove(clientRequest), ResourceResponse(), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](ResourceRequest&& request) mutable {
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
         // If this ResourceLoader was stopped as a result of willSendRequest, bail out.
         if (m_reachedTerminalState)
             return completionHandler(false);
@@ -197,6 +197,9 @@ void ResourceLoader::start()
     ASSERT(!m_request.isNull());
     ASSERT(m_deferredRequest.isNull());
     ASSERT(frameLoader());
+
+    if (!m_documentLoader)
+        return;
 
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
     if (m_documentLoader->scheduleArchiveLoad(*this, m_request))
