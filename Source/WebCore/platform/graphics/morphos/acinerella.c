@@ -36,7 +36,6 @@
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
-#define AC_BUFSIZE 1024 * 64
 #define PROBE_BUF_MIN 1024
 #define PROBE_BUF_MAX (1 << 15)
 
@@ -78,6 +77,7 @@ struct _ac_decoder_data {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 };
 
 typedef struct _ac_decoder_data ac_decoder_data;
@@ -87,6 +87,7 @@ struct _ac_video_decoder {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 	AVCodec *pCodec;
 	AVCodecContext *pCodecCtx;
 	AVFrame *pFrame;
@@ -101,11 +102,19 @@ struct _ac_audio_decoder {
 	ac_decoder decoder;
 	int sought;
 	double last_timecode;
+	int doseek;
 	AVCodec *pCodec;
 	AVCodecContext *pCodecCtx;
 	AVFrame *pFrame;
 	SwrContext *pSwrCtx;
 	size_t own_buffer_size;
+};
+
+struct _ac_decoder_frame_internal {
+	ac_decoder_frame frame;
+	AVFrame *pFrame;
+	size_t own_buffer_size;
+	int needs_unref;
 };
 
 typedef struct _ac_audio_decoder ac_audio_decoder;
@@ -114,7 +123,7 @@ typedef ac_audio_decoder *lp_ac_audio_decoder;
 struct _ac_package_data {
 	ac_package package;
 	AVPacket *pPack;
-	int pts;
+	int64_t pts;
 };
 
 typedef struct _ac_package_data ac_package_data;
@@ -226,6 +235,7 @@ static int io_read(void *opaque, uint8_t *buf, int buf_size) {
 				cnt += rest;
 			}
 		}
+
 		return (int) cnt;
 	}
 
@@ -380,6 +390,9 @@ static void cpymetadatai(const AVFormatContext *ctx, const char *key,
 static int finalize_open(lp_ac_instance pacInstance) {
 	lp_ac_data self = ((lp_ac_data)pacInstance);
 
+    if (!self || !self->pFormatCtx)
+        return -1;
+
 	// Assume the stream is opened
 	pacInstance->opened = 1;
 
@@ -410,6 +423,10 @@ error:
 	return -1;
 }
 
+void __av_log_default_callback(void *ig, int no, const char *re, va_list me)
+{
+}
+
 int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
                        ac_openclose_callback open_proc,
                        ac_read_callback read_proc, ac_seek_callback seek_proc,
@@ -419,6 +436,9 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 	if (pacInstance->opened) {
 		return -1;
 	}
+
+	av_log_set_level(AV_LOG_QUIET);
+	av_log_set_callback(&__av_log_default_callback);
 
 	// Reference at the underlying lp_ac_data instance
 	lp_ac_data self = ((lp_ac_data)pacInstance);
@@ -504,7 +524,8 @@ void CALL_CONVT ac_close(lp_ac_instance pacInstance) {
 
 	// Make sure all buffers are freed
 	av_free(self->probe_buffer);
-	av_free(self->buffer);
+	if (self->pIo)
+		av_free(self->pIo->buffer); // this is either self->buffer or a re-allocated buffer!
 	av_free(self->pIo);
 	self->buffer = NULL;
 	self->probe_buffer = NULL;
@@ -619,6 +640,11 @@ void CALL_CONVT ac_get_stream_info(lp_ac_instance pacInstance, int nb,
 //
 
 lp_ac_package CALL_CONVT ac_read_package(lp_ac_instance pacInstance) {
+	if (NULL == pacInstance)
+		return NULL;
+	if (NULL == ((lp_ac_data)(pacInstance))->pFormatCtx->internal)
+		return NULL; // why?
+
 	// Allocate the result packet
 	lp_ac_package_data pkt;
 	ERR(pkt = av_malloc(sizeof(ac_package_data)));
@@ -648,6 +674,7 @@ void CALL_CONVT ac_free_package(lp_ac_package pPackage) {
 	if (pPackage && pPackage != ac_flush_packet()) {
 		lp_ac_package_data self = (lp_ac_package_data)pPackage;
 		av_packet_unref(self->pPack);
+		av_free_packet(self->pPack);
 		av_free(self->pPack);
 		av_free(self);
 	}
@@ -671,6 +698,8 @@ static enum AVPixelFormat convert_pix_format(ac_output_format fmt) {
 			return AV_PIX_FMT_YUV420P;
 		case AC_OUTPUT_YUV422:
 			return AV_PIX_FMT_YUYV422;
+		case AC_OUTPUT_ARGB32:
+			return AV_PIX_FMT_ARGB;
 	}
 	return AV_PIX_FMT_RGB24;
 }
@@ -700,6 +729,9 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 	// Call codec_proc if provided
 	if (codec_proc != NULL) {
 		ERR(codec_proc(pCodecCtx));
+	}
+	else {
+		pCodecCtx->skip_loop_filter = AVDISCARD_ALL;
 	}
 
 	// Set a few properties
@@ -733,18 +765,36 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 
 	memset(pDecoder->decoder.pBuffer, 0, pDecoder->decoder.buffer_size);
 
+#if 0
 	// Link decoder to buffer
 	AVFrame *picture = (AVFrame *)(pDecoder->pFrameRGB);
 	AV_ERR(av_image_fill_arrays(picture->data, picture->linesize,
 	                            pDecoder->decoder.pBuffer, pix_fmt_out,
 	                            pDecoder->pCodecCtx->width,
 	                            pDecoder->pCodecCtx->height, 1));
-
+#endif
 	return (void *)pDecoder;
 
 error:
 	ac_free_video_decoder(pDecoder);
 	return NULL;
+}
+
+void ac_decoder_set_loopfilter(lp_ac_decoder pDecoder, int lflevel)
+{
+    ((lp_ac_video_decoder)pDecoder)->pCodecCtx->skip_loop_filter = lflevel;
+}
+
+int ac_get_audio_rate(lp_ac_decoder pDecoder)
+{
+	lp_ac_audio_decoder audioDecoder = (lp_ac_audio_decoder)pDecoder;
+	if (audioDecoder)
+	{
+		if (audioDecoder->pSwrCtx)
+			return 44100;
+		return audioDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+	}
+	return 44100; // wat? :)
 }
 
 // Init a audio decoder
@@ -804,9 +854,9 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 
 #if 1
 	// Always output AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, maximum 48kHz
-	if (layout != AV_CH_LAYOUT_STEREO || fmt != AV_SAMPLE_FMT_S16 || rate > 48000) {
+	if (layout != AV_CH_LAYOUT_STEREO || fmt != AV_SAMPLE_FMT_S16 || rate > 44100) {
 		ERR(pDecoder->pSwrCtx = swr_alloc_set_opts(NULL, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16,
-		                                           rate <= 48000 ? rate : 48000,
+		                                           44100, // ahi sucks so may as well convert ourselves to a common format
 		                                           layout, fmt, rate, 0, NULL));
 		AV_ERR(swr_init(pDecoder->pSwrCtx));
 	}
@@ -857,9 +907,16 @@ lp_ac_decoder CALL_CONVT ac_create_decoder_ex(lp_ac_instance pacInstance, int nb
 		result->decoder.timecode = 0;
 		result->last_timecode = 0;
 		result->sought = 1;
+		result->doseek = 1;
 	}
 
 	return (lp_ac_decoder)result;
+}
+
+const char *ac_codec_name(lp_ac_instance pacInstance, int nb) {
+	lp_ac_data self = ((lp_ac_data)(pacInstance));
+	AVCodecContext *pCodecCtx = self->pFormatCtx->streams[nb]->codec;
+	return avcodec_get_name(pCodecCtx->codec_id);
 }
 
 static int ac_decode_video_package(lp_ac_package pPackage,
@@ -920,10 +977,16 @@ static int ac_decode_audio_package(lp_ac_package pPackage,
 	const int sample_size = 2; // AV_SAMPLE_FMT_S16 => 2 bytes per sample
 	const int sample_count = pDecoder->pFrame->nb_samples;
 	const int channel_count = 2; // AV_CH_LAYOUT_STEREO => 2 channels
-	const size_t buffer_size = sample_size * sample_count * channel_count;
+	size_t buffer_size = sample_size * sample_count * channel_count;
 
 	if (pDecoder->pSwrCtx) {
 		// Only realloc if the buffer is too small
+		int src_rate = pDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+		int dst_nb_samples = av_rescale_rnd(swr_get_delay(pDecoder->pSwrCtx, src_rate) +
+			sample_count, 44100, src_rate, AV_ROUND_UP);
+
+		buffer_size = sample_size * dst_nb_samples * channel_count;
+
 		if (pDecoder->own_buffer_size < buffer_size) {
 			void *newbuffer;
 			ERR(newbuffer = av_realloc(pDecoder->decoder.pBuffer, buffer_size));
@@ -931,10 +994,10 @@ static int ac_decode_audio_package(lp_ac_package pPackage,
 			pDecoder->own_buffer_size = buffer_size;
 		}
 		int rc = swr_convert(pDecoder->pSwrCtx, &(pDecoder->decoder.pBuffer),
-		                     sample_count, (const uint8_t **)(pDecoder->pFrame->data),
+		                     dst_nb_samples, (const uint8_t **)(pDecoder->pFrame->data),
 		                     sample_count);
 		AV_ERR(rc);
-		pDecoder->decoder.buffer_size = sample_size * rc * channel_count;
+		pDecoder->decoder.buffer_size = av_samples_get_buffer_size(&buffer_size, 2, rc, AV_SAMPLE_FMT_S16, 1);
 	} else {
 		// No conversion needs to be done, simply set the buffer pointer
 		pDecoder->decoder.pBuffer = pDecoder->pFrame->data[0];
@@ -974,8 +1037,123 @@ error:
 	return 0;
 }
 
-int CALL_CONVT ac_decode_package(lp_ac_package pPackage,
-                                 lp_ac_decoder pDecoder) {
+static int ac_decode_audio_package_ex(lp_ac_package pPackage,
+                                   lp_ac_audio_decoder pDecoder, lp_ac_decoder_frame pFrame) {
+	lp_ac_package_data pkt = ((lp_ac_package_data)pPackage);
+
+	if (!pFrame)
+		return 0;
+
+	struct _ac_decoder_frame_internal *frame = (struct _ac_decoder_frame_internal *)pFrame;
+
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57,64,0)
+	AV_ERR(avcodec_send_packet(pDecoder->pCodecCtx, pkt->pPack));
+
+	AV_ERR(avcodec_receive_frame(pDecoder->pCodecCtx, frame->pFrame));
+	frame->needs_unref = 1;
+#else
+	int got_frame = 0;
+	int len = 0;
+
+	AV_ERR(len = avcodec_decode_audio4(pDecoder->pCodecCtx, frame->pFrame,
+	                                   &got_frame, pkt->pPack));
+	
+	if (got_frame == 0)
+		return 0;
+#endif /* LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57,64,0) */
+
+
+	// Calculate the output buffer size
+#if 1
+	// Always output AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16
+	const int sample_size = 2; // AV_SAMPLE_FMT_S16 => 2 bytes per sample
+	const int sample_count = frame->pFrame->nb_samples;
+	const int channel_count = 2; // AV_CH_LAYOUT_STEREO => 2 channels
+	size_t buffer_size = sample_size * sample_count * channel_count;
+
+	if (pDecoder->pSwrCtx) {
+		int src_rate = pDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+		int dst_nb_samples = av_rescale_rnd(swr_get_delay(pDecoder->pSwrCtx, src_rate) +
+			sample_count, 44100, src_rate, AV_ROUND_UP);
+
+		buffer_size = sample_size * dst_nb_samples * channel_count;
+		// Only realloc if the buffer is too small
+		if (frame->own_buffer_size < buffer_size) {
+			ERR(frame->frame.pBuffer = av_realloc(frame->frame.pBuffer, buffer_size));
+			frame->own_buffer_size = buffer_size;
+		}
+		int rc = swr_convert(pDecoder->pSwrCtx, &(frame->frame.pBuffer),
+		                     dst_nb_samples, (const uint8_t **)(frame->pFrame->data),
+		                     sample_count);
+		AV_ERR(rc);
+		frame->frame.buffer_size = av_samples_get_buffer_size(&buffer_size, 2, rc, AV_SAMPLE_FMT_S16, 1);
+	} else {
+		// No conversion needs to be done, simply set the buffer pointer
+		frame->frame.pBuffer = frame->pFrame->data[0];
+		frame->frame.buffer_size = buffer_size;
+	}
+#else
+	const int sample_size =
+	    MIN(4, av_get_bytes_per_sample(pDecoder->pCodecCtx->sample_fmt));
+	const int sample_count = frame->pFrame->nb_samples;
+	const int channel_count = frame->pFrame->channels;
+	const int buffer_size = sample_size * sample_count * channel_count;
+	frame->frame.buffer_size = buffer_size;
+
+	if (pDecoder->pSwrCtx) {
+		if (frame->own_buffer_size != buffer_size) {
+			ERR(frame->frame.pBuffer = av_realloc(frame->frame.pBuffer, buffer_size));
+			frame->own_buffer_size = buffer_size;
+		}
+		AV_ERR(swr_convert(pDecoder->pSwrCtx, &(frame->frame.pBuffer),
+		                   sample_count, (const uint8_t **)(frame->pFrame->data),
+		                   sample_count));
+	} else {
+		// No conversion needs to be done, simply set the buffer pointer
+		frame->frame.pBuffer = frame->pFrame->data[0];
+	}
+#endif
+
+	return 1;
+
+error:
+	return 0;
+}
+
+lp_ac_decoder_frame ac_alloc_decoder_frame(lp_ac_decoder decoder)
+{
+	struct _ac_decoder_frame_internal *frame = NULL;
+
+	ERR(frame = av_malloc(sizeof(struct _ac_decoder_frame_internal)));
+	ERR(frame->pFrame = av_frame_alloc());
+	frame->own_buffer_size = 0;
+	frame->frame.pBuffer = NULL;
+	frame->needs_unref = 0;
+
+	return (lp_ac_decoder_frame)frame;
+
+error:
+	if (frame)
+		av_free(frame);
+
+	return NULL;
+}
+
+void ac_free_decoder_frame(lp_ac_decoder_frame pFrame)
+{
+	if (!pFrame)
+		return;
+
+	struct _ac_decoder_frame_internal *frame = (struct _ac_decoder_frame_internal *)pFrame;
+	if (frame->needs_unref)
+		av_frame_unref(frame->pFrame);
+	av_frame_free(&frame->pFrame);
+	if (frame->own_buffer_size > 0)
+		av_free(frame->frame.pBuffer);
+}
+
+int CALL_CONVT ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame)
+{
 	double timebase = av_q2d(((lp_ac_data)pDecoder->pacInstance)
 	                             ->pFormatCtx->streams[pPackage->stream_index]
 	                             ->time_base);
@@ -987,33 +1165,203 @@ int CALL_CONVT ac_decode_package(lp_ac_package pPackage,
 		dec_dat->last_timecode = pDecoder->timecode;
 		pDecoder->timecode = ((lp_ac_package_data)pPackage)->pts * timebase;
 
-		double delta = pDecoder->timecode - dec_dat->last_timecode;
-		double max_delta, min_delta;
+		if (dec_dat->doseek)
+		{
+			double delta = pDecoder->timecode - dec_dat->last_timecode;
+			double max_delta, min_delta;
 
-		if (dec_dat->sought > 0) {
-			max_delta = 120.0;
-			min_delta = -120.0;
-			--dec_dat->sought;
-		} else {
-			max_delta = 4.0;
-			min_delta = 0.0;
-		}
-
-		if ((delta < min_delta) || (delta > max_delta)) {
-			pDecoder->timecode = dec_dat->last_timecode;
 			if (dec_dat->sought > 0) {
-				++dec_dat->sought;
+				max_delta = 120.0;
+				min_delta = -120.0;
+				--dec_dat->sought;
+			} else {
+				max_delta = 4.0;
+				min_delta = 0.0;
+			}
+
+			if ((delta < min_delta) || (delta > max_delta)) {
+				pDecoder->timecode = dec_dat->last_timecode;
+				if (dec_dat->sought > 0) {
+					++dec_dat->sought;
+				}
 			}
 		}
 	}
+	
+	if (pFrame)
+		pFrame->timecode = pDecoder->timecode;
 
 	if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
 		return ac_decode_video_package(pPackage, (lp_ac_video_decoder)pDecoder);
 	} else if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
-		return ac_decode_audio_package(pPackage, (lp_ac_audio_decoder)pDecoder);
+		return pFrame ? ac_decode_audio_package_ex(pPackage, (lp_ac_audio_decoder)pDecoder, pFrame) : ac_decode_audio_package(pPackage, (lp_ac_audio_decoder)pDecoder);
 	}
 	return 0;
 }
+
+int CALL_CONVT ac_decode_package(lp_ac_package pPackage,
+                                 lp_ac_decoder pDecoder) {
+	return ac_decode_package_ex(pPackage, pDecoder, NULL);
+}
+
+ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame)
+{
+	if (!pDecoder || !pFrame)
+		return RECEIVE_FRAME_ERROR;
+
+	AVCodecContext *pCodecCtx = NULL;
+
+	if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
+		pCodecCtx = ((lp_ac_video_decoder)pDecoder)->pCodecCtx;
+	} else if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
+		pCodecCtx = ((lp_ac_audio_decoder)pDecoder)->pCodecCtx;
+	}
+	
+	if (!pCodecCtx)
+		return RECEIVE_FRAME_ERROR;
+	
+	struct _ac_decoder_frame_internal *frame = (struct _ac_decoder_frame_internal *)pFrame;
+	int rc = avcodec_receive_frame(pCodecCtx, frame->pFrame);
+	
+	switch (rc)
+	{
+	case 0:
+		pFrame->timecode = pDecoder->timecode; // is this correct?
+		frame->needs_unref = 1;
+		
+		if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
+			lp_ac_audio_decoder aDecoder = (lp_ac_audio_decoder)pDecoder;
+			// Always output AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16
+			const int sample_size = 2; // AV_SAMPLE_FMT_S16 => 2 bytes per sample
+			const int sample_count = frame->pFrame->nb_samples;
+			const int channel_count = 2; // AV_CH_LAYOUT_STEREO => 2 channels
+			size_t buffer_size = sample_size * sample_count * channel_count;
+
+			if (aDecoder->pSwrCtx) {
+				int src_rate = aDecoder->decoder.stream_info.additional_info.audio_info.samples_per_second;
+				int dst_nb_samples = av_rescale_rnd(swr_get_delay(aDecoder->pSwrCtx, src_rate) +
+					sample_count, 44100, src_rate, AV_ROUND_UP);
+
+				buffer_size = sample_size * dst_nb_samples * channel_count;
+				// Only realloc if the buffer is too small
+				if (frame->own_buffer_size < buffer_size) {
+					if (NULL == (frame->frame.pBuffer = av_realloc(frame->frame.pBuffer, buffer_size)))
+						return RECEIVE_FRAME_ERROR;
+					frame->own_buffer_size = buffer_size;
+				}
+				int rc = swr_convert(aDecoder->pSwrCtx, &(frame->frame.pBuffer),
+									 dst_nb_samples, (const uint8_t **)(frame->pFrame->data),
+									 sample_count);
+				if (rc < 0)
+					return RECEIVE_FRAME_ERROR;
+				frame->frame.buffer_size = av_samples_get_buffer_size(&buffer_size, 2, rc, AV_SAMPLE_FMT_S16, 1);
+			} else {
+				// No conversion needs to be done, simply set the buffer pointer
+				frame->frame.pBuffer = frame->pFrame->data[0];
+				frame->frame.buffer_size = buffer_size;
+			}
+		}
+		else if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
+#if 0
+			lp_ac_video_decoder vDecoder = (lp_ac_video_decoder)pDecoder;
+
+			if (NULL == (vDecoder->pSwsCtx = sws_getCachedContext(
+				vDecoder->pSwsCtx, vDecoder->pCodecCtx->width,
+				vDecoder->pCodecCtx->height, vDecoder->pCodecCtx->pix_fmt,
+				vDecoder->pCodecCtx->width, vDecoder->pCodecCtx->height,
+				convert_pix_format(vDecoder->decoder.pacInstance->output_format),
+				/*SWS_BICUBIC*/SWS_FAST_BILINEAR, NULL, NULL, NULL)))
+			{
+				return RECEIVE_FRAME_ERROR;
+			}
+
+			if (sws_scale(vDecoder->pSwsCtx,
+				 (const uint8_t *const *)(vDecoder->pFrame->data),
+				 vDecoder->pFrame->linesize,
+				 0,  //?
+				 vDecoder->pCodecCtx->height, vDecoder->pFrameRGB->data,
+				 vDecoder->pFrameRGB->linesize) < 0)
+			{
+				return RECEIVE_FRAME_ERROR;
+			}
+#endif
+		}
+		
+		return RECEIVE_FRAME_SUCCESS;
+
+	case AVERROR(EAGAIN): return RECEIVE_FRAME_NEED_PACKET;
+	case AVERROR_EOF: return RECEIVE_FRAME_EOF;
+	default: return RECEIVE_FRAME_ERROR;
+	}
+}
+
+ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackage)
+{
+	lp_ac_package_data pkt = ((lp_ac_package_data)pPackage);
+	
+	if (!pDecoder || !pPackage)
+		return PUSH_PACKAGE_ERROR;
+
+	AVCodecContext *pCodecCtx = NULL;
+
+	if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
+		pCodecCtx = ((lp_ac_video_decoder)pDecoder)->pCodecCtx;
+	} else if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
+		pCodecCtx = ((lp_ac_audio_decoder)pDecoder)->pCodecCtx;
+	}
+	
+	if (!pCodecCtx)
+		return PUSH_PACKAGE_ERROR;
+
+	double timebase = av_q2d(((lp_ac_data)pDecoder->pacInstance)
+	                             ->pFormatCtx->streams[pPackage->stream_index]
+	                             ->time_base);
+	int rc = avcodec_send_packet(pCodecCtx, pkt->pPack);
+	switch (rc)
+	{
+	case 0:
+		// Create a valid timecode
+		if (((lp_ac_package_data)pPackage)->pts > 0) {
+			lp_ac_decoder_data dec_dat = (lp_ac_decoder_data)pDecoder;
+
+			dec_dat->last_timecode = pDecoder->timecode;
+			pDecoder->timecode = ((lp_ac_package_data)pPackage)->pts * timebase;
+
+			if (dec_dat->doseek)
+			{
+				double delta = pDecoder->timecode - dec_dat->last_timecode;
+				double max_delta, min_delta;
+
+				if (dec_dat->sought > 0) {
+					max_delta = 120.0;
+					min_delta = -120.0;
+					--dec_dat->sought;
+				} else {
+					max_delta = 4.0;
+					min_delta = 0.0;
+				}
+
+				if ((delta < min_delta) || (delta > max_delta)) {
+					pDecoder->timecode = dec_dat->last_timecode;
+					if (dec_dat->sought > 0) {
+						++dec_dat->sought;
+					}
+				}
+			}
+		}
+		return PUSH_PACKAGE_SUCCESS;
+	case AVERROR(EAGAIN): return PUSH_PACKAGE_NEED_RECEIVE;
+	case AVERROR_EOF: return PUSH_PACKAGE_SUCCESS; // happens after flush, double-flush so let's ignore this
+	default: return PUSH_PACKAGE_ERROR;
+	}
+}
+
+void ac_decoder_fake_seek(lp_ac_decoder pDecoder)
+{
+	lp_ac_decoder_data dec_dat = (lp_ac_decoder_data)pDecoder;
+	dec_dat->doseek = 0;
+}
+
 
 // Seek function
 int CALL_CONVT ac_seek(lp_ac_decoder pDecoder, int dir, int64_t target_pos) {
@@ -1089,7 +1437,8 @@ double ac_get_stream_duration(lp_ac_instance pacInstance, int nb) {
 		int64_t duration = ((lp_ac_data)pacInstance)->pFormatCtx->streams[nb]->duration;
 		if(duration != AV_NOPTS_VALUE) {
 			AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[nb]->time_base;
-			return (((double) tb.num) * duration) / tb.den;
+			double d = (double)duration * av_q2d(tb);
+			return d;
 		}
 	}
 
@@ -1103,6 +1452,40 @@ int CALL_CONVT ac_get_package_size(lp_ac_package pPackage) {
 	return self->pPack->size;
 }
 
+EXTERN char CALL_CONVT ac_get_package_keyframe(lp_ac_package pPackage)
+{
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0;
+	return (self->pPack->flags & AV_PKT_FLAG_KEY) ? 1 : 0;
+}
+
+double CALL_CONVT ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->pts) / tb.den;
+}
+
+double CALL_CONVT ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->dts) / tb.den;
+}
+
+double CALL_CONVT ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage) {
+	lp_ac_package_data self = (lp_ac_package_data)pPackage;
+	if (pPackage == ac_flush_packet())
+		return 0.0;
+
+	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
+	return ((double)self->pPack->duration) / tb.den;
+}
+
 static const ac_package_data flush_pkt = {{0}, NULL, 0};
 
 lp_ac_package CALL_CONVT ac_flush_packet(void) {
@@ -1110,8 +1493,20 @@ lp_ac_package CALL_CONVT ac_flush_packet(void) {
 }
 
 void CALL_CONVT ac_flush_buffers(lp_ac_decoder pDecoder) {
-	// TODO: fix for later ffmpeg
-	avcodec_flush_buffers(((lp_ac_data)pDecoder->pacInstance)->pFormatCtx->streams[pDecoder->stream_index]->codec);
+
+	if (NULL == pDecoder)
+		return;
+
+	AVCodecContext *pCodecCtx = NULL;
+
+	if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
+		pCodecCtx = ((lp_ac_video_decoder)pDecoder)->pCodecCtx;
+	} else if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
+		pCodecCtx = ((lp_ac_audio_decoder)pDecoder)->pCodecCtx;
+	}
+	
+	if (pCodecCtx)
+		avcodec_flush_buffers(pCodecCtx);
 }
 
 
@@ -1124,6 +1519,17 @@ AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder) {
 	return pDecoder->pFrameRGB;
 
 error:
+	return NULL;
+}
+
+AVFrame * CALL_CONVT ac_get_frame_real(lp_ac_decoder_frame pFrame)
+{
+	if (pFrame)
+	{
+		struct _ac_decoder_frame_internal *frame = (struct _ac_decoder_frame_internal *)pFrame;
+		return frame->pFrame;
+	}
+	
 	return NULL;
 }
 
