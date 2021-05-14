@@ -195,7 +195,12 @@ void SQLiteDatabase::enableAutomaticWALTruncation()
 
 void SQLiteDatabase::useWALJournalMode()
 {
-#if !OS(MORPHOS)
+#if OS(MORPHOS)
+	SQLiteStatement syncStatement(*this, "PRAGMA synchronous=off;"_s);
+	SQLiteStatement walStatement(*this, "PRAGMA journal_mode=off;"_s);
+	syncStatement.prepareAndStep();
+	walStatement.prepareAndStep();
+#else
     m_useWAL = true;
     {
         SQLiteStatement walStatement(*this, "PRAGMA journal_mode=WAL;"_s);
