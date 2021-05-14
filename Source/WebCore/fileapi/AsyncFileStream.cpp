@@ -81,15 +81,20 @@ static void callOnFileThread(Function<void ()>&& function)
             for (;;) {
                 AutodrainedPool pool;
 
-                auto function = queue.get().waitForMessage();
+		if (auto function = queue.get().waitForMessage()) {
 
-                // This can never be null because we never kill the MessageQueue.
-                ASSERT(function);
+                    // This can never be null because we never kill the MessageQueue.
+                    ASSERT(function);
 
-                // This can bever be null because we never queue a function that is null.
-                ASSERT(*function);
+                    // This can bever be null because we never queue a function that is null.
+                    ASSERT(*function);
 
-                (*function)();
+                    (*function)();
+		}
+                else
+		{
+			break;
+		}
             }
         });
     });

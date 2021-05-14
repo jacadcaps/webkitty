@@ -606,6 +606,13 @@ RefPtr<HTMLMediaElement> HTMLMediaElement::bestMediaElementForShowingPlaybackCon
     return &strongestSessionCandidate.session->element();
 }
 
+#if OS(MORPHOS)
+WebCore::Page* HTMLMediaElement::mediaPlayerPage()
+{
+    return document().page();
+}
+#endif
+
 void HTMLMediaElement::registerWithDocument(Document& document)
 {
     document.registerMediaElement(*this);

@@ -32,8 +32,6 @@
 #include <wtf/text/StringView.h>
 #include <wtf/text/WTFString.h>
 
-extern "C" { void dprintf(const char *,...); }
-
 namespace WebCore {
 
 // TODO: use code for Iris
@@ -61,6 +59,9 @@ static const HashMap<String, String, ASCIICaseInsensitiveHash> hCommonMediaTypes
     { "xhtml"_s, "application/xhtml+xml"_s },
     { "wml"_s, "text/vnd.wap.wml"_s },
     { "wmlc"_s, "application/vnd.wap.wmlc"_s }
+#if USE(WEBP)
+    { "webp"_s, "image/webp"_s },
+#endif
 });
 
 String MIMETypeRegistry::mimeTypeForExtension(const String& extension)
