@@ -201,13 +201,26 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
 #endif
 
     auto position = path.reverseFind(pathSeparator);
+#if OS(MORPHOS)
+    if (position == notFound)
+        position = path.reverseFind(':');
+#endif
     if (position == notFound)
         return path;
 
     size_t endOfSubstring = path.length() - 1;
+#if OS(MORPHOS)
+    // If ending to a ':' just return an empty string.
+    if (position == endOfSubstring && path[position] != ':') {
+#else
     if (position == endOfSubstring) {
+#endif
         --endOfSubstring;
         position = path.reverseFind(pathSeparator, endOfSubstring);
+#if OS(MORPHOS)
+        if (position == notFound)
+            position = path.reverseFind(':');
+#endif
     }
 
     return path.substring(position + 1, endOfSubstring - position);

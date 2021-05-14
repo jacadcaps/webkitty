@@ -377,7 +377,15 @@ bool makeAllDirectories(const String& path)
 
 String pathGetFileName(const String& path)
 {
+#if OS(MORPHOS)
+    auto position = path.reverseFind('/');
+    if (position == notFound) {
+        position = path.reverseFind(':');
+    }
+    return path.substring(position + 1);
+#else
     return path.substring(path.reverseFind('/') + 1);
+#endif
 }
 
 String directoryName(const String& path)
@@ -485,7 +493,8 @@ String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFi
     char buffer[PATH_MAX];
 #if OS(MORPHOS)
 	stccpy(buffer, fileSystemRepresentation(tmpPath).data(), sizeof(buffer));
-	if (0 == AddPart(buffer, fileSystemRepresentation(prefix).data(), sizeof(buffer)))
+	auto prefixadd = fileSystemRepresentation(prefix);
+	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
 		goto end;
     if (strlen(buffer) >= PATH_MAX - 7)
     	goto end;

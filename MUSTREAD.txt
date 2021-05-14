@@ -3,6 +3,35 @@ Will not work or will crash unless you're on a very recent 3.14 installation.
 
 Rough changelist:
 
+- 23.10.2020:
+	- Reduced the # of SQL writes (mostly syncs on quit now, beware)
+	- Separate interpolation setting for standalone image views
+
+- 21.10.2020:
+	- Enabled intersection observer in WebCore
+	- Tweaked release asserts in WebKit to be properly debug-noisy
+
+- 20.10.2020:
+	- Fixed a crash in favicons
+
+- 16.10.2020:
+	- Fixed the blob registry (blob: support)
+	- Fixed a crash on exit due to WebCore not terminating one of its worker threads (at all)
+
+- 15.10.2020:
+	- Switched to cairo scaling for favicons
+
+- 13.10.2020:
+	- Disabled another use of FFT
+	- Corrected download file cookies and output file name
+
+- 07.10.2020:
+	- Fixed loading data from cache (resulted in missing mime type due to incorrect
+	  order of loading events)
+	- Shift + space does reverse scroll
+	- CSS file path fix
+	- Fixed an issue with sticky scrollers
+
 - 02.10.2020:
 	- Disabled OscillatorNode support since it seems to be trashing memory
 	  on pages like Yahoo's login and possibly Google Drive
@@ -26,9 +55,7 @@ Rough changelist:
 	- Minor fixes for potential issues in Curl backend
 	- Disabled SQLite WAL mode
 
-- 23.09.2020
-	- Rebased to WebKitGkt 2.30.0 (Sep 2020)
-	- Fixed a crash when attempting to play videos
+(23.09.2020) Changes were backed out for now
 
 - 19.09.2020
 	- Exposed time-to-next-event from the RunLoop so that the outer MorphOS runloop can

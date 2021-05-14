@@ -7,6 +7,7 @@
 # force-add it if you just created it
 !/.gitignore
 cross-build
+cross-build-mini
 build
 .DS_Store
 morphos.cmake
@@ -20,5 +21,9 @@ Dummy/libdummy.a
 link.sh
 webkitty.tar.xz
 webkitty.lha
-ffmpeg/ffmpeg-2.8.15
 ffmpeg/instdir
+linkpackage*
+ffmpeg/opus*
+ffmpeg/ffmpeg-4.*
+ffmpeg/aom-build
+ffmpeg/aom
