@@ -10,11 +10,14 @@
 @class WkCertificateChain;
 @class WkError;
 @class WkHitTest;
+@class WkFavIcon;
+@class WkPrintingState;
 @class MUIMenu;
 @class MUIMenuitem;
 @protocol WkFileDialogSettings;
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
+@protocol WkPrintingStateDelegate;
 
 #define kWebViewClientDelegateOption @"mode"
 #define kWebViewClientDelegateOption_NewWindow @"window"
@@ -24,6 +27,9 @@
 
 - (void)webView:(WkWebView *)view changedContentsSizeToWidth:(int)width height:(int)height;
 - (void)webView:(WkWebView *)view scrolledToLeft:(int)left top:(int)top;
+
+- (void)webView:(WkWebView *)view changedContentsSizeToShowPrintingSheets:(int)sheets;
+- (void)webView:(WkWebView *)view scrolledToSheet:(int)sheet;
 
 @end
 
@@ -49,6 +55,9 @@
 - (void)webView:(WkWebView *)view changedDocumentURL:(OBURL *)newURL;
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL;
 
+- (BOOL)webView:(WkWebView *)view shouldLoadFavIconForURL:(OBURL *)url;
+- (void)webView:(WkWebView *)view changedFavIcon:(WkFavIcon *)favicon;
+
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready;
 
 - (void)webView:(WkWebView *)view didFailLoadingWithError:(WkError *)error;
@@ -58,9 +67,11 @@
 
 - (void)webViewDidLoadInsecureContent:(WkWebView *)view;
 
-- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(QUAD) size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate;
 
 - (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate;
+
+- (void)webViewRequestedPrinting:(WkWebView *)view;
 
 @end
 
@@ -81,6 +92,12 @@ typedef enum {
 } WkWebViewDebugConsoleLogLevel;
 
 - (void)webView:(WkWebView *)view outputConsoleMessage:(OBString *)message level:(WkWebViewDebugConsoleLogLevel)level atLine:(ULONG)lineno;
+
+@end
+
+@protocol WkWebViewAllRequestsHandlerDelegate <OBObject>
+
+- (BOOL)webView:(WkWebView *)view wantsToNavigateToURL:(OBURL *)url;
 
 @end
 
@@ -118,6 +135,12 @@ typedef enum {
 
 - (void)webView:(WkWebView *)view needsToPopulateMenu:(MUIMenu *)menu withHitTest:(WkHitTest *)hitTest;
 - (void)webView:(WkWebView *)view didSelectMenuitemWithUserDatra:(LONG)userData withHitTest:(WkHitTest *)hitTest;
+
+@end
+
+@protocol WkWebViewEditorDelegate <OBObject>
+
+- (void)webViewUpdatedUndoRedoList:(WkWebView *)view;
 
 @end
 
@@ -167,6 +190,9 @@ typedef enum {
 - (void)runJavaScript:(OBString *)javascript;
 - (OBString *)evaluateJavaScript:(OBString *)javascript;
 
+- (void)setEditable:(BOOL)editable;
+- (BOOL)editable;
+
 - (void)scrollToLeft:(int)left top:(int)top;
 
 - (BOOL)hasAutofillElements;
@@ -185,20 +211,34 @@ typedef enum {
 - (void)setAutofillDelegate:(id<WkWebViewAutofillDelegate>)delegate;
 - (void)setProgressDelegate:(id<WkWebViewProgressDelegate>)delegate;
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
-
-- (void)dumpDebug;
+- (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
+- (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
+
+- (void)dumpDebug;
 
 - (int)pageWidth;
 - (int)pageHeight;
 - (int)visibleWidth;
 - (int)visibleHeight;
 
+- (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
 - (void)primeLayoutForWidth:(int)width height:(int)height;
 
-- (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
+- (WkPrintingState *)beginPrinting;
+- (WkPrintingState *)beginPrintingWithSettings:(OBDictionary *)settings;
+- (void)spoolToFile:(OBString *)file withDelegate:(id<WkPrintingStateDelegate>)delegate;
+- (BOOL)isPrinting;
+- (WkPrintingState *)printingState;
+- (void)endPrinting;
 
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection;
+
+- (BOOL)canUndo;
+- (void)undo;
+
+- (BOOL)canRedo;
+- (void)redo;
 
 @end

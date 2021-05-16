@@ -5,6 +5,10 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/ContextMenuItem.h>
+#include <WebCore/MediaPlayerMorphOS.h>
+
+#define EP_PROFILING 0
+#include <libeventprofiler.h>
 
 namespace WebCore {
 	class Page;
@@ -16,6 +20,10 @@ namespace WebCore {
 	class PolicyCheckIdentifier;
 	class AuthenticationChallenge;
 	class HitTestResult;
+	class SharedBuffer;
+	class Element;
+	struct MediaPlayerMorphOSInfo;
+	struct MediaPlayerMorphOSStreamSettings;
 };
 
 enum class WebViewDelegateOpenWindowMode
@@ -33,6 +41,8 @@ struct WebViewDelegate
 	std::function<void()>             _fActivateNext;
 	std::function<void()>             _fActivatePrevious;
 	std::function<void()>             _fGoActive;
+	std::function<void()>             _fGoInactive;
+	std::function<void()>             _fZoomChangedByWheel;
 
 	std::function<WTF::String(const WTF::String&)>       _fUserAgentForURL;
 	std::function<void(const WTF::String&)>              _fChangedTitle;
@@ -43,13 +53,14 @@ struct WebViewDelegate
 	std::function<void(const WebCore::ResourceError &)>  _fDidFailWithError;
 	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
 	std::function<void()>                                _fDidLoadInsecureContent;
+	std::function<bool(const WTF::URL& url, bool newWindow)> _fShouldNavigateToURL;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)>      _fCanOpenWindow;
 	std::function<WebCore::Page*(void)>                                          _fDoOpenWindow;
 	std::function<void(const WTF::URL& url, WebViewDelegateOpenWindowMode mode)> _fNewTabWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
-	std::function<void(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
+	std::function<bool(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
 
 	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
 	
@@ -77,6 +88,31 @@ struct WebViewDelegate
 	std::function<void(void)>  _fProgressFinished;
 	
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
+	
+	std::function<bool(const WTF::URL &url)> _fFavIconLoad;
+	std::function<void(WebCore::SharedBuffer *, const WTF::URL &url)> _fFavIconLoaded;
+
+	std::function<void(void)> _fPrint;
+	
+	std::function<void(void)> _fUndoRedoChanged;
+
+	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WebCore::MediaPlayerMorphOSStreamSettings& settings,
+		WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
+	std::function<void(void *player)> _fMediaRemoved;
+	std::function<void(void *player)> _fMediaWillPlay;
+	std::function<void(void *player, WebCore::Element* element,
+		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
+		_fMediaSetOverlayCallback;
+	std::function<void(void *player)> _fMediaUpdateOverlayCallback;
+
+	enum class mediaType {
+		Media,
+		MediaSource,
+		HLS,
+		VP9,
+		HVC1,
+	};
+	std::function<bool(mediaType)> _fMediaSupportCheck;
 
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
@@ -85,6 +121,8 @@ struct WebViewDelegate
 		_fActivateNext = nullptr;
 		_fActivatePrevious = nullptr;
 		_fGoActive = nullptr;
+		_fGoInactive = nullptr;
+		_fZoomChangedByWheel = nullptr;
 		_fUserAgentForURL = nullptr;
 		_fChangedTitle = nullptr;
 		_fChangedURL = nullptr;
@@ -115,6 +153,17 @@ struct WebViewDelegate
 		_fProgressUpdated = nullptr;
 		_fProgressFinished = nullptr;
 		_fHoveredURLChanged = nullptr;
+		_fFavIconLoaded = nullptr;
+		_fFavIconLoad = nullptr;
+		_fPrint = nullptr;
+		_fUndoRedoChanged = nullptr;
+		_fShouldNavigateToURL = nullptr;
+		_fMediaAdded = nullptr;
+		_fMediaRemoved = nullptr;
+		_fMediaWillPlay = nullptr;
+		_fMediaSetOverlayCallback = nullptr;
+		_fMediaUpdateOverlayCallback = nullptr;
+		_fMediaSupportCheck = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

@@ -1,7 +1,8 @@
 #import <ob/OBString.h>
 #import <ob/OBCopying.h>
 
-@class OBURL, OBDictionary, OBMutableDictionary, OBData;
+@class OBURL, OBDictionary, OBMutableDictionary, OBData, WkError;
+@protocol WkMutableNetworkRequestHandler;
 
 typedef enum {
    WkMutableNetworkRequestUseProtocolCachePolicy,
@@ -10,42 +11,55 @@ typedef enum {
    WkMutableNetworkRequestReturnCacheDataDontLoad
 } WkMutableNetworkRequestCachePolicy;
 
+@protocol WkNetworkRequest <OBObject, OBCopying, OBMutableCopying>
+- (OBURL *)URL;
+- (WkMutableNetworkRequestCachePolicy)cachePolicy;
+- (float)timeoutInterval;
+- (OBString *)HTTPMethod;
+- (OBData *)HTTPBody;
+- (OBDictionary *)allHTTPHeaderFields;
+- (OBString *)valueForHTTPHeaderField:(OBString *)field;
+- (OBURL *)mainDocumentURL;
+- (BOOL)HTTPShouldHandleCookies;
+- (BOOL)allowsAnyHTTPSClientCertificate;
+- (OBString *)clientCertificate;
+@end
+
+@protocol WkMutableNetworkRequestTarget <OBObject>
+
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didCompleteWithData:(OBData *)data;
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didFailWithError:(WkError *)error data:(OBData *)data;
+
+@end
+
+@protocol WkMutableNetworkRequestHandler <OBObject>
+
+- (id<WkNetworkRequest>)request;
+- (id<WkMutableNetworkRequestTarget>)target;
+- (void)cancel;
+
+@end
+
 // Wraps WebKits network requests and allows their customization
-@interface WkMutableNetworkRequest : OBObject<OBCopying, OBMutableCopying>
+@interface WkMutableNetworkRequest : OBObject<WkNetworkRequest>
+
++ (id<WkMutableNetworkRequestHandler>)performRequest:(id<WkNetworkRequest>)request withTarget:(id<WkMutableNetworkRequestTarget>)target;
 
 + (id)requestWithURL:(OBURL *)url;
 + (id)requestWithURL:(OBURL *)url cachePolicy:(WkMutableNetworkRequestCachePolicy)cachePolicy timeoutInterval:(float)timeout;
 
-- (OBURL *)URL;
 - (void)setURL:(OBURL *)value;
-
-- (WkMutableNetworkRequestCachePolicy)cachePolicy;
 - (void)setCachePolicy:(WkMutableNetworkRequestCachePolicy)cachePolicy;
-
-- (float)timeoutInterval;
 - (void)setTimeoutInterval:(float)interval;
-
-- (OBString *)HTTPMethod;
 - (void)setHTTPMethod:(OBString *)value;
-
-- (OBData *)HTTPBody;
 - (void)setHTTPBody:(OBData *)body;
 
-- (OBDictionary *)allHTTPHeaderFields;
-- (OBString *)valueForHTTPHeaderField:(OBString *)field;
 - (void)setAllHTTPHeaderFields:(OBDictionary *)allValues;
 - (void)setValue:(OBString *)value forHTTPHeaderField:(OBString *)field;
 
-- (OBURL *)mainDocumentURL;
 - (void)setMainDocumentURL:(OBURL *)url;
-
-- (BOOL)HTTPShouldHandleCookies;
 - (void)setHTTPShouldHandleCookies:(BOOL)handleCookies;
-
-- (BOOL)allowsAnyHTTPSClientCertificate;
 - (void)setAllowsAnyHTTPSClientCertificate:(BOOL)allowsany;
-
-- (OBString *)clientCertificate;
 - (void)setClientCertificate:(OBString *)certificate;
 
 @end

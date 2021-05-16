@@ -14,6 +14,7 @@
 }
 
 + (id)hitTestFromHitTestResult:(const WebCore::HitTestResult &)hittest onWebPage:(const WTF::RefPtr<WebKit::WebPage> &)webPage;
+- (WebCore::HitTestResult *)hitTestInternal;
 
 @end
 

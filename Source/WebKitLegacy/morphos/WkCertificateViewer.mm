@@ -163,7 +163,7 @@ extern "C" { void dprintf(const char *,...); }
 		[_name setContents:[[certificate subjectName] objectForKey:@"CN"]];
 		[_issuedBy setContents:[[certificate issuerName] objectForKey:@"CN"]];
 		[_expires setContents:[certificate notValidAfter]];
-		[_valid setContents:[certificate isValid] ? OBL(@"This vertificate is valid.", @"Certificate validity msg") : OBL(@"This vertificate is NOT valid.", @"Certificate validity msg")];
+		[_valid setContents:[certificate isValid] ? OBL(@"This certificate is valid.", @"Certificate validity msg") : OBL(@"This certificate is NOT valid.", @"Certificate validity msg")];
 	}
 }
 

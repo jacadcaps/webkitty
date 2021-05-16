@@ -15,7 +15,7 @@
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x) 
+#define D(x)
 
 @class _WkDownload;
 
@@ -37,16 +37,16 @@ public:
     void didFinish() override;
     void didFail(const WebCore::ResourceError &) override;
 
-	size_t size() const { return m_size; }
-	size_t downloadedSize() const { return m_receivedSize; }
+	QUAD size() const { return m_size; }
+	QUAD downloadedSize() const { return m_receivedSize; }
 
 	void setUserPassword(const String& user, const String &password);
 
 private:
 	_WkDownload                  *m_outerObject; // weak
     RefPtr<WebCore::CurlDownload> m_download;
-    size_t                        m_size { 0 };
-    size_t                        m_receivedSize { 0 };
+    QUAD                      m_size { 0 };
+    QUAD                      m_receivedSize { 0 };
     WTF::String                   m_user, m_password;
 };
 
@@ -70,6 +70,7 @@ private:
 - (void)setFailed:(BOOL)failed;
 - (void)setFinished:(BOOL)fini;
 - (void)cancelDueToAuthentication;
+- (void)updateURL:(OBURL *)url;
 
 @end
 
@@ -102,7 +103,10 @@ void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle,
 		
 		[m_outerObject setFilename:[OBString stringWithUTF8String:uname.data()]];
 		m_size = response.expectedContentLength();
-	
+  
+        if (-1ll == m_size)
+            m_size = 0;
+
 		m_download->init(*this, handle, request, response);
 	}
 }
@@ -155,6 +159,7 @@ bool WebDownload::resume()
 	if (m_download && m_download->isCancelled())
 	{
 		m_download->resume();
+		m_receivedSize = m_download->resumeOffset();
 		return true;
 	}
 
@@ -174,8 +179,12 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			// try to keep m_size if already set! (see the case in which we dl from a pending response)
 			// the response here is often bogus in that case :|
 			if (0 == m_size || m_receivedSize)
-				m_size = m_receivedSize + response.expectedContentLength();
+				m_size = m_download->resumeOffset() + response.expectedContentLength();
 			[[m_outerObject delegate] didReceiveResponse:m_outerObject];
+
+			// redirection
+			auto uurl = response.url().string().utf8();
+			[m_outerObject updateURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
 
 			OBString *path = [m_outerObject filename];
 
@@ -185,7 +194,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			{
 				String suggestedFilename = response.suggestedFilename();
 				if (suggestedFilename.isEmpty())
-					suggestedFilename = response.url().lastPathComponent().toString();
+					suggestedFilename = response.url().lastPathComponent();
 				suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
 				
 				auto usuggestedFilename = suggestedFilename.utf8();
@@ -200,7 +209,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			if (path)
 			{
 				[m_outerObject setFilename:path];
-				m_download->setDestination(WTF::String::fromUTF8([path nativeCString]));
+				m_download->setDestination(WTF::String::fromUTF8([path cString]));
 			}
 			else
 			{
@@ -247,8 +256,12 @@ void WebDownload::didFail(const WebCore::ResourceError& error)
 	
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 
+	// allow resuming
 	if (m_download)
-		m_download->setDeleteTmpFile(true);
+	{
+		m_download->cancel();
+		m_download->setDeleteTmpFile(false);
+	}
 
 	[[m_outerObject delegate] download:m_outerObject didFailWithError:[WkError errorWithResourceError:error]];
 	[m_outerObject selfrelease];
@@ -408,12 +421,24 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	_filename = [filename retain];
 }
 
-- (size_t)size
+- (void)updateURL:(OBURL *)url
+{
+	if (![_url isEqual:url])
+	{
+		[_url autorelease];
+		_url = [url retain];
+		[_delegate download:self didRedirect:_url];
+		
+		D(dprintf("%s: >> %s\n", __PRETTY_FUNCTION__, [[_url absoluteString] cString]));
+	}
+}
+
+- (QUAD)size
 {
 	return _download.size();
 }
 
-- (size_t)downloadedSize
+- (QUAD)downloadedSize
 {
 	return _download.downloadedSize();
 }
@@ -497,12 +522,12 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
 }
 
-- (size_t)size
+- (QUAD)size
 {
 	return 0;
 }
 
-- (size_t)downloadedSize
+- (QUAD)downloadedSize
 {
 	return 0;
 }
