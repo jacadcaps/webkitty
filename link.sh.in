@@ -1,4 +1,4 @@
-/gg/bin/ppc-morphos-g++-9 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
+/gg/bin/ppc-morphos-g++-10 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
 ../../Source/WebKitLegacy/libWebKit.a \
 ../../Source/WebCore/libWebCore.a \
 ../../Source/WebCore/PAL/pal/libPAL.a \
@@ -33,7 +33,10 @@ _IN_ROOTPATH/lib/libicu/instdir/lib/libicudata.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libgcrypt.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libgpg-error.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libtasn1.a \
+_IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
+_IN_ROOTPATH/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
+_IN_ROOTPATH/gen/host/libnix/lib/libopenjp2.a \
 -lsyscall -lpthread \
 CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
--lob.framework -lmui.framework \
--lsavl -lobjc -lc -lgcc -lauto
+-lob_debug.framework -lmui_debug.framework \
+-lobjc -lc -lgcc -lauto

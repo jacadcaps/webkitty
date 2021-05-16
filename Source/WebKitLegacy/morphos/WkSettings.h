@@ -32,6 +32,16 @@ typedef enum
 	WkSettings_ContextMenuHandling_OverrideWithControl,
 } WkSettings_ContextMenuHandling;
 
+typedef enum {
+    // Loop filter skipping setting / ffmpeg
+    WkSettings_LoopFilter_Default,
+    WkSettings_LoopFilter_NonRef,
+    WkSettings_LoopFilter_BiDirectional,
+    WkSettings_LoopFilter_NonIntra,
+    WkSettings_LoopFilter_NonKey,
+    WkSettings_LoopFilter_All
+} WkSettings_LoopFilter;
+
 @interface WkSettings : OBObject
 
 + (WkSettings *)settings;
@@ -45,11 +55,20 @@ typedef enum
 - (BOOL)thirdPartyCookiesAllowed;
 - (void)setThirdPartyCookiesAllowed:(BOOL)allowCookies;
 
+- (BOOL)localStorageEnabled;
+- (void)setLocalStorageEnabled:(BOOL)enabled;
+
+- (BOOL)offlineWebApplicationCacheEnabled;
+- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled;
+
 - (WkSettings_Throttling)throttling;
 - (void)setThrottling:(WkSettings_Throttling)throttling;
 
 - (WkSettings_Interpolation)interpolation;
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation;
+
+- (WkSettings_Interpolation)interpolationForImageViews;
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation;
 
 - (WkSettings_UserStyleSheet)styleSheet;
 - (void)setStyleSheet:(WkSettings_UserStyleSheet)styleSheet;
@@ -59,6 +78,33 @@ typedef enum
 
 - (WkSettings_ContextMenuHandling)contextMenuHandling;
 - (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling;
+
+- (BOOL)requiresUserGestureForMediaPlayback;
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired;
+
+- (BOOL)invisiblePlaybackNotAllowed;
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback;
+
+- (BOOL)mediaEnabled;
+- (void)setMediaEnabled:(BOOL)enabled;
+
+- (BOOL)mediaSourceEnabled;
+- (void)setMediaSourceEnabled:(BOOL)enabled;
+
+- (BOOL)vp9Enabled;
+- (void)setVp9Enabled:(BOOL)enabled;
+
+- (BOOL)hvcEnabled;
+- (void)setHVCEnabled:(BOOL)enabled;
+
+- (BOOL)hlsEnabled;
+- (void)setHLSEnabled:(BOOL)enabled;
+
+- (BOOL)videoDecodingEnabled;
+- (void)setVideoDecodingEnabled:(BOOL)enabled;
+
+- (WkSettings_LoopFilter)loopFilter;
+- (void)setLoopFilter:(WkSettings_LoopFilter)loopFilter;
 
 @end
 
@@ -102,5 +148,13 @@ typedef enum
 + (void)setDiskCachingLimit:(QUAD)limit;
 + (QUAD)diskCachingLimit;
 + (QUAD)calculatedMaximumDiskCachingLimit;
+
++ (void)setSpellCheckingEnabled:(BOOL)spellcheckingenabled;
++ (BOOL)spellCheckingEnabled;
++ (void)setDictionaryLanguage:(OBString *)language;
++ (OBString *)dictionaryLanguage;
+
+// Whether media playback was enabled at compile time
++ (BOOL)supportsMediaPlayback;
 
 @end

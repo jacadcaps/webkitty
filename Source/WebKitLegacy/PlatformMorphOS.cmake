@@ -1,5 +1,7 @@
-add_definitions(-DUSE_CAIRO=1 -DUSE_CURL=1 -DWEBKIT_EXPORTS=1 -DWEBCORE_EXPORT=WTF_EXPORT_DECLARATION -DPAL_EXPORT=WTF_EXPORT_DECLARATION -DWTF_EXPORT=WTF_EXPORT_DECLARATION -DUSE_SYSTEM_MALLOC)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+add_definitions(-DUSE_CAIRO=1 -DUSE_CURL=1 -DWEBKIT_EXPORTS=1 -DWEBCORE_EXPORT=WTF_EXPORT_DECLARATION -DPAL_EXPORT=WTF_EXPORT
+	-DJS_EXPORT_PRIVATE=WTF_EXPORT -DUSE_SYSTEM_MALLOC -DMORPHOS_MINIMAL=${MORPHOS_MINIMAL})
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ")
 
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     ${CAIRO_INCLUDE_DIRS}
@@ -33,6 +35,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/CacheModel.cpp
     morphos/WebDragClient.cpp
     morphos/PopupMenu.cpp
+    morphos/Gamepad.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_Classes
@@ -46,6 +49,9 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkDownload.mm
     morphos/WkFileDialog.mm
     morphos/WkHitTest.mm
+    morphos/WkFavIcon.mm
+    morphos/WkPrinting.mm
+    morphos/WkUserScript.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -62,33 +68,34 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebProgressTrackerClient.cpp
 )
 
-list(APPEND WebKitLegacy_ABP
-	morphos/ABPFilterParser/ABPFilterParser.cpp
-	morphos/ABPFilterParser/BloomFilter.cpp
-	morphos/ABPFilterParser/cosmeticFilter.cpp
-	morphos/ABPFilterParser/filter.cpp
-	morphos/ABPFilterParser/hashFn.cpp
-)
+if (NOT MORPHOS_MINIMAL)
+	list(APPEND WebKitLegacy_ABP
+		morphos/ABPFilterParser/ABPFilterParser.cpp
+		morphos/ABPFilterParser/BloomFilter.cpp
+		morphos/ABPFilterParser/cosmeticFilter.cpp
+		morphos/ABPFilterParser/filter.cpp
+		morphos/ABPFilterParser/hashFn.cpp
+	)
+endif()
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport} ${WebKitLegacy_ABP})
 
-set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkCertificate.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkCertificateViewer.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkError.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkFileDialog.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
-set_source_files_properties(morphos/WkHitTest.mm PROPERTIES COMPILE_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+set(MM_FLAGS "-Wno-protocol -Wundeclared-selector -fobjc-call-cxx-cdtors -fobjc-exceptions -fconstant-string-class=OBConstantString -DDEBUG=0")
+
+set_source_files_properties(morphos/WkWebView.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkNetworkRequestMutable.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkHistory.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkSettings.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkCertificate.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkCertificateViewer.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkError.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkDownload.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkFileDialog.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkHitTest.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkFavIcon.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkPrinting.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkUserScript.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}
 )
-
-list(APPEND WebKitLegacy_PRIVATE_DEFINITIONS
-    STATICALLY_LINKED_WITH_PAL
-    STATICALLY_LINKED_WITH_WebCore
-)
-

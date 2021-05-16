@@ -9,8 +9,10 @@
 #import <WebCore/ResourceHandle.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/TextEncoding.h>
+#import <WebCore/MediaPlayerMorphOS.h>
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>
+#import "WebEditorClient.h"
 #define __OBJC__
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -34,12 +36,24 @@ namespace WebCore {
 {
 	WkSettings_Throttling          _throttling;
 	WkSettings_Interpolation       _interpolation;
+	WkSettings_Interpolation       _interpolationForImageViews;
 	WkSettings_UserStyleSheet      _userStyleSheet;
 	WkSettings_ContextMenuHandling _contextMenu;
+	WkSettings_LoopFilter          _loopFilter;
 	OBString                      *_userStyleSheetFile;
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
+	bool _localStorage;
+	bool _offlineCache;
+	bool _invisiblePlaybackNotAllowed;
+	bool _requiresUserGestureForMediaPlayback;
+	bool _mediaEnabled;
+	bool _mediaSourceEnabled;
+	bool _decodeVideo;
+	bool _vp9;
+	bool _hls;
+	bool _hvc;
 }
 @end
 
@@ -52,9 +66,14 @@ namespace WebCore {
 		_script = YES;
 		_adBlocker = YES;
 		_thCookies = YES;
+		_localStorage = YES;
+		_offlineCache = YES;
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
 		_interpolation = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
+		_interpolationForImageViews = WkSettings_Interpolation_Medium; // medium is the WebCore default, let's stick to that
 		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
+		_invisiblePlaybackNotAllowed = YES;
+		_requiresUserGestureForMediaPlayback = YES;
 	}
 	
 	return self;
@@ -90,6 +109,26 @@ namespace WebCore {
 	_thCookies = allowCookies;
 }
 
+- (BOOL)localStorageEnabled
+{
+	return _localStorage;
+}
+
+- (void)setLocalStorageEnabled:(BOOL)enabled
+{
+	_localStorage = enabled;
+}
+
+- (BOOL)offlineWebApplicationCacheEnabled
+{
+	return _offlineCache;
+}
+
+- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled
+{
+	_offlineCache = enabled;
+}
+
 - (WkSettings_Throttling)throttling
 {
 	return _throttling;
@@ -108,6 +147,16 @@ namespace WebCore {
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation
 {
 	_interpolation = interpolation;
+}
+
+- (WkSettings_Interpolation)interpolationForImageViews
+{
+	return _interpolationForImageViews;
+}
+
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation
+{
+	_interpolationForImageViews = interpolation;
 }
 
 - (WkSettings_UserStyleSheet)styleSheet
@@ -139,6 +188,96 @@ namespace WebCore {
 - (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling
 {
 	_contextMenu = handling;
+}
+
+- (BOOL)requiresUserGestureForMediaPlayback
+{
+	return _requiresUserGestureForMediaPlayback;
+}
+
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired
+{
+	_requiresUserGestureForMediaPlayback = gestureRequired;
+}
+
+- (BOOL)invisiblePlaybackNotAllowed
+{
+	return _invisiblePlaybackNotAllowed;
+}
+
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback
+{
+	_invisiblePlaybackNotAllowed = invisiblePlayback;
+}
+
+- (BOOL)mediaEnabled
+{
+    return _mediaEnabled;
+}
+
+- (void)setMediaEnabled:(BOOL)enabled
+{
+	_mediaEnabled = enabled;
+}
+
+- (BOOL)mediaSourceEnabled
+{
+    return _mediaSourceEnabled;
+}
+
+- (void)setMediaSourceEnabled:(BOOL)enabled
+{
+	_mediaSourceEnabled = enabled;
+}
+
+- (BOOL)vp9Enabled
+{
+    return _vp9;
+}
+
+- (void)setVp9Enabled:(BOOL)enabled
+{
+	_vp9 = enabled;
+}
+
+- (BOOL)hvcEnabled
+{
+	return _hvc;
+}
+
+- (void)setHVCEnabled:(BOOL)enabled
+{
+	_hvc = enabled;
+}
+
+- (BOOL)hlsEnabled
+{
+    return _hls;
+}
+
+- (void)setHLSEnabled:(BOOL)enabled
+{
+	_hls = enabled;
+}
+
+- (BOOL)videoDecodingEnabled
+{
+    return _decodeVideo;
+}
+
+- (void)setVideoDecodingEnabled:(BOOL)enabled
+{
+	_decodeVideo = enabled;
+}
+
+- (WkSettings_LoopFilter)loopFilter
+{
+    return _loopFilter;
+}
+
+- (void)setLoopFilter:(WkSettings_LoopFilter)filterskip
+{
+	_loopFilter = filterskip;
 }
 
 @end
@@ -177,6 +316,25 @@ namespace WebCore {
 {
 }
 
+- (BOOL)localStorageEnabled
+{
+	return YES;
+}
+
+- (void)setLocalStorageEnabled:(BOOL)enabled
+{
+
+}
+
+- (BOOL)offlineWebApplicationCacheEnabled
+{
+	return YES;
+}
+
+- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled
+{
+}
+
 - (WkSettings_Throttling)throttling
 {
 	return WkSettings_Throttling_InvisibleBrowsers;
@@ -194,6 +352,15 @@ namespace WebCore {
 - (void)setInterpolation:(WkSettings_Interpolation)interpolation
 {
 
+}
+
+- (WkSettings_Interpolation)interpolationForImageViews
+{
+	return WkSettings_Interpolation_Medium;
+}
+
+- (void)setInterpolationForImageViews:(WkSettings_Interpolation)interpolation
+{
 }
 
 - (WkSettings_UserStyleSheet)styleSheet
@@ -220,6 +387,87 @@ namespace WebCore {
 }
 
 - (void)setContextMenuHandling:(WkSettings_ContextMenuHandling)handling
+{
+}
+
+- (BOOL)requiresUserGestureForMediaPlayback
+{
+	return YES;
+}
+
+- (void)setRequiresUserGestureForMediaPlayback:(BOOL)gestureRequired
+{
+}
+
+- (BOOL)invisiblePlaybackNotAllowed
+{
+	return YES;
+}
+
+- (void)setInvisiblePlaybackNotAllowed:(BOOL)invisiblePlayback
+{
+}
+
+- (BOOL)mediaEnabled
+{
+    return NO;
+}
+
+- (void)setMediaEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)mediaSourceEnabled
+{
+    return NO;
+}
+
+- (void)setMediaSourceEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)vp9Enabled
+{
+    return NO;
+}
+
+- (void)setVp9Enabled:(BOOL)enabled
+{
+}
+
+- (BOOL)hvcEnabled
+{
+    return NO;
+}
+
+- (void)setHVCEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)hlsEnabled
+{
+    return NO;
+}
+
+- (void)setHLSEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)videoDecodingEnabled
+{
+    return NO;
+}
+
+- (void)setVideoDecodingEnabled:(BOOL)enabled
+{
+}
+
+- (WkSettings_LoopFilter)loopFilter
+{
+    return WkSettings_LoopFilter_All;
+}
+
+- (void)setLoopFilter:(WkSettings_LoopFilter)filterskip
 {
 }
 
@@ -317,6 +565,36 @@ static cairo_antialias_t defaultAA;
 + (QUAD)calculatedMaximumDiskCachingLimit
 {
 	return WebKit::WebProcess::singleton().maxDiskCacheSize();
+}
+
++ (void)setSpellCheckingEnabled:(BOOL)spellcheckingenabled
+{
+	WebKit::WebEditorClient::setSpellCheckingEnabled(spellcheckingenabled);
+}
+
++ (BOOL)spellCheckingEnabled
+{
+	return WebKit::WebEditorClient::getSpellCheckingEnabled();
+}
+
++ (void)setDictionaryLanguage:(OBString *)language
+{
+	WebKit::WebEditorClient::setSpellCheckingLanguage(WTF::String::fromUTF8([language cString]));
+}
+
++ (OBString *)dictionaryLanguage
+{
+	auto udata = WebKit::WebEditorClient::getSpellCheckingLanguage().utf8();
+	return [OBString stringWithUTF8String:udata.data()];
+}
+
++ (BOOL)supportsMediaPlayback
+{
+#if ENABLE(VIDEO)
+	return YES;
+#else
+	return NO;
+#endif
 }
 
 @end

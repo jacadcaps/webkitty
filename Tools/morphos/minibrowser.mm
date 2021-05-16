@@ -29,8 +29,11 @@ extern "C" {
 #import <WebKitLegacy/morphos/WkError.h>
 #import <WebKitLegacy/morphos/WkDownload.h>
 #import <WebKitLegacy/morphos/WkFileDialog.h>
+#import <WebKitLegacy/morphos/WkPrinting.h>
+#import <WebKitLegacy/morphos/WkNetworkRequestMutable.h>
 
-@interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate, WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate>
+@interface BrowserWindow : MUIWindow<WkWebViewClientDelegate, WkWebViewBackForwardListDelegate,
+	WkWebViewNetworkProtocolHandlerDelegate, WkWebViewDialogDelegate, WkWebViewAutofillDelegate, WkMutableNetworkRequestTarget>
 {
 	WkWebView *_view;
  	MUIString *_address;
@@ -128,23 +131,34 @@ extern "C" {
 	
 	if (_documentWidth > 0)
 	{
-		if (_documentWidth >= _viewWidth)
+		if ([_view isPrinting])
 		{
-			[_horiz noNotifySetEntries:_documentWidth];
-			[_horiz noNotifySetPropVisible:_viewWidth];
-		}
-		else
-		{
+			[_vert noNotifySetEntries:[[_view printingState] sheets]];
+			[_vert noNotifySetPropVisible:1];
+			[_vert noNotifySetFirst:[[_view printingState] previevedSheet]];
+
 			[_horiz noNotifySetEntries:1];
 		}
-		
-		if (_documentHeight >= _viewHeight)
-		{
-			[_vert noNotifySetEntries:_documentHeight];
-			[_vert noNotifySetPropVisible:_viewHeight];
-		}
 		else
-			[_vert noNotifySetEntries:1];
+		{
+			if (_documentWidth >= _viewWidth)
+			{
+				[_horiz noNotifySetEntries:_documentWidth];
+				[_horiz noNotifySetPropVisible:_viewWidth];
+			}
+			else
+			{
+				[_horiz noNotifySetEntries:1];
+			}
+			
+			if (_documentHeight >= _viewHeight)
+			{
+				[_vert noNotifySetEntries:_documentHeight];
+				[_vert noNotifySetPropVisible:_viewHeight];
+			}
+			else
+				[_vert noNotifySetEntries:1];
+		}
 	}
 	else
 	{
@@ -170,9 +184,27 @@ extern "C" {
 	[_vert noNotifySetFirst:top];
 }
 
+- (void)webView:(WkWebView *)view changedContentsSizeToShowPrintingSheets:(int)sheets
+{
+	_needsUpdate = true;
+	[[OBRunLoop mainRunLoop] performSelector:@selector(updateScrollers) target:self];
+}
+
+- (void)webView:(WkWebView *)view scrolledToSheet:(int)sheet
+{
+	[_vert noNotifySetFirst:sheet - 1];
+}
+
 - (void)doScroll
 {
-	[_view scrollToLeft:[_horiz first] top:[_vert first]];
+	if ([_view isPrinting])
+	{
+		[[_view printingState] setPrevievedSheet:[_vert first] + 1];
+	}
+	else
+	{
+		[_view scrollToLeft:[_horiz first] top:[_vert first]];
+	}
 }
 
 - (BOOL)show:(struct LongRect *)clip
@@ -370,12 +402,90 @@ static int _windowID = 1;
 	[window notify:@selector(closeRequest) trigger:YES performSelector:@selector(closeCertificate:) withTarget:self withObject:window];
 }
 
+- (void)onPrinting
+{
+	if ([_view isPrinting])
+		[_view endPrinting];
+	else
+		[_view beginPrinting];
+}
+
+- (void)onPrintingPDF
+{
+	WkPrintingState *state = [_view beginPrinting];
+	[_view spoolToFile:@"RAM:webkitty.pdf" withDelegate:nil];
+}
+
+- (void)onPrintingPaper
+{
+	WkPrintingState *state = [_view beginPrinting];
+	WkPrintingProfile *profile = [state profile];
+	if ([profile canSelectPageFormat])
+	{
+		OBArray *pages = [profile pageFormats];
+		ULONG index = [pages indexOfObject:[profile selectedPageFormat]];
+		if (OBNotFound == index || ([pages count] - 1 == index))
+			[profile setSelectedPageFormat:[pages firstObject]];
+		else
+			[profile setSelectedPageFormat:[pages objectAtIndex:index + 1]];
+	}
+}
+
+- (void)onPrintingPage
+{
+	WkPrintingState *state = [_view beginPrinting];
+	if ([state pages] > 1)
+	{
+		if ([state previevedSheet] + 1 == [state sheets])
+			[state setPrevievedSheet:0];
+		else
+			[state setPrevievedSheet:[state previevedSheet] + 1];
+	}
+}
+
+- (void)onPrintingLandscape
+{
+	WkPrintingState *state = [_view beginPrinting];
+	[state setLandscape:[state landscape] ? NO : YES];
+}
+
+- (void)onPPS:(ULONG)active
+{
+	WkPrintingState *state = [_view beginPrinting];
+	switch (active)
+	{
+	case 1: [state setPagesPerSheet:2]; break;
+	case 2: [state setPagesPerSheet:4]; break;
+	case 3: [state setPagesPerSheet:6]; break;
+	case 4: [state setPagesPerSheet:9]; break;
+	case 0: default: [state setPagesPerSheet:1]; break;
+	}
+}
+
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didCompleteWithData:(OBData *)data
+{
+	dprintf("%s: handler %p data %ld\n", __PRETTY_FUNCTION__, handler, [data length]);
+}
+
+- (void)request:(id<WkMutableNetworkRequestHandler>)handler didFailWithError:(WkError *)error data:(OBData *)data
+{
+	dprintf("%s: handler %p error %d data %ld\n", __PRETTY_FUNCTION__, handler, [error errorCode], [data length]);
+}
+
+- (void)doRequest
+{
+	WkMutableNetworkRequest *request = [WkMutableNetworkRequest requestWithURL:[OBURL URLWithString:@"https://morph.zone/news/"]];
+	[WkMutableNetworkRequest performRequest:request withTarget:self];
+}
+
 - (id)initWithView:(WkWebView *)view
 {
 	if ((self = [super init]))
 	{
 		MUIButton *button;
 		MUIButton *debug;
+		MUIButton *print,*printNextPaper, *printNextPage, *printPDF, *printLandscape, *request;
+		MUICycle *pps;
 
 		self.rootObject = [MUIGroup groupWithObjects:
 			_topGroup = [MUIGroup horizontalGroupWithObjects:
@@ -392,6 +502,13 @@ static int _windowID = 1;
 				debug = [MUIButton buttonWithLabel:@"Debug Stats"],
 				[MUICheckmark checkmarkWithLabel:@"AdBlocker" checkmark:&_adBlock],
 				[MUICheckmark checkmarkWithLabel:@"JS" checkmark:&_script],
+				print = [MUIButton buttonWithLabel:@"Printing"],
+				printNextPaper = [MUIButton buttonWithLabel:@"Paper >>"],
+				printNextPage = [MUIButton buttonWithLabel:@"Page >> "],
+				printLandscape = [MUIButton buttonWithLabel:@"Landscape"],
+				printPDF = [MUIButton buttonWithLabel:@"PDF"],
+				pps = [MUICycle cycleWithEntryList:@"1", @"2", @"4", @"6", @"9", nil],
+				request = [MUIButton buttonWithLabel:@"HTTP Request"],
 				[MUIRectangle rectangleWithWeight:300],
 				_loading = [MUIGroup groupWithPages:[MUIRectangle rectangleWithWeight:20], [[MCCBusy new] autorelease], nil],
 				nil],
@@ -437,16 +554,21 @@ static int _windowID = 1;
 
 		[_certificate notify:@selector(selected) trigger:NO performSelector:@selector(showCertificate) withTarget:self];
 		
+		[print notify:@selector(selected) trigger:NO performSelector:@selector(onPrinting) withTarget:self];
+		[printNextPaper notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPaper) withTarget:self];
+		[printNextPage notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPage) withTarget:self];
+		[printPDF notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingPDF) withTarget:self];
+		[printLandscape notify:@selector(selected) trigger:NO performSelector:@selector(onPrintingLandscape) withTarget:self];
+		[pps notify:@selector(active) performSelector:@selector(onPPS:) withRawTriggerValueTarget:self];
+		[request notify:@selector(selected) trigger:NO performSelector:@selector(doRequest) withTarget:self];
+
 		#define ADDBUTTON(__title__, __address__) \
 			[_topGroup addObject:button = [MUIButton buttonWithLabel:__title__]]; \
 			[button notify:@selector(pressed) trigger:NO performSelector:@selector(navigateTo:) withTarget:self withObject:__address__];
 
 		ADDBUTTON(@"Scroll", @"http://saku.bbs.fi/cgi-bin/discus/show.cgi?tpc=2593&post=54149");
-		ADDBUTTON(@"Canv", @"https://testdrive-archive.azurewebsites.net/Graphics/CanvasPinball/default.html");
-		ADDBUTTON(@"B", @"https://pasteboard.co/HSta4X0.png");
-		ADDBUTTON(@"OB", @"file:///SYS:Applications/OWB/bookmarks.html");
-		ADDBUTTON(@"Aud", @"https://www.w3schools.com/html/tryit.asp?filename=tryhtml5_audio_all");
-		ADDBUTTON(@"Cursor", @"https://www.w3schools.com/csSref/tryit.asp?filename=trycss_cursor");
+		ADDBUTTON(@"Print", @"http://tunkki.dk/~jaca/texttest.htm");
+		ADDBUTTON(@"Zone", @"https://morph.zone");
 		ADDBUTTON(@"Ggle", @"https://www.google.com");
 		ADDBUTTON(@"GGlogin", @"https://accounts.google.com/");
 		ADDBUTTON(@"ReCaptcha", @"https://patrickhlauke.github.io/recaptcha/");
@@ -513,6 +635,16 @@ static int _windowID = 1;
 	[_address noNotifySetContents:[newurl absoluteString]];
 	[_lastError release];
 	_lastError = nil;
+}
+
+- (void)webView:(WkWebView *)view changedFavIcon:(WkFavIcon *)favicon
+{
+
+}
+
+- (BOOL)webView:(WkWebView *)view shouldLoadFavIconForURL:(OBURL *)url
+{
+	return NO;
 }
 
 - (void)webView:(WkWebView *)view changedHoveredURL:(OBURL *)hoveredURL
@@ -582,7 +714,7 @@ static int _windowID = 1;
 	[delegate ignore];
 }
 
-- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(size_t)size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
+- (void)webView:(WkWebView *)view confirmDownloadOfURL:(OBURL *)url mimeType:(OBString *)mime size:(QUAD)size withSuggestedName:(OBString *)suggestedName withResponseDelegate:(id<WkConfirmDownloadResponseDelegate>)delegate
 {
 	dprintf("%s: url %s mime %s name '%s' delegate %p\n", __PRETTY_FUNCTION__, [[url absoluteString] cString], [mime cString], [suggestedName cString], delegate);
 //	[[OBRunLoop mainRunLoop] performSelector:@selector(ignore) target:delegate];
@@ -608,6 +740,10 @@ static int _windowID = 1;
 {
 	dprintf("issuedAuthenticationChallengeAtURL...will cancel\n");
 	[delegate cancel];
+}
+
+- (void)webViewRequestedPrinting:(WkWebView *)view
+{
 }
 
 - (OBString *)aslFile:(OBString *)oldpath title:(OBString *)title doSave:(BOOL)save reference:(MUIArea *)ref
@@ -1009,6 +1145,7 @@ static BrowserDownloadWindow *_instance;
 #define VERSION   "$VER: MiniBrowser 1.0 (19.04.2020) (C)2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 #define COPYRIGHT @"2020 Jacek Piszczek, Harry Sintonen / MorphOS Team"
 
+__attribute__ ((visibility ("default")))
 int muiMain(int argc, char *argv[])
 {
     signal(SIGINT, SIG_IGN);
