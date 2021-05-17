@@ -141,8 +141,12 @@ void CurlRequest::cancel()
     {
         auto locker = holdLock(m_statusMutex);
         if (m_cancelled)
+        {
+            // must make sure invalidateClient is called or we could end up with
+            // it dying while we still reference it
+    	    invalidateClient();
             return;
-
+        }
         m_cancelled = true;
     }
 
@@ -251,8 +255,12 @@ CURL* CurlRequest::setupTransfer()
 
     m_curlHandle->setTimeout(timeoutInterval());
 
-	if (m_downloadResumeOffset > 0)
-		m_curlHandle->setResumeOffset(m_downloadResumeOffset);
+    if (m_downloadResumeOffset > 0)
+        m_curlHandle->setResumeOffset(m_downloadResumeOffset);
+
+    // Disable automatic decompression when downloading to a file
+    if (m_isEnabledDownloadToFile)
+        m_curlHandle->disableAcceptEncoding();
 
     if (m_shouldSuspend)
         setRequestPaused(true);
@@ -772,6 +780,10 @@ void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
 	{
 		m_downloadFilePath = tmpDownloadPath;
 		m_downloadResumeOffset = FileSystem::seekFile(m_downloadFileHandle, 0, FileSystem::FileSeekOrigin::End);
+	}
+	else
+	{
+		m_downloadResumeOffset = 0;
 	}
 }
 

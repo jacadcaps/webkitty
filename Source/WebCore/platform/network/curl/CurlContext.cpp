@@ -512,6 +512,10 @@ void CurlHandle::setUrl(const URL& url)
 
     if (url.protocolIs("https"))
         enableSSLForHost(m_url.host().toString());
+#if OS(MORPHOS)
+    else
+        curl_easy_setopt(m_handle, CURLOPT_HTTP09_ALLOWED, 1L);  // HTTP only
+#endif
 }
 
 void CurlHandle::appendRequestHeaders(const HTTPHeaderMap& headers)
@@ -563,6 +567,11 @@ void CurlHandle::enableRequestHeaders()
 
     const struct curl_slist* headers = m_requestHeaders.head();
     curl_easy_setopt(m_handle, CURLOPT_HTTPHEADER, headers);
+}
+
+void CurlHandle::disableAcceptEncoding()
+{
+    curl_easy_setopt(m_handle, CURLOPT_ENCODING, NULL);
 }
 
 void CurlHandle::enableHttp()

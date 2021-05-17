@@ -43,14 +43,17 @@ class CurlCacheEntry {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     CurlCacheEntry(const String& url, ResourceHandle* job, const String& cacheDir);
+    CurlCacheEntry(const String& url, uint64_t entrySize, double expireDate, const String& cacheDir);
     ~CurlCacheEntry();
 
     bool isCached();
+    bool isValid();
     bool isLoading() const;
-    size_t entrySize();
+    uint64_t entrySize();
+    const WallTime &expireDate() const { return m_expireDate; }
     HTTPHeaderMap& requestHeaders() { return m_requestHeaders; }
 
-    bool saveCachedData(const char* data, size_t);
+    bool saveCachedData(const char* data, uint64_t);
     bool readCachedData(ResourceHandle*);
 
     bool saveResponseHeaders(const ResourceResponse&);
@@ -77,7 +80,7 @@ private:
 
     FileSystem::PlatformFileHandle m_contentFile;
 
-    size_t m_entrySize;
+    uint64_t m_entrySize;
     WallTime m_expireDate;
     bool m_headerParsed;
     bool m_isLoading;

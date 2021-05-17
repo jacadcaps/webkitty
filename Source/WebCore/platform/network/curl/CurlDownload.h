@@ -66,13 +66,14 @@ public:
     bool cancel();
     bool isCancelled() { return m_isCancelled; }
 
-	void setDeleteTmpFile(bool deleteTmpFile);
+    void setDeleteTmpFile(bool deleteTmpFile);
+    long long resumeOffset();
 
     bool deletesFileUponFailure() const { return m_deletesFileUponFailure; }
     void setDeletesFileUponFailure(bool deletesFileUponFailure) { m_deletesFileUponFailure = deletesFileUponFailure; }
 
     void setDestination(const String& destination) { m_destination = destination; }
-	void setUserPassword(const String& user, const String &password) { m_user = user; m_password = password; }
+    void setUserPassword(const String& user, const String &password) { m_user = user; m_password = password; }
 
 private:
     Ref<CurlRequest> createCurlRequest(ResourceRequest&);

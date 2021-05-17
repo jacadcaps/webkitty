@@ -106,6 +106,18 @@ void CurlDownload::resume()
 	}
 }
 
+long long CurlDownload::resumeOffset()
+{
+    ASSERT(isMainThread());
+
+    if (m_curlRequest)
+    {
+    	return m_curlRequest->resumeOffset();
+    }
+
+    return 0;
+}
+
 bool CurlDownload::cancel()
 {
     m_isCancelled = true;
@@ -125,9 +137,6 @@ void CurlDownload::setDeleteTmpFile(bool deleteTmpFile)
 
 Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
 {
-    // FIXME: Use a correct sessionID.
-    auto curlRequest = CurlRequest::create(request, *this);
-	
     if (m_context)
     {
         auto& storageSession = *m_context->storageSession();
@@ -135,8 +144,10 @@ Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
         String cookieHeaderField = storageSession.cookieRequestHeaderFieldValue(request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies, ShouldAskITP::Yes, ShouldRelaxThirdPartyCookieBlocking::No).first;
         if (!cookieHeaderField.isEmpty())
             request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
-	}
-	
+    }
+
+    // FIXME: Use a correct sessionID.
+    auto curlRequest = CurlRequest::create(request, *this);
     return curlRequest;
 }
 
