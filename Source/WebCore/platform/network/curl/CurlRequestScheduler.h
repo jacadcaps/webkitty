@@ -81,11 +81,6 @@ private:
     long m_maxConnects;
     long m_maxTotalConnections;
     long m_maxHostConnections;
-
-#if OS(MORPHOS)
-    static int progressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
-    int64_t m_totaltransfers;
-#endif
 };
 
 } // namespace WebCore
