@@ -104,9 +104,7 @@ public:
 
 	const MediaPlayerMorphOSStreamSettings &streamSettings() { return m_streamSettings; }
 
-#if ENABLE(VIDEO_TRACK)
 	void onTrackEnabled(int index, bool enabled);
-#endif
 
 protected:
 	MediaPlayer* m_player;

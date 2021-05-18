@@ -88,6 +88,8 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DCairo_INCLUDE_DIR=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
+		-DCairo_LIBRARY="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a -DHARFBUZZ_LIBRARIES="$(GEN)/lib/libnghttp2.a" \
 		-DICU_ROOT="$(LIB)/libicu/instdir/" \
@@ -103,6 +105,8 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DAVUTIL_LIBRARY="ffmpeg/instdir/lib/libavutil.a" -DAVUTIL_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DSWSCALE_LIBRARY="ffmpeg/instdir/lib/libswscale.a" -DSWSCALE_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DFontconfig_LIBRARY="$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/libfontconfig-glue.a" \
+		-DFontconfig_INCLUDE_DIR="$(ROOTPATH)/morphoswb/libs/fontconfig/" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 
@@ -127,6 +131,8 @@ configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.bu
 		-DSQLite3_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
 		-DCAIRO_INCLUDE_DIRS=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
 		-DCAIRO_LIBRARIES="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
+		-DCairo_INCLUDE_DIR=$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/os-include/cairo \
+		-DCairo_LIBRARY="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
 		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)" -DHARFBUZZ_INCLUDE_DIRS="$(realpath Dummy)" \
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a -DHARFBUZZ_LIBRARIES="$(GEN)/lib/libnghttp2.a" \
@@ -138,6 +144,8 @@ configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.bu
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DWEBP_INCLUDE_DIRS="$(GEN)/include" -DWEBP_LIBRARY="$(GEN)/lib/libwebp.a" \
+		-DFontconfig_LIBRARY="$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/libfontconfig-glue.a" \
+		-DFontconfig_INCLUDE_DIR="$(ROOTPATH)/morphoswb/libs/fontconfig/" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 

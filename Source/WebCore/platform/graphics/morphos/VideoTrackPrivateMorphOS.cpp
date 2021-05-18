@@ -4,7 +4,7 @@
 
 #define D(x) 
 
-#if ENABLE(VIDEO) && ENABLE(VIDEO_TRACK)
+#if ENABLE(VIDEO)
 
 namespace WebCore {
 
