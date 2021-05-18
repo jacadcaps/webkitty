@@ -67,9 +67,12 @@
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
+#include <WebCore/BitmapImage.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
+#include <wtf/HexNumber.h>
+#include <wtf/MD5.h>
 
 #define D(x)
 
@@ -286,14 +289,38 @@ void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, con
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidPopStateWithinPage()
 {
+	WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+    if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(m_frame->coreFrame()->document()->url());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchWillClose()
@@ -530,17 +557,22 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 {
     WebPage* webPage = m_frame->page();
 
+	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+
     if (!webPage) {
+    	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
         function(PolicyAction::Ignore, identifier);
         return;
     }
 
     if (!request.url().string()) {
+    	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
         function(PolicyAction::Use, identifier);
         return;
     }
 
-	if (!canShowMIMEType(response.mimeType()))
+	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
+	if (!canShowMIMEType(response.mimeType()) && request.isTopSite())
 	{
 		// should we download this??
 		if (webPage->_fDownloadAsk)
@@ -548,9 +580,11 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 			webPage->_fDownloadAsk(response, request, identifier, downloadAttribute, std::move(function));
 			return;
 		}
+    	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
 		function(PolicyAction::Ignore, identifier);
 	}
 
+   	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
 	function(PolicyAction::Use, identifier);
 }
 
@@ -563,37 +597,17 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Navigati
         return;
     }
 
+	if (webPage && webPage->_fShouldNavigateToURL)
+	{
+		if (!webPage->_fShouldNavigateToURL(request.url(), true))
+		{
+        	function(PolicyAction::Ignore, identifier);
+			return;
+		}
+	}
+
 	notImplemented();
 	function(PolicyAction::Use, identifier);
-#if 0
-    RefPtr<API::Object> userData;
-
-    auto action = InjectedBundleNavigationAction::create(m_frame, navigationAction, formState);
-
-    // Notify the bundle client.
-    WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNewWindowAction(webPage, m_frame, action.ptr(), request, frameName, userData);
-    if (policy == WKBundlePagePolicyActionUse) {
-        function(PolicyAction::Use, identifier);
-        return;
-    }
-
-    uint64_t listenerID = m_frame->setUpPolicyListener(identifier, WTFMove(function), WebFrame::ForNavigationAction::No);
-
-    NavigationActionData navigationActionData;
-    navigationActionData.navigationType = action->navigationType();
-    navigationActionData.modifiers = action->modifiers();
-    navigationActionData.mouseButton = action->mouseButton();
-    navigationActionData.syntheticClickType = action->syntheticClickType();
-    navigationActionData.clickLocationInRootViewCoordinates = action->clickLocationInRootViewCoordinates();
-    navigationActionData.userGestureTokenIdentifier = WebProcess::singleton().userGestureTokenIdentifier(navigationAction.userGestureToken());
-    navigationActionData.canHandleRequest = webPage->canHandleRequest(request);
-    navigationActionData.shouldOpenExternalURLsPolicy = navigationAction.shouldOpenExternalURLsPolicy();
-    navigationActionData.downloadAttribute = navigationAction.downloadAttribute();
-
-    WebCore::Frame* coreFrame = m_frame ? m_frame->coreFrame() : nullptr;
-    webPage->send(Messages::WebPageProxy::DecidePolicyForNewWindowAction(m_frame->frameID(), SecurityOriginData::fromFrame(coreFrame), identifier, navigationActionData, request,
-        frameName, listenerID, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
-#endif
 }
 
 void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePolicies)
@@ -624,7 +638,17 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         function(PolicyAction::Ignore, requestIdentifier);
         return;
     }
-	notImplemented();
+
+       if (webPage && webPage->_fShouldNavigateToURL)
+       {
+               if (!webPage->_fShouldNavigateToURL(request.url(), false))
+               {
+               function(PolicyAction::Ignore, requestIdentifier);
+                       return;
+               }
+       }
+
+    notImplemented();
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
 
     // Always ignore requests with empty URLs. 
@@ -751,6 +775,9 @@ void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Completi
         return;
     }
 
+D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
+
 #if 0
 	auto& values = formState.textFieldValues();
 	for (auto const &e : values)
@@ -824,6 +851,8 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 
 void WebFrameLoaderClient::startDownload(const ResourceRequest& request, const String& suggestedName)
 {
+D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+
     m_frame->startDownload(request, suggestedName);
 }
 
@@ -1027,8 +1056,8 @@ bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest& request) cons
 bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
 {
     bool canShow = MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
-        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType);
-//        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
+        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
+        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
 // dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow);
     return canShow;
 }
@@ -1393,21 +1422,98 @@ void WebFrameLoaderClient::didRestoreScrollPosition()
 {
 }
 
+String generateFileNameForIcon(const WTF::String &inHost)
+{
+    CString url(inHost.utf8());
+
+    MD5 md5;
+    md5.addBytes(reinterpret_cast<const uint8_t*>(url.data()), url.length());
+
+    MD5::Digest sum;
+    md5.checksum(sum);
+    uint8_t* rawdata = sum.data();
+
+    StringBuilder baseNameBuilder;
+    for (size_t i = 0; i < MD5::hashSize; i++)
+        baseNameBuilder.append(WTF::hex(rawdata[i], WTF::Lowercase));
+        String out("PROGDIR:Cache/FavIcons/");
+    out.append(baseNameBuilder.toString());
+        return out;
+}
+
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
 {
-    auto* webPage = m_frame->page();
-    if (!webPage)
-        return;
-
-	// Don't load any icons, cause meh. Do this at some later stage perhaps?
+        WebPage* webPage = m_frame ? m_frame->page() : nullptr;
     auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
-	for (auto& icon : icons)
-		documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+        const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
+
+        if (webPage && webPage->_fFavIconLoad && !webPage->_fFavIconLoad(documentLoader->url()))
+        {
+                for (auto& icon : icons)
+                        documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+                return;
+        }
+
+        {
+                RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
+                if (buffer.get())
+                {
+                        m_iconIdentifier = 0;
+                        finishedLoadingIcon(0, buffer.get());
+
+                        for (auto& icon : icons)
+                                documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+                        
+                        return;
+                }
+        }
+
+        for (auto& icon : icons)
+        {
+                if (icon.first.type == WebCore::LinkIconType::Favicon && !m_iconIdentifier)
+                {
+                        m_iconIdentifier = 1;
+                        documentLoader->didGetLoadDecisionForIcon(true, icon.second, m_iconIdentifier);
+                }
+                else
+                {
+                        documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+                }
+        }
 }
 
 void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, SharedBuffer* data)
 {
-	notImplemented();
+        if (m_iconIdentifier == callbackIdentifier)
+        {
+                auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
+                if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
+                {
+                        const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
+                        WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
+                        if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
+                        {
+                                if (data->size() != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))
+                                {
+                                        WTF::FileSystemImpl::closeFile(file);
+                                        WTF::FileSystemImpl::deleteFile(fileName);
+                                }
+                                else
+                                {
+                                        WTF::FileSystemImpl::closeFile(file);
+                                }
+                        
+                        }
+                }
+                m_iconIdentifier = 0;
+
+                if (data && data->size())
+                {
+                        WebPage* webPage = m_frame ? m_frame->page() : nullptr;
+                        if (webPage && webPage->_fFavIconLoaded)
+                                webPage->_fFavIconLoaded(data, documentLoader->url());
+                }
+        }
 }
 
 void WebFrameLoaderClient::didCreateWindow(DOMWindow& window)

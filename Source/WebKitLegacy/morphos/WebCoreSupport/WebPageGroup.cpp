@@ -23,12 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include "WebPageGroup.h"
 
 #include "WebStorageNamespaceProvider.h"
 #include "WebPage.h"
 #include "WebVisitedLinkStore.h"
 #include <WebCore/UserContentController.h>
+#include <WebCore/CommonVM.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringHash.h>
 
@@ -72,6 +74,7 @@ WebPageGroup* WebPageGroup::get(const String& name)
 WebPageGroup::WebPageGroup(const String& name, const String& localStorageDatabasePath)
     : m_name(name)
     , m_localStorageDatabasePath(localStorageDatabasePath)
+    , m_worldForUserScripts(DOMWrapperWorld::create(WebCore::commonVM(), DOMWrapperWorld::Type::User))
     , m_userContentController(UserContentController::create())
     , m_visitedLinkStore(WebVisitedLinkStore::create())
 {
