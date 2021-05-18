@@ -163,6 +163,15 @@ protected:
     void exitFullScreenForElement(WebCore::Element*) final;
 #endif
 
+#if ENABLE(VIDEO)
+    void setUpPlaybackControlsManager(WebCore::HTMLMediaElement&) override;
+    void clearPlaybackControlsManager() override;
+
+    void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool standby) override;
+    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) override;
+#endif
+
+    bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) override;
     void wheelEventHandlersChanged(bool) final { }
 
     bool shouldUseTiledBackingForFrameView(const WebCore::FrameView&) const final;
