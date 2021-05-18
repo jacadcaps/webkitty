@@ -51,6 +51,7 @@
 #include <WebCore/Notification.h>
 #include <WebCore/NotificationController.h>
 #include <WebCore/Page.h>
+#include <WebCore/PrintContext.h>
 //#include <WebCore/PageCache.h>
 #include <WebCore/PageConfiguration.h>
 #include <WebCore/PageGroup.h>
@@ -97,6 +98,8 @@
 #include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/ScriptState.h>
 #include <WebCore/AutofillElements.h>
+#include <JavaScriptCore/VM.h>
+#include <WebCore/CommonVM.h>
 #include <WebCore/PlatformContextCairo.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
@@ -139,6 +142,8 @@
 #include <string.h>
 
 #include <cairo.h>
+#include <cairo-pdf.h>
+#include <cairo-ps.h>
 
 #include <utility>
 #include <cstdio>
@@ -149,12 +154,20 @@
 #include <proto/intuition.h>
 #include <proto/layers.h>
 #include <cybergraphx/cybergraphics.h>
+#include <proto/graphics.h>
+#include <proto/dos.h>
+#include <dos/dos.h>
+#include <graphics/rpattr.h>
 #include <intuition/intuition.h>
 #include <intuition/pointerclass.h>
 #include <intuition/intuimessageclass.h>
 #include <intuition/classusr.h>
 #include <clib/alib_protos.h>
 #include <devices/rawkeycodes.h>
+#include <proto/openurl.h>
+#include <libraries/openurl.h>
+
+#include "libeventprofiler.h"
 
 // we cannot include libraries/mui.h here...
 enum
@@ -473,6 +486,7 @@ public:
 
 	void invalidate(const WebCore::IntRect& rect)
 	{
+		EP_SCOPE(invalidate);
 		int width = rect.width();
 		int height = rect.height();
 		
@@ -488,11 +502,13 @@ public:
 	
 	void invalidate()
 	{
+		EP_SCOPE(invalidateall);
 		m_damage.invalidate();
 	}
 	
 	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation)
 	{
+		EP_SCOPE(repair);
 		WebCore::GraphicsContext gc(m_platformContext);
 		
 		if (WebCore::InterpolationQuality::Default != interpolation)
@@ -501,6 +517,7 @@ public:
 		}
 
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			EP_SCOPE(tile)
 			WebCore::IntRect ir(x, y, width, height);
 			/// NOTE: bad shit happens when clipping is used w/o save/restore, cairo seems to be happily
 			/// trashing memory w/o this
@@ -509,27 +526,33 @@ public:
 			/// in their actual bounds otherwise, but will not paint any children that do not (so a button
 			/// frame overlapping would clear button text if the text wasn't overlapping)
 			gc.clip(WebCore::FloatRect(x, y, width, height));
+			EP_BEGIN(paint);
 			frameView->paint(gc, ir);
+			EP_END(paint);
 			gc.restore();
 		});
 	}
 	
 	void repaint(RastPort *rp, const int outX, const int outY)
 	{
+		EP_SCOPE(repaint);
 		cairo_surface_flush(m_surface);
 		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
 		unsigned char *src = cairo_image_surface_get_data(m_surface);
 
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
+			EP_SCOPE(wpa);
 			WritePixelArray(src, x, y, stride, rp, outX + x, outY + y, width, height, RECTFMT_ARGB);
 		});
 	}
 	
 	void repaintAll(RastPort *rp, const int outX, const int outY)
 	{
+		EP_SCOPE(repaint);
 		cairo_surface_flush(m_surface);
 		const unsigned int stride = cairo_image_surface_get_stride(m_surface);
 		unsigned char *src = cairo_image_surface_get_data(m_surface);
+		EP_SCOPE(wpa);
 		WritePixelArray(src, 0, 0, stride, rp, outX, outY, m_width, m_height, RECTFMT_ARGB);
 	}
 
@@ -538,10 +561,14 @@ public:
 	{
 		if (!m_platformContext)
 			return;
+		EP_SCOPE(draw);
 
 		(void)scrollX;
+		(void)scrollY;
+		(void)width;
+		(void)height;
 
-#if 1
+#if 0 // doesn't repaint correctly
 		struct Window *window = (struct Window *)rp->Layer->Window;
 
 		// Only trigger fast path if we've scrolled from outside (by scroller, etc) and there was
@@ -593,6 +620,7 @@ public:
 
 	bool resize(const int width, const int height)
 	{
+		EP_SCOPE(resize);
 		if (width != m_width || height != m_height)
 		{
 			if (m_platformContext)
@@ -621,7 +649,6 @@ public:
 						m_cairo = nullptr;
 					}
 					
-
 					m_damage.resize(m_width, m_height);
 					return true;
 				}
@@ -657,6 +684,358 @@ public:
 private:
 
 };
+
+static bool needsToRotatePageForPrinting(bool landscape, int pagesPerSheet)
+{
+	(void)landscape;
+	if (pagesPerSheet == 2 || pagesPerSheet == 6)
+		return true;
+	return false;
+}
+
+static int numColumnsForPrinting(bool landscape, int pagesPerSheet)
+{
+	switch (pagesPerSheet)
+	{
+	case 9:
+		return 3;
+	case 6:
+		return landscape ? 2 : 3;
+	case 4:
+		return 2;
+	case 2:
+		return landscape ? 1 : 2;
+	default:
+		return 1;
+	}
+}
+
+static int numRowsForPrinting(bool landscape, int pagesPerSheet)
+{
+	switch (pagesPerSheet)
+	{
+	case 9:
+		return 3;
+	case 6:
+		return landscape ? 3 : 2;
+	case 4:
+		return 2;
+	case 2:
+		return landscape ? 2 : 1;
+	default:
+		return 1;
+	}
+}
+
+
+class WebViewPrintingContext
+{
+public:
+	WebViewPrintingContext() = default;
+	~WebViewPrintingContext()
+	{
+		if (_surface)
+			cairo_surface_destroy(_surface);
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+		if (_psFile)
+			Close(_psFile);
+	}
+
+	cairo_surface_t *surface() { return _surface; }
+	int width() { return _surface ? cairo_image_surface_get_width(_surface) : -1; }
+	int height() { return _surface ? cairo_image_surface_get_height(_surface) : -1; }
+
+	bool ensureSurface(int width, int height, int forPage)
+	{
+		if (width == this->width() && height == this->height() && forPage == _selectedPage)
+			return false;
+
+		if (_surface)
+			cairo_surface_destroy(_surface);
+
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		_surfaceScaled = nullptr;
+
+		_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+		_selectedPage = forPage;
+		return true;
+	}
+	
+	static cairo_status_t pswritefunc(void *closure, const unsigned char *data, unsigned int length)
+	{
+		BPTR out = BPTR(closure);
+		Write(out, APTR(data), length);
+		return CAIRO_STATUS_SUCCESS;
+	}
+	
+	bool ensurePrintSurface(float width, float height, bool landscape, int psLevel, LONG pagesPerSheet, const char *file, WebCore::FloatBoxExtent& margins)
+	{
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		_printCairo = nullptr;
+		
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+
+		_margins = margins;
+		_landscape = landscape;
+		_printWidth = width;
+		_printHeight = height;
+		_pps = pagesPerSheet;
+		_isPDF = false;
+
+		_psFile = Open(file, MODE_NEWFILE);
+		
+		if (_psFile != 0)
+		{
+			if (needsToRotatePageForPrinting(landscape, pagesPerSheet))
+				_printSurface = cairo_ps_surface_create_for_stream(pswritefunc, (void *)_psFile, height + margins.top() + margins.bottom(), width + margins.left() + margins.right());
+			else
+				_printSurface = cairo_ps_surface_create_for_stream(pswritefunc, (void *)_psFile, width + margins.left() + margins.right(), height + margins.top() + margins.bottom());
+
+			if (_printSurface)
+			{
+				cairo_ps_surface_restrict_to_level(_printSurface, psLevel == 2 ? CAIRO_PS_LEVEL_2 : CAIRO_PS_LEVEL_3);
+				_printCairo = cairo_create(_printSurface);
+				if (_printCairo)
+					return true;
+			}
+			Close(_psFile);
+			_psFile = 0;
+		}
+		
+		return false;
+	}
+
+	bool ensurePrintSurface(float width, float height, bool landscape, LONG pagesPerSheet, const char *file, WebCore::FloatBoxExtent& margins)
+	{
+		if (_printCairo)
+			cairo_destroy(_printCairo);
+		_printCairo = nullptr;
+		
+		if (_printSurface)
+			cairo_surface_destroy(_printSurface);
+		
+		if (_psFile)
+			Close(_psFile);
+
+		_margins = margins;
+		_landscape = landscape;
+		_printWidth = width;
+		_printHeight = height;
+		_pps = pagesPerSheet;
+		_isPDF = true;
+
+		_printSurface = cairo_pdf_surface_create(file, width + margins.left() + margins.right(), height + margins.top() + margins.bottom());
+		if (_printSurface)
+		{
+			_printCairo = cairo_create(_printSurface);
+			if (_printCairo)
+				return true;
+		}
+		return false;
+	}
+	
+	void startPage(float fullwidth, float fullheight)
+	{
+		if (_isPDF)
+		{
+			cairo_pdf_surface_set_size(_printSurface, fullwidth, fullheight);
+		}
+		else
+		{
+			if (fullwidth > fullheight)
+			{
+				cairo_ps_surface_set_size(_printSurface, fullheight, fullwidth);
+				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
+				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Landscape");
+			}
+			else
+			{
+				cairo_ps_surface_set_size(_printSurface, fullwidth, fullheight);
+				cairo_ps_surface_dsc_begin_page_setup (_printSurface);
+				cairo_ps_surface_dsc_comment(_printSurface, "%%PageOrientation: Portrait");
+			}
+		}
+	}
+
+	void endPage()
+	{
+		cairo_show_page(_printCairo);
+	}
+	
+	float pageWidth() { return _printWidth; }
+	float pageHeight() { return _printHeight; }
+
+	cairo_t *printCairo() { return _printCairo; }
+	cairo_surface_t *printSurface() { return _printSurface; }
+	WebCore::FloatBoxExtent margins() { return _margins; }
+	bool landscape() { return _landscape; }
+	LONG pagesPerSheet() { return _pps; }
+	bool isPDF() { return _isPDF; }
+	bool isPS() { return _psFile != 0; }
+
+	cairo_surface_t *scaledSurface(int width, int height)
+	{
+		if (!_surface)
+			return nullptr;
+		if (_surfaceScaled && cairo_image_surface_get_width(_surfaceScaled) == width && cairo_image_surface_get_height(_surfaceScaled) == height)
+			return _surfaceScaled;
+		if (_surfaceScaled)
+			cairo_surface_destroy(_surfaceScaled);
+		_surfaceScaled = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+		if (_surfaceScaled)
+		{
+			auto cairo = cairo_create(_surfaceScaled);
+			if (cairo)
+			{
+				cairo_save(cairo);
+				cairo_set_source_rgba(cairo, 0, 0, 0, 0);
+				cairo_rectangle(cairo, 0, 0, width, height);
+				cairo_scale(cairo, ((double)width) / ((double)this->width()), ((double)height) / ((double)this->height()));
+				cairo_pattern_set_filter(cairo_get_source(cairo), CAIRO_FILTER_GOOD);
+				cairo_set_source_surface(cairo, _surface, 0, 0);
+				cairo_paint(cairo);
+				cairo_surface_flush(_surfaceScaled);
+				cairo_destroy(cairo);
+			}
+			else
+			{
+				if (_surfaceScaled)
+					cairo_surface_destroy(_surfaceScaled);
+				_surfaceScaled = nullptr;
+			}
+		}
+		return _surfaceScaled;
+	}
+	
+protected:
+	int _selectedPage { -1 };
+	float _printWidth, _printHeight;
+	bool _landscape { false };
+	bool _isPDF { false };
+	BPTR _psFile { 0 };
+	LONG _pps;
+	cairo_surface_t *_surface { nullptr };
+	cairo_surface_t *_surfaceScaled { nullptr };
+	cairo_surface_t *_printSurface { nullptr };
+	cairo_t *_printCairo { nullptr };
+	WebCore::FloatBoxExtent _margins;
+};
+
+static void doPrint(float printableWidth, float printableHeight, WebCore::FloatBoxExtent &computedMargins, LONG sheet, LONG pagesPerSheet, bool landscape, bool isPreview, cairo_t *cairo, WebViewPrintingContext *printingContext, WebCore::PrintContext *context)
+{
+	cairo_set_source_rgb(cairo, 1.0, 1.0, 1.0);
+	cairo_paint(cairo);
+
+	WebCore::PlatformContextCairo ccontext(cairo);
+	WebCore::GraphicsContext gc(&ccontext);
+
+	gc.setImageInterpolationQuality(WebCore::InterpolationQuality::High);
+
+	int numColumns = numColumnsForPrinting(landscape, pagesPerSheet);
+	int numRows = numRowsForPrinting(landscape, pagesPerSheet);
+	bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+
+	float printScale;
+	float printScaleXt;
+
+	if (needsToRotate)
+	{
+		printScale = (printableHeight - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).width();
+		printScaleXt = (printableWidth - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).height();
+	}
+	else
+	{
+		printScale = (printableWidth - (14.4f * float(numColumns - 1))) / float(numColumns) / context->pageRect(sheet * pagesPerSheet).width();
+		printScaleXt = (printableHeight - (14.4f * float(numRows - 1))) / float(numRows) / context->pageRect(sheet * pagesPerSheet).height();
+	}
+
+	if (printScaleXt < printScale)
+		printScale = printScaleXt;
+
+	float translateMarginLeft;
+	float translateMarginTop;
+	float translateColumn;
+	float translateRow;
+
+	if (landscape)
+	{
+		if (needsToRotate)
+		{
+			translateMarginLeft = computedMargins.left() / printScale;
+			translateMarginTop = computedMargins.top() / printScale;
+
+			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+		}
+		else
+		{
+			translateMarginLeft = computedMargins.top() / printScale;
+			translateMarginTop = computedMargins.right() / printScale;
+
+			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+		}
+	}
+	else
+	{
+
+		if (needsToRotate)
+		{
+			translateMarginLeft = computedMargins.top() / printScale;
+			translateMarginTop = computedMargins.left() / printScale;
+
+			translateColumn = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+			translateRow = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+		}
+		else
+		{
+			translateMarginLeft = computedMargins.left() / printScale;
+			translateMarginTop = computedMargins.top() / printScale;
+
+			translateColumn = (printableWidth / printScale / float(numRows)) + (7.2f / printScale);
+			translateRow = (printableHeight / printScale / float(numColumns)) + (7.2f / printScale);
+		}
+	}
+
+	int printIndex = 0;
+	for (int i = sheet * pagesPerSheet; i < (sheet + 1) * pagesPerSheet; i++)
+	{
+		cairo_matrix_t matrix;
+		if (i >= int(context->pageCount()))
+			break;
+		int column = printIndex % numColumns;
+		int row = printIndex / numColumns;
+
+		gc.save();
+		
+		if (((landscape && !needsToRotate) || (!landscape && needsToRotate)) && printingContext->isPS() && !isPreview)
+		{
+			if (needsToRotate)
+				cairo_translate(cairo, 0, printableHeight + computedMargins.top() + computedMargins.bottom());
+			else
+				cairo_translate(cairo, 0, printableWidth + computedMargins.top() + computedMargins.bottom());
+			cairo_matrix_init (&matrix, 0, -1, 1, 0, 0,  0);
+			cairo_transform(cairo, &matrix);
+		}
+		
+		gc.scale(printScale);
+
+		gc.translate(translateMarginLeft + (translateColumn * float(column)), translateMarginTop + (translateRow * float(row)));
+		context->spoolPage(gc, i, context->pageRect(i).width());
+		
+		printIndex ++;
+		gc.restore();
+	}
+
+}
 
 WebCore::Page* core(WebPage *webpage)
 {
@@ -716,7 +1095,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         didOneTimeInitialization = true;
      }
 
-	m_webPageGroup = WebPageGroup::getOrCreate("test", "PROGDIR:Cache/Storage");
+	m_webPageGroup = WebPageGroup::getOrCreate("meh", "PROGDIR:Cache/Storage");
 	auto storageProvider = PageStorageSessionProvider::create();
 
 #if 0
@@ -762,7 +1141,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDeferredCSSParserEnabled(true);
     settings.setDeviceWidth(1920);
     settings.setDeviceHeight(1080);
-    settings.setDiagnosticLoggingEnabled(true);
     settings.setEditableImagesEnabled(true);
     settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
@@ -772,6 +1150,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDefaultFixedFontSize(13);
     settings.setResizeObserverEnabled(true);
 	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
+	settings.setShouldRespectImageOrientation(true);
+	settings.setTextAreasAreResizable(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -796,7 +1176,10 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 //     settings.setStorageBlockingPolicy(SecurityOrigin::StorageBlockingPolicy::BlockAllStorage);
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
+#if (!MORPHOS_MINIMAL)
 	settings.setLocalStorageEnabled(true);
+	settings.setOfflineWebApplicationCacheEnabled(true);
+#endif
 
 // 	settings.setDeveloperExtrasEnabled(true);
 	settings.setXSSAuditorEnabled(true);
@@ -808,16 +1191,25 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
 
+#if ENABLE(FULLSCREEN_API)
+       settings.setFullScreenEnabled(true);
+#endif
+
+// crashy
+//    settings.setDiagnosticLoggingEnabled(true);
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 	
 	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), WTF::String("file:///PROGDIR:Resources/morphos.css")));
 
+#if ENABLE(VIDEO)
+       settings.setInvisibleAutoplayNotPermitted(true);
+       settings.setAudioPlaybackRequiresUserGesture(true);
+       settings.setVideoPlaybackRequiresUserGesture(true);
+#endif
+
     // m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
 //    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
-
-//    m_page->mainFrame().tree().setName(toString("frameName"));
-//    m_page->mainFrame().init();
 
 	m_mainFrame->initWithCoreMainFrame(*this, m_page->mainFrame());
     m_page->layoutIfNeeded();
@@ -825,15 +1217,13 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     m_page->setIsVisible(true);
     m_page->setIsInWindow(true);
 	m_page->setActivityState(ActivityState::WindowIsActive);
-//	m_page->setLowPowerModeEnabledOverrideForTesting(true);
-
-//    m_page->addLayoutMilestones({ DidFirstLayout, DidFirstVisuallyNonEmptyLayout });
 }
 
 WebPage::~WebPage()
 {
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 	clearDelegateCallbacks();
+	delete m_printingContext;
 	delete m_drawContext;
 	delete m_autofillElements;
 }
@@ -850,7 +1240,9 @@ const WebCore::Page *WebPage::corePage() const
 
 WebPage* WebPage::fromCorePage(WebCore::Page* page)
 {
-    return &static_cast<WebChromeClient&>(page->chrome().client()).page();
+	if (page)
+		return &static_cast<WebChromeClient&>(page->chrome().client()).page();
+	return nullptr;
 }
 
 void WebPage::load(const char *url)
@@ -884,7 +1276,11 @@ void WebPage::reload()
 {
 	auto *mainframe = mainFrame();
 	if (mainframe)
-		mainframe->loader().reload();
+	{
+		OptionSet<ReloadOption> options;
+		options.add(ReloadOption::FromOrigin);
+		mainframe->loader().reload(options);
+	}
 }
 
 void WebPage::stop()
@@ -1052,6 +1448,39 @@ void WebPage::setThirdPartyCookiesAllowed(bool blocked)
 	m_page->settings().setIsThirdPartyCookieBlockingDisabled(blocked);
 }
 
+void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
+{
+#if ENABLE(VIDEO)
+	m_page->settings().setAudioPlaybackRequiresUserGesture(requiresGesture);
+	m_page->settings().setVideoPlaybackRequiresUserGesture(requiresGesture);
+#endif
+}
+
+bool WebPage::requiresUserGestureForMediaPlayback()
+{
+#if ENABLE(VIDEO)
+	return m_page->settings().audioPlaybackRequiresUserGesture();
+#else
+	return true;
+#endif
+}
+
+void WebPage::setInvisiblePlaybackNotAllowed(bool invisible)
+{
+#if ENABLE(VIDEO)
+	m_page->settings().setInvisibleAutoplayNotPermitted(invisible);
+#endif
+}
+
+bool WebPage::invisiblePlaybackNotAllowed()
+{
+#if ENABLE(VIDEO)
+	return m_page->settings().invisibleAutoplayNotPermitted();
+#else
+	return true;
+#endif
+}
+
 void WebPage::goActive()
 {
 	corePage()->userInputBridge().focusSetActive(true);
@@ -1086,6 +1515,30 @@ void WebPage::setLowPowerMode(bool lowPowerMode)
 	corePage()->setLowPowerModeEnabledOverrideForTesting(lowPowerMode);
 }
 
+bool WebPage::localStorageEnabled()
+{
+	WebCore::Settings& settings = m_page->settings();
+	return settings.localStorageEnabled();
+}
+
+void WebPage::setLocalStorageEnabled(bool enabled)
+{
+	WebCore::Settings& settings = m_page->settings();
+	settings.setLocalStorageEnabled(enabled);
+}
+
+bool WebPage::offlineCacheEnabled()
+{
+	WebCore::Settings& settings = m_page->settings();
+	return settings.offlineWebApplicationCacheEnabled();
+}
+
+void WebPage::setOfflineCacheEnabled(bool enabled)
+{
+	WebCore::Settings& settings = m_page->settings();
+	settings.setOfflineWebApplicationCacheEnabled(enabled);
+}
+
 void WebPage::startLiveResize()
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
@@ -1103,7 +1556,43 @@ void WebPage::endLiveResize()
 void WebPage::setFocusedElement(WebCore::Element *element)
 {
 	// this is called by the Chrome
-	m_focusedElement = element;
+	if (element)
+		m_focusedElement = makeRef(*element);
+	else
+		m_focusedElement = nullptr;
+}
+
+void WebPage::setFullscreenElement(WebCore::Element *element)
+{
+	if (element)
+	{
+		m_fullscreenElement = makeRef(*element);
+        m_fullscreenElement->document().fullscreenManager().willEnterFullscreen(*m_fullscreenElement);
+        m_fullscreenElement->document().fullscreenManager().didEnterFullscreen();
+
+		if (_fZoomChangedByWheel)
+			_fZoomChangedByWheel();
+    }
+	else
+	{
+		if (m_fullscreenElement)
+		{
+			m_fullscreenElement->document().fullscreenManager().willExitFullscreen();
+			m_fullscreenElement->document().fullscreenManager().didExitFullscreen();
+
+            if (_fZoomChangedByWheel)
+                _fZoomChangedByWheel();
+		}
+		
+		m_fullscreenElement = nullptr;
+	}
+}
+
+WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
+{
+	if (e && e->isConnected())
+		return e->boundsInRootViewSpace();
+	return { };
 }
 
 void WebPage::startedEditingElement(WebCore::HTMLInputElement *input)
@@ -1173,8 +1662,7 @@ void WebPage::setCursor(int cursor)
 	{
 		m_cursor = cursor;
 
-		if (!m_trackMouse && _fSetCursor)
-			_fSetCursor(m_cursor);
+		_fSetCursor(mouseCursorToSet(0, true));
 	}
 }
 
@@ -1209,6 +1697,7 @@ void WebPage::removeResourceRequest(unsigned long identifier)
 
 void WebPage::didStartPageTransition()
 {
+	m_transitioning = true;
 }
 
 void WebPage::didCompletePageTransition()
@@ -1220,7 +1709,11 @@ void WebPage::didCommitLoad(WebFrame& frame)
 //    resetFocusedElementForFrame(frame);
 
     if (!frame.isMainFrame())
+    {
         return;
+    }
+
+    m_transitioning = false;
 
 #if 0
     // If previous URL is invalid, then it's not a real page that's being navigated away from.
@@ -1537,7 +2030,7 @@ void WebPage::setScroll(const int x, const int y)
 		_fInvalidate(false);
 }
 
-void WebPage::scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame)
+void WebPage::scrollBy(int xDelta, int yDelta, WebPage::WebPageScrollByMode mode, WebCore::Frame *inFrame)
 {
 	auto* coreFrame = inFrame ? inFrame : m_mainFrame->coreFrame();
 	if (!coreFrame)
@@ -1546,6 +2039,17 @@ void WebPage::scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFra
 	WebCore::ScrollPosition sp = view->scrollPosition();
 	WebCore::ScrollPosition spMin = view->minimumScrollPosition();
 	WebCore::ScrollPosition spMax = view->maximumScrollPosition();
+
+	if (mode == WebPageScrollByMode::Pages)
+	{
+		xDelta *= Scrollbar::pageStep(view->visibleWidth());
+		yDelta *= Scrollbar::pageStep(view->visibleHeight());
+	}
+	else if (mode == WebPageScrollByMode::Units)
+	{
+		xDelta *= Scrollbar::pixelsPerLineStep();
+		yDelta *= Scrollbar::pixelsPerLineStep();
+	}
 
 	int x = sp.x() - xDelta;
 	int y = sp.y() - yDelta;
@@ -1572,10 +2076,13 @@ void WebPage::wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qual
 		else
 			factor += 0.05;
 		setPageAndTextZoomFactors(factor, textZoomFactor());
+		
+		if (_fZoomChangedByWheel)
+			_fZoomChangedByWheel();
 	}
 	else
 	{
-		scrollBy(xDelta, yDelta, inFrame);
+		scrollBy(xDelta, yDelta, WebPageScrollByMode::Units, inFrame);
 	}
 }
 
@@ -1642,8 +2149,241 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 		}
 	}
 #endif
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, m_interpolation);
+
+	auto interpolation = m_interpolation;
+	if (frameView->frame().document()->isImageDocument())
+		interpolation = m_imageInterpolation;
+
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
 }
+
+void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
+	LONG sheet, LONG pagesPerSheet, float printableWidth, float printableHeight, bool landscape,
+	const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, bool printBackgrounds)
+{
+	if (!context || context->pageCount() < 1)
+	{
+		SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+		RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+		return;
+	}
+
+	m_page->updateRendering();
+
+	// this is the visible area we want to paint in
+	float width = paintWidth;
+	float height = paintHeight;
+
+	// leave out some margins...
+	width *= 0.8f;
+	height *= 0.8f;
+
+	// check the page margins...
+	WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(margins);
+
+	// the surface in which the page will be printed to
+	float surfaceWidthF = printableWidth + computedMargins.left() + computedMargins.right();
+	float surfaceHeightF = printableHeight + computedMargins.top() + computedMargins.bottom();
+
+	if (landscape)
+	{
+		std::swap(printableWidth, printableHeight);
+	 	surfaceWidthF = printableWidth + computedMargins.top() + computedMargins.bottom();
+		surfaceHeightF = printableHeight + computedMargins.left() + computedMargins.right();
+	}
+	
+	bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+	
+	if (needsToRotate)
+	{
+		if (landscape)
+		{
+	 		surfaceHeightF = printableWidth + computedMargins.top() + computedMargins.bottom();
+			surfaceWidthF = printableHeight + computedMargins.left() + computedMargins.right();
+		}
+		else
+		{
+			surfaceHeightF = printableWidth + computedMargins.left() + computedMargins.right();
+			surfaceWidthF = printableHeight + computedMargins.top() + computedMargins.bottom();
+		}
+	}
+	
+	// Given width and height, calculate a scaling factor so that the whole page fits
+	// inside the given constraints. May want to add some margins while at it too...
+	// This is the surface will paint to the rastport
+	float scaleWidth = width / surfaceWidthF;
+	float scaleHeight = height / surfaceHeightF;
+	float scale = scaleWidth < scaleHeight ? scaleWidth : scaleHeight;
+
+	auto scaledSize = WebCore::ceiledIntSize(WebCore::LayoutSize(surfaceWidthF * scale, surfaceHeightF * scale));
+
+	bool repaintSurface = false;
+	
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+		if (!m_printingContext)
+		{
+			SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+			RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+			return;
+		}
+		repaintSurface = true;
+	}
+	
+	if (m_printingContext->ensureSurface(ceilf(surfaceWidthF), ceilf(surfaceHeightF), sheet * pagesPerSheet))
+	{
+		repaintSurface = true;
+	}
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
+
+	if (repaintSurface)
+	{
+		auto *surface = m_printingContext->surface();
+		auto *cairo = cairo_create(surface);
+
+		if (cairo)
+		{
+//			cairo_set_source_rgb(cairo, 0.0f, 1.0, 1.0);
+			doPrint(printableWidth, printableHeight, computedMargins, sheet, pagesPerSheet, landscape, true, cairo, m_printingContext, context);
+
+			cairo_surface_flush(surface);
+			cairo_destroy(cairo);
+		}
+	}
+
+	SetRPAttrs(rp, RPTAG_FgColor, 0x909090, RPTAG_PenMode, FALSE, TAG_DONE);
+	RectFill(rp, x, y, x + paintWidth - 1, y + paintHeight - 1);
+
+	auto *surface = m_printingContext->scaledSurface(scaledSize.width(), scaledSize.height());
+	
+	const unsigned int stride = cairo_image_surface_get_stride(surface);
+	unsigned char *src = cairo_image_surface_get_data(surface);
+
+	SetRPAttrs(rp, RPTAG_FgColor, 0, RPTAG_PenMode, FALSE, TAG_DONE);
+
+	int paintX = x + ((paintWidth - scaledSize.width()) / 2);
+	int paintY = y + ((paintHeight - scaledSize.height()) / 2);
+
+	RectFill(rp, paintX - 1, paintY - 1, paintX + scaledSize.width(), paintY - 1);
+	RectFill(rp, paintX - 1, paintY + scaledSize.height(), paintX + scaledSize.width(), paintY + scaledSize.height());
+
+	RectFill(rp, paintX - 1, paintY - 1, paintX - 1, paintY + scaledSize.height() - 1);
+	RectFill(rp, paintX + scaledSize.width(), paintY - 1, paintX + scaledSize.width(), paintY + scaledSize.height() - 1);
+
+	WritePixelArray(src, 0, 0, stride, rp, paintX, paintY,
+		scaledSize.width(), scaledSize.height(), RECTFMT_ARGB);
+
+}
+
+void WebPage::printStart(float pageWidth, float pageHeight, bool landscape, LONG pagesPerSheet,
+	WebCore::FloatBoxExtent margins, WebCore::PrintContext *context,
+	int psLevel, bool printBackgrounds, const char *file)
+{
+	(void)context;
+
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+	}
+
+	if (!m_printingContext)
+	{
+		return;
+	}
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
+
+	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, psLevel, pagesPerSheet, file, margins);
+}
+
+void WebPage::pdfStart(float pageWidth, float pageHeight, bool landscape, LONG pagesPerSheet,
+	WebCore::FloatBoxExtent margins, WebCore::PrintContext *context, bool printBackgrounds, const char *file)
+{
+	(void)context;
+
+	if (!m_printingContext)
+	{
+		m_printingContext = new WebViewPrintingContext();
+	}
+
+	if (!m_printingContext)
+	{
+		return;
+	}
+
+	WebCore::Settings& settings = m_page->settings();
+	settings.setShouldPrintBackgrounds(printBackgrounds);
+
+	m_printingContext->ensurePrintSurface(pageWidth, pageHeight, landscape, pagesPerSheet, file, margins);
+}
+
+// O0 or crashes. wtf?
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
+
+bool WebPage::printSpool(WebCore::PrintContext *context, int sheetNoZeroBased)
+{
+	if (m_printingContext && m_printingContext->printCairo())
+	{
+		auto *cairo = m_printingContext->printCairo();
+
+		WebCore::FloatBoxExtent computedMargins = context->computedPageMargin(m_printingContext->margins());
+
+		float printableWidth = m_printingContext->pageWidth();
+		float printableHeight = m_printingContext->pageHeight();
+		bool landscape = m_printingContext->landscape();
+		LONG pagesPerSheet = m_printingContext->pagesPerSheet();
+
+		// the surface in which the page will be printed to
+		float surfaceWidthF = printableWidth + computedMargins.left() + computedMargins.right();
+		float surfaceHeightF = printableHeight + computedMargins.top() + computedMargins.bottom();
+
+		if (m_printingContext->landscape())
+		{
+			std::swap(printableWidth, printableHeight);
+			surfaceWidthF = printableWidth + computedMargins.top() + computedMargins.bottom();
+			surfaceHeightF = printableHeight + computedMargins.left() + computedMargins.right();
+		}
+		
+		bool needsToRotate = needsToRotatePageForPrinting(landscape, pagesPerSheet);
+		
+		if (needsToRotate)
+		{
+			if (landscape)
+			{
+				surfaceHeightF = printableWidth + computedMargins.top() + computedMargins.bottom();
+				surfaceWidthF = printableHeight + computedMargins.left() + computedMargins.right();
+			}
+			else
+			{
+				surfaceHeightF = printableWidth + computedMargins.left() + computedMargins.right();
+				surfaceWidthF = printableHeight + computedMargins.top() + computedMargins.bottom();
+			}
+		}
+
+		m_printingContext->startPage(surfaceWidthF, surfaceHeightF);
+
+		doPrint(printableWidth, printableHeight, computedMargins, sheetNoZeroBased, pagesPerSheet, landscape, false, cairo, m_printingContext, context);
+
+		m_printingContext->endPage();
+
+		return true;
+	}
+	
+	return false;
+}
+
+void WebPage::printingFinished(void)
+{
+	delete m_printingContext;
+	m_printingContext = nullptr;
+}
+
+#pragma GCC pop_options
 
 void WebPage::invalidate()
 {
@@ -1696,6 +2436,22 @@ void WebPage::setAllowsScrolling(bool allows)
 		coreFrame->view()->setCanHaveScrollbars(allows);
 }
 
+bool WebPage::editable()
+{
+	return m_page->isEditable();
+}
+
+void WebPage::setEditable(bool editable)
+{
+	m_page->setEditable(editable);
+
+	if (editable)
+	{
+		auto* coreFrame = m_mainFrame->coreFrame();
+		coreFrame->document()->securityOrigin().grantLoadLocalResources();
+	}
+}
+
 void WebPage::flushCompositing()
 {
 	m_needsCompositingFlush = true;
@@ -1712,6 +2468,9 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 	{
 		return false;
 	}
+	
+	if (m_transitioning)
+		return false;
 	
     WebCore::FrameView* frameView = coreFrame->view();
     if (!frameView)
@@ -1813,7 +2572,7 @@ static inline WebCore::PlatformEvent::Type imsgToEventType(IntuiMessage *imsg)
 	return WebCore::PlatformEvent::Type::MouseMoved;
 }
 
-static const unsigned CommandKey = 1 << 0;
+static const unsigned ControlKey = 1 << 0;
 static const unsigned AltKey = 1 << 1;
 static const unsigned ShiftKey = 1 << 2;
 
@@ -1833,12 +2592,12 @@ struct KeyPressEntry {
 static const KeyDownEntry keyDownEntries[] = {
     { VK_LEFT,   0,                  "MoveLeft"                                    },
     { VK_LEFT,   ShiftKey,           "MoveLeftAndModifySelection"                  },
-    { VK_LEFT,   CommandKey,            "MoveWordLeft"                                },
-    { VK_LEFT,   CommandKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
+    { VK_LEFT,   ControlKey,            "MoveWordLeft"                                },
+    { VK_LEFT,   ControlKey | ShiftKey, "MoveWordLeftAndModifySelection"              },
     { VK_RIGHT,  0,                  "MoveRight"                                   },
     { VK_RIGHT,  ShiftKey,           "MoveRightAndModifySelection"                 },
-    { VK_RIGHT,  CommandKey,            "MoveWordRight"                               },
-    { VK_RIGHT,  CommandKey | ShiftKey, "MoveWordRightAndModifySelection"             },
+    { VK_RIGHT,  ControlKey,            "MoveWordRight"                               },
+    { VK_RIGHT,  ControlKey | ShiftKey, "MoveWordRightAndModifySelection"             },
     { VK_UP,     0,                  "MoveUp"                                      },
     { VK_UP,     ShiftKey,           "MoveUpAndModifySelection"                    },
     { VK_PRIOR,  ShiftKey,           "MovePageUpAndModifySelection"                },
@@ -1849,51 +2608,51 @@ static const KeyDownEntry keyDownEntries[] = {
     { VK_NEXT,   0,                  "MovePageDown"                                },
     { VK_HOME,   0,                  "MoveToBeginningOfLine"                       },
     { VK_HOME,   ShiftKey,           "MoveToBeginningOfLineAndModifySelection"     },
-    { VK_HOME,   CommandKey,            "MoveToBeginningOfDocument"                   },
-    { VK_HOME,   CommandKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
+    { VK_HOME,   ControlKey,            "MoveToBeginningOfDocument"                   },
+    { VK_HOME,   ControlKey | ShiftKey, "MoveToBeginningOfDocumentAndModifySelection" },
 
     { VK_END,    0,                  "MoveToEndOfLine"                             },
     { VK_END,    ShiftKey,           "MoveToEndOfLineAndModifySelection"           },
-    { VK_END,    CommandKey,            "MoveToEndOfDocument"                         },
-    { VK_END,    CommandKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
+    { VK_END,    ControlKey,            "MoveToEndOfDocument"                         },
+    { VK_END,    ControlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
 
     { VK_BACK,   0,                  "DeleteBackward"                              },
     { VK_BACK,   ShiftKey,           "DeleteBackward"                              },
     { VK_DELETE, 0,                  "DeleteForward"                               },
-    { VK_BACK,   CommandKey,            "DeleteWordBackward"                          },
-    { VK_DELETE, CommandKey,            "DeleteWordForward"                           },
+    { VK_BACK,   ControlKey,            "DeleteWordBackward"                          },
+    { VK_DELETE, ControlKey,            "DeleteWordForward"                           },
 	
-    { 'B',       CommandKey,            "ToggleBold"                                  },
-    { 'I',       CommandKey,            "ToggleItalic"                                },
+    { 'B',       ControlKey,            "ToggleBold"                                  },
+    { 'I',       ControlKey,            "ToggleItalic"                                },
 
     { VK_ESCAPE, 0,                  "Cancel"                                      },
-    { VK_OEM_PERIOD, CommandKey,        "Cancel"                                      },
+    { VK_OEM_PERIOD, ControlKey,        "Cancel"                                      },
     { VK_TAB,    0,                  "InsertTab"                                   },
     { VK_TAB,    ShiftKey,           "InsertBacktab"                               },
     { VK_RETURN, 0,                  "InsertNewline"                               },
-    { VK_RETURN, CommandKey,            "InsertNewline"                               },
+    { VK_RETURN, ControlKey,            "InsertNewline"                               },
     { VK_RETURN, AltKey,             "InsertNewline"                               },
     { VK_RETURN, ShiftKey,           "InsertNewline"                               },
     { VK_RETURN, AltKey | ShiftKey,  "InsertNewline"                               },
 
     // It's not quite clear whether clipboard shortcuts and Undo/Redo should be handled
     // in the application or in WebKit. We chose WebKit.
-    { 'C',       CommandKey,            "Copy"                                        },
-    { 'V',       CommandKey,            "Paste"                                       },
-    { 'X',       CommandKey,            "Cut"                                         },
-    { 'A',       CommandKey,            "SelectAll"                                   },
-    { VK_INSERT, CommandKey,            "Copy"                                        },
+    { 'C',       ControlKey,            "Copy"                                        },
+    { 'V',       ControlKey,            "Paste"                                       },
+    { 'X',       ControlKey,            "Cut"                                         },
+    { 'A',       ControlKey,            "SelectAll"                                   },
+    { VK_INSERT, ControlKey,            "Copy"                                        },
     { VK_DELETE, ShiftKey,           "Cut"                                         },
     { VK_INSERT, ShiftKey,           "Paste"                                       },
-    { 'Z',       CommandKey,            "Undo"                                        },
-    { 'Z',       CommandKey | ShiftKey, "Redo"                                        },
+    { 'Z',       ControlKey,            "Undo"                                        },
+    { 'Z',       ControlKey | ShiftKey, "Redo"                                        },
 };
 
 static const KeyPressEntry keyPressEntries[] = {
     { '\t',   0,                  "InsertTab"                                   },
     { '\t',   ShiftKey,           "InsertBacktab"                               },
     { '\r',   0,                  "InsertNewline"                               },
-    { '\r',   CommandKey,            "InsertNewline"                               },
+    { '\r',   ControlKey,            "InsertNewline"                               },
     { '\r',   AltKey,             "InsertNewline"                               },
     { '\r',   ShiftKey,           "InsertNewline"                               },
     { '\r',   AltKey | ShiftKey,  "InsertNewline"                               },
@@ -1922,8 +2681,8 @@ static const char* interpretKeyEvent(const KeyboardEvent* evt)
         modifiers |= ShiftKey;
     if (evt->altKey())
         modifiers |= AltKey;
-    if (evt->metaKey())
-        modifiers |= CommandKey;
+    if (evt->ctrlKey())
+        modifiers |= ControlKey;
 
     if (evt->type() == eventNames().keydownEvent) {
         int mapKey = modifiers << 16 | evt->keyCode();
@@ -1973,6 +2732,29 @@ bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int 
 	else if (hitTestResult.image())
 		outURL = hitTestResult.absoluteImageURL();
 	return hitTestResult.isOverLink() || hitTestResult.image();
+}
+
+int WebPage::mouseCursorToSet(ULONG qualifiers, bool mouseInside)
+{
+	if (m_trackMiddleDidScroll && m_trackMiddle)
+	{
+		return POINTERTYPE_VERTICALRESIZE;
+	}
+	
+	if (m_cursorLock != POINTERTYPE_NORMAL)
+		return m_cursorLock;
+	
+	if (mouseInside || m_trackMouse)
+	{
+		if (m_cursorOverLink && (qualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)))
+		{
+			return POINTERTYPE_ALTERNATIVECHOICE;
+		}
+	
+		return m_cursor;
+	}
+	
+	return POINTERTYPE_NORMAL;
 }
 
 bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler)
@@ -2034,14 +2816,20 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 				case MIDDLEDOWN:
 					if (mouseInside)
+					{
+						m_trackMiddle = true;
+						m_trackMouse = true;
+						m_trackMiddleDidScroll = false;
+						m_middleClick[0] = mouseX;
+						m_middleClick[1] = mouseY;
 						return true;
+					}
 					break;
 				case MIDDLEUP:
-					if (mouseInside || m_trackMouse)
+					if (!m_trackMiddleDidScroll && (mouseInside || m_trackMouse))
 					{
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
-						constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
-						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 						bool isMouseDownOnLinkOrImage = hitTestResult.isOverLink() || hitTestResult.image();
 
 						if (isMouseDownOnLinkOrImage)
@@ -2080,9 +2868,17 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 								}
 							}
 						}
+						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
-						return true;
+						m_trackMiddle = false;
+						m_trackMiddleDidScroll = false;
+						return wasTrackMouse;
 					}
+					m_trackMiddle = false;
+					m_trackMouse = false;
+					m_trackMiddleDidScroll = false;
+					if (_fSetCursor)
+						_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
 					break;
 				case MENUDOWN:
 					// This is consistent with Safari
@@ -2114,8 +2910,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
-						constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
-						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
 						m_page->contextMenuController().clearContextMenu();
 						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 						if (targetFrame)
@@ -2127,12 +2922,20 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 
 						if (m_page->contextMenuController().contextMenu() &&
-							m_page->contextMenuController().contextMenu()->items().size())
+							m_page->contextMenuController().contextMenu()->items().size() > 1)
 						{
 							if (_fContextMenu)
 							{
-								_fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
-								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+								bool didDisplayMenu = _fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
+								if (didDisplayMenu)
+								{
+									WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
+								}
+								else
+								{
+									bridge.handleMousePressEvent(pme);
+									m_trackMouse = true;
+								}
 							}
 						}
 						else if (_fContextMenu && !doEvent)
@@ -2151,20 +2954,19 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					}
 					break;
 				case MENUUP:
-#if 0
 					if (m_trackMouse)
 					{
 						m_trackMouse = false;
 						return bridge.handleMouseReleaseEvent(pme);
 					}
-#endif
 					break;
 				default:
 					if (mouseInside || m_trackMouse)
 					{
 						bridge.handleMouseReleaseEvent(pme);
+						bool wasTrackMouse(m_trackMouse);
 						m_trackMouse = false;
-						return true;
+						return wasTrackMouse;
 					}
 					break;
 				}
@@ -2173,31 +2975,48 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case IDCMP_MOUSEHOVER:
 				if (mouseInside || m_trackMouse)
 				{
-					bridge.handleMouseMoveEvent(pme);
 					WTF::URL hoverURL;
-					bool downloadable = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
+					m_cursorOverLink = checkDownloadable(imsg, mouseX, mouseY, hoverURL);
 
-					if (m_hoveredURL != hoverURL)
+					int deltaX = 0;
+					int deltaY = 0;
+					
+					if (m_trackMiddle)
 					{
-						m_hoveredURL = hoverURL;
-						if (_fHoveredURLChanged)
+						deltaX = m_middleClick[0] - mouseX;
+						deltaY = m_middleClick[1] - mouseY;
+					}
+
+					if (m_trackMiddleDidScroll || (abs(deltaX) > 5) || (abs(deltaY) > 5))
+					{
+						m_middleClick[0] = mouseX;
+						m_middleClick[1] = mouseY;
+						scrollBy(-deltaX, -deltaY, WebPageScrollByMode::Pixels);
+						m_trackMiddleDidScroll = true;
+					}
+
+					if (!m_trackMiddleDidScroll)
+					{
+						bridge.handleMouseMoveEvent(pme);
+
+						if (m_hoveredURL != hoverURL)
 						{
-							_fHoveredURLChanged(m_hoveredURL);
+							m_hoveredURL = hoverURL;
+							if (_fHoveredURLChanged)
+							{
+								_fHoveredURLChanged(m_hoveredURL);
+							}
 						}
 					}
 
-					if (_fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && downloadable)
-					{
-						_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
-						return m_trackMouse;
-					}
-
 					if (_fSetCursor)
-						_fSetCursor(m_cursor);
+						_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
+
 					return m_trackMouse;
 				}
 				else
 				{
+					m_cursorOverLink = false;
 					if (_fSetCursor)
 						_fSetCursor(0);
 				}
@@ -2221,37 +3040,58 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			case NM_WHEEL_DOWN:
 				if (mouseInside && !up)
 				{
-					if (1) //m_isActive || isDefaultHandler)
-					{
-						float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
-						float deltaY = (code == NM_WHEEL_UP) ? 50.0f : -50.0f;
-						WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
-							WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
-							0, deltaY,
-							0, wheelTicksY,
-							ScrollByPixelWheelEvent,
-							(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
-							(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
-							(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
-							(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
-							);
-						
-						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
-						constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
-						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
-						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-						bool handled = bridge.handleWheelEvent(pke);
-						if (!handled)
-							wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier, targetFrame);
-					}
-					else
-					{
-						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 50 : -50, imsg->Qualifier);
-					}
+					float wheelTicksY = (code == NM_WHEEL_UP) ? 1 : -1;
+					float deltaY = (code == NM_WHEEL_UP) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep();
+					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+						0, deltaY,
+						0, wheelTicksY,
+						ScrollByPixelWheelEvent,
+						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+						);
+					
+					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					bool handled = bridge.handleWheelEvent(pke);
+					if (!handled)
+						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
+
 					return true;
 				}
 				break;
 			
+			case NM_WHEEL_LEFT:
+			case NM_WHEEL_RIGHT:
+				if (mouseInside && !up)
+				{
+					float wheelTicksX = (code == NM_WHEEL_LEFT) ? 1 : -1;
+					float deltaX = (code == NM_WHEEL_LEFT) ? Scrollbar::pixelsPerLineStep() : -Scrollbar::pixelsPerLineStep();
+					WebCore::PlatformWheelEvent pke(WebCore::IntPoint(mouseX, mouseY),
+						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
+						deltaX, 0,
+						wheelTicksX, 0,
+						ScrollByPixelWheelEvent,
+						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
+						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
+						(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0
+						);
+					
+					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					bool handled = bridge.handleWheelEvent(pke);
+					if (!handled)
+						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
+
+					return true;
+				}
+				break;
+				
 			case RAWKEY_TAB:
 				if (!m_isActive)
 					return false;
@@ -2282,41 +3122,64 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			default:
 				if (m_isActive || isDefaultHandler)
 				{
-					bool handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					bool handled = false;
+					bool doHandle = true;
 
-					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
+					if (0 != ((IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND) & imsg->Qualifier))
+						doHandle = false;
+
+					if (m_isActive && code == RAWKEY_ESCAPE)
+					{
+						handled = true;
+						doHandle = false;
+						if (_fGoInactive)
+							_fGoInactive();
+					}
+
+					if (doHandle)
+					{
+						handled = bridge.handleKeyEvent(WebCore::PlatformKeyboardEvent(imsg));
+					}
+
+					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
 
 					if (!handled)
 					{
-						WTF::URL ignored;
-
 						switch (code)
 						{
 						case RAWKEY_LALT:
 						case RAWKEY_RALT:
-							if (!up && _fSetCursor && (imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) && checkDownloadable(imsg, mouseX, mouseY, ignored))
-							{
-								_fSetCursor(POINTERTYPE_ALTERNATIVECHOICE);
-							}
-							else if (up && _fSetCursor)
-							{
-								_fSetCursor(m_cursor);
-							}
+							if (_fSetCursor)
+								_fSetCursor(mouseCursorToSet(imsg->Qualifier, mouseInside));
 							break;
 						
 						case RAWKEY_PAGEUP:
 							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, m_drawContext->height(), m_page->focusController().focusedFrame());
+								scrollBy(0, 1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
 
 						case RAWKEY_PAGEDOWN:
-						case RAWKEY_SPACE:
-							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -m_drawContext->height(), m_page->focusController().focusedFrame());
+								scrollBy(0, -1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
+								return true;
+							}
+							break;
+							
+						case RAWKEY_SPACE:
+							if (!up && m_drawContext)
+							{
+								if (0 == (imsg->Qualifier & KEYQUALIFIERS))
+								{
+									scrollBy(0, -1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
+								}
+								else if (((IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT) & (imsg->Qualifier & KEYQUALIFIERS)) != 0)
+								{
+									scrollBy(0, 1, WebPageScrollByMode::Pages, m_page->focusController().focusedFrame());
+								}
 								return true;
 							}
 							break;
@@ -2324,7 +3187,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_DOWN:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, -50, m_page->focusController().focusedFrame());
+								scrollBy(0, -1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
@@ -2332,14 +3195,14 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						case RAWKEY_UP:
 							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
-								scrollBy(0, 50, m_page->focusController().focusedFrame());
+								scrollBy(0, 1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
 							}
 							break;
 
 						case RAWKEY_HOME:
 						case RAWKEY_END:
-							if (!up && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && m_mainFrame && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
 								auto* coreFrame = m_page->focusController().focusedFrame() ? m_page->focusController().focusedFrame() : m_mainFrame->coreFrame();
 								
@@ -2366,6 +3229,11 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				break;
 			}
 		}
+		break;
+		
+	case IDCMP_INACTIVEWINDOW:
+		m_trackMiddle = false;
+		m_trackMouse = false;
 		break;
 	}
 
@@ -2447,7 +3315,7 @@ bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
 	return false;
 }
 
-bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const
+bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &, const WTF::String &) const
 {
 	return false;
 }
@@ -2497,9 +3365,154 @@ void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
 	}
 }
 
+WTF::String WebPage::misspelledWord(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		return frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+	}
+	
+	return WTF::String();
+}
+
+void WebPage::markWord(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		VisibleSelection selection = frame->selection().selection();
+		if (!selection.isContentEditable() || selection.isNone())
+			return;
+
+		frame->selection().moveTo(frame->visiblePositionForPoint(hitTest.roundedPointInInnerNodeFrame()));
+
+#if 0
+		VisibleSelection wordSelection(selection.base());
+		wordSelection.expandUsingGranularity(WordGranularity);
+		
+		frame->selection().setSelection(wordSelection);
+#endif
+	}
+}
+
+WTF::Vector<WTF::String> WebPage::misspelledWordSuggestions(WebCore::HitTestResult &hitTest)
+{
+	WTF::Vector<WTF::String> out;
+
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		WebEditorClient::getGuessesForWord(miss, out);
+	}
+
+	return out;
+}
+
+void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->learnWord(miss);
+	}
+}
+
+void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
+		frame->editor().textChecker()->ignoreWordInSpellDocument(miss);
+	}
+}
+
+void WebPage::replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement)
+{
+	WebCore::Frame *frame = fromHitTest(hitTest);
+	if (frame)
+	{
+		VisibleSelection selection = frame->selection().selection();
+		if (!selection.isContentEditable() || selection.isNone())
+			return;
+
+		VisibleSelection wordSelection(selection.base());
+		wordSelection.expandUsingGranularity(WordGranularity);
+		RefPtr<Range> wordRange = wordSelection.toNormalizedRange();
+		if (!wordRange)
+			return;
+
+
+		frame->editor().replaceRangeForSpellChecking(*(wordRange.get()), replacement);
+	}
+}
+
 void WebPage::startDownload(const WTF::URL &url)
 {
-	m_mainFrame->startDownload(url);
+	auto protocol = url.protocol().toString();
+	if (WTF::equalIgnoringASCIICase(protocol, "ftp"))
+	{
+		auto udata = url.string().ascii();
+		struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+		URL_OpenA((STRPTR)udata.data(), urltags);
+	}
+	else if (WTF::equalIgnoringASCIICase(protocol, "mailto"))
+	{
+		auto udata = url.string().ascii();
+		struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
+		URL_OpenA((STRPTR)udata.data(), urltags);
+	}
+	else if (m_mainFrame)
+	{
+		m_mainFrame->startDownload(url);
+	}
+}
+
+bool WebPage::canUndo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		return editor.canUndo();
+	}
+
+	return false;
+}
+
+bool WebPage::canRedo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		return editor.canRedo();
+	}
+
+	return false;
+}
+
+void WebPage::undo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		editor.undo();
+	}
+}
+
+void WebPage::redo()
+{
+	if (m_page)
+	{
+		auto& focusController = m_page->focusController();
+		auto& editor = focusController.focusedFrame()->editor();
+		editor.redo();
+	}
 }
 
 }
