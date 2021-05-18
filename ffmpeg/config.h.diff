@@ -1,0 +1,21 @@
+--- config.h_orig	2021-05-18 03:50:03.910900339 +0200
++++ config.h	2021-05-18 03:50:14.699038469 +0200
+@@ -227,17 +227,17 @@
+ #define HAVE_POLL_H 1
+ #define HAVE_SYS_PARAM_H 1
+ #define HAVE_SYS_RESOURCE_H 1
+ #define HAVE_SYS_SELECT_H 1
+ #define HAVE_SYS_SOUNDCARD_H 0
+ #define HAVE_SYS_TIME_H 1
+ #define HAVE_SYS_UN_H 1
+ #define HAVE_SYS_VIDEOIO_H 0
+-#define HAVE_TERMIOS_H 1
++#define HAVE_TERMIOS_H 0
+ #define HAVE_UDPLITE_H 0
+ #define HAVE_UNISTD_H 1
+ #define HAVE_VALGRIND_VALGRIND_H 0
+ #define HAVE_WINDOWS_H 0
+ #define HAVE_WINSOCK2_H 0
+ #define HAVE_INTRINSICS_NEON 0
+ #define HAVE_ATANF 1
+ #define HAVE_ATAN2F 1

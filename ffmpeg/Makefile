@@ -42,6 +42,7 @@ clean:
 	rm -rf instdir
 	rm -rf ffmpeg-$(FFMPEG_VERSION) .buildstamp
 	rm -rf aom aom-build .aom
+	rm -rf .ffmpeg.bin .ffplay.bin
 
 .PHONY: clean
 
@@ -58,3 +59,59 @@ clean:
 	cp aom-build/instdir/lib/pkgconfig/aom.pc aom-build/instdir/lib/pkgconfig/libaom.pc
 	touch .aom
 
+.ffmpeg.bin: ffmpeg-$(FFMPEG_VERSION).tar.xz ffmpeg-$(FFMPEG_VERSION).diff opus-$(OPUS_VERSION).tar.gz
+	mkdir -p instdir/include instdir/lib
+	rm -rf ffmpeg-$(OPUS_VERSION)
+	tar xf opus-$(OPUS_VERSION).tar.gz
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
+	(cd opus-$(OPUS_VERSION) && make DESTDIR="$(abspath ./)/instdir" install)
+	rm -rf ffmpeg-$(FFMPEG_VERSION)
+	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
+	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
+	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
+		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
+		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
+		--disable-demuxer=swf --disable-muxer=avm2 --disable-muxer=swf --disable-decoder=mwsc --disable-decoder=mvha --disable-network \
+		--enable-pthreads --disable-shared --disable-indevs )
+	# remove "-maltivec -mabi=altivec" from generic CFLAGS
+	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	# add "-maltivec -mabi=altivec" to CFLAGS for specific files only
+	(for i in h264chroma_template vc1dsp_altivec mpegvideoencdsp svq1enc_altivec audiodsp lossless_audiodsp_altivec lossless_videodsp_altivec blockdsp h264chroma_init h264dsp fdctdsp fft_vsx fft_init fmtconvert_altivec h264qpel me_cmp idctdsp mpegaudiodsp_altivec mpegvideo_altivec hpeldsp_altivec pixblockdsp mpegvideodsp vp8dsp_altivec vp3dsp_altivec vorbisdsp_altivec hevcdsp hevcdsp_template; do echo -n "libavcodec/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(for i in hscale gamma alphablend hscale_fast_bilinear options input output rgb2rgb slice swscale_unscaled swscale utils vscale yuv2rgb ppc/swscale_altivec ppc/yuv2rgb_altivec ppc/swscale_vsx ppc/yuv2yuv_altivec; do echo -n "libswscale/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(for i in float_dsp_altivec; do echo -n "libavutil/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	echo -e ": CFLAGS+= -maltivec -mabi=altivec\n" >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(cd ffmpeg-$(FFMPEG_VERSION) && patch <../config.h.diff)
+	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) -j$(shell nproc))
+	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) install)
+	touch $@
+
+ffmpeg.tar.xz: .ffmpeg.bin
+	tar cJf $@ ffmpeg-$(FFMPEG_VERSION)/ffmpeg ffmpeg-$(FFMPEG_VERSION)/ffprobe
+
+.ffplay.bin: ffmpeg-$(FFMPEG_VERSION).tar.xz ffmpeg-$(FFMPEG_VERSION).diff opus-$(OPUS_VERSION).tar.gz
+	mkdir -p instdir/include instdir/lib
+	rm -rf ffmpeg-$(OPUS_VERSION)
+	tar xf opus-$(OPUS_VERSION).tar.gz
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
+	(cd opus-$(OPUS_VERSION) && make DESTDIR="$(abspath ./)/instdir" install)
+	rm -rf ffmpeg-$(FFMPEG_VERSION)
+	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
+	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
+	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
+		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
+		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
+		--disable-demuxer=swf --disable-muxer=avm2 --disable-muxer=swf --disable-decoder=mwsc --disable-decoder=mvha --disable-network --disable-encoders \
+		--enable-pthreads --disable-shared --disable-indevs --disable-ffmpeg --disable-ffprobe --enable-ffplay --enable-sdl )
+	# remove "-maltivec -mabi=altivec" from generic CFLAGS
+	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	# add "-maltivec -mabi=altivec" to CFLAGS for specific files only
+	(for i in h264chroma_template vc1dsp_altivec mpegvideoencdsp svq1enc_altivec audiodsp lossless_audiodsp_altivec lossless_videodsp_altivec blockdsp h264chroma_init h264dsp fdctdsp fft_vsx fft_init fmtconvert_altivec h264qpel me_cmp idctdsp mpegaudiodsp_altivec mpegvideo_altivec hpeldsp_altivec pixblockdsp mpegvideodsp vp8dsp_altivec vp3dsp_altivec vorbisdsp_altivec hevcdsp hevcdsp_template; do echo -n "libavcodec/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(for i in hscale gamma alphablend hscale_fast_bilinear options input output rgb2rgb slice swscale_unscaled swscale utils vscale yuv2rgb ppc/swscale_altivec ppc/yuv2rgb_altivec ppc/swscale_vsx ppc/yuv2yuv_altivec; do echo -n "libswscale/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(for i in float_dsp_altivec; do echo -n "libavutil/ppc/$$i.o "; done) >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	echo -e ": CFLAGS+= -maltivec -mabi=altivec\n" >> ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
+	(cd ffmpeg-$(FFMPEG_VERSION) && patch <../config.h.diff)
+	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) -j$(shell nproc))
+	(cd ffmpeg-$(FFMPEG_VERSION) && $(MAKE) install)
+	touch $@
