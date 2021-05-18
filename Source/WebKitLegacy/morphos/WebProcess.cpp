@@ -22,6 +22,7 @@
 #include <WebCore/DOMWindow.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
+#include <WebCore/MediaPlayerMorphOS.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -36,22 +37,32 @@
 #include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/ResourceLoadInfo.h>
 #include <WebCore/CurlContext.h>
+#include <WebCore/HTMLMediaElement.h>
+#include <WebCore/Page.h>
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
 #include "WebFrameNetworkingContext.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
+#include "Gamepad.h"
+
 // bloody include shit
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
                 struct timeval *timeout, ULONG *maskp);
 }
 typedef uint32_t socklen_t;
+#if (!MORPHOS_MINIMAL)
 #include <pal/crypto/gcrypt/Initialization.h>
+#endif
 #include <proto/dos.h>
 
+#if (MORPHOS_MINIMAL)
+#define USE_ADFILTER 0
+#else
 #define USE_ADFILTER 1
+#endif
 
 extern "C" {
 	void dprintf(const char *, ...);
@@ -73,6 +84,30 @@ namespace WTF {
 		singleton.signalMainThread();
 	}
 }
+
+#if 0
+#include <wtf/threads/BinarySemaphore.h>
+#include <proto/dos.h>
+class blocktest
+{
+	BinarySemaphore bLock;
+	BinarySemaphore bLock2;
+public:
+	blocktest() {
+		Thread::create("blockthread", [this] {
+			dprintf("calling waitFor\n");
+//			bLock2.signal();
+			bLock.waitFor(100_s);
+			dprintf("block unlocked!\n");
+		});
+//		bLock2.waitFor(2_s);
+		Delay(200);
+		dprintf("signalling..\n");
+		bLock.signal();
+	}
+};
+static blocktest bt;
+#endif
 
 namespace WebKit {
 
@@ -99,7 +134,7 @@ QUAD calculateMaxCacheSize(const char *path)
 		{
 			QUAD free = total - used;
 			free /= 2;
-			return std::min(0xffffffffll, free);
+			return std::min(512ll * 1024ll * 1024ll, free);
 		}
 	}
 	
@@ -118,6 +153,28 @@ WebProcess& WebProcess::singleton()
     return process;
 }
 
+class DownloadsNetworkingContext : public NetworkingContext {
+public:
+    static Ref<DownloadsNetworkingContext> create()
+    {
+        return adoptRef(*new DownloadsNetworkingContext());
+    }
+
+    bool shouldClearReferrerOnHTTPSToHTTPRedirect() const override
+    {
+		return true;
+    }
+	NetworkStorageSession* storageSession() const
+	{
+		return &NetworkStorageSessionMap::defaultStorageSession();
+	}
+protected:
+    DownloadsNetworkingContext()
+    {
+    }
+};
+
+
 void WebProcess::initialize(int sigbit)
 {
 	m_sigTask = FindTask(0);
@@ -126,7 +183,10 @@ void WebProcess::initialize(int sigbit)
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
 	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
+
+#if (!MORPHOS_MINIMAL)
 	PAL::GCrypt::initialize();
+#endif
 
 #if 1 // debug
 	{
@@ -143,7 +203,151 @@ void WebProcess::initialize(int sigbit)
 	RuntimeEnabledFeatures::sharedFeatures().setDataTransferItemsEnabled(true);
 	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
 
-	m_dummyNetworkingContext = WebFrameNetworkingContext::create(nullptr);
+	RuntimeEnabledFeatures::sharedFeatures().setIntersectionObserverEnabled(true);
+	
+	RuntimeEnabledFeatures::sharedFeatures().setKeygenElementEnabled(true);
+	
+	// TODO: implement workers!
+	// RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
+
+	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
+
+	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
+
+#if ENABLE(VIDEO)
+	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
+	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
+
+	MediaPlayerMorphOSSettings::settings().m_supportMediaForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::Media);
+		return false;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_supportMediaSourceForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::MediaSource);
+		return false;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_supportHLSForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HLS);
+		return false;
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_supportVP9ForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::VP9);
+		return false;
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_supportHVCForHost = [this](WebCore::Page *page, const String &) -> bool {
+		WebPage *wpage = WebPage::fromCorePage(page);
+		if (wpage && wpage->_fMediaSupportCheck)
+			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HVC1);
+		return false;
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_load = [this](WebCore::MediaPlayer *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info,
+		MediaPlayerMorphOSStreamSettings &settings, Function<void()> &&yieldFunc) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaAdded)
+				{
+					webpage->_fMediaAdded(player, url, info, settings, WTFMove(yieldFunc));
+				}
+
+				return;
+			}
+		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_loadCancelled = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaRemoved)
+				webpage->_fMediaRemoved(player);
+		}
+	};
+
+	MediaPlayerMorphOSSettings::settings().m_willPlay = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaWillPlay)
+				webpage->_fMediaWillPlay(player);
+		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayRequest = [this](WebCore::MediaPlayer *player,
+		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&& overlaycallback) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaSetOverlayCallback)
+				{
+					// Wrap pElement into a ref - that way, the callback set on webpage holds a ref to the element
+					// This is cause we cannot use RefPtr<Element> in ObjC code
+					webpage->_fMediaSetOverlayCallback(player, pElement, [ref = makeRef(*pElement), cb = WTFMove(overlaycallback)](void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height) {
+							cb(windowPtr, scrollX, scrollY, left, top, right, bottom, width, height);
+						});
+				}
+				return;
+			}
+		}
+	};
+	
+	MediaPlayerMorphOSSettings::settings().m_overlayUpdate = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			WebCore::Element* pElement;
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					pElement = &e;
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaUpdateOverlayCallback)
+					webpage->_fMediaUpdateOverlayCallback(player);
+				return;
+			}
+		}
+	};
+#endif
+
+#if ENABLE(GAMEPAD)
+	GamepadProvider::setSharedProvider(GamepadProviderMorphOS::singleton());
+#endif
 
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";
@@ -514,6 +718,7 @@ void WebProcess::signalMainThread()
 
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
+#if USE_ADFILTER
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
 	if (!frame)
 		return false;
@@ -528,7 +733,11 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 	{
 		return false;
 	}
-
+#else
+	(void)url;
+	(void)mainPageURL;
+	(void)loader;
+#endif
 	return true;
 }
 

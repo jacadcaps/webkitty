@@ -253,6 +253,7 @@ private:
 #endif
 
     Ref<WebFrame> m_frame;
+    uint64_t m_iconIdentifier { 0 };
     bool m_hasSentResponseToPluginView;
     bool m_didCompletePageTransition;
     bool m_frameCameFromPageCache;

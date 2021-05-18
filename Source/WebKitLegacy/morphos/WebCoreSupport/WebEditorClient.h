@@ -29,6 +29,7 @@
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/EditorClient.h>
 #include <WebCore/TextCheckerClient.h>
+#include <WebCore/UndoStep.h>
 
 namespace WebCore {
 class Element;
@@ -38,15 +39,55 @@ namespace WebKit {
 
 class WebPage;
 class WebNotification;
-class WebEditorUndoTarget;
+struct WebEditorClientCleanup;
+
+class WebEditorUndoStep : public WTF::RefCounted<WebEditorUndoStep>
+{
+public:
+    static Ref<WebEditorUndoStep> create(WebCore::UndoStep& step)
+    {
+        return adoptRef(*new WebEditorUndoStep(step));
+    }
+	
+	WebEditorUndoStep(WebCore::UndoStep& step)
+		: m_undoStep(step)
+	{
+	}
+	
+	void unapply()
+	{
+		m_undoStep->unapply();
+	}
+	
+	void reapply()
+	{
+		m_undoStep->reapply();
+	}
+
+private:
+	Ref<WebCore::UndoStep> m_undoStep;
+};
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient {
 	WTF_MAKE_FAST_ALLOCATED;
 public:
+	friend WebEditorClientCleanup;
+
     WebEditorClient(WebPage*);
     ~WebEditorClient();
 
 	WebPage *webPage() { return m_webPage; }
+	
+	static void setSpellCheckingEnabled(bool enabled);
+	static bool getSpellCheckingEnabled() { return m_spellDictionary != nullptr; }
+	static void setSpellCheckingLanguage(const WTF::String &language);
+	static WTF::String getSpellCheckingLanguage() { return m_language; }
+	static void getGuessesForWord(const WTF::String &word, WTF::Vector<WTF::String> &outGuesses);
+	static void getAvailableDictionaries(WTF::Vector<WTF::String> &outDictionaries, WTF::String &outDefault);
+
+    void ignoreWordInSpellDocument(const WTF::String&) final;
+    void learnWord(const WTF::String&) final;
+    void replaceMisspelledWord(const WTF::String&);
 
 private:
     bool isContinuousSpellCheckingEnabled() final;
@@ -111,8 +152,6 @@ private:
     void handleInputMethodKeydown(WebCore::KeyboardEvent&) final;
 
     bool shouldEraseMarkersAfterChangeSelection(WebCore::TextCheckingType) const final;
-    void ignoreWordInSpellDocument(const WTF::String&) final;
-    void learnWord(const WTF::String&) final;
     void checkSpellingOfString(StringView, int* misspellingLocation, int* misspellingLength) final;
     WTF::String getAutoCorrectSuggestionForMisspelledWord(const WTF::String&) final;
     void checkGrammarOfString(StringView, Vector<WebCore::GrammarDetail>&, int* badGrammarLocation, int* badGrammarLength) final;
@@ -135,7 +174,13 @@ private:
 
 protected:
     WebPage* m_webPage;
-    WebEditorUndoTarget* m_undoTarget;
+    WTF::HashSet<WTF::String> m_ignoredWords;
+    WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_undo;
+    WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_redo;
+	
+    static struct Library *m_spellcheckerLibrary;
+    static APTR m_spellDictionary;
+    static WTF::String m_language;
 };
 
 }
