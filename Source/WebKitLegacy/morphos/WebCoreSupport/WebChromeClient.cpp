@@ -369,7 +369,8 @@ void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmb
 
 void WebChromeClient::print(Frame& frame)
 {
-	notImplemented();
+    if (m_webPage._fPrint)
+        m_webPage._fPrint();
 }
 
 void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& databaseIdentifier, DatabaseDetails)
@@ -459,23 +460,56 @@ RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& 
 
 bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool requestingKeyboardAccess)
 {
-	return false;
+	if (requestingKeyboardAccess)
+		return false;
+	return true;
 }
 
 void WebChromeClient::enterFullScreenForElement(Element& element)
 {
+    m_webPage.setFullscreenElement(&element);
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element)
 {
+    m_webPage.setFullscreenElement(nullptr);
 }
 
 #endif
+
+bool WebChromeClient::supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode)
+{
+	return true;
+}
 
 bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameView) const
 {
     return false;
 }
+
+#if ENABLE(VIDEO)
+
+void WebChromeClient::enterVideoFullscreenForVideoElement(HTMLVideoElement& videoElement, HTMLMediaElementEnums::VideoFullscreenMode, bool)
+{
+	dprintf("%s\n", __PRETTY_FUNCTION__);
+//    m_webView->enterVideoFullscreenForVideoElement(videoElement);
+}
+
+void WebChromeClient::exitVideoFullscreenForVideoElement(HTMLVideoElement& videoElement)
+{
+ //   m_webView->exitVideoFullscreenForVideoElement(videoElement);
+ }
+
+void WebChromeClient::setUpPlaybackControlsManager(WebCore::HTMLMediaElement&)
+{
+// dprintf("%s:\n", __PRETTY_FUNCTION__);
+}
+
+void WebChromeClient::clearPlaybackControlsManager()
+{
+// dprintf("%s:\n", __PRETTY_FUNCTION__);
+}
+ #endif
 
 }
 
