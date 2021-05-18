@@ -794,14 +794,12 @@ String MediaPlayerPrivateMorphOS::accReferrer()
 	return m_player->referrer();
 }
 
-#if ENABLE(VIDEO_TRACK)
 void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 {
 	(void)index;
 	(void)enabled;
 	D(dprintf("%s: %p, track %p enabled %d\n", __func__, this, index, enabled));
 }
-#endif
 
 }
 
