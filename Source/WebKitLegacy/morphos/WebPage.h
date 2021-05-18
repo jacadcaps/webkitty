@@ -6,6 +6,7 @@
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsTypes.h>
 #include <WebCore/FindOptions.h>
+#include <WebCore/LengthBox.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -22,6 +23,7 @@ namespace WebCore {
 	class AutofillElements;
 	class HTMLInputElement;
 	class HistoryItem;
+	class PrintContext;
 };
 
 struct RastPort;
@@ -33,6 +35,7 @@ class WebPage;
 class WebPageGroup;
 class WebFrame;
 class WebViewDrawContext;
+class WebViewPrintingContext;
 class WebChromeClient;
 class WebPageCreationParameters;
 class WebDocumentLoader;
@@ -96,6 +99,19 @@ public:
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
 	bool handleMUIKey(int muikey, bool isDefaultHandler);
 
+	// printableWidth/Height and margins are in points/pixels (not inches)
+	void printPreview(struct RastPort *rp,
+		const int x, const int y, const int width, const int height, LONG sheet, LONG pagesPerSheet,
+		float printableWidth, float printableHeight, bool landscape,
+		const WebCore::FloatBoxExtent& margins, WebCore::PrintContext *context, bool printBackgrounds);
+	void printStart(float printableWidth, float printableHeight, bool landscape, LONG pagesPerSheet,
+		WebCore::FloatBoxExtent margins, WebCore::PrintContext *context, int psLevel, bool printBackgrounds, const char *file);
+	void pdfStart(float printableWidth, float printableHeight, bool landscape, LONG pagesPerSheet, WebCore::FloatBoxExtent margins,
+		WebCore::PrintContext *context, bool printBackgrounds, const char *file);
+
+	bool printSpool(WebCore::PrintContext *context, int pageNo);
+	void printingFinished(void);
+
 	void onContextMenuItemSelected(ULONG action, const char *title);
 
     void addResourceRequest(unsigned long, const WebCore::ResourceRequest&);
@@ -135,6 +151,15 @@ public:
     void setInterpolationQuality(WebCore::InterpolationQuality quality) { m_interpolation = quality; }
     WebCore::InterpolationQuality interpolationQuality() const { return m_interpolation; }
 
+    void setInterpolationQualityForImageViews(WebCore::InterpolationQuality quality) { m_imageInterpolation = quality; }
+    WebCore::InterpolationQuality interpolationQualityForImageViews() const { return m_imageInterpolation; }
+
+	void setRequiresUserGestureForMediaPlayback(bool requiresGesture);
+	bool requiresUserGestureForMediaPlayback();
+	
+	void setInvisiblePlaybackNotAllowed(bool invisible);
+	bool invisiblePlaybackNotAllowed();
+
     WebCore::IntSize size() const;
     WebCore::IntRect bounds() const { return WebCore::IntRect(WebCore::IntPoint(), size()); }
 
@@ -153,11 +178,19 @@ public:
 	
 	void setLowPowerMode(bool lowPowerMode);
 
+	bool localStorageEnabled();
+	void setLocalStorageEnabled(bool enabled);
+	
+	bool offlineCacheEnabled();
+	void setOfflineCacheEnabled(bool enabled);
+
 	void startLiveResize();
 	void endLiveResize();
 	
     void setFocusedElement(WebCore::Element *);
-	
+    WebCore::IntRect getElementBounds(WebCore::Element *);
+	void setFullscreenElement(WebCore::Element *);
+
 	void startedEditingElement(WebCore::HTMLInputElement *);
 	bool hasAutofillElements();
 	void clearAutofillElements();
@@ -175,6 +208,9 @@ public:
 	
 	bool allowsScrolling();
 	void setAllowsScrolling(bool allows);
+	
+	bool editable();
+	void setEditable(bool editable);
 
 	enum class ContextMenuHandling // keep in sync with WkSettings!!
 	{
@@ -201,14 +237,32 @@ public:
 	void startDownload(const WTF::URL &url);
 	void flushCompositing();
 
+        WTF::String misspelledWord(WebCore::HitTestResult &hitTest);
+        WTF::Vector<WTF::String> misspelledWordSuggestions(WebCore::HitTestResult &hitTest);
+        void markWord(WebCore::HitTestResult &hitTest);
+        void learnMisspelled(WebCore::HitTestResult &hitTest);
+        void ignoreMisspelled(WebCore::HitTestResult &hitTest);
+        void replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement);
+        bool canUndo();
+        bool canRedo();
+        void undo();
+        void redo();
+
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
+
+       enum class WebPageScrollByMode
+       {
+               Pixels,
+               Units,
+               Pages
+       };
 
 	// WebChrome methods
     void repaint(const WebCore::IntRect&);
     void internalScroll(int scrollX, int scrollY);
-	void scrollBy(const int xDelta, const int yDelta, WebCore::Frame *inFrame = nullptr);
-	void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers, WebCore::Frame *inFrame = nullptr);
+    void scrollBy(int xDelta, int yDelta, WebPageScrollByMode mode, WebCore::Frame *inFrame = nullptr);
+    void wheelScrollOrZoomBy(const int xDelta, const int yDelta, ULONG qualifiers, WebCore::Frame *inFrame = nullptr);
     void frameSizeChanged(WebCore::Frame& frame, int width, int height);
 
     void closeWindow();
@@ -218,11 +272,14 @@ protected:
     bool transparent() const { return m_transparent; }
     bool usesLayeredWindow() const { return m_usesLayeredWindow; }
 
+    int mouseCursorToSet(ULONG qualifiers, bool mouseInside);
+
 private:
 	Ref<WebFrame> m_mainFrame;
 	std::unique_ptr<WebCore::Page> m_page;
 	RefPtr<WebPageGroup> m_webPageGroup;
 	WebViewDrawContext  *m_drawContext { nullptr };
+    WebViewPrintingContext *m_printingContext { nullptr };
     WebCore::PageIdentifier m_pageID;
     WebCore::AutofillElements *m_autofillElements { nullptr };
     WebCore::InterpolationQuality m_interpolation = WebCore::InterpolationQuality::Default;
@@ -231,6 +288,8 @@ private:
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };
 	int  m_cursor { 0 };
+       int  m_cursorLock { 0 };
+       int  m_middleClick[2];
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };
@@ -238,6 +297,8 @@ private:
     bool m_alwaysShowsVerticalScroller { false };
     bool m_mainFrameIsScrollable { true };
     bool m_trackMouse { false };
+    bool m_trackMiddle { false };
+    bool m_trackMiddleDidScroll { false };
     bool m_ignoreScroll { false };
     bool m_orphaned { false };
     bool m_adBlocking { true };
@@ -245,7 +306,10 @@ private:
     bool m_isActive { false };
     bool m_isVisible { false };
     bool m_needsCompositingFlush { false };
-    WebCore::Element *m_focusedElement { nullptr };
+    bool m_transitioning { false };
+    bool m_cursorOverLink { false };
+    RefPtr<WebCore::Element> m_focusedElement;
+    RefPtr<WebCore::Element> m_fullscreenElement;
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     Optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
     WTF::URL m_hoveredURL;
