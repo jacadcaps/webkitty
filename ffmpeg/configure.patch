@@ -1,0 +1,30 @@
+--- configure_orig	2021-05-20 03:39:15.811925488 +0200
++++ configure	2021-05-20 03:40:53.729410655 +0200
+@@ -6550,23 +6550,20 @@ if enabled gcrypt; then
+     else
+         require gcrypt gcrypt.h gcry_mpi_new -lgcrypt
+     fi
+ fi
+ 
+ if enabled sdl2; then
+     SDL2_CONFIG="${cross_prefix}sdl2-config"
+     test_pkg_config sdl2 "sdl2 >= 2.0.1 sdl2 < 2.1.0" SDL_events.h SDL_PollEvent
+-    if disabled sdl2 && "${SDL2_CONFIG}" --version > /dev/null 2>&1; then
+-        sdl2_cflags=$("${SDL2_CONFIG}" --cflags)
+-        sdl2_extralibs=$("${SDL2_CONFIG}" --libs)
+-        test_cpp_condition SDL.h "(SDL_MAJOR_VERSION<<16 | SDL_MINOR_VERSION<<8 | SDL_PATCHLEVEL) >= 0x020001" $sdl2_cflags &&
+-        test_cpp_condition SDL.h "(SDL_MAJOR_VERSION<<16 | SDL_MINOR_VERSION<<8 | SDL_PATCHLEVEL) < 0x020100" $sdl2_cflags &&
+-        check_func_headers SDL_events.h SDL_PollEvent $sdl2_extralibs $sdl2_cflags &&
+-            enable sdl2
++    if disabled sdl2; then
++        sdl2_cflags=-I/home/jaca/SDL/include
++        sdl2_extralibs="-L/home/jaca/SDL/src/core/morphos/devenv/lib/ -lSDL2"
++        enable sdl2
+     fi
+     if test $target_os = "mingw32"; then
+         sdl2_extralibs=$(filter_out '-mwindows' $sdl2_extralibs)
+     fi
+ fi
+ 
+ if enabled decklink; then
+     case $target_os in

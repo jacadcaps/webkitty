@@ -1,0 +1,15 @@
+# Blah blah SDL2
+
+prefix=
+exec_prefix=${prefix}
+libdir=${exec_prefix}/
+includedir=${prefix}/include
+
+Name: SDL2
+Description: Silly library
+URL: https://mehmeh.com
+Version: 2.0.1
+Requires:
+Conflicts:
+Libs: -L${libdir} -lSDL2.a
+Cflags: -I${includedir}

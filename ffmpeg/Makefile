@@ -99,11 +99,13 @@ ffmpeg.tar.xz: .ffmpeg.bin
 	rm -rf ffmpeg-$(FFMPEG_VERSION)
 	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
 	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
+	(cd ffmpeg-$(FFMPEG_VERSION) && patch <../configure.patch)
 	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
-		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
+		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig):$(HOME)/SDL/pkgconfig" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
 		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
 		--disable-demuxer=swf --disable-muxer=avm2 --disable-muxer=swf --disable-decoder=mwsc --disable-decoder=mvha --disable-network --disable-encoders \
-		--enable-pthreads --disable-shared --disable-indevs --disable-ffmpeg --disable-ffprobe --enable-ffplay --enable-sdl )
+		--enable-pthreads --disable-shared --disable-indevs --disable-ffmpeg --disable-ffprobe --enable-ffplay --enable-sdl \
+		--pkg-config-flags="--static --debug" --pkg-config=pkg-config)
 	# remove "-maltivec -mabi=altivec" from generic CFLAGS
 	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
 	# add "-maltivec -mabi=altivec" to CFLAGS for specific files only
