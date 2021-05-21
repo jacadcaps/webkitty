@@ -224,15 +224,6 @@ void CurlRequestScheduler::workerThread()
 #endif
         } while (rc == -1 && errno == EINTR);
 
-#if OS(MORPHOS)
-        int64_t previoustotaltransfers;
-        {
-            auto locker = holdLock(m_mutex);
-            previoustotaltransfers = m_totaltransfers;
-            m_totaltransfers = 0; // reset transfers counter
-        }
-#endif
-
         int activeCount = 0;
         while (m_curlMultiHandle->perform(activeCount) == CURLM_CALL_MULTI_PERFORM) { }
 
