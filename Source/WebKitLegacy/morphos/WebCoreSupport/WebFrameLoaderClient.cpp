@@ -72,7 +72,7 @@
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/HexNumber.h>
-#include <wtf/MD5.h>
+#include <wtf/morphos/MD5.h>
 
 #define D(x)
 

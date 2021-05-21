@@ -283,6 +283,7 @@ private:
     WebCore::PageIdentifier m_pageID;
     WebCore::AutofillElements *m_autofillElements { nullptr };
     WebCore::InterpolationQuality m_interpolation = WebCore::InterpolationQuality::Default;
+    WebCore::InterpolationQuality m_imageInterpolation = WebCore::InterpolationQuality::Default;
     WTF::HashSet<unsigned long> m_trackedNetworkResourceRequestIdentifiers;
     uint64_t m_pendingNavigationID { 0 };
 	uint32_t m_lastQualifier { 0 };

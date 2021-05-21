@@ -271,8 +271,6 @@ void WebFrame::startDownload(const WTF::URL &url, const String& suggestedName)
 
 void WebFrame::startDownload(const WebCore::ResourceRequest& , const String&)
 {
-	(void)request;
-	(void)suggestedName;
 	notImplemented();
 #if 0
     ASSERT(m_policyDownloadID.downloadID());
