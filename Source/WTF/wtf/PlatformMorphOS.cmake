@@ -16,6 +16,7 @@ list(APPEND WTF_SOURCES
 
         morphos/LanguageMorphOS.cpp
         morphos/Misc.cpp
+        morphos/MD5.cpp
 
         morphos/MemoryPressureHandlerMorphOS.cpp
     )

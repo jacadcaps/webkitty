@@ -13,6 +13,7 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     ${WEBCORE_DIR}/platform
+    ${WEBCORE_DIR}/platform/morphos
     ${WEBCORE_DIR}/platform/generic
     ${WEBCORE_DIR}/platform/graphics/morphos
     ${WEBCORE_DIR}/platform/mediacapabilities
