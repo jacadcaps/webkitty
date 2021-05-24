@@ -4,8 +4,8 @@
 
 #if ENABLE(VIDEO)
 
-#include <WebCore/GraphicsContext.h>
-#include <WebCore/PlatformContextCairo.h>
+#include "GraphicsContext.h"
+#include "PlatformContextCairo.h"
 
 #include <proto/exec.h>
 #include <proto/dos.h>

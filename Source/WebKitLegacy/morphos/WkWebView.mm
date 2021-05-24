@@ -13,7 +13,6 @@
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/FileChooser.h>
 #import <WebCore/TextEncoding.h>
-#import <WebCore/DOMWindow.h>
 #import <WebCore/FindOptions.h>
 #import <WebCore/AuthenticationChallenge.h>
 #import <WebCore/AuthenticationClient.h>
@@ -1213,7 +1212,7 @@ static inline void validateObjCContext() {
 	{
 		if (!_readyToQuitPending)
 		{
-			WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
+			WebKit::WebProcess::singleton().dispatchAllEvents();
 			// As soon as possible ask all sub-threads to stop processing. This
 			// will send SIGBREAKF_CTRL_C to all sub-threads. They will take some
 			// time to shut down on the background, so better start the process

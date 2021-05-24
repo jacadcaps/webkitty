@@ -27,9 +27,9 @@ _IN_ROOTPATH/gen/host/libnix/lib/libpsl.a \
 _IN_ROOTPATH/gen/host/libnix/libpng16/lib/libpng16.a  \
 _IN_ROOTPATH/gen/host/libnix/lib/libhyphen.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libcrypto.a \
-_IN_ROOTPATH/lib/libicu/instdir/lib/libicui18n.a \
-_IN_ROOTPATH/lib/libicu/instdir/lib/libicuuc.a \
-_IN_ROOTPATH/lib/libicu/instdir/lib/libicudata.a \
+_IN_ROOTPATH/lib/libicu67/instdir/lib/libicui18n.a \
+_IN_ROOTPATH/lib/libicu67/instdir/lib/libicuuc.a \
+_IN_ROOTPATH/lib/libicu67/instdir/lib/libicudata.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libgcrypt.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libgpg-error.a \
 _IN_ROOTPATH/gen/host/libnix/lib/libtasn1.a \

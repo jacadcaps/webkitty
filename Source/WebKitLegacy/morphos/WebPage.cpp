@@ -1069,15 +1069,15 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	: m_mainFrame(WebFrame::create())
 	, m_pageID(pageID)
 {
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
-
 	(void)parameters;
 
 //	WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(true);
     static bool didOneTimeInitialization;
     if (!didOneTimeInitialization) {
+		JSC::initialize();
+		WTF::initializeMainThread();
+		WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
+
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
         initializeLogChannelsIfNecessary();
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
@@ -1453,6 +1453,8 @@ void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
 #if ENABLE(VIDEO)
 	m_page->settings().setAudioPlaybackRequiresUserGesture(requiresGesture);
 	m_page->settings().setVideoPlaybackRequiresUserGesture(requiresGesture);
+#else
+	(void)requiresGesture;
 #endif
 }
 
@@ -1469,6 +1471,8 @@ void WebPage::setInvisiblePlaybackNotAllowed(bool invisible)
 {
 #if ENABLE(VIDEO)
 	m_page->settings().setInvisibleAutoplayNotPermitted(invisible);
+#else
+	(void)invisible;
 #endif
 }
 
@@ -2829,7 +2833,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					if (!m_trackMiddleDidScroll && (mouseInside || m_trackMouse))
 					{
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
-						auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
+            			auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 						bool isMouseDownOnLinkOrImage = hitTestResult.isOverLink() || hitTestResult.image();
 
 						if (isMouseDownOnLinkOrImage)
@@ -2910,7 +2915,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						}
 
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
-						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+						constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
+						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 						m_page->contextMenuController().clearContextMenu();
 						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 						if (targetFrame)
@@ -3054,7 +3060,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						);
 					
 					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
-					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
@@ -3082,7 +3089,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						);
 					
 					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
-					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, WebCore::HitTestRequest::ReadOnly | WebCore::HitTestRequest::Active | WebCore::HitTestRequest::DisallowUserAgentShadowContent | WebCore::HitTestRequest::AllowChildFrameContent);
+					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 					bool handled = bridge.handleWheelEvent(pke);
 					if (!handled)
@@ -3185,7 +3193,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							break;
 
 						case RAWKEY_DOWN:
-							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
 								scrollBy(0, -1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
@@ -3193,7 +3201,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							break;
 
 						case RAWKEY_UP:
-							if (!up && m_drawContext&& (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && m_drawContext && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
 								scrollBy(0, 1, WebPageScrollByMode::Units, m_page->focusController().focusedFrame());
 								return true;
@@ -3202,7 +3210,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 						case RAWKEY_HOME:
 						case RAWKEY_END:
-							if (!up && m_mainFrame && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
+							if (!up && (0 == (imsg->Qualifier & KEYQUALIFIERS)))
 							{
 								auto* coreFrame = m_page->focusController().focusedFrame() ? m_page->focusController().focusedFrame() : m_mainFrame->coreFrame();
 								
@@ -3440,13 +3448,13 @@ void WebPage::replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::Stri
 			return;
 
 		VisibleSelection wordSelection(selection.base());
-		wordSelection.expandUsingGranularity(WordGranularity);
-		RefPtr<Range> wordRange = wordSelection.toNormalizedRange();
+		wordSelection.expandUsingGranularity(TextGranularity::WordGranularity);
+		auto wordRange = wordSelection.toNormalizedRange();
 		if (!wordRange)
 			return;
 
 
-		frame->editor().replaceRangeForSpellChecking(*(wordRange.get()), replacement);
+		frame->editor().replaceRangeForSpellChecking(*wordRange, replacement);
 	}
 }
 
@@ -3465,7 +3473,7 @@ void WebPage::startDownload(const WTF::URL &url)
 		struct TagItem urltags[] = { { URL_Launch, TRUE }, { URL_Show, TRUE }, { TAG_DONE, 0 } };
 		URL_OpenA((STRPTR)udata.data(), urltags);
 	}
-	else if (m_mainFrame)
+	else
 	{
 		m_mainFrame->startDownload(url);
 	}

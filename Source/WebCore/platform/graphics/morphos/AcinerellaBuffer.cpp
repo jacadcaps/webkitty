@@ -3,20 +3,15 @@
 
 #if ENABLE(VIDEO)
 
-#include <WebCore/CurlRequest.h>
-#include <WebCore/NetworkingContext.h>
-#include <WebCore/NetworkStorageSession.h>
-#include <WebCore/CookieJar.h>
-#include <WebCore/CookieJarCurl.h>
-#include <WebCore/SameSiteInfo.h>
-#include <WebCore/SharedBuffer.h>
-#include <WebCore/SynchronousLoaderClient.h>
-#include <WebCore/ResourceRequest.h>
-#include <WebCore/ResourceResponse.h>
-#include <WebCore/CurlRequestClient.h>
-#include <WebCore/CurlRequest.h>
-#include <WebCore/SharedBuffer.h>
-#include <WebCore/PlatformMediaResourceLoader.h>
+#include "CurlRequest.h"
+#include "NetworkingContext.h"
+#include "NetworkStorageSession.h"
+#include "SameSiteInfo.h"
+#include "SynchronousLoaderClient.h"
+#include "ResourceRequest.h"
+#include "ResourceResponse.h"
+#include "CurlRequestClient.h"
+#include "PlatformMediaResourceLoader.h"
 #include <queue>
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
@@ -229,9 +224,8 @@ public:
 		if (context)
 		{
 			auto& storageSession = *context->storageSession();
-			auto& cookieJar = storageSession.cookieStorage();
 			auto includeSecureCookies = request.url().protocolIs("https") ? IncludeSecureCookies::Yes : IncludeSecureCookies::No;
-			String cookieHeaderField = cookieJar.cookieRequestHeaderFieldValue(storageSession, request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies).first;
+			String cookieHeaderField = storageSession.cookieRequestHeaderFieldValue(request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies, ShouldAskITP::Yes, ShouldRelaxThirdPartyCookieBlocking::No).first;
 			if (!cookieHeaderField.isEmpty())
 				request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
 		}
@@ -594,9 +588,8 @@ public:
 		if (context)
 		{
 			auto& storageSession = *context->storageSession();
-			auto& cookieJar = storageSession.cookieStorage();
 			auto includeSecureCookies = request.url().protocolIs("https") ? IncludeSecureCookies::Yes : IncludeSecureCookies::No;
-			String cookieHeaderField = cookieJar.cookieRequestHeaderFieldValue(storageSession, request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies).first;
+			String cookieHeaderField = storageSession.cookieRequestHeaderFieldValue(request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), WTF::nullopt, WTF::nullopt, includeSecureCookies, ShouldAskITP::Yes, ShouldRelaxThirdPartyCookieBlocking::No).first;
 			if (!cookieHeaderField.isEmpty())
 				request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
 		}

@@ -482,6 +482,11 @@ float WebProcess::timeToNextTimerEvent()
 	return WTF::RunLoop::secondsUntilNextIterate().value();
 }
 
+void WebProcess::dispatchAllEvents()
+{
+	WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
+}
+
 WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const
 {
     return m_pageMap.get(pageID);

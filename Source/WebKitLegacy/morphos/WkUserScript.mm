@@ -2,7 +2,9 @@
 #import "WebKit.h"
 #import "WebPageGroup.h"
 #import <WebCore/UserScript.h>
+#import <WebCore/UserScriptTypes.h>
 #import <WebCore/UserContentController.h>
+#import <WebCore/UserContentTypes.h>
 #define __OBJC__
 #import "WkUserScript_private.h"
 #import <ob/OBFramework.h>
@@ -161,8 +163,8 @@ OBMutableArray *_scripts;
 			makeUnique<WebCore::UserScript>(WTF::String::fromUTF8([scriptContents cString]),
 				WTF::URL(WTF::URL(), WTF::String([[OBString stringWithFormat:@"file:///script_%08lx", script] cString])),
 				WTFMove(white), WTFMove(black),
-				(WkUserScript_InjectPosition_AtDocumentStart == [script injectPosition] ? WebCore::InjectAtDocumentStart : WebCore::InjectAtDocumentEnd),
-				(WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::InjectInAllFrames : WebCore::InjectInTopFrameOnly)));
+				(WkUserScript_InjectPosition_AtDocumentStart == [script injectPosition] ? WebCore::UserScriptInjectionTime::DocumentStart : WebCore::UserScriptInjectionTime::DocumentEnd),
+				(WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly), WebCore::WaitForNotificationBeforeInjecting::No));
 	}
 }
 

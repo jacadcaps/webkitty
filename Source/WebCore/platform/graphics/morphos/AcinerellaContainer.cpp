@@ -8,7 +8,7 @@
 #include "AcinerellaBuffer.h"
 #include "AcinerellaMuxer.h"
 #include "AcinerellaHLS.h"
-#include <WebCore/PlatformMediaResourceLoader.h>
+#include "PlatformMediaResourceLoader.h"
 #include <proto/exec.h>
 #include <exec/system.h>
 
