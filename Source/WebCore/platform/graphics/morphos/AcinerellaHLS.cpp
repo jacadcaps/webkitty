@@ -132,7 +132,7 @@ public:
 			// this isn't master but a direct HLS link!
 			if (m_streams.size() == 0 && foundChunks)
 			{
-				info.m_url = baseURL;
+				info.m_url = baseURL.string();
 				m_streams.append(info);
 				D(dprintf("%s: this is no master HLS %s\n", __PRETTY_FUNCTION__, baseURL.string().utf8().data()));
 			}

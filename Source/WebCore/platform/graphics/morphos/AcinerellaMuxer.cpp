@@ -3,19 +3,9 @@
 
 #if ENABLE(VIDEO)
 
-#include <WebCore/CurlRequest.h>
-#include <WebCore/NetworkingContext.h>
-#include <WebCore/NetworkStorageSession.h>
-#include <WebCore/CookieJar.h>
-#include <WebCore/CookieJarCurl.h>
-#include <WebCore/SameSiteInfo.h>
-#include <WebCore/SharedBuffer.h>
-#include <WebCore/SynchronousLoaderClient.h>
-#include <WebCore/ResourceRequest.h>
-#include <WebCore/ResourceResponse.h>
-#include <WebCore/CurlRequestClient.h>
-#include <WebCore/CurlRequest.h>
-#include <WebCore/SharedBuffer.h>
+#include "SynchronousLoaderClient.h"
+#include "ResourceRequest.h"
+#include "ResourceResponse.h"
 #include <queue>
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"

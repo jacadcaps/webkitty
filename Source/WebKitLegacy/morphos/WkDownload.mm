@@ -194,7 +194,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			{
 				String suggestedFilename = response.suggestedFilename();
 				if (suggestedFilename.isEmpty())
-					suggestedFilename = response.url().lastPathComponent();
+					suggestedFilename = response.url().lastPathComponent().toString();
 				suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
 				
 				auto usuggestedFilename = suggestedFilename.utf8();

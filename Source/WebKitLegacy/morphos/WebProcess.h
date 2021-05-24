@@ -74,6 +74,7 @@ public:
 	void setLastPageClosedCallback(std::function<void()>&&func) { m_fLastPageClosed = func; }
 
 	void returnedFromConstrainedRunLoop();
+	void dispatchAllEvents();
 
 protected:
     HashMap<WebCore::FrameIdentifier, WebFrame*> m_frameMap;

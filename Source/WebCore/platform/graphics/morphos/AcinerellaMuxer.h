@@ -10,7 +10,6 @@
 #include <wtf/Function.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/threads/BinarySemaphore.h>
-#include <WebCore/SharedBuffer.h>
 #include "acinerella.h"
 #include "AcinerellaPointer.h"
 #include <queue>
