@@ -25,11 +25,13 @@
 
 #import "config.h"
 
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "TCPServer.h"
 #import "Test.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebsiteDataRecordPrivate.h>
 #import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebKit.h>
@@ -151,8 +153,8 @@ TEST(WKWebsiteDataStore, FetchPersistentCredentials)
     [webView setNavigationDelegate:navigationDelegate.get()];
 
     // Make sure no credential left by previous tests.
-    NSURLProtectionSpace *protectionSpace = [[[NSURLProtectionSpace alloc] initWithHost:@"127.0.0.1" port:server.port() protocol:NSURLProtectionSpaceHTTP realm:@"testrealm" authenticationMethod:NSURLAuthenticationMethodHTTPBasic] autorelease];
-    [[webView configuration].processPool _clearPermanentCredentialsForProtectionSpace:protectionSpace];
+    auto protectionSpace = adoptNS([[NSURLProtectionSpace alloc] initWithHost:@"127.0.0.1" port:server.port() protocol:NSURLProtectionSpaceHTTP realm:@"testrealm" authenticationMethod:NSURLAuthenticationMethodHTTPBasic]);
+    [[webView configuration].processPool _clearPermanentCredentialsForProtectionSpace:protectionSpace.get()];
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
     [navigationDelegate waitForDidFinishNavigation];
@@ -166,7 +168,7 @@ TEST(WKWebsiteDataStore, FetchPersistentCredentials)
     TestWebKitAPI::Util::run(&done);
 
     // Clear persistent credentials created by this test.
-    [[webView configuration].processPool _clearPermanentCredentialsForProtectionSpace:protectionSpace];
+    [[webView configuration].processPool _clearPermanentCredentialsForProtectionSpace:protectionSpace.get()];
 }
 
 TEST(WKWebsiteDataStore, RemoveNonPersistentCredentials)
@@ -309,4 +311,63 @@ TEST(WKWebsiteDataStore, FetchNonPersistentWebStorage)
     TestWebKitAPI::Util::run(&readyToContinue);
 }
 
+TEST(WebKit, ClearCustomDataStoreNoWebViews)
+{
+    HTTPServer server([connectionCount = 0] (Connection connection) mutable {
+        ++connectionCount;
+        connection.receiveHTTPRequest([connection, connectionCount] (Vector<char>&& request) {
+            switch (connectionCount) {
+            case 1:
+                connection.send(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "Set-Cookie: a=b\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "Hello");
+                break;
+            case 2:
+                EXPECT_FALSE(strstr(request.data(), "Cookie: a=b\r\n"));
+                connection.send(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "Hello");
+                break;
+            default:
+                ASSERT_NOT_REACHED();
+            }
+        });
+    });
+
+
+    NSURL *fileURL = [NSURL fileURLWithPath:@"/tmp/testcookiefile.cookie"];
+    auto configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    [configuration _setCookieStorageFile:fileURL];
+
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:configuration.get()]);
+    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    [viewConfiguration setWebsiteDataStore:dataStore.get()];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get() addToWindow:YES]);
+
+    auto *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/index.html", server.port()]];
+
+    [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:url]];
+    [webView _close];
+    webView = nil;
+
+    // Now that the WebView is closed, remove all website data.
+    // Then recreate a WebView with the same configuration to confirm the website data was removed.
+    static bool done;
+    [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^{
+        done = true;
+    }];
+    Util::run(&done);
+    done = false;
+
+    webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get() addToWindow:YES]);
+    [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:url]];
 }
+
+} // namespace TestWebKitAPI

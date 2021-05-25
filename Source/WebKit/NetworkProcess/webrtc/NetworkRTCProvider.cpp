@@ -28,6 +28,7 @@
 
 #if USE(LIBWEBRTC)
 
+#include "DataReference.h"
 #include "LibWebRTCNetworkMessages.h"
 #include "LibWebRTCSocketClient.h"
 #include "Logging.h"
@@ -45,6 +46,7 @@
 
 #if PLATFORM(COCOA)
 #include "NetworkRTCResolverCocoa.h"
+#include "NetworkRTCSocketCocoa.h"
 #endif
 
 namespace WebKit {
@@ -91,6 +93,10 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
 #if !RELEASE_LOG_DISABLED
     rtc::LogMessage::SetLogOutput(WebKit2LogWebRTC.state == WTFLogChannelState::On ? rtc::LS_INFO : rtc::LS_WARNING, doReleaseLogging);
 #endif
+}
+
+void NetworkRTCProvider::startListeningForIPC()
+{
     m_connection->connection().addThreadMessageReceiver(Messages::NetworkRTCProvider::messageReceiverName(), this);
 }
 
@@ -174,6 +180,14 @@ void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identif
             return;
         }
         callOnRTCNetworkThread([this, identifier, localAddress = RTCNetwork::isolatedCopy(localAddress.value), remoteAddress = RTCNetwork::isolatedCopy(remoteAddress.value), proxyInfo = proxyInfoFromSession(remoteAddress, *session), userAgent = WTFMove(userAgent).isolatedCopy(), options]() mutable {
+#if PLATFORM(COCOA)
+            if (m_platformSocketsEnabled) {
+                if (auto socket = NetworkRTCSocketCocoa::createClientTCPSocket(identifier, *this, remoteAddress, options, m_ipcConnection.copyRef())) {
+                    addSocket(identifier, WTFMove(socket));
+                    return;
+                }
+            }
+#endif
             rtc::PacketSocketTcpOptions tcpOptions;
             tcpOptions.opts = options;
             std::unique_ptr<rtc::AsyncPacketSocket> socket(m_packetSocketFactory->CreateClientTcpSocket(localAddress, remoteAddress, proxyInfo, userAgent.utf8().data(), tcpOptions));
@@ -348,14 +362,6 @@ void NetworkRTCProvider::OnMessage(rtc::Message* message)
 void NetworkRTCProvider::callOnRTCNetworkThread(Function<void()>&& callback)
 {
     m_rtcNetworkThread.Post(RTC_FROM_HERE, this, 1, new NetworkMessageData(*this, WTFMove(callback)));
-}
-
-void NetworkRTCProvider::sendFromMainThread(Function<void(IPC::Connection&)>&& callback)
-{
-    callOnMainThread([provider = makeRef(*this), callback = WTFMove(callback)]() {
-        if (provider->m_connection)
-            callback(provider->m_connection->connection());
-    });
 }
 
 } // namespace WebKit

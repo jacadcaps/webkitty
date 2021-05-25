@@ -25,12 +25,7 @@
 
 #include "WebKitVP9Decoder.h"
 
-#if defined __has_include && __has_include(<CoreFoundation/CFPriv.h>)
-
-#include "WebKitUtilities.h"
-#include <CoreMedia/CMBaseObject.h>
-#include <VideoToolbox/VTVideoDecoder.h>
-#include <VideoToolbox/VTVideoDecoderRegistration.h>
+#include "WebKitDecoderReceiver.h"
 #include "modules/video_coding/codecs/vp9/vp9_impl.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/cpu_info.h"
@@ -43,34 +38,10 @@ void registerWebKitVP9Decoder()
     VTRegisterVideoDecoder('vp09', createWebKitVP9Decoder);
 }
 
-class WebKitVP9DecoderReceiver;
 typedef struct {
     std::unique_ptr<VP9DecoderImpl> m_instance;
-    std::unique_ptr<WebKitVP9DecoderReceiver> m_receiver;
+    std::unique_ptr<WebKitDecoderReceiver> m_receiver;
 } WebKitVP9Decoder;
-
-class WebKitVP9DecoderReceiver final : public DecodedImageCallback {
-public:
-    explicit WebKitVP9DecoderReceiver(VTVideoDecoderSession);
-    ~WebKitVP9DecoderReceiver();
-
-    VTVideoDecoderFrame currentFrame() const { return m_currentFrame; }
-    void setCurrentFrame(VTVideoDecoderFrame currentFrame) { m_currentFrame = currentFrame; }
-    OSStatus decoderFailed(int error);
-
-    void createPixelBufferPoolForFormatDescription(CMFormatDescriptionRef);
-
-private:
-    int32_t Decoded(VideoFrame&) final;
-    int32_t Decoded(VideoFrame&, int64_t decode_time_ms) final;
-    void Decoded(VideoFrame&, absl::optional<int32_t> decode_time_ms, absl::optional<uint8_t> qp) final;
-
-    VTVideoDecoderSession m_session { nullptr };
-    VTVideoDecoderFrame m_currentFrame { nullptr };
-    size_t m_pixelBufferWidth { 0 };
-    size_t m_pixelBufferHeight { 0 };
-    CVPixelBufferPoolRef m_pixelBufferPool { nullptr };
-};
 
 static OSStatus invalidateVP9Decoder(CMBaseObjectRef);
 static void finalizeVP9Decoder(CMBaseObjectRef);
@@ -85,15 +56,17 @@ static const CMBaseClass WebKitVP9Decoder_BaseClass =
     finalizeVP9Decoder,
     copyVP9DecoderDebugDescription,
     nullptr, // CopyProperty
-    nullptr // SetProperty
+    nullptr, // SetProperty
+    nullptr,
+    nullptr
 };
 
 static OSStatus startVP9DecoderSession(VTVideoDecoderRef, VTVideoDecoderSession, CMVideoFormatDescriptionRef);
 static OSStatus decodeVP9DecoderFrame(VTVideoDecoderRef, VTVideoDecoderFrame, CMSampleBufferRef, VTDecodeFrameFlags, VTDecodeInfoFlags*);
 
-static const VTVideoDecoderClass WebKitVP9Decoder_VideoEncoderClass =
+static const VTVideoDecoderClass WebKitVP9Decoder_VideoDecoderClass =
 {
-    kVTVideoDecoder_ClassVersion_3,
+    kVTVideoDecoder_ClassVersion_1,
     startVP9DecoderSession,
     decodeVP9DecoderFrame,
     nullptr, // VTVideoDecoderFunction_CopySupportedPropertyDictionary,
@@ -109,7 +82,7 @@ static const VTVideoDecoderClass WebKitVP9Decoder_VideoEncoderClass =
 static const VTVideoDecoderVTable WebKitVP9DecoderVTable =
 {
     { nullptr, &WebKitVP9Decoder_BaseClass },
-    &WebKitVP9Decoder_VideoEncoderClass
+    &WebKitVP9Decoder_VideoDecoderClass
 };
 
 OSStatus createWebKitVP9Decoder(FigVideoCodecType, CFAllocatorRef allocator, VTVideoDecoderRef* decoderOut)
@@ -170,8 +143,8 @@ OSStatus startVP9DecoderSession(VTVideoDecoderRef instance, VTVideoDecoderSessio
     }
 
     decoder->m_instance = std::make_unique<VP9DecoderImpl>();
-    decoder->m_receiver = std::make_unique<WebKitVP9DecoderReceiver>(session);
-    decoder->m_receiver->createPixelBufferPoolForFormatDescription(formatDescription);
+    decoder->m_receiver = std::make_unique<WebKitDecoderReceiver>(session);
+    decoder->m_receiver->initializeFromFormatDescription(formatDescription);
 
     decoder->m_instance->RegisterDecodeCompleteCallback(decoder->m_receiver.get());
 
@@ -245,156 +218,4 @@ OSStatus decodeVP9DecoderFrame(VTVideoDecoderRef instance, VTVideoDecoderFrame f
     return result;
 }
 
-WebKitVP9DecoderReceiver::WebKitVP9DecoderReceiver(VTVideoDecoderSession session)
-    : m_session(session)
-{
 }
-
-WebKitVP9DecoderReceiver::~WebKitVP9DecoderReceiver()
-{
-    if (m_pixelBufferPool)
-        CFRelease(m_pixelBufferPool);
-}
-
-void WebKitVP9DecoderReceiver::createPixelBufferPoolForFormatDescription(CMFormatDescriptionRef formatDescription)
-{
-    // CoreAnimation doesn't support full-planar YUV, so we must convert the buffers output
-    // by libvpx to bi-planar YUV. Create pixel buffer attributes and give those to the
-    // decoder session for use in creating its own internal CVPixelBufferPool, which we
-    // will use post-decode.
-    bool isFullRange = false;
-    bool is10Bit = false;
-
-    do {
-        auto extensions = CMFormatDescriptionGetExtensions(formatDescription);
-        if (!extensions)
-            break;
-
-        CFTypeRef extensionAtoms = CFDictionaryGetValue(extensions, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
-        if (!extensionAtoms || CFGetTypeID(extensionAtoms) != CFDictionaryGetTypeID())
-            break;
-
-        auto configurationRecord = static_cast<CFDataRef>(CFDictionaryGetValue((CFDictionaryRef)extensionAtoms, CFSTR("vpcC")));
-        if (!configurationRecord || CFGetTypeID(configurationRecord) != CFDataGetTypeID())
-            break;
-
-        auto configurationRecordSize = CFDataGetLength(configurationRecord);
-        if (configurationRecordSize < 12)
-            break;
-
-        auto configurationRecordData = CFDataGetBytePtr(configurationRecord);
-        auto bitDepthChromaAndRange = *(configurationRecordData + 6);
-
-        if ((bitDepthChromaAndRange >> 4) == 10)
-            is10Bit = true;
-
-        if (bitDepthChromaAndRange & 0x1)
-            isFullRange = true;
-    } while (false);
-
-    OSType pixelFormat;
-    if (is10Bit)
-        pixelFormat = isFullRange ? kCVPixelFormatType_420YpCbCr10BiPlanarFullRange : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange;
-    else
-        pixelFormat = isFullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
-
-    auto createPixelFormatAttributes = [] (OSType pixelFormat, int32_t borderPixels) {
-        auto createNumber = [] (int32_t format) -> CFNumberRef {
-            return CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &format);
-        };
-        auto cfPixelFormats = CFArrayCreateMutable(kCFAllocatorDefault, 2, &kCFTypeArrayCallBacks);
-        auto formatNumber = createNumber(pixelFormat);
-        CFArrayAppendValue(cfPixelFormats, formatNumber);
-        CFRelease(formatNumber);
-
-        auto borderPixelsValue = createNumber(32);
-
-        const void* keys[] = {
-            kCVPixelBufferPixelFormatTypeKey,
-            kCVPixelBufferExtendedPixelsLeftKey,
-            kCVPixelBufferExtendedPixelsRightKey,
-            kCVPixelBufferExtendedPixelsTopKey,
-            kCVPixelBufferExtendedPixelsBottomKey,
-        };
-        const void* values[] = {
-            cfPixelFormats,
-            borderPixelsValue,
-            borderPixelsValue,
-            borderPixelsValue,
-            borderPixelsValue,
-        };
-        auto attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, std::size(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        CFRelease(borderPixelsValue);
-        CFRelease(cfPixelFormats);
-        return attributes;
-    };
-
-    auto pixelBufferAttributes = createPixelFormatAttributes(pixelFormat, 32);
-    VTDecoderSessionSetPixelBufferAttributes(m_session, pixelBufferAttributes);
-    CFRelease(pixelBufferAttributes);
-
-    if (m_pixelBufferPool) {
-        CFRelease(m_pixelBufferPool);
-        m_pixelBufferPool = nullptr;
-    }
-
-    m_pixelBufferPool = VTDecoderSessionGetPixelBufferPool(m_session);
-    if (m_pixelBufferPool)
-        CFRetain(m_pixelBufferPool);
-}
-
-OSStatus WebKitVP9DecoderReceiver::decoderFailed(int error)
-{
-    OSStatus vtError = kVTVideoDecoderBadDataErr;
-    if (error == WEBRTC_VIDEO_CODEC_NO_OUTPUT)
-        vtError = noErr;
-    else if (error == WEBRTC_VIDEO_CODEC_UNINITIALIZED)
-        vtError = kVTVideoDecoderMalfunctionErr;
-    else if (error == WEBRTC_VIDEO_CODEC_MEMORY)
-        vtError = kVTAllocationFailedErr;
-    VTDecoderSessionEmitDecodedFrame(m_session, m_currentFrame, vtError, 0, nullptr);
-    m_currentFrame = nullptr;
-
-    RTC_LOG(LS_ERROR) << "VP9 decoder: decoder failed with error " << error << ", vtError " << vtError;
-    return vtError;
-}
-
-int32_t WebKitVP9DecoderReceiver::Decoded(VideoFrame& frame)
-{
-    auto pixelBuffer = pixelBufferFromFrame(frame, [this](size_t width, size_t height) -> CVPixelBufferRef {
-        CVPixelBufferRef pixelBuffer = nullptr;
-        if (CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, m_pixelBufferPool, &pixelBuffer) == kCVReturnSuccess)
-            return pixelBuffer;
-        return nullptr;
-    });
-
-    VTDecoderSessionEmitDecodedFrame(m_session, m_currentFrame, pixelBuffer ? noErr : -1, 0, pixelBuffer);
-    m_currentFrame = nullptr;
-    if (pixelBuffer)
-        CFRelease(pixelBuffer);
-    return 0;
-}
-
-int32_t WebKitVP9DecoderReceiver::Decoded(VideoFrame& frame, int64_t)
-{
-    Decoded(frame);
-    return 0;
-}
-
-void WebKitVP9DecoderReceiver::Decoded(VideoFrame& frame, absl::optional<int32_t>, absl::optional<uint8_t>)
-{
-    Decoded(frame);
-}
-
-}
-
-#else // defined __has_include && __has_include(<CoreFoundation/CFPriv.h>)
-
-namespace webrtc {
-
-void registerWebKitVP9Decoder()
-{
-}
-
-}
-#endif // defined __has_include && __has_include(<CoreFoundation/CFPriv.h>)

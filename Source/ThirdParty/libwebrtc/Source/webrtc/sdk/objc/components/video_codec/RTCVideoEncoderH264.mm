@@ -19,7 +19,6 @@
 #endif
 #import "RTCCodecSpecificInfoH264.h"
 #import "RTCH264ProfileLevelId.h"
-#import "api/peerconnection/RTCRtpFragmentationHeader+Private.h"
 #import "api/peerconnection/RTCVideoCodecInfo+Private.h"
 #import "base/RTCCodecSpecificInfo.h"
 #import "base/RTCI420Buffer.h"
@@ -348,6 +347,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
   std::vector<uint8_t> _frameScaleBuffer;
   bool _disableEncoding;
   bool _isKeyFrameRequired;
+  bool _isH264LowLatencyEncoderEnabled;
 }
 
 // .5 is set as a mininum to prevent overcompensating for large temporary
@@ -375,8 +375,14 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
     RTC_CHECK([codecInfo.name isEqualToString:kRTCVideoCodecH264Name]);
   }
   _isKeyFrameRequired = false;
+  _isH264LowLatencyEncoderEnabled = true;
 
   return self;
+}
+
+- (void)setH264LowLatencyEncoderEnabled:(bool)enabled
+{
+    _isH264LowLatencyEncoderEnabled = enabled;
 }
 
 - (void)dealloc {
@@ -696,7 +702,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
 #endif
   }
 #elif HAVE_VTB_REQUIREDLOWLATENCY
-  if (webrtc::isH264LowLatencyEncoderEnabled() && _useVCP)
+  if (_isH264LowLatencyEncoderEnabled && _useVCP)
     CFDictionarySetValue(encoderSpecs, kVTVideoEncoderSpecification_RequiredLowLatency, kCFBooleanTrue);
 #endif
 
@@ -712,8 +718,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
                                  nullptr,
                                  &_vtCompressionSession);
 
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-#if ENABLE_VCP_ENCODER
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) && ENABLE_VCP_ENCODER
   CFBooleanRef hwaccl_enabled = nullptr;
   if (status == noErr) {
     status = VTSessionCopyProperty(_vtCompressionSession,
@@ -737,7 +742,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
         webrtc::VCPCompressionSessionCreate(nullptr,  // use default allocator
                                _width,
                                _height,
-                               kVCPCodecType4CC_H264,
+                               'ftvc',
                                encoderSpecs,
                                sourceAttributes,
                                nullptr,  // use default compressed data allocator
@@ -745,123 +750,9 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
                                nullptr,
                                &_vcpCompressionSession);
   }
-#elif HAVE_VTB_REQUIREDLOWLATENCY
-  // In case VCP is disabled, we will use it anyway if using software encoder.
-  if (webrtc::isH264LowLatencyEncoderEnabled() && !_useVCP) {
-    CFBooleanRef hwaccl_enabled = nullptr;
-    if (status == noErr) {
-      status = VTSessionCopyProperty(_vtCompressionSession,
-                               kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,
-                               nullptr,
-                               &hwaccl_enabled);
-    }
-    if (status == noErr && (CFBooleanGetValue(hwaccl_enabled))) {
-      RTC_LOG(LS_INFO) << "Compression session created with hw accl enabled";
-    } else {
-      [self destroyCompressionSession];
-      CFDictionarySetValue(encoderSpecs, kVTVideoEncoderSpecification_RequiredLowLatency, kCFBooleanTrue);
-      status = VTCompressionSessionCreate(nullptr,  // use default allocator
-                                 _width,
-                                 _height,
-                                 kCMVideoCodecType_H264,
-                                 encoderSpecs,  // use hardware accelerated encoder if available
-                                 sourceAttributes,
-                                 nullptr,  // use default compressed data allocator
-                                 compressionOutputCallback,
-                                 nullptr,
-                                 &_vtCompressionSession);
-    }
-  }
 #else
-  if (status != noErr) {
-    if (encoderSpecs) {
-        CFRelease(encoderSpecs);
-        encoderSpecs = nullptr;
-    }
-    if (sourceAttributes) {
-      CFRelease(sourceAttributes);
-      sourceAttributes = nullptr;
-    }
-
-    auto isStandardFrameSize = [](int32_t width, int32_t height) {
-        // FIXME: Envision relaxing this rule, something like width and height dividable by 4 or 8 should be good enough.
-        if (width == 1280)
-            return height == 720;
-        if (width == 720)
-            return height == 1280;
-        if (width == 960)
-            return height == 540;
-        if (width == 540)
-            return height == 960;
-        if (width == 640)
-            return height == 480;
-        if (width == 480)
-            return height == 640;
-        if (width == 288)
-            return height == 352;
-        if (width == 352)
-            return height == 288;
-        if (width == 320)
-            return height == 240;
-        if (width == 240)
-            return height == 320;
-        return false;
-    };
-
-    if (!isStandardFrameSize(_width, _height)) {
-      _disableEncoding = true;
-      RTC_LOG(LS_ERROR) << "Using H264 software encoder with non standard size is not supported";
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    [self destroyCompressionSession];
-
-    CFDictionaryRef ioSurfaceValue = CreateCFTypeDictionary(nullptr, nullptr, 0);
-    int64_t pixelFormatType = framePixelFormat;
-    CFNumberRef pixelFormat = CFNumberCreate(nullptr, kCFNumberLongType, &pixelFormatType);
-
-    const size_t attributesSize = 3;
-    CFTypeRef keys[attributesSize] = {
-      kCVPixelBufferOpenGLCompatibilityKey,
-      kCVPixelBufferIOSurfacePropertiesKey,
-      kCVPixelBufferPixelFormatTypeKey
-    };
-    CFTypeRef values[attributesSize] = {
-      kCFBooleanTrue,
-      ioSurfaceValue,
-      pixelFormat};
-    sourceAttributes = CreateCFTypeDictionary(keys, values, attributesSize);
-
-    if (ioSurfaceValue) {
-      CFRelease(ioSurfaceValue);
-      ioSurfaceValue = nullptr;
-    }
-    if (pixelFormat) {
-      CFRelease(pixelFormat);
-      pixelFormat = nullptr;
-    }
-
-    encoderSpecs = CFDictionaryCreateMutable(nullptr, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(encoderSpecs, kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder, kCFBooleanFalse);
-    int usageValue = 1;
-    CFNumberRef usage = CFNumberCreate(nullptr, kCFNumberIntType, &usageValue);
-    CFDictionarySetValue(encoderSpecs, kVTVideoEncoderSpecification_Usage, usage);
-    if (usage) {
-      CFRelease(usage);
-      usage = nullptr;
-    }
-    status = VTCompressionSessionCreate(nullptr,  // use default allocator
-                                 _width,
-                                 _height,
-                                 kCMVideoCodecType_H264,
-                                 encoderSpecs,  // use hardware accelerated encoder if available
-                                 sourceAttributes,
-                                 nullptr,  // use default compressed data allocator
-                                 compressionOutputCallback,
-                                 nullptr,
-                                 &_vtCompressionSession);
-  }
-#endif // !HAVE_VTB_REQUIREDLOWLATENCY
-#endif // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  // Provided encoder should be good enough.
+#endif // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) && ENABLE_VCP_ENCODER
   if (sourceAttributes) {
     CFRelease(sourceAttributes);
     sourceAttributes = nullptr;
@@ -1015,15 +906,8 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
   }
 
   __block std::unique_ptr<rtc::Buffer> buffer = std::make_unique<rtc::Buffer>();
-  RTCRtpFragmentationHeader *header;
-  {
-    std::unique_ptr<webrtc::RTPFragmentationHeader> header_cpp;
-    bool result =
-        H264CMSampleBufferToAnnexBBuffer(sampleBuffer, isKeyframe, buffer.get(), &header_cpp);
-    header = [[RTCRtpFragmentationHeader alloc] initWithNativeFragmentationHeader:header_cpp.get()];
-    if (!result) {
-      return;
-    }
+  if (!webrtc::H264CMSampleBufferToAnnexBBuffer(sampleBuffer, isKeyframe, buffer.get())) {
+    return;
   }
 
   RTCEncodedImage *frame = [[RTCEncodedImage alloc] init];
@@ -1049,7 +933,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264::ProfileLevelId &profile_level_id
   _h264BitstreamParser.GetLastSliceQp(&qp);
   frame.qp = @(qp);
 
-  BOOL res = _callback(frame, codecSpecificInfo, header);
+  BOOL res = _callback(frame, codecSpecificInfo, nullptr);
   if (!res) {
     RTC_LOG(LS_ERROR) << "Encode callback failed";
     if (isKeyFrameRequired)

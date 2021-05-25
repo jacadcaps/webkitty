@@ -380,6 +380,12 @@ OPENSSL_EXPORT int EVP_BytesToKey(const EVP_CIPHER *type, const EVP_MD *md,
 // processing.
 #define EVP_CIPH_CUSTOM_COPY 0x1000
 
+// EVP_CIPH_FLAG_NON_FIPS_ALLOW is meaningless. In OpenSSL it permits non-FIPS
+// algorithms in FIPS mode. But BoringSSL FIPS mode doesn't prohibit algorithms
+// (it's up the the caller to use the FIPS module in a fashion compliant with
+// their needs). Thus this exists only to allow code to compile.
+#define EVP_CIPH_FLAG_NON_FIPS_ALLOW 0
+
 
 // Deprecated functions
 
@@ -537,6 +543,10 @@ struct evp_cipher_ctx_st {
 
   // block_mask contains |cipher->block_size| minus one. (The block size
   // assumed to be a power of two.)
+  //
+  // TODO(davidben): This is redundant with |cipher->block_size| and constant
+  // for the whole |EVP_CIPHER|. Move it there, or possibly even remove it and
+  // do the subtraction on demand.
   int block_mask;
 
   uint8_t final[EVP_MAX_BLOCK_LENGTH];  // possible final block

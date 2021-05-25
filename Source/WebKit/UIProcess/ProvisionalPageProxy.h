@@ -25,9 +25,11 @@
 
 #pragma once
 
+#include "DataReference.h"
 #include "MessageReceiver.h"
 #include "MessageSender.h"
 #include "PolicyDecision.h"
+#include "ProcessThrottler.h"
 #include "SandboxExtension.h"
 #include "WebFramePolicyListenerProxy.h"
 #include "WebPageProxyMessagesReplies.h"

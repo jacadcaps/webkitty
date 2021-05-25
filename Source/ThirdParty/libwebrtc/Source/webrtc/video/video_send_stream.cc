@@ -71,7 +71,7 @@ VideoSendStream::VideoSendStream(
     int num_cpu_cores,
     ProcessThread* module_process_thread,
     TaskQueueFactory* task_queue_factory,
-    CallStats* call_stats,
+    RtcpRttStats* call_stats,
     RtpTransportControllerSendInterface* transport,
     BitrateAllocatorInterface* bitrate_allocator,
     SendDelayStats* send_delay_stats,
@@ -179,6 +179,18 @@ void VideoSendStream::Stop() {
   worker_queue_->PostTask([send_stream] { send_stream->Stop(); });
 }
 
+void VideoSendStream::AddAdaptationResource(
+    rtc::scoped_refptr<Resource> resource) {
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  video_stream_encoder_->AddAdaptationResource(resource);
+}
+
+std::vector<rtc::scoped_refptr<Resource>>
+VideoSendStream::GetAdaptationResources() {
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  return video_stream_encoder_->GetAdaptationResources();
+}
+
 void VideoSendStream::SetSource(
     rtc::VideoSourceInterface<webrtc::VideoFrame>* source,
     const DegradationPreference& degradation_preference) {
@@ -227,6 +239,15 @@ void VideoSendStream::DeliverRtcp(const uint8_t* packet, size_t length) {
   // Called on a network thread.
   send_stream_->DeliverRtcp(packet, length);
 }
+
+#if defined(WEBRTC_WEBKIT_BUILD)
+void VideoSendStream::GenerateKeyFrame()
+{
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  if (video_stream_encoder_)
+      video_stream_encoder_->SendKeyFrame();
+}
+#endif
 
 }  // namespace internal
 }  // namespace webrtc

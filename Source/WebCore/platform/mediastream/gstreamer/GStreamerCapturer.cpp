@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Metrological Group B.V.
+ * Copyright (C) 2020 Igalia S.L.
  * Author: Thibault Saunier <tsaunier@igalia.com>
  * Author: Alejandro G. Castro <alex@igalia.com>
  *
@@ -21,22 +22,21 @@
 
 #include "config.h"
 
-#if ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#if ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "GStreamerCapturer.h"
 
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <mutex>
-#include <webrtc/api/media_stream_interface.h>
 
 GST_DEBUG_CATEGORY(webkit_capturer_debug);
 #define GST_CAT_DEFAULT webkit_capturer_debug
 
 namespace WebCore {
 
-static void initializeGStreamerAndDebug()
+static void initializeDebugCategory()
 {
-    initializeGStreamer();
+    ensureGStreamerInitialized();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -49,7 +49,7 @@ GStreamerCapturer::GStreamerCapturer(GStreamerCaptureDevice device, GRefPtr<GstC
     , m_caps(caps)
     , m_sourceFactory(nullptr)
 {
-    initializeGStreamerAndDebug();
+    initializeDebugCategory();
 }
 
 GStreamerCapturer::GStreamerCapturer(const char* sourceFactory, GRefPtr<GstCaps> caps)
@@ -57,7 +57,7 @@ GStreamerCapturer::GStreamerCapturer(const char* sourceFactory, GRefPtr<GstCaps>
     , m_caps(caps)
     , m_sourceFactory(sourceFactory)
 {
-    initializeGStreamerAndDebug();
+    initializeDebugCategory();
 }
 
 GStreamerCapturer::~GStreamerCapturer()
@@ -184,4 +184,4 @@ void GStreamerCapturer::stop()
 
 } // namespace WebCore
 
-#endif // ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#endif // ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

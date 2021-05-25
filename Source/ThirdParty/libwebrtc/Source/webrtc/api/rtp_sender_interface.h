@@ -96,6 +96,9 @@ class RTC_EXPORT RtpSenderInterface : public rtc::RefCountInterface {
 
   virtual void SetEncoderToPacketizerFrameTransformer(
       rtc::scoped_refptr<FrameTransformerInterface> frame_transformer);
+#if defined(WEBRTC_WEBKIT_BUILD)
+  virtual void GenerateKeyFrame() { }
+#endif
 
  protected:
   ~RtpSenderInterface() override = default;
@@ -110,8 +113,8 @@ PROXY_METHOD1(bool, SetTrack, MediaStreamTrackInterface*)
 PROXY_CONSTMETHOD0(rtc::scoped_refptr<MediaStreamTrackInterface>, track)
 PROXY_CONSTMETHOD0(rtc::scoped_refptr<DtlsTransportInterface>, dtls_transport)
 PROXY_CONSTMETHOD0(uint32_t, ssrc)
-PROXY_CONSTMETHOD0(cricket::MediaType, media_type)
-PROXY_CONSTMETHOD0(std::string, id)
+BYPASS_PROXY_CONSTMETHOD0(cricket::MediaType, media_type)
+BYPASS_PROXY_CONSTMETHOD0(std::string, id)
 PROXY_CONSTMETHOD0(std::vector<std::string>, stream_ids)
 PROXY_CONSTMETHOD0(std::vector<RtpEncodingParameters>, init_send_encodings)
 PROXY_CONSTMETHOD0(RtpParameters, GetParameters)
@@ -126,6 +129,9 @@ PROXY_METHOD1(void, SetStreams, const std::vector<std::string>&)
 PROXY_METHOD1(void,
               SetEncoderToPacketizerFrameTransformer,
               rtc::scoped_refptr<FrameTransformerInterface>)
+#if defined(WEBRTC_WEBKIT_BUILD)
+PROXY_METHOD0(void, GenerateKeyFrame)
+#endif
 END_PROXY_MAP()
 
 }  // namespace webrtc

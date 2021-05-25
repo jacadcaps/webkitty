@@ -27,15 +27,16 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "DataReference.h"
 #include "MessageReceiver.h"
 #include "RemoteMediaResourceIdentifier.h"
 #include <WebCore/PolicyChecker.h>
 #include <wtf/HashMap.h>
+#include <wtf/WeakPtr.h>
 
 namespace IPC {
 class Connection;
 class Decoder;
-class DataReference;
 }
 
 namespace WebCore {
@@ -48,7 +49,8 @@ namespace WebKit {
 class RemoteMediaResource;
 
 class RemoteMediaResourceManager
-    : public IPC::MessageReceiver {
+    : public IPC::MessageReceiver
+    , public CanMakeWeakPtr<RemoteMediaResourceManager> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     RemoteMediaResourceManager();

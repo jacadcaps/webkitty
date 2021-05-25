@@ -1,19 +1,10 @@
 include(GLib.cmake)
+include(inspector/remote/GLib.cmake)
 
 set(JavaScriptCore_OUTPUT_NAME javascriptcoregtk-${WEBKITGTK_API_VERSION})
 
-list(APPEND JavaScriptCore_UNIFIED_SOURCE_LIST_FILES
-    "SourcesGTK.txt"
-)
-
 list(APPEND JavaScriptCore_PRIVATE_INCLUDE_DIRECTORIES
     "${DERIVED_SOURCES_JAVASCRIPCOREGTK_DIR}"
-    "${JAVASCRIPTCORE_DIR}/inspector/remote/glib"
-)
-
-list(APPEND JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
-    inspector/remote/glib/RemoteInspectorServer.h
-    inspector/remote/glib/RemoteInspectorUtils.h
 )
 
 configure_file(javascriptcoregtk.pc.in ${JavaScriptCore_PKGCONFIG_FILE} @ONLY)
@@ -39,7 +30,6 @@ if (ENABLE_INTROSPECTION)
     )
 endif ()
 
-add_definitions(-DSTATICALLY_LINKED_WITH_WTF)
 add_definitions(-DJSC_COMPILATION)
 
 list(APPEND JavaScriptCore_LIBRARIES
@@ -68,6 +58,10 @@ if (ENABLE_INTROSPECTION)
     # Add required -L flags from ${CMAKE_SHARED_LINKER_FLAGS} for g-ir-scanner
     string(REGEX MATCHALL "-L[^ ]*" INTROSPECTION_ADDITIONAL_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 
+    if (${INTROSPECTION_HAVE_SOURCES_TOP_DIRS})
+        set(GIR_SOURCES_TOP_DIRS "--sources-top-dirs=${CMAKE_BINARY_DIR}")
+    endif ()
+
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/JavaScriptCore-${WEBKITGTK_API_VERSION}.gir
         DEPENDS JavaScriptCore
@@ -88,6 +82,7 @@ if (ENABLE_INTROSPECTION)
             --pkg=gobject-2.0
             --pkg-export=javascriptcoregtk-${WEBKITGTK_API_VERSION}
             --output=${CMAKE_BINARY_DIR}/JavaScriptCore-${WEBKITGTK_API_VERSION}.gir
+            ${GIR_SOURCES_TOP_DIRS}
             --c-include="jsc/jsc.h"
             -DJSC_COMPILATION
             -I${CMAKE_SOURCE_DIR}/Source
@@ -109,7 +104,7 @@ if (ENABLE_INTROSPECTION)
 endif ()
 
 file(WRITE ${CMAKE_BINARY_DIR}/gtkdoc-jsc-glib.cfg
-    "[jsc-glib-${WEBKITGTK_API_VERSION}]\n"
+    "[jsc-glib-${WEBKITGTK_API_DOC_VERSION}]\n"
     "pkgconfig_file=${JavaScriptCore_PKGCONFIG_FILE}\n"
     "decorator=JSC_API\n"
     "deprecation_guard=JSC_DISABLE_DEPRECATED\n"
