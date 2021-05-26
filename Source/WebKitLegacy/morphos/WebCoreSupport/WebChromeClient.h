@@ -112,7 +112,7 @@ protected:
     bool shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
     void unavailablePluginButtonClicked(WebCore::Element&, WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
 
-    void print(WebCore::Frame&) final;
+    void print(WebCore::Frame&, const WebCore::StringWithDirection&) final;
 
     void exceededDatabaseQuota(WebCore::Frame&, const WTF::String&, WebCore::DatabaseDetails) final;
 
@@ -131,12 +131,8 @@ protected:
     // Sets a flag to specify that the next time content is drawn to the window,
     // the changes appear on the screen in synchrony with updates to GraphicsLayers.
     void setNeedsOneShotDrawingSynchronization() final { }
-    void scheduleRenderingUpdate() final;
-	
-	// for some odd ScriptedAnimationController mode to work... otherwise stops ticking
-	// not used atm due to patches elsewhere, but let's keep that
-	bool needsImmediateRenderingUpdate() const final { return true; }
-	
+    void triggerRenderingUpdate() final;
+		
  	CompositingTriggerFlags allowedCompositingTriggers() const { return static_cast<CompositingTriggerFlags>(0); }
 #if 0
     CompositingTriggerFlags allowedCompositingTriggers() const final
@@ -149,6 +145,11 @@ protected:
             AnimationTrigger);
     }
 #endif
+
+    bool hoverSupportedByPrimaryPointingDevice() const final { return true; };
+    bool hoverSupportedByAnyAvailablePointingDevice() const final { return true; }
+    Optional<WebCore::PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const final { return WebCore::PointerCharacteristics::Fine; }
+    OptionSet<WebCore::PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const final { return WebCore::PointerCharacteristics::Fine; }
 
     void scrollRectIntoView(const WebCore::IntRect&) const final { }
 
@@ -168,7 +169,7 @@ protected:
     void clearPlaybackControlsManager() override;
 
     void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool standby) override;
-    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) override;
+    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WTF::CompletionHandler<void(bool)>&& completionHandler = [](bool) { }) override;
 #endif
 
     bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) override;

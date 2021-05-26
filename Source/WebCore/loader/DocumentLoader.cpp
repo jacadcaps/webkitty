@@ -272,7 +272,6 @@ void DocumentLoader::mainReceivedError(const ResourceError& error)
     if (!error.isNull())
         RELEASE_LOG_IF_ALLOWED("mainReceivedError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
 
-    RefPtr<Frame> protectedFrame(m_frame);
     Ref<DocumentLoader> protectedThis(*this);
 
     if (m_identifierForLoadWithoutResourceLoader) {

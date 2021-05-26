@@ -58,6 +58,11 @@ PlatformSample MediaSampleMorphOS::platformSample()
 	return sample;
 }
 
+Optional<MediaSample::ByteRange> MediaSampleMorphOS::byteRange() const
+{
+	return WTF::nullopt;
+}
+
 }
 
 #endif

@@ -27,8 +27,8 @@ private:
 
 public:
     // MediaSourcePrivate Overrides
-    AddStatus addSourceBuffer(const ContentType&, RefPtr<SourceBufferPrivate>&) override;
-    void durationChanged() override;
+    AddStatus addSourceBuffer(const ContentType&, bool webMParserEnabled, RefPtr<SourceBufferPrivate>&) override;
+    void durationChanged(const MediaTime&) override;
     void markEndOfStream(EndOfStreamStatus) override;
     void unmarkEndOfStream() override;
     MediaPlayer::ReadyState readyState() const override;
@@ -54,6 +54,7 @@ public:
 
 	bool paused() const { return m_paused; }
 	bool ended() const { return m_ended; }
+    bool isEnded() const override { return m_ended; };
 	bool isSeeking() const { return m_seeking; }
 
 	void seek(double time);

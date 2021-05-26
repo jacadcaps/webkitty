@@ -23,9 +23,11 @@ namespace WebKit {
     if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
         return NO;
 	
-	auto native = image->nativeImageForCurrentFrame();
-	if (!native.get())
+	auto nativeImage = image->nativeImageForCurrentFrame();
+	if (!nativeImage.get())
 		return NO;
+
+	auto& native = nativeImage->platformImage();
 
 	unsigned char *imgdata;
 	int width, height, stride, cairo_stride;

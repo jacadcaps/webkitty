@@ -45,13 +45,13 @@ unsigned long AudioDestination::AudioDestination::maxChannelCount()
 	return 0; // stereo
 }
 
-std::unique_ptr<AudioDestination> AudioDestination::create(AudioIOCallback& callback, const String&, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+Ref<AudioDestination> AudioDestination::create(AudioIOCallback&callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
 {
-    return makeUnique<AudioDestinationMorphOS>(callback, sampleRate);
+    return adoptRef(*new AudioDestinationMorphOS(callback, sampleRate));
 }
 
 AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float sampleRate)
-	: m_callback(callback)
+	: AudioDestination(callback)
 	, m_renderBus(AudioBus::create(2, framesToPull, false))
 	, m_sampleRate(sampleRate)
 	, m_isPlaying(false)
@@ -64,12 +64,12 @@ AudioDestinationMorphOS::~AudioDestinationMorphOS()
 
 }
 
-void AudioDestinationMorphOS::start()
+void AudioDestinationMorphOS::start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&&)
 {
 	notImplemented();
 }
 
-void AudioDestinationMorphOS::stop()
+void AudioDestinationMorphOS::stop(CompletionHandler<void(bool)>&&)
 {
 
 }

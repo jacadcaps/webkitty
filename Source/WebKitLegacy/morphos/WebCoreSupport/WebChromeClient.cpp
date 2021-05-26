@@ -119,7 +119,7 @@ bool WebChromeClient::canTakeFocus(FocusDirection direction)
 void WebChromeClient::takeFocus(FocusDirection direction)
 {
 	notImplemented();
-	if (FocusDirection::FocusDirectionBackward == direction)
+	if (FocusDirection::Backward == direction)
 	{
 		if (m_webPage._fActivatePrevious)
 			m_webPage._fActivatePrevious();
@@ -212,10 +212,12 @@ void WebChromeClient::setResizable(bool resizable)
 	notImplemented();
 }
 
+#if 0
 static BOOL messageIsError(MessageLevel level)
 {
     return level == MessageLevel::Error;
 }
+#endif
 
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
@@ -367,7 +369,7 @@ void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmb
 	notImplemented();
 }
 
-void WebChromeClient::print(Frame& frame)
+void WebChromeClient::print(WebCore::Frame&, const WebCore::StringWithDirection&)
 {
     if (m_webPage._fPrint)
         m_webPage._fPrint();
@@ -431,7 +433,7 @@ notImplemented();
     // FIXME: If we want view-relative page overlays in Legacy WebKit on Windows, this would be the place to hook them up.
 }
 
-void WebChromeClient::scheduleRenderingUpdate()
+void WebChromeClient::triggerRenderingUpdate()
 {
 	m_webPage.flushCompositing();
 }
@@ -495,9 +497,10 @@ void WebChromeClient::enterVideoFullscreenForVideoElement(HTMLVideoElement& vide
 //    m_webView->enterVideoFullscreenForVideoElement(videoElement);
 }
 
-void WebChromeClient::exitVideoFullscreenForVideoElement(HTMLVideoElement& videoElement)
+void WebChromeClient::exitVideoFullscreenForVideoElement(HTMLVideoElement& videoElement, WTF::CompletionHandler<void(bool)>&& completionHandler)
 {
  //   m_webView->exitVideoFullscreenForVideoElement(videoElement);
+	completionHandler(true);
  }
 
 void WebChromeClient::setUpPlaybackControlsManager(WebCore::HTMLMediaElement&)

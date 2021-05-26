@@ -35,17 +35,15 @@ public:
     AudioDestinationMorphOS(AudioIOCallback&, float sampleRate);
     ~AudioDestinationMorphOS();
 
-    void start() override;
-    void stop() override;
+    void start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&& = [](bool) { }) override;
+    void stop(CompletionHandler<void(bool)>&& = [](bool) { }) override;
 
     bool isPlaying() override { return m_isPlaying; }
     float sampleRate() const override { return m_sampleRate; }
-    AudioIOCallback& callback() const { return m_callback; }
 
     unsigned framesPerBuffer() const final;
 
 private:
-    AudioIOCallback& m_callback;
     RefPtr<AudioBus> m_renderBus;
 
     float m_sampleRate;

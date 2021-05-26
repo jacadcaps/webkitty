@@ -1,9 +1,9 @@
 /gg/bin/ppc-morphos-g++-10 -Wl,--relax -g1 -feliminate-unused-debug-symbols -noixemul -mlongcall -Wno-ignored-attributes -O3 -DNDEBUG -o MiniBrowser.db -Wl,--whole-archive \
-../../Source/WebKitLegacy/libWebKit.a \
-../../Source/WebCore/libWebCore.a \
-../../Source/WebCore/PAL/pal/libPAL.a \
-../../Source/JavaScriptCore/libJavaScriptCore.a \
-../../Source/WTF/wtf/libWTF.a \
+../../lib/libWebKit.a \
+../../lib/libWebCore.a \
+../../lib/libPAL.a \
+../../lib/libJavaScriptCore.a \
+../../lib/libWTF.a \
 -Wl,--no-whole-archive \
 ../../../ffmpeg/instdir/lib/libavdevice.a \
 ../../../ffmpeg/instdir/lib/libavformat.a \

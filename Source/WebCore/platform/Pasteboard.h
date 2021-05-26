@@ -184,17 +184,12 @@ public:
     Pasteboard(std::unique_ptr<PasteboardContext>&&);
     virtual ~Pasteboard();
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(MORPHOS)
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, const String& name);
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, SelectionData&);
 #if ENABLE(DRAG_SUPPORT)
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, SelectionData&&);
 #endif
-#endif
-
-#if OS(MORPHOS)
-    explicit Pasteboard(const String& name);
-    explicit Pasteboard(SelectionData&);
 #endif
 
 #if PLATFORM(WIN)
@@ -350,7 +345,7 @@ private:
 #if OS(MORPHOS)
     void writeToClipboard();
     void readFromClipboard();
-    Ref<SelectionData> m_selectionData;
+    Optional<SelectionData> m_selectionData;
     String m_name;
 #endif
 
@@ -383,7 +378,7 @@ extern const char* const WebURLNamePboardType;
 extern const char* const WebURLsWithTitlesPboardType;
 #endif
 
-#if !PLATFORM(GTK) && !OS(MORPHOS)
+#if !PLATFORM(GTK)
 
 inline Pasteboard::~Pasteboard()
 {

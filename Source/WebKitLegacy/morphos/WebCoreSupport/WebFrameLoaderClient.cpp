@@ -43,7 +43,6 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/FrameView.h>
-#include <WebCore/HTMLAppletElement.h>
 #include <WebCore/HTMLFormElement.h>
 #include <WebCore/HistoryController.h>
 #include <WebCore/HistoryItem.h>
@@ -530,7 +529,7 @@ void WebFrameLoaderClient::dispatchDidLayout()
 #endif
 }
 
-Frame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction)
+Frame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction, WebCore::NewFrameOpenerPolicy)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -1299,15 +1298,6 @@ void WebFrameLoaderClient::redirectDataToPlugin(Widget& pluginWidget)
 {
 }
 
-RefPtr<Widget> WebFrameLoaderClient::createJavaAppletWidget(const IntSize& pluginSize, HTMLAppletElement& appletElement, const URL&, const Vector<String>& paramNames, const Vector<String>& paramValues)
-{
-    UNUSED_PARAM(pluginSize);
-    UNUSED_PARAM(appletElement);
-    UNUSED_PARAM(paramNames);
-    UNUSED_PARAM(paramValues);
-    return nullptr;
-}
-
 ObjectContentType WebFrameLoaderClient::objectContentType(const URL& url, const String& mimeTypeIn)
 {
     // FIXME: This should eventually be merged with WebCore::FrameLoader::defaultObjectContentType.
@@ -1443,75 +1433,76 @@ String generateFileNameForIcon(const WTF::String &inHost)
 
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
 {
+#if 0
 	WebPage* webPage = m_frame->page();
 	auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
 	const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
 
 	if (webPage && webPage->_fFavIconLoad && !webPage->_fFavIconLoad(documentLoader->url()))
 	{
-			for (auto& icon : icons)
-					documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
-			return;
+		for (auto& icon : icons)
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+		return;
 	}
 
 	{
-			RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
-			if (buffer.get())
-			{
-					m_iconIdentifier = 0;
-					finishedLoadingIcon(0, buffer.get());
+		RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
+		if (buffer.get())
+		{
+			m_iconIdentifier = 0;
+			finishedLoadingIcon(buffer.get());
 
-					for (auto& icon : icons)
-							documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
-					
-					return;
-			}
+			for (auto& icon : icons)
+				documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+			
+			return;
+		}
 	}
 
 	for (auto& icon : icons)
 	{
-			if (icon.first.type == WebCore::LinkIconType::Favicon && !m_iconIdentifier)
+		if (icon.first.type == WebCore::LinkIconType::Favicon && !m_iconIdentifier)
+		{
+			m_iconIdentifier = 1;
+			documentLoader->didGetLoadDecisionForIcon(true, icon.second, [this](SharedBuffer*data) {
+				finishedLoadingIcon(data);
+			});
+		}
+		else
+		{
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+		}
+	}
+#endif
+}
+
+void WebFrameLoaderClient::finishedLoadingIcon(WebCore::SharedBuffer* data)
+{
+	auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
+	if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
+	{
+		const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
+		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
+		if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
+		{
+			if (int(data->size()) != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))
 			{
-					m_iconIdentifier = 1;
-					documentLoader->didGetLoadDecisionForIcon(true, icon.second, m_iconIdentifier);
+				WTF::FileSystemImpl::closeFile(file);
+				WTF::FileSystemImpl::deleteFile(fileName);
 			}
 			else
 			{
-					documentLoader->didGetLoadDecisionForIcon(false, icon.second, 0);
+				WTF::FileSystemImpl::closeFile(file);
 			}
+		}
 	}
-}
+	m_iconIdentifier = 0;
 
-void WebFrameLoaderClient::finishedLoadingIcon(uint64_t callbackIdentifier, SharedBuffer* data)
-{
-	if (m_iconIdentifier == callbackIdentifier)
+	if (data && data->size())
 	{
-		auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
-		if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
-		{
-			const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
-			WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
-			if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
-			{
-				if (data->size() != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))
-				{
-						WTF::FileSystemImpl::closeFile(file);
-						WTF::FileSystemImpl::deleteFile(fileName);
-				}
-				else
-				{
-						WTF::FileSystemImpl::closeFile(file);
-				}
-			}
-		}
-		m_iconIdentifier = 0;
-
-		if (data && data->size())
-		{
-			WebPage* webPage = m_frame->page();
-			if (webPage && webPage->_fFavIconLoaded)
-					webPage->_fFavIconLoaded(data, documentLoader->url());
-		}
+		WebPage* webPage = m_frame->page();
+		if (webPage && webPage->_fFavIconLoaded)
+			webPage->_fFavIconLoaded(data, documentLoader->url());
 	}
 }
 

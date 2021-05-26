@@ -195,15 +195,19 @@ void WebProcess::initialize(int sigbit)
 	}
 #endif
 
+#if 0 // removed 2.32
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsEnabled(true);
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCSSIntegrationEnabled(false);
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsMutableTimelinesEnabled(true);
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCompositeOperationsEnabled(true);
+#endif
 
+#if 0 // removed 2.32
 	RuntimeEnabledFeatures::sharedFeatures().setDataTransferItemsEnabled(true);
-	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
-
 	RuntimeEnabledFeatures::sharedFeatures().setIntersectionObserverEnabled(true);
+#endif
+
+	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
 	
 	RuntimeEnabledFeatures::sharedFeatures().setKeygenElementEnabled(true);
 	

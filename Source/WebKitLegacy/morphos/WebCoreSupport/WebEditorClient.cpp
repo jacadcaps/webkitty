@@ -281,7 +281,7 @@ bool WebEditorClient::shouldInsertText(const WTF::String&, const WTF::Optional<W
     return true;
 }
 
-bool WebEditorClient::shouldChangeSelectedRange(const Optional<WebCore::SimpleRange>& fromRange, const Optional<WebCore::SimpleRange>& toRange, WebCore::EAffinity, bool stillSelectingg)
+bool WebEditorClient::shouldChangeSelectedRange(const Optional<WebCore::SimpleRange>& fromRange, const Optional<WebCore::SimpleRange>& toRange, WebCore::Affinity, bool stillSelectingg)
 {
     notImplemented();
     return true;

@@ -33,7 +33,7 @@ class RenderThemeMorphOS final : public RenderTheme {
 public:
     virtual ~RenderThemeMorphOS() = default;
 private:
- 	bool canPaint(const PaintInfo&) const final { return true; }
+ 	bool canPaint(const PaintInfo&, const Settings&) const final { return true; }
     void updateCachedSystemFontDescription(CSSValueID systemFontID, FontCascadeDescription&) const final;
 
 #if ENABLE(VIDEO)

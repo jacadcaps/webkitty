@@ -49,15 +49,7 @@ void FFTFrame::initialize()
 {
 }
 
-void FFTFrame::cleanup()
-{
-}
-
 FFTFrame::~FFTFrame()
-{
-}
-
-void FFTFrame::multiply(const FFTFrame& frame)
 {
 }
 
@@ -67,16 +59,6 @@ void FFTFrame::doFFT(const float* data)
 
 void FFTFrame::doInverseFFT(float* data)
 {
-}
-
-float* FFTFrame::realData() const
-{
-    return const_cast<float*>(m_realData.data());
-}
-
-float* FFTFrame::imagData() const
-{
-    return const_cast<float*>(m_imagData.data());
 }
 
 int FFTFrame::minFFTSize()

@@ -85,6 +85,7 @@ class MediaSourcePrivateClient;
 class MediaStreamPrivate;
 class PlatformTimeRanges;
 class TextTrackRepresentation;
+class Page;
 
 struct GraphicsDeviceAdapter;
 struct SecurityOriginData;

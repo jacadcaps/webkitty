@@ -447,7 +447,6 @@ void CurlHandle::enableSSLForHost(const String& host)
 #endif
     if (auto* path = WTF::get_if<String>(sslHandle.getCACertInfo()))
         setCACertPath(path->utf8().data());
-#endif
 }
 
 void CurlHandle::disableServerTrustEvaluation()

@@ -33,13 +33,9 @@
 
 namespace WebCore {
 
-class SelectionData : public RefCounted<SelectionData> {
+class SelectionData {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static Ref<SelectionData> create()
-    {
-        return adoptRef(*new SelectionData);
-    }
 
     void setText(const String&);
     const String& text() const { return m_text; }

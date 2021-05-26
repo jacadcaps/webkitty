@@ -51,28 +51,37 @@ enum ClipboardDataType {
     ClipboardDataTypeUnknown
 };
 
-std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
+std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
-    return std::make_unique<Pasteboard>();
+    return std::make_unique<Pasteboard>(WTFMove(context), "CLIPBOARD");
 }
 
-Pasteboard::Pasteboard(SelectionData& selectionData)
-    : m_selectionData(selectionData)
-{
-}
-
-Pasteboard::Pasteboard(const String& name)
-    : m_selectionData(SelectionData::create())
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const String& name)
+	: m_context(WTFMove(context))
+    , m_selectionData(SelectionData())
     , m_name(name)
 {
+
 }
 
-Pasteboard::Pasteboard()
-    : m_selectionData(SelectionData::create())
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&selectionData)
+	: m_context(WTFMove(context))
+    , m_selectionData(selectionData)
+{
+
+}
+
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&&selectionData)
+	: m_context(WTFMove(context))
+    , m_selectionData(WTFMove(selectionData))
+{
+
+}
+
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context)
+    : m_context(WTFMove(context))
 {
 }
-
-Pasteboard::~Pasteboard() = default;
 
 bool Pasteboard::hasData()
 {
@@ -129,7 +138,7 @@ String Pasteboard::readString(const String& type)
 		struct Library *ClipboardBase;
 		if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
 		{
-			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE }};
+			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, { TAG_DONE, 0 }};
 			clipcontents = (const char *)ReadClipTextA(tags);
 			if (nullptr != clipcontents)
 			{
@@ -227,7 +236,11 @@ void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
 
 void Pasteboard::write(const PasteboardImage& image)
 {
-	RefPtr<cairo_surface_t> surface = image.image->nativeImageForCurrentFrame();
+    auto nativeImage = image.image->nativeImageForCurrentFrame();
+    if (!nativeImage)
+        return;
+
+    auto& surface = nativeImage->platformImage();
 	if (surface.get())
 	{
 		// Create a copy of the data since it'll take time to write it
@@ -333,15 +346,15 @@ void Pasteboard::setDragImage(DragImage, const IntPoint&)
 {
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop()
+std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(std::unique_ptr<PasteboardContext>&&context)
 {
-    return std::make_unique<Pasteboard>(SelectionData::create());
+    return std::make_unique<Pasteboard>(WTFMove(context), SelectionData());
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(const DragData& dragData)
+std::unique_ptr<Pasteboard> Pasteboard::create(const DragData& dragData)
 {
     ASSERT(dragData.platformData());
-    return std::make_unique<Pasteboard>(*dragData.platformData());
+    return std::make_unique<Pasteboard>(dragData.createPasteboardContext(), *dragData.platformData());
 }
 
 #endif

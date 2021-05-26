@@ -132,8 +132,6 @@ public:
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
 
-    void setClient(SourceBufferPrivateClient*) override;
-
     void append(Vector<unsigned char>&&) override;
     void abort() override;
     void resetParserState() override;
@@ -175,7 +173,6 @@ private:
 
 private:
 	MediaSourcePrivateMorphOS                    *m_mediaSource;
-	SourceBufferPrivateClient                    *m_client;
 	RefPtr<MediaSourceChunkReader>                m_reader;
 	RefPtr<Acinerella::AcinerellaMuxedBuffer>     m_muxer;
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];

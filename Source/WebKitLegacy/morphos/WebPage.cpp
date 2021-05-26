@@ -2,7 +2,6 @@
 
 #include <WebCore/ApplicationCacheStorage.h>
 #include <WebCore/BackForwardController.h>
-#include <WebCore/CSSAnimationController.h>
 #include <WebCore/CacheStorageProvider.h>
 #include <WebCore/Chrome.h>
 #include <WebCore/CookieJar.h>
@@ -103,6 +102,7 @@
 #include <WebCore/PlatformContextCairo.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
+#include <WebCore/DummySpeechRecognitionProvider.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -1101,17 +1101,18 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 #if 0
         [[self preferences] privateBrowsingEnabled] ? PAL::SessionID::legacyPrivateSessionID() : PAL::SessionID::defaultSessionID(),
 #endif
-
 	WebCore::PageConfiguration pageConfiguration(
 		WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(this),
         WebCore::SocketProvider::create(),
         makeUniqueRef<WebCore::LibWebRTCProvider>(),
         WebProcess::singleton().cacheStorageProvider(),
+        m_webPageGroup->userContentController(),
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
         makeUniqueRef<WebFrameLoaderClient>(m_mainFrame.copyRef()),
+		makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         makeUniqueRef<MediaRecorderProvider>()
         );
 
@@ -1119,7 +1120,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	pageConfiguration.inspectorClient = new WebInspectorClient(this);
 //    pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient();
     pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
-    pageConfiguration.userContentProvider = &m_webPageGroup->userContentController();
     pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
     pageConfiguration.pluginInfoProvider = &WebPluginInfoProvider::singleton();
     pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
@@ -1141,7 +1141,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDeferredCSSParserEnabled(true);
     settings.setDeviceWidth(1920);
     settings.setDeviceHeight(1080);
-    settings.setEditableImagesEnabled(true);
     settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
     settings.setSubpixelAntialiasedLayerTextEnabled(true);
@@ -1149,7 +1148,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setFixedFontFamily("Courier New");
     settings.setDefaultFixedFontSize(13);
     settings.setResizeObserverEnabled(true);
-	settings.setEditingBehaviorType(EditingBehaviorType::EditingUnixBehavior);
+	settings.setEditingBehaviorType(EditingBehaviorType::Unix);
 	settings.setShouldRespectImageOrientation(true);
 	settings.setTextAreasAreResizable(true);
 
@@ -1157,7 +1156,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setForceCompositingMode(false);
 	settings.setAcceleratedCompositingEnabled(false);
 	settings.setAcceleratedDrawingEnabled(false);
-	settings.setAccelerated2dCanvasEnabled(false);
+	// settings.setAccelerated2dCanvasEnabled(false);
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 	settings.setAcceleratedFiltersEnabled(false);
@@ -1253,7 +1252,7 @@ void WebPage::load(const char *url)
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
 	WebCore::ResourceRequest request(baseCoreURL);
 	
-	corePage()->userInputBridge().stopLoadingFrame(coreFrame);
+	corePage()->userInputBridge().stopLoadingFrame(*coreFrame);
 	m_pendingNavigationID = navid ++;
 	coreFrame->loader().load(FrameLoadRequest(*coreFrame, request));
 
@@ -3063,7 +3062,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke);
+					bool handled = bridge.handleWheelEvent(pke, WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch);
 					if (!handled)
 						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
 
@@ -3092,7 +3091,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke);
+					bool handled = bridge.handleWheelEvent(pke, WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch);
 					if (!handled)
 						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
 
@@ -3110,12 +3109,12 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						Frame& frame = m_page->focusController().focusedOrMainFrame();
 						frame.document()->setFocusedElement(0);
 						m_page->focusController().setInitialFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ?
-							FocusDirectionBackward : FocusDirectionForward, nullptr);
+							FocusDirection::Backward : FocusDirection::Forward, nullptr);
 						m_justWentActive = false;
 					}
 					else
 					{
-						bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::FocusDirectionBackward : FocusDirection::FocusDirectionForward, nullptr);
+						bool rc = focusController.advanceFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ? FocusDirection::Backward : FocusDirection::Forward, nullptr);
 						if ((!rc || !m_focusedElement) && _fActivateNext && _fActivatePrevious)
 						{
 							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
@@ -3260,10 +3259,10 @@ bool WebPage::handleMUIKey(int muikey, bool isDefaultHandler)
 	switch (muikey)
 	{
 	case MUIKEY_GADGET_NEXT:
-		focusController.advanceFocus(FocusDirection::FocusDirectionForward, nullptr);
+		focusController.advanceFocus(FocusDirection::Forward, nullptr);
 		return true;
 	case MUIKEY_GADGET_PREV:
-		focusController.advanceFocus(FocusDirection::FocusDirectionBackward, nullptr);
+		focusController.advanceFocus(FocusDirection::Backward, nullptr);
 		return true;
 	case MUIKEY_GADGET_OFF:
 		return true;

@@ -26,11 +26,11 @@
  */
 
 #include "config.h"
-#include "GraphicsContextGL.h"
-#include "GraphicsContextGLOpenGL.h"
 
 #if ENABLE(WEBGL)
 
+#include "GraphicsContextGL.h"
+#include "GraphicsContextGLOpenGL.h"
 #include "ExtensionsGL.h"
 #include "FormatConverter.h"
 #include "HostWindow.h"

@@ -438,7 +438,6 @@ Ref<MediaSourceBufferPrivateMorphOS> MediaSourceBufferPrivateMorphOS::create(Med
 
 MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS* parent)
     : m_mediaSource(parent)
-    , m_client(0)
 {
 	memset(&m_decodersStarved, 0, sizeof(m_decodersStarved));
 	m_reader = MediaSourceChunkReader::create(this,
@@ -460,12 +459,6 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 MediaSourceBufferPrivateMorphOS::~MediaSourceBufferPrivateMorphOS()
 {
 	DI(dprintf("[MS]%s: %p bye!\n", __func__, this));
-}
-
-void MediaSourceBufferPrivateMorphOS::setClient(SourceBufferPrivateClient* client)
-{
-	D(dprintf("[MS]%s client %p main %d\n", __func__, client, isMainThread()));
-	m_client = client;
 }
 
 void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
@@ -491,7 +484,8 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 
 			for (auto sample : samples)
 			{
-				m_client->sourceBufferPrivateDidReceiveSample(*sample.get());
+				didReceiveSample(*sample.get());
+				//m_client->sourceBufferPrivateDidReceiveSample(*sample.get());
 			}
 			
 			if (m_mediaSource && success)
@@ -499,7 +493,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 				m_mediaSource->onSourceBufferLoadingProgressed();
 			}
 
-			m_client->sourceBufferPrivateAppendComplete(success ? SourceBufferPrivateClient::AppendSucceeded : SourceBufferPrivateClient::ParsingFailed);
+			m_client->sourceBufferPrivateAppendComplete(success ? SourceBufferPrivateClient::AppendResult::AppendSucceeded : SourceBufferPrivateClient::AppendResult::ParsingFailed);
 
 #if 0
 			if (m_info.m_duration < m_reader->highestPTS())
@@ -727,8 +721,9 @@ void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 				}
 
 				m_requestedMoreFrames = true;
-				if (m_client)
-					m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(id);
+// how to replace this?
+//				if (m_client)
+//					m_client->sourceBufferPrivateDidBecomeReadyForMoreSamples(id);
 			});
 		}
 	}
@@ -926,8 +921,9 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 		DM(dprintf("[MS] duration %f size %dx%d\n", float(duration), m_info.m_width, m_info.m_height));
 		WTF::callOnMainThread([segment, duration, this, protect = makeRef(*this)]() {
 			DM(dprintf("[MS] calling sourceBufferPrivateDidReceiveInitializationSegment, duration %f size %dx%d\n", float(duration), m_info.m_width, m_info.m_height));
-			if (m_client)
-				m_client->sourceBufferPrivateDidReceiveInitializationSegment(segment);
+// TODO: fix me
+//			if (m_client)
+//				m_client->sourceBufferPrivateDidReceiveInitializationSegment(segment);
 		});
 
 		m_metaInitDone = true;

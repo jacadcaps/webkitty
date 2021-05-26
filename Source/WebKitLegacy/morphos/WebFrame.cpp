@@ -115,6 +115,7 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const String& frameName, H
 
 void WebFrame::initWithCoreMainFrame(WebPage& page, Frame& coreFrame)
 {
+	(void)page;
     m_coreFrame = &coreFrame;
     m_coreFrame->tree().setName(String());
     m_coreFrame->init();
