@@ -1433,7 +1433,6 @@ String generateFileNameForIcon(const WTF::String &inHost)
 
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
 {
-#if 0
 	WebPage* webPage = m_frame->page();
 	auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
 	const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
@@ -1441,7 +1440,7 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
 	if (webPage && webPage->_fFavIconLoad && !webPage->_fFavIconLoad(documentLoader->url()))
 	{
 		for (auto& icon : icons)
-			documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, [](SharedBuffer*data){});
 		return;
 	}
 
@@ -1449,11 +1448,10 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
 		RefPtr<WebCore::SharedBuffer> buffer = WebCore::SharedBuffer::createWithContentsOfFile(fileName);
 		if (buffer.get())
 		{
-			m_iconIdentifier = 0;
 			finishedLoadingIcon(buffer.get());
 
 			for (auto& icon : icons)
-				documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+				documentLoader->didGetLoadDecisionForIcon(false, icon.second, [](SharedBuffer*data){});
 			
 			return;
 		}
@@ -1461,25 +1459,23 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
 
 	for (auto& icon : icons)
 	{
-		if (icon.first.type == WebCore::LinkIconType::Favicon && !m_iconIdentifier)
+		if (icon.first.type == WebCore::LinkIconType::Favicon)
 		{
-			m_iconIdentifier = 1;
 			documentLoader->didGetLoadDecisionForIcon(true, icon.second, [this](SharedBuffer*data) {
 				finishedLoadingIcon(data);
 			});
 		}
 		else
 		{
-			documentLoader->didGetLoadDecisionForIcon(false, icon.second, nullptr);
+			documentLoader->didGetLoadDecisionForIcon(false, icon.second, [](SharedBuffer*data){});
 		}
 	}
-#endif
 }
 
 void WebFrameLoaderClient::finishedLoadingIcon(WebCore::SharedBuffer* data)
 {
 	auto* documentLoader = m_frame->coreFrame()->loader().documentLoader();
-	if (m_iconIdentifier != 0 && data != nullptr && data->size() > 0)
+	if (data != nullptr && data->size() > 0)
 	{
 		const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
 		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
@@ -1496,7 +1492,6 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::SharedBuffer* data)
 			}
 		}
 	}
-	m_iconIdentifier = 0;
 
 	if (data && data->size())
 	{
