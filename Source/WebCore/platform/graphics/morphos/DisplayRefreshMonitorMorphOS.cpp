@@ -43,10 +43,12 @@ DisplayRefreshMonitorMorphOS::DisplayRefreshMonitorMorphOS(PlatformDisplayID dis
 
 bool DisplayRefreshMonitorMorphOS::requestRefreshCallback()
 {
-dprintf("%s: isa %d\n", __PRETTY_FUNCTION__, isActive());
+// dprintf("%s(%p): isa %d\n", __PRETTY_FUNCTION__, this, isActive());
     if (!isActive())
         return false;
     m_timer.startOneShot(33_ms);
+
+    LockHolder lock(mutex());
     setIsActive(true);
     setIsScheduled(true);
     return true;
@@ -54,12 +56,16 @@ dprintf("%s: isa %d\n", __PRETTY_FUNCTION__, isActive());
 
 void DisplayRefreshMonitorMorphOS::displayLinkFired()
 {
-dprintf("%s!\n", __PRETTY_FUNCTION__);
-    if (!isPreviousFrameDone())
-        return;
+// dprintf("%s(%p)!\n", __PRETTY_FUNCTION__, this);
+    {
+        LockHolder lock(mutex());
+        if (!isPreviousFrameDone())
+            return;
 
-    setIsPreviousFrameDone(false);
+        setIsPreviousFrameDone(false);
+    }
 
+    m_timer.startOneShot(33_ms);
     handleDisplayRefreshedNotificationOnMainThread(this);
 }
 

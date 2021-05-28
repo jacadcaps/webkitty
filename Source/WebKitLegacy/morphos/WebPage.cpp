@@ -2104,7 +2104,8 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	}
 
     m_page->updateRendering();
-
+	m_page->finalizeRenderingUpdate({ });
+	
 	if (m_needsCompositingFlush)
 	{
 		m_needsCompositingFlush = false;
@@ -2172,6 +2173,7 @@ void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const 
 	}
 
 	m_page->updateRendering();
+	m_page->finalizeRenderingUpdate({ });
 
 	// this is the visible area we want to paint in
 	float width = paintWidth;
