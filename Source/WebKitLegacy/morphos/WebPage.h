@@ -276,7 +276,7 @@ protected:
 
 private:
 	Ref<WebFrame> m_mainFrame;
-	std::unique_ptr<WebCore::Page> m_page;
+	WebCore::Page *m_page { nullptr };
 	RefPtr<WebPageGroup> m_webPageGroup;
 	WebViewDrawContext  *m_drawContext { nullptr };
     WebViewPrintingContext *m_printingContext { nullptr };

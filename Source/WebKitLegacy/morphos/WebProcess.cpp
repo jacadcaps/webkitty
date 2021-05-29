@@ -521,7 +521,7 @@ void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationPa
 void WebProcess::removeWebPage(WebCore::PageIdentifier pageID)
 {
     ASSERT(m_pageMap.contains(pageID));
-	D(dprintf("%s at %d\n", __PRETTY_FUNCTION__, m_pageMap.size()));
+	D(dprintf("%s at %d frames %d\n", __PRETTY_FUNCTION__, m_pageMap.size(), m_frameMap.size()));
  //   pageWillLeaveWindow(pageID);
     m_pageMap.remove(pageID);
 

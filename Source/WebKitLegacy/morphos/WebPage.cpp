@@ -437,6 +437,39 @@ protected:
 	int m_columns;
 	int m_cells;
 };
+
+namespace WebKit {
+
+class DeferredPageDestructor {
+public:
+    static void createDeferredPageDestructor(std::unique_ptr<WebCore::Page> page)
+    {
+        new DeferredPageDestructor(WTFMove(page));
+    }
+
+private:
+    DeferredPageDestructor(std::unique_ptr<WebCore::Page> page)
+        : m_page(WTFMove(page))
+    {
+        tryDestruction();
+    }
+
+    void tryDestruction()
+    {
+        if (m_page->insideNestedRunLoop()) {
+            m_page->whenUnnested([this] { tryDestruction(); });
+            return;
+        }
+		D(dprintf("%s bye\n", __PRETTY_FUNCTION__));
+        m_page = nullptr;
+        delete this;
+    }
+
+    std::unique_ptr<WebCore::Page> m_page;
+};
+
+} // namespace WebKit
+
 namespace WebKit {
 
 class MediaRecorderProvider final : public WebCore::MediaRecorderProvider {
@@ -1129,7 +1162,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 //dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
-	m_page = std::make_unique<WebCore::Page>(WTFMove(pageConfiguration));
+	m_page = new WebCore::Page(WTFMove(pageConfiguration));
 	storageProvider->setPage(*m_page);
 
 	WebCore::Settings& settings = m_page->settings();
@@ -1229,12 +1262,12 @@ WebPage::~WebPage()
 
 WebCore::Page *WebPage::corePage()
 {
-	return m_page.get();
+	return m_page;
 }
 
 const WebCore::Page *WebPage::corePage() const
 {
-	return m_page.get();
+	return m_page;
 }
 
 WebPage* WebPage::fromCorePage(WebCore::Page* page)
@@ -1389,13 +1422,18 @@ WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
 
 void WebPage::willBeDisposed()
 {
-	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
+	D(dprintf("%s: mf %p\n", __PRETTY_FUNCTION__, mainframe));
 	clearDelegateCallbacks();
 //	stop();
 	if (mainframe)
 		mainframe->loader().detachFromParent();
+		
+    auto* page = m_page;
+    m_page = nullptr;
+    WebKit::DeferredPageDestructor::createDeferredPageDestructor(std::unique_ptr<WebCore::Page>(page));
+		
 	D(dprintf("%s done mf %p\n", __PRETTY_FUNCTION__, mainframe));
 }
 

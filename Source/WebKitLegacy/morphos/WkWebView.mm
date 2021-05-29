@@ -1208,11 +1208,13 @@ static inline void validateObjCContext() {
 
 + (BOOL)readyToQuit
 {
+	D(dprintf("%s: pending %d, instances %d frames %d\n", __PRETTY_FUNCTION__,_readyToQuitPending, _viewInstanceCount, WebKit::WebProcess::singleton().webFrameCount()));
 	@synchronized ([WkWebView class])
 	{
 		if (!_readyToQuitPending)
 		{
 			WebKit::WebProcess::singleton().dispatchAllEvents();
+			WebKit::WebProcess::singleton().handleSignals(0);
 			// As soon as possible ask all sub-threads to stop processing. This
 			// will send SIGBREAKF_CTRL_C to all sub-threads. They will take some
 			// time to shut down on the background, so better start the process
@@ -1240,6 +1242,7 @@ static inline void validateObjCContext() {
 			_timerPerform = nil;
 			[[OBRunLoop mainRunLoop] removeSignalHandler:_signalHandler];
 			[_signalHandler release];
+			_signalHandler = nil;
 			WebKit::WebProcess::singleton().terminate();
 			[WkCertificate shutdown];
 			[WkUserScripts shutdown];
@@ -1247,7 +1250,12 @@ static inline void validateObjCContext() {
 			return YES;
 		}
 	}
-	
+
+	for (int i = 0; i < 100; i++)
+	{
+		WebKit::WebProcess::singleton().handleSignals(0);
+	}
+
 	return NO;
 }
 
