@@ -124,6 +124,10 @@ public:
 					page = doc->page();
 				}
 			}
+			else if (parameters.url.isValid())
+			{
+				host = parameters.url.host().toString();
+			}
 		}
 		else
 		{
@@ -131,6 +135,10 @@ public:
 			if (doc)
 			{
 				host = doc->url().host().toString();
+			}
+			else if (parameters.url.isValid())
+			{
+				host = parameters.url.host().toString();
 			}
 		}
     

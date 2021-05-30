@@ -216,36 +216,46 @@ void WebProcess::initialize(int sigbit)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
 	RuntimeEnabledFeatures::sharedFeatures().setModernMediaControlsEnabled(false);
 
-	MediaPlayerMorphOSSettings::settings().m_supportMediaForHost = [this](WebCore::Page *page, const String &) -> bool {
+	MediaPlayerMorphOSSettings::settings().m_supportMediaForHost = [this](WebCore::Page *page, const String &host) -> bool {
 		WebPage *wpage = WebPage::fromCorePage(page);
+		if (!wpage)
+			wpage = webPageForHost(host);
 		if (wpage && wpage->_fMediaSupportCheck)
 			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::Media);
 		return false;
 	};
 
-	MediaPlayerMorphOSSettings::settings().m_supportMediaSourceForHost = [this](WebCore::Page *page, const String &) -> bool {
+	MediaPlayerMorphOSSettings::settings().m_supportMediaSourceForHost = [this](WebCore::Page *page, const String &host) -> bool {
 		WebPage *wpage = WebPage::fromCorePage(page);
+		if (!wpage)
+			wpage = webPageForHost(host);
 		if (wpage && wpage->_fMediaSupportCheck)
 			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::MediaSource);
 		return false;
 	};
 
-	MediaPlayerMorphOSSettings::settings().m_supportHLSForHost = [this](WebCore::Page *page, const String &) -> bool {
+	MediaPlayerMorphOSSettings::settings().m_supportHLSForHost = [this](WebCore::Page *page, const String &host) -> bool {
 		WebPage *wpage = WebPage::fromCorePage(page);
+		if (!wpage)
+			wpage = webPageForHost(host);
 		if (wpage && wpage->_fMediaSupportCheck)
 			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HLS);
 		return false;
 	};
 	
-	MediaPlayerMorphOSSettings::settings().m_supportVP9ForHost = [this](WebCore::Page *page, const String &) -> bool {
+	MediaPlayerMorphOSSettings::settings().m_supportVP9ForHost = [this](WebCore::Page *page, const String &host) -> bool {
 		WebPage *wpage = WebPage::fromCorePage(page);
+		if (!wpage)
+			wpage = webPageForHost(host);
 		if (wpage && wpage->_fMediaSupportCheck)
 			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::VP9);
 		return false;
 	};
 	
-	MediaPlayerMorphOSSettings::settings().m_supportHVCForHost = [this](WebCore::Page *page, const String &) -> bool {
+	MediaPlayerMorphOSSettings::settings().m_supportHVCForHost = [this](WebCore::Page *page, const String &host) -> bool {
 		WebPage *wpage = WebPage::fromCorePage(page);
+		if (!wpage)
+			wpage = webPageForHost(host);
 		if (wpage && wpage->_fMediaSupportCheck)
 			return wpage->_fMediaSupportCheck(WebViewDelegate::mediaType::HVC1);
 		return false;
@@ -530,6 +540,22 @@ WebPage* WebProcess::focusedWebPage() const
 #endif
     return 0;
 
+}
+
+WebPage* WebProcess::webPageForHost(const WTF::String &host)
+{
+	for (auto& webpage : m_pageMap.values())
+	{
+		if (!webpage->topLevelFrame())
+			continue;
+		auto url = webpage->topLevelFrame()->url();
+		if (equalIgnoringASCIICase(host, url.host().toString()))
+		{
+			return webpage.get();
+		}
+	}
+
+	return nullptr;
 }
 
 void WebProcess::returnedFromConstrainedRunLoop()

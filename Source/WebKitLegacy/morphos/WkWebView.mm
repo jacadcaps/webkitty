@@ -1214,6 +1214,7 @@ static inline void validateObjCContext() {
 		if (!_readyToQuitPending)
 		{
 			WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
+			WebKit::WebProcess::singleton().handleSignals(0);
 			// As soon as possible ask all sub-threads to stop processing. This
 			// will send SIGBREAKF_CTRL_C to all sub-threads. They will take some
 			// time to shut down on the background, so better start the process
@@ -1249,6 +1250,11 @@ static inline void validateObjCContext() {
 		}
 	}
 	
+	for (int i = 0; i < 100; i++)
+	{
+		WebKit::WebProcess::singleton().handleSignals(0);
+	}
+
 	return NO;
 }
 
@@ -2062,6 +2068,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	auto webPage = [_private page];
 	[_private setURL:url];
+	[[_private clientDelegate] webView:self changedDocumentURL:url];
 	[[_private clientDelegate] webView:self changedTitle:[url absoluteString]];
 	webPage->load(curi);
 }

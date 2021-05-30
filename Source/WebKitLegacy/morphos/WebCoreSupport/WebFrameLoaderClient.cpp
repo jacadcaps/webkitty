@@ -291,7 +291,14 @@ void WebFrameLoaderClient::dispatchDidChangeMainDocument()
 
 void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl)
 {
-    notImplemented();
+	WebPage* webPage = m_frame->page();
+	if (webPage)
+	{
+		if (m_frame->isMainFrame() && webPage->_fChangedURL)
+		{
+			webPage->_fChangedURL(newUrl.string());
+		}
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
