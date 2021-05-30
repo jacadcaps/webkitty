@@ -25,14 +25,15 @@
 
 #pragma once
 
-#include "RenderTheme.h"
+#include "RenderThemeAdwaita.h"
 
 namespace WebCore {
 
-class RenderThemeMorphOS final : public RenderTheme {
+class RenderThemeMorphOS final : public RenderThemeAdwaita {
 public:
     virtual ~RenderThemeMorphOS() = default;
 private:
+#if 0
  	bool canPaint(const PaintInfo&, const Settings&) const final { return true; }
     void updateCachedSystemFontDescription(CSSValueID systemFontID, FontCascadeDescription&) const final;
 
@@ -40,6 +41,7 @@ private:
     // Media controls
     String mediaControlsStyleSheet() final;
     String mediaControlsScript() final;
+#endif
 #endif
 };
 

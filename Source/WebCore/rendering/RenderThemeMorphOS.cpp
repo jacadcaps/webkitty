@@ -41,6 +41,7 @@ RenderTheme& RenderTheme::singleton()
     return theme;
 }
 
+#if 0
 void RenderThemeMorphOS::updateCachedSystemFontDescription(CSSValueID, FontCascadeDescription&) const
 {
     notImplemented();
@@ -49,7 +50,7 @@ void RenderThemeMorphOS::updateCachedSystemFontDescription(CSSValueID, FontCasca
 #if ENABLE(VIDEO)
 String RenderThemeMorphOS::mediaControlsStyleSheet()
 {
-    return String(mediaControlsAppleUserAgentStyleSheet, sizeof(mediaControlsAppleUserAgentStyleSheet));
+    return String(mediaControlsUserAgentStyleSheet, sizeof(mediaControlsAppleUserAgentStyleSheet));
 }
 
 String RenderThemeMorphOS::mediaControlsScript()
@@ -59,6 +60,7 @@ String RenderThemeMorphOS::mediaControlsScript()
     scriptBuilder.appendCharacters(mediaControlsAppleJavaScript, sizeof(mediaControlsAppleJavaScript));
     return scriptBuilder.toString();
 }
+#endif
 #endif
 
 } // namespace WebCore

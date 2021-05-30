@@ -76,7 +76,7 @@ static constexpr auto mediaSliderTrackBufferedColor = SRGBA<uint8_t> { 173, 173,
 static constexpr auto mediaSliderTrackActiveColor = SRGBA<uint8_t> { 252, 252, 252 };
 #endif
 
-#if !PLATFORM(GTK)
+#if !PLATFORM(GTK) && !OS(MORPHOS)
 RenderTheme& RenderTheme::singleton()
 {
     static MainThreadNeverDestroyed<RenderThemeAdwaita> theme;

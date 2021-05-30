@@ -13,6 +13,7 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     ${WEBCORE_DIR}/platform
+    ${WEBCORE_DIR}/platform/adwaita
     ${WEBCORE_DIR}/platform/morphos
     ${WEBCORE_DIR}/platform/generic
     ${WEBCORE_DIR}/platform/graphics/morphos
@@ -45,7 +46,6 @@ list(APPEND WebCore_SOURCES
     platform/morphos/CursorMorphOS.cpp
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
-    platform/morphos/ScrollbarThemeMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp
     platform/morphos/DragDataMorphOS.cpp
     platform/morphos/SelectionData.cpp
@@ -60,10 +60,14 @@ list(APPEND WebCore_SOURCES
     platform/text/LocaleICU.cpp
     platform/text/hyphen/HyphenationLibHyphen.cpp
     rendering/RenderThemeMorphOS.cpp
+    rendering/RenderThemeAdwaita.cpp
     page/morphos/DragControllerMorphOS.cpp
+    platform/adwaita/ThemeAdwaita.cpp
+    platform/adwaita/ScrollbarThemeAdwaita.cpp
 )
 
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    platform/adwaita/ScrollbarThemeAdwaita.h
     platform/graphics/morphos/MediaPlayerMorphOS.h
 )
 
@@ -92,15 +96,15 @@ if (NOT MORPHOS_MINIMAL)
 	)
 
 	list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.css
+		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.css
+		${WEBCORE_DIR}/css/themeAdwaita.css
 	)
 
 	set(WebCore_USER_AGENT_SCRIPTS
-		${WEBCORE_DIR}/en.lproj/mediaControlsLocalizedStrings.js
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
+		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.js
 	)
 
-	set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/platform/rendering/RenderThemeMorphOS.cpp)
+	set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/rendering/RenderThemeAdwaita.cpp)
 endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os -DMORPHOS_MINIMAL=${MORPHOS_MINIMAL}")
