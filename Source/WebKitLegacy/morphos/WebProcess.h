@@ -47,6 +47,8 @@ public:
     void removeWebFrame(WebCore::FrameIdentifier);
     size_t webFrameCount() const { return m_frameMap.size(); }
 
+	WebPage* webPageForHost(const WTF::String &host);
+
 	PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
 	RefPtr<WebCore::NetworkingContext> networkingContext() { return m_dummyNetworkingContext; }
 

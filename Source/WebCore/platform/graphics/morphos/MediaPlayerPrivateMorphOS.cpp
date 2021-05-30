@@ -16,7 +16,8 @@
 #include <exec/exec.h>
 
 #define D(x)
-#define DM(x) 
+#define DM(x)
+#define DMHOST(x) 
 
 namespace WebCore {
 
@@ -112,25 +113,38 @@ public:
 		String host;
 		Page *page = parameters.page;
 		
+		DMHOST(dprintf("%s: page %p\n", __func__, page));
+		
 		if (nullptr == page)
 		{
 			Frame* frame = lexicalFrameFromCommonVM();
+			DMHOST(dprintf("%s: vmframe %p\n", __func__, frame));
 			if (frame)
 			{
 				Document *doc = frame->mainFrame().document();
+				DMHOST(dprintf("%s: doc %p\n", __func__, doc));
 				if (doc)
 				{
 					host = doc->url().host().toString();
 					page = doc->page();
 				}
 			}
+			else if (parameters.url.isValid())
+			{
+				host = parameters.url.host().toString();
+			}
 		}
 		else
 		{
 			Document *doc = page->mainFrame().document();
+			DMHOST(dprintf("%s: doc %p urlvalid %d (%s)\n", __func__, doc, parameters.url.isValid(), parameters.url.string().utf8().data()));
 			if (doc)
 			{
 				host = doc->url().host().toString();
+			}
+			else if (parameters.url.isValid())
+			{
+				host = parameters.url.host().toString();
 			}
 		}
     
@@ -159,7 +173,7 @@ public:
 		if (MediaPlayerMorphOSSettings::settings().m_supportMediaForHost && !parameters.isMediaSource &&
 			!MediaPlayerMorphOSSettings::settings().m_supportMediaForHost(page, host))
 		{
-			DM(dprintf("%s: rejecting due to supportMediaForHost check...\n", __func__));
+			DM(dprintf("%s: rejecting due to supportMediaForHost check on host '%s'...\n", __func__, host.utf8().data()));
 			return MediaPlayer::SupportsType::IsNotSupported;
 		}
 

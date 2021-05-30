@@ -58,7 +58,7 @@ struct Library *FreetypeBase;
 
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x) 
+#define D(x)
 
 // #define VALIDATE_ALLOCS 15.f
 #ifdef VALIDATE_ALLOCS
@@ -1455,9 +1455,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			auto uurl = url.utf8();
 			OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-			[privateObject setHasOnlySecureContent:YES];
-			[privateObject setURL:ourl];
-			[clientDelegate webView:self changedDocumentURL:ourl];
+			if (![[privateObject url] isEqual:ourl])
+			{
+				[privateObject setHasOnlySecureContent:YES];
+				[privateObject setURL:ourl];
+				[clientDelegate webView:self changedDocumentURL:ourl];
+			}
 		};
 		
 		webPage->_fDidStartLoading = [self]() {
@@ -2069,6 +2072,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	auto webPage = [_private page];
 	[_private setURL:url];
+	[[_private clientDelegate] webView:self changedDocumentURL:url];
 	[[_private clientDelegate] webView:self changedTitle:[url absoluteString]];
 	webPage->load(curi);
 }
