@@ -17,11 +17,11 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x)
 #define DR(x)
 #define DM(x)
-#define DI(x) 
-#define DN(x)    
+#define DI(x)
+#define DN(x)
 #define DIO(x)
 #define DIOCC(x)
 #define DBR(x)
@@ -475,7 +475,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 	DI(dprintf("[MS]%s: %p %d\n", __func__, this, success));
 	WTF::callOnMainThread([success, this, protect = makeRef(*this)]() {
 		EP_EVENT(appendComplete);
-		if (m_client && !m_terminating)
+		if (!m_terminating)
 		{
 			MediaSourceChunkReader::MediaSamplesList samples;
 			m_reader->getSamples(samples);
@@ -488,12 +488,13 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 				//m_client->sourceBufferPrivateDidReceiveSample(*sample.get());
 			}
 			
-			if (m_mediaSource && success)
+			if (0 && m_mediaSource && success)
 			{
 				m_mediaSource->onSourceBufferLoadingProgressed();
 			}
 
-			m_client->sourceBufferPrivateAppendComplete(success ? SourceBufferPrivateClient::AppendResult::AppendSucceeded : SourceBufferPrivateClient::AppendResult::ParsingFailed);
+			appendCompleted(success, m_mediaSource ? m_mediaSource->isEnded() : false);
+			// m_client->sourceBufferPrivateAppendComplete(success ? SourceBufferPrivateClient::AppendResult::AppendSucceeded : SourceBufferPrivateClient::AppendResult::ParsingFailed);
 
 #if 0
 			if (m_info.m_duration < m_reader->highestPTS())
@@ -921,9 +922,9 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 		DM(dprintf("[MS] duration %f size %dx%d\n", float(duration), m_info.m_width, m_info.m_height));
 		WTF::callOnMainThread([segment, duration, this, protect = makeRef(*this)]() {
 			DM(dprintf("[MS] calling sourceBufferPrivateDidReceiveInitializationSegment, duration %f size %dx%d\n", float(duration), m_info.m_width, m_info.m_height));
-// TODO: fix me
-//			if (m_client)
-//				m_client->sourceBufferPrivateDidReceiveInitializationSegment(segment);
+			didReceiveInitializationSegment(SourceBufferPrivateClient::InitializationSegment(segment), [this]() {
+				DM(dprintf("[MS] eaten initialization segment!\n"));
+			});
 		});
 
 		m_metaInitDone = true;

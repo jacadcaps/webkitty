@@ -1220,6 +1220,10 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
 	settings.setAnimatedImageAsyncDecodingEnabled(false);
 
+    settings.setWebAnimationsCompositeOperationsEnabled(true);
+    settings.setWebAnimationsMutableTimelinesEnabled(true);
+    settings.setCSSCustomPropertiesAndValuesEnabled(true);
+
 	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
 

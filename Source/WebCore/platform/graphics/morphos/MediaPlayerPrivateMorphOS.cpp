@@ -7,6 +7,8 @@
 #include "MediaSourcePrivateClient.h"
 #include "NotImplemented.h"
 #include "AcinerellaContainer.h"
+#include "AudioTrackPrivateMorphOS.h"
+#include "VideoTrackPrivateMorphOS.h"
 
 #include "HTMLMediaElement.h"
 #include "Frame.h"
@@ -741,6 +743,23 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 
 		m_acInitialized = true;
 		m_player->characteristicChanged();
+
+		// MediaSource has its own track handling!
+		if (m_acinerella)
+		{
+			if (info.m_width)
+			{
+				m_videoTrack = VideoTrackPrivateMorphOS::create(makeWeakPtr(this), 0);
+				m_player->addVideoTrack(*m_videoTrack.get());
+			}
+			
+			if (info.m_channels)
+			{
+				m_audioTrack = AudioTrackPrivateMorphOS::create(makeWeakPtr(this), 0);
+				m_player->addAudioTrack(*m_audioTrack.get());
+			}
+		}
+
 		if (m_prepareToPlay && m_acinerella)
 			m_acinerella->warmUp();
 	#if ENABLE(MEDIA_SOURCE)
@@ -778,9 +797,12 @@ void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 
 void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 {
-	D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
-	m_duration = dur;
-	m_player->durationChanged();
+	if (abs(dur - m_duration) >= 1.0)
+	{
+		D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
+		m_duration = dur;
+		m_player->durationChanged();
+	}
 }
 
 void MediaPlayerPrivateMorphOS::accEnded()

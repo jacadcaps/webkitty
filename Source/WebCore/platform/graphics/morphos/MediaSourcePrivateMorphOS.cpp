@@ -8,7 +8,7 @@
 
 #define USE_WDG
 
-#define D(x)
+#define D(x) 
 #define DDUMP(x) 
 // #pragma GCC optimize ("O0")
 
@@ -76,7 +76,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPr
 
 void MediaSourcePrivateMorphOS::durationChanged(const MediaTime& duration)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+//	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
     if (m_player)
 		m_player->accSetDuration(duration.toDouble());
 }
@@ -401,6 +401,7 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 	if (m_paintingBuffer)
 		m_paintingBuffer->setAudioPresentationTime(position);
 
+#if 0
 	if (position > (duration().toDouble() - 5.0))
 	{
 		// hack, we can only try and simulate an EOS like this :|
@@ -409,7 +410,8 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 			sourceBufferPrivate->signalEOF();
 		}
 	}
-	
+#endif
+
 	m_position = position;
 
 	if (m_clientSeekDone)

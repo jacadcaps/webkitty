@@ -124,6 +124,9 @@ protected:
 	unsigned m_droppedFrameCount = 0;
 	mutable bool  m_didLoadingProgress = false;
 
+	RefPtr<AudioTrackPrivate> m_audioTrack;
+	RefPtr<VideoTrackPrivate> m_videoTrack;
+
 #if ENABLE(MEDIA_SOURCE)
 	RefPtr<MediaSourcePrivateMorphOS> m_mediaSourcePrivate;
 #endif
