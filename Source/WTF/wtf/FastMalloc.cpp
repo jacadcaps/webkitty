@@ -53,6 +53,9 @@
 #if OS(MORPHOS)
 #include <cstdint>
 extern "C" { void dprintf(const char *,... ); }
+#undef CRASH
+extern "C" { void _oomCrash() { std::abort(); }; void oomCrash() __attribute__((weak, alias ("_oomCrash"))); }
+#define CRASH oomCrash
 #endif
 
 namespace WTF {
