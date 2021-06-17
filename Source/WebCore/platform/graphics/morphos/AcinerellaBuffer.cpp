@@ -16,7 +16,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#define D(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -567,9 +567,19 @@ public:
 		}
 		else
 		{
-			if (m_onFinished)
-				m_onFinished(false);
-			m_onFinished = nullptr;
+			onFinished(false);
+		}
+	}
+	
+	void onFinished(bool success)
+	{
+		if (m_onFinished)
+		{
+			Function<void(bool)> onTmpFinished;
+			std::swap(m_onFinished, onTmpFinished);
+			WTF::callOnMainThread([this, success, onFinished(std::move(onTmpFinished)), protect = makeRef(*this)]() {
+				onFinished(success);
+			});
 		}
 	}
 
@@ -636,9 +646,7 @@ public:
 
 				if (m_redirectCount++ > maxRedirects)
 				{
-					if (m_onFinished)
-						m_onFinished(false);
-					m_onFinished = nullptr;
+					onFinished(false);
 					return;
 				}
 
@@ -670,9 +678,7 @@ public:
 				}
 				else
 				{
-					if (m_onFinished)
-						m_onFinished(false);
-					m_onFinished = nullptr;
+					onFinished(false);
 				}
 
 				D(dprintf("%s(%p): redirected to %s\n", __PRETTY_FUNCTION__, this, location.utf8().data()));
@@ -703,9 +709,7 @@ public:
 		D(dprintf("%s(%p): %s %d OK %d onfini %d\n", __PRETTY_FUNCTION__, this, m_url.utf8().data(), m_buffer?m_buffer->size():0, m_curlRequest.get() == &request, !!m_onFinished));
 		if (m_curlRequest.get() == &request)
 		{
-			if (m_onFinished)
-				m_onFinished(true);
-			m_onFinished = nullptr;
+			onFinished(true);
 		}
 	}
 	
@@ -714,9 +718,7 @@ public:
 		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 		if (m_curlRequest.get() == &request)
 		{
-			if (m_onFinished)
-				m_onFinished(false);
-			m_onFinished = nullptr;
+			onFinished(false);
 		}
 	}
 
