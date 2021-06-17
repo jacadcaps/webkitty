@@ -1244,6 +1244,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
        settings.setVideoPlaybackRequiresUserGesture(true);
 #endif
 
+	m_page->effectiveAppearanceDidChange(m_darkMode, false);
+
     // m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
 //    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
 
@@ -1487,6 +1489,20 @@ bool WebPage::thirdPartyCookiesAllowed() const
 void WebPage::setThirdPartyCookiesAllowed(bool blocked)
 {
 	m_page->settings().setIsThirdPartyCookieBlockingDisabled(blocked);
+}
+
+bool WebPage::darkModeEnabled() const
+{
+	return m_darkMode;
+}
+
+void WebPage::setDarkModeEnabled(bool enabled)
+{
+	if (enabled != m_darkMode)
+	{
+		m_darkMode = enabled;
+		m_page->effectiveAppearanceDidChange(m_darkMode, false);
+	}
 }
 
 void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
@@ -2824,10 +2840,6 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			else if (imsg->Code == SELECTDOWN || imsg->Code == MIDDLEDOWN)
 				m_clickCount ++;
 			
-			WebCore::SyntheticClickType clickType = WebCore::SyntheticClickType::NoTap;
-			if (imsg->Code == SELECTDOWN)
-				clickType = WebCore::SyntheticClickType::OneFingerTap;
-
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),
 				WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
@@ -2839,8 +2851,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
 				(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0,
 				WTF::WallTime::fromRawSeconds(imsg->Seconds),
-				0.0,
-				clickType);
+				imsg->Class == IDCMP_MOUSEBUTTONS ? WebCore::ForceAtClick : 0.0,
+				WebCore::SyntheticClickType::NoTap);
 			
 			m_lastQualifier = imsg->Qualifier;
 

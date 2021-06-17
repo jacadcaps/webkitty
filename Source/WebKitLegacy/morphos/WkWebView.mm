@@ -57,6 +57,7 @@ struct Library *FreetypeBase;
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
 
 extern "C" { void dprintf(const char *, ...); }
+extern "C" { void _oomCrash(); }
 
 #define D(x)
 
@@ -464,16 +465,17 @@ namespace  {
 		{
 			static double divider = (double)_drawTimeBase;
 			double interval = _drawTime;
+			double timeSinceLast = (__builtin_ppc_get_timebase() - _drawTimeLast);
+
 			interval /= divider;
+			timeSinceLast /= divider;
+
 			interval *= 3.0;
 
-			double timeSinceLast = (__builtin_ppc_get_timebase() - _drawTimeLast);
-			timeSinceLast /= divider;
 			if (timeSinceLast > interval || interval < 0.016)
 				interval = 0.016;
 			if (interval > 0.7)
 				interval = 0.7;
-
 			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:_paintPerform repeats:NO] retain];
 		}
 	}
@@ -1321,6 +1323,20 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
 			if (dummysurface)
 				cairo_surface_destroy(dummysurface);
+			
+			std::set_terminate([]{
+				auto const ep = std::current_exception();
+				try {
+					std::rethrow_exception(ep);
+				} catch (const std::bad_alloc &) {
+					_oomCrash();
+				} catch (const std::exception &e) {
+					dprintf("WkWebView: uncaught exception '%s'\n", e.what());
+				}
+				catch (...) {
+				}
+				abort();
+			});
 			
 			_signalHandler = [OBSignalHandler new];
 			[_signalHandler setDelegate:(id)[self class]];
@@ -2311,6 +2327,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setOfflineWebApplicationCacheEnabled:webPage->offlineCacheEnabled()];
 	[settings setInvisiblePlaybackNotAllowed:webPage->invisiblePlaybackNotAllowed()];
 	[settings setRequiresUserGestureForMediaPlayback:webPage->requiresUserGestureForMediaPlayback()];
+	[settings setDarkModeEnabled:webPage->darkModeEnabled()];
 #if ENABLE(VIDEO)
 	[settings setMediaEnabled:[_private mediaEnabled]];
 	[settings setMediaSourceEnabled:[_private mediaSourceEnabled]];
@@ -2334,6 +2351,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setOfflineCacheEnabled([settings offlineWebApplicationCacheEnabled]);
 	webPage->setInvisiblePlaybackNotAllowed([settings invisiblePlaybackNotAllowed]);
 	webPage->setRequiresUserGestureForMediaPlayback([settings requiresUserGestureForMediaPlayback]);
+	webPage->setDarkModeEnabled([settings darkModeEnabled]);
 
 	[_private setThrottling:[settings throttling]];
 	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];
@@ -2445,7 +2463,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (BOOL)draw:(ULONG)flags
 {
 	EP_SCOPE(draw);
-	UQUAD drawStartTS = __builtin_ppc_get_timebase();
 
 	[super draw:flags];
 	
@@ -2459,6 +2476,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setVisibleSize(int(iw), int(ih));
 	EP_END(setVisibleSize);
 	
+	UQUAD drawStartTS = __builtin_ppc_get_timebase();
 	WkPrintingStatePrivate *printingState = [_private printingState];
 	if (printingState)
 	{
@@ -2483,7 +2501,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	}
 
 	UQUAD drawEndTS = __builtin_ppc_get_timebase();
-	[_private drawFinishedIn:(UQUAD)drawEndTS - drawStartTS];
+	[_private drawFinishedIn:drawEndTS - drawStartTS];
 #if ENABLE(VIDEO)
 	[_private setWindow:[self window]];
 #endif

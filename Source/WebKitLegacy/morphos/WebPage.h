@@ -92,6 +92,9 @@ public:
 	bool thirdPartyCookiesAllowed() const;
 	void setThirdPartyCookiesAllowed(bool blocked);
 
+	bool darkModeEnabled() const;
+	void setDarkModeEnabled(bool enabled);
+
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
@@ -309,6 +312,7 @@ private:
     bool m_needsCompositingFlush { false };
     bool m_transitioning { false };
     bool m_cursorOverLink { false };
+    bool m_darkMode { false };
     RefPtr<WebCore::Element> m_focusedElement;
     RefPtr<WebCore::Element> m_fullscreenElement;
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };

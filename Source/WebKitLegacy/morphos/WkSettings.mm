@@ -54,6 +54,7 @@ namespace WebCore {
 	bool _vp9;
 	bool _hls;
 	bool _hvc;
+	bool _darkMode;
 }
 @end
 
@@ -280,6 +281,16 @@ namespace WebCore {
 	_loopFilter = filterskip;
 }
 
+- (BOOL)darkModeEnabled
+{
+	return _darkMode;
+}
+
+- (void)setDarkModeEnabled:(BOOL)enabled
+{
+	_darkMode = enabled;
+}
+
 @end
 
 @implementation WkSettings
@@ -468,6 +479,15 @@ namespace WebCore {
 }
 
 - (void)setLoopFilter:(WkSettings_LoopFilter)filterskip
+{
+}
+
+- (BOOL)darkModeEnabled
+{
+	return NO;
+}
+
+- (void)setDarkModeEnabled:(BOOL)enabled
 {
 }
 

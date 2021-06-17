@@ -106,6 +106,9 @@ typedef enum {
 - (WkSettings_LoopFilter)loopFilter;
 - (void)setLoopFilter:(WkSettings_LoopFilter)loopFilter;
 
+- (BOOL)darkModeEnabled;
+- (void)setDarkModeEnabled:(BOOL)enabled;
+
 @end
 
 typedef enum
