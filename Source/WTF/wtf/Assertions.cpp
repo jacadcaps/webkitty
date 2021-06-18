@@ -67,7 +67,7 @@
 #endif
 
 #if OS(MORPHOS)
-extern "C" { void dprintf(const char *,...); }
+extern "C" { void vdprintf(const char *, va_list); }
 #endif
 
 namespace WTF {
@@ -174,9 +174,7 @@ static void vprintf_stderr_common(const char* format, va_list args)
     }
 #endif
 #if OS(MORPHOS)
-	char buffer[4096];
-	vsnprintf(buffer, sizeof(buffer), format, args);
-	dprintf(buffer);
+	vdprintf(format, args);
 	return;
 #endif
     vfprintf(stderr, format, args);
