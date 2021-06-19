@@ -312,6 +312,7 @@ namespace  {
 	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
 	WebCore::Element                       *_overlayElement;
 	void                                   *_overlayPlayer;
+	OBScheduledTimer                       *_overlayTimer;
 	WkSettings_LoopFilter                   _loopFilter;
 	bool                                    _mediaEnabled;
 	bool                                    _mediaSourceEnabled;
@@ -943,6 +944,9 @@ namespace  {
 	{
 		_overlayCallback = nullptr;
 		_overlayElement = nullptr;
+		[_overlayTimer invalidate];
+		[_overlayTimer release];
+		_overlayTimer = nil;
 	}
 }
 
@@ -985,8 +989,15 @@ namespace  {
 	_overlayCallback = WTFMove(cb);
 	_overlayElement = element;
 	
+	[_overlayTimer invalidate];
+	[_overlayTimer release];
+	if (element)
+		_overlayTimer = [[OBScheduledTimer scheduledTimerWithInterval:5.0 perform:[OBPerform performSelector:@selector(callOverlayCallback) target:self] repeats:YES] retain];
+	else
+		_overlayTimer = nil;
+
 	[self callOverlayCallback];
-	
+
 	// Workaround some positioning issues
 	[[OBRunLoop mainRunLoop] performSelector:@selector(callOverlayCallback) target:self];
 }
