@@ -1,6 +1,6 @@
 diff -ruN ffmpeg-4.4_orig/configure ffmpeg-4.4_new/configure
 --- ffmpeg-4.4_orig/configure	2021-04-08 23:28:39.000000000 +0200
-+++ ffmpeg-4.4_new/configure	2021-05-12 21:26:00.061832710 +0200
++++ ffmpeg-4.4_new/configure	2021-06-21 14:52:07.420419287 +0200
 @@ -5269,7 +5269,7 @@
  # some compilers silently accept -std=c11, so we also need to check that the
  # version macro is defined properly
@@ -12,7 +12,7 @@ diff -ruN ffmpeg-4.4_orig/configure ffmpeg-4.4_new/configure
  check_cppflags -D_FILE_OFFSET_BITS=64
 diff -ruN ffmpeg-4.4_orig/libavcodec/decode.c ffmpeg-4.4_new/libavcodec/decode.c
 --- ffmpeg-4.4_orig/libavcodec/decode.c	2021-04-08 23:28:39.000000000 +0200
-+++ ffmpeg-4.4_new/libavcodec/decode.c	2021-05-13 17:17:07.615543477 +0200
++++ ffmpeg-4.4_new/libavcodec/decode.c	2021-06-21 14:52:07.420419287 +0200
 @@ -510,7 +510,9 @@
      }
  
@@ -35,9 +35,35 @@ diff -ruN ffmpeg-4.4_orig/libavcodec/decode.c ffmpeg-4.4_new/libavcodec/decode.c
  
      if (avctx->codec->receive_frame) {
          ret = avctx->codec->receive_frame(avctx, frame);
+diff -ruN ffmpeg-4.4_orig/libavcodec/h264_slice.c ffmpeg-4.4_new/libavcodec/h264_slice.c
+--- ffmpeg-4.4_orig/libavcodec/h264_slice.c	2021-04-08 23:28:39.000000000 +0200
++++ ffmpeg-4.4_new/libavcodec/h264_slice.c	2021-06-21 14:54:05.964387342 +0200
+@@ -188,7 +188,9 @@
+ {
+     int i, ret = 0;
+ 
+-    av_assert0(!pic->f->data[0]);
++    // av_assert0(!pic->f->data[0]);
++    if (!h || !pic || !pic->f || !pic->f->data[0])
++        goto fail;
+ 
+     pic->tf.f = pic->f;
+     ret = ff_thread_get_buffer(h->avctx, &pic->tf, pic->reference ?
+diff -ruN ffmpeg-4.4_orig/libavutil/mem.c ffmpeg-4.4_new/libavutil/mem.c
+--- ffmpeg-4.4_orig/libavutil/mem.c	2020-07-11 12:39:30.000000000 +0200
++++ ffmpeg-4.4_new/libavutil/mem.c	2021-06-21 15:03:05.092761656 +0200
+@@ -228,7 +228,7 @@
+ void av_freep(void *arg)
+ {
+     void *val;
+-
++    if (!arg) return;
+     memcpy(&val, arg, sizeof(val));
+     memcpy(arg, &(void *){ NULL }, sizeof(val));
+     av_free(val);
 diff -ruN ffmpeg-4.4_orig/libavutil/ppc/cpu.c ffmpeg-4.4_new/libavutil/ppc/cpu.c
 --- ffmpeg-4.4_orig/libavutil/ppc/cpu.c	2020-07-09 11:17:46.000000000 +0200
-+++ ffmpeg-4.4_new/libavutil/ppc/cpu.c	2021-05-12 21:26:00.061832710 +0200
++++ ffmpeg-4.4_new/libavutil/ppc/cpu.c	2021-06-21 14:52:07.420419287 +0200
 @@ -31,6 +31,11 @@
  #include <sys/param.h>
  #include <sys/sysctl.h>
@@ -68,7 +94,7 @@ diff -ruN ffmpeg-4.4_orig/libavutil/ppc/cpu.c ffmpeg-4.4_new/libavutil/ppc/cpu.c
      int sels[2] = {CTL_MACHDEP, CPU_ALTIVEC};
 diff -ruN ffmpeg-4.4_orig/libswscale/ppc/yuv2rgb_altivec.c ffmpeg-4.4_new/libswscale/ppc/yuv2rgb_altivec.c
 --- ffmpeg-4.4_orig/libswscale/ppc/yuv2rgb_altivec.c	2021-04-08 23:28:40.000000000 +0200
-+++ ffmpeg-4.4_new/libswscale/ppc/yuv2rgb_altivec.c	2021-05-12 21:26:00.057832687 +0200
++++ ffmpeg-4.4_new/libswscale/ppc/yuv2rgb_altivec.c	2021-06-21 14:52:07.420419287 +0200
 @@ -89,6 +89,7 @@
  #include <stdlib.h>
  #include <string.h>
