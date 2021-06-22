@@ -44,7 +44,7 @@ diff -ruN ffmpeg-4.4_orig/libavcodec/h264_slice.c ffmpeg-4.4_new/libavcodec/h264
  
 -    av_assert0(!pic->f->data[0]);
 +    // av_assert0(!pic->f->data[0]);
-+    if (!h || !pic || !pic->f || !pic->f->data[0])
++    if (!h || !pic || !pic->f || pic->f->data[0])
 +        goto fail;
  
      pic->tf.f = pic->f;
