@@ -275,6 +275,8 @@ void AcinerellaNetworkBufferHLS::stop()
 	D(dprintf("%s(%p) \n", __func__, this));
 	m_stopping = true;
 
+	m_playlistRefreshTimer.stop();
+
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
 	m_hlsRequest = nullptr;
@@ -305,7 +307,7 @@ void AcinerellaNetworkBufferHLS::stop()
 void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 {
 	D(dprintf("%s(%p) \n", __func__, this));
-	if (succ && m_hlsRequest)
+	if (succ && m_hlsRequest && !m_stopping)
 	{
 		auto buffer = m_hlsRequest->buffer();
 		m_hlsRequest->cancel();
@@ -340,7 +342,7 @@ void AcinerellaNetworkBufferHLS::selectStream(const HLSStreamInfo &stream)
 void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 {
 	D(dprintf("%s(%p) \n", __func__, this));
-	if (succ && m_hlsRequest)
+	if (succ && m_hlsRequest && !m_stopping)
 	{
 		auto buffer = m_hlsRequest->buffer();
 		m_hlsRequest->cancel();
