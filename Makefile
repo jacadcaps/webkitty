@@ -221,11 +221,11 @@ putrelease: minirelease
 	scp webkitty.lha jaca@tunkki.dk:/home/jaca/public_html
 
 LINKFILES := \
-	cross-build-mini/Source/WebKitLegacy/libWebKit.a \
-	cross-build-mini/Source/WebCore/libWebCore.a \
-	cross-build-mini/Source/WebCore/PAL/pal/libPAL.a \
-	cross-build-mini/Source/JavaScriptCore/libJavaScriptCore.a \
-	cross-build-mini/Source/WTF/wtf/libWTF.a \
+	cross-build-mini/lib/libWebKit.a \
+	cross-build-mini/lib/libWebCore.a \
+	cross-build-mini/lib/libPAL.a \
+	cross-build-mini/lib/libJavaScriptCore.a \
+	cross-build-mini/lib/libWTF.a \
 	$(ROOTPATH)/lib/libxml2/instdir/lib/libxml2.a \
 	$(ROOTPATH)/lib/libxslt/instdir/lib/libxslt.a \
 	$(ROOTPATH)/lib/sqlite/instdir/lib/libsqlite3.a \
