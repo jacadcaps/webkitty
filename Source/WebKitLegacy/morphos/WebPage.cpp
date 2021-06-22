@@ -1203,12 +1203,12 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	settings.setWebGLEnabled(false);
 
-	settings.setWebAudioEnabled(true);
-	settings.setMediaEnabled(true);
 
 //     settings.setStorageBlockingPolicy(SecurityOrigin::StorageBlockingPolicy::BlockAllStorage);
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 #if (!MORPHOS_MINIMAL)
+	settings.setWebAudioEnabled(true);
+	settings.setMediaEnabled(true);
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);
 #endif
@@ -3118,7 +3118,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke, WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch);
+					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForBlockingDOMEventDispatch });
 					if (!handled)
 						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
 
@@ -3147,7 +3147,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::RequestType> hitType { WebCore::HitTestRequest::ReadOnly, WebCore::HitTestRequest::Active, WebCore::HitTestRequest::DisallowUserAgentShadowContent, WebCore::HitTestRequest::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke, WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch);
+					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForBlockingDOMEventDispatch });
 					if (!handled)
 						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
 

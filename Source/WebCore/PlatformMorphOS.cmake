@@ -94,17 +94,16 @@ if (NOT MORPHOS_MINIMAL)
 		platform/graphics/morphos/MediaDescriptionMorphOS.cpp
 		platform/graphics/morphos/MediaSampleMorphOS.cpp
 	)
-
-	list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.css
-		${WEBCORE_DIR}/css/themeAdwaita.css
-	)
-
-	set(WebCore_USER_AGENT_SCRIPTS
-		${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.js
-	)
-
-	set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/rendering/RenderThemeAdwaita.cpp)
 endif()
+
+list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
+	${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.css
+	${WEBCORE_DIR}/css/themeAdwaita.css
+)
+
+set(WebCore_USER_AGENT_SCRIPTS
+	${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.js
+)
+set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/rendering/RenderThemeAdwaita.cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os -DMORPHOS_MINIMAL=${MORPHOS_MINIMAL}")
