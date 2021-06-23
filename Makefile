@@ -240,9 +240,9 @@ LINKFILES := \
 	$(ROOTPATH)/gen/host/libnix/libpng16/lib/libpng16.a  \
 	$(ROOTPATH)/gen/host/libnix/lib/libhyphen.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libcrypto.a \
-	$(ROOTPATH)/lib/libicu/instdir/lib/libicui18n.a \
-	$(ROOTPATH)/lib/libicu/instdir/lib/libicuuc.a \
-	$(ROOTPATH)/lib/libicu/instdir/lib/libicudata.a \
+	$(ROOTPATH)/lib/libicu67/instdir/lib/libicui18n.a \
+	$(ROOTPATH)/lib/libicu67/instdir/lib/libicuuc.a \
+	$(ROOTPATH)/lib/libicu67/instdir/lib/libicudata.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a
