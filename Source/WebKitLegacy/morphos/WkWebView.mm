@@ -70,6 +70,7 @@ namespace  {
 	static int _viewInstanceCount;
 	static bool _shutdown;
 	static bool _readyToQuitPending;
+	static int  _readyToQuitCount;
 	static bool _initializedOK;
 	static OBSignalHandler *_signalHandler;
 	static OBScheduledTimer *_heartBeatTimer;
@@ -1240,8 +1241,10 @@ static inline void validateObjCContext() {
 			}
 		}
 		_readyToQuitPending = YES;
+		_readyToQuitCount ++;
+
 		if (_viewInstanceCount == 0 &&
-			WebKit::WebProcess::singleton().webFrameCount() == 0)
+			(WebKit::WebProcess::singleton().webFrameCount() == 0 || _readyToQuitCount >= 3))
 		{
 			_readyToQuitPending = NO;
 			_shutdown = YES;
@@ -1315,21 +1318,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		FreetypeBase = OpenLibrary("freetype.library", 0);
 		if (FreetypeBase)
 		{
-			BPTR icuDir = Lock("MOSSYS:Data/ICU/icudt54b", ACCESS_READ);
-			if (0 == icuDir)
-			{
-				[MUIRequest request:nil title:@"WebKit Installation Error"
-					message:@"ICU data files must be present in MOSSYS:Data/ICU/icudt54b"
-					buttons:[OBArray arrayWithObject:@"Exit"]];
-				CloseLibrary(FreetypeBase);
-				FreetypeBase = NULL;
-				return;
-			}
-			else
-			{
-				UnLock(icuDir);
-			}
-			
 			// MUST be done before 1st WebPage is instantiated!
 			cairo_surface_t *dummysurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
 			if (dummysurface)
