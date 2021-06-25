@@ -507,6 +507,8 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
 
     // Write the decoded row pixels to the frame buffer.
     auto* address = buffer.backingStore()->pixelAt(0, rowIndex);
+    if (!address)
+        return;
     int width = size().width();
     unsigned char nonTrivialAlphaMask = 0;
 
