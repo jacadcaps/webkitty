@@ -86,6 +86,9 @@ RenderTheme& RenderTheme::singleton()
 
 bool RenderThemeAdwaita::supportsFocusRing(const RenderStyle& style) const
 {
+#if OS(MORPHOS)
+	return false;
+#else
     switch (style.appearance()) {
     case PushButtonPart:
     case ButtonPart:
@@ -103,6 +106,7 @@ bool RenderThemeAdwaita::supportsFocusRing(const RenderStyle& style) const
     }
 
     return false;
+#endif
 }
 
 bool RenderThemeAdwaita::shouldHaveCapsLockIndicator(const HTMLInputElement& element) const
@@ -184,8 +188,10 @@ bool RenderThemeAdwaita::paintTextField(const RenderObject& renderObject, const 
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
     int borderSize = textFieldBorderSize;
+#if !OS(MORPHOS)
     if (isEnabled(renderObject) && !isReadOnlyControl(renderObject) && isFocused(renderObject))
         borderSize *= 2;
+#endif
 
     FloatRect fieldRect = rect;
     FloatSize corner(5, 5);
@@ -197,8 +203,10 @@ bool RenderThemeAdwaita::paintTextField(const RenderObject& renderObject, const 
     graphicsContext.setFillRule(WindRule::EvenOdd);
     if (!isEnabled(renderObject) || isReadOnlyControl(renderObject))
         graphicsContext.setFillColor(textFieldBorderDisabledColor);
+#if !OS(MORPHOS)
     else if (isFocused(renderObject))
         graphicsContext.setFillColor(activeSelectionBackgroundColor({ }));
+#endif
     else
         graphicsContext.setFillColor(textFieldBorderColor);
     graphicsContext.fillPath(path);
@@ -292,8 +300,10 @@ bool RenderThemeAdwaita::paintMenuList(const RenderObject& renderObject, const P
         ThemeAdwaita::paintArrow(graphicsContext, ThemeAdwaita::ArrowDirection::Down);
     }
 
+#if !OS(MORPHOS)
     if (isFocused(renderObject))
         ThemeAdwaita::paintFocus(graphicsContext, rect, menuListButtonFocusOffset);
+#endif
 
     return false;
 }
@@ -445,8 +455,10 @@ bool RenderThemeAdwaita::paintSliderTrack(const RenderObject& renderObject, cons
     paintSliderTicks(renderObject, paintInfo, rect);
 #endif
 
+#if !OS(MORPHOS)
     if (isFocused(renderObject))
         ThemeAdwaita::paintFocus(graphicsContext, fieldRect, sliderTrackFocusOffset);
+#endif
 
     return false;
 }
