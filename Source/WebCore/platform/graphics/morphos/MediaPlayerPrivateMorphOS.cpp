@@ -481,6 +481,31 @@ FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
 	return { float(m_width), float(m_height) };
 }
 
+float MediaPlayerPrivateMorphOS::duration() const
+{
+	return durationDouble();
+}
+
+double MediaPlayerPrivateMorphOS::durationDouble() const
+{
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->duration().toDouble();
+#endif
+	return m_duration;
+}
+
+MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
+{
+	if (m_acinerella && m_acinerella->isLive())
+		return MediaTime::invalidTime();
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		return m_mediaSourcePrivate->duration();
+#endif
+	return MediaTime::createWithDouble(durationDouble());
+}
+
 bool MediaPlayerPrivateMorphOS::hasVideo() const
 {
 	if (m_acinerella)
@@ -695,13 +720,6 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 	return 0.f;
 }
 
-MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
-{
-	if (m_acinerella && m_acinerella->isLive())
-		return MediaTime::invalidTime();
-	return MediaTime::createWithDouble(durationDouble());
-}
-
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
     // We cannot meaningfully do this for MediaSource!
@@ -797,6 +815,13 @@ void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 
 void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 {
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+	{
+		m_player->durationChanged();
+		return;
+	}
+#endif
 	if (abs(dur - m_duration) >= 1.0)
 	{
 		D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));

@@ -6,6 +6,8 @@
 #include "MediaSourcePrivateClient.h"
 #include "MediaPlayerPrivateMorphOS.h"
 
+#include <proto/exec.h>
+
 #define USE_WDG
 
 #define D(x) 
@@ -76,7 +78,6 @@ void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPr
 
 void MediaSourcePrivateMorphOS::durationChanged(const MediaTime& duration)
 {
-//	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
     if (m_player)
 		m_player->accSetDuration(duration.toDouble());
 }
@@ -448,7 +449,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
         m_activeSourceBuffers.add(buffer);
         if (m_player)
 			m_player->onActiveSourceBuffersChanged();
-        durationChanged(duration());
+//        durationChanged(duration());
         if (!m_paused)
         {
 			m_waitReady = true;

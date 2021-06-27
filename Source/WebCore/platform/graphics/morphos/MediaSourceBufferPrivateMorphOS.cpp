@@ -17,7 +17,7 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DR(x)
 #define DM(x)
 #define DI(x)
@@ -25,7 +25,7 @@
 #define DIO(x)
 #define DIOCC(x)
 #define DBR(x)
-#define DRMS(x) 
+#define DRMS(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -496,15 +496,10 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 			appendCompleted(success, m_mediaSource ? m_mediaSource->isEnded() : false);
 			// m_client->sourceBufferPrivateAppendComplete(success ? SourceBufferPrivateClient::AppendResult::AppendSucceeded : SourceBufferPrivateClient::AppendResult::ParsingFailed);
 
-#if 0
 			if (m_info.m_duration < m_reader->highestPTS())
 			{
 				m_info.m_duration = m_reader->highestPTS();
-				RefPtr<MediaSourceBufferPrivateMorphOS> me = makeRef(*this);
-				if (m_mediaSource)
-					m_mediaSource->onSourceBufferChangedDuration(me, m_info.m_duration);
 			}
-#endif
 		}
 	});
 }
@@ -1086,9 +1081,14 @@ void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedPosition(RefPtr<Acinerella
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder>, double)
+void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder>, double duration)
 {
 	// live streams
+}
+
+MediaTime MediaSourceBufferPrivateMorphOS::duration() const
+{
+	return MediaTime::createWithDouble(m_info.m_duration);
 }
 
 void MediaSourceBufferPrivateMorphOS::onDecoderEnded(RefPtr<Acinerella::AcinerellaDecoder> decoder)

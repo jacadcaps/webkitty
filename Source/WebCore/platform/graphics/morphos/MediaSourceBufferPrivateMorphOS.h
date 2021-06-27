@@ -144,7 +144,12 @@ private:
     void setActive(bool) override;
     void notifyClientWhenReadyForMoreSamples(const AtomString&)  override;
     bool canSetMinimumUpcomingPresentationTime(const AtomString&) const override;
-	
+
+//	bool isActive() const override { return m_isActive; }
+//	bool isSeeking() const override { return m_seeking; }
+//	MediaTime currentMediaTime() const override { return { }; }
+	MediaTime duration() const override;
+
 	void flush();
 	void becomeReadyForMoreSamples(int decoderIndex);
 
@@ -197,6 +202,7 @@ private:
 	bool                                          m_readyForMoreSamples = true;
 	bool                                          m_requestedMoreFrames = false;
     bool                                          m_enqueuedSamples = false;
+    bool                                          m_isActive = false;
 	
 	bool                                          m_seeking = false;
 	double                                        m_seekTime;

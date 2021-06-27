@@ -49,8 +49,8 @@ public:
     void pause() final;
     FloatSize naturalSize() const final;
 
-    float duration() const final { return m_duration; }
-    double durationDouble() const final { return m_duration; }
+    float duration() const final;
+    double durationDouble() const final;
     MediaTime durationMediaTime() const final;
 
     unsigned decodedFrameCount() const { return m_decodedFrameCount; }
