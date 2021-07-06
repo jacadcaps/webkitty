@@ -35,9 +35,21 @@ diff -ruN ffmpeg-4.4_orig/libavcodec/decode.c ffmpeg-4.4_new/libavcodec/decode.c
  
      if (avctx->codec->receive_frame) {
          ret = avctx->codec->receive_frame(avctx, frame);
+diff -ruN ffmpeg-4.4_orig/libavcodec/error_resilience.c ffmpeg-4.4_new/libavcodec/error_resilience.c
+--- ffmpeg-4.4_orig/libavcodec/error_resilience.c	2020-07-09 11:17:46.000000000 +0200
++++ ffmpeg-4.4_new/libavcodec/error_resilience.c	2021-07-06 18:29:01.671671309 +0200
+@@ -622,7 +622,7 @@
+ 
+                 best_pred = 0;
+                 best_score = 256 * 256 * 256 * 64;
+-                for (j = 0; j < pred_count; j++) {
++                for (j = 0; j < pred_count && s->cur_pic.f; j++) {
+                     int *linesize = s->cur_pic.f->linesize;
+                     int score = 0;
+                     uint8_t *src = s->cur_pic.f->data[0] +
 diff -ruN ffmpeg-4.4_orig/libavcodec/h264_slice.c ffmpeg-4.4_new/libavcodec/h264_slice.c
 --- ffmpeg-4.4_orig/libavcodec/h264_slice.c	2021-04-08 23:28:39.000000000 +0200
-+++ ffmpeg-4.4_new/libavcodec/h264_slice.c	2021-06-21 14:54:05.964387342 +0200
++++ ffmpeg-4.4_new/libavcodec/h264_slice.c	2021-07-06 16:41:48.481337757 +0200
 @@ -188,7 +188,9 @@
  {
      int i, ret = 0;
