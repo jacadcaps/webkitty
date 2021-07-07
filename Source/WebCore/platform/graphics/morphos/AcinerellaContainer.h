@@ -130,7 +130,7 @@ protected:
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;
 	RefPtr<AcinerellaDecoder>        m_videoDecoder;
 
-	double                           m_duration;
+	double                           m_duration = 0.0;
 	double                           m_position;
 	double                           m_volume = 1.f;
 	double                           m_seekingPosition;

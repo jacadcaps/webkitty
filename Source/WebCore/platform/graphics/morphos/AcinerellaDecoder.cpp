@@ -290,20 +290,11 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 
 void AcinerellaDecoder::dropUntilPTS(double pts)
 {
-	EP_SCOPE(untilBufferFull);
-
 	DBF(dprintf("[%s]%s: %p - start!\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 
+	m_dropToPTS = pts;
 	m_droppingFrames = true;
 	m_droppingUntilKeyFrame = false;
-	m_dropToPTS = pts;
-
-#if 0
-	while (!m_terminating && (m_droppingFrames || m_droppingUntilKeyFrame))
-		decodeNextFrame();
-#endif // will busyloop in some cases
-	decodeUntilBufferFull();
-
 }
 
 void AcinerellaDecoder::flush()

@@ -139,6 +139,13 @@ MediaTime MediaSourcePrivateMorphOS::duration()
 	return m_client->duration();
 }
 
+MediaTime MediaSourcePrivateMorphOS::currentMediaTime()
+{
+	if (m_player)
+		return MediaTime::createWithFloat(m_player->currentTime());
+	return { };
+}
+
 bool MediaSourcePrivateMorphOS::isLiveStream() const
 {
 	return std::isinf(m_client->duration().toFloat());

@@ -282,8 +282,16 @@ void AcinerellaAudioDecoder::ahiCleanup()
 
 void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
-	m_bufferedSamples += frame.frame()->buffer_size / 4; // 16bitStereo = 4BPF
+	auto *avframe = frame.frame();
+	m_bufferedSamples += avframe->buffer_size / 4; // 16bitStereo = 4BPF
 	m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
+
+	if (m_isLive && avframe->timecode <= 0.0)
+	{
+		auto *nonconstframe = const_cast<ac_decoder_frame *>(avframe);
+		nonconstframe->timecode = m_liveTimeCode;
+		m_liveTimeCode += (double((avframe->buffer_size / 4)) / double(m_audioRate));
+	}
 
 	DSPAM(dprintf("[AD]%s: buffered %f\n", __func__, m_bufferedSeconds));
 }
@@ -311,6 +319,7 @@ void AcinerellaAudioDecoder::flush()
 	m_bufferedSeconds = 0;
 	m_bufferedSamples = 0;
 	m_didFlushBuffers = true;
+	m_position = 0;
 
 	if (m_ahiControl)
 	{
@@ -380,6 +389,16 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 		while (!m_decodedFrames.empty() && bytesLeft)
 		{
 			const auto *frame = m_decodedFrames.front().frame();
+
+			if (!m_isLive && m_position > frame->timecode)
+			{
+				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
+				m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
+				m_decodedFrames.pop();
+				didPopFrames = true;
+				continue;
+			}
+
 			size_t copyBytes = std::min(frame->buffer_size - m_ahiFrameOffset, bytesLeft);
 			
 			DSPAM(dprintf("[AD]%s: cb %d of %d afo %d bs %d\n", __func__, copyBytes, offset, m_ahiFrameOffset, frame->buffer_size));
@@ -427,7 +446,8 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				}
 #endif
 
-	if (m_isLive)
+#if 0 // not needed anymore since frames are timestamped in lives now
+	if (0 && m_isLive)
 	{
 		if (didPopFrames)
 		{
@@ -442,6 +462,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 		}
 	}
 	else
+#endif
 	{
 		double positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
 		

@@ -92,6 +92,7 @@ protected:
 	double          m_position = 0.f;
 	double          m_fps;
 	double          m_frameDuration;
+	double          m_liveTimeCode = 0.0;
 
 	Lock            m_audioLock;
 	double          m_audioPosition = 0.0;

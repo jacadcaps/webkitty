@@ -39,6 +39,7 @@ public:
     bool isLiveStream() const;
 
     MediaTime duration();
+    MediaTime currentMediaTime();
     std::unique_ptr<PlatformTimeRanges> buffered();
 
 	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings();

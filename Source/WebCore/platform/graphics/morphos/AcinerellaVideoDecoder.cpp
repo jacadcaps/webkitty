@@ -27,8 +27,8 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x) 
-#define DSYNC(x)
+#define D(x)
+#define DSYNC(x) 
 #define DOVL(x)
 #define DFRAME(x) 
 
@@ -167,7 +167,15 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 {
 	m_bufferedSeconds += m_frameDuration;
 	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f pts %f]\033[0m\n", __func__, this, float(m_bufferedSeconds), float(frame.pts())));
-	(void)frame;
+
+	auto *avframe = frame.frame();
+	if (m_isLive && avframe->timecode <= 0.0)
+	{
+		auto *nonconstframe = const_cast<ac_decoder_frame *>(avframe);
+		nonconstframe->timecode = m_liveTimeCode;
+		m_liveTimeCode += m_frameDuration;
+	}
+
 	m_pullEvent.signal();
 	if (!m_didShowFirstFrame && m_overlayHandle)
 	{
@@ -216,6 +224,10 @@ bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 	{
 		// Audio should be here...
 		time = m_audioPosition + (MonotonicTime::now() - m_audioPositionRealTime).value();
+		
+		// In case of a stall, don't over-report the audio position, but cause a stall on the video pipeline too!
+		time = std::min(time, m_audioPosition + 1.5);
+		
 		return true;
 	}
 	
@@ -601,7 +613,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 		if ((!m_didShowFirstFrame || m_playing) && !m_terminating && m_overlayHandle)
 #endif
 		{
-			D(dprintf("\033[36m[VD]%s: %p nf\033[0m\n", __func__, this));
+			// D(dprintf("\033[36m[VD]%s: %p nf\033[0m\n", __func__, this));
 			bool dropFrame = false;
 			bool didShowFrame = false;
 
@@ -637,11 +649,11 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					}
 					else
 					{
-						if (m_overlayHandle)
-							SwapVLayerBuffer(m_overlayHandle);
-
 						if (m_decodedFrames.size())
 						{
+							if (m_overlayHandle)
+								SwapVLayerBuffer(m_overlayHandle);
+
 							// Store current frame's pts
 							pts = m_decodedFrames.front().pts();
 							if (!m_isLive)
@@ -691,7 +703,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					decodeUntilBufferFull();
 				});
 
-				double audioAt;
+				double audioAt = -1;
 				bool canDropFrames = false;
 				
 				while (m_playing && !m_terminating)
@@ -704,7 +716,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						{
 							double nextPts = m_decodedFrames.front().pts();
 
-							if (nextPts <= pts || m_isLive)
+							if (nextPts <= pts)
 							{
 								sleepFor = Seconds(m_frameDuration);
 								sleepFor -= MonotonicTime::now() - timeDisplayed;
@@ -725,7 +737,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 								}
 							}
 
-							DSYNC(dprintf("\033[36m[VD]%s: pts %f next frame in %f diff pts %f audio at %f\033[0m\n", __func__, float(pts), float(sleepFor.value()), float(nextPts - pts),
+							DSYNC(dprintf("\033[36m[VD]%s%p: pts %f npts %f next frame in %f diff pts %f audio at %f\033[0m\n", "PTE", this, float(pts), float(nextPts), float(sleepFor.value()), float(nextPts - pts),
 								float(audioAt)));
 								
 							break;
@@ -744,12 +756,24 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 					m_frameEvent.waitFor(sleepFor);
 				}
-				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -4.0)
+				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -2.5)
 				{
-					DSYNC(dprintf("\033[36m[VD]%s: dropping video frames until %f\033[0m\n", __func__, float(audioAt)));
-					dispatch([this, audioAt]() {
-						dropUntilPTS(audioAt + 3.0);
-					});
+					DSYNC(dprintf("\033[36m[VD]%s: dropping video frames until %f\033[0m\n", __func__, float(audioAt) + 1.0));
+					
+					{
+						auto lock = holdLock(m_lock);
+						while (m_decodedFrames.size())
+						{
+							auto pts = m_decodedFrames.front().pts();
+							if (pts >= audioAt + 1.0)
+								break;
+							DSYNC(dprintf("\033[36m[VD]%s: droppped frame at %f\033[0m\n", __func__, float(pts)));
+							m_decodedFrames.pop();
+							m_bufferedSeconds -= m_frameDuration;
+						}
+					}
+						
+					dropUntilPTS(audioAt + 1.0);
 				}
 				else if (sleepFor.value() < -(m_frameDuration * 0.1))
 				{

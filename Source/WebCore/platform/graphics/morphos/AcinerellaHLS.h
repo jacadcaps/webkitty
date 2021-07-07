@@ -29,6 +29,7 @@ struct HLSChunk
 	String    m_url;
 	int64_t   m_mediaSequence;
 	double    m_duration;
+	double    m_programDateTime;
 };
 
 class HLSStream
@@ -47,13 +48,14 @@ public:
 	double targetDuration() const { return m_targetDuration; }
 	int64_t mediaSequence() const { return m_mediaSequence; }
 	int64_t initialMediaSequence() const { return m_initialMediaSequence; }
-	double initialTimeStamp() const;
+	double initialTimeStamp() const { return m_initialTimeStamp; }
 
 protected:
 	std::queue<HLSChunk> m_chunks;
 	int64_t              m_mediaSequence = -1;
 	int64_t              m_initialMediaSequence = -1;
 	double               m_targetDuration = 0;
+	double               m_initialTimeStamp = 0;
 	bool                 m_ended = false;
 };
 

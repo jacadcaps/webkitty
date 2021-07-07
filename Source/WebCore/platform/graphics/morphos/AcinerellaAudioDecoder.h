@@ -75,6 +75,7 @@ protected:
 	volatile float  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
 	double          m_position = 0.0;
+	double          m_liveTimeCode = 0.0;
 	bool            m_waitingToPlay = false;
 	bool            m_didFlushBuffers = false;
 	int             m_audioRate;

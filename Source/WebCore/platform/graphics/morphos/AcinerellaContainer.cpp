@@ -15,7 +15,7 @@
 #define D(x) 
 #define DNP(x)
 #define DIO(x) 
-#define DINIT(x)
+#define DINIT(x) 
 
 #define DDUMP(x)
 
@@ -210,12 +210,27 @@ void Acinerella::selectStream()
 
 	for (auto info : hls->streams())
 	{
+		DINIT(dprintf("HLS stream: %dx%d\n", info.m_width, info.m_height));
+
 		if (info.m_height > 720 || info.m_fps > 30)
 			continue;
-
+			
 		// drop 720 and otters on slower CPUs
-		if (clock < 1600000000 && info.m_fps > 560)
+		if (clock < 1600000000 && info.m_height > 560)
 			continue;
+
+		// some heuristics for streams that only report bandwidth
+		if (info.m_height == 0 && info.m_bandwidth != 0)
+		{
+			// slower CPUs: limit to 2Mbps
+			if (clock < 1600000000 && info.m_bandwidth >= 2000000)
+				continue;
+
+			// faster CPUs: limit to 3.2Mbps
+			if (info.m_bandwidth > 3200000)
+				continue;
+		}
+
 
 		bool codecsOK = true;
 		if (info.m_codecs.size())
@@ -561,7 +576,9 @@ bool Acinerella::initialize()
 				{
 					// known length? assume our length is fine
 					// unknown? assume Inf
-					if (m_networkBuffer->length() > 0)
+					if (m_isLive)
+						m_duration = 0.0;
+					else if (m_networkBuffer->length() > 0)
 						m_duration = std::max(audioDuration, videoDuration);
 					else
 						m_duration = std::numeric_limits<double>::infinity();
@@ -854,13 +871,13 @@ void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, dou
 	
 	if (decoder->isAudio() || !m_audioDecoder)
 	{
-		m_position = pos;
+		m_position = pos + m_networkBuffer->initialTimeStamp();
 	}
 }
 
 void Acinerella::onDecoderUpdatedDuration(RefPtr<AcinerellaDecoder> decoder, double duration)
 {
-	if (decoder->isAudio() || !m_audioDecoder)
+	if (!isLive() && (decoder->isAudio() || !m_audioDecoder))
 	{
 		m_duration = duration;
 	}

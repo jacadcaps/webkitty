@@ -147,7 +147,7 @@ private:
 
 //	bool isActive() const override { return m_isActive; }
 //	bool isSeeking() const override { return m_seeking; }
-//	MediaTime currentMediaTime() const override { return { }; }
+	MediaTime currentMediaTime() const override;
 	MediaTime duration() const override;
 
 	void flush();

@@ -1,4 +1,5 @@
 #include "AcinerellaHLS.h"
+#include <wtf/DateMath.h>
 
 #if ENABLE(VIDEO)
 
@@ -7,8 +8,8 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) 
-#define DCONTENTS(x) 
+#define D(x)
+#define DCONTENTS(x)
 #define DIO(x)
 
 static const String rnReplace("\r\n");
@@ -153,6 +154,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 	{
 		bool hopingForURL = false;
 		double duration = 0.f;
+		double programTimeDate = 0;
 		m_mediaSequence = -1;
 
 		for (size_t i = 1; i < lines.size(); i++)
@@ -172,6 +174,16 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 			{
 				m_targetDuration = line.substring(22).toDouble();
 			}
+			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-program-date-time"))
+			{
+				bool local;
+				auto time = WTF::parseES5DateFromNullTerminatedCharacters(line.substring(25).utf8().data(), local);
+				if (time == time)
+				{
+					programTimeDate = time / 1000.0;
+					m_initialTimeStamp = programTimeDate;
+				}
+			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
 			{
 				duration = line.substring(8).toDouble();
@@ -182,6 +194,8 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				HLSChunk chunk;
 				chunk.m_mediaSequence = ++m_mediaSequence;
 				chunk.m_duration = duration;
+//				chunk.m_programDateTime = programTimeDate;
+//				programTimeDate += duration;
 
 				chunk.m_url = URL(baseURL, line).string();
 				m_chunks.emplace(WTFMove(chunk));
@@ -206,7 +220,7 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 		if (append.m_chunks.front().m_mediaSequence > m_mediaSequence || (m_chunks.empty() && m_mediaSequence == -1))
 		{
 			m_mediaSequence = append.m_chunks.front().m_mediaSequence;
-			m_chunks.emplace(WTFMove(append.m_chunks.front()));
+			m_chunks.emplace(append.m_chunks.front());
 		}
 
 		append.m_chunks.pop();
@@ -219,18 +233,10 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 	{
 		m_initialMediaSequence = append.m_initialMediaSequence;
 		m_targetDuration = append.m_targetDuration;
+		m_initialTimeStamp = append.m_initialTimeStamp;
 	}
 
 	return *this;
-}
-
-double HLSStream::initialTimeStamp() const
-{
-	if (-1 != m_initialMediaSequence)
-	{
-		return m_targetDuration * double(m_initialMediaSequence);
-	}
-	return 0.0;
 }
 
 AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
@@ -311,6 +317,7 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 	{
 		auto buffer = m_hlsRequest->buffer();
 		m_hlsRequest->cancel();
+
 		if (buffer && buffer->size())
 		{
 			HLSMasterPlaylistParser parser(m_baseURL, String::fromUTF8(buffer->data(), buffer->size()));
@@ -326,6 +333,8 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 				return;
 			}
 		}
+
+		m_hlsRequest = nullptr;
 	}
 	
 	if (m_hlsRequest)
@@ -345,11 +354,11 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 	if (succ && m_hlsRequest && !m_stopping)
 	{
 		auto buffer = m_hlsRequest->buffer();
-		m_hlsRequest->cancel();
 
 		if (buffer && buffer->size())
 		{
-			HLSStream stream(m_baseURL, String::fromUTF8(buffer->data(), buffer->size()));
+			auto contents = String::fromUTF8(buffer->data(), buffer->size());
+			HLSStream stream(m_baseURL, contents);
 			m_stream += stream; // append and merge :)
 			
 			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));

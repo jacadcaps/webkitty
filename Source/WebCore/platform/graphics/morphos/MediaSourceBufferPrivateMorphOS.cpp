@@ -26,6 +26,7 @@
 #define DIOCC(x)
 #define DBR(x)
 #define DRMS(x)
+#define DENABLED(x) 
 
 // #pragma GCC optimize ("O0")
 
@@ -628,7 +629,7 @@ void MediaSourceBufferPrivateMorphOS::removedFromMediaSource()
 
 void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 {
-	D(dprintf("[MS]%s: %d enabled %d\n", __func__, index, enabled));
+	DENABLED(dprintf("[MS]%s: %d enabled %d\n", __func__, index, enabled));
     if (m_mediaSource)
     {
         if (enabled)
@@ -1089,6 +1090,13 @@ void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella
 MediaTime MediaSourceBufferPrivateMorphOS::duration() const
 {
 	return MediaTime::createWithDouble(m_info.m_duration);
+}
+
+MediaTime MediaSourceBufferPrivateMorphOS::currentMediaTime() const
+{
+	if (m_mediaSource)
+		return m_mediaSource->currentMediaTime();
+	return { };
 }
 
 void MediaSourceBufferPrivateMorphOS::onDecoderEnded(RefPtr<Acinerella::AcinerellaDecoder> decoder)
