@@ -67,6 +67,7 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/BitmapImage.h>
+#include <WebCore/FullscreenManager.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
@@ -351,26 +352,10 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
 
 	D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
-#if ENABLE(FULLSCREEN_API) && 0
+#if ENABLE(FULLSCREEN_API)
     Element* documentElement = m_frame->coreFrame()->document()->documentElement();
     if (documentElement && documentElement->containsFullScreenElement())
-        webPage->fullScreenManager()->exitFullScreenForElement(webPage->fullScreenManager()->element());
-#endif
-#if 0
-    webPage->findController().hideFindUI();
-    webPage->sandboxExtensionTracker().didStartProvisionalLoad(m_frame);
-
-    WebDocumentLoader& provisionalLoader = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().provisionalDocumentLoader());
-    auto& url = provisionalLoader.url();
-    RefPtr<API::Object> userData;
-
-    // Notify the bundle client.
-    webPage->injectedBundleLoaderClient().didStartProvisionalLoadForFrame(*webPage, *m_frame, userData);
-
-    auto& unreachableURL = provisionalLoader.unreachableURL();
-
-    // Notify the UIProcess.
-    webPage->send(Messages::WebPageProxy::DidStartProvisionalLoadForFrame(m_frame->frameID(), provisionalLoader.navigationID(), url, unreachableURL, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
+		webPage->exitFullscreen();
 #endif
 }
 

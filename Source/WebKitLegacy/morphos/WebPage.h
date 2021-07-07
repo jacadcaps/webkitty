@@ -24,6 +24,7 @@ namespace WebCore {
 	class HTMLInputElement;
 	class HistoryItem;
 	class PrintContext;
+	class FullscreenManager;
 };
 
 struct RastPort;
@@ -193,6 +194,9 @@ public:
     void setFocusedElement(WebCore::Element *);
     WebCore::IntRect getElementBounds(WebCore::Element *);
 	void setFullscreenElement(WebCore::Element *);
+    WebCore::FullscreenManager* fullscreenManager();
+    bool isFullscreen() const;
+    void exitFullscreen();
 
 	void startedEditingElement(WebCore::HTMLInputElement *);
 	bool hasAutofillElements();

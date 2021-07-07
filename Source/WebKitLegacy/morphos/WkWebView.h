@@ -241,4 +241,7 @@ typedef enum {
 - (BOOL)canRedo;
 - (void)redo;
 
+- (BOOL)isFullscreen;
+- (void)exitFullscreen;
+
 @end

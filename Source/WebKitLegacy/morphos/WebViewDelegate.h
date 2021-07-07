@@ -104,6 +104,8 @@ struct WebViewDelegate
 		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
 		_fMediaSetOverlayCallback;
 	std::function<void(void *player)> _fMediaUpdateOverlayCallback;
+	std::function<void(void)> _fEnterFullscreen;
+	std::function<void(void)> _fExitFullscreen;
 
 	enum class mediaType {
 		Media,
@@ -164,6 +166,8 @@ struct WebViewDelegate
 		_fMediaSetOverlayCallback = nullptr;
 		_fMediaUpdateOverlayCallback = nullptr;
 		_fMediaSupportCheck = nullptr;
+		_fEnterFullscreen = nullptr;
+		_fExitFullscreen = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

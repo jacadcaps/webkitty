@@ -641,6 +641,8 @@ public:
 		}
 #endif
 
+// dprintf("paint %d @ %d %d %d %d\n", update, x, y, m_width, m_height);
+
 		repair(frameView, interpolation);
 		if (update)
 			repaint(rp, x, y);
@@ -1294,6 +1296,7 @@ void WebPage::load(const char *url)
 	corePage()->userInputBridge().stopLoadingFrame(*coreFrame);
 	m_pendingNavigationID = navid ++;
 	coreFrame->loader().load(FrameLoadRequest(*coreFrame, request));
+	exitFullscreen();
 
 //    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 }
@@ -1308,6 +1311,7 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 
 	auto* coreFrame = m_mainFrame->coreFrame();
     coreFrame->loader().load(FrameLoadRequest(*coreFrame, request, substituteData));
+	exitFullscreen();
 }
 
 void WebPage::reload()
@@ -1318,6 +1322,7 @@ void WebPage::reload()
 		OptionSet<ReloadOption> options;
 		options.add(ReloadOption::FromOrigin);
 		mainframe->loader().reload(options);
+		exitFullscreen();
 	}
 }
 
@@ -1326,6 +1331,7 @@ void WebPage::stop()
 	auto *mainframe = mainFrame();
 	if (mainframe)
 		mainframe->loader().stopForUserCancel();
+	exitFullscreen();
 }
 
 WebCore::CertificateInfo WebPage::getCertificate(void)
@@ -1431,6 +1437,7 @@ void WebPage::willBeDisposed()
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
 	D(dprintf("%s: mf %p\n", __PRETTY_FUNCTION__, mainframe));
+	exitFullscreen();
 	clearDelegateCallbacks();
 //	stop();
 	if (mainframe)
@@ -1633,6 +1640,14 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 
 		if (_fZoomChangedByWheel)
 			_fZoomChangedByWheel();
+			
+		if (_fEnterFullscreen)
+		{
+			_fEnterFullscreen();
+
+			if (m_drawContext)
+				m_drawContext->invalidate();
+		}
     }
 	else
 	{
@@ -1643,10 +1658,36 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 
             if (_fZoomChangedByWheel)
                 _fZoomChangedByWheel();
+                
+			if (_fExitFullscreen)
+			{
+				_fExitFullscreen();
+
+				if (m_drawContext)
+					m_drawContext->invalidate();
+			}
 		}
 		
 		m_fullscreenElement = nullptr;
 	}
+}
+
+WebCore::FullscreenManager* WebPage::fullscreenManager()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (coreFrame)
+		return &coreFrame->document()->fullscreenManager();
+	return nullptr;
+}
+
+bool WebPage::isFullscreen() const
+{
+	return nullptr != m_fullscreenElement;
+}
+
+void WebPage::exitFullscreen()
+{
+	setFullscreenElement(nullptr);
 }
 
 WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)

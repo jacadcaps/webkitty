@@ -47,6 +47,8 @@
 #import <pthread.h>
 #import <hardware/atomic.h>
 #import <exec/system.h>
+#import <devices/rawkeycodes.h>
+#import <intuition/pointerclass.h>
 
 #import <cairo.h>
 struct Library *FreetypeBase;
@@ -267,9 +269,10 @@ namespace  {
 @end
 #endif
 
-@interface WkWebViewPrivate : OBObject
+@interface WkWebViewPrivate : OBObject<OBSignalHandlerDelegate>
 {
 	WTF::RefPtr<WebKit::WebPage>            _page;
+	WkWebView                              *_parentWeak;
 	id<WkWebViewScrollingDelegate>          _scrollingDelegate;
 	id<WkWebViewClientDelegate>             _clientDelegate;
 	id<WkWebViewBackForwardListDelegate>    _backForwardDelegate;
@@ -309,12 +312,16 @@ namespace  {
 	OBScheduledTimer                       *_paintTimer;
 	struct Window                          *_window;
 	int                                     _mleft, _mtop, _mbottom, _mright;
+	ULONG                                   _clickSeconds, _clickMicros;
 #if ENABLE(VIDEO)
 	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
 	WebCore::Element                       *_overlayElement;
 	void                                   *_overlayPlayer;
 	OBScheduledTimer                       *_overlayTimer;
 	WkSettings_LoopFilter                   _loopFilter;
+	struct Window                          *_fsWindow;
+	struct Screen                          *_fsScreen;
+	OBSignalHandler                        *_fsWindowSignalHandler;
 	bool                                    _mediaEnabled;
 	bool                                    _mediaSourceEnabled;
 	bool                                    _decodeVideo;
@@ -327,11 +334,12 @@ namespace  {
 
 @implementation WkWebViewPrivate
 
-- (id)init
+- (id)initWithParent:(WkWebView *)parent
 {
 	if ((self = [super init]))
 	{
 		_throttling = WkSettings_Throttling_InvisibleBrowsers;
+		_parentWeak = parent;
 		_hasOnlySecureContent = YES;
 		_userStyleSheet = WkSettings_UserStyleSheet_MUI;
 		_userStyleSheetFile = @"PROGDIR:Resources/morphos.css";
@@ -368,6 +376,13 @@ namespace  {
 #if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
+	[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
+	[_fsWindowSignalHandler release];
+
+	if (_fsWindow)
+		CloseWindow(_fsWindow);
+	if (_fsScreen)
+		CloseScreen(_fsScreen);
 #endif
 
 	[super dealloc];
@@ -643,6 +658,23 @@ namespace  {
 	_isLiveResizing = resizing;
 }
 
+- (struct Window *)fullscreenWindow
+{
+#if ENABLE(VIDEO)
+	return _fsWindow;
+#else
+	return NULL;
+#endif
+}
+
+- (BOOL)isDoubleClickSeconds:(ULONG)seconds micros:(ULONG)micros
+{
+	BOOL dbl = DoubleClick(_clickSeconds, _clickMicros, seconds, micros);
+	_clickSeconds = seconds;
+	_clickMicros = micros;
+	return dbl;
+}
+
 #if ENABLE(VIDEO)
 - (void)callOverlayCallback
 {
@@ -661,7 +693,15 @@ namespace  {
 			GetAttr(WA_InnerWidth, (Boopsiobject *)_window, &iw);
 			GetAttr(WA_InnerHeight, (Boopsiobject *)_window, &ih);
 
-			_overlayCallback(_window, _scrollX, _scrollY,
+			if (_fsWindow)
+			{
+				il = 0;
+				it = 0;
+				iw = _fsWindow->Width;
+				ih = _fsWindow->Height;
+			}
+
+			_overlayCallback(_fsWindow ? _fsWindow : _window, _scrollX, _scrollY,
 				il + ePos.x(),
 				it + ePos.y(),
 				iw - (il + ePos.maxX()),
@@ -1014,6 +1054,115 @@ namespace  {
 	case WebViewDelegate::mediaType::HVC1: return _hvc;
 	}
 	return YES;
+}
+
+- (void)enterFullScreen
+{
+	if (NULL == _fsWindow && _window)
+	{
+		LONG displayWidth = 0;
+		LONG displayHeight = 0;
+		LONG depth = 32;
+		STRPTR mname = NULL;
+
+		GetAttr(SA_DisplayWidth, _window->WScreen, (ULONG *)&displayWidth);
+		GetAttr(SA_DisplayHeight, _window->WScreen, (ULONG *)&displayHeight);
+		GetAttr(SA_Depth, _window->WScreen, (ULONG *)&depth);
+		GetAttr(SA_MonitorName, _window->WScreen, (ULONG *)&mname);
+		
+		WORD colors[] = { 0, 0, 0, 0, 1, 0, 0, 0, -1 };
+		
+		_fsScreen = OpenScreenTags(NULL,
+			SA_Behind, TRUE,
+			SA_MonitorName, (IPTR)mname,
+			SA_DisplayWidth, displayWidth,
+			SA_DisplayHeight, displayHeight,
+			SA_Depth, depth,
+			SA_Title, (IPTR)"Wayfarer",
+			SA_ShowTitle, FALSE,
+			SA_Quiet, TRUE,
+			SA_SharePens, TRUE,
+			SA_Colors, (IPTR)colors,
+			TAG_DONE, 0);
+			
+		if (_fsScreen)
+		{
+			_fsWindow = OpenWindowTags(NULL,
+				WA_CustomScreen, _fsScreen,
+				WA_Borderless, TRUE,
+				WA_FrontWindow, TRUE,
+				WA_SimpleRefresh, TRUE,
+				WA_Left, 0,
+				WA_Top, 0,
+				WA_Width, _fsScreen->Width,
+				WA_Height, _fsScreen->Height,
+				WA_Activate, TRUE,
+				WA_IDCMP, IDCMP_REFRESHWINDOW | IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS | IDCMP_RAWKEY,
+				TAG_DONE, 0);
+
+			if (_fsWindow)
+			{
+				[self callOverlayCallback];
+				ScreenToFront(_fsScreen);
+				_fsWindowSignalHandler = [[OBSignalHandler alloc] initWithSharedSignalBit:_fsWindow->UserPort->mp_SigBit task:FindTask(0) freeWhenDone:NO];
+				[_fsWindowSignalHandler setDelegate:self];
+				[[OBRunLoop mainRunLoop] addSignalHandler:_fsWindowSignalHandler];
+			}
+			else
+			{
+				CloseScreen(_fsScreen);
+				_fsScreen = NULL;
+			}
+		}
+	}
+}
+
+- (void)exitFullScreen
+{
+	if (_fsWindowSignalHandler)
+	{
+		[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
+		[_fsWindowSignalHandler release];
+		_fsWindowSignalHandler = nil;
+	}
+
+	struct Window *win = NULL;
+	std::swap(win, _fsWindow);
+
+	[self callOverlayCallback];
+
+	CloseWindow(win);
+
+	CloseScreen(_fsScreen);
+	_fsScreen = NULL;
+}
+
+- (void)performWithSignalHandler:(OBSignalHandler *)handler
+{
+	if (handler == _fsWindowSignalHandler)
+	{
+		struct IntuiMessage *msg;
+
+		while ((msg = reinterpret_cast<struct IntuiMessage *>(GetMsg(_fsWindow->UserPort))))
+		{
+			switch (msg->Class)
+			{
+			case IDCMP_REFRESHWINDOW:
+				BeginRefresh(_fsWindow);
+				[_parentWeak draw:MADF_DRAWUPDATE];
+				EndRefresh(_fsWindow, YES);
+				break;
+
+			case IDCMP_RAWKEY:
+			case IDCMP_MOUSEBUTTONS:
+			case IDCMP_MOUSEMOVE:
+				[_parentWeak handleEvent:msg muikey:MUIKEY_NONE];
+				break;
+			}
+
+			ReplyMsg(&msg->ExecMessage);
+		}
+	}
 }
 
 #endif
@@ -1384,7 +1533,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		[self setEventHandlerGUIMode:YES];
 		self.cycleChain = YES;
 
-		_private = [WkWebViewPrivate new];
+		_private = [[WkWebViewPrivate alloc] initWithParent:self];
 		if (!_private)
 		{
 			[self release];
@@ -1893,9 +2042,17 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		
 		webPage->_fSetCursor = [self](int cursor) {
 			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
 			if ([self window])
 			{
+				struct Window *fsWindow = [privateObject fullscreenWindow];
 				struct TagItem tags[] = { { WA_PointerType, (IPTR)cursor }, { TAG_DONE, 0 } };
+				if (fsWindow)
+				{
+					SetWindowPointerA(fsWindow, tags);
+					// force normal crsr on main window!
+					tags[0].ti_Data = POINTERTYPE_NORMAL;
+				}
 				SetWindowPointerA([self window], tags);
 			}
 		};
@@ -2007,6 +2164,18 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			return [privateObject supportsMediaType:type];
+		};
+		
+		webPage->_fEnterFullscreen = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject enterFullScreen];
+		};
+		
+		webPage->_fExitFullscreen = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject exitFullScreen];
 		};
 #endif
 	}
@@ -2459,22 +2628,15 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 #define DIM2WIDTH(dim) ( ((LONG)dim) & 0xffff )
 #define DIM2HEIGHT(dim)( ((LONG)dim) >> 16 )
 
-- (BOOL)draw:(ULONG)flags
+- (void)drawRastPort:(struct RastPort *)rp atX:(LONG)x y:(LONG)y innerWidth:(LONG)iw innerHeight:(LONG)ih update:(BOOL)update
 {
-	EP_SCOPE(draw);
-
-	[super draw:flags];
-	
-	LONG iw = [self innerWidth];
-	LONG ih = [self innerHeight];
-
 	EP_BEGIN(setVisibleSize);
 	auto webPage = [_private page];
 	if (!webPage)
-		return NO;
+		return;
 	webPage->setVisibleSize(int(iw), int(ih));
 	EP_END(setVisibleSize);
-	
+
 	UQUAD drawStartTS = __builtin_ppc_get_timebase();
 	WkPrintingStatePrivate *printingState = [_private printingState];
 	if (printingState)
@@ -2485,25 +2647,52 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		float contentWidth = [page contentWidth] * 72.f;
 		float contentHeight = [page contentHeight] * 72.f;
 
-		webPage->printPreview([self rastPort], [self left], [self top], iw, ih, [printingState previevedSheet] - 1,
+		webPage->printPreview(rp, x, y, iw, ih, [printingState previevedSheet] - 1,
 			[printingState pagesPerSheet], contentWidth, contentHeight, [printingState landscape],
 			[printingState printMargins], [printingState context], [printingState shouldPrintBackgrounds]);
 
 		OBString *info = [OBString stringWithFormat:@"%d/%d", [printingState previevedSheet], [printingState sheets]];
 		ULONG dim = [self textDim:info len:-1 preparse:0 flags:0];
-		[self text:[self left] + ((iw-DIM2WIDTH(dim))/2) top:[self bottom] - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
+		[self text:x + ((iw-DIM2WIDTH(dim))/2) top:(y + ih) - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
 	}
 	else
 	{
 		EP_SCOPE(pageDraw);
-		webPage->draw([self rastPort], [self left], [self top], iw, ih, MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags));
+		webPage->draw(rp, x, y, iw, ih, update);
 	}
 
 	UQUAD drawEndTS = __builtin_ppc_get_timebase();
 	[_private drawFinishedIn:drawEndTS - drawStartTS];
+}
+
+- (BOOL)draw:(ULONG)flags
+{
+	EP_SCOPE(draw);
+
+	[super draw:flags];
+
+	struct Window *fsWindow = [_private fullscreenWindow];
+	if (fsWindow)
+	{
+		LONG iw = [self innerWidth];
+		LONG ih = [self innerHeight];
+
+		[self drawRastPort:fsWindow->RPort atX:0 y:0 innerWidth:fsWindow->Width innerHeight:fsWindow->Height update:MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags)];
+		
+		[super drawBackground:[self left] top:[self top] width:[self innerWidth] height:[self innerHeight] xoffset:0 yoffset:0 flags:0];
+		OBString *info = @"Wayfarer is in fullscreen mode!\nDouble-click to show the fullscreen view. Esc to return to windowed mode.";
+		ULONG dim = [self textDim:info len:-1 preparse:0 flags:0];
+		[self text:[self left] + ((iw-DIM2WIDTH(dim))/2) top:([self top] + ih) - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
+	}
+	else
+	{
+		[self drawRastPort:[self rastPort] atX:[self left] y:[self top] innerWidth:[self innerWidth] innerHeight:[self innerHeight] update:MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags)];
+	}
+
 #if ENABLE(VIDEO)
 	[_private setWindow:[self window]];
 #endif
+
 	return TRUE;
 }
 
@@ -2671,8 +2860,51 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 	if (imsg)
 	{
-		if (webPage->handleIntuiMessage(imsg, [self mouseX:imsg], [self mouseY:imsg],
-			[self isInObject:imsg], [[self windowObject] defaultObject] == self))
+		struct Window *fsWindow = [_private fullscreenWindow];
+		LONG x, y;
+		BOOL inObject;
+		BOOL isDefault;
+		
+		if (fsWindow)
+		{
+			x = imsg->MouseX; y = imsg->MouseY;
+			inObject = YES;
+			isDefault = YES;
+			
+			if (fsWindow != imsg->IDCMPWindow)
+			{
+				switch (imsg->Class)
+				{
+				case IDCMP_RAWKEY:
+					if (imsg->Code == RAWKEY_ESCAPE)
+					{
+						webPage->exitFullscreen();
+						[_private setIsHandlingUserInput:NO];
+						return MUI_EventHandlerRC_Eat;
+					}
+					break;
+				case IDCMP_MOUSEBUTTONS:
+					if (imsg->Code == SELECTDOWN && [_private isDoubleClickSeconds:imsg->Seconds micros:imsg->Micros])
+					{
+						webPage->exitFullscreen();
+						[_private setIsHandlingUserInput:NO];
+						return MUI_EventHandlerRC_Eat;
+					}
+					break;
+				}
+				[_private setIsHandlingUserInput:NO];
+				return 0;
+			}
+		}
+		else
+		{
+			x = [self mouseX:imsg];
+			y = [self mouseY:imsg];
+			inObject = [self isInObject:imsg];
+			isDefault = [[self windowObject] defaultObject] == self;
+		}
+
+		if (webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
 		{
 			[_private setIsHandlingUserInput:NO];
 			return MUI_EventHandlerRC_Eat;
@@ -3037,6 +3269,20 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	if (webPage)
 		webPage->redo();
+}
+
+- (BOOL)isFullscreen
+{
+	auto webPage = [_private page];
+	if (webPage)
+		return webPage->isFullscreen();
+}
+
+- (void)exitFullscreen
+{
+	auto webPage = [_private page];
+	if (webPage)
+		webPage->exitFullscreen();
 }
 
 @end
