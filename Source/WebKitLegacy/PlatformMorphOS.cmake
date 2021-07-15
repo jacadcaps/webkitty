@@ -76,6 +76,10 @@ if (NOT MORPHOS_MINIMAL)
 		morphos/ABPFilterParser/filter.cpp
 		morphos/ABPFilterParser/hashFn.cpp
 	)
+	add_definitions(-DENABLE_WEB_AUDIO=1)
+	list(APPEND WebKitLegacy_SOURCES_Classes
+		morphos/WebDatabaseManager.cpp
+	)
 endif()
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport} ${WebKitLegacy_ABP})

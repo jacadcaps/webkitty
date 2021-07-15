@@ -42,10 +42,14 @@
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
+#include "WebPlatformStrategies.h"
 #include "WebFrameNetworkingContext.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
 #include "Gamepad.h"
+#if !MORPHOS_MINIMAL
+#include "WebDatabaseManager.h"
+#endif
 
 // bloody include shit
 extern "C" {
@@ -193,6 +197,11 @@ void WebProcess::initialize(int sigbit)
 		JSLockHolder lock(commonVM());
 		PageConsoleClient::setShouldPrintExceptions(true);
 	}
+#endif
+
+	WebPlatformStrategies::initialize();
+#if !MORPHOS_MINIMAL
+	WebKitInitializeWebDatabasesIfNecessary();
 #endif
 
 #if 0 // removed 2.32
