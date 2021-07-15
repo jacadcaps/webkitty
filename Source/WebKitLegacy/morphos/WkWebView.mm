@@ -2480,7 +2480,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (WkSettings *)settings
 {
-	WkSettings *settings = [[WkSettings new] autorelease];
+	WkSettings *settings = [WkSettings settings];
 	auto webPage = [_private page];
 	[settings setAdBlockerEnabled:webPage->adBlockingEnabled()];
 	[settings setJavaScriptEnabled:webPage->javaScriptEnabled()];
@@ -2496,6 +2496,19 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setInvisiblePlaybackNotAllowed:webPage->invisiblePlaybackNotAllowed()];
 	[settings setRequiresUserGestureForMediaPlayback:webPage->requiresUserGestureForMediaPlayback()];
 	[settings setDarkModeEnabled:webPage->darkModeEnabled()];
+	WTF::String lang;
+	lang = webPage->primaryLanguage();
+	if (lang.length())
+	{
+		auto ulang = lang.utf8();
+		[settings setDictionaryLanguage:[OBString stringWithUTF8String:ulang.data()]];
+	}
+	lang = webPage->additionalLanguage();
+	if (lang.length())
+	{
+		auto ulang = lang.utf8();
+		[settings setAdditionalDictionaryLanguage:[OBString stringWithUTF8String:ulang.data()]];
+	}
 #if ENABLE(VIDEO)
 	[settings setMediaEnabled:[_private mediaEnabled]];
 	[settings setMediaSourceEnabled:[_private mediaSourceEnabled]];
@@ -2520,6 +2533,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setInvisiblePlaybackNotAllowed([settings invisiblePlaybackNotAllowed]);
 	webPage->setRequiresUserGestureForMediaPlayback([settings requiresUserGestureForMediaPlayback]);
 	webPage->setDarkModeEnabled([settings darkModeEnabled]);
+	WTF::String language, additionalLanguage;
+
+	if ([settings dictionaryLanguage])
+		language = WTF::String::fromUTF8([[settings dictionaryLanguage] cString]);
+	if ([settings additionalDictionaryLanguage])
+		additionalLanguage = WTF::String::fromUTF8([[settings additionalDictionaryLanguage] cString]);
+
+	webPage->setSpellingLanguages(language, additionalLanguage);
 
 	[_private setThrottling:[settings throttling]];
 	[_private setCustomStyleSheetPath:[settings customStyleSheetPath]];

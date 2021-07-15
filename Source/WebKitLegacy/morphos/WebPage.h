@@ -218,6 +218,10 @@ public:
 	
 	bool editable();
 	void setEditable(bool editable);
+	
+	WTF::String primaryLanguage();
+	WTF::String additionalLanguage();
+	void setSpellingLanguages(const WTF::String &language, const WTF::String &additional);
 
 	enum class ContextMenuHandling // keep in sync with WkSettings!!
 	{

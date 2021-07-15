@@ -1210,6 +1210,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 #if (!MORPHOS_MINIMAL)
 	settings.setWebAudioEnabled(true);
+	// settings.setAudioWorkletEnabled(true);
+	// settings.setModernUnprefixedWebAudioEnabled(true);
+	// settings.setPrefixedWebAudioEnabled(true);
 	settings.setMediaEnabled(true);
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);
@@ -2553,7 +2556,30 @@ void WebPage::setEditable(bool editable)
 	{
 		auto* coreFrame = m_mainFrame->coreFrame();
 		coreFrame->document()->securityOrigin().grantLoadLocalResources();
+		WebEditorClient *client = reinterpret_cast<WebEditorClient *>(coreFrame->editor().client());
+		client->onSpellcheckingLanguageChanged(); // force spellchecker pass, if enabled
 	}
+}
+
+WTF::String WebPage::primaryLanguage()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	WebEditorClient *client = reinterpret_cast<WebEditorClient *>(coreFrame->editor().client());
+	return client->primarySpellCheckingLanguage();
+}
+
+WTF::String WebPage::additionalLanguage()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	WebEditorClient *client = reinterpret_cast<WebEditorClient *>(coreFrame->editor().client());
+	return client->additionalSpellCheckingLanguage();
+}
+
+void WebPage::setSpellingLanguages(const WTF::String &language, const WTF::String &additional)
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	WebEditorClient *client = reinterpret_cast<WebEditorClient *>(coreFrame->editor().client());
+	client->setSpellCheckingLanguages(language, additional);
 }
 
 void WebPage::flushCompositing()
@@ -3410,6 +3436,7 @@ WebCore::Frame * WebPage::fromHitTest(WebCore::HitTestResult &hitTest) const
 bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
 {
 	WebCore::Frame *frame = fromHitTest(hitTest);
+
 	if (frame)
 	{
 		Ref<Frame> protector(*frame);
@@ -3508,7 +3535,8 @@ WTF::Vector<WTF::String> WebPage::misspelledWordSuggestions(WebCore::HitTestResu
 	if (frame)
 	{
 		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
-		WebEditorClient::getGuessesForWord(miss, out);
+		WebEditorClient *client = reinterpret_cast<WebEditorClient *>(frame->editor().client());
+		client->getGuessesForWord(miss, out);
 	}
 
 	return out;

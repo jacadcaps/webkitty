@@ -109,6 +109,12 @@ typedef enum {
 - (BOOL)darkModeEnabled;
 - (void)setDarkModeEnabled:(BOOL)enabled;
 
+- (void)setDictionaryLanguage:(OBString *)language;
+- (OBString *)dictionaryLanguage;
+
+- (void)setAdditionalDictionaryLanguage:(OBString *)language;
+- (OBString *)additionalDictionaryLanguage;
+
 @end
 
 typedef enum
@@ -152,10 +158,13 @@ typedef enum
 + (QUAD)diskCachingLimit;
 + (QUAD)calculatedMaximumDiskCachingLimit;
 
+// May be used to globally manage spellchecking - should not be used if per-instance spellchecking
+// options are set
 + (void)setSpellCheckingEnabled:(BOOL)spellcheckingenabled;
 + (BOOL)spellCheckingEnabled;
 + (void)setDictionaryLanguage:(OBString *)language;
 + (OBString *)dictionaryLanguage;
++ (OBString *)defaultDictionaryLanguage;
 
 // Whether media playback was enabled at compile time
 + (BOOL)supportsMediaPlayback;

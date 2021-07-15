@@ -30,6 +30,7 @@
 #include <WebCore/EditorClient.h>
 #include <WebCore/TextCheckerClient.h>
 #include <WebCore/UndoStep.h>
+#include <wtf/HashSet.h>
 
 namespace WebCore {
 class Element;
@@ -79,11 +80,16 @@ public:
 	WebPage *webPage() { return m_webPage; }
 	
 	static void setSpellCheckingEnabled(bool enabled);
-	static bool getSpellCheckingEnabled() { return m_spellDictionary != nullptr; }
+	static bool getSpellCheckingEnabled() { return m_globalSpellDictionary != nullptr; }
 	static void setSpellCheckingLanguage(const WTF::String &language);
-	static WTF::String getSpellCheckingLanguage() { return m_language; }
-	static void getGuessesForWord(const WTF::String &word, WTF::Vector<WTF::String> &outGuesses);
+	static WTF::String getSpellCheckingLanguage() { return m_globalLanguage; }
 	static void getAvailableDictionaries(WTF::Vector<WTF::String> &outDictionaries, WTF::String &outDefault);
+
+	void setSpellCheckingLanguages(const WTF::String &language, const WTF::String &languageAdditional);
+	WTF::String primarySpellCheckingLanguage() { return m_language; }
+	const WTF::String &additionalSpellCheckingLanguage() const { return m_additionalLanguage; }
+	void onSpellcheckingLanguageChanged();
+	void getGuessesForWord(const WTF::String &word, WTF::Vector<WTF::String> &outGuesses);
 
     void ignoreWordInSpellDocument(const WTF::String&) final;
     void learnWord(const WTF::String&) final;
@@ -177,10 +183,15 @@ protected:
     WTF::HashSet<WTF::String> m_ignoredWords;
     WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_undo;
     WTF::Vector<WTF::RefPtr<WebEditorUndoStep>> m_redo;
+    WTF::String m_language;
+    WTF::String m_additionalLanguage;
+    APTR m_spellDictionary = nullptr;
+    APTR m_additionalSpellDictionary = nullptr;
 	
     static struct Library *m_spellcheckerLibrary;
-    static APTR m_spellDictionary;
-    static WTF::String m_language;
+    static APTR m_globalSpellDictionary;
+    static WTF::String m_globalLanguage;
+    static WTF::HashSet<WebEditorClient*> m_editors;
 };
 
 }

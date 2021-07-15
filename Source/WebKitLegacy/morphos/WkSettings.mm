@@ -41,6 +41,8 @@ namespace WebCore {
 	WkSettings_ContextMenuHandling _contextMenu;
 	WkSettings_LoopFilter          _loopFilter;
 	OBString                      *_userStyleSheetFile;
+	OBString                      *_additionalLanguage;
+	OBString                      *_language;
 	bool _script;
 	bool _adBlocker;
 	bool _thCookies;
@@ -78,6 +80,14 @@ namespace WebCore {
 	}
 	
 	return self;
+}
+
+- (void)dealloc
+{
+	[_userStyleSheetFile release];
+	[_additionalLanguage release];
+	[_language release];
+	[super dealloc];
 }
 
 - (BOOL)javaScriptEnabled
@@ -291,6 +301,28 @@ namespace WebCore {
 	_darkMode = enabled;
 }
 
+- (void)setDictionaryLanguage:(OBString *)language
+{
+	[_language autorelease];
+	_language = [language copy];
+}
+
+- (OBString *)dictionaryLanguage
+{
+	return _language;
+}
+
+- (void)setAdditionalDictionaryLanguage:(OBString *)language
+{
+	[_additionalLanguage autorelease];
+	_additionalLanguage = [language copy];
+}
+
+- (OBString *)additionalDictionaryLanguage
+{
+	return _additionalLanguage;
+}
+
 @end
 
 @implementation WkSettings
@@ -491,6 +523,26 @@ namespace WebCore {
 {
 }
 
+- (void)setDictionaryLanguage:(OBString *)language
+{
+
+}
+
+- (OBString *)dictionaryLanguage
+{
+	return nil;
+}
+
+- (void)setAdditionalDictionaryLanguage:(OBString *)language
+{
+
+}
+
+- (OBString *)additionalDictionaryLanguage
+{
+	return nil;
+}
+
 @end
 
 @implementation WkGlobalSettings
@@ -605,6 +657,15 @@ static cairo_antialias_t defaultAA;
 + (OBString *)dictionaryLanguage
 {
 	auto udata = WebKit::WebEditorClient::getSpellCheckingLanguage().utf8();
+	return [OBString stringWithUTF8String:udata.data()];
+}
+
++ (OBString *)defaultDictionaryLanguage
+{
+	WTF::Vector<WTF::String> dummy;
+	WTF::String language;
+	WebKit::WebEditorClient::getAvailableDictionaries(dummy, language);
+	auto udata = language.utf8();
 	return [OBString stringWithUTF8String:udata.data()];
 }
 

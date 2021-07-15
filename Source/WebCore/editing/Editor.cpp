@@ -2336,6 +2336,61 @@ void Editor::advanceToNextMisspelling(bool startBeforeSelection)
 
 #endif // !PLATFORM(IOS_FAMILY)
 
+#if OS(MORPHOS)
+void Editor::checkEntireDocument()
+{
+    Ref<Document> protectedDocument(m_document);
+
+	// remove all previously set markers...
+	protectedDocument->markers().removeMarkers(DocumentMarker::allMarkers());
+
+    auto spellingSearchRange = makeRangeSelectingNodeContents(document());
+
+    auto position = makeDeprecatedLegacyPosition(spellingSearchRange.start);
+    if (!isEditablePosition(position)) {
+        // This shouldn't happen in very often because the Spelling menu items aren't enabled unless the
+        // selection is editable.
+        // This can happen in Mail for a mix of non-editable and editable content (like Stationary),
+        // when spell checking the whole document before sending the message.
+        // In that case the document might not be editable, but there are editable pockets that need to be spell checked.
+
+        position = VisiblePosition(firstEditablePositionAfterPositionInRoot(position, document().documentElement())).deepEquivalent();
+        if (position.isNull())
+            return;
+        
+        if (auto point = makeBoundaryPoint(position.parentAnchoredEquivalent()))
+            spellingSearchRange.start = *point;
+    }
+
+    // topNode defines the whole range we want to operate on
+    auto* topNode = highestEditableRoot(position);
+    if (topNode)
+        spellingSearchRange.end = makeBoundaryPointAfterNodeContents(*topNode);
+
+    if (spellingSearchRange.collapsed())
+        return; // nothing to search in
+
+    // Get the spell checker if it is available
+    if (!client())
+        return;
+        
+	TextCheckingHelper::MisspelledWord misspelledWord;
+	
+	for (;;)
+	{
+		misspelledWord = TextCheckingHelper(*client(), spellingSearchRange).findFirstMisspelledWord();
+        if (!misspelledWord.word.isEmpty()) {
+			auto misspellingRange = resolveCharacterRange(spellingSearchRange, { misspelledWord.offset, misspelledWord.word.length() });
+	        addMarker(misspellingRange, DocumentMarker::Spelling);
+			spellingSearchRange = SimpleRange(misspellingRange.end, spellingSearchRange.end);
+        }
+        else {
+			break;
+		}
+	}
+}
+#endif
+
 String Editor::misspelledWordAtCaretOrRange(Node* clickedNode) const
 {
     if (!isContinuousSpellCheckingEnabled() || !clickedNode || !isSpellCheckingEnabledFor(clickedNode))
@@ -2677,6 +2732,7 @@ void Editor::markBadGrammar(const VisibleSelection& selection)
 
 void Editor::markAllMisspellingsAndBadGrammarInRanges(OptionSet<TextCheckingType> textCheckingOptions, const Optional<SimpleRange>& spellingRange, const Optional<SimpleRange>& automaticReplacementRange, const Optional<SimpleRange>& grammarRange)
 {
+dprintf("%s %d\n", __func__, __LINE__);
     if (platformDrivenTextCheckerEnabled())
         return;
 
@@ -2688,24 +2744,29 @@ void Editor::markAllMisspellingsAndBadGrammarInRanges(OptionSet<TextCheckingType
     bool shouldMarkGrammar = textCheckingOptions.contains(TextCheckingType::Grammar);
     bool shouldShowCorrectionPanel = textCheckingOptions.contains(TextCheckingType::ShowCorrectionPanel);
 
+dprintf("%s %d\n", __func__, __LINE__);
     // This function is called with selections already expanded to word boundaries.
     if (!client() || !spellingRange || (shouldMarkGrammar && !grammarRange))
         return;
 
+dprintf("%s %d\n", __func__, __LINE__);
     // If we're not in an editable node, bail.
     Node& editableNode = spellingRange->startContainer();
     if (!editableNode.hasEditableStyle())
         return;
 
+dprintf("%s %d\n", __func__, __LINE__);
     if (!isSpellCheckingEnabledFor(&editableNode))
         return;
 
+dprintf("%s %d\n", __func__, __LINE__);
     auto& rangeToCheck = shouldMarkGrammar ? *grammarRange : *spellingRange;
     TextCheckingParagraph paragraphToCheck(rangeToCheck);
     if (paragraphToCheck.isEmpty())
         return;
 
     bool asynchronous = m_document.settings().asynchronousSpellCheckingEnabled() && !shouldShowCorrectionPanel;
+dprintf("%s %d: async %d\n", __func__, __LINE__, asynchronous);
 
     // In asynchronous mode, we intentionally check paragraph-wide sentence.
     auto resolvedOptions = resolveTextCheckingTypeMask(editableNode, textCheckingOptions);
@@ -2715,11 +2776,13 @@ void Editor::markAllMisspellingsAndBadGrammarInRanges(OptionSet<TextCheckingType
     auto request = SpellCheckRequest::create(resolvedOptions, TextCheckingProcessIncremental, checkingRange, textReplacementRange, paragraphRange);
     if (!request)
         return;
+dprintf("%s %d\n", __func__, __LINE__);
 
     if (asynchronous) {
         m_spellChecker->requestCheckingFor(request.releaseNonNull());
         return;
     }
+dprintf("%s %d\n", __func__, __LINE__);
 
     Vector<TextCheckingResult> results;
     checkTextOfParagraph(*textChecker(), paragraphToCheck.text(), resolvedOptions, results, m_document.selection().selection());
