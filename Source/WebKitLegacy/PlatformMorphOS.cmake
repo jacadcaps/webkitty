@@ -6,6 +6,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ")
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     ${CAIRO_INCLUDE_DIRS}
     "${WEBKIT_LIBRARIES_DIR}/include"
+    "${ROOTPATH}/morphoswb/development/tools/eventprofiler/"
 )
 
 list(APPEND WebKitLegacy_LIBRARIES PRIVATE WTF${DEBUG_SUFFIX})

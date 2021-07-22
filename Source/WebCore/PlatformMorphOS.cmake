@@ -28,6 +28,7 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
     ${WPE_INCLUDE_DIRS}
     ${HYPHEN_INCLUDE_DIRS}
     ${AVCODEC_INCLUDE_DIR}
+    "${ROOTPATH}/morphoswb/development/tools/eventprofiler/"
 )
 
 list(APPEND WebCore_LIBRARIES
