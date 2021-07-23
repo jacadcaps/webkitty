@@ -91,7 +91,6 @@ void AudioDestinationMorphOS::startRendering(CompletionHandler<void(bool)>&& com
 
 void AudioDestinationMorphOS::stop(CompletionHandler<void(bool)>&&completionHandler)
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
     stopRendering(WTFMove(completionHandler));
     {
         auto locker = holdLock(m_dispatchToRenderThreadLock);

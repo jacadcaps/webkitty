@@ -3297,6 +3297,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	if (webPage)
 		return webPage->isFullscreen();
+	return NO;
 }
 
 - (void)exitFullscreen

@@ -14,7 +14,10 @@ namespace WebCore {
 AudioDestinationOutputMorphOS::AudioDestinationOutputMorphOS(AudioDestinationRenderer &parent)
 	: m_renderer(parent)
 {
-
+	for (int i = 0; i < 2; i++)
+	{
+		m_ahiSample[i].ahisi_Address = nullptr;
+	}
 }
 
 AudioDestinationOutputMorphOS::~AudioDestinationOutputMorphOS()
@@ -113,6 +116,7 @@ bool AudioDestinationOutputMorphOS::ahiInit()
 							{
 								D(dprintf("[AD]%s: samples loaded - samplelen %d\n", __func__, m_ahiSampleLength));
 
+								m_ahiThreadShuttingDown = false;
 								m_ahiThread = Thread::create("WebAudio AHI Pump", [this] {
 									ahiThreadEntryPoint();
 								});
