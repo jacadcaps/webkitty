@@ -868,9 +868,9 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 			desiredFmt = AV_SAMPLE_FMT_FLT;
 		}
 	
-		ERR(pDecoder->pSwrCtx = swr_alloc_set_opts(NULL, desiredLayout, desiredFmt,
-		                                           pacInstance->audio_rate, // ahi sucks so may as well convert ourselves to a common format
-		                                           layout, fmt, rate, 0, NULL));
+		ERR(pDecoder->pSwrCtx = swr_alloc_set_opts(NULL, desiredLayout, desiredFmt, pacInstance->audio_rate,
+			layout, fmt, rate, 0, NULL));
+
 		AV_ERR(swr_init(pDecoder->pSwrCtx));
 	}
 

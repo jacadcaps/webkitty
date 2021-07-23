@@ -8,10 +8,12 @@
 #include "../../graphics/morphos/acinerella.h"
 #include "../../graphics/morphos/AcinerellaDecoder.h"
 
+#include <proto/dos.h>
+
 extern "C" {void dprintf(const char *,...);}
 
-#define DINIT(x) 
-#define DDECODE(x)
+#define DINIT(x)
+#define DDECODE(x) 
 #define DIO(x)
 #define READ_FLOATS 1
 
@@ -48,7 +50,7 @@ public:
 					if (-1 == audioIndex)
 					{
 						audioIndex = i;
-						m_channels = mixToMono ? 1 : info.additional_info.audio_info.channel_count;
+						m_channels = std::min(2, (mixToMono ? 1 : info.additional_info.audio_info.channel_count));
 						m_rate = info.additional_info.audio_info.samples_per_second;
 					}
 					break;
@@ -61,8 +63,10 @@ public:
 			if (-1 != audioIndex)
 			{
 #if READ_FLOATS
-				ac_audio_output_format format = mixToMono ? AC_AUDIO_OUTPUT_FLOAT_1 : AC_AUDIO_OUTPUT_FLOAT_2;
+				ac_audio_output_format format = (mixToMono || m_channels == 1) ? AC_AUDIO_OUTPUT_FLOAT_1 : AC_AUDIO_OUTPUT_FLOAT_2;
 				ac_set_audio_output_format(m_instance, format, sampleRate);
+#else
+				ac_set_audio_output_format(m_instance, AC_AUDIO_OUTPUT_16_2, sampleRate);
 #endif
 
 				m_decoder = ac_create_decoder(m_instance, audioIndex);
@@ -80,11 +84,86 @@ public:
 	int channels() const { return m_channels; }
 	int originalRate() const { return m_rate; }
 	
+	// MONO
 	bool decode(float *data, size_t length)
 	{
-		return false;
+#if READ_FLOATS
+		ssize_t bytesLeft = ssize_t(length) * 4; //!!
+#else
+		ssize_t bytesLeft = ssize_t(length) * 2; //!!
+#endif
+		DDECODE(dprintf("%s: length %d samples, bleft %d\n", __PRETTY_FUNCTION__, length, bytesLeft));
+		size_t outOffset = 0;
+		bool eof = false;
+
+		while (!eof)
+		{
+			auto *package = ac_read_package(m_instance);
+			if (nullptr == package)
+				break;
+				
+			auto rcPush = ac_push_package(m_decoder, package);
+			if (rcPush != PUSH_PACKAGE_SUCCESS)
+			{
+				DDECODE(dprintf("[%s]%s: failed ac_push_package %d\033[0m\n", "\033[33mA", __func__, rcPush));
+				continue;
+			}
+
+			bool keepGoing = true;
+			while (keepGoing)
+			{
+				auto frame = ac_alloc_decoder_frame(m_decoder);
+
+				if (nullptr == frame) // OOM
+					return false;
+
+				auto rcFrame = ac_receive_frame(m_decoder, frame);
+				
+				switch (rcFrame)
+				{
+				case RECEIVE_FRAME_SUCCESS:
+					{
+						const size_t copyBytes = std::min(frame->buffer_size, bytesLeft);
+						DDECODE(dprintf("[%s]%s: FRAME_SUCCESS, copy %d bytes, left %d\033[0m\n", "\033[33mA", __func__, copyBytes, bytesLeft));
+#if READ_FLOATS
+						const float *in = (const float *)frame->pBuffer;
+						for (size_t i = 0; i < copyBytes / 4; i++)
+						{
+							data[outOffset++] = in[i];
+						}
+#else
+						const int16_t *in = (const int16_t *)frame->pBuffer;
+						static constexpr float fdivider = 32767;
+
+						for (size_t i = 0; i < copyBytes / 2; i++)
+						{
+							data[outOffset++] = float(in[i]) / fdivider;
+						}
+#endif
+						bytesLeft -= copyBytes;
+					}
+					break;
+				case RECEIVE_FRAME_NEED_PACKET:
+				case RECEIVE_FRAME_ERROR:
+					keepGoing = false;
+					break;
+				case RECEIVE_FRAME_EOF:
+					DDECODE(dprintf("[%s]%s: FRAME_EOF\033[0m\n", "\033[33mA", __func__));
+					eof = true;
+					keepGoing = false;
+					break;;
+				}
+				
+				ac_free_decoder_frame(frame);
+			}
+
+		}
+
+		DDECODE(dprintf("[%s]%s: done, bytes left %d\033[0m\n", "\033[33mA", __func__, bytesLeft));
+		return true;
 	}
 	
+	// STEREO
 	bool decode(float *dataA, float *dataB, size_t length)
 	{
 		DDECODE(dprintf("%s: length %d samples\n", __PRETTY_FUNCTION__, length));
@@ -123,7 +202,7 @@ public:
 				{
 				case RECEIVE_FRAME_SUCCESS:
 					{
-						size_t copyBytes = std::min(frame->buffer_size, bytesLeft);
+						const size_t copyBytes = std::min(frame->buffer_size, bytesLeft);
 						DDECODE(dprintf("[%s]%s: FRAME_SUCCESS, copy %d bytes...\033[0m\n", "\033[33mA", __func__, copyBytes));
 #if READ_FLOATS
 						const float *in = (const float *)frame->pBuffer;
@@ -268,9 +347,17 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSiz
 	DINIT(dprintf("%s\n", __PRETTY_FUNCTION__));
 	AcinerellaSoundReader reader(data, dataSize, mixToMono, sampleRate);
 
+#if 0
+	{
+		BPTR file = Open("ram:sample.wav", MODE_NEWFILE);
+		Write(file, (APTR)data, dataSize);
+		Close(file);
+	}
+#endif
+
 	if (reader.hasAudioStream())
 	{
-		DINIT(dprintf("%s: initialized, duration %fs \n", __PRETTY_FUNCTION__, float(reader.duration())));
+		DINIT(dprintf("%s: initialized, duration %fs, channels %d mixMono %d rate %f\n", __PRETTY_FUNCTION__, float(reader.duration()), reader.channels(), mixToMono, float(sampleRate)));
 		auto bus = AudioBus::create(reader.channels(), ceil(reader.duration() * double(sampleRate)));
 		if (bus)
 		{
@@ -281,6 +368,7 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSiz
 				AudioChannel *channel = bus->channel(0);
 				if (reader.decode(channel->mutableData(), channel->length()))
 					return bus;
+				return nullptr;
 			}
 
 			AudioChannel *channelA = bus->channel(0);
