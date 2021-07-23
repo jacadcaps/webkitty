@@ -25,6 +25,7 @@ all: .buildstamp
 		--enable-decoder=vp9 --enable-parser=vp9 --enable-bsf=aac_adtstoasc --enable-decoder=mpeg4 --enable-parser=mpeg4video \
 		--enable-demuxer=matroska --enable-libopus --enable-decoder=opus --enable-demuxer=mpegts --enable-demuxer=mpegtsraw --enable-parser=h264 \
 		--enable-demuxer=hevc --enable-decoder=hevc \
+		--enable-decoder=pcm_s16le --enable-demuxer=wav \
 		--disable-ffmpeg --disable-ffplay --pkg-config-flags="--static" --pkg-config=pkg-config)
 #--enable-libaom --enable-decoder=libaom_av1 \
 	# remove "-maltivec -mabi=altivec" from generic CFLAGS

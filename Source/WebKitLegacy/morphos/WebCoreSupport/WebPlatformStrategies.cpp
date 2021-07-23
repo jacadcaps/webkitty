@@ -33,6 +33,7 @@
 #include <WebCore/Page.h>
 #include <WebCore/PageGroup.h>
 #include <WebCore/MediaStrategy.h>
+#include <WebCore/AudioDestination.h>
 
 using namespace WebCore;
 
@@ -59,9 +60,9 @@ PasteboardStrategy* WebPlatformStrategies::createPasteboardStrategy()
 class WebMediaStrategy final : public MediaStrategy {
 private:
 #if ENABLE(WEB_AUDIO)
-    std::unique_ptr<AudioDestination> createAudioDestination(AudioIOCallback& callback, const String& inputDeviceId,
-        unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override
-    {
+    Ref<AudioDestination> createAudioDestination(AudioIOCallback& callback, const String& inputDeviceId,
+		unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override
+	{
         return AudioDestination::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
     }
 #endif

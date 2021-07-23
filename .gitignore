@@ -27,3 +27,5 @@ ffmpeg/opus*
 ffmpeg/ffmpeg-4.*
 ffmpeg/aom-build
 ffmpeg/aom
+ffmpeg/ffbuild
+

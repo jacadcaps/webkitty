@@ -167,7 +167,7 @@
 #include <proto/openurl.h>
 #include <libraries/openurl.h>
 
-#include "libeventprofiler.h"
+#include <libeventprofiler.h>
 
 // we cannot include libraries/mui.h here...
 enum
@@ -1210,9 +1210,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setLocalStorageDatabasePath(String("PROGDIR:Cache/LocalStorage"));
 #if (!MORPHOS_MINIMAL)
 	settings.setWebAudioEnabled(true);
-	// settings.setAudioWorkletEnabled(true);
-	// settings.setModernUnprefixedWebAudioEnabled(true);
-	// settings.setPrefixedWebAudioEnabled(true);
+	settings.setAudioWorkletEnabled(true);
+	settings.setModernUnprefixedWebAudioEnabled(true);
+	settings.setPrefixedWebAudioEnabled(true);
 	settings.setMediaEnabled(true);
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);

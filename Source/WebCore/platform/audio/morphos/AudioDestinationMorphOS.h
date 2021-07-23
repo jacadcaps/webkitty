@@ -25,12 +25,13 @@
 #pragma once
 #include "AudioBus.h"
 #include "AudioDestination.h"
+#include "AudioDestinationOutputMorphOS.h"
 
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
 
-class AudioDestinationMorphOS : public AudioDestination {
+class AudioDestinationMorphOS : public AudioDestination, public AudioDestinationRenderer {
 public:
     AudioDestinationMorphOS(AudioIOCallback&, float sampleRate);
     ~AudioDestinationMorphOS();
@@ -44,9 +45,21 @@ public:
     unsigned framesPerBuffer() const final;
 
 private:
+    void startRendering(CompletionHandler<void(bool)>&&);
+    void stopRendering(CompletionHandler<void(bool)>&&);
+    void setIsPlaying(bool playing) { m_isPlaying = playing; }
+    void render(int16_t *samplesStereo, size_t count) override;
+
+private:
     RefPtr<AudioBus> m_renderBus;
+    AudioDestinationOutputMorphOS m_output;
+    AudioIOPosition m_outputTimestamp;
+
+    Lock m_dispatchToRenderThreadLock;
+    Function<void(Function<void()>&&)> m_dispatchToRenderThread;
 
     float m_sampleRate;
+    double m_sampleTime = 0;
     bool m_isPlaying;
     bool m_audioSinkAvailable;
 };

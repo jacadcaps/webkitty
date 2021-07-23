@@ -30,10 +30,12 @@
 #include "AudioChannel.h"
 #include "AudioSourceProvider.h"
 #include "NotImplemented.h"
+#include "AudioUtilities.h"
+#include <proto/exec.h>
 
 namespace WebCore {
 
-static const unsigned framesToPull = 128;
+static const unsigned framesToPull = 128; // render quantum 
 
 float AudioDestination::hardwareSampleRate()
 {
@@ -52,11 +54,12 @@ Ref<AudioDestination> AudioDestination::create(AudioIOCallback&callback, const S
 
 AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float sampleRate)
 	: AudioDestination(callback)
-	, m_renderBus(AudioBus::create(2, framesToPull, false))
+	, m_renderBus(AudioBus::create(2, framesToPull, true))
+	, m_output(*this)
 	, m_sampleRate(sampleRate)
 	, m_isPlaying(false)
 {
-	notImplemented();
+	m_renderBus->setSampleRate(44100);
 }
 
 AudioDestinationMorphOS::~AudioDestinationMorphOS()
@@ -64,20 +67,100 @@ AudioDestinationMorphOS::~AudioDestinationMorphOS()
 
 }
 
-void AudioDestinationMorphOS::start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&&)
+void AudioDestinationMorphOS::start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&&completionHandler)
 {
-	notImplemented();
+    {
+        auto locker = holdLock(m_dispatchToRenderThreadLock);
+        m_dispatchToRenderThread = WTFMove(dispatchToRenderThread);
+    }
+
+    startRendering(WTFMove(completionHandler));
 }
 
-void AudioDestinationMorphOS::stop(CompletionHandler<void(bool)>&&)
+void AudioDestinationMorphOS::startRendering(CompletionHandler<void(bool)>&& completionHandler)
 {
+    ASSERT(isMainThread());
+    auto success = m_output.start();
+    if (success)
+        setIsPlaying(true);
 
+    callOnMainThread([completionHandler = WTFMove(completionHandler), success]() mutable {
+        completionHandler(success);
+    });
+}
+
+void AudioDestinationMorphOS::stop(CompletionHandler<void(bool)>&&completionHandler)
+{
+dprintf("%s\n", __PRETTY_FUNCTION__);
+    stopRendering(WTFMove(completionHandler));
+    {
+        auto locker = holdLock(m_dispatchToRenderThreadLock);
+        m_dispatchToRenderThread = nullptr;
+    }
+}
+
+void AudioDestinationMorphOS::stopRendering(CompletionHandler<void(bool)>&& completionHandler)
+{
+    ASSERT(isMainThread());
+    m_output.stop();
+	setIsPlaying(false);
+
+    callOnMainThread([completionHandler = WTFMove(completionHandler)]() mutable {
+        completionHandler(true);
+    });
 }
 
 unsigned AudioDestinationMorphOS::framesPerBuffer() const
 {
-	return 1;
+	return m_renderBus->length();
 }
+
+void AudioDestinationMorphOS::render(int16_t *samplesStereo, size_t count)
+{
+	auto locker = tryHoldLock(m_dispatchToRenderThreadLock);
+
+	if (!locker || !m_dispatchToRenderThread)
+		return;
+
+	m_dispatchToRenderThread([count = count, samplesStereo = samplesStereo, this, protectedThis = makeRef(*this)] {
+		const auto length = m_renderBus->channel(0)->length();
+		int16_t *out = samplesStereo;
+		for (size_t i = 0; i < count; i+= length)
+		{
+
+			m_outputTimestamp = {
+				Seconds { m_sampleTime / double(sampleRate()) },
+				MonotonicTime::now()
+			};
+			
+			m_sampleTime += length;
+//dprintf("render length %d sampleTime %f count %d, time %f\n", length, float(m_sampleTime), count, float(m_sampleTime / double(sampleRate())));
+			callRenderCallback(nullptr, m_renderBus.get(), length, m_outputTimestamp);
+
+			AudioChannel *channelA = m_renderBus->channel(0);
+			AudioChannel *channelB = m_renderBus->channel(1);
+
+			if (channelA->isSilent() && channelB->isSilent())
+			{
+				memset(samplesStereo, 0, count * 4);
+//dprintf("silence\n");
+			}
+			else
+			{
+				auto dataA = channelA->data();
+				auto dataB = channelB->data();
+				static constexpr float fmultiplier = 32767;
+				for (size_t sample = 0; sample < length; sample ++)
+				{
+					*out++ = int16_t(dataA[sample] * fmultiplier);
+					*out++ = int16_t(dataB[sample] * fmultiplier);
+//if (sample % 16 == 0) dprintf("@%d: %f %f > %d %d\n", sample, dataA[sample], dataB[sample], int16_t(dataA[sample] * fmultiplier), int16_t(dataB[sample] * fmultiplier));
+				}
+			}
+		};
+	});
+}
+
 
 }
 

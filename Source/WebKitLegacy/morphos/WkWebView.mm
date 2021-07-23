@@ -53,7 +53,7 @@
 #import <cairo.h>
 struct Library *FreetypeBase;
 
-#include "libeventprofiler.h"
+#include <libeventprofiler.h>
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"

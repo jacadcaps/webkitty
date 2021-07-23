@@ -87,6 +87,12 @@ typedef enum _ac_output_format {
 	AC_OUTPUT_ARGB32 = 6,
 } ac_output_format;
 
+typedef enum _ac_audio_output_format {
+	AC_AUDIO_OUTPUT_16_2,
+	AC_AUDIO_OUTPUT_FLOAT_1,
+	AC_AUDIO_OUTPUT_FLOAT_2,
+} ac_audio_output_format;
+
 /*Contains information about the whole file/stream that has been opened. Default
 values are ""
 for strings and -1 for integer values.*/
@@ -164,6 +170,9 @@ typedef struct _ac_instance {
 	 * Set this value to change the image output format
 	 */
 	ac_output_format output_format;
+
+	ac_audio_output_format audio_output_format;
+	int audio_rate;
 
 	/**
 	 * Contains information about the opened stream/file
@@ -461,6 +470,7 @@ EXTERN lp_ac_decoder CALL_CONVT
  */
 EXTERN void CALL_CONVT ac_free_decoder(lp_ac_decoder pDecoder);
 
+#if 0
 /**
  * Decodes a package using the specified decoder. The decoded data is stored in
  * the "buffer" property of the decoder.
@@ -476,6 +486,7 @@ EXTERN int CALL_CONVT
 
 EXTERN int CALL_CONVT
     ac_decode_package_ex(lp_ac_package pPackage, lp_ac_decoder pDecoder, lp_ac_decoder_frame pFrame);
+#endif
 
 typedef enum _ac_receive_frame_rc
 {
@@ -534,6 +545,7 @@ EXTERN char CALL_CONVT ac_get_package_keyframe(lp_ac_package pPackage);
 EXTERN void CALL_CONVT ac_flush_buffers(lp_ac_decoder pDecoder);
 EXTERN lp_ac_package CALL_CONVT ac_flush_packet(void);
 EXTERN int CALL_CONVT ac_set_output_format(lp_ac_decoder pDecoder, ac_output_format fmt);
+void ac_set_audio_output_format(lp_ac_instance pacInstance, ac_audio_output_format fmt, int rate);
 struct AVFrame;
 EXTERN AVFrame * CALL_CONVT ac_get_frame(lp_ac_decoder decoder);
 EXTERN AVFrame * CALL_CONVT ac_get_frame_real(lp_ac_decoder_frame pFrame);

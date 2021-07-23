@@ -77,6 +77,7 @@ if (NOT MORPHOS_MINIMAL)
 		platform/audio/morphos/AudioDestinationMorphOS.cpp
 		platform/audio/morphos/AudioBusMorphOS.cpp
 		platform/audio/morphos/AudioFileReaderMorphOS.cpp
+		platform/audio/morphos/AudioDestinationOutputMorphOS.cpp
 		platform/audio/morphos/FFTFrameMorphOS.cpp
 		platform/graphics/morphos/acinerella.c
 		platform/graphics/morphos/AcinerellaPointer.cpp
