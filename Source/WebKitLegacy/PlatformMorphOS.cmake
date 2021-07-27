@@ -80,6 +80,7 @@ if (NOT MORPHOS_MINIMAL)
 	add_definitions(-DENABLE_WEB_AUDIO=1)
 	list(APPEND WebKitLegacy_SOURCES_Classes
 		morphos/WebDatabaseManager.cpp
+		morphos/WebCoreSupport/WebUserMediaClient.cpp
 	)
 endif()
 

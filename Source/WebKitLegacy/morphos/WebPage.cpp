@@ -141,6 +141,10 @@
 #include <functional>
 #include <string.h>
 
+#if ENABLE(MEDIA_STREAM)
+#include "WebUserMediaClient.h"
+#endif
+
 #include <cairo.h>
 #include <cairo-pdf.h>
 #include <cairo-ps.h>
@@ -1247,6 +1251,12 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
        settings.setInvisibleAutoplayNotPermitted(true);
        settings.setAudioPlaybackRequiresUserGesture(true);
        settings.setVideoPlaybackRequiresUserGesture(true);
+#endif
+
+#if ENABLE(MEDIA_STREAM)
+    WebCore::provideUserMediaTo(m_page, new WebUserMediaClient(*this));
+    settings.setMediaStreamEnabled(true);
+    settings.setMediaDevicesEnabled(true);
 #endif
 
 	m_page->effectiveAppearanceDidChange(m_darkMode, false);

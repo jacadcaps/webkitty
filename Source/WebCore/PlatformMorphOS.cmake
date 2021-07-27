@@ -95,6 +95,7 @@ if (NOT MORPHOS_MINIMAL)
 		platform/graphics/morphos/VideoTrackPrivateMorphOS.cpp
 		platform/graphics/morphos/MediaDescriptionMorphOS.cpp
 		platform/graphics/morphos/MediaSampleMorphOS.cpp
+		platform/mediastream/morphos/RealtimeMediaSourceCenterMorphOS.cpp
 	)
 endif()
 

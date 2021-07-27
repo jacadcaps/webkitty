@@ -37,6 +37,9 @@ public:
 #if ENABLE(MEDIA_SOURCE)
     void load(const URL& url, const ContentType&, MediaSourcePrivateClient*) final;
 #endif
+#if ENABLE(MEDIA_STREAM)
+	void load(MediaStreamPrivate&) final { };
+#endif
     void cancelLoad() final;
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
