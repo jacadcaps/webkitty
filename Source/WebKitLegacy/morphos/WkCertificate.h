@@ -52,6 +52,7 @@
 
 // Verifies the whole certificate chain
 - (BOOL)verify:(OBError **)outerror;
+- (BOOL)verifyForHost:(OBString *)hostname error:(OBError **)outerror;
 
 // Translates the code from OBError into a string
 + (OBString *)validationErrorStringForErrorCode:(int)e;

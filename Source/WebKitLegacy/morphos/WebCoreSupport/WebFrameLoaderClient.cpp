@@ -284,6 +284,8 @@ void WebFrameLoaderClient::dispatchDidChangeMainDocument()
 
 void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl)
 {
+// would change url for direct clicks into downloadable content
+#if 0
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -292,6 +294,7 @@ void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, con
 			webPage->_fChangedURL(newUrl.string());
 		}
 	}
+#endif
 }
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()

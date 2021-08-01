@@ -53,6 +53,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkFavIcon.mm
     morphos/WkPrinting.mm
     morphos/WkUserScript.mm
+    morphos/WkMedia.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -101,6 +102,7 @@ set_source_files_properties(morphos/WkHitTest.mm PROPERTIES COMPILE_FLAGS ${MM_F
 set_source_files_properties(morphos/WkFavIcon.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkPrinting.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkUserScript.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkMedia.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

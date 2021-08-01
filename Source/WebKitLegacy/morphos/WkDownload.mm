@@ -1,6 +1,10 @@
 #import "WkDownload_private.h"
 #import "WkNetworkRequestMutable.h"
 #import "WkError_private.h"
+#import <ob/OBThread.h>
+#import <ob/OBArray.h>
+#import <ob/OBRunLoop.h>
+#import <proto/obframework.h>
 
 #undef __OBJC__
 #include "WebKit.h"
@@ -13,6 +17,7 @@
 #include <WebProcess.h>
 #define __OBJC__
 
+#import <proto/dos.h>
 extern "C" { void dprintf(const char *, ...); }
 
 #define D(x)
@@ -56,6 +61,7 @@ private:
 	WebDownload              _download;
 	OBURL                   *_url;
 	OBString                *_filename;
+	OBString                *_tmpPath;
 	id<WkDownloadDelegate>   _delegate;
 	bool                     _selfretained;
 	bool                     _isPending;
@@ -71,6 +77,7 @@ private:
 - (void)setFinished:(BOOL)fini;
 - (void)cancelDueToAuthentication;
 - (void)updateURL:(OBURL *)url;
+- (void)handleFinishedWithTmpPath:(OBString *)path;
 
 @end
 
@@ -209,7 +216,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			if (path)
 			{
 				[m_outerObject setFilename:path];
-				m_download->setDestination(WTF::String::fromUTF8([path cString]));
+				// m_download->setDestination(WTF::String::fromUTF8([path cString]));
 			}
 			else
 			{
@@ -237,16 +244,22 @@ void WebDownload::didReceiveDataOfLength(int size)
 
 void WebDownload::didFinish()
 {
-	m_download->setDeleteTmpFile(false);
-	m_download->setListener(nullptr);
-	m_download = nullptr;
+	if (m_download)
+	{
+		auto tmpPath = m_download->tmpFilePath();
+		auto uTmpPath = tmpPath.utf8();
+		
+		m_download->setDeleteTmpFile(false);
+		m_download->setListener(nullptr);
+		m_download = nullptr;
 
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+		D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 
-	[m_outerObject setFinished:YES];
-	[m_outerObject setPending:NO];
-	[[m_outerObject delegate] downloadDidFinish:m_outerObject];
-	[m_outerObject selfrelease];
+		[m_outerObject setFinished:YES];
+		[m_outerObject setPending:NO];
+		[m_outerObject handleFinishedWithTmpPath:[OBString stringWithUTF8String:uTmpPath.data()]];
+		[m_outerObject selfrelease];
+	}
 }
 
 void WebDownload::didFail(const WebCore::ResourceError& error)
@@ -328,6 +341,11 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	[_request release];
 	[_delegate release];
 	[_filename release];
+	if (_tmpPath)
+	{
+		DeleteFile([_tmpPath nativeCString]);
+	}
+	[_tmpPath release];
 	[super dealloc];
 }
 
@@ -473,9 +491,151 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	return _isFinished;
 }
 
+- (void)handleFinishedWithTmpPath:(OBString *)path
+{
+	_tmpPath = [[path absolutePath] retain];
+	[_delegate downloadDidFinish:self];
+
+	if (![_delegate respondsToSelector:@selector(downloadShouldMoveFileWhenFinished:)] || [_delegate downloadShouldMoveFileWhenFinished:self])
+	{
+		[self moveFinishedDownload:_filename];
+	}
+}
+
 - (void)setLogin:(OBString *)login password:(OBString *)password
 {
 	_download.setUserPassword(String::fromUTF8([login cString]), String::fromUTF8([password cString]));
+}
+
+- (void)moveCompletedWithError:(WkError *)error
+{
+	if ([_delegate respondsToSelector:@selector(download:completedMoveWithError:)])
+	{
+		[_delegate download:self completedMoveWithError:error];
+	}
+}
+
+- (void)threadMove:(OBArray *)srcDest
+{
+	OBString *src = [srcDest firstObject];
+	OBString *dest = [srcDest lastObject];
+	BPTR lSrc = Lock([src nativeCString], ACCESS_READ);
+
+	if (!lSrc)
+	{
+		[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_SourcePath code:IoErr()]];
+		return;
+	}
+
+	BPTR lDst = Lock([[dest pathPart] nativeCString], ACCESS_READ);
+	if (!lDst)
+	{
+		[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_DestinationPath code:IoErr()]];
+
+		if (lSrc)
+			UnLock(lSrc);
+		DeleteFile([src nativeCString]);
+		return;
+	}
+
+	auto sl = SameLock(lSrc, lDst);
+	
+	if (lSrc)
+		UnLock(lSrc);
+	if (lDst)
+		UnLock(lDst);
+
+	if (LOCK_DIFFERENT == sl)
+	{
+		char *buffer = (char *)OBAlloc(512 * 1024);
+		if (!buffer)
+		{
+			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_Cancellation code:IoErr()]];
+			return;
+		}
+		lSrc = Open([src nativeCString], MODE_OLDFILE);
+		if (!lSrc)
+		{
+			OBFree(buffer);
+			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_SourcePath code:IoErr()]];
+			return;
+		}
+		lDst = Open([dest nativeCString], MODE_NEWFILE);
+
+		if (!lDst)
+		{
+			OBFree(buffer);
+			Close(lSrc);
+			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_DestinationPath code:IoErr()]];
+			return;
+		}
+		
+		WkError *error = nil;
+		for (;;)
+		{
+			auto len = Read(lSrc, buffer, 512 * 1024);
+
+			if (len == 0)
+				break;
+				
+			if (len < 0)
+			{
+				error = [WkError errorWithURL:_url errorType:WkErrorType_Read code:IoErr()];
+				break;
+			}
+			
+			auto lenOut = Write(lDst, buffer, len);
+			if (lenOut != len)
+			{
+				error = [WkError errorWithURL:_url errorType:WkErrorType_Write code:IoErr()];
+			}
+		}
+		
+		OBFree(buffer);
+
+		Close(lSrc);
+		Close(lDst);
+		
+		DeleteFile([src nativeCString]);
+
+		if (error)
+		{
+			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:error];
+			return;
+		}
+	}
+	else if (LOCK_SAME_VOLUME == sl)
+	{
+		if (!Rename([src nativeCString], [dest nativeCString]))
+		{
+			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:_url errorType:WkErrorType_Rename code:IoErr()]];
+			DeleteFile([src nativeCString]);
+			return;
+		}
+	}
+
+	[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:nil];
+}
+
+- (void)moveFinishedDownload:(OBString *)destinationPath
+{
+	if (_isFinished)
+	{
+		if (_tmpPath)
+		{
+			OBString *tmp = [_tmpPath copy];
+
+			[_tmpPath release];
+			_tmpPath = nil;
+
+			[OBThread startWithObject:self selector:@selector(threadMove:) argument:[OBArray arrayWithObjects:tmp, destinationPath, nil]];
+		}
+	}
+	else
+	{
+		[_filename autorelease];
+		_filename = [[destinationPath absolutePath] retain];
+	}
 }
 
 @end
@@ -559,7 +719,13 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
 - (void)setLogin:(OBString *)login password:(OBString *)password
 {
+	(void)login;
+	(void)password;
+}
 
+- (void)moveFinishedDownload:(OBString *)destinationPath
+{
+	(void)destinationPath;
 }
 
 @end

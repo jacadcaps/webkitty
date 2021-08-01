@@ -86,6 +86,11 @@
 		case WkErrorType_Timeout: _domain = @"timeout"; _description = OBL(@"Timed out", @"Error description"); break;
 		case WkErrorType_SSLConnection: _domain = @"ssl"; _description = OBL(@"SSL Error", @"Error description"); break;
 		case WkErrorType_SSLCertification: _domain = @"sslcertificate"; _description = OBL(@"Certificate Error", @"Error description"); break;
+		case WkErrorType_SourcePath: _domain = @"file"; _description = OBL(@"I/O Error: invalid source", @"Error description"); break;
+		case WkErrorType_DestinationPath: _domain = @"file"; _description = OBL(@"I/O Error: invalid destination", @"Error description"); break;
+		case WkErrorType_Rename: _domain = @"file"; _description = OBL(@"I/O Error: file rename", @"Error description"); break;
+		case WkErrorType_Read: _domain = @"file"; _description = OBL(@"I/O Error: file read", @"Error description"); break;
+		case WkErrorType_Write: _domain = @"file"; _description = OBL(@"I/O Error: file write", @"Error description"); break;
 		}
 	}
 	

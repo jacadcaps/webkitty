@@ -195,6 +195,8 @@ void CurlDownload::curlDidComplete(CurlRequest& request, NetworkLoadMetrics&&)
             FileSystem::moveFile(request.getDownloadedFilePath(), m_destination);
     }
 
+    m_tmpPath = request.getDownloadedFilePath();
+
     if (m_listener)
         m_listener->didFinish();
 }

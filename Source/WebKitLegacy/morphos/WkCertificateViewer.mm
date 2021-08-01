@@ -84,7 +84,32 @@ extern "C" { void dprintf(const char *,...); }
 	[self onCertificateSelected:certificate];
 }
 
-- (id)initWithCertificateChain:(WkCertificateChain *)chain
+- (OBString *)localize:(OBString *)key withDictionary:(OBDictionary *)localization
+{
+	OBString *loc = [localization objectForKey:key];
+	if (loc)
+		return loc;
+	if ([key isEqualToString:WkCertificateVerifier_Localization_Name])
+		return @"Name:";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_Issued])
+		return @"Issued by:";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_Expires])
+		return @"Expires:";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_Valid])
+		return @"This certificate is valid.";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_NotValid])
+		return @"This certificate is NOT valid.";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_NoHostMatch])
+		return @"This certificate does NOT match the hostname.";
+	return @"";
+}
+
+- (OBString *)localize:(OBString *)key
+{
+	return [self localize:key withDictionary:_localization];
+}
+
+- (id)initWithCertificateChain:(WkCertificateChain *)chain host:(OBString *)host localizationDictionary:(OBDictionary *)localization
 {
 	MUIGroup *left;
 	if ((self = [super initWithObjects:
@@ -94,11 +119,11 @@ extern "C" { void dprintf(const char *,...); }
 				[MUIDtpic dtpicWithFileName:@"PROGDIR:Resources/certificate.png"],
 				nil],
 			[MUIGroup groupWithColumns:2 objects:
-				[MUILabel label:OBL(@"Name:", @"Certificate Name")],
+				[MUILabel label:[self localize:WkCertificateVerifier_Localization_Name withDictionary:localization]],
 				_name = [MUIText textWithContents:nil],
-				[MUILabel label:OBL(@"Issued by:", @"Certificate Name")],
+				[MUILabel label:[self localize:WkCertificateVerifier_Localization_Issued withDictionary:localization]],
 				_issuedBy = [MUIText textWithContents:nil],
-				[MUILabel label:OBL(@"Expires:", @"Certificate Name")],
+				[MUILabel label:[self localize:WkCertificateVerifier_Localization_Expires withDictionary:localization]],
 				_expires = [MUIText textWithContents:nil],
 				[MUIRectangle rectangleWithWeight:0],
 				_valid = [MUIText textWithContents:nil],
@@ -107,9 +132,13 @@ extern "C" { void dprintf(const char *,...); }
 		nil]))
 	{
 		_certificateChain = [chain retain];
-		
+		_host = [host copy];
+		_localization = [localization retain];
+
+		_matchesHost = host ? [chain verifyForHost:host error:NULL] : YES;
+
 		[left setHorizWeight:0];
-		
+
 		OBArray *certificates = [chain certificates];
 		ULONG certs = [certificates count];
 		_WkCertificateListEntry *last = nil;
@@ -123,7 +152,7 @@ extern "C" { void dprintf(const char *,...); }
 				[_tree insert:next = [_WkCertificateListEntry entryWithCertificate:certificate asBranch:i + 1 < certs] flags:kMCCListtreeInsertFlag_Open];
 			last = next;
 		}
-		
+
 		[_tree notify:@selector(active) performSelector:@selector(certificateSelected) withTarget:self];
 	}
 	
@@ -133,12 +162,19 @@ extern "C" { void dprintf(const char *,...); }
 - (void)dealloc
 {
 	[_certificateChain release];
+	[_host release];
+	[_localization release];
 	[super dealloc];
 }
 
 + (WkCertificateVerifier *)verifierForCertificateChain:(WkCertificateChain *)chain
 {
-	return [[[self alloc] initWithCertificateChain:chain] autorelease];
+	return [[[self alloc] initWithCertificateChain:chain host:nil localizationDictionary:nil] autorelease];
+}
+
++ (WkCertificateVerifier *)verifierForCertificateChain:(WkCertificateChain *)chain host:(OBString *)host localizationDictionary:(OBDictionary *)localization
+{
+	return [[[self alloc] initWithCertificateChain:chain host:host localizationDictionary:localization] autorelease];
 }
 
 - (BOOL)setup
@@ -160,10 +196,14 @@ extern "C" { void dprintf(const char *,...); }
 {
 	if (certificate)
 	{
+		BOOL isLast = certificate == [[_certificateChain certificates] lastObject];
 		[_name setContents:[[certificate subjectName] objectForKey:@"CN"]];
 		[_issuedBy setContents:[[certificate issuerName] objectForKey:@"CN"]];
 		[_expires setContents:[certificate notValidAfter]];
-		[_valid setContents:[certificate isValid] ? OBL(@"This certificate is valid.", @"Certificate validity msg") : OBL(@"This certificate is NOT valid.", @"Certificate validity msg")];
+		if (isLast && !_matchesHost)
+			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_NoHostMatch] : [self localize:WkCertificateVerifier_Localization_NotValid]];
+		else
+			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_Valid] : [self localize:WkCertificateVerifier_Localization_NotValid]];
 	}
 }
 

@@ -11,6 +11,11 @@ typedef enum
 	WkErrorType_Timeout,
 	WkErrorType_SSLConnection,
 	WkErrorType_SSLCertification,
+	WkErrorType_SourcePath,
+	WkErrorType_DestinationPath,
+	WkErrorType_Rename,
+	WkErrorType_Read,
+	WkErrorType_Write,
 } WkErrorType;
 
 @interface WkError : OBObject

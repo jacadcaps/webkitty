@@ -19,6 +19,10 @@
 - (void)download:(WkDownload *)download didFailWithError:(WkError *)error;
 - (void)downloadNeedsAuthenticationCredentials:(WkDownload *)download;
 
+@optional
+- (BOOL)downloadShouldMoveFileWhenFinished:(WkDownload *)download;
+- (void)download:(WkDownload *)download completedMoveWithError:(WkError *)error;
+
 @end
 
 @interface WkDownload : OBObject
@@ -44,5 +48,9 @@
 - (BOOL)isPending;
 - (BOOL)isFailed;
 - (BOOL)isFinished;
+
+// Either modifies the destination path or performs the move itself if called from downloadDidFinish: or later on
+// Will obviously only work once if it's to perform an immediate rename/copy for a completed download
+- (void)moveFinishedDownload:(OBString *)destinationPath;
 
 @end

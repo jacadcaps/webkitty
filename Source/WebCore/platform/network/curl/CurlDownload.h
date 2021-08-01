@@ -67,6 +67,7 @@ public:
     bool isCancelled() { return m_isCancelled; }
 
     void setDeleteTmpFile(bool deleteTmpFile);
+    const String& tmpFilePath(void) const { return m_tmpPath; };
     long long resumeOffset();
 
     bool deletesFileUponFailure() const { return m_deletesFileUponFailure; }
@@ -95,6 +96,7 @@ private:
     bool m_deleteTmpFile { false };
     bool m_isResume { false };
     String m_destination;
+    String m_tmpPath;
     String m_user;
     String m_password;
     unsigned m_redirectCount { 0 };
