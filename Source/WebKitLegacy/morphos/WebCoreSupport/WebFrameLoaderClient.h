@@ -193,7 +193,7 @@ private:
 #endif
     void transitionToCommittedForNewPage() final;
 
-    void didRestoreFromBackForwardCache() final { m_frameCameFromPageCache = true; };
+    void didRestoreFromBackForwardCache() final;
 
     bool canCachePage() const final;
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;

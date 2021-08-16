@@ -117,8 +117,8 @@ protected:
 	MediaPlayerMorphOSStreamSettings m_streamSettings;
 	double m_duration = 0.f;
 	double m_currentTime = 0.f;
-	int   m_width = 320;
-	int   m_height = 240;
+	int   m_width = 1280;
+	int   m_height = 740;
 	bool  m_prepareToPlay = false;
 	bool  m_acInitialized = false;
 	bool  m_visible = false;

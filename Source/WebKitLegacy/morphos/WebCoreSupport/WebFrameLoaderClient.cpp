@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x)
+#define D(x) 
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -250,6 +250,7 @@ void WebFrameLoaderClient::dispatchDidReceiveServerRedirectForProvisionalLoad()
 
 void WebFrameLoaderClient::dispatchDidChangeProvisionalURL()
 {
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
 }
 
 void WebFrameLoaderClient::dispatchDidCancelClientRedirect()
@@ -266,6 +267,8 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
     if (!webPage)
         return;
 
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+
 	if (m_frame->isMainFrame() && webPage->_fChangedURL)
 	{
 		webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
@@ -276,6 +279,7 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
 
 void WebFrameLoaderClient::dispatchDidChangeMainDocument()
 {
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
@@ -284,6 +288,7 @@ void WebFrameLoaderClient::dispatchDidChangeMainDocument()
 
 void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl)
 {
+	D(dprintf("%s: mainfr %d '%s' > '%s'\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), currentUrl.string().utf8().data(), newUrl.string().utf8().data()));
 // would change url for direct clicks into downloadable content
 #if 0
 	WebPage* webPage = m_frame->page();
@@ -299,6 +304,7 @@ void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, con
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 {
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -311,6 +317,7 @@ void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 
 void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 {
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -323,6 +330,7 @@ void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 
 void WebFrameLoaderClient::dispatchDidPopStateWithinPage()
 {
+	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -393,16 +401,18 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
     if (!webPage)
         return;
 
-    D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
+    WebDocumentLoader& documentLoader = static_cast<WebDocumentLoader&>(*m_frame->coreFrame()->loader().documentLoader());
+
+    D(dprintf("%s: hasInsecure %d '%s' main %d\n", __PRETTY_FUNCTION__, hasInsecureContent && hasInsecureContent.value() == HasInsecureContent::Yes, documentLoader.url().string().utf8().data(), m_frame->isMainFrame()));
 
     webPage->didCommitLoad(m_frame);
 
 	if (m_frame->isMainFrame() && webPage->_fChangedURL)
 	{
-		webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
+		webPage->_fChangedURL(documentLoader.url().string());
 	}
 	
-	if (hasInsecureContent && m_frame->isMainFrame() && webPage->_fDidLoadInsecureContent)
+	if ((hasInsecureContent && hasInsecureContent.value() == HasInsecureContent::Yes) && m_frame->isMainFrame() && webPage->_fDidLoadInsecureContent)
 	{
 		webPage->_fDidLoadInsecureContent();
 	}
@@ -858,6 +868,13 @@ void WebFrameLoaderClient::willChangeTitle(DocumentLoader*)
 void WebFrameLoaderClient::didChangeTitle(DocumentLoader*)
 {
     notImplemented();
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+}
+
+void WebFrameLoaderClient::didRestoreFromBackForwardCache()
+{
+D(dprintf("%s: '%s' \n", __PRETTY_FUNCTION__, m_frame->coreFrame()->document()->url().string().utf8().data()));
+	m_frameCameFromPageCache = true;
 }
 
 void WebFrameLoaderClient::willReplaceMultipartContent()
@@ -956,14 +973,27 @@ bool WebFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item) const
 
 void WebFrameLoaderClient::didDisplayInsecureContent()
 {
+	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
+    WebPage* webPage = m_frame->page();
+    if (webPage)
+		webPage->_fDidLoadInsecureContent();
 }
+
 
 void WebFrameLoaderClient::didRunInsecureContent(SecurityOrigin&, const URL&)
 {
+	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
+    WebPage* webPage = m_frame->page();
+    if (webPage)
+		webPage->_fDidLoadInsecureContent();
 }
 
 void WebFrameLoaderClient::didDetectXSS(const URL&, bool)
 {
+	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
+    WebPage* webPage = m_frame->page();
+    if (webPage)
+		webPage->_fDidLoadInsecureContent();
 }
 
 ResourceError WebFrameLoaderClient::cancelledError(const ResourceRequest& request) const

@@ -100,6 +100,7 @@ struct WebViewDelegate
 		WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
 	std::function<void(void *player)> _fMediaRemoved;
 	std::function<void(void *player)> _fMediaWillPlay;
+	std::function<void(void *player)> _fMediaPausedOrFinished;
 	std::function<void(void *player, WebCore::Element* element,
 		WTF::Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback)>
 		_fMediaSetOverlayCallback;
@@ -168,6 +169,7 @@ struct WebViewDelegate
 		_fMediaSupportCheck = nullptr;
 		_fEnterFullscreen = nullptr;
 		_fExitFullscreen = nullptr;
+		_fMediaPausedOrFinished = nullptr;
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

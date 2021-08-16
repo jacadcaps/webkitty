@@ -2589,7 +2589,8 @@ void WebPage::setSpellingLanguages(const WTF::String &language, const WTF::Strin
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	WebEditorClient *client = reinterpret_cast<WebEditorClient *>(coreFrame->editor().client());
-	client->setSpellCheckingLanguages(language, additional);
+	if (client)
+		client->setSpellCheckingLanguages(language, additional);
 }
 
 void WebPage::flushCompositing()

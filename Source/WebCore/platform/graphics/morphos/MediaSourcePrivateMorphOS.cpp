@@ -335,6 +335,8 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 					if (minfo.m_width) {
 						info.m_width = minfo.m_width;
 						info.m_height = minfo.m_height;
+						info.m_bitRate = minfo.m_bitRate;
+						info.m_videoCodec = minfo.m_videoCodec;
                         m_hasVideo = true;
 					}
 					
@@ -342,13 +344,14 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 						info.m_channels = minfo.m_channels;
 						info.m_bits = minfo.m_bits;
 						info.m_frequency = minfo.m_frequency;
+						info.m_audioCodec = minfo.m_audioCodec;
                         m_hasAudio = true;
 					}
-					
+
 					info.m_duration = duration().toFloat(); //! client provides us with the actual duration!
                     info.m_isDownloadable = false;
                     info.m_isMediaSource = true;
-                    
+
                     D(dprintf("onSourceBufferInitialized: src %p dur %f %d %d\n", sourceBufferPrivate.get(), minfo.m_frequency, minfo.m_width));
 				}
 

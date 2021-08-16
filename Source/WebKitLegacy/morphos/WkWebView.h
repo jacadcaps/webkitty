@@ -18,6 +18,7 @@
 @protocol WkFileDialogResponseHandler;
 @protocol WkDownloadDelegate;
 @protocol WkPrintingStateDelegate;
+@protocol WkWebViewMediaDelegate;
 
 #define kWebViewClientDelegateOption @"mode"
 #define kWebViewClientDelegateOption_NewWindow @"window"
@@ -213,6 +214,7 @@ typedef enum {
 - (void)setContextMenuDelegate:(id<WkWebViewContextMenuDelegate>)delegate;
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 
@@ -243,5 +245,7 @@ typedef enum {
 
 - (BOOL)isFullscreen;
 - (void)exitFullscreen;
+
+- (OBArray /* id<WkMediaObject> */ *)mediaObjects;
 
 @end

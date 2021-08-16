@@ -15,15 +15,18 @@ class Page;
 
 struct MediaPlayerMorphOSInfo
 {
-	float m_duration = 0;
-	int   m_frequency = 0;
-	int   m_bits;
-	int   m_channels = 0;
-	int   m_width = 0;
-	int   m_height;
-	bool  m_isLive = false;
-    bool  m_isDownloadable = false;
-    bool  m_isMediaSource = false;
+	WTF::String m_audioCodec;
+	WTF::String m_videoCodec;
+	float       m_duration = 0;
+	int         m_frequency = 0;
+	int         m_bits;
+	int         m_channels = 0;
+	int         m_width = 0;
+	int         m_height;
+	int         m_bitRate = 0;
+	bool        m_isLive = false;
+    bool        m_isDownloadable = false;
+    bool        m_isMediaSource = false;
 };
 
 struct MediaPlayerMorphOSStreamSettings
@@ -61,6 +64,7 @@ public:
 		Function<void()> &&yieldFunc)> m_load;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 	Function<void(WebCore::MediaPlayer *player)> m_willPlay;
+	Function<void(WebCore::MediaPlayer *player)> m_pausedOrFinished;
 
 	Function<void(WebCore::MediaPlayer *player,
 		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&&)> m_overlayRequest;

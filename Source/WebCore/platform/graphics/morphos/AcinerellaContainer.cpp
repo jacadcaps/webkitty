@@ -592,6 +592,7 @@ bool Acinerella::initialize()
 						minfo.m_frequency = audio->rate();
 						minfo.m_bits = audio->bits();
 						minfo.m_channels = audio->channels();
+						minfo.m_audioCodec = audio->codec();
 					}
 					else
 					{
@@ -603,6 +604,8 @@ bool Acinerella::initialize()
 						AcinerellaVideoDecoder* video = static_cast<AcinerellaVideoDecoder *>(m_videoDecoder.get());
 						minfo.m_width = video->frameWidth();
 						minfo.m_height = video->frameHeight();
+						minfo.m_videoCodec = video->codec();
+						minfo.m_bitRate = video->bitRate();
 					}
 					else
 					{

@@ -208,6 +208,8 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 					DM(dprintf("%s: video %d %f codec %s\n", __func__, i, float(duration), ac_codec_name(metaCinerella->instance(), i)));
 					minfo.m_width = info.additional_info.video_info.frame_width;
 					minfo.m_height = info.additional_info.video_info.frame_height;
+					minfo.m_videoCodec = ac_codec_name(metaCinerella->instance(), i);
+					minfo.m_bitRate = metaCinerella->instance()->info.bitrate;
 				}
 				break;
 				
@@ -222,6 +224,7 @@ void MediaSourceChunkReader::getMeta(WebCore::SourceBufferPrivateClient::Initial
 					minfo.m_channels = info.additional_info.audio_info.channel_count;
 					minfo.m_frequency = info.additional_info.audio_info.samples_per_second;
 					minfo.m_bits = info.additional_info.audio_info.bit_depth;
+					minfo.m_audioCodec = ac_codec_name(metaCinerella->instance(), i);
 				}
 				break;
 

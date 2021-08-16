@@ -110,6 +110,7 @@ public:
 
 	double duration() const { return m_duration; }
 	double bitRate() const { return m_bitrate; }
+	const WTF::String &codec() const { return m_codec; }
 	virtual double position() const = 0;
 	virtual double bufferSize() const = 0;
 
@@ -165,6 +166,7 @@ protected:
     MessageQueue<Function<void ()>>    m_queue;
 
 	RefPtr<AcinerellaMuxedBuffer>      m_muxer;
+	WTF::String                        m_codec;
 	double                             m_duration;
 	int                                m_bitrate;
 	int                                m_index;

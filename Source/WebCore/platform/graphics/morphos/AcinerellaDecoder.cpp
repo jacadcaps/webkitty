@@ -36,6 +36,7 @@ AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<Aci
 
 	m_bitrate = ac->info.bitrate;
 	m_lastDecoder = acinerella->decoder(m_index);
+	m_codec = ac_codec_name(acinerella->instance(), index);
 }
 
 AcinerellaDecoder::~AcinerellaDecoder()

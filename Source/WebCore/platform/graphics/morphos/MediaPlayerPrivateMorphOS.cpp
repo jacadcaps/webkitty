@@ -452,6 +452,9 @@ void MediaPlayerPrivateMorphOS::pause()
 		m_mediaSourcePrivate->pause();
 #endif
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+
+	if (MediaPlayerMorphOSSettings::settings().m_pausedOrFinished)
+		MediaPlayerMorphOSSettings::settings().m_pausedOrFinished(m_player);
 }
 
 void MediaPlayerPrivateMorphOS::setVolume(float volume)
@@ -835,6 +838,9 @@ void MediaPlayerPrivateMorphOS::accEnded()
 	m_currentTime = m_duration;
 	m_player->timeChanged();
 	m_player->characteristicChanged();
+
+	if (MediaPlayerMorphOSSettings::settings().m_pausedOrFinished)
+		MediaPlayerMorphOSSettings::settings().m_pausedOrFinished(m_player);
 }
 
 void MediaPlayerPrivateMorphOS::accFailed()
@@ -843,6 +849,8 @@ void MediaPlayerPrivateMorphOS::accFailed()
 	m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
 	m_player->networkStateChanged();
 	m_player->readyStateChanged();
+	if (MediaPlayerMorphOSSettings::settings().m_pausedOrFinished)
+		MediaPlayerMorphOSSettings::settings().m_pausedOrFinished(m_player);
 }
 
 RefPtr<PlatformMediaResourceLoader> MediaPlayerPrivateMorphOS::accCreateResourceLoader()

@@ -315,7 +315,15 @@ void WebProcess::initialize(int sigbit)
 				webpage->_fMediaWillPlay(player);
 		}
 	};
-	
+
+	MediaPlayerMorphOSSettings::settings().m_pausedOrFinished = [this](WebCore::MediaPlayer *player) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			if (webpage->_fMediaPausedOrFinished)
+				webpage->_fMediaPausedOrFinished(player);
+		}
+	};
+
 	MediaPlayerMorphOSSettings::settings().m_overlayRequest = [this](WebCore::MediaPlayer *player,
 		Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)>&& overlaycallback) {
 		for (auto& webpage : m_pageMap.values())

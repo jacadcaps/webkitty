@@ -18,6 +18,7 @@
 #import <WebCore/AuthenticationClient.h>
 #import <WebCore/HitTestResult.h>
 #import <WebCore/MediaPlayerMorphOS.h>
+#import <WebCore/MediaPlayer.h>
 #define __OBJC__
 
 #import "WkHitTest_private.h"
@@ -38,6 +39,7 @@
 #import "WkFavIcon_private.h"
 #import "WkPrinting_private.h"
 #import "WkUserScript_private.h"
+#import "WkMedia_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -236,6 +238,11 @@ namespace  {
 	return _info.m_isLive;
 }
 
+- (BOOL)isMediaSource
+{
+	return _info.m_isMediaSource;
+}
+
 - (BOOL)isDownloadable
 {
     return _info.m_isDownloadable;
@@ -266,6 +273,77 @@ namespace  {
 	return _info.m_height;
 }
 
+- (BOOL)playing
+{
+	if (_playerRef)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		return !player->paused();
+	}
+	
+	return NO;
+}
+
+- (void)play
+{
+	if (_playerRef)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		player->play();
+	}
+}
+
+- (void)pause
+{
+	if (_playerRef)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		player->pause();
+	}
+}
+
+- (void)setMuted:(BOOL)muted
+{
+	if (_playerRef)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		player->setMuted(muted);
+	}
+}
+
+- (BOOL)muted
+{
+	if (_playerRef)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		return player->muted();
+	}
+
+	return NO;
+}
+
+- (id<WkWebViewVideoTrack>)videoTrack
+{
+	if (_info.m_width)
+	{
+		auto ucodec = _info.m_videoCodec.utf8();
+		return [[[WkWebViewVideoTrackPrivate alloc] initWithCodec:[OBString stringWithUTF8String:ucodec.data()] width:_info.m_width height:_info.m_height bitrate:_info.m_bitRate] autorelease];
+	}
+	
+	return nil;
+}
+
+- (id<WkWebViewAudioTrack>)audioTrack
+{
+	if (_info.m_channels)
+	{
+		auto ucodec = _info.m_audioCodec.utf8();
+		return [[[WkWebViewAudioTrackPrivate alloc] initWithCodec:[OBString stringWithUTF8String:ucodec.data()]  frequency:_info.m_frequency channels:_info.m_channels bits:_info.m_bits] autorelease];
+	}
+	
+	return nil;
+}
+
 @end
 #endif
 
@@ -284,9 +362,11 @@ namespace  {
 	id<WkWebViewContextMenuDelegate>        _contextMenuDelegate;
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
 	id<WkWebViewEditorDelegate>             _editorDelegate;
+	id<WkWebViewMediaDelegate>              _mediaDelegate;
 	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
+	OBMutableSet                           *_mediaObjects;
 #endif
 	WkBackForwardListPrivate               *_backForwardList;
 	WkSettings_Throttling                   _throttling;
@@ -376,6 +456,7 @@ namespace  {
 #if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
+	[_mediaObjects release];
 	[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
 	[_fsWindowSignalHandler release];
 
@@ -593,6 +674,16 @@ namespace  {
 - (id<WkWebViewAllRequestsHandlerDelegate>)allRequestsHandler
 {
 	return _allRequestsDelegate;
+}
+
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate
+{
+	_mediaDelegate = delegate;
+}
+
+- (id<WkWebViewMediaDelegate>)mediaDelegate
+{
+	return _mediaDelegate;
 }
 
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
@@ -958,7 +1049,21 @@ namespace  {
 		}
 		if (nil == _mediaPlayers)
 			_mediaPlayers = [OBMutableDictionary new];
+		if (nil == _mediaObjects)
+			_mediaObjects = [OBMutableSet new];
 		[_mediaPlayers setObject:handler forKey:ref];
+
+		WkMediaObjectType type = WkMediaObjectType_File;
+
+		if ([handler isMediaSource])
+			type = WkMediaObjectType_MediaSource;
+		else if ([handler isLive])
+			type = WkMediaObjectType_HLS;
+			
+		WkMediaObjectPrivate *mediaObject = [[[WkMediaObjectPrivate alloc] initWithType:type identifier:(WkWebViewMediaIdentifier)handler audioTrack:[handler audioTrack] videoTrack:[handler videoTrack] downloadableURL:[handler mediaURL]] autorelease];
+		[_mediaObjects addObject:mediaObject];
+		[_mediaDelegate webView:_parentWeak loadedStream:mediaObject];
+
 		settings.m_decodeVideo = _decodeVideo;
 		settings.m_loopFilter = WebCore::MediaPlayerMorphOSStreamSettings::SkipLoopFilter(_loopFilter);
 	}
@@ -970,15 +1075,44 @@ namespace  {
 	return [_mediaPlayers objectForKey:ref];
 }
 
+- (WkMediaObjectPrivate *)mediaObjectForPlayer:(void *)playerRef
+{
+	OBEnumerator *e = [_mediaObjects objectEnumerator];
+	WkMediaObjectPrivate *mo;
+
+	WkMediaLoadResponseHandlerPrivate *handler = [self handlerForPlayer:playerRef];
+
+	while ((mo = [e nextObject]))
+	{
+		if ([mo identifier] == (IPTR)handler)
+			return mo;
+	}
+	
+	return nil;
+}
+
+- (OBArray *)mediaObjects
+{
+	return [_mediaObjects allObjects];
+}
+
 - (void)playerRemoved:(void *)playerRef
 {
 	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
 	WkMediaLoadResponseHandlerPrivate *handler = [_mediaPlayers objectForKey:ref];
+	WkMediaObjectPrivate *mo = [self mediaObjectForPlayer:playerRef];
 
 	if (handler)
 	{
 		[handler invalidate];
 		[_mediaPlayers removeObjectForKey:ref];
+	}
+	
+	if ([mo retain])
+	{
+		[_mediaObjects removeObject:mo];
+		[_mediaDelegate webView:_parentWeak unloadedStream:mo];
+		[mo release];
 	}
 	
 	if (playerRef == _overlayPlayer)
@@ -1000,6 +1134,17 @@ namespace  {
 	{
 		[handler yield:playerRef];
 	}
+
+	WkMediaObjectPrivate *mo = [self mediaObjectForPlayer:playerRef];
+	if (mo)
+		[_mediaDelegate webView:_parentWeak playingStream:mo];
+}
+
+- (void)playerPausedOrFinished:(void *)playerRef
+{
+	WkMediaObjectPrivate *mo = [self mediaObjectForPlayer:playerRef];
+	if (mo)
+		[_mediaDelegate webView:_parentWeak pausedStream:mo];
 }
 
 - (void)playerNeedsUpdate:(void *)playerRef
@@ -1045,14 +1190,23 @@ namespace  {
 
 - (BOOL)supportsMediaType:(WebViewDelegate::mediaType) type
 {
+	WkWebViewMediaDelegateQuery query = WkWebViewMediaDelegateQuery::WkWebViewMediaDelegateQuery_MediaPlayback;
+	BOOL ok = YES;
+
 	switch (type)
 	{
-	case WebViewDelegate::mediaType::Media: return _mediaEnabled;
-	case WebViewDelegate::mediaType::MediaSource: return _mediaSourceEnabled;
-	case WebViewDelegate::mediaType::HLS: return _hls;
-	case WebViewDelegate::mediaType::VP9: return _vp9;
-	case WebViewDelegate::mediaType::HVC1: return _hvc;
+	case WebViewDelegate::mediaType::Media: ok = _mediaEnabled; break;
+	case WebViewDelegate::mediaType::MediaSource: ok = _mediaSourceEnabled; query = WkWebViewMediaDelegateQuery::WkWebViewMediaDelegateQuery_MediaSource; break;
+	case WebViewDelegate::mediaType::HLS: ok = _hls; query = WkWebViewMediaDelegateQuery::WkWebViewMediaDelegateQuery_HLS; break;
+	case WebViewDelegate::mediaType::VP9: ok = _vp9; query = WkWebViewMediaDelegateQuery::WkWebViewMediaDelegateQuery_VP9; break;
+	case WebViewDelegate::mediaType::HVC1: ok = _hvc; query = WkWebViewMediaDelegateQuery::WkWebViewMediaDelegateQuery_HVC1; break;
 	}
+
+	if (_mediaDelegate)
+	{
+		return [_mediaDelegate webView:_parentWeak queriedForSupportOf:query withDefaultState:ok];
+	}
+
 	return YES;
 }
 
@@ -2160,6 +2314,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[privateObject playerWillPlay:player];
 		};
 		
+		webPage->_fMediaPausedOrFinished = [self](void *player) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject playerPausedOrFinished:player];
+		};
+		
 		webPage->_fMediaSupportCheck = [self](WebViewDelegate::mediaType type) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
@@ -2999,6 +3159,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[_private setAllRequestsHandler:delegate];
 }
 
+- (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate
+{
+	[_private setMediaDelegate:delegate];
+}
+
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
 {
 	[_private setEditorDelegate:delegate];
@@ -3305,6 +3470,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	if (webPage)
 		webPage->exitFullscreen();
+}
+
+- (OBArray *)mediaObjects
+{
+#if ENABLE(VIDEO)
+	return [_private mediaObjects];
+#endif
+	return nil;
 }
 
 @end

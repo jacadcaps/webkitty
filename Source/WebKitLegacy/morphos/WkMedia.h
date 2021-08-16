@@ -1,22 +1,65 @@
 #import <ob/OBString.h>
 
-@class WkWebView;
+@class WkWebView, OBArray, OBURL;
 
-@protocol WkWebViewVideoTrack <OBObject>
+@protocol WkWebViewMediaTrack <OBObject>
 
+typedef enum {
+	WkWebViewMediaTrackType_Audio,
+	WkWebViewMediaTrackType_Video,
+} WkWebViewMediaTrackType;
+
+- (WkWebViewMediaTrackType)type;
 - (OBString *)codec;
-- (int)width;
-- (int)height;
-- (int)bandwidth;
 
 @end
 
-@protocol WkWebViewAudioTrack <OBObject>
+@protocol WkWebViewVideoTrack <WkWebViewMediaTrack>
 
-- (OBString *)codec;
+- (int)width;
+- (int)height;
+- (int)bitrate;
+
+@end
+
+@protocol WkWebViewAudioTrack <WkWebViewMediaTrack>
+
 - (int)frequency;
 - (int)channels;
 - (int)bits;
+
+@end
+
+@protocol WkMediaObject <OBObject>
+
+- (id<WkWebViewVideoTrack>)videoTrack;
+- (id<WkWebViewAudioTrack>)audioTrack;
+
+- (OBArray *)allAudioTracks;
+- (OBArray *)allVideoTracks;
+- (OBArray *)allTracks;
+
+typedef enum {
+	WkMediaObjectType_File,
+	WkMediaObjectType_HLS,
+	WkMediaObjectType_MediaSource,
+} WkMediaObjectType;
+
+- (WkMediaObjectType)type;
+
+typedef IPTR WkWebViewMediaIdentifier;
+
+- (WkWebViewMediaIdentifier)identifier;
+
+- (OBURL *)downloadableURL;
+
+- (BOOL)playing;
+
+- (void)play;
+- (void)pause;
+
+- (void)setMuted:(BOOL)muted;
+- (BOOL)muted;
 
 @end
 
@@ -30,19 +73,15 @@ typedef enum {
     WkWebViewMediaDelegateQuery_HVC1 = 5,
 } WkWebViewMediaDelegateQuery;
 
-typedef enum {
-	WkWebViewMediaDelegateMediaType_File,
-	WkWebViewMediaDelegateMediaType_HLS,
-	WkWebViewMediaDelegateMediaType_MediaSource,
-} WkWebViewMediaDelegateMediaType;
+- (BOOL)webView:(WkWebView *)view queriedForSupportOf:(WkWebViewMediaDelegateQuery)mode withDefaultState:(BOOL)allow;
 
-typedef ULONG WkWebViewMediaDelegateStreamIdentifier;
+- (void)webView:(WkWebView *)view loadedStream:(id<WkMediaObject>)stream;
+- (void)webView:(WkWebView *)view unloadedStream:(id<WkMediaObject>)stream;
+- (void)webView:(WkWebView *)view playingStream:(id<WkMediaObject>)stream;
+- (void)webView:(WkWebView *)view pausedStream:(id<WkMediaObject>)stream;
 
-- (BOOL)webView:(WkWebView *)view queriedForSupportOf:(WkWebViewMediaDelegateQuery)mode withSettingsValue:(BOOL)allow;
-- (void)webView:(WkWebView *)view loadedStream:(WkWebViewMediaDelegateStreamIdentifier)identifier type:(WkWebViewMediaDelegateMediaType)type
-	withAudioTrack:(id<WkWebViewAudioTrack>)audioTrack videoTrack:(id<WkWebViewVideoTrack>)videoTrack;
-- (void)webView:(WkWebView *)view unloadedStream:(WkWebViewMediaDelegateStreamIdentifier)identifier;
-- (void)webView:(WkWebView *)view playingStream:(WkWebViewMediaDelegateStreamIdentifier)identifier;
-- (void)webView:(WkWebView *)view pausedStream:(WkWebViewMediaDelegateStreamIdentifier)identifier;
+- (void)webView:(WkWebView *)view addedTrack:(id<WkWebViewMediaTrack>)track;
+- (void)webView:(WkWebView *)view removedTrack:(id<WkWebViewMediaTrack>)track;
+- (void)webView:(WkWebView *)view selectedTrack:(id<WkWebViewMediaTrack>)track;
 
 @end
