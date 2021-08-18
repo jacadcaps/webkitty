@@ -253,6 +253,9 @@ void BaseAudioContext::uninitialize()
     derefUnfinishedSourceNodes();
 
     m_isInitialized = false;
+    
+    if (m_worklet->proxy() && m_worklet->proxy()->workletThread().thread())
+		m_worklet->proxy()->workletThread().stop();
 }
 
 bool BaseAudioContext::isInitialized() const

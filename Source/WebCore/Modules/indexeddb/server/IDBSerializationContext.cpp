@@ -66,6 +66,7 @@ IDBSerializationContext::~IDBSerializationContext()
     if (m_vm) {
         JSC::JSLockHolder lock(*m_vm);
         m_globalObject.clear();
+        m_vm->heap.forceSweep();
         m_vm = nullptr;
     }
     serializationContextMap().remove(m_sessionID);

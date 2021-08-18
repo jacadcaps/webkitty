@@ -360,6 +360,12 @@ bool Heap::isPagedOut(MonotonicTime deadline)
     return m_objectSpace.isPagedOut(deadline);
 }
 
+void Heap::forceSweep()
+{
+    m_objectSpace.stopAllocatingForGood();
+    m_objectSpace.lastChanceToFinalize();
+}
+
 void Heap::dumpHeapStatisticsAtVMDestruction()
 {
     unsigned counter = 0;
