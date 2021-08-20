@@ -401,10 +401,6 @@ inline Thread* Thread::currentMayBeNull()
 }
 #endif
 
-#if OS(MORPHOS)
-extern "C" { void *get_thread_pointer(void); }
-#endif
-
 inline Thread& Thread::current()
 {
     // WRT WebCore:
@@ -417,17 +413,8 @@ inline Thread& Thread::current()
     if (UNLIKELY(Thread::s_key == InvalidThreadSpecificKey))
         WTF::initialize();
 #endif
-#if OS(MORPHOS)
-    // Hack to workaround MorphOS 3.14 TLS bug
-    Thread* thread = (Thread*) get_thread_pointer();
-    if (!thread)
-        thread = currentMayBeNull();
-    if (thread)
-        return *thread;
-#else
     if (auto* thread = currentMayBeNull())
         return *thread;
-#endif
     return initializeCurrentTLS();
 }
 
