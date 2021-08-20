@@ -192,7 +192,7 @@ void CurlStreamScheduler::workerThread()
             {
 #if OS(MORPHOS)
 				ULONG maskp = 0;
-				WaitSelect(maxfd, &readfds, &writefds, &exceptfds, &timeout, &maskp);
+				WaitSelect(maxfd + 1, &readfds, &writefds, &exceptfds, &timeout, &maskp);
 #else
                 rc = ::select(maxfd + 1, &readfds, &writefds, &exceptfds, &timeout);
 #endif
