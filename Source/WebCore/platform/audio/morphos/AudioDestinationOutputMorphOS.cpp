@@ -228,7 +228,7 @@ void AudioDestinationOutputMorphOS::soundFunc()
 
 void AudioDestinationOutputMorphOS::ahiThreadEntryPoint()
 {
-	SetTaskPri(FindTask(0), 50);
+	SetTaskPri(FindTask(0), 2);
 	while (!m_ahiThreadShuttingDown)
 	{
 		m_ahiSampleConsumed.wait();
