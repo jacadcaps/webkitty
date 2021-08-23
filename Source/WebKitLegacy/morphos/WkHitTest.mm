@@ -240,6 +240,16 @@
 	_page->hitTestSelectAll(*_hitTest);
 }
 
+- (void)setImageFloat:(WkHitTestImageFloat)imageFloat
+{
+	_page->hitTestSetImageFloat(*_hitTest, WebKit::WebPage::ContextMenuImageFloat(imageFloat));
+}
+
+- (WkHitTestImageFloat)imageFloat
+{
+	return WkHitTestImageFloat(_page->hitTestImageFloat(*_hitTest));
+}
+
 @end
 
 @implementation WkHitTest
@@ -378,6 +388,16 @@
 - (void)downloadImageFile
 {
 
+}
+
+- (void)setImageFloat:(WkHitTestImageFloat)imagefloat
+{
+
+}
+
+- (WkHitTestImageFloat)imageFloat
+{
+	return WkHitTestImageFloat_None;
 }
 
 @end

@@ -38,4 +38,14 @@
 - (void)pasteText;
 - (void)selectAll;
 
+// Should only be used in text editors
+typedef enum {
+	WkHitTestImageFloat_None,
+	WkHitTestImageFloat_Left,
+	WkHitTestImageFloat_Right
+} WkHitTestImageFloat;
+
+- (void)setImageFloat:(WkHitTestImageFloat)imagefloat;
+- (WkHitTestImageFloat)imageFloat;
+
 @end

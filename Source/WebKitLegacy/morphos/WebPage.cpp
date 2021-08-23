@@ -1172,7 +1172,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	storageProvider->setPage(*m_page);
 
 	WebCore::Settings& settings = m_page->settings();
-    settings.setAllowDisplayOfInsecureContent(true);
+    settings.setAllowDisplayOfInsecureContent(false);
     settings.setAllowRunningOfInsecureContent(false);
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
@@ -3506,6 +3506,41 @@ void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
 		frame->editor().command("SelectAll").execute();
 	}
 }
+
+void WebPage::hitTestSetImageFloat(WebCore::HitTestResult &hitTest, ContextMenuImageFloat imageFloat)
+{
+	WebCore::StyledElement *element = reinterpret_cast<WebCore::StyledElement*>(hitTest.targetElement());
+	if (element && hitTest.image())
+	{
+		switch (imageFloat)
+		{
+		case ContextMenuImageFloat::Left:
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueLeft, true);
+			break;
+		case ContextMenuImageFloat::Right:
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueRight, true);
+			break;
+		default:
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueNone, true);
+			break;
+		}
+	}
+}
+
+WebPage::ContextMenuImageFloat WebPage::hitTestImageFloat(WebCore::HitTestResult &hitTest) const
+{
+	WebCore::StyledElement *element = reinterpret_cast<WebCore::StyledElement*>(hitTest.targetElement());
+	if (element && hitTest.image() && element->inlineStyle())
+	{
+		auto property = element->inlineStyle()->getPropertyValue(CSSPropertyFloat);
+		if (equalIgnoringASCIICase(property, "left"))
+			return ContextMenuImageFloat::Left;
+		if (equalIgnoringASCIICase(property, "right"))
+			return ContextMenuImageFloat::Right;
+	}
+	return ContextMenuImageFloat::None;
+}
+
 
 WTF::String WebPage::misspelledWord(WebCore::HitTestResult &hitTest)
 {

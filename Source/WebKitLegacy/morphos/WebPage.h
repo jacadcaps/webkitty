@@ -245,6 +245,16 @@ public:
 	void hitTestPaste(WebCore::HitTestResult &hitTest) const;
 	void hitTestSelectAll(WebCore::HitTestResult &hitTest) const;
 
+	enum class ContextMenuImageFloat
+	{
+		None,
+		Left,
+		Right
+	};
+
+	void hitTestSetImageFloat(WebCore::HitTestResult &hitTest, ContextMenuImageFloat imageFloat);
+	ContextMenuImageFloat hitTestImageFloat(WebCore::HitTestResult &hitTest) const;
+
 	void startDownload(const WTF::URL &url);
 	void flushCompositing();
 
