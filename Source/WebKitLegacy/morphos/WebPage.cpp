@@ -131,6 +131,7 @@
 #include "WebCoreSupport/WebFrameLoaderClient.h"
 #include "WebCoreSupport/WebContextMenuClient.h"
 #include "WebCoreSupport/WebProgressTrackerClient.h"
+#include "WebCoreSupport/WebNotificationClient.h"
 #include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
 #include "WebDocumentLoader.h"
@@ -1190,6 +1191,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setEditingBehaviorType(EditingBehaviorType::Unix);
 	settings.setShouldRespectImageOrientation(true);
 	settings.setTextAreasAreResizable(true);
+	settings.setIntersectionObserverEnabled(true);
+	settings.setDataTransferItemsEnabled(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1257,6 +1260,10 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     WebCore::provideUserMediaTo(m_page, new WebUserMediaClient(*this));
     settings.setMediaStreamEnabled(true);
     settings.setMediaDevicesEnabled(true);
+#endif
+
+#if ENABLE(NOTIFICATIONS)
+    WebCore::provideNotification(m_page, new WebNotificationClient(this));
 #endif
 
 	m_page->effectiveAppearanceDidChange(m_darkMode, false);

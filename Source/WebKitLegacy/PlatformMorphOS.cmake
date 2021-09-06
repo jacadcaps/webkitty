@@ -54,6 +54,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkPrinting.mm
     morphos/WkUserScript.mm
     morphos/WkMedia.mm
+    morphos/WkNotification.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -68,6 +69,7 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebContextMenuClient.cpp
     morphos/WebCoreSupport/WebPageGroup.cpp
     morphos/WebCoreSupport/WebProgressTrackerClient.cpp
+    morphos/WebCoreSupport/WebNotificationClient.cpp
 )
 
 if (NOT MORPHOS_MINIMAL)
@@ -103,6 +105,7 @@ set_source_files_properties(morphos/WkFavIcon.mm PROPERTIES COMPILE_FLAGS ${MM_F
 set_source_files_properties(morphos/WkPrinting.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkUserScript.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkMedia.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkNotification.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

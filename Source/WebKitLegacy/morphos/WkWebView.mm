@@ -40,6 +40,7 @@
 #import "WkPrinting_private.h"
 #import "WkUserScript_private.h"
 #import "WkMedia_private.h"
+#import "WkNotification_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -363,6 +364,7 @@ namespace  {
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
 	id<WkWebViewEditorDelegate>             _editorDelegate;
 	id<WkWebViewMediaDelegate>              _mediaDelegate;
+	id<WkNotificationDelegate>            _notificationDelegate;
 	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
@@ -684,6 +686,16 @@ namespace  {
 - (id<WkWebViewMediaDelegate>)mediaDelegate
 {
 	return _mediaDelegate;
+}
+
+- (void)setNotificationDelegate:(id<WkNotificationDelegate>)delegate
+{
+	_notificationDelegate = delegate;
+}
+
+- (id<WkNotificationDelegate>)notificationDelegate
+{
+	return _notificationDelegate;
 }
 
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
@@ -2338,6 +2350,58 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[privateObject exitFullScreen];
 		};
 #endif
+
+#if ENABLE(NOTIFICATIONS)
+		webPage->_fRequestNotificationPermission = [self](const WTF::URL &url, RefPtr<WebCore::NotificationPermissionCallback>&& callback) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
+			if (delegate)
+			{
+				[delegate webView:self wantsPermissionToDisplayNotificationsWithResponse:[[[WkNotificationPermissionResponsePrivate alloc] initWithCallback:callback] autorelease]];
+			}
+			else
+			{
+				callback->handleEvent(WebCore::Notification::Permission::Default);
+			}
+		};
+		
+		webPage->_fCheckNotificationPermission = [self](const WTF::URL &url) -> WebViewDelegate::NotificationPermission {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
+			if (delegate)
+			{
+				return WebViewDelegate::NotificationPermission([delegate webViewWantsToCheckPermissionToDisplayNotifications:self]);
+			}
+			return WebViewDelegate::NotificationPermission::Deny;
+		};
+		
+		webPage->_fShowNotification = [self](WebCore::Notification* notification) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
+			if (delegate)
+			{
+				[delegate webView:self wantsToDisplayNotification:[[[WkNotificationPrivate alloc] initWithNotification:notification] autorelease]];
+			}
+		};
+
+		webPage->_fHideNotification = [self](WebCore::Notification* notification) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
+			if (delegate)
+			{
+				id notify = [WkNotificationPrivate notificationForNotification:notification];
+				if (notify)
+				{
+					[delegate webView:self cancelledNotification:notify];
+				}
+			}
+		};
+#endif
+
 	}
 	
 	return self;
@@ -3162,6 +3226,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate
 {
 	[_private setMediaDelegate:delegate];
+}
+
+- (void)setNotificationDelegate:(id<WkNotificationDelegate>)delegate
+{
+	[_private setNotificationDelegate:delegate];
 }
 
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate

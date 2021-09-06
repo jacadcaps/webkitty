@@ -211,13 +211,7 @@ void WebProcess::initialize(int sigbit)
 	RuntimeEnabledFeatures::sharedFeatures().setWebAnimationsCompositeOperationsEnabled(true);
 #endif
 
-#if 0 // removed 2.32
-	RuntimeEnabledFeatures::sharedFeatures().setDataTransferItemsEnabled(true);
-	RuntimeEnabledFeatures::sharedFeatures().setIntersectionObserverEnabled(true);
-#endif
-
 	RuntimeEnabledFeatures::sharedFeatures().setAccessibilityObjectModelEnabled(false);
-	
 	RuntimeEnabledFeatures::sharedFeatures().setKeygenElementEnabled(true);
 	
 	// TODO: implement workers!

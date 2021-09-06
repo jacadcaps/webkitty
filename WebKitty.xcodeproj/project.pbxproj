@@ -10,6 +10,8 @@
 		0103C81624B945170060E2F0 /* WkFileDialog.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0103C81524B945160060E2F0 /* WkFileDialog.mm */; };
 		010EB702246EEAB7004726C6 /* WkCertificate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 010EB6FE246EEAB6004726C6 /* WkCertificate.mm */; };
 		010EB703246EEAB7004726C6 /* WkCertificateViewer.mm in Sources */ = {isa = PBXBuildFile; fileRef = 010EB701246EEAB6004726C6 /* WkCertificateViewer.mm */; };
+		0119D8AE26E2884E00E35D24 /* WebUserMediaClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0119D8AB26E2884E00E35D24 /* WebUserMediaClient.cpp */; };
+		0119D8AF26E2884E00E35D24 /* WkNotification.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0119D8AC26E2884E00E35D24 /* WkNotification.mm */; };
 		011B866E242BBBF100749380 /* minibrowser.mm in Sources */ = {isa = PBXBuildFile; fileRef = 011B866D242BBBF100749380 /* minibrowser.mm */; };
 		011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */; };
 		011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */; };
@@ -36,6 +38,7 @@
 		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
 		0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0178C4042486D3EC00B5BA7F /* WkDownload.mm */; };
 		018C14D426B62BAD008D8A51 /* WkMedia.mm in Sources */ = {isa = PBXBuildFile; fileRef = 018C14D226B62BAD008D8A51 /* WkMedia.mm */; };
+		0193A20926E1A66C002262DA /* WebNotificationClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0193A20726E1A66C002262DA /* WebNotificationClient.cpp */; };
 		01951354252624890017D692 /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01951352252624880017D692 /* WkHitTest.mm */; };
 		0198443D242FECB10057CD22 /* WebContextMenuClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0198443C242FECB10057CD22 /* WebContextMenuClient.cpp */; };
 		01B27293245EF46B00B7277E /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01B27292245EF46B00B7277E /* WkHistory.mm */; };
@@ -73,6 +76,11 @@
 		010EB700246EEAB6004726C6 /* WkCertificate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate.h; path = Source/WebKitLegacy/morphos/WkCertificate.h; sourceTree = "<group>"; };
 		010EB701246EEAB6004726C6 /* WkCertificateViewer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCertificateViewer.mm; path = Source/WebKitLegacy/morphos/WkCertificateViewer.mm; sourceTree = "<group>"; };
 		010EB98424745E74004726C6 /* WkCertificate_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate_private.h; path = Source/WebKitLegacy/morphos/WkCertificate_private.h; sourceTree = "<group>"; };
+		0119D8AA26E2884E00E35D24 /* WebUserMediaClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebUserMediaClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebUserMediaClient.h; sourceTree = "<group>"; };
+		0119D8AB26E2884E00E35D24 /* WebUserMediaClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebUserMediaClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebUserMediaClient.cpp; sourceTree = "<group>"; };
+		0119D8AC26E2884E00E35D24 /* WkNotification.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkNotification.mm; path = Source/WebKitLegacy/morphos/WkNotification.mm; sourceTree = "<group>"; };
+		0119D8AD26E2884E00E35D24 /* WkNotification.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNotification.h; path = Source/WebKitLegacy/morphos/WkNotification.h; sourceTree = "<group>"; };
+		0119D8B026E2889B00E35D24 /* WkNotification_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNotification_private.h; path = Source/WebKitLegacy/morphos/WkNotification_private.h; sourceTree = "<group>"; };
 		011B866D242BBBF100749380 /* minibrowser.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = minibrowser.mm; path = Tools/morphos/minibrowser.mm; sourceTree = "<group>"; };
 		011B866F242CFCD800749380 /* WebPlatformStrategies.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPlatformStrategies.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPlatformStrategies.cpp; sourceTree = "<group>"; };
 		011B8670242CFCD800749380 /* WebPluginInfoProvider.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPluginInfoProvider.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebPluginInfoProvider.cpp; sourceTree = "<group>"; };
@@ -141,6 +149,8 @@
 		018C14D326B62BAD008D8A51 /* WkMedia.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkMedia.h; path = Source/WebKitLegacy/morphos/WkMedia.h; sourceTree = "<group>"; };
 		018C14D526B62E26008D8A51 /* WkMedia_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkMedia_private.h; path = Source/WebKitLegacy/morphos/WkMedia_private.h; sourceTree = "<group>"; };
 		018F0C932563592600AF7F0D /* OptionsMorphOS.cmake */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = OptionsMorphOS.cmake; path = Source/cmake/OptionsMorphOS.cmake; sourceTree = "<group>"; };
+		0193A20726E1A66C002262DA /* WebNotificationClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebNotificationClient.cpp; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebNotificationClient.cpp; sourceTree = "<group>"; };
+		0193A20826E1A66C002262DA /* WebNotificationClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebNotificationClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebNotificationClient.h; sourceTree = "<group>"; };
 		01951351252624880017D692 /* WkHitTest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest.h; path = Source/WebKitLegacy/morphos/WkHitTest.h; sourceTree = "<group>"; };
 		01951352252624880017D692 /* WkHitTest.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHitTest.mm; path = Source/WebKitLegacy/morphos/WkHitTest.mm; sourceTree = "<group>"; };
 		01951353252624890017D692 /* WkHitTest_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest_private.h; path = Source/WebKitLegacy/morphos/WkHitTest_private.h; sourceTree = "<group>"; };
@@ -251,6 +261,8 @@
 				01984440242FECE00057CD22 /* WebInspectorClient.h */,
 				01816F0D242B985D007717A6 /* WebKit.h */,
 				01816EE0242A370A007717A6 /* WebKitty */,
+				0193A20726E1A66C002262DA /* WebNotificationClient.cpp */,
+				0193A20826E1A66C002262DA /* WebNotificationClient.h */,
 				01F96C48243389D200A3D191 /* WebPage.cpp */,
 				01F96C47243389D200A3D191 /* WebPage.h */,
 				0138E92F2433BA2F00B53904 /* WebPageGroup.cpp */,
@@ -263,6 +275,8 @@
 				0138E9272433A9CD00B53904 /* WebProcess.h */,
 				0138E9322433C21500B53904 /* WebProgressTrackerClient.cpp */,
 				0138E9332433C21500B53904 /* WebProgressTrackerClient.h */,
+				0119D8AB26E2884E00E35D24 /* WebUserMediaClient.cpp */,
+				0119D8AA26E2884E00E35D24 /* WebUserMediaClient.h */,
 				01816F12242B985D007717A6 /* WebViewDelegate.h */,
 				011B8676242CFCD800749380 /* WebVisitedLinkStore.cpp */,
 				01984443242FECE00057CD22 /* WebVisitedLinkStore.h */,
@@ -295,6 +309,9 @@
 				01C521132565909300199418 /* WkNetworkRequestMutable_private.h */,
 				01F884E9245C58DE00088E76 /* WkNetworkRequestMutable.h */,
 				01F884EA245C58DE00088E76 /* WkNetworkRequestMutable.mm */,
+				0119D8B026E2889B00E35D24 /* WkNotification_private.h */,
+				0119D8AD26E2884E00E35D24 /* WkNotification.h */,
+				0119D8AC26E2884E00E35D24 /* WkNotification.mm */,
 				01FC28A42538E4D600DFA0BC /* WkPrinting_private.h */,
 				01FC28A62538E4D600DFA0BC /* WkPrinting.h */,
 				01FC28A52538E4D600DFA0BC /* WkPrinting.mm */,
@@ -400,6 +417,7 @@
 				01F884EB245C58DE00088E76 /* WkNetworkRequestMutable.mm in Sources */,
 				011B8677242CFCD800749380 /* WebPlatformStrategies.cpp in Sources */,
 				013D3C88246042EC00805F29 /* hashFn.cpp in Sources */,
+				0193A20926E1A66C002262DA /* WebNotificationClient.cpp in Sources */,
 				013D3C87246042EC00805F29 /* BloomFilter.cpp in Sources */,
 				011B866E242BBBF100749380 /* minibrowser.mm in Sources */,
 				011B867C242CFCD800749380 /* WebInspectorClient.cpp in Sources */,
@@ -417,6 +435,7 @@
 				011B867A242CFCD800749380 /* WebFrameNetworkingContext.cpp in Sources */,
 				01F96C49243389D200A3D191 /* WebPage.cpp in Sources */,
 				01E13646242BB118007BA528 /* WebFrame.cpp in Sources */,
+				0119D8AF26E2884E00E35D24 /* WkNotification.mm in Sources */,
 				01D0B8A72540C6E000F6A2BD /* WkUserScript.mm in Sources */,
 				011B8678242CFCD800749380 /* WebPluginInfoProvider.cpp in Sources */,
 				0138E92A2433A9CE00B53904 /* WebProcess.cpp in Sources */,
@@ -429,6 +448,7 @@
 				013D3C8B246042EC00805F29 /* filter.cpp in Sources */,
 				010EB703246EEAB7004726C6 /* WkCertificateViewer.mm in Sources */,
 				011B8679242CFCD800749380 /* WebEditorClient.cpp in Sources */,
+				0119D8AE26E2884E00E35D24 /* WebUserMediaClient.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -22,6 +22,8 @@ namespace WebCore {
 	class HitTestResult;
 	class SharedBuffer;
 	class Element;
+	class NotificationPermissionCallback;
+	class Notification;
 	struct MediaPlayerMorphOSInfo;
 	struct MediaPlayerMorphOSStreamSettings;
 };
@@ -117,6 +119,16 @@ struct WebViewDelegate
 	};
 	std::function<bool(mediaType)> _fMediaSupportCheck;
 
+#if ENABLE(NOTIFICATIONS)
+	std::function<void(const WTF::URL &url, RefPtr<WebCore::NotificationPermissionCallback>&& callback)> _fRequestNotificationPermission;
+	enum class NotificationPermission {
+		Default, Grant, Deny
+	};
+	std::function<NotificationPermission(const WTF::URL &url)> _fCheckNotificationPermission;
+	std::function<void(WebCore::Notification* notification)> _fShowNotification;
+	std::function<void(WebCore::Notification* notification)> _fHideNotification;
+#endif
+
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
 		_fScroll = nullptr;
@@ -170,6 +182,12 @@ struct WebViewDelegate
 		_fEnterFullscreen = nullptr;
 		_fExitFullscreen = nullptr;
 		_fMediaPausedOrFinished = nullptr;
+#if ENABLE(NOTIFICATIONS)
+		_fRequestNotificationPermission = nullptr;
+		_fCheckNotificationPermission = nullptr;
+		_fShowNotification = nullptr;
+		_fHideNotification = nullptr;
+#endif
 	};
 	
 	WebViewDelegate() { clearDelegateCallbacks(); };

@@ -19,6 +19,7 @@
 @protocol WkDownloadDelegate;
 @protocol WkPrintingStateDelegate;
 @protocol WkWebViewMediaDelegate;
+@protocol WkNotificationDelegate;
 
 #define kWebViewClientDelegateOption @"mode"
 #define kWebViewClientDelegateOption_NewWindow @"window"
@@ -215,6 +216,7 @@ typedef enum {
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate;
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
 - (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate;
+- (void)setNotificationDelegate:(id<WkNotificationDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 
