@@ -152,7 +152,7 @@ double AudioContext::baseLatency()
 {
     lazyInitialize();
 
-    auto* destination = this->destination();
+    auto* destination = this->defaultDestination();
     return destination ? static_cast<double>(destination->framesPerBuffer()) / sampleRate() : 0.;
 }
 
@@ -197,9 +197,11 @@ void AudioContext::close(DOMPromiseDeferred<void>&& promise)
     });
 }
 
-DefaultAudioDestinationNode* AudioContext::destination()
+DefaultAudioDestinationNode* AudioContext::defaultDestination()
 {
-    return static_cast<DefaultAudioDestinationNode*>(BaseAudioContext::destination());
+	if (!isOfflineContext())
+		return static_cast<DefaultAudioDestinationNode*>(BaseAudioContext::destination());
+	return nullptr;
 }
 
 void AudioContext::suspendRendering(DOMPromiseDeferred<void>&& promise)

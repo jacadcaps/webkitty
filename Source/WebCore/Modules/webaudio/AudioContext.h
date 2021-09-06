@@ -55,7 +55,7 @@ public:
 
     void close(DOMPromiseDeferred<void>&&);
 
-    DefaultAudioDestinationNode* destination();
+    DefaultAudioDestinationNode* defaultDestination();
     double baseLatency();
 
     AudioTimestamp getOutputTimestamp(DOMWindow&);
