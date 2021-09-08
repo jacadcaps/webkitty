@@ -1,5 +1,8 @@
 #import "WkNotification_private.h"
 #import <ob/OBURL.h>
+#undef __OBJC__
+#import <WebCore/UserGestureIndicator.h>
+#define __OBJC__
 
 static WTF::HashMap<WebCore::Notification *, id> _notificationLookup;
 
@@ -18,11 +21,16 @@ static WTF::HashMap<WebCore::Notification *, id> _notificationLookup;
 
 - (void)dealloc
 {
-	if (_notification.get())
-		_notificationLookup.remove(_notification.get());
+	[self cancel];
 	[super dealloc];
 }
 
+- (void)cancel
+{
+	if (_notification.get())
+		_notificationLookup.remove(_notification.get());
+	_notification = nullptr;
+}
 
 + (id)notificationForNotification:(WebCore::Notification *)notification
 {
@@ -82,11 +90,20 @@ static WTF::HashMap<WebCore::Notification *, id> _notificationLookup;
 	return nil;
 }
 
+- (BOOL)isCancelled
+{
+	return _notification.get() == nullptr;
+}
+
 // Report state to the website
 - (void)notificationShown
 {
 	if (_notification.get())
+	{
+		// Indicate that this event is being dispatched in reaction to a user's interaction with a platform notification.
+		WebCore::UserGestureIndicator indicator(WebCore::ProcessingUserGesture);
 		_notification->dispatchShowEvent();
+	}
 }
 
 - (void)notificationClosed
@@ -151,6 +168,11 @@ static WTF::HashMap<WebCore::Notification *, id> _notificationLookup;
 
 - (void)notificationNotShownDueToError
 {
+}
+
+- (BOOL)isCancelled
+{
+	return YES;
 }
 
 @end

@@ -6,7 +6,7 @@
 #include <WebCore/ScriptExecutionContext.h>
 #include "WebPage.h"
 
-#define D(x) x
+#define D(x) 
 
 using namespace WebCore;
 

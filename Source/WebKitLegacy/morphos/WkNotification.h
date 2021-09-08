@@ -16,7 +16,7 @@ typedef enum {
 
 @protocol WkNotificationDelegate <OBObject>
 
-- (void)webView:(WkWebView *)view wantsPermissionToDisplayNotificationsWithResponse:(WkNotificationPermissionResponse *)response;
+- (void)webView:(WkWebView *)view wantsPermissionToDisplayNotificationsWithResponse:(WkNotificationPermissionResponse *)response forHost:(OBString *)host;
 - (WkNotificationPermission)webViewWantsToCheckPermissionToDisplayNotifications:(WkWebView *)view;
 - (void)webView:(WkWebView *)view wantsToDisplayNotification:(WkNotification *)notification;
 - (void)webView:(WkWebView *)view cancelledNotification:(WkNotification *)notification;
@@ -36,5 +36,7 @@ typedef enum {
 - (void)notificationClosed;
 - (void)notificationClicked;
 - (void)notificationNotShownDueToError;
+
+- (BOOL)isCancelled;
 
 @end

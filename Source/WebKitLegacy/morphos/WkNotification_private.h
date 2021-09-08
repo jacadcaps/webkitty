@@ -15,6 +15,8 @@
 - (id)initWithNotification:(RefPtr<WebCore::Notification>)notification;
 + (id)notificationForNotification:(WebCore::Notification *)notification;
 
+- (void)cancel;
+
 @end
 
 @interface WkNotificationPermissionResponsePrivate : WkNotificationPermissionResponse

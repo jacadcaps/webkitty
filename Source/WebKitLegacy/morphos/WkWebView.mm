@@ -2358,7 +2358,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
 			if (delegate)
 			{
-				[delegate webView:self wantsPermissionToDisplayNotificationsWithResponse:[[[WkNotificationPermissionResponsePrivate alloc] initWithCallback:callback] autorelease]];
+				auto uurl = url.host().toString().utf8();
+				[delegate webView:self wantsPermissionToDisplayNotificationsWithResponse:[[[WkNotificationPermissionResponsePrivate alloc] initWithCallback:callback] autorelease]
+					forHost:[OBString stringWithUTF8String:uurl.data()]];
 			}
 			else
 			{
@@ -2396,6 +2398,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				id notify = [WkNotificationPrivate notificationForNotification:notification];
 				if (notify)
 				{
+					[notify cancel];
 					[delegate webView:self cancelledNotification:notify];
 				}
 			}
