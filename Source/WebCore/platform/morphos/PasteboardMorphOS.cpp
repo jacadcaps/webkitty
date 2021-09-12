@@ -149,11 +149,29 @@ String Pasteboard::readString(const String& type)
 			CloseLibrary(ClipboardBase);
 		}
 	}
+	else if (type == "text/html")
+	{
+		const char *clipcontents;
+
+		struct Library *ClipboardBase;
+		if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
+		{
+			struct TagItem tags[] = { {CLP_Charset, MIBENUM_UTF_8}, {CLP_ClipUnit, 1}, { TAG_DONE, 0 }};
+			clipcontents = (const char *)ReadClipTextA(tags);
+			if (nullptr != clipcontents)
+			{
+				out = String::fromUTF8(clipcontents);
+				FreeClipText(clipcontents);
+			}
+
+			CloseLibrary(ClipboardBase);
+		}
+	}
 
     return out;
 }
 
-String Pasteboard::readStringInCustomData(const String&)
+String Pasteboard::readStringInCustomData(const String&type)
 {
     notImplemented();
     return { };
