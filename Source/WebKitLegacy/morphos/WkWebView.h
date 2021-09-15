@@ -12,6 +12,7 @@
 @class WkHitTest;
 @class WkFavIcon;
 @class WkPrintingState;
+@class WkResourceResponse;
 @class MUIMenu;
 @class MUIMenuitem;
 @protocol WkFileDialogSettings;
@@ -63,6 +64,7 @@
 - (void)webView:(WkWebView *)view documentReady:(BOOL)ready;
 
 - (void)webView:(WkWebView *)view didFailLoadingWithError:(WkError *)error;
+- (void)webView:(WkWebView *)view didReceiveResponse:(WkResourceResponse *)response;
 
 - (BOOL)webView:(WkWebView *)view wantsToCreateNewViewWithURL:(OBURL *)url options:(OBDictionary *)options;
 - (void)webView:(WkWebView *)view createdNewWebView:(WkWebView *)newview;

@@ -24,6 +24,7 @@ namespace WebCore {
 	class Element;
 	class NotificationPermissionCallback;
 	class Notification;
+	class ResourceResponse;
 	struct MediaPlayerMorphOSInfo;
 	struct MediaPlayerMorphOSStreamSettings;
 };
@@ -56,6 +57,7 @@ struct WebViewDelegate
 	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
 	std::function<void()>                                _fDidLoadInsecureContent;
 	std::function<bool(const WTF::URL& url, bool newWindow)> _fShouldNavigateToURL;
+	std::function<void(const WebCore::ResourceResponse&)> _fDidReceiveResponse;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)>      _fCanOpenWindow;
 	std::function<WebCore::Page*(void)>                                          _fDoOpenWindow;

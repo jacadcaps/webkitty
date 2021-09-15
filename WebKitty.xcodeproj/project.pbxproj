@@ -37,6 +37,7 @@
 		01411B45252F9B740065948A /* WkFavIcon.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01411B44252F9B740065948A /* WkFavIcon.mm */; };
 		014836F42483321500C3E7F0 /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 014836F22483321500C3E7F0 /* WkError.mm */; };
 		0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0178C4042486D3EC00B5BA7F /* WkDownload.mm */; };
+		017D78B326F226FA005A4140 /* WkResourceResponse.mm in Sources */ = {isa = PBXBuildFile; fileRef = 017D78B226F226FA005A4140 /* WkResourceResponse.mm */; };
 		018C14D426B62BAD008D8A51 /* WkMedia.mm in Sources */ = {isa = PBXBuildFile; fileRef = 018C14D226B62BAD008D8A51 /* WkMedia.mm */; };
 		0193A20926E1A66C002262DA /* WebNotificationClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0193A20726E1A66C002262DA /* WebNotificationClient.cpp */; };
 		01951354252624890017D692 /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 01951352252624880017D692 /* WkHitTest.mm */; };
@@ -134,6 +135,9 @@
 		0178C4032486D3EC00B5BA7F /* WkDownload.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload.h; path = Source/WebKitLegacy/morphos/WkDownload.h; sourceTree = "<group>"; };
 		0178C4042486D3EC00B5BA7F /* WkDownload.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkDownload.mm; path = Source/WebKitLegacy/morphos/WkDownload.mm; sourceTree = "<group>"; };
 		0178C4062487257700B5BA7F /* WkDownload_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload_private.h; path = Source/WebKitLegacy/morphos/WkDownload_private.h; sourceTree = "<group>"; };
+		017D78B026F226F9005A4140 /* WkResourceResponse.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkResourceResponse.h; path = Source/WebKitLegacy/morphos/WkResourceResponse.h; sourceTree = "<group>"; };
+		017D78B126F226F9005A4140 /* WkResourceResponse_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkResourceResponse_private.h; path = Source/WebKitLegacy/morphos/WkResourceResponse_private.h; sourceTree = "<group>"; };
+		017D78B226F226FA005A4140 /* WkResourceResponse.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkResourceResponse.mm; path = Source/WebKitLegacy/morphos/WkResourceResponse.mm; sourceTree = "<group>"; };
 		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
 		01816F0D242B985D007717A6 /* WebKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
 		01816F0E242B985D007717A6 /* WebFrame.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
@@ -315,6 +319,9 @@
 				01FC28A42538E4D600DFA0BC /* WkPrinting_private.h */,
 				01FC28A62538E4D600DFA0BC /* WkPrinting.h */,
 				01FC28A52538E4D600DFA0BC /* WkPrinting.mm */,
+				017D78B126F226F9005A4140 /* WkResourceResponse_private.h */,
+				017D78B026F226F9005A4140 /* WkResourceResponse.h */,
+				017D78B226F226FA005A4140 /* WkResourceResponse.mm */,
 				013D3C9224633B0B00805F29 /* WkSettings.h */,
 				013D3C9324633B0B00805F29 /* WkSettings.mm */,
 				01D0B8A8254104B700F6A2BD /* WkUserScript_private.h */,
@@ -406,6 +413,7 @@
 				01FC28A72538E4D600DFA0BC /* WkPrinting.mm in Sources */,
 				0178C4052486D3EC00B5BA7F /* WkDownload.mm in Sources */,
 				01B27293245EF46B00B7277E /* WkHistory.mm in Sources */,
+				017D78B326F226FA005A4140 /* WkResourceResponse.mm in Sources */,
 				01E13645242BB118007BA528 /* WebApplicationCache.cpp in Sources */,
 				0120E5F924590B9E003150E3 /* PopupMenu.cpp in Sources */,
 				01BC9C4B26A0780700B31F97 /* WebDatabaseManager.cpp in Sources */,

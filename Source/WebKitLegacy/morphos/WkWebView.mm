@@ -41,6 +41,7 @@
 #import "WkUserScript_private.h"
 #import "WkMedia_private.h"
 #import "WkNotification_private.h"
+#import "WkResourceResponse_private.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -2204,6 +2205,17 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				}
 			}
 			return NO;
+		};
+		
+		webPage->_fDidReceiveResponse = [self](const WebCore::ResourceResponse& wresp) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+			if (clientDelegate)
+			{
+				WkResourceResponse *response = [WkResourceResponsePrivate responseWithResponse:wresp];
+				[clientDelegate webView:self didReceiveResponse:response];
+			}
 		};
 		
 		webPage->_fSetCursor = [self](int cursor) {

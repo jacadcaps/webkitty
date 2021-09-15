@@ -202,6 +202,12 @@ void WebFrameLoaderClient::dispatchDidReceiveAuthenticationChallenge(DocumentLoa
 
 void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader*, unsigned long identifier, const ResourceResponse& response)
 {
+    WebPage* webPage = m_frame->page();
+    if (!webPage)
+        return;
+
+	if (webPage->_fDidReceiveResponse)
+		webPage->_fDidReceiveResponse(response);
 }
 
 void WebFrameLoaderClient::dispatchDidReceiveContentLength(DocumentLoader*, unsigned long identifier, int dataLength)
