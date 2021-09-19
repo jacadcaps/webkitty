@@ -226,7 +226,7 @@ void Thread::initializePlatformThreading()
         // It has signal already.
         if (oldAction.sa_handler != SIG_DFL || bitwise_cast<void*>(oldAction.sa_sigaction) != bitwise_cast<void*>(SIG_DFL))
             WTFLogAlways("Overriding existing handler for signal %d. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal", signal);
-        return !sigaction(signal, &action, 0);
+       return !sigaction(signal, &action, 0);
     };
 
     bool signalIsInstalled = attemptToSetSignal(g_wtfConfig.sigThreadSuspendResume);
@@ -397,6 +397,13 @@ Thread& Thread::initializeCurrentTLS()
     return initializeTLS(WTFMove(thread));
 }
 
+#ifdef __MORPHOS__
+Thread* Thread::getUserDataThreadPointer()
+{
+    return (Thread *)FindTask(NULL)->tc_UserData;
+}
+#endif
+
 bool Thread::signal(int signalNumber)
 {
 //#if !OS(MORPHOS)
@@ -565,6 +572,7 @@ Thread& Thread::initializeTLS(Ref<Thread>&& thread)
 #if !HAVE(FAST_TLS)
     ASSERT(s_key != InvalidThreadSpecificKey);
     threadSpecificSet(s_key, &threadInTLS);
+    FindTask(NULL)->tc_UserData = &threadInTLS;
 #else
     _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);

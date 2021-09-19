@@ -335,6 +335,10 @@ protected:
     static Thread* currentMayBeNull();
 #endif
 
+#ifdef __MORPHOS__
+    static Thread* getUserDataThreadPointer();
+#endif
+
     JoinableState m_joinableState { Joinable };
     bool m_isShuttingDown : 1;
     bool m_didExit : 1;
@@ -401,6 +405,10 @@ inline Thread* Thread::currentMayBeNull()
 }
 #endif
 
+#if OS(MORPHOS)
+extern "C" { void *get_thread_pointer(void); }
+#endif
+
 inline Thread& Thread::current()
 {
     // WRT WebCore:
@@ -413,8 +421,16 @@ inline Thread& Thread::current()
     if (UNLIKELY(Thread::s_key == InvalidThreadSpecificKey))
         WTF::initialize();
 #endif
+#if OS(MORPHOS)
+    Thread* thread = getUserDataThreadPointer();
+    if (!thread)
+        thread = currentMayBeNull();
+    if (thread)
+        return *thread;
+#else
     if (auto* thread = currentMayBeNull())
         return *thread;
+#endif
     return initializeCurrentTLS();
 }
 
