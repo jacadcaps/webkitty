@@ -148,11 +148,11 @@ void AudioDestinationMorphOS::render(int16_t *samplesStereo, size_t count)
 			{
 				auto dataA = channelA->data();
 				auto dataB = channelB->data();
-				static constexpr float fmultiplier = 32767;
+				static constexpr float fmultiplier = 32767.f;
 				for (size_t sample = 0; sample < length; sample ++)
 				{
-					*out++ = int16_t(dataA[sample] * fmultiplier);
-					*out++ = int16_t(dataB[sample] * fmultiplier);
+					*out++ = int16_t(std::clamp(dataA[sample], -1.f, 1.f) * fmultiplier);
+					*out++ = int16_t(std::clamp(dataB[sample], -1.f, 1.f) * fmultiplier);
 //if (sample % 16 == 0) dprintf("@%d: %f %f > %d %d\n", sample, dataA[sample], dataB[sample], int16_t(dataA[sample] * fmultiplier), int16_t(dataB[sample] * fmultiplier));
 				}
 			}
