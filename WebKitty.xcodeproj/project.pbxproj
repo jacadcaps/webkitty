@@ -168,6 +168,12 @@
 		01984444242FECE00057CD22 /* WebContextMenuClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebContextMenuClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebContextMenuClient.h; sourceTree = "<group>"; };
 		01984445242FECE00057CD22 /* WebChromeClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebChromeClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebChromeClient.h; sourceTree = "<group>"; };
 		01984446242FECE00057CD22 /* WebFrameLoaderClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebFrameLoaderClient.h; path = Source/WebKitLegacy/morphos/WebCoreSupport/WebFrameLoaderClient.h; sourceTree = "<group>"; };
+		019E907226FB9D4C00C68B31 /* WebKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKit; path = Source/WebKit; sourceTree = "<group>"; };
+		019E907326FB9D4D00C68B31 /* JavaScriptCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JavaScriptCore; path = Source/JavaScriptCore; sourceTree = "<group>"; };
+		019E907426FB9D4D00C68B31 /* WTF */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WTF; path = Source/WTF; sourceTree = "<group>"; };
+		019E907526FB9D4D00C68B31 /* WebKitLegacy */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKitLegacy; path = Source/WebKitLegacy; sourceTree = "<group>"; };
+		019E907626FB9D4D00C68B31 /* WebCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebCore; path = Source/WebCore; sourceTree = "<group>"; };
+		019E907726FB9D4E00C68B31 /* cmake */ = {isa = PBXFileReference; lastKnownFileType = folder; name = cmake; path = Source/cmake; sourceTree = "<group>"; };
 		01B27291245EF46B00B7277E /* WkHistory.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory.h; path = Source/WebKitLegacy/morphos/WkHistory.h; sourceTree = "<group>"; };
 		01B27292245EF46B00B7277E /* WkHistory.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHistory.mm; path = Source/WebKitLegacy/morphos/WkHistory.mm; sourceTree = "<group>"; };
 		01BC9C4926A0780700B31F97 /* WebDatabaseManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDatabaseManager.cpp; path = Source/WebKitLegacy/morphos/WebDatabaseManager.cpp; sourceTree = "<group>"; };
@@ -224,6 +230,12 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
+				019E907726FB9D4E00C68B31 /* cmake */,
+				019E907326FB9D4D00C68B31 /* JavaScriptCore */,
+				019E907626FB9D4D00C68B31 /* WebCore */,
+				019E907226FB9D4C00C68B31 /* WebKit */,
+				019E907526FB9D4D00C68B31 /* WebKitLegacy */,
+				019E907426FB9D4D00C68B31 /* WTF */,
 				013D3C7A246042CE00805F29 /* ABP */,
 				01816F11242B985D007717A6 /* BackForwardClient.cpp */,
 				01816F15242B985E007717A6 /* BackForwardClient.h */,
