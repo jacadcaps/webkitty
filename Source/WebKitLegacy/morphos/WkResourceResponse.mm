@@ -8,7 +8,7 @@
 
 @implementation WkResourceResponsePrivate
 
-- (id)initWithResponse:(const WebCore::ResourceResponse &)response
+- (id)initWithResponse:(const WebCore::ResourceResponse &)response auth:(BOOL)auth
 {
 	if ((self = [super init]))
 	{
@@ -30,6 +30,7 @@
 			[headers setObject:[OBString stringWithUTF8String:udata.data()] forKey:[OBString stringWithUTF8String:ukey.data()]];
 		}
 		_httpHeaders = [headers retain];
+		_hadAuth = auth;
 	}
 
 	return self;
@@ -45,9 +46,9 @@
 	[super dealloc];
 }
 
-+ (WkResourceResponsePrivate *)responseWithResponse:(const WebCore::ResourceResponse &)response
++ (WkResourceResponsePrivate *)responseWithResponse:(const WebCore::ResourceResponse &)response auth:(BOOL)auth
 {
-	return [[[self alloc] initWithResponse:response] autorelease];
+	return [[[self alloc] initWithResponse:response auth:auth] autorelease];
 }
 
 - (OBURL *)url
@@ -83,6 +84,11 @@
 - (OBDictionary *)headers
 {
 	return _httpHeaders;
+}
+
+- (BOOL)requestWithHttpAuth
+{
+	return _hadAuth;
 }
 
 @end
@@ -122,6 +128,11 @@
 - (OBDictionary *)headers
 {
 	return nil;
+}
+
+- (BOOL)requestWithHttpAuth
+{
+	return NO;
 }
 
 @end

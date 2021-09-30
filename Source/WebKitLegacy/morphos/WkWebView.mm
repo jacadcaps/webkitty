@@ -2207,13 +2207,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return NO;
 		};
 		
-		webPage->_fDidReceiveResponse = [self](const WebCore::ResourceResponse& wresp) {
+		webPage->_fDidReceiveResponse = [self](const WebCore::ResourceResponse& wresp, bool hadAuth) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			if (clientDelegate)
 			{
-				WkResourceResponse *response = [WkResourceResponsePrivate responseWithResponse:wresp];
+				WkResourceResponse *response = [WkResourceResponsePrivate responseWithResponse:wresp auth:hadAuth];
 				[clientDelegate webView:self didReceiveResponse:response];
 			}
 		};

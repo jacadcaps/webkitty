@@ -11,8 +11,9 @@ namespace WebCore { class ResourceResponse; }
 	OBDictionary *_httpHeaders;
 	ULONG         _httpStatusCode;
 	QUAD          _expectedContentLength;
+	BOOL          _hadAuth;
 }
 
-+ (WkResourceResponsePrivate *)responseWithResponse:(const WebCore::ResourceResponse &)response;
++ (WkResourceResponsePrivate *)responseWithResponse:(const WebCore::ResourceResponse &)response  auth:(BOOL)auth;
 
 @end

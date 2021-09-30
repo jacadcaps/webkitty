@@ -200,14 +200,16 @@ void WebFrameLoaderClient::dispatchDidReceiveAuthenticationChallenge(DocumentLoa
 	challenge.authenticationClient()->receivedCancellation(challenge);
 }
 
-void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader*, unsigned long identifier, const ResourceResponse& response)
+void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader* loader, unsigned long identifier, const ResourceResponse& response)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
 
+	bool hadAuth =loader->request().httpHeaderField(HTTPHeaderName::Authorization).length() > 0;
+
 	if (webPage->_fDidReceiveResponse)
-		webPage->_fDidReceiveResponse(response);
+		webPage->_fDidReceiveResponse(response, hadAuth);
 }
 
 void WebFrameLoaderClient::dispatchDidReceiveContentLength(DocumentLoader*, unsigned long identifier, int dataLength)

@@ -18,4 +18,6 @@
 
 - (OBDictionary *)headers;
 
+- (BOOL)requestWithHttpAuth;
+
 @end
