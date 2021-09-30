@@ -101,7 +101,7 @@ bool AudioDestinationOutputMorphOS::ahiInit()
 						{
 							m_ahiSample[i].ahisi_Type = AHIST_S16S;
 							m_ahiSample[i].ahisi_Length = m_ahiSampleLength;
-							m_ahiSample[i].ahisi_Address = malloc(m_ahiSampleLength * 4);
+							m_ahiSample[i].ahisi_Address = fastAlignedMalloc(16, (m_ahiSampleLength * 4) + 16); // reserve a little extra data at the end to simplify render routine!
 						}
 						
 						if (m_ahiSample[0].ahisi_Address && m_ahiSample[1].ahisi_Address)
@@ -143,7 +143,7 @@ bool AudioDestinationOutputMorphOS::ahiInit()
 
 						for (int i = 0; i < 2; i++)
 						{
-							free(m_ahiSample[i].ahisi_Address);
+							fastAlignedFree(m_ahiSample[i].ahisi_Address);
 							m_ahiSample[i].ahisi_Address = nullptr;
 						}
 					}
@@ -185,7 +185,7 @@ void AudioDestinationOutputMorphOS::ahiCleanup()
 
 	for (int i = 0; i < 2; i++)
 	{
-		free(m_ahiSample[i].ahisi_Address);
+		fastAlignedFree(m_ahiSample[i].ahisi_Address);
 		m_ahiSample[i].ahisi_Address = nullptr;
 	}
 

@@ -31,6 +31,7 @@
 #include "AudioSourceProvider.h"
 #include "NotImplemented.h"
 #include "AudioUtilities.h"
+#include "Altivec.h"
 #include <proto/exec.h>
 
 namespace WebCore {
@@ -133,7 +134,7 @@ void AudioDestinationMorphOS::render(int16_t *samplesStereo, size_t count)
 			};
 			
 			m_sampleTime += length;
-//dprintf("render length %d sampleTime %f count %d, time %f\n", length, float(m_sampleTime), count, float(m_sampleTime / double(sampleRate())));
+
 			callRenderCallback(nullptr, m_renderBus.get(), length, m_outputTimestamp);
 
 			AudioChannel *channelA = m_renderBus->channel(0);
@@ -141,25 +142,34 @@ void AudioDestinationMorphOS::render(int16_t *samplesStereo, size_t count)
 
 			if (channelA->isSilent() && channelB->isSilent())
 			{
-				memset(samplesStereo, 0, count * 4);
-//dprintf("silence\n");
+				memset(out, 0, length * 4);
+				out += length * 2;
 			}
 			else
 			{
 				auto dataA = channelA->data();
 				auto dataB = channelB->data();
-				static constexpr float fmultiplier = 32767.f;
-				for (size_t sample = 0; sample < length; sample ++)
+				
+				if (WTF::HasAltivec::hasAltivec())
 				{
-					*out++ = int16_t(std::clamp(dataA[sample], -1.f, 1.f) * fmultiplier);
-					*out++ = int16_t(std::clamp(dataB[sample], -1.f, 1.f) * fmultiplier);
-//if (sample % 16 == 0) dprintf("@%d: %f %f > %d %d\n", sample, dataA[sample], dataB[sample], int16_t(dataA[sample] * fmultiplier), int16_t(dataB[sample] * fmultiplier));
+					Altivec::muxFloatAudioChannelsToInterleavedInt16(out, dataA, dataB, length);
+					out += length * 2;
+				}
+				else
+				{
+					for (size_t sample = 0; sample < length; sample ++)
+					{
+						int32_t valA = (int32_t)(dataA[sample] * 0x8000);
+						*out++ = (valA > 0x7FFF) ? 0x7FFF : (valA < -0x8000 ? -0x8000 : (int16_t)valA);
+
+						int32_t valB = (int32_t)(dataB[sample] * 0x8000);
+						*out++ = (valB > 0x7FFF) ? 0x7FFF : (valB < -0x8000 ? -0x8000 : (int16_t)valB);
+					}
 				}
 			}
 		};
 	});
 }
-
 
 }
 

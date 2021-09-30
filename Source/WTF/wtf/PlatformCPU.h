@@ -89,6 +89,20 @@
 #define WTF_CPU_KNOWN 1
 #endif
 
+#ifdef __MORPHOS__
+#ifdef __cplusplus
+namespace WTF {
+class HasAltivec {
+public:
+	static bool hasAltivec();
+private:
+	HasAltivec();
+	static bool m_hasAltivec;
+};
+}
+#endif
+#endif
+
 /* CPU(X86) - i386 / x86 32-bit */
 #if   defined(__i386__) \
     || defined(i386)     \

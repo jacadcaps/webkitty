@@ -43,6 +43,7 @@ list(APPEND WebCore_LIBRARIES
 list(APPEND WebCore_SOURCES
     editing/morphos/EditorMorphOS.cpp
     editing/morphos/AutofillElements.cpp
+    platform/morphos/Altivec.cpp
     platform/morphos/PasteboardMorphOS.cpp
     platform/morphos/CursorMorphOS.cpp
     platform/morphos/PlatformKeyboardEvent.cpp
@@ -110,3 +111,6 @@ set(WebCore_USER_AGENT_SCRIPTS
 set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/rendering/RenderThemeAdwaita.cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Os -DMORPHOS_MINIMAL=${MORPHOS_MINIMAL}")
+
+set_source_files_properties(platform/morphos/Altivec.cpp PROPERTIES COMPILE_FLAGS "-maltivec ${COMPILE_FLAGS}")
+
