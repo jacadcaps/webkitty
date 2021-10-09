@@ -23,6 +23,7 @@ static X509_STORE     *_store;
 	BOOL          _valid;
 	BOOL          _validOverride;
 	BOOL          _selfSigned;
+	BOOL          _isExpired;
 	OBDictionary *_subjectName;
 	OBDictionary *_issuerName;
 	OBData       *_sha;
@@ -226,7 +227,24 @@ static X509_STORE     *_store;
 			_validNotBefore = [[self _convertASN1TIME:X509_get_notBefore(cert)] retain];
 
 			if (!_validOverride)
+			{
 				_valid = X509_check_ca(cert) > 0;
+			}
+
+			if (X509_cmp_current_time(X509_get_notAfter(cert)) != -1)
+			{
+				if (!_validOverride)
+					_valid = NO;
+				_isExpired = YES;
+			}
+
+			if (X509_cmp_current_time(X509_get_notBefore(cert)) != 1)
+			{
+				if (!_validOverride)
+					_valid = NO;
+				_isExpired = YES;
+			}
+
 			_selfSigned = X509_check_issued(cert, cert) == X509_V_OK;
 
 			X509_free(cert);
@@ -238,6 +256,12 @@ static X509_STORE     *_store;
 {
 	[self decode];
 	return _valid && _selfSigned;
+}
+
+- (BOOL)isExpired
+{
+	[self decode];
+	return _isExpired;
 }
 
 - (BOOL)isValid
@@ -357,6 +381,11 @@ static inline void hex_encode(const unsigned char* readbuf, void *writebuf, size
 }
 
 - (BOOL)isValid
+{
+	return NO;
+}
+
+- (BOOL)isExpired
 {
 	return YES;
 }

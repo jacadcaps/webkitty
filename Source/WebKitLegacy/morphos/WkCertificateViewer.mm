@@ -101,6 +101,8 @@ extern "C" { void dprintf(const char *,...); }
 		return @"This certificate is NOT valid.";
 	if ([key isEqualToString:WkCertificateVerifier_Localization_NoHostMatch])
 		return @"This certificate does NOT match the hostname.";
+	if ([key isEqualToString:WkCertificateVerifier_Localization_Expired])
+		return @"This certificate is expired.";
 	return @"";
 }
 
@@ -201,9 +203,10 @@ extern "C" { void dprintf(const char *,...); }
 		[_issuedBy setContents:[[certificate issuerName] objectForKey:@"CN"]];
 		[_expires setContents:[certificate notValidAfter]];
 		if (isLast && !_matchesHost)
-			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_NoHostMatch] : [self localize:WkCertificateVerifier_Localization_NotValid]];
+			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_NoHostMatch] : ([certificate isExpired] ? [self localize:WkCertificateVerifier_Localization_Expired] : [self localize:WkCertificateVerifier_Localization_NotValid])];
 		else
-			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_Valid] : [self localize:WkCertificateVerifier_Localization_NotValid]];
+			[_valid setContents:[certificate isValid] ? [self localize:WkCertificateVerifier_Localization_Valid] : ([certificate isExpired] ? [self localize:WkCertificateVerifier_Localization_Expired] : [self localize:WkCertificateVerifier_Localization_NotValid])];
+		[_valid setPreParse:[certificate isValid] ? nil : @"\33b"];
 	}
 }
 

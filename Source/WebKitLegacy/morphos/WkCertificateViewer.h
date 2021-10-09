@@ -15,6 +15,8 @@
 #define WkCertificateVerifier_Localization_NotValid @"wfCertError"
 // 'This certificate does NOT match the hostname.'
 #define WkCertificateVerifier_Localization_NoHostMatch @"wfCertHostError"
+// 'This certificate is expired.'
+#define WkCertificateVerifier_Localization_Expired @"wfCertExpired"
 
 @interface WkCertificateVerifier : MUIGroup
 {

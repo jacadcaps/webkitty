@@ -20,6 +20,9 @@
 // YES if we regard this certificate as valid on its own (ie root cert, etc)
 - (BOOL)isValid;
 
+// YES if the certificate is not valid at the current system time
+- (BOOL)isExpired;
+
 // Maps subject/issuer name fields as OBString object in the form key:@"CN" value:@"*.google.com"
 - (OBDictionary *)subjectName;
 - (OBDictionary *)issuerName;
