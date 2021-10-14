@@ -21,6 +21,7 @@
 	OBMutableDictionary *_headers;
 	BOOL _shouldHandleCoookies;
 	BOOL _allowsAnyClientCertificate;
+	id _context;
 }
 @end
 

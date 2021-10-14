@@ -34,6 +34,7 @@
 	[_clientCertificate release];
 	[_httpBody release];
 	[_headers release];
+	[_context release];
 	[super dealloc];
 }
 
@@ -50,6 +51,7 @@
 		[copy setHTTPShouldHandleCookies:_shouldHandleCoookies];
 		[copy setAllowsAnyHTTPSClientCertificate:_allowsAnyClientCertificate];
 		[copy setClientCertificate:_clientCertificate];
+		[copy setContext:_context];
 	}
 	
 	return copy;
@@ -171,6 +173,17 @@
 {
 	[_clientCertificate autorelease];
 	_clientCertificate = [certificate copy];
+}
+
+- (id)context
+{
+	return _context;
+}
+
+- (void)setContext:(id)userData
+{
+	[_context autorelease];
+	_context = [userData retain];
 }
 
 @end
@@ -495,6 +508,16 @@ private:
 
 - (void)setClientCertificate:(OBString *)certificate
 {
+}
+
+- (id)context
+{
+	return nil;
+}
+
+- (void)setContext:(id)userData
+{
+
 }
 
 @end

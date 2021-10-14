@@ -23,6 +23,7 @@ typedef enum {
 - (BOOL)HTTPShouldHandleCookies;
 - (BOOL)allowsAnyHTTPSClientCertificate;
 - (OBString *)clientCertificate;
+- (id)context;
 @end
 
 @protocol WkMutableNetworkRequestTarget <OBObject>
@@ -61,5 +62,8 @@ typedef enum {
 - (void)setHTTPShouldHandleCookies:(BOOL)handleCookies;
 - (void)setAllowsAnyHTTPSClientCertificate:(BOOL)allowsany;
 - (void)setClientCertificate:(OBString *)certificate;
+
+// Any object that may be used to identify the request by the caller
+- (void)setContext:(id)userData;
 
 @end
