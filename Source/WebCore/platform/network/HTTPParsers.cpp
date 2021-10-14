@@ -335,6 +335,8 @@ Optional<WallTime> parseHTTPDate(const String& value)
 // in a case-sensitive manner. (There are likely other bugs as well.)
 String filenameFromHTTPContentDisposition(const String& value)
 {
+	String out;
+
     for (auto& keyValuePair : value.split(';')) {
         size_t valueStartPos = keyValuePair.find('=');
         if (valueStartPos == notFound)
@@ -342,19 +344,24 @@ String filenameFromHTTPContentDisposition(const String& value)
 
         String key = keyValuePair.left(valueStartPos).stripWhiteSpace();
 
-        if (key.isEmpty() || key != "filename")
-            continue;
-        
-        String value = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
-
-        // Remove quotes if there are any
-        if (value[0] == '\"')
-            value = value.substring(1, value.length() - 2);
-
-        return value;
+		if (key == "filename") {
+			out = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
+			if (out[0] == '\"')
+				out = out.substring(1, out.length() - 2);
+		}
+		else if (key == "filename*") {
+			auto encname = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace().split('\'');
+			if (encname.size() == 2 && equalIgnoringASCIICase(encname[0], "utf-8")) {
+				out = encname[1].substring(1);
+				return out;
+			}
+		}
+		else {
+			continue;
+		}
     }
 
-    return String();
+    return out;
 }
 
 String extractMIMETypeFromMediaType(const String& mediaType)
