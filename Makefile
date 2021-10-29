@@ -12,6 +12,8 @@ NATIVE_GCC:=/home/jaca/gcc7/inst/bin/x86_64-pc-linux-gnu-
 
 OBJC:=$(ROOTPATH)/morphoswb/classes/frameworks/includes/
 
+CMAKE = $(abspath cmake-3.16.2/bin)
+
 all:
 
 configure-native:
@@ -26,7 +28,7 @@ configure-native:
 jscore-native:
 	rm -rf WebKitBuild build
 	mkdir build
-	(cd build && PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+	(cd build && PATH=$(CMAKE):${PATH} \
 		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
 		--cmakeargs='-DCMAKE_MODULE_PATH=$(realpath Source/cmake) -DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) \
                 -DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES -DCMAKE_CXX_FLAGS="-O2 -fPIC" -DCMAKE_C_FLAGS="-O2 -fPIC" \
@@ -37,7 +39,7 @@ jscore-native:
 jscore-morphos: morphos.cmake
 	rm -rf WebKitBuild cross-build
 	mkdir -p cross-build WebKitBuild/Release/bin
-	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
 		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
 		--cmakeargs='-DCMAKE_CROSSCOMPILING=ON -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
 		-DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) -DBUILD_SHARED_LIBS=NO \
@@ -71,7 +73,7 @@ jscore-pack:
 configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
 	rm -rf cross-build
 	mkdir cross-build
-	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=0 -DROOTPATH="$(ROOTPATH)" \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
@@ -102,7 +104,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DFontconfig_LIBRARY="$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/libfontconfig-glue.a" \
 		-DFontconfig_INCLUDE_DIR="$(ROOTPATH)/morphoswb/libs/fontconfig" \
-		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.4" \
 		-DWebP_INCLUDE_DIR="$(GEN)/include" -DWebP_LIBRARY="$(GEN)/lib/libwebp.a" -DWebP_DEMUX_LIBRARY="$(GEN)/lib/libwebpdemux.a"\
 		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
@@ -114,7 +116,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
 	rm -rf cross-build-mini
 	mkdir cross-build-mini
-	(cd cross-build-mini && PKG_CONFIG_PATH=$(PKG) PATH=~/cmake-3.16.2-Linux-x86_64/bin/:${PATH} \
+	(cd cross-build-mini && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=1 -DROOTPATH="$(ROOTPATH)" \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
@@ -145,7 +147,7 @@ configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.bu
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
 		-DFontconfig_LIBRARY="$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/libfontconfig-glue.a" \
 		-DFontconfig_INCLUDE_DIR="$(ROOTPATH)/morphoswb/libs/fontconfig" \
-		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.3" \
+		-DOpenJPEG_INCLUDE_DIR="$(GEN)/include/openjpeg-2.4" \
 		-DWebP_INCLUDE_DIR="$(GEN)/include" -DWebP_LIBRARY="$(GEN)/lib/libwebp.a" -DWebP_DEMUX_LIBRARY="$(GEN)/lib/libwebpdemux.a"\
 		-DAVFORMAT_LIBRARY="ffmpeg/instdir/lib/libavformat.a" -DAVFORMAT_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
@@ -185,6 +187,12 @@ install-iso:
 source:
 
 sdk:
+
+$(CMAKE):
+	rm -rf cmake-3.16.2
+	tar xf cmake-3.16.2.tar.gz
+	(cd cmake-3.16.2 && ./bootstrap -- -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_USE_OPENSSL=OFF )
+	(cd cmake-3.16.2 && make -j$(shell nproc))
 
 Dummy/libdummy.a:
 	ppc-morphos-gcc-9 -c -o Dummy/dummy.o Dummy/dummy.c
