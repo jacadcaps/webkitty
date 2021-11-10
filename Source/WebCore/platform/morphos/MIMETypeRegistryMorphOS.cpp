@@ -59,6 +59,11 @@ static const HashMap<String, String, ASCIICaseInsensitiveHash> hCommonMediaTypes
     { "xhtml"_s, "application/xhtml+xml"_s },
     { "wml"_s, "text/vnd.wap.wml"_s },
     { "wmlc"_s, "application/vnd.wap.wmlc"_s },
+	{ "htm"_s, "text/html"_s },
+	{ "html"_s, "text/html"_s },
+	{ "shtm"_s, "text/html"_s },
+	{ "shtml"_s, "text/html"_s },
+	{ "php"_s, "text/html"_s },
 #if USE(WEBP)
     { "webp"_s, "image/webp"_s },
 #endif

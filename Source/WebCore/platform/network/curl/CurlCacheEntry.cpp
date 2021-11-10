@@ -40,6 +40,7 @@
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
+#include "MIMETypeRegistry.h"
 #include <wtf/DateMath.h>
 #include <wtf/HexNumber.h>
 #include <wtf/SHA1.h>
@@ -226,7 +227,11 @@ void CurlCacheEntry::setResponseFromCachedHeaders(ResourceResponse& response)
     }
     response.setExpectedContentLength(contentLength); // -1 on parse error or null
 
-    response.setMimeType(extractMIMETypeFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)));
+	String mimeType = extractMIMETypeFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType));
+	if (mimeType.isEmpty()) {
+	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url().path().toString());
+	}
+    response.setMimeType(mimeType);
     response.setTextEncodingName(extractCharsetFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)));
 }
 
