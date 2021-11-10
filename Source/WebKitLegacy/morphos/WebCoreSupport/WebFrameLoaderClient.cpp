@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x) 
+#define D(x)
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -275,7 +275,7 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
     if (!webPage)
         return;
 
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 
 	if (m_frame->isMainFrame() && webPage->_fChangedURL)
 	{
@@ -287,11 +287,19 @@ void WebFrameLoaderClient::dispatchDidChangeLocationWithinPage()
 
 void WebFrameLoaderClient::dispatchDidChangeMainDocument()
 {
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
+
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return;
 	webPage->clearAutofillElements();
+
+/* NO! it's the old url there
+	if (m_frame->isMainFrame() && webPage->_fChangedURL && m_frame->coreFrame() && m_frame->coreFrame()->document())
+	{
+		webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
+	}
+*/
 }
 
 void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl)
@@ -312,7 +320,7 @@ void WebFrameLoaderClient::dispatchWillChangeDocument(const URL& currentUrl, con
 
 void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 {
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -325,7 +333,7 @@ void WebFrameLoaderClient::dispatchDidPushStateWithinPage()
 
 void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 {
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -338,7 +346,7 @@ void WebFrameLoaderClient::dispatchDidReplaceStateWithinPage()
 
 void WebFrameLoaderClient::dispatchDidPopStateWithinPage()
 {
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 	WebPage* webPage = m_frame->page();
     if (webPage)
 	{
@@ -413,6 +421,8 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(Optional<HasInsecureContent> ha
 
     D(dprintf("%s: hasInsecure %d '%s' main %d\n", __PRETTY_FUNCTION__, hasInsecureContent && hasInsecureContent.value() == HasInsecureContent::Yes, documentLoader.url().string().utf8().data(), m_frame->isMainFrame()));
 
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
+
     webPage->didCommitLoad(m_frame);
 
 	if (m_frame->isMainFrame() && webPage->_fChangedURL)
@@ -456,6 +466,7 @@ void WebFrameLoaderClient::dispatchDidFinishDocumentLoad()
         return;
 
     D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 
 #if 0
     RefPtr<API::Object> userData;
@@ -479,6 +490,7 @@ void WebFrameLoaderClient::dispatchDidFinishLoad()
         return;
 
     D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
+	D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 
 #if 0
     RefPtr<API::Object> userData;
@@ -569,7 +581,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 {
     WebPage* webPage = m_frame->page();
 
-	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+	D(dprintf("%s: '%s' isattach %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), response.isAttachment()));
 
     if (!webPage) {
     	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
@@ -584,7 +596,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
     }
 
 	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
-	if (!canShowMIMEType(response.mimeType()) && request.isTopSite())
+	if ((response.isAttachment() || !canShowMIMEType(response.mimeType())) && request.isTopSite())
 	{
 		// should we download this??
 		if (webPage->_fDownloadAsk)
@@ -836,12 +848,20 @@ void WebFrameLoaderClient::revertToProvisionalState(DocumentLoader*)
     notImplemented();
 }
 
-void WebFrameLoaderClient::setMainDocumentError(DocumentLoader*, const ResourceError& error)
+void WebFrameLoaderClient::setMainDocumentError(DocumentLoader *documentLoader, const ResourceError& error)
 {
     WebPage* webPage = m_frame->page();
     if (webPage && m_frame->isMainFrame())
     {
 		webPage->didFailLoad(error);
+
+		D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
+
+		if (webPage->_fChangedURL && documentLoader && error.type() != WebCore::ResourceErrorBase::Type::Cancellation)
+		{
+			WTF::String url = documentLoader->url().string();
+			webPage->_fChangedURL(url);
+		}
 	}
 }
 
@@ -849,6 +869,8 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 {
 	if (m_mainDocumentReady != ready)
 	{
+		D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
+
    		WebPage* webPage = m_frame->page();
 		m_mainDocumentReady = ready;
 		if (webPage)
@@ -857,6 +879,11 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 				webPage->_fDidStopLoading();
 			else if (!m_mainDocumentReady && webPage->_fDidStartLoading)
 				webPage->_fDidStartLoading();
+
+			if (webPage->_fChangedURL && m_frame->isMainFrame())
+			{
+				webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
+			}
 		}
 	}
 }
@@ -1091,6 +1118,7 @@ bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
         || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
         || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
 // dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow);
+
     return canShow;
 }
 

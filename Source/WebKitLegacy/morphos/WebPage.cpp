@@ -1334,16 +1334,25 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 	exitFullscreen();
 }
 
-void WebPage::reload()
+bool WebPage::reload()
 {
 	auto *mainframe = mainFrame();
 	if (mainframe)
 	{
+		exitFullscreen();
+
 		OptionSet<ReloadOption> options;
 		options.add(ReloadOption::FromOrigin);
+
+		DocumentLoader *loader = mainframe->loader().documentLoader();
+		if (!loader || loader->request().url().isEmpty())
+			return false;
+
 		mainframe->loader().reload(options);
-		exitFullscreen();
+		return true;
 	}
+	
+	return false;
 }
 
 void WebPage::stop()

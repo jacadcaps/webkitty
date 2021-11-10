@@ -167,6 +167,16 @@ build:
 build-mini:
 	(cd cross-build-mini && make -j$(shell nproc))
 
+cross-build:
+	make configure
+
+.build: cross-build build
+
+cross-build-mini:
+	make configure-mini
+
+.build-mini: cross-build-mini build-mini
+
 morphos.cmake: morphos.cmake.in
 	gcc -xc -E -P -C -o$@ -nostdinc $@.in -D_IN_ROOTPATH=$(ROOTPATH) -D_IN_DUMMYPATH=$(realpath Dummy)
 

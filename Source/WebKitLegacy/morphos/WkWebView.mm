@@ -1786,7 +1786,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			auto uurl = url.utf8();
 			OBURL *ourl = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-			if (![[privateObject url] isEqual:ourl])
+			if (![[[privateObject url] absoluteString] isEqual:[ourl absoluteString]]) // compare strings since OBURL's equality isn't perfect
 			{
 				[privateObject setHasOnlySecureContent:YES];
 				[privateObject setURL:ourl];
@@ -2570,7 +2570,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)reload
 {
 	auto webPage = [_private page];
-	webPage->reload();
+	if (!webPage->reload())
+		webPage->load([[[_private url] absoluteString] cString]);
 }
 
 - (void)stopLoading
