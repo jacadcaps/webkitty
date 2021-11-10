@@ -352,8 +352,10 @@ String filenameFromHTTPContentDisposition(const String& value)
 		else if (key == "filename*") {
 			auto encname = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace().split('\'');
 			if (encname.size() == 2 && equalIgnoringASCIICase(encname[0], "utf-8")) {
-				out = encname[1].substring(1);
-				return out;
+				if (out[0] == '\'')
+					return encname[1].substring(1);
+				else
+					return encname[1];
 			}
 		}
 		else {
