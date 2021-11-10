@@ -1,4 +1,5 @@
 #import "WkSettings.h"
+#import <ob/OBURL.h>
 
 #undef __OBJC__
 #import "WebKit.h"
@@ -10,6 +11,9 @@
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/TextEncoding.h>
 #import <WebCore/MediaPlayerMorphOS.h>
+#import <WebCore/CurlProxySettings.h>
+#import <WebCore/NetworkStorageSession.h>
+#import "../WebCoreSupport/NetworkStorageSessionMap.h"
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>
 #import "WebEditorClient.h"
@@ -676,6 +680,24 @@ static cairo_antialias_t defaultAA;
 #else
 	return NO;
 #endif
+}
+
++ (void)setProxyURL:(OBURL *)url user:(OBString *)user password:(OBString *)password ignoredHosts:(OBString *)hosts
+{
+	WTF::URL wurl = WTF::URL(WTF::URL(), WTF::String([[url absoluteString] cString]));
+	WebCore::CurlProxySettings settings(std::move(wurl), [hosts cString]);
+
+	if (user && password) {
+		settings.setUserPass([user cString], [password cString]);
+	}
+
+	NetworkStorageSessionMap::defaultStorageSession().setProxySettings(std::move(settings));
+}
+
++ (void)setProxyNone
+{
+	WebCore::CurlProxySettings settings;
+	NetworkStorageSessionMap::defaultStorageSession().setProxySettings(std::move(settings));
 }
 
 @end

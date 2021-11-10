@@ -1,4 +1,5 @@
 #import <ob/OBString.h>
+@class OBURL;
 
 typedef enum
 {
@@ -168,5 +169,10 @@ typedef enum
 
 // Whether media playback was enabled at compile time
 + (BOOL)supportsMediaPlayback;
+
+// Setup proxy
++ (void)setProxyURL:(OBURL *)url user:(OBString *)user password:(OBString *)password ignoredHosts:(OBString *)hosts;
+// Clear/disable proxy settings
++ (void)setProxyNone;
 
 @end
