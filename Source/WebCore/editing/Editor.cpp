@@ -2675,7 +2675,7 @@ Optional<SimpleRange> Editor::markMisspellingsOrBadGrammar(const VisibleSelectio
     auto searchRange = selection.toNormalizedRange();
     if (!searchRange)
         return WTF::nullopt;
-    
+
     // If we're not in an editable node, bail.
     Node& editableNode = searchRange->startContainer();
     if (!editableNode.hasEditableStyle())
@@ -2687,7 +2687,21 @@ Optional<SimpleRange> Editor::markMisspellingsOrBadGrammar(const VisibleSelectio
     // Get the spell checker if it is available
     if (!client())
         return WTF::nullopt;
-    
+
+#if OS(MORPHOS)
+	// w/o this, "that's" would leave "that'" hilighted on coursor move
+    OptionSet<DocumentMarker::MarkerType> markerTypesToRemove {
+        DocumentMarker::CorrectionIndicator,
+        DocumentMarker::DictationAlternatives,
+        DocumentMarker::SpellCheckingExemption,
+        DocumentMarker::Spelling,
+#if !PLATFORM(IOS_FAMILY)
+        DocumentMarker::Grammar,
+#endif
+    };
+    removeMarkers(*searchRange, markerTypesToRemove, RemovePartiallyOverlappingMarker::Yes);
+#endif
+
     TextCheckingHelper checker(*client(), *searchRange);
     if (checkSpelling)
         return checker.markAllMisspelledWords();
@@ -2732,7 +2746,6 @@ void Editor::markBadGrammar(const VisibleSelection& selection)
 
 void Editor::markAllMisspellingsAndBadGrammarInRanges(OptionSet<TextCheckingType> textCheckingOptions, const Optional<SimpleRange>& spellingRange, const Optional<SimpleRange>& automaticReplacementRange, const Optional<SimpleRange>& grammarRange)
 {
-dprintf("%s %d\n", __func__, __LINE__);
     if (platformDrivenTextCheckerEnabled())
         return;
 
@@ -2744,29 +2757,24 @@ dprintf("%s %d\n", __func__, __LINE__);
     bool shouldMarkGrammar = textCheckingOptions.contains(TextCheckingType::Grammar);
     bool shouldShowCorrectionPanel = textCheckingOptions.contains(TextCheckingType::ShowCorrectionPanel);
 
-dprintf("%s %d\n", __func__, __LINE__);
     // This function is called with selections already expanded to word boundaries.
     if (!client() || !spellingRange || (shouldMarkGrammar && !grammarRange))
         return;
 
-dprintf("%s %d\n", __func__, __LINE__);
     // If we're not in an editable node, bail.
     Node& editableNode = spellingRange->startContainer();
     if (!editableNode.hasEditableStyle())
         return;
 
-dprintf("%s %d\n", __func__, __LINE__);
     if (!isSpellCheckingEnabledFor(&editableNode))
         return;
 
-dprintf("%s %d\n", __func__, __LINE__);
     auto& rangeToCheck = shouldMarkGrammar ? *grammarRange : *spellingRange;
     TextCheckingParagraph paragraphToCheck(rangeToCheck);
     if (paragraphToCheck.isEmpty())
         return;
 
     bool asynchronous = m_document.settings().asynchronousSpellCheckingEnabled() && !shouldShowCorrectionPanel;
-dprintf("%s %d: async %d\n", __func__, __LINE__, asynchronous);
 
     // In asynchronous mode, we intentionally check paragraph-wide sentence.
     auto resolvedOptions = resolveTextCheckingTypeMask(editableNode, textCheckingOptions);
@@ -2776,13 +2784,11 @@ dprintf("%s %d: async %d\n", __func__, __LINE__, asynchronous);
     auto request = SpellCheckRequest::create(resolvedOptions, TextCheckingProcessIncremental, checkingRange, textReplacementRange, paragraphRange);
     if (!request)
         return;
-dprintf("%s %d\n", __func__, __LINE__);
 
     if (asynchronous) {
         m_spellChecker->requestCheckingFor(request.releaseNonNull());
         return;
     }
-dprintf("%s %d\n", __func__, __LINE__);
 
     Vector<TextCheckingResult> results;
     checkTextOfParagraph(*textChecker(), paragraphToCheck.text(), resolvedOptions, results, m_document.selection().selection());

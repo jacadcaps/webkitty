@@ -711,6 +711,10 @@ m_additionalLanguage.utf8().data(), m_additionalSpellDictionary ? SpellCheck(m_a
 			if (!found && m_ignoredWords.contains(word))
 				found = true;
 
+			// ignore words if all dicts are disabled!
+			if (!found && !m_globalSpellDictionary && !m_spellDictionary && !m_additionalSpellDictionary)
+				found = true;
+
 			if (!found)
 			{
 				*misspellingLocation = start;
