@@ -857,10 +857,16 @@ void WebFrameLoaderClient::setMainDocumentError(DocumentLoader *documentLoader, 
 
 		D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 
-		if (webPage->_fChangedURL && documentLoader && error.type() != WebCore::ResourceErrorBase::Type::Cancellation)
+		if (webPage->_fChangedURL && documentLoader && error.type() != WebCore::ResourceErrorBase::Type::Cancellation && error.type() != WebCore::ResourceErrorBase::Type::Null)
 		{
 			WTF::String url = documentLoader->url().string();
 			webPage->_fChangedURL(url);
+		}
+
+		// happens if we click on download link and hit download... bit of a hack here
+		if (error.type() == WebCore::ResourceErrorBase::Type::Null)
+		{
+			setMainFrameDocumentReady(true);
 		}
 	}
 }
@@ -880,10 +886,12 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 			else if (!m_mainDocumentReady && webPage->_fDidStartLoading)
 				webPage->_fDidStartLoading();
 
+/* // b0rks on errors and breaks error handling
 			if (webPage->_fChangedURL && m_frame->isMainFrame())
 			{
 				webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
 			}
+*/
 		}
 	}
 }
