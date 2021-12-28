@@ -809,11 +809,13 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const SharedBuffer& buffer)
 #if OS(MORPHOS)
         if (m_downloadFileHandle == FileSystem::invalidPlatformFileHandle)
         {
-        	cancel();
-        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::Cancellation);
+        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::General);
 			callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
             	client.curlDidFailWithError(request, WTFMove(error), { });
         	});
+			runOnMainThread([this, protectedThis = makeRef(*this)]() {
+				cancel();
+			});
 		}
 #endif
     }
@@ -823,11 +825,13 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const SharedBuffer& buffer)
 #if OS(MORPHOS)
         if (-1 == FileSystem::writeToFile(m_downloadFileHandle, buffer.data(), buffer.size()))
         {
-        	cancel();
-        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::Cancellation);
+        	auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::General);
 			callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
             	client.curlDidFailWithError(request, WTFMove(error), { });
         	});
+			runOnMainThread([this, protectedThis = makeRef(*this)]() {
+				cancel();
+			});
 		}
 #else
 		FileSystem::writeToFile(m_downloadFileHandle, buffer.data(), buffer.size());
