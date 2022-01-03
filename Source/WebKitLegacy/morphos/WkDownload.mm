@@ -204,6 +204,20 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 					suggestedFilename = response.url().lastPathComponent().toString();
 				suggestedFilename = WebCore::decodeURLEscapeSequences(suggestedFilename);
 				
+				suggestedFilename.replace('\n', ' ');
+				suggestedFilename.replace('\r', ' ');
+				suggestedFilename.replace('\t', ' ');
+				suggestedFilename.replace(':', String());
+				suggestedFilename.replace('\'', '_');
+				suggestedFilename.replace('/', '_');
+				suggestedFilename.replace('\\', '_');
+				suggestedFilename.replace('*', '_');
+				suggestedFilename.replace('?', '_');
+				suggestedFilename.replace('~', '_');
+				suggestedFilename.replace('[', '_');
+				suggestedFilename.replace(']', '_');
+				suggestedFilename.replace(';', '_');
+				
 				auto usuggestedFilename = suggestedFilename.utf8();
 				path = [[m_outerObject delegate] decideFilenameForDownload:m_outerObject withSuggestedName:[OBString stringWithUTF8String:usuggestedFilename.data()]];
 			}
