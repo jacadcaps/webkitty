@@ -508,7 +508,11 @@ String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFi
     if (handle < 0)
         goto end;
 
+#if OS(MORPHOS)
+	return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(buffer);
+#endif
 
 end:
     handle = invalidPlatformFileHandle;

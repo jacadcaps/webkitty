@@ -804,6 +804,12 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const SharedBuffer& buffer)
 
 			if (m_downloadFilePath.isEmpty())
 				m_downloadFilePath = FileSystem::openTemporaryFile("download", m_downloadFileHandle);
+				
+			if (m_downloadFilePath.isEmpty() && m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
+			{
+				FileSystem::closeFile(m_downloadFileHandle);
+				m_downloadFileHandle = FileSystem::invalidPlatformFileHandle;
+			}
 		}
 
 #if OS(MORPHOS)
