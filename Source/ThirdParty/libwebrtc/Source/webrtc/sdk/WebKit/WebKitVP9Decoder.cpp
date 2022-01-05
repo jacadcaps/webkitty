@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,9 @@
 
 #include "WebKitVP9Decoder.h"
 
+#include "WebKitDecoder.h"
 #include "WebKitDecoderReceiver.h"
-#include "modules/video_coding/codecs/vp9/vp9_impl.h"
+#include "modules/video_coding/codecs/vp9/libvpx_vp9_decoder.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/cpu_info.h"
 
@@ -39,7 +40,7 @@ void registerWebKitVP9Decoder()
 }
 
 typedef struct {
-    std::unique_ptr<VP9DecoderImpl> m_instance;
+    std::unique_ptr<LibvpxVp9Decoder> m_instance;
     std::unique_ptr<WebKitDecoderReceiver> m_receiver;
 } WebKitVP9Decoder;
 
@@ -47,19 +48,42 @@ static OSStatus invalidateVP9Decoder(CMBaseObjectRef);
 static void finalizeVP9Decoder(CMBaseObjectRef);
 static CFStringRef copyVP9DecoderDebugDescription(CMBaseObjectRef);
 
-static const CMBaseClass WebKitVP9Decoder_BaseClass =
-{
-    kCMBaseObject_ClassVersion_1,
-    sizeof(WebKitVP9Decoder),
-    nullptr, // Comparison by pointer equality
-    invalidateVP9Decoder,
-    finalizeVP9Decoder,
-    copyVP9DecoderDebugDescription,
-    nullptr, // CopyProperty
-    nullptr, // SetProperty
-    nullptr,
-    nullptr
+#if defined(CMBASE_OBJECT_NEEDS_ALIGNMENT) && CMBASE_OBJECT_NEEDS_ALIGNMENT
+    constexpr size_t padSize = 4;
+#else
+    constexpr size_t padSize = 0;
+#endif
+
+#pragma pack(push, 4)
+struct DecoderClass {
+    uint8_t pad[padSize];
+    CMBaseClass alignedClass;
 };
+
+static const DecoderClass WebKitVP9Decoder_BaseClass {
+    { },
+    {
+        kCMBaseObject_ClassVersion_1,
+        sizeof(WebKitVP9Decoder),
+        nullptr, // Comparison by pointer equality
+        invalidateVP9Decoder,
+        finalizeVP9Decoder,
+        copyVP9DecoderDebugDescription,
+        nullptr, // CopyProperty
+        nullptr, // SetProperty
+        nullptr,
+        nullptr
+    }
+};
+#pragma pack(pop)
+
+#if defined(CMBASE_OBJECT_NEEDS_ALIGNMENT) && CMBASE_OBJECT_NEEDS_ALIGNMENT
+    static_assert(sizeof(WebKitVP9Decoder_BaseClass.alignedClass.version) == sizeof(uint32_t), "CMBaseClass fixup is required!");
+#else
+    static_assert(sizeof(WebKitVP9Decoder_BaseClass.alignedClass.version) == sizeof(uintptr_t), "CMBaseClass fixup is not required!");
+#endif
+static_assert(offsetof(DecoderClass, alignedClass) == padSize, "CMBaseClass offset is incorrect!");
+static_assert(alignof(DecoderClass) == 4, "CMBaseClass must have 4 byte alignment");
 
 static OSStatus startVP9DecoderSession(VTVideoDecoderRef, VTVideoDecoderSession, CMVideoFormatDescriptionRef);
 static OSStatus decodeVP9DecoderFrame(VTVideoDecoderRef, VTVideoDecoderFrame, CMSampleBufferRef, VTDecodeFrameFlags, VTDecodeInfoFlags*);
@@ -81,7 +105,7 @@ static const VTVideoDecoderClass WebKitVP9Decoder_VideoDecoderClass =
 
 static const VTVideoDecoderVTable WebKitVP9DecoderVTable =
 {
-    { nullptr, &WebKitVP9Decoder_BaseClass },
+    { nullptr, &WebKitVP9Decoder_BaseClass.alignedClass },
     &WebKitVP9Decoder_VideoDecoderClass
 };
 
@@ -142,7 +166,7 @@ OSStatus startVP9DecoderSession(VTVideoDecoderRef instance, VTVideoDecoderSessio
         return kVTParameterErr;
     }
 
-    decoder->m_instance = std::make_unique<VP9DecoderImpl>();
+    decoder->m_instance = std::make_unique<LibvpxVp9Decoder>();
     decoder->m_receiver = std::make_unique<WebKitDecoderReceiver>(session);
     decoder->m_receiver->initializeFromFormatDescription(formatDescription);
 
@@ -172,10 +196,10 @@ static OSStatus decodeVP9DecoderFrameFromContiguousBlock(WebKitVP9Decoder& decod
     RTC_DCHECK(!decoder.m_receiver->currentFrame());
     decoder.m_receiver->setCurrentFrame(frame);
 
-    EncodedImage image { reinterpret_cast<uint8_t*>(data), size, size };
+    EncodedImage image;
+    image.SetEncodedData(WebKitEncodedImageBufferWrapper::create(reinterpret_cast<uint8_t*>(data), size));
     // We set those values as VP9DecoderImpl checks for getting a full key frame as first frame.
     image._frameType = VideoFrameType::kVideoFrameKey;
-    image._completeFrame = true;
     auto error = decoder.m_instance->Decode(image, false, 0);
     if (error)
         return decoder.m_receiver->decoderFailed(error);

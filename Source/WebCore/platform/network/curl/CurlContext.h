@@ -30,6 +30,7 @@
 #include "CurlSSLHandle.h"
 
 #include <wtf/Lock.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Seconds.h>
@@ -173,6 +174,8 @@ public:
     CURLMcode removeHandle(CURL*);
 
     CURLMcode getFdSet(fd_set&, fd_set&, fd_set&, int&);
+    CURLMcode poll(const Vector<curl_waitfd>&, int);
+    CURLMcode wakeUp();
     CURLMcode perform(int&);
     CURLMsg* readInfo(int&);
 
@@ -253,7 +256,7 @@ public:
     void enableHttpGetRequest();
     void enableHttpHeadRequest();
     void enableHttpPostRequest();
-    void setPostFields(const char*, long);
+    void setPostFields(const uint8_t*, long);
     void setPostFieldLarge(curl_off_t);
     void enableHttpPutRequest();
     void setInFileSizeLarge(curl_off_t);
@@ -289,18 +292,18 @@ public:
     void setDebugCallbackFunction(curl_debug_callback, void*);
 
     // Status
-    Optional<String> getProxyUrl();
-    Optional<long> getResponseCode();
-    Optional<long> getHttpConnectCode();
-    Optional<long long> getContentLength();
-    Optional<long> getHttpAuthAvail();
-    Optional<long> getProxyAuthAvail();
-    Optional<long> getHttpVersion();
-    Optional<NetworkLoadMetrics> getNetworkLoadMetrics(const WTF::Seconds& domainLookupStart);
+    std::optional<String> getProxyUrl();
+    std::optional<long> getResponseCode();
+    std::optional<long> getHttpConnectCode();
+    std::optional<long long> getContentLength();
+    std::optional<long> getHttpAuthAvail();
+    std::optional<long> getProxyAuthAvail();
+    std::optional<long> getHttpVersion();
+    std::optional<NetworkLoadMetrics> getNetworkLoadMetrics(MonotonicTime startTime);
     void addExtraNetworkLoadMetrics(NetworkLoadMetrics&);
 
     int sslErrors() const;
-    Optional<CertificateInfo> certificateInfo() const;
+    std::optional<CertificateInfo> certificateInfo() const;
 
     static long long maxCurlOffT();
 

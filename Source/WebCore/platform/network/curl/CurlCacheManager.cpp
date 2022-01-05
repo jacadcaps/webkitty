@@ -35,6 +35,7 @@
 #include "ResourceHandleClient.h"
 #include "ResourceHandleInternal.h"
 #include "ResourceRequest.h"
+#include "SecurityOrigin.h"
 #include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -109,8 +110,8 @@ void CurlCacheManager::loadIndex()
         return;
     }
 
-    long long filesize = -1;
-    if (!FileSystem::getFileSize(indexFilePath, filesize)) {
+    auto filesize = FileSystem::fileSize(indexFilePath);
+    if (!filesize) {
         LOG(Network, "Cache Error: Could not get file size of %s\n", indexFilePath.latin1().data());
         FileSystem::closeFile(indexFile);
         return;
@@ -118,12 +119,12 @@ void CurlCacheManager::loadIndex()
 
     // Load the file content into buffer
     Vector<char> buffer;
-    buffer.resize(filesize);
+    buffer.resize(*filesize);
     int bufferPosition = 0;
     int bufferReadSize = IO_BUFFERSIZE;
-    while (filesize > bufferPosition) {
-        if (filesize - bufferPosition < bufferReadSize)
-            bufferReadSize = filesize - bufferPosition;
+    while (*filesize > bufferPosition) {
+        if (*filesize - bufferPosition < bufferReadSize)
+            bufferReadSize = *filesize - bufferPosition;
 
         FileSystem::readFromFile(indexFile, buffer.data() + bufferPosition, bufferReadSize);
         bufferPosition += bufferReadSize;
@@ -266,7 +267,7 @@ bool CurlCacheManager::getCachedResponse(const String& url, ResourceResponse& re
     return false;
 }
 
-void CurlCacheManager::didReceiveData(ResourceHandle& job, const char* data, size_t size)
+void CurlCacheManager::didReceiveData(ResourceHandle& job, const uint8_t* data, size_t size)
 {
     if (m_disabled)
         return;

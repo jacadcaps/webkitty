@@ -25,12 +25,19 @@
 #include <glib.h>
 #include <seccomp.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <wtf/FileSystem.h>
 #include <wtf/UniStdExtras.h>
 #include <wtf/glib/GLibUtilities.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
+
+#if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
+#include <linux/memfd.h>
+#endif
+
+#include "Syscalls.h"
 
 #if PLATFORM(GTK)
 #include "WaylandCompositor.h"
@@ -42,13 +49,7 @@
 #define BASE_DIRECTORY "wpe"
 #endif
 
-#include <sys/mman.h>
-
-#ifndef MFD_ALLOW_SEALING
-
-#if HAVE(LINUX_MEMFD_H)
-
-#include <linux/memfd.h>
+#if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
 
 // These defines were added in glibc 2.27, the same release that added memfd_create.
 // But the kernel added all of this in Linux 3.17. So it's totally safe for us to
@@ -67,9 +68,7 @@ static int memfd_create(const char* name, unsigned flags)
 {
     return syscall(__NR_memfd_create, name, flags);
 }
-#endif // #if HAVE(LINUX_MEMFD_H)
-
-#endif // #ifndef MFD_ALLOW_SEALING
+#endif // #if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
 
 namespace WebKit {
 using namespace WebCore;
@@ -130,6 +129,22 @@ argsToFd(const Vector<CString>& args, const char *name)
     return memfd;
 }
 
+static const char* applicationId(GError** error)
+{
+    GApplication* app = g_application_get_default();
+    if (!app) {
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "GApplication is required.");
+        return nullptr;
+    }
+
+    const char* appID = g_application_get_application_id(app);
+    if (!appID) {
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "GApplication must have a valid ID.");
+        return nullptr;
+    }
+    return appID;
+}
+
 static int createFlatpakInfo()
 {
     static NeverDestroyed<GUniquePtr<char>> data;
@@ -138,14 +153,13 @@ static int createFlatpakInfo()
     if (!data.get()) {
         // xdg-desktop-portal relates your name to certain permissions so we want
         // them to be application unique which is best done via GApplication.
-        GApplication* app = g_application_get_default();
-        if (!app) {
-            g_warning("GApplication is required for xdg-desktop-portal access in the WebKit sandbox. Actions that require xdg-desktop-portal will be broken.");
-            return -1;
-        }
+        GUniqueOutPtr<GError> error;
+        const char* appID = applicationId(&error.outPtr());
+        if (!appID)
+            g_error("Unable to configure xdg-desktop-portal access in the WebKit sandbox: %s", error->message);
 
         GUniquePtr<GKeyFile> keyFile(g_key_file_new());
-        g_key_file_set_string(keyFile.get(), "Application", "name", g_application_get_application_id(app));
+        g_key_file_set_string(keyFile.get(), "Application", "name", appID);
         data->reset(g_key_file_to_data(keyFile.get(), &size, nullptr));
     }
 
@@ -182,7 +196,7 @@ public:
         m_permissions = WTFMove(permissions);
     };
 
-    void launch()
+    void launch(bool enableLogging)
     {
         RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!isRunning());
 
@@ -202,7 +216,7 @@ public:
             syncFdStr.get(),
         };
 
-        if (!g_strcmp0(g_getenv("WEBKIT_ENABLE_DBUS_PROXY_LOGGING"), "1"))
+        if (enableLogging)
             proxyArgs.append("--log");
 
         proxyArgs.appendVector(m_permissions);
@@ -504,7 +518,7 @@ static void bindA11y(Vector<CString>& args)
             "--call=org.a11y.atspi.Registry=org.a11y.atspi.DeviceEventController.NotifyListenersAsync@/org/a11y/atspi/registry/deviceeventcontroller",
         });
 
-        proxy.launch();
+        proxy.launch(!g_strcmp0(g_getenv("WEBKIT_ENABLE_A11Y_DBUS_PROXY_LOGGING"), "1"));
     }
 
     if (proxy.proxyPath().data()) {
@@ -582,6 +596,8 @@ static void bindV4l(Vector<CString>& args)
         // Not pretty but a stop-gap for pipewire anyway.
         "--dev-bind-try", "/dev/video0", "/dev/video0",
         "--dev-bind-try", "/dev/video1", "/dev/video1",
+        "--dev-bind-try", "/dev/video2", "/dev/video2",
+        "--dev-bind-try", "/dev/media0", "/dev/media0",
     }));
 }
 
@@ -594,6 +610,28 @@ static void bindSymlinksRealPath(Vector<CString>& args, const char* path)
             "--ro-bind", realPath, realPath,
         }));
     }
+}
+
+// Translate a libseccomp error code into an error message. libseccomp
+// mostly returns negative errno values such as -ENOMEM, but some
+// standard errno values are used for non-standard purposes where their
+// strerror() would be misleading.
+static const char* seccompStrerror(int negativeErrno)
+{
+    RELEASE_ASSERT_WITH_MESSAGE(negativeErrno < 0, "Non-negative error value from libseccomp?");
+    RELEASE_ASSERT_WITH_MESSAGE(negativeErrno > INT_MIN, "Out of range error value from libseccomp?");
+
+    switch (negativeErrno) {
+    case -EDOM:
+        return "Architecture-specific failure";
+    case -EFAULT:
+        return "Internal libseccomp failure (unknown syscall?)";
+    case -ECANCELED:
+        return "System failure beyond the control of libseccomp";
+    }
+
+    // e.g. -ENOMEM: the result of strerror() is good enough
+    return g_strerror(-negativeErrno);
 }
 
 static int setupSeccomp()
@@ -623,6 +661,10 @@ static int setupSeccomp()
     //    in common/flatpak-run.c
     //  https://git.gnome.org/browse/linux-user-chroot
     //    in src/setup-seccomp.c
+    //
+    // Other useful resources:
+    // https://github.com/systemd/systemd/blob/HEAD/src/shared/seccomp-util.c
+    // https://github.com/moby/moby/blob/HEAD/profiles/seccomp/default.json
 
 #if defined(__s390__) || defined(__s390x__) || defined(__CRIS__)
     // Architectures with CONFIG_CLONE_BACKWARDS2: the child stack
@@ -636,47 +678,70 @@ static int setupSeccomp()
     struct scmp_arg_cmp ttyArg = SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu, TIOCSTI);
     struct {
         int scall;
+        int errnum;
         struct scmp_arg_cmp* arg;
     } syscallBlockList[] = {
         // Block dmesg
-        { SCMP_SYS(syslog), nullptr },
+        { SCMP_SYS(syslog), EPERM, nullptr },
         // Useless old syscall.
-        { SCMP_SYS(uselib), nullptr },
+        { SCMP_SYS(uselib), EPERM, nullptr },
         // Don't allow disabling accounting.
-        { SCMP_SYS(acct), nullptr },
+        { SCMP_SYS(acct), EPERM, nullptr },
         // 16-bit code is unnecessary in the sandbox, and modify_ldt is a
         // historic source of interesting information leaks.
-        { SCMP_SYS(modify_ldt), nullptr },
+        { SCMP_SYS(modify_ldt), EPERM, nullptr },
         // Don't allow reading current quota use.
-        { SCMP_SYS(quotactl), nullptr },
+        { SCMP_SYS(quotactl), EPERM, nullptr },
 
         // Don't allow access to the kernel keyring.
-        { SCMP_SYS(add_key), nullptr },
-        { SCMP_SYS(keyctl), nullptr },
-        { SCMP_SYS(request_key), nullptr },
+        { SCMP_SYS(add_key), EPERM, nullptr },
+        { SCMP_SYS(keyctl), EPERM, nullptr },
+        { SCMP_SYS(request_key), EPERM, nullptr },
 
         // Scary VM/NUMA ops 
-        { SCMP_SYS(move_pages), nullptr },
-        { SCMP_SYS(mbind), nullptr },
-        { SCMP_SYS(get_mempolicy), nullptr },
-        { SCMP_SYS(set_mempolicy), nullptr },
-        { SCMP_SYS(migrate_pages), nullptr },
+        { SCMP_SYS(move_pages), EPERM, nullptr },
+        { SCMP_SYS(mbind), EPERM, nullptr },
+        { SCMP_SYS(get_mempolicy), EPERM, nullptr },
+        { SCMP_SYS(set_mempolicy), EPERM, nullptr },
+        { SCMP_SYS(migrate_pages), EPERM, nullptr },
 
         // Don't allow subnamespace setups:
-        { SCMP_SYS(unshare), nullptr },
-        { SCMP_SYS(mount), nullptr },
-        { SCMP_SYS(pivot_root), nullptr },
-        { SCMP_SYS(clone), &cloneArg },
+        { SCMP_SYS(unshare), EPERM, nullptr },
+        { SCMP_SYS(setns), EPERM, nullptr },
+        { SCMP_SYS(mount), EPERM, nullptr },
+        { SCMP_SYS(umount), EPERM, nullptr },
+        { SCMP_SYS(umount2), EPERM, nullptr },
+        { SCMP_SYS(pivot_root), EPERM, nullptr },
+        { SCMP_SYS(chroot), EPERM, nullptr },
+        { SCMP_SYS(clone), EPERM, &cloneArg },
 
         // Don't allow faking input to the controlling tty (CVE-2017-5226)
-        { SCMP_SYS(ioctl), &ttyArg },
+        { SCMP_SYS(ioctl), EPERM, &ttyArg },
+
+        // seccomp can't look into clone3()'s struct clone_args to check whether
+        // the flags are OK, so we have no choice but to block clone3().
+        // Return ENOSYS so user-space will fall back to clone().
+        // (GHSA-67h7-w3jq-vh4q; see also https://github.com/moby/moby/commit/9f6b562d)
+        { SCMP_SYS(clone3), ENOSYS, nullptr },
+
+        // New mount manipulation APIs can also change our VFS. There's no
+        // legitimate reason to do these in the sandbox, so block all of them
+        // rather than thinking about which ones might be dangerous.
+        // (GHSA-67h7-w3jq-vh4q)
+        { SCMP_SYS(open_tree), ENOSYS, nullptr },
+        { SCMP_SYS(move_mount), ENOSYS, nullptr },
+        { SCMP_SYS(fsopen), ENOSYS, nullptr },
+        { SCMP_SYS(fsconfig), ENOSYS, nullptr },
+        { SCMP_SYS(fsmount), ENOSYS, nullptr },
+        { SCMP_SYS(fspick), ENOSYS, nullptr },
+        { SCMP_SYS(mount_setattr), ENOSYS, nullptr },
 
         // Profiling operations; we expect these to be done by tools from outside
         // the sandbox. In particular perf has been the source of many CVEs.
-        { SCMP_SYS(perf_event_open), nullptr },
+        { SCMP_SYS(perf_event_open), EPERM, nullptr },
         // Don't allow you to switch to bsd emulation or whatnot.
-        { SCMP_SYS(personality), nullptr },
-        { SCMP_SYS(ptrace), nullptr }
+        { SCMP_SYS(personality), EPERM, nullptr },
+        { SCMP_SYS(ptrace), EPERM, nullptr }
     };
 
     scmp_filter_ctx seccomp = seccomp_init(SCMP_ACT_ALLOW);
@@ -684,29 +749,28 @@ static int setupSeccomp()
         g_error("Failed to init seccomp");
 
     for (auto& rule : syscallBlockList) {
-        int scall = rule.scall;
         int r;
         if (rule.arg)
-            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), scall, 1, *rule.arg);
+            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(rule.errnum), rule.scall, 1, *rule.arg);
         else
-            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), scall, 0);
-        if (r == -EFAULT) {
-            seccomp_release(seccomp);
-            g_error("Failed to add seccomp rule");
-        }
+            r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(rule.errnum), rule.scall, 0);
+        // EFAULT means "internal libseccomp error", but in practice we get
+        // this for syscall numbers added via Syscalls.h (flatpak-syscalls-private.h)
+        // when trying to filter them on a non-native architecture, because
+        // libseccomp cannot map the syscall number to a name and back to a
+        // number for the non-native architecture.
+        if (r == -EFAULT)
+            g_info("Unable to block syscall %d: syscall not known to libseccomp?", rule.scall);
+        else if (r < 0)
+            g_error("Failed to block syscall %d: %s", rule.scall, seccompStrerror(r));
     }
 
     int tmpfd = memfd_create("seccomp-bpf", 0);
-    if (tmpfd == -1) {
-        seccomp_release(seccomp);
+    if (tmpfd == -1)
         g_error("Failed to create memfd: %s", g_strerror(errno));
-    }
 
-    if (seccomp_export_bpf(seccomp, tmpfd)) {
-        seccomp_release(seccomp);
-        close(tmpfd);
-        g_error("Failed to export seccomp bpf");
-    }
+    if (int r = seccomp_export_bpf(seccomp, tmpfd))
+        g_error("Failed to export seccomp bpf: %s", seccompStrerror(r));
 
     if (lseek(tmpfd, 0, SEEK_SET) < 0)
         g_error("lseek failed: %s", g_strerror(errno));
@@ -796,7 +860,7 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
 
     if (launchOptions.processType == ProcessLauncher::ProcessType::DBusProxy) {
         sandboxArgs.appendVector(Vector<CString>({
-            "--ro-bind", "/usr/bin", "/usr/bin",
+            "--ro-bind", DBUS_PROXY_EXECUTABLE, DBUS_PROXY_EXECUTABLE,
             // This is a lot of access, but xdg-dbus-proxy is trusted so that's OK. It's sandboxed
             // only because we have to mount .flatpak-info in its mount namespace. The user rundir
             // is where we mount our proxy socket.
@@ -888,7 +952,7 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
                 permissions.append("--talk=org.freedesktop.portal.Desktop");
             }
             proxy.setPermissions(WTFMove(permissions));
-            proxy.launch();
+            proxy.launch(!g_strcmp0(g_getenv("WEBKIT_ENABLE_DBUS_PROXY_LOGGING"), "1"));
         }
     } else {
         // Only X11 users need this for XShm which is only the Web process.
@@ -898,14 +962,14 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
 #if ENABLE(DEVELOPER_MODE)
     const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
     if (execDirectory) {
-        String parentDir = FileSystem::directoryName(FileSystem::stringFromFileSystemRepresentation(execDirectory));
+        String parentDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(execDirectory));
         bindIfExists(sandboxArgs, parentDir.utf8().data());
     }
 
     CString executablePath = getCurrentExecutablePath();
     if (!executablePath.isNull()) {
         // Our executable is `/foo/bar/bin/Process`, we want `/foo/bar` as a usable prefix
-        String parentDir = FileSystem::directoryName(FileSystem::directoryName(FileSystem::stringFromFileSystemRepresentation(executablePath.data())));
+        String parentDir = FileSystem::parentPath(FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(executablePath.data())));
         bindIfExists(sandboxArgs, parentDir.utf8().data());
     }
 #endif

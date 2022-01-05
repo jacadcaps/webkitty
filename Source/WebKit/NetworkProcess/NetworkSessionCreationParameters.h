@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 
 #if USE(SOUP)
 #include "SoupCookiePersistentStorageType.h"
+#include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <WebCore/SoupNetworkProxySettings.h>
 #endif
 
@@ -51,7 +52,7 @@ enum class AllowsCellularAccess : bool { No, Yes };
 
 struct NetworkSessionCreationParameters {
     void encode(IPC::Encoder&) const;
-    static Optional<NetworkSessionCreationParameters> decode(IPC::Decoder&);
+    static std::optional<NetworkSessionCreationParameters> decode(IPC::Decoder&);
     
     PAL::SessionID sessionID { PAL::SessionID::defaultSessionID() };
     String boundInterfaceIdentifier;
@@ -77,6 +78,7 @@ struct NetworkSessionCreationParameters {
     bool persistentCredentialStorageEnabled { true };
     bool ignoreTLSErrors { false };
     WebCore::SoupNetworkProxySettings proxySettings;
+    WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy { WebCore::HTTPCookieAcceptPolicy::ExclusivelyFromMainDocumentDomain };
 #endif
 #if USE(CURL)
     String cookiePersistentStorageFile;
@@ -99,6 +101,7 @@ struct NetworkSessionCreationParameters {
     bool preventsSystemHTTPProxyAuthentication { false };
     bool appHasRequestedCrossWebsiteTrackingPermission { false };
     bool useNetworkLoader { false };
+    bool allowsHSTSWithUntrustedRootCertificate { false };
 
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;
 };

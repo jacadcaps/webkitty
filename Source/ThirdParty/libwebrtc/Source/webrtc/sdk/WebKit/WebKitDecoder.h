@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,22 @@
 
 #pragma once
 
+#include <Availability.h>
+#include <TargetConditionals.h>
 #include "WebKitUtilities.h"
+#include "api/video/encoded_image.h"
 #include "api/video_codecs/video_decoder_factory.h"
+#include "rtc_base/ref_counted_object.h"
 
 typedef struct __CVBuffer* CVPixelBufferRef;
 
 namespace webrtc {
+
+#if (TARGET_OS_OSX || TARGET_OS_MACCATALYST) && TARGET_CPU_X86_64
+    #define CMBASE_OBJECT_NEEDS_ALIGNMENT 1
+#else
+    #define CMBASE_OBJECT_NEEDS_ALIGNMENT 0
+#endif
 
 struct SdpVideoFormat;
 class VideoDecoderFactory;
@@ -46,7 +56,6 @@ void setVideoDecoderCallbacks(VideoDecoderCreateCallback, VideoDecoderReleaseCal
 std::unique_ptr<webrtc::VideoDecoderFactory> createWebKitDecoderFactory(WebKitH265, WebKitVP9, WebKitVP9VTB);
 void videoDecoderTaskComplete(void* callback, uint32_t timeStamp, CVPixelBufferRef, uint32_t timeStampRTP);
 
-
 using LocalDecoder = void*;
 using LocalDecoderCallback = void (^)(CVPixelBufferRef, uint32_t timeStamp, uint32_t timeStampNs);
 void* createLocalH264Decoder(LocalDecoderCallback);
@@ -55,5 +64,24 @@ void* createLocalVP9Decoder(LocalDecoderCallback);
 void releaseLocalDecoder(LocalDecoder);
 int32_t decodeFrame(LocalDecoder, uint32_t timeStamp, const uint8_t*, size_t);
 void setDecoderFrameSize(LocalDecoder, uint16_t width, uint16_t height);
+
+class WebKitEncodedImageBufferWrapper : public EncodedImageBufferInterface {
+public:
+    static rtc::scoped_refptr<WebKitEncodedImageBufferWrapper> create(uint8_t* data, size_t size) { return rtc::make_ref_counted<WebKitEncodedImageBufferWrapper>(data, size); }
+
+    WebKitEncodedImageBufferWrapper(uint8_t* data, size_t size)
+        : m_data(data)
+        , m_size(size)
+    {
+    }
+
+    const uint8_t* data() const final { return m_data; }
+    uint8_t* data() final { return m_data; }
+    size_t size() const final { return m_size; }
+
+ private:
+    uint8_t* m_data { nullptr };
+    size_t m_size { 0 };
+};
 
 }

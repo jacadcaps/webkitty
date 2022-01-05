@@ -43,8 +43,7 @@ class GPUConnectionToWebProcess;
 class RemoteAudioSessionProxyManager;
 
 class RemoteAudioSessionProxy
-    : public IPC::MessageReceiver
-    , public CanMakeWeakPtr<RemoteAudioSessionProxy> {
+    : public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     static UniqueRef<RemoteAudioSessionProxy> create(GPUConnectionToWebProcess&);
@@ -58,12 +57,13 @@ public:
     size_t preferredBufferSize() const { return m_preferredBufferSize; }
     bool isActive() const { return m_active; }
 
+    void configurationChanged();
     void beginInterruption();
     void endInterruption(WebCore::AudioSession::MayResume);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
 private:
     friend UniqueRef<RemoteAudioSessionProxy> WTF::makeUniqueRefWithoutFastMallocCheck<RemoteAudioSessionProxy>(GPUConnectionToWebProcess&);
@@ -74,15 +74,17 @@ private:
     void setPreferredBufferSize(uint64_t);
     using SetActiveCompletion = CompletionHandler<void(bool)>;
     void tryToSetActive(bool, SetActiveCompletion&&);
+    void setIsPlayingToBluetoothOverride(std::optional<bool>&& value);
 
     RemoteAudioSessionProxyManager& audioSessionManager();
     IPC::Connection& connection();
 
     GPUConnectionToWebProcess& m_gpuConnection;
-    WebCore::AudioSession::CategoryType m_category;
-    WebCore::RouteSharingPolicy m_routeSharingPolicy;
+    WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::CategoryType::None };
+    WebCore::RouteSharingPolicy m_routeSharingPolicy { WebCore::RouteSharingPolicy::Default };
     size_t m_preferredBufferSize { 0 };
     bool m_active { false };
+    bool m_isPlayingToBluetoothOverrideChanged { false };
 };
 
 }

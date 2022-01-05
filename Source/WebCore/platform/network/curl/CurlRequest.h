@@ -76,7 +76,6 @@ public:
     WEBCORE_EXPORT void setUserPass(const String&, const String&);
     bool isServerTrustEvaluationDisabled() { return m_shouldDisableServerTrustEvaluation; }
     void disableServerTrustEvaluation() { m_shouldDisableServerTrustEvaluation = true; }
-    void setStartTime(const MonotonicTime& startTime) { m_requestStartTime = startTime.isolatedCopy(); }
 
     void start();
     void cancel();
@@ -135,8 +134,8 @@ private:
 
     // For setup 
     void appendAcceptLanguageHeader(HTTPHeaderMap&);
-    void setupPOST(ResourceRequest&);
-    void setupPUT(ResourceRequest&);
+    void setupPOST();
+    void setupPUT();
     void setupSendData(bool forPutMethod);
 
     // Processing for DidReceiveResponse
@@ -176,9 +175,11 @@ private:
     String m_password;
     unsigned long m_authType { CURLAUTH_ANY };
     bool m_shouldDisableServerTrustEvaluation { false };
-    bool m_shouldSuspend { false };
     bool m_enableMultipart { false };
 
+    enum class StartState : uint8_t { StartSuspended, WaitingForStart, DidStart };
+    StartState m_startState;
+    
     std::unique_ptr<CurlHandle> m_curlHandle;
     CurlFormDataStream m_formDataStream;
     std::unique_ptr<CurlMultipartHandle> m_multipartHandle;
@@ -210,7 +211,6 @@ private:
 
     bool m_captureExtraMetrics;
     HTTPHeaderMap m_requestHeaders;
-    MonotonicTime m_requestStartTime { MonotonicTime::nan() };
     MonotonicTime m_performStartTime;
     size_t m_totalReceivedSize { 0 };
 };

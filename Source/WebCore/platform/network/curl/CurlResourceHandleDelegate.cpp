@@ -36,6 +36,7 @@
 #include "ResourceHandle.h"
 #include "ResourceHandleClient.h"
 #include "ResourceHandleInternal.h"
+#include "SecurityOrigin.h"
 
 #include <wtf/CompletionHandler.h>
 
@@ -152,7 +153,7 @@ void CurlResourceHandleDelegate::curlDidReceiveBuffer(CurlRequest&, Ref<SharedBu
     client()->didReceiveBuffer(&m_handle, WTFMove(buffer), buffer->size());
 }
 
-void CurlResourceHandleDelegate::curlDidComplete(CurlRequest&, NetworkLoadMetrics&&)
+void CurlResourceHandleDelegate::curlDidComplete(CurlRequest&, NetworkLoadMetrics&& metrics)
 {
     ASSERT(isMainThread());
 
@@ -160,7 +161,7 @@ void CurlResourceHandleDelegate::curlDidComplete(CurlRequest&, NetworkLoadMetric
         return;
 
     CurlCacheManager::singleton().didFinishLoading(m_handle);
-    client()->didFinishLoading(&m_handle);
+    client()->didFinishLoading(&m_handle, WTFMove(metrics));
 }
 
 void CurlResourceHandleDelegate::curlDidFailWithError(CurlRequest&, ResourceError&& resourceError, CertificateInfo&&)

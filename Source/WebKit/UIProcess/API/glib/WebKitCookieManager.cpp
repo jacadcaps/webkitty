@@ -56,6 +56,20 @@ enum {
     LAST_SIGNAL
 };
 
+class WebCookieManagerProxyObserver : public WebCookieManagerProxy::Observer {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    WebCookieManagerProxyObserver(Function<void()>&& callback)
+        : m_callback(WTFMove(callback)) { }
+private:
+    void cookiesDidChange() final
+    {
+        m_callback();
+    }
+
+    Function<void()> m_callback;
+};
+
 struct _WebKitCookieManagerPrivate {
     WebCookieManagerProxy& cookieManager() const
     {
@@ -71,10 +85,12 @@ struct _WebKitCookieManagerPrivate {
 
     ~_WebKitCookieManagerPrivate()
     {
-        cookieManager().setCookieObserverCallback(sessionID(), nullptr);
+        cookieManager().unregisterObserver(sessionID(), *m_observer);
     }
 
     WebKitWebsiteDataManager* dataManager;
+
+    std::unique_ptr<WebCookieManagerProxyObserver> m_observer;
 };
 
 static guint signals[LAST_SIGNAL] = { 0, };
@@ -145,9 +161,10 @@ WebKitCookieManager* webkitCookieManagerCreate(WebKitWebsiteDataManager* dataMan
 {
     WebKitCookieManager* manager = WEBKIT_COOKIE_MANAGER(g_object_new(WEBKIT_TYPE_COOKIE_MANAGER, nullptr));
     manager->priv->dataManager = dataManager;
-    manager->priv->cookieManager().setCookieObserverCallback(manager->priv->sessionID(), [manager] {
+    manager->priv->m_observer = makeUnique<WebCookieManagerProxyObserver>([manager] {
         g_signal_emit(manager, signals[CHANGED], 0);
     });
+    manager->priv->cookieManager().registerObserver(manager->priv->sessionID(), *manager->priv->m_observer);
     return manager;
 }
 
@@ -177,7 +194,8 @@ void webkit_cookie_manager_set_persistent_storage(WebKitCookieManager* manager, 
     if (sessionID.isEphemeral())
         return;
 
-    manager->priv->cookieManager().setCookiePersistentStorage(sessionID, String::fromUTF8(filename), toSoupCookiePersistentStorageType(storage));
+    auto& websiteDataStore = webkitWebsiteDataManagerGetDataStore(manager->priv->dataManager);
+    websiteDataStore.setCookiePersistentStorage(String::fromUTF8(filename), toSoupCookiePersistentStorageType(storage));
 }
 
 /**
@@ -195,7 +213,8 @@ void webkit_cookie_manager_set_accept_policy(WebKitCookieManager* manager, WebKi
 {
     g_return_if_fail(WEBKIT_IS_COOKIE_MANAGER(manager));
 
-    manager->priv->cookieManager().setHTTPCookieAcceptPolicy(manager->priv->sessionID(), toHTTPCookieAcceptPolicy(policy), []() { });
+    auto& websiteDataStore = webkitWebsiteDataManagerGetDataStore(manager->priv->dataManager);
+    websiteDataStore.setHTTPCookieAcceptPolicy(toHTTPCookieAcceptPolicy(policy));
 }
 
 /**

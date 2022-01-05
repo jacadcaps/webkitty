@@ -20,6 +20,7 @@
 #include "config.h"
 #include "WebKitProtocolHandler.h"
 
+#include "BuildRevision.h"
 #include "WebKitError.h"
 #include "WebKitVersion.h"
 #include "WebKitWebView.h"
@@ -28,7 +29,6 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/PlatformDisplay.h>
 #include <WebCore/PlatformScreen.h>
-#include <cairo.h>
 #include <gio/gio.h>
 #include <wtf/URL.h>
 #include <wtf/glib/GRefPtr.h>
@@ -36,6 +36,10 @@
 
 #if OS(UNIX)
 #include <sys/utsname.h>
+#endif
+
+#if USE(CAIRO)
+#include <cairo.h>
 #endif
 
 #if PLATFORM(GTK)
@@ -199,7 +203,7 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
         "  <td><div class=\"titlename\">WebKit version</div></td>"
         "  <td>%s %d.%d.%d (%s)</td>"
         " </tbody></tr>",
-        webkitPortName(), WEBKIT_MAJOR_VERSION, WEBKIT_MINOR_VERSION, WEBKIT_MICRO_VERSION, SVN_REVISION);
+        webkitPortName(), WEBKIT_MAJOR_VERSION, WEBKIT_MINOR_VERSION, WEBKIT_MICRO_VERSION, BUILD_REVISION);
 
 #if OS(UNIX)
     struct utsname osName;
@@ -220,12 +224,14 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
         " </tbody></tr>",
         g_getenv("XDG_CURRENT_DESKTOP"));
 
+#if USE(CAIRO)
     g_string_append_printf(html,
         " <tbody><tr>"
         "  <td><div class=\"titlename\">Cairo version</div></td>"
         "  <td>%s (build) %s (runtime)</td>"
         " </tbody></tr>",
         CAIRO_VERSION_STRING, cairo_version_string());
+#endif
 
 #if USE(GSTREAMER)
     GUniquePtr<char> gstVersion(gst_version_string());

@@ -47,6 +47,8 @@ NetworkSessionSoup::NetworkSessionSoup(NetworkProcess& networkProcess, NetworkSe
     auto* storageSession = networkStorageSession();
     ASSERT(storageSession);
 
+    storageSession->setCookieAcceptPolicy(parameters.cookieAcceptPolicy);
+
     setIgnoreTLSErrors(parameters.ignoreTLSErrors);
 
     if (parameters.proxySettings.mode != SoupNetworkProxySettings::Mode::Default)
@@ -57,18 +59,12 @@ NetworkSessionSoup::NetworkSessionSoup(NetworkProcess& networkProcess, NetworkSe
     else
         m_networkSession->setCookieJar(storageSession->cookieStorage());
 
-    storageSession->setCookieObserverHandler([this] {
-        this->networkProcess().supplement<WebCookieManager>()->notifyCookiesDidChange(m_sessionID);
-    });
-
     if (!parameters.hstsStorageDirectory.isEmpty())
         m_networkSession->setHSTSPersistentStorage(parameters.hstsStorageDirectory);
 }
 
 NetworkSessionSoup::~NetworkSessionSoup()
 {
-    if (auto* storageSession = networkProcess().storageSession(m_sessionID))
-        storageSession->setCookieObserverHandler(nullptr);
 }
 
 SoupSession* NetworkSessionSoup::soupSession() const
@@ -123,7 +119,7 @@ static void webSocketMessageNetworkEventCallback(SoupMessage* soupMessage, GSock
 }
 #endif
 
-std::unique_ptr<WebSocketTask> NetworkSessionSoup::createWebSocketTask(NetworkSocketChannel& channel, const ResourceRequest& request, const String& protocol)
+std::unique_ptr<WebSocketTask> NetworkSessionSoup::createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel& channel, const ResourceRequest& request, const String& protocol)
 {
     GRefPtr<SoupMessage> soupMessage = request.createSoupMessage(blobRegistry());
     if (!soupMessage)

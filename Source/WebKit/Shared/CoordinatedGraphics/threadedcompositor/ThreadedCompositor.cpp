@@ -60,7 +60,7 @@ ThreadedCompositor::ThreadedCompositor(Client& client, ThreadedDisplayRefreshMon
 {
     {
         // Locking isn't really necessary here, but it's done for consistency.
-        LockHolder locker(m_attributes.lock);
+        Locker locker { m_attributes.lock };
         m_attributes.viewportSize = viewportSize;
         m_attributes.scaleFactor = scaleFactor;
         m_attributes.needsResize = !viewportSize.isEmpty();
@@ -70,9 +70,12 @@ ThreadedCompositor::ThreadedCompositor(Client& client, ThreadedDisplayRefreshMon
         m_scene = adoptRef(new CoordinatedGraphicsScene(this));
         m_nativeSurfaceHandle = m_client.nativeSurfaceHandleForCompositing();
 
-        m_scene->setActive(!!m_nativeSurfaceHandle);
-        if (m_nativeSurfaceHandle)
-            createGLContext();
+        createGLContext();
+        if (m_context) {
+            if (!m_nativeSurfaceHandle)
+                m_paintFlags |= TextureMapper::PaintingMirrored;
+            m_scene->setActive(true);
+        }
     });
 }
 
@@ -83,8 +86,6 @@ ThreadedCompositor::~ThreadedCompositor()
 void ThreadedCompositor::createGLContext()
 {
     ASSERT(!RunLoop::isMain());
-
-    ASSERT(m_nativeSurfaceHandle);
 
     // GLNativeWindowType depends on the EGL implementation: reinterpret_cast works
     // for pointers (only if they are 64-bit wide and not for other cases), and static_cast for
@@ -138,14 +139,14 @@ void ThreadedCompositor::resume()
 
 void ThreadedCompositor::setScaleFactor(float scale)
 {
-    LockHolder locker(m_attributes.lock);
+    Locker locker { m_attributes.lock };
     m_attributes.scaleFactor = scale;
     m_compositingRunLoop->scheduleUpdate();
 }
 
 void ThreadedCompositor::setScrollPosition(const IntPoint& scrollPosition, float scale)
 {
-    LockHolder locker(m_attributes.lock);
+    Locker locker { m_attributes.lock };
     m_attributes.scrollPosition = scrollPosition;
     m_attributes.scaleFactor = scale;
     m_compositingRunLoop->scheduleUpdate();
@@ -153,7 +154,7 @@ void ThreadedCompositor::setScrollPosition(const IntPoint& scrollPosition, float
 
 void ThreadedCompositor::setViewportSize(const IntSize& viewportSize, float scale)
 {
-    LockHolder locker(m_attributes.lock);
+    Locker locker { m_attributes.lock };
     m_attributes.viewportSize = viewportSize;
     m_attributes.scaleFactor = scale;
     m_attributes.needsResize = true;
@@ -193,7 +194,7 @@ void ThreadedCompositor::renderLayerTree()
     Vector<WebCore::CoordinatedGraphicsState> states;
 
     {
-        LockHolder locker(m_attributes.lock);
+        Locker locker { m_attributes.lock };
         viewportSize = m_attributes.viewportSize;
         scrollPosition = m_attributes.scrollPosition;
         scaleFactor = m_attributes.scaleFactor;
@@ -250,12 +251,12 @@ void ThreadedCompositor::sceneUpdateFinished()
     bool shouldDispatchDisplayRefreshCallback { false };
 
     {
-        LockHolder locker(m_attributes.lock);
+        Locker locker { m_attributes.lock };
         shouldDispatchDisplayRefreshCallback = m_attributes.clientRendersNextFrame
             || m_displayRefreshMonitor->requiresDisplayRefreshCallback();
     }
 
-    LockHolder stateLocker(m_compositingRunLoop->stateLock());
+    Locker stateLocker { m_compositingRunLoop->stateLock() };
 
     // Schedule the DisplayRefreshMonitor callback, if necessary.
     if (shouldDispatchDisplayRefreshCallback)
@@ -270,7 +271,7 @@ void ThreadedCompositor::sceneUpdateFinished()
 
 void ThreadedCompositor::updateSceneState(const CoordinatedGraphicsState& state)
 {
-    LockHolder locker(m_attributes.lock);
+    Locker locker { m_attributes.lock };
     m_attributes.states.append(state);
     m_compositingRunLoop->scheduleUpdate();
 }

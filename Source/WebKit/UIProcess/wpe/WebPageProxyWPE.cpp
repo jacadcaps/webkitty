@@ -45,19 +45,18 @@ struct wpe_view_backend* WebPageProxy::viewBackend()
     return static_cast<PageClientImpl&>(pageClient()).viewBackend();
 }
 
-#if USE(ATK)
 void WebPageProxy::bindAccessibilityTree(const String& plugID)
 {
+#if USE(ATK)
     auto* accessible = static_cast<PageClientImpl&>(pageClient()).accessible();
     atk_socket_embed(ATK_SOCKET(accessible), const_cast<char*>(plugID.utf8().data()));
     atk_object_notify_state_change(accessible, ATK_STATE_TRANSIENT, FALSE);
-}
 #endif
+}
 
-void WebPageProxy::updateEditorState(const EditorState& editorState)
+void WebPageProxy::didUpdateEditorState(const EditorState&, const EditorState& newEditorState)
 {
-    m_editorState = editorState;
-    if (!editorState.shouldIgnoreSelectionChanges)
+    if (!newEditorState.shouldIgnoreSelectionChanges)
         pageClient().selectionDidChange();
 }
 
@@ -71,7 +70,7 @@ void WebPageProxy::sendMessageToWebView(UserMessage&& message)
     sendMessageToWebViewWithReply(WTFMove(message), [](UserMessage&&) { });
 }
 
-void WebPageProxy::setInputMethodState(Optional<InputMethodState>&& state)
+void WebPageProxy::setInputMethodState(std::optional<InputMethodState>&& state)
 {
     static_cast<PageClientImpl&>(pageClient()).setInputMethodState(WTFMove(state));
 }

@@ -42,9 +42,8 @@ class SharedBuffer;
 namespace WebKit {
 
 class RemoteLegacyCDMProxy
-    : private IPC::MessageReceiver
-    , public WebCore::LegacyCDMClient
-    , public CanMakeWeakPtr<RemoteLegacyCDMProxy> {
+    : public IPC::MessageReceiver
+    , public WebCore::LegacyCDMClient {
 public:
     static std::unique_ptr<RemoteLegacyCDMProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>, WebCore::MediaPlayerIdentifier&&, std::unique_ptr<WebCore::LegacyCDM>&&);
     ~RemoteLegacyCDMProxy();
@@ -57,14 +56,14 @@ private:
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // Messages
     using SupportsMIMETypeCallback = CompletionHandler<void(bool)>;
     void supportsMIMEType(const String&, SupportsMIMETypeCallback&&);
     using CreateSessionCallback = CompletionHandler<void(RemoteLegacyCDMSessionIdentifier&&)>;
     void createSession(const String&, CreateSessionCallback&&);
-    void setPlayerId(Optional<WebCore::MediaPlayerIdentifier>&&);
+    void setPlayerId(std::optional<WebCore::MediaPlayerIdentifier>&&);
 
     // LegacyCDMClient
     RefPtr<WebCore::MediaPlayer> cdmMediaPlayer(const WebCore::LegacyCDM*) const final;

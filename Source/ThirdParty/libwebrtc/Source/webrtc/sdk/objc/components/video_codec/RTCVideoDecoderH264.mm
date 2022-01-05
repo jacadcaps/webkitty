@@ -50,14 +50,14 @@ void decompressionOutputCallback(void *decoderRef,
                                  CVImageBufferRef imageBuffer,
                                  CMTime timestamp,
                                  CMTime duration) {
-  std::unique_ptr<RTCFrameDecodeParams> decodeParams(
-      reinterpret_cast<RTCFrameDecodeParams *>(params));
-  if (status != noErr) {
+  if (status != noErr || !imageBuffer) {
     RTCVideoDecoderH264 *decoder = (__bridge RTCVideoDecoderH264 *)decoderRef;
-    [decoder setError:status];
+    [decoder setError:status != noErr ? status : 1];
     RTC_LOG(LS_ERROR) << "Failed to decode frame. Status: " << status;
     return;
   }
+
+  std::unique_ptr<RTCFrameDecodeParams> decodeParams(reinterpret_cast<RTCFrameDecodeParams *>(params));
   // TODO(tkchin): Handle CVO properly.
   RTCCVPixelBuffer *frameBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:imageBuffer];
   RTCVideoFrame *decodedFrame =
@@ -208,10 +208,10 @@ void decompressionOutputCallback(void *decoderRef,
   // we can pass CVPixelBuffers as native handles in decoder output.
   static size_t const attributesSize = 3;
   CFTypeRef keys[attributesSize] = {
-#if defined(WEBRTC_IOS)
-    kCVPixelBufferOpenGLESCompatibilityKey,
-#elif defined(WEBRTC_MAC)
+#if defined(WEBRTC_MAC) || defined(WEBRTC_MAC_CATALYST)
     kCVPixelBufferOpenGLCompatibilityKey,
+#elif defined(WEBRTC_IOS)
+    kCVPixelBufferOpenGLESCompatibilityKey,
 #endif
     kCVPixelBufferIOSurfacePropertiesKey,
     kCVPixelBufferPixelFormatTypeKey

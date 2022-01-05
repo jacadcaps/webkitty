@@ -166,6 +166,7 @@ void InsertParagraphSeparatorCommand::doApply()
     Position canonicalPos = VisiblePosition(insertionPosition).deepEquivalent();
     if (!startBlock
         || !startBlock->nonShadowBoundaryParentNode()
+        || isRenderedTable(startBlock.get())
         || isTableCell(startBlock.get())
         || is<HTMLFormElement>(*startBlock)
         // FIXME: If the node is hidden, we don't have a canonical position so we will do the wrong thing for tables and <hr>. https://bugs.webkit.org/show_bug.cgi?id=40342
@@ -184,6 +185,9 @@ void InsertParagraphSeparatorCommand::doApply()
     insertionPosition = positionAvoidingSpecialElementBoundary(insertionPosition);
     VisiblePosition visiblePos(insertionPosition, affinity);
     if (visiblePos.isNull())
+        return;
+
+    if (!startBlock->contains(visiblePos.deepEquivalent().containerNode()))
         return;
 
     calculateStyleBeforeInsertion(insertionPosition);
@@ -313,7 +317,7 @@ void InsertParagraphSeparatorCommand::doApply()
         insertionPosition = positionInParentAfterNode(br.ptr());
         // If the insertion point is a break element, there is nothing else
         // we need to do.
-        if (visiblePos.deepEquivalent().anchorNode()->renderer()->isBR()) {
+        if (auto* renderer = visiblePos.deepEquivalent().anchorNode()->renderer(); renderer && renderer->isBR()) {
             setEndingSelection(VisibleSelection(insertionPosition, Affinity::Downstream, endingSelection().isDirectional()));
             return;
         }

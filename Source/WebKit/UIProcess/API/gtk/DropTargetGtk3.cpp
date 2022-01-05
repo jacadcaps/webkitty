@@ -95,7 +95,7 @@ DropTarget::~DropTarget()
     g_signal_handlers_disconnect_by_data(m_webView, this);
 }
 
-void DropTarget::accept(GdkDragContext* drop, Optional<WebCore::IntPoint> position, unsigned time)
+void DropTarget::accept(GdkDragContext* drop, std::optional<WebCore::IntPoint> position, unsigned time)
 {
     if (m_leaveTimer.isActive()) {
         m_leaveTimer.stop();
@@ -105,7 +105,7 @@ void DropTarget::accept(GdkDragContext* drop, Optional<WebCore::IntPoint> positi
     m_drop = drop;
     m_position = position;
     m_dataRequestCount = 0;
-    m_selectionData = WTF::nullopt;
+    m_selectionData = std::nullopt;
 
     // WebCore needs the selection data to decide, so we need to preload the
     // data of targets we support. Once all data requests are done we start
@@ -177,7 +177,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::Markup: {
         gint length;
         const auto* markupData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length) {
+        if (length > 0) {
             // If data starts with UTF-16 BOM assume it's UTF-16, otherwise assume UTF-8.
             if (length >= 2 && reinterpret_cast<const UChar*>(markupData)[0] == 0xFEFF)
                 m_selectionData->setMarkup(String(reinterpret_cast<const UChar*>(markupData) + 1, (length / 2) - 1));
@@ -189,14 +189,14 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::URIList: {
         gint length;
         const auto* uriListData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length)
+        if (length > 0)
             m_selectionData->setURIList(String::fromUTF8(uriListData, length));
         break;
     }
     case DropTargetType::NetscapeURL: {
         gint length;
         const auto* urlData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length) {
+        if (length > 0) {
             Vector<String> tokens = String::fromUTF8(urlData, length).split('\n');
             URL url({ }, tokens[0]);
             if (url.isValid())
@@ -210,7 +210,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::Custom: {
         int length;
         const auto* customData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length)
+        if (length > 0)
             m_selectionData->setCustomData(SharedBuffer::create(customData, static_cast<size_t>(length)));
         break;
     }
@@ -246,8 +246,8 @@ void DropTarget::leaveTimerFired()
     page->resetCurrentDragInformation();
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
 }
 
 void DropTarget::leave()
@@ -277,8 +277,8 @@ void DropTarget::drop(IntPoint&& position, unsigned time)
     gtk_drag_finish(m_drop.get(), TRUE, FALSE, time);
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
 }
 
 } // namespace WebKit
