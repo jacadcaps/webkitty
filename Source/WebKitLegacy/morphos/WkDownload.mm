@@ -214,8 +214,7 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 				suggestedFilename.replace('*', '_');
 				suggestedFilename.replace('?', '_');
 				suggestedFilename.replace('~', '_');
-				suggestedFilename.replace('[', '_');
-				suggestedFilename.replace(']', '_');
+				suggestedFilename.replace('`', '_');
 				suggestedFilename.replace(';', '_');
 				
 				auto usuggestedFilename = suggestedFilename.utf8();
