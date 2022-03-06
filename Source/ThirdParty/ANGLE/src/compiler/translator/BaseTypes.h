@@ -955,6 +955,7 @@ enum TQualifier
     // built-ins written by fragment shader
     EvqFragColor,
     EvqFragData,
+    EvqSampleMask,
 
     EvqFragDepth,     // gl_FragDepth for ESSL300.
     EvqFragDepthEXT,  // gl_FragDepthEXT for ESSL100, EXT_frag_depth.
@@ -976,14 +977,17 @@ enum TQualifier
     EvqFlat,           // Incomplete qualifier
     EvqNoPerspective,  // Incomplete qualifier
     EvqCentroid,       // Incomplete qualifier
+    EvqSample,
     EvqSmoothOut,
     EvqFlatOut,
     EvqNoPerspectiveOut,
     EvqCentroidOut,  // Implies smooth
+    EvqSampleOut,
     EvqSmoothIn,
     EvqFlatIn,
     EvqNoPerspectiveIn,
     EvqCentroidIn,  // Implies smooth
+    EvqSampleIn,
 
     // GLSL ES 3.1 compute shader special variables
     EvqShared,
@@ -1041,6 +1045,7 @@ inline bool IsShaderIn(TQualifier qualifier)
         case EvqFlatIn:
         case EvqNoPerspectiveIn:
         case EvqCentroidIn:
+        case EvqSampleIn:
             return true;
         default:
             return false;
@@ -1059,6 +1064,7 @@ inline bool IsShaderOut(TQualifier qualifier)
         case EvqFlatOut:
         case EvqNoPerspectiveOut:
         case EvqCentroidOut:
+        case EvqSampleOut:
             return true;
         default:
             return false;
@@ -1300,6 +1306,7 @@ inline const char *getQualifierString(TQualifier q)
     case EvqFragDepth:              return "FragDepth";
     case EvqSecondaryFragColorEXT:  return "SecondaryFragColorEXT";
     case EvqSecondaryFragDataEXT:   return "SecondaryFragDataEXT";
+    case EvqSampleMask:             return "SampleMask";
     case EvqViewIDOVR:              return "ViewIDOVR";
     case EvqViewportIndex:          return "ViewportIndex";
     case EvqLayer:                  return "Layer";
@@ -1332,6 +1339,9 @@ inline const char *getQualifierString(TQualifier q)
     case EvqPerVertexIn:            return "gl_in";
     case EvqPrecise:                return "precise";
     case EvqClipDistance:           return "ClipDistance";
+    case EvqSample:                 return "sample";
+    case EvqSampleIn:               return "sample in";
+    case EvqSampleOut:              return "sample out";
     default: UNREACHABLE();         return "unknown qualifier";
     }
     // clang-format on

@@ -44,16 +44,10 @@
 
 namespace WebKit {
 
-static void childSetupFunction(gpointer userData)
-{
-    int socket = GPOINTER_TO_INT(userData);
-    close(socket);
-}
-
 #if OS(LINUX)
 static bool isFlatpakSpawnUsable()
 {
-    static Optional<bool> ret;
+    static std::optional<bool> ret;
     if (ret)
         return *ret;
 
@@ -73,7 +67,7 @@ static bool isFlatpakSpawnUsable()
 #if ENABLE(BUBBLEWRAP_SANDBOX)
 static bool isInsideDocker()
 {
-    static Optional<bool> ret;
+    static std::optional<bool> ret;
     if (ret)
         return *ret;
 
@@ -83,7 +77,7 @@ static bool isInsideDocker()
 
 static bool isInsideFlatpak()
 {
-    static Optional<bool> ret;
+    static std::optional<bool> ret;
     if (ret)
         return *ret;
 
@@ -93,7 +87,7 @@ static bool isInsideFlatpak()
 
 static bool isInsideSnap()
 {
-    static Optional<bool> ret;
+    static std::optional<bool> ret;
     if (ret)
         return *ret;
 
@@ -111,21 +105,10 @@ void ProcessLauncher::launchProcess()
 
     String executablePath;
     CString realExecutablePath;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    String pluginPath;
-    CString realPluginPath;
-#endif
     switch (m_launchOptions.processType) {
     case ProcessLauncher::ProcessType::Web:
         executablePath = executablePathOfWebProcess();
         break;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    case ProcessLauncher::ProcessType::Plugin:
-        executablePath = executablePathOfPluginProcess();
-        pluginPath = m_launchOptions.extraInitializationData.get("plugin-path");
-        realPluginPath = FileSystem::fileSystemRepresentation(pluginPath);
-        break;
-#endif
     case ProcessLauncher::ProcessType::Network:
         executablePath = executablePathOfNetworkProcess();
         break;
@@ -142,7 +125,7 @@ void ProcessLauncher::launchProcess()
     realExecutablePath = FileSystem::fileSystemRepresentation(executablePath);
     GUniquePtr<gchar> processIdentifier(g_strdup_printf("%" PRIu64, m_launchOptions.processIdentifier.toUInt64()));
     GUniquePtr<gchar> webkitSocket(g_strdup_printf("%d", socketPair.client));
-    unsigned nargs = 5; // size of the argv array for g_spawn_async()
+    unsigned nargs = 4; // size of the argv array for g_spawn_async()
 
 #if ENABLE(DEVELOPER_MODE)
     Vector<CString> prefixArgs;
@@ -173,15 +156,9 @@ void ProcessLauncher::launchProcess()
     if (configureJSCForTesting)
         argv[i++] = const_cast<char*>("--configure-jsc-for-testing");
 #endif
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    argv[i++] = const_cast<char*>(realPluginPath.data());
-#else
-    argv[i++] = nullptr;
-#endif
     argv[i++] = nullptr;
 
     GRefPtr<GSubprocessLauncher> launcher = adoptGRef(g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_INHERIT_FDS));
-    g_subprocess_launcher_set_child_setup(launcher.get(), childSetupFunction, GINT_TO_POINTER(socketPair.server), nullptr);
     g_subprocess_launcher_take_fd(launcher.get(), socketPair.client, socketPair.client);
 
     GUniqueOutPtr<GError> error;
@@ -207,9 +184,12 @@ void ProcessLauncher::launchProcess()
         process = adoptGRef(g_subprocess_launcher_spawnv(launcher.get(), argv, &error.outPtr()));
 
     if (!process.get())
-        g_error("Unable to fork a new child process: %s", error->message);
+        g_error("Unable to spawn a new child process: %s", error->message);
 
     const char* processIdStr = g_subprocess_get_identifier(process.get());
+    if (!processIdStr)
+        g_error("Spawned process died immediately. This should not happen.");
+
     m_processIdentifier = g_ascii_strtoll(processIdStr, nullptr, 0);
     RELEASE_ASSERT(m_processIdentifier);
 

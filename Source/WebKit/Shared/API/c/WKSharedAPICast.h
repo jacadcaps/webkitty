@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WKSharedAPICast_h
-#define WKSharedAPICast_h
+#pragma once
 
 #include "APIError.h"
 #include "APINumber.h"
@@ -47,8 +46,8 @@
 #include "WKPageVisibilityTypes.h"
 #include "WKUserContentInjectedFrames.h"
 #include "WKUserScriptInjectionTime.h"
-#include "WebEvent.h"
 #include "WebFindOptions.h"
+#include "WebMouseEvent.h"
 #include <WebCore/ContextMenuItem.h>
 #include <WebCore/DiagnosticLoggingResultType.h>
 #include <WebCore/FloatRect.h>
@@ -126,6 +125,12 @@ template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>
 auto toAPI(T* t) -> APIType
 {
     return reinterpret_cast<APIType>(API::Object::wrap(t));
+}
+
+template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>
+auto toAPI(T& t) -> APIType
+{
+    return reinterpret_cast<APIType>(API::Object::wrap(&t));
 }
 
 template<typename T, typename ImplType = typename APITypeInfo<T>::ImplType>
@@ -504,6 +509,10 @@ inline WKContextMenuItemTag toAPI(WebCore::ContextMenuAction action)
         return kWKContextMenuItemTagMediaPlayPause;
     case WebCore::ContextMenuItemTagMediaMute:
         return kWKContextMenuItemTagMediaMute;
+    case WebCore::ContextMenuItemTagAddHighlightToCurrentQuickNote:
+        return kWKContextMenuItemTagAddHighlightToCurrentQuickNote;
+    case WebCore::ContextMenuItemTagAddHighlightToNewQuickNote:
+        return kWKContextMenuItemTagAddHighlightToNewQuickNote;
 #if PLATFORM(COCOA)
     case WebCore::ContextMenuItemTagCorrectSpellingAutomatically:
         return kWKContextMenuItemTagCorrectSpellingAutomatically;
@@ -534,6 +543,10 @@ inline WKContextMenuItemTag toAPI(WebCore::ContextMenuAction action)
 #endif
     case WebCore::ContextMenuItemTagShareMenu:
         return kWKContextMenuItemTagShareMenu;
+    case WebCore::ContextMenuItemTagQuickLookImage:
+        return kWKContextMenuItemTagRevealImage;
+    case WebCore::ContextMenuItemTagTranslate:
+        return kWKContextMenuItemTagTranslate;
     default:
         if (action < WebCore::ContextMenuItemBaseApplicationTag && !(action >= WebCore::ContextMenuItemBaseCustomTag && action <= WebCore::ContextMenuItemLastCustomTag))
             LOG_ERROR("ContextMenuAction %i is an unknown tag but is below the allowable custom tag value of %i", action, WebCore::ContextMenuItemBaseApplicationTag);
@@ -698,6 +711,10 @@ inline WebCore::ContextMenuAction toImpl(WKContextMenuItemTag tag)
         return WebCore::ContextMenuItemTagMediaPlayPause;
     case kWKContextMenuItemTagMediaMute:
         return WebCore::ContextMenuItemTagMediaMute;
+    case kWKContextMenuItemTagAddHighlightToCurrentQuickNote:
+        return WebCore::ContextMenuItemTagAddHighlightToCurrentQuickNote;
+    case kWKContextMenuItemTagAddHighlightToNewQuickNote:
+        return WebCore::ContextMenuItemTagAddHighlightToNewQuickNote;
 #if PLATFORM(COCOA)
     case kWKContextMenuItemTagCorrectSpellingAutomatically:
         return WebCore::ContextMenuItemTagCorrectSpellingAutomatically;
@@ -728,6 +745,10 @@ inline WebCore::ContextMenuAction toImpl(WKContextMenuItemTag tag)
     case kWKContextMenuItemTagShareMenu:
         return WebCore::ContextMenuItemTagShareMenu;
 #endif
+    case kWKContextMenuItemTagRevealImage:
+        return WebCore::ContextMenuItemTagQuickLookImage;
+    case kWKContextMenuItemTagTranslate:
+        return WebCore::ContextMenuItemTagTranslate;
     case kWKContextMenuItemTagOpenLinkInThisWindow:
     default:
         if (tag < kWKContextMenuItemBaseApplicationTag && !(tag >= WebCore::ContextMenuItemBaseCustomTag && tag <= WebCore::ContextMenuItemLastCustomTag))
@@ -943,7 +964,7 @@ inline WebCore::VisibilityState toVisibilityState(WKPageVisibilityState wkPageVi
     case kWKPageVisibilityStateHidden:
         return WebCore::VisibilityState::Hidden;
     case kWKPageVisibilityStatePrerender:
-        return WebCore::VisibilityState::Prerender;
+        return WebCore::VisibilityState::Hidden;
     }
 
     ASSERT_NOT_REACHED();
@@ -1034,5 +1055,3 @@ inline WebCore::UserContentInjectedFrames toUserContentInjectedFrames(WKUserCont
 }
 
 } // namespace WebKit
-
-#endif // WKSharedAPICast_h

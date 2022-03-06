@@ -38,7 +38,14 @@ void WebCompiledContentRuleListData::encode(IPC::Encoder& encoder) const
 {
     SharedMemory::Handle handle;
     data->createHandle(handle, SharedMemory::Protection::ReadOnly);
-    encoder << handle;
+    
+#if OS(DARWIN) || OS(WINDOWS)
+    // Exact data size is the last bytecode offset plus its size.
+    uint64_t dataSize = topURLFiltersBytecodeOffset + topURLFiltersBytecodeSize;
+#else
+    uint64_t dataSize = 0;
+#endif
+    encoder << SharedMemory::IPCHandle { WTFMove(handle), dataSize };
 
     encoder << conditionsApplyOnlyToDomainOffset;
     encoder << actionsOffset;
@@ -51,57 +58,57 @@ void WebCompiledContentRuleListData::encode(IPC::Encoder& encoder) const
     encoder << topURLFiltersBytecodeSize;
 }
 
-Optional<WebCompiledContentRuleListData> WebCompiledContentRuleListData::decode(IPC::Decoder& decoder)
+std::optional<WebCompiledContentRuleListData> WebCompiledContentRuleListData::decode(IPC::Decoder& decoder)
 {
-    SharedMemory::Handle handle;
-    if (!decoder.decode(handle))
-        return WTF::nullopt;
-    RefPtr<SharedMemory> data = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
+    SharedMemory::IPCHandle ipcHandle;
+    if (!decoder.decode(ipcHandle))
+        return std::nullopt;
+    RefPtr<SharedMemory> data = SharedMemory::map(ipcHandle.handle, SharedMemory::Protection::ReadOnly);
 
-    Optional<unsigned> conditionsApplyOnlyToDomainOffset;
+    std::optional<unsigned> conditionsApplyOnlyToDomainOffset;
     decoder >> conditionsApplyOnlyToDomainOffset;
     if (!conditionsApplyOnlyToDomainOffset)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> actionsOffset;
+    std::optional<unsigned> actionsOffset;
     decoder >> actionsOffset;
     if (!actionsOffset)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> actionsSize;
+    std::optional<unsigned> actionsSize;
     decoder >> actionsSize;
     if (!actionsSize)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> filtersWithoutConditionsBytecodeOffset;
+    std::optional<unsigned> filtersWithoutConditionsBytecodeOffset;
     decoder >> filtersWithoutConditionsBytecodeOffset;
     if (!filtersWithoutConditionsBytecodeOffset)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> filtersWithoutConditionsBytecodeSize;
+    std::optional<unsigned> filtersWithoutConditionsBytecodeSize;
     decoder >> filtersWithoutConditionsBytecodeSize;
     if (!filtersWithoutConditionsBytecodeSize)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> filtersWithConditionsBytecodeOffset;
+    std::optional<unsigned> filtersWithConditionsBytecodeOffset;
     decoder >> filtersWithConditionsBytecodeOffset;
     if (!filtersWithConditionsBytecodeOffset)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> filtersWithConditionsBytecodeSize;
+    std::optional<unsigned> filtersWithConditionsBytecodeSize;
     decoder >> filtersWithConditionsBytecodeSize;
     if (!filtersWithConditionsBytecodeSize)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> topURLFiltersBytecodeOffset;
+    std::optional<unsigned> topURLFiltersBytecodeOffset;
     decoder >> topURLFiltersBytecodeOffset;
     if (!topURLFiltersBytecodeOffset)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> topURLFiltersBytecodeSize;
+    std::optional<unsigned> topURLFiltersBytecodeSize;
     decoder >> topURLFiltersBytecodeSize;
     if (!topURLFiltersBytecodeSize)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return {{
         WTFMove(data),

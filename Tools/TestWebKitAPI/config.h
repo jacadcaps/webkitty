@@ -89,7 +89,10 @@
 #endif
 
 #ifdef __cplusplus
+// The TestJSC executable doesn't use gtest it uses glib's testing
+#if !defined(BUILDING_TestJSC) && !defined(NO_GTEST_USAGE)
 #include <gtest/gtest.h>
+#endif
 #include <wtf/Assertions.h>
 #undef new
 #undef delete
@@ -120,12 +123,6 @@
 // FIXME: Move this to PlatformHave.h.
 #if PLATFORM(IOS_FAMILY) && !(PLATFORM(MACCATALYST) && __MAC_OS_X_VERSION_MIN_REQUIRED < 110000)
 #define HAVE_UIWEBVIEW 1
-#endif
-
-// FIXME: Move this to PlatformHave.h.
-// FIXME: Seems like this should be on for watchOS and tvOS too.
-#if PLATFORM(MAC) || PLATFORM(IOS)
-#define HAVE_NETWORK_FRAMEWORK 1
 #endif
 
 // FIXME: Move this to PlatformHave.h.

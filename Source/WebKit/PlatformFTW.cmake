@@ -10,7 +10,6 @@ add_definitions(-DBUILDING_WEBKIT)
 
 list(APPEND WebKit_SOURCES
     NetworkProcess/Classifier/WebResourceLoadStatisticsStore.cpp
-    NetworkProcess/Classifier/WebResourceLoadStatisticsTelemetry.cpp
 
     NetworkProcess/WebStorage/StorageManager.cpp
 
@@ -51,7 +50,7 @@ list(APPEND WebKit_SOURCES
 
     UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
 
-    UIProcess/Inspector/win/WebInspectorProxyWin.cpp
+    UIProcess/Inspector/win/WebInspectorUIProxyWin.cpp
 
     UIProcess/Launcher/win/ProcessLauncherWin.cpp
 
@@ -179,15 +178,13 @@ if (ENABLE_REMOTE_INSPECTOR)
         UIProcess/Inspector/socket/RemoteInspectorClient.cpp
         UIProcess/Inspector/socket/RemoteInspectorProtocolHandler.cpp
 
-        UIProcess/Inspector/win/RemoteWebInspectorProxyWin.cpp
+        UIProcess/Inspector/win/RemoteWebInspectorUIProxyWin.cpp
     )
 
     list(APPEND WebKit_INCLUDE_DIRECTORIES
         "${WEBKIT_DIR}/UIProcess/socket"
     )
 endif ()
-
-WEBKIT_WRAP_SOURCELIST(${WebKit_SOURCES})
 
 # Windows specific
 list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
@@ -199,9 +196,4 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/C/curl/WKWebsiteDataStoreRefCurl.h
 
     UIProcess/API/C/win/WKView.h
-)
-
-list(APPEND WebKit_PRIVATE_DEFINITIONS
-    STATICALLY_LINKED_WITH_PAL
-    STATICALLY_LINKED_WITH_WebCore
 )

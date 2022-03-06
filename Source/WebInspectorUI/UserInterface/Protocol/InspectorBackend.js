@@ -41,6 +41,7 @@ InspectorBackendClass = class InspectorBackendClass
         this._defaultTracer = new WI.LoggingProtocolTracer;
         this._activeTracers = [this._defaultTracer];
 
+        // FIXME: <https://webkit.org/b/213632> Web Inspector: release unused backend domains/events/commands once the debuggable type is known
         this._supportedDomainsForTargetType = new Multimap;
         this._supportedCommandParameters = new Map;
         this._supportedEventParameters = new Map;
@@ -62,7 +63,8 @@ InspectorBackendClass = class InspectorBackendClass
     // Domain/Command/Event feature checking should use one of the `has*` functions below.
     get Enum()
     {
-        return this._activeDomains;
+        // Enums should not be conditionally enabled by debuggable and/or target type.
+        return this._registeredDomains;
     }
 
     // It's still possible to set this flag on InspectorBackend to just
@@ -326,6 +328,7 @@ InspectorBackend.Domain = class InspectorBackendDomain
 
         this._dispatcher = null;
 
+        // FIXME: <https://webkit.org/b/213632> Web Inspector: release unused backend domains/events/commands once the debuggable type is known
         this._supportedCommandsForTargetType = new Multimap;
         this._supportedEventsForTargetType = new Multimap;
     }

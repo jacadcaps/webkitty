@@ -29,7 +29,8 @@
 #if ENABLE(REMOTE_INSPECTOR)
 
 #include "APIDebuggableInfo.h"
-#include "RemoteWebInspectorProxy.h"
+#include "APIInspectorConfiguration.h"
+#include "RemoteWebInspectorUIProxy.h"
 #include <JavaScriptCore/RemoteInspectorUtils.h>
 #include <WebCore/InspectorDebuggableType.h>
 #include <gio/gio.h>
@@ -39,11 +40,11 @@
 
 namespace WebKit {
 
-class RemoteInspectorProxy final : public RemoteWebInspectorProxyClient {
+class RemoteInspectorProxy final : public RemoteWebInspectorUIProxyClient {
     WTF_MAKE_FAST_ALLOCATED();
 public:
     RemoteInspectorProxy(RemoteInspectorClient& inspectorClient, uint64_t connectionID, uint64_t targetID)
-        : m_proxy(RemoteWebInspectorProxy::create())
+        : m_proxy(RemoteWebInspectorUIProxy::create())
         , m_inspectorClient(inspectorClient)
         , m_connectionID(connectionID)
         , m_targetID(targetID)
@@ -77,6 +78,8 @@ public:
 #endif
     }
 
+    // MARK: RemoteWebInspectorUIProxyClient methods
+
     void sendMessageToFrontend(const String& message)
     {
         m_proxy->sendMessageToFrontend(message);
@@ -92,8 +95,13 @@ public:
         m_inspectorClient.closeFromFrontend(m_connectionID, m_targetID);
     }
 
+    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&) override
+    {
+        return API::InspectorConfiguration::create();
+    }
+
 private:
-    Ref<RemoteWebInspectorProxy> m_proxy;
+    Ref<RemoteWebInspectorUIProxy> m_proxy;
     RemoteInspectorClient& m_inspectorClient;
     uint64_t m_connectionID;
     uint64_t m_targetID;
@@ -186,13 +194,11 @@ void RemoteInspectorClient::setupConnection(Ref<SocketConnection>&& connection)
 void RemoteInspectorClient::setBackendCommands(const char* backendCommands)
 {
     if (!backendCommands || !backendCommands[0]) {
-        m_backendCommandsURL = String();
+        m_backendCommandsURL = { };
         return;
     }
 
-    Vector<char> base64Data;
-    base64Encode(backendCommands, strlen(backendCommands), base64Data);
-    m_backendCommandsURL = "data:text/javascript;base64," + base64Data;
+    m_backendCommandsURL = makeString("data:text/javascript;base64,", base64Encoded(backendCommands, strlen(backendCommands)));
 }
 
 void RemoteInspectorClient::connectionDidClose()

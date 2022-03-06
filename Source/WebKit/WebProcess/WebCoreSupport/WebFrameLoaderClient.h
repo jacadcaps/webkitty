@@ -48,9 +48,9 @@ public:
 
     void applyToDocumentLoader(WebsitePoliciesData&&);
 
-    Optional<WebPageProxyIdentifier> webPageProxyID() const;
-    Optional<WebCore::PageIdentifier> pageID() const final;
-    Optional<WebCore::FrameIdentifier> frameID() const final;
+    std::optional<WebPageProxyIdentifier> webPageProxyID() const;
+    std::optional<WebCore::PageIdentifier> pageID() const final;
+    std::optional<WebCore::FrameIdentifier> frameID() const final;
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     bool hasFrameSpecificStorageAccess() final { return !!m_frameSpecificStorageAccessIdentifier; }
@@ -61,6 +61,7 @@ public:
     };
     void setHasFrameSpecificStorageAccess(FrameSpecificStorageAccessIdentifier&&);
     void didLoadFromRegistrableDomain(WebCore::RegistrableDomain&&) final;
+    Vector<WebCore::RegistrableDomain> loadedSubresourceDomains() const final;
 #endif
 
     WebCore::AllowsContentJavaScript allowsContentJavaScriptFromMostRecentNavigation() const final;
@@ -114,7 +115,7 @@ private:
     void dispatchWillClose() final;
     void dispatchDidStartProvisionalLoad() final;
     void dispatchDidReceiveTitle(const WebCore::StringWithDirection&) final;
-    void dispatchDidCommitLoad(Optional<WebCore::HasInsecureContent>, Optional<WebCore::UsedLegacyTLS>) final;
+    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>) final;
     void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading) final;
     void dispatchDidFailLoad(const WebCore::ResourceError&) final;
     void dispatchDidFinishDocumentLoad() final;
@@ -125,10 +126,10 @@ private:
     void dispatchDidReachVisuallyNonEmptyState() final;
     void dispatchDidLayout() final;
 
-    WebCore::Frame* dispatchCreatePage(const WebCore::NavigationAction&) final;
+    WebCore::Frame* dispatchCreatePage(const WebCore::NavigationAction&, WebCore::NewFrameOpenerPolicy) final;
     void dispatchShow() final;
     
-    void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, WebCore::PolicyCheckIdentifier, const String&, WebCore::FramePolicyFunction&&) final;
+    void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, WebCore::PolicyCheckIdentifier, const String&, WebCore::BrowsingContextGroupSwitchDecision, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const String& frameName, WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, WebCore::PolicyDecisionMode, WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&) final;
     void cancelPolicyCheck() final;
@@ -151,7 +152,7 @@ private:
     void willReplaceMultipartContent() final;
     void didReplaceMultipartContent() final;
 
-    void committedLoad(WebCore::DocumentLoader*, const char*, int) final;
+    void committedLoad(WebCore::DocumentLoader*, const uint8_t*, int) final;
     void finishedLoading(WebCore::DocumentLoader*) final;
     
     void updateGlobalHistory() final;
@@ -222,8 +223,6 @@ private:
     WebCore::WebGLLoadPolicy resolveWebGLPolicyForURL(const URL&) const final;
 #endif // ENABLE(WEBGL)
 
-    RefPtr<WebCore::Widget> createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement&, const URL& baseURL, const Vector<String>& paramNames, const Vector<String>& paramValues) final;
-    
     WebCore::ObjectContentType objectContentType(const URL&, const String& mimeType) final;
     String overrideMediaType() const final;
 
@@ -268,12 +267,11 @@ private:
     void didRestoreScrollPosition() final;
 
     void getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>&) final;
-    void finishedLoadingIcon(uint64_t callbackIdentifier, WebCore::SharedBuffer*) final;
 
     void didCreateWindow(WebCore::DOMWindow&) final;
 
 #if ENABLE(APPLICATION_MANIFEST)
-    void finishedLoadingApplicationManifest(uint64_t, const Optional<WebCore::ApplicationManifest>&) final;
+    void finishedLoadingApplicationManifest(uint64_t, const std::optional<WebCore::ApplicationManifest>&) final;
 #endif
 
     Ref<WebFrame> m_frame;
@@ -284,17 +282,29 @@ private:
     bool m_frameCameFromBackForwardCache { false };
     bool m_useIconLoadingClient { false };
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
-    Optional<FrameSpecificStorageAccessIdentifier> m_frameSpecificStorageAccessIdentifier;
+    std::optional<FrameSpecificStorageAccessIdentifier> m_frameSpecificStorageAccessIdentifier;
 #endif
 
+#if ENABLE(APP_BOUND_DOMAINS)
     bool shouldEnableInAppBrowserPrivacyProtections() const final;
     void notifyPageOfAppBoundBehavior() final;
+#endif
+
+#if ENABLE(PDFKIT_PLUGIN)
+    bool shouldUsePDFPlugin(const String& contentType, StringView path) const final;
+#endif
+
+    bool isParentProcessAFullWebBrowser() const final;
 };
 
-// As long as EmptyFrameLoaderClient exists in WebCore, this can return 0.
+// As long as EmptyFrameLoaderClient exists in WebCore, this can return nullptr.
 inline WebFrameLoaderClient* toWebFrameLoaderClient(WebCore::FrameLoaderClient& client)
 {
-    return client.isEmptyFrameLoaderClient() ? 0 : static_cast<WebFrameLoaderClient*>(&client);
+    return client.isEmptyFrameLoaderClient() ? nullptr : static_cast<WebFrameLoaderClient*>(&client);
+}
+inline const WebFrameLoaderClient* toWebFrameLoaderClient(const WebCore::FrameLoaderClient& client)
+{
+    return client.isEmptyFrameLoaderClient() ? nullptr : static_cast<const WebFrameLoaderClient*>(&client);
 }
 
 } // namespace WebKit

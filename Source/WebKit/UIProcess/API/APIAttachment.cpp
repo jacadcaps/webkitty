@@ -49,15 +49,15 @@ Attachment::~Attachment()
 {
 }
 
-void Attachment::updateAttributes(Function<void(WebKit::CallbackBase::Error)>&& callback)
+void Attachment::updateAttributes(CompletionHandler<void()>&& callback)
 {
     if (!m_webPage) {
-        callback(WebKit::CallbackBase::Error::OwnerWasInvalidated);
+        callback();
         return;
     }
 
     if (m_webPage->willUpdateAttachmentAttributes(*this) == WebKit::WebPageProxy::ShouldUpdateAttachmentAttributes::No) {
-        callback(WebKit::CallbackBase::Error::None);
+        callback();
         return;
     }
 
@@ -93,9 +93,9 @@ WTF::String Attachment::fileName() const
     return { };
 }
 
-Optional<uint64_t> Attachment::fileSizeForDisplay() const
+std::optional<uint64_t> Attachment::fileSizeForDisplay() const
 {
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 RefPtr<WebCore::SharedBuffer> Attachment::enclosingImageData() const

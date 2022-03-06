@@ -64,7 +64,20 @@ static const size_t attachmentMaxAmount = 254;
 class AttachmentInfo {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    AttachmentInfo() = default;
+    AttachmentInfo()
+    {
+        // The entire AttachmentInfo is passed to write(), so we have to zero our
+        // padding bytes to avoid writing uninitialized memory.
+        memset(static_cast<void*>(this), 0, sizeof(*this));
+    }
+
+    AttachmentInfo(const AttachmentInfo& info)
+    {
+        memset(static_cast<void*>(this), 0, sizeof(*this));
+        *this = info;
+    }
+
+    AttachmentInfo& operator=(const AttachmentInfo&) = default;
 
     void setType(Attachment::Type type) { m_type = type; }
     Attachment::Type type() const { return m_type; }
@@ -85,9 +98,10 @@ public:
     bool isNull() const { return m_isNull; }
 
 private:
-    Attachment::Type m_type { Attachment::Uninitialized };
-    bool m_isNull { false };
-    size_t m_size { 0 };
+    // The AttachmentInfo will be copied using memcpy, so all members must be trivially copyable.
+    Attachment::Type m_type;
+    bool m_isNull;
+    size_t m_size;
 };
 
 static_assert(sizeof(MessageInfo) + sizeof(AttachmentInfo) * attachmentMaxAmount <= messageMaxSize, "messageMaxSize is too small.");
@@ -138,7 +152,7 @@ bool Connection::processMessage()
 
     uint8_t* messageData = m_readBuffer.data();
     MessageInfo messageInfo;
-    memcpy(&messageInfo, messageData, sizeof(messageInfo));
+    memcpy(static_cast<void*>(&messageInfo), messageData, sizeof(messageInfo));
     messageData += sizeof(messageInfo);
 
     if (messageInfo.attachmentCount() > attachmentMaxAmount || (!messageInfo.isBodyOutOfLine() && messageInfo.bodySize() > messageMaxSize)) {
@@ -155,7 +169,7 @@ bool Connection::processMessage()
     Vector<AttachmentInfo> attachmentInfo(attachmentCount);
 
     if (attachmentCount) {
-        memcpy(attachmentInfo.data(), messageData, sizeof(AttachmentInfo) * attachmentCount);
+        memcpy(static_cast<void*>(attachmentInfo.data()), messageData, sizeof(AttachmentInfo) * attachmentCount);
         messageData += sizeof(AttachmentInfo) * attachmentCount;
 
         for (size_t i = 0; i < attachmentCount; ++i) {
@@ -192,6 +206,9 @@ bool Connection::processMessage()
                 fd = m_fileDescriptors[fdIndex++];
             attachments[attachmentCount - i - 1] = Attachment(fd);
             break;
+        case Attachment::CustomWriterType:
+            attachments[attachmentCount - i - 1] = Attachment(Attachment::CustomWriter(m_socketDescriptor));
+            break;
         case Attachment::Uninitialized:
             attachments[attachmentCount - i - 1] = Attachment();
         default:
@@ -223,7 +240,10 @@ bool Connection::processMessage()
     if (messageInfo.isBodyOutOfLine())
         messageBody = reinterpret_cast<uint8_t*>(oolMessageBody->data());
 
-    auto decoder = makeUnique<Decoder>(messageBody, messageInfo.bodySize(), nullptr, WTFMove(attachments));
+    auto decoder = Decoder::create(messageBody, messageInfo.bodySize(), nullptr, WTFMove(attachments));
+    ASSERT(decoder);
+    if (!decoder)
+        return false;
 
     processIncomingMessage(WTFMove(decoder));
 
@@ -407,11 +427,11 @@ bool Connection::platformCanSendOutgoingMessages() const
     return !m_pendingOutputMessage;
 }
 
-bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
+bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 {
     COMPILE_ASSERT(sizeof(MessageInfo) + attachmentMaxAmount * sizeof(size_t) <= messageMaxSize, AttachmentsFitToMessageInline);
 
-    UnixMessage outputMessage(*encoder);
+    UnixMessage outputMessage(encoder.get());
     if (outputMessage.attachments().size() > (attachmentMaxAmount - 1)) {
         ASSERT_NOT_REACHED();
         return false;
@@ -456,6 +476,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
 
     Vector<AttachmentInfo> attachmentInfo;
     MallocPtr<char> attachmentFDBuffer;
+    bool hasCustomWriterAttachments { false };
 
     auto& attachments = outputMessage.attachments();
     if (!attachments.isEmpty()) {
@@ -496,6 +517,9 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
                     fdPtr[fdIndex++] = attachments[i].fileDescriptor();
                 } else
                     attachmentInfo[i].setNull();
+                break;
+            case Attachment::CustomWriterType:
+                hasCustomWriterAttachments = true;
                 break;
             case Attachment::Uninitialized:
             default:
@@ -564,6 +588,16 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
             WTFLogAlways("Error sending IPC message: %s", strerror(errno));
         return false;
     }
+
+    if (hasCustomWriterAttachments) {
+        for (auto& attachment : attachments) {
+            if (attachment.type() == Attachment::CustomWriterType) {
+                ASSERT(WTF::holds_alternative<Attachment::CustomWriterFunc>(attachment.customWriter()));
+                WTF::get<Attachment::CustomWriterFunc>(attachment.customWriter())(m_socketDescriptor);
+            }
+        }
+    }
+
     return true;
 }
 

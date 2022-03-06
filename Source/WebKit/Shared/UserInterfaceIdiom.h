@@ -29,8 +29,9 @@
 
 namespace WebKit {
 
-bool currentUserInterfaceIdiomIsPad();
-void setCurrentUserInterfaceIdiomIsPad(bool);
+bool currentUserInterfaceIdiomIsPhoneOrWatch();
+void setCurrentUserInterfaceIdiomIsPhoneOrWatch(bool);
+bool updateCurrentUserInterfaceIdiom();
 
 }
 

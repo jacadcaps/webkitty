@@ -26,6 +26,7 @@
 #include "config.h"
 #include "APIPageGroupHandle.h"
 
+#include "ArgumentCoders.h"
 #include "Decoder.h"
 #include "Encoder.h"
 
@@ -52,7 +53,7 @@ void PageGroupHandle::encode(IPC::Encoder& encoder) const
 
 bool PageGroupHandle::decode(IPC::Decoder& decoder, RefPtr<Object>& result)
 {
-    Optional<WebKit::WebPageGroupData> webPageGroupData;
+    std::optional<WebKit::WebPageGroupData> webPageGroupData;
     decoder >> webPageGroupData;
     if (!webPageGroupData)
         return false;

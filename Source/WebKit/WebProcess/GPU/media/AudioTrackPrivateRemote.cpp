@@ -29,14 +29,16 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "GPUProcessConnection.h"
 #include "MediaPlayerPrivateRemote.h"
 #include "RemoteMediaPlayerProxyMessages.h"
 #include "TrackPrivateRemoteConfiguration.h"
 
 namespace WebKit {
 
-AudioTrackPrivateRemote::AudioTrackPrivateRemote(MediaPlayerPrivateRemote& player, TrackPrivateRemoteIdentifier idendifier, TrackPrivateRemoteConfiguration&& configuration)
-    : m_player(player)
+AudioTrackPrivateRemote::AudioTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier idendifier, TrackPrivateRemoteConfiguration&& configuration)
+    : m_gpuProcessConnection(makeWeakPtr(gpuProcessConnection))
+    , m_playerIdentifier(playerIdentifier)
     , m_idendifier(idendifier)
 {
     updateConfiguration(WTFMove(configuration));
@@ -44,17 +46,20 @@ AudioTrackPrivateRemote::AudioTrackPrivateRemote(MediaPlayerPrivateRemote& playe
 
 void AudioTrackPrivateRemote::setEnabled(bool enabled)
 {
+    if (!m_gpuProcessConnection)
+        return;
+
     if (enabled != this->enabled())
-        m_player.connection().send(Messages::RemoteMediaPlayerProxy::AudioTrackSetEnabled(m_idendifier, enabled), m_player.itentifier());
+        m_gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::AudioTrackSetEnabled(m_idendifier, enabled), m_playerIdentifier);
 
     AudioTrackPrivate::setEnabled(enabled);
 }
 
 void AudioTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguration&& configuration)
 {
-    if (configuration.id != m_id) {
+    if (configuration.trackId != m_id) {
         auto changed = !m_id.isEmpty();
-        m_id = configuration.id;
+        m_id = configuration.trackId;
         if (changed && client())
             client()->idChanged(m_id);
     }
@@ -76,7 +81,7 @@ void AudioTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguratio
     m_trackIndex = configuration.trackIndex;
     m_startTimeVariance = configuration.startTimeVariance;
     m_kind = configuration.audioKind;
-    setEnabled(configuration.enabled);
+    AudioTrackPrivate::setEnabled(configuration.enabled);
 }
 
 } // namespace WebKit

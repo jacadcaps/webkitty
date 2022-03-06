@@ -207,9 +207,8 @@ void PluginProcessProxy::didClose(IPC::Connection&)
         exitFullscreen();
 #endif
 
-    const Vector<WebProcessPool*>& processPools = WebProcessPool::allProcessPools();
-    for (size_t i = 0; i < processPools.size(); ++i)
-        processPools[i]->sendToAllProcesses(Messages::PluginProcessConnectionManager::PluginProcessCrashed(m_pluginProcessToken));
+    for (auto& processPool : WebProcessPool::allProcessPools())
+        processPool->sendToAllProcesses(Messages::PluginProcessConnectionManager::PluginProcessCrashed(m_pluginProcessToken));
 
     // This will cause us to be deleted.
     pluginProcessCrashedOrFailedToLaunch();
@@ -235,14 +234,8 @@ void PluginProcessProxy::didFinishLaunching(ProcessLauncher*, IPC::Connection::I
     m_connection->open();
     
     PluginProcessCreationParameters parameters;
-    parameters.processType = m_pluginProcessAttributes.processType;
-    if (parameters.processType == PluginProcessType::Snapshot) {
-        parameters.minimumLifetime = snapshottingMinimumLifetime;
-        parameters.terminationTimeout = snapshottingShutdownTimeout;
-    } else {
-        parameters.minimumLifetime = minimumLifetime;
-        parameters.terminationTimeout = shutdownTimeout;
-    }
+    parameters.minimumLifetime = minimumLifetime;
+    parameters.terminationTimeout = shutdownTimeout;
 
     platformInitializePluginProcess(parameters);
 

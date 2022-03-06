@@ -38,7 +38,7 @@ enum ProtocolErrorCode {
     ServerError = -32000
 };
 
-CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> errorCode)
+CommandResult::CommandResult(RefPtr<JSON::Value>&& result, std::optional<ErrorCode> errorCode)
     : m_errorCode(errorCode)
 {
     if (!m_errorCode) {
@@ -49,18 +49,19 @@ CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> e
     if (!result)
         return;
 
-    RefPtr<JSON::Object> errorObject;
-    if (!result->asObject(errorObject))
+    auto errorObject = result->asObject();
+    if (!errorObject)
         return;
 
-    int error;
-    if (!errorObject->getInteger("code", error))
-        return;
-    String errorMessage;
-    if (!errorObject->getString("message", errorMessage))
+    auto error = errorObject->getInteger("code");
+    if (!error)
         return;
 
-    switch (error) {
+    auto errorMessage = errorObject->getString("message");
+    if (!errorMessage)
+        return;
+
+    switch (*error) {
     case ProtocolErrorCode::ParseError:
     case ProtocolErrorCode::InvalidRequest:
     case ProtocolErrorCode::MethodNotFound:
@@ -118,7 +119,7 @@ CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> e
     }
 }
 
-CommandResult::CommandResult(ErrorCode errorCode, Optional<String> errorMessage)
+CommandResult::CommandResult(ErrorCode errorCode, std::optional<String> errorMessage)
     : m_errorCode(errorCode)
     , m_errorMessage(errorMessage)
 {

@@ -33,10 +33,8 @@
 #include "NetworkSession.h"
 #include "PluginProcessManager.h"
 #include "PluginProcessProxy.h"
-#include "ResourceLoadStatisticsPersistentStorage.h"
 #include "StorageAccessStatus.h"
 #include "WebProcessProxy.h"
-#include "WebResourceLoadStatisticsTelemetry.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/CookieJar.h>
 #include <WebCore/KeyedCoding.h>
@@ -46,6 +44,7 @@
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/DateMath.h>
 #include <wtf/MathExtras.h>
+#include <wtf/SuspendableWorkQueue.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
@@ -56,35 +55,20 @@ constexpr Seconds minimumStatisticsProcessingInterval { 5_s };
 static String domainsToString(const Vector<RegistrableDomain>& domains)
 {
     StringBuilder builder;
-    for (auto& domain : domains) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-    }
+    for (auto& domain : domains)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string());
     return builder.toString();
 }
 
 static String domainsToString(const RegistrableDomainsToDeleteOrRestrictWebsiteDataFor& domainsToRemoveOrRestrictWebsiteDataFor)
 {
     StringBuilder builder;
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllCookiesFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all data)");
-    }
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllButHttpOnlyCookiesFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all but HttpOnly cookies)");
-    }
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllNonCookieWebsiteDataFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all but cookies)");
-    }
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllCookiesFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all data)");
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllButHttpOnlyCookiesFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all but HttpOnly cookies)");
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllNonCookieWebsiteDataFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all but cookies)");
     return builder.toString();
 }
 
@@ -95,7 +79,6 @@ OperatingDate OperatingDate::fromWallTime(WallTime time)
     int yearDay = dayInYear(ms, year);
     int month = monthFromDayInYear(yearDay, isLeapYear(year));
     int monthDay = dayInMonthFromDayInYear(yearDay, isLeapYear(year));
-
     return OperatingDate { year, month, monthDay };
 }
 
@@ -124,7 +107,7 @@ bool OperatingDate::operator<=(const OperatingDate& other) const
     return secondsSinceEpoch() <= other.secondsSinceEpoch();
 }
 
-ResourceLoadStatisticsStore::ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore& store, WorkQueue& workQueue, ShouldIncludeLocalhost shouldIncludeLocalhost)
+ResourceLoadStatisticsStore::ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore& store, SuspendableWorkQueue& workQueue, ShouldIncludeLocalhost shouldIncludeLocalhost)
     : m_store(store)
     , m_workQueue(workQueue)
     , m_shouldIncludeLocalhost(shouldIncludeLocalhost)
@@ -170,12 +153,6 @@ void ResourceLoadStatisticsStore::setShouldClassifyResourcesBeforeDataRecordsRem
 {
     ASSERT(!RunLoop::isMain());
     m_parameters.shouldClassifyResourcesBeforeDataRecordsRemoval = value;
-}
-
-void ResourceLoadStatisticsStore::setShouldSubmitTelemetry(bool value)
-{
-    ASSERT(!RunLoop::isMain());
-    m_parameters.shouldSubmitTelemetry = value;
 }
 
 void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&& completionHandler)
@@ -248,7 +225,6 @@ void ResourceLoadStatisticsStore::processStatisticsAndDataRecords()
             return;
 
         pruneStatisticsIfNeeded();
-        syncStorageIfNeeded();
 
         logTestingEvent("Storage Synced"_s);
 
@@ -275,7 +251,6 @@ void ResourceLoadStatisticsStore::grandfatherExistingWebsiteData(CompletionHandl
 
                 weakThis->grandfatherDataForDomains(domainsWithWebsiteData);
                 weakThis->m_endOfGrandfatheringTimestamp = WallTime::now() + weakThis->m_parameters.grandfatheringTime;
-                weakThis->syncStorageImmediately();
                 callback();
                 weakThis->logTestingEvent("Grandfathered"_s);
             });
@@ -312,10 +287,12 @@ void ResourceLoadStatisticsStore::setPrevalentResourceForDebugMode(const Registr
     m_debugManualPrevalentResource = domain;
 }
 
+#if ENABLE(APP_BOUND_DOMAINS)
 void ResourceLoadStatisticsStore::setAppBoundDomains(HashSet<RegistrableDomain>&& domains)
 {
     m_appBoundDomains = WTFMove(domains);
 }
+#endif
 
 void ResourceLoadStatisticsStore::scheduleStatisticsProcessingRequestIfNecessary()
 {
@@ -340,7 +317,7 @@ void ResourceLoadStatisticsStore::cancelPendingStatisticsProcessingRequest()
 {
     ASSERT(!RunLoop::isMain());
 
-    m_pendingStatisticsProcessingRequestIdentifier = WTF::nullopt;
+    m_pendingStatisticsProcessingRequestIdentifier = std::nullopt;
 }
 
 void ResourceLoadStatisticsStore::setTimeToLiveUserInteraction(Seconds seconds)
@@ -449,13 +426,9 @@ void ResourceLoadStatisticsStore::updateCookieBlockingForDomains(const Registrab
 
 bool ResourceLoadStatisticsStore::shouldEnforceSameSiteStrictForSpecificDomain(const RegistrableDomain& domain) const
 {
-    static NeverDestroyed<HashSet<RegistrableDomain>> domains = [] {
-        HashSet<RegistrableDomain> set;
-        set.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("yahoo.co.jp"_s));
-        return set;
-    }();
-
-    return domains.get().contains(domain);
+    // We currently know of no domains that need this protection.
+    UNUSED_PARAM(domain);
+    return false;
 }
 
 void ResourceLoadStatisticsStore::setMaxStatisticsEntries(size_t maximumEntryCount)
@@ -548,7 +521,9 @@ void ResourceLoadStatisticsStore::debugLogDomainsInBatches(const char* action, c
     Vector<RegistrableDomain> batch;
     batch.reserveInitialCapacity(maxNumberOfDomainsInOneLogStatement);
     auto batchNumber = 1;
+#if !RELEASE_LOG_DISABLED
     unsigned numberOfBatches = std::ceil(domains.size() / static_cast<float>(maxNumberOfDomainsInOneLogStatement));
+#endif
 
     for (auto& domain : domains) {
         if (batch.size() == maxNumberOfDomainsInOneLogStatement) {

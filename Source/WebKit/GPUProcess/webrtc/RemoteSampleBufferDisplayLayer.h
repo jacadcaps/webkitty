@@ -48,7 +48,10 @@ public:
     static std::unique_ptr<RemoteSampleBufferDisplayLayer> create(SampleBufferDisplayLayerIdentifier, Ref<IPC::Connection>&&);
     ~RemoteSampleBufferDisplayLayer();
 
-    using LayerInitializationCallback = CompletionHandler<void(Optional<LayerHostingContextID>)>;
+    using WebCore::SampleBufferDisplayLayer::Client::weakPtrFactory;
+    using WeakValueType = WebCore::SampleBufferDisplayLayer::Client::WeakValueType;
+
+    using LayerInitializationCallback = CompletionHandler<void(std::optional<LayerHostingContextID>)>;
     void initialize(bool hideRootLayer, WebCore::IntSize, LayerInitializationCallback&&);
 
     // IPC::MessageReceiver
@@ -59,6 +62,9 @@ public:
 private:
     RemoteSampleBufferDisplayLayer(SampleBufferDisplayLayerIdentifier, Ref<IPC::Connection>&&);
 
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(String&&);
+#endif
     void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer);
     void updateAffineTransform(CGAffineTransform);
     void updateBoundsAndPosition(CGRect, WebCore::MediaSample::VideoRotation);
@@ -74,7 +80,7 @@ private:
     uint64_t messageSenderDestinationID() const final { return m_identifier.toUInt64(); }
 
     // WebCore::SampleBufferDisplayLayer::Client
-    void sampleBufferDisplayLayerStatusDidChange(WebCore::SampleBufferDisplayLayer&) final;
+    void sampleBufferDisplayLayerStatusDidFail() final;
 
     SampleBufferDisplayLayerIdentifier m_identifier;
     Ref<IPC::Connection> m_connection;

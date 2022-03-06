@@ -34,25 +34,24 @@
 namespace WebKit {
 using namespace WebCore;
 
-ShareableResource::Handle::Handle()
-{
-}
+ShareableResource::Handle::Handle() = default;
 
 void ShareableResource::Handle::encode(IPC::Encoder& encoder) const
 {
-    encoder << m_handle;
+    encoder << SharedMemory::IPCHandle { WTFMove(m_handle), m_size };
     encoder << m_offset;
-    encoder << m_size;
 }
 
 bool ShareableResource::Handle::decode(IPC::Decoder& decoder, Handle& handle)
 {
-    if (!decoder.decode(handle.m_handle))
+    SharedMemory::IPCHandle ipcHandle;
+    if (!decoder.decode(ipcHandle))
         return false;
     if (!decoder.decode(handle.m_offset))
         return false;
-    if (!decoder.decode(handle.m_size))
-        return false;
+
+    handle.m_size = ipcHandle.dataSize;
+    handle.m_handle = WTFMove(ipcHandle.handle);
     return true;
 }
 
@@ -62,7 +61,7 @@ static void shareableResourceDeallocate(void *ptr, void *info)
     static_cast<ShareableResource*>(info)->deref(); // Balanced by ref() in createShareableResourceDeallocator()
 }
     
-static CFAllocatorRef createShareableResourceDeallocator(ShareableResource* resource)
+static RetainPtr<CFAllocatorRef> createShareableResourceDeallocator(ShareableResource* resource)
 {
     CFAllocatorContext context = { 0,
         resource,
@@ -75,7 +74,7 @@ static CFAllocatorRef createShareableResourceDeallocator(ShareableResource* reso
         NULL, // preferredSize
     };
 
-    return CFAllocatorCreate(kCFAllocatorDefault, &context);
+    return adoptCF(CFAllocatorCreate(kCFAllocatorDefault, &context));
 }
 #endif
 
@@ -84,11 +83,14 @@ RefPtr<SharedBuffer> ShareableResource::wrapInSharedBuffer()
     ref(); // Balanced by deref when SharedBuffer is deallocated.
 
 #if USE(CF)
-    RetainPtr<CFAllocatorRef> deallocator = adoptCF(createShareableResourceDeallocator(this));
-    RetainPtr<CFDataRef> cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(data()), static_cast<CFIndex>(size()), deallocator.get()));
+    auto deallocator = createShareableResourceDeallocator(this);
+    auto cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data(), static_cast<CFIndex>(size()), deallocator.get()));
     return SharedBuffer::create(cfData.get());
-#elif USE(SOUP)
-    return SharedBuffer::wrapSoupBuffer(soup_buffer_new_with_owner(data(), size(), this, [](void* data) { static_cast<ShareableResource*>(data)->deref(); }));
+#elif USE(GLIB)
+    GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_with_free_func(data(), size(), [](void* data) {
+        static_cast<ShareableResource*>(data)->deref();
+    }, this));
+    return SharedBuffer::create(bytes.get());
 #else
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -113,7 +115,7 @@ RefPtr<ShareableResource> ShareableResource::create(Ref<SharedMemory>&& sharedMe
         LOG_ERROR("Failed to create ShareableResource from SharedMemory due to overflow.");
         return nullptr;
     }
-    if (totalSize.unsafeGet() > sharedMemory->size()) {
+    if (totalSize > sharedMemory->size()) {
         LOG_ERROR("Failed to create ShareableResource from SharedMemory due to mismatched buffer size.");
         return nullptr;
     }
@@ -151,9 +153,9 @@ bool ShareableResource::createHandle(Handle& handle)
     return true;
 }
 
-const char* ShareableResource::data() const
+const uint8_t* ShareableResource::data() const
 {
-    return static_cast<const char*>(m_sharedMemory->data()) + m_offset;
+    return static_cast<const uint8_t*>(m_sharedMemory->data()) + m_offset;
 }
 
 unsigned ShareableResource::size() const

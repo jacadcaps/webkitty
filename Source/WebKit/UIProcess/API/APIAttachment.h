@@ -55,7 +55,7 @@ public:
     enum class InsertionState : uint8_t { NotInserted, Inserted };
 
     const WTF::String& identifier() const { return m_identifier; }
-    void updateAttributes(Function<void(WebKit::CallbackBase::Error)>&&);
+    void updateAttributes(CompletionHandler<void()>&&);
 
     void invalidate();
     bool isValid() const { return !!m_webPage; }
@@ -83,7 +83,7 @@ public:
     bool isEmpty() const;
 
     RefPtr<WebCore::SharedBuffer> enclosingImageData() const;
-    Optional<uint64_t> fileSizeForDisplay() const;
+    std::optional<uint64_t> fileSizeForDisplay() const;
 
     void setHasEnclosingImage(bool hasEnclosingImage) { m_hasEnclosingImage = hasEnclosingImage; }
     bool hasEnclosingImage() const { return m_hasEnclosingImage; }

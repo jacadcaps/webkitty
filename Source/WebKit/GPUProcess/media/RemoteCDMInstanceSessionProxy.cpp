@@ -31,7 +31,8 @@
 #include "GPUConnectionToWebProcess.h"
 #include "RemoteCDMFactoryProxy.h"
 #include "RemoteCDMInstanceSessionMessages.h"
-#include "SharedBufferDataReference.h"
+#include "SharedBufferCopy.h"
+#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 
@@ -56,7 +57,7 @@ RemoteCDMInstanceSessionProxy::~RemoteCDMInstanceSessionProxy()
 {
 }
 
-void RemoteCDMInstanceSessionProxy::requestLicense(LicenseType type, AtomString initDataType, IPC::SharedBufferDataReference&& initData, LicenseCallback&& completion)
+void RemoteCDMInstanceSessionProxy::requestLicense(LicenseType type, AtomString initDataType, IPC::SharedBufferCopy&& initData, LicenseCallback&& completion)
 {
     if (!initData.buffer()) {
         completion({ }, emptyString(), false, false);
@@ -74,21 +75,21 @@ void RemoteCDMInstanceSessionProxy::requestLicense(LicenseType type, AtomString 
     });
 }
 
-void RemoteCDMInstanceSessionProxy::updateLicense(String sessionId, LicenseType type, IPC::SharedBufferDataReference&& response, LicenseUpdateCallback&& completion)
+void RemoteCDMInstanceSessionProxy::updateLicense(String sessionId, LicenseType type, IPC::SharedBufferCopy&& response, LicenseUpdateCallback&& completion)
 {
     if (!response.buffer()) {
-        completion(true, { }, WTF::nullopt, WTF::nullopt, false);
+        completion(true, { }, std::nullopt, std::nullopt, false);
         return;
     }
 
     // Implement the CDMPrivate::sanitizeResponse() check here:
     auto sanitizedResponse = m_cdm->sanitizeResponse(*response.buffer());
     if (!sanitizedResponse) {
-        completion(false, { }, WTF::nullopt, WTF::nullopt, false);
+        completion(false, { }, std::nullopt, std::nullopt, false);
         return;
     }
 
-    m_session->updateLicense(sessionId, type, sanitizedResponse.releaseNonNull(), [completion = WTFMove(completion)] (bool sessionClosed, Optional<CDMInstanceSession::KeyStatusVector>&& keyStatuses, Optional<double>&& expirationTime, Optional<CDMInstanceSession::Message>&& message, CDMInstanceSession::SuccessValue succeeded) mutable {
+    m_session->updateLicense(sessionId, type, sanitizedResponse.releaseNonNull(), [completion = WTFMove(completion)] (bool sessionClosed, std::optional<CDMInstanceSession::KeyStatusVector>&& keyStatuses, std::optional<double>&& expirationTime, std::optional<CDMInstanceSession::Message>&& message, CDMInstanceSession::SuccessValue succeeded) mutable {
         completion(sessionClosed, WTFMove(keyStatuses), WTFMove(expirationTime), WTFMove(message), succeeded == CDMInstanceSession::Succeeded);
     });
 }
@@ -98,11 +99,11 @@ void RemoteCDMInstanceSessionProxy::loadSession(LicenseType type, String session
     // Implement the CDMPrivate::sanitizeSessionId() check here:
     auto sanitizedSessionId = m_cdm->sanitizeSessionId(sessionId);
     if (!sanitizedSessionId) {
-        completion(WTF::nullopt, WTF::nullopt, WTF::nullopt, false, CDMInstanceSession::SessionLoadFailure::MismatchedSessionType);
+        completion(std::nullopt, std::nullopt, std::nullopt, false, CDMInstanceSession::SessionLoadFailure::MismatchedSessionType);
         return;
     }
 
-    m_session->loadSession(type, *sanitizedSessionId, origin, [completion = WTFMove(completion)] (Optional<CDMInstanceSession::KeyStatusVector>&& keyStatuses, Optional<double>&& expirationTime, Optional<CDMInstanceSession::Message>&& message, CDMInstanceSession::SuccessValue succeeded, CDMInstanceSession::SessionLoadFailure failure) mutable {
+    m_session->loadSession(type, *sanitizedSessionId, origin, [completion = WTFMove(completion)] (std::optional<CDMInstanceSession::KeyStatusVector>&& keyStatuses, std::optional<double>&& expirationTime, std::optional<CDMInstanceSession::Message>&& message, CDMInstanceSession::SuccessValue succeeded, CDMInstanceSession::SessionLoadFailure failure) mutable {
         completion(WTFMove(keyStatuses), WTFMove(expirationTime), WTFMove(message), succeeded == CDMInstanceSession::Succeeded, failure);
     });
 }
@@ -114,10 +115,10 @@ void RemoteCDMInstanceSessionProxy::closeSession(const String& sessionId, CloseS
 
 void RemoteCDMInstanceSessionProxy::removeSessionData(const String& sessionId, LicenseType type, RemoveSessionDataCallback&& completion)
 {
-    m_session->removeSessionData(sessionId, type, [completion = WTFMove(completion)] (CDMInstanceSession::KeyStatusVector&& keyStatuses, Optional<Ref<SharedBuffer>>&& expiredSessionsData, CDMInstanceSession::SuccessValue succeeded) mutable {
-        Optional<IPC::SharedBufferDataReference> expiredSessionDataReference;
+    m_session->removeSessionData(sessionId, type, [completion = WTFMove(completion)] (CDMInstanceSession::KeyStatusVector&& keyStatuses, std::optional<Ref<SharedBuffer>>&& expiredSessionsData, CDMInstanceSession::SuccessValue succeeded) mutable {
+        std::optional<IPC::SharedBufferCopy> expiredSessionDataReference;
         if (expiredSessionsData)
-            expiredSessionDataReference = IPC::SharedBufferDataReference(WTFMove(*expiredSessionsData));
+            expiredSessionDataReference = IPC::SharedBufferCopy(WTFMove(*expiredSessionsData));
         completion(WTFMove(keyStatuses), WTFMove(expiredSessionDataReference), succeeded == CDMInstanceSession::Succeeded);
     });
 }
@@ -137,17 +138,30 @@ void RemoteCDMInstanceSessionProxy::updateKeyStatuses(KeyStatusVector&& keyStatu
     if (!m_cdm)
         return;
 
-    if (auto* factory = m_cdm->factory())
-        factory->gpuConnectionToWebProcess().connection().send(Messages::RemoteCDMInstanceSession::UpdateKeyStatuses(WTFMove(keyStatuses)), m_identifier);
+    auto* factory = m_cdm->factory();
+    if (!factory)
+        return;
+
+    auto* gpuConnectionToWebProcess = factory->gpuConnectionToWebProcess();
+    if (!gpuConnectionToWebProcess)
+        return;
+
+    gpuConnectionToWebProcess->connection().send(Messages::RemoteCDMInstanceSession::UpdateKeyStatuses(WTFMove(keyStatuses)), m_identifier);
 }
 
 void RemoteCDMInstanceSessionProxy::sendMessage(CDMMessageType type, Ref<SharedBuffer>&& message)
 {
     if (!m_cdm)
         return;
+    auto* factory = m_cdm->factory();
+    if (!factory)
+        return;
 
-    if (auto* factory = m_cdm->factory())
-        factory->gpuConnectionToWebProcess().connection().send(Messages::RemoteCDMInstanceSession::SendMessage(type, WTFMove(message)), m_identifier);
+    auto* gpuConnectionToWebProcess = factory->gpuConnectionToWebProcess();
+    if (!gpuConnectionToWebProcess)
+        return;
+
+    gpuConnectionToWebProcess->connection().send(Messages::RemoteCDMInstanceSession::SendMessage(type, WTFMove(message)), m_identifier);
 }
 
 void RemoteCDMInstanceSessionProxy::sessionIdChanged(const String& sessionId)
@@ -155,8 +169,15 @@ void RemoteCDMInstanceSessionProxy::sessionIdChanged(const String& sessionId)
     if (!m_cdm)
         return;
 
-    if (auto* factory = m_cdm->factory())
-        factory->gpuConnectionToWebProcess().connection().send(Messages::RemoteCDMInstanceSession::SessionIdChanged(sessionId), m_identifier);
+    auto* factory = m_cdm->factory();
+    if (!factory)
+        return;
+
+    auto* gpuConnectionToWebProcess = factory->gpuConnectionToWebProcess();
+    if (!gpuConnectionToWebProcess)
+        return;
+
+    gpuConnectionToWebProcess->connection().send(Messages::RemoteCDMInstanceSession::SessionIdChanged(sessionId), m_identifier);
 }
 
 }

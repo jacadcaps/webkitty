@@ -28,6 +28,7 @@
 #if ENABLE(NETSCAPE_PLUGIN_API)
 
 #include "Connection.h"
+#include "DataReference.h"
 #include "Plugin.h"
 #include "PluginController.h"
 #include "ShareableBitmap.h"
@@ -36,10 +37,6 @@
 #include <WebCore/UserActivity.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RunLoop.h>
-
-namespace IPC {
-    class DataReference;
-}
 
 namespace WebKit {
 
@@ -62,7 +59,7 @@ public:
     void destroy();
 
     void didReceivePluginControllerProxyMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveSyncPluginControllerProxyMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
+    bool didReceiveSyncPluginControllerProxyMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
     bool wantsWheelEvents() const;
 

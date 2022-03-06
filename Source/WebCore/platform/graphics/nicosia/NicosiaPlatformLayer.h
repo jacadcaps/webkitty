@@ -37,6 +37,7 @@
 #include "NicosiaAnimatedBackingStoreClient.h"
 #include "NicosiaAnimation.h"
 #include "NicosiaSceneIntegration.h"
+#include "ScrollTypes.h"
 #include "TransformationMatrix.h"
 #include <wtf/Function.h>
 #include <wtf/Lock.h>
@@ -57,13 +58,13 @@ public:
 
     void setSceneIntegration(RefPtr<SceneIntegration>&& sceneIntegration)
     {
-        LockHolder locker(m_state.lock);
+        Locker locker { m_state.lock };
         m_state.sceneIntegration = WTFMove(sceneIntegration);
     }
 
     std::unique_ptr<SceneIntegration::UpdateScope> createUpdateScope()
     {
-        LockHolder locker(m_state.lock);
+        Locker locker { m_state.lock };
         if (m_state.sceneIntegration)
             return m_state.sceneIntegration->createUpdateScope();
         return nullptr;
@@ -134,6 +135,7 @@ public:
                     bool animatedBackingStoreClientChanged : 1;
                     bool repaintCounterChanged : 1;
                     bool debugBorderChanged : 1;
+                    bool scrollingNodeChanged : 1;
                 };
                 uint32_t value { 0 };
             };
@@ -183,6 +185,7 @@ public:
         RefPtr<CompositionLayer> replica;
         RefPtr<CompositionLayer> mask;
         RefPtr<CompositionLayer> backdropLayer;
+        WebCore::FloatRoundedRect backdropFiltersRect;
 
         RefPtr<ContentLayer> contentLayer;
         RefPtr<BackingStore> backingStore;
@@ -198,19 +201,21 @@ public:
             float width { 0 };
             bool visible { false };
         } debugBorder;
+
+        WebCore::ScrollingNodeID scrollingNodeID { 0 };
     };
 
     template<typename T>
     void updateState(const T& functor)
     {
-        LockHolder locker(PlatformLayer::m_state.lock);
+        Locker locker { PlatformLayer::m_state.lock };
         functor(m_state.pending);
     }
 
     template<typename T>
     void flushState(const T& functor)
     {
-        LockHolder locker(PlatformLayer::m_state.lock);
+        Locker locker { PlatformLayer::m_state.lock };
         auto& pending = m_state.pending;
         auto& staging = m_state.staging;
 
@@ -248,6 +253,8 @@ public:
             staging.filters = pending.filters;
         if (pending.delta.backdropFiltersChanged)
             staging.backdropLayer = pending.backdropLayer;
+        if (pending.delta.backdropFiltersRectChanged)
+            staging.backdropFiltersRect = pending.backdropFiltersRect;
         if (pending.delta.animationsChanged)
             staging.animations = pending.animations;
 
@@ -266,6 +273,9 @@ public:
         if (pending.delta.debugBorderChanged)
             staging.debugBorder = pending.debugBorder;
 
+        if (pending.delta.scrollingNodeChanged)
+            staging.scrollingNodeID = pending.scrollingNodeID;
+
         if (pending.delta.backingStoreChanged)
             staging.backingStore = pending.backingStore;
         if (pending.delta.contentLayerChanged)
@@ -283,7 +293,7 @@ public:
     template<typename T>
     void commitState(const T& functor)
     {
-        LockHolder locker(PlatformLayer::m_state.lock);
+        Locker locker { PlatformLayer::m_state.lock };
         m_state.committed = m_state.staging;
         m_state.staging.delta = { };
 
@@ -291,9 +301,16 @@ public:
     }
 
     template<typename T>
+    void accessPending(const T& functor)
+    {
+        Locker locker { PlatformLayer::m_state.lock };
+        functor(m_state.pending);
+    }
+
+    template<typename T>
     void accessCommitted(const T& functor)
     {
-        LockHolder locker(PlatformLayer::m_state.lock);
+        Locker locker { PlatformLayer::m_state.lock };
         functor(m_state.committed);
     }
 

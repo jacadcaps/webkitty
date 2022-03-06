@@ -31,10 +31,6 @@
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 
-namespace IPC {
-class DataReference;
-}
-
 namespace WebCore {
 class ResourceRequest;
 }
@@ -45,7 +41,7 @@ struct URLSchemeTaskParameters;
 class WebPageProxy;
 class WebProcessProxy;
 
-using SyncLoadCompletionHandler = CompletionHandler<void(const WebCore::ResourceResponse&, const WebCore::ResourceError&, const Vector<char>&)>;
+using SyncLoadCompletionHandler = CompletionHandler<void(const WebCore::ResourceResponse&, const WebCore::ResourceError&, const Vector<uint8_t>&)>;
 
 class WebURLSchemeHandler : public RefCounted<WebURLSchemeHandler> {
     WTF_MAKE_NONCOPYABLE(WebURLSchemeHandler);
@@ -65,7 +61,7 @@ protected:
 private:
     virtual void platformStartTask(WebPageProxy&, WebURLSchemeTask&) = 0;
     virtual void platformStopTask(WebPageProxy&, WebURLSchemeTask&) = 0;
-    virtual void platformTaskCompleted(WebURLSchemeTask&) = 0;
+    virtual void platformTaskCompleted(WebURLSchemeTask&) { };
 
     void removeTaskFromPageMap(WebPageProxyIdentifier, uint64_t taskID);
     WebProcessProxy* processForTaskIdentifier(uint64_t) const;

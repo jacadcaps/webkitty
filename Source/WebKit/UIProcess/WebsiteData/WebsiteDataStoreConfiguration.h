@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,12 +67,17 @@ public:
 
     const String& webSQLDatabaseDirectory() const { return m_webSQLDatabaseDirectory; }
     void setWebSQLDatabaseDirectory(String&& directory) { m_webSQLDatabaseDirectory = WTFMove(directory); }
-#if USE(GLIB) // According to r245075 this will eventually move here.
+
     const String& hstsStorageDirectory() const { return m_hstsStorageDirectory; }
     void setHSTSStorageDirectory(String&& directory) { m_hstsStorageDirectory = WTFMove(directory); }
-#endif
+
     const String& localStorageDirectory() const { return m_localStorageDirectory; }
     void setLocalStorageDirectory(String&& directory) { m_localStorageDirectory = WTFMove(directory); }
+
+#if HAVE(ARKIT_INLINE_PREVIEW)
+    const String& modelElementCacheDirectory() const { return m_modelElementCacheDirectory; }
+    void setModelElementCacheDirectory(String&& directory) { m_modelElementCacheDirectory = WTFMove(directory); }
+#endif
 
     const String& boundInterfaceIdentifier() const { return m_boundInterfaceIdentifier; }
     void setBoundInterfaceIdentifier(String&& identifier) { m_boundInterfaceIdentifier = WTFMove(identifier); }
@@ -112,6 +117,9 @@ public:
     const String& resourceLoadStatisticsDirectory() const { return m_resourceLoadStatisticsDirectory; }
     void setResourceLoadStatisticsDirectory(String&& directory) { m_resourceLoadStatisticsDirectory = WTFMove(directory); }
 
+    const String& privateClickMeasurementStorageDirectory() const { return m_privateClickMeasurementStorageDirectory; }
+    void setPrivateClickMeasurementStorageDirectory(String&& directory) { m_privateClickMeasurementStorageDirectory = WTFMove(directory); }
+
     const String& networkCacheDirectory() const { return m_networkCacheDirectory; }
     void setNetworkCacheDirectory(String&& directory) { m_networkCacheDirectory = WTFMove(directory); }
     
@@ -132,7 +140,7 @@ public:
 
     const String& sourceApplicationSecondaryIdentifier() const { return m_sourceApplicationSecondaryIdentifier; }
     void setSourceApplicationSecondaryIdentifier(String&& identifier) { m_sourceApplicationSecondaryIdentifier = WTFMove(identifier); }
-
+    
     const URL& httpProxy() const { return m_httpProxy; }
     void setHTTPProxy(URL&& proxy) { m_httpProxy = WTFMove(proxy); }
 
@@ -163,6 +171,12 @@ public:
     const URL& standaloneApplicationURL() const { return m_standaloneApplicationURL; }
     void setStandaloneApplicationURL(URL&& url) { m_standaloneApplicationURL = WTFMove(url); }
 
+    bool enableInAppBrowserPrivacyForTesting() const { return m_enableInAppBrowserPrivacyForTesting; }
+    void setEnableInAppBrowserPrivacyForTesting(bool value) { m_enableInAppBrowserPrivacyForTesting = value; }
+    
+    bool allowsHSTSWithUntrustedRootCertificate() const { return m_allowsHSTSWithUntrustedRootCertificate; }
+    void setAllowsHSTSWithUntrustedRootCertificate(bool allows) { m_allowsHSTSWithUntrustedRootCertificate = allows; }
+    
 private:
     IsPersistent m_isPersistent { IsPersistent::No };
 
@@ -175,8 +189,11 @@ private:
     String m_indexedDBDatabaseDirectory;
     String m_serviceWorkerRegistrationDirectory;
     String m_webSQLDatabaseDirectory;
-#if USE(GLIB)
     String m_hstsStorageDirectory;
+#if HAVE(ARKIT_INLINE_PREVIEW)
+    String m_modelElementCacheDirectory;
+#endif
+#if USE(GLIB)
     bool m_networkCacheSpeculativeValidationEnabled { true };
 #else
     bool m_networkCacheSpeculativeValidationEnabled { false };
@@ -187,6 +204,7 @@ private:
     String m_alternativeServicesDirectory;
     String m_deviceIdHashSaltsStorageDirectory;
     String m_resourceLoadStatisticsDirectory;
+    String m_privateClickMeasurementStorageDirectory;
     String m_javaScriptConfigurationDirectory;
     String m_cookieStorageFile;
     String m_sourceApplicationBundleIdentifier;
@@ -208,6 +226,8 @@ private:
     bool m_requiresSecureHTTPSProxyConnection { false };
     unsigned m_testSpeedMultiplier { 1 };
     URL m_standaloneApplicationURL;
+    bool m_enableInAppBrowserPrivacyForTesting { false };
+    bool m_allowsHSTSWithUntrustedRootCertificate { false };
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> m_proxyConfiguration;
 #endif

@@ -74,26 +74,6 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         return this._layers;
     }
 
-    shown()
-    {
-        super.shown();
-
-        this.updateLayout();
-        WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
-
-        if (this.didInitialLayout)
-            this._animate();
-    }
-
-    hidden()
-    {
-        WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
-
-        this._stopAnimation();
-
-        super.hidden();
-    }
-
     selectLayerById(layerId)
     {
         let layerGroup = this._layerGroupsById.get(layerId);
@@ -133,6 +113,11 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
     {
         super.attached();
 
+        WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+
+        if (this.didInitialLayout)
+            this._animate();
+
         WI.layerTreeManager.updateCompositingBordersVisibleFromPageIfNeeded();
 
         WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.CompositingBordersVisibleChanged, this._handleCompositingBordersVisibleChanged, this);
@@ -144,6 +129,10 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
 
     detached()
     {
+        WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+
+        this._stopAnimation();
+
         WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.ShowPaintRectsChanged, this._handleShowPaintRectsChanged, this);
         WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.CompositingBordersVisibleChanged, this._handleCompositingBordersVisibleChanged, this);
 
@@ -492,6 +481,8 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
             addReason(WI.UIString("Element is a plug-in"));
         if (compositingReasons.iFrame)
             addReason(WI.UIString("Element is <iframe>"));
+        if (compositingReasons.model)
+            addReason(WI.UIString("Element is <model>"));
         if (compositingReasons.backfaceVisibilityHidden)
             addReason(WI.UIString("Element has \u201Cbackface-visibility: hidden\u201D style"));
         if (compositingReasons.clipsCompositingDescendants)

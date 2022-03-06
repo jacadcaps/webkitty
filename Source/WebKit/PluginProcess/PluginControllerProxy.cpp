@@ -28,7 +28,6 @@
 
 #if ENABLE(NETSCAPE_PLUGIN_API)
 
-#include "DataReference.h"
 #include "NPObjectProxy.h"
 #include "NPRemoteObjectMap.h"
 #include "NPRuntimeUtilities.h"
@@ -119,7 +118,7 @@ bool PluginControllerProxy::initialize(const PluginCreationParameters& creationP
     if (creationParameters.windowNPObjectID)
         m_windowNPObject = m_connection->npRemoteObjectMap()->createNPObjectProxy(creationParameters.windowNPObjectID, m_plugin.get());
 
-    bool returnValue = m_plugin->initialize(this, creationParameters.parameters);
+    bool returnValue = m_plugin->initialize(*this, creationParameters.parameters);
 
     if (!returnValue) {
         // Get the plug-in so we can pass it to removePluginControllerProxy. The pointer is only
@@ -482,7 +481,7 @@ void PluginControllerProxy::streamDidReceiveResponse(uint64_t streamID, const St
 
 void PluginControllerProxy::streamDidReceiveData(uint64_t streamID, const IPC::DataReference& data)
 {
-    m_plugin->streamDidReceiveData(streamID, reinterpret_cast<const char*>(data.data()), data.size());
+    m_plugin->streamDidReceiveData(streamID, data.data(), data.size());
 }
 
 void PluginControllerProxy::streamDidFinishLoading(uint64_t streamID)
@@ -508,7 +507,7 @@ void PluginControllerProxy::manualStreamDidReceiveData(const IPC::DataReference&
     if (m_pluginCanceledManualStreamLoad)
         return;
 
-    m_plugin->manualStreamDidReceiveData(reinterpret_cast<const char*>(data.data()), data.size());
+    m_plugin->manualStreamDidReceiveData(data.data(), data.size());
 }
 
 void PluginControllerProxy::manualStreamDidFinishLoading()

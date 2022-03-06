@@ -66,6 +66,7 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
                 break;
 
             case WI.InlineSwatch.Type.Color:
+                this._shiftClickColorEnabled = true;
                 // Handled later by _updateSwatch.
                 break;
 
@@ -124,6 +125,12 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
         this._updateSwatch(true);
     }
 
+    set shiftClickColorEnabled(value)
+    {
+        this._shiftClickColorEnabled = !!value;
+        this._updateSwatch(true);
+    }
+
     // Popover delegate
 
     didDismissPopover(popover)
@@ -134,8 +141,16 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
         if (this._valueEditor.removeListeners)
             this._valueEditor.removeListeners();
 
-        if (this._valueEditor instanceof WI.Object)
-            this._valueEditor.removeEventListener(null, null, this);
+        if (this._valueEditor instanceof WI.BezierEditor)
+            this._valueEditor.removeEventListener(WI.BezierEditor.Event.BezierChanged, this._valueEditorValueDidChange, this);
+        else if (this._valueEditor instanceof WI.BoxShadowEditor)
+            this._valueEditor.removeEventListener(WI.BoxShadowEditor.Event.BoxShadowChanged, this._valueEditorValueDidChange, this);
+        else if (this._valueEditor instanceof WI.ColorPicker)
+            this._valueEditor.removeEventListener(WI.ColorPicker.Event.ColorChanged, this._valueEditorValueDidChange, this);
+        else if (this._valueEditor instanceof WI.GradientEditor)
+            this._valueEditor.removeEventListener(WI.GradientEditor.Event.GradientChanged, this._valueEditorValueDidChange, this);
+        else if (this._valueEditor instanceof WI.SpringEditor)
+            this._valueEditor.removeEventListener(WI.SpringEditor.Event.SpringChanged, this._valueEditorValueDidChange, this);
 
         this._valueEditor = null;
 
@@ -172,7 +187,7 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
             this._swatchInnerElement.style.setProperty("background-image", `url(${value.src})`);
 
         if (this._type === WI.InlineSwatch.Type.Color) {
-            if (this._allowShiftClickColor())
+            if (this._allowChangingColorFormats())
                 this._swatchElement.title = WI.UIString("Click to select a color\nShift-click to switch color formats");
             else
                 this._swatchElement.title = WI.UIString("Click to select a color");
@@ -182,9 +197,9 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
             this.dispatchEventToListeners(WI.InlineSwatch.Event.ValueChanged, {value});
     }
 
-    _allowShiftClickColor()
+    _allowChangingColorFormats()
     {
-        return !this._readOnly && !this.value.isOutsideSRGB();
+        return this._shiftClickColorEnabled && !this._readOnly && !this.value.isOutsideSRGB();
     }
 
     _swatchElementClicked(event)
@@ -195,7 +210,7 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
 
         if (event.shiftKey && value) {
             if (this._type === WI.InlineSwatch.Type.Color) {
-                if (!this._allowShiftClickColor()) {
+                if (!this._allowChangingColorFormats()) {
                     InspectorFrontendHost.beep();
                     return;
                 }
@@ -251,7 +266,9 @@ WI.InlineSwatch = class InlineSwatch extends WI.Object
         case WI.InlineSwatch.Type.Gradient:
             this._valueEditor = new WI.GradientEditor;
             this._valueEditor.addEventListener(WI.GradientEditor.Event.GradientChanged, this._valueEditorValueDidChange, this);
-            this._valueEditor.addEventListener(WI.GradientEditor.Event.ColorPickerToggled, (event) => popover.update());
+            this._valueEditor.addEventListener(WI.GradientEditor.Event.ColorPickerToggled, function(event) {
+                this.update();
+            }, popover);
             break;
 
         case WI.InlineSwatch.Type.Image:

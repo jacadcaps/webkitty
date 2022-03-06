@@ -10,24 +10,8 @@ list(APPEND TestWTF_SOURCES
     generic/UtilitiesGeneric.cpp
 )
 
-# Both bmalloc and WTF are built as object libraries. The WebKit:: interface
-# targets are used. A limitation of that is the object files are not propagated
-# so they are added here.
-list(APPEND TestWTF_PRIVATE_LIBRARIES
-    $<TARGET_OBJECTS:WTF>
-    $<TARGET_OBJECTS:bmalloc>
-)
-
 list(APPEND TestWebCore_SOURCES
     ${test_main_SOURCES}
-)
-
-# Both PAL and WebCore are built as object libraries. The WebKit:: interface
-# targets are used. A limitation of that is the object files are not propagated
-# so they are added here.
-list(APPEND TestWebCore_PRIVATE_LIBRARIES
-    $<TARGET_OBJECTS:PAL>
-    $<TARGET_OBJECTS:WebCore>
 )
 
 # TestWebKit
@@ -54,8 +38,11 @@ if (ENABLE_WEBKIT)
         Tests/WebKit/ForceRepaint.cpp
         Tests/WebKit/Geolocation.cpp
     )
-endif ()
 
+    list(APPEND TestWebKit_PRIVATE_LIBRARIES
+        WebKitRequirements::ProcessLauncher
+    )
+endif ()
 
 # Set the debugger working directory for Visual Studio
 if (${CMAKE_GENERATOR} MATCHES "Visual Studio")

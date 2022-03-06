@@ -32,6 +32,7 @@
 #include "GPUProcessProxy.h"
 #include "RemoteAudioSessionMessages.h"
 #include "RemoteAudioSessionProxyMessages.h"
+#include "WebProcess.h"
 #include <WebCore/PlatformMediaSessionManager.h>
 
 namespace WebKit {
@@ -40,54 +41,131 @@ using namespace WebCore;
 
 UniqueRef<RemoteAudioSession> RemoteAudioSession::create(WebProcess& process)
 {
-    RemoteAudioSessionConfiguration configuration;
-    process.ensureGPUProcessConnection().connection().sendSync(Messages::GPUConnectionToWebProcess::EnsureAudioSession(), Messages::GPUConnectionToWebProcess::EnsureAudioSession::Reply(configuration), { });
-    return makeUniqueRef<RemoteAudioSession>(process, WTFMove(configuration));
+    return makeUniqueRef<RemoteAudioSession>(process);
 }
 
-RemoteAudioSession::RemoteAudioSession(WebProcess& process, RemoteAudioSessionConfiguration&& configuration)
+RemoteAudioSession::RemoteAudioSession(WebProcess& process)
     : m_process(process)
-    , m_configuration(WTFMove(configuration))
 {
-    m_process.ensureGPUProcessConnection().messageReceiverMap().addMessageReceiver(Messages::RemoteAudioSession::messageReceiverName(), 1, *this);
 }
 
 RemoteAudioSession::~RemoteAudioSession()
 {
-    if (auto* connection = m_process.existingGPUProcessConnection())
-        connection->messageReceiverMap().removeMessageReceiver(Messages::RemoteAudioSession::messageReceiverName(), 1);
+    if (m_gpuProcessConnection)
+        m_gpuProcessConnection->messageReceiverMap().removeMessageReceiver(Messages::RemoteAudioSession::messageReceiverName());
 }
 
-IPC::Connection& RemoteAudioSession::connection()
+void RemoteAudioSession::gpuProcessConnectionDidClose(GPUProcessConnection& connection)
 {
-    return m_process.ensureGPUProcessConnection().connection();
+    ASSERT(m_gpuProcessConnection.get() == &connection);
+    m_gpuProcessConnection = nullptr;
+    connection.messageReceiverMap().removeMessageReceiver(Messages::RemoteAudioSession::messageReceiverName());
+    connection.removeClient(*this);
+}
+
+IPC::Connection& RemoteAudioSession::ensureConnection()
+{
+    if (!m_gpuProcessConnection) {
+        m_gpuProcessConnection = makeWeakPtr(m_process.ensureGPUProcessConnection());
+        m_gpuProcessConnection->addClient(*this);
+        m_gpuProcessConnection->messageReceiverMap().addMessageReceiver(Messages::RemoteAudioSession::messageReceiverName(), *this);
+
+        RemoteAudioSessionConfiguration configuration;
+        ensureConnection().sendSync(Messages::GPUConnectionToWebProcess::EnsureAudioSession(), Messages::GPUConnectionToWebProcess::EnsureAudioSession::Reply(configuration), { });
+        m_configuration = WTFMove(configuration);
+    }
+    return m_gpuProcessConnection->connection();
+}
+
+const RemoteAudioSessionConfiguration& RemoteAudioSession::configuration() const
+{
+    if (!m_configuration)
+        const_cast<RemoteAudioSession*>(this)->ensureConnection();
+    return *m_configuration;
+}
+
+RemoteAudioSessionConfiguration& RemoteAudioSession::configuration()
+{
+    if (!m_configuration)
+        ensureConnection();
+    return *m_configuration;
 }
 
 void RemoteAudioSession::setCategory(CategoryType type, RouteSharingPolicy policy)
 {
-    connection().send(Messages::RemoteAudioSessionProxy::SetCategory(type, policy), { });
+#if PLATFORM(COCOA)
+    if (type == m_category && policy == m_routeSharingPolicy && !m_isPlayingToBluetoothOverrideChanged)
+        return;
+
+    m_category = type;
+    m_routeSharingPolicy = policy;
+    m_isPlayingToBluetoothOverrideChanged = false;
+
+    ensureConnection().send(Messages::RemoteAudioSessionProxy::SetCategory(type, policy), { });
+#else
+    UNUSED_PARAM(type);
+    UNUSED_PARAM(policy);
+#endif
 }
 
 void RemoteAudioSession::setPreferredBufferSize(size_t size)
 {
-    connection().send(Messages::RemoteAudioSessionProxy::SetPreferredBufferSize(size), { });
+    configuration().preferredBufferSize = size;
+    ensureConnection().send(Messages::RemoteAudioSessionProxy::SetPreferredBufferSize(size), { });
 }
 
 bool RemoteAudioSession::tryToSetActiveInternal(bool active)
 {
     bool succeeded;
-    connection().sendSync(Messages::RemoteAudioSessionProxy::TryToSetActive(active), Messages::RemoteAudioSessionProxy::TryToSetActive::Reply(succeeded), { });
+    ensureConnection().sendSync(Messages::RemoteAudioSessionProxy::TryToSetActive(active), Messages::RemoteAudioSessionProxy::TryToSetActive::Reply(succeeded), { });
+    if (succeeded)
+        configuration().isActive = active;
     return succeeded;
+}
+
+void RemoteAudioSession::addConfigurationChangeObserver(ConfigurationChangeObserver& observer)
+{
+    m_configurationChangeObservers.add(observer);
+}
+
+void RemoteAudioSession::removeConfigurationChangeObserver(ConfigurationChangeObserver& observer)
+{
+    m_configurationChangeObservers.remove(observer);
+}
+
+void RemoteAudioSession::setIsPlayingToBluetoothOverride(std::optional<bool> value)
+{
+    m_isPlayingToBluetoothOverrideChanged = true;
+    ensureConnection().send(Messages::RemoteAudioSessionProxy::SetIsPlayingToBluetoothOverride(value), { });
+}
+
+AudioSession::CategoryType RemoteAudioSession::category() const
+{
+#if PLATFORM(COCOA)
+    return m_category;
+#else
+    return AudioSession::CategoryType::None;
+#endif
 }
 
 void RemoteAudioSession::configurationChanged(RemoteAudioSessionConfiguration&& configuration)
 {
-    bool mutedStateChanged = configuration.isMuted != m_configuration.isMuted;
+    bool mutedStateChanged = !m_configuration || configuration.isMuted != (*m_configuration).isMuted;
+    bool bufferSizeChanged = !m_configuration || configuration.bufferSize != (*m_configuration).bufferSize;
+    bool sampleRateCahnged = !m_configuration || configuration.sampleRate != (*m_configuration).sampleRate;
 
-    m_configuration = configuration;
+    m_configuration = WTFMove(configuration);
 
-    if (mutedStateChanged)
-        handleMutedStateChange();
+    m_configurationChangeObservers.forEach([&](auto& observer) {
+        if (mutedStateChanged)
+            observer.hardwareMutedStateDidChange(*this);
+
+        if (bufferSizeChanged)
+            observer.bufferSizeDidChange(*this);
+
+        if (sampleRateCahnged)
+            observer.sampleRateDidChange(*this);
+    });
 }
 
 }

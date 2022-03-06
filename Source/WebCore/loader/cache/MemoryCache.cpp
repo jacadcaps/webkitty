@@ -114,6 +114,9 @@ bool MemoryCache::add(CachedResource& resource)
     if (disabled())
         return false;
 
+    if (resource.resourceRequest().httpMethod() != "GET")
+        return false;
+
     ASSERT(WTF::isMainThread());
 
     auto key = std::make_pair(resource.url(), resource.cachePartition());
@@ -122,7 +125,7 @@ bool MemoryCache::add(CachedResource& resource)
     resource.setInCache(true);
     
     resourceAccessed(resource);
-    
+
     LOG(ResourceLoading, "MemoryCache::add Added '%.255s', resource %p\n", resource.url().string().latin1().data(), &resource);
     return true;
 }
@@ -416,7 +419,8 @@ void MemoryCache::remove(CachedResource& resource)
         }
     }
 
-    resource.deleteIfPossible();
+    if (resource.canDelete())
+        resource.deleteThis();
 }
 
 auto MemoryCache::lruListFor(CachedResource& resource) -> LRUList&
@@ -643,9 +647,7 @@ MemoryCache::Statistics MemoryCache::getStatistics()
                 stats.xslStyleSheets.addResource(*resource);
                 break;
 #endif
-#if ENABLE(SVG_FONTS)
             case CachedResource::Type::SVGFontResource:
-#endif
             case CachedResource::Type::FontResource:
                 stats.fonts.addResource(*resource);
                 break;

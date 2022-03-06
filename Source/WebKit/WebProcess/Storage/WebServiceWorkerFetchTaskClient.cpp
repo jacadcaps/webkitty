@@ -28,7 +28,6 @@
 
 #if ENABLE(SERVICE_WORKER)
 
-#include "DataReference.h"
 #include "FormDataReference.h"
 #include "Logging.h"
 #include "ServiceWorkerFetchTaskMessages.h"
@@ -85,11 +84,17 @@ void WebServiceWorkerFetchTaskClient::didReceiveData(Ref<SharedBuffer>&& buffer)
         return;
     }
 
-    m_connection->send(Messages::ServiceWorkerFetchTask::DidReceiveSharedBuffer { buffer.get(), static_cast<int64_t>(buffer->size()) }, m_fetchIdentifier);
+    m_connection->send(Messages::ServiceWorkerFetchTask::DidReceiveData { buffer.get(), static_cast<int64_t>(buffer->size()) }, m_fetchIdentifier);
 }
 
 void WebServiceWorkerFetchTaskClient::didReceiveFormDataAndFinish(Ref<FormData>&& formData)
 {
+    if (auto sharedBuffer = formData->asSharedBuffer()) {
+        didReceiveData(sharedBuffer.releaseNonNull());
+        didFinish();
+        return;
+    }
+
     if (!m_connection)
         return;
 
@@ -106,7 +111,7 @@ void WebServiceWorkerFetchTaskClient::didReceiveFormDataAndFinish(Ref<FormData>&
         return;
     }
 
-    callOnMainThread([this, protectedThis = makeRef(*this), blobURL = blobURL.isolatedCopy()] () {
+    callOnMainRunLoop([this, protectedThis = makeRef(*this), blobURL = blobURL.isolatedCopy()] () {
         auto* serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxy(m_serviceWorkerIdentifier);
         if (!serviceWorkerThreadProxy) {
             didFail(internalError(blobURL));
@@ -116,7 +121,7 @@ void WebServiceWorkerFetchTaskClient::didReceiveFormDataAndFinish(Ref<FormData>&
         m_blobLoader.emplace(*this);
         auto loader = serviceWorkerThreadProxy->createBlobLoader(*m_blobLoader, blobURL);
         if (!loader) {
-            m_blobLoader = WTF::nullopt;
+            m_blobLoader = std::nullopt;
             didFail(internalError(blobURL));
             return;
         }
@@ -125,19 +130,19 @@ void WebServiceWorkerFetchTaskClient::didReceiveFormDataAndFinish(Ref<FormData>&
     });
 }
 
-void WebServiceWorkerFetchTaskClient::didReceiveBlobChunk(const char* data, size_t size)
+void WebServiceWorkerFetchTaskClient::didReceiveBlobChunk(const uint8_t* data, size_t size)
 {
     if (!m_connection)
         return;
 
-    m_connection->send(Messages::ServiceWorkerFetchTask::DidReceiveData { { reinterpret_cast<const uint8_t*>(data), size }, static_cast<int64_t>(size) }, m_fetchIdentifier);
+    m_connection->send(Messages::ServiceWorkerFetchTask::DidReceiveData { { data, size }, static_cast<int64_t>(size) }, m_fetchIdentifier);
 }
 
 void WebServiceWorkerFetchTaskClient::didFinishBlobLoading()
 {
     didFinish();
 
-    std::exchange(m_blobLoader, WTF::nullopt);
+    std::exchange(m_blobLoader, std::nullopt);
 }
 
 void WebServiceWorkerFetchTaskClient::didFail(const ResourceError& error)
@@ -217,14 +222,10 @@ void WebServiceWorkerFetchTaskClient::cleanup()
 {
     m_connection = nullptr;
 
-    if (!isMainThread()) {
-        callOnMainThread([protectedThis = makeRef(*this)] () {
-            protectedThis->cleanup();
-        });
-        return;
-    }
-    if (auto* serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxy(m_serviceWorkerIdentifier))
-        serviceWorkerThreadProxy->removeFetch(m_serverConnectionIdentifier, m_fetchIdentifier);
+    ensureOnMainRunLoop([serviceWorkerIdentifier = m_serviceWorkerIdentifier, serverConnectionIdentifier = m_serverConnectionIdentifier, fetchIdentifier = m_fetchIdentifier] {
+        if (auto* proxy = SWContextManager::singleton().serviceWorkerThreadProxy(serviceWorkerIdentifier))
+            proxy->removeFetch(serverConnectionIdentifier, fetchIdentifier);
+    });
 }
 
 } // namespace WebKit

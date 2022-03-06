@@ -26,7 +26,10 @@
 #include "config.h"
 #include "WebEventConversion.h"
 
-#include "WebEvent.h"
+#include "WebKeyboardEvent.h"
+#include "WebMouseEvent.h"
+#include "WebTouchEvent.h"
+#include "WebWheelEvent.h"
 
 #if ENABLE(MAC_GESTURE_EVENTS)
 #include "WebGestureEvent.h"
@@ -102,14 +105,14 @@ public:
         m_buttons = webEvent.buttons();
 
         m_position = webEvent.position();
-#if ENABLE(POINTER_LOCK)
         m_movementDelta = WebCore::IntPoint(webEvent.deltaX(), webEvent.deltaY());
-#endif
         m_globalPosition = webEvent.globalPosition();
         m_clickCount = webEvent.clickCount();
 #if PLATFORM(MAC)
         m_eventNumber = webEvent.eventNumber();
         m_menuTypeForEvent = webEvent.menuTypeForEvent();
+#elif PLATFORM(GTK)
+        m_isTouchEvent = webEvent.isTouchEvent();
 #endif
         m_modifierFlags = 0;
         if (webEvent.shiftKey())
@@ -120,6 +123,9 @@ public:
             m_modifierFlags |= static_cast<unsigned>(WebEvent::Modifier::AltKey);
         if (webEvent.metaKey())
             m_modifierFlags |= static_cast<unsigned>(WebEvent::Modifier::MetaKey);
+
+        m_pointerId = webEvent.pointerId();
+        m_pointerType = webEvent.pointerType();
     }
 };
 
@@ -161,8 +167,10 @@ public:
         m_phase = static_cast<WebCore::PlatformWheelEventPhase>(webEvent.phase());
         m_momentumPhase = static_cast<WebCore::PlatformWheelEventPhase>(webEvent.momentumPhase());
 #endif
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || USE(LIBWPE)
         m_hasPreciseScrollingDeltas = webEvent.hasPreciseScrollingDeltas();
+#endif
+#if PLATFORM(COCOA)
         m_scrollCount = webEvent.scrollCount();
         m_unacceleratedScrollingDeltaX = webEvent.unacceleratedScrollingDelta().width();
         m_unacceleratedScrollingDeltaY = webEvent.unacceleratedScrollingDelta().height();
@@ -217,7 +225,7 @@ public:
         m_code = webEvent.code();
         m_keyIdentifier = webEvent.keyIdentifier();
         m_windowsVirtualKeyCode = webEvent.windowsVirtualKeyCode();
-#if USE(APPKIT) || USE(UIKIT_KEYBOARD_ADDITIONS) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
         m_handledByInputMethod = webEvent.handledByInputMethod();
 #endif
 #if PLATFORM(GTK) || USE(LIBWPE)

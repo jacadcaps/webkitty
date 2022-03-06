@@ -82,19 +82,36 @@ void DrawingArea::dispatchAfterEnsuringUpdatedScrollPosition(WTF::Function<void 
     function();
 }
 
-#if !(PLATFORM(MAC) && ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING))
-RefPtr<WebCore::DisplayRefreshMonitor> DrawingArea::createDisplayRefreshMonitor(PlatformDisplayID)
-{
-    return nullptr;
-}
-#endif
-
 void DrawingArea::removeMessageReceiverIfNeeded()
 {
     if (m_hasRemovedMessageReceiver)
         return;
     m_hasRemovedMessageReceiver = true;
     WebProcess::singleton().removeMessageReceiver(Messages::DrawingArea::messageReceiverName(), m_identifier);
+}
+
+RefPtr<WebCore::DisplayRefreshMonitor> DrawingArea::createDisplayRefreshMonitor(WebCore::PlatformDisplayID)
+{
+    return nullptr;
+}
+
+bool DrawingArea::supportsGPUProcessRendering(DrawingAreaType type)
+{
+    switch (type) {
+#if PLATFORM(COCOA)
+#if !PLATFORM(IOS_FAMILY)
+    case DrawingAreaTypeTiledCoreAnimation:
+        return false;
+#endif
+    case DrawingAreaTypeRemoteLayerTree:
+        return true;
+#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+    case DrawingAreaTypeCoordinatedGraphics:
+        return false;
+#endif
+    default:
+        return false;
+    }
 }
 
 } // namespace WebKit

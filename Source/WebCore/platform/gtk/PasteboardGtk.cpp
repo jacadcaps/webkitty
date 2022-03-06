@@ -29,7 +29,6 @@
 #include "PlatformStrategies.h"
 #include "SharedBuffer.h"
 #include <wtf/NeverDestroyed.h>
-#include <wtf/Optional.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
@@ -43,45 +42,52 @@ enum ClipboardDataType {
     ClipboardDataTypeUnknown
 };
 
-std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
+std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>("CLIPBOARD");
+    return makeUnique<Pasteboard>(WTFMove(context), "CLIPBOARD");
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForGlobalSelection()
+std::unique_ptr<Pasteboard> Pasteboard::createForGlobalSelection(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>("PRIMARY");
+    return makeUnique<Pasteboard>(WTFMove(context), "PRIMARY");
 }
 
 #if ENABLE(DRAG_SUPPORT)
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop()
+std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>(SelectionData());
+    return makeUnique<Pasteboard>(WTFMove(context), SelectionData());
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(const DragData& dragData)
+std::unique_ptr<Pasteboard> Pasteboard::create(const DragData& dragData)
 {
     ASSERT(dragData.platformData());
-    return makeUnique<Pasteboard>(*dragData.platformData());
+    return makeUnique<Pasteboard>(dragData.createPasteboardContext(), *dragData.platformData());
 }
 
-Pasteboard::Pasteboard(SelectionData&& selectionData)
-    : m_selectionData(WTFMove(selectionData))
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&& selectionData)
+    : m_context(WTFMove(context))
+    , m_selectionData(WTFMove(selectionData))
 {
 }
 #endif
 
-Pasteboard::Pasteboard(SelectionData& selectionData)
-    : m_selectionData(selectionData)
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData& selectionData)
+    : m_context(WTFMove(context))
+    , m_selectionData(selectionData)
 {
 }
 
-Pasteboard::Pasteboard(const String& name)
-    : m_name(name)
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const String& name)
+    : m_context(WTFMove(context))
+    , m_name(name)
 {
 }
 
-Pasteboard::Pasteboard() = default;
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context)
+    : m_context(WTFMove(context))
+{
+}
+
 Pasteboard::~Pasteboard() = default;
 
 const SelectionData& Pasteboard::selectionData() const
@@ -249,12 +255,12 @@ void Pasteboard::setDragImage(DragImage, const IntPoint&)
 }
 #endif
 
-void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, Optional<size_t>)
+void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, std::optional<size_t>)
 {
     text.text = platformStrategies()->pasteboardStrategy()->readTextFromClipboard(m_name);
 }
 
-void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy policy, Optional<size_t>)
+void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy policy, std::optional<size_t>)
 {
     reader.contentOrigin = readOrigin();
 
@@ -306,7 +312,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
     }
 }
 
-void Pasteboard::read(PasteboardFileReader& reader, Optional<size_t>)
+void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
 {
     if (m_selectionData) {
         for (const auto& filePath : m_selectionData->filenames())
@@ -348,7 +354,7 @@ Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
         return copyToVector(types);
     }
 
-    return platformStrategies()->pasteboardStrategy()->typesSafeForDOMToReadAndWrite(m_name, origin);
+    return platformStrategies()->pasteboardStrategy()->typesSafeForDOMToReadAndWrite(m_name, origin, context());
 }
 
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
@@ -469,7 +475,7 @@ void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data)
         return;
     }
 
-    platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name);
+    platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name, context());
 }
 
 void Pasteboard::write(const Color&)

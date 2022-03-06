@@ -33,6 +33,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
 typedef struct objc_object* id;
@@ -54,6 +55,7 @@ namespace WebCore {
 class AffineTransform;
 class Element;
 class FloatPoint;
+class FloatSize;
 class GraphicsContext;
 class IntPoint;
 class IntRect;
@@ -96,19 +98,14 @@ public:
         static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, Parameters&);
     };
 
-    // Sets the active plug-in controller and initializes the plug-in.
-    bool initialize(PluginController*, const Parameters&);
+    bool initialize(PluginController&, const Parameters&);
 
-    virtual bool isBeingAsynchronouslyInitialized() const = 0;
-
-    // Destroys the plug-in.
     void destroyPlugin();
 
     bool isBeingDestroyed() const { return m_isBeingDestroyed; }
 
-    // Returns the plug-in controller for this plug-in.
-    PluginController* controller() { return m_pluginController; }
-    const PluginController* controller() const { return m_pluginController; }
+    PluginController* controller();
+    const PluginController* controller() const;
 
     virtual ~Plugin();
 
@@ -177,7 +174,7 @@ public:
                                           uint32_t lastModifiedTime, const String& mimeType, const String& headers, const String& suggestedFileName) = 0;
 
     // Tells the plug-in that a stream did receive data.
-    virtual void streamDidReceiveData(uint64_t streamID, const char* bytes, int length) = 0;
+    virtual void streamDidReceiveData(uint64_t streamID, const uint8_t* bytes, int length) = 0;
 
     // Tells the plug-in that a stream has finished loading.
     virtual void streamDidFinishLoading(uint64_t streamID) = 0;
@@ -190,7 +187,7 @@ public:
                                                 uint32_t lastModifiedTime, const String& mimeType, const String& headers, const String& suggestedFileName) = 0;
 
     // Tells the plug-in that the manual stream did receive data.
-    virtual void manualStreamDidReceiveData(const char* bytes, int length) = 0;
+    virtual void manualStreamDidReceiveData(const uint8_t* bytes, int length) = 0;
 
     // Tells the plug-in that a stream has finished loading.
     virtual void manualStreamDidFinishLoading() = 0;
@@ -279,6 +276,7 @@ public:
 
 #if PLATFORM(COCOA)
     virtual RetainPtr<PDFDocument> pdfDocumentForPrinting() const { return 0; }
+    virtual WebCore::FloatSize pdfDocumentSizeForPrinting() const;
     virtual NSObject *accessibilityObject() const { return 0; }
     virtual id accessibilityAssociatedPluginParentForElement(WebCore::Element*) const { return nullptr; }
 #endif
@@ -288,8 +286,6 @@ public:
     virtual bool findString(const String& target, WebCore::FindOptions, unsigned maxMatchCount) = 0;
 
     virtual WebCore::IntPoint convertToRootView(const WebCore::IntPoint& pointInLocalCoordinates) const;
-
-    virtual bool shouldAlwaysAutoStart() const { return false; }
 
     virtual RefPtr<WebCore::SharedBuffer> liveResourceData() const = 0;
 
@@ -317,7 +313,7 @@ protected:
     bool m_isBeingDestroyed { false };
 
 private:
-    PluginController* m_pluginController;
+    WeakPtr<PluginController> m_pluginController;
 };
     
 } // namespace WebKit

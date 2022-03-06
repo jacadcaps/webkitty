@@ -4,16 +4,26 @@ set(WebKit_OUTPUT_NAME webkit2gtk-${WEBKITGTK_API_VERSION})
 set(WebProcess_OUTPUT_NAME WebKitWebProcess)
 set(NetworkProcess_OUTPUT_NAME WebKitNetworkProcess)
 set(GPUProcess_OUTPUT_NAME WebKitGPUProcess)
-set(PluginProcess_OUTPUT_NAME WebKitPluginProcess)
 
-file(MAKE_DIRECTORY ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR})
-file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WEBKIT2GTK_DIR})
-file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR})
-file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR})
+file(MAKE_DIRECTORY ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2)
+file(MAKE_DIRECTORY ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR})
+file(MAKE_DIRECTORY ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION})
+file(MAKE_DIRECTORY ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension)
 
-configure_file(UIProcess/API/gtk/WebKitVersion.h.in ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitVersion.h)
+configure_file(Shared/glib/BuildRevision.h.in ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/BuildRevision.h)
+configure_file(UIProcess/API/gtk/WebKitVersion.h.in ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitVersion.h)
 configure_file(gtk/webkit2gtk.pc.in ${WebKit2_PKGCONFIG_FILE} @ONLY)
 configure_file(gtk/webkit2gtk-web-extension.pc.in ${WebKit2WebExtension_PKGCONFIG_FILE} @ONLY)
+
+if (EXISTS "${TOOLS_DIR}/glib/apply-build-revision-to-files.py")
+    add_custom_target(WebKit-build-revision
+        ${PYTHON_EXECUTABLE} "${TOOLS_DIR}/glib/apply-build-revision-to-files.py" ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/BuildRevision.h ${WebKit2_PKGCONFIG_FILE} ${WebKit2WebExtension_PKGCONFIG_FILE}
+        DEPENDS ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/BuildRevision.h ${WebKit2_PKGCONFIG_FILE} ${WebKit2WebExtension_PKGCONFIG_FILE}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} VERBATIM)
+    list(APPEND WebKit_DEPENDENCIES
+        WebKit-build-revision
+    )
+endif ()
 
 add_definitions(-DBUILDING_WEBKIT)
 add_definitions(-DWEBKIT2_COMPILATION)
@@ -34,46 +44,54 @@ list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
     "SourcesGTK.txt"
 )
 
-if (NOT USE_GTK4)
-    list(APPEND WebKit_SOURCES
-        UIProcess/ViewGestureController.cpp
+list(APPEND WebKit_MESSAGES_IN_FILES
+    UIProcess/ViewGestureController
 
-        UIProcess/gtk/ViewGestureControllerGtk.cpp
-
-        WebProcess/WebPage/ViewGestureGeometryCollector.cpp
-    )
-    list(APPEND WebKit_MESSAGES_IN_FILES
-        UIProcess/ViewGestureController
-
-        WebProcess/WebPage/ViewGestureGeometryCollector
-    )
-endif ()
+    WebProcess/gtk/GtkSettingsManagerProxy
+    WebProcess/WebPage/ViewGestureGeometryCollector
+)
 
 list(APPEND WebKit_DERIVED_SOURCES
-    ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/InspectorGResourceBundle.c
-    ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.c
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/InspectorGResourceBundle.c
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.c
 
-    ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.cpp
-    ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.cpp
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.cpp
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.cpp
 )
 
 if (ENABLE_WAYLAND_TARGET)
     list(APPEND WebKit_DERIVED_SOURCES
-        ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitWaylandClientProtocol.c
-        ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/pointer-constraints-unstable-v1-protocol.c
-        ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/relative-pointer-unstable-v1-protocol.c
+        ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitWaylandClientProtocol.c
+        ${WebKit2Gtk_DERIVED_SOURCES_DIR}/pointer-constraints-unstable-v1-protocol.c
+        ${WebKit2Gtk_DERIVED_SOURCES_DIR}/relative-pointer-unstable-v1-protocol.c
     )
 endif ()
 
+set(WebKit_DirectoryInputStream_DATA
+    ${WEBKIT_DIR}/NetworkProcess/soup/Resources/directory.css
+    ${WEBKIT_DIR}/NetworkProcess/soup/Resources/directory.js
+)
+
+add_custom_command(
+    OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.h
+    MAIN_DEPENDENCY ${WEBCORE_DIR}/css/make-css-file-arrays.pl
+    DEPENDS ${WebKit_DirectoryInputStream_DATA}
+    COMMAND ${PERL_EXECUTABLE} ${WEBCORE_DIR}/css/make-css-file-arrays.pl --defines "${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}" --preprocessor "${CODE_GENERATOR_PREPROCESSOR}" ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.h ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitDirectoryInputStreamData.cpp ${WebKit_DirectoryInputStream_DATA}
+    VERBATIM
+)
+
 if (USE_GTK4)
     set(GTK_API_VERSION 4)
+    set(GTK_PKGCONFIG_PACKAGE gtk4)
 else ()
     set(GTK_API_VERSION 3)
+    set(GTK_PKGCONFIG_PACKAGE gtk+-3.0)
 endif ()
 
 set(WebKit2GTK_INSTALLED_HEADERS
-    ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.h
-    ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitVersion.h
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.h
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitVersion.h
     ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION}/WebKitContextMenuItem.h
     ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION}/WebKitInputMethodContext.h
     ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION}/WebKitWebViewBase.h
@@ -104,6 +122,8 @@ set(WebKit2GTK_INSTALLED_HEADERS
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitHitTestResult.h
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitInstallMissingMediaPluginsPermissionRequest.h
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitJavascriptResult.h
+    ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitMediaKeySystemPermissionRequest.h
+    ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitMemoryPressureSettings.h
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitMimeInfo.h
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitNavigationAction.h
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitNavigationPolicyDecision.h
@@ -146,7 +166,7 @@ set(WebKit2GTK_INSTALLED_HEADERS
 )
 
 set(WebKit2WebExtension_INSTALLED_HEADERS
-    ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.h
+    ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.h
     ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitConsoleMessage.h
     ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitFrame.h
     ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitScriptWorld.h
@@ -382,17 +402,14 @@ set(WebKitDOM_GTKDOC_HEADERS
 
 # This is necessary because of a conflict between the GTK+ API WebKitVersion.h and one generated by WebCore.
 list(INSERT WebKit_INCLUDE_DIRECTORIES 0
-    "${FORWARDING_HEADERS_WEBKIT2GTK_DIR}"
-    "${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}"
-    "${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}"
-    "${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}"
-    "${DERIVED_SOURCES_WEBKIT2GTK_DIR}"
+    "${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}"
+    "${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}"
+    "${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension"
+    "${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2"
+    "${WebKit2Gtk_DERIVED_SOURCES_DIR}"
 )
 
 list(APPEND WebKit_INCLUDE_DIRECTORIES
-    "${DERIVED_SOURCES_JAVASCRIPCOREGTK_DIR}"
-    "${FORWARDING_HEADERS_DIR}/JavaScriptCore/"
-    "${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib"
     "${WEBKIT_DIR}/NetworkProcess/glib"
     "${WEBKIT_DIR}/NetworkProcess/gtk"
     "${WEBKIT_DIR}/NetworkProcess/soup"
@@ -404,7 +421,6 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/API/glib"
     "${WEBKIT_DIR}/Shared/CoordinatedGraphics"
     "${WEBKIT_DIR}/Shared/CoordinatedGraphics/threadedcompositor"
-    "${WEBKIT_DIR}/Shared/Plugins/unix"
     "${WEBKIT_DIR}/Shared/glib"
     "${WEBKIT_DIR}/Shared/gtk"
     "${WEBKIT_DIR}/Shared/linux"
@@ -417,7 +433,6 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/CoordinatedGraphics"
     "${WEBKIT_DIR}/UIProcess/Inspector/glib"
     "${WEBKIT_DIR}/UIProcess/Inspector/gtk"
-    "${WEBKIT_DIR}/UIProcess/Plugins/gtk"
     "${WEBKIT_DIR}/UIProcess/geoclue"
     "${WEBKIT_DIR}/UIProcess/glib"
     "${WEBKIT_DIR}/UIProcess/gstreamer"
@@ -429,8 +444,7 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM"
     "${WEBKIT_DIR}/WebProcess/Inspector/gtk"
-    "${WEBKIT_DIR}/WebProcess/Plugins/Netscape/unix"
-    "${WEBKIT_DIR}/WebProcess/Plugins/Netscape/x11"
+    "${WEBKIT_DIR}/WebProcess/glib"
     "${WEBKIT_DIR}/WebProcess/gtk"
     "${WEBKIT_DIR}/WebProcess/soup"
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport/gtk"
@@ -441,13 +455,13 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
+    ${ATK_INCLUDE_DIRS}
     ${ENCHANT_INCLUDE_DIRS}
     ${GIO_UNIX_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
     ${GSTREAMER_INCLUDE_DIRS}
     ${GSTREAMER_PBUTILS_INCLUDE_DIRS}
     ${GTK_INCLUDE_DIRS}
-    ${LIBSECCOMP_INCLUDE_DIRS}
     ${LIBSOUP_INCLUDE_DIRS}
 )
 
@@ -505,43 +519,54 @@ if (USE_LIBWEBRTC)
     )
 endif ()
 
+if (ENABLE_MEDIA_STREAM)
+    list(APPEND WebKit_SOURCES
+        UIProcess/glib/UserMediaPermissionRequestManagerProxyGLib.cpp
+
+        WebProcess/glib/UserMediaCaptureManager.cpp
+    )
+    list(APPEND WebKit_MESSAGES_IN_FILES
+        WebProcess/glib/UserMediaCaptureManager
+    )
+endif ()
+
 # To generate WebKitEnumTypes.h we want to use all installed headers, except WebKitEnumTypes.h itself.
 set(WebKit2GTK_ENUM_GENERATION_HEADERS ${WebKit2GTK_INSTALLED_HEADERS})
-list(REMOVE_ITEM WebKit2GTK_ENUM_GENERATION_HEADERS ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.h)
+list(REMOVE_ITEM WebKit2GTK_ENUM_GENERATION_HEADERS ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.h)
 add_custom_command(
-    OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.h
-           ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.cpp
+    OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.h
+           ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.cpp
     DEPENDS ${WebKit2GTK_ENUM_GENERATION_HEADERS}
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitEnumTypes.h.template ${WebKit2GTK_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.h
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitEnumTypes.h.template ${WebKit2GTK_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.h
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitEnumTypes.cpp.template ${WebKit2GTK_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitEnumTypes.cpp
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitEnumTypes.cpp.template ${WebKit2GTK_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitEnumTypes.cpp
     VERBATIM
 )
 
 set(WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS ${WebKit2WebExtension_INSTALLED_HEADERS})
-list(REMOVE_ITEM WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.h)
+list(REMOVE_ITEM WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.h)
 add_custom_command(
-    OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.h
-           ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.cpp
+    OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.h
+           ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.cpp
     DEPENDS ${WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS}
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitWebProcessEnumTypes.h.template ${WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.h
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitWebProcessEnumTypes.h.template ${WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.h
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitWebProcessEnumTypes.cpp.template ${WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}/WebKitWebProcessEnumTypes.cpp
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/WebKitWebProcessEnumTypes.cpp.template ${WebKit2GTK_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2/WebKitWebProcessEnumTypes.cpp
     VERBATIM
 )
 
-WEBKIT_BUILD_INSPECTOR_GRESOURCES(${DERIVED_SOURCES_WEBKIT2GTK_DIR})
+WEBKIT_BUILD_INSPECTOR_GRESOURCES(${WebKit2Gtk_DERIVED_SOURCES_DIR})
 
-set(WebKitResources
-    "        <file alias=\"css/gtk-theme.css\">gtk-theme.css</file>\n"
-    "        <file alias=\"images/missingImage\">missingImage.png</file>\n"
-    "        <file alias=\"images/missingImage@2x\">missingImage@2x.png</file>\n"
-    "        <file alias=\"images/panIcon\">panIcon.png</file>\n"
-    "        <file alias=\"images/textAreaResizeCorner\">textAreaResizeCorner.png</file>\n"
-    "        <file alias=\"images/textAreaResizeCorner@2x\">textAreaResizeCorner@2x.png</file>\n"
-)
+set(WebKitResources "")
+list(APPEND WebKitResources "<file alias=\"css/gtk-theme.css\">gtk-theme.css</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/missingImage\">missingImage.png</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/missingImage@2x\">missingImage@2x.png</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/missingImage@3x\">missingImage@3x.png</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/panIcon\">panIcon.png</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/textAreaResizeCorner\">textAreaResizeCorner.png</file>\n")
+list(APPEND WebKitResources "<file alias=\"images/textAreaResizeCorner@2x\">textAreaResizeCorner@2x.png</file>\n")
 
 if (ENABLE_WEB_AUDIO)
     list(APPEND WebKitResources
@@ -549,7 +574,7 @@ if (ENABLE_WEB_AUDIO)
     )
 endif ()
 
-file(WRITE ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.xml
+file(WRITE ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.xml
     "<?xml version=1.0 encoding=UTF-8?>\n"
     "<gresources>\n"
     "    <gresource prefix=\"/org/webkitgtk/resources\">\n"
@@ -559,44 +584,39 @@ file(WRITE ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.xml
 )
 
 add_custom_command(
-    OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.c
-    DEPENDS ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.xml
-    COMMAND glib-compile-resources --generate --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebCore/Resources --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebCore/platform/audio/resources --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebKit/Resources/gtk --target=${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.c ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitResourcesGResourceBundle.xml
+    OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.c
+    DEPENDS ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.xml
+    COMMAND glib-compile-resources --generate --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebCore/Resources --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebCore/platform/audio/resources --sourcedir=${CMAKE_SOURCE_DIR}/Source/WebKit/Resources/gtk --target=${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.c ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitResourcesGResourceBundle.xml
     VERBATIM
 )
 
 if (ENABLE_WAYLAND_TARGET)
     # Wayland protocol extension.
     add_custom_command(
-        OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitWaylandClientProtocol.c
+        OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitWaylandClientProtocol.c
         DEPENDS ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml
-        COMMAND ${WAYLAND_SCANNER} server-header ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitWaylandServerProtocol.h
-        COMMAND ${WAYLAND_SCANNER} client-header ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitWaylandClientProtocol.h
-        COMMAND ${WAYLAND_SCANNER} private-code ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/WebKitWaylandClientProtocol.c
+        COMMAND ${WAYLAND_SCANNER} server-header ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitWaylandServerProtocol.h
+        COMMAND ${WAYLAND_SCANNER} client-header ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitWaylandClientProtocol.h
+        COMMAND ${WAYLAND_SCANNER} private-code ${WEBKIT_DIR}/Shared/gtk/WebKitWaylandProtocol.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/WebKitWaylandClientProtocol.c
         VERBATIM
     )
 
     add_custom_command(
-        OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/pointer-constraints-unstable-v1-protocol.c
+        OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/pointer-constraints-unstable-v1-protocol.c
         DEPENDS ${WAYLAND_PROTOCOLS_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml
-        COMMAND ${WAYLAND_SCANNER} private-code ${WAYLAND_PROTOCOLS_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/pointer-constraints-unstable-v1-protocol.c
-        COMMAND ${WAYLAND_SCANNER} client-header ${WAYLAND_PROTOCOLS_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/pointer-constraints-unstable-v1-client-protocol.h
+        COMMAND ${WAYLAND_SCANNER} private-code ${WAYLAND_PROTOCOLS_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/pointer-constraints-unstable-v1-protocol.c
+        COMMAND ${WAYLAND_SCANNER} client-header ${WAYLAND_PROTOCOLS_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/pointer-constraints-unstable-v1-client-protocol.h
         VERBATIM
     )
 
     add_custom_command(
-        OUTPUT ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/relative-pointer-unstable-v1-protocol.c
+        OUTPUT ${WebKit2Gtk_DERIVED_SOURCES_DIR}/relative-pointer-unstable-v1-protocol.c
         DEPENDS ${WAYLAND_PROTOCOLS_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml
-        COMMAND ${WAYLAND_SCANNER} private-code ${WAYLAND_PROTOCOLS_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/relative-pointer-unstable-v1-protocol.c
-        COMMAND ${WAYLAND_SCANNER} client-header ${WAYLAND_PROTOCOLS_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml ${DERIVED_SOURCES_WEBKIT2GTK_DIR}/relative-pointer-unstable-v1-client-protocol.h
+        COMMAND ${WAYLAND_SCANNER} private-code ${WAYLAND_PROTOCOLS_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/relative-pointer-unstable-v1-protocol.c
+        COMMAND ${WAYLAND_SCANNER} client-header ${WAYLAND_PROTOCOLS_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml ${WebKit2Gtk_DERIVED_SOURCES_DIR}/relative-pointer-unstable-v1-client-protocol.h
         VERBATIM
     )
 endif ()
-
-# GTK3 PluginProcess
-list(APPEND PluginProcess_SOURCES
-    PluginProcess/EntryPoint/unix/PluginProcessMain.cpp
-)
 
 # Commands for building the built-in injected bundle.
 add_library(webkit2gtkinjectedbundle MODULE "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitInjectedBundleMain.cpp")
@@ -604,13 +624,11 @@ ADD_WEBKIT_PREFIX_HEADER(webkit2gtkinjectedbundle)
 target_link_libraries(webkit2gtkinjectedbundle WebKit)
 
 target_include_directories(webkit2gtkinjectedbundle PRIVATE
-    ${WebKit_INCLUDE_DIRECTORIES}
-    ${WebKit_PRIVATE_INCLUDE_DIRECTORIES}
+    $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>
     "${DERIVED_SOURCES_DIR}/InjectedBundle"
-    "${FORWARDING_HEADERS_DIR}"
-    "${FORWARDING_HEADERS_WEBKIT2GTK_DIR}"
-    "${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}"
-    "${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}"
+    "${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}"
+    "${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}"
+    "${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2"
 )
 
 target_include_directories(webkit2gtkinjectedbundle SYSTEM PRIVATE
@@ -646,6 +664,10 @@ if (ENABLE_INTROSPECTION)
     string(REGEX MATCHALL "-L[^ ]*"
         INTROSPECTION_ADDITIONAL_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 
+    if (${INTROSPECTION_HAVE_SOURCES_TOP_DIRS})
+        set(GIR_SOURCES_TOP_DIRS "--sources-top-dirs=${CMAKE_BINARY_DIR}")
+    endif ()
+
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/WebKit2-${WEBKITGTK_API_VERSION}.gir
         DEPENDS WebKit
@@ -655,13 +677,14 @@ if (ENABLE_INTROSPECTION)
             ${INTROSPECTION_SCANNER}
             --quiet
             --warn-all
+            --warn-error
             --symbol-prefix=webkit
             --identifier-prefix=WebKit
             --namespace=WebKit2
             --nsversion=${WEBKITGTK_API_VERSION}
             --include=GObject-2.0
-            --include=Gtk-3.0
-            --include=Soup-2.4
+            --include=Gtk-${GTK_API_VERSION}.0
+            --include=Soup-${SOUP_API_VERSION}
             --include-uninstalled=${CMAKE_BINARY_DIR}/JavaScriptCore-${WEBKITGTK_API_VERSION}.gir
             --library=webkit2gtk-${WEBKITGTK_API_VERSION}
             --library=javascriptcoregtk-${WEBKITGTK_API_VERSION}
@@ -669,22 +692,22 @@ if (ENABLE_INTROSPECTION)
             ${INTROSPECTION_ADDITIONAL_LINKER_FLAGS}
             --no-libtool
             --pkg=gobject-2.0
-            --pkg=gtk+-3.0
-            --pkg=libsoup-2.4
+            --pkg=${GTK_PKGCONFIG_PACKAGE}
+            --pkg=libsoup-${SOUP_API_VERSION}
             --pkg-export=webkit2gtk-${WEBKITGTK_API_VERSION}
             --output=${CMAKE_BINARY_DIR}/WebKit2-${WEBKITGTK_API_VERSION}.gir
+            ${GIR_SOURCES_TOP_DIRS}
             --c-include="webkit2/webkit2.h"
             -DBUILDING_WEBKIT
             -DWEBKIT2_COMPILATION
             -I${CMAKE_SOURCE_DIR}/Source
             -I${WEBKIT_DIR}
-            -I${DERIVED_SOURCES_DIR}
-            -I${DERIVED_SOURCES_WEBKIT2GTK_DIR}
-            -I${DERIVED_SOURCES_JAVASCRIPCOREGTK_DIR}
-            -I${FORWARDING_HEADERS_DIR}
-            -I${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib
-            -I${FORWARDING_HEADERS_WEBKIT2GTK_DIR}
-            -I${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}
+            -I${WebKit2Gtk_DERIVED_SOURCES_DIR}
+            -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}
+            -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}
+            -I${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+            -I${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
+            -I${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
             ${WebKit2GTK_INSTALLED_HEADERS}
             ${WEBKIT_DIR}/Shared/API/glib/*.cpp
             ${WEBKIT_DIR}/UIProcess/API/glib/*.cpp
@@ -701,13 +724,14 @@ if (ENABLE_INTROSPECTION)
             ${INTROSPECTION_SCANNER}
             --quiet
             --warn-all
+            --warn-error
             --symbol-prefix=webkit
             --identifier-prefix=WebKit
             --namespace=WebKit2WebExtension
             --nsversion=${WEBKITGTK_API_VERSION}
             --include=GObject-2.0
-            --include=Gtk-3.0
-            --include=Soup-2.4
+            --include=Gtk-${GTK_API_VERSION}.0
+            --include=Soup-${SOUP_API_VERSION}
             --include-uninstalled=${CMAKE_BINARY_DIR}/JavaScriptCore-${WEBKITGTK_API_VERSION}.gir
             --library=webkit2gtk-${WEBKITGTK_API_VERSION}
             --library=javascriptcoregtk-${WEBKITGTK_API_VERSION}
@@ -716,23 +740,23 @@ if (ENABLE_INTROSPECTION)
             ${INTROSPECTION_ADDITIONAL_LINKER_FLAGS}
             --no-libtool
             --pkg=gobject-2.0
-            --pkg=gtk+-3.0
-            --pkg=libsoup-2.4
+            --pkg=${GTK_PKGCONFIG_PACKAGE}
+            --pkg=libsoup-${SOUP_API_VERSION}
             --pkg-export=webkit2gtk-web-extension-${WEBKITGTK_API_VERSION}
             --output=${CMAKE_BINARY_DIR}/WebKit2WebExtension-${WEBKITGTK_API_VERSION}.gir
+            ${GIR_SOURCES_TOP_DIRS}
             --c-include="webkit2/webkit-web-extension.h"
             -DBUILDING_WEBKIT
             -DWEBKIT2_COMPILATION
             -I${CMAKE_SOURCE_DIR}/Source
             -I${WEBKIT_DIR}
-            -I${DERIVED_SOURCES_DIR}
-            -I${DERIVED_SOURCES_WEBKIT2GTK_DIR}
-            -I${DERIVED_SOURCES_JAVASCRIPCOREGTK_DIR}
-            -I${FORWARDING_HEADERS_DIR}
-            -I${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib
-            -I${FORWARDING_HEADERS_WEBKIT2GTK_DIR}
-            -I${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}
-            -I${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}
+            -I${WebKit2Gtk_DERIVED_SOURCES_DIR}
+            -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}
+            -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}
+            -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension
+            -I${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+            -I${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
+            -I${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
             -I${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk
             ${WebKitDOM_INSTALLED_HEADERS}
             ${WebKit2WebExtension_INSTALLED_HEADERS}
@@ -796,7 +820,7 @@ if (ENABLE_INTROSPECTION)
 endif ()
 
 file(WRITE ${CMAKE_BINARY_DIR}/gtkdoc-webkit2gtk.cfg
-    "[webkit2gtk-${WEBKITGTK_API_VERSION}]\n"
+    "[webkit2gtk-${WEBKITGTK_API_DOC_VERSION}]\n"
     "pkgconfig_file=${WebKit2_PKGCONFIG_FILE}\n"
     "decorator=WEBKIT_API|WEBKIT_DEPRECATED|WEBKIT_DEPRECATED_FOR\\(.+\\)\n"
     "deprecation_guard=WEBKIT_DISABLE_DEPRECATED\n"
@@ -805,9 +829,9 @@ file(WRITE ${CMAKE_BINARY_DIR}/gtkdoc-webkit2gtk.cfg
     "       -I${WEBKIT_DIR}/Shared/API/glib\n"
     "       -I${WEBKIT_DIR}/UIProcess/API/glib\n"
     "       -I${WEBKIT_DIR}/UIProcess/API/gtk\n"
-    "       -I${DERIVED_SOURCES_WEBKIT2GTK_DIR}\n"
-    "       -I${FORWARDING_HEADERS_WEBKIT2GTK_DIR}\n"
-    "       -I${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}\n"
+    "       -I${WebKit2Gtk_DERIVED_SOURCES_DIR}\n"
+    "       -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}\n"
+    "       -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}\n"
     "doc_dir=${WEBKIT_DIR}/UIProcess/API/gtk/docs\n"
     "source_dirs=${WEBKIT_DIR}/Shared/API/glib\n"
     "            ${WEBKIT_DIR}/UIProcess/API/glib\n"
@@ -815,22 +839,22 @@ file(WRITE ${CMAKE_BINARY_DIR}/gtkdoc-webkit2gtk.cfg
     "            ${WEBKIT_DIR}/UIProcess/API/gtk\n"
     "            ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib\n"
     "            ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk\n"
-    "            ${DERIVED_SOURCES_WEBKIT2GTK_API_DIR}\n"
+    "            ${WebKit2Gtk_DERIVED_SOURCES_DIR}/webkit2\n"
     "headers=${WebKit2GTK_ENUM_GENERATION_HEADERS} ${WebKit2WebExtension_INSTALLED_HEADERS}\n"
     "main_sgml_file=webkit2gtk-docs.sgml\n"
 )
 
 file(WRITE ${CMAKE_BINARY_DIR}/gtkdoc-webkitdom.cfg
-    "[webkitdomgtk-${WEBKITGTK_API_VERSION}]\n"
+    "[webkitdomgtk-${WEBKITGTK_API_DOC_VERSION}]\n"
     "pkgconfig_file=${WebKit2_PKGCONFIG_FILE}\n"
     "decorator=WEBKIT_API|WEBKIT_DEPRECATED|WEBKIT_DEPRECATED_FOR\\(.+\\)\n"
     "deprecation_guard=WEBKIT_DISABLE_DEPRECATED\n"
     "namespace=webkit_dom\n"
     "cflags=-I${CMAKE_SOURCE_DIR}/Source\n"
     "       -I${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM\n"
-    "       -I${DERIVED_SOURCES_WEBKIT2GTK_DIR}\n"
-    "       -I${FORWARDING_HEADERS_WEBKIT2GTK_DIR}\n"
-    "       -I${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}\n"
+    "       -I${WebKit2Gtk_DERIVED_SOURCES_DIR}\n"
+    "       -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}\n"
+    "       -I${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}\n"
     "doc_dir=${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM/docs\n"
     "source_dirs=${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/DOM\n"
     "            ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM\n"
@@ -844,30 +868,30 @@ add_custom_target(WebKit-forwarding-headers
 
 # These symbolic link allows includes like #include <webkit2/WebkitWebView.h> which simulates installed headers.
 add_custom_command(
-    OUTPUT ${FORWARDING_HEADERS_WEBKIT2GTK_DIR}/webkit2
+    OUTPUT ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2
     DEPENDS ${WEBKIT_DIR}/UIProcess/API/gtk
-    COMMAND ln -n -s -f ${WEBKIT_DIR}/UIProcess/API/gtk ${FORWARDING_HEADERS_WEBKIT2GTK_DIR}/webkit2
+    COMMAND ln -n -s -f ${WEBKIT_DIR}/UIProcess/API/gtk ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2
 )
 add_custom_command(
-    OUTPUT ${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}/webkit2
+    OUTPUT ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}/webkit2
     DEPENDS ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION}
-    COMMAND ln -n -s -f ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION} ${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}/webkit2
+    COMMAND ln -n -s -f ${WEBKIT_DIR}/UIProcess/API/gtk${GTK_API_VERSION} ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}/webkit2
 )
 add_custom_command(
-    OUTPUT ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkit2
+    OUTPUT ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkit2
     DEPENDS ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk
-    COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkit2
+    COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkit2
 )
 add_custom_command(
-    OUTPUT ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkitdom
+    OUTPUT ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkitdom
     DEPENDS ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM
-    COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkitdom
+    COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk/DOM ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkitdom
 )
 add_custom_target(WebKit-fake-api-headers
-    DEPENDS ${FORWARDING_HEADERS_WEBKIT2GTK_DIR}/webkit2
-            ${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}/webkit2
-            ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkit2
-            ${FORWARDING_HEADERS_WEBKIT2GTK_EXTENSION_DIR}/webkitdom
+    DEPENDS ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2
+            ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-${WEBKITGTK_API_VERSION}/webkit2
+            ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkit2
+            ${WebKit2Gtk_FRAMEWORK_HEADERS_DIR}/webkit2gtk-webextension/webkitdom
 )
 
 list(APPEND WebKit_DEPENDENCIES

@@ -27,6 +27,7 @@
 
 #include "APIObject.h"
 #include "DownloadID.h"
+#include "IdentifierTypes.h"
 #include "PolicyDecision.h"
 #include "ShareableBitmap.h"
 #include "TransactionID.h"
@@ -36,10 +37,12 @@
 #include <JavaScriptCore/JSBase.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/HitTestRequest.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace API {
 class Array;
@@ -63,7 +66,7 @@ class WebPage;
 struct FrameInfoData;
 struct WebsitePoliciesData;
 
-class WebFrame : public API::ObjectImpl<API::Object::Type::BundleFrame> {
+class WebFrame : public API::ObjectImpl<API::Object::Type::BundleFrame>, public CanMakeWeakPtr<WebFrame> {
 public:
     static Ref<WebFrame> create() { return adoptRef(*new WebFrame); }
     static Ref<WebFrame> createSubframe(WebPage*, const String& frameName, WebCore::HTMLFrameOwnerElement*);
@@ -77,18 +80,18 @@ public:
     WebPage* page() const;
 
     static WebFrame* fromCoreFrame(const WebCore::Frame&);
-    WebCore::Frame* coreFrame() const { return m_coreFrame; }
+    WebCore::Frame* coreFrame() const;
 
     FrameInfoData info() const;
     WebCore::FrameIdentifier frameID() const { return m_frameID; }
 
     enum class ForNavigationAction { No, Yes };
     uint64_t setUpPolicyListener(WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&, ForNavigationAction);
-    void invalidatePolicyListener();
+    void invalidatePolicyListeners();
     void didReceivePolicyDecision(uint64_t listenerID, PolicyDecision&&);
 
-    uint64_t setUpWillSubmitFormListener(CompletionHandler<void()>&&);
-    void continueWillSubmitForm(uint64_t);
+    FormSubmitListenerIdentifier setUpWillSubmitFormListener(CompletionHandler<void()>&&);
+    void continueWillSubmitForm(FormSubmitListenerIdentifier);
 
     void startDownload(const WebCore::ResourceRequest&, const String& suggestedName = { });
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
@@ -118,7 +121,20 @@ public:
     WebCore::IntSize scrollOffset() const;
     bool hasHorizontalScrollbar() const;
     bool hasVerticalScrollbar() const;
-    RefPtr<InjectedBundleHitTestResult> hitTest(const WebCore::IntPoint) const;
+
+    static constexpr OptionSet<WebCore::HitTestRequest::Type> defaultHitTestRequestTypes()
+    {
+        return {{
+            WebCore::HitTestRequest::Type::ReadOnly,
+            WebCore::HitTestRequest::Type::Active,
+            WebCore::HitTestRequest::Type::IgnoreClipping,
+            WebCore::HitTestRequest::Type::AllowChildFrameContent,
+            WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent,
+        }};
+    }
+
+    RefPtr<InjectedBundleHitTestResult> hitTest(const WebCore::IntPoint, OptionSet<WebCore::HitTestRequest::Type> = defaultHitTestRequestTypes()) const;
+
     bool getDocumentBackgroundColor(double* red, double* green, double* blue, double* alpha);
     bool containsAnyFormElements() const;
     bool containsAnyFormControls() const;
@@ -149,15 +165,15 @@ public:
     void documentLoaderDetached(uint64_t navigationID);
 
     // Simple listener class used by plug-ins to know when frames finish or fail loading.
-    class LoadListener {
+    class LoadListener : public CanMakeWeakPtr<LoadListener> {
     public:
         virtual ~LoadListener() { }
 
         virtual void didFinishLoad(WebFrame*) = 0;
         virtual void didFailLoad(WebFrame*, bool wasCancelled) = 0;
     };
-    void setLoadListener(LoadListener* loadListener) { m_loadListener = loadListener; }
-    LoadListener* loadListener() const { return m_loadListener; }
+    void setLoadListener(LoadListener* loadListener) { m_loadListener = makeWeakPtr(loadListener); }
+    LoadListener* loadListener() const { return m_loadListener.get(); }
     
 #if PLATFORM(COCOA)
     typedef bool (*FrameFilterFunction)(WKBundleFrameRef, WKBundleFrameRef subframe, void* context);
@@ -172,31 +188,37 @@ public:
 #endif
 
     WebFrameLoaderClient* frameLoaderClient() const;
+
+#if ENABLE(APP_BOUND_DOMAINS)
     bool shouldEnableInAppBrowserPrivacyProtections();
-    void setIsNavigatingToAppBoundDomain(Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) { m_isNavigatingToAppBoundDomain = isNavigatingToAppBoundDomain; };
-    Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain() const { return m_isNavigatingToAppBoundDomain; }
-    Optional<NavigatingToAppBoundDomain> isTopFrameNavigatingToAppBoundDomain() const;
+    void setIsNavigatingToAppBoundDomain(std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) { m_isNavigatingToAppBoundDomain = isNavigatingToAppBoundDomain; };
+    std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain() const { return m_isNavigatingToAppBoundDomain; }
+    std::optional<NavigatingToAppBoundDomain> isTopFrameNavigatingToAppBoundDomain() const;
+#endif
 
 private:
     WebFrame();
 
-    WebCore::Frame* m_coreFrame { nullptr };
+    WeakPtr<WebCore::Frame> m_coreFrame;
 
-    uint64_t m_policyListenerID { 0 };
-    Optional<WebCore::PolicyCheckIdentifier> m_policyIdentifier;
-    WebCore::FramePolicyFunction m_policyFunction;
-    ForNavigationAction m_policyFunctionForNavigationAction { ForNavigationAction::No };
-    HashMap<uint64_t, CompletionHandler<void()>> m_willSubmitFormCompletionHandlers;
-    DownloadID m_policyDownloadID { 0 };
+    struct PolicyCheck {
+        WebCore::PolicyCheckIdentifier corePolicyIdentifier;
+        ForNavigationAction forNavigationAction { ForNavigationAction::No };
+        WebCore::FramePolicyFunction policyFunction;
+    };
+    HashMap<uint64_t, PolicyCheck> m_pendingPolicyChecks;
 
-    LoadListener* m_loadListener { nullptr };
+    HashMap<FormSubmitListenerIdentifier, CompletionHandler<void()>> m_willSubmitFormCompletionHandlers;
+    std::optional<DownloadID> m_policyDownloadID;
+
+    WeakPtr<LoadListener> m_loadListener;
     
     WebCore::FrameIdentifier m_frameID;
 
 #if PLATFORM(IOS_FAMILY)
     TransactionID m_firstLayerTreeTransactionIDAfterDidCommitLoad;
 #endif
-    Optional<NavigatingToAppBoundDomain> m_isNavigatingToAppBoundDomain;
+    std::optional<NavigatingToAppBoundDomain> m_isNavigatingToAppBoundDomain;
 
 };
 

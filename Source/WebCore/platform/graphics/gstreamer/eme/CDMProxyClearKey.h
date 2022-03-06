@@ -36,7 +36,6 @@
 #include "SharedBuffer.h"
 #include <gcrypt.h>
 #include <wtf/Condition.h>
-#include <wtf/Optional.h>
 #include <wtf/VectorHash.h>
 
 namespace WebCore {
@@ -91,6 +90,7 @@ public:
         const uint8_t* subsamplesBuffer;
         size_t subsamplesBufferSizeInBytes;
         size_t numSubsamples;
+        WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
 
         bool isSubsampled() const { return numSubsamples; }
     };
@@ -107,15 +107,14 @@ private:
     // we will surely have to support more protection schemes. Can we
     // reuse some Crypto APIs in WebCore?
     bool cencSetCounterVector(const cencDecryptContext&);
-    bool cencSetDecryptionKey(const cencDecryptContext&);
+    bool cencSetDecryptionKey(cencDecryptContext&);
     bool cencDecryptFullSample(cencDecryptContext&);
     bool cencDecryptSubsampled(cencDecryptContext&);
 
-    void releaseDecryptionResources() final;
     void closeGCryptHandle();
 
     // FIXME: It would be nice to use something in WebCore for crypto...
-    Optional<gcry_cipher_hd_t> m_gCryptHandle { WTF::nullopt };
+    std::optional<gcry_cipher_hd_t> m_gCryptHandle { std::nullopt };
 };
 
 } // namespace WebCore

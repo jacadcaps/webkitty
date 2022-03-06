@@ -82,19 +82,6 @@ void LocalStorageDatabaseTracker::deleteDatabaseWithOrigin(const SecurityOriginD
     // FIXME: Tell clients that the origin was removed.
 }
 
-void LocalStorageDatabaseTracker::deleteAllDatabases()
-{
-    auto localStorageDirectory = this->localStorageDirectory();
-    auto paths = FileSystem::listDirectory(localStorageDirectory, "*.localstorage");
-    for (const auto& path : paths) {
-        SQLiteFileSystem::deleteDatabaseFile(path);
-
-        // FIXME: Call out to the client.
-    }
-
-    SQLiteFileSystem::deleteEmptyDatabaseDirectory(localStorageDirectory);
-}
-
 Vector<SecurityOriginData> LocalStorageDatabaseTracker::databasesModifiedSince(WallTime time)
 {
     Vector<SecurityOriginData> databaseOriginsModified;
@@ -117,10 +104,8 @@ Vector<SecurityOriginData> LocalStorageDatabaseTracker::databasesModifiedSince(W
 Vector<SecurityOriginData> LocalStorageDatabaseTracker::origins() const
 {
     Vector<SecurityOriginData> databaseOrigins;
-    auto paths = FileSystem::listDirectory(localStorageDirectory(), "*.localstorage");
-    
-    for (const auto& path : paths) {
-        auto filename = FileSystem::pathGetFileName(path);
+    for (auto& path : FileSystem::listDirectory(localStorageDirectory())) {
+        auto filename = FileSystem::pathFileName(path);
         auto originIdentifier = filename.substring(0, filename.length() - strlen(".localstorage"));
         auto origin = SecurityOriginData::fromDatabaseIdentifier(originIdentifier);
         if (origin)

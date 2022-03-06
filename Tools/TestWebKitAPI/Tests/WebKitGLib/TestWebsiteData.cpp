@@ -19,77 +19,85 @@
 
 #include "config.h"
 
-#include <WebCore/GUniquePtrSoup.h>
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/GUniquePtrSoup.h>
+#include <WebCore/SoupVersioning.h>
 #include <glib/gstdio.h>
 
 static WebKitTestServer* kServer;
 
+#if USE(SOUP2)
 static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
+#endif
 {
-    if (message->method != SOUP_METHOD_GET) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED);
+    if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
+    auto* responseBody = soup_server_message_get_response_body(message);
+
     if (g_str_equal(path, "/")) {
         const char* html = "<html><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, html, strlen(html));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, html, strlen(html));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/empty")) {
+        auto* responseHeaders = soup_server_message_get_response_headers(message);
+        soup_message_headers_replace(responseHeaders, "Set-Cookie", "foo=bar; Max-Age=60");
+        soup_message_headers_replace(responseHeaders, "Strict-Transport-Security", "max-age=3600");
         static const char* emptyHTML = "<html><body></body></html>";
-        soup_message_headers_replace(message->response_headers, "Set-Cookie", "foo=bar; Max-Age=60");
-        soup_message_headers_replace(message->response_headers, "Strict-Transport-Security", "max-age=3600");
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, emptyHTML, strlen(emptyHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, emptyHTML, strlen(emptyHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/appcache")) {
         static const char* appcacheHTML = "<html manifest=appcache.manifest><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, appcacheHTML, strlen(appcacheHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, appcacheHTML, strlen(appcacheHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/appcache.manifest")) {
         static const char* appcacheManifest = "CACHE MANIFEST\nCACHE:\nappcache/foo.txt\n";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, appcacheManifest, strlen(appcacheManifest));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, appcacheManifest, strlen(appcacheManifest));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/appcache/foo.txt")) {
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, "foo", 3);
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, "foo", 3);
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/sessionstorage")) {
         static const char* sessionStorageHTML = "<html><body onload=\"sessionStorage.foo = 'bar';\"></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, sessionStorageHTML, strlen(sessionStorageHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, sessionStorageHTML, strlen(sessionStorageHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/localstorage")) {
         static const char* localStorageHTML = "<html><body onload=\"localStorage.foo = 'bar';\"></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, localStorageHTML, strlen(localStorageHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, localStorageHTML, strlen(localStorageHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/enumeratedevices")) {
         static const char* enumerateDevicesHTML = "<html><body onload=\"navigator.mediaDevices.enumerateDevices().then(function(devices) { document.title = 'Finished'; })\"></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, enumerateDevicesHTML, strlen(enumerateDevicesHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, enumerateDevicesHTML, strlen(enumerateDevicesHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/service/register.html")) {
         static const char* swRegisterHTML = "<html><body><script src=\"/service/register.js\"></script></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, swRegisterHTML, strlen(swRegisterHTML));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, swRegisterHTML, strlen(swRegisterHTML));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/service/register.js")) {
         static const char* swRegisterJS =
             "async function test() { await navigator.serviceWorker.register(\"/service/empty-worker.js\"); } test();";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, swRegisterJS, strlen(swRegisterJS));
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, swRegisterJS, strlen(swRegisterJS));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else if (g_str_equal(path, "/service/empty-worker.js")) {
-        soup_message_body_complete(message->response_body);
-        soup_message_set_status(message, SOUP_STATUS_OK);
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else
-        soup_message_set_status(message, SOUP_STATUS_NOT_FOUND);
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_FOUND, nullptr);
 }
 
 class WebsiteDataTest : public WebViewTest {
@@ -166,6 +174,7 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     test->waitUntilLoadFinished();
     test->runJavaScriptAndWaitUntilFinished("window.indexedDB.open('TestDatabase');", nullptr);
     GUniquePtr<char> indexedDBDirectory(g_build_filename(Test::dataDirectory(), "indexeddb", nullptr));
+    test->waitUntilFileChanged(indexedDBDirectory.get(), G_FILE_MONITOR_EVENT_CREATED);
     g_assert_cmpstr(indexedDBDirectory.get(), ==, webkit_website_data_manager_get_indexeddb_directory(test->m_manager));
     g_assert_true(g_file_test(indexedDBDirectory.get(), G_FILE_TEST_IS_DIR));
 
@@ -190,11 +199,15 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     GUniquePtr<char> itpDirectory(g_build_filename(Test::dataDirectory(), "itp", nullptr));
     g_assert_cmpstr(itpDirectory.get(), ==, webkit_website_data_manager_get_itp_directory(test->m_manager));
 
+    test->runJavaScriptAndWaitUntilFinished("navigator.serviceWorker.register('./some-dummy.js');", nullptr);
     GUniquePtr<char> swRegistrationsDirectory(g_build_filename(Test::dataDirectory(), "serviceworkers", nullptr));
+    test->waitUntilFileChanged(swRegistrationsDirectory.get(), G_FILE_MONITOR_EVENT_CREATED);
     g_assert_cmpstr(swRegistrationsDirectory.get(), ==, webkit_website_data_manager_get_service_worker_registrations_directory(test->m_manager));
     g_assert_true(g_file_test(swRegistrationsDirectory.get(), G_FILE_TEST_IS_DIR));
 
+    test->runJavaScriptAndWaitUntilFinished("caches.open('my-cache');", nullptr);
     GUniquePtr<char> domCacheDirectory(g_build_filename(Test::dataDirectory(), "dom-cache", nullptr));
+    test->waitUntilFileChanged(domCacheDirectory.get(), G_FILE_MONITOR_EVENT_CREATED);
     g_assert_cmpstr(domCacheDirectory.get(), ==, webkit_website_data_manager_get_dom_cache_directory(test->m_manager));
     g_assert_true(g_file_test(domCacheDirectory.get(), G_FILE_TEST_IS_DIR));
 
@@ -622,6 +635,7 @@ static void testWebsiteDataDeviceIdHashSalt(WebsiteDataTest* test, gconstpointer
     WebKitSettings* settings = webkit_web_view_get_settings(test->m_webView);
     gboolean enabled = webkit_settings_get_enable_media_stream(settings);
     webkit_settings_set_enable_media_stream(settings, TRUE);
+    webkit_settings_set_enable_mock_capture_devices(settings, TRUE);
 
     test->clear(WEBKIT_WEBSITE_DATA_DEVICE_ID_HASH_SALT, 0);
 
@@ -647,6 +661,9 @@ static void testWebsiteDataDeviceIdHashSalt(WebsiteDataTest* test, gconstpointer
     dataList = test->fetch(WEBKIT_WEBSITE_DATA_DEVICE_ID_HASH_SALT);
     g_assert_null(dataList);
 
+    test->loadURI("about:blank");
+    test->waitUntilTitleChanged();
+
     // Test removing the cookies.
     test->loadURI(kServer->getURIForPath("/enumeratedevices").data());
     test->waitUntilTitleChangedTo("Finished");
@@ -668,6 +685,7 @@ static void testWebsiteDataDeviceIdHashSalt(WebsiteDataTest* test, gconstpointer
     g_assert_null(dataList);
 
     webkit_settings_set_enable_media_stream(settings, enabled);
+    webkit_settings_set_enable_mock_capture_devices(settings, enabled);
 }
 
 static void testWebsiteDataITP(WebsiteDataTest* test, gconstpointer)
@@ -785,6 +803,54 @@ g_assert_nonnull(data);
     g_assert_null(dataList);
 }
 
+class MemoryPressureTest : public WebViewTest {
+public:
+    MAKE_GLIB_TEST_FIXTURE_WITH_SETUP_TEARDOWN(MemoryPressureTest, setup, teardown);
+
+    static void setup()
+    {
+        WebKitMemoryPressureSettings* settings = webkit_memory_pressure_settings_new();
+        webkit_memory_pressure_settings_set_memory_limit(settings, 1);
+        webkit_memory_pressure_settings_set_poll_interval(settings, 0.001);
+        webkit_memory_pressure_settings_set_kill_threshold(settings, 1);
+        webkit_memory_pressure_settings_set_strict_threshold(settings, 0.75);
+        webkit_memory_pressure_settings_set_conservative_threshold(settings, 0.5);
+        webkit_website_data_manager_set_memory_pressure_settings(settings);
+        webkit_memory_pressure_settings_free(settings);
+    }
+
+    static void teardown()
+    {
+        webkit_website_data_manager_set_memory_pressure_settings(nullptr);
+    }
+
+    static gboolean loadFailedCallback(WebKitWebView* webView, WebKitLoadEvent loadEvent, const char* failingURI, GError* error, MemoryPressureTest* test)
+    {
+        g_signal_handlers_disconnect_by_func(webView, reinterpret_cast<void*>(loadFailedCallback), test);
+        g_main_loop_quit(test->m_mainLoop);
+
+        return TRUE;
+    }
+
+    void waitUntilLoadFailed()
+    {
+        g_signal_connect(m_webView, "load-failed", G_CALLBACK(MemoryPressureTest::loadFailedCallback), this);
+        g_main_loop_run(m_mainLoop);
+    }
+};
+
+static void testMemoryPressureSettings(MemoryPressureTest* test, gconstpointer)
+{
+    // We have set a memory limit of 1MB with a kill threshold of 1 and a poll interval of 0.001.
+    // The network process will use around 2MB to load the test. The MemoryPressureHandler will
+    // kill the process as soon as it detects that it's using more than 1MB, so the network process
+    // won't be able to complete the resource load. This causes an internal error and the load-failed
+    // signal is emitted.
+    GUniquePtr<char> fileURL(g_strdup_printf("file://%s/simple.html", Test::getResourcesDir(Test::WebKit2Resources).data()));
+    test->loadURI(fileURL.get());
+    test->waitUntilLoadFailed();
+}
+
 void beforeAll()
 {
     kServer = new WebKitTestServer();
@@ -808,6 +874,7 @@ void beforeAll()
     WebsiteDataTest::add("WebKitWebsiteData", "itp", testWebsiteDataITP);
     WebsiteDataTest::add("WebKitWebsiteData", "service-worker-registrations", testWebsiteDataServiceWorkerRegistrations);
     WebsiteDataTest::add("WebKitWebsiteData", "dom-cache", testWebsiteDataDOMCache);
+    MemoryPressureTest::add("WebKitWebsiteData", "memory-pressure", testMemoryPressureSettings);
 }
 
 void afterAll()

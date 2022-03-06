@@ -28,6 +28,7 @@
 
 #include "ArgumentCoders.h"
 #include "WebCoreArgumentCoders.h"
+#include "WebsiteDataStoreParameters.h"
 
 #if PLATFORM(COCOA)
 #include "ArgumentCodersCF.h"
@@ -36,6 +37,9 @@
 namespace WebKit {
 
 NetworkProcessCreationParameters::NetworkProcessCreationParameters() = default;
+NetworkProcessCreationParameters::~NetworkProcessCreationParameters() = default;
+NetworkProcessCreationParameters::NetworkProcessCreationParameters(NetworkProcessCreationParameters&&) = default;
+NetworkProcessCreationParameters& NetworkProcessCreationParameters::operator=(NetworkProcessCreationParameters&&) = default;
 
 void NetworkProcessCreationParameters::encode(IPC::Encoder& encoder) const
 {
@@ -47,21 +51,18 @@ void NetworkProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << cookieStorageDirectoryExtensionHandle;
     encoder << containerCachesDirectoryExtensionHandle;
     encoder << parentBundleDirectoryExtensionHandle;
+    encoder << tempDirectoryExtensionHandle;
 #endif
     encoder << shouldSuppressMemoryPressureHandler;
     encoder << urlSchemesRegisteredForCustomProtocols;
 #if PLATFORM(COCOA)
     encoder << uiProcessBundleIdentifier;
-    encoder << uiProcessSDKVersion;
-    IPC::encode(encoder, networkATSContext.get());
-    encoder << storageAccessAPIEnabled;
+    encoder << networkATSContext;
 #endif
-    encoder << defaultDataStoreParameters;
 #if USE(SOUP)
     encoder << cookieAcceptPolicy;
-    encoder << ignoreTLSErrors;
     encoder << languages;
-    encoder << proxySettings;
+    encoder << memoryPressureHandlerConfiguration;
 #endif
 
     encoder << urlSchemesRegisteredAsSecure;
@@ -69,13 +70,9 @@ void NetworkProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << urlSchemesRegisteredAsLocal;
     encoder << urlSchemesRegisteredAsNoAccess;
 
-#if ENABLE(SERVICE_WORKER)
-    encoder << serviceWorkerRegistrationDirectory << serviceWorkerRegistrationDirectoryExtensionHandle << shouldDisableServiceWorkerProcessTerminationDelay;
-#endif
-    encoder << shouldEnableITPDatabase;
-    encoder << enableAdClickAttributionDebugMode;
-    encoder << hstsStorageDirectory;
-    encoder << hstsStorageDirectoryExtensionHandle;
+    encoder << enablePrivateClickMeasurement;
+    encoder << enablePrivateClickMeasurementDebugMode;
+    encoder << websiteDataStoreParameters;
 }
 
 bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProcessCreationParameters& result)
@@ -88,23 +85,29 @@ bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProc
         return false;
 #endif
 #if PLATFORM(IOS_FAMILY)
-    Optional<SandboxExtension::Handle> cookieStorageDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> cookieStorageDirectoryExtensionHandle;
     decoder >> cookieStorageDirectoryExtensionHandle;
     if (!cookieStorageDirectoryExtensionHandle)
         return false;
     result.cookieStorageDirectoryExtensionHandle = WTFMove(*cookieStorageDirectoryExtensionHandle);
 
-    Optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
     decoder >> containerCachesDirectoryExtensionHandle;
     if (!containerCachesDirectoryExtensionHandle)
         return false;
     result.containerCachesDirectoryExtensionHandle = WTFMove(*containerCachesDirectoryExtensionHandle);
 
-    Optional<SandboxExtension::Handle> parentBundleDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> parentBundleDirectoryExtensionHandle;
     decoder >> parentBundleDirectoryExtensionHandle;
     if (!parentBundleDirectoryExtensionHandle)
         return false;
     result.parentBundleDirectoryExtensionHandle = WTFMove(*parentBundleDirectoryExtensionHandle);
+
+    std::optional<SandboxExtension::Handle> tempDirectoryExtensionHandle;
+    decoder >> tempDirectoryExtensionHandle;
+    if (!tempDirectoryExtensionHandle)
+        return false;
+    result.tempDirectoryExtensionHandle = WTFMove(*tempDirectoryExtensionHandle);
 #endif
     if (!decoder.decode(result.shouldSuppressMemoryPressureHandler))
         return false;
@@ -113,29 +116,21 @@ bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProc
 #if PLATFORM(COCOA)
     if (!decoder.decode(result.uiProcessBundleIdentifier))
         return false;
-    if (!decoder.decode(result.uiProcessSDKVersion))
-        return false;
-    if (!IPC::decode(decoder, result.networkATSContext))
-        return false;
-    if (!decoder.decode(result.storageAccessAPIEnabled))
+    if (!decoder.decode(result.networkATSContext))
         return false;
 #endif
-
-    Optional<WebsiteDataStoreParameters> defaultDataStoreParameters;
-    decoder >> defaultDataStoreParameters;
-    if (!defaultDataStoreParameters)
-        return false;
-    result.defaultDataStoreParameters = WTFMove(*defaultDataStoreParameters);
 
 #if USE(SOUP)
     if (!decoder.decode(result.cookieAcceptPolicy))
         return false;
-    if (!decoder.decode(result.ignoreTLSErrors))
-        return false;
     if (!decoder.decode(result.languages))
         return false;
-    if (!decoder.decode(result.proxySettings))
+
+    std::optional<std::optional<MemoryPressureHandler::Configuration>> memoryPressureHandlerConfiguration;
+    decoder >> memoryPressureHandlerConfiguration;
+    if (!memoryPressureHandlerConfiguration)
         return false;
+    result.memoryPressureHandlerConfiguration = WTFMove(*memoryPressureHandlerConfiguration);
 #endif
 
     if (!decoder.decode(result.urlSchemesRegisteredAsSecure))
@@ -147,31 +142,16 @@ bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProc
     if (!decoder.decode(result.urlSchemesRegisteredAsNoAccess))
         return false;
 
-#if ENABLE(SERVICE_WORKER)
-    if (!decoder.decode(result.serviceWorkerRegistrationDirectory))
+    if (!decoder.decode(result.enablePrivateClickMeasurement))
         return false;
-    
-    Optional<SandboxExtension::Handle> serviceWorkerRegistrationDirectoryExtensionHandle;
-    decoder >> serviceWorkerRegistrationDirectoryExtensionHandle;
-    if (!serviceWorkerRegistrationDirectoryExtensionHandle)
-        return false;
-    result.serviceWorkerRegistrationDirectoryExtensionHandle = WTFMove(*serviceWorkerRegistrationDirectoryExtensionHandle);
-
-    if (!decoder.decode(result.shouldDisableServiceWorkerProcessTerminationDelay))
-        return false;
-#endif
-
-    if (!decoder.decode(result.shouldEnableITPDatabase))
+    if (!decoder.decode(result.enablePrivateClickMeasurementDebugMode))
         return false;
 
-    if (!decoder.decode(result.enableAdClickAttributionDebugMode))
+    std::optional<Vector<WebsiteDataStoreParameters>> websiteDataStoreParameters;
+    decoder >> websiteDataStoreParameters;
+    if (!websiteDataStoreParameters)
         return false;
-
-    if (!decoder.decode(result.hstsStorageDirectory))
-        return false;
-
-    if (!decoder.decode(result.hstsStorageDirectoryExtensionHandle))
-        return false;
+    result.websiteDataStoreParameters = WTFMove(*websiteDataStoreParameters);
 
     return true;
 }

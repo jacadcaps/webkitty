@@ -34,6 +34,13 @@ enum class ProcessTerminationReason {
     Crash,
     NavigationSwap,
     RequestedByNetworkProcess,
+    RequestedByGPUProcess
+};
+
+enum class GPUProcessTerminationReason {
+    Crash,
+    IdleExit,
+    Unresponsive
 };
 
 }

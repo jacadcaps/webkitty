@@ -34,7 +34,7 @@
 namespace WebKit {
 
 struct TrackPrivateRemoteConfiguration {
-    AtomString id;
+    AtomString trackId;
     AtomString label;
     AtomString language;
     MediaTime startTimeVariance { MediaTime::zeroTime() };
@@ -49,7 +49,7 @@ struct TrackPrivateRemoteConfiguration {
     template<class Encoder>
     void encode(Encoder& encoder) const
     {
-        encoder << id;
+        encoder << trackId;
         encoder << label;
         encoder << language;
         encoder << startTimeVariance;
@@ -61,55 +61,55 @@ struct TrackPrivateRemoteConfiguration {
     }
 
     template <class Decoder>
-    static Optional<TrackPrivateRemoteConfiguration> decode(Decoder& decoder)
+    static std::optional<TrackPrivateRemoteConfiguration> decode(Decoder& decoder)
     {
-        Optional<AtomString> id;
-        decoder >> id;
-        if (!id)
-            return WTF::nullopt;
+        std::optional<AtomString> trackId;
+        decoder >> trackId;
+        if (!trackId)
+            return std::nullopt;
 
-        Optional<AtomString> label;
+        std::optional<AtomString> label;
         decoder >> label;
         if (!label)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<AtomString> language;
+        std::optional<AtomString> language;
         decoder >> language;
         if (!language)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<MediaTime> startTimeVariance;
+        std::optional<MediaTime> startTimeVariance;
         decoder >> startTimeVariance;
         if (!startTimeVariance)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<int> trackIndex;
+        std::optional<int> trackIndex;
         decoder >> trackIndex;
         if (!trackIndex)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> enabled;
+        std::optional<bool> enabled;
         decoder >> enabled;
         if (!enabled)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::AudioTrackPrivate::Kind> audioKind;
+        std::optional<WebCore::AudioTrackPrivate::Kind> audioKind;
         decoder >> audioKind;
         if (!audioKind)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> selected;
+        std::optional<bool> selected;
         decoder >> selected;
         if (!selected)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::VideoTrackPrivate::Kind> videoKind;
+        std::optional<WebCore::VideoTrackPrivate::Kind> videoKind;
         decoder >> videoKind;
         if (!videoKind)
-            return WTF::nullopt;
+            return std::nullopt;
 
         return {{
-            WTFMove(*id),
+            WTFMove(*trackId),
             WTFMove(*label),
             WTFMove(*language),
             WTFMove(*startTimeVariance),

@@ -58,6 +58,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         return this._style.editable;
     }
 
+    set propertyVisibilityMode(propertyVisibilityMode)
+    {
+        this._propertiesEditor.propertyVisibilityMode = propertyVisibilityMode;
+    }
+
     initialLayout()
     {
         super.initialLayout();
@@ -138,12 +143,12 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         if (this._style.selectorEditable) {
             this._selectorTextField = new WI.SpreadsheetSelectorField(this, this._selectorElement);
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StartedEditing, (event) => {
+            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StartedEditing, function(event) {
                 this._headerElement.classList.add("editing-selector");
-            });
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StoppedEditing, (event) => {
+            }, this);
+            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StoppedEditing, function(event) {
                 this._headerElement.classList.remove("editing-selector");
-            });
+            }, this);
 
             this._selectorElement.tabIndex = 0;
         }
@@ -185,11 +190,6 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         if (this._shouldFocusSelectorElement)
             this.startEditingRuleSelector();
-    }
-
-    hidden()
-    {
-        this._propertiesEditor.hidden();
     }
 
     startEditingRuleSelector()
@@ -287,6 +287,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
     {
         if (this._delegate && this._delegate.spreadsheetCSSStyleDeclarationSectionSelectProperty)
             this._delegate.spreadsheetCSSStyleDeclarationSectionSelectProperty(property);
+    }
+
+    spreadsheetCSSStyleDeclarationEditorSetAllPropertyVisibilityMode(editor, propertyVisibilityMode)
+    {
+        this._delegate?.spreadsheetCSSStyleDeclarationSectionSetAllPropertyVisibilityMode?.(this, propertyVisibilityMode);
     }
 
     applyFilter(filterText)

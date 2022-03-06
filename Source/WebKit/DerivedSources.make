@@ -39,12 +39,15 @@ VPATH = \
     $(WebKit2)/NetworkProcess/WebStorage \
     $(WebKit2)/PluginProcess \
     $(WebKit2)/PluginProcess/mac \
+    $(WebKit2)/Resources/SandboxProfiles/ios \
     $(WebKit2)/Shared/Plugins \
     $(WebKit2)/Shared \
     $(WebKit2)/Shared/API/Cocoa \
     $(WebKit2)/Shared/ApplePay \
     $(WebKit2)/Shared/Authentication \
     $(WebKit2)/Shared/mac \
+    $(WebKit2)/WebAuthnProcess \
+    $(WebKit2)/WebAuthnProcess/mac \
     $(WebKit2)/WebProcess/ApplePay \
     $(WebKit2)/WebProcess/ApplicationCache \
     $(WebKit2)/WebProcess/Automation \
@@ -60,6 +63,7 @@ VPATH = \
     $(WebKit2)/WebProcess/IconDatabase \
     $(WebKit2)/WebProcess/Inspector \
     $(WebKit2)/WebProcess/MediaCache \
+    $(WebKit2)/WebProcess/MediaSession \
     $(WebKit2)/WebProcess/MediaStream \
     $(WebKit2)/WebProcess/Network \
     $(WebKit2)/WebProcess/Network/webrtc \
@@ -67,6 +71,7 @@ VPATH = \
     $(WebKit2)/WebProcess/OriginData \
     $(WebKit2)/WebProcess/Plugins \
     $(WebKit2)/WebProcess/ResourceCache \
+	$(WebKit2)/WebProcess/Speech \
     $(WebKit2)/WebProcess/Storage \
     $(WebKit2)/WebProcess/UserContent \
     $(WebKit2)/WebProcess/WebAuthentication \
@@ -104,6 +109,7 @@ VPATH = \
 
 PYTHON = python
 PERL = perl
+RUBY = ruby
 
 ifeq ($(OS),Windows_NT)
     DELETE = cmd //C del
@@ -112,6 +118,7 @@ else
 endif
 
 MESSAGE_RECEIVERS = \
+	NetworkProcess/NetworkBroadcastChannelRegistry \
 	NetworkProcess/NetworkConnectionToWebProcess \
 	NetworkProcess/IndexedDB/WebIDBServer \
 	NetworkProcess/NetworkContentRuleListManager \
@@ -128,6 +135,7 @@ MESSAGE_RECEIVERS = \
 	NetworkProcess/webrtc/NetworkMDNSRegister \
 	NetworkProcess/webrtc/NetworkRTCProvider \
 	NetworkProcess/webrtc/NetworkRTCMonitor \
+	NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy \
 	NetworkProcess/Cookies/WebCookieManager \
 	Shared/Plugins/NPObjectMessageReceiver \
 	Shared/AuxiliaryProcess \
@@ -139,10 +147,12 @@ MESSAGE_RECEIVERS = \
 	UIProcess/RemoteLayerTree/RemoteLayerTreeDrawingAreaProxy \
 	UIProcess/GPU/GPUProcessProxy \
 	UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy \
+	UIProcess/WebAuthentication/WebAuthnProcessProxy \
 	UIProcess/WebPasteboardProxy \
 	UIProcess/UserContent/WebUserContentControllerProxy \
-	UIProcess/Inspector/WebInspectorProxy \
-	UIProcess/Inspector/RemoteWebInspectorProxy \
+	UIProcess/Inspector/WebInspectorUIProxy \
+	UIProcess/Inspector/RemoteWebInspectorUIProxy \
+	UIProcess/Inspector/WebInspectorUIExtensionControllerProxy \
 	UIProcess/Plugins/PluginProcessProxy \
 	UIProcess/DrawingAreaProxy \
 	UIProcess/Network/NetworkProcessProxy \
@@ -150,7 +160,6 @@ MESSAGE_RECEIVERS = \
 	UIProcess/WebPageProxy \
 	UIProcess/VisitedLinkStore \
 	UIProcess/ios/WebDeviceOrientationUpdateProviderProxy \
-	UIProcess/ios/EditableImageController \
 	UIProcess/ios/SmartMagnificationController \
 	UIProcess/mac/SecItemShimProxy \
 	UIProcess/WebGeolocationManagerProxy \
@@ -164,24 +173,36 @@ MESSAGE_RECEIVERS = \
 	UIProcess/WebProcessPool \
 	UIProcess/Downloads/DownloadProxy \
 	UIProcess/Media/AudioSessionRoutingArbitratorProxy \
+	UIProcess/Media/RemoteMediaSessionCoordinatorProxy \
+	UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager \
+	UIProcess/SpeechRecognitionServer \
+	UIProcess/XR/PlatformXRSystem \
 	WebProcess/Databases/IndexedDB/WebIDBConnectionToServer \
 	WebProcess/GPU/GPUProcessConnection \
-	WebProcess/GPU/graphics/RemoteRenderingBackend \
+	WebProcess/GPU/graphics/RemoteRenderingBackendProxy \
+	WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy \
 	WebProcess/GPU/webrtc/LibWebRTCCodecs \
 	WebProcess/GPU/webrtc/SampleBufferDisplayLayer \
 	WebProcess/GPU/media/MediaPlayerPrivateRemote \
-	WebProcess/GPU/media/RemoteCDMInstanceSession \
-	WebProcess/GPU/media/RemoteLegacyCDMSession \
-	WebProcess/GPU/media/ios/RemoteMediaSessionHelper \
-	WebProcess/GPU/media/RemoteMediaPlayerManager \
-	WebProcess/GPU/media/RemoteAudioDestinationProxy \
+	WebProcess/GPU/media/MediaSourcePrivateRemote \
+	WebProcess/GPU/media/RemoteAudioHardwareListener \
 	WebProcess/GPU/media/RemoteAudioSession \
+	WebProcess/GPU/media/RemoteAudioSourceProviderManager \
+	WebProcess/GPU/media/RemoteCDMInstance \
+	WebProcess/GPU/media/RemoteCDMInstanceSession \
+	WebProcess/GPU/media/RemoteImageDecoderAVFManager \
+	WebProcess/GPU/media/RemoteLegacyCDMSession \
+	WebProcess/GPU/media/RemoteRemoteCommandListener \
+	WebProcess/GPU/media/SourceBufferPrivateRemote \
+	WebProcess/GPU/media/ios/RemoteMediaSessionHelper \
 	WebProcess/WebStorage/StorageAreaMap \
 	WebProcess/UserContent/WebUserContentController \
 	WebProcess/Inspector/WebInspectorInterruptDispatcher \
 	WebProcess/Inspector/WebInspectorUI \
+	WebProcess/Inspector/WebInspectorUIExtensionController \
 	WebProcess/Inspector/WebInspector \
 	WebProcess/Inspector/RemoteWebInspectorUI \
+	WebProcess/MediaSession/RemoteMediaSessionCoordinator \
 	WebProcess/Plugins/PluginProcessConnectionManager \
 	WebProcess/Plugins/PluginProxy \
 	WebProcess/Plugins/PluginProcessConnection \
@@ -189,11 +210,15 @@ MESSAGE_RECEIVERS = \
 	WebProcess/Network/NetworkProcessConnection \
 	WebProcess/Network/WebSocketStream \
 	WebProcess/Network/WebResourceLoader \
-	WebProcess/Network/webrtc/WebRTCMonitor \
 	WebProcess/Network/webrtc/LibWebRTCNetwork \
+	WebProcess/Network/webrtc/RTCDataChannelRemoteManager \
+	WebProcess/Network/webrtc/WebRTCMonitor \
 	WebProcess/Network/webrtc/WebMDNSRegister \
 	WebProcess/Network/webrtc/WebRTCResolver \
+	WebProcess/WebCoreSupport/WebBroadcastChannelRegistry \
 	WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider \
+	WebProcess/WebCoreSupport/WebSpeechRecognitionConnection \
+	WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager \
 	WebProcess/Storage/WebSWContextManagerConnection \
 	WebProcess/Storage/WebSWClientConnection \
 	WebProcess/WebProcess \
@@ -214,32 +239,41 @@ MESSAGE_RECEIVERS = \
 	WebProcess/WebPage/VisitedLinkTableController \
 	WebProcess/WebPage/Cocoa/TextCheckingControllerProxy \
 	WebProcess/WebPage/ViewUpdateDispatcher \
+	WebProcess/WebAuthentication/WebAuthnProcessConnection \
+	WebProcess/XR/PlatformXRSystemProxy \
 	PluginProcess/WebProcessConnection \
 	PluginProcess/PluginControllerProxy \
 	PluginProcess/PluginProcess \
 	GPUProcess/GPUConnectionToWebProcess \
-	GPUProcess/graphics/RemoteRenderingBackendProxy \
+	GPUProcess/graphics/RemoteRenderingBackend \
+	GPUProcess/graphics/RemoteGraphicsContextGL \
 	GPUProcess/webrtc/LibWebRTCCodecsProxy \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager \
-	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererManager \
 	GPUProcess/webrtc/RemoteMediaRecorderManager \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayer \
 	GPUProcess/webrtc/RemoteMediaRecorder \
-	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRenderer \
+	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager \
 	GPUProcess/GPUProcess \
+	GPUProcess/media/RemoteImageDecoderAVFProxy \
 	GPUProcess/media/RemoteLegacyCDMSessionProxy \
 	GPUProcess/media/RemoteLegacyCDMFactoryProxy \
 	GPUProcess/media/RemoteAudioSessionProxy \
 	GPUProcess/media/RemoteCDMInstanceSessionProxy \
 	GPUProcess/media/RemoteCDMProxy \
 	GPUProcess/media/ios/RemoteMediaSessionHelperProxy \
-	GPUProcess/media/RemoteMediaPlayerProxy \
+	GPUProcess/media/RemoteAudioDestinationManager \
 	GPUProcess/media/RemoteCDMFactoryProxy \
-	GPUProcess/media/RemoteMediaResourceManager \
 	GPUProcess/media/RemoteCDMInstanceProxy \
 	GPUProcess/media/RemoteLegacyCDMProxy \
+	GPUProcess/media/RemoteMediaEngineConfigurationFactoryProxy \
 	GPUProcess/media/RemoteMediaPlayerManagerProxy \
-	GPUProcess/media/RemoteAudioDestinationManager \
+	GPUProcess/media/RemoteMediaPlayerProxy \
+	GPUProcess/media/RemoteMediaResourceManager \
+	GPUProcess/media/RemoteMediaSourceProxy \
+	GPUProcess/media/RemoteRemoteCommandListenerProxy \
+	GPUProcess/media/RemoteSourceBufferProxy \
+	WebAuthnProcess/WebAuthnConnectionToWebProcess \
+	WebAuthnProcess/WebAuthnProcess \
 #
 
 GENERATE_MESSAGE_RECEIVER_SCRIPT = $(WebKit2)/Scripts/generate-message-receiver.py
@@ -258,7 +292,7 @@ MESSAGE_RECEIVER_FILES := $(addsuffix MessageReceiver.cpp,$(notdir $(MESSAGE_REC
 MESSAGES_FILES := $(addsuffix Messages.h,$(notdir $(MESSAGE_RECEIVERS)))
 MESSAGE_REPLIES_FILES := $(addsuffix MessagesReplies.h,$(notdir $(MESSAGE_RECEIVERS)))
 
-GENERATED_MESSAGES_FILES := $(MESSAGE_RECEIVER_FILES) $(MESSAGES_FILES) $(MESSAGE_REPLIES_FILES) MessageNames.h MessageNames.cpp
+GENERATED_MESSAGES_FILES := $(MESSAGE_RECEIVER_FILES) $(MESSAGES_FILES) $(MESSAGE_REPLIES_FILES) MessageNames.h MessageNames.cpp MessageArgumentDescriptions.cpp
 GENERATED_MESSAGES_FILES_AS_PATTERNS := $(subst .,%,$(GENERATED_MESSAGES_FILES))
 
 MESSAGES_IN_FILES := $(addsuffix .messages.in,$(MESSAGE_RECEIVERS))
@@ -285,9 +319,15 @@ SANDBOX_PROFILES = \
 	com.apple.WebProcess.sb \
 	com.apple.WebKit.plugin-common.sb \
 	com.apple.WebKit.NetworkProcess.sb \
-	com.apple.WebKit.GPUProcess.sb
+	com.apple.WebKit.GPUProcess.sb \
+	com.apple.WebKit.WebAuthnProcess.sb
+	
+SANDBOX_PROFILES_IOS = \
+	com.apple.WebKit.WebContent.sb \
 
-all : $(SANDBOX_PROFILES)
+sandbox-profiles-ios : $(SANDBOX_PROFILES_IOS)
+
+all : $(SANDBOX_PROFILES) $(SANDBOX_PROFILES_IOS)
 
 %.sb : %.sb.in
 	@echo Pre-processing $* sandbox profile...
@@ -339,18 +379,25 @@ all : WebAutomationSessionProxyScriptSource.h
 # WebPreferences generation
 
 WEB_PREFERENCES_INPUT_FILES = \
-    $(WebKit2)/Shared/WebPreferences.yaml \
+    ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferences.yaml \
     $(ADDITIONAL_WEB_PREFERENCES_INPUT_FILES) \
 #
 WEB_PREFERENCES_COMBINED_INPUT_FILE = WebPreferencesCombined.yaml
+
+WEB_PREFERENCES_CATEGORY_INPUT_FILES = \
+    ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesDebug.yaml \
+    ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesExperimental.yaml \
+    ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesInternal.yaml \
+#
 
 WEB_PREFERENCES_TEMPLATES = \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPageUpdatePreferences.cpp.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.cpp.erb \
+    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesGetterSetters.cpp.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesInternalDebugFeatures.cpp.erb \
-    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.cpp.erb \
+    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesStoreDefaultsMap.cpp.erb \
 #
 WEB_PREFERENCES_FILES = $(basename $(notdir $(WEB_PREFERENCES_TEMPLATES)))
@@ -361,13 +408,5 @@ all : $(WEB_PREFERENCES_FILES) $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
 $(WEB_PREFERENCES_COMBINED_INPUT_FILE) : $(WEB_PREFERENCES_INPUT_FILES)
 	cat $^ > $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
 
-$(WEB_PREFERENCES_PATTERNS) : $(WebKit2)/Scripts/GeneratePreferences.rb $(WEB_PREFERENCES_TEMPLATES) $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
-	$(RUBY) $< --input $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
-
-# FIXME: We should switch to the internal HTTPSUpgradeList.txt once the feature is ready.
-# VPATH += $(WebKit2)/Shared/HTTPSUpgrade/
-VPATH := $(WebKit2)/Shared/HTTPSUpgrade/ $(VPATH)
-
-all : HTTPSUpgradeList.db
-HTTPSUpgradeList.db : HTTPSUpgradeList.txt $(WebKit2)/Scripts/generate-https-upgrade-database.sh
-	sh $(WebKit2)/Scripts/generate-https-upgrade-database.sh $< $@
+$(WEB_PREFERENCES_PATTERNS) : $(WTF_BUILD_SCRIPTS_DIR)/GeneratePreferences.rb $(WEB_PREFERENCES_TEMPLATES) $(WEB_PREFERENCES_COMBINED_INPUT_FILE) $(WEB_PREFERENCES_CATEGORY_INPUT_FILES)
+	$(RUBY) $< --frontend WebKit --base $(WEB_PREFERENCES_COMBINED_INPUT_FILE) --debug ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesDebug.yaml --experimental ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesExperimental.yaml	--internal ${WTF_BUILD_SCRIPTS_DIR}/Preferences/WebPreferencesInternal.yaml $(addprefix --template , $(WEB_PREFERENCES_TEMPLATES))

@@ -41,6 +41,8 @@
 #include "WebErrors.h"
 #include <WebCore/AsyncFileStream.h>
 #include <WebCore/BlobRegistryImpl.h>
+#include <WebCore/CrossOriginEmbedderPolicy.h>
+#include <WebCore/CrossOriginOpenerPolicy.h>
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/ParsedContentRange.h>
 #include <WebCore/ResourceError.h>
@@ -255,7 +257,7 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse(Error errorCode)
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::dispatchDidReceiveResponse(%u)", this, static_cast<unsigned>(errorCode));
 
     Ref<NetworkDataTaskBlob> protectedThis(*this);
-    ResourceResponse response(m_firstRequest.url(), errorCode != Error::NoError ? "text/plain" : m_blobData->contentType(), errorCode != Error::NoError ? 0 : m_totalRemainingSize, String());
+    ResourceResponse response(m_firstRequest.url(), errorCode != Error::NoError ? "text/plain" : extractMIMETypeFromMediaType(m_blobData->contentType()), errorCode != Error::NoError ? 0 : m_totalRemainingSize, String());
     switch (errorCode) {
     case Error::NoError: {
         bool isRangeRequest = m_rangeOffset != kPositionNotSpecified;
@@ -264,6 +266,8 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse(Error errorCode)
 
         response.setHTTPHeaderField(HTTPHeaderName::ContentType, m_blobData->contentType());
         response.setHTTPHeaderField(HTTPHeaderName::ContentLength, String::number(m_totalRemainingSize));
+        addCrossOriginOpenerPolicyHeaders(response, m_blobData->policyContainer().crossOriginOpenerPolicy);
+        addCrossOriginEmbedderPolicyHeaders(response, m_blobData->policyContainer().crossOriginEmbedderPolicy);
 
         if (isRangeRequest)
             response.setHTTPHeaderField(HTTPHeaderName::ContentRange, ParsedContentRange(m_rangeOffset, m_rangeEnd, m_totalSize).headerValue());
@@ -340,10 +344,14 @@ void NetworkDataTaskBlob::readData(const BlobDataItem& item)
     ASSERT(item.data().data());
 
     long long bytesToRead = item.length() - m_currentItemReadSize;
+    ASSERT(bytesToRead >= 0);
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = m_totalRemainingSize;
-    consumeData(reinterpret_cast<const char*>(item.data().data()->data()) + item.offset() + m_currentItemReadSize, static_cast<int>(bytesToRead));
+
+    auto* data = item.data().data()->data() + item.offset() + m_currentItemReadSize;
     m_currentItemReadSize = 0;
+
+    consumeData(data, static_cast<int>(bytesToRead));
 }
 
 void NetworkDataTaskBlob::readFile(const BlobDataItem& item)
@@ -395,7 +403,7 @@ void NetworkDataTaskBlob::didRead(int bytesRead)
     consumeData(m_buffer.data(), bytesRead);
 }
 
-void NetworkDataTaskBlob::consumeData(const char* data, int bytesRead)
+void NetworkDataTaskBlob::consumeData(const uint8_t* data, int bytesRead)
 {
     m_totalRemainingSize -= bytesRead;
 
@@ -442,10 +450,7 @@ void NetworkDataTaskBlob::setPendingDownloadLocation(const String& filename, San
 
 String NetworkDataTaskBlob::suggestedFilename() const
 {
-    if (!m_suggestedFilename.isEmpty())
-        return m_suggestedFilename;
-
-    return "unknown"_s;
+    return m_suggestedFilename;
 }
 
 void NetworkDataTaskBlob::download()
@@ -474,7 +479,7 @@ void NetworkDataTaskBlob::download()
     read();
 }
 
-bool NetworkDataTaskBlob::writeDownload(const char* data, int bytesRead)
+bool NetworkDataTaskBlob::writeDownload(const uint8_t* data, int bytesRead)
 {
     ASSERT(isDownload());
     int bytesWritten = FileSystem::writeToFile(m_downloadFile, data, bytesRead);

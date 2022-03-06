@@ -33,6 +33,8 @@
 #define WEBCORE_GSTREAMER_EME_UTILITIES_WIDEVINE_UUID "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 #endif
 
+GST_DEBUG_CATEGORY_EXTERN(webkit_media_common_encryption_decrypt_debug_category);
+
 namespace WebCore {
 class InitData {
 public:
@@ -45,15 +47,15 @@ public:
     {
         auto mappedInitData = GstMappedOwnedBuffer::create(initData);
         if (!mappedInitData) {
-            GST_ERROR("cannot map %s protection data", systemId.utf8().data());
+            GST_CAT_LEVEL_LOG(webkit_media_common_encryption_decrypt_debug_category, GST_LEVEL_ERROR, nullptr, "cannot map %s protection data", systemId.utf8().data());
             ASSERT_NOT_REACHED();
         }
-        m_payload = mappedInitData->createSharedBuffer();
+        m_payload = extractCencIfNeeded(mappedInitData->createSharedBuffer());
     }
 
     InitData(const String& systemId, RefPtr<SharedBuffer>&& payload)
         : m_systemId(systemId)
-        , m_payload(WTFMove(payload))
+        , m_payload(extractCencIfNeeded(WTFMove(payload)))
     {
     }
 
@@ -77,12 +79,14 @@ public:
     const String& systemId() const { return m_systemId; }
     String payloadContainerType() const
     {
-#if GST_CHECK_VERSION(1, 15, 0)
+#if GST_CHECK_VERSION(1, 16, 0)
         if (m_systemId == GST_PROTECTION_UNSPECIFIED_SYSTEM_ID)
             return "webm"_s;
 #endif
         return "cenc"_s;
     }
+
+    static RefPtr<SharedBuffer> extractCencIfNeeded(RefPtr<SharedBuffer>&&);
 
 private:
     String m_systemId;

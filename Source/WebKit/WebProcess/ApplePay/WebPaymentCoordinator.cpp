@@ -36,6 +36,10 @@
 #include "WebPaymentCoordinatorMessages.h"
 #include "WebPaymentCoordinatorProxyMessages.h"
 #include "WebProcess.h"
+#include <WebCore/ApplePayCouponCodeUpdate.h>
+#include <WebCore/ApplePayPaymentMethodUpdate.h>
+#include <WebCore/ApplePayShippingContactUpdate.h>
+#include <WebCore/ApplePayShippingMethodUpdate.h>
 #include <WebCore/Frame.h>
 #include <WebCore/PaymentCoordinator.h>
 #include <wtf/URL.h>
@@ -61,14 +65,14 @@ void WebPaymentCoordinator::networkProcessConnectionClosed()
 #endif
 }
 
-Optional<String> WebPaymentCoordinator::validatedPaymentNetwork(const String& paymentNetwork)
+std::optional<String> WebPaymentCoordinator::validatedPaymentNetwork(const String& paymentNetwork)
 {
     if (!m_availablePaymentNetworks)
         m_availablePaymentNetworks = platformAvailablePaymentNetworks();
 
     auto result = m_availablePaymentNetworks->find(paymentNetwork);
     if (result == m_availablePaymentNetworks->end())
-        return WTF::nullopt;
+        return std::nullopt;
     return *result;
 }
 
@@ -109,22 +113,31 @@ void WebPaymentCoordinator::completeMerchantValidation(const WebCore::PaymentMer
     send(Messages::WebPaymentCoordinatorProxy::CompleteMerchantValidation(paymentMerchantSession));
 }
 
-void WebPaymentCoordinator::completeShippingMethodSelection(Optional<WebCore::ShippingMethodUpdate>&& update)
+void WebPaymentCoordinator::completeShippingMethodSelection(std::optional<WebCore::ApplePayShippingMethodUpdate>&& update)
 {
-    send(Messages::WebPaymentCoordinatorProxy::CompleteShippingMethodSelection(update));
+    send(Messages::WebPaymentCoordinatorProxy::CompleteShippingMethodSelection(WTFMove(update)));
 }
 
-void WebPaymentCoordinator::completeShippingContactSelection(Optional<WebCore::ShippingContactUpdate>&& update)
+void WebPaymentCoordinator::completeShippingContactSelection(std::optional<WebCore::ApplePayShippingContactUpdate>&& update)
 {
-    send(Messages::WebPaymentCoordinatorProxy::CompleteShippingContactSelection(update));
+    send(Messages::WebPaymentCoordinatorProxy::CompleteShippingContactSelection(WTFMove(update)));
 }
 
-void WebPaymentCoordinator::completePaymentMethodSelection(Optional<WebCore::PaymentMethodUpdate>&& update)
+void WebPaymentCoordinator::completePaymentMethodSelection(std::optional<WebCore::ApplePayPaymentMethodUpdate>&& update)
 {
-    send(Messages::WebPaymentCoordinatorProxy::CompletePaymentMethodSelection(update));
+    send(Messages::WebPaymentCoordinatorProxy::CompletePaymentMethodSelection(WTFMove(update)));
 }
 
-void WebPaymentCoordinator::completePaymentSession(Optional<WebCore::PaymentAuthorizationResult>&& result)
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+
+void WebPaymentCoordinator::completeCouponCodeChange(std::optional<WebCore::ApplePayCouponCodeUpdate>&& update)
+{
+    send(Messages::WebPaymentCoordinatorProxy::CompleteCouponCodeChange(WTFMove(update)));
+}
+
+#endif // ENABLE(APPLE_PAY_COUPON_CODE)
+
+void WebPaymentCoordinator::completePaymentSession(std::optional<WebCore::PaymentAuthorizationResult>&& result)
 {
     send(Messages::WebPaymentCoordinatorProxy::CompletePaymentSession(result));
 }
@@ -142,11 +155,6 @@ void WebPaymentCoordinator::cancelPaymentSession()
 void WebPaymentCoordinator::paymentCoordinatorDestroyed()
 {
     delete this;
-}
-
-bool WebPaymentCoordinator::isAlwaysOnLoggingAllowed() const
-{
-    return m_webPage.isAlwaysOnLoggingAllowed();
 }
 
 bool WebPaymentCoordinator::supportsUnrestrictedApplePay() const
@@ -188,7 +196,7 @@ void WebPaymentCoordinator::didAuthorizePayment(const WebCore::Payment& payment)
     paymentCoordinator().didAuthorizePayment(payment);
 }
 
-void WebPaymentCoordinator::didSelectShippingMethod(const WebCore::ApplePaySessionPaymentRequest::ShippingMethod& shippingMethod)
+void WebPaymentCoordinator::didSelectShippingMethod(const WebCore::ApplePayShippingMethod& shippingMethod)
 {
     paymentCoordinator().didSelectShippingMethod(shippingMethod);
 }
@@ -202,6 +210,15 @@ void WebPaymentCoordinator::didSelectPaymentMethod(const WebCore::PaymentMethod&
 {
     paymentCoordinator().didSelectPaymentMethod(paymentMethod);
 }
+
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+
+void WebPaymentCoordinator::didChangeCouponCode(String&& couponCode)
+{
+    paymentCoordinator().didChangeCouponCode(WTFMove(couponCode));
+}
+
+#endif // ENABLE(APPLE_PAY_COUPON_CODE)
 
 void WebPaymentCoordinator::didCancelPaymentSession(WebCore::PaymentSessionError&& sessionError)
 {

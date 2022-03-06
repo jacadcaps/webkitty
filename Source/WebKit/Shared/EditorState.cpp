@@ -34,15 +34,18 @@ using namespace WebCore;
 
 void EditorState::encode(IPC::Encoder& encoder) const
 {
+    encoder << identifier;
     encoder << originIdentifierForPasteboard;
     encoder << shouldIgnoreSelectionChanges;
     encoder << selectionIsNone;
     encoder << selectionIsRange;
+    encoder << selectionIsRangeInsideImageOverlay;
     encoder << isContentEditable;
     encoder << isContentRichlyEditable;
     encoder << isInPasswordField;
     encoder << isInPlugin;
     encoder << hasComposition;
+    encoder << triggeredByAccessibilitySelectionChange;
     encoder << isMissingPostLayoutData;
     if (!isMissingPostLayoutData)
         m_postLayoutData.encode(encoder);
@@ -50,6 +53,9 @@ void EditorState::encode(IPC::Encoder& encoder) const
 
 bool EditorState::decode(IPC::Decoder& decoder, EditorState& result)
 {
+    if (!decoder.decode(result.identifier))
+        return false;
+
     if (!decoder.decode(result.originIdentifierForPasteboard))
         return false;
 
@@ -60,6 +66,9 @@ bool EditorState::decode(IPC::Decoder& decoder, EditorState& result)
         return false;
 
     if (!decoder.decode(result.selectionIsRange))
+        return false;
+
+    if (!decoder.decode(result.selectionIsRangeInsideImageOverlay))
         return false;
 
     if (!decoder.decode(result.isContentEditable))
@@ -75,6 +84,9 @@ bool EditorState::decode(IPC::Decoder& decoder, EditorState& result)
         return false;
 
     if (!decoder.decode(result.hasComposition))
+        return false;
+
+    if (!decoder.decode(result.triggeredByAccessibilitySelectionChange))
         return false;
 
     if (!decoder.decode(result.isMissingPostLayoutData))
@@ -95,7 +107,6 @@ void EditorState::PostLayoutData::encode(IPC::Encoder& encoder) const
     encoder << caretRectAtStart;
 #endif
 #if PLATFORM(COCOA)
-    encoder << focusedElementRect;
     encoder << selectedTextLength;
     encoder << textAlignment;
     encoder << textColor;
@@ -103,8 +114,9 @@ void EditorState::PostLayoutData::encode(IPC::Encoder& encoder) const
     encoder << baseWritingDirection;
 #endif
 #if PLATFORM(IOS_FAMILY)
+    encoder << selectionClipRect;
     encoder << caretRectAtEnd;
-    encoder << selectionRects;
+    encoder << selectionGeometries;
     encoder << markedTextRects;
     encoder << markedText;
     encoder << markedTextCaretRectAtStart;
@@ -113,6 +125,9 @@ void EditorState::PostLayoutData::encode(IPC::Encoder& encoder) const
     encoder << characterAfterSelection;
     encoder << characterBeforeSelection;
     encoder << twoCharacterBeforeSelection;
+#if USE(DICTATION_ALTERNATIVES)
+    encoder << dictationContextsForSelection;
+#endif
     encoder << isReplaceAllowed;
     encoder << hasContent;
     encoder << isStableStateUpdate;
@@ -125,9 +140,11 @@ void EditorState::PostLayoutData::encode(IPC::Encoder& encoder) const
     encoder << selectionEndIsAtParagraphBoundary;
 #endif
 #if PLATFORM(MAC)
+    encoder << selectionBoundingRect;
     encoder << candidateRequestStartPosition;
     encoder << paragraphContextForCandidateRequest;
     encoder << stringForCandidateRequest;
+    encoder << canEnableAutomaticSpellingCorrection;
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
     encoder << surroundingContext;
@@ -149,8 +166,6 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
 #endif
 #if PLATFORM(COCOA)
-    if (!decoder.decode(result.focusedElementRect))
-        return false;
     if (!decoder.decode(result.selectedTextLength))
         return false;
     if (!decoder.decode(result.textAlignment))
@@ -163,9 +178,11 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
 #endif
 #if PLATFORM(IOS_FAMILY)
+    if (!decoder.decode(result.selectionClipRect))
+        return false;
     if (!decoder.decode(result.caretRectAtEnd))
         return false;
-    if (!decoder.decode(result.selectionRects))
+    if (!decoder.decode(result.selectionGeometries))
         return false;
     if (!decoder.decode(result.markedTextRects))
         return false;
@@ -183,6 +200,10 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
     if (!decoder.decode(result.twoCharacterBeforeSelection))
         return false;
+#if USE(DICTATION_ALTERNATIVES)
+    if (!decoder.decode(result.dictationContextsForSelection))
+        return false;
+#endif
     if (!decoder.decode(result.isReplaceAllowed))
         return false;
     if (!decoder.decode(result.hasContent))
@@ -205,6 +226,9 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
 #endif
 #if PLATFORM(MAC)
+    if (!decoder.decode(result.selectionBoundingRect))
+        return false;
+
     if (!decoder.decode(result.candidateRequestStartPosition))
         return false;
 
@@ -212,6 +236,9 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
 
     if (!decoder.decode(result.stringForCandidateRequest))
+        return false;
+
+    if (!decoder.decode(result.canEnableAutomaticSpellingCorrection))
         return false;
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -223,7 +250,7 @@ bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& 
         return false;
 #endif
 
-    Optional<Optional<FontAttributes>> optionalFontAttributes;
+    std::optional<std::optional<FontAttributes>> optionalFontAttributes;
     decoder >> optionalFontAttributes;
     if (!optionalFontAttributes)
         return false;
@@ -258,6 +285,8 @@ TextStream& operator<<(TextStream& ts, const EditorState& editorState)
         ts.dumpProperty("isInPlugin", editorState.isInPlugin);
     if (editorState.hasComposition)
         ts.dumpProperty("hasComposition", editorState.hasComposition);
+    if (editorState.triggeredByAccessibilitySelectionChange)
+        ts.dumpProperty("triggeredByAccessibilitySelectionChange", editorState.triggeredByAccessibilitySelectionChange);
     if (editorState.isMissingPostLayoutData)
         ts.dumpProperty("isMissingPostLayoutData", editorState.isMissingPostLayoutData);
 
@@ -273,8 +302,6 @@ TextStream& operator<<(TextStream& ts, const EditorState& editorState)
         ts.dumpProperty("caretRectAtStart", editorState.postLayoutData().caretRectAtStart);
 #endif
 #if PLATFORM(COCOA)
-    if (editorState.postLayoutData().focusedElementRect != IntRect())
-        ts.dumpProperty("focusedElementRect", editorState.postLayoutData().focusedElementRect);
     if (editorState.postLayoutData().selectedTextLength)
         ts.dumpProperty("selectedTextLength", editorState.postLayoutData().selectedTextLength);
     if (editorState.postLayoutData().textAlignment != NoAlignment)
@@ -287,10 +314,12 @@ TextStream& operator<<(TextStream& ts, const EditorState& editorState)
         ts.dumpProperty("baseWritingDirection", static_cast<uint8_t>(editorState.postLayoutData().baseWritingDirection));
 #endif // PLATFORM(COCOA)
 #if PLATFORM(IOS_FAMILY)
+    if (editorState.postLayoutData().selectionClipRect != IntRect())
+        ts.dumpProperty("selectionClipRect", editorState.postLayoutData().selectionClipRect);
     if (editorState.postLayoutData().caretRectAtEnd != IntRect())
         ts.dumpProperty("caretRectAtEnd", editorState.postLayoutData().caretRectAtEnd);
-    if (!editorState.postLayoutData().selectionRects.isEmpty())
-        ts.dumpProperty("selectionRects", editorState.postLayoutData().selectionRects);
+    if (!editorState.postLayoutData().selectionGeometries.isEmpty())
+        ts.dumpProperty("selectionGeometries", editorState.postLayoutData().selectionGeometries);
     if (!editorState.postLayoutData().markedTextRects.isEmpty())
         ts.dumpProperty("markedTextRects", editorState.postLayoutData().markedTextRects);
     if (editorState.postLayoutData().markedText.length())
@@ -319,12 +348,16 @@ TextStream& operator<<(TextStream& ts, const EditorState& editorState)
         ts.dumpProperty("caretColor", editorState.postLayoutData().caretColor);
 #endif
 #if PLATFORM(MAC)
+    if (editorState.postLayoutData().selectionBoundingRect != IntRect())
+        ts.dumpProperty("selectionBoundingRect", editorState.postLayoutData().selectionBoundingRect);
     if (editorState.postLayoutData().candidateRequestStartPosition)
         ts.dumpProperty("candidateRequestStartPosition", editorState.postLayoutData().candidateRequestStartPosition);
     if (editorState.postLayoutData().paragraphContextForCandidateRequest.length())
         ts.dumpProperty("paragraphContextForCandidateRequest", editorState.postLayoutData().paragraphContextForCandidateRequest);
     if (editorState.postLayoutData().stringForCandidateRequest.length())
         ts.dumpProperty("stringForCandidateRequest", editorState.postLayoutData().stringForCandidateRequest);
+    if (editorState.postLayoutData().canEnableAutomaticSpellingCorrection)
+        ts.dumpProperty("canEnableAutomaticSpellingCorrection", editorState.postLayoutData().canEnableAutomaticSpellingCorrection);
 #endif
 
     if (editorState.postLayoutData().canCut)

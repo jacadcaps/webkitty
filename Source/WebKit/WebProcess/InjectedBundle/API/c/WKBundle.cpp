@@ -96,84 +96,6 @@ size_t WKBundleGetJavaScriptObjectsCount(WKBundleRef bundleRef)
     return WebKit::toImpl(bundleRef)->javaScriptObjectsCount();
 }
 
-void WKBundleAddUserScript(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, _WKUserScriptInjectionTime, WKUserContentInjectedFrames)
-{
-}
-
-void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames)
-{
-}
-
-void WKBundleRemoveUserScript(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKURLRef)
-{
-}
-
-void WKBundleRemoveUserStyleSheet(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKURLRef)
-{
-}
-
-void WKBundleRemoveUserScripts(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef)
-{
-}
-
-void WKBundleRemoveUserStyleSheets(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef)
-{
-}
-
-void WKBundleRemoveAllUserContent(WKBundleRef, WKBundlePageGroupRef)
-{
-}
-
-void WKBundleOverrideBoolPreferenceForTestRunner(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, WKStringRef preference, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->overrideBoolPreferenceForTestRunner(WebKit::toImpl(pageGroupRef), WebKit::toWTFString(preference), enabled);
-}
-
-void WKBundleSetAllowUniversalAccessFromFileURLs(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setAllowUniversalAccessFromFileURLs(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetAllowFileAccessFromFileURLs(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setAllowFileAccessFromFileURLs(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetAllowStorageAccessFromFileURLS(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool needsQuirk)
-{
-    WebKit::toImpl(bundleRef)->setNeedsStorageAccessFromFileURLsQuirk(WebKit::toImpl(pageGroupRef), needsQuirk);
-}
-
-void WKBundleSetMinimumLogicalFontSize(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, int size)
-{
-    WebKit::toImpl(bundleRef)->setMinimumLogicalFontSize(WebKit::toImpl(pageGroupRef), size);
-}
-
-void WKBundleSetFrameFlatteningEnabled(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setFrameFlatteningEnabled(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetJavaScriptCanAccessClipboard(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setJavaScriptCanAccessClipboard(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetPopupBlockingEnabled(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setPopupBlockingEnabled(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetAuthorAndUserStylesEnabled(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setAuthorAndUserStylesEnabled(WebKit::toImpl(pageGroupRef), enabled);
-}
-
-void WKBundleSetSpatialNavigationEnabled(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
-{
-    WebKit::toImpl(bundleRef)->setSpatialNavigationEnabled(WebKit::toImpl(pageGroupRef), enabled);
-}
-
 void WKBundleAddOriginAccessAllowListEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)
 {
     WebKit::toImpl(bundleRef)->addOriginAccessAllowListEntry(WebKit::toWTFString(sourceOrigin), WebKit::toWTFString(destinationProtocol), WebKit::toWTFString(destinationHost), allowDestinationSubdomains);
@@ -189,14 +111,14 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
     WebKit::toImpl(bundleRef)->resetOriginAccessAllowLists();
 }
 
-void WKBundleSetAsynchronousSpellCheckingEnabled(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool enabled)
+void WKBundleSetAsynchronousSpellCheckingEnabledForTesting(WKBundleRef bundleRef, bool enabled)
 {
-    WebKit::toImpl(bundleRef)->setAsynchronousSpellCheckingEnabled(WebKit::toImpl(pageGroupRef), enabled);
+    WebKit::toImpl(bundleRef)->setAsynchronousSpellCheckingEnabled(enabled);
 }
 
-WKArrayRef WKBundleGetLiveDocumentURLs(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, bool excludeDocumentsInPageGroupPages)
+WKArrayRef WKBundleGetLiveDocumentURLsForTesting(WKBundleRef bundleRef, bool excludeDocumentsInPageGroupPages)
 {
-    auto liveDocuments = WebKit::toImpl(bundleRef)->liveDocumentURLs(WebKit::toImpl(pageGroupRef), excludeDocumentsInPageGroupPages);
+    auto liveDocuments = WebKit::toImpl(bundleRef)->liveDocumentURLs(excludeDocumentsInPageGroupPages);
 
     auto liveURLs = adoptWK(WKMutableArrayCreate());
 
@@ -269,9 +191,9 @@ bool WKBundleIsProcessingUserGesture(WKBundleRef)
     return WebKit::InjectedBundle::isProcessingUserGesture();
 }
 
-void WKBundleSetUserStyleSheetLocation(WKBundleRef bundleRef, WKBundlePageGroupRef pageGroupRef, WKStringRef location)
+void WKBundleSetUserStyleSheetLocationForTesting(WKBundleRef bundleRef, WKStringRef location)
 {
-    WebKit::toImpl(bundleRef)->setUserStyleSheetLocation(WebKit::toImpl(pageGroupRef), WebKit::toWTFString(location));
+    WebKit::toImpl(bundleRef)->setUserStyleSheetLocation(WebKit::toWTFString(location));
 }
 
 void WKBundleSetWebNotificationPermission(WKBundleRef bundleRef, WKBundlePageRef pageRef, WKStringRef originStringRef, bool allowed)
@@ -304,7 +226,7 @@ bool WKBundleResourceLoadStatisticsNotifyObserver(WKBundleRef)
     if (!WebCore::ResourceLoadObserver::shared().hasStatistics())
         return false;
 
-    WebCore::ResourceLoadObserver::shared().updateCentralStatisticsStore();
+    WebCore::ResourceLoadObserver::shared().updateCentralStatisticsStore([] { });
     return true;
 }
 

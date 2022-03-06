@@ -55,6 +55,9 @@ public:
 
     void scrollingStateInUIProcessChanged(const RemoteScrollingUIState&);
 
+    void addNodeWithActiveRubberBanding(WebCore::ScrollingNodeID);
+    void removeNodeWithActiveRubberBanding(WebCore::ScrollingNodeID);
+
 private:
     RemoteScrollingCoordinator(WebPage*);
     virtual ~RemoteScrollingCoordinator();
@@ -65,12 +68,9 @@ private:
     bool coordinatesScrollingForFrameView(const WebCore::FrameView&) const override;
     void scheduleTreeStateCommit() override;
 
-    bool isRubberBandInProgress() const override;
-
+    bool isRubberBandInProgress(WebCore::ScrollingNodeID) const final;
     bool isUserScrollInProgress(WebCore::ScrollingNodeID) const final;
-#if ENABLE(CSS_SCROLL_SNAP)
     bool isScrollSnapInProgress(WebCore::ScrollingNodeID) const final;
-#endif
 
     void setScrollPinningBehavior(WebCore::ScrollPinningBehavior) override;
 
@@ -79,10 +79,11 @@ private:
     
     // Respond to UI process changes.
     void scrollPositionChangedForNode(WebCore::ScrollingNodeID, const WebCore::FloatPoint& scrollPosition, bool syncLayerPosition);
-    void currentSnapPointIndicesChangedForNode(WebCore::ScrollingNodeID, unsigned horizontal, unsigned vertical);
+    void currentSnapPointIndicesChangedForNode(WebCore::ScrollingNodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical);
 
     WebPage* m_webPage;
 
+    HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveRubberBanding;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveScrollSnap;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveUserScrolls;
 };

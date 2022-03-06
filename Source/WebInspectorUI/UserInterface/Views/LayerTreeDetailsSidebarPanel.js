@@ -36,20 +36,18 @@ WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.
 
     // DetailsSidebarPanel Overrides.
 
-    shown()
+    attached()
     {
+        super.attached();
+
         WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
-
-        console.assert(this.parentSidebar);
-
-        super.shown();
     }
 
-    hidden()
+    detached()
     {
         WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
 
-        super.hidden();
+        super.detached();
     }
 
     // DOMDetailsSidebarPanel Overrides
@@ -391,6 +389,8 @@ WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.
             addReason(WI.UIString("Element is a plug-in"));
         if (compositingReasons.iFrame)
             addReason(WI.UIString("Element is <iframe>"));
+        if (compositingReasons.model)
+            addReason(WI.UIString("Element is <model>"));
         if (compositingReasons.backfaceVisibilityHidden)
             addReason(WI.UIString("Element has \u201Cbackface-visibility: hidden\u201D style"));
         if (compositingReasons.clipsCompositingDescendants)

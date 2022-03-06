@@ -24,6 +24,7 @@
 #include "DOMWrapperWorld.h"
 #include "WebCoreBuiltinNames.h"
 #include "WebCoreJSBuiltins.h"
+#include "WorkerThreadType.h"
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
 
@@ -40,7 +41,7 @@ public:
 
     virtual ~JSVMClientData();
     
-    WEBCORE_EXPORT static void initNormalWorld(JSC::VM*);
+    WEBCORE_EXPORT static void initNormalWorld(JSC::VM*, WorkerThreadType);
 
     DOMWrapperWorld& normalWorld() { return *m_normalWorld; }
 
@@ -99,13 +100,15 @@ public:
 #if ENABLE(SERVICE_WORKER)
     std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSServiceWorkerGlobalScope;
 #endif
+    std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSWorkletGlobalScope;
 #if ENABLE(CSS_PAINTING_API)
     std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSPaintWorkletGlobalScope;
-    std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSWorkletGlobalScope;
 #endif
-#if ENABLE(INDEXED_DATABASE)
+#if ENABLE(WEB_AUDIO)
+    std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSAudioWorkletGlobalScope;
+#endif
     std::unique_ptr<JSC::HeapCellType> m_heapCellTypeForJSIDBSerializationGlobalObject;
-#endif
+
 private:
     JSC::IsoSubspace m_domBuiltinConstructorSpace;
     JSC::IsoSubspace m_domConstructorSpace;
@@ -114,9 +117,7 @@ private:
     JSC::IsoSubspace m_runtimeMethodSpace;
     JSC::IsoSubspace m_runtimeObjectSpace;
     JSC::IsoSubspace m_windowProxySpace;
-#if ENABLE(INDEXED_DATABASE)
     JSC::IsoSubspace m_idbSerializationSpace;
-#endif
     std::unique_ptr<DOMIsoSubspaces> m_subspaces;
     Vector<JSC::IsoSubspace*> m_outputConstraintSpaces;
 };

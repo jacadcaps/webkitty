@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "NetworkResourceLoadIdentifier.h"
 #include "WebResourceLoader.h"
 #include <WebCore/LoaderStrategy.h>
 #include <WebCore/ResourceError.h>
@@ -52,7 +53,7 @@ public:
     ~WebLoaderStrategy() final;
     
     void loadResource(WebCore::Frame&, WebCore::CachedResource&, WebCore::ResourceRequest&&, const WebCore::ResourceLoaderOptions&, CompletionHandler<void(RefPtr<WebCore::SubresourceLoader>&&)>&&) final;
-    void loadResourceSynchronously(WebCore::FrameLoader&, unsigned long resourceLoadIdentifier, const WebCore::ResourceRequest&, WebCore::ClientCredentialPolicy, const WebCore::FetchOptions&, const WebCore::HTTPHeaderMap&, WebCore::ResourceError&, WebCore::ResourceResponse&, Vector<char>& data) final;
+    void loadResourceSynchronously(WebCore::FrameLoader&, unsigned long resourceLoadIdentifier, const WebCore::ResourceRequest&, WebCore::ClientCredentialPolicy, const WebCore::FetchOptions&, const WebCore::HTTPHeaderMap&, WebCore::ResourceError&, WebCore::ResourceResponse&, Vector<uint8_t>& data) final;
     void pageLoadCompleted(WebCore::Page&) final;
     void browsingContextRemoved(WebCore::Frame&) final;
 
@@ -91,6 +92,8 @@ public:
 
     static uint64_t generateLoadIdentifier();
 
+    void setExistingNetworkResourceLoadIdentifierToResume(std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume) { m_existingNetworkResourceLoadIdentifierToResume = existingNetworkResourceLoadIdentifierToResume; }
+
 private:
     void scheduleLoad(WebCore::ResourceLoader&, WebCore::CachedResource*, bool shouldClearReferrerOnHTTPSToHTTPRedirect);
     void scheduleInternallyFailedLoad(WebCore::ResourceLoader&);
@@ -101,9 +104,10 @@ private:
     struct SyncLoadResult {
         WebCore::ResourceResponse response;
         WebCore::ResourceError error;
-        Vector<char> data;
+        Vector<uint8_t> data;
     };
-    Optional<SyncLoadResult> tryLoadingSynchronouslyUsingURLSchemeHandler(WebCore::FrameLoader&, ResourceLoadIdentifier, const WebCore::ResourceRequest&);
+    std::optional<SyncLoadResult> tryLoadingSynchronouslyUsingURLSchemeHandler(WebCore::FrameLoader&, ResourceLoadIdentifier, const WebCore::ResourceRequest&);
+    SyncLoadResult loadDataURLSynchronously(const WebCore::ResourceRequest&);
 
     WebCore::ResourceResponse responseFromResourceLoadIdentifier(uint64_t resourceLoadIdentifier) final;
     Vector<WebCore::NetworkTransactionInformation> intermediateLoadInformationFromResourceLoadIdentifier(uint64_t resourceLoadIdentifier) final;
@@ -111,6 +115,11 @@ private:
 
     bool shouldPerformSecurityChecks() const final;
     bool havePerformedSecurityChecks(const WebCore::ResourceResponse&) const final;
+
+    void isResourceLoadFinished(WebCore::CachedResource&, CompletionHandler<void(bool)>&&) final;
+
+    void setResourceLoadSchedulingMode(WebCore::Page&, WebCore::LoadSchedulingMode) final;
+    void prioritizeResourceLoads(const Vector<WebCore::SubresourceLoader*>&) final;
 
     Vector<uint64_t> ongoingLoads() const final
     {
@@ -127,6 +136,7 @@ private:
     HashMap<unsigned long, PingLoadCompletionHandler> m_pingLoadCompletionHandlers;
     HashMap<unsigned long, PreconnectCompletionHandler> m_preconnectCompletionHandlers;
     Vector<Function<void(bool)>> m_onlineStateChangeListeners;
+    std::optional<NetworkResourceLoadIdentifier> m_existingNetworkResourceLoadIdentifierToResume;
     bool m_isOnLine { true };
 };
 

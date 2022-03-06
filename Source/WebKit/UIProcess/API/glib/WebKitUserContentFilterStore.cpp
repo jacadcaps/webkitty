@@ -29,6 +29,7 @@
 #include "APIContentRuleList.h"
 #include "APIContentRuleListStore.h"
 #include "WebKitError.h"
+#include "WebKitInitialize.h"
 #include "WebKitUserContent.h"
 #include "WebKitUserContentPrivate.h"
 #include <WebCore/ContentExtensionError.h>
@@ -39,6 +40,8 @@
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
+
+using namespace WebKit;
 
 /**
  * SECTION: WebKitUserContentFilterStore
@@ -111,11 +114,13 @@ static void webkitUserContentFilterStoreConstructed(GObject* object)
     G_OBJECT_CLASS(webkit_user_content_filter_store_parent_class)->constructed(object);
 
     WebKitUserContentFilterStore* store = WEBKIT_USER_CONTENT_FILTER_STORE(object);
-    store->priv->store = adoptRef(new API::ContentRuleListStore(FileSystem::stringFromFileSystemRepresentation(store->priv->storagePath.get()), false));
+    store->priv->store = adoptRef(new API::ContentRuleListStore(FileSystem::stringFromFileSystemRepresentation(store->priv->storagePath.get())));
 }
 
 static void webkit_user_content_filter_store_class_init(WebKitUserContentFilterStoreClass* storeClass)
 {
+    webkitInitialize();
+
     GObjectClass* gObjectClass = G_OBJECT_CLASS(storeClass);
 
     gObjectClass->get_property = webkitUserContentFilterStoreGetProperty;

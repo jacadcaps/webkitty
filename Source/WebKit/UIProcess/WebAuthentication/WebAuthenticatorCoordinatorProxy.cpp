@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,12 +57,12 @@ WebAuthenticatorCoordinatorProxy::~WebAuthenticatorCoordinatorProxy()
 
 void WebAuthenticatorCoordinatorProxy::makeCredential(FrameIdentifier frameId, FrameInfoData&& frameInfo, Vector<uint8_t>&& hash, PublicKeyCredentialCreationOptions&& options, bool processingUserGesture, RequestCompletionHandler&& handler)
 {
-    handleRequest({ WTFMove(hash), WTFMove(options), makeWeakPtr(m_webPageProxy), WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String() }, WTFMove(handler));
+    handleRequest({ WTFMove(hash), WTFMove(options), makeWeakPtr(m_webPageProxy), WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr }, WTFMove(handler));
 }
 
 void WebAuthenticatorCoordinatorProxy::getAssertion(FrameIdentifier frameId, FrameInfoData&& frameInfo, Vector<uint8_t>&& hash, PublicKeyCredentialRequestOptions&& options, bool processingUserGesture, RequestCompletionHandler&& handler)
 {
-    handleRequest({ WTFMove(hash), WTFMove(options), makeWeakPtr(m_webPageProxy), WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String() }, WTFMove(handler));
+    handleRequest({ WTFMove(hash), WTFMove(options), makeWeakPtr(m_webPageProxy), WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr }, WTFMove(handler));
 }
 
 void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestData&& data, RequestCompletionHandler&& handler)
@@ -70,9 +70,9 @@ void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestDat
     auto callback = [handler = WTFMove(handler)] (Variant<Ref<AuthenticatorResponse>, ExceptionData>&& result) mutable {
         ASSERT(RunLoop::isMain());
         WTF::switchOn(result, [&](const Ref<AuthenticatorResponse>& response) {
-            handler(response->data(), { });
+            handler(response->data(), response->attachment(), { });
         }, [&](const ExceptionData& exception) {
-            handler({ }, exception);
+            handler({ }, (AuthenticatorAttachment)0, exception);
         });
     };
     m_webPageProxy.websiteDataStore().authenticatorManager().handleRequest(WTFMove(data), WTFMove(callback));

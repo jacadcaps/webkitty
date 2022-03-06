@@ -71,6 +71,7 @@ public:
     void addChildBelow(Ref<GraphicsLayer>&&, GraphicsLayer*) override;
     bool replaceChild(GraphicsLayer*, Ref<GraphicsLayer>&&) override;
     void removeFromParent() override;
+    void setScrollingNodeID(ScrollingNodeID) override;
     void setPosition(const FloatPoint&) override;
     void syncPosition(const FloatPoint&) override;
     void setAnchorPoint(const FloatPoint3D&) override;
@@ -113,7 +114,7 @@ public:
     void suspendAnimations(MonotonicTime) override;
     void resumeAnimations() override;
     bool usesContentsLayer() const override;
-    void dumpAdditionalProperties(WTF::TextStream&, LayerTreeAsTextBehavior) const override;
+    void dumpAdditionalProperties(WTF::TextStream&, OptionSet<LayerTreeAsTextOptions>) const override;
 
 #if USE(NICOSIA)
     PlatformLayer* platformLayer() const override;
@@ -223,7 +224,7 @@ private:
     } m_needsDisplay;
 
     RefPtr<Image> m_compositedImage;
-    NativeImagePtr m_compositedNativeImagePtr;
+    RefPtr<NativeImage> m_compositedNativeImage;
 
     Timer m_animationStartedTimer;
     RunLoop::Timer<CoordinatedGraphicsLayer> m_requestPendingTileCreationTimer;

@@ -256,9 +256,6 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         if (this._objectTree instanceof WI.ObjectTreeView)
             this._objectTree.resetPropertyPath();
 
-        // FIXME: <https://webkit.org/b/196956> Web Inspector: use weak collections for holding event listeners
-        WI.settings.consoleSavedResultAlias.removeEventListener(null, null, this);
-
         WI.debuggerManager.removeEventListener(WI.DebuggerManager.Event.BlackboxChanged, this._handleDebuggerBlackboxChanged, this);
     }
 
@@ -405,7 +402,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         function updateSavedVariableText() {
             savedVariableElement.textContent = " = " + WI.RuntimeManager.preferredSavedResultPrefix() + savedResultIndex;
         }
-        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, updateSavedVariableText, this);
+        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, updateSavedVariableText, savedVariableElement);
         updateSavedVariableText();
 
         if (this._objectTree)
@@ -754,10 +751,9 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
         let propertyPath = new WI.PropertyPath(object, prefixSavedResultIndex());
 
-        // FIXME: <https://webkit.org/b/196956> Web Inspector: use weak collections for holding event listeners
-        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, (event) => {
-            propertyPath.pathComponent = prefixSavedResultIndex();
-        }, this);
+        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, function(event) {
+            this.pathComponent = prefixSavedResultIndex();
+        }, propertyPath);
 
         return propertyPath;
     }
@@ -794,12 +790,12 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             buffer.setAttribute("style", obj.description);
             for (var i = 0; i < buffer.style.length; i++) {
                 var property = buffer.style[i];
-                if (isWhitelistedProperty(property))
+                if (isAllowedProperty(property))
                     currentStyle[property] = buffer.style[property];
             }
         }
 
-        function isWhitelistedProperty(property)
+        function isAllowedProperty(property)
         {
             for (var prefix of ["background", "border", "color", "font", "line", "margin", "padding", "text"]) {
                 if (property.startsWith(prefix) || property.startsWith("-webkit-" + prefix))

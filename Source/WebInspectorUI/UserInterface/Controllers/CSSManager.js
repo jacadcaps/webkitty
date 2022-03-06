@@ -155,6 +155,8 @@ WI.CSSManager = class CSSManager extends WI.Object
             return WI.unlocalizedString("::after");
         case CSSManager.PseudoSelectorNames.Selection:
             return WI.unlocalizedString("::selection");
+        case CSSManager.PseudoSelectorNames.Backdrop:
+            return WI.unlocalizedString("::backdrop");
         case CSSManager.PseudoSelectorNames.Scrollbar:
             return WI.unlocalizedString("::scrollbar");
         case CSSManager.PseudoSelectorNames.ScrollbarThumb:
@@ -203,35 +205,46 @@ WI.CSSManager = class CSSManager extends WI.Object
         if (!this.canForceAppearance())
             return;
 
-        let protocolName = "";
+        let commandArguments = {};
 
         switch (name) {
         case WI.CSSManager.Appearance.Light:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Light;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Light;
             break;
 
         case WI.CSSManager.Appearance.Dark:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Dark;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Dark;
             break;
 
         case null:
-        case undefined:
-        case "":
-            protocolName = "";
+            // COMPATIBILITY (iOS 14): the `appearance`` parameter of `Page.setForcedAppearance` was not optional.
+            // Since support can't be tested directly, check for the `options`` parameter of `DOMDebugger.setDOMBreakpoint` (iOS 14.0+).
+            // FIXME: Use explicit version checking once https://webkit.org/b/148680 is fixed.
+            if (!InspectorBackend.hasCommand("DOMDebugger.setDOMBreakpoint", "options"))
+                commandArguments.appearance = "";
             break;
 
         default:
-            // Abort for unknown values.
+            console.assert(false, "Unknown appearance", name);
             return;
         }
 
         this._forcedAppearance = name || null;
 
         let target = WI.assumingMainTarget();
-        target.PageAgent.setForcedAppearance(protocolName).then(() => {
+        target.PageAgent.setForcedAppearance.invoke(commandArguments).then(() => {
             this.mediaQueryResultChanged();
             this.dispatchEventToListeners(WI.CSSManager.Event.ForcedAppearanceDidChange, {appearance: this._forcedAppearance});
         });
+    }
+
+    set layoutContextTypeChangedMode(layoutContextTypeChangedMode)
+    {
+        for (let target of WI.targets) {
+            // COMPATIBILITY (iOS 14.5): CSS.setLayoutContextTypeChangedMode did not exist.
+            if (target.hasCommand("CSS.setLayoutContextTypeChangedMode"))
+                target.CSSAgent.setLayoutContextTypeChangedMode(layoutContextTypeChangedMode);
+        }
     }
 
     canForceAppearance()
@@ -342,6 +355,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     addModifiedStyle(style)
     {
         this._modifiedStyles.set(style.stringId, style);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     getModifiedStyle(style)
@@ -352,6 +367,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     removeModifiedStyle(style)
     {
         this._modifiedStyles.delete(style.stringId);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     // PageObserver
@@ -567,7 +584,7 @@ WI.CSSManager = class CSSManager extends WI.Object
             return;
 
         // Ignore changes to resource overrides, those are not live on the page.
-        if (resource.isLocalResourceOverride)
+        if (resource.localResourceOverride)
             return;
 
         // Ignore if it isn't a CSS style sheet.
@@ -661,6 +678,7 @@ WI.CSSManager = class CSSManager extends WI.Object
 WI.CSSManager.Event = {
     StyleSheetAdded: "css-manager-style-sheet-added",
     StyleSheetRemoved: "css-manager-style-sheet-removed",
+    ModifiedStylesChanged: "css-manager-modified-styles-changed",
     DefaultAppearanceDidChange: "css-manager-default-appearance-did-change",
     ForcedAppearanceDidChange: "css-manager-forced-appearance-did-change",
 };
@@ -673,6 +691,7 @@ WI.CSSManager.Appearance = {
 WI.CSSManager.PseudoSelectorNames = {
     After: "after",
     Before: "before",
+    Backdrop: "backdrop",
     FirstLetter: "first-letter",
     FirstLine: "first-line",
     Highlight: "highlight",
@@ -685,6 +704,11 @@ WI.CSSManager.PseudoSelectorNames = {
     ScrollbarTrack: "scrollbar-track",
     ScrollbarTrackPiece: "scrollbar-track-piece",
     Selection: "selection",
+};
+
+WI.CSSManager.LayoutContextTypeChangedMode = {
+    Observed: "observed",
+    All: "all",
 };
 
 WI.CSSManager.PseudoElementNames = ["before", "after"];

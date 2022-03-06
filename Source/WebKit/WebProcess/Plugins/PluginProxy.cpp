@@ -39,9 +39,11 @@
 #include "PluginProcessConnectionManager.h"
 #include "ShareableBitmap.h"
 #include "WebCoreArgumentCoders.h"
-#include "WebEvent.h"
+#include "WebKeyboardEvent.h"
+#include "WebMouseEvent.h"
 #include "WebProcess.h"
 #include "WebProcessConnectionMessages.h"
+#include "WebWheelEvent.h"
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/SharedBuffer.h>
 
@@ -54,22 +56,15 @@ static uint64_t generatePluginInstanceID()
     return ++uniquePluginInstanceID;
 }
 
-Ref<PluginProxy> PluginProxy::create(uint64_t pluginProcessToken, bool isRestartedProcess)
+Ref<PluginProxy> PluginProxy::create(uint64_t pluginProcessToken)
 {
-    return adoptRef(*new PluginProxy(pluginProcessToken, isRestartedProcess));
+    return adoptRef(*new PluginProxy(pluginProcessToken));
 }
 
-PluginProxy::PluginProxy(uint64_t pluginProcessToken, bool isRestartedProcess)
+PluginProxy::PluginProxy(uint64_t pluginProcessToken)
     : Plugin(PluginProxyType)
     , m_pluginProcessToken(pluginProcessToken)
     , m_pluginInstanceID(generatePluginInstanceID())
-    , m_pluginBackingStoreContainsValidData(false)
-    , m_isStarted(false)
-    , m_waitingForPaintInResponseToUpdate(false)
-    , m_wantsWheelEvents(false)
-    , m_remoteLayerClientID(0)
-    , m_waitingOnAsynchronousInitialization(false)
-    , m_isRestartedProcess(isRestartedProcess)
 {
 }
 
@@ -335,9 +330,9 @@ void PluginProxy::streamDidReceiveResponse(uint64_t streamID, const URL& respons
     m_connection->connection()->send(Messages::PluginControllerProxy::StreamDidReceiveResponse(streamID, responseURL.string(), streamLength, lastModifiedTime, mimeType, headers), m_pluginInstanceID);
 }
                                            
-void PluginProxy::streamDidReceiveData(uint64_t streamID, const char* bytes, int length)
+void PluginProxy::streamDidReceiveData(uint64_t streamID, const uint8_t* bytes, int length)
 {
-    m_connection->connection()->send(Messages::PluginControllerProxy::StreamDidReceiveData(streamID, IPC::DataReference(reinterpret_cast<const uint8_t*>(bytes), length)), m_pluginInstanceID);
+    m_connection->connection()->send(Messages::PluginControllerProxy::StreamDidReceiveData(streamID, IPC::DataReference(bytes, length)), m_pluginInstanceID);
 }
 
 void PluginProxy::streamDidFinishLoading(uint64_t streamID)
@@ -355,9 +350,9 @@ void PluginProxy::manualStreamDidReceiveResponse(const URL& responseURL, uint32_
     m_connection->connection()->send(Messages::PluginControllerProxy::ManualStreamDidReceiveResponse(responseURL.string(), streamLength, lastModifiedTime, mimeType, headers), m_pluginInstanceID);
 }
 
-void PluginProxy::manualStreamDidReceiveData(const char* bytes, int length)
+void PluginProxy::manualStreamDidReceiveData(const uint8_t* bytes, int length)
 {
-    m_connection->connection()->send(Messages::PluginControllerProxy::ManualStreamDidReceiveData(IPC::DataReference(reinterpret_cast<const uint8_t*>(bytes), length)), m_pluginInstanceID);
+    m_connection->connection()->send(Messages::PluginControllerProxy::ManualStreamDidReceiveData(IPC::DataReference(bytes, length)), m_pluginInstanceID);
 }
 
 void PluginProxy::manualStreamDidFinishLoading()

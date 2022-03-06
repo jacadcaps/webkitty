@@ -28,6 +28,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include <WebCore/ContentType.h>
+#include <WebCore/PlatformTextTrack.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/WTFString.h>
 
@@ -40,6 +41,9 @@ struct RemoteMediaPlayerProxyConfiguration {
     String networkInterfaceName;
     Vector<WebCore::ContentType> mediaContentTypesRequiringHardwareSupport;
     Vector<String> preferredAudioCharacteristics;
+#if ENABLE(AVF_CAPTIONS)
+    Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
+#endif
     WebCore::SecurityOriginData documentSecurityOrigin;
     uint64_t logIdentifier { 0 };
     bool shouldUsePersistentCache { false };
@@ -54,6 +58,9 @@ struct RemoteMediaPlayerProxyConfiguration {
         encoder << networkInterfaceName;
         encoder << mediaContentTypesRequiringHardwareSupport;
         encoder << preferredAudioCharacteristics;
+#if ENABLE(AVF_CAPTIONS)
+        encoder << outOfBandTrackData;
+#endif
         encoder << documentSecurityOrigin;
         encoder << logIdentifier;
         encoder << shouldUsePersistentCache;
@@ -61,57 +68,64 @@ struct RemoteMediaPlayerProxyConfiguration {
     }
 
     template <class Decoder>
-    static Optional<RemoteMediaPlayerProxyConfiguration> decode(Decoder& decoder)
+    static std::optional<RemoteMediaPlayerProxyConfiguration> decode(Decoder& decoder)
     {
-        Optional<String> referrer;
+        std::optional<String> referrer;
         decoder >> referrer;
         if (!referrer)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<String> userAgent;
+        std::optional<String> userAgent;
         decoder >> userAgent;
         if (!userAgent)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<String> sourceApplicationIdentifier;
+        std::optional<String> sourceApplicationIdentifier;
         decoder >> sourceApplicationIdentifier;
         if (!sourceApplicationIdentifier)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<String> networkInterfaceName;
+        std::optional<String> networkInterfaceName;
         decoder >> networkInterfaceName;
         if (!networkInterfaceName)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<Vector<WebCore::ContentType>> mediaContentTypesRequiringHardwareSupport;
+        std::optional<Vector<WebCore::ContentType>> mediaContentTypesRequiringHardwareSupport;
         decoder >> mediaContentTypesRequiringHardwareSupport;
         if (!mediaContentTypesRequiringHardwareSupport)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<Vector<String>> preferredAudioCharacteristics;
+        std::optional<Vector<String>> preferredAudioCharacteristics;
         decoder >> preferredAudioCharacteristics;
         if (!preferredAudioCharacteristics)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::SecurityOriginData> documentSecurityOrigin;
+#if ENABLE(AVF_CAPTIONS)
+        std::optional<Vector<WebCore::PlatformTextTrackData>> outOfBandTrackData;
+        decoder >> outOfBandTrackData;
+        if (!outOfBandTrackData)
+            return std::nullopt;
+#endif
+
+        std::optional<WebCore::SecurityOriginData> documentSecurityOrigin;
         decoder >> documentSecurityOrigin;
         if (!documentSecurityOrigin)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<uint64_t> logIdentifier;
+        std::optional<uint64_t> logIdentifier;
         decoder >> logIdentifier;
         if (!logIdentifier)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> shouldUsePersistentCache;
+        std::optional<bool> shouldUsePersistentCache;
         decoder >> shouldUsePersistentCache;
         if (!shouldUsePersistentCache)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> isVideo;
+        std::optional<bool> isVideo;
         decoder >> isVideo;
         if (!isVideo)
-            return WTF::nullopt;
+            return std::nullopt;
 
         return {{
             WTFMove(*referrer),
@@ -120,6 +134,9 @@ struct RemoteMediaPlayerProxyConfiguration {
             WTFMove(*networkInterfaceName),
             WTFMove(*mediaContentTypesRequiringHardwareSupport),
             WTFMove(*preferredAudioCharacteristics),
+#if ENABLE(AVF_CAPTIONS)
+            WTFMove(*outOfBandTrackData),
+#endif
             WTFMove(*documentSecurityOrigin),
             *logIdentifier,
             *shouldUsePersistentCache,
