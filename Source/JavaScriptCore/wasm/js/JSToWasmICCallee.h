@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ public:
     using Base = JSCallee;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.jsToWasmICCalleeSpace<mode>();
     }
@@ -56,7 +56,7 @@ private:
     JSToWasmICCallee(VM& vm, JSGlobalObject* globalObject, Structure* structure)
         : Base(vm, globalObject, structure)
     { }
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
     WriteBarrier<WebAssemblyFunction> m_function;
 };

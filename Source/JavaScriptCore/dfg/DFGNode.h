@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 
 #include "B3SparseCollection.h"
 #include "BasicBlockLocation.h"
+#include "CheckPrivateBrandVariant.h"
 #include "CodeBlock.h"
 #include "DFGAdjacencyList.h"
 #include "DFGArithMode.h"
@@ -48,11 +49,14 @@
 #include "DFGUseKind.h"
 #include "DFGVariableAccessData.h"
 #include "DOMJITSignature.h"
-#include "DeleteByIdVariant.h"
-#include "GetByIdVariant.h"
+#include "DeleteByVariant.h"
+#include "GetByVariant.h"
 #include "JSCJSValue.h"
+#include "JSPropertyNameEnumerator.h"
 #include "Operands.h"
-#include "PutByIdVariant.h"
+#include "PrivateFieldPutKind.h"
+#include "PutByVariant.h"
+#include "SetPrivateBrandVariant.h"
 #include "SpeculatedType.h"
 #include "TypeLocation.h"
 #include "ValueProfile.h"
@@ -88,7 +92,7 @@ struct StorageAccessData {
 
 struct MultiPutByOffsetData {
     unsigned identifierNumber;
-    Vector<PutByIdVariant, 2> variants;
+    Vector<PutByVariant, 2> variants;
     
     bool writesStructures() const;
     bool reallocatesStorage() const;
@@ -96,7 +100,7 @@ struct MultiPutByOffsetData {
 
 struct MultiDeleteByOffsetData {
     unsigned identifierNumber;
-    Vector<DeleteByIdVariant, 2> variants;
+    Vector<DeleteByVariant, 2> variants;
 
     bool writesStructures() const;
     bool allVariantsStoreEmpty() const;
@@ -275,7 +279,7 @@ struct StackAccessData {
 };
 
 struct CallDOMGetterData {
-    FunctionPtr<OperationPtrTag> customAccessorGetter;
+    FunctionPtr<CustomAccessorPtrTag> customAccessorGetter;
     const DOMJIT::GetterSetter* domJIT { nullptr };
     DOMJIT::CallDOMGetterSnippet* snippet { nullptr };
     unsigned identifierNumber { 0 };
@@ -503,9 +507,14 @@ public:
     void convertToIdentity();
     void convertToIdentityOn(Node*);
 
-    bool mustGenerate()
+    bool mustGenerate() const
     {
         return m_flags & NodeMustGenerate;
+    }
+
+    bool hasVarArgs() const
+    {
+        return m_flags & NodeHasVarArgs;
     }
     
     bool isConstant()
@@ -596,7 +605,7 @@ public:
     
     void convertToGetByOffset(StorageAccessData& data, Edge storage, Edge base)
     {
-        ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == MultiGetByOffset);
+        ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == GetPrivateNameById || m_op == MultiGetByOffset);
         m_opInfo = &data;
         children.setChild1(storage);
         children.setChild2(base);
@@ -606,7 +615,7 @@ public:
     
     void convertToMultiGetByOffset(MultiGetByOffsetData* data)
     {
-        RELEASE_ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush);
+        RELEASE_ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == GetPrivateNameById);
         m_opInfo = data;
         child1().setUseKind(CellUse);
         m_op = MultiGetByOffset;
@@ -615,7 +624,7 @@ public:
     
     void convertToPutByOffset(StorageAccessData& data, Edge storage, Edge base)
     {
-        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == MultiPutByOffset);
+        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == MultiPutByOffset || m_op == PutPrivateNameById);
         m_opInfo = &data;
         children.setChild3(children.child2());
         children.setChild2(base);
@@ -625,7 +634,7 @@ public:
     
     void convertToMultiPutByOffset(MultiPutByOffsetData* data)
     {
-        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush);
+        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == PutPrivateNameById);
         m_opInfo = data;
         m_op = MultiPutByOffset;
     }
@@ -814,6 +823,7 @@ public:
 
     void convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
     void convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
+    void convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
 
     void convertToSetRegExpObjectLastIndex()
     {
@@ -978,7 +988,6 @@ public:
     {
         switch (op()) {
         case MovHint:
-        case ZombieHint:
             return true;
         default:
             return false;
@@ -1021,7 +1030,6 @@ public:
         switch (op()) {
         case ExtractOSREntryLocal:
         case MovHint:
-        case ZombieHint:
         case KillStack:
             return true;
         default:
@@ -1083,12 +1091,14 @@ public:
         case GetByIdWithThis:
         case GetByIdDirect:
         case GetByIdDirectFlush:
+        case GetPrivateNameById:
         case DeleteById:
         case InById:
         case PutById:
         case PutByIdFlush:
         case PutByIdDirect:
         case PutByIdWithThis:
+        case PutPrivateNameById:
             return true;
         default:
             return false;
@@ -1439,7 +1449,7 @@ public:
         return op() == IsCellWithType;
     }
 
-    Optional<SpeculatedType> speculatedTypeForQuery()
+    std::optional<SpeculatedType> speculatedTypeForQuery()
     {
         return speculationFromJSType(queriedType());
     }
@@ -1756,7 +1766,6 @@ public:
         case ArithFloor:
         case ArithCeil:
         case ArithTrunc:
-        case GetDirectPname:
         case GetById:
         case GetByIdFlush:
         case GetByIdWithThis:
@@ -1764,8 +1773,11 @@ public:
         case GetByIdDirectFlush:
         case GetPrototypeOf:
         case TryGetById:
+        case EnumeratorGetByVal:
         case GetByVal:
         case GetByValWithThis:
+        case GetPrivateName:
+        case GetPrivateNameById:
         case Call:
         case DirectCall:
         case TailCallInlinedCaller:
@@ -1789,6 +1801,7 @@ public:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
         case RegExpTest:
+        case RegExpTestInline:
         case RegExpMatchFast:
         case RegExpMatchFastGlobal:
         case GetGlobalVar:
@@ -1885,6 +1898,18 @@ public:
         case DirectTailCallInlinedCaller:
         case RegExpExecNonGlobalOrSticky:
         case RegExpMatchFastGlobal:
+        case RegExpTestInline:
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
+    bool hasCellOperand2()
+    {
+        switch (op()) {
+        case RegExpTestInline:
             return true;
         default:
             return false;
@@ -1896,7 +1921,13 @@ public:
         ASSERT(hasCellOperand());
         return m_opInfo.as<FrozenValue*>();
     }
-    
+
+    FrozenValue* cellOperand2()
+    {
+        ASSERT(hasCellOperand2());
+        return m_opInfo2.as<FrozenValue*>();
+    }
+
     template<typename T>
     T castOperand()
     {
@@ -1929,6 +1960,84 @@ public:
     {
         ASSERT(hasStoragePointer());
         return m_opInfo.as<void*>();
+    }
+
+    bool hasStorageChild() const
+    {
+        switch (op()) {
+        case StringCharAt:
+        case StringCharCodeAt:
+        case StringCodePointAt:
+        case EnumeratorGetByVal:
+        case GetByVal:
+        case PutByValDirect:
+        case PutByVal:
+        case PutByValAlias:
+        case AtomicsAdd:
+        case AtomicsAnd:
+        case AtomicsCompareExchange:
+        case AtomicsExchange:
+        case AtomicsLoad:
+        case AtomicsOr:
+        case AtomicsStore:
+        case AtomicsSub:
+        case AtomicsXor:
+        case ArrayPush:
+        case ArrayPop:
+        case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
+        case HasIndexedProperty:
+        case EnumeratorNextUpdateIndexAndMode:
+        case ArrayIndexOf:
+            return true;
+        default:
+            break;
+        }
+        return false;
+    }
+
+    unsigned storageChildIndex()
+    {
+        ASSERT(hasStorageChild());
+        switch (op()) {
+        case StringCharAt:
+        case StringCharCodeAt:
+        case StringCodePointAt:
+        case EnumeratorGetByVal:
+        case GetByVal:
+            return 2;
+        case PutByValDirect:
+        case PutByVal:
+        case PutByValAlias:
+            return 3;
+        case AtomicsAdd:
+        case AtomicsAnd:
+        case AtomicsCompareExchange:
+        case AtomicsExchange:
+        case AtomicsLoad:
+        case AtomicsOr:
+        case AtomicsStore:
+        case AtomicsSub:
+        case AtomicsXor:
+            return 2 + numExtraAtomicsArgs(op());
+        case ArrayPush:
+            return 0;
+
+        case ArrayPop:
+        case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
+            return 2;
+
+        case HasIndexedProperty:
+            return 2;
+
+        case EnumeratorNextUpdateIndexAndMode:
+            return 4;
+
+        default:
+            // FIXME: Add ArrayIndexOf but it does non-trivial things to determine storage edge.
+            RELEASE_ASSERT_NOT_REACHED();
+        }
     }
 
     bool hasUidOperand()
@@ -2189,12 +2298,17 @@ public:
         switch (op()) {
         case GetIndexedPropertyStorage:
         case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
         case GetVectorLength:
         case InByVal:
         case PutByValDirect:
         case PutByVal:
         case PutByValAlias:
         case GetByVal:
+        case EnumeratorNextUpdateIndexAndMode:
+        case EnumeratorGetByVal:
+        case EnumeratorInByVal:
+        case EnumeratorHasOwnProperty:
         case StringCharAt:
         case StringCharCodeAt:
         case StringCodePointAt:
@@ -2285,6 +2399,19 @@ public:
         }
     }
     
+    bool hasPrivateFieldPutKind()
+    {
+        if (op() == PutPrivateName || op() == PutPrivateNameById)
+            return true;
+        return false;
+    }
+
+    PrivateFieldPutKind privateFieldPutKind()
+    {
+        ASSERT(hasPrivateFieldPutKind());
+        return PrivateFieldPutKind::fromByte(m_opInfo2.as<uint8_t>());
+    }
+
     bool hasArithMode()
     {
         switch (op()) {
@@ -2773,6 +2900,21 @@ public:
     {
         return isNotCellNorBigIntSpeculation(prediction());
     }
+
+    bool shouldSpeculateNotDouble()
+    {
+        return isNotDoubleSpeculation(prediction());
+    }
+
+    bool shouldSpeculateNeitherDoubleNorHeapBigIntNorString()
+    {
+        return isNeitherDoubleNorHeapBigIntNorStringSpeculation(prediction());
+    }
+
+    bool shouldSpeculateNeitherDoubleNorHeapBigInt()
+    {
+        return isNeitherDoubleNorHeapBigIntSpeculation(prediction());
+    }
     
     bool shouldSpeculateUntypedForArithmetic()
     {
@@ -2982,23 +3124,6 @@ public:
         return nullptr;
     }
 
-    bool hasInternalMethodType() const
-    {
-        return op() == HasIndexedProperty;
-    }
-
-    PropertySlot::InternalMethodType internalMethodType() const
-    {
-        ASSERT(hasInternalMethodType());
-        return static_cast<PropertySlot::InternalMethodType>(m_opInfo2.as<uint32_t>());
-    }
-
-    void setInternalMethodType(PropertySlot::InternalMethodType type)
-    {
-        ASSERT(hasInternalMethodType());
-        m_opInfo2 = static_cast<uint32_t>(type);
-    }
-
     Node* replacement() const
     {
         return m_misc.replacement;
@@ -3102,26 +3227,26 @@ public:
         return m_opInfo.as<GetByStatus*>();
     }
     
-    bool hasInByIdStatus()
+    bool hasInByStatus()
     {
-        return op() == FilterInByIdStatus;
+        return op() == FilterInByStatus;
     }
     
-    InByIdStatus* inByIdStatus()
+    InByStatus* inByStatus()
     {
-        ASSERT(hasInByIdStatus());
-        return m_opInfo.as<InByIdStatus*>();
+        ASSERT(hasInByStatus());
+        return m_opInfo.as<InByStatus*>();
     }
     
-    bool hasPutByIdStatus()
+    bool hasPutByStatus()
     {
-        return op() == FilterPutByIdStatus;
+        return op() == FilterPutByStatus;
     }
     
-    PutByIdStatus* putByIdStatus()
+    PutByStatus* putByStatus()
     {
-        ASSERT(hasPutByIdStatus());
-        return m_opInfo.as<PutByIdStatus*>();
+        ASSERT(hasPutByStatus());
+        return m_opInfo.as<PutByStatus*>();
     }
 
     bool hasDeleteByStatus()
@@ -3133,6 +3258,47 @@ public:
     {
         ASSERT(hasDeleteByStatus());
         return m_opInfo.as<DeleteByStatus*>();
+    }
+
+    bool hasCheckPrivateBrandStatus()
+    {
+        return op() == FilterCheckPrivateBrandStatus;
+    }
+
+    CheckPrivateBrandStatus* checkPrivateBrandStatus()
+    {
+        ASSERT(hasCheckPrivateBrandStatus());
+        return m_opInfo.as<CheckPrivateBrandStatus*>();
+    }
+
+    bool hasSetPrivateBrandStatus()
+    {
+        return op() == FilterSetPrivateBrandStatus;
+    }
+
+    SetPrivateBrandStatus* setPrivateBrandStatus()
+    {
+        ASSERT(hasSetPrivateBrandStatus());
+        return m_opInfo.as<SetPrivateBrandStatus*>();
+    }
+
+    bool hasEnumeratorMetadata() const
+    {
+        switch (op()) {
+        case EnumeratorNextUpdateIndexAndMode:
+        case EnumeratorNextUpdatePropertyName:
+        case EnumeratorHasOwnProperty:
+        case EnumeratorInByVal:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    OptionSet<JSPropertyNameEnumerator::Flag> enumeratorMetadata()
+    {
+        ASSERT(hasEnumeratorMetadata());
+        return OptionSet<JSPropertyNameEnumerator::Flag>::fromRaw(m_opInfo2.as<unsigned>());
     }
 
     void dumpChildren(PrintStream& out)

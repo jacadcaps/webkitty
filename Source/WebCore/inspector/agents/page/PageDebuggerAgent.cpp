@@ -38,18 +38,17 @@
 #include "Frame.h"
 #include "InspectorPageAgent.h"
 #include "InstrumentingAgents.h"
+#include "JSDOMWindowCustom.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
-#include "PageScriptDebugServer.h"
+#include "PageDebugger.h"
 #include "ScriptExecutionContext.h"
-#include "ScriptState.h"
 #include "UserGestureEmulationScope.h"
 #include <JavaScriptCore/InjectedScript.h>
 #include <JavaScriptCore/InjectedScriptManager.h>
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <JavaScriptCore/ScriptCallStackFactory.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -68,29 +67,28 @@ bool PageDebuggerAgent::enabled() const
     return m_instrumentingAgents.enabledPageDebuggerAgent() == this && WebDebuggerAgent::enabled();
 }
 
-void PageDebuggerAgent::evaluateOnCallFrame(ErrorString& errorString, const String& callFrameId, const String& expression, const String* objectGroup, const bool* includeCommandLineAPI, const bool* doNotPauseOnExceptionsAndMuteConsole, const bool* returnByValue, const bool* generatePreview, const bool* saveResult, const bool* emulateUserGesture, RefPtr<Protocol::Runtime::RemoteObject>& result, Optional<bool>& wasThrown, Optional<int>& savedResultIndex)
+Protocol::ErrorStringOr<std::tuple<Ref<Protocol::Runtime::RemoteObject>, std::optional<bool> /* wasThrown */, std::optional<int> /* savedResultIndex */>> PageDebuggerAgent::evaluateOnCallFrame(const Protocol::Debugger::CallFrameId& callFrameId, const String& expression, const String& objectGroup, std::optional<bool>&& includeCommandLineAPI, std::optional<bool>&& doNotPauseOnExceptionsAndMuteConsole, std::optional<bool>&& returnByValue, std::optional<bool>&& generatePreview, std::optional<bool>&& saveResult, std::optional<bool>&& emulateUserGesture)
 {
-    auto shouldEmulateUserGesture = emulateUserGesture && *emulateUserGesture;
-    UserGestureEmulationScope userGestureScope(m_inspectedPage, shouldEmulateUserGesture);
+    UserGestureEmulationScope userGestureScope(m_inspectedPage, emulateUserGesture && *emulateUserGesture);
 
-    WebDebuggerAgent::evaluateOnCallFrame(errorString, callFrameId, expression, objectGroup, includeCommandLineAPI, doNotPauseOnExceptionsAndMuteConsole, returnByValue, generatePreview, saveResult, emulateUserGesture, result, wasThrown, savedResultIndex);
+    return WebDebuggerAgent::evaluateOnCallFrame(callFrameId, expression, objectGroup, WTFMove(includeCommandLineAPI), WTFMove(doNotPauseOnExceptionsAndMuteConsole), WTFMove(returnByValue), WTFMove(generatePreview), WTFMove(saveResult), WTFMove(emulateUserGesture));
 }
 
-void PageDebuggerAgent::enable()
+void PageDebuggerAgent::internalEnable()
 {
     m_instrumentingAgents.setEnabledPageDebuggerAgent(this);
 
-    WebDebuggerAgent::enable();
+    WebDebuggerAgent::internalEnable();
 }
 
-void PageDebuggerAgent::disable(bool isBeingDestroyed)
+void PageDebuggerAgent::internalDisable(bool isBeingDestroyed)
 {
     m_instrumentingAgents.setEnabledPageDebuggerAgent(nullptr);
 
-    WebDebuggerAgent::disable(isBeingDestroyed);
+    WebDebuggerAgent::internalDisable(isBeingDestroyed);
 }
 
-String PageDebuggerAgent::sourceMapURLForScript(const Script& script)
+String PageDebuggerAgent::sourceMapURLForScript(const JSC::Debugger::Script& script)
 {
     static NeverDestroyed<String> sourceMapHTTPHeader(MAKE_STATIC_STRING_IMPL("SourceMap"));
     static NeverDestroyed<String> sourceMapHTTPHeaderDeprecated(MAKE_STATIC_STRING_IMPL("X-SourceMap"));
@@ -121,17 +119,27 @@ void PageDebuggerAgent::unmuteConsole()
     PageConsoleClient::unmute();
 }
 
+void PageDebuggerAgent::debuggerWillEvaluate(JSC::Debugger&, const JSC::Breakpoint::Action& action)
+{
+    if (action.emulateUserGesture)
+        m_breakpointActionUserGestureEmulationScopeStack.append(makeUniqueRef<UserGestureEmulationScope>(m_inspectedPage, true));
+}
+
+void PageDebuggerAgent::debuggerDidEvaluate(JSC::Debugger&, const JSC::Breakpoint::Action& action)
+{
+    if (action.emulateUserGesture)
+        m_breakpointActionUserGestureEmulationScopeStack.removeLast();
+}
+
 void PageDebuggerAgent::breakpointActionLog(JSC::JSGlobalObject* lexicalGlobalObject, const String& message)
 {
     m_inspectedPage.console().addMessage(MessageSource::JS, MessageLevel::Log, message, createScriptCallStack(lexicalGlobalObject));
 }
 
-InjectedScript PageDebuggerAgent::injectedScriptForEval(ErrorString& errorString, const int* executionContextId)
+InjectedScript PageDebuggerAgent::injectedScriptForEval(Protocol::ErrorString& errorString, std::optional<Protocol::Runtime::ExecutionContextId>&& executionContextId)
 {
-    if (!executionContextId) {
-        JSC::JSGlobalObject* scriptState = mainWorldExecState(&m_inspectedPage.mainFrame());
-        return injectedScriptManager().injectedScriptFor(scriptState);
-    }
+    if (!executionContextId)
+        return injectedScriptManager().injectedScriptFor(&mainWorldGlobalObject(m_inspectedPage.mainFrame()));
 
     InjectedScript injectedScript = injectedScriptManager().injectedScriptForId(*executionContextId);
     if (injectedScript.hasNoValue())
@@ -153,8 +161,7 @@ void PageDebuggerAgent::mainFrameStartedLoading()
     if (isPaused()) {
         setSuppressAllPauses(true);
 
-        ErrorString ignored;
-        resume(ignored);
+        resume();
     }
 }
 
@@ -173,11 +180,11 @@ void PageDebuggerAgent::didRequestAnimationFrame(int callbackId, Document& docum
     if (!breakpointsActive())
         return;
 
-    JSC::JSGlobalObject* scriptState = document.execState();
-    if (!scriptState)
+    auto* globalObject = document.globalObject();
+    if (!globalObject)
         return;
 
-    didScheduleAsyncCall(scriptState, InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId, true);
+    didScheduleAsyncCall(globalObject, InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId, true);
 }
 
 void PageDebuggerAgent::willFireAnimationFrame(int callbackId)

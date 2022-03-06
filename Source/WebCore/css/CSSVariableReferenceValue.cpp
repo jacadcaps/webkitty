@@ -1,5 +1,5 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
-// Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+// Copyright (C) 2016-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -40,15 +40,21 @@ namespace WebCore {
 
 static bool resolveTokenRange(CSSParserTokenRange, Vector<CSSParserToken>&, Style::BuilderState&);
 
-CSSVariableReferenceValue::CSSVariableReferenceValue(Ref<CSSVariableData>&& data)
+CSSVariableReferenceValue::CSSVariableReferenceValue(Ref<CSSVariableData>&& data, const CSSParserContext& context)
     : CSSValue(VariableReferenceClass)
     , m_data(WTFMove(data))
+    , m_context(context)
 {
 }
 
-Ref<CSSVariableReferenceValue> CSSVariableReferenceValue::create(const CSSParserTokenRange& range)
+Ref<CSSVariableReferenceValue> CSSVariableReferenceValue::create(const CSSParserTokenRange& range, const CSSParserContext& context)
 {
-    return adoptRef(*new CSSVariableReferenceValue(CSSVariableData::create(range)));
+    return adoptRef(*new CSSVariableReferenceValue(CSSVariableData::create(range), context));
+}
+
+Ref<CSSVariableReferenceValue> CSSVariableReferenceValue::create(Ref<CSSVariableData>&& data, const CSSParserContext& context)
+{
+    return adoptRef(*new CSSVariableReferenceValue(WTFMove(data), context));
 }
 
 bool CSSVariableReferenceValue::equals(const CSSVariableReferenceValue& other) const
@@ -68,7 +74,7 @@ static bool resolveVariableFallback(CSSParserTokenRange range, Vector<CSSParserT
     if (range.atEnd())
         return false;
     ASSERT(range.peek().type() == CommaToken);
-    range.consume();
+    range.consumeIncludingWhitespace();
     return resolveTokenRange(range, result, builderState);
 }
 
@@ -102,14 +108,19 @@ static bool resolveVariableReference(CSSParserTokenRange range, CSSValueID funct
     }
 
     if (!property || property->isInvalid()) {
+        if (fallbackResult.size() > CSSVariableReferenceValue::maxSubstitutionTokens)
+            return false;
+
         if (fallbackReturn)
             result.appendVector(fallbackResult);
         return fallbackReturn;
     }
 
     ASSERT(property->isResolved());
-    result.appendVector(property->tokens());
+    if (property->tokens().size() > CSSVariableReferenceValue::maxSubstitutionTokens)
+        return false;
 
+    result.appendVector(property->tokens());
     return true;
 }
 

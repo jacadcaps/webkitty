@@ -54,9 +54,34 @@ void EventLoop::performMicrotaskCheckpoint()
 void EventLoop::resumeGroup(EventLoopTaskGroup& group)
 {
     ASSERT(isContextThread());
-    if (!m_groupsWithSuspenedTasks.contains(group))
+    if (!m_groupsWithSuspendedTasks.contains(group))
         return;
     scheduleToRunIfNeeded();
+}
+
+void EventLoop::registerGroup(EventLoopTaskGroup& group)
+{
+    ASSERT(isContextThread());
+    m_associatedGroups.add(group);
+}
+
+void EventLoop::unregisterGroup(EventLoopTaskGroup& group)
+{
+    ASSERT(isContextThread());
+    if (m_associatedGroups.remove(group))
+        stopAssociatedGroupsIfNecessary();
+}
+
+void EventLoop::stopAssociatedGroupsIfNecessary()
+{
+    ASSERT(isContextThread());
+    for (auto& group : m_associatedGroups) {
+        if (!group.isReadyToStop())
+            return;
+    }
+    auto associatedGroups = std::exchange(m_associatedGroups, { });
+    for (auto& group : associatedGroups)
+        group.stopAndDiscardAllTasks();
 }
 
 void EventLoop::stopGroup(EventLoopTaskGroup& group)
@@ -82,7 +107,7 @@ void EventLoop::run()
 
     if (!m_tasks.isEmpty()) {
         auto tasks = std::exchange(m_tasks, { });
-        m_groupsWithSuspenedTasks.clear();
+        m_groupsWithSuspendedTasks.clear();
         Vector<std::unique_ptr<EventLoopTask>> remainingTasks;
         for (auto& task : tasks) {
             auto* group = task->group();
@@ -90,7 +115,7 @@ void EventLoop::run()
                 continue;
 
             if (group->isSuspended()) {
-                m_groupsWithSuspenedTasks.add(group);
+                m_groupsWithSuspendedTasks.add(*group);
                 remainingTasks.append(WTFMove(task));
                 continue;
             }
@@ -112,7 +137,7 @@ void EventLoop::run()
 void EventLoop::clearAllTasks()
 {
     m_tasks.clear();
-    m_groupsWithSuspenedTasks.clear();
+    m_groupsWithSuspendedTasks.clear();
 }
 
 void EventLoopTaskGroup::queueTask(std::unique_ptr<EventLoopTask>&& task)
@@ -153,6 +178,14 @@ void EventLoopTaskGroup::performMicrotaskCheckpoint()
 {
     if (m_eventLoop)
         m_eventLoop->performMicrotaskCheckpoint();
+}
+
+void EventLoopTaskGroup::runAtEndOfMicrotaskCheckpoint(EventLoop::TaskFunction&& function)
+{
+    if (m_state == State::Stopped || !m_eventLoop)
+        return;
+
+    microtaskQueue().addCheckpointTask(makeUnique<EventLoopFunctionDispatchTask>(TaskSource::IndexedDB, *this, WTFMove(function)));
 }
 
 } // namespace WebCore

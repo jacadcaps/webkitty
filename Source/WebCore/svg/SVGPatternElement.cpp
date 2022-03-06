@@ -30,8 +30,8 @@
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
 #include "PatternAttributes.h"
-#include "RenderSVGContainer.h"
 #include "RenderSVGResourcePattern.h"
+#include "SVGElementInlines.h"
 #include "SVGFitToViewBox.h"
 #include "SVGGraphicsElement.h"
 #include "SVGNames.h"
@@ -112,7 +112,7 @@ void SVGPatternElement::svgAttributeChanged(const QualifiedName& attrName)
 {
     if (PropertyRegistry::isAnimatedLengthAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
-        invalidateSVGPresentationAttributeStyle();
+        invalidateSVGPresentationalHintStyle();
         return;
     }
 
@@ -129,7 +129,7 @@ void SVGPatternElement::childrenChanged(const ChildChange& change)
 {
     SVGElement::childrenChanged(change);
 
-    if (change.source == ChildChangeSource::Parser)
+    if (change.source == ChildChange::Source::Parser)
         return;
 
     if (RenderObject* object = renderer())

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Yusuke Suzuki <utatane.tea@gmail.com>
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,6 +45,9 @@ inline Opcode Interpreter::getOpcode(OpcodeID id)
     return LLInt::getOpcode(id);
 }
 
+// This function is only available as a debugging tool for development work.
+// It is not currently used except in a RELEASE_ASSERT to ensure that it is
+// working properly.
 inline OpcodeID Interpreter::getOpcodeID(Opcode opcode)
 {
 #if ENABLE(COMPUTED_GOTO_OPCODES)
@@ -53,15 +56,15 @@ inline OpcodeID Interpreter::getOpcodeID(Opcode opcode)
     // The OpcodeID is embedded in the int32_t word preceding the location of
     // the LLInt code for the opcode (see the EMBED_OPCODE_ID_IF_NEEDED macro
     // in LowLevelInterpreter.cpp).
-    auto codePtr = MacroAssemblerCodePtr<BytecodePtrTag>::createFromExecutableAddress(opcode);
-    int32_t* opcodeIDAddress = codePtr.dataLocation<int32_t*>() - 1;
+    const void* opcodeAddress = removeCodePtrTag(bitwise_cast<const void*>(opcode));
+    const int32_t* opcodeIDAddress = bitwise_cast<int32_t*>(opcodeAddress) - 1;
     OpcodeID opcodeID = static_cast<OpcodeID>(WTF::unalignedLoad<int32_t>(opcodeIDAddress));
     ASSERT(opcodeID < NUMBER_OF_BYTECODE_IDS);
     return opcodeID;
 #else
     return opcodeIDTable().get(opcode);
 #endif // ENABLE(LLINT_EMBEDDED_OPCODE_ID)
-    
+
 #else // not ENABLE(COMPUTED_GOTO_OPCODES)
     return opcode;
 #endif
@@ -77,18 +80,18 @@ ALWAYS_INLINE JSValue Interpreter::execute(CallFrameClosure& closure)
 
     StackStats::CheckPoint stackCheckPoint;
 
-    constexpr auto trapsMask = VMTraps::interruptingTraps();
-    if (UNLIKELY(vm.needTrapHandling(trapsMask))) {
-        vm.handleTraps(closure.protoCallFrame->globalObject, closure.oldCallFrame, trapsMask);
-        RETURN_IF_EXCEPTION(throwScope, throwScope.exception());
+    if (UNLIKELY(vm.traps().needHandling(VMTraps::NonDebuggerAsyncEvents))) {
+        ASSERT(vm.topCallFrame == closure.oldCallFrame);
+        if (vm.hasExceptionsAfterHandlingTraps())
+            return throwScope.exception();
     }
 
     // Reload CodeBlock since GC can replace CodeBlock owned by Executable.
     CodeBlock* codeBlock;
-    Exception* error = closure.functionExecutable->prepareForExecution<FunctionExecutable>(vm, closure.function, closure.scope, CodeForCall, codeBlock);
-    EXCEPTION_ASSERT(throwScope.exception() == error);
-    if (UNLIKELY(error))
-        return checkedReturn(error);
+    closure.functionExecutable->prepareForExecution<FunctionExecutable>(vm, closure.function, closure.scope, CodeForCall, codeBlock);
+    RETURN_IF_EXCEPTION(throwScope, checkedReturn(throwScope.exception()));
+
+    ASSERT(codeBlock);
     codeBlock->m_shouldAlwaysBeInlined = false;
     {
         DisallowGC disallowGC; // Ensure no GC happens. GC can replace CodeBlock in Executable.

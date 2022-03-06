@@ -33,7 +33,7 @@ namespace JSC {
 
 const ClassInfo WeakObjectRefPrototype::s_info = { "WeakRef", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakObjectRefPrototype) };
 
-static EncodedJSValue JSC_HOST_CALL protoFuncWeakRefDeref(JSGlobalObject*, CallFrame*);
+static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakRefDeref);
 
 void WeakObjectRefPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
@@ -64,7 +64,7 @@ ALWAYS_INLINE static JSWeakObjectRef* getWeakRef(JSGlobalObject* globalObject, J
     return nullptr;
 }
 
-EncodedJSValue JSC_HOST_CALL protoFuncWeakRefDeref(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(protoFuncWeakRefDeref, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto* ref = getWeakRef(globalObject, callFrame->thisValue());
@@ -72,7 +72,7 @@ EncodedJSValue JSC_HOST_CALL protoFuncWeakRefDeref(JSGlobalObject* globalObject,
         return JSValue::encode(jsUndefined());
 
     auto* value = ref->deref(vm);
-    return value ? JSValue::encode(value) : JSValue::encode(jsNull());
+    return value ? JSValue::encode(value) : JSValue::encode(jsUndefined());
 }
 
 }

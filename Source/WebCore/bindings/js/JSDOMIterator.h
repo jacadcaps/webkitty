@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Canon, Inc. All rights reserved.
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,16 +52,16 @@ public:
     using DOMWrapped = typename JSWrapper::DOMWrapped;
 
     template<typename CellType, JSC::SubspaceAccess>
-    static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSDOMIteratorPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
     static JSDOMIteratorPrototype* create(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::Structure* structure)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSDOMIteratorPrototype, JSDOMIteratorPrototype::Base);
-        JSDOMIteratorPrototype* prototype = new (NotNull, JSC::allocateCell<JSDOMIteratorPrototype>(vm.heap)) JSDOMIteratorPrototype(vm, structure);
+        JSDOMIteratorPrototype* prototype = new (NotNull, JSC::allocateCell<JSDOMIteratorPrototype>(vm)) JSDOMIteratorPrototype(vm, structure);
         prototype->finishCreation(vm, globalObject);
         return prototype;
     }
@@ -73,7 +73,7 @@ public:
         return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
     }
 
-    static JSC::EncodedJSValue JSC_HOST_CALL next(JSC::JSGlobalObject*, JSC::CallFrame*);
+    static JSC::EncodedJSValue JSC_HOST_CALL_ATTRIBUTES next(JSC::JSGlobalObject*, JSC::CallFrame*);
 
 private:
     JSDOMIteratorPrototype(JSC::VM& vm, JSC::Structure* structure) : Base(vm, structure) { }
@@ -117,7 +117,7 @@ protected:
 
     static void destroy(JSC::JSCell*);
 
-    Optional<typename DOMWrapped::Iterator> m_iterator;
+    std::optional<typename DOMWrapped::Iterator> m_iterator;
     IterationKind m_kind;
 };
 
@@ -240,13 +240,13 @@ JSC::JSValue JSDOMIteratorBase<JSWrapper, IteratorTraits>::next(JSC::JSGlobalObj
         auto iteratorValue = m_iterator->next();
         if (iteratorValue)
             return createIteratorResultObject(&lexicalGlobalObject, asJS(lexicalGlobalObject, iteratorValue), false);
-        m_iterator = WTF::nullopt;
+        m_iterator = std::nullopt;
     }
     return createIteratorResultObject(&lexicalGlobalObject, JSC::jsUndefined(), true);
 }
 
 template<typename JSWrapper, typename IteratorTraits>
-JSC::EncodedJSValue JSC_HOST_CALL JSDOMIteratorPrototype<JSWrapper, IteratorTraits>::next(JSC::JSGlobalObject* globalObject, JSC::CallFrame* callFrame)
+JSC::EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSDOMIteratorPrototype<JSWrapper, IteratorTraits>::next(JSC::JSGlobalObject* globalObject, JSC::CallFrame* callFrame)
 {
     JSC::VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);

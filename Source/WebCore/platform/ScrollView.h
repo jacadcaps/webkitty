@@ -58,6 +58,7 @@ OBJC_CLASS WAKView;
 namespace WebCore {
 
 class EventRegionContext;
+class FloatQuad;
 class HostWindow;
 class LegacyTileCache;
 class Scrollbar;
@@ -73,8 +74,6 @@ public:
     WEBCORE_EXPORT void setScrollOffset(const ScrollOffset&) final;
     bool isScrollCornerVisible() const final;
     void scrollbarStyleChanged(ScrollbarStyle, bool forceUpdate) override;
-
-    virtual void notifyPageThatContentAreaWillPaint() const;
 
     IntPoint locationOfContents() const;
 
@@ -244,7 +243,7 @@ public:
 
     // Scroll position used by web-exposed features (has legacy iOS behavior).
     WEBCORE_EXPORT IntPoint contentsScrollPosition() const;
-    void setContentsScrollPosition(const IntPoint&, ScrollClamping = ScrollClamping::Clamped, AnimatedScroll = AnimatedScroll::No);
+    void setContentsScrollPosition(const IntPoint&, const ScrollPositionChangeOptions& = ScrollPositionChangeOptions::createProgrammatic());
 
 #if PLATFORM(IOS_FAMILY)
     int actualScrollX() const { return unobscuredContentRect().x(); }
@@ -274,7 +273,7 @@ public:
     ScrollPosition cachedScrollPosition() const { return m_cachedScrollPosition; }
 
     // Functions for scrolling the view.
-    virtual void setScrollPosition(const ScrollPosition&, ScrollClamping = ScrollClamping::Clamped, AnimatedScroll = AnimatedScroll::No);
+    virtual void setScrollPosition(const ScrollPosition&, const ScrollPositionChangeOptions& = ScrollPositionChangeOptions::createProgrammatic());
 
     void scrollBy(const IntSize& s) { return setScrollPosition(scrollPosition() + s); }
 
@@ -299,6 +298,8 @@ public:
     WEBCORE_EXPORT IntRect contentsToRootView(const IntRect&) const;
     WEBCORE_EXPORT FloatRect rootViewToContents(const FloatRect&) const;
     WEBCORE_EXPORT FloatRect contentsToRootView(const FloatRect&) const;
+    WEBCORE_EXPORT FloatQuad rootViewToContents(const FloatQuad&) const;
+    WEBCORE_EXPORT FloatQuad contentsToRootView(const FloatQuad&) const;
 
     IntPoint viewToContents(const IntPoint&) const;
     IntPoint contentsToView(const IntPoint&) const;
@@ -354,6 +355,15 @@ public:
         return newPoint;
     }
 
+    FloatPoint convertChildToSelf(const Widget* child, const FloatPoint& point) const
+    {
+        FloatPoint newPoint = point;
+        if (!isScrollViewScrollbar(child))
+            newPoint -= toFloatSize(scrollPosition());
+        newPoint.moveBy(child->location());
+        return newPoint;
+    }
+
     IntPoint convertSelfToChild(const Widget* child, const IntPoint& point) const
     {
         IntPoint newPoint = point;
@@ -397,6 +407,7 @@ public:
     bool allowsUnclampedScrollPosition() const { return m_allowsUnclampedScrollPosition; }
 
     bool managesScrollbars() const;
+    virtual void updateScrollbarSteps();
 
 protected:
     ScrollView();
@@ -523,8 +534,8 @@ private:
 
     RefPtr<Scrollbar> m_horizontalScrollbar;
     RefPtr<Scrollbar> m_verticalScrollbar;
-    ScrollbarMode m_horizontalScrollbarMode { ScrollbarAuto };
-    ScrollbarMode m_verticalScrollbarMode { ScrollbarAuto };
+    ScrollbarMode m_horizontalScrollbarMode { ScrollbarMode::Auto };
+    ScrollbarMode m_verticalScrollbarMode { ScrollbarMode::Auto };
 
 
     // FIXME: More things will move into here.
@@ -532,7 +543,7 @@ private:
         FloatSize unobscuredContentSize;
         FloatRect exposedContentRect;
     };
-    Optional<DelegatedScrollingGeometry> m_delegatedScrollingGeometry;
+    std::optional<DelegatedScrollingGeometry> m_delegatedScrollingGeometry;
 
 #if USE(COORDINATED_GRAPHICS)
     // FIXME: exposedContentRect is a very similar concept to fixedVisibleContentRect except it does not differentiate
@@ -544,8 +555,8 @@ private:
     IntSize m_fixedLayoutSize;
     IntSize m_contentsSize;
 
-    Optional<IntSize> m_deferredScrollDelta; // Needed for WebKit scrolling
-    Optional<std::pair<ScrollOffset, ScrollOffset>> m_deferredScrollOffsets; // Needed for platform widget scrolling
+    std::optional<IntSize> m_deferredScrollDelta; // Needed for WebKit scrolling
+    std::optional<std::pair<ScrollOffset, ScrollOffset>> m_deferredScrollOffsets; // Needed for platform widget scrolling
 
     IntPoint m_panScrollIconPoint;
 

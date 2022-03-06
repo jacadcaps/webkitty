@@ -29,7 +29,7 @@
 #include "StorageArea.h"
 #include "StorageAreaMapMessages.h"
 #include "StorageManagerSetMessages.h"
-#include <WebCore/TextEncoding.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/threads/BinarySemaphore.h>
 
@@ -41,12 +41,12 @@ Ref<StorageManagerSet> StorageManagerSet::create()
 }
 
 StorageManagerSet::StorageManagerSet()
-    : m_queue(WorkQueue::create("com.apple.WebKit.WebStorage"))
+    : m_queue(SuspendableWorkQueue::create("com.apple.WebKit.WebStorage"))
 {
     ASSERT(RunLoop::isMain());
 
     // Make sure the encoding is initialized before we start dispatching things to the queue.
-    WebCore::UTF8Encoding();
+    PAL::UTF8Encoding();
 }
 
 StorageManagerSet::~StorageManagerSet()
@@ -64,7 +64,7 @@ void StorageManagerSet::add(PAL::SessionID sessionID, const String& localStorage
         if (!sessionID.isEphemeral())
             SandboxExtension::consumePermanently(localStorageDirectoryHandle);
 
-        m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, localStorageDirectory = localStorageDirectory.isolatedCopy()]() mutable {
+        m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, localStorageDirectory = localStorageDirectory.isolatedCopy()]() mutable {
             m_storageManagers.ensure(sessionID, [&]() mutable {
                 return makeUnique<StorageManager>(WTFMove(localStorageDirectory));
             });
@@ -77,7 +77,7 @@ void StorageManagerSet::remove(PAL::SessionID sessionID)
     ASSERT(RunLoop::isMain());
 
     if (m_storageManagerPaths.remove(sessionID)) {
-        m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID]() {
+        m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID]() {
             if (auto storageManager = m_storageManagers.get(sessionID)) {
                 for (auto storageAreaID : storageManager->allStorageAreaIdentifiers())
                     m_storageAreas.remove(storageAreaID);
@@ -114,12 +114,27 @@ void StorageManagerSet::removeConnection(IPC::Connection& connection)
     m_connections.remove(connectionID);
     connection.removeWorkQueueMessageReceiver(Messages::StorageManagerSet::messageReceiverName());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), connectionID]() {
-        for (const auto& storageArea : m_storageAreas.values()) {
-            ASSERT(storageArea);
+    m_queue->dispatch([this, protectedThis = Ref { *this }, connectionID]() {
+        Vector<StorageAreaIdentifier> identifiersToRemove;
+        for (auto& [identifier, storageArea] : m_storageAreas) {
             if (storageArea)
                 storageArea->removeListener(connectionID);
+
+            if (!storageArea)
+                identifiersToRemove.append(identifier);
         }
+
+        for (auto identifier : identifiersToRemove)
+            m_storageAreas.remove(identifier);
+    });
+}
+
+void StorageManagerSet::handleLowMemoryWarning()
+{
+    ASSERT(RunLoop::isMain());
+    m_queue->dispatch([this, protectedThis = Ref { *this }] {
+        for (auto& storageArea : m_storageAreas.values())
+            storageArea->handleLowMemoryWarning();
     });
 }
 
@@ -127,17 +142,13 @@ void StorageManagerSet::waitUntilTasksFinished()
 {
     ASSERT(RunLoop::isMain());
 
-    BinarySemaphore semaphore;
-    m_queue->dispatch([this, &semaphore] {
+    m_queue->dispatchSync([this] {
         for (auto& storageManager : m_storageManagers.values())
             storageManager->clearStorageNamespaces();
 
         m_storageManagers.clear();
         m_storageAreas.clear();
-
-        semaphore.signal();
     });
-    semaphore.wait();
 }
 
 void StorageManagerSet::waitUntilSyncingLocalStorageFinished()
@@ -146,61 +157,43 @@ void StorageManagerSet::waitUntilSyncingLocalStorageFinished()
 
     BinarySemaphore semaphore;
     m_queue->dispatch([this, &semaphore] {
-        for (const auto& storageArea : m_storageAreas.values()) {
-            ASSERT(storageArea);
-            if (storageArea)
-                storageArea->syncToDatabase();
-        }
-
+        flushLocalStorage();
         semaphore.signal();
     });
     semaphore.wait();
+}
+
+void StorageManagerSet::flushLocalStorage()
+{
+    ASSERT(!RunLoop::isMain());
+    for (const auto& storageArea : m_storageAreas.values()) {
+        ASSERT(storageArea);
+        if (storageArea)
+            storageArea->syncToDatabase();
+    }
 }
 
 void StorageManagerSet::suspend(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
 
-    CompletionHandlerCallingScope completionHandlerCaller(WTFMove(completionHandler));
-    Locker<Lock> stateLocker(m_stateLock);
-    if (m_state != State::Running)
-        return;
-    m_state = State::WillSuspend;
-
-    m_queue->dispatch([this, protectedThis = makeRef(*this), completionHandler = completionHandlerCaller.release()] () mutable {
-        Locker<Lock> stateLocker(m_stateLock);
-        ASSERT(m_state != State::Suspended);
-
-        if (m_state != State::WillSuspend) {
-            RunLoop::main().dispatch(WTFMove(completionHandler));
-            return;
-        }
-
-        m_state = State::Suspended;
-        RunLoop::main().dispatch(WTFMove(completionHandler));
-
-        while (m_state == State::Suspended)
-            m_stateChangeCondition.wait(m_stateLock);
-        ASSERT(m_state == State::Running);
-    });
+    m_queue->suspend([protectedThis = Ref { *this }] {
+        protectedThis->flushLocalStorage();
+    }, WTFMove(completionHandler));
 }
 
 void StorageManagerSet::resume()
 {
     ASSERT(RunLoop::isMain());
 
-    Locker<Lock> stateLocker(m_stateLock);
-    auto previousState = m_state;
-    m_state = State::Running;
-    if (previousState == State::Suspended)
-        m_stateChangeCondition.notifyOne();
+    m_queue->resume();
 }
 
 void StorageManagerSet::getSessionStorageOrigins(PAL::SessionID sessionID, GetOriginsCallback&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -215,7 +208,7 @@ void StorageManagerSet::deleteSessionStorage(PAL::SessionID sessionID, DeleteCal
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -228,7 +221,7 @@ void StorageManagerSet::deleteSessionStorageForOrigins(PAL::SessionID sessionID,
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, copiedOriginDatas = crossThreadCopy(originDatas), completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, copiedOriginDatas = crossThreadCopy(originDatas), completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -241,7 +234,7 @@ void StorageManagerSet::getLocalStorageOrigins(PAL::SessionID sessionID, GetOrig
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -256,7 +249,7 @@ void StorageManagerSet::deleteLocalStorageModifiedSince(PAL::SessionID sessionID
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, time, completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, time, completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -269,7 +262,7 @@ void StorageManagerSet::deleteLocalStorageForOrigins(PAL::SessionID sessionID, c
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, copiedOriginDatas = crossThreadCopy(originDatas), completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, copiedOriginDatas = crossThreadCopy(originDatas), completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -282,7 +275,7 @@ void StorageManagerSet::getLocalStorageOriginDetails(PAL::SessionID sessionID, G
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
 
@@ -297,7 +290,7 @@ void StorageManagerSet::renameOrigin(PAL::SessionID sessionID, const URL& oldNam
 {
     ASSERT(RunLoop::isMain());
 
-    m_queue->dispatch([this, protectedThis = makeRef(*this), sessionID, oldName = oldName.isolatedCopy(), newName = newName.isolatedCopy(), completionHandler = WTFMove(completionHandler)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, sessionID, oldName = oldName.isolatedCopy(), newName = newName.isolatedCopy(), completionHandler = WTFMove(completionHandler)]() mutable {
         auto* storageManager = m_storageManagers.get(sessionID);
         ASSERT(storageManager);
         storageManager->renameOrigin(oldName, newName);
@@ -311,18 +304,18 @@ void StorageManagerSet::connectToLocalStorageArea(IPC::Connection& connection, P
 
     auto* storageManager = m_storageManagers.get(sessionID);
     if (!storageManager) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto* storageArea = storageManager->createLocalStorageArea(storageNamespaceID, WTFMove(originData), m_queue.copyRef());
     if (!storageArea) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto storageAreaID = storageArea->identifier();
-    auto iter = m_storageAreas.add(storageAreaID, makeWeakPtr(storageArea)).iterator;
+    auto iter = m_storageAreas.add(storageAreaID, storageArea).iterator;
     ASSERT_UNUSED(iter, storageArea == iter->value.get());
 
     completionHandler(storageAreaID);
@@ -336,18 +329,18 @@ void StorageManagerSet::connectToTransientLocalStorageArea(IPC::Connection& conn
 
     auto* storageManager = m_storageManagers.get(sessionID);
     if (!storageManager) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto* storageArea = storageManager->createTransientLocalStorageArea(storageNamespaceID, WTFMove(topLevelOriginData), WTFMove(originData), m_queue.copyRef());
     if (!storageArea) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto storageAreaID = storageArea->identifier();
-    auto iter = m_storageAreas.add(storageAreaID, makeWeakPtr(storageArea)).iterator;
+    auto iter = m_storageAreas.add(storageAreaID, storageArea).iterator;
     ASSERT_UNUSED(iter, storageArea == iter->value.get());
 
     completionHandler(storageAreaID);
@@ -361,18 +354,18 @@ void StorageManagerSet::connectToSessionStorageArea(IPC::Connection& connection,
 
     auto* storageManager = m_storageManagers.get(sessionID);
     if (!storageManager) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto* storageArea = storageManager->createSessionStorageArea(storageNamespaceID, WTFMove(originData), m_queue.copyRef());
     if (!storageArea) {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
         return;
     }
 
     auto storageAreaID = storageArea->identifier();
-    auto iter = m_storageAreas.add(storageAreaID, makeWeakPtr(storageArea)).iterator;
+    auto iter = m_storageAreas.add(storageAreaID, storageArea).iterator;
     ASSERT_UNUSED(iter, storageArea == iter->value.get());
 
     completionHandler(storageAreaID);
@@ -388,8 +381,12 @@ void StorageManagerSet::disconnectFromStorageArea(IPC::Connection& connection, S
     ASSERT(storageArea);
     ASSERT(storageArea->hasListener(connection.uniqueID()));
 
-    if (storageArea)
-        storageArea->removeListener(connection.uniqueID());
+    if (!storageArea)
+        return;
+
+    storageArea->removeListener(connection.uniqueID());
+    if (!storageArea)
+        m_storageAreas.remove(storageAreaID);
 }
 
 void StorageManagerSet::getValues(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, GetValuesCallback&& completionHandler)
@@ -402,7 +399,7 @@ void StorageManagerSet::getValues(IPC::Connection& connection, StorageAreaIdenti
     completionHandler(storageArea ? storageArea->items() : HashMap<String, String>());
 }
 
-void StorageManagerSet::setItem(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, uint64_t storageMapSeed, const String& key, const String& value, const String& urlString)
+void StorageManagerSet::setItem(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, const String& key, const String& value, const String& urlString, CompletionHandler<void(bool)>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -413,10 +410,10 @@ void StorageManagerSet::setItem(IPC::Connection& connection, StorageAreaIdentifi
     if (storageArea)
         storageArea->setItem(connection.uniqueID(), storageAreaImplID, key, value, urlString, quotaError);
 
-    connection.send(Messages::StorageAreaMap::DidSetItem(storageMapSeed, key, quotaError), storageAreaID);
+    completionHandler(quotaError);
 } 
 
-void StorageManagerSet::removeItem(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, uint64_t storageMapSeed, const String& key, const String& urlString)
+void StorageManagerSet::removeItem(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, const String& key, const String& urlString, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -426,10 +423,10 @@ void StorageManagerSet::removeItem(IPC::Connection& connection, StorageAreaIdent
     if (storageArea)
         storageArea->removeItem(connection.uniqueID(), storageAreaImplID, key, urlString);
 
-    connection.send(Messages::StorageAreaMap::DidRemoveItem(storageMapSeed, key), storageAreaID);
+    completionHandler();
 }
 
-void StorageManagerSet::clear(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, uint64_t storageMapSeed, const String& urlString)
+void StorageManagerSet::clear(IPC::Connection& connection, StorageAreaIdentifier storageAreaID, StorageAreaImplIdentifier storageAreaImplID, const String& urlString, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -439,7 +436,7 @@ void StorageManagerSet::clear(IPC::Connection& connection, StorageAreaIdentifier
     if (storageArea)
         storageArea->clear(connection.uniqueID(), storageAreaImplID, urlString);
 
-    connection.send(Messages::StorageAreaMap::DidClear(storageMapSeed), storageAreaID);
+    completionHandler();
 }
 
 void StorageManagerSet::cloneSessionStorageNamespace(IPC::Connection&, PAL::SessionID sessionID, StorageNamespaceIdentifier fromStorageNamespaceID, StorageNamespaceIdentifier toStorageNamespaceID)

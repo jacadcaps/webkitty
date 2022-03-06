@@ -26,8 +26,8 @@ messages -> NetworkProcessConnection LegacyReceiver {
     DidCacheResource(WebCore::ResourceRequest request, WebKit::ShareableResource::Handle resource)
 #endif
 
-    DidFinishPingLoad(uint64_t pingLoadIdentifier, WebCore::ResourceError error, WebCore::ResourceResponse response)
-    DidFinishPreconnection(uint64_t preconnectionIdentifier, WebCore::ResourceError error)
+    DidFinishPingLoad(WebCore::ResourceLoaderIdentifier pingLoadIdentifier, WebCore::ResourceError error, WebCore::ResourceResponse response)
+    DidFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, WebCore::ResourceError error)
     SetOnLineState(bool isOnLine);
     CookieAcceptPolicyChanged(enum:uint8_t WebCore::HTTPCookieAcceptPolicy policy);
 
@@ -35,6 +35,10 @@ messages -> NetworkProcessConnection LegacyReceiver {
     CookiesAdded(String host, Vector<struct WebCore::Cookie> cookies);
     CookiesDeleted(String host, Vector<struct WebCore::Cookie> cookies);
     AllCookiesDeleted();
+#endif
+
+#if ENABLE(WEB_RTC)
+    ConnectToRTCDataChannelRemoteSource(struct WebCore::RTCDataChannelIdentifier source, struct WebCore::RTCDataChannelIdentifier handler) -> (std::optional<bool> result) Async
 #endif
 
     CheckProcessLocalPortForActivity(struct WebCore::MessagePortIdentifier port) -> (WebCore::MessagePortChannelProvider::HasActivity hasActivity) Async

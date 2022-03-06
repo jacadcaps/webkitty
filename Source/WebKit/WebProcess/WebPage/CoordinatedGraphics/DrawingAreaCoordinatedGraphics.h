@@ -51,7 +51,7 @@ private:
     void setNeedsDisplayInRect(const WebCore::IntRect&) override;
     void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollDelta) override;
     void forceRepaint() override;
-    bool forceRepaintAsync(CallbackID) override;
+    void forceRepaintAsync(WebPage&, CompletionHandler<void()>&&) override;
 
     void setLayerTreeStateIsFrozen(bool) override;
     bool layerTreeStateIsFrozen() const override { return m_layerTreeStateIsFrozen; }
@@ -69,21 +69,25 @@ private:
 
     WebCore::GraphicsLayerFactory* graphicsLayerFactory() override;
     void setRootCompositingLayer(WebCore::GraphicsLayer*) override;
-    void scheduleRenderingUpdate() override;
-    void scheduleImmediateRenderingUpdate() override { scheduleRenderingUpdate(); };
+    void triggerRenderingUpdate() override;
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(COORDINATED_GRAPHICS) || USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
     void layerHostDidFlushLayers() override;
 #endif
     
     RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID) override;
 
-    void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, const Vector<CallbackID>& /* callbackIDs */) override;
+    void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, CompletionHandler<void()>&&) override;
     void attachViewOverlayGraphicsLayer(WebCore::GraphicsLayer*) override;
 
     // IPC message handlers.
     void updateBackingStoreState(uint64_t backingStoreStateID, bool respondImmediately, float deviceScaleFactor, const WebCore::IntSize&, const WebCore::IntSize& scrollOffset) override;
     void didUpdate() override;
+
+#if PLATFORM(GTK)
+    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
+    void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
+#endif
 
     void sendDidUpdateBackingStoreState();
 
@@ -144,12 +148,18 @@ private:
     // Whether we're waiting for a DidUpdate message. Used for throttling paints so that the 
     // web process won't paint more frequent than the UI process can handle.
     bool m_isWaitingForDidUpdate { false };
+    bool m_scheduledWhileWaitingForDidUpdate { false };
 
     bool m_alwaysUseCompositing { false };
     bool m_supportsAsyncScrolling { true };
     bool m_forceRepaintAfterBackingStoreStateUpdate { false };
 
     RunLoop::Timer<DrawingAreaCoordinatedGraphics> m_displayTimer;
+
+#if PLATFORM(GTK)
+    bool m_transientZoom { false };
+    WebCore::FloatPoint m_transientZoomInitialOrigin;
+#endif
 };
 
 } // namespace WebKit

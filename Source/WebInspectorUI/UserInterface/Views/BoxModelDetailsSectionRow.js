@@ -53,6 +53,7 @@ WI.BoxModelDetailsSectionRow = class BoxModelDetailsSectionRow extends WI.Detail
         if (this._nodeStyles && this._nodeStyles.computedStyle)
             this._nodeStyles.computedStyle.addEventListener(WI.CSSStyleDeclaration.Event.PropertiesChanged, this._refresh, this);
 
+        this.element.classList.remove("hovered");
         this._refresh();
     }
 
@@ -79,8 +80,7 @@ WI.BoxModelDetailsSectionRow = class BoxModelDetailsSectionRow extends WI.Detail
 
     _getPropertyValue(style, propertyName)
     {
-        const dontCreateIfMissing = true;
-        let property = style.propertyForName(propertyName, dontCreateIfMissing);
+        let property = style.propertyForName(propertyName);
         if (!property)
             return null;
         return property.value;

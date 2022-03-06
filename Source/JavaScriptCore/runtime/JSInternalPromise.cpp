@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@ const ClassInfo JSInternalPromise::s_info = { "InternalPromise", &Base::s_info, 
 
 JSInternalPromise* JSInternalPromise::create(VM& vm, Structure* structure)
 {
-    JSInternalPromise* promise = new (NotNull, allocateCell<JSInternalPromise>(vm.heap)) JSInternalPromise(vm, structure);
+    JSInternalPromise* promise = new (NotNull, allocateCell<JSInternalPromise>(vm)) JSInternalPromise(vm, structure);
     promise->finishCreation(vm);
     return promise;
 }
@@ -60,7 +60,7 @@ JSInternalPromise* JSInternalPromise::then(JSGlobalObject* globalObject, JSFunct
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSObject* function = jsCast<JSObject*>(get(globalObject, vm.propertyNames->builtinNames().thenPublicName()));
+    JSObject* function = getAs<JSObject*>(globalObject, vm.propertyNames->builtinNames().thenPublicName());
     RETURN_IF_EXCEPTION(scope, nullptr);
     auto callData = JSC::getCallData(vm, function);
     ASSERT(callData.type != CallData::Type::None);
@@ -69,8 +69,14 @@ JSInternalPromise* JSInternalPromise::then(JSGlobalObject* globalObject, JSFunct
     arguments.append(onFulfilled ? onFulfilled : jsUndefined());
     arguments.append(onRejected ? onRejected : jsUndefined());
     ASSERT(!arguments.hasOverflowed());
+    JSValue result = call(globalObject, function, callData, this, arguments);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    return jsCast<JSInternalPromise*>(result);
+}
 
-    RELEASE_AND_RETURN(scope, jsCast<JSInternalPromise*>(call(globalObject, function, callData, this, arguments)));
+JSInternalPromise* JSInternalPromise::rejectWithCaughtException(JSGlobalObject* globalObject, ThrowScope& scope)
+{
+    return jsCast<JSInternalPromise*>(JSPromise::rejectWithCaughtException(globalObject, scope));
 }
 
 } // namespace JSC

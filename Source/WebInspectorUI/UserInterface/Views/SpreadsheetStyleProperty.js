@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this._delegate = delegate || null;
         this._property = property;
         this._readOnly = options.readOnly || false;
+        this._hideDocumentation = !!options.hideDocumentation;
         this._element = document.createElement("div");
 
         if (options.selectable)
@@ -42,6 +43,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this._contentElement = null;
         this._nameElement = null;
         this._valueElement = null;
+        this._cssDocumentationButton = null;
         this._jumpToEffectivePropertyButton = null;
 
         this._nameTextField = null;
@@ -49,6 +51,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
         this._selected = false;
         this._hasInvalidVariableValue = false;
+        this._cssDocumentationPopover = null;
 
         this.update();
         property.addEventListener(WI.CSSProperty.Event.OverriddenStatusChanged, this.updateStatus, this);
@@ -121,19 +124,16 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
     detached()
     {
+        if (this._nameTextField?.editing)
+            this._nameTextField.element.blur();
+        else if (this._valueTextField?.editing)
+            this._valueTextField.element.blur();
+
         if (this._nameTextField)
             this._nameTextField.detached();
 
         if (this._valueTextField)
             this._valueTextField.detached();
-    }
-
-    hidden()
-    {
-        if (this._nameTextField && this._nameTextField.editing)
-            this._nameTextField.element.blur();
-        else if (this._valueTextField && this._valueTextField.editing)
-            this._valueTextField.element.blur();
     }
 
     remove(replacement = null)
@@ -144,7 +144,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this.element.remove();
 
         if (replacement)
-            this._property.replaceWithText(replacement);
+            this._property.text = replacement;
         else
             this._property.remove();
 
@@ -216,6 +216,8 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
             this._warningElement.className = "warning";
         } else
             this._contentElement.append(" */");
+
+        this._addCSSDocumentationButton();
 
         if (!this._property.implicit && this._property.ownerStyle.type === WI.CSSStyleDeclaration.Type.Computed && !this._property.isShorthand) {
             let effectiveProperty = this._property.ownerStyle.nodeStyles.effectivePropertyForName(this._property.name);
@@ -298,13 +300,9 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         if (!this._property.valid && this._property.hasOtherVendorNameOrKeyword())
             classNames.push("other-vendor");
         else if (this._hasInvalidVariableValue || (!this._property.valid && this._property.value !== "")) {
-            let propertyNameIsValid = false;
-            if (WI.CSSCompletions.cssNameCompletions)
-                propertyNameIsValid = WI.CSSCompletions.cssNameCompletions.isValidPropertyName(this._property.name);
-
             classNames.push("has-warning");
 
-            if (!propertyNameIsValid) {
+            if (!WI.cssManager.propertyNameCompletions?.isValidPropertyName(this._property.name)) {
                 classNames.push("invalid-name");
                 elementTitle = WI.UIString("Unsupported property name");
             } else {
@@ -342,6 +340,19 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         return matches;
     }
 
+    additionalFunctionValueCompletionsProvider(functionName)
+    {
+        switch (functionName) {
+        case "var":
+            return Array.from(this._property.ownerStyle.nodeStyles.allCSSVariables);
+
+        case "attr":
+            return this._property.ownerStyle.node.attributes().map((attribute) => attribute.name);
+        }
+
+        return [];
+    }
+
     // SpreadsheetTextField delegate
 
     spreadsheetTextFieldWillStartEditing(textField)
@@ -374,6 +385,8 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         if (!isEditingName && !willRemoveProperty)
             this._renderValue(this._property.rawValue);
 
+        this._cssDocumentationPopover?.dismiss();
+
         if (direction === "forward") {
             if (isEditingName && !willRemoveProperty) {
                 // Move focus from the name to the value.
@@ -399,6 +412,8 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
     spreadsheetTextFieldDidBlur(textField, event, changed)
     {
+        this._addCSSDocumentationButton();
+
         let focusedOutsideThisProperty = event.relatedTarget !== this._nameElement && event.relatedTarget !== this._valueElement;
         if (focusedOutsideThisProperty && (!this._nameTextField.value.trim() || !this._valueTextField.value.trim())) {
             this.remove();
@@ -435,6 +450,14 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
             this._delegate.spreadsheetStylePropertyDidPressEsc(this);
     }
 
+    // Popover delegate
+
+    willDismissPopover()
+    {
+        this._valueElement.classList.remove(WI.Popover.IgnoreAutoDismissClassName);
+        this._cssDocumentationPopover = null;
+    }
+
     // Private
 
     _toggle()
@@ -463,7 +486,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         const maxValueLength = 150;
         let tokens = WI.tokenizeCSSValue(value);
 
-        if (this._property.enabled)
+        if (this._property.enabled && !this._property.overridden && this._property.valid && !this._property.hasOtherVendorNameOrKeyword())
             tokens = this._replaceSpecialTokens(tokens);
 
         tokens = tokens.map((token) => {
@@ -499,6 +522,53 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this._valueElement.append(...tokens);
     }
 
+    _addCSSDocumentationButton()
+    {
+        if (this._hideDocumentation)
+            return;
+
+        if (this._cssDocumentationButton) {
+            this._cssDocumentationButton.remove();
+            this._cssDocumentationButton = null;
+        }
+
+        if (this.property.isVariable)
+            return;
+
+        if (!WI.cssManager.propertyNameCompletions?.isValidPropertyName(this._property.name))
+            return;
+
+        if (!CSSDocumentation.hasOwnProperty(this._property.name) && !CSSDocumentation.hasOwnProperty(this._property.canonicalName))
+            return;
+
+        this._cssDocumentationButton = this._contentElement.appendChild(document.createElement("button"));
+        this._cssDocumentationButton.className = "css-documentation-button";
+        this._cssDocumentationButton.title = WI.UIString("Click to show documentation", "Click to show documentation @ CSS Documentation Button", "Tooltip to show purpose of the CSS documentation button");
+        this._cssDocumentationButton.addEventListener("mousedown", this._handleCSSDocumentationButtonClicked.bind(this));
+    }
+
+    _handleCSSDocumentationButtonClicked(event)
+    {
+        if (event.button !== 0)
+            return;
+
+        if (this._valueTextField?.editing) {
+            event.stopPropagation();
+            event.preventDefault();
+            this._valueTextField.discardCompletion();
+        }
+
+        this._presentCSSDocumentation();
+    }
+
+    _presentCSSDocumentation()
+    {
+        this._cssDocumentationPopover ??= new WI.CSSDocumentationPopover(this._property, this);
+        this._cssDocumentationPopover.show(this._nameElement);
+        if (this._isEditable())
+            this._valueElement.classList.add(WI.Popover.IgnoreAutoDismissClassName);
+    }
+
     _createInlineSwatch(type, contents, valueObject)
     {
         let tokenElement = document.createElement("span");
@@ -515,7 +585,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         let readOnly = !this._isEditable();
         let swatch = new WI.InlineSwatch(type, valueObject, readOnly);
 
-        swatch.addEventListener(WI.InlineSwatch.Event.ValueChanged, (event) => {
+        swatch.addEventListener(WI.InlineSwatch.Event.ValueChanged, function(event) {
             let value = event.data.value && event.data.value.toString();
             if (!value)
                 return;
@@ -534,15 +604,15 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         }
 
         if (this._delegate && typeof this._delegate.stylePropertyInlineSwatchActivated === "function") {
-            swatch.addEventListener(WI.InlineSwatch.Event.Activated, () => {
+            swatch.addEventListener(WI.InlineSwatch.Event.Activated, function(event) {
                 this._delegate.stylePropertyInlineSwatchActivated();
-            });
+            }, this);
         }
 
         if (this._delegate && typeof this._delegate.stylePropertyInlineSwatchDeactivated === "function") {
-            swatch.addEventListener(WI.InlineSwatch.Event.Deactivated, () => {
+            swatch.addEventListener(WI.InlineSwatch.Event.Deactivated, function(event) {
                 this._delegate.stylePropertyInlineSwatchDeactivated();
-            });
+            }, this);
         }
 
         tokenElement.append(swatch.element, innerElement);
@@ -553,9 +623,13 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
     _replaceSpecialTokens(tokens)
     {
         // FIXME: <https://webkit.org/b/178636> Web Inspector: Styles: Make inline widgets work with CSS functions (var(), calc(), etc.)
+        // FIXME: <https://webkit.org/b/233055> Web Inspector: Add a swatch for justify-content, justify-items, and justify-self
 
         if (this._property.name === "box-shadow")
             return this._addBoxShadowTokens(tokens);
+
+        if (WI.AlignmentData.isAlignmentAwarePropertyName(this._property.name))
+            return this._addAlignmentTokens(tokens, this._property.name);
 
         if (this._property.isVariable || WI.CSSKeywordCompletions.isColorAwareProperty(this._property.name)) {
             tokens = this._addGradientTokens(tokens);
@@ -574,7 +648,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
     _addGradientTokens(tokens)
     {
-        let gradientRegex = /^(repeating-)?(linear|radial)-gradient$/i;
+        let gradientRegex = /^(repeating-)?(linear|radial|conic)-gradient$/i;
         let newTokens = [];
         let gradientStartIndex = NaN;
         let openParenthesis = 0;
@@ -770,6 +844,14 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         return newTokens;
     }
 
+    _addAlignmentTokens(tokens, propertyName)
+    {
+        // FIXME: <https://webkit.org/b/233281> Web Inspector: Alignment swatch should handle multi-token values better
+        let text = this._resolveVariables(tokens.map((token) => token.value).join(""));
+        let swatch = this._createInlineSwatch(WI.InlineSwatch.Type.Alignment, this._addVariableTokens(tokens), new WI.AlignmentData(propertyName, text));
+        return [swatch];
+    }
+
     _addVariableTokens(tokens)
     {
         let newTokens = [];
@@ -795,9 +877,8 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                 if (variableNameIndex !== -1) {
                     let contents = rawTokens.slice(0, variableNameIndex + 1);
 
-                    if (WI.settings.experimentalEnableStyelsJumpToVariableDeclaration.value && this._property.ownerStyle.type !== WI.CSSStyleDeclaration.Type.Computed && this._delegate && this._delegate.spreadsheetStylePropertySelectByProperty) {
-                        const dontCreateIfMissing = true;
-                        let effectiveVariableProperty = this._property.ownerStyle.nodeStyles.effectivePropertyForName(rawTokens[variableNameIndex].value, dontCreateIfMissing);
+                    if (WI.settings.experimentalEnableStylesJumpToVariableDeclaration.value && this._property.ownerStyle.type !== WI.CSSStyleDeclaration.Type.Computed && this._delegate && this._delegate.spreadsheetStylePropertySelectByProperty) {
+                        let effectiveVariableProperty = this._property.ownerStyle.nodeStyles.effectivePropertyForName(rawTokens[variableNameIndex].value);
                         if (effectiveVariableProperty) {
                             let arrowElement = WI.createGoToArrowButton();
                             arrowElement.classList.add("select-variable-property");
@@ -814,7 +895,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                     if (fallbackStartIndex !== -1) {
                         contents.pushAll(rawTokens.slice(variableNameIndex + 1, fallbackStartIndex));
 
-                        let fallbackTokens = rawTokens.slice(fallbackStartIndex, i);
+                        let fallbackTokens = rawTokens.slice(fallbackStartIndex);
                         fallbackTokens = this._addBoxShadowTokens(fallbackTokens);
                         fallbackTokens = this._addGradientTokens(fallbackTokens);
                         fallbackTokens = this._addColorTokens(fallbackTokens);
@@ -823,8 +904,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                         fallbackTokens = this._addVariableTokens(fallbackTokens);
                         contents.pushAll(fallbackTokens);
                     } else
-                        contents.pushAll(rawTokens.slice(variableNameIndex + 1, i));
-                    contents.push(token);
+                        contents.pushAll(rawTokens.slice(variableNameIndex + 1));
 
                     let text = rawTokens.reduce((accumulator, token) => accumulator + token.value, "");
                     if (this._property.ownerStyle.nodeStyles.computedStyle.resolveVariableValue(text))
@@ -851,12 +931,12 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
     _handleNameChange()
     {
-        this._property.name = this._nameElement.textContent.trim();
+        this._property.name = this._nameTextField.value;
     }
 
     _handleValueChange()
     {
-        let value = this._valueElement.textContent;
+        let value = this._valueTextField.value;
 
         this._property.rawValue = value.trim();
 
@@ -890,14 +970,9 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         }
     }
 
-    _nameCompletionDataProvider(prefix, options = {})
+    _nameCompletionDataProvider(text, options = {})
     {
-        let completions;
-        if (!prefix && options.allowEmptyPrefix)
-            completions = WI.CSSCompletions.cssNameCompletions.values;
-        else
-            completions = WI.CSSCompletions.cssNameCompletions.startsWith(prefix);
-        return {prefix, completions};
+        return WI.CSSKeywordCompletions.forPartialPropertyName(text, options);
     }
 
     _handleValueBeforeInput(event)
@@ -919,21 +994,10 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this.spreadsheetTextFieldDidCommit(this._valueTextField, {direction: "forward"});
     }
 
-    _valueCompletionDataProvider(prefix)
+    _valueCompletionDataProvider(text, options = {})
     {
-        // For "border: 1px so|", we want to suggest "solid" based on "so" prefix.
-        let match = prefix.match(/[a-z0-9()-]+$/i);
-
-        // Clicking on the value of `height: 100%` shouldn't show any completions.
-        if (!match && prefix)
-            return {completions: [], prefix: ""};
-
-        prefix = match ? match[0] : "";
-        let propertyName = this._nameElement.textContent.trim();
-        return {
-            prefix,
-            completions: WI.CSSKeywordCompletions.forProperty(propertyName).startsWith(prefix)
-        };
+        options.additionalFunctionValueCompletionsProvider = this.additionalFunctionValueCompletionsProvider.bind(this);
+        return WI.CSSKeywordCompletions.forPartialPropertyValue(text, this._nameElement.textContent.trim(), options);
     }
 
     _setupJumpToSymbol(element)

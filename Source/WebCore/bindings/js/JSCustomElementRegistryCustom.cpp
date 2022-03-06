@@ -156,6 +156,15 @@ JSValue JSCustomElementRegistry::define(JSGlobalObject& lexicalGlobalObject, Cal
         }
     }
 
+    auto disabledFeaturesValue = constructor->get(&lexicalGlobalObject, Identifier::fromString(vm, "disabledFeatures"));
+    RETURN_IF_EXCEPTION(scope, { });
+    if (!disabledFeaturesValue.isUndefined()) {
+        auto disabledFeatures = convert<IDLSequence<IDLDOMString>>(lexicalGlobalObject, disabledFeaturesValue);
+        RETURN_IF_EXCEPTION(scope, { });
+        if (disabledFeatures.contains("shadow"_s))
+            elementInterface->disableShadow();
+    }
+
     auto addToGlobalObjectWithPrivateName = [&] (JSObject* objectToAdd) {
         if (objectToAdd) {
             PrivateName uniquePrivateName;
@@ -169,7 +178,8 @@ JSValue JSCustomElementRegistry::define(JSGlobalObject& lexicalGlobalObject, Cal
     addToGlobalObjectWithPrivateName(adoptedCallback);
     addToGlobalObjectWithPrivateName(attributeChangedCallback);
 
-    registry.addElementDefinition(WTFMove(elementInterface));
+    if (auto promise = registry.addElementDefinition(WTFMove(elementInterface)))
+        promise->resolveWithJSValue(constructor);
 
     return jsUndefined();
 }
@@ -190,8 +200,8 @@ static JSValue whenDefinedPromise(JSGlobalObject& lexicalGlobalObject, CallFrame
         return jsUndefined();
     }
 
-    if (registry.findInterface(localName)) {
-        DeferredPromise::create(globalObject, promise)->resolve();
+    if (auto* elementInterface = registry.findInterface(localName)) {
+        DeferredPromise::create(globalObject, promise)->resolveWithJSValue(elementInterface->constructor());
         return &promise;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,7 @@
 #include "ArrayPrototype.h"
 #include "Completion.h"
 #include "DateInstance.h"
-#include "DeferGC.h"
+#include "DeferGCInlines.h"
 #include "DirectArguments.h"
 #include "FunctionPrototype.h"
 #include "HeapAnalyzer.h"
@@ -228,7 +228,9 @@ JSValue JSInjectedScriptHost::subtype(JSGlobalObject* globalObject, CallFrame* c
             || object->inherits<JSUint16Array>(vm)
             || object->inherits<JSUint32Array>(vm)
             || object->inherits<JSFloat32Array>(vm)
-            || object->inherits<JSFloat64Array>(vm))
+            || object->inherits<JSFloat64Array>(vm)
+            || object->inherits<JSBigInt64Array>(vm)
+            || object->inherits<JSBigUint64Array>(vm))
             return jsNontrivialString(vm, "array"_s);
     }
 
@@ -343,6 +345,15 @@ JSValue JSInjectedScriptHost::getInternalProperties(JSGlobalObject* globalObject
             array->putDirectIndex(globalObject, index++, constructInternalProperty(globalObject, "boundArgs", boundFunction->boundArgsCopy(globalObject)));
             return array;
         }
+        return array;
+    }
+    if (JSRemoteFunction* remoteFunction = jsDynamicCast<JSRemoteFunction*>(vm, value)) {
+        unsigned index = 0;
+        JSArray* array = constructEmptyArray(globalObject, nullptr, 1);
+        RETURN_IF_EXCEPTION(scope, JSValue());
+        array->putDirectIndex(globalObject, index++, constructInternalProperty(globalObject, "targetFunction"_s, remoteFunction->targetFunction()));
+        RETURN_IF_EXCEPTION(scope, JSValue());
+
         return array;
     }
 
@@ -468,7 +479,7 @@ JSValue JSInjectedScriptHost::weakMapEntries(JSGlobalObject* globalObject, CallF
         return jsUndefined();
 
     MarkedArgumentBuffer buffer;
-    auto fetchCount = callFrame->argument(1).toInteger(globalObject);
+    auto fetchCount = callFrame->argument(1).toIntegerOrInfinity(globalObject);
     weakMap->takeSnapshot(buffer, fetchCount >= 0 ? static_cast<unsigned>(fetchCount) : 0);
     ASSERT(!buffer.hasOverflowed());
 
@@ -512,7 +523,7 @@ JSValue JSInjectedScriptHost::weakSetEntries(JSGlobalObject* globalObject, CallF
         return jsUndefined();
 
     MarkedArgumentBuffer buffer;
-    auto fetchCount = callFrame->argument(1).toInteger(globalObject);
+    auto fetchCount = callFrame->argument(1).toIntegerOrInfinity(globalObject);
     weakSet->takeSnapshot(buffer, fetchCount >= 0 ? static_cast<unsigned>(fetchCount) : 0);
     ASSERT(!buffer.hasOverflowed());
 
@@ -590,7 +601,7 @@ JSValue JSInjectedScriptHost::iteratorEntries(JSGlobalObject* globalObject, Call
 
     unsigned numberToFetch = 5;
     JSValue numberToFetchArg = callFrame->argument(1);
-    double fetchDouble = numberToFetchArg.toInteger(globalObject);
+    double fetchDouble = numberToFetchArg.toIntegerOrInfinity(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
     if (fetchDouble >= 0)
         numberToFetch = static_cast<unsigned>(fetchDouble);
@@ -611,7 +622,7 @@ JSValue JSInjectedScriptHost::iteratorEntries(JSGlobalObject* globalObject, Call
         array->putDirectIndex(globalObject, i, entry);
         if (UNLIKELY(scope.exception())) {
             scope.release();
-            iteratorClose(globalObject, iterationRecord);
+            iteratorClose(globalObject, iterationRecord.iterator);
             break;
         }
     }
@@ -751,12 +762,12 @@ public:
 
     HashSet<JSCell*>& holders() { return m_holders; }
 
-    void analyzeEdge(JSCell* from, JSCell* to, SlotVisitor::RootMarkReason reason) final
+    void analyzeEdge(JSCell* from, JSCell* to, RootMarkReason reason) final
     {
         ASSERT(to);
         ASSERT(to->vm().heapProfiler()->activeHeapAnalyzer() == this);
 
-        auto locker = holdLock(m_mutex);
+        Locker locker { m_mutex };
 
         if (from && from != to) {
             m_successors.ensure(from, [] {
@@ -771,14 +782,14 @@ public:
                 m_holders.add(from);
         }
 
-        if (reason == SlotVisitor::RootMarkReason::Debugger)
+        if (reason == RootMarkReason::Debugger)
             m_rootsToIgnore.add(to);
-        else if (!from || reason != SlotVisitor::RootMarkReason::None)
+        else if (!from || reason != RootMarkReason::None)
             m_rootsToInclude.add(to);
     }
-    void analyzePropertyNameEdge(JSCell* from, JSCell* to, UniquedStringImpl*) final { analyzeEdge(from, to, SlotVisitor::RootMarkReason::None); }
-    void analyzeVariableNameEdge(JSCell* from, JSCell* to, UniquedStringImpl*) final { analyzeEdge(from, to, SlotVisitor::RootMarkReason::None); }
-    void analyzeIndexEdge(JSCell* from, JSCell* to, uint32_t) final { analyzeEdge(from, to, SlotVisitor::RootMarkReason::None); }
+    void analyzePropertyNameEdge(JSCell* from, JSCell* to, UniquedStringImpl*) final { analyzeEdge(from, to, RootMarkReason::None); }
+    void analyzeVariableNameEdge(JSCell* from, JSCell* to, UniquedStringImpl*) final { analyzeEdge(from, to, RootMarkReason::None); }
+    void analyzeIndexEdge(JSCell* from, JSCell* to, uint32_t) final { analyzeEdge(from, to, RootMarkReason::None); }
 
     void analyzeNode(JSCell*) final { }
     void setOpaqueRootReachabilityReasonForCell(JSCell*, const char*) final { }
@@ -852,7 +863,7 @@ JSValue JSInjectedScriptHost::queryHolders(JSGlobalObject* globalObject, CallFra
     RETURN_IF_EXCEPTION(scope, { });
 
     {
-        DeferGC deferGC(vm.heap);
+        DeferGC deferGC(vm);
         PreventCollectionScope preventCollectionScope(vm.heap);
         sanitizeStackForVM(vm);
 

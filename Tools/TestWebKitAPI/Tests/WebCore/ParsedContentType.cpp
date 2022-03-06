@@ -71,6 +71,14 @@ TEST(ParsedContentType, MimeSniff)
     EXPECT_TRUE(isValidContentType("text/plain;=wrong;test=value", Mode::MimeSniff));
     EXPECT_TRUE(isValidContentType("text/plain;test=value;wrong=", Mode::MimeSniff));
     EXPECT_TRUE(isValidContentType("text/plain;test=value;=wrong", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain ;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain\n;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain\r;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain\t;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain;test=value ;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain;test=value\n;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain;test=value\r;test=value", Mode::MimeSniff));
+    EXPECT_TRUE(isValidContentType("text/plain;test=value\t;test=value", Mode::MimeSniff));
 
     EXPECT_TRUE(isValidContentType("text/plain;test=\"value\"", Mode::MimeSniff));
     EXPECT_TRUE(isValidContentType("text/plain;test=\"value", Mode::MimeSniff));
@@ -160,7 +168,7 @@ static const char* escapeNonASCIIPrintableCharacters(StringView string)
 
 static const char* serializeIfValid(const String& input)
 {
-    if (Optional<ParsedContentType> parsedContentType = ParsedContentType::create(input))
+    if (std::optional<ParsedContentType> parsedContentType = ParsedContentType::create(input))
         return escapeNonASCIIPrintableCharacters(parsedContentType->serialize());
     return "NOTVALID";
 }
@@ -181,6 +189,9 @@ TEST(ParsedContentType, Serialize)
     EXPECT_STREQ(serializeIfValid("text/ "), "NOTVALID");
     EXPECT_STREQ(serializeIfValid("{/}"), "NOTVALID");
     EXPECT_STREQ(serializeIfValid("x/x ;x=x"), "x/x;x=x");
+    EXPECT_STREQ(serializeIfValid("x/x\n;x=x"), "x/x;x=x");
+    EXPECT_STREQ(serializeIfValid("x/x\r;x=x"), "x/x;x=x");
+    EXPECT_STREQ(serializeIfValid("x/x\t;x=x"), "x/x;x=x");
     EXPECT_STREQ(serializeIfValid("text/plain"), "text/plain");
     EXPECT_STREQ(serializeIfValid("text/plain\0"), "text/plain");
     EXPECT_STREQ(serializeIfValid(" text/plain"), "text/plain");

@@ -26,13 +26,16 @@
  */
 
 #include "config.h"
-#include "DataReference.h"
 #include "WebCoreArgumentCoders.h"
 
+#include "ArgumentCodersGLib.h"
+#include "DaemonDecoder.h"
+#include "DaemonEncoder.h"
+#include "DataReference.h"
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/Credential.h>
 #include <WebCore/DictionaryPopupInfo.h>
 #include <WebCore/Font.h>
-#include <WebCore/FontAttributes.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
@@ -52,73 +55,42 @@ bool ArgumentCoder<ResourceRequest>::decodePlatformData(Decoder& decoder, Resour
     return resourceRequest.decodeWithPlatformData(decoder);
 }
 
+template<typename Encoder>
 void ArgumentCoder<CertificateInfo>::encode(Encoder& encoder, const CertificateInfo& certificateInfo)
 {
-    auto* certificate = certificateInfo.certificate();
-    if (!certificate) {
-        encoder << 0;
+    GRefPtr<GTlsCertificate> certificate = certificateInfo.certificate();
+    encoder << certificate;
+    if (!certificate)
         return;
-    }
-
-    Vector<GRefPtr<GByteArray>> certificatesDataList;
-    for (; certificate; certificate = g_tls_certificate_get_issuer(certificate)) {
-        GByteArray* certificateData = nullptr;
-        g_object_get(G_OBJECT(certificate), "certificate", &certificateData, nullptr);
-
-        if (!certificateData) {
-            certificatesDataList.clear();
-            break;
-        }
-
-        certificatesDataList.append(adoptGRef(certificateData));
-    }
-
-    encoder << static_cast<uint32_t>(certificatesDataList.size());
-
-    if (certificatesDataList.isEmpty())
-        return;
-
-    // Encode starting from the root certificate.
-    for (size_t i = certificatesDataList.size(); i > 0; --i) {
-        GByteArray* certificate = certificatesDataList[i - 1].get();
-        encoder.encodeVariableLengthByteArray(IPC::DataReference(certificate->data, certificate->len));
-    }
 
     encoder << static_cast<uint32_t>(certificateInfo.tlsErrors());
 }
+template void ArgumentCoder<CertificateInfo>::encode<Encoder>(Encoder&, const CertificateInfo&);
+template void ArgumentCoder<CertificateInfo>::encode<WebKit::Daemon::Encoder>(WebKit::Daemon::Encoder&, const CertificateInfo&);
 
-bool ArgumentCoder<CertificateInfo>::decode(Decoder& decoder, CertificateInfo& certificateInfo)
+template<typename Decoder>
+std::optional<CertificateInfo> ArgumentCoder<CertificateInfo>::decode(Decoder& decoder)
 {
-    uint32_t chainLength;
-    if (!decoder.decode(chainLength))
-        return false;
+    std::optional<GRefPtr<GTlsCertificate>> certificate;
+    decoder >> certificate;
+    if (!certificate)
+        return std::nullopt;
 
-    if (!chainLength)
-        return true;
+    CertificateInfo certificateInfo;
+    if (certificate.value()) {
+        std::optional<uint32_t> tlsErrors;
+        decoder >> tlsErrors;
+        if (!tlsErrors)
+            return std::nullopt;
 
-    GType certificateType = g_tls_backend_get_certificate_type(g_tls_backend_get_default());
-    GRefPtr<GTlsCertificate> certificate;
-    for (uint32_t i = 0; i < chainLength; i++) {
-        IPC::DataReference certificateDataReference;
-        if (!decoder.decodeVariableLengthByteArray(certificateDataReference))
-            return false;
-
-        GByteArray* certificateData = g_byte_array_sized_new(certificateDataReference.size());
-        GRefPtr<GByteArray> certificateBytes = adoptGRef(g_byte_array_append(certificateData, certificateDataReference.data(), certificateDataReference.size()));
-
-        certificate = adoptGRef(G_TLS_CERTIFICATE(g_initable_new(
-            certificateType, nullptr, nullptr, "certificate", certificateBytes.get(), "issuer", certificate.get(), nullptr)));
+        certificateInfo.setCertificate(certificate->get());
+        certificateInfo.setTLSErrors(static_cast<GTlsCertificateFlags>(*tlsErrors));
     }
 
-    uint32_t tlsErrors;
-    if (!decoder.decode(tlsErrors))
-        return false;
-
-    certificateInfo.setCertificate(certificate.get());
-    certificateInfo.setTLSErrors(static_cast<GTlsCertificateFlags>(tlsErrors));
-
-    return true;
+    return certificateInfo;
 }
+template std::optional<CertificateInfo> ArgumentCoder<CertificateInfo>::decode<Decoder>(Decoder&);
+template std::optional<CertificateInfo> ArgumentCoder<CertificateInfo>::decode<WebKit::Daemon::Decoder>(WebKit::Daemon::Decoder&);
 
 void ArgumentCoder<ResourceError>::encodePlatformData(Encoder& encoder, const ResourceError& resourceError)
 {
@@ -219,26 +191,26 @@ bool ArgumentCoder<ProtectionSpace>::decodePlatformData(Decoder&, ProtectionSpac
     return false;
 }
 
-void ArgumentCoder<Credential>::encodePlatformData(Encoder&, const Credential&)
+void ArgumentCoder<Credential>::encodePlatformData(Encoder& encoder, const Credential& credential)
 {
-    ASSERT_NOT_REACHED();
+    GRefPtr<GTlsCertificate> certificate = credential.certificate();
+    encoder << certificate;
+    encoder << credential.persistence();
 }
 
-bool ArgumentCoder<Credential>::decodePlatformData(Decoder&, Credential&)
+bool ArgumentCoder<Credential>::decodePlatformData(Decoder& decoder, Credential& credential)
 {
-    ASSERT_NOT_REACHED();
-    return false;
-}
+    std::optional<GRefPtr<GTlsCertificate>> certificate;
+    decoder >> certificate;
+    if (!certificate)
+        return false;
 
-void ArgumentCoder<FontAttributes>::encodePlatformData(Encoder&, const FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-}
+    CredentialPersistence persistence;
+    if (!decoder.decode(persistence))
+        return false;
 
-Optional<FontAttributes> ArgumentCoder<FontAttributes>::decodePlatformData(Decoder&, FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-    return WTF::nullopt;
+    credential = Credential(certificate->get(), persistence);
+    return true;
 }
 
 void ArgumentCoder<DictionaryPopupInfo>::encodePlatformData(Encoder&, const DictionaryPopupInfo&)
@@ -252,15 +224,15 @@ bool ArgumentCoder<DictionaryPopupInfo>::decodePlatformData(Decoder&, Dictionary
     return false;
 }
 
-void ArgumentCoder<FontHandle>::encodePlatformData(Encoder&, const FontHandle&)
+void ArgumentCoder<Ref<Font>>::encodePlatformData(Encoder&, const Ref<Font>&)
 {
     ASSERT_NOT_REACHED();
 }
 
-bool ArgumentCoder<FontHandle>::decodePlatformData(Decoder&, FontHandle&)
+std::optional<FontPlatformData> ArgumentCoder<Ref<Font>>::decodePlatformData(Decoder&)
 {
     ASSERT_NOT_REACHED();
-    return false;
+    return std::nullopt;
 }
 
 #if ENABLE(VIDEO)
@@ -269,12 +241,11 @@ void ArgumentCoder<SerializedPlatformDataCueValue>::encodePlatformData(Encoder& 
     ASSERT_NOT_REACHED();
 }
 
-Optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, WebCore::SerializedPlatformDataCueValue::PlatformType platformType)
+std::optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, SerializedPlatformDataCueValue::PlatformType platformType)
 {
     ASSERT_NOT_REACHED();
-    return WTF::nullopt;
+    return std::nullopt;
 }
 #endif
 
 }
-

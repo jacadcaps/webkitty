@@ -28,16 +28,20 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "ShareableBitmap.h"
+#include "SharedBufferCopy.h"
+#include <variant>
 #include <wtf/MachSendRight.h>
-#include <wtf/Variant.h>
 
 namespace WebKit {
 
-using ImageBufferBackendHandle = Variant<
-#if PLATFORM(COCOA)
-    MachSendRight,
-#endif
+using ImageBufferBackendHandle = std::variant<
     ShareableBitmap::Handle
+#if PLATFORM(COCOA) // FIXME: This is really about IOSurface.
+    , MachSendRight
+#endif
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+    , IPC::SharedBufferCopy
+#endif
 >;
 
 } // namespace WebKit

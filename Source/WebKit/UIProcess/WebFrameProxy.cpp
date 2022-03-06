@@ -46,7 +46,7 @@ using namespace WebCore;
 class WebPageProxy;
 
 WebFrameProxy::WebFrameProxy(WebPageProxy& page, FrameIdentifier frameID)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
     , m_frameID(frameID)
 {
     WebProcessPool::statistics().wkFrameCount++;
@@ -192,45 +192,36 @@ void WebFrameProxy::didChangeTitle(const String& title)
     m_title = title;
 }
 
-WebFramePolicyListenerProxy& WebFrameProxy::setUpPolicyListenerProxy(CompletionHandler<void(PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, Optional<NavigatingToAppBoundDomain>)>&& completionHandler, ShouldExpectSafeBrowsingResult expectSafeBrowsingResult, ShouldExpectAppBoundDomainResult expectAppBoundDomainResult)
+WebFramePolicyListenerProxy& WebFrameProxy::setUpPolicyListenerProxy(CompletionHandler<void(PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, std::optional<NavigatingToAppBoundDomain>)>&& completionHandler, ShouldExpectSafeBrowsingResult expectSafeBrowsingResult, ShouldExpectAppBoundDomainResult expectAppBoundDomainResult)
 {
     if (m_activeListener)
         m_activeListener->ignore();
-    m_activeListener = WebFramePolicyListenerProxy::create([this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)] (PolicyAction action, API::WebsitePolicies* policies, ProcessSwapRequestedByClient processSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&& safeBrowsingWarning, Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) mutable {
+    m_activeListener = WebFramePolicyListenerProxy::create([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (PolicyAction action, API::WebsitePolicies* policies, ProcessSwapRequestedByClient processSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&& safeBrowsingWarning, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) mutable {
         completionHandler(action, policies, processSwapRequestedByClient, WTFMove(safeBrowsingWarning), isNavigatingToAppBoundDomain);
         m_activeListener = nullptr;
     }, expectSafeBrowsingResult, expectAppBoundDomainResult);
     return *m_activeListener;
 }
 
-void WebFrameProxy::getWebArchive(Function<void (API::Data*, CallbackBase::Error)>&& callbackFunction)
+void WebFrameProxy::getWebArchive(CompletionHandler<void(API::Data*)>&& callback)
 {
-    if (!m_page) {
-        callbackFunction(nullptr, CallbackBase::Error::Unknown);
-        return;
-    }
-
-    m_page->getWebArchiveOfFrame(this, WTFMove(callbackFunction));
+    if (!m_page)
+        return callback(nullptr);
+    m_page->getWebArchiveOfFrame(this, WTFMove(callback));
 }
 
-void WebFrameProxy::getMainResourceData(Function<void (API::Data*, CallbackBase::Error)>&& callbackFunction)
+void WebFrameProxy::getMainResourceData(CompletionHandler<void(API::Data*)>&& callback)
 {
-    if (!m_page) {
-        callbackFunction(nullptr, CallbackBase::Error::Unknown);
-        return;
-    }
-
-    m_page->getMainResourceDataOfFrame(this, WTFMove(callbackFunction));
+    if (!m_page)
+        return callback(nullptr);
+    m_page->getMainResourceDataOfFrame(this, WTFMove(callback));
 }
 
-void WebFrameProxy::getResourceData(API::URL* resourceURL, Function<void (API::Data*, CallbackBase::Error)>&& callbackFunction)
+void WebFrameProxy::getResourceData(API::URL* resourceURL, CompletionHandler<void(API::Data*)>&& callback)
 {
-    if (!m_page) {
-        callbackFunction(nullptr, CallbackBase::Error::Unknown);
-        return;
-    }
-
-    m_page->getResourceDataFromFrame(this, resourceURL, WTFMove(callbackFunction));
+    if (!m_page)
+        return callback(nullptr);
+    m_page->getResourceDataFromFrame(*this, resourceURL, WTFMove(callback));
 }
 
 void WebFrameProxy::setUnreachableURL(const URL& unreachableURL)

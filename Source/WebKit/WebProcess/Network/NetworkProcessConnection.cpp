@@ -29,11 +29,16 @@
 #include "DataReference.h"
 #include "LibWebRTCNetwork.h"
 #include "NetworkConnectionToWebProcessMessages.h"
+#include "RTCDataChannelRemoteManager.h"
 #include "StorageAreaMap.h"
 #include "StorageAreaMapMessages.h"
+#include "WebBroadcastChannelRegistry.h"
+#include "WebBroadcastChannelRegistryMessages.h"
 #include "WebCacheStorageProvider.h"
 #include "WebCookieJar.h"
 #include "WebCoreArgumentCoders.h"
+#include "WebFileSystemStorageConnection.h"
+#include "WebFileSystemStorageConnectionMessages.h"
 #include "WebFrame.h"
 #include "WebIDBConnectionToServer.h"
 #include "WebIDBConnectionToServerMessages.h"
@@ -52,6 +57,10 @@
 #include "WebSWContextManagerConnection.h"
 #include "WebSWContextManagerConnectionMessages.h"
 #include "WebServiceWorkerProvider.h"
+#include "WebSharedWorkerContextManagerConnection.h"
+#include "WebSharedWorkerContextManagerConnectionMessages.h"
+#include "WebSharedWorkerObjectConnection.h"
+#include "WebSharedWorkerObjectConnectionMessages.h"
 #include "WebSocketChannel.h"
 #include "WebSocketChannelMessages.h"
 #include "WebSocketStream.h"
@@ -89,8 +98,12 @@ NetworkProcessConnection::~NetworkProcessConnection()
 void NetworkProcessConnection::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     if (decoder.messageReceiverName() == Messages::WebResourceLoader::messageReceiverName()) {
-        if (auto* webResourceLoader = WebProcess::singleton().webLoaderStrategy().webResourceLoaderForIdentifier(decoder.destinationID()))
+        if (auto* webResourceLoader = WebProcess::singleton().webLoaderStrategy().webResourceLoaderForIdentifier(makeObjectIdentifier<WebCore::ResourceLoader>(decoder.destinationID())))
             webResourceLoader->didReceiveWebResourceLoaderMessage(connection, decoder);
+        return;
+    }
+    if (decoder.messageReceiverName() == Messages::WebBroadcastChannelRegistry::messageReceiverName()) {
+        WebProcess::singleton().broadcastChannelRegistry().didReceiveMessage(connection, decoder);
         return;
     }
     if (decoder.messageReceiverName() == Messages::WebSocketStream::messageReceiverName()) {
@@ -108,8 +121,12 @@ void NetworkProcessConnection::didReceiveMessage(IPC::Connection& connection, IP
         return;
     }
     if (decoder.messageReceiverName() == Messages::StorageAreaMap::messageReceiverName()) {
-        if (auto* storageAreaMap = WebProcess::singleton().storageAreaMap(makeObjectIdentifier<StorageAreaIdentifierType>(decoder.destinationID())))
+        if (auto storageAreaMap = WebProcess::singleton().storageAreaMap(makeObjectIdentifier<StorageAreaMapIdentifierType>(decoder.destinationID())))
             storageAreaMap->didReceiveMessage(connection, decoder);
+        return;
+    }
+    if (decoder.messageReceiverName() == Messages::WebFileSystemStorageConnection::messageReceiverName()) {
+        WebProcess::singleton().fileSystemStorageConnection().didReceiveMessage(connection, decoder);
         return;
     }
 
@@ -142,13 +159,11 @@ void NetworkProcessConnection::didReceiveMessage(IPC::Connection& connection, IP
     }
 #endif
 
-#if ENABLE(INDEXED_DATABASE)
     if (decoder.messageReceiverName() == Messages::WebIDBConnectionToServer::messageReceiverName()) {
         if (m_webIDBConnection)
             m_webIDBConnection->didReceiveMessage(connection, decoder);
         return;
     }
-#endif
 
 #if ENABLE(SERVICE_WORKER)
     if (decoder.messageReceiverName() == Messages::WebSWClientConnection::messageReceiverName()) {
@@ -162,6 +177,16 @@ void NetworkProcessConnection::didReceiveMessage(IPC::Connection& connection, IP
         return;
     }
 #endif
+    if (decoder.messageReceiverName() == Messages::WebSharedWorkerObjectConnection::messageReceiverName()) {
+        sharedWorkerConnection().didReceiveMessage(connection, decoder);
+        return;
+    }
+    if (decoder.messageReceiverName() == Messages::WebSharedWorkerContextManagerConnection::messageReceiverName()) {
+        ASSERT(SharedWorkerContextManager::singleton().connection());
+        if (auto* contextManagerConnection = SharedWorkerContextManager::singleton().connection())
+            static_cast<WebSharedWorkerContextManagerConnection&>(*contextManagerConnection).didReceiveMessage(connection, decoder);
+        return;
+    }
 
 #if ENABLE(APPLE_PAY_REMOTE_UI)
     if (decoder.messageReceiverName() == Messages::WebPaymentCoordinator::messageReceiverName()) {
@@ -174,26 +199,27 @@ void NetworkProcessConnection::didReceiveMessage(IPC::Connection& connection, IP
     didReceiveNetworkProcessConnectionMessage(connection, decoder);
 }
 
-void NetworkProcessConnection::didReceiveSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, std::unique_ptr<IPC::Encoder>& replyEncoder)
+bool NetworkProcessConnection::didReceiveSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& replyEncoder)
 {
 #if ENABLE(SERVICE_WORKER)
     if (decoder.messageReceiverName() == Messages::WebSWContextManagerConnection::messageReceiverName()) {
         ASSERT(SWContextManager::singleton().connection());
         if (auto* contextManagerConnection = SWContextManager::singleton().connection())
-            static_cast<WebSWContextManagerConnection&>(*contextManagerConnection).didReceiveSyncMessage(connection, decoder, replyEncoder);
-        return;
+            return static_cast<WebSWContextManagerConnection&>(*contextManagerConnection).didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return false;
     }
 #endif
 
 #if ENABLE(APPLE_PAY_REMOTE_UI)
     if (decoder.messageReceiverName() == Messages::WebPaymentCoordinator::messageReceiverName()) {
         if (auto webPage = WebProcess::singleton().webPage(makeObjectIdentifier<PageIdentifierType>(decoder.destinationID())))
-            webPage->paymentCoordinator()->didReceiveSyncMessage(connection, decoder, replyEncoder);
-        return;
+            return webPage->paymentCoordinator()->didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return false;
     }
 #endif
 
     ASSERT_NOT_REACHED();
+    return false;
 }
 
 void NetworkProcessConnection::didClose(IPC::Connection&)
@@ -202,10 +228,8 @@ void NetworkProcessConnection::didClose(IPC::Connection&)
     Ref<NetworkProcessConnection> protector(*this);
     WebProcess::singleton().networkProcessConnectionClosed(this);
 
-#if ENABLE(INDEXED_DATABASE)
     if (auto idbConnection = std::exchange(m_webIDBConnection, nullptr))
         idbConnection->connectionToServerLost();
-#endif
 
 #if ENABLE(SERVICE_WORKER)
     if (auto swConnection = std::exchange(m_swConnection, nullptr))
@@ -217,17 +241,17 @@ void NetworkProcessConnection::didReceiveInvalidMessage(IPC::Connection&, IPC::M
 {
 }
 
-void NetworkProcessConnection::writeBlobsToTemporaryFiles(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&& completionHandler)
+void NetworkProcessConnection::writeBlobsToTemporaryFilesForIndexedDB(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&& completionHandler)
 {
-    connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::WriteBlobsToTemporaryFiles(blobURLs), WTFMove(completionHandler));
+    connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::WriteBlobsToTemporaryFilesForIndexedDB(blobURLs), WTFMove(completionHandler));
 }
 
-void NetworkProcessConnection::didFinishPingLoad(uint64_t pingLoadIdentifier, ResourceError&& error, ResourceResponse&& response)
+void NetworkProcessConnection::didFinishPingLoad(WebCore::ResourceLoaderIdentifier pingLoadIdentifier, ResourceError&& error, ResourceResponse&& response)
 {
     WebProcess::singleton().webLoaderStrategy().didFinishPingLoad(pingLoadIdentifier, WTFMove(error), WTFMove(response));
 }
 
-void NetworkProcessConnection::didFinishPreconnection(uint64_t preconnectionIdentifier, ResourceError&& error)
+void NetworkProcessConnection::didFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, ResourceError&& error)
 {
     WebProcess::singleton().webLoaderStrategy().didFinishPreconnection(preconnectionIdentifier, WTFMove(error));
 }
@@ -271,9 +295,9 @@ void NetworkProcessConnection::didCacheResource(const ResourceRequest& request, 
     if (!resource)
         return;
     
-    RefPtr<SharedBuffer> buffer = handle.tryWrapInSharedBuffer();
+    auto buffer = handle.tryWrapInSharedBuffer();
     if (!buffer) {
-        LOG_ERROR("Unable to create SharedBuffer from ShareableResource handle for resource url %s", request.url().string().utf8().data());
+        LOG_ERROR("Unable to create FragmentedSharedBuffer from ShareableResource handle for resource url %s", request.url().string().utf8().data());
         return;
     }
 
@@ -281,14 +305,12 @@ void NetworkProcessConnection::didCacheResource(const ResourceRequest& request, 
 }
 #endif
 
-#if ENABLE(INDEXED_DATABASE)
 WebIDBConnectionToServer& NetworkProcessConnection::idbConnectionToServer()
 {
     if (!m_webIDBConnection)
         m_webIDBConnection = WebIDBConnectionToServer::create();
     return *m_webIDBConnection;
 }
-#endif
 
 #if ENABLE(SERVICE_WORKER)
 WebSWClientConnection& NetworkProcessConnection::serviceWorkerConnection()
@@ -298,6 +320,13 @@ WebSWClientConnection& NetworkProcessConnection::serviceWorkerConnection()
     return *m_swConnection;
 }
 #endif
+
+WebSharedWorkerObjectConnection& NetworkProcessConnection::sharedWorkerConnection()
+{
+    if (!m_sharedWorkerConnection)
+        m_sharedWorkerConnection = WebSharedWorkerObjectConnection::create();
+    return *m_sharedWorkerConnection;
+}
 
 void NetworkProcessConnection::messagesAvailableForPort(const WebCore::MessagePortIdentifier& messagePortIdentifier)
 {
@@ -318,5 +347,12 @@ void NetworkProcessConnection::broadcastConsoleMessage(MessageSource source, Mes
             frame->addConsoleMessage(source, level, message);
     }
 }
+
+#if ENABLE(WEB_RTC)
+void NetworkProcessConnection::connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier, CompletionHandler<void(std::optional<bool>)>&& callback)
+{
+    callback(RTCDataChannelRemoteManager::sharedManager().connectToRemoteSource(localIdentifier, remoteIdentifier));
+}
+#endif
 
 } // namespace WebKit

@@ -44,6 +44,7 @@
 #include "ResourceError.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGForeignObjectElement.h"
 #include "SVGNames.h"
 #include "SVGStyleElement.h"
@@ -159,7 +160,7 @@ bool XMLDocumentParser::updateLeafTextNode()
         return true;
 
     // This operation might fire mutation event, see below.
-    m_leafTextNode->appendData(String::fromUTF8(reinterpret_cast<const char*>(m_bufferedText.data()), m_bufferedText.size()));
+    m_leafTextNode->appendData(String::fromUTF8(m_bufferedText.data(), m_bufferedText.size()));
     m_bufferedText = { };
 
     m_leafTextNode = nullptr;
@@ -242,11 +243,6 @@ void XMLDocumentParser::notifyFinished(PendingScript& pendingScript)
 
     if (!isDetached() && !m_requestingScript)
         resumeParsing();
-}
-
-bool XMLDocumentParser::isWaitingForScripts() const
-{
-    return m_pendingScript;
 }
 
 void XMLDocumentParser::pauseParsing()

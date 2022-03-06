@@ -30,15 +30,16 @@
 
 #include "DataReference.h"
 #include "RemoteMediaResourceManagerMessages.h"
+#include "SharedMemory.h"
 #include "WebCoreArgumentCoders.h"
 #include <wtf/CompletionHandler.h>
 
 namespace WebKit {
 
-RemoteMediaResourceProxy::RemoteMediaResourceProxy(Ref<IPC::Connection>&& connection, WebCore::PlatformMediaResource& platformMediaResource, RemoteMediaResourceIdentifier id)
+RemoteMediaResourceProxy::RemoteMediaResourceProxy(Ref<IPC::Connection>&& connection, WebCore::PlatformMediaResource& platformMediaResource, RemoteMediaResourceIdentifier identifier)
     : m_connection(WTFMove(connection))
     , m_platformMediaResource(platformMediaResource)
-    , m_id(id)
+    , m_id(identifier)
 {
 }
 
@@ -71,9 +72,17 @@ void RemoteMediaResourceProxy::dataSent(WebCore::PlatformMediaResource&, unsigne
     m_connection->send(Messages::RemoteMediaResourceManager::DataSent(m_id, bytesSent, totalBytesToBeSent), 0);
 }
 
-void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const char* data, int length)
+void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const WebCore::SharedBuffer& buffer)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::DataReceived(m_id, IPC::DataReference(reinterpret_cast<const uint8_t*>(data), length)), 0);
+    auto sharedMemory = SharedMemory::copyBuffer(buffer);
+    if (!sharedMemory)
+        return;
+
+    SharedMemory::Handle handle;
+    sharedMemory->createHandle(handle, SharedMemory::Protection::ReadOnly);
+    // Take ownership of shared memory and mark it as media-related memory.
+    handle.takeOwnershipOfMemory(MemoryLedger::Media);
+    m_connection->send(Messages::RemoteMediaResourceManager::DataReceived(m_id, SharedMemory::IPCHandle { WTFMove(handle), buffer.size() }), 0);
 }
 
 void RemoteMediaResourceProxy::accessControlCheckFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError& error)

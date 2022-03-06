@@ -40,13 +40,13 @@ public:
     void removeClientFromCache(RenderElement&, bool markForInvalidation = true) final;
 
     bool applyResource(RenderElement&, const RenderStyle&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>) final;
-    void postApplyResource(RenderElement&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>, const Path*, const RenderSVGShape*) final;
+    void postApplyResource(RenderElement&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>, const Path*, const RenderElement*) final;
     FloatRect resourceBoundingBox(const RenderObject&) final { return FloatRect(); }
 
 protected:
     RenderSVGResourceGradient(SVGGradientElement&, RenderStyle&&);
 
-    static void addStops(Gradient&, const Gradient::ColorStopVector&, const RenderStyle&);
+    static GradientColorStops stopsByApplyingColorFilter(const GradientColorStops&, const RenderStyle&);
     static GradientSpreadMethod platformSpreadMethodFromSVGType(SVGSpreadMethodType);
 
 private:
@@ -65,7 +65,7 @@ private:
 
 #if USE(CG)
     GraphicsContext* m_savedContext { nullptr };
-    std::unique_ptr<ImageBuffer> m_imageBuffer;
+    RefPtr<ImageBuffer> m_imageBuffer;
 #endif
 
     bool m_shouldCollectGradientAttributes { true };

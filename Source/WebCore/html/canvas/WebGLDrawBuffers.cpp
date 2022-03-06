@@ -28,14 +28,16 @@
 #if ENABLE(WEBGL)
 #include "WebGLDrawBuffers.h"
 
-#include "ExtensionsGL.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(WebGLDrawBuffers);
 
 WebGLDrawBuffers::WebGLDrawBuffers(WebGLRenderingContextBase& context)
     : WebGLExtension(context)
 {
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_EXT_draw_buffers");
+    context.graphicsContextGL()->ensureExtensionEnabled("GL_EXT_draw_buffers");
 }
 
 WebGLDrawBuffers::~WebGLDrawBuffers() = default;
@@ -48,57 +50,55 @@ WebGLExtension::ExtensionName WebGLDrawBuffers::getName() const
 bool WebGLDrawBuffers::supported(WebGLRenderingContextBase& context)
 {
 #if USE(ANGLE)
-    return context.graphicsContextGL()->getExtensions().supports("GL_EXT_draw_buffers");
+    return context.graphicsContextGL()->supportsExtension("GL_EXT_draw_buffers");
 #else
-    return context.graphicsContextGL()->getExtensions().supports("GL_EXT_draw_buffers")
+    return context.graphicsContextGL()->supportsExtension("GL_EXT_draw_buffers")
         && satisfiesWebGLRequirements(context);
 #endif
 }
 
 void WebGLDrawBuffers::drawBuffersWEBGL(const Vector<GCGLenum>& buffers)
 {
-    if (m_context.isContextLost())
+    if (!m_context || m_context->isContextLost())
         return;
     GCGLsizei n = buffers.size();
     const GCGLenum* bufs = buffers.data();
-    if (!m_context.m_framebufferBinding) {
+    if (!m_context->m_framebufferBinding) {
         if (n != 1) {
-            m_context.synthesizeGLError(GraphicsContextGL::INVALID_VALUE, "drawBuffersWEBGL", "more than one buffer");
+            m_context->synthesizeGLError(GraphicsContextGL::INVALID_VALUE, "drawBuffersWEBGL", "more than one buffer");
             return;
         }
         if (bufs[0] != GraphicsContextGL::BACK && bufs[0] != GraphicsContextGL::NONE) {
-            m_context.synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "drawBuffersWEBGL", "BACK or NONE");
+            m_context->synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "drawBuffersWEBGL", "BACK or NONE");
             return;
         }
         // Because the backbuffer is simulated on all current WebKit ports, we need to change BACK to COLOR_ATTACHMENT0.
-        GCGLenum value = (bufs[0] == GraphicsContextGL::BACK) ? GraphicsContextGL::COLOR_ATTACHMENT0 : GraphicsContextGL::NONE;
-        m_context.graphicsContextGL()->getExtensions().drawBuffersEXT(1, &value);
-        m_context.setBackDrawBuffer(bufs[0]);
+        GCGLenum value[1] { bufs[0] == GraphicsContextGL::BACK ? GraphicsContextGL::COLOR_ATTACHMENT0 : GraphicsContextGL::NONE };
+        m_context->graphicsContextGL()->drawBuffersEXT(value);
+        m_context->setBackDrawBuffer(bufs[0]);
     } else {
-        if (n > m_context.getMaxDrawBuffers()) {
-            m_context.synthesizeGLError(GraphicsContextGL::INVALID_VALUE, "drawBuffersWEBGL", "more than max draw buffers");
+        if (n > m_context->getMaxDrawBuffers()) {
+            m_context->synthesizeGLError(GraphicsContextGL::INVALID_VALUE, "drawBuffersWEBGL", "more than max draw buffers");
             return;
         }
         for (GCGLsizei i = 0; i < n; ++i) {
-            if (bufs[i] != GraphicsContextGL::NONE && bufs[i] != static_cast<GCGLenum>(ExtensionsGL::COLOR_ATTACHMENT0_EXT + i)) {
-                m_context.synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "drawBuffersWEBGL", "COLOR_ATTACHMENTi_EXT or NONE");
+            if (bufs[i] != GraphicsContextGL::NONE && bufs[i] != GraphicsContextGL::COLOR_ATTACHMENT0_EXT + i) {
+                m_context->synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "drawBuffersWEBGL", "COLOR_ATTACHMENTi_EXT or NONE");
                 return;
             }
         }
-        m_context.m_framebufferBinding->drawBuffers(buffers);
+        m_context->m_framebufferBinding->drawBuffers(buffers);
     }
 }
 
 // static
 bool WebGLDrawBuffers::satisfiesWebGLRequirements(WebGLRenderingContextBase& webglContext)
 {
-    GraphicsContextGLOpenGL* context = webglContext.graphicsContextGL();
+    GraphicsContextGL* context = webglContext.graphicsContextGL();
 
     // This is called after we make sure GL_EXT_draw_buffers is supported.
-    GCGLint maxDrawBuffers = 0;
-    GCGLint maxColorAttachments = 0;
-    context->getIntegerv(ExtensionsGL::MAX_DRAW_BUFFERS_EXT, &maxDrawBuffers);
-    context->getIntegerv(ExtensionsGL::MAX_COLOR_ATTACHMENTS_EXT, &maxColorAttachments);
+    GCGLint maxDrawBuffers = context->getInteger(GraphicsContextGL::MAX_DRAW_BUFFERS_EXT);
+    GCGLint maxColorAttachments = context->getInteger(GraphicsContextGL::MAX_COLOR_ATTACHMENTS_EXT);
     if (maxDrawBuffers < 4 || maxColorAttachments < 4)
         return false;
 
@@ -106,10 +106,10 @@ bool WebGLDrawBuffers::satisfiesWebGLRequirements(WebGLRenderingContextBase& web
     context->bindFramebuffer(GraphicsContextGL::FRAMEBUFFER, fbo);
 
     const unsigned char buffer[4] = { 0, 0, 0, 0 }; // textures are required to be initialized for other ports.
-    bool supportsDepth = context->getExtensions().supports("GL_OES_depth_texture")
-        || context->getExtensions().supports("GL_ARB_depth_texture");
-    bool supportsDepthStencil = (context->getExtensions().supports("GL_EXT_packed_depth_stencil")
-        || context->getExtensions().supports("GL_OES_packed_depth_stencil"));
+    bool supportsDepth = context->supportsExtension("GL_OES_depth_texture")
+        || context->supportsExtension("GL_ARB_depth_texture");
+    bool supportsDepthStencil = (context->supportsExtension("GL_EXT_packed_depth_stencil")
+        || context->supportsExtension("GL_OES_packed_depth_stencil"));
     PlatformGLObject depthStencil = 0;
     if (supportsDepthStencil) {
         depthStencil = context->createTexture();

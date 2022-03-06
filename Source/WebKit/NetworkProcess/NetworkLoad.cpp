@@ -29,6 +29,7 @@
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationManager.h"
 #include "NetworkDataTaskBlob.h"
+#include "NetworkLoadScheduler.h"
 #include "NetworkProcess.h"
 #include "NetworkProcessProxyMessages.h"
 #include "NetworkSession.h"
@@ -36,32 +37,17 @@
 #include "WebErrors.h"
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SharedBuffer.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Seconds.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-struct NetworkLoad::Throttle {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
-
-    Throttle(NetworkLoad& load, Seconds delay, ResourceResponse&& response, ResponseCompletionHandler&& handler)
-        : timer(load, &NetworkLoad::throttleDelayCompleted)
-        , response(WTFMove(response))
-        , responseCompletionHandler(WTFMove(handler))
-    {
-        timer.startOneShot(delay);
-    }
-    Timer timer;
-    ResourceResponse response;
-    ResponseCompletionHandler responseCompletionHandler;
-};
-
 NetworkLoad::NetworkLoad(NetworkLoadClient& client, BlobRegistryImpl* blobRegistry, NetworkLoadParameters&& parameters, NetworkSession& networkSession)
     : m_client(client)
     , m_networkProcess(networkSession.networkProcess())
     , m_parameters(WTFMove(parameters))
-    , m_loadThrottleLatency(networkSession.loadThrottleLatency())
     , m_currentRequest(m_parameters.request)
 {
     if (blobRegistry && m_parameters.request.url().protocolIsBlob())
@@ -70,15 +56,33 @@ NetworkLoad::NetworkLoad(NetworkLoadClient& client, BlobRegistryImpl* blobRegist
         m_task = NetworkDataTask::create(networkSession, *this, m_parameters);
 }
 
+NetworkLoad::NetworkLoad(NetworkLoadClient& client, NetworkSession& networkSession, const Function<RefPtr<NetworkDataTask>(NetworkDataTaskClient&)>& createTask)
+    : m_client(client)
+    , m_networkProcess(networkSession.networkProcess())
+    , m_task(createTask(*this))
+{
+}
+
 void NetworkLoad::start()
 {
-    if (m_task)
-        m_task->resume();
+    if (!m_task)
+        return;
+    m_task->resume();
+}
+
+void NetworkLoad::startWithScheduling()
+{
+    if (!m_task || !m_task->networkSession())
+        return;
+    m_scheduler = m_task->networkSession()->networkLoadScheduler();
+    m_scheduler->schedule(*this);
 }
 
 NetworkLoad::~NetworkLoad()
 {
     ASSERT(RunLoop::isMain());
+    if (m_scheduler)
+        m_scheduler->unschedule(*this);
     if (m_redirectCompletionHandler)
         m_redirectCompletionHandler({ });
     if (m_task)
@@ -106,6 +110,13 @@ void NetworkLoad::updateRequestAfterRedirection(WebCore::ResourceRequest& newReq
     ResourceRequest updatedRequest = m_currentRequest;
     updateRequest(updatedRequest, newRequest);
     newRequest = WTFMove(updatedRequest);
+}
+
+void NetworkLoad::reprioritizeRequest(ResourceLoadPriority priority)
+{
+    m_currentRequest.setPriority(priority);
+    if (m_task)
+        m_task->setPriority(priority);
 }
 
 void NetworkLoad::continueWillSendRequest(WebCore::ResourceRequest&& newRequest)
@@ -178,6 +189,17 @@ void NetworkLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse
     ASSERT(RunLoop::isMain());
     ASSERT(!m_redirectCompletionHandler);
 
+    if (!m_networkProcess->ftpEnabled() && request.url().protocolIsInFTPFamily()) {
+        m_task->clearClient();
+        m_task = nullptr;
+        WebCore::NetworkLoadMetrics emptyMetrics;
+        didCompleteWithError(ResourceError { errorDomainWebKitInternal, 0, url(), "FTP URLs are disabled"_s, ResourceError::Type::AccessControl }, emptyMetrics);
+        
+        if (completionHandler)
+            completionHandler({ });
+        return;
+    }
+    
     redirectResponse.setSource(ResourceResponse::Source::Network);
     m_redirectCompletionHandler = WTFMove(completionHandler);
 
@@ -193,9 +215,9 @@ void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negot
     m_client.get().didReceiveChallenge(challenge);
 
     auto scheme = challenge.protectionSpace().authenticationScheme();
-    bool isTLSHandshake = scheme == ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested
-        || scheme == ProtectionSpaceAuthenticationSchemeClientCertificateRequested;
-    if (!isAllowedToAskUserForCredentials() && !isTLSHandshake) {
+    bool isTLSHandshake = scheme == ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested
+        || scheme == ProtectionSpace::AuthenticationScheme::ClientCertificateRequested;
+    if (!isAllowedToAskUserForCredentials() && !isTLSHandshake && !challenge.protectionSpace().isProxy()) {
         m_client.get().didBlockAuthenticationChallenge();
         completionHandler(AuthenticationChallengeDisposition::UseCredential, { });
         return;
@@ -207,63 +229,48 @@ void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negot
         m_networkProcess->authenticationManager().didReceiveAuthenticationChallenge(m_task->sessionID(), m_parameters.webPageProxyID, m_parameters.topOrigin ? &m_parameters.topOrigin->data() : nullptr, challenge, negotiatedLegacyTLS, WTFMove(completionHandler));
 }
 
-void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, ResponseCompletionHandler&& completionHandler)
+void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
-    ASSERT(!m_throttle);
 
     if (m_task && m_task->isDownload()) {
         m_networkProcess->findPendingDownloadLocation(*m_task.get(), WTFMove(completionHandler), response);
         return;
     }
 
-    if (m_loadThrottleLatency > 0_s) {
-        m_throttle = makeUnique<Throttle>(*this, m_loadThrottleLatency, WTFMove(response), WTFMove(completionHandler));
-        return;
-    }
-
     if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes)
         m_networkProcess->authenticationManager().negotiatedLegacyTLS(m_parameters.webPageProxyID);
     
-    notifyDidReceiveResponse(WTFMove(response), negotiatedLegacyTLS, WTFMove(completionHandler));
+    notifyDidReceiveResponse(WTFMove(response), negotiatedLegacyTLS, privateRelayed, WTFMove(completionHandler));
 }
 
-void NetworkLoad::notifyDidReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, ResponseCompletionHandler&& completionHandler)
+void NetworkLoad::notifyDidReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
 
     if (m_parameters.needsCertificateInfo)
         response.includeCertificateInfo();
 
-    m_client.get().didReceiveResponse(WTFMove(response), WTFMove(completionHandler));
+    m_client.get().didReceiveResponse(WTFMove(response), privateRelayed, WTFMove(completionHandler));
 }
 
-void NetworkLoad::didReceiveData(Ref<SharedBuffer>&& buffer)
+void NetworkLoad::didReceiveData(const WebCore::SharedBuffer& buffer)
 {
-    ASSERT(!m_throttle);
-
     // FIXME: This should be the encoded data length, not the decoded data length.
-    auto size = buffer->size();
-    m_client.get().didReceiveBuffer(WTFMove(buffer), size);
+    m_client.get().didReceiveBuffer(buffer, buffer.size());
 }
 
 void NetworkLoad::didCompleteWithError(const ResourceError& error, const WebCore::NetworkLoadMetrics& networkLoadMetrics)
 {
-    ASSERT(!m_throttle);
+    if (m_scheduler) {
+        m_scheduler->unschedule(*this, &networkLoadMetrics);
+        m_scheduler = nullptr;
+    }
 
     if (error.isNull())
         m_client.get().didFinishLoading(networkLoadMetrics);
     else
         m_client.get().didFailLoading(error);
-}
-
-void NetworkLoad::throttleDelayCompleted()
-{
-    ASSERT(m_throttle);
-
-    auto throttle = WTFMove(m_throttle);
-
-    notifyDidReceiveResponse(WTFMove(throttle->response), NegotiatedLegacyTLS::No, WTFMove(throttle->responseCompletionHandler));
 }
 
 void NetworkLoad::didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend)
@@ -286,10 +293,15 @@ void NetworkLoad::wasBlockedByRestrictions()
     m_client.get().didFailLoading(wasBlockedByRestrictionsError(m_currentRequest));
 }
 
-void NetworkLoad::didNegotiateModernTLS(const WebCore::AuthenticationChallenge& challenge)
+void NetworkLoad::wasBlockedByDisabledFTP()
+{
+    m_client.get().didFailLoading(ftpDisabledError(m_currentRequest));
+}
+
+void NetworkLoad::didNegotiateModernTLS(const URL& url)
 {
     if (m_parameters.webPageProxyID)
-        m_networkProcess->send(Messages::NetworkProcessProxy::DidNegotiateModernTLS(m_parameters.webPageProxyID, challenge));
+        m_networkProcess->send(Messages::NetworkProcessProxy::DidNegotiateModernTLS(m_parameters.webPageProxyID, url));
 }
 
 String NetworkLoad::description() const
@@ -305,6 +317,13 @@ void NetworkLoad::setH2PingCallback(const URL& url, CompletionHandler<void(Expec
         m_task->setH2PingCallback(url, WTFMove(completionHandler));
     else
         completionHandler(makeUnexpected(internalError(url)));
+}
+
+String NetworkLoad::attributedBundleIdentifier(WebPageProxyIdentifier pageID)
+{
+    if (m_task)
+        return m_task->attributedBundleIdentifier(pageID);
+    return { };
 }
 
 } // namespace WebKit

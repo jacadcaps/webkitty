@@ -27,6 +27,7 @@
 #include "FilterOperations.h"
 
 #include "FEGaussianBlur.h"
+#include "ImageBuffer.h"
 #include "IntSize.h"
 #include "LengthFunctions.h"
 #include <wtf/text/TextStream.h>
@@ -110,14 +111,14 @@ bool FilterOperations::transformColor(Color& color) const
     if (color.isSemantic())
         return false;
 
-    auto sRGBAColor = color.toSRGBALossy<float>();
+    auto sRGBAColor = color.toColorTypeLossy<SRGBA<float>>();
 
     for (auto& operation : m_operations) {
         if (!operation->transformColor(sRGBAColor))
             return false;
     }
 
-    color = convertToComponentBytes(sRGBAColor);
+    color = convertColor<SRGBA<uint8_t>>(sRGBAColor);
     return true;
 }
 
@@ -129,14 +130,14 @@ bool FilterOperations::inverseTransformColor(Color& color) const
     if (color.isSemantic())
         return false;
 
-    auto sRGBAColor = color.toSRGBALossy<float>();
+    auto sRGBAColor = color.toColorTypeLossy<SRGBA<float>>();
 
     for (auto& operation : m_operations) {
         if (!operation->inverseTransformColor(sRGBAColor))
             return false;
     }
 
-    color = convertToComponentBytes(sRGBAColor);
+    color = convertColor<SRGBA<uint8_t>>(sRGBAColor);
     return true;
 }
 

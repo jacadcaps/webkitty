@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2009, 2011, 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,13 +27,14 @@
 #include "JSWorkerGlobalScope.h"
 
 #include "JSDOMExceptionHandling.h"
+#include "JSDOMMicrotask.h"
 #include "WorkerGlobalScope.h"
-#include <JavaScriptCore/JSMicrotask.h>
 
 namespace WebCore {
 using namespace JSC;
 
-void JSWorkerGlobalScope::visitAdditionalChildren(SlotVisitor& visitor)
+template<typename Visitor>
+void JSWorkerGlobalScope::visitAdditionalChildren(Visitor& visitor)
 {
     if (auto* location = wrapped().optionalLocation())
         visitor.addOpaqueRoot(location);
@@ -48,6 +49,8 @@ void JSWorkerGlobalScope::visitAdditionalChildren(SlotVisitor& visitor)
     wrapped().visitJSEventListeners(visitor);
 }
 
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSWorkerGlobalScope);
+
 JSValue JSWorkerGlobalScope::queueMicrotask(JSGlobalObject& lexicalGlobalObject, CallFrame& callFrame)
 {
     VM& vm = lexicalGlobalObject.vm();
@@ -61,7 +64,7 @@ JSValue JSWorkerGlobalScope::queueMicrotask(JSGlobalObject& lexicalGlobalObject,
         return JSValue::decode(throwArgumentMustBeFunctionError(lexicalGlobalObject, scope, 0, "callback", "WorkerGlobalScope", "queueMicrotask"));
 
     scope.release();
-    Base::queueMicrotask(JSC::createJSMicrotask(vm, functionValue));
+    Base::queueMicrotask(createJSDOMMicrotask(vm, asObject(functionValue)));
     return jsUndefined();
 }
 

@@ -29,7 +29,6 @@
 
 #include "LayoutContainerBox.h"
 #include <wtf/IsoMalloc.h>
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -44,63 +43,40 @@ namespace Layout {
 
 class LayoutState;
 
-class LayoutTreeContent : public CanMakeWeakPtr<LayoutTreeContent> {
-    WTF_MAKE_ISO_ALLOCATED(LayoutTreeContent);
+class LayoutTree {
+    WTF_MAKE_ISO_ALLOCATED(LayoutTree);
 public:
-    LayoutTreeContent(const RenderBox&, std::unique_ptr<ContainerBox>);
-    ~LayoutTreeContent();
+    LayoutTree(std::unique_ptr<ContainerBox>);
+    ~LayoutTree() = default;
 
-    const ContainerBox& rootLayoutBox() const { return *m_rootLayoutBox; }
-    ContainerBox& rootLayoutBox() { return *m_rootLayoutBox; }
-    const RenderBox& rootRenderer() const { return m_rootRenderer; }
-
-    void addBox(std::unique_ptr<Box> box)
-    {
-        ASSERT(!box->isContainerBox());
-        m_boxes.add(WTFMove(box));
-    }
-    void addContainer(std::unique_ptr<ContainerBox> container) { m_containers.add(WTFMove(container)); }
-
-    Box* layoutBoxForRenderer(const RenderObject& renderer) { return m_renderObjectToLayoutBox.get(&renderer); }
-    const Box* layoutBoxForRenderer(const RenderObject& renderer) const { return m_renderObjectToLayoutBox.get(&renderer); }
-
-    const RenderObject* rendererForLayoutBox(const Box& box) const { return m_layoutBoxToRenderObject.get(&box); }
-
-    void addLayoutBoxForRenderer(const RenderObject&, Box&);
+    const ContainerBox& root() const { return *m_root; }
 
 private:
-    const RenderBox& m_rootRenderer;
-    std::unique_ptr<ContainerBox> m_rootLayoutBox;
-    HashSet<std::unique_ptr<Box>> m_boxes;
-    HashSet<std::unique_ptr<ContainerBox>> m_containers;
-
-    HashMap<const RenderObject*, Box*> m_renderObjectToLayoutBox;
-    HashMap<const Box*, const RenderObject*> m_layoutBoxToRenderObject;
+    std::unique_ptr<ContainerBox> m_root;
 };
 
 class TreeBuilder {
 public:
-    static std::unique_ptr<Layout::LayoutTreeContent> buildLayoutTree(const RenderView&);
+    static std::unique_ptr<Layout::LayoutTree> buildLayoutTree(const RenderView&);
 
 private:
-    TreeBuilder(LayoutTreeContent&);
+    TreeBuilder();
 
-    void buildTree();
     void buildSubTree(const RenderElement& parentRenderer, ContainerBox& parentContainer);
     void buildTableStructure(const RenderTable& tableRenderer, ContainerBox& tableWrapperBox);
-    Box* createLayoutBox(const ContainerBox& parentContainer, const RenderObject& childRenderer);
+    std::unique_ptr<Box> createLayoutBox(const ContainerBox& parentContainer, const RenderObject& childRenderer);
 
-    Box& createReplacedBox(Optional<Box::ElementAttributes>, RenderStyle&&);
-    Box& createTextBox(String text, bool canUseSimplifiedTextMeasuring, RenderStyle&&);
-    Box& createLineBreakBox(bool isOptional, RenderStyle&&);
-    ContainerBox& createContainer(Optional<Box::ElementAttributes>, RenderStyle&&);
-
-    LayoutTreeContent& m_layoutTreeContent;
+    std::unique_ptr<Box> createReplacedBox(std::optional<Box::ElementAttributes>, RenderStyle&&);
+    std::unique_ptr<Box> createTextBox(String text, bool canUseSimplifiedTextMeasuring, bool canUseSimpleFontCodePath, RenderStyle&&);
+    std::unique_ptr<Box> createLineBreakBox(bool isOptional, RenderStyle&&);
+    std::unique_ptr<ContainerBox> createContainer(std::optional<Box::ElementAttributes>, RenderStyle&&);
 };
 
 #if ENABLE(TREE_DEBUGGING)
+String layoutTreeAsText(const Box&, const LayoutState*);
 void showLayoutTree(const Box&, const LayoutState*);
 void showLayoutTree(const Box&);
+void showInlineTreeAndRuns(TextStream&, const LayoutState&, const ContainerBox& inlineFormattingRoot, size_t depth);
 void printLayoutTreeForLiveDocuments();
 #endif
 

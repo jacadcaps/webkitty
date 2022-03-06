@@ -33,28 +33,29 @@
 #define WEBCORE_GSTREAMER_EME_UTILITIES_WIDEVINE_UUID "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 #endif
 
+GST_DEBUG_CATEGORY_EXTERN(webkit_media_common_encryption_decrypt_debug_category);
+
 namespace WebCore {
 class InitData {
 public:
-    InitData()
-        : m_payload(SharedBuffer::create()) { }
-
+    InitData() = default;
     // FIXME: We should have an enum for system uuids for better type safety.
     InitData(const String& systemId, GstBuffer* initData)
         : m_systemId(systemId)
     {
         auto mappedInitData = GstMappedOwnedBuffer::create(initData);
         if (!mappedInitData) {
-            GST_ERROR("cannot map %s protection data", systemId.utf8().data());
+            GST_CAT_LEVEL_LOG(webkit_media_common_encryption_decrypt_debug_category, GST_LEVEL_ERROR, nullptr, "cannot map %s protection data", systemId.utf8().data());
             ASSERT_NOT_REACHED();
         }
-        m_payload = mappedInitData->createSharedBuffer();
+        m_payload = extractCencIfNeeded(mappedInitData->createSharedBuffer());
     }
 
-    InitData(const String& systemId, RefPtr<SharedBuffer>&& payload)
+    InitData(const String& systemId, RefPtr<FragmentedSharedBuffer>&& payload)
         : m_systemId(systemId)
-        , m_payload(WTFMove(payload))
     {
+        if (payload)
+            m_payload = extractCencIfNeeded(payload->makeContiguous());
     }
 
     void append(InitData&& initData)
@@ -70,14 +71,14 @@ public:
         // it's not very robust, so be careful here!
         m_systemId = initData.m_systemId;
 
-        m_payload->append(*initData.payload());
+        m_payload.append(*initData.payload());
     }
 
-    const RefPtr<SharedBuffer>& payload() const { return m_payload; }
+    RefPtr<FragmentedSharedBuffer> payload() const { return m_payload.get(); }
     const String& systemId() const { return m_systemId; }
     String payloadContainerType() const
     {
-#if GST_CHECK_VERSION(1, 15, 0)
+#if GST_CHECK_VERSION(1, 16, 0)
         if (m_systemId == GST_PROTECTION_UNSPECIFIED_SYSTEM_ID)
             return "webm"_s;
 #endif
@@ -85,8 +86,9 @@ public:
     }
 
 private:
+    static RefPtr<SharedBuffer> extractCencIfNeeded(RefPtr<SharedBuffer>&&);
     String m_systemId;
-    RefPtr<SharedBuffer> m_payload;
+    SharedBufferBuilder m_payload;
 };
 
 class ProtectionSystemEvents {

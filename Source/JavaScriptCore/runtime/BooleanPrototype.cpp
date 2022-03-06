@@ -26,8 +26,8 @@
 
 namespace JSC {
 
-static EncodedJSValue JSC_HOST_CALL booleanProtoFuncToString(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL booleanProtoFuncValueOf(JSGlobalObject*, CallFrame*);
+static JSC_DECLARE_HOST_FUNCTION(booleanProtoFuncToString);
+static JSC_DECLARE_HOST_FUNCTION(booleanProtoFuncValueOf);
 
 }
 
@@ -61,7 +61,7 @@ void BooleanPrototype::finishCreation(VM& vm, JSGlobalObject*)
 
 // ------------------------------ Functions ---------------------------
 
-EncodedJSValue JSC_HOST_CALL booleanProtoFuncToString(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(booleanProtoFuncToString, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -76,7 +76,7 @@ EncodedJSValue JSC_HOST_CALL booleanProtoFuncToString(JSGlobalObject* globalObje
     if (UNLIKELY(!thisObject))
         return throwVMTypeError(globalObject, scope);
 
-    Integrity::auditStructureID(vm, thisObject->structureID());
+    Integrity::auditStructureID(thisObject->structureID());
     if (thisObject->internalValue() == jsBoolean(false))
         return JSValue::encode(vm.smallStrings.falseString());
 
@@ -84,7 +84,7 @@ EncodedJSValue JSC_HOST_CALL booleanProtoFuncToString(JSGlobalObject* globalObje
     return JSValue::encode(vm.smallStrings.trueString());
 }
 
-EncodedJSValue JSC_HOST_CALL booleanProtoFuncValueOf(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(booleanProtoFuncValueOf, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -96,7 +96,7 @@ EncodedJSValue JSC_HOST_CALL booleanProtoFuncValueOf(JSGlobalObject* globalObjec
     if (UNLIKELY(!thisObject))
         return throwVMTypeError(globalObject, scope);
 
-    Integrity::auditStructureID(vm, thisObject->structureID());
+    Integrity::auditStructureID(thisObject->structureID());
     return JSValue::encode(thisObject->internalValue());
 }
 

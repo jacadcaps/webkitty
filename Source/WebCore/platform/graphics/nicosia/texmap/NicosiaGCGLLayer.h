@@ -28,7 +28,7 @@
 
 #pragma once
 
-#if USE(NICOSIA) && USE(TEXTURE_MAPPER)
+#if ENABLE(WEBGL) && USE(NICOSIA) && USE(TEXTURE_MAPPER) && !USE(ANGLE)
 
 #include "GraphicsContextGLOpenGL.h"
 #include "NicosiaContentLayerTextureMapperImpl.h"
@@ -44,13 +44,12 @@ class GCGLLayer : public ContentLayerTextureMapperImpl::Client {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit GCGLLayer(WebCore::GraphicsContextGLOpenGL&);
-    GCGLLayer(WebCore::GraphicsContextGLOpenGL&, WebCore::GraphicsContextGLOpenGL::Destination);
 
     virtual ~GCGLLayer();
 
     ContentLayer& contentLayer() const { return m_contentLayer; }
     virtual bool makeContextCurrent();
-    virtual PlatformGraphicsContextGL platformContext() const;
+    virtual GCGLContext platformContext() const;
 
     void swapBuffersIfNeeded() override;
 
@@ -63,4 +62,4 @@ private:
 
 } // namespace Nicosia
 
-#endif // USE(NICOSIA) && USE(TEXTURE_MAPPER)
+#endif // ENABLE(WEBGL) && USE(NICOSIA) && USE(TEXTURE_MAPPER)

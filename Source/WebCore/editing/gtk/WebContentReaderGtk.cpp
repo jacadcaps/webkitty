@@ -71,11 +71,11 @@ bool WebContentReader::readPlainText(const String& text)
     return true;
 }
 
-bool WebContentReader::readImage(Ref<SharedBuffer>&& buffer, const String& type, PresentationSize preferredPresentationSize)
+bool WebContentReader::readImage(Ref<FragmentedSharedBuffer>&& buffer, const String& type, PresentationSize preferredPresentationSize)
 {
     ASSERT(frame.document());
     auto& document = *frame.document();
-    addFragment(createFragmentForImageAndURL(document, DOMURL::createObjectURL(document, Blob::create(buffer.get(), type)), preferredPresentationSize));
+    addFragment(createFragmentForImageAndURL(document, DOMURL::createObjectURL(document, Blob::create(&document, buffer->extractData(), type)), preferredPresentationSize));
 
     return fragment;
 }

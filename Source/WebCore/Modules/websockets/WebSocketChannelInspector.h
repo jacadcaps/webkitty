@@ -26,13 +26,18 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/ObjectIdentifier.h>
 
 namespace WebCore {
 
 class Document;
 class ResourceRequest;
 class ResourceResponse;
+class WebSocketChannel;
+class WebSocketChannelInspector;
 struct WebSocketFrame;
+
+using WebSocketChannelIdentifier = ObjectIdentifier<WebSocketChannel>;
 
 class WEBCORE_EXPORT WebSocketChannelInspector {
 public:
@@ -45,9 +50,11 @@ public:
     void didReceiveWebSocketFrame(Document*, const WebSocketFrame&);
     void didSendWebSocketFrame(Document*, const WebSocketFrame&);
     void didReceiveWebSocketFrameError(Document*, const String& errorMessage);
+    
+    WebSocketChannelIdentifier progressIdentifier() const;
 
 private:
-    unsigned long m_progressIdentifier { 0 };
+    WebSocketChannelIdentifier m_progressIdentifier;
 };
 
 } // namespace WebCore

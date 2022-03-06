@@ -105,7 +105,7 @@ void DocumentMarkerController::filterMarkers(const SimpleRange& range, const Fun
 static void updateRenderedRectsForMarker(RenderedDocumentMarker& marker, Node& node)
 {
     ASSERT(!node.document().view() || !node.document().view()->needsLayout());
-    marker.setUnclippedAbsoluteRects(boundingBoxes(RenderObject::absoluteTextQuads(makeSimpleRange(node, marker), true)));
+    marker.setUnclippedAbsoluteRects(boundingBoxes(RenderObject::absoluteTextQuads(makeSimpleRange(node, marker), RenderObject::BoundingRectBehavior::UseSelectionHeight)));
 }
 
 void DocumentMarkerController::invalidateRectsForAllMarkers()
@@ -196,7 +196,7 @@ Vector<FloatRect> DocumentMarkerController::renderedRectsForMarkers(DocumentMark
         auto renderer = nodeMarkers.key->renderer();
         FloatRect overflowClipRect;
         if (renderer)
-            overflowClipRect = renderer->absoluteClippedOverflowRect();
+            overflowClipRect = renderer->absoluteClippedOverflowRectForRepaint();
         for (auto& marker : *nodeMarkers.value) {
             if (marker.type() != type)
                 continue;
@@ -238,7 +238,7 @@ static bool shouldInsertAsSeparateMarker(const DocumentMarker& marker)
 #endif
 
     if (marker.type() == DocumentMarker::DraggedContent)
-        return is<RenderReplaced>(WTF::get<RefPtr<Node>>(marker.data())->renderer());
+        return is<RenderReplaced>(std::get<RefPtr<Node>>(marker.data())->renderer());
 
     return false;
 }
@@ -251,14 +251,6 @@ void DocumentMarkerController::addMarker(Node& node, DocumentMarker&& newMarker)
     ASSERT(newMarker.endOffset() >= newMarker.startOffset());
     if (newMarker.endOffset() == newMarker.startOffset())
         return;
-
-    if (auto* renderer = node.renderer()) {
-        // FIXME: Factor the marker painting code out of InlineTextBox and teach simple line layout to use it.
-        if (is<RenderText>(*renderer))
-            downcast<RenderText>(*renderer).ensureLineBoxes();
-        else if (is<RenderBlockFlow>(*renderer))
-            downcast<RenderBlockFlow>(*renderer).ensureLineBoxes();
-    }
 
     m_possiblyExistingMarkerTypes.add(newMarker.type());
 
@@ -649,7 +641,7 @@ void DocumentMarkerController::clearDescriptionOnMarkersIntersectingRange(const 
 
 void addMarker(const SimpleRange& range, DocumentMarker::MarkerType type, const DocumentMarker::Data& data)
 {
-    range.start.container->document().markers().addMarker(range, type, data);
+    range.start.document().markers().addMarker(range, type, data);
 }
 
 void addMarker(Text& node, unsigned startOffset, unsigned length, DocumentMarker::MarkerType type, DocumentMarker::Data&& data)
@@ -659,7 +651,7 @@ void addMarker(Text& node, unsigned startOffset, unsigned length, DocumentMarker
 
 void removeMarkers(const SimpleRange& range, OptionSet<DocumentMarker::MarkerType> types, RemovePartiallyOverlappingMarker policy)
 {
-    range.start.container->document().markers().removeMarkers(range, types, policy);
+    range.start.document().markers().removeMarkers(range, types, policy);
 }
 
 SimpleRange makeSimpleRange(Node& node, const DocumentMarker& marker)

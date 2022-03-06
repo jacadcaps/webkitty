@@ -81,6 +81,11 @@ WI.TreeElement = class TreeElement extends WI.Object
         this._selectable = x;
     }
 
+    get expandable()
+    {
+        return this.hasChildren;
+    }
+
     get listItemElement()
     {
         return this._listItemNode;
@@ -248,8 +253,8 @@ WI.TreeElement = class TreeElement extends WI.Object
     _attach()
     {
         if (!this._listItemNode || this.parent._shouldRefreshChildren) {
-            if (this._listItemNode && this._listItemNode.parentNode)
-                this._listItemNode.parentNode.removeChild(this._listItemNode);
+            if (this.parent._shouldRefreshChildren)
+                this._detach();
 
             this._listItemNode = this.treeOutline._childrenListNode.ownerDocument.createElement("li");
             this._listItemNode.treeElement = this;
@@ -290,7 +295,7 @@ WI.TreeElement = class TreeElement extends WI.Object
 
     _detach()
     {
-        if (this.ondetach)
+        if (this.ondetach && this._listItemNode)
             this.ondetach(this);
         if (this._listItemNode && this._listItemNode.parentNode)
             this._listItemNode.parentNode.removeChild(this._listItemNode);
@@ -308,8 +313,7 @@ WI.TreeElement = class TreeElement extends WI.Object
         if (!treeElement)
             return;
 
-        let toggleOnClick = treeElement.toggleOnClick && !treeElement.selectable;
-        if (toggleOnClick || treeElement.isEventWithinDisclosureTriangle(event)) {
+        if (treeElement.toggleOnClick || treeElement.isEventWithinDisclosureTriangle(event)) {
             if (treeElement.expanded) {
                 if (event.altKey)
                     treeElement.collapseRecursively();
@@ -324,7 +328,7 @@ WI.TreeElement = class TreeElement extends WI.Object
             event.stopPropagation();
         }
 
-        if (!treeElement.treeOutline.selectable)
+        if (treeElement.treeOutline && !treeElement.treeOutline.selectable)
             treeElement.treeOutline.dispatchEventToListeners(WI.TreeOutline.Event.ElementClicked, {treeElement});
     }
 

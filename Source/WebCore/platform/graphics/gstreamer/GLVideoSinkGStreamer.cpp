@@ -51,7 +51,7 @@ struct _WebKitGLVideoSinkPrivate {
 GST_DEBUG_CATEGORY_STATIC(webkit_gl_video_sink_debug);
 #define GST_CAT_DEFAULT webkit_gl_video_sink_debug
 
-#define GST_GL_CAPS_FORMAT "{ RGBx, RGBA, I420, Y444, YV12, Y41B, Y42B, NV12, NV21, VUYA }"
+#define GST_GL_CAPS_FORMAT "{ A420, RGBx, RGBA, I420, Y444, YV12, Y41B, Y42B, NV12, NV21, VUYA }"
 static GstStaticPadTemplate sinkTemplate = GST_STATIC_PAD_TEMPLATE("sink", GST_PAD_SINK, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
 
 #define webkit_gl_video_sink_parent_class parent_class
@@ -64,12 +64,27 @@ static void webKitGLVideoSinkConstructed(GObject* object)
 
     WebKitGLVideoSink* sink = WEBKIT_GL_VIDEO_SINK(object);
 
-    sink->priv->appSink = gst_element_factory_make("appsink", "webkit-gl-video-appsink");
+    GST_OBJECT_FLAG_SET(GST_OBJECT_CAST(sink), GST_ELEMENT_FLAG_SINK);
+    gst_bin_set_suppressed_flags(GST_BIN_CAST(sink), static_cast<GstElementFlags>(GST_ELEMENT_FLAG_SOURCE | GST_ELEMENT_FLAG_SINK));
+
+    sink->priv->appSink = makeGStreamerElement("appsink", "webkit-gl-video-appsink");
     ASSERT(sink->priv->appSink);
     g_object_set(sink->priv->appSink.get(), "enable-last-sample", FALSE, "emit-signals", TRUE, "max-buffers", 1, nullptr);
 
-    GstElement* upload = gst_element_factory_make("glupload", nullptr);
-    GstElement* colorconvert = gst_element_factory_make("glcolorconvert", nullptr);
+    auto* imxVideoConvertG2D =
+        []() -> GstElement*
+        {
+            auto elementFactor = adoptGRef(gst_element_factory_find("imxvideoconvert_g2d"));
+            if (elementFactor)
+                return gst_element_factory_create(elementFactor.get(), nullptr);
+            return nullptr;
+        }();
+    if (imxVideoConvertG2D)
+        gst_bin_add(GST_BIN_CAST(sink), imxVideoConvertG2D);
+
+    GstElement* upload = makeGStreamerElement("glupload", nullptr);
+    GstElement* colorconvert = makeGStreamerElement("glcolorconvert", nullptr);
+
     ASSERT(upload);
     ASSERT(colorconvert);
     gst_bin_add_many(GST_BIN_CAST(sink), upload, colorconvert, sink->priv->appSink.get(), nullptr);
@@ -96,9 +111,19 @@ static void webKitGLVideoSinkConstructed(GObject* object)
     gst_caps_set_features(caps.get(), 0, gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_GL_MEMORY, nullptr));
     g_object_set(sink->priv->appSink.get(), "caps", caps.get(), nullptr);
 
-    gst_element_link_many(upload, colorconvert, sink->priv->appSink.get(), nullptr);
+    if (imxVideoConvertG2D)
+        gst_element_link(imxVideoConvertG2D, upload);
+    gst_element_link(upload, colorconvert);
 
-    GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(upload, "sink"));
+    gst_element_link(colorconvert, sink->priv->appSink.get());
+
+    GstElement* sinkElement =
+        [&] {
+            if (imxVideoConvertG2D)
+                return imxVideoConvertG2D;
+            return upload;
+        }();
+    GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(sinkElement, "sink"));
     gst_element_add_pad(GST_ELEMENT_CAST(sink), gst_ghost_pad_new("sink", pad.get()));
 }
 
@@ -112,17 +137,19 @@ void webKitGLVideoSinkFinalize(GObject* object)
     if (priv->mediaPlayerPrivate)
         g_signal_handlers_disconnect_by_data(priv->appSink.get(), priv->mediaPlayerPrivate);
 
+    GST_DEBUG_OBJECT(object, "WebKitGLVideoSink finalized.");
+
     GST_CALL_PARENT(G_OBJECT_CLASS, finalize, (object));
 }
 
-Optional<GRefPtr<GstContext>> requestGLContext(const char* contextType)
+std::optional<GRefPtr<GstContext>> requestGLContext(const char* contextType)
 {
     auto& sharedDisplay = PlatformDisplay::sharedDisplayForCompositing();
     auto* gstGLDisplay = sharedDisplay.gstGLDisplay();
     auto* gstGLContext = sharedDisplay.gstGLContext();
 
     if (!(gstGLDisplay && gstGLContext))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!g_strcmp0(contextType, GST_GL_DISPLAY_CONTEXT_TYPE)) {
         GstContext* displayContext = gst_context_new(GST_GL_DISPLAY_CONTEXT_TYPE, TRUE);
@@ -133,15 +160,11 @@ Optional<GRefPtr<GstContext>> requestGLContext(const char* contextType)
     if (!g_strcmp0(contextType, "gst.gl.app_context")) {
         GstContext* appContext = gst_context_new("gst.gl.app_context", TRUE);
         GstStructure* structure = gst_context_writable_structure(appContext);
-#if GST_CHECK_VERSION(1, 12, 0)
         gst_structure_set(structure, "context", GST_TYPE_GL_CONTEXT, gstGLContext, nullptr);
-#else
-        gst_structure_set(structure, "context", GST_GL_TYPE_CONTEXT, gstGLContext, nullptr);
-#endif
         return adoptGRef(appContext);
     }
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 static bool setGLContext(GstElement* elementSink, const char* contextType)
@@ -149,7 +172,7 @@ static bool setGLContext(GstElement* elementSink, const char* contextType)
     GRefPtr<GstContext> oldContext = gst_element_get_context(elementSink, contextType);
     if (!oldContext) {
         auto newContext = requestGLContext(contextType);
-        if (!newContext.hasValue())
+        if (!newContext)
             return false;
         gst_element_set_context(elementSink, newContext->get());
     }
@@ -158,15 +181,11 @@ static bool setGLContext(GstElement* elementSink, const char* contextType)
 
 static GstStateChangeReturn webKitGLVideoSinkChangeState(GstElement* element, GstStateChange transition)
 {
-#if GST_CHECK_VERSION(1, 14, 0)
     GST_DEBUG_OBJECT(element, "%s", gst_state_change_get_name(transition));
-#endif
 
     switch (transition) {
     case GST_STATE_CHANGE_NULL_TO_READY:
-#if GST_CHECK_VERSION(1, 14, 0)
     case GST_STATE_CHANGE_READY_TO_READY:
-#endif
     case GST_STATE_CHANGE_READY_TO_PAUSED: {
         if (!setGLContext(element, GST_GL_DISPLAY_CONTEXT_TYPE))
             return GST_STATE_CHANGE_FAILURE;
@@ -187,7 +206,7 @@ static void webKitGLVideoSinkGetProperty(GObject* object, guint propertyId, GVal
 
     switch (propertyId) {
     case PROP_STATS:
-        if (webkitGstCheckVersion(1, 17, 0)) {
+        if (webkitGstCheckVersion(1, 18, 0)) {
             GUniqueOutPtr<GstStructure> stats;
             g_object_get(sink->priv->appSink.get(), "stats", &stats.outPtr(), nullptr);
             gst_value_set_structure(value, stats.get());
@@ -225,17 +244,32 @@ void webKitGLVideoSinkSetMediaPlayerPrivate(WebKitGLVideoSink* sink, MediaPlayer
     priv->mediaPlayerPrivate = player;
     g_signal_connect(priv->appSink.get(), "new-sample", G_CALLBACK(+[](GstElement* sink, MediaPlayerPrivateGStreamer* player) -> GstFlowReturn {
         GRefPtr<GstSample> sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
+        GstBuffer* buffer = gst_sample_get_buffer(sample.get());
+        GST_TRACE_OBJECT(sink, "new-sample with PTS=%" GST_TIME_FORMAT, GST_TIME_ARGS(GST_BUFFER_PTS(buffer)));
         player->triggerRepaint(sample.get());
         return GST_FLOW_OK;
     }), player);
     g_signal_connect(priv->appSink.get(), "new-preroll", G_CALLBACK(+[](GstElement* sink, MediaPlayerPrivateGStreamer* player) -> GstFlowReturn {
         GRefPtr<GstSample> sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
+        GstBuffer* buffer = gst_sample_get_buffer(sample.get());
+        GST_DEBUG_OBJECT(sink, "new-preroll with PTS=%" GST_TIME_FORMAT, GST_TIME_ARGS(GST_BUFFER_PTS(buffer)));
         player->triggerRepaint(sample.get());
         return GST_FLOW_OK;
     }), player);
 
     GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
-    gst_pad_add_probe(pad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM | GST_PAD_PROBE_TYPE_EVENT_FLUSH), [] (GstPad*, GstPadProbeInfo* info,  gpointer userData) -> GstPadProbeReturn {
+    gst_pad_add_probe(pad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM | GST_PAD_PROBE_TYPE_EVENT_FLUSH | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM), [](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
+        auto* player = static_cast<MediaPlayerPrivateGStreamer*>(userData);
+
+        if (info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+            if (GST_EVENT_TYPE(GST_PAD_PROBE_INFO_EVENT(info)) != GST_EVENT_TAG)
+                return GST_PAD_PROBE_OK;
+            GstTagList* tagList;
+            gst_event_parse_tag(GST_PAD_PROBE_INFO_EVENT(info), &tagList);
+            player->updateVideoOrientation(tagList);
+            return GST_PAD_PROBE_OK;
+        }
+
         // In some platforms (e.g. OpenMAX on the Raspberry Pi) when a resolution change occurs the
         // pipeline has to be drained before a frame with the new resolution can be decoded.
         // In this context, it's important that we don't hold references to any previous frame
@@ -252,7 +286,6 @@ void webKitGLVideoSinkSetMediaPlayerPrivate(WebKitGLVideoSink* sink, MediaPlayer
             GST_DEBUG("Acting upon flush-start event");
         }
 
-        auto* player = static_cast<MediaPlayerPrivateGStreamer*>(userData);
         player->flushCurrentBuffer();
         return GST_PAD_PROBE_OK;
     }, player, nullptr);

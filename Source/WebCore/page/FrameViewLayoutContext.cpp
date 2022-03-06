@@ -26,7 +26,6 @@
 #include "config.h"
 #include "FrameViewLayoutContext.h"
 
-#include "CSSAnimationController.h"
 #include "DebugPageOverlays.h"
 #include "Document.h"
 #include "FrameView.h"
@@ -39,10 +38,9 @@
 #include "RuntimeEnabledFeatures.h"
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
+#include "StyleScope.h"
 #if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-#include "DisplayBox.h"
-#include "InvalidationContext.h"
-#include "InvalidationState.h"
+#include "LayoutBoxGeometry.h"
 #include "LayoutContext.h"
 #include "LayoutState.h"
 #include "LayoutTreeBuilder.h"
@@ -60,28 +58,22 @@ void FrameViewLayoutContext::layoutUsingFormattingContext()
 {
     if (!RuntimeEnabledFeatures::sharedFeatures().layoutFormattingContextEnabled())
         return;
-
     // FrameView::setContentsSize temporary disables layout.
     if (m_disableSetNeedsLayoutCount)
         return;
 
-    auto& renderView = *this->renderView();
-    if (!m_layoutTreeContent) {
-        m_layoutTreeContent = Layout::TreeBuilder::buildLayoutTree(renderView);
-        // FIXME: New layout tree requires a new state for now.
-        m_layoutState = nullptr;
-    }
-    if (!m_layoutState)
-        m_layoutState = makeUnique<Layout::LayoutState>(*document(), m_layoutTreeContent->rootLayoutBox());
+    m_layoutState = nullptr;
+    m_layoutTree = nullptr;
 
-    // FIXME: This is not the real invalidation yet.
-    auto invalidationState = Layout::InvalidationState { };
+    auto& renderView = *this->renderView();
+    m_layoutTree = Layout::TreeBuilder::buildLayoutTree(renderView);
+    m_layoutState = makeUnique<Layout::LayoutState>(*document(), m_layoutTree->root());
     auto layoutContext = Layout::LayoutContext { *m_layoutState };
-    layoutContext.layout(view().layoutSize(), invalidationState);
+    layoutContext.layout(view().layoutSize());
 
     // Clean up the render tree state when we don't run RenderView::layout.
     if (renderView.needsLayout()) {
-        auto contentSize = m_layoutState->displayBoxForLayoutBox(*m_layoutState->root().firstChild()).size();
+        auto contentSize = Layout::BoxGeometry::marginBoxRect(m_layoutState->geometryForBox(*m_layoutState->root().firstChild())).size();
         renderView.setSize(contentSize);
         renderView.repaintViewRectangle({ 0, 0, contentSize.width(), contentSize.height() });
 
@@ -89,20 +81,9 @@ void FrameViewLayoutContext::layoutUsingFormattingContext()
             descendant.clearNeedsLayout();
         renderView.clearNeedsLayout();
     }
-
 #ifndef NDEBUG
     Layout::LayoutContext::verifyAndOutputMismatchingLayoutTree(*m_layoutState, renderView);
 #endif
-}
-
-void FrameViewLayoutContext::invalidateLayoutTreeContent()
-{
-    m_layoutTreeContent = nullptr;
-}
-
-void FrameViewLayoutContext::invalidateLayoutState()
-{
-    m_layoutState = nullptr;
 }
 #endif
 
@@ -204,7 +185,6 @@ void FrameViewLayoutContext::layout()
     LayoutScope layoutScope(*this);
     TraceScope tracingScope(LayoutStart, LayoutEnd);
     InspectorInstrumentation::willLayout(view().frame());
-    AnimationUpdateBlock animationUpdateBlock(&view().frame().legacyAnimation());
     WeakPtr<RenderElement> layoutRoot;
     
     m_layoutTimer.stop();
@@ -224,11 +204,14 @@ void FrameViewLayoutContext::layout()
     {
         SetForScope<LayoutPhase> layoutPhase(m_layoutPhase, LayoutPhase::InPreLayout);
 
-        // If this is a new top-level layout and there are any remaining tasks from the previous layout, finish them now.
-        if (!isLayoutNested() && m_asynchronousTasksTimer.isActive() && !view().isInChildFrameWithFrameFlattening())
-            runAsynchronousTasks();
+        if (!frame().document()->isResolvingContainerQueries()) {
+            // If this is a new top-level layout and there are any remaining tasks from the previous layout, finish them now.
+            if (!isLayoutNested() && m_asynchronousTasksTimer.isActive() && !view().isInChildFrameWithFrameFlattening())
+                runAsynchronousTasks();
 
-        updateStyleForLayout();
+            updateStyleForLayout();
+        }
+
         if (view().hasOneRef())
             return;
 
@@ -236,8 +219,8 @@ void FrameViewLayoutContext::layout()
         if (!renderView())
             return;
 
-        layoutRoot = makeWeakPtr(subtreeLayoutRoot() ? subtreeLayoutRoot() : renderView());
-        m_needsFullRepaint = is<RenderView>(layoutRoot.get()) && (m_firstLayout || renderView()->printing());
+        layoutRoot = subtreeLayoutRoot() ? subtreeLayoutRoot() : renderView();
+        m_needsFullRepaint = is<RenderView>(layoutRoot) && (m_firstLayout || renderView()->printing());
         view().willDoLayout(layoutRoot);
         m_firstLayout = false;
     }
@@ -261,7 +244,7 @@ void FrameViewLayoutContext::layout()
     }
     {
         SetForScope<LayoutPhase> layoutPhase(m_layoutPhase, LayoutPhase::InViewSizeAdjust);
-        if (is<RenderView>(layoutRoot.get()) && !renderView()->printing()) {
+        if (is<RenderView>(layoutRoot) && !renderView()->printing()) {
             // This is to protect m_needsFullRepaint's value when layout() is getting re-entered through adjustViewSize().
             SetForScope<bool> needsFullRepaint(m_needsFullRepaint);
             view().adjustViewSize();
@@ -287,6 +270,12 @@ void FrameViewLayoutContext::runOrScheduleAsynchronousTasks()
 {
     if (m_asynchronousTasksTimer.isActive())
         return;
+
+    if (frame().document()->isResolvingContainerQueries()) {
+        // We are doing layout from style resolution to resolve container queries.
+        m_asynchronousTasksTimer.startOneShot(0_s);
+        return;
+    }
 
     if (view().isInChildFrameWithFrameFlattening()) {
         // While flattening frames, we defer post layout tasks to avoid getting stuck in a cycle,
@@ -502,7 +491,7 @@ void FrameViewLayoutContext::convertSubtreeLayoutToFullLayout()
 
 void FrameViewLayoutContext::setSubtreeLayoutRoot(RenderElement& layoutRoot)
 {
-    m_subtreeLayoutRoot = makeWeakPtr(layoutRoot);
+    m_subtreeLayoutRoot = layoutRoot;
 }
 
 bool FrameViewLayoutContext::canPerformLayout() const
@@ -533,7 +522,7 @@ void FrameViewLayoutContext::applyTextSizingIfNeeded(RenderElement& layoutRoot)
     if (!idempotentMode && !minimumZoomFontSize)
         return;
     auto textAutosizingWidth = layoutRoot.page().textAutosizingWidth();
-    if (auto overrideWidth = settings.textAutosizingWindowSizeOverride().width())
+    if (auto overrideWidth = settings.textAutosizingWindowSizeOverrideWidth())
         textAutosizingWidth = overrideWidth;
     if (!idempotentMode && !textAutosizingWidth)
         return;

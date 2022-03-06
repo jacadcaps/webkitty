@@ -27,6 +27,8 @@
 #include <gio/gio.h>
 #include <webkit2/WebKitCookieManager.h>
 #include <webkit2/WebKitDefines.h>
+#include <webkit2/WebKitMemoryPressureSettings.h>
+#include <webkit2/WebKitNetworkProxySettings.h>
 #include <webkit2/WebKitWebsiteData.h>
 
 G_BEGIN_DECLS
@@ -37,6 +39,21 @@ G_BEGIN_DECLS
 #define WEBKIT_WEBSITE_DATA_MANAGER_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass),  WEBKIT_TYPE_WEBSITE_DATA_MANAGER, WebKitWebsiteDataManagerClass))
 #define WEBKIT_IS_WEBSITE_DATA_MANAGER_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass),  WEBKIT_TYPE_WEBSITE_DATA_MANAGER))
 #define WEBKIT_WEBSITE_DATA_MANAGER_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj),  WEBKIT_TYPE_WEBSITE_DATA_MANAGER, WebKitWebsiteDataManagerClass))
+
+/**
+ * WebKitTLSErrorsPolicy:
+ * @WEBKIT_TLS_ERRORS_POLICY_IGNORE: Ignore TLS errors.
+ * @WEBKIT_TLS_ERRORS_POLICY_FAIL: TLS errors will emit
+ *   #WebKitWebView::load-failed-with-tls-errors and, if the signal is handled,
+ *   finish the load. In case the signal is not handled,
+ *   #WebKitWebView::load-failed is emitted before the load finishes.
+ *
+ * Enum values used to denote the TLS errors policy.
+ */
+typedef enum {
+    WEBKIT_TLS_ERRORS_POLICY_IGNORE,
+    WEBKIT_TLS_ERRORS_POLICY_FAIL
+} WebKitTLSErrorsPolicy;
 
 typedef struct _WebKitWebsiteDataManager        WebKitWebsiteDataManager;
 typedef struct _WebKitWebsiteDataManagerClass   WebKitWebsiteDataManagerClass;
@@ -120,6 +137,18 @@ WEBKIT_API gboolean
 webkit_website_data_manager_get_persistent_credential_storage_enabled (WebKitWebsiteDataManager *manager);
 
 WEBKIT_API void
+webkit_website_data_manager_set_tls_errors_policy                     (WebKitWebsiteDataManager *manager,
+                                                                       WebKitTLSErrorsPolicy     policy);
+
+WEBKIT_API WebKitTLSErrorsPolicy
+webkit_website_data_manager_get_tls_errors_policy                     (WebKitWebsiteDataManager *manager);
+
+WEBKIT_API void
+webkit_website_data_manager_set_network_proxy_settings                (WebKitWebsiteDataManager *manager,
+                                                                       WebKitNetworkProxyMode    proxy_mode,
+                                                                       WebKitNetworkProxySettings *proxy_settings);
+
+WEBKIT_API void
 webkit_website_data_manager_fetch                                     (WebKitWebsiteDataManager *manager,
                                                                        WebKitWebsiteDataTypes    types,
                                                                        GCancellable             *cancellable,
@@ -154,6 +183,9 @@ WEBKIT_API gboolean
 webkit_website_data_manager_clear_finish                               (WebKitWebsiteDataManager *manager,
                                                                         GAsyncResult             *result,
                                                                         GError                  **error);
+
+WEBKIT_API void
+webkit_website_data_manager_set_memory_pressure_settings               (WebKitMemoryPressureSettings *settings);
 
 
 #define WEBKIT_TYPE_ITP_FIRST_PARTY   (webkit_itp_first_party_get_type())

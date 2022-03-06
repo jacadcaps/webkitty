@@ -57,6 +57,7 @@ class ShareGroupImpl : angle::NonCopyable
   public:
     ShareGroupImpl() {}
     virtual ~ShareGroupImpl() {}
+    virtual void onDestroy(const egl::Display *display) {}
 };
 
 class DisplayImpl : public EGLImplFactory, public angle::Subject
@@ -67,8 +68,11 @@ class DisplayImpl : public EGLImplFactory, public angle::Subject
 
     virtual egl::Error initialize(egl::Display *display) = 0;
     virtual void terminate()                             = 0;
+    virtual egl::Error prepareForCall();
+    virtual egl::Error releaseThread();
 
-    virtual egl::Error makeCurrent(egl::Surface *drawSurface,
+    virtual egl::Error makeCurrent(egl::Display *display,
+                                   egl::Surface *drawSurface,
                                    egl::Surface *readSurface,
                                    gl::Context *context) = 0;
 
@@ -86,13 +90,15 @@ class DisplayImpl : public EGLImplFactory, public angle::Subject
                                                  EGLenum target,
                                                  EGLClientBuffer clientBuffer,
                                                  const egl::AttributeMap &attribs) const;
-    virtual egl::Error validatePixmap(egl::Config *config,
+    virtual egl::Error validatePixmap(const egl::Config *config,
                                       EGLNativePixmapType pixmap,
                                       const egl::AttributeMap &attributes) const;
 
-    virtual std::string getVendorString() const = 0;
+    virtual std::string getRendererDescription() = 0;
+    virtual std::string getVendorString()        = 0;
+    virtual std::string getVersionString()       = 0;
 
-    virtual DeviceImpl *createDevice() = 0;
+    virtual DeviceImpl *createDevice();
 
     virtual egl::Error waitClient(const gl::Context *context)                = 0;
     virtual egl::Error waitNative(const gl::Context *context, EGLint engine) = 0;

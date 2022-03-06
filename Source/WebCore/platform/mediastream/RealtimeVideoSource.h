@@ -38,17 +38,19 @@ class RealtimeVideoSource final
     , public RealtimeMediaSource::Observer
     , public RealtimeMediaSource::VideoSampleObserver {
 public:
-    static Ref<RealtimeVideoSource> create(Ref<RealtimeVideoCaptureSource>&& source) { return adoptRef(*new RealtimeVideoSource(WTFMove(source))); }
+    static Ref<RealtimeVideoSource> create(Ref<RealtimeVideoCaptureSource>&& source, bool shouldUseIOSurface = true) { return adoptRef(*new RealtimeVideoSource(WTFMove(source), shouldUseIOSurface)); }
+
+    Vector<VideoPresetData> presetsData() { return m_source->presetsData(); }
 
 private:
-    explicit RealtimeVideoSource(Ref<RealtimeVideoCaptureSource>&&);
+    WEBCORE_EXPORT RealtimeVideoSource(Ref<RealtimeVideoCaptureSource>&&, bool shouldUseIOSurface);
     ~RealtimeVideoSource();
 
-    // RealtimeMediaSiource
+    // RealtimeMediaSource
     void startProducingData() final;
     void stopProducingData() final;
-    bool supportsSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double> frameRate) final;
-    void setSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double> frameRate) final;
+    bool supportsSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double> frameRate) final;
+    void setSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double> frameRate) final;
     Ref<RealtimeMediaSource> clone() final;
     void requestToEnd(RealtimeMediaSource::Observer& callingObserver) final;
     void stopBeingObserved() final;
@@ -60,6 +62,8 @@ private:
     void monitorOrientation(OrientationNotifier& notifier) final { m_source->monitorOrientation(notifier); }
     bool interrupted() const final { return m_source->interrupted(); }
     bool isSameAs(RealtimeMediaSource& source) const final { return this == &source || m_source.ptr() == &source; }
+    void whenReady(CompletionHandler<void(String)>&&) final;
+    bool isVideoSource() const final { return true; }
 
     // RealtimeMediaSource::Observer
     void sourceMutedChanged() final;
@@ -68,7 +72,7 @@ private:
     bool preventSourceFromStopping() final;
 
     // RealtimeMediaSource::VideoSampleObserver
-    void videoSampleAvailable(MediaSample&) final;
+    void videoSampleAvailable(MediaSample&, VideoSampleMetadata) final;
 
 #if PLATFORM(COCOA)
     RefPtr<MediaSample> adaptVideoSample(MediaSample&);
@@ -82,6 +86,7 @@ private:
     RealtimeMediaSourceSettings m_currentSettings;
 #if PLATFORM(COCOA)
     std::unique_ptr<ImageTransferSessionVT> m_imageTransferSession;
+    bool m_shouldUseIOSurface { true };
 #endif
     size_t m_frameDecimation { 1 };
     size_t m_frameDecimationCounter { 0 };

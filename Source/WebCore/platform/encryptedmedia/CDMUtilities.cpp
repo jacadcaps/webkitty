@@ -38,7 +38,7 @@ namespace WebCore {
 
 namespace CDMUtilities {
 
-RefPtr<JSON::Object> parseJSONObject(const SharedBuffer& buffer)
+RefPtr<JSON::Object> parseJSONObject(const FragmentedSharedBuffer& buffer)
 {
     // Fail on large buffers whose size doesn't fit into a 32-bit unsigned integer.
     size_t size = buffer.size();
@@ -46,13 +46,13 @@ RefPtr<JSON::Object> parseJSONObject(const SharedBuffer& buffer)
         return nullptr;
 
     // Parse the buffer contents as JSON, returning the root object (if any).
-    String json { buffer.data(), static_cast<unsigned>(size) };
-    RefPtr<JSON::Value> value;
-    RefPtr<JSON::Object> object;
-    if (!JSON::Value::parseJSON(json, value) || !value->asObject(object))
+    String json { buffer.makeContiguous()->data(), static_cast<unsigned>(size) };
+
+    auto value = JSON::Value::parseJSON(json);
+    if (!value)
         return nullptr;
 
-    return object;
+    return value->asObject();
 }
 
 };

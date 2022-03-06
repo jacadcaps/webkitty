@@ -27,13 +27,11 @@
 #include "CachedFrame.h"
 
 #include "BackForwardCache.h"
-#include "CSSAnimationController.h"
 #include "CachedFramePlatformData.h"
 #include "CachedPage.h"
 #include "DOMWindow.h"
 #include "Document.h"
 #include "DocumentLoader.h"
-#include "DocumentTimeline.h"
 #include "Frame.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
@@ -94,7 +92,7 @@ void CachedFrameBase::restore()
     if (m_isMainFrame)
         m_view->setParentVisible(true);
 
-    auto frame = makeRef(m_view->frame());
+    Ref frame = m_view->frame();
     {
         Style::PostResolutionCallbackDisabler disabler(*m_document);
         WidgetHierarchyUpdatesSuspensionScope suspendWidgetHierarchyUpdates;
@@ -272,8 +270,6 @@ void CachedFrame::destroy()
         m_cachedFramePlatformData->clear();
 
     Frame::clearTimers(m_view.get(), m_document.get());
-
-    m_view->frame().legacyAnimation().detachFromDocument(m_document.get());
 
     // FIXME: Why do we need to call removeAllEventListeners here? When the document is in back/forward cache, this method won't work
     // fully anyway, because the document won't be able to access its DOMWindow object (due to being frameless).

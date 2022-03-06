@@ -33,6 +33,9 @@
 #if USE(LIBEPOXY)
 #include <epoxy/gl.h>
 #else
+#if HAVE(OPENGL_ES_3)
+#include <GLES3/gl3.h>
+#endif // HAVE(OPENGL_ES_3)
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #endif
@@ -64,8 +67,16 @@ typedef void (GL_APIENTRYP PFNGLGETNUNIFORMIVEXTPROC) (GLuint program, GLint loc
 
 namespace WebCore {
 
+class GraphicsContextGLOpenGL;
+
 class ExtensionsGLOpenGLES : public ExtensionsGLOpenGLCommon {
 public:
+    // GL_IMG_multisampled_render_to_texture
+    static constexpr GCGLenum RENDERBUFFER_SAMPLES_IMG = 0x9133;
+    static constexpr GCGLenum FRAMEBUFFER_INCOMPLETE_MULTISAMPLE_IMG = 0x9134;
+    static constexpr GCGLenum MAX_SAMPLES_IMG = 0x9135;
+    static constexpr GCGLenum TEXTURE_SAMPLES_IMG = 0x9136;
+
     // This class only needs to be instantiated by GraphicsContextGLOpenGL implementations.
     ExtensionsGLOpenGLES(GraphicsContextGLOpenGL*, bool useIndexedGetString);
     virtual ~ExtensionsGLOpenGLES();
@@ -75,21 +86,17 @@ public:
 
     // Extension3D methods
     bool isEnabled(const String&) override;
-    void blitFramebuffer(long srcX0, long srcY0, long srcX1, long srcY1, long dstX0, long dstY0, long dstX1, long dstY1, unsigned long mask, unsigned long filter) override;
-    void renderbufferStorageMultisample(unsigned long target, unsigned long samples, unsigned long internalformat, unsigned long width, unsigned long height) override;
-    void insertEventMarkerEXT(const String&) override;
-    void pushGroupMarkerEXT(const String&) override;
-    void popGroupMarkerEXT(void) override;
+    void renderbufferStorageMultisampleANGLE(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height);
 
     PlatformGLObject createVertexArrayOES() override;
     void deleteVertexArrayOES(PlatformGLObject) override;
     GCGLboolean isVertexArrayOES(PlatformGLObject) override;
     void bindVertexArrayOES(PlatformGLObject) override;
-    void drawBuffersEXT(GCGLsizei, const GCGLenum*) override;
+    void drawBuffersEXT(GCGLSpan<const GCGLenum>) override;
 
-    void drawArraysInstanced(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount) override;
-    void drawElementsInstanced(GCGLenum mode, GCGLsizei count, GCGLenum type, long long offset, GCGLsizei primcount) override;
-    void vertexAttribDivisor(GCGLuint index, GCGLuint divisor) override;
+    void drawArraysInstancedANGLE(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount) override;
+    void drawElementsInstancedANGLE(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLvoidptr offset, GCGLsizei primcount) override;
+    void vertexAttribDivisorANGLE(GCGLuint index, GCGLuint divisor) override;
 
     // EXT Robustness - reset
     int getGraphicsResetStatusARB() override;
@@ -100,7 +107,7 @@ public:
     void getnUniformivEXT(GCGLuint program, int location, GCGLsizei bufSize, int *params) override;
 
 protected:
-    bool supportsExtension(const String&) override;
+    bool platformSupportsExtension(const String&) override;
     String getExtensions() override;
 
     GCGLenum m_contextResetStatus;

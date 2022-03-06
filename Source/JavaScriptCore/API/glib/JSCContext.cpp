@@ -20,7 +20,9 @@
 #include "config.h"
 #include "JSCContext.h"
 
+#include "APICast.h"
 #include "JSCClassPrivate.h"
+#include "JSCContextInternal.h"
 #include "JSCContextPrivate.h"
 #include "JSCExceptionPrivate.h"
 #include "JSCInlines.h"
@@ -234,12 +236,12 @@ JSC::JSObject* jscContextGetOrCreateJSWrapper(JSCContext* context, JSClassRef js
     if (auto* jsWrapper = jscContextGetJSWrapper(context, wrappedObject))
         return jsWrapper;
 
-    return wrapperMap(context).createJSWrappper(context->priv->jsContext.get(), jsClass, prototype, wrappedObject, destroyFunction);
+    return wrapperMap(context).createJSWrapper(context->priv->jsContext.get(), jsClass, prototype, wrappedObject, destroyFunction);
 }
 
 JSGlobalContextRef jscContextCreateContextWithJSWrapper(JSCContext* context, JSClassRef jsClass, JSValueRef prototype, gpointer wrappedObject, GDestroyNotify destroyFunction)
 {
-    return wrapperMap(context).createContextWithJSWrappper(jscVirtualMachineGetContextGroup(context->priv->vm.get()), jsClass, prototype, wrappedObject, destroyFunction);
+    return wrapperMap(context).createContextWithJSWrapper(jscVirtualMachineGetContextGroup(context->priv->vm.get()), jsClass, prototype, wrappedObject, destroyFunction);
 }
 
 gpointer jscContextWrappedObject(JSCContext* context, JSObjectRef jsObject)
@@ -461,6 +463,12 @@ JSValueRef jscContextGValueToJSValue(JSCContext* context, const GValue* value, J
     return JSValueMakeUndefined(priv->jsContext.get());
 }
 
+static inline gpointer jscContextJSValueToWrappedObject(JSCContext* context, JSValueRef jsValue)
+{
+    auto jsObject = JSValueToObject(context->priv->jsContext.get(), jsValue, nullptr);
+    return jsObject ? jscContextWrappedObject(context, jsObject) : nullptr;
+}
+
 void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType type, GValue* value, JSValueRef* exception)
 {
     JSCContextPrivate* priv = context->priv;
@@ -471,7 +479,7 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
     auto fundamentalType = g_type_fundamental(G_VALUE_TYPE(value));
     switch (fundamentalType) {
     case G_TYPE_INT:
-        g_value_set_int(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_int(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_FLOAT:
         g_value_set_float(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
@@ -495,56 +503,50 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
             g_value_set_string(value, nullptr);
         break;
     case G_TYPE_CHAR:
-        g_value_set_schar(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_schar(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_UCHAR:
-        g_value_set_uchar(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_uchar(value, JSC::toUInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_UINT:
-        g_value_set_uint(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_uint(value, JSC::toUInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_POINTER:
     case G_TYPE_OBJECT:
     case G_TYPE_BOXED: {
-        gpointer wrappedObject = nullptr;
+        gpointer wrappedObject = jscContextJSValueToWrappedObject(context, jsValue);
 
-        if (!JSValueIsNull(priv->jsContext.get(), jsValue)) {
-            auto jsObject = JSValueToObject(priv->jsContext.get(), jsValue, exception);
-            if (*exception)
-                return;
-
-            wrappedObject = jscContextWrappedObject(context, jsObject);
-            if (!wrappedObject) {
-                if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_VALUE)) {
-                    auto jscValue = jscContextGetOrCreateValue(context, jsValue);
-                    g_value_set_object(value, jscValue.get());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_EXCEPTION)) {
-                    auto exception = jscExceptionCreate(context, jsValue);
-                    g_value_set_object(value, exception.get());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_PTR_ARRAY)) {
-                    auto gArray = jscContextJSArrayToGArray(context, jsValue, exception);
-                    if (!*exception)
-                        g_value_take_boxed(value, gArray.leakRef());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_STRV)) {
-                    auto strv = jscContextJSArrayToGStrv(context, jsValue, exception);
-                    if (!*exception)
-                        g_value_take_boxed(value, strv.release());
-                    return;
-                }
-
-                *exception = toRef(JSC::createTypeError(globalObject, "invalid pointer type"_s));
+        if (!wrappedObject) {
+            if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_VALUE)) {
+                auto jscValue = jscContextGetOrCreateValue(context, jsValue);
+                g_value_set_object(value, jscValue.get());
                 return;
             }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_EXCEPTION)) {
+                auto exception = jscExceptionCreate(context, jsValue);
+                g_value_set_object(value, exception.get());
+                return;
+            }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_PTR_ARRAY)) {
+                auto gArray = jscContextJSArrayToGArray(context, jsValue, exception);
+                if (!*exception)
+                    g_value_take_boxed(value, gArray.leakRef());
+                return;
+            }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_STRV)) {
+                auto strv = jscContextJSArrayToGStrv(context, jsValue, exception);
+                if (!*exception)
+                    g_value_take_boxed(value, strv.release());
+                return;
+            }
+
+            *exception = toRef(JSC::createTypeError(globalObject, "invalid pointer type"_s));
+            return;
         }
+
         if (fundamentalType == G_TYPE_POINTER)
             g_value_set_pointer(value, wrappedObject);
         else if (fundamentalType == G_TYPE_BOXED)
@@ -568,10 +570,10 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
         g_value_set_uint64(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
         break;
     case G_TYPE_ENUM:
-        g_value_set_enum(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_enum(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_FLAGS:
-        g_value_set_flags(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_flags(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_PARAM:
     case G_TYPE_INTERFACE:
@@ -580,6 +582,19 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
         *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type ", g_type_name(G_VALUE_TYPE(value)))));
         break;
     }
+}
+
+void jscContextGarbageCollect(JSCContext* context, bool sanitizeStack)
+{
+    auto* jsContext = context->priv->jsContext.get();
+    JSC::JSGlobalObject* globalObject = toJS(jsContext);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    if (sanitizeStack)
+        sanitizeStackForVM(vm);
+
+    vm.heap.collectNow(JSC::Sync, JSC::CollectionScope::Full);
 }
 
 /**

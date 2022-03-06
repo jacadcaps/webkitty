@@ -26,8 +26,6 @@
 #include "config.h"
 #include "WebIDBConnectionToClient.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "WebCoreArgumentCoders.h"
 #include "WebIDBConnectionToServerMessages.h"
 #include "WebIDBResult.h"
@@ -41,7 +39,7 @@ namespace WebKit {
 using namespace WebCore;
 
 WebIDBConnectionToClient::WebIDBConnectionToClient(IPC::Connection& connection, WebCore::IDBConnectionIdentifier serverConnectionIdentifier)
-    : m_connection(makeRef(connection))
+    : m_connection(connection)
     , m_identifier(serverConnectionIdentifier)
     , m_connectionToClient(IDBServer::IDBConnectionToClient::create(*this))
 {
@@ -199,5 +197,3 @@ void WebIDBConnectionToClient::didGetAllDatabaseNamesAndVersions(const WebCore::
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(INDEXED_DATABASE)

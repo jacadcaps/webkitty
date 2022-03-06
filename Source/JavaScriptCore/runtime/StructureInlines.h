@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,31 @@
 
 #pragma once
 
+#include "BrandedStructure.h"
 #include "JSArrayBufferView.h"
 #include "JSCJSValueInlines.h"
 #include "JSGlobalObject.h"
-#include "PropertyMapHashTable.h"
+#include "PropertyTable.h"
 #include "Structure.h"
 #include "StructureChain.h"
 #include "StructureRareDataInlines.h"
 #include <wtf/Threading.h>
 
 namespace JSC {
+
+class DeferredStructureTransitionWatchpointFire final : public DeferredWatchpointFire {
+    WTF_MAKE_NONCOPYABLE(DeferredStructureTransitionWatchpointFire);
+public:
+    JS_EXPORT_PRIVATE DeferredStructureTransitionWatchpointFire(VM&, Structure*);
+    JS_EXPORT_PRIVATE ~DeferredStructureTransitionWatchpointFire() final;
+
+    void dump(PrintStream&) const final;
+
+    const Structure* structure() const { return m_structure; }
+
+private:
+    const Structure* m_structure;
+};
 
 inline Structure* Structure::create(VM& vm, JSGlobalObject* globalObject, JSValue prototype, const TypeInfo& typeInfo, const ClassInfo* classInfo, IndexingType indexingModeIncludingHistory, unsigned inlineCapacity)
 {
@@ -45,15 +60,16 @@ inline Structure* Structure::create(VM& vm, JSGlobalObject* globalObject, JSValu
         object->didBecomePrototype();
     }
 
-    Structure* structure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm, globalObject, prototype, typeInfo, classInfo, indexingModeIncludingHistory, inlineCapacity);
+    Structure* structure = new (NotNull, allocateCell<Structure>(vm)) Structure(vm, globalObject, prototype, typeInfo, classInfo, indexingModeIncludingHistory, inlineCapacity);
     structure->finishCreation(vm);
+    ASSERT(structure->type() == StructureType);
     return structure;
 }
 
 inline Structure* Structure::createStructure(VM& vm)
 {
     ASSERT(!vm.structureStructure);
-    Structure* structure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm);
+    Structure* structure = new (NotNull, allocateCell<Structure>(vm)) Structure(vm, CreatingEarlyCell);
     structure->finishCreation(vm, CreatingEarlyCell);
     return structure;
 }
@@ -61,7 +77,12 @@ inline Structure* Structure::createStructure(VM& vm)
 inline Structure* Structure::create(VM& vm, Structure* previous, DeferredStructureTransitionWatchpointFire* deferred)
 {
     ASSERT(vm.structureStructure);
-    Structure* newStructure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm, previous, deferred);
+    Structure* newStructure;
+    if (previous->isBrandedStructure())
+        newStructure = new (NotNull, allocateCell<BrandedStructure>(vm)) BrandedStructure(vm, jsCast<BrandedStructure*>(previous), deferred);
+    else
+        newStructure = new (NotNull, allocateCell<Structure>(vm)) Structure(vm, previous, deferred);
+
     newStructure->finishCreation(vm, previous);
     return newStructure;
 }
@@ -166,7 +187,7 @@ void Structure::forEachPropertyConcurrently(const Functor& functor)
     Structure* tableStructure;
     PropertyTable* table;
     
-    findStructuresAndMapForMaterialization(structures, tableStructure, table);
+    bool didFindStructure = findStructuresAndMapForMaterialization(structures, tableStructure, table);
 
     HashSet<UniquedStringImpl*> seenProperties;
 
@@ -176,17 +197,29 @@ void Structure::forEachPropertyConcurrently(const Functor& functor)
 
         seenProperties.add(structure->m_transitionPropertyName.get());
 
-        if (structure->isPropertyDeletionTransition())
+        switch (structure->transitionKind()) {
+        case TransitionKind::PropertyAddition:
+        case TransitionKind::PropertyAttributeChange:
+            break;
+        case TransitionKind::PropertyDeletion:
+        case TransitionKind::SetBrand:
             continue;
+        default:
+            ASSERT_NOT_REACHED();
+            break;
+        }
 
         if (!functor(PropertyMapEntry(structure->m_transitionPropertyName.get(), structure->transitionOffset(), structure->transitionPropertyAttributes()))) {
-            if (table)
+            if (didFindStructure) {
+                assertIsHeld(tableStructure->m_lock); // Sadly Clang needs some help here.
                 tableStructure->m_lock.unlock();
+            }
             return;
         }
     }
     
-    if (table) {
+    if (didFindStructure) {
+        assertIsHeld(tableStructure->m_lock); // Sadly Clang needs some help here.
         for (auto& entry : *table) {
             if (seenProperties.contains(entry.key))
                 continue;
@@ -208,6 +241,7 @@ void Structure::forEachProperty(VM& vm, const Functor& functor)
             if (!functor(entry))
                 return;
         }
+        ensureStillAliveHere(table);
     }
 }
 
@@ -242,32 +276,32 @@ inline bool Structure::transitivelyTransitionedFrom(Structure* structureToFind)
     return false;
 }
 
-inline void Structure::setCachedOwnKeys(VM& vm, JSImmutableButterfly* ownKeys)
+inline void Structure::setCachedPropertyNames(VM& vm, CachedPropertyNamesKind kind, JSImmutableButterfly* cached)
 {
-    ensureRareData(vm)->setCachedOwnKeys(vm, ownKeys);
+    ensureRareData(vm)->setCachedPropertyNames(vm, kind, cached);
 }
 
-inline JSImmutableButterfly* Structure::cachedOwnKeys() const
-{
-    if (!hasRareData())
-        return nullptr;
-    return rareData()->cachedOwnKeys();
-}
-
-inline JSImmutableButterfly* Structure::cachedOwnKeysIgnoringSentinel() const
+inline JSImmutableButterfly* Structure::cachedPropertyNames(CachedPropertyNamesKind kind) const
 {
     if (!hasRareData())
         return nullptr;
-    return rareData()->cachedOwnKeysIgnoringSentinel();
+    return rareData()->cachedPropertyNames(kind);
 }
 
-inline bool Structure::canCacheOwnKeys() const
+inline JSImmutableButterfly* Structure::cachedPropertyNamesIgnoringSentinel(CachedPropertyNamesKind kind) const
+{
+    if (!hasRareData())
+        return nullptr;
+    return rareData()->cachedPropertyNamesIgnoringSentinel(kind);
+}
+
+inline bool Structure::canCacheOwnPropertyNames() const
 {
     if (isDictionary())
         return false;
     if (hasIndexedProperties(indexingType()))
         return false;
-    if (typeInfo().overridesAnyFormOfGetPropertyNames())
+    if (typeInfo().overridesAnyFormOfGetOwnPropertyNames())
         return false;
     return true;
 }
@@ -308,14 +342,10 @@ inline StructureChain* Structure::prototypeChain(VM& vm, JSGlobalObject* globalO
     // We cache our prototype chain so our clients can share it.
     if (!isValid(globalObject, m_cachedPrototypeChain.get(), base)) {
         JSValue prototype = prototypeForLookup(globalObject, base);
+        const_cast<Structure*>(this)->clearCachedPrototypeChain();
         m_cachedPrototypeChain.set(vm, this, StructureChain::create(vm, prototype.isNull() ? nullptr : asObject(prototype)));
     }
     return m_cachedPrototypeChain.get();
-}
-
-inline StructureChain* Structure::prototypeChain(JSGlobalObject* globalObject, JSObject* base) const
-{
-    return prototypeChain(globalObject->vm(), globalObject, base);
 }
 
 inline bool Structure::isValid(JSGlobalObject* globalObject, StructureChain* cachedPrototypeChain, JSObject* base) const
@@ -339,10 +369,10 @@ inline void Structure::didReplaceProperty(PropertyOffset offset)
 {
     if (LIKELY(!hasRareData()))
         return;
-    StructureRareData::PropertyWatchpointMap* map = rareData()->m_replacementWatchpointSets.get();
-    if (LIKELY(!map))
+    auto* rareData = this->rareData();
+    if (LIKELY(rareData->m_replacementWatchpointSets.isNullStorage()))
         return;
-    WatchpointSet* set = map->get(offset);
+    WatchpointSet* set = rareData->m_replacementWatchpointSets.get(offset);
     if (LIKELY(!set))
         return;
     set->fireAll(vm(), "Property did get replaced");
@@ -351,13 +381,12 @@ inline void Structure::didReplaceProperty(PropertyOffset offset)
 inline WatchpointSet* Structure::propertyReplacementWatchpointSet(PropertyOffset offset)
 {
     ConcurrentJSLocker locker(m_lock);
-    if (!hasRareData())
+    StructureRareData* rareData = tryRareData();
+    if (!rareData)
         return nullptr;
-    WTF::loadLoadFence();
-    StructureRareData::PropertyWatchpointMap* map = rareData()->m_replacementWatchpointSets.get();
-    if (!map)
-        return nullptr;
-    return map->get(offset);
+    if (!rareData->m_replacementWatchpointSets.isNullStorage())
+        return rareData->m_replacementWatchpointSets.get(offset);
+    return nullptr;
 }
 
 template<typename DetailsFunc>
@@ -427,11 +456,11 @@ inline size_t nextOutOfLineStorageCapacity(size_t currentCapacity)
     return currentCapacity * outOfLineGrowthFactor;
 }
 
-inline void Structure::setObjectToStringValue(JSGlobalObject* globalObject, VM& vm, JSString* value, const PropertySlot& toStringTagSymbolSlot)
+inline void Structure::cacheSpecialProperty(JSGlobalObject* globalObject, VM& vm, JSValue value, CachedSpecialPropertyKey key, const PropertySlot& slot)
 {
     if (!hasRareData())
         allocateRareData(vm);
-    rareData()->setObjectToStringValue(globalObject, vm, this, value, toStringTagSymbolSlot);
+    rareData()->cacheSpecialProperty(globalObject, vm, this, value, key, slot);
 }
 
 template<Structure::ShouldPin shouldPin, typename Func>
@@ -439,7 +468,7 @@ inline PropertyOffset Structure::add(VM& vm, PropertyName propertyName, unsigned
 {
     PropertyTable* table = ensurePropertyTable(vm);
 
-    GCSafeConcurrentJSLocker locker(m_lock, vm.heap);
+    GCSafeConcurrentJSLocker locker(m_lock, vm);
 
     switch (shouldPin) {
     case ShouldPin::Yes:
@@ -482,7 +511,7 @@ template<Structure::ShouldPin shouldPin, typename Func>
 inline PropertyOffset Structure::remove(VM& vm, PropertyName propertyName, const Func& func)
 {
     PropertyTable* table = ensurePropertyTable(vm);
-    GCSafeConcurrentJSLocker locker(m_lock, vm.heap);
+    GCSafeConcurrentJSLocker locker(m_lock, vm);
 
     switch (shouldPin) {
     case ShouldPin::Yes:
@@ -521,6 +550,49 @@ inline PropertyOffset Structure::remove(VM& vm, PropertyName propertyName, const
     return offset;
 }
 
+template<Structure::ShouldPin shouldPin, typename Func>
+inline PropertyOffset Structure::attributeChange(VM& vm, PropertyName propertyName, unsigned attributes, const Func& func)
+{
+    PropertyTable* table = ensurePropertyTable(vm);
+
+    GCSafeConcurrentJSLocker locker(m_lock, vm);
+
+    switch (shouldPin) {
+    case ShouldPin::Yes:
+        pin(locker, vm, table);
+        break;
+    case ShouldPin::No:
+        setPropertyTable(vm, table);
+        break;
+    }
+
+    ASSERT(JSC::isValidOffset(get(vm, propertyName)));
+
+    checkConsistency();
+    PropertyMapEntry* entry = table->get(propertyName.uid());
+    if (!entry)
+        return invalidOffset;
+
+    PropertyOffset offset = entry->offset;
+
+    if (attributes & PropertyAttribute::DontEnum)
+        setIsQuickPropertyAccessAllowedForEnumeration(false);
+    if (attributes & PropertyAttribute::ReadOnly)
+        setContainsReadOnlyProperties();
+
+    entry->attributes = attributes;
+
+    PropertyOffset newMaxOffset = maxOffset();
+
+    func(locker, offset, newMaxOffset);
+
+    ASSERT(maxOffset() == newMaxOffset);
+    ASSERT(JSC::isValidOffset(get(vm, propertyName)));
+
+    checkConsistency();
+    return offset;
+}
+
 template<typename Func>
 inline PropertyOffset Structure::addPropertyWithoutTransition(VM& vm, PropertyName propertyName, unsigned attributes, const Func& func)
 {
@@ -535,6 +607,12 @@ inline PropertyOffset Structure::removePropertyWithoutTransition(VM& vm, Propert
     ASSERT(propertyTableOrNull());
     
     return remove<ShouldPin::Yes>(vm, propertyName, func);
+}
+
+template<typename Func>
+inline PropertyOffset Structure::attributeChangeWithoutTransition(VM& vm, PropertyName propertyName, unsigned attributes, const Func& func)
+{
+    return attributeChange<ShouldPin::Yes>(vm, propertyName, attributes, func);
 }
 
 ALWAYS_INLINE void Structure::setPrototypeWithoutTransition(VM& vm, JSValue prototype)
@@ -608,7 +686,7 @@ ALWAYS_INLINE bool Structure::shouldConvertToPolyProto(const Structure* a, const
     return !aObj && !bObj;
 }
 
-inline Structure* Structure::nonPropertyTransition(VM& vm, Structure* structure, NonPropertyTransition transitionKind)
+inline Structure* Structure::nonPropertyTransition(VM& vm, Structure* structure, TransitionKind transitionKind)
 {
     IndexingType indexingModeIncludingHistory = newIndexingType(structure->indexingModeIncludingHistory(), transitionKind);
 
@@ -625,6 +703,64 @@ inline Structure* Structure::nonPropertyTransition(VM& vm, Structure* structure,
     }
 
     return nonPropertyTransitionSlow(vm, structure, transitionKind);
+}
+
+inline Structure* Structure::addPropertyTransitionToExistingStructureImpl(Structure* structure, UniquedStringImpl* uid, unsigned attributes, PropertyOffset& offset)
+{
+    ASSERT(!structure->isDictionary());
+    ASSERT(structure->isObject());
+
+    offset = invalidOffset;
+
+    if (structure->hasBeenDictionary())
+        return nullptr;
+
+    if (Structure* existingTransition = structure->m_transitionTable.get(uid, attributes, TransitionKind::PropertyAddition)) {
+        validateOffset(existingTransition->transitionOffset(), existingTransition->inlineCapacity());
+        offset = existingTransition->transitionOffset();
+        return existingTransition;
+    }
+
+    return nullptr;
+}
+
+ALWAYS_INLINE Structure* Structure::addPropertyTransitionToExistingStructure(Structure* structure, PropertyName propertyName, unsigned attributes, PropertyOffset& offset)
+{
+    ASSERT(!isCompilationThread());
+    return addPropertyTransitionToExistingStructureImpl(structure, propertyName.uid(), attributes, offset);
+}
+
+ALWAYS_INLINE Structure* Structure::addPropertyTransitionToExistingStructureConcurrently(Structure* structure, UniquedStringImpl* uid, unsigned attributes, PropertyOffset& offset)
+{
+    ConcurrentJSLocker locker(structure->m_lock);
+    return addPropertyTransitionToExistingStructureImpl(structure, uid, attributes, offset);
+}
+
+inline Structure* StructureTransitionTable::singleTransition() const
+{
+    ASSERT(isUsingSingleSlot());
+    if (WeakImpl* impl = this->weakImpl()) {
+        if (impl->state() == WeakImpl::Live)
+            return jsCast<Structure*>(impl->jsValue().asCell());
+    }
+    return nullptr;
+}
+
+inline Structure* StructureTransitionTable::get(UniquedStringImpl* rep, unsigned attributes, TransitionKind transitionKind) const
+{
+    if (isUsingSingleSlot()) {
+        Structure* transition = singleTransition();
+        return (transition && transition->m_transitionPropertyName == rep && transition->transitionPropertyAttributes() == attributes && transition->transitionKind() == transitionKind) ? transition : nullptr;
+    }
+    return map()->get(StructureTransitionTable::Hash::Key(rep, attributes, transitionKind));
+}
+
+inline void Structure::clearCachedPrototypeChain()
+{
+    m_cachedPrototypeChain.clear();
+    if (!hasRareData())
+        return;
+    rareData()->clearCachedPropertyNameEnumerator();
 }
 
 } // namespace JSC

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,12 @@
 
 #if ENABLE(PDFKIT_PLUGIN)
 
-#include "PDFKitImports.h"
+#include "DataReference.h"
+#include "PDFPluginIdentifier.h"
 #include "Plugin.h"
 #include "WebEvent.h"
 #include "WebHitTestResultData.h"
+#include "WebMouseEvent.h"
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AffineTransform.h>
 #include <WebCore/FindOptions.h>
@@ -42,6 +44,7 @@
 #include <wtf/RangeSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Threading.h>
+#include <wtf/WeakPtr.h>
 
 typedef const struct OpaqueJSContext* JSContextRef;
 typedef struct OpaqueJSValue* JSObjectRef;
@@ -50,6 +53,7 @@ typedef const struct OpaqueJSValue* JSValueRef;
 OBJC_CLASS NSArray;
 OBJC_CLASS NSAttributedString;
 OBJC_CLASS NSData;
+OBJC_CLASS NSEvent;
 OBJC_CLASS NSString;
 OBJC_CLASS PDFAnnotation;
 OBJC_CLASS PDFLayerController;
@@ -57,14 +61,11 @@ OBJC_CLASS PDFSelection;
 OBJC_CLASS WKPDFPluginAccessibilityObject;
 OBJC_CLASS WKPDFLayerControllerDelegate;
 
-namespace IPC {
-class DataReference;
-}
-
 namespace WebCore {
 class AXObjectCache;
 class Element;
 struct PluginInfo;
+class SharedBuffer;
 }
 
 namespace WTF {
@@ -77,14 +78,12 @@ class PDFPluginAnnotation;
 class PDFPluginPasswordField;
 class PluginView;
 class WebFrame;
+struct FrameInfoData;
 
-class PDFPlugin final : public Plugin, private WebCore::ScrollableArea
-#if HAVE(INCREMENTAL_PDF_APIS)
-    , private WebCore::NetscapePlugInStreamLoaderClient
-#endif
+class PDFPlugin final : public Plugin, public WebCore::ScrollableArea
 {
 public:
-    static Ref<PDFPlugin> create(WebFrame&);
+    static Ref<PDFPlugin> create(WebFrame&, WebCore::HTMLPlugInElement*);
     ~PDFPlugin();
 
     static WebCore::PluginInfo pluginInfo();
@@ -103,9 +102,19 @@ public:
     void notifySelectionChanged(PDFSelection *);
     void notifyCursorChanged(uint64_t /* PDFLayerControllerCursorType */);
 
+#if ENABLE(UI_PROCESS_PDF_HUD)
+    void zoomIn();
+    void zoomOut();
+    void save(CompletionHandler<void(const String&, const URL&, const IPC::DataReference&)>&&);
+    void openWithPreview(CompletionHandler<void(const String&, FrameInfoData&&, const IPC::DataReference&, const String&)>&&);
+    PDFPluginIdentifier identifier() const { return m_identifier; }
+#endif
+
     void clickedLink(NSURL *);
+#if !ENABLE(UI_PROCESS_PDF_HUD)
     void saveToPDF();
     void openWithNativeApplication();
+#endif
     void writeItemsToPasteboard(NSString *pasteboardName, NSArray *items, NSArray *types);
     void showDefinitionForAttributedString(NSAttributedString *, CGPoint);
     void performWebSearch(NSString *);
@@ -118,7 +127,10 @@ public:
 
     WebCore::FloatRect convertFromPDFViewToScreen(const WebCore::FloatRect&) const;
     WebCore::IntPoint convertFromRootViewToPDFView(const WebCore::IntPoint&) const;
+    WebCore::IntPoint convertFromPDFViewToRootView(const WebCore::IntPoint&) const;
+    WebCore::IntRect convertFromPDFViewToRootView(const WebCore::IntRect&) const;
     WebCore::IntRect boundsOnScreen() const;
+    WebCore::IntRect frameForHUD() const;
 
     bool showContextMenuAtPoint(const WebCore::IntPoint&);
 
@@ -145,7 +157,7 @@ public:
 #endif
 
 private:
-    explicit PDFPlugin(WebFrame&);
+    explicit PDFPlugin(WebFrame&, WebCore::HTMLPlugInElement*);
 
     // Plugin functions.
     bool initialize(const Parameters&) final;
@@ -159,17 +171,17 @@ private:
     bool wantsWheelEvents() final { return true; }
     void geometryDidChange(const WebCore::IntSize& pluginSize, const WebCore::IntRect& clipRect, const WebCore::AffineTransform& pluginToRootViewTransform) final;
     void contentsScaleFactorChanged(float) final;
-    void visibilityDidChange(bool) final { }
+    void visibilityDidChange(bool) final;
     void frameDidFinishLoading(uint64_t requestID) final;
     void frameDidFail(uint64_t requestID, bool wasCancelled) final;
     void didEvaluateJavaScript(uint64_t requestID, const String& result) final;
     void streamWillSendRequest(uint64_t streamID, const URL& requestURL, const URL& responseURL, int responseStatus) final { }
     void streamDidReceiveResponse(uint64_t streamID, const URL& responseURL, uint32_t streamLength, uint32_t lastModifiedTime, const String& mimeType, const String& headers, const String& suggestedFileName) final;
-    void streamDidReceiveData(uint64_t streamID, const char* bytes, int length) final;
+    void streamDidReceiveData(uint64_t streamID, const WebCore::SharedBuffer&) final;
     void streamDidFinishLoading(uint64_t streamID) final;
     void streamDidFail(uint64_t streamID, bool wasCancelled) final;
     void manualStreamDidReceiveResponse(const URL& responseURL, uint32_t streamLength, uint32_t lastModifiedTime, const WTF::String& mimeType, const WTF::String& headers, const String& suggestedFileName) final;
-    void manualStreamDidReceiveData(const char* bytes, int length) final;
+    void manualStreamDidReceiveData(const WebCore::SharedBuffer&) final;
     void manualStreamDidFinishLoading() final;
     void manualStreamDidFail(bool wasCancelled) final;
     bool handleMouseEvent(const WebMouseEvent&) final;
@@ -183,27 +195,23 @@ private:
     bool handlesPageScaleFactor() const final;
     bool requiresUnifiedScaleFactor() const final { return true; }
     void setFocus(bool) final { }
-    NPObject* pluginScriptableNPObject() final { return nullptr; }
     void windowFocusChanged(bool) final { }
     void windowAndViewFramesChanged(const WebCore::IntRect& windowFrameInScreenCoordinates, const WebCore::IntRect& viewFrameInWindowCoordinates) final { }
     void windowVisibilityChanged(bool) final { }
-    uint64_t pluginComplexTextInputIdentifier() const final { return 0; }
     void sendComplexTextInput(const String& textInput) final { }
     void setLayerHostingMode(LayerHostingMode) final { }
     WebCore::Scrollbar* horizontalScrollbar() final { return m_horizontalScrollbar.get(); }
     WebCore::Scrollbar* verticalScrollbar() final { return m_verticalScrollbar.get(); }
     void storageBlockingStateChanged(bool) final { }
-    void privateBrowsingStateChanged(bool) final { }
-    bool getFormValue(String& formValue) final { return false; }
     bool handleScroll(WebCore::ScrollDirection, WebCore::ScrollGranularity) final;
-    RefPtr<WebCore::SharedBuffer> liveResourceData() const final;
+    RefPtr<WebCore::FragmentedSharedBuffer> liveResourceData() const final;
     void willDetachRenderer() final;
     bool pluginHandlesContentOffsetForAccessibilityHitTest() const final;
     
-    bool isBeingAsynchronouslyInitialized() const final { return false; }
-
     RetainPtr<PDFDocument> pdfDocumentForPrinting() const final { return m_pdfDocument; }
-    NSObject *accessibilityObject() const final;
+    WebCore::FloatSize pdfDocumentSizeForPrinting() const final;
+    id accessibilityHitTest(const WebCore::IntPoint&) const final;
+    id accessibilityObject() const final;
     id accessibilityAssociatedPluginParentForElement(WebCore::Element*) const final;
 
     unsigned countFindMatches(const String& target, WebCore::FindOptions, unsigned maxMatchCount) final;
@@ -213,12 +221,10 @@ private:
 
     bool performDictionaryLookupAtLocation(const WebCore::FloatPoint&) final;
     String getSelectionString() const final;
-    String getSelectionForWordAtPoint(const WebCore::FloatPoint&) const final;
     bool existingSelectionContainsPoint(const WebCore::FloatPoint&) const final;
 
     bool shouldAllowScripting() final { return false; }
     bool shouldAllowNavigationFromDrags() final { return true; }
-    bool shouldAlwaysAutoStart() const final { return true; }
 
     // ScrollableArea functions.
     bool isPDFPlugin() const final { return true; }
@@ -247,7 +253,7 @@ private:
     WebCore::IntPoint convertFromScrollbarToContainingView(const WebCore::Scrollbar&, const WebCore::IntPoint& scrollbarPoint) const final;
     WebCore::IntPoint convertFromContainingViewToScrollbar(const WebCore::Scrollbar&, const WebCore::IntPoint& parentPoint) const final;
     bool forceUpdateScrollbarsOnMainThreadForPerformanceTesting() const final;
-    bool shouldPlaceBlockDirectionScrollbarOnLeft() const final { return false; }
+    bool shouldPlaceVerticalScrollbarOnLeft() const final { return false; }
     String debugDescription() const final;
 
     // PDFPlugin functions.
@@ -263,7 +269,6 @@ private:
     NSEvent *nsEventForWebMouseEvent(const WebMouseEvent&);
     WebCore::IntPoint convertFromPluginToPDFView(const WebCore::IntPoint&) const;
     WebCore::IntPoint convertFromRootViewToPlugin(const WebCore::IntPoint&) const;
-    WebCore::IntPoint convertFromPDFViewToRootView(const WebCore::IntPoint&) const;
     
     bool supportsForms();
     bool isFullFramePlugin() const;
@@ -283,17 +288,14 @@ private:
     JSObjectRef makeJSPDFDoc(JSContextRef);
     static JSValueRef jsPDFDocPrint(JSContextRef, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception);
 
-    void convertPostScriptDataIfNeeded();
-
     void setSuggestedFilename(const String&);
 
     // Regular plug-ins don't need access to view, but we add scrollbars to embedding FrameView for proper event handling.
     PluginView* pluginView();
     const PluginView* pluginView() const;
 
-    WebFrame& m_frame;
+    WeakPtr<WebFrame> m_frame;
 
-    bool m_isPostScript { false };
     bool m_pdfDocumentWasMutated { false };
 
     WebCore::IntSize m_scrollOffset;
@@ -342,12 +344,29 @@ private:
     void threadEntry(Ref<PDFPlugin>&&);
     void adoptBackgroundThreadDocument();
 
-    // WebCore::NetscapePlugInStreamLoaderClient
-    void willSendRequest(WebCore::NetscapePlugInStreamLoader*, WebCore::ResourceRequest&&, const WebCore::ResourceResponse& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
-    void didReceiveResponse(WebCore::NetscapePlugInStreamLoader*, const WebCore::ResourceResponse&) final;
-    void didReceiveData(WebCore::NetscapePlugInStreamLoader*, const char*, int) final;
-    void didFail(WebCore::NetscapePlugInStreamLoader*, const WebCore::ResourceError&) final;
-    void didFinishLoading(WebCore::NetscapePlugInStreamLoader*) final;
+    bool documentFinishedLoading() { return m_documentFinishedLoading; }
+    uint64_t identifierForLoader(WebCore::NetscapePlugInStreamLoader* loader) { return m_streamLoaderMap.get(loader); }
+    void removeOutstandingByteRangeRequest(uint64_t identifier) { m_outstandingByteRangeRequests.remove(identifier); }
+
+    class PDFPluginStreamLoaderClient : public RefCounted<PDFPluginStreamLoaderClient>,
+                                        public WebCore::NetscapePlugInStreamLoaderClient {
+    public:
+        PDFPluginStreamLoaderClient(PDFPlugin& pdfPlugin)
+            : m_pdfPlugin(pdfPlugin)
+        {
+        }
+
+        ~PDFPluginStreamLoaderClient() = default;
+
+        void willSendRequest(WebCore::NetscapePlugInStreamLoader*, WebCore::ResourceRequest&&, const WebCore::ResourceResponse& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
+        void didReceiveResponse(WebCore::NetscapePlugInStreamLoader*, const WebCore::ResourceResponse&) final;
+        void didReceiveData(WebCore::NetscapePlugInStreamLoader*, const WebCore::SharedBuffer&) final;
+        void didFail(WebCore::NetscapePlugInStreamLoader*, const WebCore::ResourceError&) final;
+        void didFinishLoading(WebCore::NetscapePlugInStreamLoader*) final;
+
+    private:
+        WeakPtr<PDFPlugin> m_pdfPlugin;
+    };
 
     class ByteRangeRequest : public Identified<ByteRangeRequest> {
     public:
@@ -390,6 +409,7 @@ private:
     RetainPtr<PDFDocument> m_backgroundThreadDocument;
     RefPtr<Thread> m_pdfThread;
     HashMap<uint64_t, ByteRangeRequest> m_outstandingByteRangeRequests;
+    Ref<PDFPluginStreamLoaderClient> m_streamLoaderClient;
     HashMap<RefPtr<WebCore::NetscapePlugInStreamLoader>, uint64_t> m_streamLoaderMap;
     RangeSet<WTF::Range<uint64_t>> m_completedRanges;
     bool m_incrementalPDFLoadingEnabled;
@@ -403,12 +423,13 @@ private:
 #endif
 
 #endif // HAVE(INCREMENTAL_PDF_APIS)
+    PDFPluginIdentifier m_identifier;
 };
 
 } // namespace WebKit
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::PDFPlugin)
-    static bool isType(const WebKit::Plugin& plugin) { return plugin.isPDFPlugin(); }
+    static bool isType(const WebKit::Plugin&) { return true; } // FIXME: Consolidate PDFPlugin and Plugin into one class.
     static bool isType(const WebCore::ScrollableArea& area) { return area.isPDFPlugin(); }
 SPECIALIZE_TYPE_TRAITS_END()
 

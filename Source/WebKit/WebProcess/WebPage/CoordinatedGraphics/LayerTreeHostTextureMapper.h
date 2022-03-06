@@ -67,7 +67,7 @@ public:
     void setNonCompositedContentsNeedDisplay(const WebCore::IntRect&);
     void scrollNonCompositedContents(const WebCore::IntRect&);
     void forceRepaint();
-    bool forceRepaintAsync(CallbackID);
+    void forceRepaintAsync(CompletionHandler<void()>&&);
     void sizeDidChange(const WebCore::IntSize& newSize);
     void pauseRendering();
     void resumeRendering();
@@ -105,6 +105,8 @@ private:
     std::unique_ptr<WebCore::TextureMapper> m_textureMapper;
     WebCore::TextureMapperFPSCounter m_fpsCounter;
     WebCore::Timer m_layerFlushTimer;
+    bool m_notifyAfterScheduledLayerFlush { false };
+    bool m_isSuspended { false };
 };
 
 } // namespace WebKit

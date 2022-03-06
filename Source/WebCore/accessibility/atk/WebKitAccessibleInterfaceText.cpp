@@ -32,7 +32,7 @@
 #include "config.h"
 #include "WebKitAccessibleInterfaceText.h"
 
-#if ENABLE(ACCESSIBILITY)
+#if ENABLE(ACCESSIBILITY) && USE(ATK)
 
 #include "AccessibilityObject.h"
 #include "Document.h"
@@ -41,17 +41,16 @@
 #include "FrameView.h"
 #include "HTMLParserIdioms.h"
 #include "HostWindow.h"
-#include "InlineTextBox.h"
 #include "NotImplemented.h"
 #include "Range.h"
 #include "RenderListItem.h"
 #include "RenderListMarker.h"
 #include "RenderText.h"
-#include "TextEncoding.h"
 #include "TextIterator.h"
 #include "VisibleUnits.h"
 #include "WebKitAccessible.h"
 #include "WebKitAccessibleUtil.h"
+#include <pal/text/TextEncoding.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
 
@@ -75,7 +74,7 @@ static int baselinePositionForRenderObject(RenderObject* renderObject)
     // FIXME: This implementation of baselinePosition originates from RenderObject.cpp and was
     // removed in r70072. The implementation looks incorrect though, because this is not the
     // baseline of the underlying RenderObject, but of the AccessibilityRenderObject.
-    const FontMetrics& fontMetrics = renderObject->firstLineStyle().fontMetrics();
+    const FontMetrics& fontMetrics = renderObject->firstLineStyle().metricsOfPrimaryFont();
     return fontMetrics.ascent() + (renderObject->firstLineStyle().computedLineHeight() - fontMetrics.height()) / 2;
 }
 
@@ -93,14 +92,14 @@ static AtkAttributeSet* getAttributeSetForAccessibilityObject(const Accessibilit
 
     Color bgColor = style->visitedDependentColor(CSSPropertyBackgroundColor);
     if (bgColor.isValid()) {
-        auto [r, g, b, a] = bgColor.toSRGBALossy<uint8_t>();
+        auto [r, g, b, a] = bgColor.toColorTypeLossy<SRGBA<uint8_t>>().resolved();
         buffer.reset(g_strdup_printf("%i,%i,%i", r, g, b));
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_BG_COLOR), buffer.get());
     }
 
     Color fgColor = style->visitedDependentColor(CSSPropertyColor);
     if (fgColor.isValid()) {
-        auto [r, g, b, a] = fgColor.toSRGBALossy<uint8_t>();
+        auto [r, g, b, a] = fgColor.toColorTypeLossy<SRGBA<uint8_t>>().resolved();
         buffer.reset(g_strdup_printf("%i,%i,%i", r, g, b));
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_FG_COLOR), buffer.get());
     }
@@ -165,11 +164,11 @@ static AtkAttributeSet* getAttributeSetForAccessibilityObject(const Accessibilit
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_JUSTIFICATION), "fill");
     }
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_UNDERLINE), (style->textDecoration() & TextDecoration::Underline) ? "single" : "none");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_UNDERLINE), (style->textDecoration() & TextDecorationLine::Underline) ? "single" : "none");
 
     result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STYLE), style->fontCascade().italic() ? "italic" : "normal");
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STRIKETHROUGH), (style->textDecoration() & TextDecoration::LineThrough) ? "true" : "false");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STRIKETHROUGH), (style->textDecoration() & TextDecorationLine::LineThrough) ? "true" : "false");
 
     result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_INVISIBLE), (style->visibility() == Visibility::Hidden) ? "true" : "false");
 
@@ -244,11 +243,8 @@ static guint accessibilityObjectLength(const AccessibilityObject* object)
     // Technologies, we need to have a way to measure their length
     // for those cases when it's needed to take it into account
     // separately (as in getAccessibilityObjectForOffset)
-    RenderObject* renderer = object->renderer();
-    if (is<RenderListMarker>(renderer)) {
-        auto& marker = downcast<RenderListMarker>(*renderer);
-        return marker.text().length() + marker.suffix().length();
-    }
+    if (auto renderer = object->renderer(); is<RenderListMarker>(renderer))
+        return downcast<RenderListMarker>(*renderer).textWithSuffix().length();
 
     return 0;
 }
@@ -399,13 +395,8 @@ static void getSelectionOffsetsForObject(AccessibilityObject* coreObject, Visibl
     Position lastValidPosition = lastPositionInOrAfterNode(node->lastDescendant());
 
     // Find the proper range for the selection that falls inside the object.
-    Position nodeRangeStart = selection.start();
-    if (comparePositions(nodeRangeStart, firstValidPosition) < 0)
-        nodeRangeStart = firstValidPosition;
-
-    Position nodeRangeEnd = selection.end();
-    if (comparePositions(nodeRangeEnd, lastValidPosition) > 0)
-        nodeRangeEnd = lastValidPosition;
+    auto nodeRangeStart = std::max(selection.start(), firstValidPosition);
+    auto nodeRangeEnd = std::min(selection.end(), lastValidPosition);
 
     // Calculate position of the selected range inside the object.
     Position parentFirstPosition = firstPositionInOrBeforeNode(node);
@@ -413,14 +404,14 @@ static void getSelectionOffsetsForObject(AccessibilityObject* coreObject, Visibl
 
     // Set values for start offsets and calculate initial range length.
     // These values might be adjusted later to cover special cases.
-    startOffset = webCoreOffsetToAtkOffset(coreObject, characterCount(rangeInParent, TextIteratorEmitsCharactersBetweenAllVisiblePositions));
+    startOffset = webCoreOffsetToAtkOffset(coreObject, characterCount(rangeInParent, TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions));
     auto nodeRange = *makeSimpleRange(nodeRangeStart, nodeRangeEnd);
-    int rangeLength = characterCount(nodeRange, TextIteratorEmitsCharactersBetweenAllVisiblePositions);
+    int rangeLength = characterCount(nodeRange, TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions);
 
     // Special cases that are only relevant when working with *_END boundaries.
-    if (selection.affinity() == UPSTREAM) {
-        VisiblePosition visibleStart(nodeRangeStart, UPSTREAM);
-        VisiblePosition visibleEnd(nodeRangeEnd, UPSTREAM);
+    if (selection.affinity() == Affinity::Upstream) {
+        VisiblePosition visibleStart(nodeRangeStart, Affinity::Upstream);
+        VisiblePosition visibleEnd(nodeRangeEnd, Affinity::Upstream);
 
         // We need to adjust offsets when finding wrapped lines so the position at the end
         // of the line is properly taking into account when calculating the offsets.
@@ -448,7 +439,7 @@ static gchar* webkitAccessibleTextGetText(AtkText* text, gint startOffset, gint 
 
 #if ENABLE(INPUT_TYPE_COLOR)
     if (coreObject->roleValue() == AccessibilityRole::ColorWell) {
-        auto color = convertToComponentFloats(coreObject->colorValue());
+        auto color = convertColor<SRGBA<float>>(coreObject->colorValue()).resolved();
         return g_strdup_printf("rgb %7.5f %7.5f %7.5f 1", color.red, color.green, color.blue);
     }
 #endif
@@ -467,7 +458,7 @@ static gchar* webkitAccessibleTextGetText(AtkText* text, gint startOffset, gint 
     if (coreObject->roleValue() == AccessibilityRole::ListItem) {
         RenderObject* objRenderer = coreObject->renderer();
         if (is<RenderListItem>(objRenderer)) {
-            String markerText = downcast<RenderListItem>(*objRenderer).markerTextWithSuffix();
+            String markerText = downcast<RenderListItem>(*objRenderer).markerTextWithSuffix().toString();
             ret = objRenderer->style().direction() == TextDirection::LTR ? markerText + ret : ret + markerText;
             if (endOffset == -1)
                 actualEndOffset = ret.length() + markerText.length();
@@ -601,7 +592,7 @@ static VisibleSelection wordAtPositionForAtkBoundary(const AccessibilityObject* 
     // We mark the selection as 'upstream' so we can use that information later,
     // when finding the actual offsets in getSelectionOffsetsForObject().
     if (boundaryType == ATK_TEXT_BOUNDARY_WORD_END)
-        selectedWord.setAffinity(UPSTREAM);
+        selectedWord.setAffinity(Affinity::Upstream);
 
     return selectedWord;
 }
@@ -613,7 +604,7 @@ static int numberOfReplacedElementsBeforeOffset(AtkText* text, unsigned offset)
 
     int count = 0;
     size_t index = textBeforeOffset.find(objectReplacementCharacter, 0);
-    while (index < offset && index != WTF::notFound) {
+    while (index < offset && index != notFound) {
         index = textBeforeOffset.find(objectReplacementCharacter, index + 1);
         count++;
     }
@@ -703,12 +694,13 @@ static bool isWhiteSpaceBetweenSentences(const VisiblePosition& position)
     if (!deprecatedIsEditingWhitespace(position.characterAfter()))
         return false;
 
-    VisiblePosition startOfWhiteSpace = startOfWord(position, RightWordIfOnBoundary);
-    VisiblePosition endOfWhiteSpace = endOfWord(startOfWhiteSpace, RightWordIfOnBoundary);
-    if (!isSentenceBoundary(startOfWhiteSpace) && !isSentenceBoundary(endOfWhiteSpace))
+    auto start = startOfWord(position, RightWordIfOnBoundary);
+    auto end = endOfWord(start, RightWordIfOnBoundary);
+    if (!isSentenceBoundary(start) && !isSentenceBoundary(end))
         return false;
 
-    return comparePositions(startOfWhiteSpace, position) <= 0 && comparePositions(endOfWhiteSpace, position) >= 0;
+    auto range = makeSimpleRange(start, end);
+    return range && contains<ComposedTree>(*range, makeBoundaryPoint(position));
 }
 
 static VisibleSelection sentenceAtPositionForAtkBoundary(const AccessibilityObject*, const VisiblePosition& position, AtkTextBoundary boundaryType)
@@ -756,7 +748,7 @@ static VisibleSelection sentenceAtPositionForAtkBoundary(const AccessibilityObje
     // We mark the selection as 'upstream' so we can use that information later,
     // when finding the actual offsets in getSelectionOffsetsForObject().
     if (boundaryType == ATK_TEXT_BOUNDARY_SENTENCE_END)
-        selectedSentence.setAffinity(UPSTREAM);
+        selectedSentence.setAffinity(Affinity::Upstream);
 
     return selectedSentence;
 }
@@ -828,7 +820,7 @@ static VisibleSelection lineAtPositionForAtkBoundary(const AccessibilityObject* 
         // In addition to checking that we are not at the end of a block, we need
         // to check that endPosition has not UPSTREAM affinity, since that would
         // cause trouble inside of text controls (we would be advancing too much).
-        if (!isEndOfBlock(endPosition) && endPosition.affinity() != UPSTREAM)
+        if (!isEndOfBlock(endPosition) && endPosition.affinity() != Affinity::Upstream)
             endPosition = endPosition.next();
         break;
 
@@ -848,7 +840,7 @@ static VisibleSelection lineAtPositionForAtkBoundary(const AccessibilityObject* 
     // We mark the selection as 'upstream' so we can use that information later,
     // when finding the actual offsets in getSelectionOffsetsForObject().
     if (boundaryType == ATK_TEXT_BOUNDARY_LINE_END)
-        selectedLine.setAffinity(UPSTREAM);
+        selectedLine.setAffinity(Affinity::Upstream);
 
     return selectedLine;
 }

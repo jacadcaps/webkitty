@@ -28,6 +28,9 @@
 
 #include "AnimationEventBase.h"
 #include "CSSTransition.h"
+#include "CustomAnimationOptions.h"
+#include "CustomEffect.h"
+#include "CustomEffectCallback.h"
 #include "DeclarativeAnimation.h"
 #include "Document.h"
 #include "DocumentTimelinesController.h"
@@ -37,9 +40,11 @@
 #include "KeyframeEffectStack.h"
 #include "Node.h"
 #include "Page.h"
+#include "RenderBoxModelObject.h"
 #include "RenderElement.h"
 #include "RenderLayer.h"
 #include "RenderLayerBacking.h"
+#include "WebAnimationTypes.h"
 
 namespace WebCore {
 
@@ -56,7 +61,7 @@ Ref<DocumentTimeline> DocumentTimeline::create(Document& document, DocumentTimel
 DocumentTimeline::DocumentTimeline(Document& document, Seconds originTime)
     : AnimationTimeline()
     , m_tickScheduleTimer(*this, &DocumentTimeline::scheduleAnimationResolution)
-    , m_document(makeWeakPtr(document))
+    , m_document(document)
     , m_originTime(originTime)
 {
     if (auto* controller = this->controller())
@@ -83,7 +88,6 @@ void DocumentTimeline::detachFromDocument()
         controller->removeTimeline(*this);
 
     m_pendingAnimationEvents.clear();
-    m_elementsWithRunningAcceleratedAnimations.clear();
 
     auto& animationsToRemove = m_animations;
     while (!animationsToRemove.isEmpty())
@@ -97,6 +101,7 @@ Seconds DocumentTimeline::animationInterval() const
 {
     if (!m_document || !m_document->page())
         return Seconds::infinity();
+
     return m_document->page()->preferredRenderingUpdateInterval();
 }
 
@@ -133,12 +138,12 @@ unsigned DocumentTimeline::numberOfActiveAnimationsForTesting() const
     return count;
 }
 
-Optional<Seconds> DocumentTimeline::currentTime()
+std::optional<Seconds> DocumentTimeline::currentTime()
 {
     if (auto* controller = this->controller()) {
         if (auto currentTime = controller->currentTime())
             return *currentTime - m_originTime;
-        return WTF::nullopt;
+        return std::nullopt;
     }
     return AnimationTimeline::currentTime();
 }
@@ -166,7 +171,7 @@ void DocumentTimeline::scheduleAnimationResolution()
     if (!shouldRunUpdateAnimationsAndSendEventsIgnoringSuspensionState())
         return;
 
-    m_document->page()->scheduleTimedRenderingUpdate();
+    m_document->page()->scheduleRenderingUpdate(RenderingUpdateStep::Animations);
     m_animationResolutionScheduled = true;
 }
 
@@ -227,13 +232,30 @@ bool DocumentTimeline::animationCanBeRemoved(WebAnimation& animation)
         return false;
 
     auto* keyframeEffect = downcast<KeyframeEffect>(effect);
-    auto* target = keyframeEffect->target();
-    if (!target || !target->isDescendantOf(*m_document))
+    auto target = keyframeEffect->targetStyleable();
+    if (!target || !target->element.isDescendantOf(*m_document))
         return false;
 
-    HashSet<CSSPropertyID> propertiesToMatch = keyframeEffect->animatedProperties();
-    auto animations = animationsForElement(*target, AnimationTimeline::Ordering::Sorted);
-    for (auto& animationWithHigherCompositeOrder : WTF::makeReversedRange(animations)) {
+    auto& style = [&]() -> const RenderStyle& {
+        if (auto* renderer = target->renderer())
+            return renderer->style();
+        return RenderStyle::defaultStyle();
+    }();
+
+    HashSet<CSSPropertyID> propertiesToMatch;
+    for (auto cssProperty : keyframeEffect->animatedProperties())
+        propertiesToMatch.add(CSSProperty::resolveDirectionAwareProperty(cssProperty, style.direction(), style.writingMode()));
+
+    auto protectedAnimations = [&]() -> Vector<RefPtr<WebAnimation>> {
+        if (auto* effectStack = target->keyframeEffectStack()) {
+            return effectStack->sortedEffects().map([](auto& effect) -> RefPtr<WebAnimation> {
+                return effect->animation();
+            });
+        }
+        return { };
+    }();
+
+    for (auto& animationWithHigherCompositeOrder : makeReversedRange(protectedAnimations)) {
         if (&animation == animationWithHigherCompositeOrder)
             break;
 
@@ -241,8 +263,9 @@ bool DocumentTimeline::animationCanBeRemoved(WebAnimation& animation)
             auto* effectWithHigherCompositeOrder = animationWithHigherCompositeOrder->effect();
             if (is<KeyframeEffect>(effectWithHigherCompositeOrder)) {
                 auto* keyframeEffectWithHigherCompositeOrder = downcast<KeyframeEffect>(effectWithHigherCompositeOrder);
-                for (auto cssPropertyId : keyframeEffectWithHigherCompositeOrder->animatedProperties()) {
-                    if (propertiesToMatch.remove(cssPropertyId) && propertiesToMatch.isEmpty())
+                for (auto cssProperty : keyframeEffectWithHigherCompositeOrder->animatedProperties()) {
+                    auto resolvedProperty = CSSProperty::resolveDirectionAwareProperty(cssProperty, style.direction(), style.writingMode());
+                    if (propertiesToMatch.remove(resolvedProperty) && propertiesToMatch.isEmpty())
                         break;
                 }
             }
@@ -289,8 +312,11 @@ void DocumentTimeline::transitionDidComplete(RefPtr<CSSTransition> transition)
     ASSERT(transition);
     removeAnimation(*transition);
     if (is<KeyframeEffect>(transition->effect())) {
-        if (auto* target = downcast<KeyframeEffect>(transition->effect())->targetElementOrPseudoElement())
-            target->ensureCompletedTransitionsByProperty().set(transition->property(), transition);
+        if (auto styleable = downcast<KeyframeEffect>(transition->effect())->targetStyleable()) {
+            auto property = transition->property();
+            if (styleable->hasRunningTransitionForProperty(property))
+                styleable->ensureCompletedTransitionsByProperty().set(property, transition);
+        }
     }
 }
 
@@ -306,10 +332,38 @@ void DocumentTimeline::scheduleNextTick()
 
     Seconds scheduleDelay = Seconds::infinity();
 
+    const auto nextTickTimeEpsilon = 1_ms;
+
+    auto timeUntilNextTickForAnimationsWithFrameRate = [&](std::optional<FramesPerSecond> frameRate) -> std::optional<Seconds> {
+        if (frameRate) {
+            if (auto* controller = this->controller())
+                return controller->timeUntilNextTickForAnimationsWithFrameRate(*frameRate);
+        }
+        return std::nullopt;
+    };
+
     for (const auto& animation : m_animations) {
         if (!animation->isRelevant())
             continue;
+
+        // Get the time until the next tick for this animation. This does not
+        // account for the animation frame rate, only accounting for the timing
+        // model and the playback rate.
         auto animationTimeToNextRequiredTick = animation->timeToNextTick();
+
+        if (auto animationFrameRate = animation->frameRate()) {
+            // Now let's get the time until any animation with this animation's frame rate would tick.
+            // If that time is longer than what we previously computed without accounting for the frame
+            // rate, we use this time instead since our animation wouldn't tick anyway since the
+            // DocumentTimelinesController would ignore it. Doing this ensures that we don't schedule
+            // updates that wouldn't actually yield any work and guarantees that in a page with only
+            // animations as the source for scheduling updates, updates are only scheduled at the minimal
+            // frame rate.
+            auto timeToNextPossibleTickAccountingForFrameRate = timeUntilNextTickForAnimationsWithFrameRate(animationFrameRate);
+            if (timeToNextPossibleTickAccountingForFrameRate && animationTimeToNextRequiredTick < *timeToNextPossibleTickAccountingForFrameRate)
+                animationTimeToNextRequiredTick = *timeToNextPossibleTickAccountingForFrameRate - nextTickTimeEpsilon;
+        }
+
         if (animationTimeToNextRequiredTick < animationInterval()) {
             scheduleAnimationResolution();
             return;
@@ -321,101 +375,9 @@ void DocumentTimeline::scheduleNextTick()
         m_tickScheduleTimer.startOneShot(scheduleDelay);
 }
 
-bool DocumentTimeline::computeExtentOfAnimation(RenderElement& renderer, LayoutRect& bounds) const
-{
-    if (!renderer.element())
-        return true;
-
-    KeyframeEffect* matchingEffect = nullptr;
-    for (const auto& animation : animationsForElement(*renderer.element())) {
-        auto* effect = animation->effect();
-        if (is<KeyframeEffect>(effect)) {
-            auto* keyframeEffect = downcast<KeyframeEffect>(effect);
-            if (keyframeEffect->animatedProperties().contains(CSSPropertyTransform))
-                matchingEffect = downcast<KeyframeEffect>(effect);
-        }
-    }
-
-    if (matchingEffect)
-        return matchingEffect->computeExtentOfTransformAnimation(bounds);
-
-    return true;
-}
-
-bool DocumentTimeline::isRunningAnimationOnRenderer(RenderElement& renderer, CSSPropertyID property) const
-{
-    if (!renderer.element())
-        return false;
-
-    for (const auto& animation : animationsForElement(*renderer.element())) {
-        auto playState = animation->playState();
-        if (playState != WebAnimation::PlayState::Running && playState != WebAnimation::PlayState::Paused)
-            continue;
-        auto* effect = animation->effect();
-        if (is<KeyframeEffect>(effect) && downcast<KeyframeEffect>(effect)->animatedProperties().contains(property))
-            return true;
-    }
-
-    return false;
-}
-
-bool DocumentTimeline::isRunningAcceleratedAnimationOnRenderer(RenderElement& renderer, CSSPropertyID property) const
-{
-    if (!renderer.element())
-        return false;
-
-    for (const auto& animation : animationsForElement(*renderer.element())) {
-        auto playState = animation->playState();
-        if (playState != WebAnimation::PlayState::Running && playState != WebAnimation::PlayState::Paused)
-            continue;
-        auto* effect = animation->effect();
-        if (is<KeyframeEffect>(effect)) {
-            auto* keyframeEffect = downcast<KeyframeEffect>(effect);
-            if (keyframeEffect->isCurrentlyAffectingProperty(property, KeyframeEffect::Accelerated::Yes))
-                return true;
-        }
-    }
-
-    return false;
-}
-
-std::unique_ptr<RenderStyle> DocumentTimeline::animatedStyleForRenderer(RenderElement& renderer)
-{
-    std::unique_ptr<RenderStyle> result;
-
-    if (auto* element = renderer.element()) {
-        for (const auto& animation : animationsForElement(*element)) {
-            if (is<KeyframeEffect>(animation->effect()))
-                downcast<KeyframeEffect>(animation->effect())->getAnimatedStyle(result);
-        }
-    }
-
-    if (!result)
-        result = RenderStyle::clonePtr(renderer.style());
-
-    return result;
-}
-
-void DocumentTimeline::animationWasAddedToElement(WebAnimation& animation, Element& element)
-{
-    AnimationTimeline::animationWasAddedToElement(animation, element);
-    updateListOfElementsWithRunningAcceleratedAnimationsForElement(element);
-}
-
-void DocumentTimeline::animationWasRemovedFromElement(WebAnimation& animation, Element& element)
-{
-    AnimationTimeline::animationWasRemovedFromElement(animation, element);
-    updateListOfElementsWithRunningAcceleratedAnimationsForElement(element);
-}
-
 void DocumentTimeline::animationAcceleratedRunningStateDidChange(WebAnimation& animation)
 {
     m_acceleratedAnimationsPendingRunningStateChange.add(&animation);
-
-    if (is<KeyframeEffect>(animation.effect())) {
-        if (auto* target = downcast<KeyframeEffect>(animation.effect())->targetElementOrPseudoElement())
-            updateListOfElementsWithRunningAcceleratedAnimationsForElement(*target);
-    }
 
     if (shouldRunUpdateAnimationsAndSendEventsIgnoringSuspensionState())
         scheduleAnimationResolution();
@@ -423,44 +385,37 @@ void DocumentTimeline::animationAcceleratedRunningStateDidChange(WebAnimation& a
         clearTickScheduleTimer();
 }
 
-void DocumentTimeline::updateListOfElementsWithRunningAcceleratedAnimationsForElement(Element& element)
-{
-    auto animations = animationsForElement(element);
-
-    if (animations.isEmpty()) {
-        m_elementsWithRunningAcceleratedAnimations.remove(&element);
-        return;
-    }
-
-    for (const auto& animation : animations) {
-        if (!animation->isRunningAccelerated()) {
-            m_elementsWithRunningAcceleratedAnimations.remove(&element);
-            return;
-        }
-    }
-
-    m_elementsWithRunningAcceleratedAnimations.add(&element);
-}
-
 void DocumentTimeline::applyPendingAcceleratedAnimations()
 {
     auto acceleratedAnimationsPendingRunningStateChange = m_acceleratedAnimationsPendingRunningStateChange;
     m_acceleratedAnimationsPendingRunningStateChange.clear();
 
+    // Animations may fail to run accelerated for reasons private to GraphicsLayerCA. If that happens, and the animation
+    // in question targets a transform-related property, we must prevent all other transform-related animations for this
+    // element to run accelerated since we can't run some transform-related animations accelerated, and some not. To do
+    // this, we keep a list of all KeyframeEffectStack objects containing an effect that failed to start a transform-related
+    // animation so that we can return any transform-related accelerated animation to run non-accelerated.
+    HashSet<KeyframeEffectStack*> effectStacksContainingEffectThatFailedToRunAcceleratedTransformRelatedAnimation;
+
     bool hasForcedLayout = false;
     for (auto& animation : acceleratedAnimationsPendingRunningStateChange) {
-        if (!hasForcedLayout) {
-            auto* effect = animation->effect();
-            if (is<KeyframeEffect>(effect))
-                hasForcedLayout |= downcast<KeyframeEffect>(effect)->forceLayoutIfNeeded();
-        }
-        animation->applyPendingAcceleratedActions();
-    }
-}
+        auto* effect = animation->effect();
+        if (!is<KeyframeEffect>(effect))
+            continue;
 
-bool DocumentTimeline::runningAnimationsForElementAreAllAccelerated(Element& element) const
-{
-    return m_elementsWithRunningAcceleratedAnimations.contains(&element);
+        auto& keyframeEffect = downcast<KeyframeEffect>(*effect);
+        if (!hasForcedLayout)
+            hasForcedLayout |= keyframeEffect.forceLayoutIfNeeded();
+        auto pendingAccelerationActionResult = keyframeEffect.applyPendingAcceleratedActions();
+        if (pendingAccelerationActionResult.contains(AcceleratedActionApplicationResult::TransformRelatedAnimationCannotBeAccelerated)) {
+            ASSERT(keyframeEffect.targetStyleable());
+            ASSERT(keyframeEffect.targetStyleable()->keyframeEffectStack());
+            effectStacksContainingEffectThatFailedToRunAcceleratedTransformRelatedAnimation.add(keyframeEffect.targetStyleable()->keyframeEffectStack());
+        }
+    }
+
+    for (auto& effectStack : effectStacksContainingEffectThatFailedToRunAcceleratedTransformRelatedAnimation)
+        effectStack->stopAcceleratingTransformRelatedProperties(UseAcceleratedAction::No);
 }
 
 void DocumentTimeline::enqueueAnimationEvent(AnimationEventBase& event)
@@ -490,6 +445,50 @@ Vector<std::pair<String, double>> DocumentTimeline::acceleratedAnimationsForElem
 unsigned DocumentTimeline::numberOfAnimationTimelineInvalidationsForTesting() const
 {
     return m_numberOfAnimationTimelineInvalidationsForTesting;
+}
+
+ExceptionOr<Ref<WebAnimation>> DocumentTimeline::animate(Ref<CustomEffectCallback>&& callback, std::optional<std::variant<double, CustomAnimationOptions>>&& options)
+{
+    if (!m_document)
+        return Exception { InvalidStateError };
+
+    String id = "";
+    std::variant<FramesPerSecond, AnimationFrameRatePreset> frameRate = AnimationFrameRatePreset::Auto;
+    std::optional<std::variant<double, EffectTiming>> customEffectOptions;
+
+    if (options) {
+        std::variant<double, EffectTiming> customEffectOptionsVariant;
+        if (std::holds_alternative<double>(*options))
+            customEffectOptionsVariant = std::get<double>(*options);
+        else {
+            auto customEffectOptions = std::get<CustomAnimationOptions>(*options);
+            id = customEffectOptions.id;
+            frameRate = customEffectOptions.frameRate;
+            customEffectOptionsVariant = WTFMove(customEffectOptions);
+        }
+        customEffectOptions = customEffectOptionsVariant;
+    }
+
+    auto customEffectResult = CustomEffect::create(WTFMove(callback), WTFMove(customEffectOptions));
+    if (customEffectResult.hasException())
+        return customEffectResult.releaseException();
+
+    auto animation = WebAnimation::create(*document(), &customEffectResult.returnValue().get());
+    animation->setId(id);
+    animation->setBindingsFrameRate(WTFMove(frameRate));
+
+    auto animationPlayResult = animation->play();
+    if (animationPlayResult.hasException())
+        return animationPlayResult.releaseException();
+
+    return animation;
+}
+
+std::optional<FramesPerSecond> DocumentTimeline::maximumFrameRate() const
+{
+    if (!m_document || !m_document->page())
+        return std::nullopt;
+    return m_document->page()->displayNominalFramesPerSecond();
 }
 
 } // namespace WebCore

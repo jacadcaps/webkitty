@@ -32,7 +32,7 @@
 #pragma once
 
 #include "InspectorOverlay.h"
-#include "PageScriptDebugServer.h"
+#include "PageDebugger.h"
 #include <JavaScriptCore/InspectorAgentRegistry.h>
 #include <JavaScriptCore/InspectorEnvironment.h>
 #include <wtf/Forward.h>
@@ -92,7 +92,7 @@ public:
     void inspect(Node*);
     WEBCORE_EXPORT bool shouldShowOverlay() const;
     WEBCORE_EXPORT void drawHighlight(GraphicsContext&) const;
-    WEBCORE_EXPORT void getHighlight(Highlight&, InspectorOverlay::CoordinateSystem) const;
+    WEBCORE_EXPORT void getHighlight(InspectorOverlay::Highlight&, InspectorOverlay::CoordinateSystem) const;
     void hideHighlight();
     Node* highlightedNode() const;
 
@@ -101,9 +101,13 @@ public:
     WEBCORE_EXPORT void willComposite(Frame&);
     WEBCORE_EXPORT void didComposite(Frame&);
 
-    bool isUnderTest() const { return m_isUnderTest; }
+    // Testing support.
+    WEBCORE_EXPORT bool isUnderTest() const;
     void setIsUnderTest(bool isUnderTest) { m_isUnderTest = isUnderTest; }
     WEBCORE_EXPORT void evaluateForTestInFrontend(const String& script);
+    WEBCORE_EXPORT unsigned gridOverlayCount() const;
+    WEBCORE_EXPORT unsigned flexOverlayCount() const;
+    WEBCORE_EXPORT unsigned paintRectCount() const;
 
     InspectorClient* inspectorClient() const { return m_inspectorClient; }
     InspectorFrontendClient* inspectorFrontendClient() const { return m_inspectorFrontendClient; }
@@ -118,8 +122,8 @@ public:
     Inspector::InspectorFunctionCallHandler functionCallHandler() const override;
     Inspector::InspectorEvaluateHandler evaluateHandler() const override;
     void frontendInitialized() override;
-    WTF::Stopwatch& executionStopwatch() const final;
-    PageScriptDebugServer& scriptDebugServer() override;
+    Stopwatch& executionStopwatch() const final;
+    PageDebugger& debugger() override;
     JSC::VM& vm() override;
 
 private:
@@ -133,8 +137,8 @@ private:
     Ref<Inspector::FrontendRouter> m_frontendRouter;
     Ref<Inspector::BackendDispatcher> m_backendDispatcher;
     std::unique_ptr<InspectorOverlay> m_overlay;
-    Ref<WTF::Stopwatch> m_executionStopwatch;
-    PageScriptDebugServer m_scriptDebugServer;
+    Ref<Stopwatch> m_executionStopwatch;
+    PageDebugger m_debugger;
     Inspector::AgentRegistry m_agents;
 
     Page& m_page;

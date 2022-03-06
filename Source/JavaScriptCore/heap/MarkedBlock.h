@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -24,13 +24,13 @@
 #include "CellAttributes.h"
 #include "DestructionMode.h"
 #include "HeapCell.h"
-#include "IterationStatus.h"
 #include "WeakSet.h"
 #include <algorithm>
 #include <wtf/Atomics.h>
 #include <wtf/Bitmap.h>
 #include <wtf/CountingLock.h>
 #include <wtf/HashFunctions.h>
+#include <wtf/IterationStatus.h>
 #include <wtf/PageBlock.h>
 #include <wtf/StdLibExtras.h>
 
@@ -151,9 +151,6 @@ public:
         
         void shrink();
             
-        void visitWeakSet(SlotVisitor&);
-        void reapWeakSet();
-            
         // While allocating from a free list, MarkedBlock temporarily has bogus
         // cell liveness data. To restore accurate cell liveness data, call one
         // of these functions:
@@ -163,8 +160,8 @@ public:
             
         size_t cellSize();
         inline unsigned cellsPerBlock();
-        
-        const CellAttributes& attributes() const;
+
+        CellAttributes attributes() const;
         DestructionMode destruction() const;
         bool needsDestruction() const;
         HeapCell::Kind cellKind() const;
@@ -203,6 +200,7 @@ public:
         
         void* start() const { return &m_block->atoms()[0]; }
         void* end() const { return &m_block->atoms()[m_endAtom]; }
+        void* atomAt(size_t i) const { return &m_block->atoms()[i]; }
         bool contains(void* p) const { return start() <= p && p < end(); }
 
         void dumpState(PrintStream&);
@@ -251,6 +249,8 @@ public:
     public:
         Footer(VM&, Handle&);
         ~Footer();
+
+        static ptrdiff_t offsetOfVM() { return OBJECT_OFFSETOF(Footer, m_vm); }
         
     private:
         friend class LLIntOffsetsExtractor;
@@ -296,9 +296,10 @@ public:
 
         Bitmap<atomsPerBlock> m_marks;
         Bitmap<atomsPerBlock> m_newlyAllocated;
+        void* m_verifierMemo { nullptr };
     };
     
-private:    
+private:
     Footer& footer();
     const Footer& footer() const;
 
@@ -346,8 +347,8 @@ public:
     void resetAllocated();
         
     size_t cellSize();
-    const CellAttributes& attributes() const;
-    
+    CellAttributes attributes() const;
+
     bool hasAnyMarked() const;
     void noteMarked();
 #if ASSERT_ENABLED
@@ -385,7 +386,11 @@ public:
         *bitwise_cast<volatile uint8_t*>(&footer());
     }
     
+    void setVerifierMemo(void*);
+    template<typename T> T verifierMemo() const;
+
     static constexpr size_t offsetOfFooter = endAtom * atomSize;
+    static_assert(offsetOfFooter + sizeof(Footer) <= blockSize);
 
 private:
     MarkedBlock(VM&, Handle&);
@@ -496,16 +501,6 @@ inline void MarkedBlock::Handle::shrink()
     m_weakSet.shrink();
 }
 
-inline void MarkedBlock::Handle::visitWeakSet(SlotVisitor& visitor)
-{
-    return m_weakSet.visit(visitor);
-}
-
-inline void MarkedBlock::Handle::reapWeakSet()
-{
-    m_weakSet.reap();
-}
-
 inline size_t MarkedBlock::Handle::cellSize()
 {
     return m_atomsPerCell * atomSize;
@@ -516,12 +511,12 @@ inline size_t MarkedBlock::cellSize()
     return handle().cellSize();
 }
 
-inline const CellAttributes& MarkedBlock::Handle::attributes() const
+inline CellAttributes MarkedBlock::Handle::attributes() const
 {
     return m_attributes;
 }
 
-inline const CellAttributes& MarkedBlock::attributes() const
+inline CellAttributes MarkedBlock::attributes() const
 {
     return handle().attributes();
 }
@@ -572,10 +567,11 @@ inline bool MarkedBlock::areMarksStale(HeapVersion markingVersion)
 
 inline Dependency MarkedBlock::aboutToMark(HeapVersion markingVersion)
 {
-    HeapVersion version = footer().m_markingVersion;
+    HeapVersion version;
+    Dependency dependency = Dependency::loadAndFence(&footer().m_markingVersion, version);
     if (UNLIKELY(version != markingVersion))
         aboutToMarkSlow(markingVersion);
-    return Dependency::fence(version);
+    return dependency;
 }
 
 inline void MarkedBlock::Handle::assertMarksNotStale()
@@ -590,10 +586,11 @@ inline bool MarkedBlock::isMarkedRaw(const void* p)
 
 inline bool MarkedBlock::isMarked(HeapVersion markingVersion, const void* p)
 {
-    HeapVersion version = footer().m_markingVersion;
+    HeapVersion version;
+    Dependency dependency = Dependency::loadAndFence(&footer().m_markingVersion, version);
     if (UNLIKELY(version != markingVersion))
         return false;
-    return footer().m_marks.get(atomNumber(p), Dependency::fence(version));
+    return footer().m_marks.get(atomNumber(p), dependency);
 }
 
 inline bool MarkedBlock::isMarked(const void* p, Dependency dependency)
@@ -669,6 +666,17 @@ inline void MarkedBlock::noteMarked()
     footer().m_biasedMarkCount = biasedMarkCount;
     if (UNLIKELY(!biasedMarkCount))
         noteMarkedSlow();
+}
+
+inline void MarkedBlock::setVerifierMemo(void* p)
+{
+    footer().m_verifierMemo = p;
+}
+
+template<typename T>
+T MarkedBlock::verifierMemo() const
+{
+    return bitwise_cast<T>(footer().m_verifierMemo);
 }
 
 } // namespace JSC

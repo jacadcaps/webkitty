@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,31 +28,49 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "AuxiliaryProcess.h"
+#include "SandboxExtension.h"
+#include "ShareableBitmap.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/LibWebRTCEnumTraits.h>
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/Timer.h>
 #include <pal/SessionID.h>
 #include <wtf/Function.h>
 #include <wtf/MemoryPressureHandler.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/WeakPtr.h>
 
+#if PLATFORM(MAC)
+#include <CoreGraphics/CGDisplayConfiguration.h>
+#endif
+
+#if USE(GRAPHICS_LAYER_WC)
+#include "WCSharedSceneContextHolder.h"
+#endif
+
 namespace WebCore {
+class CaptureDevice;
 class NowPlayingManager;
+struct MockMediaDevice;
+struct ScreenProperties;
+struct SecurityOriginData;
 }
 
 namespace WebKit {
 
 class GPUConnectionToWebProcess;
+struct GPUProcessConnectionInitializationParameters;
+struct GPUProcessConnectionParameters;
 struct GPUProcessCreationParameters;
 struct GPUProcessSessionParameters;
-class LayerHostingContext;
 class RemoteAudioSessionProxyManager;
 
-class GPUProcess : public AuxiliaryProcess, public ThreadSafeRefCounted<GPUProcess>, public CanMakeWeakPtr<GPUProcess> {
+class GPUProcess : public AuxiliaryProcess, public ThreadSafeRefCounted<GPUProcess> {
     WTF_MAKE_NONCOPYABLE(GPUProcess);
 public:
     explicit GPUProcess(AuxiliaryProcessInitializationParameters&&);
     ~GPUProcess();
-    static constexpr ProcessType processType = ProcessType::GPU;
+    static constexpr WebCore::AuxiliaryProcessType processType = WebCore::AuxiliaryProcessType::GPU;
 
     void removeGPUConnectionToWebProcess(GPUConnectionToWebProcess&);
 
@@ -75,8 +93,35 @@ public:
 
     WebCore::NowPlayingManager& nowPlayingManager();
 
+#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
+    WorkQueue& videoMediaStreamTrackRendererQueue();
+#endif
+#if USE(LIBWEBRTC) && PLATFORM(COCOA)
+    WorkQueue& libWebRTCCodecsQueue();
+#endif
+
+#if USE(GRAPHICS_LAYER_WC)
+    WCSharedSceneContextHolder& sharedSceneContext() { return m_sharedSceneContext; }
+#endif
+
+#if ENABLE(VP9)
+    void enableVP9Decoders(bool shouldEnableVP8Decoder, bool shouldEnableVP9Decoder, bool shouldEnableVP9SWDecoder);
+#endif
+
+    void tryExitIfUnusedAndUnderMemoryPressure();
+
+    const String& applicationVisibleName() const { return m_applicationVisibleName; }
+
+    void webProcessConnectionCountForTesting(CompletionHandler<void(uint64_t)>&&);
+
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
+    void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
+#endif
+
+    void requestBitmapImageForCurrentTime(WebCore::ProcessIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(const ShareableBitmap::Handle&)>&&);
+
 private:
-    void lowMemoryHandler(Critical);
+    void lowMemoryHandler(Critical, Synchronous);
 
     // AuxiliaryProcess
     void initializeProcess(const AuxiliaryProcessInitializationParameters&) override;
@@ -84,26 +129,77 @@ private:
     void initializeSandbox(const AuxiliaryProcessInitializationParameters&, SandboxInitializationParameters&) override;
     bool shouldTerminate() override;
 
+    void tryExitIfUnused();
+    bool canExitUnderMemoryPressure() const;
+
     // IPC::Connection::Client
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
-    void didClose(IPC::Connection&) override;
+    void didReceiveGPUProcessMessage(IPC::Connection&, IPC::Decoder&);
 
     // Message Handlers
     void initializeGPUProcess(GPUProcessCreationParameters&&);
-    void createGPUConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, CompletionHandler<void(Optional<IPC::Attachment>&&)>&&);
+    void createGPUConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, GPUProcessConnectionParameters&&, CompletionHandler<void(std::optional<IPC::Attachment>&&, GPUProcessConnectionInitializationParameters&&)>&&);
     void addSession(PAL::SessionID, GPUProcessSessionParameters&&);
     void removeSession(PAL::SessionID);
 
-    void processDidTransitionToForeground();
-    void processDidTransitionToBackground();
 #if ENABLE(MEDIA_STREAM)
     void setMockCaptureDevicesEnabled(bool);
     void setOrientationForMediaCapture(uint64_t orientation);
     void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier, CompletionHandler<void()>&&);
+    void updateCaptureOrigin(const WebCore::SecurityOriginData&, WebCore::ProcessIdentifier);
+    void updateSandboxAccess(const Vector<SandboxExtension::Handle>&);
+    void addMockMediaDevice(const WebCore::MockMediaDevice&);
+    void clearMockMediaDevices();
+    void removeMockMediaDevice(const String& persistentId);
+    void resetMockMediaDevices();
+    void setMockCameraIsInterrupted(bool);
+    bool setCaptureAttributionString(const String&);
+#endif
+#if HAVE(SC_CONTENT_SHARING_SESSION)
+    void showWindowPicker(CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
+    void showScreenPicker(CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
+#endif
+#if PLATFORM(MAC)
+    void displayConfigurationChanged(CGDirectDisplayID, CGDisplayChangeSummaryFlags);
+    void setScreenProperties(const WebCore::ScreenProperties&);
+#endif
+
+#if USE(OS_STATE)
+    RetainPtr<NSDictionary> additionalStateForDiagnosticReport() const final;
+#endif
+
+#if ENABLE(MEDIA_SOURCE)
+    void setWebMParserEnabled(bool);
+#endif
+
+#if ENABLE(WEBM_FORMAT_READER)
+    void setWebMFormatReaderEnabled(bool);
+#endif
+
+#if ENABLE(OPUS)
+    void setOpusDecoderEnabled(bool);
+#endif
+
+#if ENABLE(VORBIS)
+    void setVorbisDecoderEnabled(bool);
+#endif
+
+#if ENABLE(MEDIA_SOURCE) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
+    void setMediaSourceInlinePaintingEnabled(bool);
+#endif
+
+#if HAVE(SCREEN_CAPTURE_KIT)
+    void setUseScreenCaptureKit(bool);
+#endif
+
+#if ENABLE(CFPREFS_DIRECT_MODE)
+    void notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue);
+    void dispatchSimulatedNotificationsForPreferenceChange(const String& key) final;
 #endif
 
     // Connections to WebProcesses.
     HashMap<WebCore::ProcessIdentifier, Ref<GPUConnectionToWebProcess>> m_webProcessConnections;
+    MonotonicTime m_creationTime { MonotonicTime::now() };
 
 #if ENABLE(MEDIA_STREAM)
     struct MediaCaptureAccess {
@@ -112,6 +208,17 @@ private:
         bool allowDisplayCapture { false };
     };
     HashMap<WebCore::ProcessIdentifier, MediaCaptureAccess> m_mediaCaptureAccessMap;
+#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
+    RefPtr<WorkQueue> m_videoMediaStreamTrackRendererQueue;
+#endif
+    uint64_t m_orientation { 0 };
+#endif
+#if USE(LIBWEBRTC) && PLATFORM(COCOA)
+    RefPtr<WorkQueue> m_libWebRTCCodecsQueue;
+#endif
+
+#if USE(GRAPHICS_LAYER_WC)
+    WCSharedSceneContextHolder m_sharedSceneContext;
 #endif
 
     struct GPUSession {
@@ -121,13 +228,34 @@ private:
 #endif
     };
     HashMap<PAL::SessionID, GPUSession> m_sessions;
-#if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    std::unique_ptr<LayerHostingContext> m_contextForVisibilityPropagation;
-    bool m_canShowWhileLocked { false };
-#endif
+    WebCore::Timer m_idleExitTimer;
     std::unique_ptr<WebCore::NowPlayingManager> m_nowPlayingManager;
+    String m_applicationVisibleName;
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
     mutable std::unique_ptr<RemoteAudioSessionProxyManager> m_audioSessionManager;
+#endif
+#if ENABLE(VP9)
+    bool m_enableVP8Decoder { false };
+    bool m_enableVP9Decoder { false };
+    bool m_enableVP9SWDecoder { false };
+#endif
+#if ENABLE(MEDIA_SOURCE)
+    bool m_webMParserEnabled { false };
+#endif
+#if ENABLE(WEBM_FORMAT_READER)
+    bool m_webMFormatReaderEnabled { false };
+#endif
+#if ENABLE(OPUS)
+    bool m_opusEnabled { false };
+#endif
+#if ENABLE(VORBIS)
+    bool m_vorbisEnabled { false };
+#endif
+#if ENABLE(MEDIA_SOURCE) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
+    bool m_mediaSourceInlinePaintingEnabled { false };
+#endif
+#if HAVE(SCREEN_CAPTURE_KIT)
+    bool m_useScreenCaptureKit { false };
 #endif
 };
 

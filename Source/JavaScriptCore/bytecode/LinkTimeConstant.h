@@ -43,15 +43,20 @@ class JSGlobalObject;
     v(setBucketHead, nullptr) \
     v(setBucketNext, nullptr) \
     v(setBucketKey, nullptr) \
-    v(propertyIsEnumerable, nullptr) \
-    v(ownKeys, nullptr) \
+    v(setPrototypeDirect, nullptr) \
+    v(setPrototypeDirectOrThrow, nullptr) \
+    v(copyDataProperties, nullptr) \
     v(enqueueJob, nullptr) \
     v(makeTypeError, nullptr) \
     v(AggregateError, nullptr) \
     v(typedArrayLength, nullptr) \
+    v(typedArrayContentType, nullptr) \
     v(typedArrayGetOriginalConstructor, nullptr) \
     v(typedArraySort, nullptr) \
     v(isTypedArrayView, nullptr) \
+    v(isSharedTypedArrayView, nullptr) \
+    v(isDetached, nullptr) \
+    v(typedArrayDefaultComparator, nullptr) \
     v(typedArraySubarrayCreate, nullptr) \
     v(isBoundFunction, nullptr) \
     v(hasInstanceBoundFunction, nullptr) \
@@ -59,6 +64,7 @@ class JSGlobalObject;
     v(BuiltinLog, nullptr) \
     v(BuiltinDescribe, nullptr) \
     v(RegExp, nullptr) \
+    v(min, nullptr) \
     v(trunc, nullptr) \
     v(Promise, nullptr) \
     v(InternalPromise, nullptr) \
@@ -70,9 +76,12 @@ class JSGlobalObject;
     v(concatMemcpy, nullptr) \
     v(appendMemcpy, nullptr) \
     v(hostPromiseRejectionTracker, nullptr) \
-    v(InspectorInstrumentation, nullptr) \
     v(Set, nullptr) \
+    v(Map, nullptr) \
     v(thisTimeValue, nullptr) \
+    v(importInRealm, nullptr) \
+    v(evalInRealm, nullptr) \
+    v(moveFunctionToRealm, nullptr) \
     v(isConstructor, nullptr) \
     v(sameValue, nullptr) \
     v(regExpProtoFlagsGetter, nullptr) \
@@ -106,6 +115,10 @@ class JSGlobalObject;
     v(callFunction, nullptr) \
     v(hasOwnPropertyFunction, nullptr) \
     v(createPrivateSymbol, nullptr) \
+    v(emptyPropertyNameEnumerator, nullptr) \
+    v(sentinelString, nullptr) \
+    v(createRemoteFunction, nullptr) \
+    v(isRemoteFunction, nullptr) \
 
 
 #define DECLARE_LINK_TIME_CONSTANT(name, code) name,

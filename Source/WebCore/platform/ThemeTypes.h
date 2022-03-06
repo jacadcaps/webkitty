@@ -34,6 +34,7 @@ namespace WebCore {
 // Must follow CSSValueKeywords.in order
 enum ControlPart {
     NoControlPart,
+    AutoPart,
     CheckboxPart,
     RadioPart,
     PushButtonPart,
@@ -85,15 +86,11 @@ enum ControlPart {
     SearchFieldResultsDecorationPart,
     SearchFieldResultsButtonPart,
     SearchFieldCancelButtonPart,
-    SnapshottedPluginOverlayPart,
     TextFieldPart,
     RelevancyLevelIndicatorPart,
     ContinuousCapacityLevelIndicatorPart,
     DiscreteCapacityLevelIndicatorPart,
     RatingLevelIndicatorPart,
-#if ENABLE(SERVICE_CONTROLS)
-    ImageControlsButtonPart,
-#endif
 #if ENABLE(APPLE_PAY)
     ApplePayButtonPart,
 #endif
@@ -108,8 +105,20 @@ enum ControlPart {
     AttachmentPart,
     BorderlessAttachmentPart,
 #endif
-    CapsLockIndicatorPart
+    CapsLockIndicatorPart,
+    // Internal-only Values
+#if ENABLE(SERVICE_CONTROLS)
+    ImageControlsButtonPart
+#endif
+    
 };
+
+#if ENABLE(SERVICE_CONTROLS)
+constexpr ControlPart largestControlPart = ImageControlsButtonPart;
+#else
+constexpr ControlPart largestControlPart = CapsLockIndicatorPart;
+#endif
+
 
 enum SelectionPart {
     SelectionBackground,

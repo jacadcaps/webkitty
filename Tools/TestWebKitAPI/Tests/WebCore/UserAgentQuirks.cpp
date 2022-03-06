@@ -54,18 +54,6 @@ static void assertUserAgentForURLHasFirefoxBrowserQuirk(const char* url)
     EXPECT_FALSE(uaString.contains("Version"));
 }
 
-static void assertUserAgentForURLHasLinuxPlatformQuirk(const char* url)
-{
-    String uaString = standardUserAgentForURL(URL({ }, url));
-
-    EXPECT_TRUE(uaString.contains("Linux"));
-    EXPECT_FALSE(uaString.contains("Macintosh"));
-    EXPECT_FALSE(uaString.contains("Mac OS X"));
-    EXPECT_FALSE(uaString.contains("Windows"));
-    EXPECT_FALSE(uaString.contains("Chrome"));
-    EXPECT_FALSE(uaString.contains("FreeBSD"));
-}
-
 static void assertUserAgentForURLHasMacPlatformQuirk(const char* url)
 {
     String uaString = standardUserAgentForURL(URL({ }, url));
@@ -73,39 +61,38 @@ static void assertUserAgentForURLHasMacPlatformQuirk(const char* url)
     EXPECT_TRUE(uaString.contains("Macintosh"));
     EXPECT_TRUE(uaString.contains("Mac OS X"));
     EXPECT_FALSE(uaString.contains("Linux"));
-    EXPECT_FALSE(uaString.contains("Windows"));
     EXPECT_FALSE(uaString.contains("Chrome"));
     EXPECT_FALSE(uaString.contains("FreeBSD"));
 }
 
+// Some Google domains require an unbranded user agent, which is a little
+// awkward to test for. We want to check that standardUserAgentForURL is
+// non-null to ensure *any* quirk URL is returned, so that application branding
+// does not get used. (standardUserAgentForURL returns a null string to indicate
+// that the standard user agent should be used.)
+static void assertUserAgentForURLHasEmptyQuirk(const char* url)
+{
+    String uaString = standardUserAgentForURL(URL({ }, url));
+    EXPECT_FALSE(uaString.isNull());
+}
+
 TEST(UserAgentTest, Quirks)
 {
-    // A site with not quirks should return a null String.
+    // A site with no quirks should return a null String.
     String uaString = standardUserAgentForURL(URL({ }, "http://www.webkit.org/"));
     EXPECT_TRUE(uaString.isNull());
-
-#if !OS(LINUX) || !CPU(X86_64)
-    // Google quirk should not affect sites with similar domains.
-    uaString = standardUserAgentForURL(URL({ }, "http://www.googleblog.com/"));
-    EXPECT_FALSE(uaString.contains("Linux x86_64"));
-#endif
 
     assertUserAgentForURLHasChromeBrowserQuirk("http://typekit.com/");
     assertUserAgentForURLHasChromeBrowserQuirk("http://typekit.net/");
     assertUserAgentForURLHasChromeBrowserQuirk("http://auth.mayohr.com/");
     assertUserAgentForURLHasChromeBrowserQuirk("http://bankofamerica.com/");
+    assertUserAgentForURLHasChromeBrowserQuirk("http://soundcloud.com/");
 
-    assertUserAgentForURLHasFirefoxBrowserQuirk("http://drive.google.com/");
     assertUserAgentForURLHasFirefoxBrowserQuirk("http://bugzilla.redhat.com/");
 
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://www.google.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://www.google.es/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://calendar.google.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://plus.google.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://drive.google.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://fonts.googleapis.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://accounts.youtube.com/");
-    assertUserAgentForURLHasLinuxPlatformQuirk("http://docs.google.com/");
+#if ENABLE(THUNDER)
+    assertUserAgentForURLHasFirefoxBrowserQuirk("http://www.netflix.com/");
+#endif
 
     assertUserAgentForURLHasMacPlatformQuirk("http://www.yahoo.com/");
     assertUserAgentForURLHasMacPlatformQuirk("http://finance.yahoo.com/");
@@ -114,9 +101,13 @@ TEST(UserAgentTest, Quirks)
     assertUserAgentForURLHasMacPlatformQuirk("http://web.whatsapp.com/");
     assertUserAgentForURLHasMacPlatformQuirk("http://www.chase.com/");
     assertUserAgentForURLHasMacPlatformQuirk("http://paypal.com/");
-    assertUserAgentForURLHasMacPlatformQuirk("http://outlook.live.com/");
+    assertUserAgentForURLHasMacPlatformQuirk("http://outlook.office.com/");
     assertUserAgentForURLHasMacPlatformQuirk("http://mail.ntu.edu.tw/");
     assertUserAgentForURLHasMacPlatformQuirk("http://exchange.tu-berlin.de/");
+
+    assertUserAgentForURLHasEmptyQuirk("http://accounts.google.com/");
+    assertUserAgentForURLHasEmptyQuirk("http://docs.google.com/");
+    assertUserAgentForURLHasEmptyQuirk("http://drive.google.com/");
 }
 
 } // namespace TestWebKitAPI

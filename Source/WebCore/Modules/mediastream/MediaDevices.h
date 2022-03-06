@@ -55,7 +55,7 @@ struct MediaTrackSupportedConstraints;
 
 template<typename IDLType> class DOMPromiseDeferred;
 
-class MediaDevices final : public RefCounted<MediaDevices>, public ActiveDOMObject, public EventTargetWithInlineData, public CanMakeWeakPtr<MediaDevices> {
+class MediaDevices final : public RefCounted<MediaDevices>, public ActiveDOMObject, public EventTargetWithInlineData {
     WTF_MAKE_ISO_ALLOCATED(MediaDevices);
 public:
     static Ref<MediaDevices> create(Document&);
@@ -75,19 +75,21 @@ public:
     };
 
     struct StreamConstraints {
-        Variant<bool, MediaTrackConstraints> video;
-        Variant<bool, MediaTrackConstraints> audio;
+        std::variant<bool, MediaTrackConstraints> video;
+        std::variant<bool, MediaTrackConstraints> audio;
     };
     void getUserMedia(const StreamConstraints&, Promise&&);
 
     struct DisplayMediaStreamConstraints {
-        Variant<bool, MediaTrackConstraints> video;
-        Variant<bool, MediaTrackConstraints> audio;
+        std::variant<bool, MediaTrackConstraints> video;
+        std::variant<bool, MediaTrackConstraints> audio;
     };
     void getDisplayMedia(const DisplayMediaStreamConstraints&, Promise&&);
 
     void enumerateDevices(EnumerateDevicesPromise&&);
     MediaTrackSupportedConstraints getSupportedConstraints();
+
+    String deviceIdToPersistentId(const String& deviceId) const { return m_audioOutputDeviceIdToPersistentId.get(deviceId); }
 
     using RefCounted<MediaDevices>::ref;
     using RefCounted<MediaDevices>::deref;
@@ -98,7 +100,7 @@ private:
     void scheduledEventTimerFired();
     bool addEventListener(const AtomString& eventType, Ref<EventListener>&&, const AddEventListenerOptions&) override;
 
-    void refreshDevices(const Vector<CaptureDevice>&);
+    void exposeDevices(const Vector<CaptureDevice>&, const String&, EnumerateDevicesPromise&&);
     void listenForDeviceChanges();
 
     friend class JSMediaDevicesOwner;
@@ -126,10 +128,13 @@ private:
     const EventNames& m_eventNames; // Need to cache this so we can use it from GC threads.
     bool m_listeningForDeviceChanges { false };
 
-    Vector<Ref<MediaDeviceInfo>> m_devices;
+    String m_groupIdHashSalt;
 
     OptionSet<GestureAllowedRequest> m_requestTypesForCurrentGesture;
     WeakPtr<UserGestureToken> m_currentGestureToken;
+
+    HashMap<String, String> m_audioOutputDeviceIdToPersistentId;
+    String m_audioOutputDeviceId;
 };
 
 } // namespace WebCore

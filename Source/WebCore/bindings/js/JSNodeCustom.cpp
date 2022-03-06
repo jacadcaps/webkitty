@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2009-2010, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,6 +45,7 @@
 #include "JSCDATASection.h"
 #include "JSComment.h"
 #include "JSDOMBinding.h"
+#include "JSDOMWindowCustom.h"
 #include "JSDocument.h"
 #include "JSDocumentFragment.h"
 #include "JSDocumentType.h"
@@ -61,20 +62,18 @@
 #include "ProcessingInstruction.h"
 #include "RegisteredEventListener.h"
 #include "SVGElement.h"
-#include "ScriptState.h"
 #include "ShadowRoot.h"
 #include "GCReachableRef.h"
 #include "StyleSheet.h"
 #include "StyledElement.h"
 #include "Text.h"
 
-
 namespace WebCore {
-using namespace JSC;
 
+using namespace JSC;
 using namespace HTMLNames;
 
-static inline bool isReachableFromDOM(Node* node, SlotVisitor& visitor, const char** reason)
+static inline bool isReachableFromDOM(Node* node, AbstractSlotVisitor& visitor, const char** reason)
 {
     if (!node->isConnected()) {
         if (is<Element>(*node)) {
@@ -123,7 +122,7 @@ static inline bool isReachableFromDOM(Node* node, SlotVisitor& visitor, const ch
     return visitor.containsOpaqueRoot(root(node));
 }
 
-bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, SlotVisitor& visitor, const char** reason)
+bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char** reason)
 {
     JSNode* jsNode = jsCast<JSNode*>(handle.slot()->asCell());
     return isReachableFromDOM(&jsNode->wrapped(), visitor, reason);
@@ -136,10 +135,13 @@ JSScope* JSNode::pushEventHandlerScope(JSGlobalObject* lexicalGlobalObject, JSSc
     return node;
 }
 
-void JSNode::visitAdditionalChildren(SlotVisitor& visitor)
+template<typename Visitor>
+void JSNode::visitAdditionalChildren(Visitor& visitor)
 {
     visitor.addOpaqueRoot(root(wrapped()));
 }
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSNode);
 
 static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
@@ -209,14 +211,15 @@ JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& 
     return globalObject->world().wrappers().get(&node);
 }
 
-void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node* root)
+void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node& root)
 {
-    JSC::JSGlobalObject* lexicalGlobalObject = mainWorldExecState(root->document().frame());
-    if (!lexicalGlobalObject)
+    auto frame = root.document().frame();
+    if (!frame)
         return;
 
-    JSLockHolder lock(lexicalGlobalObject);
-    toJS(lexicalGlobalObject, static_cast<JSDOMGlobalObject*>(lexicalGlobalObject), *root);
+    auto& globalObject = mainWorldGlobalObject(*frame);
+    JSLockHolder lock(&globalObject);
+    toJS(&globalObject, &globalObject, root);
 }
 
 } // namespace WebCore

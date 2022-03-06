@@ -30,14 +30,15 @@
 #include "NetworkCacheEntry.h"
 #include "NetworkLoadClient.h"
 #include <WebCore/ContentSecurityPolicyResponseHeaders.h>
+#include <WebCore/CrossOriginEmbedderPolicy.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/ServiceWorkerJobData.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
-struct ServiceWorkerFetchResult;
 struct ServiceWorkerJobData;
+struct WorkerFetchResult;
 class TextResourceDecoder;
 }
 
@@ -49,7 +50,7 @@ class NetworkSession;
 class ServiceWorkerSoftUpdateLoader final : public NetworkLoadClient, public CanMakeWeakPtr<ServiceWorkerSoftUpdateLoader> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    using Handler = CompletionHandler<void(const WebCore::ServiceWorkerFetchResult&)>;
+    using Handler = CompletionHandler<void(const WebCore::WorkerFetchResult&)>;
     static void start(NetworkSession*, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
 
     ~ServiceWorkerSoftUpdateLoader();
@@ -62,8 +63,8 @@ private:
     bool isSynchronous() const final { return false; }
     bool isAllowedToAskUserForCredentials() const final { return false; }
     void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) final;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&, int reportedEncodedDataLength) final;
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) final;
     void didFailLoading(const WebCore::ResourceError&) final;
 
@@ -81,6 +82,7 @@ private:
     String m_responseEncoding;
     String m_referrerPolicy;
     WebCore::ContentSecurityPolicyResponseHeaders m_contentSecurityPolicy;
+    WebCore::CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
 
     std::unique_ptr<NetworkCache::Entry> m_cacheEntry;
     RefPtr<WebCore::TextResourceDecoder> m_decoder;

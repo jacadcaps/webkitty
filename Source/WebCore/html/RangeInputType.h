@@ -38,18 +38,17 @@ namespace WebCore {
 class SliderThumbElement;
 
 class RangeInputType final : public InputType {
+    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
 public:
     explicit RangeInputType(HTMLInputElement&);
 
 private:
-    bool isRangeControl() const final;
     const AtomString& formControlType() const final;
     double valueAsDouble() const final;
     ExceptionOr<void> setValueAsDecimal(const Decimal&, TextFieldEventBehavior) const final;
     bool typeMismatchFor(const String&) const final;
     bool supportsRequired() const final;
     StepRange createStepRange(AnyStepHandling) const final;
-    bool isSteppable() const final;
     void handleMouseDownEvent(MouseEvent&) final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
     RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
@@ -70,7 +69,7 @@ private:
 #if ENABLE(DATALIST_ELEMENT)
     void dataListMayHaveChanged() final;
     void updateTickMarkValues();
-    Optional<Decimal> findClosestTickMarkValue(const Decimal&) final;
+    std::optional<Decimal> findClosestTickMarkValue(const Decimal&) final;
 
     bool m_tickMarkValuesDirty { true };
     Vector<Decimal> m_tickMarkValues;

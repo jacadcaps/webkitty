@@ -25,66 +25,40 @@
 
 #pragma once
 
-#include "Timer.h"
-#include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-
-#if PLATFORM(MAC)
-#include <CoreGraphics/CGDisplayConfiguration.h>
-#include <OpenGL/CGLTypes.h>
-#endif
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
 const unsigned MaxContexts = 16;
 
+#if USE(ANGLE)
+class GraphicsContextGLANGLE;
+#else
 class GraphicsContextGLOpenGL;
-class HostWindow;
-
-using PlatformDisplayID = uint32_t;
-
-#if HAVE(APPLE_GRAPHICS_CONTROL)
-WEBCORE_EXPORT bool hasLowAndHighPowerGPUs();
 #endif
 
 class GraphicsContextGLOpenGLManager {
     friend NeverDestroyed<GraphicsContextGLOpenGLManager>;
 public:
+#if USE(ANGLE)
+    using GraphicsContextGLType = GraphicsContextGLANGLE;
+#else
+    using GraphicsContextGLType = GraphicsContextGLOpenGL;
+#endif
+
     static GraphicsContextGLOpenGLManager& sharedManager();
     
-    void addContext(GraphicsContextGLOpenGL*, HostWindow*);
-    void removeContext(GraphicsContextGLOpenGL*);
-
-    HostWindow* hostWindowForContext(GraphicsContextGLOpenGL*) const;
-    
-    void addContextRequiringHighPerformance(GraphicsContextGLOpenGL*);
-    void removeContextRequiringHighPerformance(GraphicsContextGLOpenGL*);
+    void addContext(GraphicsContextGLType*);
+    void removeContext(GraphicsContextGLType*);
     
     void recycleContextIfNecessary();
     bool hasTooManyContexts() const { return m_contexts.size() >= MaxContexts; }
     
-    void updateAllContexts();
-
-#if PLATFORM(MAC)
-    void screenDidChange(PlatformDisplayID, const HostWindow*);
-    WEBCORE_EXPORT static void displayWasReconfigured(CGDirectDisplayID, CGDisplayChangeSummaryFlags, void*);
-#endif
-    
 private:
-    GraphicsContextGLOpenGLManager()
-        : m_disableHighPerformanceGPUTimer(*this, &GraphicsContextGLOpenGLManager::disableHighPerformanceGPUTimerFired)
-    {
-    }
+    GraphicsContextGLOpenGLManager() = default;
 
-    void updateHighPerformanceState();
-    void disableHighPerformanceGPUTimerFired();
-
-    Vector<GraphicsContextGLOpenGL*> m_contexts;
-    HashMap<GraphicsContextGLOpenGL*, HostWindow*> m_contextWindowMap;
-    HashSet<GraphicsContextGLOpenGL*> m_contextsRequiringHighPerformance;
-    
-    Timer m_disableHighPerformanceGPUTimer;
-    bool m_requestingHighPerformance { false };
+    Vector<GraphicsContextGLType*> m_contexts;
 };
 
 }

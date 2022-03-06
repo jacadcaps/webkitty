@@ -31,7 +31,7 @@
 #if ENABLE(ASYNC_SCROLLING) && USE(NICOSIA)
 
 #include "ScrollingTreeFrameScrollingNode.h"
-
+#include "ScrollingTreeScrollingNodeDelegateNicosia.h"
 #include <wtf/RefPtr.h>
 
 namespace Nicosia {
@@ -39,6 +39,7 @@ class CompositionLayer;
 }
 
 namespace WebCore {
+class ScrollAnimation;
 class ScrollAnimationKinetic;
 
 class ScrollingTreeFrameScrollingNodeNicosia final : public ScrollingTreeFrameScrollingNode {
@@ -46,20 +47,21 @@ public:
     static Ref<ScrollingTreeFrameScrollingNode> create(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeNicosia();
 
+    RefPtr<Nicosia::CompositionLayer> rootContentsLayer() const { return m_rootContentsLayer; }
+
 private:
     ScrollingTreeFrameScrollingNodeNicosia(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
 
     void commitStateBeforeChildren(const ScrollingStateNode&) override;
     void commitStateAfterChildren(const ScrollingStateNode&) override;
 
-    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&) override;
+    bool startAnimatedScrollToPosition(FloatPoint) override;
+    void stopAnimatedScroll() override;
+    void serviceScrollAnimation(MonotonicTime) final;
 
-    void stopScrollAnimations() override;
-
+    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&, EventTargeting) override;
     FloatPoint adjustedScrollPosition(const FloatPoint&, ScrollClamping) const override;
-
-    void currentScrollPositionChanged(ScrollingLayerPositionAction) override;
-
+    void currentScrollPositionChanged(ScrollType, ScrollingLayerPositionAction) override;
     void repositionScrollingLayers() override;
     void repositionRelatedLayers() override;
 
@@ -70,9 +72,7 @@ private:
     RefPtr<Nicosia::CompositionLayer> m_headerLayer;
     RefPtr<Nicosia::CompositionLayer> m_footerLayer;
 
-#if ENABLE(KINETIC_SCROLLING)
-    std::unique_ptr<ScrollAnimationKinetic> m_kineticAnimation;
-#endif
+    ScrollingTreeScrollingNodeDelegateNicosia m_delegate;
 };
 
 } // namespace WebCore

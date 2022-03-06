@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -118,11 +118,13 @@ int testExecutionTimeLimit()
 {
     static const TierOptions tierOptionsList[] = {
         { "LLINT",    0_ms,   "--useConcurrentJIT=false --useLLInt=true --useJIT=false" },
+#if ENABLE(JIT)
         { "Baseline", 0_ms,   "--useConcurrentJIT=false --useLLInt=true --useJIT=true --useDFGJIT=false" },
         { "DFG",      200_ms,   "--useConcurrentJIT=false --useLLInt=true --useJIT=true --useDFGJIT=true --useFTLJIT=false" },
 #if ENABLE(FTL_JIT)
         { "FTL",      500_ms, "--useConcurrentJIT=false --useLLInt=true --useJIT=true --useDFGJIT=true --useFTLJIT=true" },
 #endif
+#endif // ENABLE(JIT)
     };
     
     bool failed = false;
@@ -179,7 +181,7 @@ int testExecutionTimeLimit()
             }
 
             if (!exception) {
-                printf("FAIL: %s TerminatedExecutionException was not thrown.\n", tierOptions.tier);
+                printf("FAIL: %s TerminationException was not thrown.\n", tierOptions.tier);
                 exit(1);
             }
 
@@ -225,7 +227,7 @@ int testExecutionTimeLimit()
             }
             
             if (!exception) {
-                printf("FAIL: %s TerminatedExecutionException was not thrown.\n", tierOptions.tier);
+                printf("FAIL: %s TerminationException was not thrown.\n", tierOptions.tier);
                 failed = true;
             }
 
@@ -268,14 +270,14 @@ int testExecutionTimeLimit()
             }
             
             if (!exception) {
-                printf("FAIL: %s TerminatedExecutionException was not thrown.\n", tierOptions.tier);
+                printf("FAIL: %s TerminationException was not thrown.\n", tierOptions.tier);
                 failed = true;
             }
 
             testResetAfterTimeout(failed);
         }
 
-        /* Test the script timeout's TerminatedExecutionException should NOT be catchable: */
+        /* Test the script timeout's TerminationException should NOT be catchable: */
         timeLimit = 100_ms + tierAdjustment;
         JSContextGroupSetExecutionTimeLimit(contextGroup, timeLimit.seconds(), shouldTerminateCallback, nullptr);
         {
@@ -313,9 +315,9 @@ int testExecutionTimeLimit()
             }
             
             if (exception)
-                printf("PASS: %s TerminatedExecutionException was not catchable as expected.\n", tierOptions.tier);
+                printf("PASS: %s TerminationException was not catchable as expected.\n", tierOptions.tier);
             else {
-                printf("FAIL: %s TerminatedExecutionException was caught.\n", tierOptions.tier);
+                printf("FAIL: %s TerminationException was caught.\n", tierOptions.tier);
                 failed = true;
             }
 
@@ -360,7 +362,7 @@ int testExecutionTimeLimit()
             }
             
             if (!exception) {
-                printf("FAIL: %s TerminatedExecutionException was not thrown.\n", tierOptions.tier);
+                printf("FAIL: %s TerminationException was not thrown.\n", tierOptions.tier);
                 failed = true;
             }
 
@@ -405,7 +407,7 @@ int testExecutionTimeLimit()
             }
             
             if (exception) {
-                printf("FAIL: %s Unexpected TerminatedExecutionException thrown.\n", tierOptions.tier);
+                printf("FAIL: %s Unexpected TerminationException thrown.\n", tierOptions.tier);
                 failed = true;
             }
         }
@@ -454,7 +456,7 @@ int testExecutionTimeLimit()
                     printf("FAIL: %s script timeout callback was not called after timeout extension.\n", tierOptions.tier);
                 
                 if (!exception)
-                    printf("FAIL: %s TerminatedExecutionException was not thrown during timeout extension test.\n", tierOptions.tier);
+                    printf("FAIL: %s TerminationException was not thrown during timeout extension test.\n", tierOptions.tier);
                 
                 failed = true;
             }
@@ -505,12 +507,12 @@ int testExecutionTimeLimit()
                 startTimeRef = CPUTime::forCurrentThread();
                 JSEvaluateScript(contextRef, scriptRef, nullptr, nullptr, 1, &exceptionRef);
                 endTimeRef = CPUTime::forCurrentThread();
-                auto locker = WTF::holdLock(syncLockRef);
+                Locker locker { syncLockRef };
                 didSynchronizeRef = true;
                 synchronizeRef.notifyAll();
             });
 
-            auto locker = holdLock(syncLock);
+            Locker locker { syncLock };
             synchronize.wait(syncLock, [&] { return didSynchronize; });
 
             if (((endTime - startTime) < timeAfterWatchdogShouldHaveFired) && dispatchTerminateCallbackCalled)

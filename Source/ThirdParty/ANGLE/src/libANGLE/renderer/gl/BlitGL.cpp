@@ -256,9 +256,10 @@ BlitGL::~BlitGL()
         mScratchFBO = 0;
     }
 
-    if (mVAO != 0)
+    if (mOwnsVAOState)
     {
         mStateManager->deleteVertexArray(mVAO);
+        SafeDelete(mVAOState);
         mVAO = 0;
     }
 }
@@ -280,9 +281,9 @@ angle::Result BlitGL::copyImageToLUMAWorkaroundTexture(const gl::Context *contex
     GLenum readType = source->getImplementationColorReadType(context);
 
     gl::PixelUnpackState unpack;
-    mStateManager->setPixelUnpackState(unpack);
-    mStateManager->setPixelUnpackBuffer(
-        context->getState().getTargetBuffer(gl::BufferBinding::PixelUnpack));
+    ANGLE_TRY(mStateManager->setPixelUnpackState(context, unpack));
+    ANGLE_TRY(mStateManager->setPixelUnpackBuffer(
+        context, context->getState().getTargetBuffer(gl::BufferBinding::PixelUnpack)));
     ANGLE_GL_TRY_ALWAYS_CHECK(
         context,
         mFunctions->texImage2D(ToGLenum(target), static_cast<GLint>(level), internalFormat,
@@ -365,7 +366,7 @@ angle::Result BlitGL::copySubImageToLUMAWorkaroundTexture(const gl::Context *con
     ANGLE_GL_TRY(context, mFunctions->uniform1i(blitProgram->multiplyAlphaLocation, 0));
     ANGLE_GL_TRY(context, mFunctions->uniform1i(blitProgram->unMultiplyAlphaLocation, 0));
 
-    mStateManager->bindVertexArray(mVAO, 0);
+    ANGLE_TRY(setVAOState(context));
     ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
     // Copy the swizzled texture to the destination texture
@@ -548,7 +549,7 @@ angle::Result BlitGL::blitColorBufferWithShader(const gl::Context *context,
 
     mStateManager->bindFramebuffer(GL_DRAW_FRAMEBUFFER, destFramebuffer);
 
-    mStateManager->bindVertexArray(mVAO, 0);
+    ANGLE_TRY(setVAOState(context));
     ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
     ANGLE_TRY(scopedState.exit(context));
@@ -663,7 +664,7 @@ angle::Result BlitGL::copySubTexture(const gl::Context *context,
                                                     unpackUnmultiplyAlpha));
     }
 
-    mStateManager->bindVertexArray(mVAO, 0);
+    ANGLE_TRY(setVAOState(context));
     ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
     *copySucceededOut = true;
@@ -703,10 +704,16 @@ angle::Result BlitGL::copySubTextureCPUReadback(const gl::Context *context,
     gl::Rectangle readPixelsArea = sourceArea;
 
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mScratchFBO);
-    ANGLE_GL_TRY(context, mFunctions->framebufferTexture2D(
-                              GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ToGLenum(source->getType()),
-                              source->getTextureID(), static_cast<GLint>(sourceLevel)));
-    GLenum status = ANGLE_GL_TRY(context, mFunctions->checkFramebufferStatus(GL_FRAMEBUFFER));
+    bool supportExternalTarget =
+        source->getType() == gl::TextureType::External && context->getExtensions().YUVTargetEXT;
+    GLenum status = GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+    if (supportExternalTarget || source->getType() != gl::TextureType::External)
+    {
+        ANGLE_GL_TRY(context, mFunctions->framebufferTexture2D(
+                                  GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ToGLenum(source->getType()),
+                                  source->getTextureID(), static_cast<GLint>(sourceLevel)));
+        status = ANGLE_GL_TRY(context, mFunctions->checkFramebufferStatus(GL_FRAMEBUFFER));
+    }
     if (status != GL_FRAMEBUFFER_COMPLETE)
     {
         // The source texture cannot be read with glReadPixels. Copy it into another RGBA texture
@@ -779,8 +786,8 @@ angle::Result BlitGL::copySubTextureCPUReadback(const gl::Context *context,
 
     gl::PixelUnpackState unpack;
     unpack.alignment = 1;
-    mStateManager->setPixelUnpackState(unpack);
-    mStateManager->setPixelUnpackBuffer(nullptr);
+    ANGLE_TRY(mStateManager->setPixelUnpackState(context, unpack));
+    ANGLE_TRY(mStateManager->setPixelUnpackBuffer(context, nullptr));
     ANGLE_GL_TRY(context, mFunctions->readPixels(readPixelsArea.x, readPixelsArea.y,
                                                  readPixelsArea.width, readPixelsArea.height,
                                                  readPixelsFormat, GL_UNSIGNED_BYTE, sourceMemory));
@@ -797,8 +804,8 @@ angle::Result BlitGL::copySubTextureCPUReadback(const gl::Context *context,
 
     gl::PixelPackState pack;
     pack.alignment = 1;
-    mStateManager->setPixelPackState(pack);
-    mStateManager->setPixelPackBuffer(nullptr);
+    ANGLE_TRY(mStateManager->setPixelPackState(context, pack));
+    ANGLE_TRY(mStateManager->setPixelPackBuffer(context, nullptr));
 
     nativegl::TexSubImageFormat texSubImageFormat =
         nativegl::GetTexSubImageFormat(mFunctions, mFeatures, destFormat, destType);
@@ -1075,7 +1082,7 @@ angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
     mStateManager->bindTexture(sourceType, source->getTextureID());
     ANGLE_TRY(source->setMinFilter(context, GL_NEAREST));
 
-    mStateManager->bindVertexArray(mVAO, 0);
+    ANGLE_TRY(setVAOState(context));
     ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
     // Generate mipmaps on the linear texture
@@ -1109,52 +1116,45 @@ angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
 
 angle::Result BlitGL::initializeResources(const gl::Context *context)
 {
+    if (mResourcesInitialized)
+    {
+        return angle::Result::Continue;
+    }
+
     for (size_t i = 0; i < ArraySize(mScratchTextures); i++)
     {
-        if (mScratchTextures[i] == 0)
-        {
-            ANGLE_GL_TRY(context, mFunctions->genTextures(1, &mScratchTextures[i]));
-        }
+        ANGLE_GL_TRY(context, mFunctions->genTextures(1, &mScratchTextures[i]));
     }
 
-    if (mScratchFBO == 0)
-    {
-        ANGLE_GL_TRY(context, mFunctions->genFramebuffers(1, &mScratchFBO));
-    }
+    ANGLE_GL_TRY(context, mFunctions->genFramebuffers(1, &mScratchFBO));
 
-    if (mVertexBuffer == 0)
-    {
-        ANGLE_GL_TRY(context, mFunctions->genBuffers(1, &mVertexBuffer));
-        mStateManager->bindBuffer(gl::BufferBinding::Array, mVertexBuffer);
+    ANGLE_GL_TRY(context, mFunctions->genBuffers(1, &mVertexBuffer));
+    mStateManager->bindBuffer(gl::BufferBinding::Array, mVertexBuffer);
 
-        // Use a single, large triangle, to avoid arithmetic precision issues where fragments
-        // with the same Y coordinate don't get exactly the same interpolated texcoord Y.
-        float vertexData[] = {
-            -0.5f, 0.0f, 1.5f, 0.0f, 0.5f, 2.0f,
-        };
+    // Use a single, large triangle, to avoid arithmetic precision issues where fragments
+    // with the same Y coordinate don't get exactly the same interpolated texcoord Y.
+    float vertexData[] = {
+        -0.5f, 0.0f, 1.5f, 0.0f, 0.5f, 2.0f,
+    };
 
-        ANGLE_GL_TRY(context, mFunctions->bufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, vertexData,
-                                                     GL_STATIC_DRAW));
-    }
+    ANGLE_GL_TRY(context, mFunctions->bufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, vertexData,
+                                                 GL_STATIC_DRAW));
 
-    if (mVAO == 0)
+    VertexArrayStateGL *defaultVAOState = mStateManager->getDefaultVAOState();
+    if (!mFeatures.syncVertexArraysToDefault.enabled)
     {
         ANGLE_GL_TRY(context, mFunctions->genVertexArrays(1, &mVAO));
-
-        mStateManager->bindVertexArray(mVAO, 0);
-        mStateManager->bindBuffer(gl::BufferBinding::Array, mVertexBuffer);
-
-        // Enable all attributes with the same buffer so that it doesn't matter what location the
-        // texcoord attribute is assigned
-        GLint maxAttributes = 0;
-        ANGLE_GL_TRY(context, mFunctions->getIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxAttributes));
-
-        for (GLint i = 0; i < maxAttributes; i++)
-        {
-            ANGLE_GL_TRY(context, mFunctions->enableVertexAttribArray(i));
-            ANGLE_GL_TRY(context,
-                         mFunctions->vertexAttribPointer(i, 2, GL_FLOAT, GL_FALSE, 0, nullptr));
-        }
+        mVAOState     = new VertexArrayStateGL(defaultVAOState->attributes.size(),
+                                           defaultVAOState->bindings.size());
+        mOwnsVAOState = true;
+        ANGLE_TRY(setVAOState(context));
+        ANGLE_TRY(initializeVAOState(context));
+    }
+    else
+    {
+        mVAO          = mStateManager->getDefaultVAO();
+        mVAOState     = defaultVAOState;
+        mOwnsVAOState = false;
     }
 
     constexpr GLenum potentialSRGBMipmapGenerationFormats[] = {
@@ -1178,6 +1178,7 @@ angle::Result BlitGL::initializeResources(const gl::Context *context)
     }
     ASSERT(mSRGBMipmapGenerationFormat.internalFormat != GL_NONE);
 
+    mResourcesInitialized = true;
     return angle::Result::Continue;
 }
 
@@ -1187,8 +1188,8 @@ angle::Result BlitGL::orphanScratchTextures(const gl::Context *context)
     {
         mStateManager->bindTexture(gl::TextureType::_2D, texture);
         gl::PixelUnpackState unpack;
-        mStateManager->setPixelUnpackState(unpack);
-        mStateManager->setPixelUnpackBuffer(nullptr);
+        ANGLE_TRY(mStateManager->setPixelUnpackState(context, unpack));
+        ANGLE_TRY(mStateManager->setPixelUnpackBuffer(context, nullptr));
         if (mFunctions->isAtLeastGL(gl::Version(3, 3)))
         {
             constexpr GLint swizzle[4] = {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA};
@@ -1233,6 +1234,43 @@ angle::Result BlitGL::setScratchTextureParameter(const gl::Context *context,
     return angle::Result::Continue;
 }
 
+angle::Result BlitGL::setVAOState(const gl::Context *context)
+{
+    mStateManager->bindVertexArray(mVAO, mVAOState);
+    if (mFeatures.syncVertexArraysToDefault.enabled)
+    {
+        ANGLE_TRY(initializeVAOState(context));
+    }
+
+    return angle::Result::Continue;
+}
+
+angle::Result BlitGL::initializeVAOState(const gl::Context *context)
+{
+    mStateManager->bindBuffer(gl::BufferBinding::Array, mVertexBuffer);
+
+    ANGLE_GL_TRY(context, mFunctions->enableVertexAttribArray(mTexcoordAttribLocation));
+    ANGLE_GL_TRY(context, mFunctions->vertexAttribPointer(mTexcoordAttribLocation, 2, GL_FLOAT,
+                                                          GL_FALSE, 0, nullptr));
+
+    VertexAttributeGL &attribute = mVAOState->attributes[mTexcoordAttribLocation];
+    attribute.enabled            = true;
+    attribute.format             = &angle::Format::Get(angle::FormatID::R32G32_FLOAT);
+    attribute.pointer            = nullptr;
+
+    VertexBindingGL &binding = mVAOState->bindings[mTexcoordAttribLocation];
+    binding.stride           = 8;
+    binding.offset           = 0;
+    binding.buffer           = mVertexBuffer;
+
+    if (mFeatures.syncVertexArraysToDefault.enabled)
+    {
+        mStateManager->setDefaultVAOStateDirty();
+    }
+
+    return angle::Result::Continue;
+}
+
 angle::Result BlitGL::getBlitProgram(const gl::Context *context,
                                      gl::TextureType sourceTextureType,
                                      GLenum sourceComponentType,
@@ -1248,6 +1286,7 @@ angle::Result BlitGL::getBlitProgram(const gl::Context *context,
 
         // Depending on what types need to be output by the shaders, different versions need to be
         // used.
+        constexpr const char *texcoordAttribName = "a_texcoord";
         std::string version;
         std::string vsInputVariableQualifier;
         std::string vsOutputVariableQualifier;
@@ -1288,15 +1327,17 @@ angle::Result BlitGL::getBlitProgram(const gl::Context *context,
             // Compile the vertex shader
             std::ostringstream vsSourceStream;
             vsSourceStream << "#version " << version << "\n";
-            vsSourceStream << vsInputVariableQualifier << " vec2 a_texcoord;\n";
+            vsSourceStream << vsInputVariableQualifier << " vec2 " << texcoordAttribName << ";\n";
             vsSourceStream << "uniform vec2 u_scale;\n";
             vsSourceStream << "uniform vec2 u_offset;\n";
             vsSourceStream << vsOutputVariableQualifier << " vec2 v_texcoord;\n";
             vsSourceStream << "\n";
             vsSourceStream << "void main()\n";
             vsSourceStream << "{\n";
-            vsSourceStream << "    gl_Position = vec4((a_texcoord * 2.0) - 1.0, 0.0, 1.0);\n";
-            vsSourceStream << "    v_texcoord = a_texcoord * u_scale + u_offset;\n";
+            vsSourceStream << "    gl_Position = vec4((" << texcoordAttribName
+                           << " * 2.0) - 1.0, 0.0, 1.0);\n";
+            vsSourceStream << "    v_texcoord = " << texcoordAttribName
+                           << " * u_scale + u_offset;\n";
             vsSourceStream << "}\n";
 
             std::string vsSourceStr  = vsSourceStream.str();
@@ -1483,6 +1524,8 @@ angle::Result BlitGL::getBlitProgram(const gl::Context *context,
             ANGLE_GL_TRY(context, mFunctions->deleteShader(fs));
         }
 
+        ANGLE_GL_TRY(context, mFunctions->bindAttribLocation(
+                                  result.program, mTexcoordAttribLocation, texcoordAttribName));
         ANGLE_GL_TRY(context, mFunctions->linkProgram(result.program));
         ANGLE_TRY(CheckLinkStatus(context, mFunctions, result.program));
 

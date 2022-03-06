@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2002 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2004-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -41,7 +41,7 @@ Structure* JSString::createStructure(VM& vm, JSGlobalObject* globalObject, JSVal
 
 JSString* JSString::createEmptyString(VM& vm)
 {
-    JSString* newString = new (NotNull, allocateCell<JSString>(vm.heap)) JSString(vm, *StringImpl::empty());
+    JSString* newString = new (NotNull, allocateCell<JSString>(vm)) JSString(vm, *StringImpl::empty());
     newString->finishCreation(vm);
     return newString;
 }
@@ -68,7 +68,7 @@ void JSString::dumpToStream(const JSCell* cell, PrintStream& out)
     VM& vm = cell->vm();
     const JSString* thisObject = jsCast<const JSString*>(cell);
     out.printf("<%p, %s, [%u], ", thisObject, thisObject->className(vm), thisObject->length());
-    uintptr_t pointer = thisObject->m_fiber;
+    uintptr_t pointer = thisObject->fiberConcurrently();
     if (pointer & isRopeInPointer) {
         if (pointer & JSRopeString::isSubstringInPointer)
             out.printf("[substring]");
@@ -89,6 +89,10 @@ bool JSString::equalSlowCase(JSGlobalObject* globalObject, JSString* other) cons
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (length() != other->length())
+        return false;
+
     String str1 = value(globalObject);
     RETURN_IF_EXCEPTION(scope, false);
     String str2 = other->value(globalObject);
@@ -99,19 +103,20 @@ bool JSString::equalSlowCase(JSGlobalObject* globalObject, JSString* other) cons
 size_t JSString::estimatedSize(JSCell* cell, VM& vm)
 {
     JSString* thisObject = asString(cell);
-    uintptr_t pointer = thisObject->m_fiber;
+    uintptr_t pointer = thisObject->fiberConcurrently();
     if (pointer & isRopeInPointer)
         return Base::estimatedSize(cell, vm);
     return Base::estimatedSize(cell, vm) + bitwise_cast<StringImpl*>(pointer)->costDuringGC();
 }
 
-void JSString::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSString::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     JSString* thisObject = asString(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     
-    uintptr_t pointer = thisObject->m_fiber;
+    uintptr_t pointer = thisObject->fiberConcurrently();
     if (pointer & isRopeInPointer) {
         if (pointer & JSRopeString::isSubstringInPointer) {
             visitor.appendUnbarriered(static_cast<JSRopeString*>(thisObject)->fiber1());
@@ -142,6 +147,8 @@ void JSString::visitChildren(JSCell* cell, SlotVisitor& visitor)
     if (StringImpl* impl = bitwise_cast<StringImpl*>(pointer))
         visitor.reportExtraMemoryVisited(impl->costDuringGC());
 }
+
+DEFINE_VISIT_CHILDREN(JSString);
 
 static constexpr unsigned maxLengthForOnStackResolve = 2048;
 
@@ -239,7 +246,7 @@ RefPtr<AtomStringImpl> JSRopeString::resolveRopeToExistingAtomString(JSGlobalObj
         resolveRopeWithFunction(globalObject, [&] (Ref<StringImpl>&& newImpl) -> Ref<StringImpl> {
             existingAtomString = AtomStringImpl::lookUp(newImpl.ptr());
             if (existingAtomString)
-                return makeRef(*existingAtomString);
+                return Ref { *existingAtomString };
             return WTFMove(newImpl);
         });
         RETURN_IF_EXCEPTION(scope, nullptr);
@@ -382,17 +389,6 @@ JSValue JSString::toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const
     return const_cast<JSString*>(this);
 }
 
-bool JSString::getPrimitiveNumber(JSGlobalObject* globalObject, double& number, JSValue& result) const
-{
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    StringView view = unsafeView(globalObject);
-    RETURN_IF_EXCEPTION(scope, false);
-    result = this;
-    number = jsToNumber(view);
-    return false;
-}
-
 double JSString::toNumber(JSGlobalObject* globalObject) const
 {
     VM& vm = globalObject->vm();
@@ -404,7 +400,7 @@ double JSString::toNumber(JSGlobalObject* globalObject) const
 
 inline StringObject* StringObject::create(VM& vm, JSGlobalObject* globalObject, JSString* string)
 {
-    StringObject* object = new (NotNull, allocateCell<StringObject>(vm.heap)) StringObject(vm, globalObject->stringObjectStructure());
+    StringObject* object = new (NotNull, allocateCell<StringObject>(vm)) StringObject(vm, globalObject->stringObjectStructure());
     object->finishCreation(vm, string);
     return object;
 }
@@ -429,7 +425,7 @@ bool JSString::getStringPropertyDescriptor(JSGlobalObject* globalObject, Propert
         return true;
     }
     
-    Optional<uint32_t> index = parseIndex(propertyName);
+    std::optional<uint32_t> index = parseIndex(propertyName);
     if (index && index.value() < length()) {
         descriptor.setDescriptor(getIndex(globalObject, index.value()), PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
         return true;
@@ -440,9 +436,6 @@ bool JSString::getStringPropertyDescriptor(JSGlobalObject* globalObject, Propert
 
 JSString* jsStringWithCacheSlowCase(VM& vm, StringImpl& stringImpl)
 {
-    if (JSString* string = vm.stringCache.get(&stringImpl))
-        return string;
-
     JSString* string = jsString(vm, String(stringImpl));
     vm.lastCachedString.set(vm, string);
     return string;

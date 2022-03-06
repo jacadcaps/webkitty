@@ -10,7 +10,9 @@
 #include "util/EGLWindow.h"
 #include "util/gles_loader_autogen.h"
 #include "util/random_utils.h"
+#include "util/shader_utils.h"
 #include "util/test_utils.h"
+#include "util/util_gl.h"
 
 #include <string.h>
 #include <iostream>
@@ -66,6 +68,12 @@ EGLint GetDeviceTypeFromArg(const char *displayTypeArg)
 }
 }  // anonymous namespace
 
+bool IsGLExtensionEnabled(const std::string &extName)
+{
+    return angle::CheckExtensionExists(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)),
+                                       extName);
+}
+
 SampleApplication::SampleApplication(std::string name,
                                      int argc,
                                      char **argv,
@@ -77,6 +85,7 @@ SampleApplication::SampleApplication(std::string name,
       mWidth(width),
       mHeight(height),
       mRunning(false),
+      mFrameCount(0),
       mGLWindow(nullptr),
       mEGLWindow(nullptr),
       mOSWindow(nullptr),
@@ -111,8 +120,8 @@ SampleApplication::SampleApplication(std::string name,
         mDriverType = angle::GLESDriverType::SystemWGL;
 #else
         mGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion);
-        mEntryPointsLib.reset(
-            angle::OpenSharedLibraryWithExtension(angle::GetNativeEGLLibraryNameWithExtension()));
+        mEntryPointsLib.reset(angle::OpenSharedLibraryWithExtension(
+            angle::GetNativeEGLLibraryNameWithExtension(), angle::SearchType::SystemDir));
         mDriverType = angle::GLESDriverType::SystemEGL;
 #endif  // defined(ANGLE_PLATFORM_WINDOWS)
     }
@@ -120,7 +129,7 @@ SampleApplication::SampleApplication(std::string name,
     {
         mGLWindow = mEGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion);
         mEntryPointsLib.reset(
-            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
     }
 }
 
@@ -207,6 +216,13 @@ int SampleApplication::run()
     mRunning   = true;
     int result = 0;
 
+#if defined(ANGLE_ENABLE_ASSERTS)
+    if (IsGLExtensionEnabled("GL_KHR_debug"))
+    {
+        EnableDebugCallback(nullptr, nullptr);
+    }
+#endif
+
     if (!initialize())
     {
         mRunning = false;
@@ -218,7 +234,7 @@ int SampleApplication::run()
 
     while (mRunning)
     {
-        double elapsedTime = mTimer.getElapsedTime();
+        double elapsedTime = mTimer.getElapsedWallClockTime();
         double deltaTime   = elapsedTime - prevTime;
 
         step(static_cast<float>(deltaTime), elapsedTime);
@@ -255,6 +271,14 @@ int SampleApplication::run()
         mOSWindow->messageLoop();
 
         prevTime = elapsedTime;
+
+        mFrameCount++;
+
+        if (mFrameCount % 100 == 0)
+        {
+            printf("Rate: %0.2lf frames / second\n",
+                   static_cast<double>(mFrameCount) / mTimer.getElapsedWallClockTime());
+        }
     }
 
     destroy();

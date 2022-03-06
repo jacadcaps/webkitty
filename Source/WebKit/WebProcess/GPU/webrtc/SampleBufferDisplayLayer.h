@@ -27,8 +27,10 @@
 
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
+#include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
 #include "SampleBufferDisplayLayerIdentifier.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/SampleBufferDisplayLayer.h>
 #include <wtf/WeakPtr.h>
 
@@ -36,20 +38,27 @@ namespace WebKit {
 
 class SampleBufferDisplayLayerManager;
 
-class SampleBufferDisplayLayer final : public WebCore::SampleBufferDisplayLayer, public IPC::MessageReceiver, public CanMakeWeakPtr<SampleBufferDisplayLayer> {
+class SampleBufferDisplayLayer final : public WebCore::SampleBufferDisplayLayer, public IPC::MessageReceiver, public GPUProcessConnection::Client {
 public:
-    static std::unique_ptr<SampleBufferDisplayLayer> create(SampleBufferDisplayLayerManager&, Client&);
+    static std::unique_ptr<SampleBufferDisplayLayer> create(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayer::Client&);
     ~SampleBufferDisplayLayer();
 
     SampleBufferDisplayLayerIdentifier identifier() const { return m_identifier; }
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
+    using GPUProcessConnection::Client::weakPtrFactory;
+    using WeakValueType = GPUProcessConnection::Client::WeakValueType;
+
 private:
-    SampleBufferDisplayLayer(SampleBufferDisplayLayerManager&, Client&);
+    SampleBufferDisplayLayer(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayer::Client&);
+    void disconnectGPUProcessConnectionIfNeeded();
 
     // WebCore::SampleBufferDisplayLayer
     void initialize(bool hideRootLayer, WebCore::IntSize, CompletionHandler<void(bool)>&&) final;
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(String&&) final;
+#endif
     bool didFail() const final;
     void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer) final;
     void updateAffineTransform(CGAffineTransform) final;
@@ -62,14 +71,22 @@ private:
     void clearEnqueuedSamples() final;
     PlatformLayer* rootLayer() final;
 
-    void setDidFail(bool);
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
+    void setDidFail(bool);
+    bool copySharedVideoFrame(CVPixelBufferRef);
+
+    GPUProcessConnection* m_gpuProcessConnection;
     WeakPtr<SampleBufferDisplayLayerManager> m_manager;
     Ref<IPC::Connection> m_connection;
     SampleBufferDisplayLayerIdentifier m_identifier;
 
     PlatformLayerContainer m_videoLayer;
     bool m_didFail { false };
+    bool m_paused { false };
+
+    SharedVideoFrameWriter m_sharedVideoFrameWriter;
 };
 
 }

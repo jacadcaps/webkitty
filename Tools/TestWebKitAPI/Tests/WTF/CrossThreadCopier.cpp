@@ -27,7 +27,6 @@
 #include <wtf/CrossThreadCopier.h>
 
 #include "Test.h"
-#include <wtf/Optional.h>
 #include <wtf/text/WTFString.h>
 
 namespace TestWebKitAPI {
@@ -54,14 +53,14 @@ TEST(WTF_CrossThreadCopier, CopyRVStringHavingTwoRef)
     String original { "1234" };
     String original2 { original };
     auto copy = crossThreadCopy(WTFMove(original));
-    EXPECT_EQ(original.impl()->refCount(), 2);
+    EXPECT_EQ(original.impl()->refCount(), 2u);
     EXPECT_FALSE(original.impl() == copy.impl());
     EXPECT_TRUE(copy.impl()->hasOneRef());
 }
 
 TEST(WTF_CrossThreadCopier, CopyLVOptionalString)
 {
-    Optional<String> original { "1234" };
+    std::optional<String> original { "1234" };
     auto copy = crossThreadCopy(original);
     EXPECT_TRUE(original->impl()->hasOneRef());
     EXPECT_TRUE(copy->impl()->hasOneRef());
@@ -70,7 +69,7 @@ TEST(WTF_CrossThreadCopier, CopyLVOptionalString)
 
 TEST(WTF_CrossThreadCopier, MoveRVOptionalString)
 {
-    Optional<String> original { "1234" };
+    std::optional<String> original { "1234" };
     auto copy = crossThreadCopy(WTFMove(original));
     EXPECT_TRUE(copy->impl()->hasOneRef());
     EXPECT_NULL(original->impl());
@@ -79,9 +78,9 @@ TEST(WTF_CrossThreadCopier, MoveRVOptionalString)
 TEST(WTF_CrossThreadCopier, CopyRVOptionalStringHavingTwoRef)
 {
     String string { "1234" };
-    Optional<String> original { string };
+    std::optional<String> original { string };
     auto copy = crossThreadCopy(original);
-    EXPECT_EQ(original->impl()->refCount(), 2);
+    EXPECT_EQ(original->impl()->refCount(), 2u);
     EXPECT_FALSE(original->impl() == copy->impl());
     EXPECT_TRUE(copy->impl()->hasOneRef());
 }

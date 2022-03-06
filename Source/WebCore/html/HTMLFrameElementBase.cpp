@@ -25,6 +25,7 @@
 #include "HTMLFrameElementBase.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
 #include "FocusController.h"
 #include "Frame.h"
 #include "FrameLoader.h"
@@ -59,9 +60,9 @@ bool HTMLFrameElementBase::canLoadScriptURL(const URL& scriptURL) const
 
 bool HTMLFrameElementBase::canLoad() const
 {
-    // FIXME: Why is it valuable to return true when m_URL is empty?
+    // FIXME: Why is it valuable to return true when m_frameURL is empty?
     // FIXME: After openURL replaces an empty URL with the blank URL, this may no longer necessarily return true.
-    return m_URL.isEmpty() || canLoadURL(m_URL);
+    return m_frameURL.isEmpty() || canLoadURL(m_frameURL);
 }
 
 bool HTMLFrameElementBase::canLoadURL(const String& relativeURL) const
@@ -86,20 +87,23 @@ void HTMLFrameElementBase::openURL(LockHistory lockHistory, LockBackForwardList 
     if (!canLoad())
         return;
 
-    if (m_URL.isEmpty())
-        m_URL = aboutBlankURL().string();
+    if (m_frameURL.isEmpty())
+        m_frameURL = aboutBlankURL().string();
+
+    if (shouldLoadFrameLazily())
+        return;
 
     RefPtr<Frame> parentFrame = document().frame();
     if (!parentFrame)
         return;
 
-    document().willLoadFrameElement(parentFrame->document()->completeURL(m_URL));
+    document().willLoadFrameElement(document().completeURL(m_frameURL));
 
     String frameName = getNameAttribute();
     if (frameName.isNull() && UNLIKELY(document().settings().needsFrameNameFallbackToIdQuirk()))
         frameName = getIdAttribute();
 
-    parentFrame->loader().subframeLoader().requestFrame(*this, m_URL, frameName, lockHistory, lockBackForwardList);
+    parentFrame->loader().subframeLoader().requestFrame(*this, m_frameURL, frameName, lockHistory, lockBackForwardList);
 }
 
 void HTMLFrameElementBase::parseAttribute(const QualifiedName& name, const AtomString& value)
@@ -159,10 +163,10 @@ URL HTMLFrameElementBase::location() const
 
 void HTMLFrameElementBase::setLocation(const String& str)
 {
-    if (document().settings().needsAcrobatFrameReloadingQuirk() && m_URL == str)
+    if (document().settings().needsAcrobatFrameReloadingQuirk() && m_frameURL == str)
         return;
 
-    m_URL = AtomString(str);
+    m_frameURL = AtomString(str);
 
     if (isConnected())
         openURL(LockHistory::No, LockBackForwardList::No);
@@ -183,14 +187,15 @@ bool HTMLFrameElementBase::supportsFocus() const
     return true;
 }
 
-void HTMLFrameElementBase::setFocus(bool received)
+void HTMLFrameElementBase::setFocus(bool received, FocusVisibility visibility)
 {
-    HTMLFrameOwnerElement::setFocus(received);
+    HTMLFrameOwnerElement::setFocus(received, visibility);
     if (Page* page = document().page()) {
+        CheckedRef focusController { page->focusController() };
         if (received)
-            page->focusController().setFocusedFrame(contentFrame());
-        else if (page->focusController().focusedFrame() == contentFrame()) // Focus may have already been given to another frame, don't take it away.
-            page->focusController().setFocusedFrame(0);
+            focusController->setFocusedFrame(contentFrame());
+        else if (focusController->focusedFrame() == contentFrame()) // Focus may have already been given to another frame, don't take it away.
+            focusController->setFocusedFrame(nullptr);
     }
 }
 
@@ -226,7 +231,7 @@ ScrollbarMode HTMLFrameElementBase::scrollingMode() const
     return equalLettersIgnoringASCIICase(scrollingAttribute, "no")
         || equalLettersIgnoringASCIICase(scrollingAttribute, "noscroll")
         || equalLettersIgnoringASCIICase(scrollingAttribute, "off")
-        ? ScrollbarAlwaysOff : ScrollbarAuto;
+        ? ScrollbarMode::AlwaysOff : ScrollbarMode::Auto;
 }
 
 } // namespace WebCore

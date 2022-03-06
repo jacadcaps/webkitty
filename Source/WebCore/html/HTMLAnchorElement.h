@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include "Document.h"
 #include "HTMLElement.h"
 #include "HTMLNames.h"
 #include "SharedStringHash.h"
@@ -31,8 +32,10 @@
 
 namespace WebCore {
 
-class AdClickAttribution;
+class PrivateClickMeasurement;
 class DOMTokenList;
+
+enum class ReferrerPolicy : uint8_t;
 
 // Link relation bitmask values.
 enum class Relation : uint8_t {
@@ -65,7 +68,7 @@ public:
 
     bool hasRel(Relation) const;
     
-    SharedStringHash visitedLinkHash() const;
+    inline SharedStringHash visitedLinkHash() const;
 
     WEBCORE_EXPORT DOMTokenList& relList();
 
@@ -87,8 +90,7 @@ private:
     bool isMouseFocusable() const override;
     bool isKeyboardFocusable(KeyboardEvent*) const override;
     void defaultEventHandler(Event&) final;
-    void setActive(bool active = true, bool pause = false) final;
-    bool accessKeyAction(bool sendMouseEvents) final;
+    void setActive(bool active, bool pause, Style::InvalidationScope) final;
     bool isURLAttribute(const Attribute&) const final;
     bool canStartSelection() const final;
     String target() const override;
@@ -100,7 +102,7 @@ private:
 
     void sendPings(const URL& destinationURL);
 
-    Optional<AdClickAttribution> parseAdClickAttribution() const;
+    std::optional<PrivateClickMeasurement> parsePrivateClickMeasurement() const;
 
     void handleClick(Event&);
 
@@ -128,14 +130,6 @@ private:
 
     std::unique_ptr<DOMTokenList> m_relList;
 };
-
-inline SharedStringHash HTMLAnchorElement::visitedLinkHash() const
-{
-    ASSERT(isLink());
-    if (!m_storedVisitedLinkHash)
-        m_storedVisitedLinkHash = computeVisitedLinkHash(document().baseURL(), attributeWithoutSynchronization(HTMLNames::hrefAttr));
-    return *m_storedVisitedLinkHash;
-}
 
 // Functions shared with the other anchor elements (i.e., SVG).
 

@@ -11,66 +11,77 @@
 #include "common/debug.h"
 #include "common/platform.h"
 #include "common/system_utils.h"
+#include "libANGLE/ErrorStrings.h"
+#include "libANGLE/Thread.h"
 #include "libGLESv2/resource.h"
 
 #include <atomic>
-
-namespace gl
-{
-// In single-threaded cases we can avoid a TLS lookup for the current Context.
-//
-// Let a global single-threaded context have 3 states: unset, set, and multi-threaded.
-// Initially it is unset. Then, on MakeCurrent:
-//
-//  * if the ST context is unset                      -> set the global context.
-//  * if the ST context is set and matches the TLS    -> set the global context.
-//  * if the ST context is set and does not match TLS -> set multi-threaded mode.
-//  * if in multi-threaded mode, unset and subsequently ignore the global context.
-//
-// Implementation-wise we can use a pointer and a boolean to represent the three modes.
-Context *gSingleThreadedContext = nullptr;
-bool gIsMultiThreadedContext    = false;
-}  // namespace gl
-
+#if defined(ANGLE_PLATFORM_APPLE)
+#    include <dispatch/dispatch.h>
+#endif
 namespace egl
 {
 namespace
 {
-static TLSIndex threadTLS = TLS_INVALID_INDEX;
-Debug *g_Debug            = nullptr;
-
 ANGLE_REQUIRE_CONSTANT_INIT std::atomic<angle::GlobalMutex *> g_Mutex(nullptr);
 static_assert(std::is_trivially_destructible<decltype(g_Mutex)>::value,
               "global mutex is not trivially destructible");
 
+ANGLE_REQUIRE_CONSTANT_INIT gl::Context *g_LastContext(nullptr);
+static_assert(std::is_trivially_destructible<decltype(g_LastContext)>::value,
+              "global last context is not trivially destructible");
+
+void SetContextToAndroidOpenGLTLSSlot(gl::Context *value)
+{
+#if defined(ANGLE_PLATFORM_ANDROID)
+    if (angle::gUseAndroidOpenGLTlsSlot)
+    {
+        ANGLE_ANDROID_GET_GL_TLS()[angle::kAndroidOpenGLTlsSlot] = static_cast<void *>(value);
+    }
+#endif
+}
+
 Thread *AllocateCurrentThread()
 {
-    ASSERT(threadTLS != TLS_INVALID_INDEX);
-    if (threadTLS == TLS_INVALID_INDEX)
+    Thread *thread;
     {
-        return nullptr;
-    }
-
-    Thread *thread = new Thread();
-    if (!SetTLSValue(threadTLS, thread))
-    {
-        ERR() << "Could not set thread local storage.";
-        return nullptr;
+        // Global thread intentionally leaked
+        ANGLE_SCOPED_DISABLE_LSAN();
+        thread = new Thread();
+#if defined(ANGLE_PLATFORM_APPLE)
+        SetCurrentThreadTLS(thread);
+#else
+        gCurrentThread = thread;
+#endif
     }
 
     // Initialize fast TLS slot
     SetContextToAndroidOpenGLTLSSlot(nullptr);
 
-    return thread;
-}
+#if defined(ANGLE_PLATFORM_APPLE)
+    gl::SetCurrentValidContextTLS(nullptr);
+#else
+    gl::gCurrentValidContext = nullptr;
+#endif
 
-void AllocateDebug()
-{
-    // All EGL calls use a global lock, this is thread safe
-    if (g_Debug == nullptr)
-    {
-        g_Debug = new Debug();
-    }
+#if defined(ANGLE_PLATFORM_ANDROID)
+    static pthread_once_t keyOnce           = PTHREAD_ONCE_INIT;
+    static TLSIndex gProcessCleanupTLSIndex = TLS_INVALID_INDEX;
+
+    // Create process cleanup TLS slot
+    auto CreateProcessCleanupTLSIndex = []() {
+        gProcessCleanupTLSIndex = CreateTLSIndex(angle::ProcessCleanupCallback);
+    };
+    pthread_once(&keyOnce, CreateProcessCleanupTLSIndex);
+    ASSERT(gProcessCleanupTLSIndex != TLS_INVALID_INDEX);
+
+    // Initialize process cleanup TLS slot
+    angle::gProcessCleanupRefCount++;
+    SetTLSValue(gProcessCleanupTLSIndex, thread);
+#endif  // ANGLE_PLATFORM_ANDROID
+
+    ASSERT(thread);
+    return thread;
 }
 
 void AllocateMutex()
@@ -88,75 +99,126 @@ void AllocateMutex()
 
 }  // anonymous namespace
 
+#if defined(ANGLE_PLATFORM_APPLE)
+// TODO(angleproject:6479): Due to a bug in Apple's dyld loader, `thread_local` will cause
+// excessive memory use. Temporarily avoid it by using pthread's thread
+// local storage instead.
+// https://bugs.webkit.org/show_bug.cgi?id=228240
+
+static TLSIndex GetCurrentThreadTLSIndex()
+{
+    static TLSIndex CurrentThreadIndex = TLS_INVALID_INDEX;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      ASSERT(CurrentThreadIndex == TLS_INVALID_INDEX);
+      CurrentThreadIndex = CreateTLSIndex(nullptr);
+    });
+    return CurrentThreadIndex;
+}
+Thread *GetCurrentThreadTLS()
+{
+    TLSIndex CurrentThreadIndex = GetCurrentThreadTLSIndex();
+    ASSERT(CurrentThreadIndex != TLS_INVALID_INDEX);
+    return static_cast<Thread *>(GetTLSValue(CurrentThreadIndex));
+}
+void SetCurrentThreadTLS(Thread *thread)
+{
+    TLSIndex CurrentThreadIndex = GetCurrentThreadTLSIndex();
+    ASSERT(CurrentThreadIndex != TLS_INVALID_INDEX);
+    SetTLSValue(CurrentThreadIndex, thread);
+}
+#else
+thread_local Thread *gCurrentThread = nullptr;
+#endif
+
 angle::GlobalMutex &GetGlobalMutex()
 {
     AllocateMutex();
     return *g_Mutex;
 }
 
-Thread *GetCurrentThread()
+gl::Context *GetGlobalLastContext()
 {
-    // Create a TLS index if one has not been created for this DLL
-    if (threadTLS == TLS_INVALID_INDEX)
-    {
-        threadTLS = CreateTLSIndex();
-    }
-
-    Thread *current = static_cast<Thread *>(GetTLSValue(threadTLS));
-
-    // ANGLE issue 488: when the dll is loaded after thread initialization,
-    // thread local storage (current) might not exist yet.
-    return (current ? current : AllocateCurrentThread());
+    return g_LastContext;
 }
 
-Debug *GetDebug()
+void SetGlobalLastContext(gl::Context *context)
 {
-    AllocateDebug();
-    return g_Debug;
+    g_LastContext = context;
+}
+
+// This function causes an MSAN false positive, which is muted. See https://crbug.com/1211047
+// It also causes a flaky false positive in TSAN. http://crbug.com/1223970
+ANGLE_NO_SANITIZE_MEMORY ANGLE_NO_SANITIZE_THREAD Thread *GetCurrentThread()
+{
+#if defined(ANGLE_PLATFORM_APPLE)
+    Thread *current = GetCurrentThreadTLS();
+#else
+    Thread *current = gCurrentThread;
+#endif
+    return (current ? current : AllocateCurrentThread());
 }
 
 void SetContextCurrent(Thread *thread, gl::Context *context)
 {
-    // See above comment on gGlobalContext.
-    // If the context is in multi-threaded mode, ignore the global context.
-    if (!gl::gIsMultiThreadedContext)
-    {
-        // If the global context is unset or matches the current TLS, set the global context.
-        if (gl::gSingleThreadedContext == nullptr ||
-            gl::gSingleThreadedContext == thread->getContext())
-        {
-            gl::gSingleThreadedContext = context;
-        }
-        else
-        {
-            // If the global context is set and does not match TLS, set multi-threaded mode.
-            gl::gSingleThreadedContext  = nullptr;
-            gl::gIsMultiThreadedContext = true;
-        }
-    }
-    thread->setCurrent(context);
-
+#if defined(ANGLE_PLATFORM_APPLE)
+    Thread *currentThread = GetCurrentThreadTLS();
+#else
+    Thread *currentThread = gCurrentThread;
+#endif
+    ASSERT(currentThread);
+    currentThread->setCurrent(context);
     SetContextToAndroidOpenGLTLSSlot(context);
+
+#if defined(ANGLE_PLATFORM_APPLE)
+    gl::SetCurrentValidContextTLS(context);
+#else
+    gl::gCurrentValidContext = context;
+#endif
+
+#if defined(ANGLE_FORCE_CONTEXT_CHECK_EVERY_CALL)
+    DirtyContextIfNeeded(context);
+#endif
 }
+
+ScopedSyncCurrentContextFromThread::ScopedSyncCurrentContextFromThread(egl::Thread *thread)
+    : mThread(thread)
+{
+    ASSERT(mThread);
+}
+
+ScopedSyncCurrentContextFromThread::~ScopedSyncCurrentContextFromThread()
+{
+    SetContextCurrent(mThread, mThread->getContext());
+}
+
 }  // namespace egl
 
-#ifdef ANGLE_PLATFORM_WINDOWS
+namespace gl
+{
+void GenerateContextLostErrorOnContext(Context *context)
+{
+    if (context && context->isContextLost())
+    {
+        context->validationError(angle::EntryPoint::GLInvalid, GL_CONTEXT_LOST, err::kContextLost);
+    }
+}
+
+void GenerateContextLostErrorOnCurrentGlobalContext()
+{
+    GenerateContextLostErrorOnContext(GetGlobalContext());
+}
+}  // namespace gl
+
+#if defined(ANGLE_PLATFORM_WINDOWS) && !defined(ANGLE_STATIC)
 namespace egl
 {
 
 namespace
 {
-
-bool DeallocateCurrentThread()
+void DeallocateCurrentThread()
 {
-    Thread *thread = static_cast<Thread *>(GetTLSValue(threadTLS));
-    SafeDelete(thread);
-    return SetTLSValue(threadTLS, nullptr);
-}
-
-void DeallocateDebug()
-{
-    SafeDelete(g_Debug);
+    SafeDelete(gCurrentThread);
 }
 
 void DeallocateMutex()
@@ -171,43 +233,16 @@ void DeallocateMutex()
 
 bool InitializeProcess()
 {
-    ASSERT(g_Debug == nullptr);
-    AllocateDebug();
-
+    EnsureDebugAllocated();
     AllocateMutex();
-
-    threadTLS = CreateTLSIndex();
-    if (threadTLS == TLS_INVALID_INDEX)
-    {
-        return false;
-    }
-
     return AllocateCurrentThread() != nullptr;
 }
 
-bool TerminateProcess()
+void TerminateProcess()
 {
     DeallocateDebug();
-
     DeallocateMutex();
-
-    if (!DeallocateCurrentThread())
-    {
-        return false;
-    }
-
-    if (threadTLS != TLS_INVALID_INDEX)
-    {
-        TLSIndex tlsCopy = threadTLS;
-        threadTLS        = TLS_INVALID_INDEX;
-
-        if (!DestroyTLSIndex(tlsCopy))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    DeallocateCurrentThread();
 }
 
 }  // anonymous namespace
@@ -281,12 +316,14 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
             return static_cast<BOOL>(egl::AllocateCurrentThread() != nullptr);
 
         case DLL_THREAD_DETACH:
-            return static_cast<BOOL>(egl::DeallocateCurrentThread());
+            egl::DeallocateCurrentThread();
+            break;
 
         case DLL_PROCESS_DETACH:
-            return static_cast<BOOL>(egl::TerminateProcess());
+            egl::TerminateProcess();
+            break;
     }
 
     return TRUE;
 }
-#endif  // ANGLE_PLATFORM_WINDOWS
+#endif  // defined(ANGLE_PLATFORM_WINDOWS) && !defined(ANGLE_STATIC)

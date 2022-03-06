@@ -27,8 +27,9 @@
 [
     Conditional=VIDEO,
     JSGenerateToNativeObject,
+    Exposed=Window
 ] interface VTTRegion {
-    [CallWith=ScriptExecutionContext] constructor();
+    [CallWith=CurrentScriptExecutionContext] constructor();
 
     readonly attribute TextTrack track;
 

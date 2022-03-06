@@ -26,12 +26,15 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "ContentWorldShared.h"
 #include "LogInitialization.h"
 #include "Logging.h"
 #include "SandboxInitializationParameters.h"
+#include "WebPageProxyIdentifier.h"
 #include <WebCore/LogInitialization.h>
 #include <pal/SessionID.h>
+#include <wtf/LogInitialization.h>
 
 #if !OS(WINDOWS)
 #include <unistd.h>
@@ -57,30 +60,39 @@ AuxiliaryProcess::~AuxiliaryProcess()
 
 void AuxiliaryProcess::didClose(IPC::Connection&)
 {
+// Stop the run loop for GTK and WPE to ensure a normal exit, since we need
+// atexit handlers to be called to cleanup resources like EGL displays.
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    stopRunLoop();
+#else
     _exit(EXIT_SUCCESS);
+#endif
 }
 
 void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters& parameters)
 {
     WTF::RefCountedBase::enableThreadingChecksGlobally();
 
+    setAuxiliaryProcessType(parameters.processType);
+
     RELEASE_ASSERT_WITH_MESSAGE(parameters.processIdentifier, "Unable to initialize child process without a WebCore process identifier");
     Process::setIdentifier(*parameters.processIdentifier);
 
-    platformInitialize();
+    platformInitialize(parameters);
 
 #if PLATFORM(COCOA)
     m_priorityBoostMessage = parameters.priorityBoostMessage;
 #endif
 
-    initializeProcess(parameters);
-
     SandboxInitializationParameters sandboxParameters;
     initializeSandbox(parameters, sandboxParameters);
 
+    initializeProcess(parameters);
+
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WebCore::initializeLogChannelsIfNecessary();
-    WebKit::initializeLogChannelsIfNecessary();
+    WTF::logChannels().initializeLogChannelsIfNecessary();
+    WebCore::logChannels().initializeLogChannelsIfNecessary();
+    WebKit::logChannels().initializeLogChannelsIfNecessary();
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
     initializeProcessName(parameters);
@@ -88,6 +100,7 @@ void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters
     // In WebKit2, only the UI process should ever be generating certain identifiers.
     PAL::SessionID::enableGenerationProtection();
     ContentWorldIdentifier::enableGenerationProtection();
+    WebPageProxyIdentifier::enableGenerationProtection();
 
     m_connection = IPC::Connection::createClientConnection(parameters.connectionIdentifier, *this);
     initializeConnection(m_connection.get());
@@ -161,6 +174,11 @@ void AuxiliaryProcess::enableTermination()
     m_terminationTimer.startOneShot(m_terminationTimeout);
 }
 
+void AuxiliaryProcess::mainThreadPing(CompletionHandler<void()>&& completionHandler)
+{
+    completionHandler();
+}
+
 IPC::Connection* AuxiliaryProcess::messageSenderConnection() const
 {
     return m_connection.get();
@@ -203,7 +221,7 @@ void AuxiliaryProcess::shutDown()
     terminate();
 }
 
-Optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> AuxiliaryProcess::createIPCConnectionPair()
+std::optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> AuxiliaryProcess::createIPCConnectionPair()
 {
 #if USE(UNIX_DOMAIN_SOCKETS)
     IPC::Connection::SocketPair socketPair = IPC::Connection::createPlatformConnection();
@@ -234,8 +252,17 @@ Optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> AuxiliaryProce
 #endif
 }
 
+void AuxiliaryProcess::applyProcessCreationParameters(const AuxiliaryProcessCreationParameters& parameters)
+{
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WTF::logChannels().initializeLogChannelsIfNecessary(parameters.wtfLoggingChannels);
+    WebCore::logChannels().initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
+    WebKit::logChannels().initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
+#endif
+}
+
 #if !PLATFORM(COCOA)
-void AuxiliaryProcess::platformInitialize()
+void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationParameters&)
 {
 }
 
@@ -253,6 +280,12 @@ void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageNa
 void AuxiliaryProcess::didReceiveMemoryPressureEvent(bool isCritical)
 {
     MemoryPressureHandler::singleton().triggerMemoryPressureEvent(isCritical);
+}
+#endif
+
+#if !PLATFORM(MAC)
+static void applySandboxProfileForDaemon(const String&, const String&)
+{
 }
 #endif
 

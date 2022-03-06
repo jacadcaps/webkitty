@@ -33,7 +33,7 @@
 #include <wtf/WeakPtr.h>
 
 namespace IPC {
-class SharedBufferDataReference;
+class SharedBufferCopy;
 }
 
 namespace WebKit {
@@ -45,6 +45,7 @@ class RemoteLegacyCDMSession final
     , public IPC::MessageReceiver {
 public:
     static std::unique_ptr<RemoteLegacyCDMSession> create(WeakPtr<RemoteLegacyCDMFactory>, RemoteLegacyCDMSessionIdentifier&&);
+    ~RemoteLegacyCDMSession();
 
     // MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -64,7 +65,7 @@ private:
     RefPtr<ArrayBuffer> cachedKeyForKeyID(const String&) const final;
 
     // Messages
-    void sendMessage(Optional<IPC::SharedBufferDataReference>&& message, const String& destinationURL);
+    void sendMessage(std::optional<IPC::SharedBufferCopy>&& message, const String& destinationURL);
     void sendError(WebCore::LegacyCDMSessionClient::MediaKeyErrorCode, uint32_t systemCode);
 
     WeakPtr<RemoteLegacyCDMFactory> m_factory;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,13 +40,13 @@ namespace JSC {
 class ClonedArguments final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
-    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesAnyFormOfGetPropertyNames;
+    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetOwnSpecialPropertyNames | OverridesPut;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         static_assert(!CellType::needsDestruction, "");
-        return &vm.clonedArgumentsSpace;
+        return &vm.clonedArgumentsSpace();
     }
     
 private:
@@ -62,7 +62,7 @@ public:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
     static Structure* createSlowPutStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
     DECLARE_INFO;
 
@@ -70,7 +70,7 @@ private:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype, IndexingType);
 
     static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
-    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, EnumerationMode);
+    static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
     static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);

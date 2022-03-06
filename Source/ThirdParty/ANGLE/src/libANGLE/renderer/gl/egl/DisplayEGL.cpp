@@ -27,16 +27,21 @@
 namespace
 {
 
-EGLint ESBitFromPlatformAttrib(const rx::FunctionsEGL *egl, const EGLAttrib platformAttrib)
+rx::RobustnessVideoMemoryPurgeStatus GetRobustnessVideoMemoryPurge(const egl::AttributeMap &attribs)
 {
-    EGLint esBit = EGL_NONE;
+    return static_cast<rx::RobustnessVideoMemoryPurgeStatus>(
+        attribs.get(EGL_GENERATE_RESET_ON_VIDEO_MEMORY_PURGE_NV, GL_FALSE));
+}
+
+std::vector<EGLint> RenderableTypesFromPlatformAttrib(const rx::FunctionsEGL *egl,
+                                                      const EGLAttrib platformAttrib)
+{
+    std::vector<EGLint> renderableTypes;
     switch (platformAttrib)
     {
         case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
-        {
-            esBit = EGL_OPENGL_BIT;
+            renderableTypes.push_back(EGL_OPENGL_BIT);
             break;
-        }
 
         case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
         {
@@ -44,16 +49,18 @@ EGLint ESBitFromPlatformAttrib(const rx::FunctionsEGL *egl, const EGLAttrib plat
                           "Extension define must match core");
 
             gl::Version eglVersion(egl->majorVersion, egl->minorVersion);
-            esBit = (eglVersion >= gl::Version(1, 5) || egl->hasExtension("EGL_KHR_create_context"))
-                        ? EGL_OPENGL_ES3_BIT
-                        : EGL_OPENGL_ES2_BIT;
-            break;
+            if (eglVersion >= gl::Version(1, 5) || egl->hasExtension("EGL_KHR_create_context"))
+            {
+                renderableTypes.push_back(EGL_OPENGL_ES3_BIT);
+            }
+            renderableTypes.push_back(EGL_OPENGL_ES2_BIT);
         }
+        break;
 
         default:
             break;
     }
-    return esBit;
+    return renderableTypes;
 }
 
 class WorkerContextEGL final : public rx::WorkerContext
@@ -102,9 +109,7 @@ void WorkerContextEGL::unmakeCurrent()
 namespace rx
 {
 
-DisplayEGL::DisplayEGL(const egl::DisplayState &state)
-    : DisplayGL(state), mRenderer(nullptr), mEGL(nullptr), mConfig(EGL_NO_CONFIG_KHR)
-{}
+DisplayEGL::DisplayEGL(const egl::DisplayState &state) : DisplayGL(state) {}
 
 DisplayEGL::~DisplayEGL() {}
 
@@ -121,11 +126,17 @@ EGLSyncImpl *DisplayEGL::createSync(const egl::AttributeMap &attribs)
     return new SyncEGL(attribs, mEGL);
 }
 
-std::string DisplayEGL::getVendorString() const
+const char *DisplayEGL::getEGLPath() const
 {
-    const char *vendor = mEGL->queryString(EGL_VENDOR);
-    ASSERT(vendor);
-    return vendor;
+#if defined(ANGLE_PLATFORM_ANDROID)
+#    if defined(__LP64__)
+    return "/system/lib64/libEGL.so";
+#    else
+    return "/system/lib/libEGL.so";
+#    endif
+#else
+    return "libEGL.so.1";
+#endif
 }
 
 egl::Error DisplayEGL::initializeContext(EGLContext shareContext,
@@ -146,13 +157,16 @@ egl::Error DisplayEGL::initializeContext(EGLContext shareContext,
     static_assert(EGL_CONTEXT_MINOR_VERSION == EGL_CONTEXT_MINOR_VERSION_KHR,
                   "Minor Version define should match");
 
-    std::vector<native_egl::AttributeVector> contextAttribLists;
+    std::vector<egl::AttributeMap> contextAttribLists;
     if (eglVersion >= gl::Version(1, 5) || mEGL->hasExtension("EGL_KHR_create_context"))
     {
         if (initializeRequested)
         {
-            contextAttribLists.push_back({EGL_CONTEXT_MAJOR_VERSION, requestedMajor,
-                                          EGL_CONTEXT_MINOR_VERSION, requestedMinor, EGL_NONE});
+            egl::AttributeMap requestedVersionAttribs;
+            requestedVersionAttribs.insert(EGL_CONTEXT_MAJOR_VERSION, requestedMajor);
+            requestedVersionAttribs.insert(EGL_CONTEXT_MINOR_VERSION, requestedMinor);
+
+            contextAttribLists.push_back(std::move(requestedVersionAttribs));
         }
         else
         {
@@ -167,9 +181,13 @@ egl::Error DisplayEGL::initializeContext(EGLContext shareContext,
 
             for (const auto &version : esVersionsFrom2_0)
             {
-                contextAttribLists.push_back(
-                    {EGL_CONTEXT_MAJOR_VERSION, static_cast<EGLint>(version.major),
-                     EGL_CONTEXT_MINOR_VERSION, static_cast<EGLint>(version.minor), EGL_NONE});
+                egl::AttributeMap versionAttribs;
+                versionAttribs.insert(EGL_CONTEXT_MAJOR_VERSION,
+                                      static_cast<EGLint>(version.major));
+                versionAttribs.insert(EGL_CONTEXT_MINOR_VERSION,
+                                      static_cast<EGLint>(version.minor));
+
+                contextAttribLists.push_back(std::move(versionAttribs));
             }
         }
     }
@@ -179,17 +197,48 @@ egl::Error DisplayEGL::initializeContext(EGLContext shareContext,
         {
             return egl::EglBadAttribute() << "Unsupported requested context version";
         }
-        contextAttribLists.push_back({EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
+
+        egl::AttributeMap fallbackAttribs;
+        fallbackAttribs.insert(EGL_CONTEXT_CLIENT_VERSION, 2);
+
+        contextAttribLists.push_back(std::move(fallbackAttribs));
     }
 
-    EGLContext context = EGL_NO_CONTEXT;
-    for (const auto &attribList : contextAttribLists)
+    for (const egl::AttributeMap &attribs : contextAttribLists)
     {
-        context = mEGL->createContext(mConfig, shareContext, attribList.data());
+        // If robustness is supported, try to create a context with robustness enabled. If it fails,
+        // fall back to creating a context without the robustness parameters. We've seen devices
+        // that expose the robustness extensions but fail to create robust contexts.
+        if (mHasEXTCreateContextRobustness)
+        {
+            egl::AttributeMap attribsWithRobustness(attribs);
+
+            attribsWithRobustness.insert(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY,
+                                         EGL_LOSE_CONTEXT_ON_RESET);
+            if (mHasNVRobustnessVideoMemoryPurge)
+            {
+                attribsWithRobustness.insert(EGL_GENERATE_RESET_ON_VIDEO_MEMORY_PURGE_NV, GL_TRUE);
+            }
+
+            native_egl::AttributeVector attribVector = attribsWithRobustness.toIntVector();
+            EGLContext context = mEGL->createContext(mConfig, shareContext, attribVector.data());
+            if (context != EGL_NO_CONTEXT)
+            {
+                *outContext = context;
+                *outAttribs = std::move(attribVector);
+                return egl::NoError();
+            }
+
+            INFO() << "EGL_EXT_create_context_robustness available but robust context creation "
+                      "failed.";
+        }
+
+        native_egl::AttributeVector attribVector = attribs.toIntVector();
+        EGLContext context = mEGL->createContext(mConfig, shareContext, attribVector.data());
         if (context != EGL_NO_CONTEXT)
         {
             *outContext = context;
-            *outAttribs = attribList;
+            *outAttribs = std::move(attribVector);
             return egl::NoError();
         }
     }
@@ -204,7 +253,7 @@ egl::Error DisplayEGL::initialize(egl::Display *display)
 
     void *eglHandle =
         reinterpret_cast<void *>(mDisplayAttributes.get(EGL_PLATFORM_ANGLE_EGL_HANDLE_ANGLE, 0));
-    ANGLE_TRY(mEGL->initialize(display->getNativeDisplayId(), "libEGL.so.1", eglHandle));
+    ANGLE_TRY(mEGL->initialize(display->getNativeDisplayId(), getEGLPath(), eglHandle));
 
     gl::Version eglVersion(mEGL->majorVersion, mEGL->minorVersion);
     if (eglVersion < gl::Version(1, 4))
@@ -212,49 +261,107 @@ egl::Error DisplayEGL::initialize(egl::Display *display)
         return egl::EglNotInitialized() << "EGL >= 1.4 is required";
     }
 
-    // Only support modern EGL implementation to keep default implementation
-    // simple.
-    const char *necessaryExtensions[] = {
-        "EGL_KHR_no_config_context",
-        "EGL_KHR_surfaceless_context",
-    };
+    mHasEXTCreateContextRobustness   = mEGL->hasExtension("EGL_EXT_create_context_robustness");
+    mHasNVRobustnessVideoMemoryPurge = mEGL->hasExtension("EGL_NV_robustness_video_memory_purge");
+    mSupportsNoConfigContexts        = mEGL->hasExtension("EGL_KHR_no_config_context") ||
+                                mEGL->hasExtension("EGL_KHR_no_config_context");
+    mSupportsSurfaceless = mEGL->hasExtension("EGL_KHR_surfaceless_context");
 
-    for (const char *ext : necessaryExtensions)
+    if (!mSupportsNoConfigContexts)
     {
-        if (!mEGL->hasExtension(ext))
+        const EGLAttrib platformAttrib = mDisplayAttributes.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, 0);
+        std::vector<EGLint> renderableTypes =
+            RenderableTypesFromPlatformAttrib(mEGL, platformAttrib);
+        if (renderableTypes.empty())
         {
-            return egl::EglNotInitialized() << "need " << ext;
+            return egl::EglNotInitialized() << "No available renderable types.";
+        }
+
+        const EGLint surfaceTypes[] = {EGL_WINDOW_BIT | EGL_PBUFFER_BIT, EGL_DONT_CARE};
+
+        egl::AttributeMap configAttribs;
+        // Choose RGBA8888
+        configAttribs.insert(EGL_RED_SIZE, 8);
+        configAttribs.insert(EGL_GREEN_SIZE, 8);
+        configAttribs.insert(EGL_BLUE_SIZE, 8);
+        configAttribs.insert(EGL_ALPHA_SIZE, 8);
+
+        // Choose D24S8
+        // EGL1.5 spec Section 2.2 says that depth, multisample and stencil buffer depths
+        // must match for contexts to be compatible.
+        configAttribs.insert(EGL_DEPTH_SIZE, 24);
+        configAttribs.insert(EGL_STENCIL_SIZE, 8);
+
+        for (EGLint surfaceType : surfaceTypes)
+        {
+            configAttribs.insert(EGL_SURFACE_TYPE, surfaceType);
+
+            for (EGLint renderableType : renderableTypes)
+            {
+                configAttribs.insert(EGL_RENDERABLE_TYPE, renderableType);
+
+                std::vector<EGLint> attribVector = configAttribs.toIntVector();
+
+                EGLint numConfig = 0;
+                if (mEGL->chooseConfig(attribVector.data(), &mConfig, 1, &numConfig) == EGL_TRUE)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (mConfig == EGL_NO_CONFIG_KHR)
+        {
+            return egl::EglNotInitialized()
+                   << "eglChooseConfig failed with " << egl::Error(mEGL->getError());
+        }
+
+        mConfigAttribList = configAttribs.toIntVector();
+    }
+
+    // A mock pbuffer is only needed if surfaceless contexts are not supported.
+    mSupportsSurfaceless = mEGL->hasExtension("EGL_KHR_surfaceless_context");
+    if (!mSupportsSurfaceless)
+    {
+        // clang-format off
+        constexpr const EGLint pbufferConfigAttribs[] =
+        {
+            // We want RGBA8 and DEPTH24_STENCIL8
+            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+            EGL_RED_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_BLUE_SIZE, 8,
+            EGL_ALPHA_SIZE, 8,
+            EGL_DEPTH_SIZE, 24,
+            EGL_STENCIL_SIZE, 8,
+            EGL_NONE,
+        };
+
+        constexpr const int mockPbufferAttribs[] = {
+            EGL_WIDTH, 1,
+            EGL_HEIGHT, 1,
+            EGL_NONE,
+        };
+        // clang-format on
+
+        EGLint numConfig;
+        EGLConfig pbufferConfig;
+        if (!mEGL->chooseConfig(pbufferConfigAttribs, &pbufferConfig, 1, &numConfig) ||
+            numConfig < 1)
+        {
+            return egl::EglNotInitialized() << "Failed to find a config for the mock pbuffer.";
+        }
+
+        mMockPbuffer = mEGL->createPbufferSurface(pbufferConfig, mockPbufferAttribs);
+        if (mMockPbuffer == EGL_NO_SURFACE)
+        {
+            return egl::EglNotInitialized()
+                   << "eglCreatePbufferSurface failed with " << egl::Error(mEGL->getError());
         }
     }
 
-    const EGLAttrib platformAttrib = mDisplayAttributes.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, 0);
-    EGLint esBit                   = ESBitFromPlatformAttrib(mEGL, platformAttrib);
-    if (esBit == EGL_NONE)
-    {
-        return egl::EglNotInitialized() << "No matching ES Bit";
-    }
+    ANGLE_TRY(createRenderer(EGL_NO_CONTEXT, true, false, &mRenderer));
 
-    std::vector<EGLint> configAttribListBase = {
-        EGL_COLOR_BUFFER_TYPE, EGL_RGB_BUFFER, EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
-        EGL_CONFIG_CAVEAT,     EGL_NONE,       EGL_CONFORMANT,   esBit,
-        EGL_RENDERABLE_TYPE,   esBit,          EGL_NONE};
-
-    mConfigAttribList = configAttribListBase;
-
-    EGLContext context = EGL_NO_CONTEXT;
-    native_egl::AttributeVector attribs;
-    ANGLE_TRY(initializeContext(EGL_NO_CONTEXT, mDisplayAttributes, &context, &attribs));
-
-    if (!mEGL->makeCurrent(EGL_NO_SURFACE, context))
-    {
-        return egl::EglNotInitialized() << "Could not make context current.";
-    }
-
-    std::unique_ptr<FunctionsGL> functionsGL(mEGL->makeFunctionsGL());
-    functionsGL->initialize(mDisplayAttributes);
-
-    mRenderer.reset(
-        new RendererEGL(std::move(functionsGL), mDisplayAttributes, this, context, attribs));
     const gl::Version &maxVersion = mRenderer->getMaxSupportedESVersion();
     if (maxVersion < gl::Version(2, 0))
     {
@@ -262,6 +369,8 @@ egl::Error DisplayEGL::initialize(egl::Display *display)
     }
 
     ANGLE_TRY(DisplayGL::initialize(display));
+
+    INFO() << "ANGLE DisplayEGL initialized: " << getRendererDescription();
 
     return egl::NoError();
 }
@@ -276,7 +385,18 @@ void DisplayEGL::terminate()
         ERR() << "eglMakeCurrent error " << egl::Error(mEGL->getError());
     }
 
+    if (mMockPbuffer != EGL_NO_SURFACE)
+    {
+        success      = mEGL->destroySurface(mMockPbuffer);
+        mMockPbuffer = EGL_NO_SURFACE;
+        if (success == EGL_FALSE)
+        {
+            ERR() << "eglDestroySurface error " << egl::Error(mEGL->getError());
+        }
+    }
+
     mRenderer.reset();
+    mVirtualizationGroups.clear();
 
     mCurrentNativeContexts.clear();
 
@@ -318,13 +438,44 @@ SurfaceImpl *DisplayEGL::createPbufferSurface(const egl::SurfaceState &state,
     return new PbufferSurfaceEGL(state, mEGL, config);
 }
 
+class ExternalSurfaceEGL : public SurfaceEGL
+{
+  public:
+    ExternalSurfaceEGL(const egl::SurfaceState &state,
+                       const FunctionsEGL *egl,
+                       EGLConfig config,
+                       EGLint width,
+                       EGLint height)
+        : SurfaceEGL(state, egl, config), mWidth(width), mHeight(height)
+    {}
+    ~ExternalSurfaceEGL() override = default;
+
+    egl::Error initialize(const egl::Display *display) override { return egl::NoError(); }
+    EGLint getSwapBehavior() const override { return EGL_BUFFER_DESTROYED; }
+    EGLint getWidth() const override { return mWidth; }
+    EGLint getHeight() const override { return mHeight; }
+    bool isExternal() const override { return true; }
+
+  private:
+    const EGLint mWidth;
+    const EGLint mHeight;
+};
+
 SurfaceImpl *DisplayEGL::createPbufferFromClientBuffer(const egl::SurfaceState &state,
                                                        EGLenum buftype,
                                                        EGLClientBuffer clientBuffer,
                                                        const egl::AttributeMap &attribs)
 {
-    UNIMPLEMENTED();
-    return nullptr;
+    switch (buftype)
+    {
+        case EGL_EXTERNAL_SURFACE_ANGLE:
+            return new ExternalSurfaceEGL(state, mEGL, EGL_NO_CONFIG_KHR,
+                                          attribs.getAsInt(EGL_WIDTH, 0),
+                                          attribs.getAsInt(EGL_HEIGHT, 0));
+
+        default:
+            return DisplayGL::createPbufferFromClientBuffer(state, buftype, clientBuffer, attribs);
+    }
 }
 
 SurfaceImpl *DisplayEGL::createPixmapSurface(const egl::SurfaceState &state,
@@ -341,22 +492,57 @@ ContextImpl *DisplayEGL::createContext(const gl::State &state,
                                        const gl::Context *shareContext,
                                        const egl::AttributeMap &attribs)
 {
-    std::shared_ptr<RendererEGL> renderer;
-    EGLContext nativeShareContext = EGL_NO_CONTEXT;
-    if (shareContext)
-    {
-        ContextEGL *shareContextEGL = GetImplAs<ContextEGL>(shareContext);
-        nativeShareContext          = shareContextEGL->getContext();
-    }
+    bool usingExternalContext = attribs.get(EGL_EXTERNAL_CONTEXT_ANGLE, EGL_FALSE) == EGL_TRUE;
+    EGLAttrib virtualizationGroup =
+        attribs.get(EGL_CONTEXT_VIRTUALIZATION_GROUP_ANGLE, EGL_DONT_CARE);
+    bool globalTextureShareGroup =
+        attribs.get(EGL_DISPLAY_TEXTURE_SHARE_GROUP_ANGLE, EGL_FALSE) == EGL_TRUE;
 
-    egl::Error error = createRenderer(nativeShareContext, &renderer);
-    if (error.isError())
+    std::shared_ptr<RendererEGL> renderer = mRenderer;
+    if (usingExternalContext)
     {
-        ERR() << "Failed to create a shared renderer: " << error.getMessage();
-        return nullptr;
+        ASSERT(!shareContext);
+        egl::Error error = createRenderer(EGL_NO_CONTEXT, false, true, &renderer);
+        if (error.isError())
+        {
+            ERR() << "Failed to create a shared renderer: " << error.getMessage();
+            return nullptr;
+        }
     }
+    else if (virtualizationGroup != EGL_DONT_CARE)
+    {
+        renderer = mVirtualizationGroups[virtualizationGroup].lock();
+        if (!renderer)
+        {
+            // If the user requested a dispaly-level texture share group, all contexts must be in
+            // the same share group. Otherwise honor the user's share group request.
+            EGLContext nativeShareContext = EGL_NO_CONTEXT;
+            if (globalTextureShareGroup)
+            {
+                nativeShareContext = mRenderer->getContext();
+            }
+            else if (shareContext)
+            {
+                ContextEGL *shareContextEGL = GetImplAs<ContextEGL>(shareContext);
+                nativeShareContext          = shareContextEGL->getContext();
+            }
 
-    return new ContextEGL(state, errorSet, renderer);
+            // Create a new renderer for this context.
+            egl::Error error = createRenderer(nativeShareContext, false, false, &renderer);
+            if (error.isError())
+            {
+                ERR() << "Failed to create a shared renderer: " << error.getMessage();
+                return nullptr;
+            }
+
+            mVirtualizationGroups[virtualizationGroup] = renderer;
+        }
+    }
+    ASSERT(renderer);
+
+    RobustnessVideoMemoryPurgeStatus robustnessVideoMemoryPurgeStatus =
+        GetRobustnessVideoMemoryPurge(attribs);
+    return new ContextEGL(state, errorSet, renderer, robustnessVideoMemoryPurgeStatus);
 }
 
 template <typename T>
@@ -390,17 +576,34 @@ egl::ConfigSet DisplayEGL::generateConfigs()
     egl::ConfigSet configSet;
     mConfigIds.clear();
 
-    EGLint numConfigs;
-    EGLBoolean success = mEGL->chooseConfig(mConfigAttribList.data(), nullptr, 0, &numConfigs);
-    ASSERT(success == EGL_TRUE && numConfigs > 0);
+    std::vector<EGLConfig> configs;
+    if (mSupportsNoConfigContexts)
+    {
+        // Gather all configs
+        EGLint numConfigs;
+        EGLBoolean success = mEGL->getConfigs(nullptr, 0, &numConfigs);
+        ASSERT(success == EGL_TRUE && numConfigs > 0);
 
-    std::vector<EGLConfig> configs(numConfigs);
-    EGLint numConfigs2;
-    success =
-        mEGL->chooseConfig(mConfigAttribList.data(), configs.data(), numConfigs, &numConfigs2);
-    ASSERT(success == EGL_TRUE && numConfigs2 == numConfigs);
+        configs.resize(numConfigs);
+        EGLint numConfigs2;
+        success = mEGL->getConfigs(configs.data(), numConfigs, &numConfigs2);
+        ASSERT(success == EGL_TRUE && numConfigs2 == numConfigs);
+    }
+    else
+    {
+        // Choose configs that match the attribute list of the config used for the context
+        EGLint numConfigs;
+        EGLBoolean success = mEGL->chooseConfig(mConfigAttribList.data(), nullptr, 0, &numConfigs);
+        ASSERT(success == EGL_TRUE && numConfigs > 0);
 
-    for (int i = 0; i < numConfigs; i++)
+        configs.resize(numConfigs);
+        EGLint numConfigs2;
+        success =
+            mEGL->chooseConfig(mConfigAttribList.data(), configs.data(), numConfigs, &numConfigs2);
+        ASSERT(success == EGL_TRUE && numConfigs2 == numConfigs);
+    }
+
+    for (size_t i = 0; i < configs.size(); i++)
     {
         egl::Config config;
 
@@ -440,73 +643,23 @@ egl::ConfigSet DisplayEGL::generateConfigs()
                                    &config.colorComponentType, "EGL_EXT_pixel_format_float",
                                    EGL_COLOR_COMPONENT_TYPE_FIXED_EXT);
 
-        // Pixmaps are not supported on EGL, make sure the config doesn't expose them.
-        config.surfaceType &= ~EGL_PIXMAP_BIT;
+        config.surfaceType = fixSurfaceType(config.surfaceType);
 
         if (config.colorBufferType == EGL_RGB_BUFFER)
         {
-            ASSERT(config.colorComponentType == EGL_COLOR_COMPONENT_TYPE_FIXED_EXT);
-            if (config.redSize == 8 && config.greenSize == 8 && config.blueSize == 8 &&
-                config.alphaSize == 8)
-            {
-                config.renderTargetFormat = GL_RGBA8;
-            }
-            else if (config.redSize == 8 && config.greenSize == 8 && config.blueSize == 8 &&
-                     config.alphaSize == 0)
-            {
-                config.renderTargetFormat = GL_RGB8;
-            }
-            else if (config.redSize == 5 && config.greenSize == 6 && config.blueSize == 5 &&
-                     config.alphaSize == 0)
-            {
-                config.renderTargetFormat = GL_RGB565;
-            }
-            else if (config.redSize == 5 && config.greenSize == 5 && config.blueSize == 5 &&
-                     config.alphaSize == 1)
-            {
-                config.renderTargetFormat = GL_RGB5_A1;
-            }
-            else if (config.redSize == 4 && config.greenSize == 4 && config.blueSize == 4 &&
-                     config.alphaSize == 4)
-            {
-                config.renderTargetFormat = GL_RGBA4;
-            }
-            else
+            config.renderTargetFormat = gl::GetConfigColorBufferFormat(&config);
+            if (config.renderTargetFormat == GL_NONE)
             {
                 ERR() << "RGBA(" << config.redSize << "," << config.greenSize << ","
                       << config.blueSize << "," << config.alphaSize << ") not handled";
-                UNREACHABLE();
+                continue;
             }
         }
         else
         {
-            UNREACHABLE();
+            continue;
         }
-
-        if (config.depthSize == 0 && config.stencilSize == 0)
-        {
-            config.depthStencilFormat = GL_ZERO;
-        }
-        else if (config.depthSize == 16 && config.stencilSize == 0)
-        {
-            config.depthStencilFormat = GL_DEPTH_COMPONENT16;
-        }
-        else if (config.depthSize == 24 && config.stencilSize == 0)
-        {
-            config.depthStencilFormat = GL_DEPTH_COMPONENT24;
-        }
-        else if (config.depthSize == 24 && config.stencilSize == 8)
-        {
-            config.depthStencilFormat = GL_DEPTH24_STENCIL8;
-        }
-        else if (config.depthSize == 0 && config.stencilSize == 8)
-        {
-            config.depthStencilFormat = GL_STENCIL_INDEX8;
-        }
-        else
-        {
-            UNREACHABLE();
-        }
+        config.depthStencilFormat = gl::GetConfigDepthStencilBufferFormat(&config);
 
         config.matchNativePixmap  = EGL_NONE;
         config.optimalOrientation = 0;
@@ -534,10 +687,20 @@ bool DisplayEGL::isValidNativeWindow(EGLNativeWindowType window) const
     return true;
 }
 
-DeviceImpl *DisplayEGL::createDevice()
+egl::Error DisplayEGL::validateClientBuffer(const egl::Config *configuration,
+                                            EGLenum buftype,
+                                            EGLClientBuffer clientBuffer,
+                                            const egl::AttributeMap &attribs) const
 {
-    UNIMPLEMENTED();
-    return nullptr;
+    switch (buftype)
+    {
+        case EGL_EXTERNAL_SURFACE_ANGLE:
+            ASSERT(clientBuffer == nullptr);
+            return egl::NoError();
+
+        default:
+            return DisplayGL::validateClientBuffer(configuration, buftype, clientBuffer, attribs);
+    }
 }
 
 egl::Error DisplayEGL::waitClient(const gl::Context *context)
@@ -552,7 +715,8 @@ egl::Error DisplayEGL::waitNative(const gl::Context *context, EGLint engine)
     return egl::NoError();
 }
 
-egl::Error DisplayEGL::makeCurrent(egl::Surface *drawSurface,
+egl::Error DisplayEGL::makeCurrent(egl::Display *display,
+                                   egl::Surface *drawSurface,
                                    egl::Surface *readSurface,
                                    gl::Context *context)
 {
@@ -572,6 +736,46 @@ egl::Error DisplayEGL::makeCurrent(egl::Surface *drawSurface,
         newContext             = contextEGL->getContext();
     }
 
+    if (currentContext.isExternalContext || (context && context->isExternal()))
+    {
+        ASSERT(currentContext.surface == EGL_NO_SURFACE);
+        if (!currentContext.isExternalContext)
+        {
+            // Switch to an ANGLE external context.
+            ASSERT(context);
+            ASSERT(currentContext.context == EGL_NO_CONTEXT);
+            currentContext.context           = newContext;
+            currentContext.isExternalContext = true;
+
+            // We only support using external surface with external context.
+            ASSERT(GetImplAs<SurfaceEGL>(drawSurface)->isExternal());
+            ASSERT(GetImplAs<SurfaceEGL>(drawSurface)->getSurface() == EGL_NO_SURFACE);
+        }
+        else if (context)
+        {
+            // Switch surface but not context.
+            ASSERT(currentContext.context == newContext);
+            ASSERT(newSurface == EGL_NO_SURFACE);
+            ASSERT(newContext != EGL_NO_CONTEXT);
+            // We only support using external surface with external context.
+            ASSERT(GetImplAs<SurfaceEGL>(drawSurface)->isExternal());
+            ASSERT(GetImplAs<SurfaceEGL>(drawSurface)->getSurface() == EGL_NO_SURFACE);
+        }
+        else
+        {
+            // Release the ANGLE external context.
+            ASSERT(newSurface == EGL_NO_SURFACE);
+            ASSERT(newContext == EGL_NO_CONTEXT);
+            ASSERT(currentContext.context != EGL_NO_CONTEXT);
+            currentContext.context           = EGL_NO_CONTEXT;
+            currentContext.isExternalContext = false;
+        }
+
+        // Do not need to call eglMakeCurrent(), since we don't support switching EGLSurface for
+        // external context.
+        return DisplayGL::makeCurrent(display, drawSurface, readSurface, context);
+    }
+
     if (newSurface != currentContext.surface || newContext != currentContext.context)
     {
         if (mEGL->makeCurrent(newSurface, newContext) == EGL_FALSE)
@@ -582,7 +786,7 @@ egl::Error DisplayEGL::makeCurrent(egl::Surface *drawSurface,
         currentContext.context = newContext;
     }
 
-    return DisplayGL::makeCurrent(drawSurface, readSurface, context);
+    return DisplayGL::makeCurrent(display, drawSurface, readSurface, context);
 }
 
 gl::Version DisplayEGL::getMaxSupportedESVersion() const
@@ -616,8 +820,9 @@ void DisplayEGL::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->postSubBuffer    = false;  // Since SurfaceEGL::postSubBuffer is not implemented
     outExtensions->presentationTime = mEGL->hasExtension("EGL_ANDROID_presentation_time");
 
-    // Contexts are virtualized so textures can be shared globally
-    outExtensions->displayTextureShareGroup = true;
+    // Contexts are virtualized so textures and semaphores can be shared globally
+    outExtensions->displayTextureShareGroup   = true;
+    outExtensions->displaySemaphoreShareGroup = true;
 
     // We will fallback to regular swap if swapBuffersWithDamage isn't
     // supported, so indicate support here to keep validation happy.
@@ -660,9 +865,12 @@ void DisplayEGL::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->getNativeClientBufferANDROID =
         mEGL->hasExtension("EGL_ANDROID_get_native_client_buffer");
 
+    outExtensions->createNativeClientBufferANDROID =
+        mEGL->hasExtension("EGL_ANDROID_create_native_client_buffer");
+
     outExtensions->nativeFenceSyncANDROID = mEGL->hasExtension("EGL_ANDROID_native_fence_sync");
 
-    outExtensions->noConfigContext = mEGL->hasExtension("EGL_KHR_no_config_context");
+    outExtensions->noConfigContext = mSupportsNoConfigContexts;
 
     outExtensions->surfacelessContext = mEGL->hasExtension("EGL_KHR_surfaceless_context");
 
@@ -672,6 +880,18 @@ void DisplayEGL::generateExtensions(egl::DisplayExtensions *outExtensions) const
 
     outExtensions->imageDmaBufImportModifiersEXT =
         mEGL->hasExtension("EGL_EXT_image_dma_buf_import_modifiers");
+
+    outExtensions->robustnessVideoMemoryPurgeNV = mHasNVRobustnessVideoMemoryPurge;
+
+    outExtensions->bufferAgeEXT = mEGL->hasExtension("EGL_EXT_buffer_age");
+
+    // Surfaceless can be support if the native driver supports it or we know that we are running on
+    // a single thread (mVirtualizedContexts == true)
+    outExtensions->surfacelessContext = mSupportsSurfaceless;
+
+    outExtensions->externalContextAndSurface = true;
+
+    outExtensions->contextVirtualizationANGLE = true;
 
     DisplayGL::generateExtensions(outExtensions);
 }
@@ -697,27 +917,57 @@ egl::Error DisplayEGL::makeCurrentSurfaceless(gl::Context *context)
 }
 
 egl::Error DisplayEGL::createRenderer(EGLContext shareContext,
+                                      bool makeNewContextCurrent,
+                                      bool isExternalContext,
                                       std::shared_ptr<RendererEGL> *outRenderer)
 {
     EGLContext context = EGL_NO_CONTEXT;
     native_egl::AttributeVector attribs;
-    ANGLE_TRY(initializeContext(shareContext, mDisplayAttributes, &context, &attribs));
 
-    if (mEGL->makeCurrent(EGL_NO_SURFACE, context) == EGL_FALSE)
+    // If isExternalContext is true, the external context is current, so we don't need to make the
+    // mMockPbuffer current.
+    if (isExternalContext)
     {
-        return egl::EglNotInitialized()
-               << "eglMakeCurrent failed with " << egl::Error(mEGL->getError());
+        ASSERT(shareContext == EGL_NO_CONTEXT);
+        ASSERT(!makeNewContextCurrent);
+        // TODO(penghuang): Should we consider creating a share context to avoid querying and
+        // restoring GL context state? http://anglebug.com/5509
+        context = mEGL->getCurrentContext();
+        ASSERT(context != EGL_NO_CONTEXT);
+        // TODO(penghuang): get the version from the current context. http://anglebug.com/5509
+        attribs = {EGL_CONTEXT_MAJOR_VERSION, 2, EGL_CONTEXT_MINOR_VERSION, 0, EGL_NONE};
     }
-
-    CurrentNativeContext &currentContext = mCurrentNativeContexts[std::this_thread::get_id()];
-    currentContext.surface               = EGL_NO_SURFACE;
-    currentContext.context               = context;
+    else
+    {
+        ANGLE_TRY(initializeContext(shareContext, mDisplayAttributes, &context, &attribs));
+        if (mEGL->makeCurrent(mMockPbuffer, context) == EGL_FALSE)
+        {
+            return egl::EglNotInitialized()
+                   << "eglMakeCurrent failed with " << egl::Error(mEGL->getError());
+        }
+    }
 
     std::unique_ptr<FunctionsGL> functionsGL(mEGL->makeFunctionsGL());
     functionsGL->initialize(mDisplayAttributes);
 
-    outRenderer->reset(
-        new RendererEGL(std::move(functionsGL), mDisplayAttributes, this, context, attribs));
+    outRenderer->reset(new RendererEGL(std::move(functionsGL), mDisplayAttributes, this, context,
+                                       attribs, isExternalContext));
+
+    CurrentNativeContext &currentContext = mCurrentNativeContexts[std::this_thread::get_id()];
+    if (makeNewContextCurrent)
+    {
+        currentContext.surface = mMockPbuffer;
+        currentContext.context = context;
+    }
+    else if (!isExternalContext)
+    {
+        // Reset the current context back to the previous state
+        if (mEGL->makeCurrent(currentContext.surface, currentContext.context) == EGL_FALSE)
+        {
+            return egl::EglNotInitialized()
+                   << "eglMakeCurrent failed with " << egl::Error(mEGL->getError());
+        }
+    }
 
     return egl::NoError();
 }
@@ -743,6 +993,11 @@ void DisplayEGL::initializeFrontendFeatures(angle::FrontendFeatures *features) c
 void DisplayEGL::populateFeatureList(angle::FeatureList *features)
 {
     mRenderer->getFeatures().populateFeatureList(features);
+}
+
+RendererGL *DisplayEGL::getRenderer() const
+{
+    return mRenderer.get();
 }
 
 egl::Error DisplayEGL::validateImageClientBuffer(const gl::Context *context,
@@ -775,6 +1030,17 @@ ExternalImageSiblingImpl *DisplayEGL::createExternalImageSibling(const gl::Conte
         default:
             return DisplayGL::createExternalImageSibling(context, target, buffer, attribs);
     }
+}
+
+EGLint DisplayEGL::fixSurfaceType(EGLint surfaceType) const
+{
+    // Pixmaps are not supported on EGL, make sure the config doesn't expose them.
+    return surfaceType & ~EGL_PIXMAP_BIT;
+}
+
+const FunctionsEGL *DisplayEGL::getFunctionsEGL() const
+{
+    return mEGL;
 }
 
 }  // namespace rx

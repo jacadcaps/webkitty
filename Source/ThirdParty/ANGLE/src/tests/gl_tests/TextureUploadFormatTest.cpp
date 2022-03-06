@@ -102,7 +102,8 @@ struct TexFormat final
 template <const uint8_t bits>
 constexpr uint32_t EncodeNormUint(const float val)
 {
-    return static_cast<uint32_t>(val * (UINT32_MAX >> (32 - bits)) + 0.5);  // round-half-up
+    return static_cast<uint32_t>(val * static_cast<float>(UINT32_MAX >> (32 - bits)) +
+                                 0.5f);  // round-half-up
 }
 
 }  // anonymous namespace
@@ -142,7 +143,7 @@ void EncodeThenZeroAndCopy(DestT &dest, const float srcVals[4])
 // Test all internalFormat/unpackFormat/unpackType combinations from ES3.0.
 TEST_P(TextureUploadFormatTest, All)
 {
-    ANGLE_SKIP_TEST_IF(IsD3D9() || IsD3D11_FL93());
+    ANGLE_SKIP_TEST_IF(IsD3D9());
 
     constexpr char kVertShaderES2[]     = R"(
         void main()
@@ -232,9 +233,24 @@ TEST_P(TextureUploadFormatTest, All)
             case GL_RG:
                 expected = {refVals[0], refVals[1], 0, 255};
                 break;
-            case GL_RED:
             case GL_DEPTH_COMPONENT:
             case GL_DEPTH_STENCIL:
+                // Metal back-end requires swizzle feature to return (depth, 0, 0, 1) from sampling
+                // a depth texture.
+                // http://anglebug.com/5243
+                if (IsMetal() && !IsMetalTextureSwizzleAvailable())
+                {
+                    // If texture swizzle is not supported, we should only compare the first
+                    // component.
+                    expected = {refVals[0], actual[1], actual[2], actual[3]};
+                }
+                else
+                {
+
+                    expected = {refVals[0], 0, 0, 255};
+                }
+                break;
+            case GL_RED:
                 expected = {refVals[0], 0, 0, 255};
                 break;
 

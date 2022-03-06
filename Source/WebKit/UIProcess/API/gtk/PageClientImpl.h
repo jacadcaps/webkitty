@@ -62,7 +62,8 @@ private:
     // PageClient
     std::unique_ptr<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) override;
     void setViewNeedsDisplay(const WebCore::Region&) override;
-    void requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin) override;
+    void requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated) override;
+    void requestScrollToRect(const WebCore::FloatRect& targetRect, const WebCore::FloatPoint& origin) override;
     WebCore::FloatPoint viewScrollPosition() override;
     WebCore::IntSize viewSize() override;
     bool isViewWindowActive() override;
@@ -94,11 +95,15 @@ private:
 #if ENABLE(INPUT_TYPE_COLOR)
     RefPtr<WebColorPicker> createColorPicker(WebPageProxy*, const WebCore::Color& initialColor, const WebCore::IntRect&, Vector<WebCore::Color>&&) override;
 #endif
+#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) override;
+#endif
 #if ENABLE(DATALIST_ELEMENT)
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
 #endif
+    Ref<WebCore::ValidationBubble> createValidationBubble(const String& message, const WebCore::ValidationBubble::Settings&) final;
     void selectionDidChange() override;
-    RefPtr<ViewSnapshot> takeViewSnapshot(Optional<WebCore::IntRect>&&) override;
+    RefPtr<ViewSnapshot> takeViewSnapshot(std::optional<WebCore::IntRect>&&) override;
 #if ENABLE(DRAG_SUPPORT)
     void startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<ShareableBitmap>&& dragImage) override;
     void didPerformDragControllerAction() override;
@@ -156,7 +161,7 @@ private:
     void isPlayingAudioWillChange() final { }
     void isPlayingAudioDidChange() final { }
 
-    void requestDOMPasteAccess(const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
     bool decidePolicyForInstallMissingMediaPluginsPermissionRequest(InstallMissingMediaPluginsPermissionRequest&) override;
@@ -172,7 +177,9 @@ private:
 
     void didChangeWebPageID() const override;
 
-    String themeName() const override;
+    void makeViewBlank(bool) override;
+
+    WebCore::Color accentColor() override;
 
     // Members of PageClientImpl class
     GtkWidget* m_viewWidget;

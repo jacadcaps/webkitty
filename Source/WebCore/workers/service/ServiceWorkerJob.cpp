@@ -37,6 +37,8 @@
 #include "SecurityOrigin.h"
 #include "ServiceWorkerJobData.h"
 #include "ServiceWorkerRegistration.h"
+#include "WorkerFetchResult.h"
+#include "WorkerRunLoop.h"
 
 namespace WebCore {
 
@@ -110,7 +112,10 @@ void ServiceWorkerJob::fetchScriptWithContext(ScriptExecutionContext& context, F
     options.cache = cachePolicy;
     options.redirect = FetchOptions::Redirect::Error;
     options.destination = FetchOptions::Destination::Serviceworker;
-    m_scriptLoader->loadAsynchronously(context, WTFMove(request), WTFMove(options), ContentSecurityPolicyEnforcement::DoNotEnforce, ServiceWorkersMode::None, *this);
+    options.credentials = FetchOptions::Credentials::SameOrigin;
+
+    auto source = m_jobData.workerType == WorkerType::Module ? WorkerScriptLoader::Source::ModuleScript : WorkerScriptLoader::Source::ClassicWorkerScript;
+    m_scriptLoader->loadAsynchronously(context, WTFMove(request), source, WTFMove(options), ContentSecurityPolicyEnforcement::DoNotEnforce, ServiceWorkersMode::None, *this, WorkerRunLoop::defaultMode());
 }
 
 ResourceError ServiceWorkerJob::validateServiceWorkerResponse(const ServiceWorkerJobData& jobData, const ResourceResponse& response)
@@ -138,7 +143,7 @@ ResourceError ServiceWorkerJob::validateServiceWorkerResponse(const ServiceWorke
     return { };
 }
 
-void ServiceWorkerJob::didReceiveResponse(unsigned long, const ResourceResponse& response)
+void ServiceWorkerJob::didReceiveResponse(ResourceLoaderIdentifier, const ResourceResponse& response)
 {
     ASSERT(m_creationThread.ptr() == &Thread::current());
     ASSERT(!m_completed);
@@ -163,7 +168,7 @@ void ServiceWorkerJob::notifyFinished()
     auto scriptLoader = WTFMove(m_scriptLoader);
 
     if (!scriptLoader->failed()) {
-        m_client.jobFinishedLoadingScript(*this, scriptLoader->script(), scriptLoader->certificateInfo(), scriptLoader->contentSecurityPolicy(), scriptLoader->referrerPolicy());
+        m_client.jobFinishedLoadingScript(*this, scriptLoader->fetchResult());
         return;
     }
 

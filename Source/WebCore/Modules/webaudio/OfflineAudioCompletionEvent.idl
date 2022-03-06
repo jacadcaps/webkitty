@@ -24,7 +24,9 @@
 
 [
     Conditional=WEB_AUDIO,
-    JSGenerateToJSObject
+    EnabledBySetting=WebAudioEnabled,
+    JSGenerateToJSObject,
+    Exposed=Window
 ] interface OfflineAudioCompletionEvent : Event {
     constructor (DOMString type, OfflineAudioCompletionEventInit eventInitDict);
 

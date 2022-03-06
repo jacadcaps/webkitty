@@ -38,6 +38,8 @@ const char* makeString(CompilationMode mode)
         return "LLInt";
     case CompilationMode::BBQMode:
         return "BBQ";
+    case CompilationMode::BBQForOSREntryMode:
+        return "BBQForOSREntry";
     case CompilationMode::OMGMode:
         return "OMG";
     case CompilationMode::OMGForOSREntryMode:
@@ -47,11 +49,6 @@ const char* makeString(CompilationMode mode)
     }
     RELEASE_ASSERT_NOT_REACHED();
     return "";
-}
-
-bool wasmFunctionSizeCanBeOMGCompiled(size_t size)
-{
-    return size < Options::webAssemblyBBQFallbackSize();
 }
 
 } } // namespace JSC::Wasm

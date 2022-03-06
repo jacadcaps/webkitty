@@ -29,13 +29,16 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "GPUProcessConnection.h"
 #include "MediaPlayerPrivateRemote.h"
 #include "RemoteMediaPlayerProxyMessages.h"
+#include "VideoTrackPrivateRemoteConfiguration.h"
 
 namespace WebKit {
 
-VideoTrackPrivateRemote::VideoTrackPrivateRemote(MediaPlayerPrivateRemote& player, TrackPrivateRemoteIdentifier idendifier, TrackPrivateRemoteConfiguration&& configuration)
-    : m_player(player)
+VideoTrackPrivateRemote::VideoTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier idendifier, VideoTrackPrivateRemoteConfiguration&& configuration)
+    : m_gpuProcessConnection(gpuProcessConnection)
+    , m_playerIdentifier(playerIdentifier)
     , m_idendifier(idendifier)
 {
     updateConfiguration(WTFMove(configuration));
@@ -43,17 +46,20 @@ VideoTrackPrivateRemote::VideoTrackPrivateRemote(MediaPlayerPrivateRemote& playe
 
 void VideoTrackPrivateRemote::setSelected(bool selected)
 {
+    if (!m_gpuProcessConnection)
+        return;
+
     if (selected != this->selected())
-        m_player.connection().send(Messages::RemoteMediaPlayerProxy::VideoTrackSetSelected(m_idendifier, selected), m_player.itentifier());
+        m_gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::VideoTrackSetSelected(m_idendifier, selected), m_playerIdentifier);
 
     VideoTrackPrivate::setSelected(selected);
 }
 
-void VideoTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguration&& configuration)
+void VideoTrackPrivateRemote::updateConfiguration(VideoTrackPrivateRemoteConfiguration&& configuration)
 {
-    if (configuration.id != m_id) {
+    if (configuration.trackId != m_id) {
         auto changed = !m_id.isEmpty();
-        m_id = configuration.id;
+        m_id = configuration.trackId;
         if (changed && client())
             client()->idChanged(m_id);
     }
@@ -74,8 +80,9 @@ void VideoTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguratio
 
     m_trackIndex = configuration.trackIndex;
     m_startTimeVariance = configuration.startTimeVariance;
-    m_kind = configuration.videoKind;
-    setSelected(configuration.selected);
+    m_kind = configuration.kind;
+    setConfiguration(WTFMove(configuration.trackConfiguration));
+    VideoTrackPrivate::setSelected(configuration.selected);
 }
 
 } // namespace WebKit

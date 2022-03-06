@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +26,33 @@
 #pragma once
 
 #include "ArgumentCoders.h"
+#include <WebCore/AffineTransform.h>
 #include <WebCore/AutoplayEvent.h>
 #include <WebCore/ColorSpace.h>
 #include <WebCore/DiagnosticLoggingClient.h>
+#include <WebCore/DisplayListItems.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatPoint3D.h>
+#include <WebCore/FloatRect.h>
+#include <WebCore/FloatRoundedRect.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/FrameLoaderTypes.h>
-#include <WebCore/ImageData.h>
 #include <WebCore/IndexedDB.h>
 #include <WebCore/InputMode.h>
+#include <WebCore/IntPoint.h>
+#include <WebCore/IntRect.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/LayoutPoint.h>
+#include <WebCore/LayoutSize.h>
+#include <WebCore/LengthBox.h>
 #include <WebCore/MediaSelectionOption.h>
+#include <WebCore/NativeImage.h>
 #include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/NotificationDirection.h>
 #include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/RenderingMode.h>
 #include <WebCore/ScrollSnapOffsetsInfo.h>
+#include <WebCore/ScrollTypes.h>
 #include <WebCore/SerializedPlatformDataCueValue.h>
 #include <WebCore/ServiceWorkerTypes.h>
 #include <WebCore/StoredCredentialsPolicy.h>
@@ -53,8 +67,8 @@
 #include <WebCore/CurlProxySettings.h>
 #endif
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/WebCoreArgumentCodersAdditions.h>
+#if ENABLE(WIRELESS_PLAYBACK_TARGET)
+#include <WebCore/MediaPlaybackTargetContext.h>
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -62,24 +76,47 @@
 #include <WebCore/CDMInstanceSession.h>
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+#include <WebCore/InspectorOverlay.h>
+#endif
+
 #if PLATFORM(GTK)
 #include "ArgumentCodersGtk.h"
 #endif
 
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+#include "ArrayReference.h"
+#include <WebCore/GraphicsContextGL.h>
+#include <WebCore/GraphicsContextGLAttributes.h>
+#include <WebCore/GraphicsTypesGL.h>
+#endif
+
+#if ENABLE(WEBXR)
+#include <WebCore/PlatformXR.h>
+#endif
+
 #if PLATFORM(COCOA)
+#include "ArgumentCodersCF.h"
+
 namespace WTF {
 class MachSendRight;
 }
 #endif
 
+OBJC_CLASS VKCImageAnalysis;
+
+#if USE(AVFOUNDATION)
+typedef struct __CVBuffer* CVPixelBufferRef;
+#endif
+
 namespace WebCore {
 
 class AbsolutePositionConstraints;
-class AffineTransform;
 class AuthenticationChallenge;
 class BlobPart;
 class CertificateInfo;
 class Color;
+class SharedBuffer;
 class Credential;
 class CubicBezierTimingFunction;
 class Cursor;
@@ -88,23 +125,12 @@ class DragData;
 class File;
 class FilterOperation;
 class FilterOperations;
-class FloatPoint;
-class FloatPoint3D;
-class FloatRect;
-class FloatRoundedRect;
-class FloatSize;
 class FixedPositionViewportConstraints;
-class FontHandle;
+class Font;
+class FontPlatformData;
 class HTTPHeaderMap;
-class ImageHandle;
-class IntPoint;
-class IntRect;
-class IntSize;
 class KeyframeValueList;
-class LayoutSize;
-class LayoutPoint;
 class LinearTimingFunction;
-class NativeImageHandle;
 class Notification;
 class PasteboardCustomData;
 class PaymentInstallmentConfiguration;
@@ -113,8 +139,9 @@ class Region;
 class ResourceError;
 class ResourceRequest;
 class ResourceResponse;
+class ScriptBuffer;
 class SecurityOrigin;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 class SpringTimingFunction;
 class StepsTimingFunction;
 class StickyPositionViewportConstraints;
@@ -126,12 +153,14 @@ struct AttributedString;
 struct CacheQueryOptions;
 struct CharacterRange;
 struct CompositionUnderline;
+struct DataDetectorElementInfo;
 struct DictationAlternative;
 struct DictionaryPopupInfo;
 struct EventTrackingRegions;
 struct ExceptionDetails;
 struct FontAttributes;
 struct FileChooserSettings;
+struct TextRecognitionDataDetector;
 struct RawFile;
 struct ShareData;
 struct ShareDataWithParsedURL;
@@ -151,9 +180,8 @@ struct TouchActionData;
 struct VelocityData;
 struct ViewportAttributes;
 struct WindowFeatures;
-    
-template<typename> class RectEdges;
-using FloatBoxExtent = RectEdges<float>;
+
+using IDBKeyPath = std::variant<String, Vector<String>>;
 
 #if PLATFORM(COCOA)
 struct KeypressCommand;
@@ -161,8 +189,7 @@ struct KeypressCommand;
 
 #if PLATFORM(IOS_FAMILY)
 class FloatQuad;
-class SelectionRect;
-struct Highlight;
+class SelectionGeometry;
 struct PasteboardImage;
 struct PasteboardWebContent;
 #endif
@@ -183,14 +210,6 @@ struct PasteboardWebContent;
 class ContentFilterUnblockHandler;
 #endif
 
-#if ENABLE(WIRELESS_PLAYBACK_TARGET)
-class MediaPlaybackTargetContext;
-#endif
-
-#if ENABLE(MEDIA_SESSION)
-class MediaSessionMetadata;
-#endif
-
 #if ENABLE(MEDIA_STREAM)
 struct MediaConstraints;
 #endif
@@ -199,8 +218,8 @@ struct MediaConstraints;
 struct SerializedAttachmentData;
 #endif
 
-#if ENABLE(INDEXED_DATABASE)
-using IDBKeyPath = Variant<String, Vector<String>>;
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+struct GraphicsContextGLAttributes;
 #endif
 
 namespace DOMCacheEngine {
@@ -212,14 +231,41 @@ struct Record;
 
 namespace IPC {
 
-template<> struct ArgumentCoder<WebCore::AffineTransform> {
-    static void encode(Encoder&, const WebCore::AffineTransform&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::AffineTransform&);
-};
+#define DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(Type) \
+    template<> struct ArgumentCoder<Type> { \
+        template<typename Encoder> static void encode(Encoder&, const Type&); \
+        static WARN_UNUSED_RETURN bool decode(Decoder&, Type&); \
+        static std::optional<Type> decode(Decoder&); \
+    };
+
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::AffineTransform)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatBoxExtent)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatPoint)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatPoint3D)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatRect)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatRoundedRect)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::FloatSize)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::IntPoint)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::IntRect)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::IntSize)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::LayoutPoint)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::LayoutSize)
+
+#if USE(CG)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(CGRect)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(CGSize)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(CGPoint)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(CGAffineTransform)
+#endif
+
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::DisplayList::SetInlineFillColor)
+DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER(WebCore::DisplayList::SetInlineStrokeColor)
+
+#undef DEFINE_SIMPLE_ARGUMENT_CODER_FOR_HEADER
 
 template<> struct ArgumentCoder<WebCore::AttributedString> {
     static void encode(Encoder&, const WebCore::AttributedString&);
-    static Optional<WebCore::AttributedString> decode(Decoder&);
+    static std::optional<WebCore::AttributedString> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::CacheQueryOptions> {
@@ -229,22 +275,22 @@ template<> struct ArgumentCoder<WebCore::CacheQueryOptions> {
 
 template<> struct ArgumentCoder<WebCore::CharacterRange> {
     static void encode(Encoder&, const WebCore::CharacterRange&);
-    static Optional<WebCore::CharacterRange> decode(Decoder&);
+    static std::optional<WebCore::CharacterRange> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::DOMCacheEngine::CacheInfo> {
     static void encode(Encoder&, const WebCore::DOMCacheEngine::CacheInfo&);
-    static Optional<WebCore::DOMCacheEngine::CacheInfo> decode(Decoder&);
+    static std::optional<WebCore::DOMCacheEngine::CacheInfo> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::DOMCacheEngine::Record> {
     static void encode(Encoder&, const WebCore::DOMCacheEngine::Record&);
-    static Optional<WebCore::DOMCacheEngine::Record> decode(Decoder&);
+    static std::optional<WebCore::DOMCacheEngine::Record> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::TouchActionData> {
     static void encode(Encoder&, const WebCore::TouchActionData&);
-    static Optional<WebCore::TouchActionData> decode(Decoder&);
+    static std::optional<WebCore::TouchActionData> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::EventTrackingRegions> {
@@ -253,6 +299,7 @@ template<> struct ArgumentCoder<WebCore::EventTrackingRegions> {
 };
 
 template<> struct ArgumentCoder<WebCore::TransformationMatrix> {
+    template<typename Encoder>
     static void encode(Encoder&, const WebCore::TransformationMatrix&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::TransformationMatrix&);
 };
@@ -278,54 +325,22 @@ template<> struct ArgumentCoder<WebCore::SpringTimingFunction> {
 };
 
 template<> struct ArgumentCoder<WebCore::CertificateInfo> {
+    template<typename Encoder>
     static void encode(Encoder&, const WebCore::CertificateInfo&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::CertificateInfo&);
+    template<typename Decoder>
+    static std::optional<WebCore::CertificateInfo> decode(Decoder&);
 };
 
-template<> struct ArgumentCoder<WebCore::FloatPoint> {
-    static void encode(Encoder&, const WebCore::FloatPoint&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatPoint&);
-    static Optional<WebCore::FloatPoint> decode(Decoder&);
+template<> struct ArgumentCoder<WebCore::RectEdges<bool>> {
+    static void encode(Encoder&, const WebCore::RectEdges<bool>&);
+    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::RectEdges<bool>&);
 };
-
-template<> struct ArgumentCoder<WebCore::FloatPoint3D> {
-    static void encode(Encoder&, const WebCore::FloatPoint3D&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatPoint3D&);
-};
-
-template<> struct ArgumentCoder<WebCore::FloatRect> {
-    static void encode(Encoder&, const WebCore::FloatRect&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatRect&);
-    static Optional<WebCore::FloatRect> decode(Decoder&);
-};
-    
-template<> struct ArgumentCoder<WebCore::FloatBoxExtent> {
-    static void encode(Encoder&, const WebCore::FloatBoxExtent&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatBoxExtent&);
-};
-
-template<> struct ArgumentCoder<WebCore::FloatSize> {
-    static void encode(Encoder&, const WebCore::FloatSize&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatSize&);
-};
-
-template<> struct ArgumentCoder<WebCore::FloatRoundedRect> {
-    static void encode(Encoder&, const WebCore::FloatRoundedRect&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FloatRoundedRect&);
-};
-
-#if PLATFORM(IOS_FAMILY)
-template<> struct ArgumentCoder<WebCore::FloatQuad> {
-    static void encode(Encoder&, const WebCore::FloatQuad&);
-    static Optional<WebCore::FloatQuad> decode(Decoder&);
-};
-#endif // PLATFORM(IOS_FAMILY)
 
 #if ENABLE(META_VIEWPORT)
 template<> struct ArgumentCoder<WebCore::ViewportArguments> {
     static void encode(Encoder&, const WebCore::ViewportArguments&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ViewportArguments&);
-    static Optional<WebCore::ViewportArguments> decode(Decoder&);
+    static std::optional<WebCore::ViewportArguments> decode(Decoder&);
 };
 
 #endif
@@ -333,34 +348,6 @@ template<> struct ArgumentCoder<WebCore::ViewportArguments> {
 template<> struct ArgumentCoder<WebCore::ViewportAttributes> {
     static void encode(Encoder&, const WebCore::ViewportAttributes&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ViewportAttributes&);
-};
-
-template<> struct ArgumentCoder<WebCore::IntPoint> {
-    static void encode(Encoder&, const WebCore::IntPoint&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::IntPoint&);
-    static Optional<WebCore::IntPoint> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::IntRect> {
-    static void encode(Encoder&, const WebCore::IntRect&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::IntRect&);
-    static Optional<WebCore::IntRect> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::IntSize> {
-    static void encode(Encoder&, const WebCore::IntSize&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::IntSize&);
-    static Optional<WebCore::IntSize> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::LayoutSize> {
-    static void encode(Encoder&, const WebCore::LayoutSize&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::LayoutSize&);
-};
-
-template<> struct ArgumentCoder<WebCore::LayoutPoint> {
-    static void encode(Encoder&, const WebCore::LayoutPoint&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::LayoutPoint&);
 };
 
 template<> struct ArgumentCoder<WebCore::Length> {
@@ -375,12 +362,12 @@ template<> struct ArgumentCoder<WebCore::VelocityData> {
 
 template<> struct ArgumentCoder<WebCore::MimeClassInfo> {
     static void encode(Encoder&, const WebCore::MimeClassInfo&);
-    static Optional<WebCore::MimeClassInfo> decode(Decoder&);
+    static std::optional<WebCore::MimeClassInfo> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PluginInfo> {
     static void encode(Encoder&, const WebCore::PluginInfo&);
-    static Optional<WebCore::PluginInfo> decode(Decoder&);
+    static std::optional<WebCore::PluginInfo> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::AuthenticationChallenge> {
@@ -407,21 +394,16 @@ template<> struct ArgumentCoder<WebCore::Cursor> {
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::Cursor&);
 };
 
-template<> struct ArgumentCoder<WebCore::FontHandle> {
-    static void encode(Encoder&, const WebCore::FontHandle&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::FontHandle&);
-    static void encodePlatformData(Encoder&, const WebCore::FontHandle&);
-    static WARN_UNUSED_RETURN bool decodePlatformData(Decoder&, WebCore::FontHandle&);
+template<> struct ArgumentCoder<RefPtr<WebCore::Font>> {
+    static void encode(Encoder&, const RefPtr<WebCore::Font>&);
+    static std::optional<RefPtr<WebCore::Font>> decode(Decoder&);
 };
 
-template<> struct ArgumentCoder<WebCore::ImageHandle> {
-    static void encode(Encoder&, const WebCore::ImageHandle&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ImageHandle&);
-};
-
-template<> struct ArgumentCoder<WebCore::NativeImageHandle> {
-    static void encode(Encoder&, const WebCore::NativeImageHandle&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::NativeImageHandle&);
+template<> struct ArgumentCoder<Ref<WebCore::Font>> {
+    static void encode(Encoder&, const Ref<WebCore::Font>&);
+    static std::optional<Ref<WebCore::Font>> decode(Decoder&);
+    static void encodePlatformData(Encoder&, const Ref<WebCore::Font>&);
+    static std::optional<WebCore::FontPlatformData> decodePlatformData(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::ResourceRequest> {
@@ -451,6 +433,7 @@ template<> struct ArgumentCoder<WebCore::DragData> {
 #endif
 
 #if PLATFORM(COCOA)
+
 template<> struct ArgumentCoder<WTF::MachSendRight> {
     static void encode(Encoder&, const WTF::MachSendRight&);
     static void encode(Encoder&, WTF::MachSendRight&&);
@@ -459,39 +442,20 @@ template<> struct ArgumentCoder<WTF::MachSendRight> {
 
 template<> struct ArgumentCoder<WebCore::KeypressCommand> {
     static void encode(Encoder&, const WebCore::KeypressCommand&);
-    static Optional<WebCore::KeypressCommand> decode(Decoder&);
+    static std::optional<WebCore::KeypressCommand> decode(Decoder&);
 };
 
-template<> struct ArgumentCoder<CGPoint> {
-    static void encode(Encoder&, CGPoint);
-    static Optional<CGPoint> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<CGSize> {
-    static void encode(Encoder&, CGSize);
-    static Optional<CGSize> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<CGRect> {
-    static void encode(Encoder&, CGRect);
-    static Optional<CGRect> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<CGAffineTransform> {
-    static void encode(Encoder&, CGAffineTransform);
-    static Optional<CGAffineTransform> decode(Decoder&);
-};
-#endif
+#endif // PLATFORM(COCOA)
 
 #if PLATFORM(IOS_FAMILY)
-template<> struct ArgumentCoder<WebCore::SelectionRect> {
-    static void encode(Encoder&, const WebCore::SelectionRect&);
-    static Optional<WebCore::SelectionRect> decode(Decoder&);
+template<> struct ArgumentCoder<WebCore::SelectionGeometry> {
+    static void encode(Encoder&, const WebCore::SelectionGeometry&);
+    static std::optional<WebCore::SelectionGeometry> decode(Decoder&);
 };
 
-template<> struct ArgumentCoder<WebCore::Highlight> {
-    static void encode(Encoder&, const WebCore::Highlight&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::Highlight&);
+template<> struct ArgumentCoder<WebCore::InspectorOverlay::Highlight> {
+    static void encode(Encoder&, const WebCore::InspectorOverlay::Highlight&);
+    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::InspectorOverlay::Highlight&);
 };
 
 template<> struct ArgumentCoder<WebCore::PasteboardWebContent> {
@@ -532,13 +496,13 @@ template<> struct ArgumentCoder<WebCore::PasteboardWebContent> {
 #if USE(CURL)
 template<> struct ArgumentCoder<WebCore::CurlProxySettings> {
     static void encode(Encoder&, const WebCore::CurlProxySettings&);
-    static Optional<WebCore::CurlProxySettings> decode(Decoder&);
+    static std::optional<WebCore::CurlProxySettings> decode(Decoder&);
 };
 #endif
 
 template<> struct ArgumentCoder<WebCore::CompositionUnderline> {
     static void encode(Encoder&, const WebCore::CompositionUnderline&);
-    static Optional<WebCore::CompositionUnderline> decode(Decoder&);
+    static std::optional<WebCore::CompositionUnderline> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::DatabaseDetails> {
@@ -548,7 +512,7 @@ template<> struct ArgumentCoder<WebCore::DatabaseDetails> {
 
 template<> struct ArgumentCoder<WebCore::DictationAlternative> {
     static void encode(Encoder&, const WebCore::DictationAlternative&);
-    static Optional<WebCore::DictationAlternative> decode(Decoder&);
+    static std::optional<WebCore::DictationAlternative> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::FileChooserSettings> {
@@ -573,7 +537,7 @@ template<> struct ArgumentCoder<WebCore::ShareDataWithParsedURL> {
 
 template<> struct ArgumentCoder<WebCore::GrammarDetail> {
     static void encode(Encoder&, const WebCore::GrammarDetail&);
-    static Optional<WebCore::GrammarDetail> decode(Decoder&);
+    static std::optional<WebCore::GrammarDetail> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::TextCheckingRequestData> {
@@ -583,7 +547,7 @@ template<> struct ArgumentCoder<WebCore::TextCheckingRequestData> {
 
 template<> struct ArgumentCoder<WebCore::TextCheckingResult> {
     static void encode(Encoder&, const WebCore::TextCheckingResult&);
-    static Optional<WebCore::TextCheckingResult> decode(Decoder&);
+    static std::optional<WebCore::TextCheckingResult> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::UserStyleSheet> {
@@ -621,11 +585,16 @@ template<> struct ArgumentCoder<WebCore::FilterOperation> {
     static void encode(Encoder&, const WebCore::FilterOperation&);
 };
 WARN_UNUSED_RETURN bool decodeFilterOperation(Decoder&, RefPtr<WebCore::FilterOperation>&);
+
+template<> struct ArgumentCoder<RefPtr<WebCore::FilterOperation>> {
+    static void encode(Encoder&, const RefPtr<WebCore::FilterOperation>&);
+    static WARN_UNUSED_RETURN bool decode(Decoder&, RefPtr<WebCore::FilterOperation>&);
+};
 #endif
 
 template<> struct ArgumentCoder<WebCore::BlobPart> {
     static void encode(Encoder&, const WebCore::BlobPart&);
-    static Optional<WebCore::BlobPart> decode(Decoder&);
+    static std::optional<WebCore::BlobPart> decode(Decoder&);
 };
 
 #if ENABLE(CONTENT_FILTERING)
@@ -635,16 +604,9 @@ template<> struct ArgumentCoder<WebCore::ContentFilterUnblockHandler> {
 };
 #endif
 
-#if ENABLE(MEDIA_SESSION)
-template<> struct ArgumentCoder<WebCore::MediaSessionMetadata> {
-    static void encode(Encoder&, const WebCore::MediaSessionMetadata&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::MediaSessionMetadata&);
-};
-#endif
-
 template<> struct ArgumentCoder<WebCore::TextIndicatorData> {
     static void encode(Encoder&, const WebCore::TextIndicatorData&);
-    static Optional<WebCore::TextIndicatorData> decode(Decoder&);
+    static std::optional<WebCore::TextIndicatorData> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::DictionaryPopupInfo> {
@@ -659,13 +621,13 @@ template<> struct ArgumentCoder<WebCore::MediaPlaybackTargetContext> {
     static void encode(Encoder&, const WebCore::MediaPlaybackTargetContext&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::MediaPlaybackTargetContext&);
     static void encodePlatformData(Encoder&, const WebCore::MediaPlaybackTargetContext&);
-    static WARN_UNUSED_RETURN bool decodePlatformData(Decoder&, WebCore::MediaPlaybackTargetContext&);
+    static WARN_UNUSED_RETURN bool decodePlatformData(Decoder&, WebCore::MediaPlaybackTargetContext::Type, WebCore::MediaPlaybackTargetContext&);
 };
 #endif
 
 template<> struct ArgumentCoder<WebCore::RecentSearch> {
     static void encode(Encoder&, const WebCore::RecentSearch&);
-    static Optional<WebCore::RecentSearch> decode(Decoder&);
+    static std::optional<WebCore::RecentSearch> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::ExceptionDetails> {
@@ -675,59 +637,38 @@ template<> struct ArgumentCoder<WebCore::ExceptionDetails> {
 
 template<> struct ArgumentCoder<WebCore::ResourceLoadStatistics> {
     static void encode(Encoder&, const WebCore::ResourceLoadStatistics&);
-    static Optional<WebCore::ResourceLoadStatistics> decode(Decoder&);
+    static std::optional<WebCore::ResourceLoadStatistics> decode(Decoder&);
 };
 
 #if ENABLE(APPLE_PAY)
 
 template<> struct ArgumentCoder<WebCore::Payment> {
     static void encode(Encoder&, const WebCore::Payment&);
-    static Optional<WebCore::Payment> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::PaymentAuthorizationResult> {
-    static void encode(Encoder&, const WebCore::PaymentAuthorizationResult&);
-    static Optional<WebCore::PaymentAuthorizationResult> decode(Decoder&);
+    static std::optional<WebCore::Payment> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PaymentContact> {
     static void encode(Encoder&, const WebCore::PaymentContact&);
-    static Optional<WebCore::PaymentContact> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::PaymentError> {
-    static void encode(Encoder&, const WebCore::PaymentError&);
-    static Optional<WebCore::PaymentError> decode(Decoder&);
+    static std::optional<WebCore::PaymentContact> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PaymentMerchantSession> {
     static void encode(Encoder&, const WebCore::PaymentMerchantSession&);
-    static Optional<WebCore::PaymentMerchantSession> decode(Decoder&);
+    static std::optional<WebCore::PaymentMerchantSession> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PaymentMethod> {
     static void encode(Encoder&, const WebCore::PaymentMethod&);
-    static Optional<WebCore::PaymentMethod> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::PaymentMethodUpdate> {
-    static void encode(Encoder&, const WebCore::PaymentMethodUpdate&);
-    static Optional<WebCore::PaymentMethodUpdate> decode(Decoder&);
+    static std::optional<WebCore::PaymentMethod> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest> {
     static void encode(Encoder&, const WebCore::ApplePaySessionPaymentRequest&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ApplePaySessionPaymentRequest&);
 };
-
 template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::ContactFields> {
     static void encode(Encoder&, const WebCore::ApplePaySessionPaymentRequest::ContactFields&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ApplePaySessionPaymentRequest::ContactFields&);
-};
-
-template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::LineItem> {
-    static void encode(Encoder&, const WebCore::ApplePaySessionPaymentRequest::LineItem&);
-    static Optional<WebCore::ApplePaySessionPaymentRequest::LineItem> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::MerchantCapabilities> {
@@ -735,29 +676,14 @@ template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::Merchant
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::ApplePaySessionPaymentRequest::MerchantCapabilities&);
 };
 
-template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::ShippingMethod> {
-    static void encode(Encoder&, const WebCore::ApplePaySessionPaymentRequest::ShippingMethod&);
-    static Optional<WebCore::ApplePaySessionPaymentRequest::ShippingMethod> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::ApplePaySessionPaymentRequest::TotalAndLineItems> {
-    static void encode(Encoder&, const WebCore::ApplePaySessionPaymentRequest::TotalAndLineItems&);
-    static Optional<WebCore::ApplePaySessionPaymentRequest::TotalAndLineItems> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::ShippingContactUpdate> {
-    static void encode(Encoder&, const WebCore::ShippingContactUpdate&);
-    static Optional<WebCore::ShippingContactUpdate> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::ShippingMethodUpdate> {
-    static void encode(Encoder&, const WebCore::ShippingMethodUpdate&);
-    static Optional<WebCore::ShippingMethodUpdate> decode(Decoder&);
+template<> struct ArgumentCoder<RefPtr<WebCore::ApplePayError>> {
+    static void encode(Encoder&, const RefPtr<WebCore::ApplePayError>&);
+    static std::optional<RefPtr<WebCore::ApplePayError>> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PaymentSessionError> {
     static void encode(Encoder&, const WebCore::PaymentSessionError&);
-    static Optional<WebCore::PaymentSessionError> decode(Decoder&);
+    static std::optional<WebCore::PaymentSessionError> decode(Decoder&);
 };
 
 #endif
@@ -769,14 +695,10 @@ template<> struct ArgumentCoder<WebCore::MediaConstraints> {
 };
 #endif
 
-#if ENABLE(INDEXED_DATABASE)
-
 template<> struct ArgumentCoder<WebCore::IDBKeyPath> {
     static void encode(Encoder&, const WebCore::IDBKeyPath&);
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::IDBKeyPath&);
 };
-
-#endif
 
 #if ENABLE(SERVICE_WORKER)
 
@@ -792,18 +714,9 @@ template<> struct ArgumentCoder<WebCore::ServiceWorkerOrClientIdentifier> {
 
 #endif
 
-#if ENABLE(CSS_SCROLL_SNAP)
-
-template<> struct ArgumentCoder<WebCore::ScrollOffsetRange<float>> {
-    static void encode(Encoder&, const WebCore::ScrollOffsetRange<float>&);
-    static Optional<WebCore::ScrollOffsetRange<float>> decode(Decoder&);
-};
-
-#endif
-
 template<> struct ArgumentCoder<WebCore::MediaSelectionOption> {
     static void encode(Encoder&, const WebCore::MediaSelectionOption&);
-    static Optional<WebCore::MediaSelectionOption> decode(Decoder&);
+    static std::optional<WebCore::MediaSelectionOption> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::PromisedAttachmentInfo> {
@@ -811,23 +724,21 @@ template<> struct ArgumentCoder<WebCore::PromisedAttachmentInfo> {
     static WARN_UNUSED_RETURN bool decode(Decoder&, WebCore::PromisedAttachmentInfo&);
 };
 
-template<> struct ArgumentCoder<Vector<RefPtr<WebCore::SecurityOrigin>>> {
-    static void encode(Encoder&, const Vector<RefPtr<WebCore::SecurityOrigin>>&);
-    static WARN_UNUSED_RETURN bool decode(Decoder&, Vector<RefPtr<WebCore::SecurityOrigin>>&);
+template<> struct ArgumentCoder<RefPtr<WebCore::SecurityOrigin>> {
+    static void encode(Encoder&, const RefPtr<WebCore::SecurityOrigin>&);
+    static std::optional<RefPtr<WebCore::SecurityOrigin>> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<WebCore::FontAttributes> {
     static void encode(Encoder&, const WebCore::FontAttributes&);
-    static Optional<WebCore::FontAttributes> decode(Decoder&);
-    static void encodePlatformData(Encoder&, const WebCore::FontAttributes&);
-    static Optional<WebCore::FontAttributes> decodePlatformData(Decoder&, WebCore::FontAttributes&);
+    static std::optional<WebCore::FontAttributes> decode(Decoder&);
 };
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 
 template<> struct ArgumentCoder<WebCore::SerializedAttachmentData> {
     static void encode(Encoder&, const WebCore::SerializedAttachmentData&);
-    static Optional<WebCore::SerializedAttachmentData> decode(Decoder&);
+    static std::optional<WebCore::SerializedAttachmentData> decode(Decoder&);
 };
 
 #endif // ENABLE(ATTACHMENT_ELEMENT)
@@ -835,73 +746,112 @@ template<> struct ArgumentCoder<WebCore::SerializedAttachmentData> {
 #if ENABLE(VIDEO)
 template<> struct ArgumentCoder<WebCore::SerializedPlatformDataCueValue> {
     static void encode(Encoder&, const WebCore::SerializedPlatformDataCueValue&);
-    static Optional<WebCore::SerializedPlatformDataCueValue> decode(Decoder&);
+    static std::optional<WebCore::SerializedPlatformDataCueValue> decode(Decoder&);
     static void encodePlatformData(Encoder&, const WebCore::SerializedPlatformDataCueValue&);
-    static Optional<WebCore::SerializedPlatformDataCueValue> decodePlatformData(Decoder&, WebCore::SerializedPlatformDataCueValue::PlatformType);
+    static std::optional<WebCore::SerializedPlatformDataCueValue> decodePlatformData(Decoder&, WebCore::SerializedPlatformDataCueValue::PlatformType);
 };
 #endif
 
+template<> struct ArgumentCoder<RefPtr<WebCore::FragmentedSharedBuffer>> {
+    static void encode(Encoder&, const RefPtr<WebCore::FragmentedSharedBuffer>&);
+    static std::optional<RefPtr<WebCore::FragmentedSharedBuffer>> decode(Decoder&);
+};
+
+template<> struct ArgumentCoder<Ref<WebCore::FragmentedSharedBuffer>> {
+    static void encode(Encoder&, const Ref<WebCore::FragmentedSharedBuffer>&);
+    static std::optional<Ref<WebCore::FragmentedSharedBuffer>> decode(Decoder&);
+};
+
 template<> struct ArgumentCoder<RefPtr<WebCore::SharedBuffer>> {
     static void encode(Encoder&, const RefPtr<WebCore::SharedBuffer>&);
-    static Optional<RefPtr<WebCore::SharedBuffer>> decode(Decoder&);
+    static std::optional<RefPtr<WebCore::SharedBuffer>> decode(Decoder&);
 };
 
 template<> struct ArgumentCoder<Ref<WebCore::SharedBuffer>> {
     static void encode(Encoder&, const Ref<WebCore::SharedBuffer>&);
-    static Optional<Ref<WebCore::SharedBuffer>> decode(Decoder&);
+    static std::optional<Ref<WebCore::SharedBuffer>> decode(Decoder&);
 };
+
+template<> struct ArgumentCoder<WebCore::ScriptBuffer> {
+    static void encode(Encoder&, const WebCore::ScriptBuffer&);
+    static std::optional<WebCore::ScriptBuffer> decode(Decoder&);
+};
+
+#if ENABLE(DATA_DETECTION)
+
+template<> struct ArgumentCoder<WebCore::DataDetectorElementInfo> {
+    static void encode(Encoder&, const WebCore::DataDetectorElementInfo&);
+    static std::optional<WebCore::DataDetectorElementInfo> decode(Decoder&);
+};
+
+#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
 template<> struct ArgumentCoder<WebCore::CDMInstanceSession::Message> {
     static void encode(Encoder&, const WebCore::CDMInstanceSession::Message&);
-    static Optional<WebCore::CDMInstanceSession::Message> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<WebCore::CDMInstanceSession::KeyStatusVector> {
-    static void encode(Encoder&, const WebCore::CDMInstanceSession::KeyStatusVector&);
-    static Optional<WebCore::CDMInstanceSession::KeyStatusVector> decode(Decoder&);
+    static std::optional<WebCore::CDMInstanceSession::Message> decode(Decoder&);
 };
 #endif
-
-template<> struct ArgumentCoder<RefPtr<WebCore::ImageData>> {
-    static void encode(Encoder&, const RefPtr<WebCore::ImageData>&);
-    static Optional<RefPtr<WebCore::ImageData>> decode(Decoder&);
-};
-
-template<> struct ArgumentCoder<Ref<WebCore::ImageData>> {
-    static void encode(Encoder&, const Ref<WebCore::ImageData>&);
-    static Optional<Ref<WebCore::ImageData>> decode(Decoder&);
-};
 
 #if HAVE(PASSKIT_INSTALLMENTS)
 template<> struct ArgumentCoder<WebCore::PaymentInstallmentConfiguration> {
     static void encode(Encoder&, const WebCore::PaymentInstallmentConfiguration&);
-    static Optional<WebCore::PaymentInstallmentConfiguration> decode(Decoder&);
+    static std::optional<WebCore::PaymentInstallmentConfiguration> decode(Decoder&);
 };
+#endif
+
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+
+template<> struct ArgumentCoder<WebCore::GraphicsContextGLAttributes> {
+    static void encode(Encoder&, const WebCore::GraphicsContextGLAttributes&);
+    static std::optional<WebCore::GraphicsContextGLAttributes> decode(Decoder&);
+};
+
+template<> struct ArgumentCoder<WebCore::GraphicsContextGL::ActiveInfo> {
+    template<typename Encoder>
+    static void encode(Encoder&, const WebCore::GraphicsContextGL::ActiveInfo&);
+    static std::optional<WebCore::GraphicsContextGL::ActiveInfo> decode(Decoder&);
+};
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS) && ENABLE(DATA_DETECTION)
+
+template<> struct ArgumentCoder<WebCore::TextRecognitionDataDetector> {
+    static void encode(Encoder&, const WebCore::TextRecognitionDataDetector&);
+    static WARN_UNUSED_RETURN std::optional<WebCore::TextRecognitionDataDetector> decode(Decoder&);
+    static void encodePlatformData(Encoder&, const WebCore::TextRecognitionDataDetector&);
+    static WARN_UNUSED_RETURN bool decodePlatformData(Decoder&, WebCore::TextRecognitionDataDetector&);
+};
+
+#endif // ENABLE(IMAGE_ANALYSIS) && ENABLE(DATA_DETECTION)
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+
+template<> struct ArgumentCoder<RetainPtr<VKCImageAnalysis>> {
+    static void encode(Encoder&, const RetainPtr<VKCImageAnalysis>&);
+    static WARN_UNUSED_RETURN std::optional<RetainPtr<VKCImageAnalysis>> decode(Decoder&);
+};
+
+#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+
+#if USE(AVFOUNDATION)
+
+template<> struct ArgumentCoder<RetainPtr<CVPixelBufferRef>> {
+    static void encode(Encoder&, const RetainPtr<CVPixelBufferRef>&);
+    static std::optional<RetainPtr<CVPixelBufferRef>> decode(Decoder&);
+};
+
 #endif
 
 } // namespace IPC
 
 namespace WTF {
 
-template<> struct EnumTraits<WebCore::ColorSpace> {
-    using values = EnumValues<
-    WebCore::ColorSpace,
-    WebCore::ColorSpace::SRGB,
-    WebCore::ColorSpace::LinearRGB,
-    WebCore::ColorSpace::DisplayP3
-    >;
-};
-
 template<> struct EnumTraits<WebCore::RenderingMode> {
     using values = EnumValues<
-    WebCore::RenderingMode,
-    WebCore::RenderingMode::Accelerated,
-    WebCore::RenderingMode::Unaccelerated,
-    WebCore::RenderingMode::DisplayListAccelerated,
-    WebCore::RenderingMode::DisplayListUnaccelerated,
-    WebCore::RenderingMode::RemoteAccelerated,
-    WebCore::RenderingMode::RemoteUnaccelerated
+        WebCore::RenderingMode,
+        WebCore::RenderingMode::Unaccelerated,
+        WebCore::RenderingMode::Accelerated
     >;
 };
 
@@ -930,16 +880,6 @@ template<> struct EnumTraits<WebCore::InputMode> {
     >;
 };
 
-template<> struct EnumTraits<WebCore::NetworkLoadPriority> {
-    using values = EnumValues<
-        WebCore::NetworkLoadPriority,
-        WebCore::NetworkLoadPriority::Low,
-        WebCore::NetworkLoadPriority::Medium,
-        WebCore::NetworkLoadPriority::High,
-        WebCore::NetworkLoadPriority::Unknown
-    >;
-};
-
 template<> struct EnumTraits<WebCore::NotificationDirection> {
     using values = EnumValues<
         WebCore::NotificationDirection,
@@ -949,7 +889,6 @@ template<> struct EnumTraits<WebCore::NotificationDirection> {
     >;
 };
 
-#if ENABLE(INDEXED_DATABASE)
 template<> struct EnumTraits<WebCore::IndexedDB::GetAllType> {
     using values = EnumValues<
         WebCore::IndexedDB::GetAllType,
@@ -957,7 +896,6 @@ template<> struct EnumTraits<WebCore::IndexedDB::GetAllType> {
         WebCore::IndexedDB::GetAllType::Values
     >;
 };
-#endif
 
 #if ENABLE(MEDIA_STREAM)
 template<> struct EnumTraits<WebCore::RealtimeMediaSource::Type> {
@@ -1051,5 +989,72 @@ template <> struct EnumTraits<WebCore::CDMInstance::HDCPStatus> {
 };
 
 #endif
+
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+
+template <> struct EnumTraits<WebCore::GraphicsContextGLPowerPreference> {
+    using values = EnumValues <
+    WebCore::GraphicsContextGLPowerPreference,
+    WebCore::GraphicsContextGLPowerPreference::Default,
+    WebCore::GraphicsContextGLPowerPreference::LowPower,
+    WebCore::GraphicsContextGLPowerPreference::HighPerformance
+    >;
+};
+
+template <> struct EnumTraits<WebCore::GraphicsContextGLWebGLVersion> {
+    using values = EnumValues <
+    WebCore::GraphicsContextGLWebGLVersion,
+    WebCore::GraphicsContextGLWebGLVersion::WebGL1
+#if ENABLE(WEBGL2)
+    , WebCore::GraphicsContextGLWebGLVersion::WebGL2
+#endif
+    >;
+};
+
+template <> struct EnumTraits<WebCore::GraphicsContextGL::SimulatedEventForTesting> {
+    using values = EnumValues<
+    WebCore::GraphicsContextGL::SimulatedEventForTesting,
+    WebCore::GraphicsContextGL::SimulatedEventForTesting::ContextChange,
+    WebCore::GraphicsContextGL::SimulatedEventForTesting::GPUStatusFailure,
+    WebCore::GraphicsContextGL::SimulatedEventForTesting::Timeout
+    >;
+};
+#endif
+
+template<> struct EnumTraits<WebCore::ScrollSnapStrictness> {
+    using values = EnumValues<
+        WebCore::ScrollSnapStrictness,
+        WebCore::ScrollSnapStrictness::None,
+        WebCore::ScrollSnapStrictness::Proximity,
+        WebCore::ScrollSnapStrictness::Mandatory
+    >;
+};
+
+template<> struct EnumTraits<WebCore::LengthType> {
+    using values = EnumValues<
+        WebCore::LengthType,
+        WebCore::LengthType::Auto,
+        WebCore::LengthType::Relative,
+        WebCore::LengthType::Percent,
+        WebCore::LengthType::Fixed,
+        WebCore::LengthType::Intrinsic,
+        WebCore::LengthType::MinIntrinsic,
+        WebCore::LengthType::MinContent,
+        WebCore::LengthType::MaxContent,
+        WebCore::LengthType::FillAvailable,
+        WebCore::LengthType::FitContent,
+        WebCore::LengthType::Calculated,
+        WebCore::LengthType::Undefined
+    >;
+};
+
+template<> struct EnumTraits<WebCore::OverscrollBehavior> {
+    using values = EnumValues<
+        WebCore::OverscrollBehavior,
+        WebCore::OverscrollBehavior::Auto,
+        WebCore::OverscrollBehavior::Contain,
+        WebCore::OverscrollBehavior::None
+    >;
+};
 
 } // namespace WTF

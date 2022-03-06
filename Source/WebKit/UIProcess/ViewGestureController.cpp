@@ -43,6 +43,7 @@
 #endif
 
 #if !PLATFORM(IOS_FAMILY)
+#include "DrawingAreaProxy.h"
 #include "ProvisionalPageProxy.h"
 #include "ViewGestureGeometryCollectorMessages.h"
 #endif
@@ -145,7 +146,7 @@ void ViewGestureController::didEndGesture()
 
 void ViewGestureController::setAlternateBackForwardListSourcePage(WebPageProxy* page)
 {
-    m_alternateBackForwardListSourcePage = makeWeakPtr(page);
+    m_alternateBackForwardListSourcePage = page;
 }
 
 bool ViewGestureController::canSwipeInDirection(SwipeDirection direction) const
@@ -420,8 +421,8 @@ bool ViewGestureController::PendingSwipeTracker::scrollEventCanBecomeSwipe(Platf
     if (deltaShouldCancelSwipe(size))
         return false;
 
-    bool isPinnedToLeft = m_shouldIgnorePinnedState || m_webPageProxy.isPinnedToLeftSide();
-    bool isPinnedToRight = m_shouldIgnorePinnedState || m_webPageProxy.isPinnedToRightSide();
+    bool isPinnedToLeft = m_shouldIgnorePinnedState || m_webPageProxy.pinnedState().left();
+    bool isPinnedToRight = m_shouldIgnorePinnedState || m_webPageProxy.pinnedState().right();
 
     bool tryingToSwipeBack = size.width() > 0 && isPinnedToLeft;
     bool tryingToSwipeForward = size.width() < 0 && isPinnedToRight;
@@ -560,10 +561,10 @@ void ViewGestureController::forceRepaintIfNeeded()
 
     auto pageID = m_webPageProxy.identifier();
     GestureID gestureID = m_currentGestureID;
-    m_webPageProxy.forceRepaint(VoidCallback::create([pageID, gestureID] (CallbackBase::Error error) {
+    m_webPageProxy.forceRepaint([pageID, gestureID] () {
         if (auto gestureController = controllerForGesture(pageID, gestureID))
             gestureController->removeSwipeSnapshot();
-    }));
+    });
 }
 
 void ViewGestureController::willEndSwipeGesture(WebBackForwardListItem& targetItem, bool cancelled)
@@ -646,6 +647,79 @@ void ViewGestureController::requestRenderTreeSizeNotificationIfNeeded()
     auto* messageSender = m_webPageProxy.provisionalPageProxy() ? static_cast<IPC::MessageSender*>(m_webPageProxy.provisionalPageProxy()) : &m_webPageProxy;
     messageSender->send(Messages::ViewGestureGeometryCollector::SetRenderTreeSizeNotificationThreshold(threshold));
 }
+
+FloatPoint ViewGestureController::scaledMagnificationOrigin(FloatPoint origin, double scale)
+{
+    FloatPoint scaledMagnificationOrigin(m_initialMagnificationOrigin);
+    scaledMagnificationOrigin.moveBy(m_visibleContentRect.location());
+    float magnificationOriginScale = 1 - (scale / m_initialMagnification);
+    scaledMagnificationOrigin.scale(magnificationOriginScale);
+    scaledMagnificationOrigin.move(origin - m_initialMagnificationOrigin);
+    return scaledMagnificationOrigin;
+}
+
+void ViewGestureController::didCollectGeometryForMagnificationGesture(FloatRect visibleContentRect, bool frameHandlesMagnificationGesture)
+{
+    willBeginGesture(ViewGestureType::Magnification);
+    m_visibleContentRect = visibleContentRect;
+    m_visibleContentRectIsValid = true;
+    m_frameHandlesMagnificationGesture = frameHandlesMagnificationGesture;
+}
+
+void ViewGestureController::prepareMagnificationGesture(FloatPoint origin)
+{
+    m_magnification = m_webPageProxy.pageScaleFactor();
+    m_webPageProxy.send(Messages::ViewGestureGeometryCollector::CollectGeometryForMagnificationGesture());
+
+    m_initialMagnification = m_magnification;
+    m_initialMagnificationOrigin = FloatPoint(origin);
+
+#if PLATFORM(MAC)
+    m_lastMagnificationGestureWasSmartMagnification = false;
 #endif
+}
+
+void ViewGestureController::applyMagnification()
+{
+    if (m_activeGestureType != ViewGestureType::Magnification)
+        return;
+
+    if (m_frameHandlesMagnificationGesture)
+        m_webPageProxy.scalePage(m_magnification, roundedIntPoint(m_magnificationOrigin));
+    else
+        m_webPageProxy.drawingArea()->adjustTransientZoom(m_magnification, scaledMagnificationOrigin(m_magnificationOrigin, m_magnification));
+}
+
+void ViewGestureController::endMagnificationGesture()
+{
+    if (m_activeGestureType != ViewGestureType::Magnification)
+        return;
+
+    double newMagnification = clampTo<double>(m_magnification, minMagnification, maxMagnification);
+
+    if (m_frameHandlesMagnificationGesture)
+        m_webPageProxy.scalePage(newMagnification, roundedIntPoint(m_magnificationOrigin));
+    else {
+        if (auto drawingArea = m_webPageProxy.drawingArea())
+            drawingArea->commitTransientZoom(newMagnification, scaledMagnificationOrigin(m_magnificationOrigin, newMagnification));
+    }
+
+#if PLATFORM(MAC)
+    m_webPageProxy.didEndMagnificationGesture();
+#endif
+
+    didEndGesture();
+    m_visibleContentRectIsValid = false;
+}
+
+double ViewGestureController::magnification() const
+{
+    if (m_activeGestureType == ViewGestureType::Magnification)
+        return m_magnification;
+
+    return m_webPageProxy.pageScaleFactor();
+}
+
+#endif // !PLATFORM(IOS_FAMILY)
 
 } // namespace WebKit

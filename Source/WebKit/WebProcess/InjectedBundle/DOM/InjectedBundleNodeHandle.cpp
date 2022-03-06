@@ -52,6 +52,7 @@
 #include <WebCore/Range.h>
 #include <WebCore/RenderObject.h>
 #include <WebCore/SimpleRange.h>
+#include <WebCore/Text.h>
 #include <WebCore/VisiblePosition.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -145,7 +146,7 @@ IntRect InjectedBundleNodeHandle::renderRect(bool* isReplaced)
     return m_node->pixelSnappedRenderRect(isReplaced);
 }
 
-static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& paintingRect, const Optional<float>& bitmapWidth, SnapshotOptions options)
+static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
 {
     if (paintingRect.isEmpty())
         return nullptr;
@@ -197,7 +198,7 @@ static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& painti
     return snapshot;
 }
 
-RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options, bool shouldExcludeOverflow, const Optional<float>& bitmapWidth)
+RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options, bool shouldExcludeOverflow, const std::optional<float>& bitmapWidth)
 {
     if (!m_node)
         return nullptr;
@@ -272,6 +273,14 @@ bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndViewable() const
     return downcast<HTMLInputElement>(*m_node).isAutoFilledAndViewable();
 }
 
+bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndObscured() const
+{
+    if (!is<HTMLInputElement>(m_node))
+        return false;
+
+    return downcast<HTMLInputElement>(*m_node).isAutoFilledAndObscured();
+}
+
 void InjectedBundleNodeHandle::setHTMLInputElementAutoFilled(bool filled)
 {
     if (!is<HTMLInputElement>(m_node))
@@ -286,6 +295,14 @@ void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndViewable(bool aut
         return;
 
     downcast<HTMLInputElement>(*m_node).setAutoFilledAndViewable(autoFilledAndViewable);
+}
+
+void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndObscured(bool autoFilledAndObscured)
+{
+    if (!is<HTMLInputElement>(m_node))
+        return;
+
+    downcast<HTMLInputElement>(*m_node).setAutoFilledAndObscured(autoFilledAndObscured);
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFillButtonEnabled() const
@@ -373,6 +390,15 @@ bool InjectedBundleNodeHandle::isTextField() const
 bool InjectedBundleNodeHandle::isSelectElement() const
 {
     return is<HTMLSelectElement>(m_node);
+}
+
+bool InjectedBundleNodeHandle::isSelectableTextNode() const
+{
+    if (!is<Text>(m_node))
+        return false;
+
+    auto renderer = m_node->renderer();
+    return renderer && renderer->style().userSelectIncludingInert() != UserSelect::None;
 }
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::htmlTableCellElementCellAbove()

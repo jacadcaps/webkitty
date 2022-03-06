@@ -29,6 +29,7 @@
 #include <WebCore/LocalizedStrings.h>
 #include <WebCore/PublicSuffix.h>
 #include <WebCore/SecurityOrigin.h>
+#include <wtf/CrossThreadCopier.h>
 
 #if PLATFORM(COCOA)
 #import <pal/spi/cf/CFNetworkSPI.h>
@@ -89,14 +90,6 @@ void WebsiteDataRecord::addCookieHostName(const String& hostName)
     cookieHostNames.add(hostName);
 }
 
-#if ENABLE(NETSCAPE_PLUGIN_API)
-void WebsiteDataRecord::addPluginDataHostName(const String& hostName)
-{
-    types.add(WebsiteDataType::PlugInData);
-    pluginDataHostNames.add(hostName);
-}
-#endif
-
 void WebsiteDataRecord::addHSTSCacheHostname(const String& hostName)
 {
     types.add(WebsiteDataType::HSTSCache);
@@ -113,7 +106,7 @@ void WebsiteDataRecord::addAlternativeServicesHostname(const String& hostName)
 #endif
 }
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
 void WebsiteDataRecord::addResourceLoadStatisticsRegistrableDomain(const WebCore::RegistrableDomain& domain)
 {
     types.add(WebsiteDataType::ResourceLoadStatistics);
@@ -159,15 +152,25 @@ String WebsiteDataRecord::topPrivatelyControlledDomain()
     
     if (!origins.isEmpty())
         return WebCore::topPrivatelyControlledDomain(origins.takeAny().securityOrigin().get().host());
-    
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if (!pluginDataHostNames.isEmpty())
-        return WebCore::topPrivatelyControlledDomain(pluginDataHostNames.takeAny());
-#endif
-    
 #endif // ENABLE(PUBLIC_SUFFIX_LIST)
     
     return emptyString();
+}
+
+WebsiteDataRecord WebsiteDataRecord::isolatedCopy() const
+{
+    return WebsiteDataRecord {
+        crossThreadCopy(displayName),
+        types,
+        size,
+        crossThreadCopy(origins),
+        crossThreadCopy(cookieHostNames),
+        crossThreadCopy(HSTSCacheHostNames),
+        crossThreadCopy(alternativeServicesHostNames),
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+        crossThreadCopy(resourceLoadStatisticsRegistrableDomains),
+#endif
+    };
 }
 
 }

@@ -30,11 +30,13 @@
 #include "InitializeThreading.h"
 
 #include "ExecutableAllocator.h"
+#include "JITOperationList.h"
 #include "JSCConfig.h"
 #include "JSCPtrTag.h"
 #include "LLIntData.h"
 #include "Options.h"
 #include "SigillCrashAnalyzer.h"
+#include "StructureAlignedMemoryAllocator.h"
 #include "SuperSampler.h"
 #include "VMTraps.h"
 #include "WasmCalleeRegistry.h"
@@ -64,14 +66,22 @@ void initialize()
 #endif
         {
             Options::AllowUnfinalizedAccessScope scope;
+            JITOperationList::initialize();
             ExecutableAllocator::initialize();
             VM::computeCanUseJIT();
             if (!g_jscConfig.vm.canUseJIT) {
                 Options::useJIT() = false;
                 Options::recomputeDependentOptions();
+            } else {
+#if CPU(ARM64E) && ENABLE(JIT)
+                g_jscConfig.arm64eHashPins.initializeAtStartup();
+#endif
             }
+            StructureAlignedMemoryAllocator::initializeStructureAddressSpace();
         }
         Options::finalize();
+
+        JITOperationList::populatePointersInJavaScriptCore();
 
         if (Options::useSigillCrashAnalyzer())
             enableSigillCrashAnalyzer();

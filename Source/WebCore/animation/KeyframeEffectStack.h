@@ -27,12 +27,18 @@
 
 #include "AnimationList.h"
 #include "CSSPropertyNames.h"
+#include "WebAnimationTypes.h"
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class KeyframeEffect;
+class RenderStyle;
+
+namespace Style {
+struct ResolutionContext;
+}
 
 class KeyframeEffectStack {
     WTF_MAKE_FAST_ALLOCATED;
@@ -48,14 +54,25 @@ public:
     void setCSSAnimationList(RefPtr<const AnimationList>&&);
     bool isCurrentlyAffectingProperty(CSSPropertyID) const;
     bool requiresPseudoElement() const;
+    OptionSet<AnimationImpact> applyKeyframeEffects(RenderStyle& targetStyle, const RenderStyle& previousLastStyleChangeEventStyle, const Style::ResolutionContext&);
+    bool hasEffectWithImplicitKeyframes() const;
+
+    bool containsEffectThatPreventsAccelerationOfEffect(const KeyframeEffect&);
+
+    void stopAcceleratingTransformRelatedProperties(UseAcceleratedAction);
+
+    void clearInvalidCSSAnimationNames();
+    bool hasInvalidCSSAnimationNames() const;
+    bool containsInvalidCSSAnimationName(const String&) const;
+    void addInvalidCSSAnimationName(const String&);
 
 private:
     void ensureEffectsAreSorted();
 
     Vector<WeakPtr<KeyframeEffect>> m_effects;
+    HashSet<String> m_invalidCSSAnimationNames;
     RefPtr<const AnimationList> m_cssAnimationList;
     bool m_isSorted { true };
-
 };
 
 } // namespace WebCore

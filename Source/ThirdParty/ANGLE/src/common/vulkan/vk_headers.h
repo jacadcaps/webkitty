@@ -16,6 +16,36 @@
 #    include <vulkan/vulkan.h>
 #endif
 
+// For the unreleased VK_EXT_multisampled_render_to_single_sampled
+#if !defined(VK_EXT_multisampled_render_to_single_sampled)
+#    define VK_EXT_multisampled_render_to_single_sampled 1
+#    define VK_EXT_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_SPEC_VERSION 1
+#    define VK_EXT_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_EXTENSION_NAME \
+        "VK_GOOGLEX_multisampled_render_to_single_sampled"
+
+#    define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_FEATURES_EXT \
+        ((VkStructureType)(1000376000))
+#    define VK_STRUCTURE_TYPE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_INFO_EXT \
+        ((VkStructureType)(1000376001))
+
+typedef struct VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT
+{
+    VkStructureType sType;
+    const void *pNext;
+    VkBool32 multisampledRenderToSingleSampled;
+} VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT;
+
+typedef struct VkMultisampledRenderToSingleSampledInfoEXT
+{
+    VkStructureType sType;
+    const void *pNext;
+    VkBool32 multisampledRenderToSingleSampledEnable;
+    VkSampleCountFlagBits rasterizationSamples;
+    VkResolveModeFlagBits depthResolveMode;
+    VkResolveModeFlagBits stencilResolveMode;
+} VkMultisampledRenderToSingleSampledInfoEXT;
+#endif /* VK_EXT_multisampled_render_to_single_sampled */
+
 #if !defined(ANGLE_SHARED_LIBVULKAN)
 
 namespace rx
@@ -34,12 +64,16 @@ extern PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
 // VK_KHR_get_physical_device_properties2
 extern PFN_vkGetPhysicalDeviceProperties2KHR vkGetPhysicalDeviceProperties2KHR;
 extern PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR;
+extern PFN_vkGetPhysicalDeviceMemoryProperties2KHR vkGetPhysicalDeviceMemoryProperties2KHR;
 
 // VK_KHR_external_semaphore_fd
 extern PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR;
 
 // VK_EXT_external_memory_host
 extern PFN_vkGetMemoryHostPointerPropertiesEXT vkGetMemoryHostPointerPropertiesEXT;
+
+// VK_EXT_host_query_reset
+extern PFN_vkResetQueryPoolEXT vkResetQueryPoolEXT;
 
 // VK_EXT_transform_feedback
 extern PFN_vkCmdBindTransformFeedbackBuffersEXT vkCmdBindTransformFeedbackBuffersEXT;
@@ -49,8 +83,13 @@ extern PFN_vkCmdBeginQueryIndexedEXT vkCmdBeginQueryIndexedEXT;
 extern PFN_vkCmdEndQueryIndexedEXT vkCmdEndQueryIndexedEXT;
 extern PFN_vkCmdDrawIndirectByteCountEXT vkCmdDrawIndirectByteCountEXT;
 
+// VK_KHR_get_memory_requirements2
 extern PFN_vkGetBufferMemoryRequirements2KHR vkGetBufferMemoryRequirements2KHR;
 extern PFN_vkGetImageMemoryRequirements2KHR vkGetImageMemoryRequirements2KHR;
+
+// VK_KHR_bind_memory2
+extern PFN_vkBindBufferMemory2KHR vkBindBufferMemory2KHR;
+extern PFN_vkBindImageMemory2KHR vkBindImageMemory2KHR;
 
 // VK_KHR_external_fence_capabilities
 extern PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR
@@ -68,6 +107,9 @@ extern PFN_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR
 extern PFN_vkCreateSamplerYcbcrConversionKHR vkCreateSamplerYcbcrConversionKHR;
 extern PFN_vkDestroySamplerYcbcrConversionKHR vkDestroySamplerYcbcrConversionKHR;
 
+// VK_KHR_create_renderpass2
+extern PFN_vkCreateRenderPass2KHR vkCreateRenderPass2KHR;
+
 #    if defined(ANGLE_PLATFORM_FUCHSIA)
 // VK_FUCHSIA_imagepipe_surface
 extern PFN_vkCreateImagePipeSurfaceFUCHSIA vkCreateImagePipeSurfaceFUCHSIA;
@@ -81,6 +123,9 @@ extern PFN_vkGetMemoryAndroidHardwareBufferANDROID vkGetMemoryAndroidHardwareBuf
 #    if defined(ANGLE_PLATFORM_GGP)
 extern PFN_vkCreateStreamDescriptorSurfaceGGP vkCreateStreamDescriptorSurfaceGGP;
 #    endif  // defined(ANGLE_PLATFORM_GGP)
+
+// VK_KHR_shared_presentable_image
+extern PFN_vkGetSwapchainStatusKHR vkGetSwapchainStatusKHR;
 
 }  // namespace rx
 

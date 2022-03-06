@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,10 +47,11 @@ StructureChain* StructureChain::create(VM& vm, JSObject* head)
     for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current))
         ++size;
     ++size; // Sentinel nullptr.
-    size_t bytes = (Checked<size_t>(size) * sizeof(StructureID)).unsafeGet();
-    StructureID* vector = static_cast<StructureID*>(vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, bytes, nullptr, AllocationFailureMode::Assert));
+    size_t bytes = Checked<size_t>(size) * sizeof(StructureID);
+    void* vector = vm.jsValueGigacageAuxiliarySpace().allocate(vm, bytes, nullptr, AllocationFailureMode::Assert);
+    static_assert(!StructureID().bits(), "Make sure the value we're going to memcpy below matches the default StructureID");
     memset(vector, 0, bytes);
-    StructureChain* chain = new (NotNull, allocateCell<StructureChain>(vm.heap)) StructureChain(vm, vm.structureChainStructure.get(), vector);
+    StructureChain* chain = new (NotNull, allocateCell<StructureChain>(vm)) StructureChain(vm, vm.structureChainStructure.get(), static_cast<StructureID*>(vector));
     chain->finishCreation(vm, head);
     return chain;
 }
@@ -62,22 +63,24 @@ void StructureChain::finishCreation(VM& vm, JSObject* head)
     for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current)) {
         Structure* structure = current->structure(vm);
         m_vector.get()[i++] = structure->id();
-        vm.heap.writeBarrier(this);
+        vm.writeBarrier(this);
     }
 }
 
-void StructureChain::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void StructureChain::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     StructureChain* thisObject = jsCast<StructureChain*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.markAuxiliary(thisObject->m_vector.get());
-    VM& vm = visitor.vm();
     for (auto* current = thisObject->m_vector.get(); *current; ++current) {
         StructureID structureID = *current;
-        Structure* structure = vm.getStructure(structureID);
+        Structure* structure = structureID.decode();
         visitor.appendUnbarriered(structure);
     }
 }
+
+DEFINE_VISIT_CHILDREN(StructureChain);
 
 } // namespace JSC

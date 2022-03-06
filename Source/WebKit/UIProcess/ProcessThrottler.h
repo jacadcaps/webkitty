@@ -28,11 +28,11 @@
 
 #include "Logging.h"
 #include "ProcessAssertion.h"
+#include <variant>
 #include <wtf/ProcessID.h>
 #include <wtf/RefCounter.h>
 #include <wtf/RunLoop.h>
 #include <wtf/UniqueRef.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 
 #define PROCESSTHROTTLER_RELEASE_LOG(msg, ...) RELEASE_LOG(ProcessSuspension, "%p - [PID=%d] ProcessThrottler::" msg, this, m_processIdentifier, ##__VA_ARGS__)
@@ -105,7 +105,7 @@ public:
     using BackgroundActivity = Activity<ActivityType::Background>;
     UniqueRef<BackgroundActivity> backgroundActivity(ASCIILiteral name);
 
-    using ActivityVariant = Variant<std::nullptr_t, UniqueRef<BackgroundActivity>, UniqueRef<ForegroundActivity>>;
+    using ActivityVariant = std::variant<std::nullptr_t, UniqueRef<BackgroundActivity>, UniqueRef<ForegroundActivity>>;
     static bool isValidBackgroundActivity(const ActivityVariant&);
     static bool isValidForegroundActivity(const ActivityVariant&);
 
@@ -149,11 +149,11 @@ private:
 
     ProcessThrottlerClient& m_process;
     ProcessID m_processIdentifier { 0 };
-    std::unique_ptr<ProcessAssertion> m_assertion;
+    RefPtr<ProcessAssertion> m_assertion;
     RunLoop::Timer<ProcessThrottler> m_prepareToSuspendTimeoutTimer;
     HashSet<ForegroundActivity*> m_foregroundActivities;
     HashSet<BackgroundActivity*> m_backgroundActivities;
-    Optional<uint64_t> m_pendingRequestToSuspendID;
+    std::optional<uint64_t> m_pendingRequestToSuspendID;
     bool m_shouldTakeUIBackgroundAssertion;
 };
 

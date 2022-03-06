@@ -43,6 +43,8 @@ class CallFrame;
 class JSGlobalObject;
 }
 
+using JSC::MessageType;
+
 namespace Inspector {
 
 class ConsoleFrontendDispatcher;
@@ -83,6 +85,8 @@ public:
     bool isEqual(ConsoleMessage* msg) const;
 
     void clear();
+
+    String toString() const;
 
 private:
     void autogenerateMetadata(JSC::JSGlobalObject* = nullptr);

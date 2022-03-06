@@ -48,9 +48,9 @@ void WebGeolocationClient::geolocationDestroyed()
     delete this;
 }
 
-void WebGeolocationClient::startUpdating(const String& authorizationToken)
+void WebGeolocationClient::startUpdating(const String& authorizationToken, bool needsHighAccuracy)
 {
-    WebProcess::singleton().supplement<WebGeolocationManager>()->registerWebPage(m_page, authorizationToken);
+    WebProcess::singleton().supplement<WebGeolocationManager>()->registerWebPage(m_page, authorizationToken, needsHighAccuracy);
 }
 
 void WebGeolocationClient::stopUpdating()
@@ -63,9 +63,9 @@ void WebGeolocationClient::setEnableHighAccuracy(bool enabled)
     WebProcess::singleton().supplement<WebGeolocationManager>()->setEnableHighAccuracyForPage(m_page, enabled);
 }
 
-Optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
+std::optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 {
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 void WebGeolocationClient::requestPermission(Geolocation& geolocation)

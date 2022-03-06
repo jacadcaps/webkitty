@@ -70,35 +70,37 @@ struct _WebKitAuthenticationRequestPrivate {
     bool handledRequest;
     CString host;
     CString realm;
-    Optional<WebCore::Credential> proposedCredential;
-    Optional<WebCore::Credential> acceptedCredential;
-    Optional<bool> canSaveCredentials;
+    std::optional<WebCore::Credential> proposedCredential;
+    std::optional<WebCore::Credential> acceptedCredential;
+    std::optional<bool> canSaveCredentials;
 };
 
 static guint signals[LAST_SIGNAL] = { 0, };
 
 WEBKIT_DEFINE_TYPE(WebKitAuthenticationRequest, webkit_authentication_request, G_TYPE_OBJECT)
 
-static inline WebKitAuthenticationScheme toWebKitAuthenticationScheme(WebCore::ProtectionSpaceAuthenticationScheme coreScheme)
+static inline WebKitAuthenticationScheme toWebKitAuthenticationScheme(WebCore::ProtectionSpace::AuthenticationScheme coreScheme)
 {
     switch (coreScheme) {
-    case WebCore::ProtectionSpaceAuthenticationSchemeDefault:
+    case WebCore::ProtectionSpace::AuthenticationScheme::Default:
         return WEBKIT_AUTHENTICATION_SCHEME_DEFAULT;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTTPBasic:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTTPBasic:
         return WEBKIT_AUTHENTICATION_SCHEME_HTTP_BASIC;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTTPDigest:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTTPDigest:
         return WEBKIT_AUTHENTICATION_SCHEME_HTTP_DIGEST;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTMLForm:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTMLForm:
         return WEBKIT_AUTHENTICATION_SCHEME_HTML_FORM;
-    case WebCore::ProtectionSpaceAuthenticationSchemeNTLM:
+    case WebCore::ProtectionSpace::AuthenticationScheme::NTLM:
         return WEBKIT_AUTHENTICATION_SCHEME_NTLM;
-    case WebCore::ProtectionSpaceAuthenticationSchemeNegotiate:
+    case WebCore::ProtectionSpace::AuthenticationScheme::Negotiate:
         return WEBKIT_AUTHENTICATION_SCHEME_NEGOTIATE;
-    case WebCore::ProtectionSpaceAuthenticationSchemeClientCertificateRequested:
+    case WebCore::ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
         return WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_REQUESTED;
-    case WebCore::ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested:
+    case WebCore::ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
         return WEBKIT_AUTHENTICATION_SCHEME_SERVER_TRUST_EVALUATION_REQUESTED;
-    case WebCore::ProtectionSpaceAuthenticationSchemeUnknown:
+    case WebCore::ProtectionSpace::AuthenticationScheme::ClientCertificatePINRequested:
+        return WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_PIN_REQUESTED;
+    case WebCore::ProtectionSpace::AuthenticationScheme::Unknown:
         return WEBKIT_AUTHENTICATION_SCHEME_UNKNOWN;
     default:
         ASSERT_NOT_REACHED();
@@ -177,7 +179,7 @@ AuthenticationChallengeProxy* webkitAuthenticationRequestGetAuthenticationChalle
 
 void webkitAuthenticationRequestDidAuthenticate(WebKitAuthenticationRequest* request)
 {
-    auto* credential = webkitCredentialCreate(request->priv->acceptedCredential.valueOr(WebCore::Credential()));
+    auto* credential = webkitCredentialCreate(request->priv->acceptedCredential.value_or(WebCore::Credential()));
     g_signal_emit(request, signals[AUTHENTICATED], 0, credential);
     webkit_credential_free(credential);
 }
@@ -286,7 +288,7 @@ void webkit_authentication_request_set_proposed_credential(WebKitAuthenticationR
     g_return_if_fail(WEBKIT_IS_AUTHENTICATION_REQUEST(request));
 
     if (!credential) {
-        request->priv->proposedCredential = WTF::nullopt;
+        request->priv->proposedCredential = std::nullopt;
         return;
     }
 
@@ -346,26 +348,26 @@ WebKitSecurityOrigin* webkit_authentication_request_get_security_origin(WebKitAu
     const auto& protectionSpace = request->priv->authenticationChallenge->core().protectionSpace();
     String protocol;
     switch (protectionSpace.serverType()) {
-    case ProtectionSpaceServerHTTP:
-    case ProtectionSpaceProxyHTTP:
+    case ProtectionSpace::ServerType::HTTP:
+    case ProtectionSpace::ServerType::ProxyHTTP:
         protocol = "http"_s;
         break;
-    case ProtectionSpaceServerHTTPS:
-    case ProtectionSpaceProxyHTTPS:
+    case ProtectionSpace::ServerType::HTTPS:
+    case ProtectionSpace::ServerType::ProxyHTTPS:
         protocol = "https"_s;
         break;
-    case ProtectionSpaceServerFTP:
-    case ProtectionSpaceProxyFTP:
+    case ProtectionSpace::ServerType::FTP:
+    case ProtectionSpace::ServerType::ProxyFTP:
         protocol = "ftp"_s;
         break;
-    case ProtectionSpaceServerFTPS:
+    case ProtectionSpace::ServerType::FTPS:
         protocol = "ftps"_s;
         break;
-    case ProtectionSpaceProxySOCKS:
+    case ProtectionSpace::ServerType::ProxySOCKS:
         protocol = "socks"_s;
         break;
     }
-    return webkitSecurityOriginCreate(SecurityOrigin::create(protocol, protectionSpace.host(), protectionSpace.port()));
+    return webkitSecurityOriginCreate(SecurityOriginData(protocol, protectionSpace.host(), protectionSpace.port()));
 }
 
 /**
@@ -455,8 +457,8 @@ void webkit_authentication_request_authenticate(WebKitAuthenticationRequest* req
     if (credential)
         request->priv->acceptedCredential = webkitCredentialGetCredential(credential);
     else
-        request->priv->acceptedCredential = WTF::nullopt;
-    request->priv->authenticationChallenge->listener().completeChallenge(WebKit::AuthenticationChallengeDisposition::UseCredential, request->priv->acceptedCredential.valueOr(WebCore::Credential()));
+        request->priv->acceptedCredential = std::nullopt;
+    request->priv->authenticationChallenge->listener().completeChallenge(WebKit::AuthenticationChallengeDisposition::UseCredential, request->priv->acceptedCredential.value_or(WebCore::Credential()));
     request->priv->handledRequest = true;
 }
 
@@ -477,8 +479,25 @@ void webkit_authentication_request_cancel(WebKitAuthenticationRequest* request)
         return;
 
     request->priv->authenticationChallenge->listener().completeChallenge(WebKit::AuthenticationChallengeDisposition::Cancel);
-    request->priv->acceptedCredential = WTF::nullopt;
+    request->priv->acceptedCredential = std::nullopt;
     request->priv->handledRequest = true;
 
     g_signal_emit(request, signals[CANCELLED], 0);
+}
+
+/**
+ * webkit_authentication_request_get_certificate_pin_flags:
+ * @request: a #WebKitAuthenticationRequest
+ *
+ * Get the #GTlsPasswordFlags of the %WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_PIN_REQUESTED authentication challenge.
+ *
+ * Returns: a #GTlsPasswordFlags
+ *
+ * Since: 2.34
+ */
+GTlsPasswordFlags webkit_authentication_request_get_certificate_pin_flags(WebKitAuthenticationRequest* request)
+{
+    g_return_val_if_fail(WEBKIT_IS_AUTHENTICATION_REQUEST(request), G_TLS_PASSWORD_NONE);
+
+    return static_cast<GTlsPasswordFlags>(request->priv->authenticationChallenge->core().tlsPasswordFlags());
 }

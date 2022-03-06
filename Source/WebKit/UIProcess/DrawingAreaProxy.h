@@ -84,6 +84,7 @@ public:
     virtual void colorSpaceDidChange() { }
     virtual void minimumSizeForAutoLayoutDidChange() { }
     virtual void sizeToContentAutoSizeMaximumSizeDidChange() { }
+    virtual void windowKindDidChange() { }
 
     virtual void adjustTransientZoom(double, WebCore::FloatPoint) { }
     virtual void commitTransientZoom(double, WebCore::FloatPoint) { }
@@ -140,7 +141,7 @@ private:
 
     IPC::Connection* messageSenderConnection() const final;
     uint64_t messageSenderDestinationID() const final { return m_identifier.toUInt64(); }
-    bool sendMessage(std::unique_ptr<IPC::Encoder>, OptionSet<IPC::SendOption>, Optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&&) final;
+    bool sendMessage(UniqueRef<IPC::Encoder>&&, OptionSet<IPC::SendOption>, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&&) final;
 
     // Message handlers.
     // FIXME: These should be pure virtual.
@@ -152,7 +153,7 @@ private:
 
 #if PLATFORM(MAC)
     RunLoop::Timer<DrawingAreaProxy> m_viewExposedRectChangedTimer;
-    Optional<WebCore::FloatRect> m_lastSentViewExposedRect;
+    std::optional<WebCore::FloatRect> m_lastSentViewExposedRect;
 #endif // PLATFORM(MAC)
 #endif
 

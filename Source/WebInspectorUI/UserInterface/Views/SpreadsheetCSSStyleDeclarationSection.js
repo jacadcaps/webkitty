@@ -58,6 +58,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         return this._style.editable;
     }
 
+    set propertyVisibilityMode(propertyVisibilityMode)
+    {
+        this._propertiesEditor.propertyVisibilityMode = propertyVisibilityMode;
+    }
+
     initialLayout()
     {
         super.initialLayout();
@@ -97,24 +102,26 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         console.assert(iconClassName);
         this._element.classList.add("has-icon", iconClassName);
 
-        let groupings = this._style.groupings.filter((grouping) => grouping.text !== "all");
+        let groupings = this._style.groupings.filter((grouping) => !grouping.isMedia || grouping.text !== "all").reverse();
         if (groupings.length) {
             let groupingsElement = this.element.appendChild(document.createElement("div"));
             groupingsElement.classList.add("header-groupings");
 
             let currentGroupingType = null;
+            let currentGroupingHadText = false;
             let groupingTypeElement = null;
             this._groupingElements = groupings.map((grouping) => {
-                if (grouping.type !== currentGroupingType) {
+                if (grouping.type !== currentGroupingType || !grouping.text || !currentGroupingHadText) {
                     groupingTypeElement = groupingsElement.appendChild(document.createElement("div"));
                     groupingTypeElement.classList.add("grouping");
                     groupingTypeElement.textContent = grouping.prefix + " ";
                     currentGroupingType = grouping.type;
                 } else
-                    groupingTypeElement.append(", ");
+                    groupingTypeElement.append(grouping.isLayer && grouping.text ? "." : ", ");
 
+                currentGroupingHadText = !!grouping.text;
                 let span = groupingTypeElement.appendChild(document.createElement("span"));
-                span.textContent = grouping.text;
+                span.textContent = grouping.text ?? "";
                 return span;
             });
         }
@@ -138,12 +145,12 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         if (this._style.selectorEditable) {
             this._selectorTextField = new WI.SpreadsheetSelectorField(this, this._selectorElement);
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StartedEditing, (event) => {
+            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StartedEditing, function(event) {
                 this._headerElement.classList.add("editing-selector");
-            });
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StoppedEditing, (event) => {
+            }, this);
+            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StoppedEditing, function(event) {
                 this._headerElement.classList.remove("editing-selector");
-            });
+            }, this);
 
             this._selectorElement.tabIndex = 0;
         }
@@ -185,11 +192,6 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         if (this._shouldFocusSelectorElement)
             this.startEditingRuleSelector();
-    }
-
-    hidden()
-    {
-        this._propertiesEditor.hidden();
     }
 
     startEditingRuleSelector()
@@ -287,6 +289,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
     {
         if (this._delegate && this._delegate.spreadsheetCSSStyleDeclarationSectionSelectProperty)
             this._delegate.spreadsheetCSSStyleDeclarationSectionSelectProperty(property);
+    }
+
+    spreadsheetCSSStyleDeclarationEditorSetAllPropertyVisibilityMode(editor, propertyVisibilityMode)
+    {
+        this._delegate?.spreadsheetCSSStyleDeclarationSectionSetAllPropertyVisibilityMode?.(this, propertyVisibilityMode);
     }
 
     applyFilter(filterText)
@@ -476,7 +483,7 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
     _populateIconElementContextMenu(contextMenu)
     {
         contextMenu.appendItem(WI.UIString("Copy Rule"), () => {
-            InspectorFrontendHost.copyText(this._style.generateCSSRuleString());
+            InspectorFrontendHost.copyText(this._style.generateFormattedText({includeGroupingsAndSelectors: true, multiline: true}));
         });
 
         if (this._style.editable && this._style.properties.length) {

@@ -57,6 +57,7 @@
 #define WIRApplicationDictionaryKey             @"WIRApplicationDictionaryKey"
 #define WIRMessageDataKey                       @"WIRMessageDataKey"
 #define WIRApplicationGetListingMessage         @"WIRApplicationGetListingMessage"
+#define WIRApplicationWakeUpDebuggablesMessage  @"WIRApplicationWakeUpDebuggablesMessage"
 #define WIRIndicateMessage                      @"WIRIndicateMessage"
 #define WIRIndicateEnabledKey                   @"WIRIndicateEnabledKey"
 #define WIRSenderKey                            @"WIRSenderKey"
@@ -102,6 +103,7 @@
 
 // The value for WIRSessionCapabilitiesKey is a dictionary that holds these capability key-value pairs.
 
+#define WIRAcceptInsecureCertificatesKey               @"org.webkit.webdriver.accept-insecure-certificates"
 #define WIRAllowInsecureMediaCaptureCapabilityKey      @"org.webkit.webdriver.webrtc.allow-insecure-media-capture"
 #define WIRSuppressICECandidateFilteringCapabilityKey  @"org.webkit.webdriver.webrtc.suppress-ice-candidate-filtering"
 

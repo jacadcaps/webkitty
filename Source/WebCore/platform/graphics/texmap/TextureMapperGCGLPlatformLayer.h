@@ -19,26 +19,28 @@
 
 #pragma once
 
-#if ENABLE(GRAPHICS_CONTEXT_GL) && USE(TEXTURE_MAPPER) && !USE(NICOSIA)
+#if ENABLE(WEBGL) && USE(TEXTURE_MAPPER) && !USE(NICOSIA)
 
-#include "GraphicsContextGLOpenGL.h"
+#include "GraphicsContextGLANGLE.h"
 #include "PlatformLayer.h"
 #include "TextureMapperPlatformLayer.h"
 #include "TextureMapperPlatformLayerProxyProvider.h"
 
 namespace WebCore {
 
-class GLContext;
+class ANGLEContext;
 class TextureMapperPlatformLayerProxy;
 
 class TextureMapperGCGLPlatformLayer : public PlatformLayer {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    TextureMapperGCGLPlatformLayer(GraphicsContextGLOpenGL&, GraphicsContextGLOpenGL::Destination);
+    TextureMapperGCGLPlatformLayer(GraphicsContextGLANGLE&);
     virtual ~TextureMapperGCGLPlatformLayer();
 
     bool makeContextCurrent();
-    PlatformGraphicsContextGL platformContext() const;
+    GCGLContext platformContext() const;
+    GCGLDisplay platformDisplay() const;
+    GCGLConfig platformConfig() const;
 
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<TextureMapperPlatformLayerProxy> proxy() const override;
@@ -48,8 +50,8 @@ public:
 #endif
 
 private:
-    GraphicsContextGLOpenGL& m_context;
-    std::unique_ptr<GLContext> m_glContext;
+    GraphicsContextGLANGLE& m_context;
+    std::unique_ptr<ANGLEContext> m_glContext;
 
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
@@ -58,4 +60,4 @@ private:
 
 } // namespace WebCore
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL) && USE(TEXTURE_MAPPER)
+#endif // ENABLE(WEBGL) && USE(TEXTURE_MAPPER)

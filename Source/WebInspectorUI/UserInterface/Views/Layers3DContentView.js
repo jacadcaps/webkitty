@@ -74,26 +74,6 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         return this._layers;
     }
 
-    shown()
-    {
-        super.shown();
-
-        this.updateLayout();
-        WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
-
-        if (this.didInitialLayout)
-            this._animate();
-    }
-
-    hidden()
-    {
-        WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
-
-        this._stopAnimation();
-
-        super.hidden();
-    }
-
     selectLayerById(layerId)
     {
         let layerGroup = this._layerGroupsById.get(layerId);
@@ -133,6 +113,11 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
     {
         super.attached();
 
+        WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+
+        if (this.didInitialLayout)
+            this._animate();
+
         WI.layerTreeManager.updateCompositingBordersVisibleFromPageIfNeeded();
 
         WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.CompositingBordersVisibleChanged, this._handleCompositingBordersVisibleChanged, this);
@@ -144,6 +129,10 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
 
     detached()
     {
+        WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+
+        this._stopAnimation();
+
         WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.ShowPaintRectsChanged, this._handleShowPaintRectsChanged, this);
         WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.CompositingBordersVisibleChanged, this._handleCompositingBordersVisibleChanged, this);
 
@@ -185,6 +174,8 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         this._renderer.domElement.addEventListener("mouseup", this._canvasMouseUp.bind(this));
 
         this.element.appendChild(this._renderer.domElement);
+
+        this.element.appendChild(WI.createReferencePageLink("layers-tab"));
 
         this._animate();
     }
@@ -280,7 +271,7 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         const zInterval = 25;
         newLayers.forEach((layer, index) => {
             let layerGroup = this._layerGroupsById.get(layer.layerId);
-            layerGroup.position.set(layer.bounds.x, -layer.bounds.y, index * zInterval);
+            layerGroup.position.set(0, 0, index * zInterval);
         });
 
         this._boundingBox.setFromObject(this._scene);
@@ -297,14 +288,14 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
         return layerGroup;
     }
 
-    _createLayerMesh({width, height}, isOutline = false)
+    _createLayerMesh({x, y, width, height}, isOutline = false)
     {
         let geometry = new THREE.Geometry;
         geometry.vertices.push(
-            new THREE.Vector3(0,     0,       0),
-            new THREE.Vector3(0,     -height, 0),
-            new THREE.Vector3(width, -height, 0),
-            new THREE.Vector3(width, 0,       0),
+            new THREE.Vector3(x, -y, 0),
+            new THREE.Vector3(x, -y - height, 0),
+            new THREE.Vector3(x + width, -y - height, 0),
+            new THREE.Vector3(x + width, -y, 0),
         );
 
         if (isOutline) {
@@ -492,6 +483,8 @@ WI.Layers3DContentView = class Layers3DContentView extends WI.ContentView
             addReason(WI.UIString("Element is a plug-in"));
         if (compositingReasons.iFrame)
             addReason(WI.UIString("Element is <iframe>"));
+        if (compositingReasons.model)
+            addReason(WI.UIString("Element is <model>"));
         if (compositingReasons.backfaceVisibilityHidden)
             addReason(WI.UIString("Element has \u201Cbackface-visibility: hidden\u201D style"));
         if (compositingReasons.clipsCompositingDescendants)

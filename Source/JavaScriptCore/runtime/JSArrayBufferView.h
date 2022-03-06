@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,7 +53,7 @@ class LLIntOffsetsExtractor;
 
 // Typed array views have different modes depending on how big they are and
 // whether the user has done anything that requires a separate backing
-// buffer or the DOM-specified neutering capabilities.
+// buffer or the DOM-specified detaching capabilities.
 enum TypedArrayMode : uint32_t {
     // Legend:
     // B: JSArrayBufferView::m_butterfly pointer
@@ -108,7 +108,7 @@ public:
         RELEASE_ASSERT_NOT_REACHED();
     }
 
-    static constexpr unsigned fastSizeLimit = 1000;
+    static constexpr size_t fastSizeLimit = 1000;
     using VectorPtr = CagedBarrierPtr<Gigacage::Primitive, void, tagCagedPtr>;
 
     static void* nullVectorPtr()
@@ -117,10 +117,12 @@ public:
         return null.rawBits();
     }
     
-    static size_t sizeOf(uint32_t length, uint32_t elementSize)
+    static size_t sizeOf(size_t length, unsigned elementSize)
     {
-        return (static_cast<size_t>(length) * elementSize + sizeof(EncodedJSValue) - 1)
-            & ~(sizeof(EncodedJSValue) - 1);
+        Checked<size_t> result = length;
+        result *= elementSize;
+        result += sizeof(EncodedJSValue) - 1;
+        return result.value() & ~(sizeof(EncodedJSValue) - 1);
     }
 
     static size_t allocationSize(Checked<size_t> inlineCapacity)
@@ -136,25 +138,25 @@ protected:
     public:
         enum InitializationMode { ZeroFill, DontInitialize };
         
-        JS_EXPORT_PRIVATE ConstructionContext(VM&, Structure*, uint32_t length, uint32_t elementSize, InitializationMode = ZeroFill);
+        JS_EXPORT_PRIVATE ConstructionContext(VM&, Structure*, size_t length, unsigned elementSize, InitializationMode = ZeroFill);
         
         // This is only for constructing fast typed arrays. It's used by the JIT's slow path.
-        ConstructionContext(Structure*, uint32_t length, void* vector);
+        ConstructionContext(Structure*, size_t length, void* vector);
         
         JS_EXPORT_PRIVATE ConstructionContext(
             VM&, Structure*, RefPtr<ArrayBuffer>&&,
-            unsigned byteOffset, unsigned length);
+            size_t byteOffset, size_t length);
         
         enum DataViewTag { DataView };
         ConstructionContext(
             Structure*, RefPtr<ArrayBuffer>&&,
-            unsigned byteOffset, unsigned length, DataViewTag);
+            size_t byteOffset, size_t length, DataViewTag);
         
         bool operator!() const { return !m_structure; }
         
         Structure* structure() const { return m_structure; }
         void* vector() const { return m_vector.getMayBeNull(m_length); }
-        uint32_t length() const { return m_length; }
+        size_t length() const { return m_length; }
         TypedArrayMode mode() const { return m_mode; }
         Butterfly* butterfly() const { return m_butterfly; }
         
@@ -162,17 +164,15 @@ protected:
         Structure* m_structure;
         using VectorType = CagedPtr<Gigacage::Primitive, void, tagCagedPtr>;
         VectorType m_vector;
-        uint32_t m_length;
+        size_t m_length;
         TypedArrayMode m_mode;
         Butterfly* m_butterfly;
     };
     
     JS_EXPORT_PRIVATE JSArrayBufferView(VM&, ConstructionContext&);
     JS_EXPORT_PRIVATE void finishCreation(VM&);
-    
-    static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
     
 public:
     TypedArrayMode mode() const { return m_mode; }
@@ -185,16 +185,18 @@ public:
     JSArrayBuffer* possiblySharedJSBuffer(JSGlobalObject* globalObject);
     RefPtr<ArrayBufferView> unsharedImpl();
     JS_EXPORT_PRIVATE RefPtr<ArrayBufferView> possiblySharedImpl();
-    bool isNeutered() { return hasArrayBuffer() && !hasVector(); }
-    void neuter();
+    bool isDetached() { return hasArrayBuffer() && !hasVector(); }
+    void detach();
 
     bool hasVector() const { return !!m_vector; }
     void* vector() const { return m_vector.getMayBeNull(length()); }
+    void* vectorWithoutPACValidation() const { return m_vector.getUnsafe(); }
     
-    inline unsigned byteOffset();
-    inline Optional<unsigned> byteOffsetConcurrently();
+    inline size_t byteOffset();
+    inline std::optional<size_t> byteOffsetConcurrently();
 
-    unsigned length() const { return m_length; }
+    size_t length() const { return m_length; }
+    size_t byteLength() const;
 
     DECLARE_EXPORT_INFO;
     
@@ -203,6 +205,7 @@ public:
     static ptrdiff_t offsetOfMode() { return OBJECT_OFFSETOF(JSArrayBufferView, m_mode); }
     
     static RefPtr<ArrayBufferView> toWrapped(VM&, JSValue);
+    static RefPtr<ArrayBufferView> toWrappedAllowShared(VM&, JSValue);
 
 private:
     enum Requester { Mutator, ConcurrentThread };
@@ -218,9 +221,11 @@ protected:
     ArrayBuffer* existingBufferInButterfly();
 
     VectorPtr m_vector;
-    uint32_t m_length;
+    size_t m_length;
     TypedArrayMode m_mode;
 };
+
+JSArrayBufferView* validateTypedArray(JSGlobalObject*, JSValue);
 
 } // namespace JSC
 

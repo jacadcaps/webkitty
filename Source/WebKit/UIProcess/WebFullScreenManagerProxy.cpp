@@ -51,16 +51,19 @@ WebFullScreenManagerProxy::~WebFullScreenManagerProxy()
 {
     m_page.process().removeMessageReceiver(Messages::WebFullScreenManagerProxy::messageReceiverName(), m_page.webPageID());
     m_client.closeFullScreenManager();
+    callCloseCompletionHandlers();
 }
 
 void WebFullScreenManagerProxy::willEnterFullScreen()
 {
+    m_fullscreenState = FullscreenState::EnteringFullscreen;
     m_page.fullscreenClient().willEnterFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::WillEnterFullScreen());
 }
 
 void WebFullScreenManagerProxy::didEnterFullScreen()
 {
+    m_fullscreenState = FullscreenState::InFullscreen;
     m_page.fullscreenClient().didEnterFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::DidEnterFullScreen());
 
@@ -72,12 +75,27 @@ void WebFullScreenManagerProxy::didEnterFullScreen()
 
 void WebFullScreenManagerProxy::willExitFullScreen()
 {
+    m_fullscreenState = FullscreenState::ExitingFullscreen;
     m_page.fullscreenClient().willExitFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::WillExitFullScreen());
 }
 
+void WebFullScreenManagerProxy::callCloseCompletionHandlers()
+{
+    auto closeMediaCallbacks = WTFMove(m_closeCompletionHandlers);
+    for (auto& callback : closeMediaCallbacks)
+        callback();
+}
+
+void WebFullScreenManagerProxy::closeWithCallback(CompletionHandler<void()>&& completionHandler)
+{
+    m_closeCompletionHandlers.append(WTFMove(completionHandler));
+    close();
+}
+
 void WebFullScreenManagerProxy::didExitFullScreen()
 {
+    m_fullscreenState = FullscreenState::NotInFullscreen;
     m_page.fullscreenClient().didExitFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::DidExitFullScreen());
     
@@ -85,11 +103,17 @@ void WebFullScreenManagerProxy::didExitFullScreen()
         if (WebAutomationSession* automationSession = m_page.process().processPool().automationSession())
             automationSession->didExitFullScreenForPage(m_page);
     }
+    callCloseCompletionHandlers();
 }
 
 void WebFullScreenManagerProxy::setAnimatingFullScreen(bool animating)
 {
     m_page.send(Messages::WebFullScreenManager::SetAnimatingFullScreen(animating));
+}
+
+void WebFullScreenManagerProxy::requestEnterFullScreen()
+{
+    m_page.send(Messages::WebFullScreenManager::RequestEnterFullScreen());
 }
 
 void WebFullScreenManagerProxy::requestExitFullScreen()
@@ -141,8 +165,14 @@ bool WebFullScreenManagerProxy::isFullScreen()
     return m_client.isFullScreen();
 }
 
-void WebFullScreenManagerProxy::enterFullScreen()
+bool WebFullScreenManagerProxy::blocksReturnToFullscreenFromPictureInPicture() const
 {
+    return m_blocksReturnToFullscreenFromPictureInPicture;
+}
+
+void WebFullScreenManagerProxy::enterFullScreen(bool blocksReturnToFullscreenFromPictureInPicture)
+{
+    m_blocksReturnToFullscreenFromPictureInPicture = blocksReturnToFullscreenFromPictureInPicture;
     m_client.enterFullScreen();
 }
 
@@ -150,7 +180,7 @@ void WebFullScreenManagerProxy::exitFullScreen()
 {
     m_client.exitFullScreen();
 }
-    
+
 void WebFullScreenManagerProxy::beganEnterFullScreen(const IntRect& initialFrame, const IntRect& finalFrame)
 {
     m_client.beganEnterFullScreen(initialFrame, finalFrame);

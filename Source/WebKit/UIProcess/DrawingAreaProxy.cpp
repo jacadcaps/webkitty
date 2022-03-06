@@ -42,7 +42,7 @@ DrawingAreaProxy::DrawingAreaProxy(DrawingAreaType type, WebPageProxy& webPagePr
     : m_type(type)
     , m_identifier(DrawingAreaIdentifier::generate())
     , m_webPageProxy(webPageProxy)
-    , m_process(makeRef(process))
+    , m_process(process)
     , m_size(webPageProxy.viewSize())
 #if PLATFORM(MAC)
     , m_viewExposedRectChangedTimer(RunLoop::main(), this, &DrawingAreaProxy::viewExposedRectChangedTimerFired)
@@ -85,7 +85,7 @@ IPC::Connection* DrawingAreaProxy::messageSenderConnection() const
     return process().connection();
 }
 
-bool DrawingAreaProxy::sendMessage(std::unique_ptr<IPC::Encoder> encoder, OptionSet<IPC::SendOption> sendOptions, Optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
+bool DrawingAreaProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
 {
     return process().sendMessage(WTFMove(encoder), sendOptions, WTFMove(asyncReplyInfo));
 }

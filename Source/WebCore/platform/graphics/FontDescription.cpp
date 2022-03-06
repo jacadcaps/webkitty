@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Nicholas Shanks <contact@nickshanks.com>
- * Copyright (C) 2008, 2013 - 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2008, 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,8 @@
 namespace WebCore {
 
 FontDescription::FontDescription()
-    : m_fontSelectionRequest { FontCascadeDescription::initialWeight(), FontCascadeDescription::initialStretch(), FontCascadeDescription::initialItalic() }
+    : m_fontPalette({ FontPalette::Type::Normal, nullAtom() })
+    , m_fontSelectionRequest { FontCascadeDescription::initialWeight(), FontCascadeDescription::initialStretch(), FontCascadeDescription::initialItalic() }
     , m_orientation(static_cast<unsigned>(FontOrientation::Horizontal))
     , m_nonCJKGlyphOrientation(static_cast<unsigned>(NonCJKGlyphOrientation::Mixed))
     , m_widthVariant(static_cast<unsigned>(FontWidthVariant::RegularWidth))
@@ -63,6 +64,7 @@ FontDescription::FontDescription()
     , m_opticalSizing(static_cast<unsigned>(FontOpticalSizing::Enabled))
     , m_fontStyleAxis(FontCascadeDescription::initialFontStyleAxis() == FontStyleAxis::ital)
     , m_shouldAllowUserInstalledFonts(static_cast<unsigned>(AllowUserInstalledFonts::No))
+    , m_shouldDisableLigaturesForSpacing(false)
 {
 }
 

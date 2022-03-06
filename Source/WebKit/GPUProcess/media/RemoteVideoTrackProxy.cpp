@@ -29,67 +29,81 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "Connection.h"
+#include "GPUConnectionToWebProcess.h"
 #include "MediaPlayerPrivateRemoteMessages.h"
 #include "RemoteMediaPlayerProxy.h"
-#include "TrackPrivateRemoteConfiguration.h"
+#include "VideoTrackPrivateRemoteConfiguration.h"
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RemoteVideoTrackProxy::RemoteVideoTrackProxy(RemoteMediaPlayerProxy& player, TrackPrivateRemoteIdentifier id, Ref<IPC::Connection>&& connection, VideoTrackPrivate& trackPrivate)
-    : m_player(player)
-    , m_identifier(id)
-    , m_webProcessConnection(WTFMove(connection))
+RemoteVideoTrackProxy::RemoteVideoTrackProxy(GPUConnectionToWebProcess& connectionToWebProcess, TrackPrivateRemoteIdentifier identifier, VideoTrackPrivate& trackPrivate, MediaPlayerIdentifier mediaPlayerIdentifier)
+    : m_connectionToWebProcess(connectionToWebProcess)
+    , m_identifier(identifier)
     , m_trackPrivate(trackPrivate)
+    , m_mediaPlayerIdentifier(mediaPlayerIdentifier)
 {
-    m_trackPrivate->setClient(this);
-    m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::AddRemoteVideoTrack(m_identifier, configuration()), m_player.idendifier());
+    m_trackPrivate->setClient(*this);
+    m_connectionToWebProcess->connection().send(Messages::MediaPlayerPrivateRemote::AddRemoteVideoTrack(m_identifier, configuration()), m_mediaPlayerIdentifier);
 }
 
-TrackPrivateRemoteConfiguration& RemoteVideoTrackProxy::configuration()
+RemoteVideoTrackProxy::~RemoteVideoTrackProxy()
 {
-    static NeverDestroyed<TrackPrivateRemoteConfiguration> configuration;
-
-    configuration->id = m_trackPrivate->id();
-    configuration->label = m_trackPrivate->label();
-    configuration->language = m_trackPrivate->language();
-    configuration->trackIndex = m_trackPrivate->trackIndex();
-    configuration->startTimeVariance = m_trackPrivate->startTimeVariance();
-    configuration->selected = m_trackPrivate->selected();
-    configuration->videoKind = m_trackPrivate->kind();
-
-    return configuration.get();
+    m_trackPrivate->clearClient();
 }
 
-void RemoteVideoTrackProxy::configurationChanged()
+VideoTrackPrivateRemoteConfiguration RemoteVideoTrackProxy::configuration()
 {
-    m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::RemoteVideoTrackConfigurationChanged(m_identifier, configuration()), m_player.idendifier());
+    return {
+        {
+            m_trackPrivate->id(),
+            m_trackPrivate->label(),
+            m_trackPrivate->language(),
+            m_trackPrivate->startTimeVariance(),
+            m_trackPrivate->trackIndex(),
+        },
+        m_trackPrivate->selected(),
+        m_trackPrivate->kind(),
+        m_trackPrivate->configuration(),
+    };
+}
+
+void RemoteVideoTrackProxy::updateConfiguration()
+{
+    if (!m_connectionToWebProcess)
+        return;
+
+    m_connectionToWebProcess->connection().send(Messages::MediaPlayerPrivateRemote::RemoteVideoTrackConfigurationChanged(m_identifier, configuration()), m_mediaPlayerIdentifier);
 }
 
 void RemoteVideoTrackProxy::willRemove()
 {
-    m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::RemoveRemoteVideoTrack(m_identifier), m_player.idendifier());
+    ASSERT_NOT_REACHED();
 }
 
-void RemoteVideoTrackProxy::selectedChanged(bool)
+void RemoteVideoTrackProxy::selectedChanged(bool selected)
 {
-    configurationChanged();
+    if (m_selected == selected)
+        return;
+    m_selected = selected;
+    updateConfiguration();
 }
 
 void RemoteVideoTrackProxy::idChanged(const AtomString&)
 {
-    configurationChanged();
+    updateConfiguration();
 }
 
 void RemoteVideoTrackProxy::labelChanged(const AtomString&)
 {
-    configurationChanged();
+    updateConfiguration();
 }
 
 void RemoteVideoTrackProxy::languageChanged(const AtomString&)
 {
-    configurationChanged();
+    updateConfiguration();
 }
 
 } // namespace WebKit

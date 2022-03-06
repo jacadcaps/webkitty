@@ -26,7 +26,9 @@
 #include "MIMETypeRegistry.h"
 #include "SampleMap.h"
 #include "SharedBuffer.h"
+#include <wtf/Condition.h>
 #include <wtf/Forward.h>
+#include <wtf/Lock.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WeakPtr.h>
 
@@ -39,8 +41,8 @@ class ImageDecoderGStreamer final : public ImageDecoder {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(ImageDecoderGStreamer);
 public:
-    static RefPtr<ImageDecoderGStreamer> create(SharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
-    ImageDecoderGStreamer(SharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
+    static RefPtr<ImageDecoderGStreamer> create(FragmentedSharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
+    ImageDecoderGStreamer(FragmentedSharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
     virtual ~ImageDecoderGStreamer() = default;
 
     static bool supportsMediaType(MediaType type) { return type == MediaType::Video; }
@@ -49,28 +51,28 @@ public:
     size_t bytesDecodedToDetermineProperties() const override { return 0; }
     static bool canDecodeType(const String& mimeType);
 
-    void setEncodedDataStatusChangeCallback(WTF::Function<void(EncodedDataStatus)>&& callback) final { m_encodedDataStatusChangedCallback = WTFMove(callback); }
+    void setEncodedDataStatusChangeCallback(Function<void(EncodedDataStatus)>&& callback) final { m_encodedDataStatusChangedCallback = WTFMove(callback); }
     EncodedDataStatus encodedDataStatus() const final;
     IntSize size() const final;
     size_t frameCount() const final { return m_sampleData.size(); }
     RepetitionCount repetitionCount() const final;
     String uti() const final;
     String filenameExtension() const final { return MIMETypeRegistry::preferredExtensionForMIMEType(m_mimeType); }
-    Optional<IntPoint> hotSpot() const final { return WTF::nullopt; }
+    std::optional<IntPoint> hotSpot() const final { return std::nullopt; }
 
     IntSize frameSizeAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default) const final { return size(); }
     bool frameIsCompleteAtIndex(size_t index) const final { return sampleAtIndex(index); }
-    ImageOrientation frameOrientationAtIndex(size_t) const final;
+    ImageDecoder::FrameMetadata frameMetadataAtIndex(size_t) const final;
 
     Seconds frameDurationAtIndex(size_t) const final;
     bool frameHasAlphaAtIndex(size_t) const final;
     bool frameAllowSubsamplingAtIndex(size_t index) const final { return index <= m_sampleData.size(); }
     unsigned frameBytesAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default) const final;
 
-    NativeImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = DecodingOptions(DecodingMode::Synchronous)) final;
+    PlatformImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = DecodingOptions(DecodingMode::Synchronous)) final;
 
     void setExpectedContentSize(long long) final { }
-    void setData(SharedBuffer&, bool allDataReceived) final;
+    void setData(const FragmentedSharedBuffer&, bool allDataReceived) final;
     bool isAllDataReceived() const final { return m_eos; }
     void clearFrameBufferCache(size_t) final;
 
@@ -82,12 +84,12 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
         WTF_MAKE_NONCOPYABLE(InnerDecoder);
     public:
-        static RefPtr<InnerDecoder> create(ImageDecoderGStreamer& decoder, const char* data, gssize size)
+        static RefPtr<InnerDecoder> create(ImageDecoderGStreamer& decoder, const uint8_t* data, gssize size)
         {
             return adoptRef(*new InnerDecoder(decoder, data, size));
         }
 
-        InnerDecoder(ImageDecoderGStreamer& decoder, const char* data, gssize size)
+        InnerDecoder(ImageDecoderGStreamer& decoder, const uint8_t* data, gssize size)
             : m_decoder(decoder)
             , m_runLoop(RunLoop::current())
         {
@@ -111,27 +113,32 @@ private:
         ImageDecoderGStreamer& m_decoder;
         GRefPtr<GstElement> m_pipeline;
         GRefPtr<GInputStream> m_memoryStream;
+        GRefPtr<GstElement> m_decodebin;
         RunLoop& m_runLoop;
+
+        Condition m_messageCondition;
+        Lock m_messageLock;
+        bool m_messageDispatched WTF_GUARDED_BY_LOCK(m_messageLock) { false };
     };
 
     void handleSample(GRefPtr<GstSample>&&);
-    void pushEncodedData(const SharedBuffer&);
+    void pushEncodedData(const FragmentedSharedBuffer&);
 
     const ImageDecoderGStreamerSample* sampleAtIndex(size_t) const;
 
-    WTF::Function<void(EncodedDataStatus)> m_encodedDataStatusChangedCallback;
+    Function<void(EncodedDataStatus)> m_encodedDataStatusChangedCallback;
     SampleMap m_sampleData;
     DecodeOrderSampleMap::iterator m_cursor;
     Lock m_sampleGeneratorLock;
     bool m_eos { false };
-    Optional<IntSize> m_size;
+    std::optional<IntSize> m_size;
     String m_mimeType;
     RefPtr<ImageDecoderGStreamer::InnerDecoder> m_innerDecoder;
     Condition m_sampleCondition;
-    Lock m_sampleMutex;
-    GRefPtr<GstSample> m_sample;
+    Lock m_sampleLock;
+    GRefPtr<GstSample> m_sample WTF_GUARDED_BY_LOCK(m_sampleLock);
     Condition m_handlerCondition;
-    Lock m_handlerMutex;
+    Lock m_handlerLock;
 };
 }
 #endif

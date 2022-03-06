@@ -52,7 +52,7 @@ class WebStorageSessionProvider : public WebCore::StorageSessionProvider {
 WebCookieJar::WebCookieJar()
     : WebCore::CookieJar(adoptRef(*new WebStorageSessionProvider)) { }
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
 static bool shouldBlockCookies(WebFrame* frame, const URL& firstPartyForCookies, const URL& resourceURL, ShouldAskITP& shouldAskITPInNetworkProcess)
 {
     if (!WebCore::DeprecatedGlobalSettings::resourceLoadStatisticsEnabled())
@@ -130,12 +130,12 @@ String WebCookieJar::cookies(WebCore::Document& document, const URL& url) const
         return { };
 
     ShouldAskITP shouldAskITPInNetworkProcess = ShouldAskITP::No;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if (shouldBlockCookies(webFrame, document.firstPartyForCookies(), url, shouldAskITPInNetworkProcess))
         return { };
 #endif
 
-    auto sameSiteInfo = CookieJar::sameSiteInfo(document);
+    auto sameSiteInfo = CookieJar::sameSiteInfo(document, IsForDOMCookieAccess::Yes);
     auto includeSecureCookies = CookieJar::shouldIncludeSecureCookies(document, url);
     auto frameID = webFrame->frameID();
     auto pageID = webFrame->page()->identifier();
@@ -158,12 +158,12 @@ void WebCookieJar::setCookies(WebCore::Document& document, const URL& url, const
         return;
 
     ShouldAskITP shouldAskITPInNetworkProcess = ShouldAskITP::No;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if (shouldBlockCookies(webFrame, document.firstPartyForCookies(), url, shouldAskITPInNetworkProcess))
         return;
 #endif
 
-    auto sameSiteInfo = CookieJar::sameSiteInfo(document);
+    auto sameSiteInfo = CookieJar::sameSiteInfo(document, IsForDOMCookieAccess::Yes);
     auto frameID = webFrame->frameID();
     auto pageID = webFrame->page()->identifier();
 
@@ -204,7 +204,7 @@ bool WebCookieJar::cookiesEnabled(const Document& document) const
     if (!webFrame || !webFrame->page())
         return false;
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     ShouldAskITP dummy;
     if (shouldBlockCookies(webFrame, document.firstPartyForCookies(), document.cookieURL(), dummy))
         return false;
@@ -213,11 +213,11 @@ bool WebCookieJar::cookiesEnabled(const Document& document) const
     return WebProcess::singleton().ensureNetworkProcessConnection().cookiesEnabled();
 }
 
-std::pair<String, WebCore::SecureCookiesAccessed> WebCookieJar::cookieRequestHeaderFieldValue(const URL& firstParty, const WebCore::SameSiteInfo& sameSiteInfo, const URL& url, Optional<FrameIdentifier> frameID, Optional<PageIdentifier> pageID, WebCore::IncludeSecureCookies includeSecureCookies) const
+std::pair<String, WebCore::SecureCookiesAccessed> WebCookieJar::cookieRequestHeaderFieldValue(const URL& firstParty, const WebCore::SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WebCore::IncludeSecureCookies includeSecureCookies) const
 {
     ShouldAskITP shouldAskITPInNetworkProcess = ShouldAskITP::No;
     auto* webFrame = frameID ? WebProcess::singleton().webFrame(*frameID) : nullptr;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if (shouldBlockCookies(webFrame, firstParty, url, shouldAskITPInNetworkProcess))
         return { };
 #endif
@@ -233,13 +233,13 @@ bool WebCookieJar::getRawCookies(const WebCore::Document& document, const URL& u
 {
     auto* webFrame = document.frame() ? WebFrame::fromCoreFrame(*document.frame()) : nullptr;
     ShouldAskITP shouldAskITPInNetworkProcess = ShouldAskITP::No;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if (shouldBlockCookies(webFrame, document.firstPartyForCookies(), url, shouldAskITPInNetworkProcess))
         return { };
 #endif
 
-    Optional<FrameIdentifier> frameID = webFrame ? makeOptional(webFrame->frameID()) : WTF::nullopt;
-    Optional<PageIdentifier> pageID = webFrame && webFrame->page() ? makeOptional(webFrame->page()->identifier()) : WTF::nullopt;
+    std::optional<FrameIdentifier> frameID = webFrame ? std::make_optional(webFrame->frameID()) : std::nullopt;
+    std::optional<PageIdentifier> pageID = webFrame && webFrame->page() ? std::make_optional(webFrame->page()->identifier()) : std::nullopt;
     if (!WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::GetRawCookies(document.firstPartyForCookies(), sameSiteInfo(document), url, frameID, pageID, shouldAskITPInNetworkProcess, shouldRelaxThirdPartyCookieBlocking(webFrame)), Messages::NetworkConnectionToWebProcess::GetRawCookies::Reply(rawCookies), 0))
         return false;
     return true;

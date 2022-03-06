@@ -73,6 +73,7 @@ public:
     bool hasColorFilters() const;
 
     RefPtr<StyleImage> listStyleImage;
+    AtomString listStyleStringValue;
 
     Color textStrokeColor;
     float textStrokeWidth;
@@ -85,6 +86,8 @@ public:
 
     Color caretColor;
     Color visitedLinkCaretColor;
+
+    Color accentColor;
 
     std::unique_ptr<ShadowData> textShadow; // Our text shadow information for shadowed text drawing.
     
@@ -100,29 +103,28 @@ public:
     DataRef<StyleCustomPropertyData> customProperties;
 
     // Paged media properties.
-    short widows;
-    short orphans;
+    unsigned short widows;
+    unsigned short orphans;
     unsigned hasAutoWidows : 1;
     unsigned hasAutoOrphans : 1;
     
     unsigned textSecurity : 2; // TextSecurity
     unsigned userModify : 2; // UserModify (editing)
     unsigned wordBreak : 2; // WordBreak
-    unsigned overflowWrap : 1; // OverflowWrap
+    unsigned overflowWrap : 2; // OverflowWrap
     unsigned nbspMode : 1; // NBSPMode
     unsigned lineBreak : 3; // LineBreak
     unsigned userSelect : 2; // UserSelect
     unsigned colorSpace : 1; // ColorSpace
     unsigned speakAs : 4; // ESpeakAs
     unsigned hyphens : 2; // Hyphens
+    unsigned textCombine : 1; // text-combine-upright
     unsigned textEmphasisFill : 1; // TextEmphasisFill
     unsigned textEmphasisMark : 3; // TextEmphasisMark
     unsigned textEmphasisPosition : 4; // TextEmphasisPosition
     unsigned textOrientation : 2; // TextOrientation
-#if ENABLE(CSS3_TEXT)
     unsigned textIndentLine : 1; // TextIndentLine
     unsigned textIndentType : 1; // TextIndentType
-#endif
     unsigned lineBoxContain: 7; // OptionSet<LineBoxContain>
     // CSS Image Values Level 3
     unsigned imageOrientation : 1; // ImageOrientation
@@ -140,7 +142,7 @@ public:
     unsigned textAlignLast : 3; // TextAlignLast
     unsigned textJustify : 2; // TextJustify
 #endif
-    unsigned textDecorationSkip : 5; // TextDecorationSkip
+    unsigned textDecorationSkipInk : 2; // TextDecorationSkipInk
     unsigned textUnderlinePosition : 2; // TextUnderlinePosition
     unsigned rubyPosition : 2; // RubyPosition
     unsigned textZoom: 1; // TextZoom
@@ -156,6 +158,17 @@ public:
     unsigned joinStyle : 2; // LineJoin
     unsigned hasSetStrokeWidth : 1;
     unsigned hasSetStrokeColor : 1;
+
+    unsigned mathStyle : 1;
+
+    unsigned hasAutoCaretColor : 1;
+    unsigned hasVisitedLinkAutoCaretColor : 1;
+
+    unsigned hasAutoAccentColor : 1;
+
+    unsigned effectiveInert : 1;
+
+    unsigned isInSubtreeWithBlendMode : 1;
 
     OptionSet<TouchAction> effectiveTouchActions;
     OptionSet<EventListenerRegionType> eventListenerRegionTypes;

@@ -28,6 +28,8 @@
 #if ENABLE(GPU_PROCESS)
 
 #include <WebCore/ContentType.h>
+#include <WebCore/FourCC.h>
+#include <WebCore/PlatformTextTrack.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/WTFString.h>
 
@@ -39,11 +41,21 @@ struct RemoteMediaPlayerProxyConfiguration {
     String sourceApplicationIdentifier;
     String networkInterfaceName;
     Vector<WebCore::ContentType> mediaContentTypesRequiringHardwareSupport;
+    std::optional<Vector<String>> allowedMediaContainerTypes;
+    std::optional<Vector<String>> allowedMediaCodecTypes;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaVideoCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaAudioCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaCaptionFormatTypes;
+
     Vector<String> preferredAudioCharacteristics;
+#if ENABLE(AVF_CAPTIONS)
+    Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
+#endif
     WebCore::SecurityOriginData documentSecurityOrigin;
     uint64_t logIdentifier { 0 };
     bool shouldUsePersistentCache { false };
-    bool isVideo { 0 };
+    bool isVideo { false };
+    bool renderingCanBeAccelerated { false };
 
     template<class Encoder>
     void encode(Encoder& encoder) const
@@ -53,78 +65,44 @@ struct RemoteMediaPlayerProxyConfiguration {
         encoder << sourceApplicationIdentifier;
         encoder << networkInterfaceName;
         encoder << mediaContentTypesRequiringHardwareSupport;
+        encoder << allowedMediaContainerTypes;
+        encoder << allowedMediaCodecTypes;
+        encoder << allowedMediaVideoCodecIDs;
+        encoder << allowedMediaAudioCodecIDs;
+        encoder << allowedMediaCaptionFormatTypes;
         encoder << preferredAudioCharacteristics;
+#if ENABLE(AVF_CAPTIONS)
+        encoder << outOfBandTrackData;
+#endif
         encoder << documentSecurityOrigin;
         encoder << logIdentifier;
         encoder << shouldUsePersistentCache;
         encoder << isVideo;
+        encoder << renderingCanBeAccelerated;
     }
 
     template <class Decoder>
-    static Optional<RemoteMediaPlayerProxyConfiguration> decode(Decoder& decoder)
+    static bool decode(Decoder& decoder, RemoteMediaPlayerProxyConfiguration& configuration)
     {
-        Optional<String> referrer;
-        decoder >> referrer;
-        if (!referrer)
-            return WTF::nullopt;
-
-        Optional<String> userAgent;
-        decoder >> userAgent;
-        if (!userAgent)
-            return WTF::nullopt;
-
-        Optional<String> sourceApplicationIdentifier;
-        decoder >> sourceApplicationIdentifier;
-        if (!sourceApplicationIdentifier)
-            return WTF::nullopt;
-
-        Optional<String> networkInterfaceName;
-        decoder >> networkInterfaceName;
-        if (!networkInterfaceName)
-            return WTF::nullopt;
-
-        Optional<Vector<WebCore::ContentType>> mediaContentTypesRequiringHardwareSupport;
-        decoder >> mediaContentTypesRequiringHardwareSupport;
-        if (!mediaContentTypesRequiringHardwareSupport)
-            return WTF::nullopt;
-
-        Optional<Vector<String>> preferredAudioCharacteristics;
-        decoder >> preferredAudioCharacteristics;
-        if (!preferredAudioCharacteristics)
-            return WTF::nullopt;
-
-        Optional<WebCore::SecurityOriginData> documentSecurityOrigin;
-        decoder >> documentSecurityOrigin;
-        if (!documentSecurityOrigin)
-            return WTF::nullopt;
-
-        Optional<uint64_t> logIdentifier;
-        decoder >> logIdentifier;
-        if (!logIdentifier)
-            return WTF::nullopt;
-
-        Optional<bool> shouldUsePersistentCache;
-        decoder >> shouldUsePersistentCache;
-        if (!shouldUsePersistentCache)
-            return WTF::nullopt;
-
-        Optional<bool> isVideo;
-        decoder >> isVideo;
-        if (!isVideo)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*referrer),
-            WTFMove(*userAgent),
-            WTFMove(*sourceApplicationIdentifier),
-            WTFMove(*networkInterfaceName),
-            WTFMove(*mediaContentTypesRequiringHardwareSupport),
-            WTFMove(*preferredAudioCharacteristics),
-            WTFMove(*documentSecurityOrigin),
-            *logIdentifier,
-            *shouldUsePersistentCache,
-            *isVideo,
-        }};
+        return decoder.decode(configuration.referrer)
+            && decoder.decode(configuration.userAgent)
+            && decoder.decode(configuration.sourceApplicationIdentifier)
+            && decoder.decode(configuration.networkInterfaceName)
+            && decoder.decode(configuration.mediaContentTypesRequiringHardwareSupport)
+            && decoder.decode(configuration.allowedMediaContainerTypes)
+            && decoder.decode(configuration.allowedMediaCodecTypes)
+            && decoder.decode(configuration.allowedMediaVideoCodecIDs)
+            && decoder.decode(configuration.allowedMediaAudioCodecIDs)
+            && decoder.decode(configuration.allowedMediaCaptionFormatTypes)
+            && decoder.decode(configuration.preferredAudioCharacteristics)
+#if ENABLE(AVF_CAPTIONS)
+            && decoder.decode(configuration.outOfBandTrackData)
+#endif
+            && decoder.decode(configuration.documentSecurityOrigin)
+            && decoder.decode(configuration.logIdentifier)
+            && decoder.decode(configuration.shouldUsePersistentCache)
+            && decoder.decode(configuration.isVideo)
+            && decoder.decode(configuration.renderingCanBeAccelerated);
     }
 };
 

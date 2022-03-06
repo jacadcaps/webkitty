@@ -47,20 +47,14 @@ struct WebsiteDataStoreParameters {
     ~WebsiteDataStoreParameters();
 
     void encode(IPC::Encoder&) const;
-    static Optional<WebsiteDataStoreParameters> decode(IPC::Decoder&);
+    static std::optional<WebsiteDataStoreParameters> decode(IPC::Decoder&);
 
     Vector<uint8_t> uiProcessCookieStorageIdentifier;
     SandboxExtension::Handle cookieStoragePathExtensionHandle;
-    Vector<WebCore::Cookie> pendingCookies;
     NetworkSessionCreationParameters networkSessionParameters;
 
-#if ENABLE(INDEXED_DATABASE)
     String indexedDatabaseDirectory;
     SandboxExtension::Handle indexedDatabaseDirectoryExtensionHandle;
-#if PLATFORM(IOS_FAMILY)
-    SandboxExtension::Handle indexedDatabaseTempBlobDirectoryExtensionHandle;
-#endif
-#endif
 
 #if ENABLE(SERVICE_WORKER)
     String serviceWorkerRegistrationDirectory;
@@ -74,8 +68,13 @@ struct WebsiteDataStoreParameters {
     String cacheStorageDirectory;
     SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
 
-    uint64_t perOriginStorageQuota { WebCore::StorageQuotaManager::defaultQuota() };
-    uint64_t perThirdPartyOriginStorageQuota { WebCore::StorageQuotaManager::defaultThirdPartyQuota() };
+    String generalStorageDirectory;
+    SandboxExtension::Handle generalStorageDirectoryHandle;
+
+    uint64_t perOriginStorageQuota;
+    uint64_t perThirdPartyOriginStorageQuota;
+
+    bool shouldUseCustomStoragePaths { false };
 };
 
 } // namespace WebKit

@@ -70,21 +70,24 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         this._selectedSearchMatch = null;
         this._selectedSearchMatchIsValid = false;
 
-        this._preserveLogNavigationItem = new WI.CheckboxNavigationItem("preserve-log", WI.UIString("Preserve Log"), !WI.settings.clearLogOnNavigate.value);
-        this._preserveLogNavigationItem.tooltip = WI.UIString("Do not clear the console on new page loads");
-        this._preserveLogNavigationItem.addEventListener(WI.CheckboxNavigationItem.Event.CheckedDidChange, () => {
-            WI.settings.clearLogOnNavigate.value = !WI.settings.clearLogOnNavigate.value;
-        });
-        WI.settings.clearLogOnNavigate.addEventListener(WI.Setting.Event.Changed, this._handleClearLogOnNavigateSettingChanged, this);
+        this._otherFiltersNavigationItem = new WI.NavigationItem("console-other-filters-button", "button");
+        this._otherFiltersNavigationItem.tooltip = WI.UIString("Other filter options\u2026");
+        this._otherFiltersNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
+        WI.addMouseDownContextMenuHandlers(this._otherFiltersNavigationItem.element, this._handleOtherFiltersNavigationItemContextMenu.bind(this));
+        this._updateOtherFiltersNavigationItemState();
+        this._otherFiltersNavigationItem.element.appendChild(WI.ImageUtilities.useSVGSymbol("Images/Filter.svg", "glyph"));
 
-        this._emulateInUserGestureNavigationItem = new WI.CheckboxNavigationItem("emulate-in-user-gesture", WI.UIString("Emulate User Gesture"), WI.settings.emulateInUserGesture.value);
-        this._emulateInUserGestureNavigationItem.tooltip = WI.UIString("Run console commands as if inside a user gesture");
-        this._emulateInUserGestureNavigationItem.addEventListener(WI.CheckboxNavigationItem.Event.CheckedDidChange, () => {
-            WI.settings.emulateInUserGesture.value = !WI.settings.emulateInUserGesture.value;
-        });
-        WI.settings.emulateInUserGesture.addEventListener(WI.Setting.Event.Changed, this._handleEmulateInUserGestureSettingChanged, this);
+        // COMPATIBILITY (iOS 13): `Runtime.evaluate` did not have a `emulateUserGesture` parameter yet.
+        if (WI.sharedApp.isWebDebuggable() && InspectorBackend.hasCommand("Runtime.evaluate", "emulateUserGesture")) {
+            this._emulateUserGestureNavigationItem = new WI.CheckboxNavigationItem("emulate-in-user-gesture", WI.UIString("Emulate User Gesture", "Emulate User Gesture @ Console", "Checkbox shown in the Console to cause future evaluations as though they are in response to user interaction."), WI.settings.emulateInUserGesture.value);
+            this._emulateUserGestureNavigationItem.tooltip = WI.UIString("Run console commands as if inside a user gesture");
+            this._emulateUserGestureNavigationItem.addEventListener(WI.CheckboxNavigationItem.Event.CheckedDidChange, function(event) {
+                WI.settings.emulateInUserGesture.value = !WI.settings.emulateInUserGesture.value;
+            }, this);
+            WI.settings.emulateInUserGesture.addEventListener(WI.Setting.Event.Changed, this._handleEmulateInUserGestureSettingChanged, this);
 
-        this._checkboxesNavigationItemGroup = new WI.GroupNavigationItem([this._preserveLogNavigationItem, this._emulateInUserGestureNavigationItem, new WI.DividerNavigationItem]);
+            this._emulateUserGestureNavigationItemGroup = new WI.GroupNavigationItem([this._emulateUserGestureNavigationItem, new WI.DividerNavigationItem]);
+        }
 
         let scopeBarItems = [
             new WI.ScopeBarItem(WI.LogContentView.Scopes.All, WI.UIString("All"), {exclusive: true}),
@@ -102,13 +105,14 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         this._hasNonDefaultLogChannelMessage = false;
         if (WI.ConsoleManager.supportsLogChannels()) {
             let messageChannelBarItems = [
-                new WI.ScopeBarItem(WI.LogContentView.Scopes.AllChannels, WI.UIString("All"), {exclusive: true}),
+                new WI.ScopeBarItem(WI.LogContentView.Scopes.AllChannels, WI.UIString("All Sources")),
                 new WI.ScopeBarItem(WI.LogContentView.Scopes.Media, WI.UIString("Media"), {className: "media"}),
                 new WI.ScopeBarItem(WI.LogContentView.Scopes.MediaSource, WI.UIString("MediaSource"), {className: "mediasource"}),
                 new WI.ScopeBarItem(WI.LogContentView.Scopes.WebRTC, WI.UIString("WebRTC"), {className: "webrtc"}),
             ];
 
-            this._messageSourceBar = new WI.ScopeBar("message-channel-scope-bar", messageChannelBarItems, messageChannelBarItems[0]);
+            const shouldGroupNonExclusiveItems = true;
+            this._messageSourceBar = new WI.ScopeBar("message-channel-scope-bar", messageChannelBarItems, messageChannelBarItems[0], shouldGroupNonExclusiveItems);
             this._messageSourceBar.addEventListener(WI.ScopeBar.Event.SelectionChanged, this._messageSourceBarSelectionDidChange, this);
         }
 
@@ -131,6 +135,8 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         WI.consoleManager.addEventListener(WI.ConsoleManager.Event.Cleared, this._logCleared, this);
 
         WI.Frame.addEventListener(WI.Frame.Event.ProvisionalLoadStarted, this._provisionalLoadStarted, this);
+
+        WI.settings.clearLogOnNavigate.addEventListener(WI.Setting.Event.Changed, this._handleClearLogOnNavigateSettingChanged, this);
     }
 
     // Public
@@ -139,14 +145,16 @@ WI.LogContentView = class LogContentView extends WI.ContentView
     {
         let navigationItems = [
             this._findBanner,
-            this._checkboxesNavigationItemGroup,
-            new WI.DividerNavigationItem,
             this._scopeBar,
-            new WI.DividerNavigationItem
         ];
 
         if (this._hasNonDefaultLogChannelMessage && this._messageSourceBar)
-            navigationItems.push(this._messageSourceBar, new WI.DividerNavigationItem);
+            navigationItems.push(new WI.DividerNavigationItem, this._messageSourceBar);
+
+        navigationItems.push(this._otherFiltersNavigationItem, new WI.FlexibleSpaceNavigationItem);
+
+        if (this._emulateUserGestureNavigationItemGroup)
+            navigationItems.push(this._emulateUserGestureNavigationItemGroup);
 
         if (InspectorBackend.hasCommand("Heap.gc"))
             navigationItems.push(this._garbageCollectNavigationItem);
@@ -179,9 +187,9 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         return true;
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         this._logViewController.renderPendingMessages();
     }
@@ -255,7 +263,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
 
     showCustomFindBanner()
     {
-        if (!this.visible)
+        if (!this.isAttached)
             return;
 
         this._findBanner.focus();
@@ -263,7 +271,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
 
     get supportsSave()
     {
-        if (!this.visible)
+        if (!this.isAttached)
             return false;
 
         if (WI.isShowingSplitConsole())
@@ -450,7 +458,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         if (this._startedProvisionalLoad)
             this._provisionalMessages.push(message);
 
-        if (!this._hasNonDefaultLogChannelMessage && WI.consoleManager.logChannelSources.includes(message.source)) {
+        if (!this._hasNonDefaultLogChannelMessage && WI.consoleManager.customLoggingChannels.some((channel) => channel.source === message.source)) {
             this._hasNonDefaultLogChannelMessage = true;
             this.dispatchEventToListeners(WI.ContentView.Event.NavigationItemsDidChange);
             this._scopeBar.item(WI.LogContentView.Scopes.Infos).hidden = false;
@@ -899,14 +907,26 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         this.performSearch(this._currentSearchQuery);
     }
 
+    _updateOtherFiltersNavigationItemState()
+    {
+        this._otherFiltersNavigationItem.element.classList.toggle("active", !WI.settings.clearLogOnNavigate.value);
+    }
+
+    _handleOtherFiltersNavigationItemContextMenu(contextMenu)
+    {
+        contextMenu.appendCheckboxItem(WI.UIString("Preserve Log"), () => {
+            WI.settings.clearLogOnNavigate.value = !WI.settings.clearLogOnNavigate.value;
+        }, !WI.settings.clearLogOnNavigate.value);
+    }
+
     _handleClearLogOnNavigateSettingChanged()
     {
-        this._preserveLogNavigationItem.checked = !WI.settings.clearLogOnNavigate.value;
+        this._updateOtherFiltersNavigationItemState();
     }
 
     _handleEmulateInUserGestureSettingChanged()
     {
-        this._emulateInUserGestureNavigationItem.checked = WI.settings.emulateInUserGesture.value;
+        this._emulateUserGestureNavigationItem.checked = WI.settings.emulateInUserGesture.value;
     }
 
     _keyDown(event)
@@ -1238,6 +1258,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
             clearFiltersButtonElement.addEventListener("click", (event) => {
                 this._findBanner.clearAndBlur();
                 this._scopeBar.resetToDefault();
+                this._messageSourceBar?.resetToDefault();
                 console.assert(!this._immediatelyHiddenMessages.size);
 
                 this._hiddenMessagesBannerElement.remove();

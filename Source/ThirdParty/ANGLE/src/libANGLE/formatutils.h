@@ -16,6 +16,7 @@
 #include "angle_gl.h"
 #include "common/android_util.h"
 #include "libANGLE/Caps.h"
+#include "libANGLE/Config.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Version.h"
 #include "libANGLE/VertexAttribute.h"
@@ -66,6 +67,7 @@ ANGLE_INLINE GLenum GetNonLinearFormat(const GLenum format)
             return GL_SRGB8_ALPHA8;
         case GL_RGB8:
         case GL_BGRX8_ANGLEX:
+        case GL_RGBX8_ANGLE:
             return GL_SRGB8;
         case GL_RGBA16F:
             return GL_RGBA16F;
@@ -134,8 +136,12 @@ struct InternalFormat
 {
     InternalFormat();
     InternalFormat(const InternalFormat &other);
+    InternalFormat &operator=(const InternalFormat &other);
 
     GLuint computePixelBytes(GLenum formatType) const;
+
+    ANGLE_NO_DISCARD bool computeBufferRowLength(uint32_t width, uint32_t *resultOut) const;
+    ANGLE_NO_DISCARD bool computeBufferImageHeight(uint32_t height, uint32_t *resultOut) const;
 
     ANGLE_NO_DISCARD bool computeRowPitch(GLenum formatType,
                                           GLsizei width,
@@ -177,6 +183,16 @@ struct InternalFormat
 
     // Support upload a portion of image?
     bool supportSubImage() const;
+
+    ANGLE_INLINE bool isChannelSizeCompatible(GLuint redSize,
+                                              GLuint greenSize,
+                                              GLuint blueSize,
+                                              GLuint alphaSize) const
+    {
+        // We only check for equality in all channel sizes
+        return ((redSize == redBits) && (greenSize == greenBits) && (blueSize == blueBits) &&
+                (alphaSize == alphaBits));
+    }
 
     // Return true if the format is a required renderbuffer format in the given version of the core
     // spec. Note that it isn't always clear whether all the rules that apply to core required
@@ -267,12 +283,19 @@ GLenum GetUnsizedFormat(GLenum internalFormat);
 // Return whether the compressed format requires whole image/mip level to be uploaded to texture.
 bool CompressedFormatRequiresWholeImage(GLenum internalFormat);
 
+// In support of GetImage, check for LUMA formats and override with real format
+void MaybeOverrideLuminance(GLenum &format, GLenum &type, GLenum actualFormat, GLenum actualType);
+
 typedef std::set<GLenum> FormatSet;
 const FormatSet &GetAllSizedInternalFormats();
 
-typedef std::unordered_map<GLenum, std::unordered_map<GLenum, InternalFormat>>
-    InternalFormatInfoMap;
+typedef angle::HashMap<GLenum, angle::HashMap<GLenum, InternalFormat>> InternalFormatInfoMap;
 const InternalFormatInfoMap &GetInternalFormatMap();
+
+int GetAndroidHardwareBufferFormatFromChannelSizes(const egl::AttributeMap &attribMap);
+
+GLenum GetConfigColorBufferFormat(const egl::Config *config);
+GLenum GetConfigDepthStencilBufferFormat(const egl::Config *config);
 
 ANGLE_INLINE int GetNativeVisualID(const InternalFormat &internalFormat)
 {
@@ -336,6 +359,7 @@ angle::FormatID GetVertexFormatID(const VertexAttribute &attrib, VertexAttribTyp
 angle::FormatID GetCurrentValueFormatID(VertexAttribType currentValueType);
 const VertexFormat &GetVertexFormatFromID(angle::FormatID vertexFormatID);
 size_t GetVertexFormatSize(angle::FormatID vertexFormatID);
+angle::FormatID ConvertFormatSignedness(const angle::Format &format);
 
 ANGLE_INLINE bool IsS3TCFormat(const GLenum format)
 {
@@ -371,6 +395,21 @@ ANGLE_INLINE bool IsRGTCFormat(const GLenum format)
     }
 }
 
+ANGLE_INLINE bool IsBPTCFormat(const GLenum format)
+{
+    switch (format)
+    {
+        case GL_COMPRESSED_RGBA_BPTC_UNORM_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT:
+        case GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT:
+        case GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 ANGLE_INLINE bool IsASTC2DFormat(const GLenum format)
 {
     if ((format >= GL_COMPRESSED_RGBA_ASTC_4x4_KHR &&
@@ -381,6 +420,19 @@ ANGLE_INLINE bool IsASTC2DFormat(const GLenum format)
         return true;
     }
     return false;
+}
+
+ANGLE_INLINE bool IsETC1Format(const GLenum format)
+{
+    switch (format)
+    {
+        case GL_ETC1_RGB8_OES:
+        case GL_ETC1_SRGB8_NV:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 ANGLE_INLINE bool IsETC2EACFormat(const GLenum format)
@@ -398,6 +450,44 @@ ANGLE_INLINE bool IsETC2EACFormat(const GLenum format)
         case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
         case GL_COMPRESSED_RGBA8_ETC2_EAC:
         case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+ANGLE_INLINE bool IsPVRTC1Format(const GLenum format)
+{
+    switch (format)
+    {
+        case GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG:
+        case GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG:
+        case GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG:
+        case GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG:
+        case GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT:
+        case GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+ANGLE_INLINE bool IsBGRAFormat(const GLenum internalFormat)
+{
+    switch (internalFormat)
+    {
+        case GL_BGRA8_EXT:
+        case GL_BGRA4_ANGLEX:
+        case GL_BGR5_A1_ANGLEX:
+        case GL_BGRA8_SRGB_ANGLEX:
+        case GL_BGRX8_ANGLEX:
+        case GL_RGBX8_ANGLE:
+        case GL_BGR565_ANGLEX:
+        case GL_BGR10_A2_ANGLEX:
             return true;
 
         default:
@@ -448,6 +538,32 @@ ANGLE_INLINE ComponentType GetVertexAttributeComponentType(bool pureInteger, Ver
         return ComponentType::Float;
     }
 }
+
+constexpr std::size_t kMaxYuvPlaneCount = 3;
+template <typename T>
+using YuvPlaneArray = std::array<T, kMaxYuvPlaneCount>;
+
+struct YuvFormatInfo
+{
+    // Sized types only.
+    YuvFormatInfo(GLenum internalFormat, const Extents &yPlaneExtent);
+
+    GLenum glInternalFormat;
+    uint32_t planeCount;
+    YuvPlaneArray<uint32_t> planeBpp;
+    YuvPlaneArray<Extents> planeExtent;
+    YuvPlaneArray<uint32_t> planePitch;
+    YuvPlaneArray<uint32_t> planeSize;
+    YuvPlaneArray<uint32_t> planeOffset;
+};
+
+bool IsYuvFormat(GLenum format);
+uint32_t GetPlaneCount(GLenum format);
+uint32_t GetYPlaneBpp(GLenum format);
+uint32_t GetChromaPlaneBpp(GLenum format);
+void GetSubSampleFactor(GLenum format,
+                        int *horizontalSubsampleFactor,
+                        int *verticalSubsampleFactor);
 }  // namespace gl
 
 #endif  // LIBANGLE_FORMATUTILS_H_

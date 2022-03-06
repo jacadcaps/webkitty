@@ -101,43 +101,20 @@ static void resetTestState()
 
 static String createCommand(const String& path, const String& payload)
 {
-    StringBuilder command;
-    command.appendLiteral("echo \"");
-    command.append(payload);
-    command.appendLiteral("\" > ");
-    command.append(path);
-
-    return command.toString();
+    return makeString("echo \"", payload, "\" > ", path);
 }
 
 static String readContentsOfFile(const String& path)
 {
-    constexpr int bufferSize = 1024;
-
-    auto source = FileSystem::openFile(path, FileSystem::FileOpenMode::Read);
-    if (!FileSystem::isHandleValid(source))
+    auto buffer = FileSystem::readEntireFile(path);
+    if (!buffer)
         return emptyString();
 
-    StringBuffer<LChar> buffer(bufferSize);
+    String result(static_cast<const LChar*>(buffer->data()), buffer->size());
+    if (result.endsWith("\n"))
+        return result.substring(0, result.length() - 1);
 
-    auto fileCloser = WTF::makeScopeExit([source]() {
-        FileSystem::PlatformFileHandle handle = source;
-        FileSystem::closeFile(handle);
-    });
-
-    // Since we control the test files, we know we only need one read
-    int readBytes = FileSystem::readFromFile(source, reinterpret_cast<char*>(buffer.characters()), bufferSize);
-    if (readBytes < 0)
-        return emptyString();
-
-    // Strip the trailing carriage return from the file:
-    if (readBytes > 1) {
-        int lastByte = readBytes - 1;
-        if (buffer[lastByte] == '\n')
-            buffer.shrink(lastByte);
-    }
-    ASSERT(readBytes < bufferSize);
-    return String::adopt(WTFMove(buffer));
+    return result;
 }
 
 TEST_F(FileMonitorTest, DetectChange)
@@ -263,11 +240,7 @@ TEST_F(FileMonitorTest, DetectDeletion)
     });
 
     testQueue->dispatch([this] () mutable {
-        StringBuilder command;
-        command.appendLiteral("rm -f ");
-        command.append(tempFilePath());
-
-        auto rc = system(command.toString().utf8().data());
+        auto rc = system(makeString("rm -f ", tempFilePath()).utf8().data());
         ASSERT_NE(rc, -1);
         if (rc == -1)
             didFinish = true;
@@ -320,11 +293,7 @@ TEST_F(FileMonitorTest, DetectChangeAndThenDelete)
     resetTestState();
 
     testQueue->dispatch([this] () mutable {
-        StringBuilder command;
-        command.appendLiteral("rm -f ");
-        command.append(tempFilePath());
-
-        auto rc = system(command.toString().utf8().data());
+        auto rc = system(makeString("rm -f ", tempFilePath()).utf8().data());
         ASSERT_NE(rc, -1);
         if (rc == -1)
             didFinish = true;
@@ -359,11 +328,7 @@ TEST_F(FileMonitorTest, DetectDeleteButNotSubsequentChange)
     });
 
     testQueue->dispatch([this] () mutable {
-        StringBuilder command;
-        command.appendLiteral("rm -f ");
-        command.append(tempFilePath());
-
-        auto rc = system(command.toString().utf8().data());
+        auto rc = system(makeString("rm -f ", tempFilePath()).utf8().data());
         ASSERT_NE(rc, -1);
         if (rc == -1)
             didFinish = true;

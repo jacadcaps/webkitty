@@ -78,7 +78,7 @@ void ProcessThrottler::removeActivity(BackgroundActivity& activity)
 
 void ProcessThrottler::invalidateAllActivities()
 {
-    PROCESSTHROTTLER_RELEASE_LOG("invalidateAllActivities: BEGIN");
+    PROCESSTHROTTLER_RELEASE_LOG("invalidateAllActivities: BEGIN (foregroundActivityCount: %u, backgroundActivityCount: %u)", m_foregroundActivities.size(), m_backgroundActivities.size());
     while (!m_foregroundActivities.isEmpty())
         (*m_foregroundActivities.begin())->invalidate();
     while (!m_backgroundActivities.isEmpty())
@@ -112,6 +112,7 @@ String ProcessThrottler::assertionName(ProcessAssertionType type) const
             return "Suspended"_s;
         case ProcessAssertionType::UnboundedNetworking:
         case ProcessAssertionType::MediaPlayback:
+        case ProcessAssertionType::FinishTaskInterruptable:
             ASSERT_NOT_REACHED(); // These other assertion types are not used by the ProcessThrottler.
             break;
         }
@@ -126,18 +127,23 @@ void ProcessThrottler::setAssertionType(ProcessAssertionType newType)
     if (m_assertion && m_assertion->isValid() && m_assertion->type() == newType)
         return;
 
-    PROCESSTHROTTLER_RELEASE_LOG("setAssertionType: Updating process assertion type to %u (foregroundActivities: %u, backgroundActivities: %u)", newType, m_foregroundActivities.size(), m_backgroundActivities.size());
+    PROCESSTHROTTLER_RELEASE_LOG("setAssertionType: Updating process assertion type to %u (foregroundActivities=%u, backgroundActivities=%u)", newType, m_foregroundActivities.size(), m_backgroundActivities.size());
+
+    // Keep the previous assertion active until the new assertion is taken asynchronously.
+    auto previousAssertion = std::exchange(m_assertion, nullptr);
     if (m_shouldTakeUIBackgroundAssertion) {
-        auto assertion = makeUnique<ProcessAndUIAssertion>(m_processIdentifier, assertionName(newType), newType);
-        assertion->setUIAssertionExpirationHandler([this] {
-            uiAssertionWillExpireImminently();
+        auto assertion = ProcessAndUIAssertion::create(m_processIdentifier, assertionName(newType), newType, ProcessAssertion::Mode::Async, [previousAssertion = WTFMove(previousAssertion)] { });
+        assertion->setUIAssertionExpirationHandler([weakThis = WeakPtr { *this }] {
+            if (weakThis)
+                weakThis->uiAssertionWillExpireImminently();
         });
         m_assertion = WTFMove(assertion);
     } else
-        m_assertion = makeUnique<ProcessAssertion>(m_processIdentifier, assertionName(newType), newType);
+        m_assertion = ProcessAssertion::create(m_processIdentifier, assertionName(newType), newType, ProcessAssertion::Mode::Async, [previousAssertion = WTFMove(previousAssertion)] { });
 
-    m_assertion->setInvalidationHandler([this] {
-        assertionWasInvalidated();
+    m_assertion->setInvalidationHandler([weakThis = WeakPtr { *this }] {
+        if (weakThis)
+            weakThis->assertionWasInvalidated();
     });
     m_process.didSetAssertionType(newType);
 }
@@ -152,7 +158,7 @@ void ProcessThrottler::updateAssertionIfNeeded()
             if (m_assertion->type() == ProcessAssertionType::Suspended)
                 PROCESSTHROTTLER_RELEASE_LOG("updateAssertionIfNeeded: sending ProcessDidResume IPC because the process was suspended");
             else
-                PROCESSTHROTTLER_RELEASE_LOG("updateAssertionIfNeeded: sending ProcessDidResume IPC because the WebProcess is still processing request to suspend: %" PRIu64, *m_pendingRequestToSuspendID);
+                PROCESSTHROTTLER_RELEASE_LOG("updateAssertionIfNeeded: sending ProcessDidResume IPC because the WebProcess is still processing request to suspend=%" PRIu64, *m_pendingRequestToSuspendID);
             m_process.sendProcessDidResume();
             clearPendingRequestToSuspend();
         }
@@ -201,20 +207,20 @@ void ProcessThrottler::processReadyToSuspend()
 void ProcessThrottler::clearPendingRequestToSuspend()
 {
     m_prepareToSuspendTimeoutTimer.stop();
-    m_pendingRequestToSuspendID = WTF::nullopt;
+    m_pendingRequestToSuspendID = std::nullopt;
 }
 
 void ProcessThrottler::sendPrepareToSuspendIPC(IsSuspensionImminent isSuspensionImminent)
 {
-    PROCESSTHROTTLER_RELEASE_LOG("sendPrepareToSuspendIPC: isSuspensionImminent: %d", isSuspensionImminent == IsSuspensionImminent::Yes);
+    PROCESSTHROTTLER_RELEASE_LOG("sendPrepareToSuspendIPC: isSuspensionImminent=%d", isSuspensionImminent == IsSuspensionImminent::Yes);
     if (m_pendingRequestToSuspendID) {
         // Do not send a new PrepareToSuspend IPC for imminent suspension if we've already sent a non-imminent PrepareToSuspend IPC.
         RELEASE_ASSERT(isSuspensionImminent == IsSuspensionImminent::Yes);
         PROCESSTHROTTLER_RELEASE_LOG("sendPrepareToSuspendIPC: Not sending PrepareToSuspend() IPC because there is already one in flight (%" PRIu64 ")", *m_pendingRequestToSuspendID);
     } else {
         m_pendingRequestToSuspendID = generatePrepareToSuspendRequestID();
-        PROCESSTHROTTLER_RELEASE_LOG("sendPrepareToSuspendIPC: Sending PrepareToSuspend(%" PRIu64 ", isSuspensionImminent: %d) IPC", *m_pendingRequestToSuspendID, isSuspensionImminent == IsSuspensionImminent::Yes);
-        m_process.sendPrepareToSuspend(isSuspensionImminent, [this, weakThis = makeWeakPtr(*this), requestToSuspendID = *m_pendingRequestToSuspendID]() mutable {
+        PROCESSTHROTTLER_RELEASE_LOG("sendPrepareToSuspendIPC: Sending PrepareToSuspend(%" PRIu64 ", isSuspensionImminent=%d) IPC", *m_pendingRequestToSuspendID, isSuspensionImminent == IsSuspensionImminent::Yes);
+        m_process.sendPrepareToSuspend(isSuspensionImminent, [this, weakThis = WeakPtr { *this }, requestToSuspendID = *m_pendingRequestToSuspendID]() mutable {
             if (weakThis && m_pendingRequestToSuspendID && *m_pendingRequestToSuspendID == requestToSuspendID)
                 processReadyToSuspend();
         });
@@ -239,16 +245,16 @@ void ProcessThrottler::assertionWasInvalidated()
 
 bool ProcessThrottler::isValidBackgroundActivity(const ProcessThrottler::ActivityVariant& activity)
 {
-    if (!WTF::holds_alternative<UniqueRef<ProcessThrottler::BackgroundActivity>>(activity))
+    if (!std::holds_alternative<UniqueRef<ProcessThrottler::BackgroundActivity>>(activity))
         return false;
-    return WTF::get<UniqueRef<ProcessThrottler::BackgroundActivity>>(activity)->isValid();
+    return std::get<UniqueRef<ProcessThrottler::BackgroundActivity>>(activity)->isValid();
 }
 
 bool ProcessThrottler::isValidForegroundActivity(const ProcessThrottler::ActivityVariant& activity)
 {
-    if (!WTF::holds_alternative<UniqueRef<ProcessThrottler::ForegroundActivity>>(activity))
+    if (!std::holds_alternative<UniqueRef<ProcessThrottler::ForegroundActivity>>(activity))
         return false;
-    return WTF::get<UniqueRef<ProcessThrottler::ForegroundActivity>>(activity)->isValid();
+    return std::get<UniqueRef<ProcessThrottler::ForegroundActivity>>(activity)->isValid();
 }
 
 ProcessThrottler::TimedActivity::TimedActivity(Seconds timeout, ProcessThrottler::ActivityVariant&& activity)
@@ -274,7 +280,7 @@ void ProcessThrottler::TimedActivity::activityTimedOut()
 
 void ProcessThrottler::TimedActivity::updateTimer()
 {
-    if (WTF::holds_alternative<std::nullptr_t>(m_activity))
+    if (std::holds_alternative<std::nullptr_t>(m_activity))
         m_timer.stop();
     else
         m_timer.startOneShot(m_timeout);

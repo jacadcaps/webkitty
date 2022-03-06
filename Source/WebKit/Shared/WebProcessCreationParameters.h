@@ -25,11 +25,14 @@
 
 #pragma once
 
+#include "AccessibilityPreferences.h"
+#include "AuxiliaryProcessCreationParameters.h"
 #include "CacheModel.h"
 #include "SandboxExtension.h"
 #include "TextCheckerState.h"
 #include "UserData.h"
 #include "WebProcessDataStoreParameters.h"
+#include <WebCore/CrossOriginMode.h>
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RetainPtr.h>
@@ -43,17 +46,16 @@
 #include <wtf/MachSendRight.h>
 #endif
 
-#if USE(SOUP)
-#include <WebCore/HTTPCookieAcceptPolicy.h>
-#include <WebCore/SoupNetworkProxySettings.h>
-#endif
-
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/RenderThemeIOS.h>
 #endif
 
-#if ENABLE(NETSCAPE_PLUGIN_API)
-#include <WebCore/PluginData.h>
+#if PLATFORM(GTK) || PLATFORM(WPE)
+#include <wtf/MemoryPressureHandler.h>
+#endif
+
+#if PLATFORM(GTK)
+#include "GtkSettingsState.h"
 #endif
 
 namespace API {
@@ -76,9 +78,10 @@ struct WebProcessCreationParameters {
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebProcessCreationParameters&);
 
+    AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
     String injectedBundlePath;
     SandboxExtension::Handle injectedBundlePathExtensionHandle;
-    SandboxExtension::HandleArray additionalSandboxExtensionHandles;
+    Vector<SandboxExtension::Handle> additionalSandboxExtensionHandles;
 
     UserData initializationUserData;
 
@@ -87,12 +90,12 @@ struct WebProcessCreationParameters {
     SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
     SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
 #endif
+#if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
+    SandboxExtension::Handle enableRemoteWebInspectorExtensionHandle;
+#endif
 #if ENABLE(MEDIA_STREAM)
     SandboxExtension::Handle audioCaptureExtensionHandle;
 #endif
-
-    String webCoreLoggingChannels;
-    String webKitLoggingChannels;
 
     Vector<String> urlSchemesRegisteredAsEmptyDocument;
     Vector<String> urlSchemesRegisteredAsSecure;
@@ -122,9 +125,17 @@ struct WebProcessCreationParameters {
     bool shouldSuppressMemoryPressureHandler { false };
     bool shouldUseFontSmoothing { true };
     bool fullKeyboardAccessEnabled { false };
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    bool hasMouseDevice { false };
+#endif
+#if HAVE(STYLUS_DEVICE_OBSERVATION)
+    bool hasStylusDevice { false };
+#endif
     bool memoryCacheDisabled { false };
     bool attrStyleEnabled { false };
-    bool useGPUProcessForMedia { false };
+    bool shouldThrowExceptionForGlobalConstantRedeclaration { true };
+    WebCore::CrossOriginMode crossOriginMode { WebCore::CrossOriginMode::Shared }; // Cross-origin isolation via COOP+COEP headers.
+    bool isCaptivePortalModeEnabled { false };
 
 #if ENABLE(SERVICE_CONTROLS)
     bool hasImageServices { false };
@@ -138,7 +149,8 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(COCOA)
     String uiProcessBundleIdentifier;
-    uint32_t uiProcessSDKVersion { 0 };
+    int latencyQOS { 0 };
+    int throughputQOS { 0 };
 #endif
 
     ProcessID presentingApplicationPID { 0 };
@@ -160,12 +172,6 @@ struct WebProcessCreationParameters {
     HashMap<String, bool> notificationPermissions;
 #endif
 
-    Vector<String> plugInAutoStartOrigins;
-
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    HashMap<String, HashMap<String, HashMap<String, WebCore::PluginLoadClientPolicy>>> pluginLoadClientPolicies;
-#endif
-
 #if PLATFORM(COCOA)
     RetainPtr<CFDataRef> networkATSContext;
 #endif
@@ -174,16 +180,12 @@ struct WebProcessCreationParameters {
     String waylandCompositorDisplayName;
 #endif
 
-#if USE(SOUP)
-    WebCore::SoupNetworkProxySettings proxySettings;
-#endif
-
 #if PLATFORM(COCOA)
     Vector<String> mediaMIMETypes;
     WebCore::ScreenProperties screenProperties;
 #endif
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS) && !RELEASE_LOG_DISABLED
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION) && !RELEASE_LOG_DISABLED
     bool shouldLogUserInteraction { false };
 #endif
 
@@ -197,19 +199,23 @@ struct WebProcessCreationParameters {
     CString implementationLibraryName;
 #endif
 
-    Optional<WebProcessDataStoreParameters> websiteDataStoreParameters;
+    std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;
     
 #if PLATFORM(IOS)
-    Optional<SandboxExtension::Handle> compilerServiceExtensionHandle;
+    Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
 #endif
 
-    Optional<SandboxExtension::Handle> containerManagerExtensionHandle;
-    Optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
+    std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
+    std::optional<SandboxExtension::Handle> launchServicesExtensionHandle;
+#if HAVE(VIDEO_RESTRICTED_DECODING)
+#if PLATFORM(MAC)
+    Vector<SandboxExtension::Handle> videoDecoderExtensionHandles;
+#endif
+    bool restrictImageAndVideoDecoders { false };
+#endif
 
 #if PLATFORM(IOS_FAMILY)
-    SandboxExtension::HandleArray diagnosticsExtensionHandles;
-    SandboxExtension::HandleArray dynamicMachExtensionHandles;
-    SandboxExtension::HandleArray dynamicIOKitExtensionHandles;
+    Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
 #endif
 
 #if PLATFORM(COCOA)
@@ -218,22 +224,41 @@ struct WebProcessCreationParameters {
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    bool currentUserInterfaceIdiomIsPad { false };
+    bool currentUserInterfaceIdiomIsSmallScreen { false };
     bool supportsPictureInPicture { false };
     WebCore::RenderThemeIOS::CSSValueToSystemColorMap cssValueToSystemColorMap;
     WebCore::Color focusRingColor;
     String localizedDeviceModel;
-#endif
-
-#if PLATFORM(COCOA)
-    SandboxExtension::HandleArray mediaExtensionHandles; // FIXME(207716): Remove when GPU process is complete.
-#if ENABLE(CFPREFS_DIRECT_MODE)
-    Optional<SandboxExtension::HandleArray> preferencesExtensionHandles;
-#endif
+    String contentSizeCategory;
 #endif
 
 #if PLATFORM(GTK)
     bool useSystemAppearanceForScrollbars { false };
+    GtkSettingsState gtkSettings;
+#endif
+
+#if HAVE(CATALYST_USER_INTERFACE_IDIOM_AND_SCALE_FACTOR)
+    std::pair<int64_t, double> overrideUserInterfaceIdiomAndScale;
+#endif
+
+#if HAVE(IOSURFACE)
+    WebCore::IntSize maximumIOSurfaceSize;
+    size_t bytesPerRowIOSurfaceAlignment;
+#endif
+    
+    AccessibilityPreferences accessibilityPreferences;
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
+#endif
+
+#if USE(GLIB)
+    String applicationID;
+    String applicationName;
+#endif
+
+#if USE(ATSPI)
+    String accessibilityBusAddress;
 #endif
 };
 

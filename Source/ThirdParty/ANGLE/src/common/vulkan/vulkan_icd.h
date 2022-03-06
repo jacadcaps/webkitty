@@ -27,6 +27,12 @@ enum class ICD
     SwiftShader,
 };
 
+struct SimpleDisplayWindow
+{
+    uint16_t width;
+    uint16_t height;
+};
+
 class ScopedVkLoaderEnvironment : angle::NonCopyable
 {
   public:
@@ -49,7 +55,8 @@ class ScopedVkLoaderEnvironment : angle::NonCopyable
     Optional<std::string> mPreviousCustomExtensionsEnv;
 };
 
-void ChoosePhysicalDevice(const std::vector<VkPhysicalDevice> &physicalDevices,
+void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties pGetPhysicalDeviceProperties,
+                          const std::vector<VkPhysicalDevice> &physicalDevices,
                           vk::ICD preferredICD,
                           VkPhysicalDevice *physicalDeviceOut,
                           VkPhysicalDeviceProperties *physicalDevicePropertiesOut);

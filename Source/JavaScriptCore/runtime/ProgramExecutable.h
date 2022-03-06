@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 
 namespace JSC {
 
+class UnlinkedProgramCodeBlock;
+
 class ProgramExecutable final : public GlobalExecutable {
     friend class LLIntOffsetsExtractor;
 public:
@@ -37,15 +39,15 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.programExecutableSpace.space;
+        return &vm.programExecutableSpace();
     }
 
     static ProgramExecutable* create(JSGlobalObject* globalObject, const SourceCode& source)
     {
         VM& vm = getVM(globalObject);
-        ProgramExecutable* executable = new (NotNull, allocateCell<ProgramExecutable>(vm.heap)) ProgramExecutable(globalObject, source);
+        ProgramExecutable* executable = new (NotNull, allocateCell<ProgramExecutable>(vm)) ProgramExecutable(globalObject, source);
         executable->finishCreation(vm);
         return executable;
     }
@@ -71,8 +73,6 @@ public:
         
     DECLARE_INFO;
 
-    ExecutableInfo executableInfo() const { return ExecutableInfo(usesEval(), false, false, ConstructorKind::None, JSParserScriptMode::Classic, SuperBinding::NotNeeded, SourceParseMode::ProgramMode, derivedContextType(), NeedsClassFieldInitializer::No, isArrowFunctionContext(), false, EvalContextType::None); }
-
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 
 private:
@@ -81,7 +81,7 @@ private:
 
     ProgramExecutable(JSGlobalObject*, const SourceCode&);
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
     WriteBarrier<UnlinkedProgramCodeBlock> m_unlinkedProgramCodeBlock;
     WriteBarrier<ExecutableToCodeBlockEdge> m_programCodeBlock;

@@ -26,6 +26,7 @@
 #pragma once
 
 #include "RenderStyleConstants.h"
+#include "TextSizeAdjustment.h"
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -46,17 +47,16 @@ public:
     Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, const Element*);
 
     void adjust(RenderStyle&, const RenderStyle* userAgentAppearanceStyle) const;
+    void adjustAnimatedStyle(RenderStyle&, OptionSet<AnimationImpact>) const;
 
     static void adjustSVGElementStyle(RenderStyle&, const SVGElement&);
-    static void adjustAnimatedStyle(RenderStyle&, const RenderStyle* parentBoxStyle, OptionSet<AnimationImpact>);
-    
     static void adjustEventListenerRegionTypesForRootStyle(RenderStyle&, const Document&);
 
 #if ENABLE(TEXT_AUTOSIZING)
     struct AdjustmentForTextAutosizing {
-        Optional<float> newFontSize;
-        Optional<float> newLineHeight;
-        Optional<AutosizeStatus> newStatus;
+        std::optional<float> newFontSize;
+        std::optional<float> newLineHeight;
+        std::optional<AutosizeStatus> newStatus;
         explicit operator bool() const { return newFontSize || newLineHeight || newStatus; }
     };
     static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const RenderStyle&, const Element&);

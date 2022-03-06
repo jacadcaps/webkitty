@@ -27,6 +27,7 @@
 
 #include "DownloadID.h"
 #include "SandboxExtension.h"
+#include "WebPageProxyIdentifier.h"
 #include <WebCore/Credential.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/NetworkLoadMetrics.h>
@@ -52,6 +53,7 @@ class NetworkSession;
 class PendingDownload;
 enum class AuthenticationChallengeDisposition : uint8_t;
 enum class NegotiatedLegacyTLS : bool;
+enum class PrivateRelayed : bool;
 
 using RedirectCompletionHandler = CompletionHandler<void(WebCore::ResourceRequest&&)>;
 using ChallengeCompletionHandler = CompletionHandler<void(AuthenticationChallengeDisposition, const WebCore::Credential&)>;
@@ -61,17 +63,18 @@ class NetworkDataTaskClient {
 public:
     virtual void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&) = 0;
     virtual void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&) = 0;
-    virtual void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&) = 0;
-    virtual void didReceiveData(Ref<WebCore::SharedBuffer>&&) = 0;
+    virtual void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&) = 0;
+    virtual void didReceiveData(const WebCore::SharedBuffer&) = 0;
     virtual void didCompleteWithError(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&) = 0;
     virtual void didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend) = 0;
     virtual void wasBlocked() = 0;
     virtual void cannotShowURL() = 0;
     virtual void wasBlockedByRestrictions() = 0;
+    virtual void wasBlockedByDisabledFTP() = 0;
 
     virtual bool shouldCaptureExtraNetworkLoadMetrics() const { return false; }
 
-    virtual void didNegotiateModernTLS(const WebCore::AuthenticationChallenge&) { }
+    virtual void didNegotiateModernTLS(const URL&) { }
 
     void didCompleteWithError(const WebCore::ResourceError& error)
     {
@@ -92,7 +95,7 @@ public:
     virtual void resume() = 0;
     virtual void invalidateAndCancel() = 0;
 
-    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&);
+    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
     bool shouldCaptureExtraNetworkLoadMetrics() const;
 
     enum class State {
@@ -110,8 +113,8 @@ public:
     PendingDownload* pendingDownload() const { return m_pendingDownload; }
     void setPendingDownloadID(DownloadID downloadID)
     {
-        ASSERT(!m_pendingDownloadID.downloadID());
-        ASSERT(downloadID.downloadID());
+        ASSERT(!m_pendingDownloadID);
+        ASSERT(downloadID);
         m_pendingDownloadID = downloadID;
     }
     void setPendingDownload(PendingDownload& pendingDownload)
@@ -122,7 +125,7 @@ public:
 
     virtual void setPendingDownloadLocation(const String& filename, SandboxExtension::Handle&&, bool /*allowOverwrite*/) { m_pendingDownloadLocation = filename; }
     const String& pendingDownloadLocation() const { return m_pendingDownloadLocation; }
-    bool isDownload() const { return !!m_pendingDownloadID.downloadID(); }
+    bool isDownload() const { return !!m_pendingDownloadID; }
 
     const WebCore::ResourceRequest& firstRequest() const { return m_firstRequest; }
     virtual String suggestedFilename() const { return String(); }
@@ -134,6 +137,9 @@ public:
     virtual String description() const;
     virtual void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
 
+    virtual void setPriority(WebCore::ResourceLoadPriority) { }
+    String attributedBundleIdentifier(WebPageProxyIdentifier);
+
     PAL::SessionID sessionID() const;
 
     NetworkSession* networkSession();
@@ -141,10 +147,11 @@ public:
 protected:
     NetworkDataTask(NetworkSession&, NetworkDataTaskClient&, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation);
 
-    enum FailureType {
-        BlockedFailure,
-        InvalidURLFailure,
-        RestrictedURLFailure
+    enum class FailureType : uint8_t {
+        Blocked,
+        InvalidURL,
+        RestrictedURL,
+        FTPDisabled
     };
     void scheduleFailure(FailureType);
 
@@ -168,6 +175,7 @@ protected:
     bool m_shouldClearReferrerOnHTTPSToHTTPRedirect { true };
     String m_suggestedFilename;
     bool m_dataTaskIsForMainFrameNavigation { false };
+    bool m_failureScheduled { false };
 };
 
 } // namespace WebKit

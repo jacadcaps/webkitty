@@ -11,12 +11,24 @@
 
 #include "common/platform.h"
 
+#if defined(ANGLE_USE_ABSEIL)
+#    include "absl/container/flat_hash_map.h"
+#    include "absl/container/flat_hash_set.h"
+#endif  // defined(ANGLE_USE_ABSEIL)
+
+#if defined(ANGLE_WITH_LSAN)
+#    include <sanitizer/lsan_interface.h>
+#endif  // defined(ANGLE_WITH_LSAN)
+
 #include <climits>
 #include <cstdarg>
 #include <cstddef>
+#include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // A helper class to disallow copy and assignment operators
@@ -26,6 +38,18 @@ namespace angle
 #if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
 using Microsoft::WRL::ComPtr;
 #endif  // defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
+
+#if defined(ANGLE_USE_ABSEIL)
+template <typename Key, typename T, class Hash = absl::container_internal::hash_default_hash<Key>>
+using HashMap = absl::flat_hash_map<Key, T, Hash>;
+template <typename Key, class Hash = absl::container_internal::hash_default_hash<Key>>
+using HashSet = absl::flat_hash_set<Key, Hash>;
+#else
+template <typename Key, typename T, class Hash = std::hash<Key>>
+using HashMap = std::unordered_map<Key, T, Hash>;
+template <typename Key, class Hash = std::hash<Key>>
+using HashSet = std::unordered_set<Key, Hash>;
+#endif  // defined(ANGLE_USE_ABSEIL)
 
 class NonCopyable
 {
@@ -39,6 +63,30 @@ class NonCopyable
 };
 
 extern const uintptr_t DirtyPointer;
+
+struct SaveFileHelper
+{
+  public:
+    // We always use ios::binary to avoid inconsistent line endings when captured on Linux vs Win.
+    SaveFileHelper(const std::string &filePathIn);
+    ~SaveFileHelper();
+
+    template <typename T>
+    SaveFileHelper &operator<<(const T &value)
+    {
+        mOfs << value;
+        checkError();
+        return *this;
+    }
+
+    void write(const uint8_t *data, size_t size);
+
+  private:
+    void checkError();
+
+    std::ofstream mOfs;
+    std::string mFilePath;
+};
 
 }  // namespace angle
 
@@ -173,8 +221,6 @@ inline std::string Str(int i)
     return strstr.str();
 }
 
-size_t FormatStringIntoVector(const char *fmt, va_list vararg, std::vector<char> &buffer);
-
 template <typename T>
 std::string ToString(const T &value)
 {
@@ -205,7 +251,7 @@ inline bool IsLittleEndian()
 #define GL_BGRA8_SRGB_ANGLEX 0x6AC0
 #define GL_BGR10_A2_ANGLEX 0x6AF9
 
-// These are dummy formats used to fit typeless D3D textures that can be bound to EGL pbuffers into
+// These are fake formats used to fit typeless D3D textures that can be bound to EGL pbuffers into
 // the format system (for extension EGL_ANGLE_d3d_texture_client_buffer):
 #define GL_RGBA8_TYPELESS_ANGLEX 0x6AC1
 #define GL_RGBA8_TYPELESS_SRGB_ANGLEX 0x6AC2
@@ -261,7 +307,7 @@ inline bool IsLittleEndian()
 // EXT_texture_type_2_10_10_10_REV
 #define GL_RGB10_UNORM_ANGLEX 0x6AEE
 
-// These are dummy formats for OES_vertex_type_10_10_10_2
+// These are fake formats for OES_vertex_type_10_10_10_2
 #define GL_A2_RGB10_UNORM_ANGLEX 0x6AEF
 #define GL_A2_RGB10_SNORM_ANGLEX 0x6AF0
 #define GL_A2_RGB10_USCALED_ANGLEX 0x6AF1
@@ -282,6 +328,28 @@ inline bool IsLittleEndian()
 #define ANGLE_GL_UNREACHABLE(context) \
     UNREACHABLE();                    \
     ANGLE_CHECK(context, false, "Unreachable Code.", GL_INVALID_OPERATION)
+
+#if defined(ANGLE_WITH_LSAN)
+#    define ANGLE_SCOPED_DISABLE_LSAN() __lsan::ScopedDisabler lsanDisabler
+#else
+#    define ANGLE_SCOPED_DISABLE_LSAN()
+#endif
+
+// The ANGLE_NO_SANITIZE_MEMORY macro suppresses MemorySanitizer checks for
+// use-of-uninitialized-data. It can be used to decorate functions with known
+// false positives.
+#ifdef __clang__
+#    define ANGLE_NO_SANITIZE_MEMORY __attribute__((no_sanitize_memory))
+#else
+#    define ANGLE_NO_SANITIZE_MEMORY
+#endif
+
+// Similar to the above, but for thread sanitization.
+#ifdef __clang__
+#    define ANGLE_NO_SANITIZE_THREAD __attribute__((no_sanitize_thread))
+#else
+#    define ANGLE_NO_SANITIZE_THREAD
+#endif
 
 // The below inlining code lifted from V8.
 #if defined(__clang__) || (defined(__GNUC__) && defined(__has_attribute))
@@ -325,6 +393,9 @@ inline bool IsLittleEndian()
 #    define ANGLE_FORMAT_PRINTF(fmt, args)
 #endif
 
+ANGLE_FORMAT_PRINTF(1,0)
+size_t FormatStringIntoVector(const char *fmt, va_list vararg, std::vector<char> &buffer);
+
 // Format messes up the # inside the macro.
 // clang-format off
 #ifndef ANGLE_STRINGIFY
@@ -359,4 +430,37 @@ inline bool IsLittleEndian()
 #    define ANGLE_REQUIRE_CONSTANT_INIT
 #endif  // __has_cpp_attribute(require_constant_initialization)
 
+#if __has_cpp_attribute(clang::fallthrough)
+#    define ANGLE_FALLTHROUGH [[clang::fallthrough]]
+#else
+#    define ANGLE_FALLTHROUGH
+#endif
+
+// Compiler configs.
+inline bool IsASan()
+{
+#if defined(ANGLE_WITH_ASAN)
+    return true;
+#else
+    return false;
+#endif  // defined(ANGLE_WITH_ASAN)
+}
+
+inline bool IsTSan()
+{
+#if defined(ANGLE_WITH_TSAN)
+    return true;
+#else
+    return false;
+#endif  // defined(ANGLE_WITH_TSAN)
+}
+
+inline bool IsUBSan()
+{
+#if defined(ANGLE_WITH_UBSAN)
+    return true;
+#else
+    return false;
+#endif  // defined(ANGLE_WITH_UBSAN)
+}
 #endif  // COMMON_ANGLEUTILS_H_

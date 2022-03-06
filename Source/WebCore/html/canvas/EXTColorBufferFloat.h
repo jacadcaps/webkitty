@@ -30,13 +30,14 @@
 namespace WebCore {
 
 class EXTColorBufferFloat final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(EXTColorBufferFloat);
 public:
     explicit EXTColorBufferFloat(WebGLRenderingContextBase&);
     virtual ~EXTColorBufferFloat();
 
     ExtensionName getName() const override;
 
-    static bool supported(const WebGLRenderingContextBase&);
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

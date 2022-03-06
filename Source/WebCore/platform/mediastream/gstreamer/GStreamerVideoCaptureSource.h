@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Metrological Group B.V.
+ * Copyright (C) 2020 Igalia S.L.
  * Author: Thibault Saunier <tsaunier@igalia.com>
  * Author: Alejandro G. Castro  <alex@igalia.com>
  *
@@ -21,20 +22,21 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "CaptureDevice.h"
 #include "GStreamerVideoCapturer.h"
 #include "RealtimeVideoCaptureSource.h"
 
 namespace WebCore {
 
-class GStreamerVideoCaptureSource : public RealtimeVideoCaptureSource {
+class GStreamerVideoCaptureSource : public RealtimeVideoCaptureSource, GStreamerCapturer::Observer {
 public:
     static CaptureSourceOrError create(String&& deviceID, String&& hashSalt, const MediaConstraints*);
+    static CaptureSourceOrError createPipewireSource(String&& deviceID, int fd, String&& hashSalt, const MediaConstraints*, CaptureDevice::DeviceType);
+
     WEBCORE_EXPORT static VideoCaptureFactory& factory();
 
-    // FIXME: Implement this.
-    WEBCORE_EXPORT static DisplayCaptureFactory& displayFactory(); 
+    WEBCORE_EXPORT static DisplayCaptureFactory& displayFactory();
 
     const RealtimeMediaSourceCapabilities& capabilities() override;
     const RealtimeMediaSourceSettings& settings() override;
@@ -42,8 +44,11 @@ public:
     GStreamerCapturer* capturer() { return m_capturer.get(); }
     void processNewFrame(Ref<MediaSample>&&);
 
+    // GStreamerCapturer::Observer
+    void sourceCapsChanged(const GstCaps*) final;
+
 protected:
-    GStreamerVideoCaptureSource(String&& deviceID, String&& name, String&& hashSalt, const gchar * source_factory);
+    GStreamerVideoCaptureSource(String&& deviceID, String&& name, String&& hashSalt, const gchar* source_factory, CaptureDevice::DeviceType, int fd);
     GStreamerVideoCaptureSource(GStreamerCaptureDevice, String&& hashSalt);
     virtual ~GStreamerVideoCaptureSource();
     void startProducingData() override;
@@ -52,9 +57,9 @@ protected:
     void generatePresets() override;
 
 
-    mutable Optional<RealtimeMediaSourceCapabilities> m_capabilities;
-    mutable Optional<RealtimeMediaSourceSettings> m_currentSettings;
-    CaptureDevice::DeviceType deviceType() const override { return CaptureDevice::DeviceType::Camera; }
+    mutable std::optional<RealtimeMediaSourceCapabilities> m_capabilities;
+    mutable std::optional<RealtimeMediaSourceSettings> m_currentSettings;
+    CaptureDevice::DeviceType deviceType() const override { return m_deviceType; }
 
 private:
     static GstFlowReturn newSampleCallback(GstElement*, GStreamerVideoCaptureSource*);
@@ -63,8 +68,9 @@ private:
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final;
 
     std::unique_ptr<GStreamerVideoCapturer> m_capturer;
+    CaptureDevice::DeviceType m_deviceType;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#endif // ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

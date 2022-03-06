@@ -67,6 +67,37 @@ static inline OptionSet<WebEvent::Modifier> modifiersForEvent(const GdkEvent* ev
     if (PlatformKeyboardEvent::modifiersContainCapsLock(state))
         modifiers.add(WebEvent::Modifier::CapsLockKey);
 
+    GdkEventType type = gdk_event_get_event_type(const_cast<GdkEvent*>(event));
+    if (type != GDK_KEY_PRESS)
+        return modifiers;
+
+    // Modifier masks are set different in X than other platforms. This code makes WebKitGTK
+    // to behave similar to other platforms and other browsers under X (see http://crbug.com/127142#c8).
+
+    guint keyval;
+    gdk_event_get_keyval(event, &keyval);
+    switch (keyval) {
+    case GDK_KEY_Control_L:
+    case GDK_KEY_Control_R:
+        modifiers.add(WebEvent::Modifier::ControlKey);
+        break;
+    case GDK_KEY_Shift_L:
+    case GDK_KEY_Shift_R:
+        modifiers.add(WebEvent::Modifier::ShiftKey);
+        break;
+    case GDK_KEY_Alt_L:
+    case GDK_KEY_Alt_R:
+        modifiers.add(WebEvent::Modifier::AltKey);
+        break;
+    case GDK_KEY_Meta_L:
+    case GDK_KEY_Meta_R:
+        modifiers.add(WebEvent::Modifier::MetaKey);
+        break;
+    case GDK_KEY_Caps_Lock:
+        modifiers.add(WebEvent::Modifier::CapsLockKey);
+        break;
+    }
+
     return modifiers;
 }
 
@@ -138,7 +169,7 @@ static inline short pressedMouseButtons(GdkModifierType state)
     return buttons;
 }
 
-WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, int currentClickCount, Optional<FloatSize> delta)
+WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, int currentClickCount, std::optional<FloatSize> delta)
 {
     double x, y;
     gdk_event_get_coords(event, &x, &y);
@@ -148,7 +179,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, int cu
     return createWebMouseEvent(event, { clampToInteger(x), clampToInteger(y) }, { clampToInteger(xRoot), clampToInteger(yRoot) }, currentClickCount, delta);
 }
 
-WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, int currentClickCount, Optional<FloatSize> delta)
+WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, int currentClickCount, std::optional<FloatSize> delta)
 {
 #if USE(GTK4)
     // This can happen when a NativeWebMouseEvent representing a crossing event is copied.
@@ -233,7 +264,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, WebWhe
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase)
 {
-    Optional<FloatSize> wheelTicks;
+    std::optional<FloatSize> wheelTicks;
     GdkScrollDirection direction;
     if (!gdk_event_get_scroll_direction(event, &direction)) {
         direction = GDK_SCROLL_SMOOTH;
@@ -280,6 +311,16 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const 
     float step = static_cast<float>(Scrollbar::pixelsPerLineStep());
     FloatSize delta(wheelTicks.width() * step, wheelTicks.height() * step);
 
+    bool hasPreciseScrollingDeltas = false;
+    GdkScrollDirection direction;
+    if (!gdk_event_get_scroll_direction(event, &direction)) {
+        double deltaX, deltaY;
+        if (gdk_event_get_scroll_deltas(event, &deltaX, &deltaY)) {
+            if (auto* device = gdk_event_get_source_device(event))
+                hasPreciseScrollingDeltas = gdk_device_get_source(device) != GDK_SOURCE_MOUSE;
+        }
+    }
+
     return WebWheelEvent(WebEvent::Wheel,
         position,
         globalPosition,
@@ -288,11 +329,12 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const 
         phase,
         momentumPhase,
         WebWheelEvent::ScrollByPixelWheelEvent,
+        hasPreciseScrollingDeltas,
         modifiersForEvent(event),
         wallTimeForEvent(event));
 }
 
-WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, const String& text, bool handledByInputMethod, Optional<Vector<CompositionUnderline>>&& preeditUnderlines, Optional<EditingRange>&& preeditSelectionRange, Vector<String>&& commands)
+WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, const String& text, bool handledByInputMethod, std::optional<Vector<CompositionUnderline>>&& preeditUnderlines, std::optional<EditingRange>&& preeditSelectionRange, Vector<String>&& commands)
 {
     guint keyval;
     gdk_event_get_keyval(event, &keyval);

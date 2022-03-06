@@ -32,6 +32,7 @@
 #include "WebKitExtensionManager.h"
 #include "WebKitUserMessage.h"
 #include "WebKitWebExtension.h"
+#include "WebKitWebPageAccessibilityObject.h"
 #include "WebKitWebPagePrivate.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/Editor.h>
@@ -41,11 +42,66 @@
 #include <WebCore/HTMLTextAreaElement.h>
 #include <WebCore/Range.h>
 #include <WebCore/TextIterator.h>
+#include <WebCore/UserAgent.h>
 #include <WebCore/VisiblePosition.h>
 #include <WebCore/VisibleUnits.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+void WebPage::platformInitialize(const WebPageCreationParameters&)
+{
+#if ENABLE(ACCESSIBILITY)
+    // Create the accessible object (the plug) that will serve as the
+    // entry point to the Web process, and send a message to the UI
+    // process to connect the two worlds through the accessibility
+    // object there specifically placed for that purpose (the socket).
+#if USE(ATK)
+    auto isValidPlugID = [](const char* plugID) -> bool {
+        if (!plugID || plugID[0] != ':')
+            return false;
+
+        auto* p = g_strrstr(plugID, ":");
+        if (!p)
+            return false;
+
+        if (!g_variant_is_object_path(p + 1))
+            return false;
+
+        GUniquePtr<char> name(g_strndup(plugID, p - plugID));
+        if (!g_dbus_is_unique_name(name.get()))
+            return false;
+
+        return true;
+    };
+
+    m_accessibilityObject = adoptGRef(webkitWebPageAccessibilityObjectNew(this));
+    GUniquePtr<gchar> plugID(atk_plug_get_id(ATK_PLUG(m_accessibilityObject.get())));
+    if (isValidPlugID(plugID.get()))
+        send(Messages::WebPageProxy::BindAccessibilityTree(String(plugID.get())));
+#elif USE(ATSPI)
+#if PLATFORM(GTK) && USE(GTK4)
+    // FIXME: we need a way to connect DOM and app a11y tree in GTK4.
+#else
+    if (auto* page = corePage()) {
+        m_accessibilityRootObject = AccessibilityRootAtspi::create(*page);
+        m_accessibilityRootObject->registerObject([&](const String& plugID) {
+            if (!plugID.isEmpty())
+                send(Messages::WebPageProxy::BindAccessibilityTree(plugID));
+        });
+    }
+#endif
+#endif
+#endif
+}
+
+void WebPage::platformDetach()
+{
+#if USE(ATSPI)
+    if (m_accessibilityRootObject)
+        m_accessibilityRootObject->unregisterObject();
+#endif
+}
 
 void WebPage::sendMessageToWebExtensionWithReply(UserMessage&& message, CompletionHandler<void(UserMessage&&)>&& completionHandler)
 {
@@ -109,7 +165,7 @@ void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
         auto surroundingStart = startOfEditableContent(selectionStart);
         auto surroundingRange = makeSimpleRange(surroundingStart, endOfEditableContent(selectionStart));
         auto compositionRange = frame.editor().compositionRange();
-        if (surroundingRange && compositionRange && createLiveRange(surroundingRange)->contains(createLiveRange(*compositionRange).get())) {
+        if (surroundingRange && compositionRange && contains<ComposedTree>(*surroundingRange, *compositionRange)) {
             auto beforeText = plainText({ surroundingRange->start, compositionRange->start });
             postLayoutData.surroundingContext = beforeText + plainText({ compositionRange->end, surroundingRange->end });
             postLayoutData.surroundingContextCursorPosition = beforeText.length();
@@ -124,20 +180,24 @@ void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
     }
 }
 
-static Optional<InputMethodState> inputMethodSateForElement(Element* element)
+static std::optional<InputMethodState> inputMethodSateForElement(Element* element)
 {
     if (!element || !element->shouldUseInputMethod())
-        return WTF::nullopt;
+        return std::nullopt;
 
     InputMethodState state;
     if (is<HTMLInputElement>(*element)) {
         auto& inputElement = downcast<HTMLInputElement>(*element);
         state.setPurposeForInputElement(inputElement);
+#if ENABLE(AUTOCAPITALIZE)
         state.addHintsForAutocapitalizeType(inputElement.autocapitalizeType());
+#endif
     } else if (is<HTMLTextAreaElement>(*element) || (element->hasEditableStyle() && is<HTMLElement>(*element))) {
         auto& htmlElement = downcast<HTMLElement>(*element);
         state.setPurposeOrHintForInputMode(htmlElement.canonicalInputMode());
+#if ENABLE(AUTOCAPITALIZE)
         state.addHintsForAutocapitalizeType(htmlElement.autocapitalizeType());
+#endif
     }
 
     if (element->isSpellCheckingEnabled())
@@ -154,6 +214,14 @@ void WebPage::setInputMethodState(Element* element)
 
     m_inputMethodState = state;
     send(Messages::WebPageProxy::SetInputMethodState(state));
+}
+
+String WebPage::platformUserAgent(const URL& url) const
+{
+    if (url.isNull() || !m_page->settings().needsSiteSpecificQuirks())
+        return String();
+
+    return WebCore::standardUserAgentForURL(url);
 }
 
 } // namespace WebKit

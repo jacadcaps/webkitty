@@ -9,6 +9,7 @@
 
 #include "test_utils/angle_test_instantiate.h"
 
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <map>
@@ -43,7 +44,7 @@ bool IsAngleEGLConfigSupported(const PlatformParameters &param, OSWindow *osWind
 
 #if defined(ANGLE_USE_UTIL_LOADER)
     eglLibrary.reset(
-        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
 #endif
 
     EGLWindow *eglWindow = EGLWindow::New(param.majorVersion, param.minorVersion);
@@ -80,7 +81,8 @@ bool IsSystemEGLConfigSupported(const PlatformParameters &param, OSWindow *osWin
 #if defined(ANGLE_USE_UTIL_LOADER)
     std::unique_ptr<angle::Library> eglLibrary;
 
-    eglLibrary.reset(OpenSharedLibraryWithExtension(GetNativeEGLLibraryNameWithExtension()));
+    eglLibrary.reset(OpenSharedLibraryWithExtension(GetNativeEGLLibraryNameWithExtension(),
+                                                    SearchType::SystemDir));
 
     EGLWindow *eglWindow = EGLWindow::New(param.majorVersion, param.minorVersion);
     ConfigParameters configParams;
@@ -103,6 +105,20 @@ bool IsAndroidDevice(const std::string &deviceName)
     }
     SystemInfo *systemInfo = GetTestSystemInfo();
     if (systemInfo->machineModelName == deviceName)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool IsAndroid9OrNewer()
+{
+    if (!IsAndroid())
+    {
+        return false;
+    }
+    SystemInfo *systemInfo = GetTestSystemInfo();
+    if (systemInfo->androidSdkLevel >= 28)
     {
         return true;
     }
@@ -147,12 +163,25 @@ constexpr size_t kMaxConfigNameLen = 100;
 std::array<char, kMaxConfigNameLen> gSelectedConfig;
 }  // namespace
 
-bool gSeparateProcessPerConfig = false;
+bool gEnableANGLEPerTestCaptureLabel = false;
 
 bool IsConfigSelected()
 {
     return gSelectedConfig[0] != 0;
 }
+
+#if !defined(ANGLE_PLATFORM_APPLE)
+// For Apple platform, see angle_test_instantiate_apple.mm
+bool IsMetalTextureSwizzleAvailable()
+{
+    return false;
+}
+
+bool IsMetalCompressedTexture3DAvailable()
+{
+    return false;
+}
+#endif
 
 SystemInfo *GetTestSystemInfo()
 {
@@ -205,7 +234,26 @@ bool IsLinux()
 
 bool IsOSX()
 {
-#if defined(ANGLE_PLATFORM_APPLE)
+#if defined(ANGLE_PLATFORM_MACOS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool IsIOS()
+{
+#if defined(ANGLE_PLATFORM_IOS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool IsARM64()
+{
+// _M_ARM64 is Windows-specific, while __aarch64__ is for other platforms.
+#if defined(_M_ARM64) || defined(__aarch64__)
     return true;
 #else
     return false;
@@ -214,7 +262,23 @@ bool IsOSX()
 
 bool IsOzone()
 {
-#if defined(USE_OZONE)
+#if defined(USE_OZONE) && (defined(USE_X11) || defined(ANGLE_USE_VULKAN_DISPLAY))
+    // We do not have a proper support for Ozone/Linux yet. Still, we need to figure out how to
+    // properly initialize tests and differentiate between X11 and Wayland. Probably, passing a
+    // command line argument could be sufficient. At the moment, run tests only for X11 backend
+    // as we don't have Wayland support in Angle. Yes, this is a bit weird to return false, but
+    // it makes it possible to continue angle tests with X11 regardless of the Chromium config
+    // for linux, which is use_x11 && use_ozone.  Also, IsOzone is a bit vague now. It was only
+    // expected that angle could run with ozone/drm backend for ChromeOS. And returning true
+    // for desktop Linux when USE_OZONE && USE_X11 are both defined results in incorrect tests'
+    // expectations. We should also rework them and make IsOzone less vague.
+    //
+    // TODO(crbug.com/angleproject/4977): make it possible to switch between X11 and Wayland on
+    // Ozone/Linux builds. Probably, it's possible to identify the WAYLAND backend by checking
+    // the WAYLAND_DISPLAY or XDG_SESSION_TYPE env vars. And also make the IsOzone method less
+    // vague (read the comment above).
+    return false;
+#elif defined(USE_OZONE)
     return true;
 #else
     return false;
@@ -253,11 +317,6 @@ bool IsNexus5X()
     return IsAndroidDevice("Nexus 5X");
 }
 
-bool IsNexus6P()
-{
-    return IsAndroidDevice("Nexus 6P");
-}
-
 bool IsNexus9()
 {
     return IsAndroidDevice("Nexus 9");
@@ -278,6 +337,16 @@ bool IsPixel2XL()
     return IsAndroidDevice("Pixel 2 XL");
 }
 
+bool IsPixel4()
+{
+    return IsAndroidDevice("Pixel 4");
+}
+
+bool IsPixel4XL()
+{
+    return IsAndroidDevice("Pixel 4 XL");
+}
+
 bool IsNVIDIAShield()
 {
     return IsAndroidDevice("SHIELD Android TV");
@@ -288,9 +357,19 @@ bool IsIntel()
     return HasSystemVendorID(kVendorID_Intel);
 }
 
+bool IsIntelUHD630Mobile()
+{
+    return HasSystemDeviceID(kVendorID_Intel, kDeviceID_UHD630Mobile);
+}
+
 bool IsAMD()
 {
     return HasSystemVendorID(kVendorID_AMD);
+}
+
+bool IsApple()
+{
+    return HasSystemVendorID(kVendorID_Apple);
 }
 
 bool IsARM()
@@ -315,16 +394,22 @@ bool IsNVIDIA()
     return HasSystemVendorID(kVendorID_NVIDIA);
 }
 
-bool IsARM64()
+bool IsQualcomm()
 {
-#if defined(_M_ARM64)
+    return IsNexus5X() || IsNexus9() || IsPixelXL() || IsPixel2() || IsPixel2XL() || IsPixel4() ||
+           IsPixel4XL();
+}
+
+bool Is64Bit()
+{
+#if defined(ANGLE_IS_64_BIT_CPU)
     return true;
 #else
     return false;
-#endif
+#endif  // defined(ANGLE_IS_64_BIT_CPU)
 }
 
-bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters &param)
+bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters &param)
 {
     VendorID vendorID =
         systemInfo.gpus.empty() ? 0 : systemInfo.gpus[systemInfo.activeGPUIndex].vendorId;
@@ -360,8 +445,11 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
                 {
                     case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
                     case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
-                    case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
                         return true;
+                    case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
+                        // Note we disable AMD OpenGL testing on Windows due to using a very old and
+                        // outdated card with many driver bugs. See http://anglebug.com/5123
+                        return !IsAMD();
                     case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
                         if (IsARM64())
                         {
@@ -391,7 +479,7 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
     }
 
 #if defined(ANGLE_PLATFORM_APPLE)
-    if (IsOSX())
+    if (IsOSX() || IsIOS())
     {
         // We do not support non-ANGLE bindings on OSX.
         if (param.driver != GLESDriverType::AngleEGL)
@@ -409,10 +497,8 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
                 }
                 return true;
             case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
-                if (!IsMetalRendererAvailable() || IsIntel(vendorID))
+                if (!IsMetalRendererAvailable())
                 {
-                    // TODO(hqle): Intel metal tests seem to have problems. Disable for now.
-                    // http://anglebug.com/4133
                     return false;
                 }
                 return true;
@@ -483,9 +569,10 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
         switch (param.getRenderer())
         {
             case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
-            case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
-                // Note that system info collection depends on Vulkan support.
                 return true;
+            case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
+                // http://issuetracker.google.com/173004081
+                return !IsIntel() || param.eglParameters.asyncCommandQueueFeatureVulkan != EGL_TRUE;
             default:
                 return false;
         }
@@ -498,7 +585,7 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
         // Nexus Android devices don't support backing 3.2 contexts
         if (param.eglParameters.majorVersion == 3 && param.eglParameters.minorVersion == 2)
         {
-            if (IsNexus5X() || IsNexus6P())
+            if (IsNexus5X())
             {
                 return false;
             }
@@ -508,9 +595,18 @@ bool IsConfigWhitelisted(const SystemInfo &systemInfo, const PlatformParameters 
         switch (param.getRenderer())
         {
             case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
+                return true;
             case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
                 // Swiftshader's vulkan frontend doesn't build on Android.
                 if (param.getDeviceType() == EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE)
+                {
+                    return false;
+                }
+                if (!IsAndroid9OrNewer())
+                {
+                    return false;
+                }
+                if (param.eglParameters.supportsVulkanViewportFlip == EGL_FALSE)
                 {
                     return false;
                 }
@@ -603,10 +699,11 @@ bool IsPlatformAvailable(const PlatformParameters &param)
 #endif
 
         case EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE:
-#ifndef ANGLE_ENABLE_NULL
+#if !defined(ANGLE_ENABLE_NULL)
             return false;
-#endif
+#else
             break;
+#endif
 
         default:
             std::cout << "Unknown test platform: " << param << std::endl;
@@ -637,7 +734,7 @@ bool IsPlatformAvailable(const PlatformParameters &param)
 
             if (systemInfo)
             {
-                result = IsConfigWhitelisted(*systemInfo, param);
+                result = IsConfigAllowlisted(*systemInfo, param);
             }
             else
             {
@@ -660,12 +757,6 @@ bool IsPlatformAvailable(const PlatformParameters &param)
             std::cout << "Skipping tests using configuration " << param
                       << " because it is not available.\n";
         }
-    }
-
-    // Disable all tests in the parent process when running child processes.
-    if (gSeparateProcessPerConfig)
-    {
-        return false;
     }
     return result;
 }

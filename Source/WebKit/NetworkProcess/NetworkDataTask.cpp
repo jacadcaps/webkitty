@@ -29,6 +29,7 @@
 #include "AuthenticationManager.h"
 #include "NetworkDataTaskBlob.h"
 #include "NetworkLoadParameters.h"
+#include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceError.h>
@@ -53,11 +54,10 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
 {
     ASSERT(!parameters.request.url().protocolIsBlob());
 #if PLATFORM(COCOA)
-    // FIXME: Just pass parameters to the NetworkDataTaskCocoa constructor.
-    return NetworkDataTaskCocoa::create(session, client, parameters.request, parameters.webFrameID, parameters.webPageID, parameters.storedCredentialsPolicy, parameters.contentSniffingPolicy, parameters.contentEncodingSniffingPolicy, parameters.shouldClearReferrerOnHTTPSToHTTPRedirect, parameters.shouldPreconnectOnly, parameters.isMainFrameNavigation, parameters.isMainResourceNavigationForAnyFrame, parameters.networkActivityTracker, parameters.isNavigatingToAppBoundDomain, parameters.shouldRelaxThirdPartyCookieBlocking);
+    return NetworkDataTaskCocoa::create(session, client, parameters);
 #endif
 #if USE(SOUP)
-    return NetworkDataTaskSoup::create(session, client, parameters.request, parameters.webFrameID, parameters.webPageID, parameters.storedCredentialsPolicy, parameters.contentSniffingPolicy, parameters.contentEncodingSniffingPolicy, parameters.shouldClearReferrerOnHTTPSToHTTPRedirect, parameters.isMainFrameNavigation);
+    return NetworkDataTaskSoup::create(session, client, parameters);
 #endif
 #if USE(CURL)
     return NetworkDataTaskCurl::create(session, client, parameters.request, parameters.webFrameID, parameters.webPageID, parameters.storedCredentialsPolicy, parameters.contentSniffingPolicy, parameters.contentEncodingSniffingPolicy, parameters.shouldClearReferrerOnHTTPSToHTTPRedirect, parameters.isMainFrameNavigation, parameters.shouldRelaxThirdPartyCookieBlocking);
@@ -65,7 +65,7 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
 }
 
 NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient& client, const ResourceRequest& requestWithCredentials, StoredCredentialsPolicy storedCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation)
-    : m_session(makeWeakPtr(session))
+    : m_session(session)
     , m_client(&client)
     , m_partition(requestWithCredentials.cachePartition())
     , m_storedCredentialsPolicy(storedCredentialsPolicy)
@@ -77,12 +77,18 @@ NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient&
     ASSERT(RunLoop::isMain());
 
     if (!requestWithCredentials.url().isValid()) {
-        scheduleFailure(InvalidURLFailure);
+        scheduleFailure(FailureType::InvalidURL);
         return;
     }
 
     if (!portAllowed(requestWithCredentials.url())) {
-        scheduleFailure(BlockedFailure);
+        scheduleFailure(FailureType::Blocked);
+        return;
+    }
+
+    if (!session.networkProcess().ftpEnabled()
+        && requestWithCredentials.url().protocolIsInFTPFamily()) {
+        scheduleFailure(FailureType::FTPDisabled);
         return;
     }
 }
@@ -95,29 +101,32 @@ NetworkDataTask::~NetworkDataTask()
 
 void NetworkDataTask::scheduleFailure(FailureType type)
 {
-    RunLoop::main().dispatch([this, weakThis = makeWeakPtr(*this), type] {
+    m_failureScheduled = true;
+    RunLoop::main().dispatch([this, weakThis = WeakPtr { *this }, type] {
         if (!weakThis || !m_client)
             return;
 
         switch (type) {
-        case BlockedFailure:
+        case FailureType::Blocked:
             m_client->wasBlocked();
             return;
-        case InvalidURLFailure:
+        case FailureType::InvalidURL:
             m_client->cannotShowURL();
             return;
-        case RestrictedURLFailure:
+        case FailureType::RestrictedURL:
             m_client->wasBlockedByRestrictions();
             return;
+        case FailureType::FTPDisabled:
+            m_client->wasBlockedByDisabledFTP();
         }
     });
 }
 
-void NetworkDataTask::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, ResponseCompletionHandler&& completionHandler)
+void NetworkDataTask::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     if (response.isHTTP09()) {
         auto url = response.url();
-        Optional<uint16_t> port = url.port();
+        std::optional<uint16_t> port = url.port();
         if (port && !WTF::isDefaultPortForProtocol(port.value(), url.protocol())) {
             completionHandler(PolicyAction::Ignore);
             cancel();
@@ -132,7 +141,7 @@ void NetworkDataTask::didReceiveResponse(ResourceResponse&& response, Negotiated
         response.setUsedLegacyTLS(UsedLegacyTLS::Yes);
 
     if (m_client)
-        m_client->didReceiveResponse(WTFMove(response), negotiatedLegacyTLS, WTFMove(completionHandler));
+        m_client->didReceiveResponse(WTFMove(response), negotiatedLegacyTLS, privateRelayed, WTFMove(completionHandler));
     else
         completionHandler(PolicyAction::Ignore);
 }
@@ -170,10 +179,17 @@ bool NetworkDataTask::isThirdPartyRequest(const WebCore::ResourceRequest& reques
 
 void NetworkDataTask::restrictRequestReferrerToOriginIfNeeded(WebCore::ResourceRequest& request)
 {
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if ((m_session->sessionID().isEphemeral() || m_session->isResourceLoadStatisticsEnabled()) && m_session->shouldDowngradeReferrer() && isThirdPartyRequest(request))
         request.setExistingHTTPReferrerToOriginString();
 #endif
+}
+
+String NetworkDataTask::attributedBundleIdentifier(WebPageProxyIdentifier pageID)
+{
+    if (auto* session = networkSession())
+        return session->attributedBundleIdentifierFromPageIdentifier(pageID);
+    return { };
 }
 
 } // namespace WebKit
