@@ -1,0 +1,42 @@
+set(MiniBrowser_SOURCES
+    main.cpp
+)
+
+set(MiniBrowser_PRIVATE_INCLUDE_DIRECTORIES
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_BINARY_DIR}/DerivedSources/WPEToolingBackends
+    ${DERIVED_SOURCES_WPE_API_DIR}
+    ${FORWARDING_HEADERS_WPE_DIR}
+    ${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
+    ${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
+    ${TOOLS_DIR}/wpe/backends/
+)
+
+set(MiniBrowser_SYSTEM_INCLUDE_DIRECTORIES
+    ${ATK_INCLUDE_DIRS}
+    ${GLIB_INCLUDE_DIRS}
+    ${LIBSOUP_INCLUDE_DIRS}
+    ${WPEBACKEND_FDO_INCLUDE_DIRS}
+)
+
+set(MiniBrowser_PRIVATE_LIBRARIES
+    ${ATK_LIBRARIES}
+    ${JavaScriptCore_LIBRARY_NAME}
+    ${WPEBACKEND_FDO_LIBRARIES}
+    WPE::libwpe
+    WPEToolingBackends
+    WebKit::WebKit
+)
+
+if (DEVELOPER_MODE)
+    list(APPEND MiniBrowser_PRIVATE_DEFINITIONS WEBKIT_INJECTED_BUNDLE_PATH="${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+endif ()
+
+WEBKIT_EXECUTABLE_DECLARE(MiniBrowser)
+WEBKIT_EXECUTABLE(MiniBrowser)
+
+install(TARGETS MiniBrowser DESTINATION "${LIBEXEC_INSTALL_DIR}")
+
+if (ENABLE_WPE_QT_API)
+    add_subdirectory(qt)
+endif ()
