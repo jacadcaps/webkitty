@@ -35,6 +35,7 @@
 #include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/ReadWriteLock.h>
 
 #if USE(CF)
 #include <wtf/RetainPtr.h>
@@ -100,6 +101,7 @@ public:
     // Iterate the segments using begin() and end() instead.
     // FIXME: Audit the call sites of this function and replace them with iteration if possible.
     const uint8_t* data() const;
+    const uint8_t* dataUnlocked() const;
     const char* dataAsCharPtr() const { return reinterpret_cast<const char*>(data()); }
     Vector<uint8_t> copyData() const;
 
@@ -153,7 +155,6 @@ public:
 #endif
 
         bool containsMappedFileData() const;
-
     private:
         DataSegment(Vector<uint8_t>&& data)
             : m_immutableData(WTFMove(data)) { }
@@ -210,6 +211,11 @@ public:
     bool operator==(const SharedBuffer&) const;
     bool operator!=(const SharedBuffer& other) const { return !operator==(other); }
 
+#if OS(MORPHOS)
+    ReadWriteLock::ReadLock& readLock() { return m_rwLock.read(); };
+    ReadWriteLock::WriteLock& writeLock() { return m_rwLock.write(); };
+#endif
+
 private:
     explicit SharedBuffer() = default;
     explicit SharedBuffer(const uint8_t*, size_t);
@@ -227,6 +233,7 @@ private:
 #endif
 
     void combineIntoOneSegment() const;
+    void combineIntoOneSegmentLocked() const;
 
     // Combines all the segments into a Vector and returns that vector after clearing the SharedBuffer.
     Vector<uint8_t> takeData();
@@ -240,6 +247,11 @@ private:
     mutable bool m_hasBeenCombinedIntoOneSegment { false };
     bool internallyConsistent() const;
 #endif
+
+#if OS(MORPHOS)
+	mutable ReadWriteLock m_rwLock;
+#endif
+
 };
 
 inline Vector<uint8_t> SharedBuffer::extractData()

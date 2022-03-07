@@ -26,6 +26,10 @@
 
 #pragma once
 
+#if OS(MORPHOS)
+#define PROTO_SOCKET_H
+#endif
+
 #include "CurlProxySettings.h"
 #include "CurlSSLHandle.h"
 
@@ -59,7 +63,7 @@ class CurlGlobal {
 protected:
     CurlGlobal()
     {
-        curl_global_init(CURL_GLOBAL_ALL);
+        curl_global_init(CURL_GLOBAL_ALL | CURL_GLOBAL_NO_GETENV);
     }
     
     virtual ~CurlGlobal()
@@ -104,6 +108,10 @@ public:
 
     CurlRequestScheduler& scheduler() { return *m_scheduler; }
     CurlStreamScheduler& streamScheduler();
+
+#if OS(MORPHOS)
+	void stopThread();
+#endif
 
     // Proxy
     const CurlProxySettings& proxySettings() const { return m_proxySettings; }
@@ -177,6 +185,7 @@ public:
     CURLMcode poll(const Vector<curl_waitfd>&, int);
     CURLMcode wakeUp();
     CURLMcode perform(int&);
+	CURLMcode getTimeout(long &timeout);
     CURLMsg* readInfo(int&);
 
 private:
@@ -261,10 +270,12 @@ public:
     void enableHttpPutRequest();
     void setInFileSizeLarge(curl_off_t);
     void setHttpCustomRequest(const String&);
+    void setResumeOffset(long long);
 
     void enableConnectionOnly();
 
     void enableAcceptEncoding();
+    void disableAcceptEncoding();
     void enableAllowedProtocols();
 
     void setHttpAuthUserPass(const String&, const String&, long authType = CURLAUTH_ANY);

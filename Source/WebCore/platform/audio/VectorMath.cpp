@@ -34,6 +34,10 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
+#if OS(MORPHOS)
+#include "Altivec.h"
+#endif
+
 #if CPU(X86_SSE2)
 #include <emmintrin.h>
 #endif
@@ -143,6 +147,11 @@ static inline bool is16ByteAligned(const float* vector)
     return !(reinterpret_cast<uintptr_t>(vector) & 0x0F);
 }
 
+static inline bool isEquallyAligned(const float* vectorA, const float *vectorB)
+{
+	return (reinterpret_cast<uintptr_t>(vectorA) & 0x0F) == (reinterpret_cast<uintptr_t>(vectorB) & 0x0F);
+}
+
 void multiplyByScalarThenAddToVector(const float* inputVector1, float scalar, const float* inputVector2, float* outputVector, size_t numberOfElementsToProcess)
 {
     multiplyByScalarThenAddToOutput(inputVector1, scalar, outputVector, numberOfElementsToProcess);
@@ -207,6 +216,22 @@ void multiplyByScalarThenAddToOutput(const float* inputVector, float scalar, flo
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector, outputVector))
+	{
+	    while (!is16ByteAligned(inputVector) && n) {
+			*outputVector += *inputVector * scalar;
+			inputVector++;
+			outputVector++;
+			n--;
+		}
+		
+		const size_t tailFrames = n % 8;
+		Altivec::multiplyByScalarThenAddToOutput(inputVector, scalar, outputVector, n - tailFrames);
+		inputVector += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector += *inputVector * scalar;
@@ -270,6 +295,22 @@ void multiplyByScalar(const float* inputVector, float scalar, float* outputVecto
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector, outputVector))
+	{
+	    while (!is16ByteAligned(inputVector) && n) {
+			*outputVector = scalar * *inputVector;
+			++inputVector;
+			++outputVector;
+			n--;
+		}
+
+		const size_t tailFrames = n % 4;
+		Altivec::multiplyByScalar(inputVector, scalar, outputVector, n - tailFrames);
+		inputVector += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector = scalar * *inputVector;
@@ -334,6 +375,22 @@ void addScalar(const float* inputVector, float scalar, float* outputVector, size
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector, outputVector))
+	{
+	    while (!is16ByteAligned(inputVector) && n) {
+			*outputVector = *inputVector + scalar;
+			++inputVector;
+			++outputVector;
+			n--;
+		}
+
+		const size_t tailFrames = n % 4;
+		Altivec::addScalar(inputVector, scalar, outputVector, n - tailFrames);
+		inputVector += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector = *inputVector + scalar;
@@ -431,6 +488,24 @@ void add(const float* inputVector1, const float* inputVector2, float* outputVect
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector1, outputVector) && isEquallyAligned(inputVector1, inputVector2))
+	{
+	    while (!is16ByteAligned(inputVector1) && n) {
+			*outputVector = *inputVector1 + *inputVector2;
+			++inputVector1;
+			++inputVector2;
+			++outputVector;
+			n--;
+		}
+
+		const size_t tailFrames = n % 4;
+		Altivec::add(inputVector1, inputVector2, outputVector, n - tailFrames);
+		inputVector1 += (n - tailFrames);
+		inputVector2 += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector = *inputVector1 + *inputVector2;
@@ -609,6 +684,24 @@ void multiply(const float* inputVector1, const float* inputVector2, float* outpu
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector1, outputVector) && isEquallyAligned(inputVector1, inputVector2))
+	{
+	    while (!is16ByteAligned(inputVector1) && n) {
+			*outputVector = *inputVector1 * *inputVector2;
+			++inputVector1;
+			++inputVector2;
+			++outputVector;
+			n--;
+		}
+
+		const size_t tailFrames = n % 4;
+		Altivec::multiply(inputVector1, inputVector2, outputVector, n - tailFrames);
+		inputVector1 += (n - tailFrames);
+		inputVector2 += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector = *inputVector1 * *inputVector2;
@@ -621,6 +714,7 @@ void multiply(const float* inputVector1, const float* inputVector2, float* outpu
 void multiplyComplex(const float* realVector1, const float* imagVector1, const float* realVector2, const float* imag2P, float* realOutputVector, float* imagDestP, size_t numberOfElementsToProcess)
 {
     unsigned i = 0;
+
 #if CPU(X86_SSE2)
     // Only use the SSE optimization in the very common case that all addresses are 16-byte aligned. 
     // Otherwise, fall through to the scalar code below.
@@ -807,6 +901,22 @@ void clamp(const float* inputVector, float minimum, float maximum, float* output
         outputVector += 4;
     }
     n = tailFrames;
+#elif OS(MORPHOS)
+	if (WTF::HasAltivec::hasAltivec() && isEquallyAligned(inputVector, outputVector))
+	{
+		while (!is16ByteAligned(inputVector) && n) {
+			*outputVector = std::clamp(*inputVector, minimum, maximum);
+			++inputVector;
+			++outputVector;
+			n--;
+		}
+
+		size_t tailFrames = n % 8;
+		Altivec::clamp(outputVector, minimum, maximum, inputVector, n - tailFrames);
+		inputVector += (n - tailFrames);
+		outputVector += (n - tailFrames);
+		n = tailFrames;
+	}
 #endif
     while (n--) {
         *outputVector = std::clamp(*inputVector, minimum, maximum);

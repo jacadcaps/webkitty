@@ -624,6 +624,13 @@ RefPtr<HTMLMediaElement> HTMLMediaElement::bestMediaElementForRemoteControls(Med
     return &strongestSessionCandidate.session->element();
 }
 
+#if OS(MORPHOS)
+WebCore::Page* HTMLMediaElement::mediaPlayerPage()
+{
+    return document().page();
+}
+#endif
+
 void HTMLMediaElement::registerWithDocument(Document& document)
 {
     document.registerMediaElement(*this);
@@ -1076,6 +1083,7 @@ String HTMLMediaElement::canPlayType(const String& mimeType) const
     ContentType contentType(mimeType);
     parameters.type = contentType;
     parameters.contentTypesRequiringHardwareSupport = mediaContentTypesRequiringHardwareSupport();
+    parameters.page = document().page();
     MediaPlayer::SupportsType support = MediaPlayer::supportsType(parameters);
     String canPlay;
 
@@ -4755,6 +4763,7 @@ URL HTMLMediaElement::selectNextSourceChild(ContentType* contentType, String* ke
             MediaEngineSupportParameters parameters;
             parameters.type = ContentType(type);
             parameters.url = mediaURL;
+            parameters.page = document().page();
 #if ENABLE(MEDIA_SOURCE)
             parameters.isMediaSource = mediaURL.protocolIs(mediaSourceBlobProtocol);
 #endif

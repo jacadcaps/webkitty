@@ -907,6 +907,7 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
     parameters.type = contentType;
     parameters.isMediaSource = true;
     parameters.contentTypesRequiringHardwareSupport = WTFMove(contentTypesRequiringHardwareSupport);
+    parameters.page = context.isDocument() ? downcast<Document>(context).page() : nullptr;
 
     MediaPlayer::SupportsType supported = MediaPlayer::supportsType(parameters);
 

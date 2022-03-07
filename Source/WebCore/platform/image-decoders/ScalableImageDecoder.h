@@ -78,6 +78,9 @@ public:
 
         if (data.data()) {
             // SharedBuffer::data() combines all segments into one in case there's more than one.
+#if OS(MORPHOS)
+            auto locker = Locker(data.readLock());
+#endif
             m_data = data.begin()->segment.copyRef();
         }
         if (m_encodedDataStatus == EncodedDataStatus::TypeAvailable) {

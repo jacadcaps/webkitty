@@ -33,6 +33,9 @@ namespace WebCore {
 enum class PixelFormat : uint8_t {
     RGBA8,
     BGRA8,
+#if CPU(BIG_ENDIAN)
+    ARGB8 = BGRA8, // BGRA will actually be ARGB on BIG_ENDIAN
+#endif
     RGB10,
     RGB10A8,
 };

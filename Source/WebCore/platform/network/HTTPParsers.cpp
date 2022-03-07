@@ -337,6 +337,8 @@ std::optional<WallTime> parseHTTPDate(const String& value)
 // in a case-sensitive manner. (There are likely other bugs as well.)
 String filenameFromHTTPContentDisposition(const String& value)
 {
+	String out;
+
     for (auto& keyValuePair : value.split(';')) {
         size_t valueStartPos = keyValuePair.find('=');
         if (valueStartPos == notFound)
@@ -344,9 +346,23 @@ String filenameFromHTTPContentDisposition(const String& value)
 
         String key = keyValuePair.left(valueStartPos).stripWhiteSpace();
 
-        if (key.isEmpty() || key != "filename")
+        if (key == "filename") {
+           out = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
+           if (out[0] == '\"')
+             out = out.substring(1, out.length() - 2);
+        }
+        else if (key == "filename*") {
+          auto encname = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace().split('\'');
+          if (encname.size() == 2 && equalIgnoringASCIICase(encname[0], "utf-8")) {
+             if (out[0] == '\'')
+                 return encname[1].substring(1);
+             else
+                 return encname[1];
+             }
+          }
+        else
             continue;
-        
+
         String value = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
 
         // Remove quotes if there are any

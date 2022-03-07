@@ -1503,9 +1503,14 @@ void ScrollView::hide()
 
 bool ScrollView::isOffscreen() const
 {
+#if OS(MORPHOS)
+       // we don't support offscreen and we've got no platformwidgets
+       return false;
+#endif
+
     if (platformWidget())
         return platformIsOffscreen();
-    
+
     if (!isVisible())
         return true;
     

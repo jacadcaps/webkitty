@@ -42,4 +42,5 @@ public:
     static void switchToNewTestingSession();
     static void ensureSession(PAL::SessionID, const String& identifierBase = String());
     static void destroySession(PAL::SessionID);
+    static void destroyAllSessions();
 };

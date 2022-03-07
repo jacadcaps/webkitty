@@ -269,7 +269,7 @@ void ScrollbarThemeAdwaita::paintScrollCorner(ScrollableArea& scrollableArea, Gr
 
 ScrollbarButtonPressAction ScrollbarThemeAdwaita::handleMousePressEvent(Scrollbar&, const PlatformMouseEvent& event, ScrollbarPart pressedPart)
 {
-    gboolean warpSlider = FALSE;
+    bool warpSlider = FALSE;
     switch (pressedPart) {
     case BackTrackPart:
     case ForwardTrackPart:

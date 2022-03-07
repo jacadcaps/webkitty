@@ -95,6 +95,12 @@ void CurlRequestScheduler::startOrWakeUpThread()
     }
 
     m_thread = Thread::create("curlThread", [this] {
+#if OS(MORPHOS)
+        // Run curlThread with lower priority vs the main app.
+        // Without this the curlThread would starve the application
+        // since it's rescheduled like mad all the time. - Piru
+        Thread::current().changePriority(-1);
+#endif
         workerThread();
     }, ThreadType::Network);
 }
@@ -118,6 +124,13 @@ void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 
     m_runThread = false;
 }
+
+#if OS(MORPHOS)
+void CurlRequestScheduler::stopCurlThread()
+{
+	stopThread();
+}
+#endif
 
 void CurlRequestScheduler::stopThread()
 {

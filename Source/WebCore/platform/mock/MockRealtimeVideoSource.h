@@ -55,7 +55,7 @@ public:
 protected:
     MockRealtimeVideoSource(String&& deviceID, String&& name, String&& hashSalt);
 
-    virtual void updateSampleBuffer() = 0;
+    virtual void updateSampleBuffer() { };
 
     Seconds elapsedTime();
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) override;

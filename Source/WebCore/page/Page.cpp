@@ -1731,7 +1731,8 @@ void Page::finalizeRenderingUpdate(OptionSet<FinalizeRenderingUpdateFlags> flags
     if (flags.contains(FinalizeRenderingUpdateFlags::InvalidateImagesWithAsyncDecodes))
         view->invalidateImagesWithAsyncDecodes();
 
-    m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
+    if (!m_renderingUpdateRemainingSteps.isEmpty())
+        m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
 
     view->flushCompositingStateIncludingSubframes();
 
@@ -1753,7 +1754,8 @@ void Page::finalizeRenderingUpdate(OptionSet<FinalizeRenderingUpdateFlags> flags
 
 void Page::renderingUpdateCompleted()
 {
-    m_renderingUpdateRemainingSteps.removeLast();
+    if (!m_renderingUpdateRemainingSteps.isEmpty())
+        m_renderingUpdateRemainingSteps.removeLast();
 
     LOG_WITH_STREAM(EventLoop, stream << "Page " << this << " renderingUpdateCompleted() - steps " << m_renderingUpdateRemainingSteps << " unfulfilled steps " << m_unfulfilledRequestedSteps);
 

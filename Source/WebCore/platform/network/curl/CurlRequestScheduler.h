@@ -50,6 +50,10 @@ public:
 
     void callOnWorkerThread(WTF::Function<void()>&&);
 
+#if OS(MORPHOS)
+	void stopCurlThread();
+#endif
+
 private:
     void startOrWakeUpThread();
     void wakeUpThreadIfPossible();

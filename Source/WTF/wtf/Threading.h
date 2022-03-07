@@ -260,6 +260,13 @@ public:
 
     struct NewThreadContext;
     static void entryPoint(NewThreadContext*);
+
+#if OS(MORPHOS)
+    // Final clean up for this class as a while.
+    // Must method must be called after last sub-thread has terminated.
+    static void deleteTLSKey();
+#endif
+
 protected:
     Thread();
 
@@ -274,7 +281,7 @@ protected:
     void establishPlatformSpecificHandle(PlatformThreadHandle, ThreadIdentifier);
 #endif
 
-#if USE(PTHREADS) && !OS(DARWIN)
+#if USE(PTHREADS) && !OS(DARWIN) && !OS(MORPHOS)
     static void signalHandlerSuspendResume(int, siginfo_t*, void* ucontext);
 #endif
 
@@ -333,6 +340,10 @@ protected:
     WTF_EXPORT_PRIVATE static Thread* currentMayBeNull();
 #else
     static Thread* currentMayBeNull();
+#endif
+
+#ifdef __MORPHOS__
+    static Thread* getUserDataThreadPointer();
 #endif
 
     static Lock s_allThreadsLock;
@@ -403,6 +414,10 @@ inline Thread* Thread::currentMayBeNull()
 }
 #endif
 
+#if OS(MORPHOS)
+extern "C" { void *get_thread_pointer(void); }
+#endif
+
 inline Thread& Thread::current()
 {
     // WRT WebCore:
@@ -415,8 +430,16 @@ inline Thread& Thread::current()
     if (UNLIKELY(Thread::s_key == InvalidThreadSpecificKey))
         WTF::initialize();
 #endif
+#if OS(MORPHOS)
+    Thread* thread = getUserDataThreadPointer();
+    if (!thread)
+        thread = currentMayBeNull();
+    if (thread)
+        return *thread;
+#else
     if (auto* thread = currentMayBeNull())
         return *thread;
+#endif
     return initializeCurrentTLS();
 }
 
