@@ -36,9 +36,12 @@ public:
 
     bool startNotificationMechanism() final;
     void stopNotificationMechanism() final;
+    void stop() final;
 
 private:
 	void timerCallback();
+	
+	std::optional<FramesPerSecond> displayNominalFramesPerSecond() final;
 
     explicit DisplayRefreshMonitorMorphOS(PlatformDisplayID);
     RunLoop::Timer<DisplayRefreshMonitorMorphOS> m_timer;

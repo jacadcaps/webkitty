@@ -30,6 +30,8 @@ extern "C" { void dprintf(const char *,...); }
 
 namespace WebCore {
 
+constexpr WebCore::FramesPerSecond DisplayLinkFramesPerSecond = 30;
+
 RefPtr<DisplayRefreshMonitorMorphOS> DisplayRefreshMonitorMorphOS::create(PlatformDisplayID displayID)
 {
     return adoptRef(*new DisplayRefreshMonitorMorphOS(displayID));
@@ -38,14 +40,22 @@ RefPtr<DisplayRefreshMonitorMorphOS> DisplayRefreshMonitorMorphOS::create(Platfo
 DisplayRefreshMonitorMorphOS::DisplayRefreshMonitorMorphOS(PlatformDisplayID displayID)
     : DisplayRefreshMonitor(displayID)
     , m_timer(RunLoop::main(), this, &DisplayRefreshMonitorMorphOS::timerCallback)
-    , m_currentUpdate({ 0, 60 })
 {
+	setMaxUnscheduledFireCount(1);
+}
+
+void DisplayRefreshMonitorMorphOS::stop()
+{
+	m_timer.stop();
 }
 
 bool DisplayRefreshMonitorMorphOS::startNotificationMechanism()
 {
 	if (!m_timer.isActive())
+	{
 		m_timer.startRepeating(33_ms);
+		m_currentUpdate = { 0, DisplayLinkFramesPerSecond };
+	}
 
 	return true;
 }
@@ -59,6 +69,11 @@ void DisplayRefreshMonitorMorphOS::timerCallback()
 {
     displayLinkFired(m_currentUpdate);
     m_currentUpdate = m_currentUpdate.nextUpdate();
+}
+
+std::optional<FramesPerSecond> DisplayRefreshMonitorMorphOS::displayNominalFramesPerSecond()
+{
+	return DisplayLinkFramesPerSecond;
 }
 
 } // namespace WebCore
