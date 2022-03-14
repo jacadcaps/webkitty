@@ -197,7 +197,20 @@ public:
         if (isDetached() || i >= m_length)
             return false;
 
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            setIndexQuicklyToNativeValue(i, value);
+            break;
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+           setIndexQuicklyToNativeValue(i, flipBytes(value));
+            break;
+        }
+#else
         setIndexQuicklyToNativeValue(i, value);
+#endif
         return true;
     }
 
