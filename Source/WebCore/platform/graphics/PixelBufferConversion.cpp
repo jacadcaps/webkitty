@@ -137,175 +137,20 @@ static void convertImagePixelsAccelerated(const ConstPixelBufferConversionView& 
 
 #endif
 
-#if CPU(BIG_ENDIAN)
-static inline void copyPremultipliedToPremultiplied(PixelFormat srcPixelFormat, const uint8_t* srcPixel, PixelFormat destPixelFormat, uint8_t* destPixel)
-{
-    uint8_t alpha = srcPixel[srcPixelFormat == PixelFormat::ARGB8 ? 0 : 3];
-
-    if (!alpha) {
-        reinterpret_cast<uint32_t*>(destPixel)[0] = 0;
-        return;
-    }
-
-    if (srcPixelFormat == destPixelFormat) {
-        reinterpret_cast<uint32_t*>(destPixel)[0] = reinterpret_cast<const uint32_t*>(srcPixel)[0];
-        return;
-    }
-
-    // Swap pixel channels ARGB <-> RGBA.
-    if (destPixelFormat == PixelFormat::ARGB8)
-    {
-        destPixel[0] = srcPixel[3];
-        destPixel[1] = srcPixel[0];
-        destPixel[2] = srcPixel[1];
-        destPixel[3] = srcPixel[2];
-    }
-    else
-    {
-        destPixel[0] = srcPixel[1];
-        destPixel[1] = srcPixel[2];
-        destPixel[2] = srcPixel[3];
-        destPixel[3] = srcPixel[0];
-    }
-}
-
-static inline void copyPremultipliedToUnpremultiplied(PixelFormat srcPixelFormat, const uint8_t* srcPixel, PixelFormat destPixelFormat, uint8_t* destPixel)
-{
-    uint8_t alpha = srcPixel[srcPixelFormat == PixelFormat::ARGB8 ? 0 : 3];
-
-    if (!alpha || alpha == 255) {
-        copyPremultipliedToPremultiplied(srcPixelFormat, srcPixel, destPixelFormat, destPixel);
-        return;
-    }
-
-    if (srcPixelFormat == destPixelFormat) {
-        if (srcPixelFormat == PixelFormat::ARGB8) {
-            destPixel[0] = alpha;
-            destPixel[1] = (srcPixel[1] * 255) / alpha;
-            destPixel[2] = (srcPixel[2] * 255) / alpha;
-            destPixel[3] = (srcPixel[3] * 255) / alpha;
-            return;
-        }
-        destPixel[0] = (srcPixel[0] * 255) / alpha;
-        destPixel[1] = (srcPixel[1] * 255) / alpha;
-        destPixel[2] = (srcPixel[2] * 255) / alpha;
-        destPixel[3] = alpha;
-        return;
-    }
-
-    if (srcPixelFormat == PixelFormat::ARGB8) {
-        destPixel[0] = (srcPixel[1] * 255) / alpha;
-        destPixel[1] = (srcPixel[2] * 255) / alpha;
-        destPixel[2] = (srcPixel[3] * 255) / alpha;
-        destPixel[3] = alpha;
-    }
-    else {
-        destPixel[0] = alpha;
-        destPixel[1] = (srcPixel[0] * 255) / alpha;
-        destPixel[2] = (srcPixel[1] * 255) / alpha;
-        destPixel[3] = (srcPixel[2] * 255) / alpha;
-    }
-}
-
-static inline void copyUnpremultipliedToPremultiplied(PixelFormat srcPixelFormat, const uint8_t* srcPixel, PixelFormat destPixelFormat, uint8_t* destPixel)
-{
-    uint8_t alpha = srcPixel[srcPixelFormat == PixelFormat::ARGB8 ? 0 : 3];
-
-    if (!alpha || alpha == 255) {
-        copyPremultipliedToPremultiplied(srcPixelFormat, srcPixel, destPixelFormat, destPixel);
-        return;
-    }
-
-    if (srcPixelFormat == destPixelFormat) {
-        if (srcPixelFormat == PixelFormat::ARGB8) {
-            destPixel[0] = alpha;
-            destPixel[1] = (srcPixel[1] * alpha + 254) / 255;
-            destPixel[2] = (srcPixel[2] * alpha + 254) / 255;
-            destPixel[3] = (srcPixel[3] * alpha + 254) / 255;
-            return;
-        }
-        destPixel[0] = (srcPixel[0] * alpha + 254) / 255;
-        destPixel[1] = (srcPixel[1] * alpha + 254) / 255;
-        destPixel[2] = (srcPixel[2] * alpha + 254) / 255;
-        destPixel[3] = alpha;
-        return;
-    }
-
-    if (srcPixelFormat == PixelFormat::ARGB8) {
-        destPixel[0] = (srcPixel[1] * alpha + 254) / 255;
-        destPixel[1] = (srcPixel[2] * alpha + 254) / 255;
-        destPixel[2] = (srcPixel[3] * alpha + 254) / 255;
-        destPixel[3] = alpha;
-        return;
-    }
-
-    destPixel[0] = alpha;
-    destPixel[1] = (srcPixel[0] * alpha + 254) / 255;
-    destPixel[2] = (srcPixel[1] * alpha + 254) / 255;
-    destPixel[3] = (srcPixel[2] * alpha + 254) / 255;
-}
-
-static inline void copyUnpremultipliedToUnpremultiplied(PixelFormat srcPixelFormat, const uint8_t* srcPixel, PixelFormat destPixelFormat, uint8_t* destPixel)
-{
-    if (srcPixelFormat == destPixelFormat) {
-        reinterpret_cast<uint32_t*>(destPixel)[0] = reinterpret_cast<const uint32_t*>(srcPixel)[0];
-        return;
-    }
-
-    // Swap pixel channels ARGB <-> RGBA.
-    if (destPixelFormat == PixelFormat::ARGB8) {
-        destPixel[0] = srcPixel[3];
-        destPixel[1] = srcPixel[0];
-        destPixel[2] = srcPixel[1];
-        destPixel[3] = srcPixel[2];
-    }
-    else {
-        destPixel[0] = srcPixel[1];
-        destPixel[1] = srcPixel[2];
-        destPixel[2] = srcPixel[3];
-        destPixel[3] = srcPixel[0];
-    }
-}
-
-template<void (*copyFunctor)(PixelFormat, const uint8_t*, PixelFormat, uint8_t*)>
-static inline void copyImagePixelsUnaccelerated(
-    PixelFormat srcPixelFormat, unsigned srcBytesPerRow, const uint8_t* srcRows,
-    PixelFormat destPixelFormat, unsigned destBytesPerRow, uint8_t* destRows, const IntSize& size)
-{
-    size_t bytesPerRow = size.width() * 4;
-    for (int y = 0; y < size.height(); ++y) {
-        for (size_t x = 0; x < bytesPerRow; x += 4)
-            copyFunctor(srcPixelFormat, &srcRows[x], destPixelFormat, &destRows[x]);
-        srcRows += srcBytesPerRow;
-        destRows += destBytesPerRow;
-    }
-}
-
-void convertImagePixels(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
-{
-    if (source.format.alphaFormat == destination.format.alphaFormat) {
-        if (source.format.alphaFormat == AlphaPremultiplication::Premultiplied)
-            copyImagePixelsUnaccelerated<copyPremultipliedToPremultiplied>(source.format.pixelFormat, source.bytesPerRow, source.rows, destination.format.pixelFormat, destination.bytesPerRow, destination.rows, destinationSize);
-        else
-            copyImagePixelsUnaccelerated<copyUnpremultipliedToUnpremultiplied>(source.format.pixelFormat, source.bytesPerRow, source.rows, destination.format.pixelFormat, destination.bytesPerRow, destination.rows, destinationSize);
-        return;
-    }
-
-    if (destination.format.alphaFormat == AlphaPremultiplication::Unpremultiplied) {
-        copyImagePixelsUnaccelerated<copyPremultipliedToUnpremultiplied>(source.format.pixelFormat, source.bytesPerRow, source.rows, destination.format.pixelFormat, destination.bytesPerRow, destination.rows, destinationSize);
-        return;
-    }
-
-    copyImagePixelsUnaccelerated<copyUnpremultipliedToPremultiplied>(source.format.pixelFormat, source.bytesPerRow, source.rows, destination.format.pixelFormat, destination.bytesPerRow, destination.rows, destinationSize);
-}
-#else
-
 enum class PixelFormatConversion { None, Permute };
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelPremultipliedToPremultiplied(PixelFormat sourcePixelFormat, const uint8_t* sourcePixel, PixelFormat destinationPixelFormat, uint8_t* destinationPixel)
+#else
 static void convertSinglePixelPremultipliedToPremultiplied(const uint8_t* sourcePixel, uint8_t* destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
     if (!alpha) {
         reinterpret_cast<uint32_t*>(destinationPixel)[0] = 0;
         return;
@@ -314,23 +159,81 @@ static void convertSinglePixelPremultipliedToPremultiplied(const uint8_t* source
     if constexpr (pixelFormatConversion == PixelFormatConversion::None)
         reinterpret_cast<uint32_t*>(destinationPixel)[0] = reinterpret_cast<const uint32_t*>(sourcePixel)[0];
     else {
+#if CPU(BIG_ENDIAN)
+        // Swap pixel channels ARGB <-> RGBA.
+        if (destinationPixelFormat == PixelFormat::ARGB8)
+        {
+            destinationPixel[0] = sourcePixel[3];
+            destinationPixel[1] = sourcePixel[0];
+            destinationPixel[2] = sourcePixel[1];
+            destinationPixel[3] = sourcePixel[2];
+        }
+        else
+        {
+            destinationPixel[0] = sourcePixel[1];
+            destinationPixel[1] = sourcePixel[2];
+            destinationPixel[2] = sourcePixel[3];
+            destinationPixel[3] = sourcePixel[0];
+        }
+#else
         // Swap pixel channels BGRA <-> RGBA.
         destinationPixel[0] = sourcePixel[2];
         destinationPixel[1] = sourcePixel[1];
         destinationPixel[2] = sourcePixel[0];
         destinationPixel[3] = sourcePixel[3];
+#endif
     }
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelPremultipliedToUnpremultiplied(PixelFormat sourcePixelFormat, const uint8_t* sourcePixel, PixelFormat destinationPixelFormat, uint8_t* destinationPixel)
+#else
 static void convertSinglePixelPremultipliedToUnpremultiplied(const uint8_t* sourcePixel, uint8_t* destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
     if (!alpha || alpha == 255) {
+#if CPU(BIG_ENDIAN)
+        convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixelFormat, sourcePixel, destinationPixelFormat, destinationPixel);
+#else
         convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixel, destinationPixel);
+#endif
         return;
     }
 
+#if CPU(BIG_ENDIAN)
+    UNUSED_PARAM(destinationPixelFormat);
+    if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[3] = (sourcePixel[3] * 255) / alpha;
+        } else {
+            destinationPixel[0] = (sourcePixel[0] * 255) / alpha;
+            destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[3] = alpha;
+        }
+    } else {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[1] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[3] * 255) / alpha;
+            destinationPixel[3] = alpha;
+        } else {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[0] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[3] = (sourcePixel[2] * 255) / alpha;
+        }
+    }
+#else
     if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
         destinationPixel[0] = (sourcePixel[0] * 255) / alpha;
         destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
@@ -343,17 +246,58 @@ static void convertSinglePixelPremultipliedToUnpremultiplied(const uint8_t* sour
         destinationPixel[2] = (sourcePixel[0] * 255) / alpha;
         destinationPixel[3] = alpha;
     }
+#endif
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelUnpremultipliedToPremultiplied(PixelFormat sourcePixelFormat, const uint8_t* sourcePixel, PixelFormat destinationPixelFormat, uint8_t* destinationPixel)
+#else
 static void convertSinglePixelUnpremultipliedToPremultiplied(const uint8_t* sourcePixel, uint8_t* destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
     if (!alpha || alpha == 255) {
+#if CPU(BIG_ENDIAN)
+        convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixelFormat, sourcePixel, destinationPixelFormat, destinationPixel);
+#else
         convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixel, destinationPixel);
+#endif
         return;
     }
 
+#if CPU(BIG_ENDIAN)
+    UNUSED_PARAM(destinationPixelFormat);
+    if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[3] = (sourcePixel[3] * alpha + 254) / 255;
+        } else {
+            destinationPixel[0] = (sourcePixel[0] * alpha + 254) / 255;
+            destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[3] = alpha;
+        }
+    } else {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[1] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[3] * alpha + 254) / 255;
+            destinationPixel[3] = alpha;
+        } else {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[0] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[3] = (sourcePixel[2] * alpha + 254) / 255;
+        }
+    }
+#else
     if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
         destinationPixel[0] = (sourcePixel[0] * alpha + 254) / 255;
         destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
@@ -366,23 +310,49 @@ static void convertSinglePixelUnpremultipliedToPremultiplied(const uint8_t* sour
         destinationPixel[2] = (sourcePixel[0] * alpha + 254) / 255;
         destinationPixel[3] = alpha;
     }
+#endif
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelUnpremultipliedToUnpremultiplied(PixelFormat sourcePixelFormat, const uint8_t* sourcePixel, PixelFormat destinationPixelFormat, uint8_t* destinationPixel)
+#else
 static void convertSinglePixelUnpremultipliedToUnpremultiplied(const uint8_t* sourcePixel, uint8_t* destinationPixel)
+#endif
 {
     if constexpr (pixelFormatConversion == PixelFormatConversion::None)
         reinterpret_cast<uint32_t*>(destinationPixel)[0] = reinterpret_cast<const uint32_t*>(sourcePixel)[0];
     else {
+#if CPU(BIG_ENDIAN)
+        UNUSED_PARAM(sourcePixelFormat);
+        // Swap pixel channels ARGB <-> RGBA.
+        if (destinationPixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = sourcePixel[3];
+            destinationPixel[1] = sourcePixel[0];
+            destinationPixel[2] = sourcePixel[1];
+            destinationPixel[3] = sourcePixel[2];
+        }
+        else {
+            destinationPixel[0] = sourcePixel[1];
+            destinationPixel[1] = sourcePixel[2];
+            destinationPixel[2] = sourcePixel[3];
+            destinationPixel[3] = sourcePixel[0];
+        }
+#else
         // Swap pixel channels BGRA <-> RGBA.
         destinationPixel[0] = sourcePixel[2];
         destinationPixel[1] = sourcePixel[1];
         destinationPixel[2] = sourcePixel[0];
         destinationPixel[3] = sourcePixel[3];
+#endif
     }
 }
 
+#if CPU(BIG_ENDIAN)
+template<void (*convertFunctor)(PixelFormat, const uint8_t*, PixelFormat, uint8_t*)>
+#else
 template<void (*convertFunctor)(const uint8_t*, uint8_t*)>
+#endif
 static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
     const uint8_t* sourceRows = source.rows;
@@ -391,7 +361,11 @@ static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView
     size_t bytesPerRow = destinationSize.width() * 4;
     for (int y = 0; y < destinationSize.height(); ++y) {
         for (size_t x = 0; x < bytesPerRow; x += 4)
+#if CPU(BIG_ENDIAN)
+            convertFunctor(source.format.pixelFormat, &sourceRows[x], destination.format.pixelFormat, &destinationRows[x]);
+#else
             convertFunctor(&sourceRows[x], &destinationRows[x]);
+#endif
         sourceRows += source.bytesPerRow;
         destinationRows += destination.bytesPerRow;
     }
@@ -400,6 +374,7 @@ static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView
 void convertImagePixels(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
     // We don't currently support converting pixel data with non-8-bit buffers.
+    // BGRA8 is actually ARGB8 on BIG_ENDIAN.
     ASSERT(source.format.pixelFormat == PixelFormat::RGBA8 || source.format.pixelFormat == PixelFormat::BGRA8);
     ASSERT(destination.format.pixelFormat == PixelFormat::RGBA8 || destination.format.pixelFormat == PixelFormat::BGRA8);
 
@@ -444,6 +419,5 @@ void convertImagePixels(const ConstPixelBufferConversionView& source, const Pixe
     }
 #endif
 }
-#endif
 
 }
