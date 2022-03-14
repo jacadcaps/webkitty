@@ -20,7 +20,7 @@
 #import <proto/dos.h>
 extern "C" { void dprintf(const char *, ...); }
 
-#define D(x)
+#define D(x) 
 
 @class _WkDownload;
 
@@ -267,7 +267,7 @@ void WebDownload::didFinish()
 		m_download->setListener(nullptr);
 		m_download = nullptr;
 
-		D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+		D(dprintf("%s: tmp '%s'\n", __PRETTY_FUNCTION__, uTmpPath.data()));
 
 		[m_outerObject setFinished:YES];
 		[m_outerObject setPending:NO];
@@ -633,6 +633,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
 - (void)moveFinishedDownload:(OBString *)destinationPath
 {
+    D(dprintf("%s: %d -> %s (tmp %s)\n", __func__, _isFinished, [destinationPath cString], [_tmpPath cString]));
 	if (_isFinished)
 	{
 		if (_tmpPath)

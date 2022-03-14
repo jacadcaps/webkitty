@@ -870,12 +870,6 @@ void CurlRequest::closeDownloadFile()
 {
     Locker locker { m_downloadMutex };
 
-    if (!m_downloadFilePath.isEmpty()) {
-        if (m_deletesDownloadFileOnCancelOrError)
-            FileSystem::deleteFile(m_downloadFilePath);
-        m_downloadFilePath = String();
-    }
-
     if (m_downloadFileHandle == FileSystem::invalidPlatformFileHandle)
         return;
 
@@ -887,7 +881,7 @@ void CurlRequest::cleanupDownloadFile()
 {
     Locker locker { m_downloadMutex };
 
-    if (!m_downloadFilePath.isEmpty()) {
+    if (!m_downloadFilePath.isEmpty() && m_deletesDownloadFileOnCancelOrError) {
         FileSystem::deleteFile(m_downloadFilePath);
         m_downloadFilePath = String();
     }
