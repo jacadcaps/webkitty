@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x) 
+#define D(x)
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -592,14 +592,15 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
         return;
     }
 
+/* ?? not sure this makes any sense?
     if (!request.url().string()) {
     	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
         function(PolicyAction::Use, identifier);
         return;
-    }
+    } */
 
 	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
-	if ((response.isAttachment() || !canShowMIMEType(response.mimeType())) && request.isTopSite())
+	if (response.isAttachment() || (!canShowMIMEType(response.mimeType()) && request.isTopSite()))
 	{
 		// should we download this??
 		if (webPage->_fDownloadAsk)
@@ -1348,6 +1349,7 @@ bool WebFrameLoaderClient::canCachePage() const
 
 void WebFrameLoaderClient::convertMainResourceLoadToDownload(DocumentLoader *documentLoader, const ResourceRequest& request, const ResourceResponse& response)
 {
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
     m_frame->convertMainResourceLoadToDownload(documentLoader, request, response);
 }
 
