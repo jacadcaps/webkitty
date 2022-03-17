@@ -345,6 +345,7 @@ namespace  {
 	if (_playerRef)
 	{
 		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		position = std::clamp(position, 0.f, _info.m_duration);
 		return player->seek(WTF::MediaTime::createWithFloat(position));
 	}
 }
@@ -425,6 +426,7 @@ namespace  {
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
 	OBMutableSet                           *_mediaObjects;
+	id<WkMediaObject>                       _activeMediaObject; // weak
 #endif
 	WkBackForwardListPrivate               *_backForwardList;
 	WkSettings_Throttling                   _throttling;
@@ -515,6 +517,7 @@ namespace  {
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
 	[_mediaObjects release];
+	_activeMediaObject = nil;
 	[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
 	[_fsWindowSignalHandler release];
 
@@ -1131,6 +1134,8 @@ namespace  {
 		WkMediaObjectPrivate *mediaObject = [[[WkMediaObjectPrivate alloc] initWithType:type identifier:(WkWebViewMediaIdentifier)handler audioTrack:[handler audioTrack] videoTrack:[handler videoTrack] downloadableURL:[handler mediaURL]] autorelease];
 		[_mediaObjects addObject:mediaObject];
 		[_mediaDelegate webView:_parentWeak loadedStream:mediaObject];
+		if (nil == _activeMediaObject)
+			_activeMediaObject = mediaObject;
 
 		settings.m_decodeVideo = _decodeVideo;
 		settings.m_loopFilter = WebCore::MediaPlayerMorphOSStreamSettings::SkipLoopFilter(_loopFilter);
@@ -1164,6 +1169,11 @@ namespace  {
 	return [_mediaObjects allObjects];
 }
 
+- (id<WkMediaObject>)activeMediaObject
+{
+	return _activeMediaObject;
+}
+
 - (void)playerRemoved:(void *)playerRef
 {
 	OBNumber *ref = [OBNumber numberWithUnsignedLong:(IPTR)playerRef];
@@ -1178,6 +1188,8 @@ namespace  {
 	
 	if ([mo retain])
 	{
+		if (_activeMediaObject == mo)
+			_activeMediaObject = nil;
 		[_mediaObjects removeObject:mo];
 		[_mediaDelegate webView:_parentWeak unloadedStream:mo];
 		[mo release];
@@ -1205,7 +1217,10 @@ namespace  {
 
 	WkMediaObjectPrivate *mo = [self mediaObjectForPlayer:playerRef];
 	if (mo)
+	{
+		_activeMediaObject = mo;
 		[_mediaDelegate webView:_parentWeak playingStream:mo];
+	}
 }
 
 - (void)playerPausedOrFinished:(void *)playerRef
@@ -1683,6 +1698,9 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	@synchronized (self)
 	{
+		if (_initializedOK)
+			return;
+
 		_mainThread = FindTask(0);
 		_globalOBContext = _mainThread->tc_ETask->OBContext;
 
@@ -3211,6 +3229,87 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[_private setIsHandlingUserInput:NO];
 				return 0;
 			}
+			else // fsWindow
+			{
+				switch (imsg->Class)
+				{
+				case IDCMP_RAWKEY:
+					switch (imsg->Code)
+					{
+					case RAWKEY_ESCAPE:
+						webPage->exitFullscreen();
+						[_private setIsHandlingUserInput:NO];
+						return MUI_EventHandlerRC_Eat;
+
+					// NOTE: this code must be in sync with Wayfarer, ugh
+					case RAWKEY_KP_ENTER: case RAWKEY_RETURN:
+						if (imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND))
+						{
+							id<WkMediaObject> media = [self activeMediaObject];
+							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+							{
+								[media setFullscreen:![media fullscreen]];
+							}
+							else
+							{
+								if ([media playing])
+									[media pause];
+								else
+									[media play];
+							}
+							[_private setIsHandlingUserInput:NO];
+							return MUI_EventHandlerRC_Eat;
+						}
+						break;
+
+					case RAWKEY_LEFT:
+					case RAWKEY_CDTV_REW:
+						if ((imsg->Code == RAWKEY_CDTV_REW) || (imsg->Qualifier & (IEQUALIFIER_CONTROL)))
+						{
+							id<WkMediaObject> media = [self activeMediaObject];
+							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+								[media seek:[media position] - 60.0f];
+							else
+								[media seek:[media position] - 10.0f];
+							[_private setIsHandlingUserInput:NO];
+							return MUI_EventHandlerRC_Eat;
+						}
+						break;
+
+					case RAWKEY_RIGHT:
+					case RAWKEY_CDTV_FF:
+						if ((imsg->Code == RAWKEY_CDTV_FF) || (imsg->Qualifier & (IEQUALIFIER_CONTROL)))
+						{
+							id<WkMediaObject> media = [self activeMediaObject];
+							if (imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+								[media seek:[media position] + 60.0f];
+							else
+								[media seek:[media position] + 10.0f];
+							[_private setIsHandlingUserInput:NO];
+							return MUI_EventHandlerRC_Eat;
+						}
+						break;
+						
+					case RAWKEY_CDTV_PLAY:
+						{
+							id<WkMediaObject> media = [self activeMediaObject];
+							[media play];
+						}
+						[_private setIsHandlingUserInput:NO];
+						return MUI_EventHandlerRC_Eat;
+					case RAWKEY_CDTV_STOP:
+						{
+							id<WkMediaObject> media = [self activeMediaObject];
+							[media pause];
+						}
+						[_private setIsHandlingUserInput:NO];
+						return MUI_EventHandlerRC_Eat;
+					}
+					break;
+				}
+				[_private setIsHandlingUserInput:NO];
+				return 0;
+			}
 		}
 		else
 		{
@@ -3616,6 +3715,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 #if ENABLE(VIDEO)
 	return [_private mediaObjects];
+#endif
+	return nil;
+}
+
+- (id<WkMediaObject>)activeMediaObject
+{
+#if ENABLE(VIDEO)
+	return [_private activeMediaObject];
 #endif
 	return nil;
 }

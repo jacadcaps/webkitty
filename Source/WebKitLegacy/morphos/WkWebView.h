@@ -21,6 +21,7 @@
 @protocol WkPrintingStateDelegate;
 @protocol WkWebViewMediaDelegate;
 @protocol WkNotificationDelegate;
+@protocol WkMediaObject;
 
 #define kWebViewClientDelegateOption @"mode"
 #define kWebViewClientDelegateOption_NewWindow @"window"
@@ -251,5 +252,6 @@ typedef enum {
 - (void)exitFullscreen;
 
 - (OBArray /* id<WkMediaObject> */ *)mediaObjects;
+- (id<WkMediaObject>)activeMediaObject;
 
 @end
