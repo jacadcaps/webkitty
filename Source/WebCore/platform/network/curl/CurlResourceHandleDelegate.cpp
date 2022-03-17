@@ -137,8 +137,8 @@ void CurlResourceHandleDelegate::curlDidReceiveResponse(CurlRequest& request, Cu
 
     m_handle.didReceiveResponse(ResourceResponse(m_response), [this, protectedHandle = makeRef(m_handle)] {
         // moved to avoid reverting the events order (must be header, then data)
-  	if (!cancelledOrClientless())
-    	{
+        if (!cancelledOrClientless())
+        {
             CurlCacheManager::singleton().didReceiveResponse(m_handle, m_response);
         }
         m_handle.continueAfterDidReceiveResponse();

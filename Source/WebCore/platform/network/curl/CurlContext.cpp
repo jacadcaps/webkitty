@@ -53,6 +53,7 @@
 extern "C" {
 void dprintf(const char *fmt, ... );
 };
+#define CURL_TRACES 0
 #endif
 
 namespace WebCore {
@@ -310,8 +311,8 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 
 // CurlHandle -------------------------------------------------
 
-static
-void dump(const char *text, unsigned char *ptr, size_t size)
+#if CURL_TRACES
+static void dump(const char *text, unsigned char *ptr, size_t size)
 {
   size_t i;
   size_t c;
@@ -341,8 +342,7 @@ void dump(const char *text, unsigned char *ptr, size_t size)
   }
 }
 	
-static
-int my_trace(CURL *handle, curl_infotype type,
+static int my_trace(CURL *handle, curl_infotype type,
              char *data, size_t size,
              void *userp)
 {
@@ -379,6 +379,7 @@ int my_trace(CURL *handle, curl_infotype type,
   dump(text, (unsigned char *)data, size);
   return 0;
 }
+#endif
 
 CurlHandle::CurlHandle()
 {
@@ -404,8 +405,10 @@ CurlHandle::CurlHandle()
     curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
 #endif
 
-// curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
-// curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
+#if CURL_TRACES
+	curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
+#endif
 }
 
 CurlHandle::~CurlHandle()

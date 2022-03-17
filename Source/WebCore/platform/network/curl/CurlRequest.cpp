@@ -147,13 +147,12 @@ void CurlRequest::cancel()
 
     {
         Locker locker { m_statusMutex };
-        if (m_cancelled)
-        {
-            // must make sure invalidateClient is called or we could end up with
+        if (m_cancelled) {
+            // must ensure invalidateClient is called or we could end up with
             // it dying while we still reference it
-    	    invalidateClient();
+            invalidateClient();
             return;
-		}
+        }
         m_cancelled = true;
     }
 

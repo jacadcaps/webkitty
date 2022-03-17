@@ -208,14 +208,19 @@ void CurlCacheManager::saveIndex()
         auto entryIt = m_index.find(*it);
         if (entryIt != m_index.end())
         {
-            FileSystem::writeToFile(indexFile, urlLatin1.data(), urlLatin1.length());
-            String sizeAndTime("\t");
-            sizeAndTime.append(String::number(entryIt->value->entrySize()));
-            sizeAndTime.append("\t");
-            sizeAndTime.append(String::number(entryIt->value->expireDate().secondsSinceEpoch().seconds()));
-            sizeAndTime.append("\n");
-            auto cSizeAndTime = sizeAndTime.latin1();
-            FileSystem::writeToFile(indexFile, cSizeAndTime.data(), cSizeAndTime.length());
+            if (!entryIt->value->isLoading()) {
+                FileSystem::writeToFile(indexFile, urlLatin1.data(), urlLatin1.length());
+                String sizeAndTime("\t");
+                sizeAndTime.append(String::number(entryIt->value->entrySize()));
+                sizeAndTime.append("\t");
+                sizeAndTime.append(String::number(entryIt->value->expireDate().secondsSinceEpoch().seconds()));
+                sizeAndTime.append("\n");
+                auto cSizeAndTime = sizeAndTime.latin1();
+                FileSystem::writeToFile(indexFile, cSizeAndTime.data(), cSizeAndTime.length());
+            }
+            else {
+                entryIt->value->invalidate();
+            }
         }
         ++it;
     }
