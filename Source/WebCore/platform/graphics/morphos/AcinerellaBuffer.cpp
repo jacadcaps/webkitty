@@ -16,7 +16,7 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x)
+#define D(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -163,7 +163,11 @@ public:
 				}
 			}
 			
-			if (sizeWritten < size && !m_finishedLoading && !canReadMore)
+			if (m_nonRecoverableErrors >= ms_maxNonRecoverableErrors)
+			{
+				return eRead_Error;
+			}
+			else if (sizeWritten < size && !m_finishedLoading && !canReadMore)
 			{
 				WTF::callOnMainThread([this, protect = makeRef(*this)]() {
 					continueBuffering();
@@ -190,7 +194,7 @@ public:
 	void continueBuffering()
 	{
 		D(dprintf("%s(%p): pau %d underbuf %d fini %d\n", __PRETTY_FUNCTION__, this, m_isPaused, m_bufferRead < (m_readAhead / 2), m_finishedLoading));
-		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && !m_finishedLoading && !m_dead)
+		if (m_isPaused && m_bufferRead < (m_readAhead / 2) && !m_finishedLoading && !m_dead && m_nonRecoverableErrors < ms_maxNonRecoverableErrors)
 		{
 			if (m_curlRequest)
 			{
@@ -355,12 +359,12 @@ public:
 			m_eventSemaphore.signal();
 			m_curlRequest->cancel();
 			m_curlRequest = nullptr;
+			m_nonRecoverableErrors = 0;
 		}
 	}
 	
-	void curlDidFailWithError(CurlRequest& request, ResourceError&&, CertificateInfo&&) override
+	void curlDidFailWithError(CurlRequest& request, ResourceError&& error, CertificateInfo&&) override
 	{
-		D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 		if (m_curlRequest.get() == &request)
 		{
 			m_curlRequest->cancel();
@@ -368,6 +372,9 @@ public:
 			m_isPaused = true;
 			m_didFailLoading = true;
 			m_eventSemaphore.signal();
+			if (error.type() != ResourceError::Type::Timeout && error.type() != ResourceError::Type::Cancellation)
+				m_nonRecoverableErrors ++;
+			D(dprintf("%s(%p): error type %d code %d %s nrcount %d\n", __PRETTY_FUNCTION__, this, int(error.type()), int(error.errorCode()), error.localizedDescription().utf8().data(), m_nonRecoverableErrors));
 		}
 	}
 protected:
@@ -388,6 +395,8 @@ protected:
 	bool                             m_didFailLoading = false;
 	bool                             m_isPaused = false;
 	bool                             m_seekProcessed = true;
+	int                              m_nonRecoverableErrors = 0;
+	static const int                 ms_maxNonRecoverableErrors = 3;
 };
 
 #if 0

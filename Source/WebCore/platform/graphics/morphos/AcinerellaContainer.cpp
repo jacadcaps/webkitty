@@ -12,10 +12,10 @@
 #include <proto/exec.h>
 #include <exec/system.h>
 
-#define D(x) 
+#define D(x)
 #define DNP(x)
-#define DIO(x) 
-#define DINIT(x) 
+#define DIO(x)
+#define DINIT(x)
 
 #define DDUMP(x)
 
@@ -464,6 +464,10 @@ bool Acinerella::initialize()
 		{
 			m_acinerella = nullptr;
 			DINIT(dprintf("---- ac failed to open :(\n"));
+			WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+				if (m_client)
+					m_client->accFailed();
+			});
 		}
 		else
 		{
@@ -632,6 +636,13 @@ bool Acinerella::initialize()
 			}
 		}
 	}
+	else
+	{
+		WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accFailed();
+		});
+	}
 
 	if (m_acinerella)
 		return true;
@@ -649,7 +660,10 @@ void Acinerella::initializeAfterDiscontinuity()
 	auto acinerella = AcinerellaPointer::create();
 	if (-1 == ac_open(acinerella->instance(), static_cast<void *>(this), &acOpenCallback, &acReadCallback, &acSeekCallback, &acCloseCallback, nullptr))
 	{
-		// TODO failure path - signal to client
+		WTF::callOnMainThread([this, protectedThis = makeRef(*this)]() {
+		if (m_client)
+			m_client->accFailed();
+		});
 	}
 	else
 	{

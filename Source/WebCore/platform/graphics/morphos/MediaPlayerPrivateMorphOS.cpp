@@ -18,7 +18,7 @@
 #include <exec/exec.h>
 
 #define D(x)
-#define DM(x)
+#define DM(x) 
 #define DMHOST(x) 
 
 namespace WebCore {
@@ -346,6 +346,8 @@ bool MediaPlayerPrivateMorphOS::canLoad(bool isMediaSource)
 	{
 		host = doc->url().host().toString();
 	}
+
+	D(dprintf("%s: page %p doc %p host %s\n", __PRETTY_FUNCTION__, page, doc, host.utf8().data()));
 
 	bool ok = false;
 
