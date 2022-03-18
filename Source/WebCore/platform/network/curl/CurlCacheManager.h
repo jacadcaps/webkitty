@@ -57,6 +57,8 @@ public:
     void addCacheEntryClient(const String& url, ResourceHandle* job);
     void removeCacheEntryClient(const String& url, ResourceHandle* job);
 
+	void removeEntriesMatchingHost(const String& host);
+
 private:
     CurlCacheManager();
     ~CurlCacheManager();

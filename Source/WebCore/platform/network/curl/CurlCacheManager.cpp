@@ -404,6 +404,22 @@ void CurlCacheManager::readCachedData(const String& url, ResourceHandle* job, Re
     }
 }
 
+void CurlCacheManager::removeEntriesMatchingHost(const String& host)
+{
+	auto it = m_index.begin();
+	while (it != m_index.end()) {
+		URL url({ }, it->key);
+		if (url.host() == host) {
+			String kurl = it->key;
+			++it;
+			invalidateCacheEntry(kurl);
+		}
+		else {
+			++it;
+		}
+	}
+}
+
 }
 
 #endif
