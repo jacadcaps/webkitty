@@ -11,7 +11,7 @@ namespace Acinerella {
 
 #define D(x)
 #define DCONTENTS(x)
-#define DIO(x)
+#define DIO(x) 
 
 static const String rnReplace("\r\n");
 static const String rnReplacement("\n");
@@ -359,7 +359,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 		if (buffer && buffer->size())
 		{
 			auto contents = String::fromUTF8(buffer->data(), buffer->size());
-			HLSStream stream(m_baseURL, contents);
+			HLSStream stream(URL({}, m_selectedStream.m_url), contents);
 			m_stream += stream; // append and merge :)
 			
 			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));
