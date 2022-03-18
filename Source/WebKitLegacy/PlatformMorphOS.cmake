@@ -56,6 +56,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WkMedia.mm
     morphos/WkNotification.mm
     morphos/WkResourceResponse.mm
+    morphos/WkCache.mm
 )
 
 list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
@@ -108,6 +109,7 @@ set_source_files_properties(morphos/WkUserScript.mm PROPERTIES COMPILE_FLAGS ${M
 set_source_files_properties(morphos/WkMedia.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkNotification.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 set_source_files_properties(morphos/WkResourceResponse.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
+set_source_files_properties(morphos/WkCache.mm PROPERTIES COMPILE_FLAGS ${MM_FLAGS})
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}

@@ -96,7 +96,8 @@ typedef enum {
     WkWebViewDebugConsoleLogLevel_Info = 5,
 } WkWebViewDebugConsoleLogLevel;
 
-- (void)webView:(WkWebView *)view outputConsoleMessage:(OBString *)message level:(WkWebViewDebugConsoleLogLevel)level atLine:(ULONG)lineno;
+- (void)webView:(WkWebView *)view outputConsoleMessage:(OBString *)message source:(OBString *)url level:(WkWebViewDebugConsoleLogLevel)level
+	atLine:(ULONG)lineno atColumn:(ULONG)column;
 
 @end
 

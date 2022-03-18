@@ -192,7 +192,7 @@ void WebProcess::initialize(int sigbit)
 	PAL::GCrypt::initialize();
 #endif
 
-#if 1 // debug
+#if 0 // debug
 	{
 		JSLockHolder lock(commonVM());
 		PageConsoleClient::setShouldPrintExceptions(true);

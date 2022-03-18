@@ -222,7 +222,7 @@ static BOOL messageIsError(MessageLevel level)
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
 	if (m_webPage._fConsole)
-		m_webPage._fConsole(message, int(level), lineNumber);
+		m_webPage._fConsole(url, message, int(level), lineNumber, columnNumber);
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
@@ -351,7 +351,7 @@ void WebChromeClient::contentsSizeChanged(Frame& frame, const IntSize& size) con
 
 void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
 {
-    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
+//    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
 }
 
 void WebChromeClient::mouseDidMoveOverElement(const WebCore::HitTestResult&, unsigned modifierFlags, const WTF::String& toolTip, WebCore::TextDirection)
@@ -493,7 +493,7 @@ bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameVi
 
 void WebChromeClient::enterVideoFullscreenForVideoElement(HTMLVideoElement& videoElement, HTMLMediaElementEnums::VideoFullscreenMode, bool)
 {
-	dprintf("%s\n", __PRETTY_FUNCTION__);
+//	dprintf("%s\n", __PRETTY_FUNCTION__);
 //    m_webView->enterVideoFullscreenForVideoElement(videoElement);
 }
 

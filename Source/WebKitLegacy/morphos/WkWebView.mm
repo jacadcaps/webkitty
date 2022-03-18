@@ -2004,16 +2004,21 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[delegate webViewChangedBackForwardList:self];
 		};
 		
-		webPage->_fConsole = [self](const WTF::String&message, int level, unsigned int line) {
+		webPage->_fConsole = [self](const WTF::String&url, const WTF::String&message, int level, unsigned int line, unsigned int column) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewDebugConsoleDelegate> delegate = [privateObject consoleDelegate];
+			
 			if (delegate)
 			{
 				auto umessage = message.utf8();
 				OBString *log = [OBString stringWithUTF8String:umessage.data()];
+				auto uurl = url.utf8();
+				OBString *curl = [OBString stringWithUTF8String:uurl.data()];
+				if (![curl length])
+					curl = nil;
 
-				[delegate webView:self outputConsoleMessage:log level:(WkWebViewDebugConsoleLogLevel)level atLine:line];
+				[delegate webView:self outputConsoleMessage:log source:curl level:(WkWebViewDebugConsoleLogLevel)level atLine:line atColumn:column];
 			}
 			else
 			{

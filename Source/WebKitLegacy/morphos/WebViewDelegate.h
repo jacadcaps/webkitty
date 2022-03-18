@@ -65,7 +65,7 @@ struct WebViewDelegate
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
 	std::function<bool(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
 
-	std::function<void(const WTF::String&, int level, unsigned int line)>        _fConsole;
+	std::function<void(const WTF::String&url, const WTF::String&message, int level, unsigned int line, unsigned int column)>        _fConsole;
 	
 	std::function<void(const WTF::URL &download, const WTF::String &suggestedName)>     _fDownload;
 	std::function<void(WebCore::ResourceHandle*, const WebCore::ResourceRequest&,

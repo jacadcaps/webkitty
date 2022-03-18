@@ -41,17 +41,17 @@ void WebUserMediaClient::pageDestroyed()
 
 void WebUserMediaClient::requestUserMediaAccess(UserMediaRequest& request)
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
+// dprintf("%s\n", __PRETTY_FUNCTION__);
 }
 
 void WebUserMediaClient::cancelUserMediaAccessRequest(UserMediaRequest& request)
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
+// dprintf("%s\n", __PRETTY_FUNCTION__);
 }
 
 void WebUserMediaClient::enumerateMediaDevices(Document& document, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&& completionHandler)
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
+// dprintf("%s\n", __PRETTY_FUNCTION__);
 }
 
 WebUserMediaClient::DeviceChangeObserverToken WebUserMediaClient::addDeviceChangeObserver(WTF::Function<void()>&& observer)
