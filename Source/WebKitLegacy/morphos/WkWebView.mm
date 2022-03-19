@@ -355,7 +355,17 @@ namespace  {
 	if (_playerRef)
 	{
 		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
-		return player->client().mediaPlayerIsFullscreen();
+		WebCore::Page* page = player->client().mediaPlayerPage();
+		if (page) {
+			bool isFs = false;
+			page->forEachMediaElement([&](WebCore::HTMLMediaElement& element) {
+				if (player == element.player().get()) {
+					isFs = element.isFullscreen();
+				}
+			});
+			
+			return isFs;
+		}
 	}
 	return NO;
 }
@@ -462,6 +472,8 @@ namespace  {
 	struct Window                          *_fsWindow;
 	struct Screen                          *_fsScreen;
 	OBSignalHandler                        *_fsWindowSignalHandler;
+	bool                                    _handlingIDCMP;
+	bool                                    _fsExitRequested;
 	bool                                    _mediaEnabled;
 	bool                                    _mediaSourceEnabled;
 	bool                                    _decodeVideo;
@@ -1356,6 +1368,12 @@ namespace  {
 
 - (void)exitFullScreen
 {
+	if (_handlingIDCMP)
+	{
+		_fsExitRequested = YES;
+		return;
+	}
+
 	if (_fsWindowSignalHandler)
 	{
 		[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
@@ -1372,6 +1390,7 @@ namespace  {
 
 	CloseScreen(_fsScreen);
 	_fsScreen = NULL;
+	_fsExitRequested = NO;
 }
 
 - (void)performWithSignalHandler:(OBSignalHandler *)handler
@@ -1379,6 +1398,8 @@ namespace  {
 	if (handler == _fsWindowSignalHandler)
 	{
 		struct IntuiMessage *msg;
+
+		_handlingIDCMP = YES;
 
 		while ((msg = reinterpret_cast<struct IntuiMessage *>(GetMsg(_fsWindow->UserPort))))
 		{
@@ -1399,6 +1420,11 @@ namespace  {
 
 			ReplyMsg(&msg->ExecMessage);
 		}
+		
+		_handlingIDCMP = NO;
+
+		if (_fsExitRequested)
+			[self exitFullScreen];
 	}
 }
 
