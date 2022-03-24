@@ -646,8 +646,10 @@ protected:
     morphosHBICUBinding() {
         _funcs = hb_unicode_funcs_create(hb_unicode_funcs_get_default());
         if (nullptr != _funcs) {
-            hb_unicode_funcs_set_compose_func(_funcs, hb_icu_unicode_compose, nullptr, nullptr);
-            hb_unicode_funcs_set_decompose_func(_funcs, hb_icu_unicode_decompose, nullptr, nullptr);
+            UErrorCode icu_err = U_ZERO_ERROR;
+            void *user_data = (void *)unorm2_getNFCInstance (&icu_err);
+            hb_unicode_funcs_set_compose_func(_funcs, hb_icu_unicode_compose, user_data, nullptr);
+            hb_unicode_funcs_set_decompose_func(_funcs, hb_icu_unicode_decompose, user_data, nullptr);
             hb_unicode_funcs_set_script_func(_funcs, hb_icu_unicode_script, nullptr, nullptr);
             hb_unicode_funcs_set_mirroring_func(_funcs, hb_icu_unicode_mirroring, nullptr, nullptr);
             hb_unicode_funcs_set_general_category_func(_funcs, hb_icu_unicode_general_category, nullptr, nullptr);
