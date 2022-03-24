@@ -357,6 +357,10 @@ ALWAYS_INLINE void SlotVisitor::visitChildren(const JSCell* cell)
         dataLog("\n");
     }
     
+	// MorphOS: appears to be crashing here with cell most likely NULL
+	if (nullptr == cell)
+		return;
+
     // Funny story: it's possible for the object to be black already, if we barrier the object at
     // about the same time that it's marked. That's fine. It's a gnarly and super-rare race. It's
     // not clear to me that it would be correct or profitable to bail here if the object is already
