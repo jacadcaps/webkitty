@@ -110,6 +110,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DAVCODEC_LIBRARY="ffmpeg/instdir/lib/libavcodec.a" -DAVCODEC_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DAVUTIL_LIBRARY="ffmpeg/instdir/lib/libavutil.a" -DAVUTIL_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
 		-DSWSCALE_LIBRARY="ffmpeg/instdir/lib/libswscale.a" -DSWSCALE_INCLUDE_DIR="$(realpath ffmpeg/instdir/include)" \
+		-DWOFF2_LIBRARY="$(GEN)/lib/libwoff2dec.a $(GEN)/lib/libwoff2common.a" -DWOFF2_INCLUDE_DIR="$(GEN)/include/" \
 		-DOBJC_INCLUDE="$(OBJC)" \
 		-DCMAKE_MODULE_PATH=$(realpath Source/cmake) $(realpath ./))
 

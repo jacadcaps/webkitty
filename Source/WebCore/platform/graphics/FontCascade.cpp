@@ -502,6 +502,11 @@ FontCascade::CodePath FontCascade::codePath(const TextRun& run, std::optional<un
     UNUSED_PARAM(to);
 #endif
 
+#if OS(MORPHOS)
+    if (run.length() > 1 && (enableKerning() || requiresShaping()))
+        return CodePath::Complex;
+#endif
+
 #if PLATFORM(COCOA) || USE(FREETYPE)
     // Because Font::applyTransforms() doesn't know which features to enable/disable in the simple code path, it can't properly handle feature or variant settings.
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=150791: @font-face features should also cause this to be complex.

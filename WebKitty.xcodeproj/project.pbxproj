@@ -129,6 +129,9 @@
 		016C0EB027E4EEAD008E755F /* WkFileDialog.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkFileDialog.mm; path = Source/WebKitLegacy/morphos/WkFileDialog.mm; sourceTree = "<group>"; };
 		016C0ECC27E4EEC8008E755F /* WkCache.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCache.h; path = Source/WebKitLegacy/morphos/WkCache.h; sourceTree = "<group>"; };
 		016C0ECD27E4EEC8008E755F /* WkCache.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCache.mm; path = Source/WebKitLegacy/morphos/WkCache.mm; sourceTree = "<group>"; };
+		016C0ECF27E6A28B008E755F /* morphos.cmake.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = morphos.cmake.in; sourceTree = "<group>"; };
+		016C0ED027E6A28B008E755F /* link.sh.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = link.sh.in; sourceTree = "<group>"; };
+		016C0ED127E6A28B008E755F /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
 		01816EE0242A370A007717A6 /* WebKitty */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WebKitty; sourceTree = BUILT_PRODUCTS_DIR; };
 		019E907226FB9D4C00C68B31 /* WebKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKit; path = Source/WebKit; sourceTree = "<group>"; };
 		019E907326FB9D4D00C68B31 /* JavaScriptCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JavaScriptCore; path = Source/JavaScriptCore; sourceTree = "<group>"; };
@@ -152,10 +155,13 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
-				016C0E6427E4EE24008E755F /* MorphOS */,
 				019E907726FB9D4E00C68B31 /* cmake */,
+				016C0ED127E6A28B008E755F /* CMakeLists.txt */,
 				019E907326FB9D4D00C68B31 /* JavaScriptCore */,
+				016C0ED027E6A28B008E755F /* link.sh.in */,
 				013D3C992463448700805F29 /* Makefile */,
+				016C0E6427E4EE24008E755F /* MorphOS */,
+				016C0ECF27E6A28B008E755F /* morphos.cmake.in */,
 				019E907626FB9D4D00C68B31 /* WebCore */,
 				019E907226FB9D4C00C68B31 /* WebKit */,
 				019E907526FB9D4D00C68B31 /* WebKitLegacy */,
