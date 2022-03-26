@@ -23,6 +23,7 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
 #include <WebCore/MediaPlayerMorphOS.h>
+#include <WebCore/FontCascade.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -217,6 +218,9 @@ void WebProcess::initialize(int sigbit)
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasEnabled(true);
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasInWorkersEnabled(true);
     
+    // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
+    // so replacements like 'home' -> home icon from a font work with this enabled
+    WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
  
 	// TODO: implement workers!
 	//RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
