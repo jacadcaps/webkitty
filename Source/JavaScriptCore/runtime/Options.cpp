@@ -165,10 +165,12 @@ bool Options::isAvailable(Options::ID id, Options::Availability availability)
     if (id == logJITCodeForPerfID)
         return true;
 #endif
+#if !OS(MORPHOS)
     if (id == traceLLIntExecutionID)
         return !!LLINT_TRACING;
     if (id == traceLLIntSlowPathID)
         return !!LLINT_TRACING;
+#endif
     return false;
 }
 
