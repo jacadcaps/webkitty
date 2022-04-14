@@ -28,8 +28,8 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x) 
-#define DOVL(x)
+#define DSYNC(x)
+#define DOVL(x) 
 #define DFRAME(x) 
 
 // #pragma GCC optimize ("O0")
@@ -236,10 +236,11 @@ bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 
 void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
+	if (width > 0 && height > 0)
 	{
 		auto lock = Locker(m_lock);
 		
-		DOVL(dprintf("\033[35m[VD]%s: window %p %d %d %d %d\033[0m\n", __func__, w, mleft, mtop, mright, mbottom));
+		DOVL(dprintf("\033[35m[VD]%s: window %p %d %d %d %d element %d %d\033[0m\n", __func__, w, mleft, mtop, mright, mbottom, width, height));
 
 		(void)scrollx;
 		(void)scrolly;
