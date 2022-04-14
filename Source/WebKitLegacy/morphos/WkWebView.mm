@@ -444,6 +444,7 @@ namespace  {
 	OBString                               *_userStyleSheetFile;
 	WkPrintingStatePrivate                 *_printingState;
 	bool                                    _drawPending;
+	bool                                    _drawPendingOnUserInput;
 	bool                                    _isActive;
 	bool                                    _isLoading;
 	bool                                    _isLiveResizing;
@@ -618,6 +619,8 @@ namespace  {
 
 - (void)setDrawPendingWithSchedule:(BOOL)schedule
 {
+	_drawPendingOnUserInput = schedule && _isHandlingUserInput;
+
 	if (!_drawPending)
 	{
 		[_paintTimer invalidate];
@@ -676,7 +679,13 @@ namespace  {
 
 - (void)setIsHandlingUserInput:(BOOL)handling
 {
+	bool issuePaint = _drawPending && _isHandlingUserInput && !handling && _drawPendingOnUserInput;
+
 	_isHandlingUserInput = handling;
+	_drawPendingOnUserInput = false;
+	
+	if (issuePaint)
+		[[OBRunLoop mainRunLoop] perform:_paintPerform];
 }
 
 - (void)setBackForwardDelegate:(id<WkWebViewBackForwardListDelegate>)backForwardDelegate
