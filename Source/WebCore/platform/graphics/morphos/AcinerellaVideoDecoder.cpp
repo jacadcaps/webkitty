@@ -80,12 +80,6 @@ AcinerellaVideoDecoder::~AcinerellaVideoDecoder()
 		m_pullThread->waitForCompletion();
 		m_pullThread = nullptr;
 	}
-
-	if (m_overlayHandle)
-	{
-		DetachVLayer(m_overlayHandle);
-		DeleteVLayerHandle(m_overlayHandle);
-	}
 }
 
 void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerella)
@@ -236,7 +230,6 @@ bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 
 void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
-	if (width > 0 && height > 0)
 	{
 		auto lock = Locker(m_lock);
 		
@@ -270,7 +263,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 			m_overlayWindow = w;
 			m_didShowFirstFrame = false;
 			
-			if (m_overlayWindow && !m_terminating && m_cgxVideo)
+			if (m_overlayWindow && !m_terminating && m_cgxVideo && width > 0 && height > 0)
 			{
 				m_overlayHandle = CreateVLayerHandleTags(m_overlayWindow->WScreen,
 					VOA_SrcType, SRCFMT_YCbCr420,
