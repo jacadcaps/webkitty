@@ -64,6 +64,11 @@
 #include <glib.h>
 #endif
 
+#if OS(MORPHOS)
+#include <exec/system.h>
+#include <proto/exec.h>
+#endif
+
 namespace WTF {
 
 #if OS(WINDOWS)
@@ -283,6 +288,21 @@ MonotonicTime MonotonicTime::now()
     return fromMachAbsoluteTime(mach_absolute_time());
 #elif OS(FUCHSIA)
     return fromRawSeconds(zx_clock_get_monotonic() / static_cast<double>(ZX_SEC(1)));
+#elif OS(MORPHOS)
+    class tbClock {
+    public:
+        tbClock() {
+            ULONG freq;
+            NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+            _frequency = static_cast<double>(freq);
+        }
+        ~tbClock() = default;
+        inline double clockFrequency() const { return _frequency; }
+    protected:
+        double _frequency;
+    };
+    static const tbClock tb;
+    return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
 #elif OS(LINUX) || OS(FREEBSD) || OS(OPENBSD) || OS(NETBSD)
     struct timespec ts { };
     clock_gettime(CLOCK_MONOTONIC, &ts);
