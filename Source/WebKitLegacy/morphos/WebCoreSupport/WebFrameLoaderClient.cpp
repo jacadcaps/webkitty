@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x)
+#define D(x) 
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -259,6 +259,13 @@ void WebFrameLoaderClient::dispatchDidReceiveServerRedirectForProvisionalLoad()
 void WebFrameLoaderClient::dispatchDidChangeProvisionalURL()
 {
 	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
+    WebPage* webPage = m_frame->page();
+    if (!webPage)
+        return;
+	if (m_frame->isMainFrame() && webPage->_fChangedURL)
+	{
+		webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
+	}
 }
 
 void WebFrameLoaderClient::dispatchDidCancelClientRedirect()
@@ -873,15 +880,16 @@ void WebFrameLoaderClient::setMainDocumentError(DocumentLoader *documentLoader, 
     WebPage* webPage = m_frame->page();
     if (webPage && m_frame->isMainFrame())
     {
-		webPage->didFailLoad(error);
-
 		D(dprintf("%s: mainfr %d %s\n", __PRETTY_FUNCTION__, m_frame->isMainFrame(), m_frame->coreFrame() && m_frame->coreFrame()->document() ? m_frame->coreFrame()->document()->url().string().utf8().data() : "?"));
 
 		if (webPage->_fChangedURL && documentLoader && error.type() != WebCore::ResourceErrorBase::Type::Cancellation && error.type() != WebCore::ResourceErrorBase::Type::Null)
 		{
 			WTF::String url = documentLoader->url().string();
+			D(dprintf("%s: change url to %s\n", __PRETTY_FUNCTION__, url.utf8().data()));
 			webPage->_fChangedURL(url);
 		}
+
+		webPage->didFailLoad(error);
 
 		// happens if we click on download link and hit download... bit of a hack here
 		if (error.type() == WebCore::ResourceErrorBase::Type::Null)
