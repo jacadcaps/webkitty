@@ -33,6 +33,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 
 	if (m_networkBuffer)
 	{
+		m_canSeek = m_networkBuffer->canSeek();
 		m_networkBuffer->start();
 	}
 	ref();
@@ -212,6 +213,9 @@ void Acinerella::selectStream()
 	{
 		DINIT(dprintf("HLS stream: %dx%d\n", info.m_width, info.m_height));
 
+		if (!m_client->accIsURLValid(info.m_url))
+			continue;
+
 		if (info.m_height > 720 || info.m_fps > 30)
 			continue;
 			
@@ -260,8 +264,9 @@ void Acinerella::selectStream()
 	
 	if (selected.m_url.length())
 	{
-		DINIT(dprintf("HLS stream selected: %dx%d\n", selected.m_width, selected.m_height));
+		DINIT(dprintf("HLS stream selected: %dx%d %s\n", selected.m_width, selected.m_height, selected.m_url.utf8().data()));
 		DINIT(for (const auto &codec : selected.m_codecs) { dprintf("\t\tcodec: %s\n", codec.utf8().data()); });
+		m_hlsStreamURL = selected.m_url;
 		hls->selectStream(selected);
 	}
 }
@@ -514,6 +519,7 @@ bool Acinerella::initialize()
 				{
 					ac_get_stream_info(acinerella->instance(), audioIndex, &info);
 					acinerella->setDecoder(audioIndex, ac_create_decoder(acinerella->instance(), audioIndex));
+					DINIT(dprintf("audio decoder: %p\n", acinerella->decoder(audioIndex)));
 					m_audioDecoder = AcinerellaAudioDecoder::create(this, acinerella, m_muxer, audioIndex, info, m_isLive);
 					if (!!m_audioDecoder)
 						decoderMask |= (1UL << audioIndex);

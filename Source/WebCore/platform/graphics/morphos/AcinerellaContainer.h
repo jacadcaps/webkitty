@@ -64,6 +64,7 @@ public:
 	bool ended();
 	
 	const String &url() const { return m_url; }
+	const String &hlsStreamURL() const { return m_hlsStreamURL; }
 
     void ref() override;
     void deref() override;
@@ -121,6 +122,7 @@ protected:
 protected:
 	AcinerellaClient                *m_client;
 	String                           m_url;
+	String                           m_hlsStreamURL;
 	RefPtr<AcinerellaPointer>        m_acinerella;
 	Lock                             m_acinerellaLock;
 	RefPtr<AcinerellaNetworkBuffer>  m_networkBuffer;

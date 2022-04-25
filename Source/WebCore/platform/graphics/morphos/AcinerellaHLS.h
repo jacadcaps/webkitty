@@ -32,6 +32,16 @@ struct HLSChunk
 	double    m_programDateTime;
 };
 
+struct HLSMap
+{
+	String m_url;
+	int    m_length = 0;
+	int    m_offset = 0;
+	
+	HLSMap() { }
+	HLSMap(const String& url) : m_url(url) { }
+};
+
 class HLSStream
 {
 public:
@@ -44,13 +54,15 @@ public:
 	bool ended() const { return m_ended; }
 	bool empty() const { return m_chunks.empty(); }
 	size_t size() const { return m_chunks.size(); }
-	void clear() { while (!empty()) pop(); m_mediaSequence = -1; }
+	void clear();
 	double targetDuration() const { return m_targetDuration; }
 	int64_t mediaSequence() const { return m_mediaSequence; }
 	int64_t initialMediaSequence() const { return m_initialMediaSequence; }
 	double initialTimeStamp() const { return m_initialTimeStamp; }
+	const HLSMap &map() const { return m_map; }
 
 protected:
+	HLSMap               m_map;
 	std::queue<HLSChunk> m_chunks;
 	int64_t              m_mediaSequence = -1;
 	int64_t              m_initialMediaSequence = -1;
@@ -77,6 +89,7 @@ public:
 
 	const Vector<HLSStreamInfo>& streams() const { return m_streams; }
 	void selectStream(const HLSStreamInfo &stream);
+	const HLSStreamInfo& selectedStream() const { return m_selectedStream; }
 	bool hasStreamSelection() const override { return true; }
 
 	double initialTimeStamp() const override { return m_stream.initialTimeStamp(); }

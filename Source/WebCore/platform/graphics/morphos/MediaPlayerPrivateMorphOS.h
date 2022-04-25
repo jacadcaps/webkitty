@@ -100,6 +100,7 @@ public:
 	void accNoFramesReady() override;
 	void accFrameUpdateNeeded() override;
 	bool accCodecSupported(const String &codec) override;
+	bool accIsURLValid(const String& url) override;
 	void accSetFrameCounts(unsigned decoded, unsigned dropped) override;
 
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
@@ -126,6 +127,7 @@ protected:
 	unsigned m_decodedFrameCount = 0;
 	unsigned m_droppedFrameCount = 0;
 	mutable bool  m_didLoadingProgress = false;
+	HashSet<String> m_failedHLSStreamURIs;
 
 	RefPtr<AudioTrackPrivate> m_audioTrack;
 	RefPtr<VideoTrackPrivate> m_videoTrack;

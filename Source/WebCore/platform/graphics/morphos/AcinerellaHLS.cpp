@@ -206,6 +206,30 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				m_ended = true;
 				break; // no chunks must follow this!
 			}
+			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-map:"))
+			{
+				// #ext-x-map:URI="url",BYTERANGE=length[@offset]
+				size_t urlPos = line.findIgnoringASCIICase("URI=", 11);
+				if (WTF::notFound != urlPos)
+				{
+					int quotes = line.characterStartingAt(urlPos + 4) == '\"' ? 1 : 0;
+
+					String url = line.substring(urlPos + 4 + quotes);
+					if (quotes)
+					{
+						url = url.substring(0, url.find("\"", 1));
+					}
+					else
+					{
+						size_t comma = url.find(",");
+						if (WTF::notFound != comma)
+							url = url.substring(0, comma);
+					}
+					
+					m_map = HLSMap(URL(baseURL, url).string());
+					D(dprintf("EXTMAP: %s\n", m_map.m_url.utf8().data()));
+				}
+			}
 			// #EXT-X-PROGRAM-DATE-TIME:2021-05-05T15:44:32.030+00:00
 			// dprintf("parse l '%s' (got %d)\n", line.utf8().data(), m_chunks.size());
 		}
@@ -235,9 +259,18 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 		m_initialMediaSequence = append.m_initialMediaSequence;
 		m_targetDuration = append.m_targetDuration;
 		m_initialTimeStamp = append.m_initialTimeStamp;
+		m_map = append.m_map;
 	}
 
 	return *this;
+}
+
+void HLSStream::clear()
+{
+	while (!empty())
+		pop();
+	m_mediaSequence = -1;
+	m_map = HLSMap();
 }
 
 AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
@@ -328,8 +361,21 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 
 			if (m_streams.size())
 			{
+				m_selectedStream.m_url = emptyString();
 				m_provider->selectStream();
 				D(dprintf("%s(%p): selected %dx%d %s \n", __func__, this, m_selectedStream.m_width, m_selectedStream.m_height, m_selectedStream.m_url.utf8().data()));
+
+				// no stream selected?
+				if (m_selectedStream.m_url.isEmpty())
+				{
+					// break out of read()
+					m_stopping = true;
+					m_ended = true;
+					m_event.signal();
+					m_hlsRequest = nullptr;
+					return;
+				}
+
 				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this](bool succ) { childPlaylistReceived(succ); });
 				return;
 			}
@@ -359,6 +405,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 		if (buffer && buffer->size())
 		{
 			auto contents = String::fromUTF8(buffer->data(), buffer->size());
+			bool initial = m_stream.empty();
 			HLSStream stream(URL({}, m_selectedStream.m_url), contents);
 			m_stream += stream; // append and merge :)
 			
@@ -366,9 +413,20 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			// start loading chunks!
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
-				D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-				auto chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
-				m_stream.pop();
+				RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+
+				D(dprintf("%s(%p) initial %d, map url %s\n", __func__, this, initial, m_stream.map().m_url.utf8().data()));
+				if (0 && initial && 0 != m_stream.map().m_url.length()) // disabled for now, doesn't work yet
+				{
+					D(dprintf("%s(%p) initializing with ext url!\n", __func__, this));
+					chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.map().m_url);
+				}
+				else
+				{
+					D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
+					chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
+					m_stream.pop();
+				}
 				
 				{
 					auto lock = Locker(m_lock);
@@ -448,17 +506,17 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 int64_t AcinerellaNetworkBufferHLS::length()
 {
-	auto lock = Locker(m_lock);
-	if (m_chunkRequestInRead)
-		return m_chunkRequestInRead->length();
+//	auto lock = Locker(m_lock);
+//	if (m_chunkRequestInRead)
+//		return m_chunkRequestInRead->length();
 	return 0;
 }
 
 int64_t AcinerellaNetworkBufferHLS::position()
 {
-	auto lock = Locker(m_lock);
-	if (m_chunkRequestInRead)
-		return m_chunkRequestInRead->position();
+//	auto lock = Locker(m_lock);
+//	if (m_chunkRequestInRead)
+//		return m_chunkRequestInRead->position();
 	return 0;
 }
 

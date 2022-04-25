@@ -18,7 +18,7 @@
 #include <exec/exec.h>
 
 #define D(x)
-#define DM(x) 
+#define DM(x)
 #define DMHOST(x) 
 
 namespace WebCore {
@@ -691,6 +691,13 @@ bool MediaPlayerPrivateMorphOS::accCodecSupported(const String &codec)
 	return MediaPlayerFactoryMediaSourceMorphOS::s_supportsTypeAndCodecs(parameters) == MediaPlayer::SupportsType::IsSupported;
 }
 
+bool MediaPlayerPrivateMorphOS::accIsURLValid(const String& url)
+{
+	if (m_failedHLSStreamURIs.contains(url))
+		return false;
+	return true;
+}
+
 void MediaPlayerPrivateMorphOS::accSetFrameCounts(unsigned decoded, unsigned dropped)
 {
 	m_decodedFrameCount = decoded;
@@ -847,6 +854,22 @@ void MediaPlayerPrivateMorphOS::accEnded()
 
 void MediaPlayerPrivateMorphOS::accFailed()
 {
+	if (m_acinerella && m_acinerella->isLive() && !m_acinerella->hlsStreamURL().isEmpty())
+	{
+		if (!m_failedHLSStreamURIs.contains(m_acinerella->hlsStreamURL()))
+		{
+			D(dprintf("%s: blacklist stream URL %s and retry\n", __func__, m_acinerella->hlsStreamURL().utf8().data()));
+			m_failedHLSStreamURIs.add(m_acinerella->hlsStreamURL());
+
+			String url = m_acinerella->url();
+			m_acinerella->terminate();
+			m_acinerella = Acinerella::Acinerella::create(this, url);
+
+			if (m_acinerella)
+				return;
+		}
+	}
+
 	m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
 	m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
 	m_player->networkStateChanged();

@@ -25,11 +25,12 @@ public:
 	virtual void accSetVideoSize(int width, int height) = 0;
 	virtual void accSetFrameCounts(unsigned decoded, unsigned dropped) = 0;
 	virtual void accEnded() = 0;
-	virtual void accFailed() = 0;
+	virtual void accFailed() = 0; // on initialization!
 	virtual void accNextFrameReady() = 0;
 	virtual void accNoFramesReady() = 0;
 	virtual void accFrameUpdateNeeded() = 0;
 	virtual bool accCodecSupported(const String &codec) = 0;
+	virtual bool accIsURLValid(const String& url) = 0;
 	
 	virtual RefPtr<PlatformMediaResourceLoader> accCreateResourceLoader() = 0;
 	virtual String accReferrer() = 0;
