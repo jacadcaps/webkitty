@@ -469,7 +469,7 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
-        RELEASE_ASSERT(!std::isnan(newTime));
+        // RELEASE_ASSERT(!std::isnan(newTime));
         m_unalignedNextFireTime = newTime;
     }
 
