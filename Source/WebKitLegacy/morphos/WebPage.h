@@ -63,9 +63,9 @@ public:
     WebCore::PageIdentifier pageID() const { return m_pageID; }
     PAL::SessionID sessionID() const;
 
-	void load(const char *url);
+	void load(const char *url, bool ignoreCaches = false);
 	void loadData(const char *data, size_t length, const char *url);
-	bool reload();
+	bool reload(const char *url);
 	void stop();
 	
 	WebCore::CertificateInfo getCertificate(void);

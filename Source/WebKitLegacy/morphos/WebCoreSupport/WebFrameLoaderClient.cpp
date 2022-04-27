@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x) 
+#define D(x)
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -258,14 +258,7 @@ void WebFrameLoaderClient::dispatchDidReceiveServerRedirectForProvisionalLoad()
 
 void WebFrameLoaderClient::dispatchDidChangeProvisionalURL()
 {
-	D(dprintf("%s: mainfr %d\n", __PRETTY_FUNCTION__, m_frame->isMainFrame()));
-    WebPage* webPage = m_frame->page();
-    if (!webPage)
-        return;
-	if (m_frame->isMainFrame() && webPage->_fChangedURL)
-	{
-		webPage->_fChangedURL(m_frame->coreFrame()->document()->url().string());
-	}
+	// do not send url updates from here!
 }
 
 void WebFrameLoaderClient::dispatchDidCancelClientRedirect()

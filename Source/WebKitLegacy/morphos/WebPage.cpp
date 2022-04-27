@@ -1307,7 +1307,7 @@ WebPage* WebPage::fromCorePage(WebCore::Page* page)
 	return nullptr;
 }
 
-void WebPage::load(const char *url)
+void WebPage::load(const char *url, bool ignoreCaches)
 {
 	static uint64_t navid = 1;
 
@@ -1315,6 +1315,9 @@ void WebPage::load(const char *url)
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), WTF::String(url));
 	WebCore::ResourceRequest request(baseCoreURL);
 	
+	if (ignoreCaches)
+		request.setCachePolicy(ResourceRequestCachePolicy::ReloadIgnoringCacheData);
+
 	corePage()->userInputBridge().stopLoadingFrame(*coreFrame);
 	m_pendingNavigationID = navid ++;
 	coreFrame->loader().load(FrameLoadRequest(*coreFrame, request));
@@ -1336,21 +1339,31 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 	exitFullscreen();
 }
 
-bool WebPage::reload()
+bool WebPage::reload(const char *url)
 {
 	auto *mainframe = mainFrame();
 	if (mainframe)
 	{
+		WTF::URL expectedURL = WTF::URL(WTF::URL(), WTF::String(url));
+		
 		exitFullscreen();
 
 		OptionSet<ReloadOption> options;
 		options.add(ReloadOption::FromOrigin);
 
 		DocumentLoader *loader = mainframe->loader().documentLoader();
-		if (!loader || loader->request().url().isEmpty())
-			return false;
+		
+		bool canReload = loader && loader->request().url() == expectedURL;
+		
+		if (canReload)
+		{
+			mainframe->loader().reload(options);
+		}
+		else
+		{
+			load(url, true);
+		}
 
-		mainframe->loader().reload(options);
 		return true;
 	}
 	

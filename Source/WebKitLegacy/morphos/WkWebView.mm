@@ -2683,7 +2683,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)reload
 {
 	auto webPage = [_private page];
-	if (!webPage->reload())
+	if (!webPage->reload([[[_private url] absoluteString] cString]))
 		webPage->load([[[_private url] absoluteString] cString]);
 }
 
