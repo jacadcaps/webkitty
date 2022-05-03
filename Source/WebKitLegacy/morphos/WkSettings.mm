@@ -511,7 +511,7 @@ namespace WebCore {
 
 - (WkSettings_LoopFilter)loopFilter
 {
-    return WkSettings_LoopFilter_All;
+    return WkSettings_LoopFilter_NonKey;
 }
 
 - (void)setLoopFilter:(WkSettings_LoopFilter)filterskip

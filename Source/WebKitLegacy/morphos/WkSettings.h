@@ -39,8 +39,7 @@ typedef enum {
     WkSettings_LoopFilter_NonRef,
     WkSettings_LoopFilter_BiDirectional,
     WkSettings_LoopFilter_NonIntra,
-    WkSettings_LoopFilter_NonKey,
-    WkSettings_LoopFilter_All
+    WkSettings_LoopFilter_NonKey
 } WkSettings_LoopFilter;
 
 @interface WkSettings : OBObject

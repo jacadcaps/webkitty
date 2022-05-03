@@ -43,7 +43,7 @@ struct MediaPlayerMorphOSStreamSettings
         All
     };
 
-    SkipLoopFilter m_loopFilter = SkipLoopFilter::All;
+    SkipLoopFilter m_loopFilter = SkipLoopFilter::NonKey;
 };
 
 struct MediaPlayerMorphOSSettings
