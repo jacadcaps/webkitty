@@ -471,6 +471,7 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 MediaSourceBufferPrivateMorphOS::~MediaSourceBufferPrivateMorphOS()
 {
 	DI(dprintf("[MS]%s: %p bye!\n", __func__, this));
+	clearMediaSource();
 }
 
 void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
