@@ -450,6 +450,8 @@ namespace  {
 	bool                                    _isLiveResizing;
 	bool                                    _hasOnlySecureContent;
 	bool                                    _isHandlingUserInput;
+	bool                                    _isQuiet;
+	bool                                    _isShown;
 	OBURL                                  *_url;
 	OBString                               *_title;
 	OBURL                                  *_hover;
@@ -1439,6 +1441,40 @@ namespace  {
 
 #endif
 
+- (void)setQuiet:(BOOL)quiet
+{
+	if (quiet != _isQuiet)
+	{
+		_isQuiet = quiet;
+		if (_page)
+		{
+			if (_isQuiet)
+				_page->goHidden();
+			else if (_isShown)
+				_page->goVisible();
+		}
+	}
+}
+
+- (BOOL)quiet
+{
+	return _isQuiet;
+}
+
+- (void)setShown:(BOOL)shown
+{
+	_isShown = shown;
+	
+	if (_page)
+	{
+		if (_isShown && !_isQuiet)
+			_page->goVisible();
+		else
+			_page->goHidden();
+	
+	}
+}
+
 @end
 
 @interface WkDownloadResponseDelegatePrivate : OBObject<WkConfirmDownloadResponseDelegate>
@@ -1875,7 +1911,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				if (overload)
 					return WTF::String::fromUTF8([overload cString]);
 			}
-			return WTF::String::fromUTF8("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
+			return WTF::String::fromUTF8("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15");
 		};
 		
 		webPage->_fChangedTitle = [self](const WTF::String& title) {
@@ -3079,7 +3115,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		// isVisible check workarounds an out-of-order initResize/hide in 3.15 :|
 		if (![_private isLiveResizing] || !webPage->isVisible())
 		{
-			webPage->goVisible();
+			[_private setShown:YES];
 			
 			if (WkSettings_Throttling_InvisibleBrowsers == [_private throttling])
 				webPage->setLowPowerMode(false);
@@ -3125,7 +3161,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	if (![_private isLiveResizing])
 	{
 		auto webPage = [_private page];
-		webPage->goHidden();
+		
+		[_private setShown:NO];
 
 		[_private setPaintPerform:nil];
 #if ENABLE(VIDEO)
@@ -3704,6 +3741,16 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)recalculatePrinting
 {
 	[[_private printingState] recalculatePages];
+}
+
+- (void)setQuiet:(BOOL)quiet
+{
+	[_private setQuiet:quiet];
+}
+
+- (BOOL)quiet
+{
+	return [_private quiet];
 }
 
 - (BOOL)canUndo

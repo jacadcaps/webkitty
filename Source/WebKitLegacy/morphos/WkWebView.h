@@ -255,4 +255,7 @@ typedef enum {
 - (OBArray /* id<WkMediaObject> */ *)mediaObjects;
 - (id<WkMediaObject>)activeMediaObject;
 
+- (void)setQuiet:(BOOL)quiet;
+- (BOOL)quiet;
+
 @end
