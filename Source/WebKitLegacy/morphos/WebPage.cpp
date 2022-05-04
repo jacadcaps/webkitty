@@ -3060,7 +3060,10 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 							_fGoActive();
 
 						bool doEvent = true;
-						
+						bool shouldShowMenu = true;
+
+						m_page->contextMenuController().clearContextMenu();
+
 						switch (m_cmHandling)
 						{
 						case ContextMenuHandling::Override:
@@ -3083,43 +3086,36 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
 						constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
-						m_page->contextMenuController().clearContextMenu();
-						Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-						if (targetFrame)
+
+						if (doEvent)
 						{
-							if (doEvent)
+							bool rmbHandled = bridge.handleMousePressEvent(pme);
+							Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+
+							if (targetFrame)
 							{
-								bridge.handleContextMenuEvent(pme, *targetFrame);
+								if (bridge.handleContextMenuEvent(pme, *targetFrame))
+									shouldShowMenu = m_page->contextMenuController().contextMenu() ? (m_page->contextMenuController().contextMenu()->items().size() > 0) : false;
 							}
+
+							if (rmbHandled && !shouldShowMenu)
+							{
+								m_trackMouse = true;
+							}
+
 						}
 
-						if (m_page->contextMenuController().contextMenu() &&
-							m_page->contextMenuController().contextMenu()->items().size() > 1)
+
+						if (shouldShowMenu && _fContextMenu)
 						{
-							if (_fContextMenu)
-							{
-								bool didDisplayMenu = _fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
-								if (didDisplayMenu)
-								{
-									WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
-								}
-								else
-								{
-									bridge.handleMousePressEvent(pme);
-									m_trackMouse = true;
-								}
-							}
-						}
-						else if (_fContextMenu && !doEvent)
-						{
-							// force a context menu!
-							_fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
-							WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
-						}
-						else if (doEvent)
-						{
-							bridge.handleMousePressEvent(pme);
-							m_trackMouse = true;
+							bool handled;
+							if (m_page->contextMenuController().contextMenu() &&
+								m_page->contextMenuController().contextMenu()->items().size() > 0)
+								handled = _fContextMenu(WebCore::IntPoint(mouseX, mouseY), m_page->contextMenuController().contextMenu()->items(), result);
+							else
+								handled = _fContextMenu(WebCore::IntPoint(mouseX, mouseY), { }, result);
+							if (handled)
+								WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 						}
 
 						return true;
