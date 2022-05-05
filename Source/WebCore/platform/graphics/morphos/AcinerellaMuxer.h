@@ -56,7 +56,7 @@ public:
 		return WTF::adoptRef(*new AcinerellaMuxedBuffer());
 	}
 
-	static constexpr int maxDecoders = 32;
+	static constexpr int maxDecoders = 16;
 	static constexpr int queueReadAheadSize = 64;
 
 	void setSinkFunction(Function<bool(int decoderIndex, int packagesLeft)>&& sinkFunction);
@@ -74,6 +74,7 @@ public:
 	bool isEOS() const { return m_queueCompleteOrError; }
 
 	int packagesForDecoder(int decoderIndex);
+	uint32_t bytesForDecoder(int decoderIndex);
 
 protected:
 	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
@@ -128,6 +129,7 @@ protected:
 protected:
 	Function<bool(int, int)> m_sinkFunction;
 	AcinerellaPackageQueue   m_packages[maxDecoders];
+	uint32_t                 m_bytes[maxDecoders] = { 0 };
 	BinarySemaphore          m_events[maxDecoders];
 	Lock                     m_lock;
 

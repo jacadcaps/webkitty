@@ -54,6 +54,7 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 			else if (isDecoderValid(index))
 			{
 				m_packages[index].emplace(package);
+				m_bytes[index] += ac_get_package_size(package->package());
 				D(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
 			}
 			else
@@ -96,6 +97,7 @@ void AcinerellaMuxedBuffer::flush(int decoderIndex)
 		m_queueCompleteOrError = false;
 		while (!m_packages[decoderIndex].empty())
 			m_packages[decoderIndex].pop();
+		m_bytes[decoderIndex] = 0;
 	}
 }
 
@@ -134,6 +136,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			if (!m_packages[index].empty())
 			{
 				hasPackage = m_packages[index].front();
+				m_bytes[index] -= ac_get_package_size(hasPackage->package());
 				m_packages[index].pop();
 				sizeLeft = m_packages[index].size();
 				requestMore = sizeLeft < queueReadAheadSize;
@@ -169,6 +172,12 @@ int AcinerellaMuxedBuffer::packagesForDecoder(int decoderIndex)
 {
 	auto lock = Locker(m_lock);
 	return m_packages[decoderIndex].size();
+}
+
+uint32_t AcinerellaMuxedBuffer::bytesForDecoder(int decoderIndex)
+{
+	auto lock = Locker(m_lock);
+	return m_bytes[decoderIndex];
 }
 
 }
