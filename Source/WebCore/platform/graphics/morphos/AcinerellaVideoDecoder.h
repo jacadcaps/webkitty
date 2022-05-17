@@ -14,11 +14,11 @@ namespace Acinerella {
 
 class AcinerellaVideoDecoder : public AcinerellaDecoder
 {
-	AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive);
+	AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive, bool isHLS);
 public:
-	static RefPtr<AcinerellaVideoDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive)
+	static RefPtr<AcinerellaVideoDecoder> create(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLive, bool isHLS)
 	{
-		return WTF::adoptRef(*new AcinerellaVideoDecoder(client, acinerella, buffer, index, info, isLive));
+		return WTF::adoptRef(*new AcinerellaVideoDecoder(client, acinerella, buffer, index, info, isLive, isHLS));
 	}
 
 	~AcinerellaVideoDecoder();

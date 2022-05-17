@@ -50,7 +50,12 @@ public:
 	virtual void start(uint64_t from = 0) = 0;
 	virtual void stop() = 0;
 	virtual bool canSeek() { return true; }
+	virtual bool canSkip() { return false; }
 	void die();
+
+	virtual void skip(double startTime) { (void)startTime; }
+	virtual bool knowsDuration() { return false; }
+	virtual double duration() { return 0.0; }
 
 	virtual bool hasStreamSelection() const { return false; }
 	virtual double initialTimeStamp() const { return .0; }

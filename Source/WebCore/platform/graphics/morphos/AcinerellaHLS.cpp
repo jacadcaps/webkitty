@@ -9,7 +9,7 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x)
+#define D(x) 
 #define DCONTENTS(x)
 #define DIO(x) 
 
@@ -174,6 +174,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-targetduration:"))
 			{
 				m_targetDuration = line.substring(22).toDouble();
+				duration = m_targetDuration;
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-program-date-time"))
 			{
@@ -187,7 +188,9 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#extinf:"))
 			{
-				duration = parseIntegerAllowingTrailingJunk<uint64_t>(line.substring(8)).value_or(0);
+				duration = line.substring(8).toDouble();
+				if (duration <= 0.0)
+					duration = m_targetDuration;
 				hopingForURL = true;
 			}
 			else if (hopingForURL && !startsWithLettersIgnoringASCIICase(line,"#"))
@@ -197,9 +200,12 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				chunk.m_duration = duration;
 //				chunk.m_programDateTime = programTimeDate;
 //				programTimeDate += duration;
+				m_remainingDuration += duration;
 
 				chunk.m_url = URL(baseURL, line).string();
 				m_chunks.emplace(WTFMove(chunk));
+				
+				duration = m_targetDuration; // reset
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-endlist"))
 			{
@@ -245,6 +251,7 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 		if (append.m_chunks.front().m_mediaSequence > m_mediaSequence || (m_chunks.empty() && m_mediaSequence == -1))
 		{
 			m_mediaSequence = append.m_chunks.front().m_mediaSequence;
+			m_remainingDuration += append.m_chunks.front().m_duration;
 			m_chunks.emplace(append.m_chunks.front());
 		}
 
@@ -265,12 +272,35 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 	return *this;
 }
 
+void HLSStream::assign(const HLSStream& source)
+{
+	m_initialMediaSequence = source.m_initialMediaSequence;
+	m_targetDuration = source.m_targetDuration;
+	m_initialTimeStamp = source.m_initialTimeStamp;
+	m_map = source.m_map;
+	m_chunks = source.m_chunks;
+	m_ended = source.m_ended;
+	m_remainingDuration = source.m_remainingDuration;
+}
+
 void HLSStream::clear()
 {
 	while (!empty())
 		pop();
 	m_mediaSequence = -1;
 	m_map = HLSMap();
+	m_remainingDuration = 0;
+}
+
+void HLSStream::popUntil(double position)
+{
+	while (position > 0 && !empty())
+	{
+		double duration = m_chunks.front().m_duration;
+		position -= duration;
+		m_initialTimeStamp += duration;
+		pop();
+	}
 }
 
 AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
@@ -321,12 +351,17 @@ void AcinerellaNetworkBufferHLS::stop()
 		m_hlsRequest->cancel();
 	m_hlsRequest = nullptr;
 	
-	if (m_chunkRequest)
-		m_chunkRequest->stop();
+	RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+	{
+		auto lock = Locker(m_lock);
+		std::swap(m_chunkRequest, chunkRequest);
+	}
+
+	if (chunkRequest)
+		chunkRequest->stop();
 
 	{
 		auto lock = Locker(m_lock);
-		m_chunkRequest = nullptr;
 		
 		if (m_chunkRequestInRead)
 			m_chunkRequestInRead->die();
@@ -409,6 +444,17 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			HLSStream stream(URL({}, m_selectedStream.m_url), contents);
 			m_stream += stream; // append and merge :)
 			
+			if (initial)
+			{
+				m_terminatedHLS = m_stream.ended();
+				if (m_terminatedHLS)
+				{
+					m_terminatedStream.assign(m_stream);
+					m_fullDuration = m_terminatedStream.remainingDuration();
+					D(dprintf("%s(%p) terminated, duration %f chunks %d (%d)\n", __func__, this, float(m_fullDuration), m_terminatedStream.size(), m_stream.size()));
+				}
+			}
+
 			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));
 			// start loading chunks!
 			if (!m_stream.empty() && !m_chunkRequest)
@@ -506,17 +552,17 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 int64_t AcinerellaNetworkBufferHLS::length()
 {
-//	auto lock = Locker(m_lock);
-//	if (m_chunkRequestInRead)
-//		return m_chunkRequestInRead->length();
+	auto lock = Locker(m_lock);
+	if (m_chunkRequestInRead)
+		return m_chunkRequestInRead->length();
 	return 0;
 }
 
 int64_t AcinerellaNetworkBufferHLS::position()
 {
-//	auto lock = Locker(m_lock);
-//	if (m_chunkRequestInRead)
-//		return m_chunkRequestInRead->position();
+	auto lock = Locker(m_lock);
+	if (m_chunkRequestInRead)
+		return m_chunkRequestInRead->position();
 	return 0;
 }
 
@@ -533,7 +579,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 		{
 			int read = m_chunkRequestInRead->read(outBuffer, size, readPosition);
 
-			if (0 == read)
+			if (0 == read || m_skipping)
 			{
 				bool ended = false;
 
@@ -542,7 +588,13 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 					ended = m_stream.empty() && m_stream.ended();
 					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
 					m_chunkRequestInRead = nullptr;
-					DIO(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
+					if (m_skipping)
+					{
+						D(dprintf("-- skipping issues a discontinuity!!\n"));
+						ended = false;
+						m_skipping = false;
+					}
+					D(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
 				}
 
 				return ended ? eRead_EOF : eRead_Discontinuity;
@@ -553,6 +605,11 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 					m_chunkRequestInRead->length() - m_chunkRequestInRead->position()));
 				return read;
 			}
+		}
+		else if (m_skipping)
+		{
+			D(dprintf("-- skipping after a chunk!!\n"));
+			m_skipping = false;
 		}
 
 		{
@@ -587,6 +644,30 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 
 	DIO(dprintf("%s(%p): failing out (%d)\n", __PRETTY_FUNCTION__, this, m_stopping));
 	return -1;
+}
+
+void AcinerellaNetworkBufferHLS::skip(double startTime)
+{
+	auto lock = Locker(m_lock);
+	RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+	std::swap(m_chunkRequest, chunkRequest);
+	m_stream.clear();
+	m_stream.assign(m_terminatedStream);
+	D(double duration = m_stream.remainingDuration());
+	D(size_t size = m_stream.size());
+	m_stream.popUntil(startTime);
+	D(dprintf("%s(%p): skipped, next HLS chunk @ %lu (%lu), duration %f > %f, its %f\n", __PRETTY_FUNCTION__, this, size, m_stream.size(), float(duration), float(m_stream.remainingDuration()), float(m_stream.initialTimeStamp())));
+	m_skipping = true;
+	if (chunkRequest)
+		chunkRequest->stop();
+	m_event.signal();
+}
+
+double AcinerellaNetworkBufferHLS::initialTimeStamp() const
+{
+	if (!m_terminatedHLS)
+		return 0;
+	return m_stream.initialTimeStamp();
 }
 
 }

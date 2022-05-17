@@ -139,7 +139,8 @@ protected:
 	bool                             m_muted = false;
 	bool                             m_canSeek = true;
 	bool                             m_isSeeking = false;
-	bool                             m_isLive = false;
+	bool                             m_isHLS = false;
+	bool                             m_canSkip = false;
 	bool                             m_ended = false;
 	bool                             m_seekingForward;
 	bool                             m_waitReady = false;

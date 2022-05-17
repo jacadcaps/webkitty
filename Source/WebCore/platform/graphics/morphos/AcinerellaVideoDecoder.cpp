@@ -10,6 +10,7 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <dos/dos.h>
+#include <proto/muimaster.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -28,7 +29,7 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x)
+#define DSYNC(x) 
 #define DOVL(x) 
 #define DFRAME(x) 
 
@@ -40,8 +41,8 @@
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
-	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
+AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream, bool isHLS)
+	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream, isHLS)
 {
 	m_fps = info.additional_info.video_info.frames_per_second;
 	m_frameDuration = 1.f / m_fps;
@@ -155,6 +156,14 @@ void AcinerellaVideoDecoder::onTerminate()
 		m_pullThread->waitForCompletion();
 	m_pullThread = nullptr;
 	D(dprintf("\033[35m[VD]%s: %p done\033[0m\n", __func__, this));
+
+	auto lock = Locker(m_lock);
+	if (m_overlayHandle)
+	{
+		DetachVLayer(m_overlayHandle);
+		DeleteVLayerHandle(m_overlayHandle);
+		m_overlayHandle = nullptr;
+	}
 }
 
 void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
@@ -163,7 +172,7 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f pts %f]\033[0m\n", __func__, this, float(m_bufferedSeconds), float(frame.pts())));
 
 	auto *avframe = frame.frame();
-	if (m_isLive && avframe->timecode <= 0.0)
+	if (m_isHLS)// && avframe->timecode <= 0.0)
 	{
 		auto *nonconstframe = const_cast<ac_decoder_frame *>(avframe);
 		nonconstframe->timecode = m_liveTimeCode;
@@ -185,13 +194,14 @@ void AcinerellaVideoDecoder::flush()
 	m_hasAudioPosition = false;
 	m_bufferedSeconds = 0;
 	m_frameCount = 0;
+	m_liveTimeCode = 0;
 }
 
 void AcinerellaVideoDecoder::dumpStatus()
 {
 	auto lock = Locker(m_lock);
-	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d\033[0m\n",
-		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive);
+	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d EOF %d\033[0m\n",
+		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive, m_decoderEOF);
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
@@ -224,6 +234,8 @@ bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 		
 		return true;
 	}
+	
+	DSYNC(dprintf("\033[35m[VD]%s: no audio pos\033[0m\n", __func__, this));
 	
 	return false;
 }
@@ -287,7 +299,10 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 				}
 				else
 				{
-					dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_frameWidth, m_frameHeight);
+					WTF::callOnMainThread([width = m_frameWidth, height = m_frameHeight] {
+						MUI_Request(NULL, NULL, 0, (char *)"WkWebView: Overlay", (char *)"OK", (char *)"Failed opening overlay @ %dx%d!", width, height);
+					});
+//					dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_frameWidth, m_frameHeight);
 				}
 			}
 		}
@@ -628,8 +643,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						if (m_decodedFrames.size())
 						{
 							pts = m_decodedFrames.front().pts();
-							if (!m_isLive)
-								m_position = pts;
+							m_position = pts;
 							m_decodedFrames.pop();
 							m_bufferedSeconds -= m_frameDuration;
 							dropFrame = false;
@@ -650,8 +664,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 							// Store current frame's pts
 							pts = m_decodedFrames.front().pts();
-							if (!m_isLive)
-								m_position = pts;
+							m_position = pts;
 							
 							// Blit the frame into overlay backbuffer
 							blitFrameLocked();
@@ -675,16 +688,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 				dispatch([this, changePosition, didShowFrame]() {
                     if (changePosition)
                     {
-                        if (m_isLive)
-                        {
-                            m_position += 1.f;
-                            onPositionChanged();
-                        }
-                        else
-                        {
-                            onPositionChanged();
-                        }
-                        
+                        onPositionChanged();
                         HIDInput();
                     }
 

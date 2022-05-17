@@ -17,12 +17,12 @@ namespace Acinerella {
 #define AHI_BASE_NAME m_ahiBase
 
 #define D(x)
-#define DSYNC(x)
+#define DSYNC(x) 
 #define DSPAM(x) 
 #define DSPAMTS(x) 
 
-AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
-	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream)
+AcinerellaAudioDecoder::AcinerellaAudioDecoder(AcinerellaDecoderClient* client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream, bool isHLS)
+	: AcinerellaDecoder(client, acinerella, buffer, index, info, isLiveStream, isHLS)
 	, m_audioRate(ac_get_audio_rate(acinerella->decoder(index)))
 	, m_audioChannels(info.additional_info.audio_info.channel_count)
 	, m_audioBits(info.additional_info.audio_info.bit_depth)
@@ -286,7 +286,7 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	m_bufferedSamples += avframe->buffer_size / 4; // 16bitStereo = 4BPF
 	m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
 
-	if (m_isLive && avframe->timecode <= 0.0)
+	if (m_isHLS)// && avframe->timecode <= 0.0)
 	{
 		auto *nonconstframe = const_cast<ac_decoder_frame *>(avframe);
 		nonconstframe->timecode = m_liveTimeCode;
@@ -320,6 +320,7 @@ void AcinerellaAudioDecoder::flush()
 	m_bufferedSamples = 0;
 	m_didFlushBuffers = true;
 	m_position = 0;
+	m_liveTimeCode = 0;
 
 	if (m_ahiControl)
 	{
@@ -355,8 +356,8 @@ void AcinerellaAudioDecoder::flush()
 void AcinerellaAudioDecoder::dumpStatus()
 {
 	auto lock = Locker(m_lock);
-	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f\033[0m\n", isWarmedUp(), isReadyToPlay(), isPlaying(),
-		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()));
+	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f LIV %d HLS %d\033[0m\n", isWarmedUp(), isReadyToPlay(), isPlaying(),
+		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()), m_isLive, m_isHLS);
 }
 
 #undef AHI_BASE_NAME
@@ -484,7 +485,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 	{
 		double positionToAnnounce = index == 0 ? m_ahiSampleTimestamp[1] : m_ahiSampleTimestamp[0];
 		
-		DSYNC(dprintf("[A] %s: PTS %f, bleft %d offset %d timeleft %f dp %d eof %d\n", __func__, positionToAnnounce, bytesLeft, offset, m_bufferedSeconds, didPopFrames, m_decoderEOF));
+		DSYNC(dprintf("[A] %s: PTS %f, bleft %d offset %d timeleft %f dp %d eof %d live %d\n", __func__, positionToAnnounce, bytesLeft, offset, m_bufferedSeconds, didPopFrames, m_decoderEOF, m_isLive));
 
 		if (didPopFrames)
 		{
@@ -499,7 +500,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 		}
 	}
 	
-	if ((bytesLeft == m_ahiSampleLength * 4) && (m_decoderEOF || (m_position + 1.5f > m_duration && !m_isLive)))
+	if ((bytesLeft == m_ahiSampleLength * 4) && (m_decoderEOF || (m_position + 1.5f > m_duration && !m_isHLS)))
 	{
 		dispatch([this, protectedThis(makeRef(*this))]() {
 			stopPlaying();

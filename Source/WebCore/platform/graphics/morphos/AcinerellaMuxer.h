@@ -59,7 +59,7 @@ public:
 	static constexpr int maxDecoders = 16;
 	static constexpr int queueReadAheadSize = 64;
 
-	void setSinkFunction(Function<bool(int decoderIndex, int packagesLeft)>&& sinkFunction);
+	void setSinkFunction(Function<bool(int decoderIndex, int packagesLeft, uint32_t bufferSize)>&& sinkFunction);
 	void setDecoderMask(uint32_t mask, uint32_t audioMask = 0);
 
 	// To be called on Acinerella thread
@@ -75,6 +75,8 @@ public:
 
 	int packagesForDecoder(int decoderIndex);
 	uint32_t bytesForDecoder(int decoderIndex);
+
+	uint32_t maxBufferSizeForMediaSourceDecoder(int decoderIndex);
 
 protected:
 	typedef std::queue<RefPtr<AcinerellaPackage>> AcinerellaPackageQueue;
@@ -127,7 +129,8 @@ protected:
 	}
 
 protected:
-	Function<bool(int, int)> m_sinkFunction;
+	Function<bool(int, int, uint32_t)> m_sinkFunction;
+
 	AcinerellaPackageQueue   m_packages[maxDecoders];
 	uint32_t                 m_bytes[maxDecoders] = { 0 };
 	BinarySemaphore          m_events[maxDecoders];

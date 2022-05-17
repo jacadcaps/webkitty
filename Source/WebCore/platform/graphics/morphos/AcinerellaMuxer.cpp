@@ -10,15 +10,15 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
-#define DF(x) 
+#define D(x)
+#define DF(x)
 
 namespace WebCore {
 namespace Acinerella {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex, int left)>&& sinkFunction)
+void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex, int left, uint32_t bytesInBuffer)>&& sinkFunction)
 {
 	auto lock = Locker(m_lock);
 	m_sinkFunction = WTFMove(sinkFunction);
@@ -47,6 +47,7 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 			// Flush goes into all valid queues!
 			if (package->isFlushPackage())
 			{
+				m_queueCompleteOrError = false;
 				forValidDecoders([&](AcinerellaPackageQueue& queue, BinarySemaphore&) {
 					queue.emplace(package);
 				});
@@ -128,6 +129,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 	{
 		bool requestMore = false;
 		int sizeLeft = 0;
+		uint32_t bytes = 0;
 		RefPtr<AcinerellaPackage> hasPackage = nullptr;
 
 		{
@@ -139,6 +141,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 				m_bytes[index] -= ac_get_package_size(hasPackage->package());
 				m_packages[index].pop();
 				sizeLeft = m_packages[index].size();
+				bytes = m_bytes[index];
 				requestMore = sizeLeft < queueReadAheadSize;
 			}
 			else if (m_queueCompleteOrError)
@@ -153,7 +156,7 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 			if (requestMore && m_sinkFunction && !m_queueCompleteOrError)
 			{
 				D(dprintf("%s: calling sink..\n", __func__));
-				if (!m_sinkFunction(decoder.index(), sizeLeft))
+				if (!m_sinkFunction(decoder.index(), sizeLeft, bytes))
 					return hasPackage;
 			}
 		}
@@ -178,6 +181,14 @@ uint32_t AcinerellaMuxedBuffer::bytesForDecoder(int decoderIndex)
 {
 	auto lock = Locker(m_lock);
 	return m_bytes[decoderIndex];
+}
+
+uint32_t AcinerellaMuxedBuffer::maxBufferSizeForMediaSourceDecoder(int decoderIndex)
+{
+	auto lock = Locker(m_lock);
+	if ((m_audioDecoderMask & (1UL << decoderIndex)))
+		return 538860;
+	return 14938356;
 }
 
 }

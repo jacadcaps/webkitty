@@ -11,18 +11,19 @@
 #define DI(x)
 #define DBF(x)
 #define DPOS(x)
-#define DLIFETIME(x)
+#define DLIFETIME(x) 
 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
 namespace Acinerella {
 
-AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream)
+AcinerellaDecoder::AcinerellaDecoder(AcinerellaDecoderClient *client, RefPtr<AcinerellaPointer> acinerella, RefPtr<AcinerellaMuxedBuffer> buffer, int index, const ac_stream_info &info, bool isLiveStream, bool isHLS)
 	: m_client(client)
 	, m_muxer(buffer)
 	, m_index(index)
 	, m_isLive(isLiveStream)
+	, m_isHLS(isHLS)
 {
 	DLIFETIME(dprintf("%s: %p ++\033[0m\n", __func__, this));
 	auto ac = acinerella->instance();
@@ -165,7 +166,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 		{
 			DNF(dprintf("[%s]%s: got flush packet! (live %d)\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, m_isLive));
 			
-			if (!m_isLive)
+			if (!m_isHLS)
 			{
 				ac_flush_buffers(decoder);
 				flush();
@@ -240,6 +241,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 					onFrameDecoded(frame);
 					DNF(dprintf("[%s]%s: decoded frame @ %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, float(frame.frame()->timecode)));
 					m_decodedFrames.emplace(WTFMove(frame));
+					m_decoderEOF = false;
 				}
 				break;
 			case RECEIVE_FRAME_NEED_PACKET:
@@ -400,7 +402,7 @@ void AcinerellaDecoder::dispatch(Function<void ()>&& function)
 
 void AcinerellaDecoder::performTerminate()
 {
-	DI(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DLIFETIME(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	ASSERT(!isMainThread());
 	m_queue.kill();
 }

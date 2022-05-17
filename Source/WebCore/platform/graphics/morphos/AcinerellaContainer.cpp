@@ -29,11 +29,14 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 {
 	D(dprintf("%s: %p url '%s'\n", __func__, this, url.utf8().data()));
 	m_networkBuffer = AcinerellaNetworkBuffer::create(this, m_url);
-	m_isLive = m_url.contains("m3u8");
+	m_isHLS = m_url.contains("m3u8");
 
 	if (m_networkBuffer)
 	{
-		m_canSeek = m_networkBuffer->canSeek();
+		m_canSeek = m_isHLS ? false : true; // will be updated later
+		
+		D(dprintf("%s: isHLS %d canseek %d\n", __func__, m_isHLS, m_canSeek));
+		
 		m_networkBuffer->start();
 	}
 	ref();
@@ -168,8 +171,7 @@ void Acinerella::watchdogTimerFired()
 
 bool Acinerella::isLive()
 {
-	// internally, m_isLive means HLS, but we also signal live to DOM if there's no seeking in the stream
-	return m_isLive || !m_canSeek;
+	return (m_isHLS || !m_canSeek) && !m_canSkip;
 }
 
 bool Acinerella::ended()
@@ -273,10 +275,81 @@ void Acinerella::selectStream()
 
 void Acinerella::startSeeking(double pos)
 {
+	if (m_canSkip)
+	{
+		D(dprintf("ac%s(%p): skipping HLS to %f ended %d\n", __func__, this, float(pos), m_ended));
+		if (m_ended)
+		{
+			if (m_audioDecoder)
+				m_audioDecoder->pause(true);
+			if (m_videoDecoder)
+				m_videoDecoder->pause(true);
+
+			RefPtr<AcinerellaMuxedBuffer> muxer;
+			{
+				auto lock = Locker(m_acinerellaLock);
+				muxer = m_muxer;
+			}
+
+			// flush or we'll eof after 1st package
+			if (muxer)
+				muxer->flush();
+
+			m_networkBuffer->skip(pos);
+			m_ended = false;
+			m_position = pos;
+
+			if (!m_paused)
+				m_waitReady = true;
+
+			dispatch([this, protectedThis = makeRef(*this)]() {
+				initializeAfterDiscontinuity();
+			});
+		}
+
+		if (m_audioDecoder)
+			m_audioDecoder->pause(true);
+		if (m_videoDecoder)
+			m_videoDecoder->pause(true);
+
+		m_position = pos;
+		m_networkBuffer->skip(pos);
+
+		RefPtr<AcinerellaPointer> acinerella;
+		RefPtr<AcinerellaMuxedBuffer> muxer;
+
+		{
+			auto lock = Locker(m_acinerellaLock);
+			acinerella = m_acinerella;
+			muxer = m_muxer;
+		}
+
+		if (muxer)
+		{
+			muxer->flush();
+			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_flush_packet());
+			muxer->push(package);
+		}
+
+		if (!m_paused)
+			m_waitReady = true;
+
+		if (m_audioDecoder)
+			m_audioDecoder->prePlay();
+		if (m_videoDecoder)
+			m_videoDecoder->prePlay();
+
+		return;
+	}
+
 	if (m_isSeeking || !canSeek())
 		return;
 
+	D(dprintf("ac%s(%p): ended %d paused %d \n", __func__, this, m_ended, m_paused));
+
 	m_isSeeking = true;
+	if (m_ended)
+		m_paused = false;
 	m_ended = false;
 	m_seekingPosition = pos;
 
@@ -316,7 +389,10 @@ void Acinerella::startSeeking(double pos)
 		muxer->push(package);
 	}
 
-	D(dprintf("ac%s(%p): muxer flushed\n", __func__, this));
+	D(dprintf("ac%s(%p): muxer flushed, paused %d\n", __func__, this, m_paused));
+
+	if (!m_paused)
+		m_waitReady = true;
 
 	if (m_audioDecoder)
 		m_audioDecoder->prePlay();
@@ -337,6 +413,8 @@ void Acinerella::terminate()
 	D(dprintf("ac%s: %p\n", __func__, this));
 	m_terminating = true;
 	m_client = nullptr;
+
+	m_watchdogTimer.stop();
 
 	// Prevent muxer from obtaining more data
 	if (m_networkBuffer)
@@ -475,12 +553,14 @@ bool Acinerella::initialize()
 		}
 		else
 		{
-			DINIT(dprintf("ac initialized, stream count %d\n", acinerella->instance()->stream_count));
 			int audioIndex = -1;
 			int videoIndex = -1;
 
 			// update once we know the size
 			m_canSeek = m_networkBuffer->canSeek();
+			m_canSkip = m_networkBuffer->canSkip();
+
+			DINIT(dprintf("ac initialized, stream count %d, canseek %d canskip %d\n", acinerella->instance()->stream_count, m_canSeek, m_canSkip));
 
 			m_muxer = AcinerellaMuxedBuffer::create();
 
@@ -520,7 +600,7 @@ bool Acinerella::initialize()
 					ac_get_stream_info(acinerella->instance(), audioIndex, &info);
 					acinerella->setDecoder(audioIndex, ac_create_decoder(acinerella->instance(), audioIndex));
 					DINIT(dprintf("audio decoder: %p\n", acinerella->decoder(audioIndex)));
-					m_audioDecoder = AcinerellaAudioDecoder::create(this, acinerella, m_muxer, audioIndex, info, m_isLive);
+					m_audioDecoder = AcinerellaAudioDecoder::create(this, acinerella, m_muxer, audioIndex, info, isLive(), m_isHLS);
 					if (!!m_audioDecoder)
 						decoderMask |= (1UL << audioIndex);
 				}
@@ -530,7 +610,7 @@ bool Acinerella::initialize()
 					ac_get_stream_info(acinerella->instance(), videoIndex, &info);
 					acinerella->setDecoder(videoIndex, ac_create_decoder(acinerella->instance(), videoIndex));
 					DINIT(dprintf("video decoder: %p\n", acinerella->decoder(videoIndex)));
-					m_videoDecoder = AcinerellaVideoDecoder::create(this, acinerella, m_muxer, videoIndex, info, m_isLive);
+					m_videoDecoder = AcinerellaVideoDecoder::create(this, acinerella, m_muxer, videoIndex, info, isLive(), m_isHLS);
 					if (!!m_videoDecoder)
 						decoderMask |= (1UL << videoIndex);
 				}
@@ -570,7 +650,7 @@ bool Acinerella::initialize()
 				}
 				
 				m_muxer->setDecoderMask(decoderMask);
-				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int, int) -> bool {
+				m_muxer->setSinkFunction([this, protectedThis = makeRef(*this)](int, int, uint32_t) -> bool {
 					// look ma, a lambda within a lambda
                     if (!m_waitingForDemux) {
                         m_waitingForDemux = true;
@@ -585,7 +665,9 @@ bool Acinerella::initialize()
 				{
 					// known length? assume our length is fine
 					// unknown? assume Inf
-					if (m_isLive)
+					if (m_isHLS && m_networkBuffer->knowsDuration())
+						m_duration = m_networkBuffer->duration();
+					else if (m_isHLS)
 						m_duration = 0.0;
 					else if (m_networkBuffer->length() > 0)
 						m_duration = std::max(audioDuration, videoDuration);
@@ -620,8 +702,8 @@ bool Acinerella::initialize()
 					{
 						minfo.m_width = minfo.m_height = 0;
 					}
-					minfo.m_isLive = m_isLive || !m_canSeek;
-                    minfo.m_isDownloadable = !minfo.m_isLive;
+					minfo.m_isLive = (m_isHLS && !m_networkBuffer->knowsDuration()) || !m_canSeek;
+                    minfo.m_isDownloadable = false;// todo
 					
 					WTF::callOnMainThread([this, minfo, protectedThis = makeRef(*this)]() {
 						if (m_client)
@@ -676,7 +758,7 @@ void Acinerella::initializeAfterDiscontinuity()
 		int audioIndex = -1;
 		int videoIndex = -1;
 
-		for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, m_acinerella->instance()->stream_count); i++)
+		for (int i = 0; i < std::min(AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++)
 		{
 			ac_stream_info info;
 			ac_get_stream_info(acinerella->instance(), i, &info);
@@ -765,9 +847,9 @@ void Acinerella::demuxMorePackages(bool untilEOS)
 			RefPtr<AcinerellaPackage> package = AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
 
 			// don't send EOF singnalling packages to muxer if this is a live stream!
-			if ((!m_isLive || m_liveEnded) || package->package())
+			if ((!m_isHLS || m_liveEnded) || package->package())
 			{
-				DNP(if(!package->package()) dprintf("%s: EOF packet!\n", __func__));
+				D(if(!package->package()) dprintf("%s: EOF packet!\n", __func__));
 				muxer->push(package);
 			}
 
@@ -974,7 +1056,7 @@ int Acinerella::read(uint8_t *buf, int size)
 			// fail further reads, EOF!
 			m_ioDiscontinuity = true;
 			// let demuxer signal EOF to decoders
-			m_liveEnded = false;
+			m_liveEnded = true;
 		}
 		
 		return rc;

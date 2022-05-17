@@ -69,6 +69,7 @@ public:
 		}
 
 		m_request = ResourceRequest(m_url);
+		m_request.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
 		m_curlRequest = createCurlRequest(m_request);
 		if (m_curlRequest)
 		{
@@ -568,6 +569,7 @@ public:
 		: AcinerellaNetworkFileRequest(url, WTFMove(onFinished))
 	{
 		m_request = ResourceRequest(m_url);
+		m_request.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
 		m_curlRequest = createCurlRequest(m_request);
 
 		if (m_curlRequest)
