@@ -2329,6 +2329,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				if ([clientDelegate webView:self wantsToCreateNewViewWithURL:url
 					options:[OBDictionary dictionaryWithObject:modeKey forKey:kWebViewClientDelegateOption]])
 				{
+					// NOTE: [self class] is needed to deal with a case where a client has overloaded WkWebView!
+					// this ensures the new object will be of the same class as client's
 					WkWebView *newView = [[[self class] new] autorelease];
 					[newView load:url];
 					[clientDelegate webView:self createdNewWebView:newView];
