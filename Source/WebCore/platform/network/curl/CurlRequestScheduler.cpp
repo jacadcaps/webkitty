@@ -117,12 +117,13 @@ void CurlRequestScheduler::wakeUpThreadIfPossible()
 void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 {
     ASSERT(!isMainThread());
-
+#if !OS(MORPHOS)
     Locker locker { m_mutex };
     if (m_activeJobs.size() || m_taskQueue.size())
         return;
 
     m_runThread = false;
+#endif
 }
 
 #if OS(MORPHOS)
@@ -182,7 +183,7 @@ void CurlRequestScheduler::workerThread()
 
         executeTasks();
 
-        const int selectTimeoutMS = INT_MAX;
+        const int selectTimeoutMS = 500;
         m_curlMultiHandle->poll({ }, selectTimeoutMS);
 
         int activeCount = 0;
