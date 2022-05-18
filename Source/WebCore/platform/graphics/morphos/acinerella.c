@@ -967,9 +967,8 @@ ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame
 	struct _ac_decoder_frame_internal *frame = (struct _ac_decoder_frame_internal *)pFrame;
 	int rc = avcodec_receive_frame(pCodecCtx, frame->pFrame);
 	
-	switch (rc)
+	if (rc >= 0)
 	{
-	case 0:
 		pFrame->timecode = pDecoder->timecode; // is this correct?
 		frame->needs_unref = 1;
 		
@@ -1010,7 +1009,10 @@ ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame
 		}
 		
 		return RECEIVE_FRAME_SUCCESS;
-
+	}
+	
+	switch (rc)
+	{
 	case AVERROR(EAGAIN): return RECEIVE_FRAME_NEED_PACKET;
 	case AVERROR_EOF: return RECEIVE_FRAME_EOF;
 	default: return RECEIVE_FRAME_ERROR;
