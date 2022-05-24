@@ -300,7 +300,7 @@ void AcinerellaVideoDecoder::setOverlayWindowCoords(struct ::Window *w, int scro
 				else
 				{
 					WTF::callOnMainThread([width = m_frameWidth, height = m_frameHeight] {
-						MUI_Request(NULL, NULL, 0, (char *)"WkWebView: Overlay", (char *)"OK", (char *)"Failed opening overlay @ %dx%d!", width, height);
+						MUI_Request(NULL, NULL, 0, (char *)"WkWebView: Overlay", (char *)"OK", (char *)"Failed opening overlay @ %ldx%ld!", width, height);
 					});
 //					dprintf("\033[35m[VD]%s: failed creating vlayer for size %d %d\033[0m\n", __func__, m_frameWidth, m_frameHeight);
 				}

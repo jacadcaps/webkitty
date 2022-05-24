@@ -13,7 +13,7 @@ namespace WebCore {
 
 class MediaSampleMorphOS final : public MediaSample {
 	MediaSampleMorphOS(RefPtr<Acinerella::AcinerellaPackage>& sample, const FloatSize& presentationSize, const String& trackId);
-
+	virtual ~MediaSampleMorphOS();
 public:
     static Ref<MediaSampleMorphOS> create(RefPtr<Acinerella::AcinerellaPackage>& sample, const FloatSize& presentationSize, const String& trackId)
     {

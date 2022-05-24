@@ -108,6 +108,7 @@ protected:
 
 	void masterPlaylistReceived(bool succ);
 	void childPlaylistReceived(bool succ);
+	void initializationSegmentReceived(bool succ);
 
 	void refreshTimerFired();
 	void chunkSwallowed();
@@ -118,6 +119,7 @@ protected:
 	RefPtr<AcinerellaNetworkBuffer>             m_chunkRequestInRead;
 	std::queue<RefPtr<AcinerellaNetworkBuffer>> m_chunksRequestPreviouslyRead;
 	RefPtr<AcinerellaNetworkFileRequest>        m_hlsRequest;
+	RefPtr<AcinerellaNetworkFileRequest>        m_initializationChunkRequest;
 	Vector<HLSStreamInfo>                       m_streams;
 	HLSStreamInfo                               m_selectedStream;
 	BinarySemaphore                             m_event;

@@ -30,6 +30,11 @@ MediaSampleMorphOS::MediaSampleMorphOS(RefPtr<Acinerella::AcinerellaPackage>& sa
 	}
 }
 
+MediaSampleMorphOS::~MediaSampleMorphOS()
+{
+	D(dprintf("~MediaSample: pts %f\n", m_pts.toFloat()));
+}
+
 Ref<MediaSample> MediaSampleMorphOS::createNonDisplayingCopy() const
 {
 	RefPtr<Acinerella::AcinerellaPackage> ptr(m_sample.get());

@@ -704,6 +704,7 @@ bool Acinerella::initialize()
 					}
 					minfo.m_isLive = (m_isHLS && !m_networkBuffer->knowsDuration()) || !m_canSeek;
                     minfo.m_isDownloadable = false;// todo
+                    minfo.m_isHLS = m_isHLS;
 					
 					WTF::callOnMainThread([this, minfo, protectedThis = makeRef(*this)]() {
 						if (m_client)

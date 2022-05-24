@@ -9,8 +9,8 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) 
-#define DCONTENTS(x)
+#define D(x)
+#define DCONTENTS(x) 
 #define DIO(x) 
 
 static const String rnReplace("\r\n");
@@ -459,30 +459,29 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			// start loading chunks!
 			if (!m_stream.empty() && !m_chunkRequest)
 			{
-				RefPtr<AcinerellaNetworkBuffer> chunkRequest;
-
-				D(dprintf("%s(%p) initial %d, map url %s\n", __func__, this, initial, m_stream.map().m_url.utf8().data()));
-				if (0 && initial && 0 != m_stream.map().m_url.length()) // disabled for now, doesn't work yet
+				if (initial && 0 != m_stream.map().m_url.length())
 				{
-					D(dprintf("%s(%p) initializing with ext url!\n", __func__, this));
-					chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.map().m_url);
+					D(dprintf("%s(%p) initial %d, map url %s\n", __func__, this, initial, m_stream.map().m_url.utf8().data()));
+					m_initializationChunkRequest = AcinerellaNetworkFileRequest::create(m_stream.map().m_url, [this](bool succ) { initializationSegmentReceived(succ); });
 				}
 				else
 				{
+					RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+
 					D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
 					chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
 					m_stream.pop();
+
+					{
+						auto lock = Locker(m_lock);
+						m_chunkRequest = chunkRequest;
+					}
+					
+					chunkRequest->start();
+					
+					// wake up the ::read
+					m_event.signal();
 				}
-				
-				{
-					auto lock = Locker(m_lock);
-					m_chunkRequest = chunkRequest;
-				}
-				
-				chunkRequest->start();
-				
-				// wake up the ::read
-				m_event.signal();
 			}
 		}
 	}
@@ -507,6 +506,31 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
 	m_hlsRequest = nullptr;
+}
+
+void AcinerellaNetworkBufferHLS::initializationSegmentReceived(bool succ)
+{
+	if (succ)
+	{
+		if (!m_stream.empty() && !m_chunkRequest)
+		{
+			RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+
+			D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
+			chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
+			m_stream.pop();
+
+			{
+				auto lock = Locker(m_lock);
+				m_chunkRequest = chunkRequest;
+			}
+			
+			chunkRequest->start();
+			
+			// wake up the ::read
+			m_event.signal();
+		}
+	}
 }
 
 // main thread

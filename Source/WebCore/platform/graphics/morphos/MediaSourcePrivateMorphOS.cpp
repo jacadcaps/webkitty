@@ -11,7 +11,9 @@
 #define USE_WDG
 
 #define D(x) 
-#define DDUMP(x) 
+#define DLIFETIME(x)
+#define DDUMP(x)
+#define DSEEK(x) 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -27,14 +29,18 @@ MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& 
     : m_player(makeWeakPtr(parent))
     , m_client(client)
     , m_watchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
+    , m_seekTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::seekInternal)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	DLIFETIME(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_url = url.substring(5);
 }
 
 MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
 {
-	D(dprintf("%s: bye!\n", __PRETTY_FUNCTION__));
+	DLIFETIME(dprintf("%s: bye!\n", __PRETTY_FUNCTION__));
+	m_seekTimer.stop();
+	m_watchdogTimer.stop();
+
     for (auto& sourceBufferPrivate : m_sourceBuffers)
         sourceBufferPrivate->clearMediaSource();
 }
@@ -200,7 +206,33 @@ void MediaSourcePrivateMorphOS::watchdogTimerFired()
 			m_player->accSetFrameCounts(decoded, dropped);
 		}
 	}
-	
+
+	if (!m_paused)
+	{
+		bool allPlaying = true;
+		bool allReady = true;
+
+		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+		{
+			if (!sourceBufferPrivate->areDecodersPlaying())
+				allPlaying = false;
+
+			if (!sourceBufferPrivate->areDecodersReadyToPlay())
+			{
+				allReady = false;
+				break;
+			}
+		}
+		
+		if (allReady && !allPlaying)
+		{
+			for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+			{
+				sourceBufferPrivate->play();
+			}
+		}
+	}
+
 	m_watchdogTimer.startOneShot(Seconds(0.5));
 }
 
@@ -274,27 +306,31 @@ void MediaSourcePrivateMorphOS::pause()
 
 void MediaSourcePrivateMorphOS::seek(double time)
 {
-	D(dprintf("%s: %f ini %d seeking %d\n", __PRETTY_FUNCTION__, float(time), areDecodersInitialized(), m_seeking));
+	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, float(time), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
 	if (m_seeking)
 		return;
 	
 	m_seeking = true;
 	m_seekingPos = time;
-	m_waitReady = true;
-	
-	if (areDecodersInitialized() && m_activeSourceBuffers.size())
-	{
-		for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
-			sourceBufferPrivate->willSeek(time);
-		}
+	m_internalSeekPending = true;
 
-		m_client->seekToTime(MediaTime::createWithDouble(time));
-		m_clientSeekDone = true;
+    if (m_seekTimer.isActive())
+        m_seekTimer.stop();
+	m_seekTimer.startOneShot(Seconds(0.0));
+}
+
+void MediaSourcePrivateMorphOS::seekInternal()
+{
+	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, float(m_seekingPos), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
+	m_waitReady = true;
+	m_seeking = false;
+	m_internalSeekPending = false;
+
+	for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
+		sourceBufferPrivate->willSeek(m_seekingPos);
 	}
-	else
-	{
-		m_clientSeekDone = false;
-	}
+
+	m_client->seekToTime(MediaTime::createWithDouble(m_seekingPos));
 }
 
 void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
@@ -322,7 +358,7 @@ const WebCore::MediaPlayerMorphOSStreamSettings& MediaSourcePrivateMorphOS::stre
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &)
 {
 	WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d csdone %d\n", areDecodersInitialized(), m_seeking, m_clientSeekDone));
+		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d\n", areDecodersInitialized(), m_seeking));
 		if (areDecodersInitialized())
 		{
 			if (!m_initialized)
@@ -360,18 +396,6 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 				if (m_player)
 					m_player->accInitialized(info);
 			}
-
-			if (!m_clientSeekDone && m_seeking)
-			{
-				D(dprintf("onSourceBufferInitialized: seeking to %f\n", float(m_seekingPos)));
-
-				for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
-					sourceBufferPrivate->willSeek(m_seekingPos);
-				}
-
-				m_client->seekToTime(MediaTime::createWithDouble(m_seekingPos));
-				m_clientSeekDone = true;
-			}
 		}
 	});
 }
@@ -381,9 +405,6 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
 	m_paintingBuffer = buffer;
 	if (m_player)
 		m_player->accNextFrameReady();
-
-	if (m_clientSeekDone)
-		m_seeking = false;
 }
 
 void MediaSourcePrivateMorphOS::onSourceBuffersReadyToPlay()
@@ -424,9 +445,22 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 #endif
 
 	m_position = position;
-
-	if (m_clientSeekDone)
+	if (!m_internalSeekPending)
 		m_seeking = false;
+}
+
+void MediaSourcePrivateMorphOS::onVideoSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, double position)
+{
+	if (m_orphaned)
+		return;
+
+	// Is this a lone video MediaSource player?
+	if (1 == m_activeSourceBuffers.size())
+	{
+		m_position = position;
+		if (!m_internalSeekPending)
+			m_seeking = false;
+	}
 }
 
 bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()

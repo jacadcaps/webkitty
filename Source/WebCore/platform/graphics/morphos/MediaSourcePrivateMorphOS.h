@@ -50,6 +50,7 @@ public:
 	void onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>&, bool active);
 	void onSourceBuffersReadyToPlay();
 	void onAudioSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double);
+	void onVideoSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>&, double);
 	void onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>&);
 	void onSourceBufferLoadingProgressed();
 
@@ -87,6 +88,7 @@ protected:
 	bool areDecodersInitialized();
 	
 	void watchdogTimerFired();
+	void seekInternal();
 
 private:
 	WeakPtr<MediaPlayerPrivateMorphOS>               m_player;
@@ -97,6 +99,7 @@ private:
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_watchdogTimer;
+	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_seekTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;
@@ -110,7 +113,7 @@ private:
 	double                                           m_position = 0;
 	double                                           m_seekingPos;
 	bool                                             m_seeking = false;
-	bool                                             m_clientSeekDone = false;
+	bool                                             m_internalSeekPending = false;
 };
 
 }

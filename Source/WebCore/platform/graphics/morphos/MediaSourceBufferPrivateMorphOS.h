@@ -19,6 +19,7 @@
 #include <wtf/StdList.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/RunLoop.h>
 
 #include <dos/dos.h>
 
@@ -53,6 +54,7 @@ public:
 	void getSamples(MediaSamplesList& outSamples);
 	void terminate();
 
+	int numDecoders() const { return m_numDecoders; }
 	double highestPTS() const { return m_highestPTS; }
 
 	RefPtr<Acinerella::AcinerellaPointer>& acinerella() { return m_acinerella; }
@@ -92,6 +94,8 @@ protected:
 	double                                m_highestPTS = 0.0;
 
 	int                                   m_decodeCount = 0;
+	int                                   m_decodeAppendCount = 0;
+	int                                   m_numDecoders = 0;
 	
 	BPTR                                  m_debugFile = 0;
 };
@@ -111,6 +115,7 @@ public:
     void terminate();
 
 	void willSeek(double seekTo);
+	void seekToTime(const MediaTime&) override;
 	void signalEOF();
 
     void setVolume(double vol);
@@ -123,6 +128,7 @@ public:
 
 	void setAudioPresentationTime(double apts);
 	bool areDecodersReadyToPlay();
+	bool areDecodersPlaying();
 
     void onTrackEnabled(int index, bool enabled);
     void dumpStatus();
@@ -146,7 +152,8 @@ private:
     bool canSetMinimumUpcomingPresentationTime(const AtomString&) const override;
 
 //	bool isActive() const override { return m_isActive; }
-//	bool isSeeking() const override { return m_seeking; }
+	bool isSeeking() const override;
+	bool isSeekingInternal() const { return m_seeking; }
 	MediaTime currentMediaTime() const override;
 	MediaTime duration() const override;
 
@@ -176,6 +183,8 @@ private:
 	void onDecoderNotReadyToRender(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 	void onDecoderRenderUpdate(RefPtr<Acinerella::AcinerellaDecoder> decoder) override;
 
+	void seekTimerFired();
+
 private:
 	MediaSourcePrivateMorphOS                    *m_mediaSource;
 	RefPtr<MediaSourceChunkReader>                m_reader;
@@ -183,6 +192,8 @@ private:
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	RefPtr<Acinerella::AcinerellaDecoder>         m_paintingDecoder;
 	bool                                          m_decodersStarved[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
+	uint32_t                                      m_maxBuffer[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
+	int                                           m_numDecoders = 0;
 
     RefPtr<Thread>                                m_thread;
     MessageQueue<Function<void ()>>               m_queue;
@@ -194,6 +205,7 @@ private:
 	bool                                          m_enableAudio = true;
 	bool                                          m_terminating = false;
 	bool                                          m_eos = false;
+	bool                                          m_appendCompletePending = false;
 
 	MediaPlayerMorphOSInfo                        m_info;
     WebCore::SourceBufferPrivateClient::InitializationSegment m_segment;
@@ -205,7 +217,9 @@ private:
     bool                                          m_isActive = false;
 	
 	bool                                          m_seeking = false;
+	bool                                          m_seekingWaitsForFrames = false;
 	double                                        m_seekTime;
+	RunLoop::Timer<MediaSourceBufferPrivateMorphOS> m_seekTimer;
 	
 	int                                           m_enqueueCount = 0;
 	int                                           m_appendCount = 0;

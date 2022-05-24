@@ -185,10 +185,12 @@ uint32_t AcinerellaMuxedBuffer::bytesForDecoder(int decoderIndex)
 
 uint32_t AcinerellaMuxedBuffer::maxBufferSizeForMediaSourceDecoder(int decoderIndex)
 {
+	// Must match multipliers from MediaElementSession::requiresPlaybackTargetRouteMonitoring
+	// and setMaximumSourceBufferSize set in WebPage.cpp
 	auto lock = Locker(m_lock);
 	if ((m_audioDecoderMask & (1UL << decoderIndex)))
-		return 538860;
-	return 14938356;
+		return 5033164;
+	return 28521267;
 }
 
 }

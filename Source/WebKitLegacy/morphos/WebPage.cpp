@@ -1225,6 +1225,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setMediaEnabled(true);
 	settings.setLocalStorageEnabled(true);
 	settings.setOfflineWebApplicationCacheEnabled(true);
+	settings.setMaximumSourceBufferSize(32 * 1024 * 1024);
 #endif
 
 // 	settings.setDeveloperExtrasEnabled(true);
