@@ -154,11 +154,17 @@ static inline ULONG _hash(ULONG x) {
 
 - (void)addTrack:(id<WkWebViewMediaTrack>)track
 {
+	if (nil == track)
+		return;
+
 	[_tracks addObject:track];
 }
 
 - (void)removeTrack:(id<WkWebViewMediaTrack>)track
 {
+	if (nil == track)
+		return;
+
 	[_tracks removeObject:track];
 
 	if (_audioTrack == track)
@@ -175,6 +181,9 @@ static inline ULONG _hash(ULONG x) {
 
 - (void)selectTrack:(id<WkWebViewMediaTrack>)track
 {
+	if (nil == track)
+		return;
+
 	if ([track type] == WkWebViewMediaTrackType_Audio)
 	{
 		[_audioTrack autorelease];

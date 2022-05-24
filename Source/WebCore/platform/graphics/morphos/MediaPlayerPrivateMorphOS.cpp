@@ -734,7 +734,6 @@ float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 {
-    // We cannot meaningfully do this for MediaSource!
 	if (MediaPlayerMorphOSSettings::settings().m_load)
 	{
 		String url;
@@ -796,6 +795,14 @@ void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)
 		else if (m_prepareToPlay && m_mediaSourcePrivate)
 			m_mediaSourcePrivate->warmUp();
 	#endif
+	}
+}
+
+void MediaPlayerPrivateMorphOS::accUpdated(MediaPlayerMorphOSInfo info)
+{
+	if (MediaPlayerMorphOSSettings::settings().m_update)
+	{
+		MediaPlayerMorphOSSettings::settings().m_update(m_player, info);
 	}
 }
 

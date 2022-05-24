@@ -301,7 +301,30 @@ void WebProcess::initialize(int sigbit)
 			}
 		}
 	};
-	
+
+	MediaPlayerMorphOSSettings::settings().m_update = [this](WebCore::MediaPlayer *player, WebCore::MediaPlayerMorphOSInfo& info) {
+		for (auto& webpage : m_pageMap.values())
+		{
+			bool found = false;
+			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
+				if (player == e.player().get())
+				{
+					found = true;
+				}
+			});
+
+			if (found)
+			{
+				if (webpage->_fMediaUpdated)
+				{
+					webpage->_fMediaUpdated(player, info);
+				}
+
+				return;
+			}
+		}
+	};
+
 	MediaPlayerMorphOSSettings::settings().m_loadCancelled = [this](WebCore::MediaPlayer *player) {
 		for (auto& webpage : m_pageMap.values())
 		{

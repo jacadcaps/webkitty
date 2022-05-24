@@ -63,6 +63,7 @@ public:
 	Function<void(WebCore::MediaPlayer *player, const String &url,
 		MediaPlayerMorphOSInfo &info, MediaPlayerMorphOSStreamSettings &settings,
 		Function<void()> &&yieldFunc)> m_load;
+	Function<void(WebCore::MediaPlayer *player, MediaPlayerMorphOSInfo &info)> m_update;
 	Function<void(WebCore::MediaPlayer *player)> m_loadCancelled;
 	Function<void(WebCore::MediaPlayer *player)> m_willPlay;
 	Function<void(WebCore::MediaPlayer *player)> m_pausedOrFinished;

@@ -185,6 +185,11 @@ namespace  {
 	return self;
 }
 
+- (void)update:(WebCore::MediaPlayerMorphOSInfo &)info
+{
+	_info = info;
+}
+
 - (void)invalidate
 {
 	_playerRef = nullptr;
@@ -1185,6 +1190,29 @@ namespace  {
 	}
 	
 	return nil;
+}
+
+- (void)playerUpdated:(void *)playerRef info:(WebCore::MediaPlayerMorphOSInfo&)info
+{
+	WkMediaLoadResponseHandlerPrivate *handler = [self handlerForPlayer:playerRef];
+	if (handler)
+	{
+		[handler update:info];
+	
+		WkMediaObjectPrivate *media = [self mediaObjectForPlayer:playerRef];
+		if (media)
+		{
+			[media removeTrack:[media videoTrack]];
+			[media removeTrack:[media audioTrack]];
+			
+			id<WkWebViewMediaTrack> track;
+			[media addTrack:track = [handler audioTrack]];
+			[media selectTrack:track];
+
+			[media addTrack:track = [handler videoTrack]];
+			[media selectTrack:track];
+		}
+	}
 }
 
 - (OBArray *)mediaObjects
@@ -2462,6 +2490,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[privateObject playerAdded:handler withSettings:settings];
 				[handler release];
 			}
+		};
+		
+		webPage->_fMediaUpdated = [self](void *player, WebCore::MediaPlayerMorphOSInfo &info) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject playerUpdated:player info:info];
 		};
 		
 		webPage->_fMediaRemoved = [self](void *player) {
