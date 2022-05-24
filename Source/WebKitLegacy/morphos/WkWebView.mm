@@ -3316,7 +3316,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					switch (imsg->Code)
 					{
 					case RAWKEY_ESCAPE:
-						webPage->exitFullscreen();
+						if (!webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
+							webPage->exitFullscreen();
 						[_private setIsHandlingUserInput:NO];
 						return MUI_EventHandlerRC_Eat;
 
@@ -3386,7 +3387,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					}
 					break;
 				}
-				[_private setIsHandlingUserInput:NO];
+
+				if (webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
+				{
+					[_private setIsHandlingUserInput:NO];
+					return MUI_EventHandlerRC_Eat;
+				}
 				return 0;
 			}
 		}
