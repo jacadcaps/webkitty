@@ -37,6 +37,7 @@
 - (BOOL)muted;
 
 - (BOOL)isLive;
+- (BOOL)isHLS;
 
 - (float)duration;
 - (float)position;

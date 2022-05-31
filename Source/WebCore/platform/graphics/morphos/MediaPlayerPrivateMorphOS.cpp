@@ -455,6 +455,9 @@ void MediaPlayerPrivateMorphOS::pause()
 #endif
 	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 
+// NO, this will break the internal PLAYING state of HTMLMediaElement
+//	m_player->playbackStateChanged();
+
 	if (MediaPlayerMorphOSSettings::settings().m_pausedOrFinished)
 		MediaPlayerMorphOSSettings::settings().m_pausedOrFinished(m_player);
 }
@@ -854,6 +857,7 @@ void MediaPlayerPrivateMorphOS::accEnded()
 	m_currentTime = m_duration;
 	m_player->timeChanged();
 	m_player->characteristicChanged();
+	m_player->playbackStateChanged();
 
 	if (MediaPlayerMorphOSSettings::settings().m_pausedOrFinished)
 		MediaPlayerMorphOSSettings::settings().m_pausedOrFinished(m_player);

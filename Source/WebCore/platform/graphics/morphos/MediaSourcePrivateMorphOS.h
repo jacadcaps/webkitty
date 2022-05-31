@@ -33,8 +33,6 @@ public:
     void unmarkEndOfStream() override;
     MediaPlayer::ReadyState readyState() const override;
     void setReadyState(MediaPlayer::ReadyState) override;
-    void waitForSeekCompleted() override;
-    void seekCompleted() override;
 
     bool isLiveStream() const;
 
@@ -57,9 +55,25 @@ public:
 	bool paused() const { return m_paused; }
 	bool ended() const { return m_ended; }
     bool isEnded() const override { return m_ended; };
-	bool isSeeking() const { return m_seeking; }
 
+    enum SeekState {
+		Pending,
+        Seeking,
+        WaitingForAvailableFame,
+        SeekCompleted,
+    };
+	
+	bool isSeeking() const;
+    void waitForSeekCompleted() override;
+    void seekCompleted() override;
 	void seek(double time);
+
+#if 0 // might be needed?
+    std::unique_ptr<PlatformTimeRanges> seekable() const override;
+    MediaTime maxMediaTimeSeekable() const override;
+    MediaTime minMediaTimeSeekable() const override;
+    std::unique_ptr<PlatformTimeRanges> buffered() const override;
+#endif
 
     void orphan();
     WeakPtr<MediaPlayerPrivateMorphOS> &player() { return m_player; }
@@ -89,6 +103,7 @@ protected:
 	
 	void watchdogTimerFired();
 	void seekInternal();
+	void seekControl();
 
 private:
 	WeakPtr<MediaPlayerPrivateMorphOS>               m_player;
@@ -100,6 +115,7 @@ private:
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_watchdogTimer;
 	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_seekTimer;
+	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_seekControlTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;
@@ -113,7 +129,7 @@ private:
 	double                                           m_position = 0;
 	double                                           m_seekingPos;
 	bool                                             m_seeking = false;
-	bool                                             m_internalSeekPending = false;
+	SeekState                                        m_seekCompleted { SeekCompleted };
 };
 
 }

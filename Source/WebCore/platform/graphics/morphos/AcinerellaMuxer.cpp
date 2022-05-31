@@ -11,7 +11,8 @@
 #include "AcinerellaHLS.h"
 
 #define D(x)
-#define DF(x)
+#define DPUSH(x)
+#define DF(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -34,7 +35,7 @@ void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask, uint32_t audioMask)
 void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 {
 	EP_SCOPE(push);
-	D(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package ? package->index() : -1, package ? package->isFlushPackage() : 0, m_decoderMask));
+	DPUSH(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package ? package->index() : -1, package ? package->isFlushPackage() : 0, m_decoderMask));
 
 	// is this a valid package?
 	if (package && package->isValid())
@@ -56,11 +57,11 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 			{
 				m_packages[index].emplace(package);
 				m_bytes[index] += ac_get_package_size(package->package());
-				D(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
+				DPUSH(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
 			}
 			else
 			{
-				D(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
+				DPUSH(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
 			}
 		}
 		
@@ -70,11 +71,39 @@ void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package)
 	else
 	{
 		m_queueCompleteOrError = true;
-		D(dprintf("%s: EOS!!\n", __PRETTY_FUNCTION__));
+		DPUSH(dprintf("%s: EOS!!\n", __PRETTY_FUNCTION__));
 	
 		forValidDecoders([](AcinerellaPackageQueue&, BinarySemaphore& event) {
 			event.signal();
 		});
+	}
+}
+
+void AcinerellaMuxedBuffer::push(RefPtr<AcinerellaPackage> &package, int index)
+{
+	EP_SCOPE(push);
+	DPUSH(dprintf("%s: %p package index %lu isFlush %d mask %lx\n", __PRETTY_FUNCTION__, this, package ? package->index() : -1, package ? package->isFlushPackage() : 0, m_decoderMask));
+
+	// is this a valid package?
+	if (package && package->isValid())
+	{
+		{
+			auto lock = Locker(m_lock);
+
+			if (isDecoderValid(index))
+			{
+				m_packages[index].emplace(package);
+				m_bytes[index] += package->isFlushPackage() ? 0 : ac_get_package_size(package->package());
+				DPUSH(dprintf("%s: pushing into packages queue @ index %d, size %d type %s\n", __PRETTY_FUNCTION__, index, m_packages[index].size(), (m_audioDecoderMask & (1UL << index)) ? "audio" : "video"));
+			}
+			else
+			{
+				DPUSH(dprintf("%s: no valid decoder at index %d, mask %lx\n", __PRETTY_FUNCTION__, m_decoderMask));
+			}
+		}
+		
+		if (isDecoderValid(index))
+			m_events[index].signal();
 	}
 }
 

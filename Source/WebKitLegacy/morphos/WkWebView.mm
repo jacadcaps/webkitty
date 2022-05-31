@@ -261,6 +261,11 @@ namespace  {
 	return _info.m_isLive;
 }
 
+- (BOOL)isHLS
+{
+	return _info.m_isHLS;
+}
+
 - (BOOL)isMediaSource
 {
 	return _info.m_isMediaSource;
@@ -1156,7 +1161,7 @@ namespace  {
 
 		if ([handler isMediaSource])
 			type = WkMediaObjectType_MediaSource;
-		else if ([handler isLive])
+		else if ([handler isHLS])
 			type = WkMediaObjectType_HLS;
 			
 		WkMediaObjectPrivate *mediaObject = [[[WkMediaObjectPrivate alloc] initWithType:type identifier:(WkWebViewMediaIdentifier)handler audioTrack:[handler audioTrack] videoTrack:[handler videoTrack] downloadableURL:[handler mediaURL]] autorelease];

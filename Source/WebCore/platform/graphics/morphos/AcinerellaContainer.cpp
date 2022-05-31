@@ -160,7 +160,7 @@ void Acinerella::watchdogTimerFired()
 	{
 		m_client->accSetPosition(m_position);
 		m_client->accSetDuration(m_duration);
-		m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
+		m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
 		if (m_videoDecoder)
 		{
 			auto *vd = static_cast<AcinerellaVideoDecoder*>(m_videoDecoder.get());
@@ -702,7 +702,7 @@ bool Acinerella::initialize()
 					{
 						minfo.m_width = minfo.m_height = 0;
 					}
-					minfo.m_isLive = (m_isHLS && !m_networkBuffer->knowsDuration()) || !m_canSeek;
+					minfo.m_isLive = !m_canSkip && !m_canSeek;
                     minfo.m_isDownloadable = false;// todo
                     minfo.m_isHLS = m_isHLS;
 					
@@ -883,7 +883,6 @@ void Acinerella::onDecoderWarmedUp(RefPtr<AcinerellaDecoder> decoder)
 		if (m_client)
 		{
 			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveEnoughData);
-			m_client->accSetReadyState(WebCore::MediaPlayerEnums::ReadyState::HaveFutureData);
 		}
 	});
 }

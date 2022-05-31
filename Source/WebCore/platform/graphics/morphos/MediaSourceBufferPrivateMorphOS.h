@@ -49,7 +49,7 @@ public:
 		return adoptRef(*new MediaSourceChunkReader(source, WTFMove(icb), WTFMove(ccb)));
 	}
 
-	void decode(Vector<unsigned char>&&);
+	void decode(Vector<unsigned char>&&, bool signalComplete = true);
 	void signalEOF();
 	void getSamples(MediaSamplesList& outSamples);
 	void terminate();
@@ -96,6 +96,7 @@ protected:
 	int                                   m_decodeCount = 0;
 	int                                   m_decodeAppendCount = 0;
 	int                                   m_numDecoders = 0;
+	bool                                  m_signalComplete = true;
 	
 	BPTR                                  m_debugFile = 0;
 };
@@ -129,11 +130,14 @@ public:
 	void setAudioPresentationTime(double apts);
 	bool areDecodersReadyToPlay();
 	bool areDecodersPlaying();
+	float decodersBufferedTime();
 
     void onTrackEnabled(int index, bool enabled);
     void dumpStatus();
 
 	void getFrameCounts(unsigned& decoded, unsigned &dropped) const;
+	
+	bool didFailDecodingFrames() const { return m_readerFailed; }
 
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
@@ -164,6 +168,7 @@ private:
     void setReadyState(MediaPlayer::ReadyState) override;
 
 	void initialize(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
+	void reinitialize(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
 	void appendComplete(bool success);
 
 	void threadEntryPoint();
@@ -199,13 +204,16 @@ private:
     MessageQueue<Function<void ()>>               m_queue;
 	BinarySemaphore                               m_event;
 	Lock                                          m_lock;
-	
+
+	Vector<unsigned char>                         m_initializationBuffer;
+
 	uint32_t                                      m_audioDecoderMask = 0;
 	bool                                          m_enableVideo = false;
 	bool                                          m_enableAudio = true;
 	bool                                          m_terminating = false;
 	bool                                          m_eos = false;
-	bool                                          m_appendCompletePending = false;
+	std::atomic<bool>                             m_appendCompletePending = false;
+	bool                                          m_appendCompleteDelayed = false;
 
 	MediaPlayerMorphOSInfo                        m_info;
     WebCore::SourceBufferPrivateClient::InitializationSegment m_segment;
@@ -218,12 +226,14 @@ private:
 	
 	bool                                          m_seeking = false;
 	bool                                          m_seekingWaitsForFrames = false;
+	bool                                          m_postSeekingAppendDone = false;
 	double                                        m_seekTime;
-	RunLoop::Timer<MediaSourceBufferPrivateMorphOS> m_seekTimer;
 	
 	int                                           m_enqueueCount = 0;
 	int                                           m_appendCount = 0;
 	int                                           m_appendCompleteCount = 0;
+	bool                                          m_readerFailed = false;
+	bool                                          m_mustAppendInitializationSegment = false;
 };
 
 }

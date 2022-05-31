@@ -7,7 +7,7 @@
 #include <proto/exec.h>
 
 #define D(x)
-#define DNF(x) 
+#define DNF(x) //if (!isAudio()) {x;}
 #define DI(x)
 #define DBF(x)
 #define DPOS(x)
@@ -140,7 +140,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 	EP_SCOPE(DNF);
 	RefPtr<AcinerellaPackage> buffer;
 
-	DNF(dprintf("[%s]%s: this %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
+	DNF(dprintf("[%s]%s: this %p term %d decEOF %d %d %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_terminating, m_decoderEOF,
+		m_droppingFrames, m_droppingUntilKeyFrame));
 
 	if (m_terminating)
 		return false;
@@ -156,6 +157,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 
 		if (m_lastDecoder != decoder)
 		{
+			DNF(dprintf("[%s]%s: changing decoder from %p to %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, m_lastDecoder, decoder));
 			m_lastDecoder = decoder;
 			onDecoderChanged(acinerella);
 		}
