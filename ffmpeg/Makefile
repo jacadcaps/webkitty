@@ -7,8 +7,8 @@ all: .buildstamp
 	mkdir -p instdir/include instdir/lib
 	rm -rf ffmpeg-$(OPUS_VERSION)
 	tar xf opus-$(OPUS_VERSION).tar.gz
-	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
-	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-10 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-9 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-9 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
 	(cd opus-$(OPUS_VERSION) && make DESTDIR="$(abspath ./)/instdir" install)
 	rm -rf ffmpeg-$(FFMPEG_VERSION)
 	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
