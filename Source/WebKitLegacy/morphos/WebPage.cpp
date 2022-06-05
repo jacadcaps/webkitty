@@ -3796,7 +3796,7 @@ void WebPage::startDrag(WebCore::DragItem&& item, WebCore::DataTransfer& transfe
 		auto height = cairo_image_surface_get_height(imageRef.get());
 
 		if (_fOpenDragWindow)
-			_fOpenDragWindow(0, 0, width, height);
+			_fOpenDragWindow(m_page->dragController().dragOffset().x(), m_page->dragController().dragOffset().y(), width, height);
 	}
 }
 
@@ -3826,6 +3826,8 @@ void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlo
 
 	if (_fCloseDragWindow)
 		_fCloseDragWindow();
+
+	WebKit::WebProcess::singleton().returnedFromConstrainedRunLoop();
 }
 
 void WebPage::drawDragImage(struct RastPort *rp, const int x, const int y, const int width, const int height)

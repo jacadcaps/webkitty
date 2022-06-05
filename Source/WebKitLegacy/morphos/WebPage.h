@@ -324,6 +324,7 @@ private:
 	int  m_cursor { 0 };
 	int  m_cursorLock { 0 };
 	int  m_middleClick[2];
+	int  m_mouseLastX, m_mouseLastY;
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };
