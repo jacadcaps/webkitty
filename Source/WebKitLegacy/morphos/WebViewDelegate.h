@@ -112,6 +112,10 @@ struct WebViewDelegate
 	std::function<void(void)> _fEnterFullscreen;
 	std::function<void(void)> _fExitFullscreen;
 
+	std::function<void(int atX, int atY, int w, int h)> _fOpenDragWindow;
+	std::function<void(int atX, int atY)> _fMoveDragWindow;
+	std::function<void(void)> _fCloseDragWindow;
+
 	enum class mediaType {
 		Media,
 		MediaSource,
@@ -186,6 +190,9 @@ struct WebViewDelegate
 		_fExitFullscreen = nullptr;
 		_fMediaPausedOrFinished = nullptr;
 		_fDidReceiveResponse = nullptr;
+		_fOpenDragWindow = nullptr;
+		_fMoveDragWindow = nullptr;
+		_fCloseDragWindow = nullptr;
 #if ENABLE(NOTIFICATIONS)
 		_fRequestNotificationPermission = nullptr;
 		_fCheckNotificationPermission = nullptr;

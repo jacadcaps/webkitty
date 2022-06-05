@@ -98,6 +98,7 @@ namespace  {
 - (void)setDocumentWidth:(int)width height:(int)height;
 - (void)recalculatePrinting;
 - (void)lateDraw;
+- (void)drawDD;
 
 @end
 
@@ -476,6 +477,8 @@ namespace  {
 	struct Window                          *_window;
 	int                                     _mleft, _mtop, _mbottom, _mright;
 	ULONG                                   _clickSeconds, _clickMicros;
+	struct Window                          *_ddWindow;
+	OBSignalHandler                        *_ddWindowSignalHandler;
 #if ENABLE(VIDEO)
 	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
 	WebCore::Element                       *_overlayElement;
@@ -538,12 +541,18 @@ namespace  {
 	[_paintPerform release];
 	[_paintTimer invalidate];
 	[_paintTimer release];
+	if (_ddWindowSignalHandler)
+		[[OBRunLoop mainRunLoop] removeSignalHandler:_ddWindowSignalHandler];
+	[_ddWindowSignalHandler release];
+	if (_ddWindow)
+		CloseWindow(_ddWindow);
 #if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
 	[_mediaObjects release];
 	_activeMediaObject = nil;
-	[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
+	if (_fsWindowSignalHandler)
+		[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
 	[_fsWindowSignalHandler release];
 
 	if (_fsWindow)
@@ -851,6 +860,59 @@ namespace  {
 - (void)setIsLiveResizing:(BOOL)resizing
 {
 	_isLiveResizing = resizing;
+}
+
+- (void)closeDDWindow
+{
+	if (_ddWindowSignalHandler)
+		[[OBRunLoop mainRunLoop] removeSignalHandler:_ddWindowSignalHandler];
+	[_ddWindowSignalHandler release];
+	_ddWindowSignalHandler = nil;
+	if (_ddWindow)
+		CloseWindow(_ddWindow);
+	_ddWindow = NULL;
+}
+
+- (struct Window *)ddWindow
+{
+	return _ddWindow;
+}
+
+- (void)openDDWindowAtX:(int)x y:(int)y width:(int)width height:(int)height parent:(struct Window *)parent
+{
+	[self closeDDWindow];
+	
+	if (parent)
+	{
+		_ddWindow = OpenWindowTags(NULL,
+			WA_CustomScreen, parent->WScreen,
+			WA_Borderless, TRUE,
+			WA_FrontWindow, TRUE,
+			WA_SimpleRefresh, TRUE,
+			WA_Left, x,
+			WA_Top, y,
+			WA_Width, width,
+			WA_Height, height,
+			WA_Activate, FALSE,
+			WA_ToolbarWindow, TRUE,
+			WA_HasAlpha, TRUE,
+			WA_IDCMP, IDCMP_REFRESHWINDOW | IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS | IDCMP_RAWKEY,
+			TAG_DONE, 0);
+
+		if (_ddWindow)
+		{
+			_ddWindowSignalHandler = [[OBSignalHandler alloc] initWithSharedSignalBit:_ddWindow->UserPort->mp_SigBit task:FindTask(0) freeWhenDone:NO];
+			[_ddWindowSignalHandler setDelegate:self];
+			[[OBRunLoop mainRunLoop] addSignalHandler:_ddWindowSignalHandler];
+			[_parentWeak drawDD];
+		}
+	}
+}
+
+- (void)moveDDWindowToX:(int)x y:(int)y
+{
+	if (_ddWindow)
+		ChangeWindowBox(_ddWindow, x, y, _ddWindow->Width, _ddWindow->Height);
 }
 
 - (struct Window *)fullscreenWindow
@@ -1436,10 +1498,12 @@ namespace  {
 	_fsScreen = NULL;
 	_fsExitRequested = NO;
 }
+#endif
 
 - (void)performWithSignalHandler:(OBSignalHandler *)handler
 {
-	if (handler == _fsWindowSignalHandler)
+#if ENABLE(VIDEO)
+	if (handler == _fsWindowSignalHandler && _fsWindow)
 	{
 		struct IntuiMessage *msg;
 
@@ -1470,9 +1534,32 @@ namespace  {
 		if (_fsExitRequested)
 			[self exitFullScreen];
 	}
-}
-
+	else
 #endif
+	if (handler == _ddWindowSignalHandler && _ddWindow)
+	{
+		struct IntuiMessage *msg;
+
+		_handlingIDCMP = YES;
+
+		while ((msg = reinterpret_cast<struct IntuiMessage *>(GetMsg(_ddWindow->UserPort))))
+		{
+			switch (msg->Class)
+			{
+			case IDCMP_REFRESHWINDOW:
+				BeginRefresh(_ddWindow);
+				[_parentWeak drawDD];
+				EndRefresh(_ddWindow, YES);
+				break;
+			}
+
+			ReplyMsg(&msg->ExecMessage);
+		}
+		
+		_handlingIDCMP = NO;
+	
+	}
+}
 
 - (void)setQuiet:(BOOL)quiet
 {
@@ -2480,6 +2567,24 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:data forHost:[OBString stringWithUTF8String:uurl.data()]]];
 			}
 		};
+		
+		webPage->_fOpenDragWindow = [self](int atX, int atY, int w, int h) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject openDDWindowAtX:atX y:atY width:w height:h parent:[self window]];
+		};
+
+		webPage->_fCloseDragWindow = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject closeDDWindow];
+		};
+
+		webPage->_fMoveDragWindow = [self](int atX, int atY) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			[privateObject moveDDWindowToX:atX y:atY];
+		};
 
 #if ENABLE(VIDEO)
 		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info,
@@ -2656,6 +2761,18 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[_private setIsHandlingUserInput:YES];
 	webPage->setScroll(left, top);
 	[_private setIsHandlingUserInput:NO];
+}
+
+- (int)scrollLeft
+{
+	auto webPage = [_private page];
+	return webPage->scrollLeft();
+}
+
+- (int)scrollTop
+{
+	auto webPage = [_private page];
+	return webPage->scrollTop();
 }
 
 - (void)setScrollingDelegate:(id<WkWebViewScrollingDelegate>)delegate
@@ -3859,6 +3976,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return [_private activeMediaObject];
 #endif
 	return nil;
+}
+
+- (void)drawDD
+{
+	struct Window *w = [_private ddWindow];
+	auto webPage = [_private page];
+	if (w && webPage)
+		webPage->drawDragImage(w->RPort, 0, 0, w->Width, w->Height);
 }
 
 @end

@@ -7,6 +7,8 @@
 #include <WebCore/GraphicsTypes.h>
 #include <WebCore/FindOptions.h>
 #include <WebCore/LengthBox.h>
+#include <WebCore/SelectionData.h>
+#include <WebCore/DragImage.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -25,6 +27,8 @@ namespace WebCore {
 	class HistoryItem;
 	class PrintContext;
 	class FullscreenManager;
+	class DragItem;
+	class DataTransfer;
 };
 
 struct RastPort;
@@ -98,6 +102,8 @@ public:
 
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
+	int scrollLeft();
+	int scrollTop();
 	void draw(struct RastPort *rp, const int x, const int y, const int width, const int height, bool updateMode);
 	bool handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int mouseY, bool mouseInside, bool isDefaultHandler);
 	bool checkDownloadable(IntuiMessage *imsg, const int mouseX, const int mouseY, WTF::URL &outURL);
@@ -258,16 +264,20 @@ public:
 	void startDownload(const WTF::URL &url);
 	void flushCompositing();
 
-        WTF::String misspelledWord(WebCore::HitTestResult &hitTest);
-        WTF::Vector<WTF::String> misspelledWordSuggestions(WebCore::HitTestResult &hitTest);
-        void markWord(WebCore::HitTestResult &hitTest);
-        void learnMisspelled(WebCore::HitTestResult &hitTest);
-        void ignoreMisspelled(WebCore::HitTestResult &hitTest);
-        void replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement);
-        bool canUndo();
-        bool canRedo();
-        void undo();
-        void redo();
+	WTF::String misspelledWord(WebCore::HitTestResult &hitTest);
+	WTF::Vector<WTF::String> misspelledWordSuggestions(WebCore::HitTestResult &hitTest);
+	void markWord(WebCore::HitTestResult &hitTest);
+	void learnMisspelled(WebCore::HitTestResult &hitTest);
+	void ignoreMisspelled(WebCore::HitTestResult &hitTest);
+	void replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement);
+	bool canUndo();
+	bool canRedo();
+	void undo();
+	void redo();
+
+	void startDrag(WebCore::DragItem&&, WebCore::DataTransfer&, WebCore::Frame&);
+	bool isDragging(void) const { return m_dragging; };
+	void drawDragImage(struct RastPort *rp, const int x, const int y, const int width, const int height);
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -294,6 +304,8 @@ protected:
     bool usesLayeredWindow() const { return m_usesLayeredWindow; }
 
     int mouseCursorToSet(ULONG qualifiers, bool mouseInside);
+    
+    void endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlobalY, bool doDrop);
 
 private:
 	Ref<WebFrame> m_mainFrame;
@@ -310,8 +322,8 @@ private:
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };
 	int  m_cursor { 0 };
-       int  m_cursorLock { 0 };
-       int  m_middleClick[2];
+	int  m_cursorLock { 0 };
+	int  m_middleClick[2];
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };
@@ -331,11 +343,15 @@ private:
     bool m_transitioning { false };
     bool m_cursorOverLink { false };
     bool m_darkMode { false };
+    bool m_dragging { false };
+    bool m_dragInside { false };
     RefPtr<WebCore::Element> m_focusedElement;
     RefPtr<WebCore::Element> m_fullscreenElement;
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };
     std::optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
     WTF::URL m_hoveredURL;
+    WebCore::SelectionData m_dragData;
+    WebCore::DragImage m_dragImage;
 };
 
 }

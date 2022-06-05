@@ -97,6 +97,8 @@
 #include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/ScriptState.h>
 #include <WebCore/AutofillElements.h>
+#include <WebCore/DataTransfer.h>
+#include <WebCore/Pasteboard.h>
 #include <JavaScriptCore/VM.h>
 #include <WebCore/CommonVM.h>
 #include <WebCore/GraphicsContextCairo.h>
@@ -2177,6 +2179,24 @@ void WebPage::setScroll(const int x, const int y)
 		_fInvalidate(false);
 }
 
+int WebPage::scrollLeft()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return 0;
+	WebCore::FrameView *view = coreFrame->view();
+	return view->scrollPosition().x();
+}
+
+int WebPage::scrollTop()
+{
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame)
+		return 0;
+	WebCore::FrameView *view = coreFrame->view();
+	return view->scrollPosition().y();
+}
+
 void WebPage::scrollBy(int xDelta, int yDelta, WebPage::WebPageScrollByMode mode, WebCore::Frame *inFrame)
 {
 	auto* coreFrame = inFrame ? inFrame : m_mainFrame->coreFrame();
@@ -2968,6 +2988,45 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 			
 			m_lastQualifier = imsg->Qualifier;
 
+			if (m_dragging)
+			{
+				switch (imsg->Class)
+				{
+				case IDCMP_MOUSEBUTTONS:
+					if (SELECTUP == imsg->Code)
+						endDragging(mouseX, mouseY, imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY, true);
+					else
+						endDragging(mouseX, mouseY, imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY, false);
+					break;
+					
+				case IDCMP_MOUSEMOVE:
+					{
+					    IntPoint adjustedClientPosition(pme.position().x() - m_page->dragController().dragOffset().x(), pme.position().y() - m_page->dragController().dragOffset().y());
+						IntPoint adjustedGlobalPosition(pme.globalPosition().x() - m_page->dragController().dragOffset().x(), pme.globalPosition().y() - m_page->dragController().dragOffset().y());
+						DragData drag(&m_dragData, adjustedClientPosition, adjustedGlobalPosition, DragOperation::Copy);
+
+						if (m_dragInside != mouseInside)
+						{
+							if (mouseInside)
+								m_page->dragController().dragEntered(drag);
+							else
+								m_page->dragController().dragExited(drag);
+							m_dragInside = mouseInside;
+						}
+						else
+						{
+							m_page->dragController().dragUpdated(drag);
+						}
+						
+						if (_fMoveDragWindow)
+							_fMoveDragWindow(adjustedGlobalPosition.x(), adjustedGlobalPosition.y());
+					}
+					break;
+				}
+				
+				return true;
+			}
+
 			switch (imsg->Class)
 			{
 			case IDCMP_MOUSEBUTTONS:
@@ -3405,6 +3464,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 	case IDCMP_INACTIVEWINDOW:
 		m_trackMiddle = false;
 		m_trackMouse = false;
+		endDragging(mouseX, mouseY, imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY, false);
 		break;
 	}
 
@@ -3723,5 +3783,60 @@ void WebPage::redo()
 	}
 }
 
+void WebPage::startDrag(WebCore::DragItem&& item, WebCore::DataTransfer& transfer, WebCore::Frame&)
+{
+	m_dragging = true;
+	m_dragImage = WTFMove(item.image);
+	m_dragData = transfer.pasteboard().selectionData();
+
+	RefPtr<cairo_surface_t> imageRef = m_dragImage.get();
+	if (!!imageRef)
+	{
+		auto width = cairo_image_surface_get_width(imageRef.get());
+		auto height = cairo_image_surface_get_height(imageRef.get());
+
+		if (_fOpenDragWindow)
+			_fOpenDragWindow(0, 0, width, height);
+	}
 }
 
+void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlobalY, bool doDrop)
+{
+	IntPoint adjustedClientPosition(mouseX - m_page->dragController().dragOffset().x(), mouseY - m_page->dragController().dragOffset().y());
+	IntPoint adjustedGlobalPosition(mouseGlobalX - m_page->dragController().dragOffset().x(), mouseGlobalY - m_page->dragController().dragOffset().y());
+
+	if (m_dragInside && doDrop)
+	{
+		// Drop!
+		DragData drag(&m_dragData, adjustedClientPosition, adjustedGlobalPosition, DragOperation::Copy);
+
+		m_page->dragController().performDragOperation(drag);
+		m_page->dragController().dragEnded();
+
+		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, LeftButton, PlatformEvent::MouseMoved, 0, false, false, false, false, WallTime::now(), 0, WebCore::NoTap);
+		m_page->mainFrame().eventHandler().dragSourceEndedAt(event, m_page->dragController().sourceDragOperationMask());
+	}
+	else
+	{
+		m_page->dragController().dragEnded();
+	}
+
+	m_dragging = false;
+	m_dragImage = WebCore::DragImage();
+
+	if (_fCloseDragWindow)
+		_fCloseDragWindow();
+}
+
+void WebPage::drawDragImage(struct RastPort *rp, const int x, const int y, const int width, const int height)
+{
+	RefPtr<cairo_surface_t> imageRef = m_dragImage.get();
+	if (!!imageRef)
+	{
+		const unsigned int stride = cairo_image_surface_get_stride(imageRef.get());
+		unsigned char *src = cairo_image_surface_get_data(imageRef.get());
+		WritePixelArray(src, 0, 0, stride, rp, x, y, width, height, RECTFMT_ARGB);
+	}
+}
+
+}

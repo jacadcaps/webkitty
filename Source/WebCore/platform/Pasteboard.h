@@ -257,6 +257,10 @@ public:
     static std::unique_ptr<Pasteboard> createForGlobalSelection(std::unique_ptr<PasteboardContext>&&);
 #endif
 
+#if OS(MORPHOS)
+    const SelectionData& selectionData() const { return *m_selectionData; }
+#endif
+
 #if PLATFORM(IOS_FAMILY)
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, int64_t changeCount);
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, const String& pasteboardName);

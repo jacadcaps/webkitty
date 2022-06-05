@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Jacek Piszczek
+ * Copyright (C) 2020-2022 Jacek Piszczek
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -71,8 +71,7 @@ Color DragData::asColor() const
 
 bool DragData::containsCompatibleContent(DraggingPurpose) const
 {
-// TODO: dragging data
-    return false; // containsPlainText() || containsURL() || m_platformDragData->hasMarkup() || containsColor() || containsFiles();
+    return containsPlainText() || containsURL() || m_platformDragData->hasMarkup() || containsColor() || containsFiles();
 }
 
 bool DragData::containsURL(FilenameConversionPolicy filenamePolicy) const

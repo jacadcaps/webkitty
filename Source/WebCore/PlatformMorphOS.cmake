@@ -50,6 +50,7 @@ list(APPEND WebCore_SOURCES
     platform/morphos/PlatformScreenMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp
     platform/morphos/DragDataMorphOS.cpp
+    platform/morphos/DragImageMorphOS.cpp
     platform/morphos/SelectionData.cpp
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
@@ -71,6 +72,7 @@ list(APPEND WebCore_SOURCES
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/adwaita/ScrollbarThemeAdwaita.h
     platform/graphics/morphos/MediaPlayerMorphOS.h
+    platform/morphos/SelectionData.h
 )
 
 if (NOT MORPHOS_MINIMAL)

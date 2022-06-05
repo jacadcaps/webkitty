@@ -200,6 +200,8 @@ typedef enum {
 - (BOOL)editable;
 
 - (void)scrollToLeft:(int)left top:(int)top;
+- (int)scrollLeft;
+- (int)scrollTop;
 
 - (BOOL)hasAutofillElements;
 - (void)autofillElementsWithLogin:(OBString *)login password:(OBString *)password;
