@@ -479,6 +479,7 @@ namespace  {
 	ULONG                                   _clickSeconds, _clickMicros;
 	struct Window                          *_ddWindow;
 	OBSignalHandler                        *_ddWindowSignalHandler;
+	bool                                    _handlingIDCMP;
 #if ENABLE(VIDEO)
 	Function<void(void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> _overlayCallback;
 	WebCore::Element                       *_overlayElement;
@@ -488,7 +489,6 @@ namespace  {
 	struct Window                          *_fsWindow;
 	struct Screen                          *_fsScreen;
 	OBSignalHandler                        *_fsWindowSignalHandler;
-	bool                                    _handlingIDCMP;
 	bool                                    _fsExitRequested;
 	bool                                    _mediaEnabled;
 	bool                                    _mediaSourceEnabled;
@@ -3043,6 +3043,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	[settings setInvisiblePlaybackNotAllowed:webPage->invisiblePlaybackNotAllowed()];
 	[settings setRequiresUserGestureForMediaPlayback:webPage->requiresUserGestureForMediaPlayback()];
 	[settings setDarkModeEnabled:webPage->darkModeEnabled()];
+	[settings setTouchEventsEmulationEnabled:webPage->touchEventsEnabled()];
 	WTF::String lang;
 	lang = webPage->primaryLanguage();
 	if (lang.length())
@@ -3080,6 +3081,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	webPage->setInvisiblePlaybackNotAllowed([settings invisiblePlaybackNotAllowed]);
 	webPage->setRequiresUserGestureForMediaPlayback([settings requiresUserGestureForMediaPlayback]);
 	webPage->setDarkModeEnabled([settings darkModeEnabled]);
+	webPage->setTouchEventsEnabled([settings touchEventsEmulationEnabled]);
 	WTF::String language, additionalLanguage;
 
 	if ([settings dictionaryLanguage])

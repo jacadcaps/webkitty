@@ -1248,6 +1248,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
        settings.setFullScreenEnabled(true);
 #endif
 
+	// the default
+	settings.setTouchEventEmulationEnabled(false);
+
 // crashy
 //    settings.setDiagnosticLoggingEnabled(true);
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
@@ -1533,6 +1536,16 @@ bool WebPage::adBlockingEnabled() const
 void WebPage::setAdBlockingEnabled(bool enabled)
 {
 	m_adBlocking = enabled;
+}
+
+bool WebPage::touchEventsEnabled() const
+{
+	return m_page->settings().isTouchEventEmulationEnabled();
+}
+
+void WebPage::setTouchEventsEnabled(bool enabled)
+{
+	m_page->settings().setTouchEventEmulationEnabled(enabled);
 }
 
 bool WebPage::thirdPartyCookiesAllowed() const

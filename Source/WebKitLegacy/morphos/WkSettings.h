@@ -115,6 +115,9 @@ typedef enum {
 - (void)setAdditionalDictionaryLanguage:(OBString *)language;
 - (OBString *)additionalDictionaryLanguage;
 
+- (BOOL)touchEventsEmulationEnabled;
+- (void)setTouchEventsEmulationEnabled:(BOOL)enabled;
+
 @end
 
 typedef enum

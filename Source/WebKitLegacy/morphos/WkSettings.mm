@@ -61,6 +61,7 @@ namespace WebCore {
 	bool _hls;
 	bool _hvc;
 	bool _darkMode;
+	bool _touchEvents;
 }
 @end
 
@@ -305,6 +306,16 @@ namespace WebCore {
 	_darkMode = enabled;
 }
 
+- (BOOL)touchEventsEmulationEnabled
+{
+	return _touchEvents;
+}
+
+- (void)setTouchEventsEmulationEnabled:(BOOL)enabled
+{
+	_touchEvents = enabled;
+}
+
 - (void)setDictionaryLanguage:(OBString *)language
 {
 	[_language autorelease];
@@ -524,6 +535,15 @@ namespace WebCore {
 }
 
 - (void)setDarkModeEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)touchEventsEmulationEnabled
+{
+	return NO;
+}
+
+- (void)setTouchEventsEmulationEnabled:(BOOL)enabled
 {
 }
 

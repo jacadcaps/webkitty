@@ -100,6 +100,9 @@ public:
 	bool darkModeEnabled() const;
 	void setDarkModeEnabled(bool enabled);
 
+	bool touchEventsEnabled() const;
+	void setTouchEventsEnabled(bool enabled);
+
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
 	int scrollLeft();
