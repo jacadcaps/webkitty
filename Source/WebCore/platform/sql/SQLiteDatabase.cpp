@@ -225,9 +225,11 @@ void SQLiteDatabase::useWALJournalMode()
 {
 #if OS(MORPHOS)
 	auto syncStatement = prepareStatement("PRAGMA synchronous=off;"_s);
+	if (syncStatement)
+		syncStatement->step();
 	auto walStatement = prepareStatement("PRAGMA journal_mode=off;"_s);
-	syncStatement->step();
-	walStatement->step();
+	if (walStatement)
+		walStatement->step();
 #else
     m_useWAL = true;
     {
