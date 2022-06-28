@@ -10,9 +10,9 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x)
+#define D(x) 
 #define DPUSH(x)
-#define DF(x) 
+#define DF(x)
 
 namespace WebCore {
 namespace Acinerella {

@@ -9,6 +9,8 @@ static inline ULONG _hash(ULONG x) {
     return x;
 }
 
+extern "C" void dprintf(const char *,...);
+
 @implementation WkMediaObjectPrivate
 
 - (id)initWithType:(WkMediaObjectType)type identifier:(WkWebViewMediaIdentifier)identifier
@@ -196,6 +198,26 @@ static inline ULONG _hash(ULONG x) {
 	}
 }
 
+- (BOOL)isClearKeyEncrypted
+{
+	return [_identifier isClearKeyEncrypted];
+}
+
+- (OBArray *)hlsStreams
+{
+	return [_identifier hlsStreams];
+}
+
+- (id<WkHLSStream>)selectedHLSStream
+{
+	return [_identifier selectedHLSStream];
+}
+
+- (void)setSelectedHLSStream:(id<WkHLSStream>)hlsStream
+{
+	[_identifier setSelectedHLSStream:hlsStream];
+}
+
 @end
 
 @implementation WkWebViewVideoTrackPrivate
@@ -290,6 +312,62 @@ static inline ULONG _hash(ULONG x) {
 - (WkWebViewMediaTrackType)type
 {
 	return WkWebViewMediaTrackType_Audio;
+}
+
+@end
+
+@implementation WkHLSStreamPrivate
+
+- (id)initWithURL:(OBString *)url codecs:(OBString *)codecs fps:(int)fps bitrate:(int)br width:(int)width height:(int)height
+{
+	if ((self = [super init]))
+	{
+		_url = [url copy];
+		_codecs = [codecs copy];
+		_fps = fps;
+		_bitrate = br;
+		_width = width;
+		_height = height;
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	[_codecs release];
+	[_url release];
+	[super dealloc];
+}
+
+- (OBString *)url
+{
+	return _url;
+}
+
+- (OBString *)codecs
+{
+	return _codecs;
+}
+
+- (int)fps
+{
+	return _fps;
+}
+
+- (int)width
+{
+	return _width;
+}
+
+- (int)height
+{
+	return _height;
+}
+
+- (int)bitrate
+{
+	return _bitrate;
 }
 
 @end

@@ -13,6 +13,16 @@ class NetworkingContext;
 class MediaPlayer;
 class Page;
 
+struct MediaPlayerMorphOSInfoTrack
+{
+	String      m_url;
+	WTF::Vector<WTF::String> m_codecs;
+	int         m_fps = 0;
+	int         m_width = 0;
+	int         m_height = 0;
+	int         m_bitRate = 0;
+};
+
 struct MediaPlayerMorphOSInfo
 {
 	WTF::String m_audioCodec;
@@ -28,6 +38,9 @@ struct MediaPlayerMorphOSInfo
 	bool        m_isHLS = false;
     bool        m_isDownloadable = false;
     bool        m_isMediaSource = false;
+    bool        m_clearKeyDRM = false;
+    WTF::Vector<MediaPlayerMorphOSInfoTrack> m_hlsStreams;
+    String      m_selectedHLSStreamURL;
 };
 
 struct MediaPlayerMorphOSStreamSettings

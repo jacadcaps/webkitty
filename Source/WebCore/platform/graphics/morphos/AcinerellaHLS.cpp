@@ -9,9 +9,10 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x)
+#define D(x) 
 #define DCONTENTS(x) 
-#define DIO(x) 
+#define DIO(x)
+#define DENC(x) 
 
 static const String rnReplace("\r\n");
 static const String rnReplacement("\n");
@@ -74,16 +75,17 @@ public:
 						else
 						{
 							epos = params.find(',');
-							if (WTF::notFound == epos)
-								break;
-							param = params.substring(pos+1, epos-(pos+1));
+							if (WTF::notFound != epos)
+								param = params.substring(pos+1, epos-(pos+1));
+							else
+								param = params.substring(pos+1);
 						}
 						DCONTENTS(dprintf("[M]: %s = %s\n", key.utf8().data(), param.utf8().data()));
 
 						if (startsWithLettersIgnoringASCIICase(key, "resolution"))
 						{
 							auto res = param.convertToASCIILowercase().split('x');
-							if (res.size() == 2)
+							if (res.size() >= 2)
 							{
 								info.m_width = parseIntegerAllowingTrailingJunk<int>(res[0]).value_or(0);
 								info.m_height = parseIntegerAllowingTrailingJunk<int>(res[1]).value_or(0);
@@ -102,6 +104,8 @@ public:
 							info.m_bandwidth = parseIntegerAllowingTrailingJunk<int>(param).value_or(0);
 						}
 
+						if (WTF::notFound == epos)
+							break;
 						// skip to next
 						params = params.substring(epos+1);
 					}
@@ -153,7 +157,10 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 
 	if (lines.size() >= 2 && equalIgnoringASCIICase(lines[0], "#EXTM3U"))
 	{
+		String keyURL;
+		unsigned char iv[16];
 		bool hopingForURL = false;
+		bool hasIV = false;
 		double duration = 0.f;
 		double programTimeDate = 0;
 		m_mediaSequence = -1;
@@ -198,14 +205,72 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				HLSChunk chunk;
 				chunk.m_mediaSequence = ++m_mediaSequence;
 				chunk.m_duration = duration;
+				chunk.m_encryption.m_hasIV = hasIV;
+				if (hasIV)
+					memcpy(&chunk.m_encryption.m_iv[0], &iv[0], sizeof(chunk.m_encryption.m_iv));
 //				chunk.m_programDateTime = programTimeDate;
 //				programTimeDate += duration;
 				m_remainingDuration += duration;
 
 				chunk.m_url = URL(baseURL, line).string();
+				if (keyURL.length() > 0)
+					chunk.m_encryption.m_keyURL = URL(baseURL, keyURL).string();
 				m_chunks.emplace(WTFMove(chunk));
 				
 				duration = m_targetDuration; // reset
+			}
+			// #EXT-X-KEY:METHOD=AES-128,URI="keys/1.key",IV=0xf1dd959d87ccb58a9bf47ebd8bb73e24
+			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-key"))
+			{
+				size_t encryption = line.findIgnoringASCIICase("METHOD=AES-128");
+				if (WTF::notFound != encryption)
+				{
+					size_t uri = line.findIgnoringASCIICase("URI=\"");
+					if (WTF::notFound != uri)
+					{
+						size_t uriEnd = line.findIgnoringASCIICase("\"", uri + 6);
+						if (WTF::notFound != uri)
+						{
+							keyURL = line.substring(uri + 5, uriEnd - (uri + 5));
+							DCONTENTS(dprintf("[P]: Encryption key URI '%s'\n", keyURL.utf8().data()));
+							m_encrypted = true;
+						}
+					}
+					
+					size_t ivpos = line.findIgnoringASCIICase("IV=");
+					if (WTF::notFound != ivpos)
+					{
+						String ivs = line.substring(ivpos + 3);
+						if (WTF::notFound != ivs.find(","))
+						{
+							ivs = ivs.substring(0,ivs.find(",") - 1);
+						}
+
+						if (startsWithLettersIgnoringASCIICase(ivs, "0x"))
+						{
+							ivs = ivs.substring(2);
+							auto ascii = ivs.ascii();
+							const char *c = ascii.data();
+							if (c && 32 == strlen(c))
+							{
+								for (int i = 0; i < 16; i++)
+								{
+									char x[3];
+									x[0] = *c++;
+									x[1] = *c++;
+									x[2] = 0;
+									iv[i] = strtoul(x, NULL, 16);
+								}
+								hasIV = true;
+							}
+						}
+					}
+				}
+				else if (line.findIgnoringASCIICase("METHOD=NONE") == WTF::notFound)
+				{
+					DCONTENTS(dprintf("[P]: unknown encryption, bailing out!\n"));
+					return;
+				}
 			}
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-endlist"))
 			{
@@ -267,6 +332,7 @@ HLSStream& HLSStream::operator+=(HLSStream& append)
 		m_targetDuration = append.m_targetDuration;
 		m_initialTimeStamp = append.m_initialTimeStamp;
 		m_map = append.m_map;
+		m_encrypted = append.m_encrypted;
 	}
 
 	return *this;
@@ -281,6 +347,7 @@ void HLSStream::assign(const HLSStream& source)
 	m_chunks = source.m_chunks;
 	m_ended = source.m_ended;
 	m_remainingDuration = source.m_remainingDuration;
+	m_encrypted = source.m_encrypted;
 }
 
 void HLSStream::clear()
@@ -331,7 +398,7 @@ void AcinerellaNetworkBufferHLS::start(uint64_t from)
 		m_stream.clear();
 		m_hasMasterList = false;
 
-		m_hlsRequest = AcinerellaNetworkFileRequest::create(m_url, [this](bool succ) { masterPlaylistReceived(succ); });
+		m_hlsRequest = AcinerellaNetworkFileRequest::create(m_url, [this, protect = makeRef(*this)](bool succ) { masterPlaylistReceived(succ); });
 	}
 	else
 	{
@@ -405,13 +472,12 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 				{
 					// break out of read()
 					m_stopping = true;
-					m_ended = true;
 					m_event.signal();
 					m_hlsRequest = nullptr;
 					return;
 				}
 
-				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this](bool succ) { childPlaylistReceived(succ); });
+				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this, protect = makeRef(*this)](bool succ) { childPlaylistReceived(succ); });
 				return;
 			}
 		}
@@ -424,9 +490,24 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 	m_hlsRequest = nullptr;
 }
 
-void AcinerellaNetworkBufferHLS::selectStream(const HLSStreamInfo &stream)
+void AcinerellaNetworkBufferHLS::selectStream(const HLSStreamInfo &stream, bool reload, double position)
 {
+	D(dprintf("%s(%p) \n", __func__, this));
 	m_selectedStream = stream;
+	
+	if (reload)
+	{
+		if (m_terminatedHLS)
+		{
+			skip(position);
+		}
+		else
+		{
+			while (!m_stream.empty())
+				m_stream.clear();
+			refreshTimerFired();
+		}
+	}
 }
 
 // main thread
@@ -443,6 +524,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 			bool initial = m_stream.empty();
 			HLSStream stream(URL({}, m_selectedStream.m_url), contents);
 			m_stream += stream; // append and merge :)
+			m_isEncrypted = m_stream.isEncrypted();
 			
 			if (initial)
 			{
@@ -453,6 +535,13 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 					m_fullDuration = m_terminatedStream.remainingDuration();
 					D(dprintf("%s(%p) terminated, duration %f chunks %d (%d)\n", __func__, this, float(m_fullDuration), m_terminatedStream.size(), m_stream.size()));
 				}
+				else
+				{
+					// this is live HLS; since these may have a history leading to 'now', let's skip all but the last 10 chunks
+					D(dprintf("%s(%p) live! skip %d chunks\n", __func__, this, std::max(0, int(m_stream.size()) - 10)));
+					while (m_stream.size() > 10)
+						m_stream.pop();
+				}
 			}
 
 			D(dprintf("%s(%p) queue %d mediaseq %llu %d cr %p\n", __func__, this, m_stream.size(), m_stream.mediaSequence(), m_stream.empty(), m_chunkRequest.get()));
@@ -462,25 +551,18 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 				if (initial && 0 != m_stream.map().m_url.length())
 				{
 					D(dprintf("%s(%p) initial %d, map url %s\n", __func__, this, initial, m_stream.map().m_url.utf8().data()));
-					m_initializationChunkRequest = AcinerellaNetworkFileRequest::create(m_stream.map().m_url, [this](bool succ) { initializationSegmentReceived(succ); });
+					m_initializationChunkRequest = AcinerellaNetworkFileRequest::create(m_stream.map().m_url, [this, protect = makeRef(*this)](bool succ) { initializationSegmentReceived(succ); });
 				}
 				else
 				{
-					RefPtr<AcinerellaNetworkBuffer> chunkRequest;
-
-					D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-					chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
-					m_stream.pop();
-
+					bool shouldRequest = false;
 					{
 						auto lock = Locker(m_lock);
-						m_chunkRequest = chunkRequest;
+						if (!m_chunkRequestInRead)
+							shouldRequest = true;
 					}
-					
-					chunkRequest->start();
-					
-					// wake up the ::read
-					m_event.signal();
+					if (shouldRequest)
+						requestNextChunk();
 				}
 			}
 		}
@@ -508,27 +590,81 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 	m_hlsRequest = nullptr;
 }
 
+void AcinerellaNetworkBufferHLS::requestNextChunk()
+{
+	if (!m_stream.empty())
+	{
+		if (!encryptionKeyNeeded(m_stream.current()))
+		{
+			RefPtr<AcinerellaNetworkBuffer> chunkRequest;
+			RefPtr<SharedBuffer> key = encryptionKey(m_stream.current());
+
+			D(dprintf("%s(%p) chunk '%s' duration %f encrypted? %d\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration, !!key));
+			
+			if (!!key)
+				chunkRequest = AcinerellaNetworkBuffer::createPreloadingEncryptedBuffer(m_provider, m_stream.current().m_url, key, m_stream.current().m_encryption.m_hasIV ? &m_stream.current().m_encryption.m_iv[0] : nullptr, m_initializationChunkRequest ? m_initializationChunkRequest->buffer() : nullptr);
+			else
+				chunkRequest = AcinerellaNetworkBuffer::createPreloadingBuffer(m_provider, m_stream.current().m_url, m_initializationChunkRequest ? m_initializationChunkRequest->buffer() : nullptr);
+
+			m_stream.pop();
+
+			chunkRequest->start();
+
+			{
+				auto lock = Locker(m_lock);
+				m_chunkRequest = chunkRequest;
+			}
+
+			// wake up the ::read
+			m_event.signal();
+		}
+	}
+}
+
+bool AcinerellaNetworkBufferHLS::encryptionKeyNeeded(const HLSChunk& chunk)
+{
+	if (!chunk.m_encryption.m_keyURL.isEmpty())
+	{
+		DENC(dprintf("%s(%p) key needed %s requested/cached? %d kc %d\n", __func__, this, chunk.m_encryption.m_keyURL.utf8().data(), m_keys.find(chunk.m_encryption.m_keyURL) != m_keys.end(), m_keys.size()));
+		auto it = m_keys.find(chunk.m_encryption.m_keyURL);
+
+		if (it == m_keys.end())
+		{
+			DENC(dprintf("%s(%p) requesting a key...\n", "encryptionKeyNeeded", this));
+			m_keys.emplace(std::make_pair(chunk.m_encryption.m_keyURL, AcinerellaNetworkFileRequest::create(chunk.m_encryption.m_keyURL, [this, protect = makeRef(*this), url = chunk.m_encryption.m_keyURL](bool) {
+
+				requestNextChunk();
+				DENC(dprintf("%s(%p) key obtained\n", "encryptionKeyNeeded", this));
+			})));
+			
+			return true;
+		}
+
+		// still waiting for key!
+		return !it->second->buffer();
+	}
+	
+	return false;
+}
+
+RefPtr<SharedBuffer> AcinerellaNetworkBufferHLS::encryptionKey(const HLSChunk& chunk)
+{
+	if (!chunk.m_encryption.m_keyURL.isEmpty())
+	{
+		auto it = m_keys.find(chunk.m_encryption.m_keyURL);
+		if (m_keys.end() != it)
+			return it->second->buffer();
+	}
+	return nullptr;
+}
+
 void AcinerellaNetworkBufferHLS::initializationSegmentReceived(bool succ)
 {
 	if (succ)
 	{
 		if (!m_stream.empty() && !m_chunkRequest)
 		{
-			RefPtr<AcinerellaNetworkBuffer> chunkRequest;
-
-			D(dprintf("%s(%p) chunk '%s' duration %f\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.current().m_duration));
-			chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
-			m_stream.pop();
-
-			{
-				auto lock = Locker(m_lock);
-				m_chunkRequest = chunkRequest;
-			}
-			
-			chunkRequest->start();
-			
-			// wake up the ::read
-			m_event.signal();
+			requestNextChunk();
 		}
 	}
 }
@@ -539,7 +675,7 @@ void AcinerellaNetworkBufferHLS::refreshTimerFired()
 	D(dprintf("%s(%p) \n", __func__, this));
 	if (m_hlsRequest)
 		m_hlsRequest->cancel();
-	m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this](bool succ) { childPlaylistReceived(succ); });
+	m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this, protect = makeRef(*this)](bool succ) { childPlaylistReceived(succ); });
 }
 
 // main thread
@@ -558,25 +694,14 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 	if (!m_stream.empty())
 	{
-		auto chunkRequest = AcinerellaNetworkBuffer::createDisregardingFileType(m_provider, m_stream.current().m_url);
-		D(dprintf("%s(%p): load '%s' queue %d -> cr %p\n", __func__, this, m_stream.current().m_url.utf8().data(), m_stream.size(), chunkRequest.get()));
-		m_stream.pop();
-		
-		{
-			auto lock = Locker(m_lock);
-			m_chunkRequest = chunkRequest;
-		}
-		
-		chunkRequest->start();
-		
-		// wake up the ::read
-		m_event.signal();
+		requestNextChunk();
 	}
 }
 
 int64_t AcinerellaNetworkBufferHLS::length()
 {
 	auto lock = Locker(m_lock);
+	DIO(dprintf("%s(%p): %lld\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead ? m_chunkRequestInRead->length() : 0));
 	if (m_chunkRequestInRead)
 		return m_chunkRequestInRead->length();
 	return 0;
@@ -585,6 +710,7 @@ int64_t AcinerellaNetworkBufferHLS::length()
 int64_t AcinerellaNetworkBufferHLS::position()
 {
 	auto lock = Locker(m_lock);
+	DIO(dprintf("%s(%p): %lld\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead ? m_chunkRequestInRead->position() : 0));
 	if (m_chunkRequestInRead)
 		return m_chunkRequestInRead->position();
 	return 0;
@@ -593,65 +719,84 @@ int64_t AcinerellaNetworkBufferHLS::position()
 // acinerella decoder thread
 int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readPosition)
 {
-	DIO(dprintf("%s(%p): requested %ld inread %p\n", __PRETTY_FUNCTION__, this, size, m_chunkRequestInRead.get()));
+	DIO(dprintf("%s(%p):>> requested %ld inread %p rpos %lld\n", __PRETTY_FUNCTION__, this, size, m_chunkRequestInRead.get(), readPosition));
 
 	while (!m_stopping)
 	{
 		bool needsToWait = false;
+		bool signalChunkSwallowed = false;
+
+		{
+			auto lock = Locker(m_lock);
+
+			if (!m_chunkRequestInRead)
+			{
+				m_chunkRequestInRead = m_chunkRequest;
+				m_chunkRequest = nullptr;
+				needsToWait = m_chunkRequestInRead.get() == nullptr;
+				signalChunkSwallowed = !needsToWait;
+				DIO(dprintf("%s(%p): chunk swapped to %p needswait %d\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get(), needsToWait));
+			}
+		}
+
+		if (m_skipping)
+		{
+			DIO(dprintf("%s(%p): skipping, %d\n", __PRETTY_FUNCTION__, this, m_initializationPending));
+
+			{
+				auto lock = Locker(m_lock);
+				m_skipping = false;
+				if (m_chunkRequestInRead)
+				{
+					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+					m_chunkRequestInRead = nullptr;
+				}
+			}
+			
+			WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+				chunkSwallowed();
+			});
+		}
 
 		if (m_chunkRequestInRead)
 		{
 			int read = m_chunkRequestInRead->read(outBuffer, size, readPosition);
 
-			if (0 == read || m_skipping)
+			if (signalChunkSwallowed)
+			{
+				WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+					chunkSwallowed();
+				});
+			}
+
+			if (m_initializationPending && 0 == read)
+			{
+				DIO(dprintf("-- eRead_EOFWhileInitializing!!\n"));
+				return eRead_EOFWhileInitializing;
+			}
+			else if (0 == read)
 			{
 				bool ended = false;
-
 				{
 					auto lock = Locker(m_lock);
 					ended = m_stream.empty() && m_stream.ended();
 					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
 					m_chunkRequestInRead = nullptr;
-					if (m_skipping)
-					{
-						D(dprintf("-- skipping issues a discontinuity!!\n"));
-						ended = false;
-						m_skipping = false;
-					}
-					D(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
+					DIO(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
 				}
 
 				return ended ? eRead_EOF : eRead_Discontinuity;
 			}
 			else
 			{
-				DIO(dprintf("%s(%p): read %d from chunk %p bytesleft %lld\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get(),
+				DIO(dprintf("%s(%p):<< read %d from chunk %p bytesleft %lld\n", __PRETTY_FUNCTION__, this, read, m_chunkRequestInRead.get(),
 					m_chunkRequestInRead->length() - m_chunkRequestInRead->position()));
 				return read;
 			}
 		}
-		else if (m_skipping)
-		{
-			D(dprintf("-- skipping after a chunk!!\n"));
-			m_skipping = false;
-		}
 
-		{
-			auto lock = Locker(m_lock);
-			m_chunkRequestInRead = m_chunkRequest;
-			m_chunkRequest = nullptr;
-			needsToWait = m_chunkRequestInRead.get() == nullptr;
-			DIO(dprintf("%s(%p): chunk swapped to %p needswait %d\n", __PRETTY_FUNCTION__, this, m_chunkRequestInRead.get(), needsToWait));
-		}
-
-		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
-			chunkSwallowed();
-		});
-
-		if (m_ended)
-		{
-			return 0;
-		}
+		if (m_stopping)
+			return eRead_EOF;
 
 		if (needsToWait)
 		{
@@ -668,6 +813,35 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 
 	DIO(dprintf("%s(%p): failing out (%d)\n", __PRETTY_FUNCTION__, this, m_stopping));
 	return -1;
+}
+
+bool AcinerellaNetworkBufferHLS::markLastFrameRead()
+{
+	DIO(dprintf("%s(%p): \n", __PRETTY_FUNCTION__, this));
+	bool doSwallow = false;
+	bool hasMore = true;
+
+	{
+		auto lock = Locker(m_lock);
+		if (m_chunkRequestInRead)
+		{
+			m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+			m_chunkRequestInRead = nullptr;
+			doSwallow = true;
+		}
+
+		if (m_stream.ended() && m_stream.empty())
+			hasMore = false;
+	}
+	
+	if (doSwallow)
+	{
+		WTF::callOnMainThread([this, protect = makeRef(*this)]() {
+			chunkSwallowed();
+		});
+	}
+	
+	return hasMore;
 }
 
 void AcinerellaNetworkBufferHLS::skip(double startTime)

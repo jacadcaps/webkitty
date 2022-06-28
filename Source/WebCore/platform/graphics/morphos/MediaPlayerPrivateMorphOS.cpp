@@ -290,9 +290,10 @@ MediaPlayer::SupportsType MediaPlayerPrivateMorphOS::extendedSupportsType(const 
 	return MediaPlayerFactoryMediaSourceMorphOS::s_supportsTypeAndCodecs(parameters);
 }
 
-bool MediaPlayerPrivateMorphOS::supportsKeySystem(const String&, const String&)
+bool MediaPlayerPrivateMorphOS::supportsKeySystem(const String& keySystem, const String& mimeType)
 {
-	// this encrypted media support, which we don't have
+	if (equalIgnoringASCIICase(keySystem, "org.w3c.clearkey") && !mimeType.isEmpty() && equalIgnoringASCIICase(mimeType, "application/x-mpegurl"))
+		return true;
 	return false;
 }
 
@@ -847,7 +848,7 @@ void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 	if (abs(dur - m_duration) >= 1.0)
 	{
 		D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
-		m_duration = dur;
+		m_duration = ceil(dur);
 		m_player->durationChanged();
 	}
 }
@@ -904,6 +905,12 @@ void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 	(void)index;
 	(void)enabled;
 	D(dprintf("%s: %p, track %p enabled %d\n", __func__, this, index, enabled));
+}
+
+void MediaPlayerPrivateMorphOS::selectHLSStream(const String& url)
+{
+	if (m_acinerella)
+		m_acinerella->selectStream(url, m_currentTime);
 }
 
 }

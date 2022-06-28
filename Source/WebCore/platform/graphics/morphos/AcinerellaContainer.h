@@ -71,6 +71,7 @@ public:
 	RefPtr<PlatformMediaResourceLoader> createResourceLoader() override;
 	String referrer() override;
 	void selectStream() override;
+	void selectStream(const String& url, double position);
 
 	void paint(GraphicsContext&, const FloatRect&);
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
@@ -127,6 +128,7 @@ protected:
 	Lock                             m_acinerellaLock;
 	RefPtr<AcinerellaNetworkBuffer>  m_networkBuffer;
 	RunLoop::Timer<Acinerella>       m_watchdogTimer;
+	MediaPlayerMorphOSInfo           m_info;
 
 	RefPtr<AcinerellaMuxedBuffer>    m_muxer;
 	RefPtr<AcinerellaDecoder>        m_audioDecoder;

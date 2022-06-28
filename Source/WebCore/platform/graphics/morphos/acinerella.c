@@ -577,9 +577,16 @@ void CALL_CONVT ac_get_stream_info(lp_ac_instance pacInstance, int nb,
 				info->additional_info.video_info.pixel_aspect =
 				    pixel_aspect_num / pixel_aspect_den;
 
-			info->additional_info.video_info.frames_per_second =
-			    (double)self->pFormatCtx->streams[nb]->r_frame_rate.num /
+			double r_frame_rate = (double)self->pFormatCtx->streams[nb]->r_frame_rate.num /
 			    (double)self->pFormatCtx->streams[nb]->r_frame_rate.den;
+			double avg_frame_rate = (double)self->pFormatCtx->streams[nb]->avg_frame_rate.num /
+			    (double)self->pFormatCtx->streams[nb]->avg_frame_rate.den;
+
+			// workaround for some twitter mpeg-ts encodes that are 6000:1
+			if (r_frame_rate > 100 && avg_frame_rate < 61)
+				r_frame_rate = avg_frame_rate;
+
+			info->additional_info.video_info.frames_per_second = r_frame_rate;
 			break;
 		case AVMEDIA_TYPE_AUDIO:
 			// Set stream type to "AUDIO"

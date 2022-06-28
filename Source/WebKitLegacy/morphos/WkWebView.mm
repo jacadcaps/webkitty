@@ -167,6 +167,7 @@ namespace  {
 	OBURL                            *_url;
 	OBURL                            *_pageURL;
 	void                             *_playerRef;
+	OBArray                          *_hlsStreams;
 }
 @end
 
@@ -202,6 +203,7 @@ namespace  {
 	[self invalidate];
 	[_url release];
 	[_pageURL release];
+	[_hlsStreams release];
 	[super dealloc];
 }
 
@@ -423,6 +425,73 @@ namespace  {
 	return nil;
 }
 
+- (BOOL)isClearKeyEncrypted
+{
+	return _info.m_clearKeyDRM;
+}
+
+- (OBArray *)hlsStreams
+{
+	if (_hlsStreams)
+		return _hlsStreams;
+
+	if (_info.m_hlsStreams.size())
+	{
+		OBMutableArray *streams = [OBMutableArray arrayWithCapacity:_info.m_hlsStreams.size()];
+		for (int i = 0; i < _info.m_hlsStreams.size(); i++)
+		{
+			auto uurl = _info.m_hlsStreams[i].m_url.utf8();
+			if (_info.m_hlsStreams[i].m_codecs.size() == 0)
+			{
+				[streams addObject:[[[WkHLSStreamPrivate alloc] initWithURL:[OBString stringWithUTF8String:uurl.data()] codecs:nil fps:_info.m_hlsStreams[i].m_fps bitrate:_info.m_hlsStreams[i].m_bitRate
+					width:_info.m_hlsStreams[i].m_width height:_info.m_hlsStreams[i].m_height] autorelease]];
+			}
+			else if (_info.m_hlsStreams[i].m_codecs.size() == 1)
+			{
+				auto ucodecs = _info.m_hlsStreams[i].m_codecs[0].utf8();
+				[streams addObject:[[[WkHLSStreamPrivate alloc] initWithURL:[OBString stringWithUTF8String:uurl.data()] codecs:[OBString stringWithUTF8String:ucodecs.data()] fps:_info.m_hlsStreams[i].m_fps bitrate:_info.m_hlsStreams[i].m_bitRate
+					width:_info.m_hlsStreams[i].m_width height:_info.m_hlsStreams[i].m_height] autorelease]];
+			}
+			else if (_info.m_hlsStreams[i].m_codecs.size() > 1)
+			{
+				String s = _info.m_hlsStreams[i].m_codecs[0];
+				s.append(String::fromUTF8(", "));
+				s.append(_info.m_hlsStreams[i].m_codecs[1]);
+				auto ucodecs = s.utf8();
+				[streams addObject:[[[WkHLSStreamPrivate alloc] initWithURL:[OBString stringWithUTF8String:uurl.data()] codecs:[OBString stringWithUTF8String:ucodecs.data()] fps:_info.m_hlsStreams[i].m_fps bitrate:_info.m_hlsStreams[i].m_bitRate
+					width:_info.m_hlsStreams[i].m_width height:_info.m_hlsStreams[i].m_height] autorelease]];
+			}
+		}
+		
+		_hlsStreams = [streams retain];
+		return streams;
+	}
+	
+	return nil;
+}
+
+- (id<WkHLSStream>)selectedHLSStream
+{
+	auto uurl = _info.m_selectedHLSStreamURL.utf8();
+	OBString *selectedURL = [OBString stringWithUTF8String:uurl.data()];
+	OBEnumerator *e = [[self hlsStreams] objectEnumerator];
+	id<WkHLSStream> stream;
+	while ((stream = [e nextObject]))
+	{
+		if ([[stream url] isEqualToString:selectedURL])
+			return stream;
+	}
+	return nil;
+}
+
+- (void)setSelectedHLSStream:(id<WkHLSStream>)hlsStream
+{
+	if (_playerRef && hlsStream)
+	{
+		WebCore::MediaPlayer *player = reinterpret_cast<WebCore::MediaPlayer *>(_playerRef);
+		player->selectHLSStream(String::fromUTF8([[hlsStream url] cString]));
+	}
+}
 @end
 #endif
 
@@ -1269,15 +1338,20 @@ namespace  {
 		WkMediaObjectPrivate *media = [self mediaObjectForPlayer:playerRef];
 		if (media)
 		{
-			[media removeTrack:[media videoTrack]];
-			[media removeTrack:[media audioTrack]];
-			
+			OBArray *tracks = [[[media allTracks] copy] autorelease];
 			id<WkWebViewMediaTrack> track;
+
+			OBEnumerator *e = [tracks objectEnumerator];
+			while ((track = [e nextObject]))
+				[media removeTrack:track];
+			
 			[media addTrack:track = [handler audioTrack]];
 			[media selectTrack:track];
 
 			[media addTrack:track = [handler videoTrack]];
 			[media selectTrack:track];
+			
+			[_mediaDelegate webView:_parentWeak updatedStream:media];
 		}
 	}
 }

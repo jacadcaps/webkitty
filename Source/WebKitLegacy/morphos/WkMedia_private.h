@@ -26,7 +26,7 @@
 
 @end
 
-@protocol WkMediaObjectComms <OBObject>
+@protocol WkMediaObjectComms <OBObject, WkHLSMediaObject>
 
 - (BOOL)playing;
 
@@ -47,9 +47,11 @@
 - (BOOL)fullscreen;
 - (void)setFullscreen:(BOOL)fs;
 
+- (BOOL)isClearKeyEncrypted;
+
 @end
 
-@interface WkMediaObjectPrivate : OBObject<WkMediaObject>
+@interface WkMediaObjectPrivate : OBObject<WkMediaObject, WkHLSMediaObject>
 {
 	id<WkWebViewAudioTrack>  _audioTrack;
 	id<WkWebViewVideoTrack>  _videoTrack;
@@ -68,3 +70,16 @@
 
 @end
 
+@interface WkHLSStreamPrivate : OBObject<WkHLSStream>
+{
+	OBString *_url;
+	OBString *_codecs;
+	int _fps;
+	int _width;
+	int _height;
+	int _bitrate;
+}
+
+- (id)initWithURL:(OBString *)url codecs:(OBString *)codecs fps:(int)fps bitrate:(int)br width:(int)width height:(int)height;
+
+@end

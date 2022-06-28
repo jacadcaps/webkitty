@@ -1546,6 +1546,14 @@ void MediaPlayer::simulateAudioInterruption()
 }
 #endif
 
+#if OS(MORPHOS)
+void MediaPlayer::selectHLSStream(const String& url)
+{
+	if (m_private)
+		m_private->selectHLSStream(url);
+}
+#endif
+
 void MediaPlayer::beginSimulatedHDCPError()
 {
     if (m_private)

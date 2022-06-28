@@ -609,6 +609,10 @@ public:
     void simulateAudioInterruption();
 #endif
 
+#if OS(MORPHOS)
+	void selectHLSStream(const String& url);
+#endif
+
     void beginSimulatedHDCPError();
     void endSimulatedHDCPError();
 

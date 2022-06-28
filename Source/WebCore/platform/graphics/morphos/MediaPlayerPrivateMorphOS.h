@@ -111,6 +111,8 @@ public:
 
 	void onTrackEnabled(int index, bool enabled);
 
+	void selectHLSStream(const String& url) override;
+
 protected:
 	MediaPlayer* m_player;
 	RefPtr<Acinerella::Acinerella> m_acinerella;

@@ -7,6 +7,7 @@
 #include "AcinerellaBuffer.h"
 #include <wtf/RunLoop.h>
 #include <wtf/URL.h>
+#include <wtf/StdMap.h>
 
 namespace WebCore {
 
@@ -24,12 +25,20 @@ struct HLSStreamInfo
 	int            m_height = 0;
 };
 
+struct HLSEncryption
+{
+	String        m_keyURL;
+	bool          m_hasIV;
+	unsigned char m_iv[16];
+};
+
 struct HLSChunk
 {
-	String    m_url;
-	int64_t   m_mediaSequence;
-	double    m_duration;
-	double    m_programDateTime;
+	String        m_url;
+	int64_t       m_mediaSequence;
+	double        m_duration;
+	double        m_programDateTime;
+	HLSEncryption m_encryption;
 };
 
 struct HLSMap
@@ -63,6 +72,7 @@ public:
 	double initialTimeStamp() const { return m_initialTimeStamp; }
 	double remainingDuration() const { return m_remainingDuration; }
 	const HLSMap &map() const { return m_map; }
+	bool isEncrypted() const { return m_encrypted; }
 
 protected:
 	HLSMap               m_map;
@@ -73,6 +83,7 @@ protected:
 	double               m_initialTimeStamp = 0;
 	double               m_remainingDuration = 0;
 	bool                 m_ended = false;
+	bool                 m_encrypted = false;
 };
 
 class AcinerellaNetworkBufferHLS : public AcinerellaNetworkBuffer
@@ -84,8 +95,7 @@ public:
 	void start(uint64_t from = 0) override;
 	void stop() override;
 
-	bool canSeek() override { return false; }
-
+	bool canSeek() override { return m_terminatedHLS; }
 	bool canSkip() override { return m_terminatedHLS; }
 	void skip(double startTime) override;
 	
@@ -98,11 +108,15 @@ public:
 	int64_t position() override;
 
 	const Vector<HLSStreamInfo>& streams() const { return m_streams; }
-	void selectStream(const HLSStreamInfo &stream);
+	void selectStream(const HLSStreamInfo &stream, bool reload = false, double skipPosition = 0.0);
 	const HLSStreamInfo& selectedStream() const { return m_selectedStream; }
 	bool hasStreamSelection() const override { return true; }
 
 	double initialTimeStamp() const override;
+	void setIsInitializing(bool initializing) override { m_initializationPending = initializing; };
+	bool markLastFrameRead() override;
+
+	bool isEncrypted() const override { return m_isEncrypted; }
 
 protected:
 
@@ -112,6 +126,10 @@ protected:
 
 	void refreshTimerFired();
 	void chunkSwallowed();
+	
+	bool encryptionKeyNeeded(const HLSChunk& chunk);
+	RefPtr<SharedBuffer> encryptionKey(const HLSChunk& chunk);
+	void requestNextChunk();
 
 protected:
 	RunLoop::Timer<AcinerellaNetworkBufferHLS>  m_playlistRefreshTimer;
@@ -129,10 +147,24 @@ protected:
 	URL                                         m_baseURL;
 	bool                                        m_hasMasterList = false;
 	bool                                        m_stopping = false;
-	bool                                        m_ended = false;
 	bool                                        m_terminatedHLS = false;
 	double                                      m_fullDuration = 0;
 	std::atomic<bool>                           m_skipping = false;
+	bool                                        m_initializationPending = false;
+	bool                                        m_isEncrypted = false;
+
+	struct StringKeyHash {
+		std::size_t operator()(const String& k) const {
+			return k.hash();
+		}
+	};
+
+ 	struct StringKeyEquals {
+		bool operator()(const String& a, const String& b) const {
+			return a == b;
+		}
+	};
+	std::unordered_map<String, RefPtr<AcinerellaNetworkFileRequest>, StringKeyHash, StringKeyEquals> m_keys;
 };
 
 }

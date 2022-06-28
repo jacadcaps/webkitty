@@ -16,7 +16,17 @@
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
 
-#define D(x) 
+#if ENABLE(WEB_CRYPTO)
+
+#include "CryptoAlgorithmAesCbcCfbParams.h"
+#include "CryptoAlgorithmAesKeyParams.h"
+#include "CryptoKeyAES.h"
+#include "CryptoAlgorithmAES_CBC.h"
+
+#endif
+
+#define D(x)
+#define DP(x) 
 
 namespace WebCore {
 namespace Acinerella {
@@ -400,124 +410,160 @@ protected:
 	static const int                 ms_maxNonRecoverableErrors = 3;
 };
 
-#if 0
-class AcinerellaNetworkBufferPlatformMediaResourceLoader : public AcinerellaNetworkBuffer
+class AcinerellaPreloadingNetworkBufferInternal : public AcinerellaNetworkBuffer
 {
-	class AcinerellaPlatformMediaResourceClient : public PlatformMediaResourceClient
-	{
-		WTF_MAKE_FAST_ALLOCATED;
-		WTF_MAKE_NONCOPYABLE(AcinerellaPlatformMediaResourceClient);
-	public:
-		AcinerellaPlatformMediaResourceClient()
-		{
-		}
-
-		void dataReceived(PlatformMediaResource&, const char* bytes, int size) override
-		{
-			D(dprintf("%s(%p): %ld\n", __PRETTY_FUNCTION__, this, size));
-		}
-		
-		void accessControlCheckFailed(PlatformMediaResource&, const ResourceError&) override
-		{
-			D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
-		}
-		
-		void loadFailed(PlatformMediaResource&, const ResourceError& error) override
-		{
-			D(dprintf("%s(%p) %s %d '%s'\n", __PRETTY_FUNCTION__, this, error.domain().utf8().data(), error.errorCode(), error.localizedDescription().utf8().data()));
-		}
-		
-		void loadFinished(PlatformMediaResource&) override
-		{
-			D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
-		}
-	};
-
 public:
-	AcinerellaNetworkBufferPlatformMediaResourceLoader(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
-		: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
+	AcinerellaPreloadingNetworkBufferInternal(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, RefPtr<SharedBuffer> prepend)
+		: AcinerellaNetworkBuffer(resourceProvider, url, 0)
 	{
-	
-	}
-	
-	~AcinerellaNetworkBufferPlatformMediaResourceLoader()
-	{
-	
-	}
-	
-	void start(uint64_t from) override
-	{
-		stop();
-		
-		D(dprintf("%s(%p): %s\n", __PRETTY_FUNCTION__, this, m_url.utf8().data()));
-		
-		if (m_provider)
+		DP(dprintf("%s(%p): prepend %d\n", __PRETTY_FUNCTION__, this, !!prepend?prepend->size():0));
+		if (!!prepend)
 		{
-			URL url = URL(URL(), m_url);
-			ResourceRequest request(url);
-			request.setAllowCookies(true);
-			request.setFirstPartyForCookies(url);
-			request.setHTTPReferrer(m_provider->referrer());
-			request.clearHTTPAcceptEncoding();
-
-    		if (m_url.contains("movies.apple.com") || m_url.contains("trailers.apple.com"))
-    		{
-        		request.setHTTPUserAgent("Quicktime/7.6.6");
-			}
-			
-			if (0 != from)
-			{
-				String range = "bytes=";
-				range.append(String::number(from));
-				range.append("-");
-				request.setHTTPHeaderField(HTTPHeaderName::Range, range);
-			}
-			
-			request.setHTTPHeaderField(HTTPHeaderName::IcyMetadata, "1");
-
-			if (!m_loader)
-				m_loader = m_provider->createResourceLoader();
-			
-			if (!!m_loader)
-			{
-				PlatformMediaResourceLoader::LoadOptions loadOptions = 0;
-				if (request.url().protocolIsBlob())
-				{
-					loadOptions |= PlatformMediaResourceLoader::LoadOption::BufferData;
-				}
-
-				D(dprintf("%s(%p): isBlob %d\n", __PRETTY_FUNCTION__, this, request.url().protocolIsBlob()));
-
-				m_resource = m_loader->requestResource(ResourceRequest(request), loadOptions);
-				if (!!m_resource)
-				{
-					m_resource->setClient(makeUnique<AcinerellaPlatformMediaResourceClient>());
-				}
-			}
+			m_buffer = SharedBuffer::create(prepend->data(), prepend->size());
 		}
 	}
 	
-	void stop()
+	AcinerellaPreloadingNetworkBufferInternal(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, RefPtr<SharedBuffer> key, const unsigned char *iv, RefPtr<SharedBuffer> prepend)
+		: AcinerellaNetworkBuffer(resourceProvider, url, 0)
 	{
-		if (!!m_resource)
+		DP(dprintf("%s(%p): prepend %d\n", __PRETTY_FUNCTION__, this, !!prepend?prepend->size():0));
+		if (!!prepend)
 		{
-			m_resource->stop();
-			m_resource = nullptr;
+			m_buffer = SharedBuffer::create(prepend->data(), prepend->size());
+		}
+		
+		m_encryptionKey = key;
+		if (iv)
+		{
+			m_hasIV = true;
+			memcpy(&m_iv[0], iv, sizeof(m_iv));
 		}
 	}
 	
-	int read(uint8_t *outBuffer, int size, int64_t position) override
+	~AcinerellaPreloadingNetworkBufferInternal()
 	{
+		DP(dprintf("%s(%p): \n", __PRETTY_FUNCTION__, this));
+		m_dataReceived = true;
+		m_eventSemaphore.signal();
+		if (!!m_request)
+			m_request->cancel();
+	}
+
+	void start(uint64_t) override
+	{
+		DP(dprintf("%s(%p): \n", __PRETTY_FUNCTION__, this));
+		if (!!m_request)
+			return;
+
+		m_request = AcinerellaNetworkFileRequest::create(m_url, [this, protect = makeRef(*this)](bool success) {
+			if (success)
+			{
+				auto buffer = m_request->buffer();
+				if (!!m_buffer)
+					m_buffer->append(buffer->data(), buffer->size());
+				else
+					m_buffer = buffer;
+
+				DP(dprintf("%s(%p): received, total len %d (%d)\n", __PRETTY_FUNCTION__, this, m_buffer->size(), buffer->size()));
+
+#if ENABLE(WEB_CRYPTO)
+				if (!!m_encryptionKey && !!m_buffer)
+				{
+					CryptoAlgorithmAesCbcCfbParams params;
+					auto key = CryptoKeyAES::importRaw(CryptoAlgorithmIdentifier::AES_CBC, m_encryptionKey->copyData(), true, CryptoKeyUsageDecrypt);
+					if (m_hasIV)
+					{
+						auto asAB = JSC::ArrayBuffer::tryCreate(&m_iv[0], sizeof(m_iv));
+						if (asAB)
+						{
+							params.iv = BufferSource(asAB);
+						}
+					}
+					auto decryptResult = CryptoAlgorithmAES_CBC::platformDecrypt(params, *key, m_buffer->copyData(), CryptoAlgorithmAES_CBC::Padding::No);
+					if (!decryptResult.hasException())
+					{
+						auto encrypted = decryptResult.releaseReturnValue();
+						DP(dprintf("%s(%p): encryption succeded!\n", __PRETTY_FUNCTION__, this));
+						m_buffer->clear();
+						m_buffer->append(encrypted.data(), encrypted.sizeInBytes());
+					}
+					else
+					{
+						DP(dprintf("%s(%p): encryption failed :(\n", __PRETTY_FUNCTION__, this));
+					}
+				}
+#endif
+				m_length = m_buffer->size();
+			}
+
+			m_dataReceived = true;
+			m_eventSemaphore.signal();
+		});
+	}
+
+	void stop() override
+	{
+		if (!!m_request)
+			m_request->cancel();
+		m_request = nullptr;
+		m_dataReceived = true;
+		m_eventSemaphore.signal();
+	}
+	
+	int64_t position() override
+	{
+		return int64_t(m_bufferPositionAbs);
+	}
+
+	bool canSeek() override
+	{
+		return true;
+	}
+
+	int read(uint8_t *outBuffer, int size, int64_t readPosition) override
+	{
+		DP(dprintf("%s(%p): >> received? %d\n", __PRETTY_FUNCTION__, this, m_dataReceived));
+		while (!m_dataReceived)
+			m_eventSemaphore.waitFor(10_s);
+		
+		if (!!m_buffer)
+		{
+			if (-1 != readPosition && int64_t(m_bufferPositionAbs) != readPosition)
+			{
+				DP(dprintf("%s(%p): seek to %lld\n", __PRETTY_FUNCTION__, this, readPosition));
+				m_bufferPositionAbs = readPosition;
+			}
+
+			int sizeMax = m_buffer->size() - m_bufferPositionAbs;
+			size = std::min(size, sizeMax);
+
+			if (size > 0 && size < int(m_buffer->size()))
+			{
+				memcpy(outBuffer, m_buffer->data() + m_bufferPositionAbs, size);
+
+				DP(dprintf("%s(%p): read from %d, size %d\n", __PRETTY_FUNCTION__, this, int(m_bufferPositionAbs), size));
+				m_bufferPositionAbs += size;
+				return size;
+			}
+
+			DP(dprintf("%s(%p): read from %d, size %d\n", __PRETTY_FUNCTION__, this, int(m_bufferPositionAbs), 0));
+			return 0;
+		}
+		
+		DP(dprintf("%s(%p): read failed!\n", __PRETTY_FUNCTION__, this));
 		return -1;
 	}
-	// MediaResourceLoader::requestResource
-	// static gboolean webKitWebSrcMakeRequest(GstBaseSrc* baseSrc, bool notifyAsyncCompletion)
-	
-private:
-	RefPtr<PlatformMediaResourceLoader> m_loader;
-	RefPtr<PlatformMediaResource>       m_resource;
+
+protected:
+	int32_t                              m_bufferPositionAbs = 0;
+	RefPtr<AcinerellaNetworkFileRequest> m_request;
+	BinarySemaphore                      m_eventSemaphore;
+	RefPtr<SharedBuffer>                 m_buffer;
+	RefPtr<SharedBuffer>                 m_encryptionKey;
+	unsigned char                        m_iv[16];
+	bool                                 m_dataReceived = false;
+	bool                                 m_hasIV = false;
 };
-#endif
 
 AcinerellaNetworkBuffer::AcinerellaNetworkBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
 	: m_provider(resourceProvider)
@@ -560,6 +606,16 @@ RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::createDisregardingFileT
 	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaNetworkBufferInternal(resourceProvider, url, readAhead)));
 }
 
+RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::createPreloadingBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, RefPtr<SharedBuffer> prepend)
+{
+	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaPreloadingNetworkBufferInternal(resourceProvider, url, prepend)));
+}
+
+RefPtr<AcinerellaNetworkBuffer> AcinerellaNetworkBuffer::createPreloadingEncryptedBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, RefPtr<SharedBuffer> key, const unsigned char *iv, RefPtr<SharedBuffer> prepend)
+{
+	return RefPtr<AcinerellaNetworkBuffer>(WTF::adoptRef(*new AcinerellaPreloadingNetworkBufferInternal(resourceProvider, url, key, iv, prepend)));
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class AcinerellaNetworkFileRequestInternal : public AcinerellaNetworkFileRequest, CurlRequestClient
@@ -578,10 +634,27 @@ public:
 		}
 		else
 		{
-			onFinished(false);
+			m_onFinished(false);
 		}
 	}
-	
+
+	AcinerellaNetworkFileRequestInternal(const String &url, Function<void(RefPtr<SharedBuffer>)>&& onFinished)
+		: AcinerellaNetworkFileRequest(url, WTFMove(onFinished))
+	{
+		m_request = ResourceRequest(m_url);
+		m_request.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
+		m_curlRequest = createCurlRequest(m_request);
+
+		if (m_curlRequest)
+		{
+			m_curlRequest->start();
+		}
+		else
+		{
+			m_onFinished2(nullptr);
+		}
+	}
+
 	void onFinished(bool success)
 	{
 		if (m_onFinished)
@@ -592,6 +665,14 @@ public:
 				onFinished(success);
 			});
 		}
+		else if (m_onFinished2)
+		{
+			Function<void(RefPtr<SharedBuffer>)> onTmpFinished;
+			std::swap(m_onFinished2, onTmpFinished);
+			WTF::callOnMainThread([this, success, onFinished(std::move(onTmpFinished)), protect = makeRef(*this)]() {
+				onFinished(success ? buffer() : nullptr);
+			});
+		}
 	}
 
 	void cancel() override
@@ -599,6 +680,7 @@ public:
 		if (m_curlRequest)
 			m_curlRequest->cancel();
 		m_onFinished = nullptr;
+		m_onFinished2 = nullptr;
 	}
 
 	RefPtr<SharedBuffer> buffer() override { return m_buffer; }
@@ -746,6 +828,11 @@ protected:
 };
 
 RefPtr<AcinerellaNetworkFileRequest> AcinerellaNetworkFileRequest::create(const String &url, Function<void(bool)>&& onFinished)
+{
+	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTFMove(onFinished)));
+}
+
+RefPtr<AcinerellaNetworkFileRequest> AcinerellaNetworkFileRequest::createRefResult(const String &url, Function<void(RefPtr<SharedBuffer>)>&& onFinished)
 {
 	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTFMove(onFinished)));
 }

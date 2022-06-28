@@ -70,6 +70,28 @@ typedef IPTR WkWebViewMediaIdentifier;
 - (BOOL)fullscreen;
 - (void)setFullscreen:(BOOL)fs;
 
+- (BOOL)isClearKeyEncrypted;
+
+@end
+
+@protocol WkHLSStream <OBObject>
+
+- (OBString *)url;
+- (OBString *)codecs;
+- (int)fps;
+- (int)width;
+- (int)height;
+- (int)bitrate;
+
+@end
+
+@protocol WkHLSMediaObject <WkMediaObject>
+
+- (OBArray *)hlsStreams;
+
+- (id<WkHLSStream>)selectedHLSStream;
+- (void)setSelectedHLSStream:(id<WkHLSStream>)hlsStream;
+
 @end
 
 @protocol WkWebViewMediaDelegate <OBObject>
@@ -88,6 +110,7 @@ typedef enum {
 - (void)webView:(WkWebView *)view unloadedStream:(id<WkMediaObject>)stream;
 - (void)webView:(WkWebView *)view playingStream:(id<WkMediaObject>)stream;
 - (void)webView:(WkWebView *)view pausedStream:(id<WkMediaObject>)stream;
+- (void)webView:(WkWebView *)view updatedStream:(id<WkMediaObject>)stream;
 
 - (void)webView:(WkWebView *)view addedTrack:(id<WkWebViewMediaTrack>)track;
 - (void)webView:(WkWebView *)view removedTrack:(id<WkWebViewMediaTrack>)track;

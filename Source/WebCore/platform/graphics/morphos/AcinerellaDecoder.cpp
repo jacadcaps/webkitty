@@ -7,10 +7,10 @@
 #include <proto/exec.h>
 
 #define D(x)
-#define DNF(x) //if (!isAudio()) {x;}
+#define DNF(x)  //if (!isAudio()) {x;}
 #define DI(x)
 #define DBF(x)
-#define DPOS(x)
+#define DPOS(x) 
 #define DLIFETIME(x) 
 
 // #pragma GCC optimize ("O0")
@@ -140,8 +140,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 	EP_SCOPE(DNF);
 	RefPtr<AcinerellaPackage> buffer;
 
-	DNF(dprintf("[%s]%s: this %p term %d decEOF %d %d %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_terminating, m_decoderEOF,
-		m_droppingFrames, m_droppingUntilKeyFrame));
+	DNF(dprintf("[%s]%s: this %p term %d decEOF %d %d %d buffer %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_terminating, m_decoderEOF,
+		m_droppingFrames, m_droppingUntilKeyFrame, double(bufferSize())));
 
 	if (m_terminating)
 		return false;
@@ -166,7 +166,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 		// either way, we must flush caches here!
 		if (buffer->isFlushPackage())
 		{
-			DNF(dprintf("[%s]%s: got flush packet! (live %d)\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, m_isLive));
+			DNF(dprintf("[%s]%s: got flush packet! (live %d hls %d)\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, m_isLive, m_isHLS));
 			
 			if (!m_isHLS)
 			{
