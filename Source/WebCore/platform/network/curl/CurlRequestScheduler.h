@@ -72,7 +72,9 @@ private:
     Lock m_mutex;
     RefPtr<Thread> m_thread;
     bool m_runThread { false };
-
+#if OS(MORPHOS)
+	bool m_stopped { false };
+#endif
     Vector<Function<void()>> m_taskQueue;
     HashSet<CurlRequestSchedulerClient*> m_activeJobs;
     HashMap<CURL*, CurlRequestSchedulerClient*> m_clientMaps;

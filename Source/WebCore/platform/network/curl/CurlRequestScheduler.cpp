@@ -32,6 +32,10 @@
 
 #include "CurlRequestSchedulerClient.h"
 
+#if OS(MORPHOS)
+#include <proto/exec.h>
+#endif
+
 namespace WebCore {
 
 CurlRequestScheduler::CurlRequestScheduler(long maxConnects, long maxTotalConnections, long maxHostConnections)
@@ -86,6 +90,11 @@ void CurlRequestScheduler::startOrWakeUpThread()
         }
     }
 
+#if OS(MORPHOS)
+	if (m_stopped)
+		return;
+#endif
+
     if (m_thread)
         m_thread->waitForCompletion();
 
@@ -100,6 +109,7 @@ void CurlRequestScheduler::startOrWakeUpThread()
         // Without this the curlThread would starve the application
         // since it's rescheduled like mad all the time. - Piru
         Thread::current().changePriority(-1);
+        SetTaskPri(FindTask(0), -1);
 #endif
         workerThread();
     }, ThreadType::Network);
@@ -129,6 +139,7 @@ void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 #if OS(MORPHOS)
 void CurlRequestScheduler::stopCurlThread()
 {
+	m_stopped = true;
 	stopThread();
 }
 #endif
@@ -183,12 +194,26 @@ void CurlRequestScheduler::workerThread()
 
         executeTasks();
 
-        const int selectTimeoutMS = 500;
-        m_curlMultiHandle->poll({ }, selectTimeoutMS);
-
+#if 1
+        const int selectTimeoutMS = INT_MAX;
+        CURLMcode mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
+        if (mc != CURLM_OK)
+            break;
         int activeCount = 0;
-        while (m_curlMultiHandle->perform(activeCount) == CURLM_CALL_MULTI_PERFORM) { }
+        mc = m_curlMultiHandle->perform(activeCount);
+        if (mc != CURLM_OK)
+            break;
+#else
+        int activeCount = 0;
+        CURLMcode mc = m_curlMultiHandle->perform(activeCount);
+        if (mc != CURLM_OK)
+            break;
 
+        const int selectTimeoutMS = 100;
+        mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
+        if (mc != CURLM_OK)
+            break;
+#endif
         // check the curl messages indicating completed transfers
         // and free their resources
         while (true) {
