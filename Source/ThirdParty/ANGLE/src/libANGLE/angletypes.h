@@ -30,39 +30,122 @@ namespace gl
 class Buffer;
 class Texture;
 
-struct Rectangle
+enum class Command
 {
-    Rectangle() : x(0), y(0), width(0), height(0) {}
-    constexpr Rectangle(int x_in, int y_in, int width_in, int height_in)
-        : x(x_in), y(y_in), width(width_in), height(height_in)
-    {}
-
-    int x0() const { return x; }
-    int y0() const { return y; }
-    int x1() const { return x + width; }
-    int y1() const { return y + height; }
-
-    bool isReversedX() const { return width < 0; }
-    bool isReversedY() const { return height < 0; }
-
-    // Returns a rectangle with the same area but flipped in X, Y, neither or both.
-    Rectangle flip(bool flipX, bool flipY) const;
-
-    // Returns a rectangle with the same area but with height and width guaranteed to be positive.
-    Rectangle removeReversal() const;
-
-    bool encloses(const gl::Rectangle &inside) const;
-
-    int x;
-    int y;
-    int width;
-    int height;
+    Blit,
+    Clear,
+    CopyImage,
+    Dispatch,
+    Draw,
+    GenerateMipmap,
+    Invalidate,
+    ReadPixels,
+    TexImage,
+    Other
 };
 
-bool operator==(const Rectangle &a, const Rectangle &b);
-bool operator!=(const Rectangle &a, const Rectangle &b);
+enum class InitState
+{
+    MayNeedInit,
+    Initialized,
+};
 
-bool ClipRectangle(const Rectangle &source, const Rectangle &clip, Rectangle *intersection);
+template <typename T>
+struct RectangleImpl
+{
+    RectangleImpl() : x(T(0)), y(T(0)), width(T(0)), height(T(0)) {}
+    constexpr RectangleImpl(T x_in, T y_in, T width_in, T height_in)
+        : x(x_in), y(y_in), width(width_in), height(height_in)
+    {}
+    explicit constexpr RectangleImpl(const T corners[4])
+        : x(corners[0]),
+          y(corners[1]),
+          width(corners[2] - corners[0]),
+          height(corners[3] - corners[1])
+    {}
+    template <typename S>
+    explicit constexpr RectangleImpl(const RectangleImpl<S> rect)
+        : x(rect.x), y(rect.y), width(rect.width), height(rect.height)
+    {}
+
+    T x0() const { return x; }
+    T y0() const { return y; }
+    T x1() const { return x + width; }
+    T y1() const { return y + height; }
+
+    bool isReversedX() const { return width < T(0); }
+    bool isReversedY() const { return height < T(0); }
+
+    // Returns a rectangle with the same area but flipped in X, Y, neither or both.
+    RectangleImpl<T> flip(bool flipX, bool flipY) const
+    {
+        RectangleImpl flipped = *this;
+        if (flipX)
+        {
+            flipped.x     = flipped.x + flipped.width;
+            flipped.width = -flipped.width;
+        }
+        if (flipY)
+        {
+            flipped.y      = flipped.y + flipped.height;
+            flipped.height = -flipped.height;
+        }
+        return flipped;
+    }
+
+    // Returns a rectangle with the same area but with height and width guaranteed to be positive.
+    RectangleImpl<T> removeReversal() const { return flip(isReversedX(), isReversedY()); }
+
+    bool encloses(const RectangleImpl<T> &inside) const
+    {
+        return x0() <= inside.x0() && y0() <= inside.y0() && x1() >= inside.x1() &&
+               y1() >= inside.y1();
+    }
+
+    bool empty() const;
+
+    T x;
+    T y;
+    T width;
+    T height;
+};
+
+template <typename T>
+bool operator==(const RectangleImpl<T> &a, const RectangleImpl<T> &b);
+template <typename T>
+bool operator!=(const RectangleImpl<T> &a, const RectangleImpl<T> &b);
+
+using Rectangle = RectangleImpl<int>;
+
+enum class ClipSpaceOrigin
+{
+    LowerLeft = 0,
+    UpperLeft = 1
+};
+
+// Calculate the intersection of two rectangles.  Returns false if the intersection is empty.
+ANGLE_NO_DISCARD bool ClipRectangle(const Rectangle &source,
+                                    const Rectangle &clip,
+                                    Rectangle *intersection);
+// Calculate the smallest rectangle that covers both rectangles.  This rectangle may cover areas
+// not covered by the two rectangles, for example in this situation:
+//
+//   +--+        +----+
+//   | ++-+  ->  |    |
+//   +-++ |      |    |
+//     +--+      +----+
+//
+void GetEnclosingRectangle(const Rectangle &rect1, const Rectangle &rect2, Rectangle *rectUnion);
+// Extend the source rectangle to cover parts (or all of) the second rectangle, in such a way that
+// no area is covered that isn't covered by both rectangles.  For example:
+//
+//             +--+        +--+
+//  source --> |  |        |  |
+//            ++--+-+  ->  |  |
+//            |+--+ |      |  |
+//            +-----+      +--+
+//
+void ExtendRectangle(const Rectangle &source, const Rectangle &extend, Rectangle *extended);
 
 struct Offset
 {
@@ -141,6 +224,7 @@ struct RasterizerState final
     GLfloat polygonOffsetFactor;
     GLfloat polygonOffsetUnits;
 
+    // pointDrawMode/multiSample are only used in the D3D back-end right now.
     bool pointDrawMode;
     bool multiSample;
 
@@ -175,8 +259,6 @@ struct BlendState final
 bool operator==(const BlendState &a, const BlendState &b);
 bool operator!=(const BlendState &a, const BlendState &b);
 
-using BlendStateArray = std::array<BlendState, IMPLEMENTATION_MAX_DRAW_BUFFERS>;
-
 struct DepthStencilState final
 {
     // This will zero-initialize the struct, including padding.
@@ -185,6 +267,8 @@ struct DepthStencilState final
 
     bool isDepthMaskedOut() const;
     bool isStencilMaskedOut() const;
+    bool isStencilNoOp() const;
+    bool isStencilBackNoOp() const;
 
     bool depthTest;
     GLenum depthFunc;
@@ -239,53 +323,55 @@ class SamplerState final
     SamplerState();
     SamplerState(const SamplerState &other);
 
+    SamplerState &operator=(const SamplerState &other);
+
     static SamplerState CreateDefaultForTarget(TextureType type);
 
     GLenum getMinFilter() const { return mMinFilter; }
 
-    void setMinFilter(GLenum minFilter);
+    bool setMinFilter(GLenum minFilter);
 
     GLenum getMagFilter() const { return mMagFilter; }
 
-    void setMagFilter(GLenum magFilter);
+    bool setMagFilter(GLenum magFilter);
 
     GLenum getWrapS() const { return mWrapS; }
 
-    void setWrapS(GLenum wrapS);
+    bool setWrapS(GLenum wrapS);
 
     GLenum getWrapT() const { return mWrapT; }
 
-    void setWrapT(GLenum wrapT);
+    bool setWrapT(GLenum wrapT);
 
     GLenum getWrapR() const { return mWrapR; }
 
-    void setWrapR(GLenum wrapR);
+    bool setWrapR(GLenum wrapR);
 
     float getMaxAnisotropy() const { return mMaxAnisotropy; }
 
-    void setMaxAnisotropy(float maxAnisotropy);
+    bool setMaxAnisotropy(float maxAnisotropy);
 
     GLfloat getMinLod() const { return mMinLod; }
 
-    void setMinLod(GLfloat minLod);
+    bool setMinLod(GLfloat minLod);
 
     GLfloat getMaxLod() const { return mMaxLod; }
 
-    void setMaxLod(GLfloat maxLod);
+    bool setMaxLod(GLfloat maxLod);
 
     GLenum getCompareMode() const { return mCompareMode; }
 
-    void setCompareMode(GLenum compareMode);
+    bool setCompareMode(GLenum compareMode);
 
     GLenum getCompareFunc() const { return mCompareFunc; }
 
-    void setCompareFunc(GLenum compareFunc);
+    bool setCompareFunc(GLenum compareFunc);
 
     GLenum getSRGBDecode() const { return mSRGBDecode; }
 
-    void setSRGBDecode(GLenum sRGBDecode);
+    bool setSRGBDecode(GLenum sRGBDecode);
 
-    void setBorderColor(const ColorGeneric &color);
+    bool setBorderColor(const ColorGeneric &color);
 
     const ColorGeneric &getBorderColor() const { return mBorderColor; }
 
@@ -391,7 +477,7 @@ using AttributesMask = angle::BitSet<MAX_VERTEX_ATTRIBS>;
 using UniformBlockBindingMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
 
 // Used in Framebuffer / Program
-using DrawBufferMask = angle::BitSet<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
+using DrawBufferMask = angle::BitSet8<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
 
 class BlendStateExt final
 {
@@ -416,6 +502,7 @@ class BlendStateExt final
 
         static constexpr Type GetMask(const size_t drawBuffers)
         {
+            ASSERT(drawBuffers > 0);
             ASSERT(drawBuffers <= IMPLEMENTATION_MAX_DRAW_BUFFERS);
             return static_cast<Type>(0xFFFFFFFFFFFFFFFFull >> (64 - drawBuffers * kBits));
         }
@@ -484,7 +571,7 @@ class BlendStateExt final
             // This calculation could be replaced with a single PEXT instruction from BMI2 set.
             diff = ((((diff & 0xFFFF0000) * 0x249) >> 24) & 0xF0) | (((diff * 0x249) >> 12) & 0xF);
 
-            return DrawBufferMask(diff);
+            return DrawBufferMask(static_cast<uint8_t>(diff));
         }
 
         // Compare two packed sets of eight 8-bit values and return an 8-bit diff mask.
@@ -516,7 +603,7 @@ class BlendStateExt final
             // This operation could be replaced with a single PEXT instruction from BMI2 set.
             diff = 0x0002040810204081 * diff >> 56;
 
-            return DrawBufferMask(static_cast<uint32_t>(diff));
+            return DrawBufferMask(static_cast<uint8_t>(diff));
         }
     };
 
@@ -526,6 +613,7 @@ class BlendStateExt final
 
     BlendStateExt(const size_t drawBuffers = 1);
 
+    BlendStateExt(const BlendStateExt &other);
     BlendStateExt &operator=(const BlendStateExt &other);
 
     ///////// Blending Toggle /////////
@@ -577,7 +665,7 @@ class BlendStateExt final
 
     ///////// Blend Equation /////////
 
-    EquationStorage::Type expandEquationValue(const GLenum mode) const;
+    EquationStorage::Type expandEquationValue(const gl::BlendEquationType equation) const;
     EquationStorage::Type expandEquationColorIndexed(const size_t index) const;
     EquationStorage::Type expandEquationAlphaIndexed(const size_t index) const;
     void setEquations(const GLenum modeColor, const GLenum modeAlpha);
@@ -618,23 +706,25 @@ class BlendStateExt final
 
     ///////// Data Members /////////
 
-    const FactorStorage::Type mMaxFactorMask;
+    FactorStorage::Type mMaxFactorMask;
     FactorStorage::Type mSrcColor;
     FactorStorage::Type mDstColor;
     FactorStorage::Type mSrcAlpha;
     FactorStorage::Type mDstAlpha;
 
-    const EquationStorage::Type mMaxEquationMask;
+    EquationStorage::Type mMaxEquationMask;
     EquationStorage::Type mEquationColor;
     EquationStorage::Type mEquationAlpha;
 
-    const ColorMaskStorage::Type mMaxColorMask;
+    ColorMaskStorage::Type mMaxColorMask;
     ColorMaskStorage::Type mColorMask;
 
-    const DrawBufferMask mMaxEnabledMask;
+    DrawBufferMask mMaxEnabledMask;
     DrawBufferMask mEnabledMask;
+    // Cache of whether the blend equation for each index is from KHR_blend_equation_advanced.
+    DrawBufferMask mUsesAdvancedBlendEquationMask;
 
-    const size_t mMaxDrawBuffers;
+    size_t mMaxDrawBuffers;
 };
 
 // Used in StateCache
@@ -710,7 +800,45 @@ bool ValidateComponentTypeMasks(unsigned long outputTypes,
                                 unsigned long outputMask,
                                 unsigned long inputMask);
 
-using ContextID = uintptr_t;
+enum class RenderToTextureImageIndex
+{
+    // The default image of the texture, where data is expected to be.
+    Default = 0,
+
+    // Intermediate multisampled images for EXT_multisampled_render_to_texture.
+    // These values must match log2(SampleCount).
+    IntermediateImage2xMultisampled  = 1,
+    IntermediateImage4xMultisampled  = 2,
+    IntermediateImage8xMultisampled  = 3,
+    IntermediateImage16xMultisampled = 4,
+
+    // We currently only support up to 16xMSAA in backends that use this enum.
+    InvalidEnum = 5,
+    EnumCount   = 5,
+};
+
+template <typename T>
+using RenderToTextureImageMap = angle::PackedEnumMap<RenderToTextureImageIndex, T>;
+
+struct ContextID
+{
+    uint32_t value;
+};
+
+inline bool operator==(ContextID lhs, ContextID rhs)
+{
+    return lhs.value == rhs.value;
+}
+
+inline bool operator!=(ContextID lhs, ContextID rhs)
+{
+    return lhs.value != rhs.value;
+}
+
+inline bool operator<(ContextID lhs, ContextID rhs)
+{
+    return lhs.value < rhs.value;
+}
 
 constexpr size_t kCubeFaceCount = 6;
 
@@ -725,6 +853,9 @@ using ShaderVector = angle::FixedVector<T, static_cast<size_t>(ShaderType::EnumC
 
 template <typename T>
 using AttachmentArray = std::array<T, IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS>;
+
+template <typename T>
+using AttachmentVector = angle::FixedVector<T, IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS>;
 
 using AttachmentsMask = angle::BitSet<IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS>;
 
@@ -749,8 +880,8 @@ using UniformBuffersArray = std::array<T, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BIND
 template <typename T>
 using StorageBuffersArray = std::array<T, IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
 template <typename T>
-using AtomicCounterBuffersArray = std::array<T, IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
-using AtomicCounterBufferMask   = angle::BitSet<IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
+using AtomicCounterBuffersArray = std::array<T, IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS>;
+using AtomicCounterBufferMask   = angle::BitSet<IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS>;
 template <typename T>
 using ImagesArray = std::array<T, IMPLEMENTATION_MAX_IMAGE_UNITS>;
 
@@ -761,6 +892,9 @@ using SupportedSampleSet = std::set<GLuint>;
 template <typename T>
 using TransformFeedbackBuffersArray =
     std::array<T, gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS>;
+
+template <typename T>
+using QueryTypeMap = angle::PackedEnumMap<QueryType, T>;
 
 constexpr size_t kBarrierVectorDefaultSize = 16;
 
@@ -781,6 +915,72 @@ using TextureBarrierVector = BarrierVector<TextureAndLayout>;
 // necessary. Returns 0 if no buffer is bound or if integer overflow occurs.
 GLsizeiptr GetBoundBufferAvailableSize(const OffsetBindingPointer<Buffer> &binding);
 
+// A texture level index.
+template <typename T>
+class LevelIndexWrapper
+{
+  public:
+    LevelIndexWrapper() = default;
+    explicit constexpr LevelIndexWrapper(T levelIndex) : mLevelIndex(levelIndex) {}
+    constexpr LevelIndexWrapper(const LevelIndexWrapper &other) = default;
+    constexpr LevelIndexWrapper &operator=(const LevelIndexWrapper &other) = default;
+
+    constexpr T get() const { return mLevelIndex; }
+
+    LevelIndexWrapper &operator++()
+    {
+        ++mLevelIndex;
+        return *this;
+    }
+    constexpr bool operator<(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex < other.mLevelIndex;
+    }
+    constexpr bool operator<=(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex <= other.mLevelIndex;
+    }
+    constexpr bool operator>(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex > other.mLevelIndex;
+    }
+    constexpr bool operator>=(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex >= other.mLevelIndex;
+    }
+    constexpr bool operator==(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex == other.mLevelIndex;
+    }
+    constexpr bool operator!=(const LevelIndexWrapper &other) const
+    {
+        return mLevelIndex != other.mLevelIndex;
+    }
+    constexpr LevelIndexWrapper operator+(T other) const
+    {
+        return LevelIndexWrapper(mLevelIndex + other);
+    }
+    constexpr LevelIndexWrapper operator-(T other) const
+    {
+        return LevelIndexWrapper(mLevelIndex - other);
+    }
+    constexpr T operator-(LevelIndexWrapper other) const { return mLevelIndex - other.mLevelIndex; }
+
+  private:
+    T mLevelIndex;
+};
+
+// A GL texture level index.
+using LevelIndex = LevelIndexWrapper<GLint>;
+
+enum class MultisamplingMode
+{
+    // Regular multisampling
+    Regular = 0,
+    // GL_EXT_multisampled_render_to_texture renderbuffer/texture attachments which perform implicit
+    // resolve of multisampled data.
+    MultisampledRenderToTexture,
+};
 }  // namespace gl
 
 namespace rx

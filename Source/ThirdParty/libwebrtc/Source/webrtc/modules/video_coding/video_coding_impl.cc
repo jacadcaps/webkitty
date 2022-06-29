@@ -13,11 +13,10 @@
 #include <algorithm>
 #include <memory>
 
+#include "api/sequence_checker.h"
 #include "api/video/encoded_image.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/timing.h"
-#include "rtc_base/critical_section.h"
-#include "rtc_base/thread_checker.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -57,11 +56,10 @@ class VideoCodingModuleImpl : public VideoCodingModule {
 
   void Process() override { receiver_.Process(); }
 
-  int32_t RegisterReceiveCodec(const VideoCodec* receiveCodec,
-                               int32_t numberOfCores,
-                               bool requireKeyFrame) override {
-    return receiver_.RegisterReceiveCodec(receiveCodec, numberOfCores,
-                                          requireKeyFrame);
+  void RegisterReceiveCodec(
+      uint8_t payload_type,
+      const VideoDecoder::Settings& decoder_settings) override {
+    receiver_.RegisterReceiveCodec(payload_type, decoder_settings);
   }
 
   void RegisterExternalDecoder(VideoDecoder* externalDecoder,
@@ -106,7 +104,7 @@ class VideoCodingModuleImpl : public VideoCodingModule {
   }
 
  private:
-  rtc::ThreadChecker construction_thread_;
+  SequenceChecker construction_thread_;
   const std::unique_ptr<VCMTiming> timing_;
   vcm::VideoReceiver receiver_;
 };

@@ -26,10 +26,11 @@
 #import "config.h"
 #import "WKFocusedFormControlView.h"
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
 asm(".linker_option \"-framework\", \"PepperUICore\"");
 
+#import "PepperUICoreSPI.h"
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <wtf/NeverDestroyed.h>
@@ -77,7 +78,7 @@ static UIBezierPath *pathWithRoundedRectInFrame(CGRect rect, CGFloat borderRadiu
     WeakObjCPtr<id <WKFocusedFormControlViewDelegate>> _delegate;
     RetainPtr<NSString> _submitActionName;
     RetainPtr<PUICCrownInputSequencer> _crownInputSequencer;
-    Optional<CGPoint> _initialScrollViewContentOffset;
+    std::optional<CGPoint> _initialScrollViewContentOffset;
     BOOL _hasPendingFocusRequest;
 }
 
@@ -125,7 +126,7 @@ static UIBezierPath *pathWithRoundedRectInFrame(CGRect rect, CGFloat borderRadiu
     [self addSubview:_submitButtonBackgroundView.get()];
 
     _hasPendingFocusRequest = NO;
-    _initialScrollViewContentOffset = WTF::nullopt;
+    _initialScrollViewContentOffset = std::nullopt;
 
     return self;
 }
@@ -500,4 +501,4 @@ static NSDictionary *submitActionNameFontAttributes()
 
 @end
 
-#endif // PLATFORM(WATCHOS)
+#endif // HAVE(PEPPER_UI_CORE)

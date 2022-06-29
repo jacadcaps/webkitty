@@ -191,13 +191,13 @@ private:
 - (void)replaceMatches:(NSArray *)matches withString:(NSString *)replacementText inSelectionOnly:(BOOL)selectionOnly resultCollector:(void (^)(NSUInteger replacementCount))resultCollector
 {
     Vector<uint32_t> matchIndices;
-    matchIndices.reserveCapacity(matches.count);
+    matchIndices.reserveInitialCapacity(matches.count);
     for (id match in matches) {
         if ([match isKindOfClass:WKTextFinderMatch.class])
             matchIndices.uncheckedAppend([(WKTextFinderMatch *)match index]);
     }
-    _page->replaceMatches(WTFMove(matchIndices), replacementText, selectionOnly, [collector = makeBlockPtr(resultCollector)] (uint64_t numberOfReplacements, auto error) {
-        collector(error == WebKit::CallbackBase::Error::None ? numberOfReplacements : 0);
+    _page->replaceMatches(WTFMove(matchIndices), replacementText, selectionOnly, [collector = makeBlockPtr(resultCollector)] (uint64_t numberOfReplacements) {
+        collector(numberOfReplacements);
     });
 }
 
@@ -225,7 +225,7 @@ private:
         kitFindOptions.add(WebKit::FindOptions::DetermineMatchIndex);
     }
 
-    RetainPtr<NSProgress> progress = [NSProgress progressWithTotalUnitCount:1];
+    RetainPtr progress = [NSProgress progressWithTotalUnitCount:1];
     auto copiedResultCollector = Block_copy(resultCollector);
     _findReplyCallbacks.append([progress, copiedResultCollector] (NSArray *matches, bool didWrap) {
         [progress setCompletedUnitCount:1];
@@ -243,7 +243,7 @@ private:
 {
     void (^copiedCompletionHandler)(NSString *) = Block_copy(completionHandler);
 
-    _page->getSelectionOrContentsAsString([copiedCompletionHandler] (const String& string, WebKit::CallbackBase::Error) {
+    _page->getSelectionOrContentsAsString([copiedCompletionHandler] (const String& string) {
         copiedCompletionHandler(string);
         Block_release(copiedCompletionHandler);
     });

@@ -20,7 +20,7 @@
 #include "config.h"
 #include "AXObjectCache.h"
 
-#if ENABLE(ACCESSIBILITY)
+#if ENABLE(ACCESSIBILITY) && USE(ATK)
 
 #include "AccessibilityObject.h"
 #include "AccessibilityRenderObject.h"
@@ -262,7 +262,7 @@ void AXObjectCache::postPlatformNotification(AXCoreObject* coreObject, AXNotific
         atk_object_notify_state_change(axObject, ATK_STATE_BUSY, coreObject->isBusy());
         break;
 
-    case AXCurrentChanged:
+    case AXCurrentStateChanged:
         atk_object_notify_state_change(axObject, ATK_STATE_ACTIVE, coreObject->currentState() != AccessibilityCurrentState::False);
         break;
 

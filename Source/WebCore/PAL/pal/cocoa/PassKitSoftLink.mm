@@ -56,6 +56,26 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, PassKit, PKPaymentInstallme
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, PassKit, PKPaymentInstallmentItem, PAL_EXPORT)
 #endif
 
+#if HAVE(PASSKIT_RECURRING_SUMMARY_ITEM)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKRecurringPaymentSummaryItem, PAL_EXPORT)
+#endif
+
+#if HAVE(PASSKIT_DEFERRED_SUMMARY_ITEM)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKDeferredPaymentSummaryItem, PAL_EXPORT)
+#endif
+
+#if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKShippingMethods, PAL_EXPORT)
+#endif
+
+#if HAVE(PASSKIT_SHIPPING_METHOD_DATE_COMPONENTS_RANGE)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKDateComponentsRange, PAL_EXPORT)
+#endif
+
+#if HAVE(PASSKIT_COUPON_CODE)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKPaymentRequestCouponCodeUpdate, PAL_EXPORT)
+#endif
+
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKContact, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKPassLibrary, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKPayment, PAL_EXPORT)
@@ -90,5 +110,9 @@ SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKPaymentErrorDomain, NS
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKPaymentErrorPostalAddressUserInfoKey, PKPaymentErrorKey, PAL_EXPORT)
 
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, PassKit, PKCanMakePaymentsWithMerchantIdentifierDomainAndSourceApplication, void, (NSString *identifier, NSString *domain, NSString *sourceApplicationSecondaryIdentifier, PKCanMakePaymentsCompletion completion), (identifier, domain, sourceApplicationSecondaryIdentifier, completion), PAL_EXPORT)
+
+#if USE(APPLE_INTERNAL_SDK)
+#import <WebKitAdditions/PassKitSoftLinkAdditions.mm>
+#endif
 
 #endif // USE(PASSKIT)

@@ -41,6 +41,7 @@ WTF_EXTERN_C_END
 #import <UIKit/UIFocusRingStyle.h>
 #import <UIKit/UIFont_Private.h>
 #import <UIKit/UIInterface_Private.h>
+#import <UIKit/UIPasteboard_Private.h>
 #import <UIKit/UIScreen_Private.h>
 #import <UIKit/UIViewController_Private.h>
 #import <UIKit/NSItemProvider+UIKitAdditions.h>
@@ -110,12 +111,35 @@ typedef enum {
 + (UIColor *)systemBrownColor;
 + (UIColor *)systemGrayColor;
 + (UIColor *)systemGreenColor;
++ (UIColor *)systemIndigoColor;
 + (UIColor *)systemOrangeColor;
 + (UIColor *)systemPinkColor;
 + (UIColor *)systemPurpleColor;
 + (UIColor *)systemRedColor;
-+ (UIColor *)systemYellowColor;
 + (UIColor *)systemTealColor;
++ (UIColor *)systemYellowColor;
+
++ (UIColor *)systemBackgroundColor;
++ (UIColor *)secondarySystemBackgroundColor;
++ (UIColor *)tertiarySystemBackgroundColor;
+
++ (UIColor *)systemFillColor;
++ (UIColor *)secondarySystemFillColor;
++ (UIColor *)tertiarySystemFillColor;
+
++ (UIColor *)systemGroupedBackgroundColor;
++ (UIColor *)secondarySystemGroupedBackgroundColor;
++ (UIColor *)tertiarySystemGroupedBackgroundColor;
+
++ (UIColor *)labelColor;
++ (UIColor *)secondaryLabelColor;
++ (UIColor *)tertiaryLabelColor;
++ (UIColor *)quaternaryLabelColor;
+
++ (UIColor *)placeholderTextColor;
+
++ (UIColor *)separatorColor;
++ (UIColor *)opaqueSeparatorColor;
 
 + (UIColor *)_disambiguated_due_to_CIImage_colorWithCGColor:(CGColorRef)cgColor;
 
@@ -143,26 +167,17 @@ typedef enum {
 @property (nonatomic, copy, setter=_setTitle:) NSString *_title;
 @end
 
-#if ENABLE(FULL_KEYBOARD_ACCESS)
 @interface UIFocusRingStyle : NSObject
-+ (CGFloat)cornerRadius;
++ (CGFloat)borderThickness;
 + (CGFloat)maxAlpha;
 + (CGFloat)alphaThreshold;
 @end
-#endif
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-#if ENABLE(FULL_KEYBOARD_ACCESS)
 @interface UIColor (IPI)
 + (UIColor *)keyboardFocusIndicatorColor;
-@end
-#endif
-
-#if HAVE(OS_DARK_MODE_SUPPORT)
-@interface UIColor (UIColorInternal)
 + (UIColor *)tableCellDefaultSelectionTintColor;
 @end
-#endif
 
 #endif // PLATFORM(IOS_FAMILY)

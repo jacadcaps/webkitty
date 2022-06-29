@@ -13,6 +13,8 @@
 #include <memory>
 
 #include "call/call.h"
+#include "call/rtp_transport_config.h"
+#include "call/rtp_transport_controller_send_factory_interface.h"
 #include "test/time_controller/external_time_controller.h"
 #include "test/time_controller/simulated_time_controller.h"
 
@@ -35,13 +37,23 @@ std::unique_ptr<CallFactoryInterface> CreateTimeControllerBasedCallFactory(
     explicit TimeControllerBasedCallFactory(TimeController* time_controller)
         : time_controller_(time_controller) {}
     Call* CreateCall(const Call::Config& config) override {
-      return Call::Create(config, time_controller_->GetClock(),
-                          time_controller_->CreateProcessThread("CallModules"),
-                          time_controller_->CreateProcessThread("Pacer"));
+      if (!module_thread_) {
+        module_thread_ = SharedModuleThread::Create(
+            time_controller_->CreateProcessThread("CallModules"),
+            [this]() { module_thread_ = nullptr; });
+      }
+
+      RtpTransportConfig transportConfig = config.ExtractTransportConfig();
+
+      return Call::Create(config, time_controller_->GetClock(), module_thread_,
+                          config.rtp_transport_controller_send_factory->Create(
+                              transportConfig, time_controller_->GetClock(),
+                              time_controller_->CreateProcessThread("Pacer")));
     }
 
    private:
     TimeController* time_controller_;
+    rtc::scoped_refptr<SharedModuleThread> module_thread_;
   };
   return std::make_unique<TimeControllerBasedCallFactory>(time_controller);
 }

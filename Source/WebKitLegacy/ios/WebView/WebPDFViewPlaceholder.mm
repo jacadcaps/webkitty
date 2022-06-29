@@ -102,9 +102,9 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     NSArray *_pageRects;
     NSArray *_pageYOrigins;
     CGPDFDocumentRef _document;
-    WebDataSource *_dataSource; // weak to prevent cycles.
+    __weak WebDataSource *_dataSource; // Weak to prevent cycles.
     
-    NSObject<WebPDFViewPlaceholderDelegate> *_delegate;
+    __weak NSObject<WebPDFViewPlaceholderDelegate> *_delegate;
     
     BOOL _didFinishLoad;
     
@@ -274,13 +274,11 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     [self dataSourceUpdated:dataSource];
 
     _didFinishLoad = YES;
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)[dataSource data]);
+    auto provider = adoptCF(CGDataProviderCreateWithCFData((CFDataRef)[dataSource data]));
     if (!provider)
         return;
 
-    _document = CGPDFDocumentCreateWithProvider(provider);
-
-    CGDataProviderRelease(provider);
+    _document = CGPDFDocumentCreateWithProvider(provider.get());
 
     [self _doPostLoadOrUnlockTasks];
 }
@@ -328,19 +326,17 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     if (!_document || !CGPDFDocumentIsUnlocked(_document))
         return;
 
-    NSString *title = nil;
+    RetainPtr<CFStringRef> title;
 
     CGPDFDictionaryRef info = CGPDFDocumentGetInfo(_document);
     CGPDFStringRef value;
     if (CGPDFDictionaryGetString(info, "Title", &value))
-        title = (NSString *)CGPDFStringCopyTextString(value);
+        title = adoptCF(CGPDFStringCopyTextString(value));
 
-    if ([title length]) {
-        [self setTitle:title];
-        [[self _frame] _dispatchDidReceiveTitle:title];
+    if (title && CFStringGetLength(title.get())) {
+        [self setTitle:(NSString *)title.get()];
+        [[self _frame] _dispatchDidReceiveTitle:(NSString *)title.get()];
     }
-
-    [title release];
 }
 
 - (CGRect)_getPDFPageBounds:(CGPDFPageRef)page

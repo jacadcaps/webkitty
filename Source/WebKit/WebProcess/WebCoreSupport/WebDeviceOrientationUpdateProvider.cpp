@@ -38,7 +38,7 @@
 namespace WebKit {
 
 WebDeviceOrientationUpdateProvider::WebDeviceOrientationUpdateProvider(WebPage& page)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
     , m_pageIdentifier(page.identifier())
 {
     WebProcess::singleton().addMessageReceiver(Messages::WebDeviceOrientationUpdateProvider::messageReceiverName(), page.identifier(), *this);
@@ -85,7 +85,7 @@ void WebDeviceOrientationUpdateProvider::deviceOrientationChanged(double alpha, 
 {
     Vector<WeakPtr<WebCore::MotionManagerClient>> clients;
     for (auto& client : m_deviceOrientationClients)
-        clients.append(makeWeakPtr(&client));
+        clients.append(client);
 
     for (auto& client : clients) {
         if (client)
@@ -93,11 +93,11 @@ void WebDeviceOrientationUpdateProvider::deviceOrientationChanged(double alpha, 
     }
 }
 
-void WebDeviceOrientationUpdateProvider::deviceMotionChanged(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, Optional<double> xRotationRate, Optional<double> yRotationRate, Optional<double> zRotationRate)
+void WebDeviceOrientationUpdateProvider::deviceMotionChanged(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, std::optional<double> xRotationRate, std::optional<double> yRotationRate, std::optional<double> zRotationRate)
 {
     Vector<WeakPtr<WebCore::MotionManagerClient>> clients;
     for (auto& client : m_deviceMotionClients)
-        clients.append(makeWeakPtr(&client));
+        clients.append(client);
     
     for (auto& client : clients) {
         if (client)

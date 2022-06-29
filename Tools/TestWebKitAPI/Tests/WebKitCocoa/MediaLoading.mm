@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +27,18 @@
 
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
+#import "TestUIDelegate.h"
 #import "TestWKWebView.h"
 #import <wtf/text/StringConcatenateNumbers.h>
 
-#if ENABLE(VIDEO) && USE(AVFOUNDATION) && HAVE(NETWORK_FRAMEWORK)
+#if ENABLE(VIDEO) && USE(AVFOUNDATION)
 
 namespace TestWebKitAPI {
 
 static String parseUserAgent(const Vector<char>& request)
 {
     auto headers = String::fromUTF8(request.data(), request.size()).split("\r\n");
-    auto index = headers.findMatching([] (auto& header) { return header.startsWith("User-Agent:"); });
+    auto index = headers.findIf([] (auto& header) { return header.startsWith("User-Agent:"); });
     if (index != notFound)
         return headers[index];
     return emptyString();
@@ -116,6 +117,74 @@ TEST(MediaLoading, UserAgentStringHLS)
     Util::run(&receivedMediaRequest);
 }
 
+const char* videoPlayTestHTML ="<script>"
+    "function createVideoElement() {"
+        "let video = document.createElement('video');"
+        "video.addEventListener('error', ()=>{alert('error')});"
+        "video.addEventListener('playing', ()=>{alert('playing')});"
+        "video.src='video.mp4';"
+        "video.autoplay=1;"
+        "document.body.appendChild(video);"
+    "}"
+"</script>"
+"<body onload='createVideoElement()'></body>";
+
+static Vector<uint8_t> testVideoBytes()
+{
+    NSData *data = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"test" withExtension:@"mp4" subdirectory:@"TestWebKitAPI.resources"]];
+    Vector<uint8_t> vector;
+    vector.append(static_cast<const uint8_t*>(data.bytes), data.length);
+    return vector;
 }
 
-#endif
+static void runVideoTest(NSURLRequest *request, const char* expectedMessage)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get() addToWindow:YES]);
+    [webView loadRequest:request];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], expectedMessage);
+}
+
+TEST(MediaLoading, RangeRequestSynthesisWithContentLength)
+{
+    HTTPServer server({
+        {"/", { videoPlayTestHTML }},
+        {"/video.mp4", { testVideoBytes() }}
+    });
+    runVideoTest(server.request(), "playing");
+    EXPECT_EQ(server.totalRequests(), 2u);
+}
+
+TEST(MediaLoading, RangeRequestSynthesisWithoutContentLength)
+{
+    size_t totalRequests { 0 };
+    Function<void(Connection)> respondToRequests;
+    respondToRequests = [&] (Connection connection) {
+        connection.receiveHTTPRequest([&, connection] (Vector<char>&& request) {
+            auto sendResponse = [&, connection] (HTTPResponse response, HTTPResponse::IncludeContentLength includeContentLength) {
+                connection.send(response.serialize(includeContentLength), [connection] () mutable {
+                    connection.terminate();
+                });
+            };
+            totalRequests++;
+            auto path = HTTPServer::parsePath(request);
+            if (path == "/")
+                sendResponse({ videoPlayTestHTML }, HTTPResponse::IncludeContentLength::Yes);
+            else if (path == "/video.mp4")
+                sendResponse(testVideoBytes(), HTTPResponse::IncludeContentLength::No);
+            else
+                ASSERT(path.isNull());
+        });
+    };
+
+    HTTPServer server([&](Connection connection) {
+        respondToRequests(connection);
+    });
+    runVideoTest(server.request(), "error");
+    EXPECT_EQ(totalRequests, 2u);
+}
+
+} // namespace TestWebKitAPI
+
+#endif // ENABLE(VIDEO) && USE(AVFOUNDATION)

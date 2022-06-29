@@ -31,16 +31,17 @@
 #include "ImageSourceCG.h"
 #include "MIMETypeRegistry.h"
 
+#include <ImageIO/ImageIO.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
-#include <ImageIO/ImageIO.h>
+#include <wtf/RobinHoodHashSet.h>
 
 namespace WebCore {
 
-const HashSet<String>& defaultSupportedImageTypes()
+const MemoryCompactLookupOnlyRobinHoodHashSet<String>& defaultSupportedImageTypes()
 {
-    static const auto defaultSupportedImageTypes = makeNeverDestroyed([] {
-        HashSet<String> defaultSupportedImageTypes = {
+    static NeverDestroyed defaultSupportedImageTypes = [] {
+        static constexpr std::array defaultSupportedImageTypes = {
             "com.compuserve.gif"_s,
             "com.microsoft.bmp"_s,
             "com.microsoft.cur"_s,
@@ -68,12 +69,13 @@ const HashSet<String>& defaultSupportedImageTypes()
             static_cast<HashSet<String>*>(context)->add(imageType);
         }, &systemSupportedImageTypes);
 
-        defaultSupportedImageTypes.removeIf([&systemSupportedImageTypes](const String& imageType) {
-            return !systemSupportedImageTypes.contains(imageType);
-        });
-
-        return defaultSupportedImageTypes;
-    }());
+        MemoryCompactLookupOnlyRobinHoodHashSet<String> filtered;
+        for (auto& imageType : defaultSupportedImageTypes) {
+            if (systemSupportedImageTypes.contains(imageType))
+                filtered.add(imageType);
+        }
+        return filtered;
+    }();
 
     return defaultSupportedImageTypes;
 }

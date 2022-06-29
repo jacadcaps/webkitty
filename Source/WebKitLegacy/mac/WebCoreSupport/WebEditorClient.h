@@ -63,27 +63,27 @@ private:
     bool smartInsertDeleteEnabled() final;
     bool isSelectTrailingWhitespaceEnabled() const final;
 
-    bool shouldDeleteRange(const Optional<WebCore::SimpleRange>&) final;
+    bool shouldDeleteRange(const std::optional<WebCore::SimpleRange>&) final;
 
     bool shouldBeginEditing(const WebCore::SimpleRange&) final;
     bool shouldEndEditing(const WebCore::SimpleRange&) final;
-    bool shouldInsertNode(WebCore::Node&, const Optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) final;
-    bool shouldInsertText(const String&, const Optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) final;
-    bool shouldChangeSelectedRange(const Optional<WebCore::SimpleRange>& fromRange, const Optional<WebCore::SimpleRange>& toRange, WebCore::EAffinity, bool stillSelecting) final;
+    bool shouldInsertNode(WebCore::Node&, const std::optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) final;
+    bool shouldInsertText(const String&, const std::optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) final;
+    bool shouldChangeSelectedRange(const std::optional<WebCore::SimpleRange>& fromRange, const std::optional<WebCore::SimpleRange>& toRange, WebCore::Affinity, bool stillSelecting) final;
 
-    bool shouldApplyStyle(const WebCore::StyleProperties&, const Optional<WebCore::SimpleRange>&) final;
+    bool shouldApplyStyle(const WebCore::StyleProperties&, const std::optional<WebCore::SimpleRange>&) final;
     void didApplyStyle() final;
 
     bool shouldMoveRangeAfterDelete(const WebCore::SimpleRange&, const WebCore::SimpleRange& rangeToBeReplaced) final;
 
     void didBeginEditing() final;
     void didEndEditing() final;
-    void willWriteSelectionToPasteboard(const Optional<WebCore::SimpleRange>&) final;
+    void willWriteSelectionToPasteboard(const std::optional<WebCore::SimpleRange>&) final;
     void didWriteSelectionToPasteboard() final;
-    void getClientPasteboardData(const Optional<WebCore::SimpleRange>&, Vector<String>& pasteboardTypes, Vector<RefPtr<WebCore::SharedBuffer>>& pasteboardData) final;
+    void getClientPasteboardData(const std::optional<WebCore::SimpleRange>&, Vector<String>& pasteboardTypes, Vector<RefPtr<WebCore::SharedBuffer>>& pasteboardData) final;
 
     void setInsertionPasteboard(const String&) final;
-    WebCore::DOMPasteAccessResponse requestDOMPasteAccess(const String&) final { return WebCore::DOMPasteAccessResponse::DeniedForGesture; }
+    WebCore::DOMPasteAccessResponse requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const String&) final { return WebCore::DOMPasteAccessResponse::DeniedForGesture; }
 
 #if USE(APPKIT)
     void uppercaseWord() final;
@@ -216,28 +216,28 @@ private:
     EditorStateIsContentEditable m_lastEditorStateWasContentEditable { EditorStateIsContentEditable::Unset };
 };
 
-inline NSSelectionAffinity kit(WebCore::EAffinity affinity)
+inline NSSelectionAffinity kit(WebCore::Affinity affinity)
 {
     switch (affinity) {
-        case WebCore::EAffinity::UPSTREAM:
-            return NSSelectionAffinityUpstream;
-        case WebCore::EAffinity::DOWNSTREAM:
-            return NSSelectionAffinityDownstream;
+    case WebCore::Affinity::Upstream:
+        return NSSelectionAffinityUpstream;
+    case WebCore::Affinity::Downstream:
+        return NSSelectionAffinityDownstream;
     }
     ASSERT_NOT_REACHED();
-    return NSSelectionAffinityUpstream;
+    return NSSelectionAffinityDownstream;
 }
 
-inline WebCore::EAffinity core(NSSelectionAffinity affinity)
+inline WebCore::Affinity core(NSSelectionAffinity affinity)
 {
     switch (affinity) {
     case NSSelectionAffinityUpstream:
-        return WebCore::EAffinity::UPSTREAM;
+        return WebCore::Affinity::Upstream;
     case NSSelectionAffinityDownstream:
-        return WebCore::EAffinity::DOWNSTREAM;
+        return WebCore::Affinity::Downstream;
     }
     ASSERT_NOT_REACHED();
-    return WebCore::EAffinity::UPSTREAM;
+    return WebCore::Affinity::Downstream;
 }
 
 #if PLATFORM(IOS_FAMILY)

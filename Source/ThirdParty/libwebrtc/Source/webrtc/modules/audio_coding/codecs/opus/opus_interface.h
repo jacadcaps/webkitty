@@ -232,6 +232,20 @@ int16_t WebRtcOpus_EnableDtx(OpusEncInst* inst);
 int16_t WebRtcOpus_DisableDtx(OpusEncInst* inst);
 
 /****************************************************************************
+ * WebRtcOpus_GetUseDtx()
+ *
+ * This function gets the DTX configuration used for encoding.
+ *
+ * Input:
+ *      - inst               : Encoder context
+ *
+ * Return value              :  0 - Encoder does not use DTX.
+ *                              1 - Encoder uses DTX.
+ *                             -1 - Error.
+ */
+int16_t WebRtcOpus_GetUseDtx(OpusEncInst* inst);
+
+/****************************************************************************
  * WebRtcOpus_EnableCbr()
  *
  * This function enables CBR for encoding.
@@ -509,6 +523,22 @@ int WebRtcOpus_FecDurationEst(const uint8_t* payload,
  */
 int WebRtcOpus_PacketHasFec(const uint8_t* payload,
                             size_t payload_length_bytes);
+
+/****************************************************************************
+ * WebRtcOpus_PacketHasVoiceActivity(...)
+ *
+ * This function returns the SILK VAD information encoded in the opus packet.
+ * For CELT-only packets that do not have VAD information, it returns -1.
+ * Input:
+ *        - payload              : Encoded data pointer
+ *        - payload_length_bytes : Bytes of encoded data
+ *
+ * Return value                  : 0 - no frame had the VAD flag set.
+ *                                 1 - at least one frame had the VAD flag set.
+ *                                -1 - VAD status could not be determined.
+ */
+int WebRtcOpus_PacketHasVoiceActivity(const uint8_t* payload,
+                                      size_t payload_length_bytes);
 
 #ifdef __cplusplus
 }  // extern "C"

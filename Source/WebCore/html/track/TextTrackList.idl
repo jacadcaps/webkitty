@@ -26,8 +26,9 @@
 [
     ActiveDOMObject,
     Conditional=VIDEO,
-    GenerateIsReachable=ImplElementRoot,
-    JSCustomMarkFunction,
+    GenerateIsReachable,
+    GenerateAddOpaqueRoot,
+    Exposed=Window
 ] interface TextTrackList : EventTarget {
     readonly attribute unsigned long length;
     getter TextTrack item(unsigned long index);

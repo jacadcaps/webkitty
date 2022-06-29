@@ -18,6 +18,7 @@
 #include "absl/container/inlined_vector.h"
 #include "absl/types/optional.h"
 #include "absl/types/variant.h"
+#include "api/transport/field_trial_based_config.h"
 #include "api/video/video_content_type.h"
 #include "api/video/video_rotation.h"
 #include "modules/video_coding/codecs/h264/include/h264_globals.h"
@@ -25,12 +26,16 @@
 #include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
 #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "modules/video_coding/include/video_codec_interface.h"
+#include "test/explicit_key_value_config.h"
 #include "test/field_trial.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
+using ::testing::Each;
 using ::testing::ElementsAre;
+using ::testing::Eq;
 using ::testing::IsEmpty;
+using ::testing::SizeIs;
 
 namespace webrtc {
 namespace {
@@ -50,7 +55,7 @@ TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_Vp8) {
   state2.tl0_pic_idx = kTl0PicIdx;
   std::map<uint32_t, RtpPayloadState> states = {{kSsrc2, state2}};
 
-  RtpPayloadParams params(kSsrc2, &state2);
+  RtpPayloadParams params(kSsrc2, &state2, FieldTrialBasedConfig());
   EncodedImage encoded_image;
   encoded_image.rotation_ = kVideoRotation_90;
   encoded_image.content_type_ = VideoContentType::SCREENSHARE;
@@ -90,7 +95,7 @@ TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_Vp9) {
   RtpPayloadState state;
   state.picture_id = kPictureId;
   state.tl0_pic_idx = kTl0PicIdx;
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
 
   EncodedImage encoded_image;
   encoded_image.rotation_ = kVideoRotation_90;
@@ -101,7 +106,7 @@ TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_Vp9) {
   codec_info.codecSpecific.VP9.num_spatial_layers = 3;
   codec_info.codecSpecific.VP9.first_frame_in_picture = true;
   codec_info.codecSpecific.VP9.temporal_idx = 2;
-  codec_info.codecSpecific.VP9.end_of_picture = false;
+  codec_info.end_of_picture = false;
 
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, kDontCare);
@@ -118,12 +123,11 @@ TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_Vp9) {
   EXPECT_EQ(vp9_header.spatial_idx, encoded_image.SpatialIndex());
   EXPECT_EQ(vp9_header.num_spatial_layers,
             codec_info.codecSpecific.VP9.num_spatial_layers);
-  EXPECT_EQ(vp9_header.end_of_picture,
-            codec_info.codecSpecific.VP9.end_of_picture);
+  EXPECT_EQ(vp9_header.end_of_picture, codec_info.end_of_picture);
 
   // Next spatial layer.
   codec_info.codecSpecific.VP9.first_frame_in_picture = false;
-  codec_info.codecSpecific.VP9.end_of_picture = true;
+  codec_info.end_of_picture = true;
 
   encoded_image.SetSpatialIndex(1);
   ColorSpace color_space(
@@ -142,56 +146,7 @@ TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_Vp9) {
   EXPECT_EQ(vp9_header.spatial_idx, encoded_image.SpatialIndex());
   EXPECT_EQ(vp9_header.num_spatial_layers,
             codec_info.codecSpecific.VP9.num_spatial_layers);
-  EXPECT_EQ(vp9_header.end_of_picture,
-            codec_info.codecSpecific.VP9.end_of_picture);
-}
-
-TEST(RtpPayloadParamsTest, InfoMappedToRtpVideoHeader_H264) {
-  RtpPayloadState state;
-  state.picture_id = kPictureId;
-  state.tl0_pic_idx = kInitialTl0PicIdx1;
-  RtpPayloadParams params(kSsrc1, &state);
-
-  EncodedImage encoded_image;
-  CodecSpecificInfo codec_info;
-  CodecSpecificInfoH264* h264info = &codec_info.codecSpecific.H264;
-  codec_info.codecType = kVideoCodecH264;
-  h264info->packetization_mode = H264PacketizationMode::SingleNalUnit;
-  h264info->temporal_idx = kNoTemporalIdx;
-
-  RTPVideoHeader header =
-      params.GetRtpVideoHeader(encoded_image, &codec_info, 10);
-
-  EXPECT_EQ(0, header.simulcastIdx);
-  EXPECT_EQ(kVideoCodecH264, header.codec);
-  const auto& h264 = absl::get<RTPVideoHeaderH264>(header.video_type_header);
-  EXPECT_EQ(H264PacketizationMode::SingleNalUnit, h264.packetization_mode);
-
-  // test temporal param 1
-  h264info->temporal_idx = 1;
-  h264info->base_layer_sync = true;
-  h264info->idr_frame = false;
-
-  header = params.GetRtpVideoHeader(encoded_image, &codec_info, 20);
-
-  EXPECT_EQ(kVideoCodecH264, header.codec);
-  EXPECT_EQ(header.frame_marking.tl0_pic_idx, kInitialTl0PicIdx1);
-  EXPECT_EQ(header.frame_marking.temporal_id, h264info->temporal_idx);
-  EXPECT_EQ(header.frame_marking.base_layer_sync, h264info->base_layer_sync);
-  EXPECT_EQ(header.frame_marking.independent_frame, h264info->idr_frame);
-
-  // test temporal param 2
-  h264info->temporal_idx = 0;
-  h264info->base_layer_sync = false;
-  h264info->idr_frame = true;
-
-  header = params.GetRtpVideoHeader(encoded_image, &codec_info, 30);
-
-  EXPECT_EQ(kVideoCodecH264, header.codec);
-  EXPECT_EQ(header.frame_marking.tl0_pic_idx, kInitialTl0PicIdx1 + 1);
-  EXPECT_EQ(header.frame_marking.temporal_id, h264info->temporal_idx);
-  EXPECT_EQ(header.frame_marking.base_layer_sync, h264info->base_layer_sync);
-  EXPECT_EQ(header.frame_marking.independent_frame, h264info->idr_frame);
+  EXPECT_EQ(vp9_header.end_of_picture, codec_info.end_of_picture);
 }
 
 TEST(RtpPayloadParamsTest, PictureIdIsSetForVp8) {
@@ -203,7 +158,7 @@ TEST(RtpPayloadParamsTest, PictureIdIsSetForVp8) {
   CodecSpecificInfo codec_info;
   codec_info.codecType = kVideoCodecVP8;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, kDontCare);
   EXPECT_EQ(kVideoCodecVP8, header.codec);
@@ -226,7 +181,7 @@ TEST(RtpPayloadParamsTest, PictureIdWraps) {
   codec_info.codecType = kVideoCodecVP8;
   codec_info.codecSpecific.VP8.temporalIdx = kNoTemporalIdx;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, kDontCare);
   EXPECT_EQ(kVideoCodecVP8, header.codec);
@@ -250,7 +205,7 @@ TEST(RtpPayloadParamsTest, Tl0PicIdxUpdatedForVp8) {
   codec_info.codecType = kVideoCodecVP8;
   codec_info.codecSpecific.VP8.temporalIdx = 1;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, kDontCare);
 
@@ -286,7 +241,7 @@ TEST(RtpPayloadParamsTest, Tl0PicIdxUpdatedForVp9) {
   codec_info.codecSpecific.VP9.temporal_idx = 1;
   codec_info.codecSpecific.VP9.first_frame_in_picture = true;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, kDontCare);
 
@@ -329,7 +284,7 @@ TEST(RtpPayloadParamsTest, PictureIdForOldGenericFormat) {
   codec_info.codecType = kVideoCodecGeneric;
   encoded_image._frameType = VideoFrameType::kVideoFrameKey;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, 10);
 
@@ -348,45 +303,53 @@ TEST(RtpPayloadParamsTest, PictureIdForOldGenericFormat) {
 }
 
 TEST(RtpPayloadParamsTest, GenericDescriptorForGenericCodec) {
-  test::ScopedFieldTrials generic_picture_id(
-      "WebRTC-GenericDescriptor/Enabled/");
-  RtpPayloadState state{};
+  RtpPayloadState state;
 
   EncodedImage encoded_image;
   encoded_image._frameType = VideoFrameType::kVideoFrameKey;
   CodecSpecificInfo codec_info;
   codec_info.codecType = kVideoCodecGeneric;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
   RTPVideoHeader header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, 0);
 
-  EXPECT_EQ(kVideoCodecGeneric, header.codec);
+  EXPECT_THAT(header.codec, Eq(kVideoCodecGeneric));
+
   ASSERT_TRUE(header.generic);
-  EXPECT_EQ(0, header.generic->frame_id);
+  EXPECT_THAT(header.generic->frame_id, Eq(0));
+  EXPECT_THAT(header.generic->spatial_index, Eq(0));
+  EXPECT_THAT(header.generic->temporal_index, Eq(0));
+  EXPECT_THAT(header.generic->decode_target_indications,
+              ElementsAre(DecodeTargetIndication::kSwitch));
   EXPECT_THAT(header.generic->dependencies, IsEmpty());
+  EXPECT_THAT(header.generic->chain_diffs, ElementsAre(0));
 
   encoded_image._frameType = VideoFrameType::kVideoFrameDelta;
-  header = params.GetRtpVideoHeader(encoded_image, &codec_info, 1);
+  header = params.GetRtpVideoHeader(encoded_image, &codec_info, 3);
   ASSERT_TRUE(header.generic);
-  EXPECT_EQ(1, header.generic->frame_id);
+  EXPECT_THAT(header.generic->frame_id, Eq(3));
+  EXPECT_THAT(header.generic->spatial_index, Eq(0));
+  EXPECT_THAT(header.generic->temporal_index, Eq(0));
   EXPECT_THAT(header.generic->dependencies, ElementsAre(0));
+  EXPECT_THAT(header.generic->decode_target_indications,
+              ElementsAre(DecodeTargetIndication::kSwitch));
+  EXPECT_THAT(header.generic->chain_diffs, ElementsAre(3));
 }
 
 TEST(RtpPayloadParamsTest, SetsGenericFromGenericFrameInfo) {
-  test::ScopedFieldTrials generic_picture_id(
-      "WebRTC-GenericDescriptor/Enabled/");
   RtpPayloadState state;
   EncodedImage encoded_image;
   CodecSpecificInfo codec_info;
 
-  RtpPayloadParams params(kSsrc1, &state);
+  RtpPayloadParams params(kSsrc1, &state, FieldTrialBasedConfig());
 
   encoded_image._frameType = VideoFrameType::kVideoFrameKey;
   codec_info.generic_frame_info =
       GenericFrameInfo::Builder().S(1).T(0).Dtis("S").Build();
   codec_info.generic_frame_info->encoder_buffers = {
       {/*id=*/0, /*referenced=*/false, /*updated=*/true}};
+  codec_info.generic_frame_info->part_of_chain = {true, false};
   RTPVideoHeader key_header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, /*frame_id=*/1);
 
@@ -397,13 +360,14 @@ TEST(RtpPayloadParamsTest, SetsGenericFromGenericFrameInfo) {
   EXPECT_THAT(key_header.generic->dependencies, IsEmpty());
   EXPECT_THAT(key_header.generic->decode_target_indications,
               ElementsAre(DecodeTargetIndication::kSwitch));
-  EXPECT_FALSE(key_header.generic->discardable);
+  EXPECT_THAT(key_header.generic->chain_diffs, SizeIs(2));
 
   encoded_image._frameType = VideoFrameType::kVideoFrameDelta;
   codec_info.generic_frame_info =
       GenericFrameInfo::Builder().S(2).T(3).Dtis("D").Build();
   codec_info.generic_frame_info->encoder_buffers = {
       {/*id=*/0, /*referenced=*/true, /*updated=*/false}};
+  codec_info.generic_frame_info->part_of_chain = {false, false};
   RTPVideoHeader delta_header =
       params.GetRtpVideoHeader(encoded_image, &codec_info, /*frame_id=*/3);
 
@@ -414,7 +378,7 @@ TEST(RtpPayloadParamsTest, SetsGenericFromGenericFrameInfo) {
   EXPECT_THAT(delta_header.generic->dependencies, ElementsAre(1));
   EXPECT_THAT(delta_header.generic->decode_target_indications,
               ElementsAre(DecodeTargetIndication::kDiscardable));
-  EXPECT_TRUE(delta_header.generic->discardable);
+  EXPECT_THAT(delta_header.generic->chain_diffs, SizeIs(2));
 }
 
 class RtpPayloadParamsVp8ToGenericTest : public ::testing::Test {
@@ -422,9 +386,7 @@ class RtpPayloadParamsVp8ToGenericTest : public ::testing::Test {
   enum LayerSync { kNoSync, kSync };
 
   RtpPayloadParamsVp8ToGenericTest()
-      : generic_descriptor_field_trial_("WebRTC-GenericDescriptor/Enabled/"),
-        state_(),
-        params_(123, &state_) {}
+      : state_(), params_(123, &state_, trials_config_) {}
 
   void ConvertAndCheck(int temporal_index,
                        int64_t shared_frame_id,
@@ -460,7 +422,7 @@ class RtpPayloadParamsVp8ToGenericTest : public ::testing::Test {
   }
 
  protected:
-  test::ScopedFieldTrials generic_descriptor_field_trial_;
+  FieldTrialBasedConfig trials_config_;
   RtpPayloadState state_;
   RtpPayloadParams params_;
 };
@@ -513,14 +475,411 @@ TEST_F(RtpPayloadParamsVp8ToGenericTest, FrameIdGaps) {
   ConvertAndCheck(1, 20, VideoFrameType::kVideoFrameDelta, kNoSync, {10, 15});
 }
 
+TEST(RtpPayloadParamsVp9ToGenericTest, NoScalability) {
+  RtpPayloadState state;
+  RtpPayloadParams params(/*ssrc=*/123, &state, FieldTrialBasedConfig());
+
+  EncodedImage encoded_image;
+  CodecSpecificInfo codec_info;
+  codec_info.codecType = kVideoCodecVP9;
+  codec_info.codecSpecific.VP9.num_spatial_layers = 1;
+  codec_info.codecSpecific.VP9.temporal_idx = kNoTemporalIdx;
+  codec_info.codecSpecific.VP9.first_frame_in_picture = true;
+  codec_info.end_of_picture = true;
+
+  // Key frame.
+  encoded_image._frameType = VideoFrameType::kVideoFrameKey;
+  codec_info.codecSpecific.VP9.inter_pic_predicted = false;
+  codec_info.codecSpecific.VP9.num_ref_pics = 0;
+  RTPVideoHeader header = params.GetRtpVideoHeader(encoded_image, &codec_info,
+                                                   /*shared_frame_id=*/1);
+
+  ASSERT_TRUE(header.generic);
+  EXPECT_EQ(header.generic->spatial_index, 0);
+  EXPECT_EQ(header.generic->temporal_index, 0);
+  EXPECT_EQ(header.generic->frame_id, 1);
+  ASSERT_THAT(header.generic->decode_target_indications, Not(IsEmpty()));
+  EXPECT_EQ(header.generic->decode_target_indications[0],
+            DecodeTargetIndication::kSwitch);
+  EXPECT_THAT(header.generic->dependencies, IsEmpty());
+  EXPECT_THAT(header.generic->chain_diffs, ElementsAre(0));
+
+  // Delta frame.
+  encoded_image._frameType = VideoFrameType::kVideoFrameDelta;
+  codec_info.codecSpecific.VP9.inter_pic_predicted = true;
+  codec_info.codecSpecific.VP9.num_ref_pics = 1;
+  codec_info.codecSpecific.VP9.p_diff[0] = 1;
+  header = params.GetRtpVideoHeader(encoded_image, &codec_info,
+                                    /*shared_frame_id=*/3);
+
+  ASSERT_TRUE(header.generic);
+  EXPECT_EQ(header.generic->spatial_index, 0);
+  EXPECT_EQ(header.generic->temporal_index, 0);
+  EXPECT_EQ(header.generic->frame_id, 3);
+  ASSERT_THAT(header.generic->decode_target_indications, Not(IsEmpty()));
+  EXPECT_EQ(header.generic->decode_target_indications[0],
+            DecodeTargetIndication::kSwitch);
+  EXPECT_THAT(header.generic->dependencies, ElementsAre(1));
+  // previous frame in the chain was frame#1,
+  EXPECT_THAT(header.generic->chain_diffs, ElementsAre(3 - 1));
+}
+
+TEST(RtpPayloadParamsVp9ToGenericTest, TemporalScalabilityWith2Layers) {
+  // Test with 2 temporal layers structure that is not used by webrtc:
+  //    1---3   5
+  //   /   /   /   ...
+  //  0---2---4---
+  RtpPayloadState state;
+  RtpPayloadParams params(/*ssrc=*/123, &state, FieldTrialBasedConfig());
+
+  EncodedImage image;
+  CodecSpecificInfo info;
+  info.codecType = kVideoCodecVP9;
+  info.codecSpecific.VP9.num_spatial_layers = 1;
+  info.codecSpecific.VP9.first_frame_in_picture = true;
+  info.end_of_picture = true;
+
+  RTPVideoHeader headers[6];
+  // Key frame.
+  image._frameType = VideoFrameType::kVideoFrameKey;
+  info.codecSpecific.VP9.inter_pic_predicted = false;
+  info.codecSpecific.VP9.num_ref_pics = 0;
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  headers[0] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/1);
+
+  // Delta frames.
+  info.codecSpecific.VP9.inter_pic_predicted = true;
+  image._frameType = VideoFrameType::kVideoFrameDelta;
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 1;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  headers[1] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/3);
+
+  info.codecSpecific.VP9.temporal_up_switch = false;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 2;
+  headers[2] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/5);
+
+  info.codecSpecific.VP9.temporal_up_switch = false;
+  info.codecSpecific.VP9.temporal_idx = 1;
+  info.codecSpecific.VP9.num_ref_pics = 2;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  info.codecSpecific.VP9.p_diff[1] = 2;
+  headers[3] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/7);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 2;
+  headers[4] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/9);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 1;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  headers[5] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/11);
+
+  ASSERT_TRUE(headers[0].generic);
+  int num_decode_targets = headers[0].generic->decode_target_indications.size();
+  ASSERT_GE(num_decode_targets, 2);
+
+  for (int frame_idx = 0; frame_idx < 6; ++frame_idx) {
+    const RTPVideoHeader& header = headers[frame_idx];
+    ASSERT_TRUE(header.generic);
+    EXPECT_EQ(header.generic->spatial_index, 0);
+    EXPECT_EQ(header.generic->temporal_index, frame_idx % 2);
+    EXPECT_EQ(header.generic->frame_id, 1 + 2 * frame_idx);
+    ASSERT_THAT(header.generic->decode_target_indications,
+                SizeIs(num_decode_targets));
+    // Expect only T0 frames are needed for the 1st decode target.
+    if (header.generic->temporal_index == 0) {
+      EXPECT_NE(header.generic->decode_target_indications[0],
+                DecodeTargetIndication::kNotPresent);
+    } else {
+      EXPECT_EQ(header.generic->decode_target_indications[0],
+                DecodeTargetIndication::kNotPresent);
+    }
+    // Expect all frames are needed for the 2nd decode target.
+    EXPECT_NE(header.generic->decode_target_indications[1],
+              DecodeTargetIndication::kNotPresent);
+  }
+
+  // Expect switch at every beginning of the pattern.
+  EXPECT_THAT(headers[0].generic->decode_target_indications,
+              Each(DecodeTargetIndication::kSwitch));
+  EXPECT_THAT(headers[4].generic->decode_target_indications,
+              Each(DecodeTargetIndication::kSwitch));
+
+  EXPECT_THAT(headers[0].generic->dependencies, IsEmpty());          // T0, 1
+  EXPECT_THAT(headers[1].generic->dependencies, ElementsAre(1));     // T1, 3
+  EXPECT_THAT(headers[2].generic->dependencies, ElementsAre(1));     // T0, 5
+  EXPECT_THAT(headers[3].generic->dependencies, ElementsAre(5, 3));  // T1, 7
+  EXPECT_THAT(headers[4].generic->dependencies, ElementsAre(5));     // T0, 9
+  EXPECT_THAT(headers[5].generic->dependencies, ElementsAre(9));     // T1, 11
+
+  EXPECT_THAT(headers[0].generic->chain_diffs, ElementsAre(0));
+  EXPECT_THAT(headers[1].generic->chain_diffs, ElementsAre(2));
+  EXPECT_THAT(headers[2].generic->chain_diffs, ElementsAre(4));
+  EXPECT_THAT(headers[3].generic->chain_diffs, ElementsAre(2));
+  EXPECT_THAT(headers[4].generic->chain_diffs, ElementsAre(4));
+  EXPECT_THAT(headers[5].generic->chain_diffs, ElementsAre(2));
+}
+
+TEST(RtpPayloadParamsVp9ToGenericTest, TemporalScalabilityWith3Layers) {
+  // Test with 3 temporal layers structure that is not used by webrtc, but used
+  // by chromium: https://imgur.com/pURAGvp
+  RtpPayloadState state;
+  RtpPayloadParams params(/*ssrc=*/123, &state, FieldTrialBasedConfig());
+
+  EncodedImage image;
+  CodecSpecificInfo info;
+  info.codecType = kVideoCodecVP9;
+  info.codecSpecific.VP9.num_spatial_layers = 1;
+  info.codecSpecific.VP9.first_frame_in_picture = true;
+  info.end_of_picture = true;
+
+  RTPVideoHeader headers[9];
+  // Key frame.
+  image._frameType = VideoFrameType::kVideoFrameKey;
+  info.codecSpecific.VP9.inter_pic_predicted = false;
+  info.codecSpecific.VP9.num_ref_pics = 0;
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  headers[0] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/1);
+
+  // Delta frames.
+  info.codecSpecific.VP9.inter_pic_predicted = true;
+  image._frameType = VideoFrameType::kVideoFrameDelta;
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 2;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  headers[1] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/3);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 1;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 2;
+  headers[2] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/5);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 2;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  headers[3] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/7);
+
+  info.codecSpecific.VP9.temporal_up_switch = false;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 4;
+  headers[4] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/9);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 2;
+  info.codecSpecific.VP9.num_ref_pics = 2;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  info.codecSpecific.VP9.p_diff[1] = 3;
+  headers[5] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/11);
+
+  info.codecSpecific.VP9.temporal_up_switch = false;
+  info.codecSpecific.VP9.temporal_idx = 1;
+  info.codecSpecific.VP9.num_ref_pics = 2;
+  info.codecSpecific.VP9.p_diff[0] = 2;
+  info.codecSpecific.VP9.p_diff[1] = 4;
+  headers[6] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/13);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 2;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+  headers[7] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/15);
+
+  info.codecSpecific.VP9.temporal_up_switch = true;
+  info.codecSpecific.VP9.temporal_idx = 0;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 4;
+  headers[8] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/17);
+
+  ASSERT_TRUE(headers[0].generic);
+  int num_decode_targets = headers[0].generic->decode_target_indications.size();
+  ASSERT_GE(num_decode_targets, 3);
+
+  for (int frame_idx = 0; frame_idx < 9; ++frame_idx) {
+    const RTPVideoHeader& header = headers[frame_idx];
+    ASSERT_TRUE(header.generic);
+    EXPECT_EQ(header.generic->spatial_index, 0);
+    EXPECT_EQ(header.generic->frame_id, 1 + 2 * frame_idx);
+    ASSERT_THAT(header.generic->decode_target_indications,
+                SizeIs(num_decode_targets));
+    // Expect only T0 frames are needed for the 1st decode target.
+    if (header.generic->temporal_index == 0) {
+      EXPECT_NE(header.generic->decode_target_indications[0],
+                DecodeTargetIndication::kNotPresent);
+    } else {
+      EXPECT_EQ(header.generic->decode_target_indications[0],
+                DecodeTargetIndication::kNotPresent);
+    }
+    // Expect only T0 and T1 frames are needed for the 2nd decode target.
+    if (header.generic->temporal_index <= 1) {
+      EXPECT_NE(header.generic->decode_target_indications[1],
+                DecodeTargetIndication::kNotPresent);
+    } else {
+      EXPECT_EQ(header.generic->decode_target_indications[1],
+                DecodeTargetIndication::kNotPresent);
+    }
+    // Expect all frames are needed for the 3rd decode target.
+    EXPECT_NE(header.generic->decode_target_indications[2],
+              DecodeTargetIndication::kNotPresent);
+  }
+
+  EXPECT_EQ(headers[0].generic->temporal_index, 0);
+  EXPECT_EQ(headers[1].generic->temporal_index, 2);
+  EXPECT_EQ(headers[2].generic->temporal_index, 1);
+  EXPECT_EQ(headers[3].generic->temporal_index, 2);
+  EXPECT_EQ(headers[4].generic->temporal_index, 0);
+  EXPECT_EQ(headers[5].generic->temporal_index, 2);
+  EXPECT_EQ(headers[6].generic->temporal_index, 1);
+  EXPECT_EQ(headers[7].generic->temporal_index, 2);
+  EXPECT_EQ(headers[8].generic->temporal_index, 0);
+
+  // Expect switch at every beginning of the pattern.
+  EXPECT_THAT(headers[0].generic->decode_target_indications,
+              Each(DecodeTargetIndication::kSwitch));
+  EXPECT_THAT(headers[8].generic->decode_target_indications,
+              Each(DecodeTargetIndication::kSwitch));
+
+  EXPECT_THAT(headers[0].generic->dependencies, IsEmpty());          // T0, 1
+  EXPECT_THAT(headers[1].generic->dependencies, ElementsAre(1));     // T2, 3
+  EXPECT_THAT(headers[2].generic->dependencies, ElementsAre(1));     // T1, 5
+  EXPECT_THAT(headers[3].generic->dependencies, ElementsAre(5));     // T2, 7
+  EXPECT_THAT(headers[4].generic->dependencies, ElementsAre(1));     // T0, 9
+  EXPECT_THAT(headers[5].generic->dependencies, ElementsAre(9, 5));  // T2, 11
+  EXPECT_THAT(headers[6].generic->dependencies, ElementsAre(9, 5));  // T1, 13
+  EXPECT_THAT(headers[7].generic->dependencies, ElementsAre(13));    // T2, 15
+  EXPECT_THAT(headers[8].generic->dependencies, ElementsAre(9));     // T0, 17
+
+  EXPECT_THAT(headers[0].generic->chain_diffs, ElementsAre(0));
+  EXPECT_THAT(headers[1].generic->chain_diffs, ElementsAre(2));
+  EXPECT_THAT(headers[2].generic->chain_diffs, ElementsAre(4));
+  EXPECT_THAT(headers[3].generic->chain_diffs, ElementsAre(6));
+  EXPECT_THAT(headers[4].generic->chain_diffs, ElementsAre(8));
+  EXPECT_THAT(headers[5].generic->chain_diffs, ElementsAre(2));
+  EXPECT_THAT(headers[6].generic->chain_diffs, ElementsAre(4));
+  EXPECT_THAT(headers[7].generic->chain_diffs, ElementsAre(6));
+  EXPECT_THAT(headers[8].generic->chain_diffs, ElementsAre(8));
+}
+
+TEST(RtpPayloadParamsVp9ToGenericTest, SpatialScalabilityKSvc) {
+  //  1---3--
+  //  |     ...
+  //  0---2--
+  RtpPayloadState state;
+  RtpPayloadParams params(/*ssrc=*/123, &state, FieldTrialBasedConfig());
+
+  EncodedImage image;
+  CodecSpecificInfo info;
+  info.codecType = kVideoCodecVP9;
+  info.codecSpecific.VP9.num_spatial_layers = 2;
+  info.codecSpecific.VP9.first_frame_in_picture = true;
+
+  RTPVideoHeader headers[4];
+  // Key frame.
+  image._frameType = VideoFrameType::kVideoFrameKey;
+  image.SetSpatialIndex(0);
+  info.codecSpecific.VP9.inter_pic_predicted = false;
+  info.codecSpecific.VP9.inter_layer_predicted = false;
+  info.codecSpecific.VP9.non_ref_for_inter_layer_pred = false;
+  info.codecSpecific.VP9.num_ref_pics = 0;
+  info.codecSpecific.VP9.first_frame_in_picture = true;
+  info.end_of_picture = false;
+  headers[0] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/1);
+
+  image.SetSpatialIndex(1);
+  info.codecSpecific.VP9.inter_layer_predicted = true;
+  info.codecSpecific.VP9.non_ref_for_inter_layer_pred = true;
+  info.codecSpecific.VP9.first_frame_in_picture = false;
+  info.end_of_picture = true;
+  headers[1] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/3);
+
+  // Delta frames.
+  info.codecSpecific.VP9.inter_pic_predicted = true;
+  image._frameType = VideoFrameType::kVideoFrameDelta;
+  info.codecSpecific.VP9.num_ref_pics = 1;
+  info.codecSpecific.VP9.p_diff[0] = 1;
+
+  image.SetSpatialIndex(0);
+  info.codecSpecific.VP9.inter_layer_predicted = false;
+  info.codecSpecific.VP9.non_ref_for_inter_layer_pred = true;
+  info.codecSpecific.VP9.first_frame_in_picture = true;
+  info.end_of_picture = false;
+  headers[2] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/5);
+
+  image.SetSpatialIndex(1);
+  info.codecSpecific.VP9.inter_layer_predicted = false;
+  info.codecSpecific.VP9.non_ref_for_inter_layer_pred = true;
+  info.codecSpecific.VP9.first_frame_in_picture = false;
+  info.end_of_picture = true;
+  headers[3] = params.GetRtpVideoHeader(image, &info, /*shared_frame_id=*/7);
+
+  ASSERT_TRUE(headers[0].generic);
+  int num_decode_targets = headers[0].generic->decode_target_indications.size();
+  // Rely on implementation detail there are always kMaxTemporalStreams temporal
+  // layers assumed, in particular assume Decode Target#0 matches layer S0T0,
+  // and Decode Target#kMaxTemporalStreams matches layer S1T0.
+  ASSERT_EQ(num_decode_targets, kMaxTemporalStreams * 2);
+
+  for (int frame_idx = 0; frame_idx < 4; ++frame_idx) {
+    const RTPVideoHeader& header = headers[frame_idx];
+    ASSERT_TRUE(header.generic);
+    EXPECT_EQ(header.generic->spatial_index, frame_idx % 2);
+    EXPECT_EQ(header.generic->temporal_index, 0);
+    EXPECT_EQ(header.generic->frame_id, 1 + 2 * frame_idx);
+    ASSERT_THAT(header.generic->decode_target_indications,
+                SizeIs(num_decode_targets));
+  }
+
+  // Expect S0 key frame is switch for both Decode Targets.
+  EXPECT_EQ(headers[0].generic->decode_target_indications[0],
+            DecodeTargetIndication::kSwitch);
+  EXPECT_EQ(headers[0].generic->decode_target_indications[kMaxTemporalStreams],
+            DecodeTargetIndication::kSwitch);
+  // S1 key frame is only needed for the 2nd Decode Targets.
+  EXPECT_EQ(headers[1].generic->decode_target_indications[0],
+            DecodeTargetIndication::kNotPresent);
+  EXPECT_NE(headers[1].generic->decode_target_indications[kMaxTemporalStreams],
+            DecodeTargetIndication::kNotPresent);
+  // Delta frames are only needed for their own Decode Targets.
+  EXPECT_NE(headers[2].generic->decode_target_indications[0],
+            DecodeTargetIndication::kNotPresent);
+  EXPECT_EQ(headers[2].generic->decode_target_indications[kMaxTemporalStreams],
+            DecodeTargetIndication::kNotPresent);
+  EXPECT_EQ(headers[3].generic->decode_target_indications[0],
+            DecodeTargetIndication::kNotPresent);
+  EXPECT_NE(headers[3].generic->decode_target_indications[kMaxTemporalStreams],
+            DecodeTargetIndication::kNotPresent);
+
+  EXPECT_THAT(headers[0].generic->dependencies, IsEmpty());       // S0, 1
+  EXPECT_THAT(headers[1].generic->dependencies, ElementsAre(1));  // S1, 3
+  EXPECT_THAT(headers[2].generic->dependencies, ElementsAre(1));  // S0, 5
+  EXPECT_THAT(headers[3].generic->dependencies, ElementsAre(3));  // S1, 7
+
+  EXPECT_THAT(headers[0].generic->chain_diffs, ElementsAre(0, 0));
+  EXPECT_THAT(headers[1].generic->chain_diffs, ElementsAre(2, 2));
+  EXPECT_THAT(headers[2].generic->chain_diffs, ElementsAre(4, 2));
+  EXPECT_THAT(headers[3].generic->chain_diffs, ElementsAre(2, 4));
+}
+
 class RtpPayloadParamsH264ToGenericTest : public ::testing::Test {
  public:
   enum LayerSync { kNoSync, kSync };
 
   RtpPayloadParamsH264ToGenericTest()
-      : generic_descriptor_field_trial_("WebRTC-GenericDescriptor/Enabled/"),
-        state_(),
-        params_(123, &state_) {}
+      : state_(), params_(123, &state_, trials_config_) {}
 
   void ConvertAndCheck(int temporal_index,
                        int64_t shared_frame_id,
@@ -556,7 +915,7 @@ class RtpPayloadParamsH264ToGenericTest : public ::testing::Test {
   }
 
  protected:
-  test::ScopedFieldTrials generic_descriptor_field_trial_;
+  FieldTrialBasedConfig trials_config_;
   RtpPayloadState state_;
   RtpPayloadParams params_;
 };

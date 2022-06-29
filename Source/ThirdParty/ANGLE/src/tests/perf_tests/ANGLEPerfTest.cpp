@@ -11,9 +11,12 @@
 
 #include "ANGLEPerfTestArgs.h"
 #include "common/debug.h"
+#include "common/mathutil.h"
 #include "common/platform.h"
+#include "common/string_utils.h"
 #include "common/system_utils.h"
 #include "common/utilities.h"
+#include "test_utils/runner/TestSuite.h"
 #include "third_party/perf/perf_test.h"
 #include "third_party/trace_event/trace_event.h"
 #include "util/shader_utils.h"
@@ -23,24 +26,29 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <numeric>
 #include <sstream>
 
-#include <json/json.h>
+#include <rapidjson/document.h>
+#include <rapidjson/filewritestream.h>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/prettywriter.h>
 
 #if defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
 #    include "util/windows/WGLWindow.h"
 #endif  // defined(ANGLE_USE_UTIL_LOADER) &&defined(ANGLE_PLATFORM_WINDOWS)
 
 using namespace angle;
+namespace js = rapidjson;
 
 namespace
 {
 constexpr size_t kInitialTraceEventBufferSize = 50000;
+constexpr double kMilliSecondsPerSecond       = 1e3;
 constexpr double kMicroSecondsPerSecond       = 1e6;
 constexpr double kNanoSecondsPerSecond        = 1e9;
-constexpr double kCalibrationRunTimeSeconds   = 1.0;
-constexpr double kMaximumRunTimeSeconds       = 10.0;
-constexpr unsigned int kNumTrials             = 3;
+constexpr char kPeakMemoryMetric[]            = ".peak_memory";
+constexpr char kMedianMemoryMetric[]          = ".median_memory";
 
 struct TraceCategory
 {
@@ -53,25 +61,31 @@ constexpr TraceCategory gTraceCategories[2] = {
     {1, "gpu.angle.gpu"},
 };
 
-void EmptyPlatformMethod(angle::PlatformMethods *, const char *) {}
+void EmptyPlatformMethod(PlatformMethods *, const char *) {}
 
-void OverrideWorkaroundsD3D(angle::PlatformMethods *platform, angle::FeaturesD3D *featuresD3D)
+void CustomLogError(PlatformMethods *platform, const char *errorMessage)
+{
+    auto *angleRenderTest = static_cast<ANGLERenderTest *>(platform->context);
+    angleRenderTest->onErrorMessage(errorMessage);
+}
+
+void OverrideWorkaroundsD3D(PlatformMethods *platform, FeaturesD3D *featuresD3D)
 {
     auto *angleRenderTest = static_cast<ANGLERenderTest *>(platform->context);
     angleRenderTest->overrideWorkaroundsD3D(featuresD3D);
 }
 
-angle::TraceEventHandle AddPerfTraceEvent(angle::PlatformMethods *platform,
-                                          char phase,
-                                          const unsigned char *categoryEnabledFlag,
-                                          const char *name,
-                                          unsigned long long id,
-                                          double timestamp,
-                                          int numArgs,
-                                          const char **argNames,
-                                          const unsigned char *argTypes,
-                                          const unsigned long long *argValues,
-                                          unsigned char flags)
+TraceEventHandle AddPerfTraceEvent(PlatformMethods *platform,
+                                   char phase,
+                                   const unsigned char *categoryEnabledFlag,
+                                   const char *name,
+                                   unsigned long long id,
+                                   double timestamp,
+                                   int numArgs,
+                                   const char **argNames,
+                                   const unsigned char *argTypes,
+                                   const unsigned long long *argValues,
+                                   unsigned char flags)
 {
     if (!gEnableTrace)
         return 0;
@@ -82,13 +96,18 @@ angle::TraceEventHandle AddPerfTraceEvent(angle::PlatformMethods *platform,
                   "|enabled| must be the first field of the TraceCategory class.");
     const TraceCategory *category = reinterpret_cast<const TraceCategory *>(categoryEnabledFlag);
 
-    ANGLERenderTest *renderTest     = static_cast<ANGLERenderTest *>(platform->context);
+    ANGLERenderTest *renderTest = static_cast<ANGLERenderTest *>(platform->context);
+
+    std::lock_guard<std::mutex> lock(renderTest->getTraceEventMutex());
+
+    uint32_t tid = renderTest->getCurrentThreadSerial();
+
     std::vector<TraceEvent> &buffer = renderTest->getTraceEventBuffer();
-    buffer.emplace_back(phase, category->name, name, timestamp);
+    buffer.emplace_back(phase, category->name, name, timestamp, tid);
     return buffer.size();
 }
 
-const unsigned char *GetPerfTraceCategoryEnabled(angle::PlatformMethods *platform,
+const unsigned char *GetPerfTraceCategoryEnabled(PlatformMethods *platform,
                                                  const char *categoryName)
 {
     if (gEnableTrace)
@@ -106,74 +125,115 @@ const unsigned char *GetPerfTraceCategoryEnabled(angle::PlatformMethods *platfor
     return &kZero;
 }
 
-void UpdateTraceEventDuration(angle::PlatformMethods *platform,
+void UpdateTraceEventDuration(PlatformMethods *platform,
                               const unsigned char *categoryEnabledFlag,
                               const char *name,
-                              angle::TraceEventHandle eventHandle)
+                              TraceEventHandle eventHandle)
 {
     // Not implemented.
 }
 
-double MonotonicallyIncreasingTime(angle::PlatformMethods *platform)
+double MonotonicallyIncreasingTime(PlatformMethods *platform)
 {
     return GetHostTimeSeconds();
+}
+
+bool WriteJsonFile(const std::string &outputFile, js::Document *doc)
+{
+    FILE *fp = fopen(outputFile.c_str(), "w");
+    if (!fp)
+    {
+        return false;
+    }
+
+    constexpr size_t kBufferSize = 0xFFFF;
+    std::vector<char> writeBuffer(kBufferSize);
+    js::FileWriteStream os(fp, writeBuffer.data(), kBufferSize);
+    js::PrettyWriter<js::FileWriteStream> writer(os);
+    if (!doc->Accept(writer))
+    {
+        fclose(fp);
+        return false;
+    }
+    fclose(fp);
+    return true;
 }
 
 void DumpTraceEventsToJSONFile(const std::vector<TraceEvent> &traceEvents,
                                const char *outputFileName)
 {
-    Json::Value eventsValue(Json::arrayValue);
+    js::Document doc(js::kObjectType);
+    js::Document::AllocatorType &allocator = doc.GetAllocator();
+
+    js::Value events(js::kArrayType);
 
     for (const TraceEvent &traceEvent : traceEvents)
     {
-        Json::Value value(Json::objectValue);
+        js::Value value(js::kObjectType);
 
-        const auto microseconds = static_cast<Json::LargestInt>(traceEvent.timestamp) * 1000 * 1000;
+        const uint64_t microseconds = static_cast<uint64_t>(traceEvent.timestamp * 1000.0 * 1000.0);
 
-        value["name"] = traceEvent.name;
-        value["cat"]  = traceEvent.categoryName;
-        value["ph"]   = std::string(1, traceEvent.phase);
-        value["ts"]   = microseconds;
-        value["pid"]  = strcmp(traceEvent.categoryName, "gpu.angle.gpu") == 0 ? "GPU" : "ANGLE";
-        value["tid"]  = 1;
+        js::Document::StringRefType eventName(traceEvent.name);
+        js::Document::StringRefType categoryName(traceEvent.categoryName);
+        js::Document::StringRefType pidName(
+            strcmp(traceEvent.categoryName, "gpu.angle.gpu") == 0 ? "GPU" : "ANGLE");
 
-        eventsValue.append(std::move(value));
+        value.AddMember("name", eventName, allocator);
+        value.AddMember("cat", categoryName, allocator);
+        value.AddMember("ph", std::string(1, traceEvent.phase), allocator);
+        value.AddMember("ts", microseconds, allocator);
+        value.AddMember("pid", pidName, allocator);
+        value.AddMember("tid", traceEvent.tid, allocator);
+
+        events.PushBack(value, allocator);
     }
 
-    Json::Value root(Json::objectValue);
-    root["traceEvents"] = eventsValue;
+    doc.AddMember("traceEvents", events, allocator);
 
-    std::ofstream outFile;
-    outFile.open(outputFileName);
-
-    Json::StreamWriterBuilder factory;
-    std::unique_ptr<Json::StreamWriter> const writer(factory.newStreamWriter());
-    std::ostringstream stream;
-    writer->write(root, &outFile);
-
-    outFile.close();
+    if (WriteJsonFile(outputFileName, &doc))
+    {
+        printf("Wrote trace file to %s\n", outputFileName);
+    }
+    else
+    {
+        printf("Error writing trace file to %s\n", outputFileName);
+    }
 }
 
-ANGLE_MAYBE_UNUSED void KHRONOS_APIENTRY DebugMessageCallback(GLenum source,
-                                                              GLenum type,
-                                                              GLuint id,
-                                                              GLenum severity,
-                                                              GLsizei length,
-                                                              const GLchar *message,
-                                                              const void *userParam)
+ANGLE_MAYBE_UNUSED void KHRONOS_APIENTRY PerfTestDebugCallback(GLenum source,
+                                                               GLenum type,
+                                                               GLuint id,
+                                                               GLenum severity,
+                                                               GLsizei length,
+                                                               const GLchar *message,
+                                                               const void *userParam)
 {
-    std::string sourceText   = gl::GetDebugMessageSourceString(source);
-    std::string typeText     = gl::GetDebugMessageTypeString(type);
-    std::string severityText = gl::GetDebugMessageSeverityString(severity);
-    std::cerr << sourceText << ", " << typeText << ", " << severityText << ": " << message << "\n";
+    // Early exit on non-errors.
+    if (type != GL_DEBUG_TYPE_ERROR || !userParam)
+    {
+        return;
+    }
+
+    ANGLERenderTest *renderTest =
+        const_cast<ANGLERenderTest *>(reinterpret_cast<const ANGLERenderTest *>(userParam));
+    renderTest->onErrorMessage(message);
+}
+
+double ComputeMean(const std::vector<double> &values)
+{
+    double sum = std::accumulate(values.begin(), values.end(), 0.0);
+
+    double mean = sum / static_cast<double>(values.size());
+    return mean;
 }
 }  // anonymous namespace
 
 TraceEvent::TraceEvent(char phaseIn,
                        const char *categoryNameIn,
                        const char *nameIn,
-                       double timestampIn)
-    : phase(phaseIn), categoryName(categoryNameIn), name{}, timestamp(timestampIn), tid(1)
+                       double timestampIn,
+                       uint32_t tidIn)
+    : phase(phaseIn), categoryName(categoryNameIn), name{}, timestamp(timestampIn), tid(tidIn)
 {
     ASSERT(strlen(nameIn) < kMaxNameLen);
     strcpy(name, nameIn);
@@ -182,14 +242,16 @@ TraceEvent::TraceEvent(char phaseIn,
 ANGLEPerfTest::ANGLEPerfTest(const std::string &name,
                              const std::string &backend,
                              const std::string &story,
-                             unsigned int iterationsPerStep)
+                             unsigned int iterationsPerStep,
+                             const char *units)
     : mName(name),
       mBackend(backend),
       mStory(story),
       mGPUTimeNs(0),
       mSkipTest(false),
-      mStepsToRun(gStepsToRunOverride),
-      mNumStepsPerformed(0),
+      mStepsToRun(std::max(gStepsPerTrial, gMaxStepsPerformed)),
+      mTrialNumStepsPerformed(0),
+      mTotalNumStepsPerformed(0),
       mIterationsPerStep(iterationsPerStep),
       mRunning(true)
 {
@@ -202,9 +264,12 @@ ANGLEPerfTest::ANGLEPerfTest(const std::string &name,
         mStory = mStory.substr(1);
     }
     mReporter = std::make_unique<perf_test::PerfResultReporter>(mName + mBackend, mStory);
-    mReporter->RegisterImportantMetric(".wall_time", "ns");
-    mReporter->RegisterImportantMetric(".gpu_time", "ns");
-    mReporter->RegisterFyiMetric(".steps", "count");
+    mReporter->RegisterImportantMetric(".wall_time", units);
+    mReporter->RegisterImportantMetric(".cpu_time", units);
+    mReporter->RegisterImportantMetric(".gpu_time", units);
+    mReporter->RegisterFyiMetric(".trial_steps", "count");
+    mReporter->RegisterFyiMetric(".total_steps", "count");
+    mReporter->RegisterFyiMetric(".steps_to_run", "count");
 }
 
 ANGLEPerfTest::~ANGLEPerfTest() {}
@@ -216,153 +281,325 @@ void ANGLEPerfTest::run()
         return;
     }
 
-    // Calibrate to a fixed number of steps during an initial set time.
     if (mStepsToRun <= 0)
     {
-        calibrateStepsToRun();
+        // We don't call finish between calibration steps when calibrating non-Render tests. The
+        // Render tests will have already calibrated when this code is run.
+        calibrateStepsToRun(RunLoopPolicy::RunContinuously);
+        ASSERT(mStepsToRun > 0);
     }
 
-    // Check again for early exit.
-    if (mSkipTest)
+    uint32_t numTrials = OneFrame() ? 1 : gTestTrials;
+    if (gVerboseLogging)
     {
-        return;
+        printf("Test Trials: %d\n", static_cast<int>(numTrials));
     }
 
-    // Do another warmup run. Seems to consistently improve results.
-    doRunLoop(kMaximumRunTimeSeconds);
-
-    for (unsigned int trial = 0; trial < kNumTrials; ++trial)
+    for (uint32_t trial = 0; trial < numTrials; ++trial)
     {
-        doRunLoop(kMaximumRunTimeSeconds);
-        printResults();
+        doRunLoop(gMaxTrialTimeSeconds, mStepsToRun, RunLoopPolicy::RunContinuously);
+        processResults();
         if (gVerboseLogging)
         {
-            printf("Trial %d time: %.2lf seconds.\n", trial + 1, mTimer.getElapsedTime());
+            double trialTime = mTimer.getElapsedWallClockTime();
+            printf("Trial %d time: %.2lf seconds.\n", trial + 1, trialTime);
+
+            double secondsPerStep      = trialTime / static_cast<double>(mTrialNumStepsPerformed);
+            double secondsPerIteration = secondsPerStep / static_cast<double>(mIterationsPerStep);
+            mTestTrialResults.push_back(secondsPerIteration * 1000.0);
         }
+    }
+
+    if (gVerboseLogging && !mTestTrialResults.empty())
+    {
+        double numResults = static_cast<double>(mTestTrialResults.size());
+        double mean       = ComputeMean(mTestTrialResults);
+
+        double variance = 0;
+        for (double trialResult : mTestTrialResults)
+        {
+            double difference = trialResult - mean;
+            variance += difference * difference;
+        }
+        variance /= numResults;
+
+        double standardDeviation      = std::sqrt(variance);
+        double coefficientOfVariation = standardDeviation / mean;
+
+        if (mean < 0.001)
+        {
+            printf("Mean result time: %.4lf ns.\n", mean * 1000.0);
+        }
+        else
+        {
+            printf("Mean result time: %.4lf ms.\n", mean);
+        }
+        printf("Coefficient of variation: %.2lf%%\n", coefficientOfVariation * 100.0);
     }
 }
 
-void ANGLEPerfTest::doRunLoop(double maxRunTime)
+void ANGLEPerfTest::doRunLoop(double maxRunTime, int maxStepsToRun, RunLoopPolicy runPolicy)
 {
-    mNumStepsPerformed = 0;
-    mRunning           = true;
+    mTrialNumStepsPerformed = 0;
+    mRunning                = true;
+    mGPUTimeNs              = 0;
     mTimer.start();
     startTest();
 
     while (mRunning)
     {
-        step();
-        if (mRunning)
+        if (gMaxStepsPerformed > 0 && mTotalNumStepsPerformed >= gMaxStepsPerformed)
         {
-            ++mNumStepsPerformed;
-            if (mTimer.getElapsedTime() > maxRunTime)
+            if (gVerboseLogging)
             {
-                mRunning = false;
+                printf("Stopping test after %d steps.\n", mTotalNumStepsPerformed);
             }
-            else if (mNumStepsPerformed >= mStepsToRun)
+            mRunning = false;
+        }
+        else if (mTimer.getElapsedWallClockTime() > maxRunTime)
+        {
+            mRunning = false;
+        }
+        else if (mTrialNumStepsPerformed >= maxStepsToRun)
+        {
+            mRunning = false;
+        }
+        else
+        {
+            step();
+
+            if (runPolicy == RunLoopPolicy::FinishEveryStep)
             {
-                mRunning = false;
+                glFinish();
+            }
+
+            if (mRunning)
+            {
+                mTrialNumStepsPerformed++;
+                mTotalNumStepsPerformed++;
             }
         }
     }
     finishTest();
     mTimer.stop();
+    computeGPUTime();
 }
 
 void ANGLEPerfTest::SetUp() {}
 
 void ANGLEPerfTest::TearDown() {}
 
-double ANGLEPerfTest::printResults()
+void ANGLEPerfTest::processResults()
 {
-    double elapsedTimeSeconds[2] = {
-        mTimer.getElapsedTime(),
-        mGPUTimeNs * 1e-9,
-    };
+    processClockResult(".cpu_time", mTimer.getElapsedCpuTime());
+    processClockResult(".wall_time", mTimer.getElapsedWallClockTime());
 
-    const char *clockNames[2] = {
-        ".wall_time",
-        ".gpu_time",
-    };
-
-    // If measured gpu time is non-zero, print that too.
-    size_t clocksToOutput = mGPUTimeNs > 0 ? 2 : 1;
-
-    double retValue = 0.0;
-    for (size_t i = 0; i < clocksToOutput; ++i)
+    if (mGPUTimeNs > 0)
     {
-        double secondsPerStep = elapsedTimeSeconds[i] / static_cast<double>(mNumStepsPerformed);
-        double secondsPerIteration = secondsPerStep / static_cast<double>(mIterationsPerStep);
-
-        perf_test::MetricInfo metricInfo;
-        std::string units;
-        // Lazily register the metric, re-using the existing units if it is
-        // already registered.
-        if (!mReporter->GetMetricInfo(clockNames[i], &metricInfo))
-        {
-            units = secondsPerIteration > 1e-3 ? "us" : "ns";
-            mReporter->RegisterImportantMetric(clockNames[i], units);
-        }
-        else
-        {
-            units = metricInfo.units;
-        }
-
-        if (units == "us")
-        {
-            retValue = secondsPerIteration * kMicroSecondsPerSecond;
-        }
-        else
-        {
-            retValue = secondsPerIteration * kNanoSecondsPerSecond;
-        }
-        mReporter->AddResult(clockNames[i], retValue);
+        processClockResult(".gpu_time", mGPUTimeNs * 1e-9);
     }
-    return retValue;
+
+    if (gVerboseLogging)
+    {
+        double fps = static_cast<double>(mTrialNumStepsPerformed * mIterationsPerStep) /
+                     mTimer.getElapsedWallClockTime();
+        printf("Ran %0.2lf iterations per second\n", fps);
+    }
+
+    if (gCalibration)
+    {
+        mReporter->AddResult(".steps_to_run", static_cast<size_t>(mStepsToRun));
+    }
+    else
+    {
+        mReporter->AddResult(".trial_steps", static_cast<size_t>(mTrialNumStepsPerformed));
+        mReporter->AddResult(".total_steps", static_cast<size_t>(mTotalNumStepsPerformed));
+    }
+
+    if (!mProcessMemoryUsageKBSamples.empty())
+    {
+        std::sort(mProcessMemoryUsageKBSamples.begin(), mProcessMemoryUsageKBSamples.end());
+
+        // Compute median.
+        size_t medianIndex      = mProcessMemoryUsageKBSamples.size() / 2;
+        uint64_t medianMemoryKB = mProcessMemoryUsageKBSamples[medianIndex];
+        auto peakMemoryIterator = std::max_element(mProcessMemoryUsageKBSamples.begin(),
+                                                   mProcessMemoryUsageKBSamples.end());
+        uint64_t peakMemoryKB   = *peakMemoryIterator;
+
+        processMemoryResult(kMedianMemoryMetric, medianMemoryKB);
+        processMemoryResult(kPeakMemoryMetric, peakMemoryKB);
+    }
+
+    for (const auto &iter : mPerfCounterInfo)
+    {
+        const std::string &counterName = iter.second.name;
+        std::vector<GLuint> samples    = iter.second.samples;
+
+        size_t midpoint = samples.size() >> 1;
+        std::nth_element(samples.begin(), samples.begin() + midpoint, samples.end());
+
+        {
+            std::stringstream medianStr;
+            medianStr << "." << counterName << "_median";
+            std::string medianName = medianStr.str();
+
+            mReporter->AddResult(medianName, static_cast<size_t>(samples[midpoint]));
+        }
+
+        {
+            std::string measurement = mName + mBackend + "." + counterName + "_median";
+            TestSuite::GetInstance()->addHistogramSample(measurement, mStory, samples[midpoint],
+                                                         "count");
+        }
+
+        const auto &maxIt = std::max_element(samples.begin(), samples.end());
+
+        {
+            std::stringstream maxStr;
+            maxStr << "." << counterName << "_max";
+            std::string maxName = maxStr.str();
+            mReporter->AddResult(maxName, static_cast<size_t>(*maxIt));
+        }
+
+        {
+            std::string measurement = mName + mBackend + "." + counterName + "_max";
+            TestSuite::GetInstance()->addHistogramSample(measurement, mStory, *maxIt, "count");
+        }
+    }
+}
+
+void ANGLEPerfTest::processClockResult(const char *metric, double resultSeconds)
+{
+    double secondsPerStep      = resultSeconds / static_cast<double>(mTrialNumStepsPerformed);
+    double secondsPerIteration = secondsPerStep / static_cast<double>(mIterationsPerStep);
+
+    perf_test::MetricInfo metricInfo;
+    std::string units;
+    bool foundMetric = mReporter->GetMetricInfo(metric, &metricInfo);
+    if (!foundMetric)
+    {
+        fprintf(stderr, "Error getting metric info for %s.\n", metric);
+        return;
+    }
+    units = metricInfo.units;
+
+    double result;
+
+    if (units == "ms")
+    {
+        result = secondsPerIteration * kMilliSecondsPerSecond;
+    }
+    else if (units == "us")
+    {
+        result = secondsPerIteration * kMicroSecondsPerSecond;
+    }
+    else
+    {
+        result = secondsPerIteration * kNanoSecondsPerSecond;
+    }
+    mReporter->AddResult(metric, result);
+
+    // Output histogram JSON set format if enabled.
+    TestSuite::GetInstance()->addHistogramSample(mName + mBackend + metric, mStory,
+                                                 secondsPerIteration * kMilliSecondsPerSecond,
+                                                 "msBestFitFormat_smallerIsBetter");
+}
+
+void ANGLEPerfTest::processMemoryResult(const char *metric, uint64_t resultKB)
+{
+    perf_test::MetricInfo metricInfo;
+    if (!mReporter->GetMetricInfo(metric, &metricInfo))
+    {
+        mReporter->RegisterImportantMetric(metric, "sizeInBytes");
+    }
+
+    mReporter->AddResult(metric, static_cast<size_t>(resultKB * 1000));
+
+    TestSuite::GetInstance()->addHistogramSample(mName + mBackend + metric, mStory,
+                                                 static_cast<double>(resultKB) * 1000.0,
+                                                 "sizeInBytes_smallerIsBetter");
 }
 
 double ANGLEPerfTest::normalizedTime(size_t value) const
 {
-    return static_cast<double>(value) / static_cast<double>(mNumStepsPerformed);
+    return static_cast<double>(value) / static_cast<double>(mTrialNumStepsPerformed);
 }
 
-void ANGLEPerfTest::calibrateStepsToRun()
+void ANGLEPerfTest::calibrateStepsToRun(RunLoopPolicy policy)
 {
-    // First do two warmup loops. There's no science to this. Two loops was experimentally helpful
-    // on a Windows NVIDIA setup when testing with Vulkan and native trace tests.
-    for (int i = 0; i < 2; ++i)
+    // Run initially for "gCalibrationTimeSeconds" using the run loop policy.
+    doRunLoop(gCalibrationTimeSeconds, std::numeric_limits<int>::max(), policy);
+
+    double elapsedTime = mTimer.getElapsedWallClockTime();
+    int stepsPerformed = mTrialNumStepsPerformed;
+
+    double scale   = gCalibrationTimeSeconds / elapsedTime;
+    int stepsToRun = static_cast<int>(static_cast<double>(stepsPerformed) * scale);
+    stepsToRun     = std::max(1, stepsPerformed);
+    if (getStepAlignment() != 1)
     {
-        doRunLoop(kCalibrationRunTimeSeconds);
-        if (gVerboseLogging)
+        stepsToRun = rx::roundUp(stepsToRun, getStepAlignment());
+    }
+
+    // The run loop policy "FinishEveryStep" indicates we're running GPU tests. GPU work
+    // completes asynchronously from the issued CPU steps. Therefore we need to call
+    // glFinish before we can compute an accurate time elapsed by the test.
+    //
+    // To compute an accurate value for "mStepsToRun" we do a two-pass calibration. The
+    // first pass runs for "gCalibrationTimeSeconds" and calls glFinish every step. The
+    // estimated steps to run using this method is very inaccurate but is guaranteed to
+    // complete in a fixed amount of time. Using that estimate we then run a second pass
+    // and call glFinish a single time after "mStepsToRun" steps. We can then use the
+    // "actual" time elapsed to compute an accurate estimate for "mStepsToRun".
+
+    if (policy == RunLoopPolicy::FinishEveryStep)
+    {
+        for (int loopIndex = 0; loopIndex < gWarmupLoops; ++loopIndex)
         {
-            printf("Pre-calibration warm-up took %.2lf seconds.\n", mTimer.getElapsedTime());
+            doRunLoop(gMaxTrialTimeSeconds, stepsToRun, RunLoopPolicy::RunContinuously);
+
+            // Compute mean of the calibration results.
+            double sampleElapsedTime = mTimer.getElapsedWallClockTime();
+            int sampleStepsPerformed = mTrialNumStepsPerformed;
+
+            if (gVerboseLogging)
+            {
+                printf("Calibration loop took %.2lf seconds, with %d steps.\n", sampleElapsedTime,
+                       sampleStepsPerformed);
+            }
+
+            // Scale steps down according to the time that exceeded one second.
+            double sampleScale = gCalibrationTimeSeconds / sampleElapsedTime;
+            stepsToRun = static_cast<int>(static_cast<double>(sampleStepsPerformed) * sampleScale);
+            stepsToRun = std::max(1, stepsToRun);
+            if (getStepAlignment() != 1)
+            {
+                stepsToRun = rx::roundUp(stepsToRun, getStepAlignment());
+            }
         }
     }
 
-    // Now the real computation.
-    doRunLoop(kCalibrationRunTimeSeconds);
-
-    double elapsedTime = mTimer.getElapsedTime();
-
-    // Scale steps down according to the time that exeeded one second.
-    double scale = kCalibrationRunTimeSeconds / elapsedTime;
-    mStepsToRun  = static_cast<unsigned int>(static_cast<double>(mNumStepsPerformed) * scale);
+    // Scale steps down according to the time that exceeded one second.
+    mStepsToRun = stepsToRun;
 
     if (gVerboseLogging)
     {
-        printf(
-            "Running %d steps (calibration took %.2lf seconds). Expecting trial time of %.2lf "
-            "seconds.\n",
-            mStepsToRun, elapsedTime,
-            mStepsToRun * (elapsedTime / static_cast<double>(mNumStepsPerformed)));
+        printf("Running %d steps after calibration.", mStepsToRun);
     }
 
     // Calibration allows the perf test runner script to save some time.
     if (gCalibration)
     {
-        mReporter->AddResult(".steps", static_cast<size_t>(mStepsToRun));
+        processResults();
         return;
     }
+}
+
+int ANGLEPerfTest::getStepAlignment() const
+{
+    // Default: No special alignment rules.
+    return 1;
 }
 
 std::string RenderTestParams::backend() const
@@ -371,10 +608,10 @@ std::string RenderTestParams::backend() const
 
     switch (driver)
     {
-        case angle::GLESDriverType::AngleEGL:
+        case GLESDriverType::AngleEGL:
             break;
-        case angle::GLESDriverType::SystemWGL:
-        case angle::GLESDriverType::SystemEGL:
+        case GLESDriverType::SystemWGL:
+        case GLESDriverType::SystemEGL:
             strstr << "_native";
             break;
         default:
@@ -406,9 +643,16 @@ std::string RenderTestParams::backend() const
             return "_unk";
     }
 
-    if (eglParameters.deviceType == EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE)
+    switch (eglParameters.deviceType)
     {
-        strstr << "_null";
+        case EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE:
+            strstr << "_null";
+            break;
+        case EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE:
+            strstr << "_swiftshader";
+            break;
+        default:
+            break;
     }
 
     return strstr.str();
@@ -416,7 +660,18 @@ std::string RenderTestParams::backend() const
 
 std::string RenderTestParams::story() const
 {
-    return (surfaceType == SurfaceType::Offscreen ? "_offscreen" : "");
+    switch (surfaceType)
+    {
+        case SurfaceType::Window:
+            return "";
+        case SurfaceType::WindowWithVSync:
+            return "_vsync";
+        case SurfaceType::Offscreen:
+            return "_offscreen";
+        default:
+            UNREACHABLE();
+            return "";
+    }
 }
 
 std::string RenderTestParams::backendAndStory() const
@@ -424,11 +679,14 @@ std::string RenderTestParams::backendAndStory() const
     return backend() + story();
 }
 
-ANGLERenderTest::ANGLERenderTest(const std::string &name, const RenderTestParams &testParams)
+ANGLERenderTest::ANGLERenderTest(const std::string &name,
+                                 const RenderTestParams &testParams,
+                                 const char *units)
     : ANGLEPerfTest(name,
                     testParams.backend(),
                     testParams.story(),
-                    OneFrame() ? 1 : testParams.iterationsPerStep),
+                    OneFrame() ? 1 : testParams.iterationsPerStep,
+                    units),
       mTestParams(testParams),
       mIsTimestampQueryAvailable(false),
       mGLWindow(nullptr),
@@ -446,26 +704,24 @@ ANGLERenderTest::ANGLERenderTest(const std::string &name, const RenderTestParams
 
     switch (testParams.driver)
     {
-        case angle::GLESDriverType::AngleEGL:
+        case GLESDriverType::AngleEGL:
             mGLWindow = EGLWindow::New(testParams.majorVersion, testParams.minorVersion);
-            mEntryPointsLib.reset(angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME,
-                                                           angle::SearchType::ApplicationDir));
+            mEntryPointsLib.reset(OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, SearchType::ModuleDir));
             break;
-        case angle::GLESDriverType::SystemEGL:
+        case GLESDriverType::SystemEGL:
 #if defined(ANGLE_USE_UTIL_LOADER) && !defined(ANGLE_PLATFORM_WINDOWS)
             mGLWindow = EGLWindow::New(testParams.majorVersion, testParams.minorVersion);
-            mEntryPointsLib.reset(
-                angle::OpenSharedLibraryWithExtension(GetNativeEGLLibraryNameWithExtension()));
+            mEntryPointsLib.reset(OpenSharedLibraryWithExtension(
+                GetNativeEGLLibraryNameWithExtension(), SearchType::SystemDir));
 #else
             std::cerr << "Not implemented." << std::endl;
             mSkipTest = true;
 #endif  // defined(ANGLE_USE_UTIL_LOADER) && !defined(ANGLE_PLATFORM_WINDOWS)
             break;
-        case angle::GLESDriverType::SystemWGL:
+        case GLESDriverType::SystemWGL:
 #if defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
             mGLWindow = WGLWindow::New(testParams.majorVersion, testParams.minorVersion);
-            mEntryPointsLib.reset(
-                angle::OpenSharedLibrary("opengl32", angle::SearchType::SystemDir));
+            mEntryPointsLib.reset(OpenSharedLibrary("opengl32", SearchType::SystemDir));
 #else
             std::cout << "WGL driver not available. Skipping test." << std::endl;
             mSkipTest = true;
@@ -499,7 +755,7 @@ void ANGLERenderTest::SetUp()
     ANGLEPerfTest::SetUp();
 
     // Set a consistent CPU core affinity and high priority.
-    angle::StabilizeCPUForBenchmarking();
+    StabilizeCPUForBenchmarking();
 
     mOSWindow = OSWindow::New();
 
@@ -510,7 +766,7 @@ void ANGLERenderTest::SetUp()
     }
 
     mPlatformMethods.overrideWorkaroundsD3D      = OverrideWorkaroundsD3D;
-    mPlatformMethods.logError                    = EmptyPlatformMethod;
+    mPlatformMethods.logError                    = CustomLogError;
     mPlatformMethods.logWarning                  = EmptyPlatformMethod;
     mPlatformMethods.logInfo                     = EmptyPlatformMethod;
     mPlatformMethods.addTraceEvent               = AddPerfTraceEvent;
@@ -537,24 +793,43 @@ void ANGLERenderTest::SetUp()
     mConfigParams.alphaBits   = 8;
     mConfigParams.depthBits   = 24;
     mConfigParams.stencilBits = 8;
-
-    if (!mGLWindow->initializeGL(mOSWindow, mEntryPointsLib.get(), mTestParams.driver, withMethods,
-                                 mConfigParams))
+    mConfigParams.colorSpace  = mTestParams.colorSpace;
+    if (mTestParams.surfaceType != SurfaceType::WindowWithVSync)
     {
-        mSkipTest = true;
-        FAIL() << "Failed initializing GL Window";
-        // FAIL returns.
+        mConfigParams.swapInterval = 0;
     }
 
-    // Disable vsync.
-    if (!mGLWindow->setSwapInterval(0))
+    GLWindowResult res = mGLWindow->initializeGLWithResult(
+        mOSWindow, mEntryPointsLib.get(), mTestParams.driver, withMethods, mConfigParams);
+    switch (res)
     {
-        mSkipTest = true;
-        FAIL() << "Failed setting swap interval";
-        // FAIL returns.
+        case GLWindowResult::NoColorspaceSupport:
+            mSkipTest = true;
+            std::cout << "Test skipped due to missing support for color spaces." << std::endl;
+            return;
+        case GLWindowResult::Error:
+            mSkipTest = true;
+            FAIL() << "Failed initializing GL Window";
+            // FAIL returns.
+        default:
+            break;
     }
 
-    mIsTimestampQueryAvailable = IsGLExtensionEnabled("GL_EXT_disjoint_timer_query");
+    // Disable vsync (if not done by the window init).
+    if (mTestParams.surfaceType != SurfaceType::WindowWithVSync)
+    {
+        if (!mGLWindow->setSwapInterval(0))
+        {
+            mSkipTest = true;
+            FAIL() << "Failed setting swap interval";
+            // FAIL returns.
+        }
+    }
+
+    if (mTestParams.trackGpuTime)
+    {
+        mIsTimestampQueryAvailable = EnsureGLExtensionEnabled("GL_EXT_disjoint_timer_query");
+    }
 
     if (!areExtensionPrerequisitesFulfilled())
     {
@@ -569,26 +844,16 @@ void ANGLERenderTest::SetUp()
 #if defined(ANGLE_ENABLE_ASSERTS)
     if (IsGLExtensionEnabled("GL_KHR_debug"))
     {
-        glEnable(GL_DEBUG_OUTPUT);
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-        // Enable medium and high priority messages.
-        glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_HIGH, 0, nullptr,
-                                 GL_TRUE);
-        glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_MEDIUM, 0, nullptr,
-                                 GL_TRUE);
-        // Disable low and notification priority messages.
-        glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_LOW, 0, nullptr,
-                                 GL_FALSE);
-        glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION, 0,
-                                 nullptr, GL_FALSE);
-        // Disable medium priority performance messages to reduce spam.
-        glDebugMessageControlKHR(GL_DONT_CARE, GL_DEBUG_TYPE_PERFORMANCE, GL_DEBUG_SEVERITY_MEDIUM,
-                                 0, nullptr, GL_FALSE);
-        glDebugMessageCallbackKHR(DebugMessageCallback, this);
+        EnableDebugCallback(&PerfTestDebugCallback, this);
     }
 #endif
 
     initializeBenchmark();
+
+    if (mSkipTest)
+    {
+        return;
+    }
 
     if (mTestParams.iterationsPerStep == 0)
     {
@@ -597,20 +862,32 @@ void ANGLERenderTest::SetUp()
         // FAIL returns.
     }
 
-    // Capture a screenshot if enabled.
-    if (gScreenShotDir != nullptr)
+    if (gVerboseLogging)
     {
-        std::stringstream screenshotNameStr;
-        screenshotNameStr << gScreenShotDir << GetPathSeparator() << "angle" << mBackend << "_"
-                          << mStory << ".png";
-        std::string screenshotName = screenshotNameStr.str();
-        saveScreenshot(screenshotName);
+        printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
+        printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
+    }
+
+    mTestTrialResults.reserve(gTestTrials);
+
+    for (int loopIndex = 0; loopIndex < gWarmupLoops; ++loopIndex)
+    {
+        doRunLoop(gCalibrationTimeSeconds, std::numeric_limits<int>::max(),
+                  RunLoopPolicy::FinishEveryStep);
+        if (gVerboseLogging)
+        {
+            printf("Warm-up loop took %.2lf seconds.\n", mTimer.getElapsedWallClockTime());
+        }
     }
 
     if (mStepsToRun <= 0)
     {
-        calibrateStepsToRun();
+        // Ensure we always call Finish when calibrating Render tests. This completes our work
+        // between calibration measurements.
+        calibrateStepsToRun(RunLoopPolicy::FinishEveryStep);
     }
+
+    initPerfCounters();
 }
 
 void ANGLERenderTest::TearDown()
@@ -641,12 +918,80 @@ void ANGLERenderTest::TearDown()
     ANGLEPerfTest::TearDown();
 }
 
+void ANGLERenderTest::initPerfCounters()
+{
+    if (!gPerfCounters)
+    {
+        return;
+    }
+
+    if (!IsGLExtensionEnabled(kPerfMonitorExtensionName))
+    {
+        fprintf(stderr, "Cannot report perf metrics because %s is not available.\n",
+                kPerfMonitorExtensionName);
+        return;
+    }
+
+    CounterNameToIndexMap indexMap = BuildCounterNameToIndexMap();
+
+    std::vector<std::string> counters =
+        angle::SplitString(gPerfCounters, ":", angle::WhitespaceHandling::TRIM_WHITESPACE,
+                           angle::SplitResult::SPLIT_WANT_NONEMPTY);
+    for (const std::string &counter : counters)
+    {
+        auto iter = indexMap.find(counter);
+        if (iter == indexMap.end())
+        {
+            fprintf(stderr, "Counter '%s' not in list of available perf counters.\n",
+                    counter.c_str());
+        }
+        else
+        {
+            {
+                std::stringstream medianStr;
+                medianStr << '.' << counter << "_median";
+                std::string medianName = medianStr.str();
+                mReporter->RegisterImportantMetric(medianName, "count");
+            }
+
+            {
+                std::stringstream maxStr;
+                maxStr << '.' << counter << "_max";
+                std::string maxName = maxStr.str();
+                mReporter->RegisterImportantMetric(maxName, "count");
+            }
+
+            GLuint index            = indexMap[counter];
+            mPerfCounterInfo[index] = {counter, {}};
+        }
+    }
+}
+
+void ANGLERenderTest::updatePerfCounters()
+{
+    if (mPerfCounterInfo.empty())
+    {
+        return;
+    }
+
+    std::vector<PerfMonitorTriplet> perfData = GetPerfMonitorTriplets();
+    ASSERT(!perfData.empty());
+
+    for (auto &iter : mPerfCounterInfo)
+    {
+        uint32_t counter             = iter.first;
+        std::vector<GLuint> &samples = iter.second.samples;
+        samples.push_back(perfData[counter].value);
+    }
+}
+
 void ANGLERenderTest::beginInternalTraceEvent(const char *name)
 {
     if (gEnableTrace)
     {
         mTraceEventBuffer.emplace_back(TRACE_EVENT_PHASE_BEGIN, gTraceCategories[0].name, name,
-                                       MonotonicallyIncreasingTime(&mPlatformMethods));
+                                       MonotonicallyIncreasingTime(&mPlatformMethods),
+                                       getCurrentThreadSerial());
     }
 }
 
@@ -655,7 +1000,8 @@ void ANGLERenderTest::endInternalTraceEvent(const char *name)
     if (gEnableTrace)
     {
         mTraceEventBuffer.emplace_back(TRACE_EVENT_PHASE_END, gTraceCategories[0].name, name,
-                                       MonotonicallyIncreasingTime(&mPlatformMethods));
+                                       MonotonicallyIncreasingTime(&mPlatformMethods),
+                                       getCurrentThreadSerial());
     }
 }
 
@@ -664,7 +1010,7 @@ void ANGLERenderTest::beginGLTraceEvent(const char *name, double hostTimeSec)
     if (gEnableTrace)
     {
         mTraceEventBuffer.emplace_back(TRACE_EVENT_PHASE_BEGIN, gTraceCategories[1].name, name,
-                                       hostTimeSec);
+                                       hostTimeSec, getCurrentThreadSerial());
     }
 }
 
@@ -673,7 +1019,7 @@ void ANGLERenderTest::endGLTraceEvent(const char *name, double hostTimeSec)
     if (gEnableTrace)
     {
         mTraceEventBuffer.emplace_back(TRACE_EVENT_PHASE_END, gTraceCategories[1].name, name,
-                                       hostTimeSec);
+                                       hostTimeSec, getCurrentThreadSerial());
     }
 }
 
@@ -707,13 +1053,24 @@ void ANGLERenderTest::step()
         // command queues.
         if (mSwapEnabled)
         {
+            updatePerfCounters();
             mGLWindow->swap();
         }
         mOSWindow->messageLoop();
 
 #if defined(ANGLE_ENABLE_ASSERTS)
-        EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+        if (!gRetraceMode)
+        {
+            EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+        }
 #endif  // defined(ANGLE_ENABLE_ASSERTS)
+
+        // Sample system memory
+        uint64_t processMemoryUsageKB = GetProcessMemoryUsageKB();
+        if (processMemoryUsageKB)
+        {
+            mProcessMemoryUsageKBSamples.push_back(processMemoryUsageKB);
+        }
     }
 
     endInternalTraceEvent("step");
@@ -723,7 +1080,8 @@ void ANGLERenderTest::startGpuTimer()
 {
     if (mTestParams.trackGpuTime && mIsTimestampQueryAvailable)
     {
-        glBeginQueryEXT(GL_TIME_ELAPSED_EXT, mTimestampQuery);
+        glGenQueriesEXT(1, &mCurrentTimestampBeginQuery);
+        glQueryCounterEXT(mCurrentTimestampBeginQuery, GL_TIMESTAMP_EXT);
     }
 }
 
@@ -731,30 +1089,38 @@ void ANGLERenderTest::stopGpuTimer()
 {
     if (mTestParams.trackGpuTime && mIsTimestampQueryAvailable)
     {
-        glEndQueryEXT(GL_TIME_ELAPSED_EXT);
-        uint64_t gpuTimeNs = 0;
-        glGetQueryObjectui64vEXT(mTimestampQuery, GL_QUERY_RESULT_EXT, &gpuTimeNs);
-
-        mGPUTimeNs += gpuTimeNs;
+        GLuint endQuery = 0;
+        glGenQueriesEXT(1, &endQuery);
+        glQueryCounterEXT(endQuery, GL_TIMESTAMP_EXT);
+        mTimestampQueries.push_back({mCurrentTimestampBeginQuery, endQuery});
     }
 }
 
-void ANGLERenderTest::startTest()
+void ANGLERenderTest::computeGPUTime()
 {
-    if (mTestParams.trackGpuTime)
+    if (mTestParams.trackGpuTime && mIsTimestampQueryAvailable)
     {
-        glGenQueriesEXT(1, &mTimestampQuery);
-        mGPUTimeNs = 0;
+        for (const TimestampSample &sample : mTimestampQueries)
+        {
+            uint64_t beginGLTimeNs = 0;
+            uint64_t endGLTimeNs   = 0;
+            glGetQueryObjectui64vEXT(sample.beginQuery, GL_QUERY_RESULT_EXT, &beginGLTimeNs);
+            glGetQueryObjectui64vEXT(sample.endQuery, GL_QUERY_RESULT_EXT, &endGLTimeNs);
+            glDeleteQueriesEXT(1, &sample.beginQuery);
+            glDeleteQueriesEXT(1, &sample.endQuery);
+            mGPUTimeNs += endGLTimeNs - beginGLTimeNs;
+        }
+
+        mTimestampQueries.clear();
     }
 }
+
+void ANGLERenderTest::startTest() {}
 
 void ANGLERenderTest::finishTest()
 {
-    if (mTestParams.trackGpuTime)
-    {
-        glDeleteQueriesEXT(1, &mTimestampQuery);
-    }
-    if (mTestParams.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE)
+    if (mTestParams.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE &&
+        !gNoFinish && !gRetraceMode)
     {
         glFinish();
     }
@@ -804,13 +1170,35 @@ std::vector<TraceEvent> &ANGLERenderTest::getTraceEventBuffer()
     return mTraceEventBuffer;
 }
 
+void ANGLERenderTest::onErrorMessage(const char *errorMessage)
+{
+    abortTest();
+    FAIL() << "Failing test because of unexpected error:\n" << errorMessage << "\n";
+}
+
+uint32_t ANGLERenderTest::getCurrentThreadSerial()
+{
+    std::thread::id id = std::this_thread::get_id();
+
+    for (uint32_t serial = 0; serial < static_cast<uint32_t>(mThreadIDs.size()); ++serial)
+    {
+        if (mThreadIDs[serial] == id)
+        {
+            return serial + 1;
+        }
+    }
+
+    mThreadIDs.push_back(id);
+    return static_cast<uint32_t>(mThreadIDs.size());
+}
+
 namespace angle
 {
 double GetHostTimeSeconds()
 {
     // Move the time origin to the first call to this function, to avoid generating unnecessarily
     // large timestamps.
-    static double origin = angle::GetCurrentTime();
-    return angle::GetCurrentTime() - origin;
+    static double origin = GetCurrentSystemTime();
+    return GetCurrentSystemTime() - origin;
 }
 }  // namespace angle

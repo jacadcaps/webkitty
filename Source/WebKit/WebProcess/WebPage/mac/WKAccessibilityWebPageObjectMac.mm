@@ -28,7 +28,6 @@
 
 #if PLATFORM(MAC)
 
-#import "ApplicationServicesSPI.h"
 #import "PluginView.h"
 #import "WebFrame.h"
 #import "WebPage.h"
@@ -43,11 +42,11 @@
 #import <WebCore/FrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageOverlayController.h>
+#import <WebCore/PlatformScreen.h>
 #import <WebCore/ScrollView.h>
 #import <WebCore/Scrollbar.h>
 #import <WebCore/WebAccessibilityObjectWrapperMac.h>
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
-#import <pal/spi/mac/HIServicesSPI.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 namespace ax = WebCore::Accessibility;
@@ -65,7 +64,6 @@ namespace ax = WebCore::Accessibility;
 - (void)dealloc
 {
     NSAccessibilityUnregisterUniqueIdForUIElement(self);
-    [m_parent release];
     [super dealloc];
 }
 
@@ -84,7 +82,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         m_attributeNames = adoptNS([[NSArray alloc] initWithObjects:
                             NSAccessibilityRoleAttribute, NSAccessibilityRoleDescriptionAttribute, NSAccessibilityFocusedAttribute,
                             NSAccessibilityParentAttribute, NSAccessibilityWindowAttribute, NSAccessibilityTopLevelUIElementAttribute,
-                            NSAccessibilityPositionAttribute, NSAccessibilitySizeAttribute, NSAccessibilityChildrenAttribute, NSAccessibilityPrimaryScreenHeightAttribute, nil]);
+                            NSAccessibilityPositionAttribute, NSAccessibilitySizeAttribute, NSAccessibilityChildrenAttribute, NSAccessibilityChildrenInNavigationOrderAttribute, NSAccessibilityPrimaryScreenHeightAttribute, nil]);
     
     return m_attributeNames.get();
 }
@@ -98,7 +96,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return cachedNames;
 #endif
 
-    id names = ax::retrieveValueFromMainThread<RetainPtr<id>>([PROTECTED_SELF] () -> RetainPtr<id> {
+    auto names = ax::retrieveValueFromMainThread<RetainPtr<id>>([PROTECTED_SELF] () -> RetainPtr<id> {
         auto page = protectedSelf->m_page;
         if (!page)
             return @[];
@@ -108,13 +106,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
             return @[];
 
         return createNSArray(corePage->pageOverlayController().copyAccessibilityAttributesNames(true));
-    }).autorelease();
+    });
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    self.cachedParameterizedAttributeNames = names;
+    self.cachedParameterizedAttributeNames = names.get();
 #endif
 
-    return names;
+    return names.autorelease();
 }
 
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
@@ -155,6 +153,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return @[wrapper];
 }
 
+- (NSArray *)accessibilityChildrenInNavigationOrder
+{
+    return [self accessibilityChildren];
+}
+
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (id)accessibilityAttributeValue:(NSString *)attribute
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
@@ -163,7 +166,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         WebCore::AXObjectCache::enableAccessibility();
     
     if ([attribute isEqualToString:NSAccessibilityParentAttribute])
-        return m_parent;
+        return m_parent.get();
     
     if ([attribute isEqualToString:NSAccessibilityWindowAttribute])
         return [m_parent accessibilityAttributeValue:NSAccessibilityWindowAttribute];
@@ -187,7 +190,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return [self accessibilityAttributePositionValue];
     
     if ([attribute isEqualToString:NSAccessibilityPrimaryScreenHeightAttribute])
-        return [[self accessibilityRootObjectWrapper] accessibilityAttributeValue:attribute];
+        return @(WebCore::screenRectForPrimaryScreen().size().height());
     
     if ([attribute isEqualToString:NSAccessibilitySizeAttribute])
         return [self accessibilityAttributeSizeValue];
@@ -195,6 +198,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if ([attribute isEqualToString:NSAccessibilityChildrenAttribute])
         return [self accessibilityChildren];
     
+    // [self accessibilityChildren] is just the root object, so it's already in navigation order.
+    if ([attribute isEqualToString:NSAccessibilityChildrenInNavigationOrderAttribute])
+        return [self accessibilityChildren];
+
     return nil;
 }
 
@@ -269,10 +276,6 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         // Some plugins may be able to figure out the scroll position and inset on their own.
         bool applyContentOffset = true;
 
-        // Isolated tree frames have the offset encoded into them so we don't need to undo here.
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-        applyContentOffset = !WebCore::AXObjectCache::isIsolatedTreeEnabled() || !_AXUIElementRequestServicedBySecondaryAXThread();
-#endif
         if (auto pluginView = WebKit::WebPage::pluginViewForFrame(protectedSelf->m_page->mainFrame()))
             applyContentOffset = !pluginView->plugin()->pluginHandlesContentOffsetForAccessibilityHitTest();
         

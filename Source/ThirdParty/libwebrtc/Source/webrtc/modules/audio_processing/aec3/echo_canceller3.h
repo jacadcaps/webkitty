@@ -33,6 +33,11 @@
 
 namespace webrtc {
 
+// Method for adjusting config parameter dependencies.
+// Only to be used externally to AEC3 for testing purposes.
+// TODO(webrtc:5298): Move this to a separate file.
+EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config);
+
 // Functor for verifying the invariance of the frames being put into the render
 // queue.
 class Aec3RenderQueueItemVerifier {
@@ -112,6 +117,12 @@ class EchoCanceller3 : public EchoControl {
   Metrics GetMetrics() const override;
   // Provides an optional external estimate of the audio buffer delay.
   void SetAudioBufferDelay(int delay_ms) override;
+
+  // Specifies whether the capture output will be used. The purpose of this is
+  // to allow the echo controller to deactivate some of the processing when the
+  // resulting output is anyway not used, for instance when the endpoint is
+  // muted.
+  void SetCaptureOutputUsage(bool capture_output_used) override;
 
   bool ActiveProcessing() const override;
 

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,16 +33,27 @@
 
 #include "CertificateInfo.h"
 #include "DiagnosticLoggingClient.h"
+#include "FrameIdentifier.h"
 #include "InspectorDebuggableType.h"
 #include "UserInterfaceLayoutDirection.h"
 #include <wtf/Forward.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
+
+#if ENABLE(INSPECTOR_EXTENSIONS)
+namespace Inspector {
+using ExtensionID = String;
+using ExtensionTabID = String;
+}
+#endif
 
 namespace WebCore {
 
 class FloatRect;
+class InspectorFrontendAPIDispatcher;
+class Page;
 
-class InspectorFrontendClient {
+class InspectorFrontendClient : public CanMakeWeakPtr<InspectorFrontendClient> {
 public:
     enum class DockSide {
         Undocked = 0,
@@ -54,6 +66,9 @@ public:
 
     WEBCORE_EXPORT virtual void windowObjectCleared() = 0;
     virtual void frontendLoaded() = 0;
+
+    virtual void pagePaused() = 0;
+    virtual void pageUnpaused() = 0;
 
     virtual void startWindowDrag() = 0;
     virtual void moveWindowBy(float x, float y) = 0;
@@ -90,11 +105,10 @@ public:
 
     WEBCORE_EXPORT virtual void changeSheetRect(const FloatRect&) = 0;
 
-    WEBCORE_EXPORT virtual void openInNewTab(const String& url) = 0;
-
+    WEBCORE_EXPORT virtual void openURLExternally(const String& url) = 0;
     virtual bool canSave() = 0;
-    virtual void save(const WTF::String& url, const WTF::String& content, bool base64Encoded, bool forceSaveAs) = 0;
-    virtual void append(const WTF::String& url, const WTF::String& content) = 0;
+    virtual void save(const String& url, const String& content, bool base64Encoded, bool forceSaveAs) = 0;
+    virtual void append(const String& url, const String& content) = 0;
 
     virtual void inspectedURLChanged(const String&) = 0;
     virtual void showCertificate(const CertificateInfo&) = 0;
@@ -105,10 +119,17 @@ public:
     virtual void logDiagnosticEvent(const String& /* eventName */, const DiagnosticLoggingClient::ValueDictionary&) { }
 #endif
 
-    virtual void pagePaused() { }
-    virtual void pageUnpaused() { }
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    virtual bool supportsWebExtensions() { return false; }
+    virtual void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, FrameIdentifier) { }
+    virtual void didHideExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) { }
+    virtual void didNavigateExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const URL&) { }
+    virtual void inspectedPageDidNavigate(const URL&) { }
+#endif
 
     WEBCORE_EXPORT virtual void sendMessageToBackend(const String&) = 0;
+    WEBCORE_EXPORT virtual InspectorFrontendAPIDispatcher& frontendAPIDispatcher() = 0;
+    WEBCORE_EXPORT virtual Page* frontendPage() = 0;
 
     WEBCORE_EXPORT virtual bool isUnderTest() = 0;
 };

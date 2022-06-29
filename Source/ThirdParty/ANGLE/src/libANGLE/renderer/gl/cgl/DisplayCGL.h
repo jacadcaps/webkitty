@@ -10,6 +10,7 @@
 #define LIBANGLE_RENDERER_GL_CGL_DISPLAYCGL_H_
 
 #include <thread>
+#include <unordered_set>
 
 #include "libANGLE/renderer/gl/DisplayGL.h"
 
@@ -24,6 +25,17 @@ namespace rx
 
 class WorkerContext;
 
+struct EnsureCGLContextIsCurrent : angle::NonCopyable
+{
+  public:
+    EnsureCGLContextIsCurrent(CGLContextObj context);
+    ~EnsureCGLContextIsCurrent();
+
+  private:
+    CGLContextObj mOldContext;
+    bool mResetContext;
+};
+
 class DisplayCGL : public DisplayGL
 {
   public:
@@ -32,8 +44,11 @@ class DisplayCGL : public DisplayGL
 
     egl::Error initialize(egl::Display *display) override;
     void terminate() override;
+    egl::Error prepareForCall() override;
+    egl::Error releaseThread() override;
 
-    egl::Error makeCurrent(egl::Surface *drawSurface,
+    egl::Error makeCurrent(egl::Display *display,
+                           egl::Surface *drawSurface,
                            egl::Surface *readSurface,
                            gl::Context *context) override;
 
@@ -69,8 +84,6 @@ class DisplayCGL : public DisplayGL
 
     DeviceImpl *createDevice() override;
 
-    std::string getVendorString() const override;
-
     egl::Error waitClient(const gl::Context *context) override;
     egl::Error waitNative(const gl::Context *context, EGLint engine) override;
 
@@ -85,11 +98,14 @@ class DisplayCGL : public DisplayGL
 
     void populateFeatureList(angle::FeatureList *features) override;
 
+    RendererGL *getRenderer() const override;
+
     // Support for dual-GPU MacBook Pros. Used only by ContextCGL. The use of
     // these entry points is gated by the presence of dual GPUs.
     egl::Error referenceDiscreteGPU();
     egl::Error unreferenceDiscreteGPU();
     egl::Error handleGPUSwitch() override;
+    egl::Error forceGPUSwitch(EGLint gpuIDHigh, EGLint gpuIDLow) override;
 
   private:
     egl::Error makeCurrentSurfaceless(gl::Context *context) override;
@@ -98,12 +114,13 @@ class DisplayCGL : public DisplayGL
     void generateCaps(egl::Caps *outCaps) const override;
 
     void checkDiscreteGPUStatus();
+    void setContextToGPU(uint64_t gpuID, GLint virtualScreen);
 
     std::shared_ptr<RendererGL> mRenderer;
 
     egl::Display *mEGLDisplay;
     CGLContextObj mContext;
-    std::unordered_map<std::thread::id, CGLContextObj> mCurrentContexts;
+    std::unordered_set<std::thread::id> mThreadsWithCurrentContext;
     CGLPixelFormatObj mPixelFormat;
     bool mSupportsGPUSwitching;
     uint64_t mCurrentGPUID;
@@ -113,6 +130,7 @@ class DisplayCGL : public DisplayGL
     // is unref'd for the last time, this is set to the time of that last unref. If it isn't
     // activated again in 10 seconds, the discrete GPU pixel format is deleted.
     double mLastDiscreteGPUUnrefTime;
+    bool mDeviceContextIsVolatile = false;
 };
 
 }  // namespace rx

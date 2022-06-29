@@ -46,7 +46,7 @@ public:
     // JSWrappable
     virtual JSClassRef wrapperClass();
 
-    void makeWindowObject(JSContextRef, JSObjectRef windowObject, JSValueRef* exception);
+    void makeWindowObject(JSContextRef);
 
     bool isIOSFamily() const
     {
@@ -99,27 +99,13 @@ public:
     // Special options.
     void keepWebHistory();
     void setAcceptsEditing(bool value) { m_shouldAllowEditing = value; }
-    void setCanOpenWindows();
-    void setCloseRemainingWindowsWhenComplete(bool value) { m_shouldCloseExtraWindows = value; }
-    void setXSSAuditorEnabled(bool);
-    void setModernMediaControlsEnabled(bool);
-    void setWebGL2Enabled(bool);
-    void setWritableStreamAPIEnabled(bool);
-    void setReadableByteStreamAPIEnabled(bool);
+    void preventPopupWindows();
 
-    void setAllowUniversalAccessFromFileURLs(bool);
-    void setAllowFileAccessFromFileURLs(bool);
-    void setNeedsStorageAccessFromFileURLsQuirk(bool);
-    void setPluginsEnabled(bool);
-    void setJavaScriptCanAccessClipboard(bool);
-    void setPopupBlockingEnabled(bool);
-    void setAuthorAndUserStylesEnabled(bool);
     void setCustomPolicyDelegate(bool enabled, bool permissive = false);
     void addOriginAccessAllowListEntry(JSStringRef sourceOrigin, JSStringRef destinationProtocol, JSStringRef destinationHost, bool allowDestinationSubdomains);
     void removeOriginAccessAllowListEntry(JSStringRef sourceOrigin, JSStringRef destinationProtocol, JSStringRef destinationHost, bool allowDestinationSubdomains);
     void setUserStyleSheetEnabled(bool);
     void setUserStyleSheetLocation(JSStringRef);
-    void setSpatialNavigationEnabled(bool);
     void setTabKeyCyclesThroughElements(bool);
     void setSerializeHTTPLoads();
     void dispatchPendingLoadRequests();
@@ -128,13 +114,7 @@ public:
     void setAllowsAnySSLCertificate(bool);
     void setShouldSwapToEphemeralSessionOnNextNavigation(bool);
     void setShouldSwapToDefaultSessionOnNextNavigation(bool);
-    void setEncryptedMediaAPIEnabled(bool);
-    void setPictureInPictureAPIEnabled(bool);
-    void setGenericCueAPIEnabled(bool);
-    void setMediaDevicesEnabled(bool);
-    void setWebRTCMDNSICECandidatesEnabled(bool);
     void setCustomUserAgent(JSStringRef);
-    void setWebAPIStatisticsEnabled(bool);
 
     // Special DOM functions.
     void clearBackForwardList();
@@ -147,6 +127,8 @@ public:
     void repaintSweepHorizontally() { m_testRepaintSweepHorizontally = true; }
     void display();
     void displayAndTrackRepaints();
+    void displayOnLoadFinish() { m_displayOnLoadFinish = true; }
+    bool shouldDisplayOnLoadFinish() { return m_displayOnLoadFinish; }
 
     // UserContent testing.
     void addUserScript(JSStringRef source, bool runAtStart, bool allFrames);
@@ -233,10 +215,9 @@ public:
     // Downloads
     bool shouldFinishAfterDownload() const { return m_shouldFinishAfterDownload; }
     void setShouldLogDownloadCallbacks(bool);
+    void setShouldLogDownloadSize(bool);
 
     bool shouldAllowEditing() const { return m_shouldAllowEditing; }
-
-    bool shouldCloseExtraWindowsAfterRunningTest() const { return m_shouldCloseExtraWindows; }
 
     void evaluateScriptInIsolatedWorld(JSContextRef, unsigned worldID, JSStringRef script);
     static unsigned worldIDForWorld(WKBundleScriptWorldRef);
@@ -252,7 +233,7 @@ public:
     void setWillSendRequestReturnsNull(bool f) { m_willSendRequestReturnsNull = f; }
     bool willSendRequestReturnsNullOnRedirect() const { return m_willSendRequestReturnsNullOnRedirect; }
     void setWillSendRequestReturnsNullOnRedirect(bool f) { m_willSendRequestReturnsNullOnRedirect = f; }
-    void setWillSendRequestAddsHTTPBody(JSStringRef body) { m_willSendRequestHTTPBody = toWTFString(toWK(body)); }
+    void setWillSendRequestAddsHTTPBody(JSStringRef body) { m_willSendRequestHTTPBody = toWTFString(body); }
     String willSendRequestHTTPBody() const { return m_willSendRequestHTTPBody; }
 
     void setTextDirection(JSStringRef);
@@ -274,6 +255,11 @@ public:
     void addChromeInputField(JSValueRef);
     void removeChromeInputField(JSValueRef);
     void focusWebView(JSValueRef);
+
+    void setTextInChromeInputField(JSStringRef text, JSValueRef callback);
+    void selectChromeInputField(JSValueRef callback);
+    void getSelectedTextInChromeInputField(JSValueRef callback);
+
     void setBackingScaleFactor(double, JSValueRef);
 
     void setWindowIsKey(bool);
@@ -285,7 +271,11 @@ public:
     void callFocusWebViewCallback();
     void callSetBackingScaleFactorCallback();
 
-    void overridePreference(JSStringRef preference, JSStringRef value);
+    void callSetTextInChromeInputFieldCallback();
+    void callSelectChromeInputFieldCallback();
+    void callGetSelectedTextInChromeInputFieldCallback(JSStringRef);
+
+    static void overridePreference(JSStringRef preference, JSStringRef value);
 
     // Cookies testing
     void setAlwaysAcceptCookies(bool);
@@ -294,16 +284,21 @@ public:
     // Custom full screen behavior.
     void setHasCustomFullScreenBehavior(bool value) { m_customFullScreenBehavior = value; }
     bool hasCustomFullScreenBehavior() const { return m_customFullScreenBehavior; }
+    void setEnterFullscreenForElementCallback(JSValueRef);
+    void callEnterFullscreenForElementCallback();
+    void setExitFullscreenForElementCallback(JSValueRef);
+    void callExitFullscreenForElementCallback();
 
     // Web notifications.
     static void grantWebNotificationPermission(JSStringRef origin);
     static void denyWebNotificationPermission(JSStringRef origin);
     static void removeAllWebNotificationPermissions();
     static void simulateWebNotificationClick(JSValueRef notification);
+    static void simulateWebNotificationClickForServiceWorkerNotifications();
 
     // Geolocation.
     void setGeolocationPermission(bool);
-    void setMockGeolocationPosition(double latitude, double longitude, double accuracy, JSValueRef altitude, JSValueRef altitudeAccuracy, JSValueRef heading, JSValueRef speed, JSValueRef floorLevel);
+    void setMockGeolocationPosition(double latitude, double longitude, double accuracy, std::optional<double> altitude, std::optional<double> altitudeAccuracy, std::optional<double> heading, std::optional<double> speed, std::optional<double> floorLevel);
     void setMockGeolocationPositionUnavailableError(JSStringRef message);
     bool isGeolocationProviderActive();
 
@@ -334,8 +329,8 @@ public:
     bool secureEventInputIsEnabled() const;
 
     JSValueRef failNextNewCodeBlock();
-    JSValueRef numberOfDFGCompiles(JSValueRef theFunction);
-    JSValueRef neverInlineFunction(JSValueRef theFunction);
+    JSValueRef numberOfDFGCompiles(JSValueRef function);
+    JSValueRef neverInlineFunction(JSValueRef function);
 
     bool shouldDecideNavigationPolicyAfterDelay() const { return m_shouldDecideNavigationPolicyAfterDelay; }
     void setShouldDecideNavigationPolicyAfterDelay(bool);
@@ -345,6 +340,7 @@ public:
     void setIgnoresViewportScaleLimits(bool);
     void setShouldDownloadUndisplayableMIMETypes(bool);
     void setShouldAllowDeviceOrientationAndMotionAccess(bool);
+    void stopLoading();
 
     bool didCancelClientRedirect() const { return m_didCancelClientRedirect; }
     void setDidCancelClientRedirect(bool value) { m_didCancelClientRedirect = value; }
@@ -387,15 +383,12 @@ public:
     bool isStatisticsEphemeral();
     void installStatisticsDidModifyDataRecordsCallback(JSValueRef callback);
     void installStatisticsDidScanDataRecordsCallback(JSValueRef callback);
-    void installStatisticsDidRunTelemetryCallback(JSValueRef callback);
     void statisticsDidModifyDataRecordsCallback();
     void statisticsDidScanDataRecordsCallback();
-    void statisticsDidRunTelemetryCallback(unsigned numberOfPrevalentResources, unsigned numberOfPrevalentResourcesWithUserInteraction, unsigned numberOfPrevalentResourcesWithoutUserInteraction, unsigned topPrevalentResourceWithUserInteractionDaysSinceUserInteraction, unsigned medianDaysSinceUserInteractionPrevalentResourceWithUserInteraction, unsigned top3NumberOfPrevalentResourcesWithUI, unsigned top3MedianSubFrameWithoutUI, unsigned top3MedianSubResourceWithoutUI, unsigned top3MedianUniqueRedirectsWithoutUI, unsigned top3MedianDataRecordsRemovedWithoutUI);
     bool statisticsNotifyObserver();
     void statisticsProcessStatisticsAndDataRecords();
     void statisticsUpdateCookieBlocking(JSValueRef completionHandler);
     void statisticsCallDidSetBlockCookiesForHostCallback();
-    void statisticsSubmitTelemetry();
     void setStatisticsDebugMode(bool value, JSValueRef completionHandler);
     void statisticsCallDidSetDebugModeCallback();
     void setStatisticsPrevalentResourceForDebugMode(JSStringRef hostName, JSValueRef completionHandler);
@@ -404,7 +397,7 @@ public:
     void statisticsCallDidSetLastSeenCallback();
     void setStatisticsMergeStatistic(JSStringRef hostName, JSStringRef topFrameDomain1, JSStringRef topFrameDomain2, double lastSeen, bool hadUserInteraction, double mostRecentUserInteraction, bool isGrandfathered, bool isPrevalent, bool isVeryPrevalent, unsigned dataRecordsRemoved, JSValueRef completionHandler);
     void statisticsCallDidSetMergeStatisticCallback();
-    void setStatisticsExpiredStatistic(JSStringRef hostName, bool hadUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool isPrevalent, JSValueRef completionHandler);
+    void setStatisticsExpiredStatistic(JSStringRef hostName, unsigned numberOfOperatingDaysPassed, bool hadUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool isPrevalent, JSValueRef completionHandler);
     void statisticsCallDidSetExpiredStatisticCallback();
     void setStatisticsPrevalentResource(JSStringRef hostName, bool value, JSValueRef completionHandler);
     void statisticsCallDidSetPrevalentResourceCallback();
@@ -421,7 +414,6 @@ public:
     bool isStatisticsOnlyInDatabaseOnce(JSStringRef subHost, JSStringRef topHost);
     void setStatisticsGrandfathered(JSStringRef hostName, bool value);
     bool isStatisticsGrandfathered(JSStringRef hostName);
-    void setUseITPDatabase(bool value);
     void setStatisticsSubframeUnderTopFrameOrigin(JSStringRef hostName, JSStringRef topFrameHostName);
     void setStatisticsSubresourceUnderTopFrameOrigin(JSStringRef hostName, JSStringRef topFrameHostName);
     void setStatisticsSubresourceUniqueRedirectTo(JSStringRef hostName, JSStringRef hostNameRedirectedTo);
@@ -460,8 +452,8 @@ public:
     void statisticsCallDidSetThirdPartyCNAMEDomainCallback();
     void statisticsResetToConsistentState(JSValueRef completionHandler);
     void statisticsCallDidResetToConsistentStateCallback();
-    void loadedThirdPartyDomains(JSValueRef callback);
-    void callDidReceiveLoadedThirdPartyDomainsCallback(Vector<String>&& domains);
+    void loadedSubresourceDomains(JSValueRef callback);
+    void callDidReceiveLoadedSubresourceDomainsCallback(Vector<String>&& domains);
 
     // Injected bundle form client.
     void installTextDidChangeInTextFieldCallback(JSValueRef callback);
@@ -483,6 +475,7 @@ public:
     void setShouldDismissJavaScriptAlertsAsynchronously(bool);
     void abortModal();
 
+    void terminateGPUProcess();
     void terminateNetworkProcess();
     void terminateServiceWorkers();
     void setUseSeparateServiceWorkerProcess(bool);
@@ -506,11 +499,15 @@ public:
     void resetMockMediaDevices();
     void setMockCameraOrientation(unsigned);
     bool isMockRealtimeMediaSourceCenterEnabled();
+    void setMockCameraIsInterrupted(bool);
 
     bool hasAppBoundSession();
     void clearAppBoundSession();
     void setAppBoundDomains(JSValueRef originArray, JSValueRef callback);
     void didSetAppBoundDomainsCallback();
+
+    bool didLoadAppInitiatedRequest();
+    bool didLoadNonAppInitiatedRequest();
 
     size_t userScriptInjectedCount() const;
     void injectUserScript(JSStringRef);
@@ -526,15 +523,27 @@ public:
 
     unsigned long serverTrustEvaluationCallbackCallsCount();
 
-    // Ad Click Attribution.
-    void dumpAdClickAttribution();
-    void clearAdClickAttribution();
-    void clearAdClickAttributionsThroughWebsiteDataRemoval();
-    void setAdClickAttributionOverrideTimerForTesting(bool value);
-    void setAdClickAttributionConversionURLForTesting(JSStringRef);
-    void markAdClickAttributionsAsExpiredForTesting();
+    // Private Click Measurement.
+    void dumpPrivateClickMeasurement();
+    void clearPrivateClickMeasurement();
+    void clearPrivateClickMeasurementsThroughWebsiteDataRemoval();
+    void setPrivateClickMeasurementOverrideTimerForTesting(bool value);
+    void setPrivateClickMeasurementTokenPublicKeyURLForTesting(JSStringRef);
+    void setPrivateClickMeasurementTokenSignatureURLForTesting(JSStringRef);
+    void setPrivateClickMeasurementAttributionReportURLsForTesting(JSStringRef sourceURL, JSStringRef destinationURL);
+    void markPrivateClickMeasurementsAsExpiredForTesting();
+    void markAttributedPrivateClickMeasurementsAsExpiredForTesting();
+    void setPrivateClickMeasurementEphemeralMeasurementForTesting(bool value);
+    void setPrivateClickMeasurementFraudPreventionValuesForTesting(JSStringRef unlinkableToken, JSStringRef secretToken, JSStringRef signature, JSStringRef keyID);
+    void setPrivateClickMeasurementAppBundleIDForTesting(JSStringRef);
+    void simulatePrivateClickMeasurementSessionRestart();
 
-    void setOffscreenCanvasEnabled(bool);
+    void setIsSpeechRecognitionPermissionGranted(bool);
+
+    void setIsMediaKeySystemPermissionGranted(bool);
+
+    void takeViewPortSnapshot(JSValueRef callback);
+    void viewPortSnapshotTaken(WKStringRef);
 
 private:
     TestRunner();
@@ -563,7 +572,6 @@ private:
     bool m_shouldDumpAllFrameScrollPositions { false };
     bool m_shouldDumpBackForwardListsForAllWindows { false };
     bool m_shouldAllowEditing { true };
-    bool m_shouldCloseExtraWindows { false };
 
     bool m_dumpEditingCallbacks { false };
     bool m_dumpStatusCallbacks { false };
@@ -582,6 +590,7 @@ private:
     bool m_disallowIncreaseForApplicationCacheQuota { false };
     bool m_testRepaint { false };
     bool m_testRepaintSweepHorizontally { false };
+    bool m_displayOnLoadFinish { false };
     bool m_isPrinting { false };
     bool m_willSendRequestReturnsNull { false };
     bool m_willSendRequestReturnsNullOnRedirect { false };
@@ -603,6 +612,7 @@ private:
     bool m_hasSetDowngradeReferrerCallback { false };
     bool m_hasSetBlockThirdPartyCookiesCallback { false };
     bool m_hasSetFirstPartyWebsiteDataRemovalModeCallback { false };
+    bool m_takeViewPortSnapshot { false };
 };
 
 } // namespace WTR

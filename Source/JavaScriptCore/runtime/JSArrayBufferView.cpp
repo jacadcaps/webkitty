@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ const ClassInfo JSArrayBufferView::s_info = {
 };
 
 JSArrayBufferView::ConstructionContext::ConstructionContext(
-    Structure* structure, uint32_t length, void* vector)
+    Structure* structure, size_t length, void* vector)
     : m_structure(structure)
     , m_vector(vector, length)
     , m_length(length)
@@ -54,7 +54,7 @@ JSArrayBufferView::ConstructionContext::ConstructionContext(
 }
 
 JSArrayBufferView::ConstructionContext::ConstructionContext(
-    VM& vm, Structure* structure, uint32_t length, uint32_t elementSize,
+    VM& vm, Structure* structure, size_t length, unsigned elementSize,
     InitializationMode mode)
     : m_structure(nullptr)
     , m_length(length)
@@ -64,7 +64,7 @@ JSArrayBufferView::ConstructionContext::ConstructionContext(
         // Attempt GC allocation.
         void* temp;
         size_t size = sizeOf(length, elementSize);
-        temp = vm.primitiveGigacageAuxiliarySpace.allocateNonVirtual(vm, size, nullptr, AllocationFailureMode::ReturnNull);
+        temp = vm.primitiveGigacageAuxiliarySpace().allocate(vm, size, nullptr, AllocationFailureMode::ReturnNull);
         if (!temp)
             return;
 
@@ -81,18 +81,18 @@ JSArrayBufferView::ConstructionContext::ConstructionContext(
         return;
     }
 
-    // Don't allow a typed array to use more than 2GB.
-    if (length > static_cast<unsigned>(INT_MAX) / elementSize)
+    CheckedSize size = length;
+    size *= elementSize;
+    if (size.hasOverflowed() || size > MAX_ARRAY_BUFFER_SIZE)
         return;
-    
-    size_t size = static_cast<size_t>(length) * static_cast<size_t>(elementSize);
-    m_vector = VectorType(Gigacage::tryMalloc(Gigacage::Primitive, size), length);
+
+    m_vector = VectorType(Gigacage::tryMalloc(Gigacage::Primitive, size.value()), length);
     if (!m_vector)
         return;
     if (mode == ZeroFill)
         memset(vector(), 0, size);
     
-    vm.heap.reportExtraMemoryAllocated(static_cast<size_t>(length) * elementSize);
+    vm.heap.reportExtraMemoryAllocated(size.value());
     
     m_structure = structure;
     m_mode = OversizeTypedArray;
@@ -100,7 +100,7 @@ JSArrayBufferView::ConstructionContext::ConstructionContext(
 
 JSArrayBufferView::ConstructionContext::ConstructionContext(
     VM& vm, Structure* structure, RefPtr<ArrayBuffer>&& arrayBuffer,
-    unsigned byteOffset, unsigned length)
+    size_t byteOffset, size_t length)
     : m_structure(structure)
     , m_length(length)
     , m_mode(WastefulTypedArray)
@@ -114,7 +114,7 @@ JSArrayBufferView::ConstructionContext::ConstructionContext(
 
 JSArrayBufferView::ConstructionContext::ConstructionContext(
     Structure* structure, RefPtr<ArrayBuffer>&& arrayBuffer,
-    unsigned byteOffset, unsigned length, DataViewTag)
+    size_t byteOffset, size_t length, DataViewTag)
     : m_structure(structure)
     , m_length(length)
     , m_mode(DataViewMode)
@@ -155,7 +155,8 @@ void JSArrayBufferView::finishCreation(VM& vm)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-void JSArrayBufferView::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSArrayBufferView::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     JSArrayBufferView* thisObject = jsCast<JSArrayBufferView*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
@@ -169,17 +170,7 @@ void JSArrayBufferView::visitChildren(JSCell* cell, SlotVisitor& visitor)
     }
 }
 
-bool JSArrayBufferView::put(
-    JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, JSValue value,
-    PutPropertySlot& slot)
-{
-    JSArrayBufferView* thisObject = jsCast<JSArrayBufferView*>(cell);
-
-    if (UNLIKELY(isThisValueAltered(slot, thisObject)))
-        return ordinarySetSlow(globalObject, thisObject, propertyName, value, slot.thisValue(), slot.isStrictMode());
-    
-    return Base::put(thisObject, globalObject, propertyName, value, slot);
-}
+DEFINE_VISIT_CHILDREN(JSArrayBufferView);
 
 ArrayBuffer* JSArrayBufferView::unsharedBuffer()
 {
@@ -220,9 +211,9 @@ JSArrayBuffer* JSArrayBufferView::possiblySharedJSBuffer(JSGlobalObject* globalO
     return nullptr;
 }
 
-void JSArrayBufferView::neuter()
+void JSArrayBufferView::detach()
 {
-    auto locker = holdLock(cellLock());
+    Locker locker { cellLock() };
     RELEASE_ASSERT(hasArrayBuffer());
     RELEASE_ASSERT(!isShared());
     m_length = 0;
@@ -233,6 +224,7 @@ static const constexpr size_t ElementSizeData[] = {
 #define FACTORY(type) sizeof(typename type ## Adaptor::Type),
     FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(FACTORY)
 #undef FACTORY
+    1, // DataViewType
 };
 
 #define FACTORY(type) static_assert(std::is_final<JS ## type ## Array>::value, "");
@@ -241,8 +233,21 @@ FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(FACTORY)
 
 static inline size_t elementSize(JSType type)
 {
-    ASSERT(type >= Int8ArrayType && type <= Float64ArrayType);
+    ASSERT(type >= Int8ArrayType && type <= DataViewType);
+    static_assert(BigUint64ArrayType + 1 == DataViewType);
     return ElementSizeData[type - Int8ArrayType];
+}
+
+size_t JSArrayBufferView::byteLength() const
+{
+#if ASSERT_ENABLED
+    Checked<size_t> result = length();
+    result *= elementSize(type());
+    return result.value();
+#else
+    // The absence of overflow is already checked in the constructor, so I only add the extra sanity check when asserts are enabled.
+    return length() * elementSize(type());
+#endif
 }
 
 ArrayBuffer* JSArrayBufferView::slowDownAndWasteMemory()
@@ -263,13 +268,13 @@ ArrayBuffer* JSArrayBufferView::slowDownAndWasteMemory()
     // that you *had* done those allocations and it will GC appropriately.
     Heap* heap = Heap::heap(this);
     VM& vm = heap->vm();
-    DeferGCForAWhile deferGC(*heap);
+    DeferGCForAWhile deferGC(vm);
 
     RELEASE_ASSERT(!hasIndexingHeader(vm));
     Structure* structure = this->structure(vm);
 
     RefPtr<ArrayBuffer> buffer;
-    unsigned byteLength = m_length * elementSize(type());
+    size_t byteLength = this->byteLength();
 
     switch (m_mode) {
     case FastTypedArray: {
@@ -299,7 +304,7 @@ ArrayBuffer* JSArrayBufferView::slowDownAndWasteMemory()
         structure->outOfLineCapacity(), false, 0, 0));
 
     {
-        auto locker = holdLock(cellLock());
+        Locker locker { cellLock() };
         butterfly()->indexingHeader()->setArrayBuffer(buffer.get());
         m_vector.setWithoutBarrier(buffer->data(), m_length);
         WTF::storeStoreFence();
@@ -317,8 +322,8 @@ RefPtr<ArrayBufferView> JSArrayBufferView::possiblySharedImpl()
     ArrayBuffer* buffer = possiblySharedBuffer();
     if (!buffer)
         return nullptr;
-    unsigned byteOffset = this->byteOffset();
-    unsigned length = this->length();
+    size_t byteOffset = this->byteOffset();
+    size_t length = this->length();
     switch (type()) {
 #define FACTORY(type) \
     case type ## ArrayType: \
@@ -331,6 +336,30 @@ RefPtr<ArrayBufferView> JSArrayBufferView::possiblySharedImpl()
         RELEASE_ASSERT_NOT_REACHED();
         return nullptr;
     }
+}
+
+JSArrayBufferView* validateTypedArray(JSGlobalObject* globalObject, JSValue typedArrayValue)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!typedArrayValue.isCell()) {
+        throwTypeError(globalObject, scope, "Argument needs to be a typed array."_s);
+        return nullptr;
+    }
+
+    JSCell* typedArrayCell = typedArrayValue.asCell();
+    if (!isTypedView(typedArrayCell->classInfo(vm)->typedArrayStorageType)) {
+        throwTypeError(globalObject, scope, "Argument needs to be a typed array."_s);
+        return nullptr;
+    }
+
+    JSArrayBufferView* typedArray = jsCast<JSArrayBufferView*>(typedArrayCell);
+    if (typedArray->isDetached()) {
+        throwTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
+        return nullptr;
+    }
+    return typedArray;
 }
 
 } // namespace JSC

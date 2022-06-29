@@ -35,27 +35,16 @@ void Convert(const webrtc::NetEqNetworkStatistics& stats_raw,
   stats->set_current_buffer_size_ms(stats_raw.current_buffer_size_ms);
   stats->set_preferred_buffer_size_ms(stats_raw.preferred_buffer_size_ms);
   stats->set_jitter_peaks_found(stats_raw.jitter_peaks_found);
-  stats->set_packet_loss_rate(stats_raw.packet_loss_rate);
   stats->set_expand_rate(stats_raw.expand_rate);
   stats->set_speech_expand_rate(stats_raw.speech_expand_rate);
   stats->set_preemptive_rate(stats_raw.preemptive_rate);
   stats->set_accelerate_rate(stats_raw.accelerate_rate);
   stats->set_secondary_decoded_rate(stats_raw.secondary_decoded_rate);
   stats->set_secondary_discarded_rate(stats_raw.secondary_discarded_rate);
-  stats->set_added_zero_samples(stats_raw.added_zero_samples);
   stats->set_mean_waiting_time_ms(stats_raw.mean_waiting_time_ms);
   stats->set_median_waiting_time_ms(stats_raw.median_waiting_time_ms);
   stats->set_min_waiting_time_ms(stats_raw.min_waiting_time_ms);
   stats->set_max_waiting_time_ms(stats_raw.max_waiting_time_ms);
-}
-
-void Convert(const webrtc::RtcpStatistics& stats_raw,
-             webrtc::neteq_unittest::RtcpStatistics* stats) {
-  stats->set_fraction_lost(stats_raw.fraction_lost);
-  stats->set_cumulative_lost(stats_raw.packets_lost);
-  stats->set_extended_max_sequence_number(
-      stats_raw.extended_highest_sequence_number);
-  stats->set_jitter(stats_raw.jitter);
 }
 
 void AddMessage(FILE* file,
@@ -91,19 +80,6 @@ ResultSink::~ResultSink() {
 void ResultSink::AddResult(const NetEqNetworkStatistics& stats_raw) {
 #ifdef WEBRTC_NETEQ_UNITTEST_BITEXACT
   neteq_unittest::NetEqNetworkStatistics stats;
-  Convert(stats_raw, &stats);
-
-  std::string stats_string;
-  ASSERT_TRUE(stats.SerializeToString(&stats_string));
-  AddMessage(output_fp_, digest_.get(), stats_string);
-#else
-  FAIL() << "Writing to reference file requires Proto Buffer.";
-#endif  // WEBRTC_NETEQ_UNITTEST_BITEXACT
-}
-
-void ResultSink::AddResult(const RtcpStatistics& stats_raw) {
-#ifdef WEBRTC_NETEQ_UNITTEST_BITEXACT
-  neteq_unittest::RtcpStatistics stats;
   Convert(stats_raw, &stats);
 
   std::string stats_string;

@@ -13,10 +13,17 @@
 
 #include <vector>
 
+#include "api/sequence_checker.h"
+#include "api/video/recordable_encoded_frame.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_sink_interface.h"
+#include "api/video/video_source_interface.h"
 #include "media/base/video_broadcaster.h"
 #include "pc/video_track_source.h"
-#include "rtc_base/callback.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -67,12 +74,12 @@ class VideoRtpTrackSource : public VideoTrackSource {
       rtc::VideoSinkInterface<RecordableEncodedFrame>* sink) override;
 
  private:
-  SequenceChecker worker_sequence_checker_;
-  // |broadcaster_| is needed since the decoder can only handle one sink.
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker worker_sequence_checker_;
+  // `broadcaster_` is needed since the decoder can only handle one sink.
   // It might be better if the decoder can handle multiple sinks and consider
   // the VideoSinkWants.
   rtc::VideoBroadcaster broadcaster_;
-  rtc::CriticalSection mu_;
+  mutable Mutex mu_;
   std::vector<rtc::VideoSinkInterface<RecordableEncodedFrame>*> encoded_sinks_
       RTC_GUARDED_BY(mu_);
   Callback* callback_ RTC_GUARDED_BY(worker_sequence_checker_);

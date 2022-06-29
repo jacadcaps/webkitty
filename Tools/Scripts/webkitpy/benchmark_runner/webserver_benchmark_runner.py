@@ -1,12 +1,11 @@
-#!/usr/bin/env python
-
 import json
 import logging
 import sys
 
+from webkitcorepy import Timeout
+
 from webkitpy.benchmark_runner.benchmark_runner import BenchmarkRunner
 from webkitpy.benchmark_runner.http_server_driver.http_server_driver_factory import HTTPServerDriverFactory
-from webkitpy.common.timeout_context import Timeout
 
 if sys.version_info > (3, 0):
     from urllib.parse import urljoin
@@ -30,7 +29,6 @@ class WebServerBenchmarkRunner(BenchmarkRunner):
         return result
 
     def _run_one_test(self, web_root, test_file):
-        result = None
         try:
             self._http_server_driver.serve(web_root)
             url = urljoin(self._http_server_driver.base_url(), self._plan_name + '/' + test_file)

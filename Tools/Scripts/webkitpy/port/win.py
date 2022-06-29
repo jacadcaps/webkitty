@@ -103,18 +103,14 @@ class WinPort(ApplePort):
             self._os_version = self.host.platform.os_version
 
     def do_text_results_differ(self, expected_text, actual_text):
-        # Sanity was restored in WK2, so we don't need this hack there.
-        if self.get_option('webkit_test_runner'):
-            return ApplePort.do_text_results_differ(self, expected_text, actual_text)
-
-        # This is a hack (which dates back to ORWT).
-        # Windows does not have an EDITING DELEGATE, so we strip any EDITING DELEGATE
-        # messages to make more of the tests pass.
-        # It's possible more of the ports might want this and this could move down into WebKitPort.
-        delegate_regexp = re.compile("^EDITING DELEGATE: .*?\n", re.MULTILINE)
-        expected_text = delegate_regexp.sub("", expected_text)
-        actual_text = delegate_regexp.sub("", actual_text)
-        return expected_text != actual_text
+        # Sanity was restored in WebKitTestRunner, so we don't need this hack there.
+        if not self.get_option('webkit_test_runner'):
+            # Windows does not have an EDITING DELEGATE, so strip those messages to make more tests pass.
+            # It's possible other ports might want this, and if so, this could move down into WebKitPort.
+            delegate_regexp = re.compile("^EDITING DELEGATE: .*?\n", re.MULTILINE)
+            expected_text = delegate_regexp.sub("", expected_text)
+            actual_text = delegate_regexp.sub("", actual_text)
+        return ApplePort.do_text_results_differ(self, expected_text, actual_text)
 
     def default_baseline_search_path(self, **kwargs):
         version_name_map = VersionNameMap.map(self.host.platform)
@@ -146,7 +142,13 @@ class WinPort(ApplePort):
 
     def environment_for_api_tests(self):
         env = super(WinPort, self).environment_for_api_tests()
-        for variable in ['SYSTEMROOT', 'WEBKIT_LIBRARIES']:
+        variables_to_copy = [
+            'SYSTEMROOT',
+            'TEMP',
+            'TMP',
+            'WEBKIT_LIBRARIES',
+        ]
+        for variable in variables_to_copy:
             self._copy_value_from_environ_if_set(env, variable)
         return env
 
@@ -287,7 +289,7 @@ class WinPort(ApplePort):
                     _log.debug("Key doesn't exist -- must create it.")
                     registry_key = _winreg.CreateKeyEx(root, reg_path, 0, _winreg.KEY_WRITE)
                 except WindowsError as ex:
-                    _log.error("Error setting (%s) %s\key: %s to value: %s.  Error=%s." % (arch, root, key, value, str(ex)))
+                    _log.error(r"Error setting (%s) %s\key: %s to value: %s.  Error=%s." % (arch, root, key, value, str(ex)))
                     _log.error("You many need to adjust permissions on the %s\\%s key." % (reg_path, key))
                     return False
 
@@ -306,7 +308,7 @@ class WinPort(ApplePort):
                 if rc == 0:
                     rc = self._executive.run_command(set_reg_value_command, return_exit_code=True)
             if rc:
-                _log.warn("Error setting (%s) %s\key: %s to value: %s.  Error=%s." % (arch, root, key, value, str(rc)))
+                _log.warn(r"Error setting (%s) %s\key: %s to value: %s.  Error=%s." % (arch, root, key, value, str(rc)))
                 _log.warn("You many need to adjust permissions on the %s key." % registry_key)
                 return False
 
@@ -328,7 +330,7 @@ class WinPort(ApplePort):
             os.environ['_NT_SYMBOL_PATH'] = 'SRV*http://msdl.microsoft.com/download/symbols'
 
         # Add build path to symbol path
-        os.environ['_NT_SYMBOL_PATH'] += ";" + self._build_path()
+        os.environ['_NT_SYMBOL_PATH'] += ";" + str(self._build_path())
 
         ntsd_path = self._ntsd_location()
         if not ntsd_path:
@@ -374,7 +376,8 @@ class WinPort(ApplePort):
             self.write_registry_value(self.WOW64_WINDOWS_ERROR_REPORTING_KEY, key[0], key[1], key[2], value[1], value[0])
 
     def delete_sem_locks(self):
-        os.system("rm -rf /dev/shm/sem.*")
+        if self.is_cygwin():
+            os.system("rm -rf /dev/shm/sem.*")
 
     def delete_preference_files(self):
         try:

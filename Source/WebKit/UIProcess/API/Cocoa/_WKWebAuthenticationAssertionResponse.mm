@@ -27,6 +27,7 @@
 #import "_WKWebAuthenticationAssertionResponseInternal.h"
 
 #import "WKNSData.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation _WKWebAuthenticationAssertionResponse
 
@@ -34,6 +35,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKWebAuthenticationAssertionResponse.class, self))
+        return;
+
     _response->~WebAuthenticationAssertionResponse();
 
     [super dealloc];
@@ -54,6 +58,31 @@
     return wrapper(_response->userHandle());
 }
 
+- (BOOL)synchronizable
+{
+    return _response->synchronizable();
+}
+
+- (NSString *)group
+{
+    return _response->group();
+}
+
+- (NSData *)credentialID
+{
+    return wrapper(_response->credentialID());
+}
+
+#endif // ENABLE(WEB_AUTHN)
+
+- (void)setLAContext:(LAContext *)context
+{
+#if ENABLE(WEB_AUTHN)
+    _response->setLAContext(context);
+#endif
+}
+
+#if ENABLE(WEB_AUTHN)
 #pragma mark WKObject protocol implementation
 
 - (API::Object&)_apiObject

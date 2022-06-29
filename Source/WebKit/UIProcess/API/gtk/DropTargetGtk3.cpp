@@ -56,25 +56,23 @@ DropTarget::DropTarget(GtkWidget* webView)
         static_cast<GdkDragAction>(GDK_ACTION_COPY | GDK_ACTION_MOVE | GDK_ACTION_LINK));
     gtk_drag_dest_set_target_list(m_webView, list.get());
 
-    g_signal_connect(m_webView, "drag-motion", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, guint time, gpointer userData) -> gboolean {
+    g_signal_connect_after(m_webView, "drag-motion", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, guint time, gpointer userData) -> gboolean {
         auto& drop = *static_cast<DropTarget*>(userData);
-        if (!drop.m_drop) {
-            drop.m_drop = context;
-            drop.m_position = IntPoint(x, y);
-            drop.accept(time);
+        if (drop.m_drop != context) {
+            drop.accept(context, IntPoint(x, y), time);
         } else if (drop.m_drop == context)
             drop.update({ x, y }, time);
         return TRUE;
     }), this);
 
-    g_signal_connect(m_webView, "drag-leave", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, guint time, gpointer userData) {
+    g_signal_connect_after(m_webView, "drag-leave", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, guint time, gpointer userData) {
         auto& drop = *static_cast<DropTarget*>(userData);
         if (drop.m_drop != context)
             return;
         drop.leave();
     }), this);
 
-    g_signal_connect(m_webView, "drag-drop", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, guint time, gpointer userData) -> gboolean {
+    g_signal_connect_after(m_webView, "drag-drop", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, guint time, gpointer userData) -> gboolean {
         auto& drop = *static_cast<DropTarget*>(userData);
         if (drop.m_drop != context) {
             gtk_drag_finish(context, FALSE, FALSE, time);
@@ -84,7 +82,7 @@ DropTarget::DropTarget(GtkWidget* webView)
         return TRUE;
     }), this);
 
-    g_signal_connect(m_webView, "drag-data-received", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, GtkSelectionData* data, guint info, guint time, gpointer userData) {
+    g_signal_connect_after(m_webView, "drag-data-received", G_CALLBACK(+[](GtkWidget*, GdkDragContext* context, gint x, gint y, GtkSelectionData* data, guint info, guint time, gpointer userData) {
         auto& drop = *static_cast<DropTarget*>(userData);
         if (drop.m_drop != context)
             return;
@@ -97,15 +95,17 @@ DropTarget::~DropTarget()
     g_signal_handlers_disconnect_by_data(m_webView, this);
 }
 
-void DropTarget::accept(unsigned time)
+void DropTarget::accept(GdkDragContext* drop, std::optional<WebCore::IntPoint> position, unsigned time)
 {
     if (m_leaveTimer.isActive()) {
         m_leaveTimer.stop();
         leaveTimerFired();
     }
 
+    m_drop = drop;
+    m_position = position;
     m_dataRequestCount = 0;
-    m_selectionData = WTF::nullopt;
+    m_selectionData = std::nullopt;
 
     // WebCore needs the selection data to decide, so we need to preload the
     // data of targets we support. Once all data requests are done we start
@@ -177,7 +177,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::Markup: {
         gint length;
         const auto* markupData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length) {
+        if (length > 0) {
             // If data starts with UTF-16 BOM assume it's UTF-16, otherwise assume UTF-8.
             if (length >= 2 && reinterpret_cast<const UChar*>(markupData)[0] == 0xFEFF)
                 m_selectionData->setMarkup(String(reinterpret_cast<const UChar*>(markupData) + 1, (length / 2) - 1));
@@ -189,14 +189,14 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::URIList: {
         gint length;
         const auto* uriListData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length)
+        if (length > 0)
             m_selectionData->setURIList(String::fromUTF8(uriListData, length));
         break;
     }
     case DropTargetType::NetscapeURL: {
         gint length;
         const auto* urlData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length) {
+        if (length > 0) {
             Vector<String> tokens = String::fromUTF8(urlData, length).split('\n');
             URL url({ }, tokens[0]);
             if (url.isValid())
@@ -210,7 +210,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     case DropTargetType::Custom: {
         int length;
         const auto* customData = gtk_selection_data_get_data_with_length(data, &length);
-        if (length)
+        if (length > 0)
             m_selectionData->setCustomData(SharedBuffer::create(customData, static_cast<size_t>(length)));
         break;
     }
@@ -230,11 +230,8 @@ void DropTarget::didPerformAction()
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
 
-    auto operation = page->currentDragOperation();
-    if (operation == m_operation)
-        return;
+    m_operation = page->currentDragOperation();
 
-    m_operation = operation;
     gdk_drag_status(m_drop.get(), dragOperationToSingleGdkDragAction(m_operation), GDK_CURRENT_TIME);
 }
 
@@ -249,8 +246,8 @@ void DropTarget::leaveTimerFired()
     page->resetCurrentDragInformation();
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
 }
 
 void DropTarget::leave()
@@ -262,22 +259,26 @@ void DropTarget::leave()
 
 void DropTarget::drop(IntPoint&& position, unsigned time)
 {
+    // If we don't have data at this point, allow the leave timer to fire, ending the drop operation.
+    if (!m_selectionData)
+        return;
+
     if (m_leaveTimer.isActive())
         m_leaveTimer.stop();
 
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
 
-    uint32_t flags = 0;
+    OptionSet<DragApplicationFlags> flags;
     if (gdk_drag_context_get_selected_action(m_drop.get()) == GDK_ACTION_COPY)
-        flags |= DragApplicationIsCopyKeyDown;
-    DragData dragData(&m_selectionData.value(), position, convertWidgetPointToScreenPoint(m_webView, position), gdkDragActionToDragOperation(gdk_drag_context_get_actions(m_drop.get())), static_cast<DragApplicationFlags>(flags));
+        flags.add(DragApplicationFlags::IsCopyKeyDown);
+    DragData dragData(&m_selectionData.value(), position, convertWidgetPointToScreenPoint(m_webView, position), gdkDragActionToDragOperation(gdk_drag_context_get_actions(m_drop.get())), flags);
     page->performDragOperation(dragData, { }, { }, { });
     gtk_drag_finish(m_drop.get(), TRUE, FALSE, time);
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
 }
 
 } // namespace WebKit

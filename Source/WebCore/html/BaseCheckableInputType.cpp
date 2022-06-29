@@ -55,7 +55,7 @@ void BaseCheckableInputType::restoreFormControlState(const FormControlState& sta
     element()->setChecked(state[0] == "on");
 }
 
-bool BaseCheckableInputType::appendFormData(DOMFormData& formData, bool) const
+bool BaseCheckableInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
     if (!element()->checked())
@@ -114,11 +114,6 @@ void BaseCheckableInputType::setValue(const String& sanitizedValue, bool, TextFi
     element()->setAttributeWithoutSynchronization(valueAttr, sanitizedValue);
 }
 
-bool BaseCheckableInputType::isCheckable()
-{
-    return true;
-}
-
 void BaseCheckableInputType::fireInputAndChangeEvents()
 {
     if (!element()->isConnected())
@@ -127,7 +122,7 @@ void BaseCheckableInputType::fireInputAndChangeEvents()
     if (!shouldSendChangeEventAfterCheckedChanged())
         return;
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
     element()->setTextAsOfLastFormControlChangeEvent(String());
     element()->dispatchInputEvent();
     if (auto* element = this->element())

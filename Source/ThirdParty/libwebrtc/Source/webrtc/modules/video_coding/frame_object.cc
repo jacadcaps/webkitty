@@ -17,10 +17,8 @@
 #include "api/video/encoded_image.h"
 #include "api/video/video_timing.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/critical_section.h"
 
 namespace webrtc {
-namespace video_coding {
 RtpFrameObject::RtpFrameObject(
     uint16_t first_seq_num,
     uint16_t last_seq_num,
@@ -39,7 +37,8 @@ RtpFrameObject::RtpFrameObject(
     const absl::optional<webrtc::ColorSpace>& color_space,
     RtpPacketInfos packet_infos,
     rtc::scoped_refptr<EncodedImageBuffer> image_buffer)
-    : first_seq_num_(first_seq_num),
+    : image_buffer_(image_buffer),
+      first_seq_num_(first_seq_num),
       last_seq_num_(last_seq_num),
       last_packet_received_time_(last_packet_received_time),
       times_nacked_(times_nacked) {
@@ -51,7 +50,6 @@ RtpFrameObject::RtpFrameObject(
   // TODO(philipel): Remove when encoded image is replaced by EncodedFrame.
   // VCMEncodedFrame members
   CopyCodecSpecific(&rtp_video_header_);
-  _completeFrame = true;
   _payloadType = payload_type;
   SetTimestamp(rtp_timestamp);
   ntp_time_ms_ = ntp_time_ms;
@@ -61,7 +59,7 @@ RtpFrameObject::RtpFrameObject(
   // as of the first packet's.
   SetPlayoutDelay(rtp_video_header_.playout_delay);
 
-  SetEncodedData(std::move(image_buffer));
+  SetEncodedData(image_buffer_);
   _encodedWidth = rtp_video_header_.width;
   _encodedHeight = rtp_video_header_.height;
 
@@ -70,6 +68,7 @@ RtpFrameObject::RtpFrameObject(
 
   rotation_ = rotation;
   SetColorSpace(color_space);
+  SetVideoFrameTrackingId(rtp_video_header_.video_frame_tracking_id);
   content_type_ = content_type;
   if (timing.flags != VideoSendTiming::kInvalid) {
     // ntp_time_ms_ may be -1 if not estimated yet. This is not a problem,
@@ -89,43 +88,6 @@ RtpFrameObject::RtpFrameObject(
   timing_.flags = timing.flags;
   is_last_spatial_layer = markerBit;
 }
-
-RtpFrameObject::RtpFrameObject(
-    uint16_t first_seq_num,
-    uint16_t last_seq_num,
-    bool markerBit,
-    int times_nacked,
-    int64_t first_packet_received_time,
-    int64_t last_packet_received_time,
-    uint32_t rtp_timestamp,
-    int64_t ntp_time_ms,
-    const VideoSendTiming& timing,
-    uint8_t payload_type,
-    VideoCodecType codec,
-    VideoRotation rotation,
-    VideoContentType content_type,
-    const RTPVideoHeader& video_header,
-    const absl::optional<webrtc::ColorSpace>& color_space,
-    const absl::optional<RtpGenericFrameDescriptor>& /*generic_descriptor*/,
-    RtpPacketInfos packet_infos,
-    rtc::scoped_refptr<EncodedImageBuffer> image_buffer)
-    : RtpFrameObject(first_seq_num,
-                     last_seq_num,
-                     markerBit,
-                     times_nacked,
-                     first_packet_received_time,
-                     last_packet_received_time,
-                     rtp_timestamp,
-                     ntp_time_ms,
-                     timing,
-                     payload_type,
-                     codec,
-                     rotation,
-                     content_type,
-                     video_header,
-                     color_space,
-                     std::move(packet_infos),
-                     std::move(image_buffer)) {}
 
 RtpFrameObject::~RtpFrameObject() {
 }
@@ -166,9 +128,4 @@ const RTPVideoHeader& RtpFrameObject::GetRtpVideoHeader() const {
   return rtp_video_header_;
 }
 
-const FrameMarking& RtpFrameObject::GetFrameMarking() const {
-  return rtp_video_header_.frame_marking;
-}
-
-}  // namespace video_coding
 }  // namespace webrtc

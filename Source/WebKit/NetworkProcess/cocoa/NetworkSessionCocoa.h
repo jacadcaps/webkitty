@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,13 @@ OBJC_CLASS NSURLSessionDownloadTask;
 OBJC_CLASS NSOperationQueue;
 OBJC_CLASS WKNetworkSessionDelegate;
 OBJC_CLASS WKNetworkSessionWebSocketDelegate;
+OBJC_CLASS _NSHSTSStorage;
 
 #include "DownloadID.h"
 #include "NetworkDataTaskCocoa.h"
 #include "NetworkSession.h"
+#include "WebPageNetworkParameters.h"
+#include "WebPageProxyIdentifier.h"
 #include "WebSocketTask.h"
 #include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/RegistrableDomain.h>
@@ -48,7 +51,6 @@ namespace WebKit {
 enum class NegotiatedLegacyTLS : bool;
 class LegacyCustomProtocolManager;
 class NetworkSessionCocoa;
-using HostAndPort = std::pair<String, uint16_t>;
 
 struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper> {
     void initialize(NSURLSessionConfiguration *, NetworkSessionCocoa&, WebCore::StoredCredentialsPolicy, NavigatingToAppBoundDomain);
@@ -62,14 +64,45 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper> {
 #endif
 };
 
+struct IsolatedSession {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    SessionWrapper sessionWithCredentialStorage;
+    SessionWrapper sessionWithoutCredentialStorage;
+    WallTime lastUsed;
+};
+
+struct SessionSet : public RefCounted<SessionSet>, public CanMakeWeakPtr<SessionSet> {
+public:
+    static Ref<SessionSet> create()
+    {
+        return adoptRef(*new SessionSet);
+    }
+
+    SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+
+    SessionWrapper& isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+    HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
+
+    std::unique_ptr<IsolatedSession> appBoundSession;
+
+    SessionWrapper sessionWithCredentialStorage;
+    SessionWrapper sessionWithoutCredentialStorage;
+    SessionWrapper ephemeralStatelessSession;
+
+private:
+
+    SessionSet() = default;
+};
+
 class NetworkSessionCocoa final : public NetworkSession {
 public:
-    static std::unique_ptr<NetworkSession> create(NetworkProcess&, NetworkSessionCreationParameters&&);
+    static std::unique_ptr<NetworkSession> create(NetworkProcess&, const NetworkSessionCreationParameters&);
 
-    NetworkSessionCocoa(NetworkProcess&, NetworkSessionCreationParameters&&);
+    NetworkSessionCocoa(NetworkProcess&, const NetworkSessionCreationParameters&);
     ~NetworkSessionCocoa();
 
-    void initializeEphemeralStatelessSession(NavigatingToAppBoundDomain);
+    SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(WebPageProxyIdentifier, NavigatingToAppBoundDomain);
 
     const String& boundInterfaceIdentifier() const;
     const String& sourceApplicationBundleIdentifier() const;
@@ -79,65 +112,70 @@ public:
 #endif
 
     static bool allowsSpecificHTTPSCertificateForHost(const WebCore::AuthenticationChallenge&);
+    void setClientAuditToken(const WebCore::AuthenticationChallenge&);
 
     void continueDidReceiveChallenge(SessionWrapper&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier, NetworkDataTaskCocoa*, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&&);
 
-    SessionWrapper& sessionWrapperForDownloads() { return m_sessionWithCredentialStorage; }
+    SessionWrapper& sessionWrapperForDownloadResume() { return m_defaultSessionSet->sessionWithCredentialStorage; }
 
     bool fastServerTrustEvaluationEnabled() const { return m_fastServerTrustEvaluationEnabled; }
     bool deviceManagementRestrictionsEnabled() const { return m_deviceManagementRestrictionsEnabled; }
     bool allLoadsBlockedByDeviceManagementRestrictionsForTesting() const { return m_allLoadsBlockedByDeviceManagementRestrictionsForTesting; }
+    bool webPushDaemonUsesMockBundlesForTesting() const final { return m_webPushDaemonUsesMockBundlesForTesting; }
+
     DMFWebsitePolicyMonitor *deviceManagementPolicyMonitor();
 
     CFDictionaryRef proxyConfiguration() const { return m_proxyConfiguration.get(); }
 
-    bool hasIsolatedSession(const WebCore::RegistrableDomain) const override;
+    bool hasIsolatedSession(const WebCore::RegistrableDomain&) const override;
     void clearIsolatedSessions() override;
 
-    bool hasAppBoundSession() const override { return !!m_appBoundSession; }
-
-    SessionWrapper& sessionWrapperForTask(const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, Optional<NavigatingToAppBoundDomain>);
+#if ENABLE(APP_BOUND_DOMAINS)
+    bool hasAppBoundSession() const override;
     void clearAppBoundSession() override;
+#endif
+
+    SessionWrapper& sessionWrapperForTask(WebPageProxyIdentifier, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
     bool preventsSystemHTTPProxyAuthentication() const { return m_preventsSystemHTTPProxyAuthentication; }
     
-    void clientCertificateSuggestedForHost(NetworkDataTaskCocoa::TaskIdentifier, NSURLCredential *, const String& host, uint16_t port);
-    void taskServerConnectionSucceeded(NetworkDataTaskCocoa::TaskIdentifier);
-    void taskFailed(NetworkDataTaskCocoa::TaskIdentifier);
-    NSURLCredential *successfulClientCertificateForHost(const String& host, uint16_t port) const;
+    _NSHSTSStorage *hstsStorage() const;
+
+    void removeNetworkWebsiteData(std::optional<WallTime>, std::optional<HashSet<WebCore::RegistrableDomain>>&&, CompletionHandler<void()>&&) override;
 
 private:
     void invalidateAndCancel() override;
     void clearCredentials() override;
     bool shouldLogCookieInformation() const override { return m_shouldLogCookieInformation; }
-    Seconds loadThrottleLatency() const override { return m_loadThrottleLatency; }
-    SessionWrapper& isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain, NavigatingToAppBoundDomain);
-    SessionWrapper& appBoundSession(WebCore::StoredCredentialsPolicy);
+    SessionWrapper& isolatedSession(WebPageProxyIdentifier, WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain);
+
+#if ENABLE(APP_BOUND_DOMAINS)
+    SessionWrapper& appBoundSession(WebPageProxyIdentifier, WebCore::StoredCredentialsPolicy);
+#endif
 
     Vector<WebCore::SecurityOriginData> hostNamesWithAlternativeServices() const override;
     void deleteAlternativeServicesForHostNames(const Vector<String>&) override;
     void clearAlternativeServices(WallTime) override;
 
 #if HAVE(NSURLSESSION_WEBSOCKET)
-    std::unique_ptr<WebSocketTask> createWebSocketTask(NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol) final;
-    void addWebSocketTask(WebSocketTask&) final;
-    void removeWebSocketTask(WebSocketTask&) final;
+    std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&) final;
+    void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) final;
+    void removeWebSocketTask(SessionSet&, WebSocketTask&) final;
 #endif
 
-    struct IsolatedSession {
-        WTF_MAKE_FAST_ALLOCATED;
-    public:
-        SessionWrapper sessionWithCredentialStorage;
-        SessionWrapper sessionWithoutCredentialStorage;
-        WallTime lastUsed;
-    };
+    void requestResource(WebPageProxyIdentifier, WebCore::ResourceRequest&&, CompletionHandler<void(const IPC::DataReference&, WebCore::ResourceResponse&&, WebCore::ResourceError&&)>&&) final;
+    void addWebPageNetworkParameters(WebPageProxyIdentifier, WebPageNetworkParameters&&) final;
+    void removeWebPageNetworkParameters(WebPageProxyIdentifier) final;
+    size_t countNonDefaultSessionSets() const final;
 
-    HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> m_isolatedSessions;
-    std::unique_ptr<IsolatedSession> m_appBoundSession;
+    Ref<SessionSet> m_defaultSessionSet;
+    HashMap<WebPageProxyIdentifier, Ref<SessionSet>> m_perPageSessionSets;
+    HashMap<WebPageNetworkParameters, WeakPtr<SessionSet>> m_perParametersSessionSets;
 
-    SessionWrapper m_sessionWithCredentialStorage;
-    SessionWrapper m_sessionWithoutCredentialStorage;
-    SessionWrapper m_ephemeralStatelessSession;
-
+    void initializeNSURLSessionsInSet(SessionSet&, NSURLSessionConfiguration *);
+    SessionSet& sessionSetForPage(WebPageProxyIdentifier);
+    const SessionSet& sessionSetForPage(WebPageProxyIdentifier) const;
+    void invalidateAndCancelSessionSet(SessionSet&);
+    
     String m_boundInterfaceIdentifier;
     String m_sourceApplicationBundleIdentifier;
     String m_sourceApplicationSecondaryIdentifier;
@@ -145,19 +183,11 @@ private:
     RetainPtr<DMFWebsitePolicyMonitor> m_deviceManagementPolicyMonitor;
     bool m_deviceManagementRestrictionsEnabled { false };
     bool m_allLoadsBlockedByDeviceManagementRestrictionsForTesting { false };
+    bool m_webPushDaemonUsesMockBundlesForTesting { false };
     bool m_shouldLogCookieInformation { false };
-    Seconds m_loadThrottleLatency;
     bool m_fastServerTrustEvaluationEnabled { false };
     String m_dataConnectionServiceType;
     bool m_preventsSystemHTTPProxyAuthentication { false };
-
-    struct SuggestedClientCertificate {
-        String host;
-        uint16_t port { 0 };
-        RetainPtr<NSURLCredential> credential;
-    };
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, SuggestedClientCertificate> m_suggestedClientCertificates;
-    HashMap<HostAndPort, RetainPtr<NSURLCredential>> m_successfulClientCertificates;
 };
 
 } // namespace WebKit

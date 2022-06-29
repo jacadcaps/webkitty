@@ -34,11 +34,11 @@ std::vector<BalancedDegradationSettings::Config> DefaultConfigs() {
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0}},
-          {480 * 270,
+          {480 * 360,
            10,
            0,
            0,
-           BalancedDegradationSettings::kNoFpsDiff,
+           1,
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0},
@@ -48,7 +48,7 @@ std::vector<BalancedDegradationSettings::Config> DefaultConfigs() {
            15,
            0,
            0,
-           BalancedDegradationSettings::kNoFpsDiff,
+           1,
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0},
            {0, 0, 0, 0, 0},
@@ -93,7 +93,8 @@ bool IsValid(const BalancedDegradationSettings::CodecTypeSpecific& config1,
 
 bool IsValid(const std::vector<BalancedDegradationSettings::Config>& configs) {
   if (configs.size() <= 1) {
-    RTC_LOG(LS_WARNING) << "Unsupported size, value ignored.";
+    if (configs.size() == 1)
+      RTC_LOG(LS_WARNING) << "Unsupported size, value ignored.";
     return false;
   }
   for (const auto& config : configs) {

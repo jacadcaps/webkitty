@@ -33,13 +33,13 @@ class RenderThemeAdwaita : public RenderTheme {
 public:
     virtual ~RenderThemeAdwaita() = default;
 
-private:
-    bool canPaint(const PaintInfo&) const final { return true; }
+    void setAccentColor(const Color&);
 
+private:
     String extraDefaultStyleSheet() final;
 #if ENABLE(VIDEO)
     String extraMediaControlsStyleSheet() final;
-    String mediaControlsScript() final;
+    Vector<String, 2> mediaControlsScripts() final;
 #endif
 
     bool supportsHover(const RenderStyle&) const final { return true; }
@@ -48,30 +48,35 @@ private:
 
     void updateCachedSystemFontDescription(CSSValueID, FontCascadeDescription&) const override { };
 
-    Color platformActiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformActiveSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformInactiveSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
-    Color platformFocusRingColor(OptionSet<StyleColor::Options>) const final;
+    Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformInactiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const final;
+    Color platformFocusRingColor(OptionSet<StyleColorOptions>) const final;
     void platformColorsDidChange() final;
 
     bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&) final;
+    void adjustTextFieldStyle(RenderStyle&, const Element*) const final;
+
     bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&) final;
+    void adjustTextAreaStyle(RenderStyle&, const Element*) const final;
+
     bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    void adjustSearchFieldStyle(RenderStyle&, const Element*) const final;
 
     bool popsMenuBySpaceOrReturn() const final { return true; }
     void adjustMenuListStyle(RenderStyle&, const Element*) const override;
     void adjustMenuListButtonStyle(RenderStyle&, const Element*) const override;
-    LengthBox popupInternalPaddingBox(const RenderStyle&) const final;
+    LengthBox popupInternalPaddingBox(const RenderStyle&, const Settings&) const final;
     bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&) final;
-    bool paintMenuListButtonDecorations(const RenderBox&, const PaintInfo&, const FloatRect&) final;
+    void paintMenuListButtonDecorations(const RenderBox&, const PaintInfo&, const FloatRect&) final;
 
-    Seconds animationRepeatIntervalForProgressBar(RenderProgress&) const final;
-    Seconds animationDurationForProgressBar(RenderProgress&) const final;
+    Seconds animationRepeatIntervalForProgressBar(const RenderProgress&) const final;
+    Seconds animationDurationForProgressBar(const RenderProgress&) const final;
     IntRect progressBarRectForBounds(const RenderObject&, const IntRect&) const final;
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&) final;
 
@@ -84,10 +89,16 @@ private:
     bool paintMediaVolumeSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) final;
 #endif
 
+    Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const final;
+
 #if ENABLE(DATALIST_ELEMENT)
     IntSize sliderTickSize() const final;
     int sliderTickOffsetFromTrackCenter() const final;
     void adjustListButtonStyle(RenderStyle&, const Element*) const final;
+#endif
+
+#if PLATFORM(GTK)
+    Seconds caretBlinkInterval() const override;
 #endif
 };
 

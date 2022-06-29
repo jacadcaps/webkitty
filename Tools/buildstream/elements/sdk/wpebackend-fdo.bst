@@ -1,11 +1,11 @@
-kind: cmake
+kind: meson
 sources:
 - kind: git_tag
   url: github_com:Igalia/WPEBackend-fdo.git
-  track: master
-  ref: 1.3.1-68-g343146b98c365306f3718d50a4a52537de5e3dcc
+  track: 1.10.0
+  ref: 1.10.0-0-ga908c630483bc99d0c87d4086af183c9a4cafde2
 build-depends:
-- freedesktop-sdk.bst:public-stacks/buildsystem-cmake.bst
+- freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
 - sdk/glib.bst
 - sdk/libwpe.bst

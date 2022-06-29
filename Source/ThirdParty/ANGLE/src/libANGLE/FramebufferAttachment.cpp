@@ -60,11 +60,12 @@ FramebufferAttachment::FramebufferAttachment(const Context *context,
                                              GLenum type,
                                              GLenum binding,
                                              const ImageIndex &textureIndex,
-                                             FramebufferAttachmentObject *resource)
+                                             FramebufferAttachmentObject *resource,
+                                             rx::Serial framebufferSerial)
     : mResource(nullptr)
 {
     attach(context, type, binding, textureIndex, resource, kDefaultNumViews, kDefaultBaseViewIndex,
-           false, kDefaultRenderToTextureSamples);
+           false, kDefaultRenderToTextureSamples, framebufferSerial);
 }
 
 FramebufferAttachment::FramebufferAttachment(FramebufferAttachment &&other)
@@ -90,12 +91,12 @@ FramebufferAttachment::~FramebufferAttachment()
     ASSERT(!isAttached());
 }
 
-void FramebufferAttachment::detach(const Context *context)
+void FramebufferAttachment::detach(const Context *context, rx::Serial framebufferSerial)
 {
     mType = GL_NONE;
     if (mResource != nullptr)
     {
-        mResource->onDetach(context);
+        mResource->onDetach(context, framebufferSerial);
         mResource = nullptr;
     }
     mNumViews      = kDefaultNumViews;
@@ -114,11 +115,12 @@ void FramebufferAttachment::attach(const Context *context,
                                    GLsizei numViews,
                                    GLuint baseViewIndex,
                                    bool isMultiview,
-                                   GLsizei samples)
+                                   GLsizei samples,
+                                   rx::Serial framebufferSerial)
 {
     if (resource == nullptr)
     {
-        detach(context);
+        detach(context, framebufferSerial);
         return;
     }
 
@@ -127,12 +129,12 @@ void FramebufferAttachment::attach(const Context *context,
     mNumViews               = numViews;
     mBaseViewIndex          = baseViewIndex;
     mIsMultiview            = isMultiview;
-    mRenderToTextureSamples = samples;
-    resource->onAttach(context);
+    mRenderToTextureSamples = type == GL_RENDERBUFFER ? kDefaultRenderToTextureSamples : samples;
+    resource->onAttach(context, framebufferSerial);
 
     if (mResource != nullptr)
     {
-        mResource->onDetach(context);
+        mResource->onDetach(context, framebufferSerial);
     }
 
     mResource = resource;
@@ -220,6 +222,29 @@ GLint FramebufferAttachment::getBaseViewIndex() const
     return mBaseViewIndex;
 }
 
+bool FramebufferAttachment::isRenderToTexture() const
+{
+    ASSERT(mRenderToTextureSamples == kDefaultRenderToTextureSamples || mType == GL_TEXTURE);
+
+    if (mType == GL_RENDERBUFFER)
+    {
+        return getRenderbuffer()->getMultisamplingMode() ==
+               MultisamplingMode::MultisampledRenderToTexture;
+    }
+    return mRenderToTextureSamples != kDefaultRenderToTextureSamples;
+}
+
+GLsizei FramebufferAttachment::getRenderToTextureSamples() const
+{
+    ASSERT(mRenderToTextureSamples == kDefaultRenderToTextureSamples || mType == GL_TEXTURE);
+
+    if (mType == GL_RENDERBUFFER)
+    {
+        return getRenderbuffer()->getState().getSamples();
+    }
+    return mRenderToTextureSamples;
+}
+
 Texture *FramebufferAttachment::getTexture() const
 {
     return rx::GetAs<Texture>(mResource);
@@ -279,18 +304,6 @@ void FramebufferAttachment::setInitState(InitState initState) const
 {
     ASSERT(mResource);
     mResource->setInitState(mTarget.textureIndex(), initState);
-}
-
-bool FramebufferAttachment::isBoundAsSamplerOrImage(ContextID contextID) const
-{
-    if (mType != GL_TEXTURE)
-    {
-        return false;
-    }
-
-    const gl::TextureState &textureState = getTexture()->getTextureState();
-    return textureState.isBoundAsImageTexture(contextID) ||
-           textureState.isBoundAsSamplerTexture(contextID);
 }
 
 ////// FramebufferAttachmentObject Implementation //////

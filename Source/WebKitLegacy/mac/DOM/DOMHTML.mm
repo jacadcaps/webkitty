@@ -53,6 +53,7 @@
 #import <WebCore/HTMLTextFormControlElement.h>
 #import <WebCore/JSExecState.h>
 #import <WebCore/RenderLayer.h>
+#import <WebCore/RenderLayerScrollableArea.h>
 #import <WebCore/WAKWindow.h>
 #import <WebCore/WebCoreThreadMessage.h>
 #endif
@@ -74,10 +75,17 @@
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
 
-    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasOverflowClip())
+    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasNonVisibleOverflow())
         return 0;
 
-    return downcast<WebCore::RenderBox>(*renderer).layer()->scrollOffset().x();
+    auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
+    if (!layer)
+        return 0;
+    auto* scrollableArea = layer->scrollableArea();
+    if (!scrollableArea)
+        return 0;
+
+    return scrollableArea->scrollOffset().x();
 }
 
 - (int)scrollYOffset
@@ -88,10 +96,17 @@
 
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
-    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasOverflowClip())
+    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasNonVisibleOverflow())
         return 0;
 
-    return downcast<WebCore::RenderBox>(*renderer).layer()->scrollOffset().y();
+    auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
+    if (!layer)
+        return 0;
+    auto* scrollableArea = layer->scrollableArea();
+    if (!scrollableArea)
+        return 0;
+
+    return scrollableArea->scrollOffset().y();
 }
 
 - (void)setScrollXOffset:(int)x scrollYOffset:(int)y
@@ -107,15 +122,17 @@
 
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
-    if (!renderer->hasOverflowClip() || !is<WebCore::RenderBox>(*renderer))
+    if (!renderer->hasNonVisibleOverflow() || !is<WebCore::RenderBox>(*renderer))
         return;
 
     auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
-    if (adjustForIOSCaret)
-        layer->setAdjustForIOSCaretWhenScrolling(true);
-    layer->scrollToOffset(WebCore::ScrollOffset(x, y), WebCore::ScrollType::Programmatic, WebCore::ScrollClamping::Unclamped);
-    if (adjustForIOSCaret)
-        layer->setAdjustForIOSCaretWhenScrolling(false);
+    if (!layer)
+        return;
+    auto* scrollableArea = layer->ensureLayerScrollableArea();
+
+    auto scrollPositionChangeOptions = WebCore::ScrollPositionChangeOptions::createProgrammatic();
+    scrollPositionChangeOptions.clamping = WebCore::ScrollClamping::Unclamped;
+    scrollableArea->scrollToOffset(WebCore::ScrollOffset(x, y), scrollPositionChangeOptions);
 }
 
 - (void)absolutePosition:(int *)x :(int *)y :(int *)w :(int *)h

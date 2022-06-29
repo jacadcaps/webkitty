@@ -142,9 +142,9 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
             codeMirror.refresh();
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         for (let codeMirror of this._codeMirrorSectionMap.values())
             codeMirror.refresh();
@@ -179,8 +179,8 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         this._cssTransitionPropertyRow.value = cssTransitionProperty;
 
         this._targetRow.value = null;
-        this._animation.requestEffectTarget((domNode) => {
-            this._targetRow.value = domNode ? WI.linkifyNodeReference(domNode) : null;
+        this._animation.requestEffectTarget((styleable) => {
+            this._targetRow.value = WI.linkifyStyleable(styleable);
         });
     }
 

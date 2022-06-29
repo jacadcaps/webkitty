@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,11 +29,12 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "JSCInlines.h"
-#include "JSWebAssemblyCodeBlock.h"
 #include "JSWebAssemblyCompileError.h"
+#include "JSWebAssemblyLinkError.h"
 #include "WasmFormat.h"
 #include "WasmModule.h"
 #include "WasmModuleInformation.h"
+#include "WasmToJS.h"
 #include <wtf/StdLibExtras.h>
 
 namespace JSC {
@@ -44,14 +45,22 @@ JSWebAssemblyModule* JSWebAssemblyModule::createStub(VM& vm, JSGlobalObject* glo
 {
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (!result.has_value()) {
-        auto* error = JSWebAssemblyCompileError::create(globalObject, vm, structure->globalObject()->webAssemblyCompileErrorStructure(), result.error());
-        RETURN_IF_EXCEPTION(scope, nullptr);
-        throwException(globalObject, scope, error);
+        throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, result.error()));
         return nullptr;
     }
 
-    auto* module = new (NotNull, allocateCell<JSWebAssemblyModule>(vm.heap)) JSWebAssemblyModule(vm, structure, result.value().releaseNonNull());
+    auto* module = new (NotNull, allocateCell<JSWebAssemblyModule>(vm)) JSWebAssemblyModule(vm, structure, result.value().releaseNonNull());
     module->finishCreation(vm);
+
+    auto error = module->generateWasmToJSStubs(vm);
+    if (UNLIKELY(!error)) {
+        switch (error.error()) {
+        case Wasm::BindingFailure::OutOfMemory:
+            throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, "Out of executable memory"_s));
+            return nullptr;
+        }
+        ASSERT_NOT_REACHED();
+    }
     return module;
 }
 
@@ -75,6 +84,10 @@ void JSWebAssemblyModule::finishCreation(VM& vm)
     // On success, a new WebAssembly.Module object is returned with [[Module]] set to the validated Ast.module.
     SymbolTable* exportSymbolTable = SymbolTable::create(vm);
     const Wasm::ModuleInformation& moduleInformation = m_module->moduleInformation();
+    {
+        auto offset = exportSymbolTable->takeNextScopeOffset(NoLockingNecessary);
+        exportSymbolTable->set(NoLockingNecessary, vm.propertyNames->starNamespacePrivateName.impl(), SymbolTableEntry(VarOffset(offset)));
+    }
     for (auto& exp : moduleInformation.exports) {
         auto offset = exportSymbolTable->takeNextScopeOffset(NoLockingNecessary);
         String field = String::fromUTF8(exp.field);
@@ -105,30 +118,52 @@ Wasm::SignatureIndex JSWebAssemblyModule::signatureIndexFromFunctionIndexSpace(u
     return m_module->signatureIndexFromFunctionIndexSpace(functionIndexSpace);
 }
 
-JSWebAssemblyCodeBlock* JSWebAssemblyModule::codeBlock(Wasm::MemoryMode mode)
-{
-    return m_codeBlocks[static_cast<size_t>(mode)].get();
-}
-
 Wasm::Module& JSWebAssemblyModule::module()
 {
     return m_module.get();
 }
 
-void JSWebAssemblyModule::setCodeBlock(VM& vm, Wasm::MemoryMode mode, JSWebAssemblyCodeBlock* codeBlock)
-{
-    m_codeBlocks[static_cast<size_t>(mode)].set(vm, this, codeBlock);
-}
-
-void JSWebAssemblyModule::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSWebAssemblyModule::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     JSWebAssemblyModule* thisObject = jsCast<JSWebAssemblyModule*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_exportSymbolTable);
-    for (unsigned i = 0; i < Wasm::NumberOfMemoryModes; ++i)
-        visitor.append(thisObject->m_codeBlocks[i]);
+}
+
+DEFINE_VISIT_CHILDREN(JSWebAssemblyModule);
+
+void JSWebAssemblyModule::clearJSCallICs(VM& vm)
+{
+    for (auto iter = m_callLinkInfos.begin(); !!iter; ++iter)
+        (*iter)->unlink(vm);
+}
+
+void JSWebAssemblyModule::finalizeUnconditionally(VM& vm)
+{
+    for (auto iter = m_callLinkInfos.begin(); !!iter; ++iter)
+        (*iter)->visitWeak(vm);
+}
+
+Expected<void, Wasm::BindingFailure> JSWebAssemblyModule::generateWasmToJSStubs(VM& vm)
+{
+    const Wasm::ModuleInformation& moduleInformation = m_module->moduleInformation();
+    if (moduleInformation.importFunctionCount()) {
+        Bag<OptimizingCallLinkInfo> callLinkInfos;
+        FixedVector<MacroAssemblerCodeRef<WasmEntryPtrTag>> stubs(moduleInformation.importFunctionCount());
+        for (unsigned importIndex = 0; importIndex < moduleInformation.importFunctionCount(); ++importIndex) {
+            Wasm::SignatureIndex signatureIndex = moduleInformation.importFunctionSignatureIndices.at(importIndex);
+            auto binding = Wasm::wasmToJS(vm, callLinkInfos, signatureIndex, importIndex);
+            if (UNLIKELY(!binding))
+                return makeUnexpected(binding.error());
+            stubs[importIndex] = binding.value();
+        }
+        m_wasmToJSExitStubs = WTFMove(stubs);
+        m_callLinkInfos = WTFMove(callLinkInfos);
+    }
+    return { };
 }
 
 } // namespace JSC

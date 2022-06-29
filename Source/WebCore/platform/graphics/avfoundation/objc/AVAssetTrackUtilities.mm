@@ -49,7 +49,7 @@ static Vector<FourCC> contentTypesToCodecs(const Vector<ContentType>& contentTyp
             if (firstPeriod != notFound)
                 codecString.truncate(firstPeriod);
 
-            auto codecIdentifier = FourCC::fromString(codecString.left(4));
+            auto codecIdentifier = FourCC::fromString(StringView { codecString }.left(4));
             if (codecIdentifier)
                 codecs.append(codecIdentifier.value());
         }
@@ -97,7 +97,6 @@ bool assetTrackMeetsHardwareDecodeRequirements(AVAssetTrack *track, const Vector
     }
     return codecsMeetHardwareDecodeRequirements(codecs, contentTypesRequiringHardwareDecode);
 }
-
 
 }
 

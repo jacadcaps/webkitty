@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,7 +49,7 @@ DirectArguments* DirectArguments::createUninitialized(
     VM& vm, Structure* structure, unsigned length, unsigned capacity)
 {
     DirectArguments* result =
-        new (NotNull, allocateCell<DirectArguments>(vm.heap, allocationSize(capacity)))
+        new (NotNull, allocateCell<DirectArguments>(vm, allocationSize(capacity)))
         DirectArguments(vm, structure, length, capacity);
     result->finishCreation(vm);
     return result;
@@ -90,7 +90,8 @@ size_t DirectArguments::estimatedSize(JSCell* cell, VM& vm)
     return Base::estimatedSize(cell, vm) + mappedArgumentsSize + modifiedArgumentsSize;
 }
 
-void DirectArguments::visitChildren(JSCell* thisCell, SlotVisitor& visitor)
+template<typename Visitor>
+void DirectArguments::visitChildrenImpl(JSCell* thisCell, Visitor& visitor)
 {
     DirectArguments* thisObject = static_cast<DirectArguments*>(thisCell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
@@ -103,6 +104,8 @@ void DirectArguments::visitChildren(JSCell* thisCell, SlotVisitor& visitor)
         visitor.markAuxiliary(thisObject->m_mappedArguments.get(thisObject->internalLength()));
     GenericArguments<DirectArguments>::visitChildren(thisCell, visitor);
 }
+
+DEFINE_VISIT_CHILDREN(DirectArguments);
 
 Structure* DirectArguments::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
@@ -120,7 +123,7 @@ void DirectArguments::overrideThings(JSGlobalObject* globalObject)
     putDirect(vm, vm.propertyNames->callee, m_callee.get(), static_cast<unsigned>(PropertyAttribute::DontEnum));
     putDirect(vm, vm.propertyNames->iteratorSymbol, globalObject->arrayProtoValuesFunction(), static_cast<unsigned>(PropertyAttribute::DontEnum));
     
-    void* backingStore = vm.gigacageAuxiliarySpace(m_mappedArguments.kind).allocateNonVirtual(vm, mappedArgumentsSize(), nullptr, AllocationFailureMode::ReturnNull);
+    void* backingStore = vm.gigacageAuxiliarySpace(m_mappedArguments.kind).allocate(vm, mappedArgumentsSize(), nullptr, AllocationFailureMode::ReturnNull);
     if (UNLIKELY(!backingStore)) {
         throwOutOfMemoryError(globalObject, scope);
         return;

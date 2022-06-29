@@ -54,7 +54,7 @@ struct CompositionUnderline;
 
 namespace WebKit {
 class DownloadProxy;
-class ScrollGestureController;
+class TouchGestureController;
 class WebPageGroup;
 class WebProcessPool;
 struct EditingRange;
@@ -82,8 +82,8 @@ public:
 
     void setInputMethodContext(WebKitInputMethodContext*);
     WebKitInputMethodContext* inputMethodContext() const;
-    void setInputMethodState(Optional<WebKit::InputMethodState>&&);
-    void synthesizeCompositionKeyPress(const String&, Optional<Vector<WebCore::CompositionUnderline>>&&, Optional<WebKit::EditingRange>&&);
+    void setInputMethodState(std::optional<WebKit::InputMethodState>&&);
+    void synthesizeCompositionKeyPress(const String&, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<WebKit::EditingRange>&&);
 
     void selectionDidChange();
 
@@ -100,14 +100,14 @@ public:
 
 #if ENABLE(FULLSCREEN_API)
     bool isFullScreen() { return m_fullScreenModeActive; };
-    void setFullScreen(bool fullScreenState) { m_fullScreenModeActive = fullScreenState; };
+    bool setFullScreen(bool);
 #endif
 
 #if ENABLE(ACCESSIBILITY)
     WebKitWebViewAccessible* accessible() const;
 #endif
 
-    WebKit::ScrollGestureController& scrollGestureController() const { return *m_scrollGestureController; }
+    WebKit::TouchGestureController& touchGestureController() const { return *m_touchGestureController; }
 
 private:
     View(struct wpe_view_backend*, const API::PageConfiguration&);
@@ -118,7 +118,7 @@ private:
 
     std::unique_ptr<API::ViewClient> m_client;
 
-    std::unique_ptr<WebKit::ScrollGestureController> m_scrollGestureController;
+    std::unique_ptr<WebKit::TouchGestureController> m_touchGestureController;
     std::unique_ptr<WebKit::PageClientImpl> m_pageClient;
     RefPtr<WebKit::WebPageProxy> m_pageProxy;
     WebCore::IntSize m_size;
@@ -133,6 +133,9 @@ private:
 #if ENABLE(ACCESSIBILITY)
     mutable GRefPtr<WebKitWebViewAccessible> m_accessible;
 #endif
+
+    bool m_horizontalScrollActive { false };
+    bool m_verticalScrollActive { false };
 
     WebKit::InputMethodFilter m_inputMethodFilter;
 };

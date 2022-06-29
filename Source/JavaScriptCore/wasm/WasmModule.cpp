@@ -36,7 +36,7 @@ namespace JSC { namespace Wasm {
 
 Module::Module(LLIntPlan& plan)
     : m_moduleInformation(plan.takeModuleInformation())
-    , m_llintCallees(LLIntCallees::create(plan.takeCallees()))
+    , m_llintCallees(LLIntCallees::createFromVector(plan.takeCallees()))
     , m_llintEntryThunks(plan.takeEntryThunks())
 {
 }
@@ -66,7 +66,7 @@ static Plan::CompletionTask makeValidationCallback(Module::AsyncValidationCallba
 
 Module::ValidationResult Module::validateSync(Context* context, Vector<uint8_t>&& source)
 {
-    Ref<LLIntPlan> plan = adoptRef(*new LLIntPlan(context, WTFMove(source), EntryPlan::Validation, Plan::dontFinalize()));
+    Ref<LLIntPlan> plan = adoptRef(*new LLIntPlan(context, WTFMove(source), CompilerMode::Validation, Plan::dontFinalize()));
     Wasm::ensureWorklist().enqueue(plan.get());
     plan->waitForCompletion();
     return makeValidationResult(plan.get());
@@ -74,41 +74,56 @@ Module::ValidationResult Module::validateSync(Context* context, Vector<uint8_t>&
 
 void Module::validateAsync(Context* context, Vector<uint8_t>&& source, Module::AsyncValidationCallback&& callback)
 {
-    Ref<Plan> plan = adoptRef(*new LLIntPlan(context, WTFMove(source), EntryPlan::Validation, makeValidationCallback(WTFMove(callback))));
+    Ref<Plan> plan = adoptRef(*new LLIntPlan(context, WTFMove(source), CompilerMode::Validation, makeValidationCallback(WTFMove(callback))));
     Wasm::ensureWorklist().enqueue(WTFMove(plan));
 }
 
-Ref<CodeBlock> Module::getOrCreateCodeBlock(Context* context, MemoryMode mode)
+Ref<CalleeGroup> Module::getOrCreateCalleeGroup(Context* context, MemoryMode mode)
 {
-    RefPtr<CodeBlock> codeBlock;
-    auto locker = holdLock(m_lock);
-    codeBlock = m_codeBlocks[static_cast<uint8_t>(mode)];
+    RefPtr<CalleeGroup> calleeGroup;
+    Locker locker { m_lock };
+    calleeGroup = m_calleeGroups[static_cast<uint8_t>(mode)];
     // If a previous attempt at a compile errored out, let's try again.
     // Compilations from valid modules can fail because OOM and cancellation.
     // It's worth retrying.
     // FIXME: We might want to back off retrying at some point:
     // https://bugs.webkit.org/show_bug.cgi?id=170607
-    if (!codeBlock || (codeBlock->compilationFinished() && !codeBlock->runnable())) {
+    if (!calleeGroup || (calleeGroup->compilationFinished() && !calleeGroup->runnable())) {
         RefPtr<LLIntCallees> llintCallees = nullptr;
         if (Options::useWasmLLInt())
-            llintCallees = m_llintCallees;
-        codeBlock = CodeBlock::create(context, mode, const_cast<ModuleInformation&>(moduleInformation()), llintCallees);
-        m_codeBlocks[static_cast<uint8_t>(mode)] = codeBlock;
+            llintCallees = m_llintCallees.copyRef();
+        calleeGroup = CalleeGroup::create(context, mode, const_cast<ModuleInformation&>(moduleInformation()), WTFMove(llintCallees));
+        m_calleeGroups[static_cast<uint8_t>(mode)] = calleeGroup;
     }
-    return codeBlock.releaseNonNull();
+    return calleeGroup.releaseNonNull();
 }
 
-Ref<CodeBlock> Module::compileSync(Context* context, MemoryMode mode)
+Ref<CalleeGroup> Module::compileSync(Context* context, MemoryMode mode)
 {
-    Ref<CodeBlock> codeBlock = getOrCreateCodeBlock(context, mode);
-    codeBlock->waitUntilFinished();
-    return codeBlock;
+    Ref<CalleeGroup> calleeGroup = getOrCreateCalleeGroup(context, mode);
+    calleeGroup->waitUntilFinished();
+    return calleeGroup;
 }
 
-void Module::compileAsync(Context* context, MemoryMode mode, CodeBlock::AsyncCompilationCallback&& task)
+void Module::compileAsync(Context* context, MemoryMode mode, CalleeGroup::AsyncCompilationCallback&& task)
 {
-    Ref<CodeBlock> codeBlock = getOrCreateCodeBlock(context, mode);
-    codeBlock->compileAsync(context, WTFMove(task));
+    Ref<CalleeGroup> calleeGroup = getOrCreateCalleeGroup(context, mode);
+    calleeGroup->compileAsync(context, WTFMove(task));
+}
+
+void Module::copyInitialCalleeGroupToAllMemoryModes(MemoryMode initialMode)
+{
+    Locker locker { m_lock };
+    ASSERT(m_calleeGroups[static_cast<uint8_t>(initialMode)]);
+    const CalleeGroup& initialBlock = *m_calleeGroups[static_cast<uint8_t>(initialMode)];
+    for (unsigned i = 0; i < Wasm::NumberOfMemoryModes; i++) {
+        if (i == static_cast<uint8_t>(initialMode))
+            continue;
+        // We should only try to copy the group here if it hasn't already been created.
+        // If it exists but is not runnable, it should get compiled during module evaluation.
+        if (auto& group = m_calleeGroups[i]; !group)
+            group = CalleeGroup::createFromExisting(static_cast<MemoryMode>(i), initialBlock);
+    }
 }
 
 } } // namespace JSC::Wasm

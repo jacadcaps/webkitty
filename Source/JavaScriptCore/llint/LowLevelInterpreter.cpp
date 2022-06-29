@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -54,7 +54,7 @@ using namespace JSC::LLInt;
 // includes.
 //
 // In addition, some JIT trampoline functions which are needed by LLInt
-// (e.g. getHostCallReturnValue, ctiOpThrowNotCaught) are also added as
+// (e.g. ctiOpThrowNotCaught) are also added as
 // bytecodes, and the CLoop will provide bytecode handlers for them.
 //
 // In the CLoop, we can only dispatch indirectly to these bytecodes
@@ -86,6 +86,10 @@ using namespace JSC::LLInt;
 //============================================================================
 // Define the opcode dispatch mechanism when using the C loop:
 //
+
+#if ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+using WebConfig::g_config;
+#endif
 
 // These are for building a C Loop interpreter:
 #define OFFLINE_ASM_BEGIN
@@ -125,6 +129,8 @@ using namespace JSC::LLInt;
 
 namespace JSC {
 
+class CallLinkInfo;
+
 //============================================================================
 // CLoopRegister is the storage for an emulated CPU register.
 // It defines the policy of how ints smaller than intptr_t are packed into the
@@ -162,6 +168,7 @@ public:
     operator ProtoCallFrame*() { return bitwise_cast<ProtoCallFrame*>(m_value); }
     operator Register*() { return bitwise_cast<Register*>(m_value); }
     operator VM*() { return bitwise_cast<VM*>(m_value); }
+    operator CallLinkInfo*() { return bitwise_cast<CallLinkInfo*>(m_value); }
 
     template<typename T, typename = std::enable_if_t<sizeof(T) == sizeof(uintptr_t)>>
     ALWAYS_INLINE void operator=(T value) { m_value = bitwise_cast<uintptr_t>(value); }
@@ -436,23 +443,6 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 #endif
         }
 
-        // In the ASM llint, getHostCallReturnValue() is a piece of glue
-        // function provided by the JIT (see jit/JITOperations.cpp).
-        // We simulate it here with a pseduo-opcode handler.
-        OFFLINE_ASM_GLUE_LABEL(getHostCallReturnValue)
-        {
-            // The part in getHostCallReturnValueWithExecState():
-            JSValue result = vm->hostCallReturnValue;
-#if USE(JSVALUE32_64)
-            t1 = result.tag();
-            t0 = result.payload();
-#else
-            t0 = JSValue::encode(result);
-#endif
-            opcode = lr.opcode();
-            DISPATCH_OPCODE();
-        }
-
 #if !ENABLE(COMPUTED_GOTO_OPCODES)
     default:
         ASSERT(false);
@@ -503,12 +493,14 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
     OFFLINE_ASM_OPCODE_DEBUG_LABEL(llint_##__opcode) \
     OFFLINE_ASM_LOCAL_LABEL(llint_##__opcode)
 
-#define OFFLINE_ASM_GLUE_LABEL(__opcode)   OFFLINE_ASM_LOCAL_LABEL(__opcode)
+#define OFFLINE_ASM_GLUE_LABEL(__opcode) \
+    OFFLINE_ASM_OPCODE_DEBUG_LABEL(__opcode) \
+    OFFLINE_ASM_LOCAL_LABEL(__opcode)
 
 #if CPU(ARM_THUMB2)
 #define OFFLINE_ASM_GLOBAL_LABEL(label)          \
     ".text\n"                                    \
-    ".align 4\n"                                 \
+    ".balign 4\n"                                 \
     ".globl " SYMBOL_STRING(label) "\n"          \
     HIDE_SYMBOL(label) "\n"                      \
     ".thumb\n"                                   \
@@ -517,7 +509,7 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 #elif CPU(ARM64)
 #define OFFLINE_ASM_GLOBAL_LABEL(label)         \
     ".text\n"                                   \
-    ".align 4\n"                                \
+    ".balign 4\n"                                \
     ".globl " SYMBOL_STRING(label) "\n"         \
     HIDE_SYMBOL(label) "\n"                     \
     SYMBOL_STRING(label) ":\n"

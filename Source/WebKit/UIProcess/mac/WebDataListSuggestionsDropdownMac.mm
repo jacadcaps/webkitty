@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -142,7 +142,7 @@ void WebDataListSuggestionsDropdownMac::close()
 
     self.hasShadow = YES;
 
-    _backdropView = [[NSVisualEffectView alloc] initWithFrame:contentRect];
+    _backdropView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
     [_backdropView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [_backdropView setMaterial:NSVisualEffectMaterialMenu];
     [_backdropView setState:NSVisualEffectStateActive];
@@ -307,7 +307,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggestion>& suggestions)
 {
-    return notFound != suggestions.findMatching([](auto& suggestion) {
+    return notFound != suggestions.findIf([](auto& suggestion) {
         return !suggestion.label.isEmpty();
     });
 }
@@ -455,7 +455,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
 - (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownMac&)dropdown
 {
-    _dropdown = makeWeakPtr(dropdown);
+    _dropdown = dropdown;
     [[_enclosingWindow contentView] addSubview:_scrollView.get()];
     [_table reload];
     [[_presentingView window] addChildWindow:_enclosingWindow.get() ordered:NSWindowAbove];
@@ -463,7 +463,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
     // Notify accessibility clients of datalist becoming visible.
     NSString *currentSelectedString = [self currentSelectedString];
-    NSString *info = [NSString stringWithFormat:WEB_UI_STRING("Suggestions list visible, %@", "Accessibility announcement that the suggestions list became visible. The format argument is for the first option in the list."), currentSelectedString];
+    NSString *info = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Suggestions list visible, %@", "Accessibility announcement that the suggestions list became visible. The format argument is for the first option in the list."), currentSelectedString];
     [self notifyAccessibilityClients:info];
 }
 
@@ -494,23 +494,23 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
 - (NSTableRowView *)tableView:(NSTableView *)tableView rowViewForRow:(NSInteger)row
 {
-    return [[[WKDataListSuggestionTableRowView alloc] init] autorelease];
+    return adoptNS([[WKDataListSuggestionTableRowView alloc] init]).autorelease();
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    WKDataListSuggestionView *result = [tableView makeViewWithIdentifier:suggestionCellReuseIdentifier owner:self];
+    auto result = retainPtr([tableView makeViewWithIdentifier:suggestionCellReuseIdentifier owner:self]);
 
     if (!result) {
-        result = [[[WKDataListSuggestionView alloc] init] autorelease];
+        result = adoptNS([[WKDataListSuggestionView alloc] init]);
         [result setIdentifier:suggestionCellReuseIdentifier];
     }
 
     auto& suggestion = _suggestions.at(row);
-    result.shouldShowBottomDivider = _showDividersBetweenCells && row < static_cast<NSInteger>(_suggestions.size() - 1);
+    [result setShouldShowBottomDivider:_showDividersBetweenCells && row < static_cast<NSInteger>(_suggestions.size() - 1)];
     [result setValue:suggestion.value label:suggestion.label];
 
-    return result;
+    return result.autorelease();
 }
 
 @end

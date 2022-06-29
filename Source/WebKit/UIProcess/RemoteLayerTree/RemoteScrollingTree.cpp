@@ -34,7 +34,7 @@
 #include <WebCore/ScrollingTreeFrameHostingNode.h>
 #include <WebCore/ScrollingTreeOverflowScrollProxyNode.h>
 #include <WebCore/ScrollingTreePositionedNode.h>
-#include <WebCore/ScrollingTreeStickyNode.h>
+#include <WebCore/ScrollingTreeStickyNodeCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "ScrollingTreeFrameScrollingNodeRemoteIOS.h"
@@ -87,16 +87,21 @@ void RemoteScrollingTree::scrollingTreeNodeDidEndScroll(ScrollingNodeID nodeID)
 
 void RemoteScrollingTree::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode& node, ScrollingLayerPositionAction scrollingLayerPositionAction)
 {
-    Optional<FloatPoint> layoutViewportOrigin;
+    std::optional<FloatPoint> layoutViewportOrigin;
     if (is<ScrollingTreeFrameScrollingNode>(node))
         layoutViewportOrigin = downcast<ScrollingTreeFrameScrollingNode>(node).layoutViewport().location();
 
     m_scrollingCoordinatorProxy.scrollingTreeNodeDidScroll(node.scrollingNodeID(), node.currentScrollPosition(), layoutViewportOrigin, scrollingLayerPositionAction);
 }
 
-void RemoteScrollingTree::scrollingTreeNodeRequestsScroll(ScrollingNodeID nodeID, const FloatPoint& scrollPosition, ScrollType scrollType, ScrollClamping clamping)
+void RemoteScrollingTree::scrollingTreeNodeDidStopAnimatedScroll(ScrollingTreeScrollingNode& node)
 {
-    m_scrollingCoordinatorProxy.scrollingTreeNodeRequestsScroll(nodeID, scrollPosition, scrollType, clamping);
+    m_scrollingCoordinatorProxy.scrollingTreeNodeDidStopAnimatedScroll(node.scrollingNodeID());
+}
+
+bool RemoteScrollingTree::scrollingTreeNodeRequestsScroll(ScrollingNodeID nodeID, const RequestedScrollData& request)
+{
+    return m_scrollingCoordinatorProxy.scrollingTreeNodeRequestsScroll(nodeID, request);
 }
 
 Ref<ScrollingTreeNode> RemoteScrollingTree::createScrollingTreeNode(ScrollingNodeType nodeType, ScrollingNodeID nodeID)
@@ -122,7 +127,7 @@ Ref<ScrollingTreeNode> RemoteScrollingTree::createScrollingTreeNode(ScrollingNod
     case ScrollingNodeType::Fixed:
         return ScrollingTreeFixedNode::create(*this, nodeID);
     case ScrollingNodeType::Sticky:
-        return ScrollingTreeStickyNode::create(*this, nodeID);
+        return ScrollingTreeStickyNodeCocoa::create(*this, nodeID);
     case ScrollingNodeType::Positioned:
         return ScrollingTreePositionedNode::create(*this, nodeID);
     }
@@ -130,7 +135,7 @@ Ref<ScrollingTreeNode> RemoteScrollingTree::createScrollingTreeNode(ScrollingNod
     return ScrollingTreeFixedNode::create(*this, nodeID);
 }
 
-void RemoteScrollingTree::currentSnapPointIndicesDidChange(ScrollingNodeID nodeID, unsigned horizontal, unsigned vertical)
+void RemoteScrollingTree::currentSnapPointIndicesDidChange(ScrollingNodeID nodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical)
 {
     m_scrollingCoordinatorProxy.currentSnapPointIndicesDidChange(nodeID, horizontal, vertical);
 }

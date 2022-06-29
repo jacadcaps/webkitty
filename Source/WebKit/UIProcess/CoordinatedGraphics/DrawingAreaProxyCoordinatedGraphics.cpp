@@ -46,16 +46,11 @@
 #include <wtf/glib/RunLoopSourcePriority.h>
 #endif
 
-#if USE(DIRECT2D)
-#include <d2d1.h>
-#include <d3d11_1.h>
-#endif
-
 namespace WebKit {
 using namespace WebCore;
 
 DrawingAreaProxyCoordinatedGraphics::DrawingAreaProxyCoordinatedGraphics(WebPageProxy& webPageProxy, WebProcessProxy& process)
-    : DrawingAreaProxy(DrawingAreaTypeCoordinatedGraphics, webPageProxy, process)
+    : DrawingAreaProxy(DrawingAreaType::CoordinatedGraphics, webPageProxy, process)
 #if !PLATFORM(WPE)
     , m_discardBackingStoreTimer(RunLoop::current(), this, &DrawingAreaProxyCoordinatedGraphics::discardBackingStore)
 #endif
@@ -119,17 +114,11 @@ void DrawingAreaProxyCoordinatedGraphics::paint(BackingStore::PlatformGraphicsCo
 
 void DrawingAreaProxyCoordinatedGraphics::sizeDidChange()
 {
-#if USE(DIRECT2D)
-    m_backingStore = nullptr;
-#endif
     backingStoreStateDidChange(RespondImmediately);
 }
 
 void DrawingAreaProxyCoordinatedGraphics::deviceScaleFactorDidChange()
 {
-#if USE(DIRECT2D)
-    m_backingStore = nullptr;
-#endif
     backingStoreStateDidChange(RespondImmediately);
 }
 
@@ -151,6 +140,18 @@ void DrawingAreaProxyCoordinatedGraphics::setBackingStoreIsDiscardable(bool isBa
         m_discardBackingStoreTimer.stop();
 #endif
 }
+
+#if PLATFORM(GTK)
+void DrawingAreaProxyCoordinatedGraphics::adjustTransientZoom(double scale, FloatPoint origin)
+{
+    send(Messages::DrawingArea::AdjustTransientZoom(scale, origin));
+}
+
+void DrawingAreaProxyCoordinatedGraphics::commitTransientZoom(double scale, FloatPoint origin)
+{
+    send(Messages::DrawingArea::CommitTransientZoom(scale, origin));
+}
+#endif
 
 void DrawingAreaProxyCoordinatedGraphics::update(uint64_t backingStoreStateID, const UpdateInfo& updateInfo)
 {
@@ -402,7 +403,7 @@ DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::~DrawingMonitor()
 int DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::webViewDrawCallback(DrawingAreaProxyCoordinatedGraphics::DrawingMonitor* monitor)
 {
     monitor->didDraw();
-    return FALSE;
+    return false;
 }
 
 void DrawingAreaProxyCoordinatedGraphics::DrawingMonitor::start(WTF::Function<void(CallbackBase::Error)>&& callback)

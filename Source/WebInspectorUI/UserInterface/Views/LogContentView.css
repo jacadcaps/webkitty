@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,6 +23,44 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+.console-find-banner {
+    --find-banner-outer-child-margin: 0;
+    --find-banner-input-margin-start: 0;
+}
+
+.message-channel-scope-bar.default-item-selected:not(:hover) {
+    --scope-bar-text-color-override: var(--text-color);
+    --scope-bar-background-color-override: transparent;
+    --scope-bar-border-color-override: transparent;
+}
+
+.message-channel-scope-bar.default-item-selected:hover {
+    --scope-bar-background-opacity-override: 0.5;
+}
+
+.log-scope-bar + .message-channel-scope-bar {
+    padding-inline-start: 0;
+}
+
+.console-other-filters-button > .glyph {
+    width: 16px;
+    height: 16px;
+    color: var(--glyph-color);
+    opacity: var(--glyph-opacity);
+}
+
+.console-other-filters-button:active > .glyph {
+    color: var(--glyph-color-pressed);
+}
+
+.console-other-filters-button.active > .glyph {
+    color: var(--glyph-color-active);
+}
+
+.console-other-filters-button.active:active > .glyph {
+    color: var(--glyph-color-active-pressed);
+}
+
 .content-view.log {
     display: flex;
     flex-direction: column;
@@ -45,22 +83,15 @@
 }
 
 .content-view.log > .hidden-messages-banner > button {
-    -webkit-margin-start: 4px;
+    margin-inline-start: 4px;
 }
 
 .content-view.log > .hidden-messages-banner > .dismiss {
     position: absolute;
+    inset-inline-end: 5px;
     width: 16px;
     height: 16px;
     padding-bottom: 2px;
-}
-
-body[dir=ltr] .content-view.log > .hidden-messages-banner > .dismiss {
-    right: 5px;
-}
-
-body[dir=rtl] .content-view.log > .hidden-messages-banner > .dismiss {
-    left: 5px;
 }
 
 .console-messages {
@@ -150,17 +181,13 @@ body[dir=rtl] .content-view.log > .hidden-messages-banner > .dismiss {
     background-image: url(../Images/DisclosureTriangles.svg#open-normal);
     background-size: 13px 13px;
     top: 4px;
+    inset-inline-start: 4px;
     width: 13px;
     height: 13px;
 }
 
-body[dir=ltr] .console-group-title::before {
-    left: 4px;
-}
-
 body[dir=rtl] .console-group-title::before {
     transform: scaleX(-1);
-    right: 4px;
 }
 
 .console-group.collapsed .console-group-title::before {

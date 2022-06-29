@@ -37,11 +37,11 @@
 namespace WebCore {
 class LegacyCDM;
 class LegacyCDMSession;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 }
 
 namespace IPC {
-class SharedBufferDataReference;
+class SharedBufferCopy;
 }
 
 namespace WebKit {
@@ -50,9 +50,8 @@ class RemoteLegacyCDMProxy;
 class RemoteMediaPlayerProxy;
 
 class RemoteLegacyCDMSessionProxy
-    : private IPC::MessageReceiver
-    , public WebCore::LegacyCDMSessionClient
-    , public CanMakeWeakPtr<RemoteLegacyCDMSessionProxy> {
+    : public IPC::MessageReceiver
+    , public WebCore::LegacyCDMSessionClient {
 public:
     static std::unique_ptr<RemoteLegacyCDMSessionProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>&&, RemoteLegacyCDMSessionIdentifier, WebCore::LegacyCDM&);
     ~RemoteLegacyCDMSessionProxy();
@@ -70,7 +69,7 @@ private:
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // LegacyCDMSessionClient
     void sendMessage(Uint8Array*, String destinationURL) final;
@@ -78,12 +77,12 @@ private:
     String mediaKeysStorageDirectory() const final;
 
     // Messages
-    using GenerateKeyCallback = CompletionHandler<void(Optional<IPC::SharedBufferDataReference>&&, const String&, unsigned short, uint32_t)>;
-    void generateKeyRequest(const String& mimeType, IPC::SharedBufferDataReference&& initData, GenerateKeyCallback&&);
+    using GenerateKeyCallback = CompletionHandler<void(std::optional<IPC::SharedBufferCopy>&&, const String&, unsigned short, uint32_t)>;
+    void generateKeyRequest(const String& mimeType, IPC::SharedBufferCopy&& initData, GenerateKeyCallback&&);
     void releaseKeys();
-    using UpdateCallback = CompletionHandler<void(bool, Optional<IPC::SharedBufferDataReference>&&, unsigned short, uint32_t)>;
-    void update(IPC::SharedBufferDataReference&& update, UpdateCallback&&);
-    using CachedKeyForKeyIDCallback = CompletionHandler<void(Optional<IPC::SharedBufferDataReference>&&)>;
+    using UpdateCallback = CompletionHandler<void(bool, std::optional<IPC::SharedBufferCopy>&&, unsigned short, uint32_t)>;
+    void update(IPC::SharedBufferCopy&& update, UpdateCallback&&);
+    using CachedKeyForKeyIDCallback = CompletionHandler<void(std::optional<IPC::SharedBufferCopy>&&)>;
     void cachedKeyForKeyID(String keyId, CachedKeyForKeyIDCallback&&);
 
     WeakPtr<RemoteLegacyCDMFactoryProxy> m_factory;

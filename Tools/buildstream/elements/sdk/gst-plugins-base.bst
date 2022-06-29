@@ -1,19 +1,8 @@
 kind: meson
 sources:
 - kind: tar
-  url: gst_downloads:gst-plugins-base/gst-plugins-base-1.16.2.tar.xz
-  ref: b13e73e2fe74a4166552f9577c3dcb24bed077021b9c7fa600d910ec6987816a
-- kind: patch
-  path: patches/gst-plugins-base-0001-playbin-Handle-error-message-with-redirection-indica.patch
-- kind: patch
-  path: patches/gst-plugins-base-0001-glupload-Fix-fallback-from-direct-dmabuf-to-dmabuf-u.patch
-- kind: patch
-  path: patches/gst-plugins-base-0002-glupload-fix-segfault.patch
-- kind: patch
-  path: patches/gst-plugins-base-0003-glbasefilter-add-support-for-changing-the-display.patch
-- kind: patch
-  path: patches/gst-plugins-base-0001-oggstream-Workaround-for-broken-PAR-in-VP8-BOS.patch
-
+  url: gst_downloads:gst-plugins-base/gst-plugins-base-1.20.0.tar.xz
+  ref: 4cb66fccf730b1037e6533862c2128990912a6db4e5bbd14e0ef914450eb4c7c
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
@@ -22,7 +11,8 @@ depends:
 - sdk/graphene.bst
 - sdk/gtk+-3.bst
 - freedesktop-sdk.bst:components/pango.bst
-- sdk/libsoup.bst
+- freedesktop-sdk.bst:components/libdrm.bst
+- freedesktop-sdk.bst:components/libsoup.bst
 - freedesktop-sdk.bst:bootstrap-import.bst
 - freedesktop-sdk.bst:components/alsa-lib.bst
 - freedesktop-sdk.bst:components/iso-codes.bst
@@ -34,6 +24,7 @@ depends:
 - freedesktop-sdk.bst:components/orc.bst
 - freedesktop-sdk.bst:components/sdl2.bst
 - freedesktop-sdk.bst:components/xorg-lib-xv.bst
+- freedesktop-sdk.bst:components/wayland-protocols.bst
 
 variables:
   meson-local: >-
@@ -44,8 +35,8 @@ variables:
     -Dtremor=disabled
     -Dexamples=disabled
     -Dgtk_doc=disabled
+    -Ddoc=disabled
     -Dtests=disabled
-
 public:
   bst:
     overlap-whitelist:

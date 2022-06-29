@@ -88,15 +88,9 @@ public:
     {
         static long sequenceID = 0;
         StringBuilder messageBuilder;
-        messageBuilder.appendLiteral("{\"id\":");
-        messageBuilder.appendNumber(++sequenceID);
-        messageBuilder.appendLiteral(",\"method\":\"Automation.");
-        messageBuilder.append(command);
-        messageBuilder.append('"');
-        if (!parameters.isNull()) {
-            messageBuilder.appendLiteral(",\"params\":");
-            messageBuilder.append(parameters);
-        }
+        messageBuilder.append("{\"id\":", ++sequenceID, ",\"method\":\"Automation.", command, '"');
+        if (!parameters.isNull())
+            messageBuilder.append(",\"params\":", parameters);
         messageBuilder.append('}');
         m_connection->sendMessage("SendMessageToBackend", g_variant_new("(tts)", m_connectionID, m_target.id, messageBuilder.toString().utf8().data()));
     }
@@ -306,7 +300,7 @@ const SocketConnection::MessageHandlers AutomationTest::s_messageHandlers = {
 
 static void testAutomationSessionRequestSession(AutomationTest* test, gconstpointer)
 {
-    String sessionID = createCanonicalUUIDString();
+    String sessionID = createVersion4UUIDString();
     // WebKitAutomationSession::automation-started is never emitted if automation is not enabled.
     g_assert_false(webkit_web_context_is_automation_allowed(test->m_webContext.get()));
     auto* session = test->requestSession(sessionID.utf8().data());

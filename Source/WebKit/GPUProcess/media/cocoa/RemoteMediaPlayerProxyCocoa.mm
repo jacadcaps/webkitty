@@ -30,73 +30,102 @@
 
 #import "LayerHostingContext.h"
 #import "MediaPlayerPrivateRemoteMessages.h"
+#import "WebCoreArgumentCoders.h"
 #import <QuartzCore/QuartzCore.h>
-#import <WebCore/IntSize.h>
+#import <WebCore/FloatSize.h>
+#import <WebCore/IOSurface.h>
 #import <wtf/MachSendRight.h>
 
 namespace WebKit {
 
-void RemoteMediaPlayerProxy::prepareForPlayback(bool privateMode, WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, bool prepareForRendering, float videoContentScale, CompletionHandler<void(Optional<LayerHostingContextID>&& inlineLayerHostingContextId, Optional<LayerHostingContextID>&& fullscreenLayerHostingContextId)>&& completionHandler)
+static void setVideoInlineSizeIfPossible(LayerHostingContext& context, const WebCore::FloatSize& size)
+{
+    if (!context.rootLayer() || size.isEmpty())
+        return;
+
+    // We do not want animations here.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    [context.rootLayer() setFrame:CGRectMake(0, 0, size.width(), size.height())];
+    [CATransaction commit];
+}
+
+void RemoteMediaPlayerProxy::prepareForPlayback(bool privateMode, WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, bool prepareForRendering, float videoContentScale, WebCore::DynamicRangeMode preferredDynamicRangeMode, CompletionHandler<void(std::optional<LayerHostingContextID>&& inlineLayerHostingContextId)>&& completionHandler)
 {
     m_player->setPrivateBrowsingMode(privateMode);
     m_player->setPreload(preload);
     m_player->setPreservesPitch(preservesPitch);
-    m_player->prepareForRendering();
+    m_player->setPreferredDynamicRangeMode(preferredDynamicRangeMode);
+    if (prepareForRendering)
+        m_player->prepareForRendering();
     m_videoContentScale = videoContentScale;
     if (!m_inlineLayerHostingContext)
         m_inlineLayerHostingContext = LayerHostingContext::createForExternalHostingProcess();
-#if ENABLE(VIDEO_PRESENTATION_MODE)
-    if (!m_fullscreenLayerHostingContext)
-        m_fullscreenLayerHostingContext = LayerHostingContext::createForExternalHostingProcess();
-    completionHandler(m_inlineLayerHostingContext->contextID(), m_fullscreenLayerHostingContext->contextID());
-#endif
+    completionHandler(m_inlineLayerHostingContext->contextID());
 }
 
 void RemoteMediaPlayerProxy::mediaPlayerFirstVideoFrameAvailable()
 {
-    // Initially the size of the platformLayer will be 0x0 because we do not provide mediaPlayerContentBoxRect() in this class.
-    m_inlineLayerHostingContext->setRootLayer(m_player->platformLayer());
+    // Initially the size of the platformLayer may be 0x0 because we do not provide mediaPlayerContentBoxRect() in this class.
+    setVideoInlineSizeIfPossible(*m_inlineLayerHostingContext, m_videoInlineSize);
     m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::FirstVideoFrameAvailable(), m_id);
 }
 
 void RemoteMediaPlayerProxy::mediaPlayerRenderingModeChanged()
 {
     m_inlineLayerHostingContext->setRootLayer(m_player->platformLayer());
+    m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::RenderingModeChanged(), m_id);
 }
-
-void RemoteMediaPlayerProxy::setVideoInlineSizeFenced(const WebCore::IntSize& size, const WTF::MachSendRight& machSendRight)
+void RemoteMediaPlayerProxy::setVideoInlineSizeFenced(const WebCore::FloatSize& size, const WTF::MachSendRight& machSendRight)
 {
     m_inlineLayerHostingContext->setFencePort(machSendRight.sendRight());
-    // We do not want animations here
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    [m_inlineLayerHostingContext->rootLayer() setFrame:CGRectMake(0, 0, size.width(), size.height())];
-    [CATransaction commit];
+
+    m_videoInlineSize = size;
+    setVideoInlineSizeIfPossible(*m_inlineLayerHostingContext, size);
 }
 
-#if ENABLE(VIDEO_PRESENTATION_MODE)
-void RemoteMediaPlayerProxy::enterFullscreen(CompletionHandler<void()>&& completionHandler)
+void RemoteMediaPlayerProxy::mediaPlayerOnNewVideoFrameMetadata(VideoFrameMetadata&& metadata, RetainPtr<CVPixelBufferRef>&& buffer)
 {
-    auto videoFullscreenLayer = m_player->createVideoFullscreenLayer();
-    [videoFullscreenLayer setName:@"Web Video Fullscreen Layer (remote)"];
-    [videoFullscreenLayer setPosition:CGPointZero];
-    m_fullscreenLayerHostingContext->setRootLayer(videoFullscreenLayer.get());
-
-    m_player->setVideoFullscreenLayer(videoFullscreenLayer.get(), WTFMove(completionHandler));
+    m_webProcessConnection->send(Messages::MediaPlayerPrivateRemote::PushVideoFrameMetadata(metadata, buffer), m_id);
 }
 
-void RemoteMediaPlayerProxy::exitFullscreen(CompletionHandler<void()>&& completionHandler)
+void RemoteMediaPlayerProxy::nativeImageForCurrentTime(CompletionHandler<void(std::optional<WTF::MachSendRight>&&, WebCore::DestinationColorSpace)>&& completionHandler)
 {
-    m_player->setVideoFullscreenLayer(nullptr, WTFMove(completionHandler));
-    m_fullscreenLayerHostingContext->setRootLayer(nullptr);
+    if (!m_player) {
+        completionHandler(std::nullopt, DestinationColorSpace::SRGB());
+        return;
+    }
+
+    auto nativeImage = m_player->nativeImageForCurrentTime();
+    if (!nativeImage) {
+        completionHandler(std::nullopt, DestinationColorSpace::SRGB());
+        return;
+    }
+
+    auto platformImage = nativeImage->platformImage();
+    if (!platformImage) {
+        completionHandler(std::nullopt, DestinationColorSpace::SRGB());
+        return;
+    }
+
+    auto surface = WebCore::IOSurface::createFromImage(platformImage.get());
+    if (!surface) {
+        completionHandler(std::nullopt, DestinationColorSpace::SRGB());
+        return;
+    }
+
+    completionHandler(surface->createSendRight(), nativeImage->colorSpace());
 }
 
-void RemoteMediaPlayerProxy::setVideoFullscreenFrameFenced(const WebCore::FloatRect& rect, const WTF::MachSendRight& machSendRight)
+void RemoteMediaPlayerProxy::colorSpace(CompletionHandler<void(WebCore::DestinationColorSpace)>&& completionHandler)
 {
-    m_fullscreenLayerHostingContext->setFencePort(machSendRight.sendRight());
-    m_player->setVideoFullscreenFrame(rect);
+    if (!m_player) {
+        completionHandler(DestinationColorSpace::SRGB());
+        return;
+    }
+
+    completionHandler(m_player->colorSpace());
 }
-#endif
 
 } // namespace WebKit
 

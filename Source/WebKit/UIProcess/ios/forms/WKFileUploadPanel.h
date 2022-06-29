@@ -39,12 +39,13 @@ class WebOpenPanelResultListenerProxy;
 }
 
 @interface WKFileUploadPanel : UIViewController
-@property (nonatomic, assign) id <WKFileUploadPanelDelegate> delegate;
+@property (nonatomic, weak) id <WKFileUploadPanelDelegate> delegate;
 - (instancetype)initWithView:(WKContentView *)view;
 - (void)presentWithParameters:(API::OpenPanelParameters*)parameters resultListener:(WebKit::WebOpenPanelResultListenerProxy*)listener;
 - (void)dismiss;
 
 - (NSArray<NSString *> *)currentAvailableActionTitles;
+- (NSArray<NSString *> *)acceptedTypeIdentifiers;
 @end
 
 @protocol WKFileUploadPanelDelegate <NSObject>

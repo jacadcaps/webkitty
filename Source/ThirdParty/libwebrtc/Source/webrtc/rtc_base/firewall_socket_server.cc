@@ -25,7 +25,7 @@ namespace rtc {
 
 class FirewallSocket : public AsyncSocketAdapter {
  public:
-  FirewallSocket(FirewallSocketServer* server, AsyncSocket* socket, int type)
+  FirewallSocket(FirewallSocketServer* server, Socket* socket, int type)
       : AsyncSocketAdapter(socket), server_(server), type_(type) {}
 
   int Bind(const SocketAddress& addr) override {
@@ -96,9 +96,9 @@ class FirewallSocket : public AsyncSocketAdapter {
 
     return AsyncSocketAdapter::Listen(backlog);
   }
-  AsyncSocket* Accept(SocketAddress* paddr) override {
+  Socket* Accept(SocketAddress* paddr) override {
     SocketAddress addr;
-    while (AsyncSocket* sock = AsyncSocketAdapter::Accept(&addr)) {
+    while (Socket* sock = AsyncSocketAdapter::Accept(&addr)) {
       if (server_->Check(FP_TCP, addr, GetLocalAddress())) {
         if (paddr)
           *paddr = addr;
@@ -163,19 +163,19 @@ void FirewallSocketServer::AddRule(bool allow,
   r.p = p;
   r.src = src;
   r.dst = dst;
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   rules_.push_back(r);
 }
 
 void FirewallSocketServer::ClearRules() {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   rules_.clear();
 }
 
 bool FirewallSocketServer::Check(FirewallProtocol p,
                                  const SocketAddress& src,
                                  const SocketAddress& dst) {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   for (size_t i = 0; i < rules_.size(); ++i) {
     const Rule& r = rules_[i];
     if ((r.p != p) && (r.p != FP_ANY))
@@ -203,11 +203,7 @@ bool FirewallSocketServer::IsBindableIp(const rtc::IPAddress& ip) {
 }
 
 Socket* FirewallSocketServer::CreateSocket(int family, int type) {
-  return WrapSocket(server_->CreateAsyncSocket(family, type), type);
-}
-
-AsyncSocket* FirewallSocketServer::CreateAsyncSocket(int family, int type) {
-  return WrapSocket(server_->CreateAsyncSocket(family, type), type);
+  return WrapSocket(server_->CreateSocket(family, type), type);
 }
 
 void FirewallSocketServer::SetMessageQueue(Thread* queue) {
@@ -222,7 +218,7 @@ void FirewallSocketServer::WakeUp() {
   return server_->WakeUp();
 }
 
-AsyncSocket* FirewallSocketServer::WrapSocket(AsyncSocket* sock, int type) {
+Socket* FirewallSocketServer::WrapSocket(Socket* sock, int type) {
   if (!sock || (type == SOCK_STREAM && !tcp_sockets_enabled_) ||
       (type == SOCK_DGRAM && !udp_sockets_enabled_)) {
     RTC_LOG(LS_VERBOSE) << "FirewallSocketServer socket creation denied";
@@ -239,12 +235,12 @@ FirewallManager::~FirewallManager() {
 }
 
 void FirewallManager::AddServer(FirewallSocketServer* server) {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   servers_.push_back(server);
 }
 
 void FirewallManager::RemoveServer(FirewallSocketServer* server) {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   servers_.erase(std::remove(servers_.begin(), servers_.end(), server),
                  servers_.end());
 }
@@ -253,7 +249,7 @@ void FirewallManager::AddRule(bool allow,
                               FirewallProtocol p,
                               FirewallDirection d,
                               const SocketAddress& addr) {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   for (std::vector<FirewallSocketServer*>::const_iterator it = servers_.begin();
        it != servers_.end(); ++it) {
     (*it)->AddRule(allow, p, d, addr);
@@ -261,7 +257,7 @@ void FirewallManager::AddRule(bool allow,
 }
 
 void FirewallManager::ClearRules() {
-  CritScope scope(&crit_);
+  webrtc::MutexLock scope(&mutex_);
   for (std::vector<FirewallSocketServer*>::const_iterator it = servers_.begin();
        it != servers_.end(); ++it) {
     (*it)->ClearRules();

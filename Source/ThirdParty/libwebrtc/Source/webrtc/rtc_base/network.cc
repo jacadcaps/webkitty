@@ -35,9 +35,18 @@
 #include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
 #include "rtc_base/thread.h"
+#include "system_wrappers/include/field_trial.h"
 
 namespace rtc {
 namespace {
+
+// List of MAC addresses of known VPN (for windows).
+constexpr uint8_t kVpns[2][6] = {
+    // Cisco AnyConnect.
+    {0x0, 0x5, 0x9A, 0x3C, 0x7A, 0x0},
+    // GlobalProtect Virtual Ethernet.
+    {0x2, 0x50, 0x41, 0x0, 0x0, 0x1},
+};
 
 const uint32_t kUpdateNetworksMessage = 1;
 const uint32_t kSignalNetworksMessage = 2;
@@ -85,37 +94,37 @@ bool SortNetworks(const Network* a, const Network* b) {
   return a->key() < b->key();
 }
 
-std::string AdapterTypeToString(AdapterType type) {
-  switch (type) {
-    case ADAPTER_TYPE_ANY:
-      return "Wildcard";
-    case ADAPTER_TYPE_UNKNOWN:
-      return "Unknown";
-    case ADAPTER_TYPE_ETHERNET:
-      return "Ethernet";
-    case ADAPTER_TYPE_WIFI:
-      return "Wifi";
-    case ADAPTER_TYPE_CELLULAR:
-      return "Cellular";
-    case ADAPTER_TYPE_VPN:
-      return "VPN";
-    case ADAPTER_TYPE_LOOPBACK:
-      return "Loopback";
-    default:
-      RTC_NOTREACHED() << "Invalid type " << type;
-      return std::string();
-  }
-}
-
-uint16_t ComputeNetworkCostByType(int type) {
+uint16_t ComputeNetworkCostByType(int type,
+                                  bool is_vpn,
+                                  bool use_differentiated_cellular_costs,
+                                  bool add_network_cost_to_vpn) {
+  // TODO(jonaso) : Rollout support for cellular network cost using A/B
+  // experiment to make sure it does not introduce regressions.
+  int vpnCost = (is_vpn && add_network_cost_to_vpn) ? kNetworkCostVpn : 0;
   switch (type) {
     case rtc::ADAPTER_TYPE_ETHERNET:
     case rtc::ADAPTER_TYPE_LOOPBACK:
-      return kNetworkCostMin;
+      return kNetworkCostMin + vpnCost;
     case rtc::ADAPTER_TYPE_WIFI:
-      return kNetworkCostLow;
+      return kNetworkCostLow + vpnCost;
     case rtc::ADAPTER_TYPE_CELLULAR:
-      return kNetworkCostHigh;
+      return kNetworkCostCellular + vpnCost;
+    case rtc::ADAPTER_TYPE_CELLULAR_2G:
+      return (use_differentiated_cellular_costs ? kNetworkCostCellular2G
+                                                : kNetworkCostCellular) +
+             vpnCost;
+    case rtc::ADAPTER_TYPE_CELLULAR_3G:
+      return (use_differentiated_cellular_costs ? kNetworkCostCellular3G
+                                                : kNetworkCostCellular) +
+             vpnCost;
+    case rtc::ADAPTER_TYPE_CELLULAR_4G:
+      return (use_differentiated_cellular_costs ? kNetworkCostCellular4G
+                                                : kNetworkCostCellular) +
+             vpnCost;
+    case rtc::ADAPTER_TYPE_CELLULAR_5G:
+      return (use_differentiated_cellular_costs ? kNetworkCostCellular5G
+                                                : kNetworkCostCellular) +
+             vpnCost;
     case rtc::ADAPTER_TYPE_ANY:
       // Candidates gathered from the any-address/wildcard ports, as backups,
       // are given the maximum cost so that if there are other candidates with
@@ -126,18 +135,18 @@ uint16_t ComputeNetworkCostByType(int type) {
       // ADAPTER_TYPE_CELLULAR would then have a higher cost. See
       // P2PTransportChannel::SortConnectionsAndUpdateState for how we rank and
       // select candidate pairs, where the network cost is among the criteria.
-      return kNetworkCostMax;
+      return kNetworkCostMax + vpnCost;
     case rtc::ADAPTER_TYPE_VPN:
       // The cost of a VPN should be computed using its underlying network type.
       RTC_NOTREACHED();
       return kNetworkCostUnknown;
     default:
-      return kNetworkCostUnknown;
+      return kNetworkCostUnknown + vpnCost;
   }
 }
 
 #if !defined(__native_client__)
-bool IsIgnoredIPv6(const InterfaceAddress& ip) {
+bool IsIgnoredIPv6(bool allow_mac_based_ipv6, const InterfaceAddress& ip) {
   if (ip.family() != AF_INET6) {
     return false;
   }
@@ -150,7 +159,7 @@ bool IsIgnoredIPv6(const InterfaceAddress& ip) {
   }
 
   // Any MAC based IPv6 should be avoided to prevent the MAC tracking.
-  if (IPIsMacBased(ip)) {
+  if (IPIsMacBased(ip) && !allow_mac_based_ipv6) {
     return true;
   }
 
@@ -162,6 +171,18 @@ bool IsIgnoredIPv6(const InterfaceAddress& ip) {
   return false;
 }
 #endif  // !defined(__native_client__)
+
+// Note: consider changing to const Network* as arguments
+// if/when considering other changes that should not trigger
+// OnNetworksChanged.
+bool ShouldAdapterChangeTriggerNetworkChange(rtc::AdapterType old_type,
+                                             rtc::AdapterType new_type) {
+  // skip triggering OnNetworksChanged if
+  // changing from one cellular to another.
+  if (Network::IsCellular(old_type) && Network::IsCellular(new_type))
+    return false;
+  return true;
+}
 
 }  // namespace
 
@@ -206,7 +227,8 @@ AdapterType GetAdapterTypeFromName(const char* network_name) {
     return ADAPTER_TYPE_ETHERNET;
   }
 
-  if (MatchTypeNameWithIndexPattern(network_name, "wlan")) {
+  if (MatchTypeNameWithIndexPattern(network_name, "wlan") ||
+      MatchTypeNameWithIndexPattern(network_name, "v4-wlan")) {
     return ADAPTER_TYPE_WIFI;
   }
 
@@ -259,7 +281,9 @@ webrtc::MdnsResponderInterface* NetworkManager::GetMdnsResponder() const {
 }
 
 NetworkManagerBase::NetworkManagerBase()
-    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED) {}
+    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED),
+      signal_network_preference_change_(webrtc::field_trial::IsEnabled(
+          "WebRTC-SignalNetworkPreferenceChange")) {}
 
 NetworkManagerBase::~NetworkManagerBase() {
   for (const auto& kv : networks_map_) {
@@ -366,12 +390,21 @@ void NetworkManagerBase::MergeNetworkList(const NetworkList& new_networks,
       merged_list.push_back(existing_net);
       if (net->type() != ADAPTER_TYPE_UNKNOWN &&
           net->type() != existing_net->type()) {
+        if (ShouldAdapterChangeTriggerNetworkChange(existing_net->type(),
+                                                    net->type())) {
+          *changed = true;
+        }
         existing_net->set_type(net->type());
-        *changed = true;
       }
       // If the existing network was not active, networks have changed.
       if (!existing_net->active()) {
         *changed = true;
+      }
+      if (net->network_preference() != existing_net->network_preference()) {
+        existing_net->set_network_preference(net->network_preference());
+        if (signal_network_preference_change_) {
+          *changed = true;
+        }
       }
       RTC_DCHECK(net->active());
       if (existing_net != net) {
@@ -380,20 +413,20 @@ void NetworkManagerBase::MergeNetworkList(const NetworkList& new_networks,
     }
     networks_map_[key]->set_mdns_responder_provider(this);
   }
-  // It may still happen that the merged list is a subset of |networks_|.
+  // It may still happen that the merged list is a subset of `networks_`.
   // To detect this change, we compare their sizes.
   if (merged_list.size() != networks_.size()) {
     *changed = true;
   }
 
-  // If the network list changes, we re-assign |networks_| to the merged list
+  // If the network list changes, we re-assign `networks_` to the merged list
   // and re-sort it.
   if (*changed) {
     networks_ = merged_list;
     // Reset the active states of all networks.
     for (const auto& kv : networks_map_) {
       Network* network = kv.second;
-      // If |network| is in the newly generated |networks_|, it is active.
+      // If `network` is in the newly generated `networks_`, it is active.
       bool found = absl::c_linear_search(networks_, network);
       network->set_active(found);
     }
@@ -461,12 +494,41 @@ Network* NetworkManagerBase::GetNetworkFromAddress(
   return nullptr;
 }
 
+bool NetworkManagerBase::IsVpnMacAddress(
+    rtc::ArrayView<const uint8_t> address) {
+  if (address.data() == nullptr && address.size() == 0) {
+    return false;
+  }
+  for (const auto& vpn : kVpns) {
+    if (sizeof(vpn) == address.size() &&
+        memcmp(vpn, address.data(), address.size()) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 BasicNetworkManager::BasicNetworkManager()
-    : thread_(nullptr), sent_first_update_(false), start_count_(0) {}
+    : BasicNetworkManager(nullptr, nullptr) {}
+
+BasicNetworkManager::BasicNetworkManager(
+    NetworkMonitorFactory* network_monitor_factory)
+    : BasicNetworkManager(network_monitor_factory, nullptr) {}
+
+BasicNetworkManager::BasicNetworkManager(
+    NetworkMonitorFactory* network_monitor_factory,
+    SocketFactory* socket_factory)
+    : network_monitor_factory_(network_monitor_factory),
+      socket_factory_(socket_factory),
+      allow_mac_based_ipv6_(
+          webrtc::field_trial::IsEnabled("WebRTC-AllowMACBasedIPv6")),
+      bind_using_ifname_(
+          !webrtc::field_trial::IsDisabled("WebRTC-BindUsingInterfaceName")) {}
 
 BasicNetworkManager::~BasicNetworkManager() {}
 
 void BasicNetworkManager::OnNetworksChanged() {
+  RTC_DCHECK_RUN_ON(thread_);
   RTC_LOG(LS_INFO) << "Network change was observed";
   UpdateNetworksOnce();
 }
@@ -508,13 +570,14 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
       continue;
     }
     // Convert to InterfaceAddress.
+    // TODO(webrtc:13114): Convert ConvertIfAddrs to use rtc::Netmask.
     if (!ifaddrs_converter->ConvertIfAddrsToIPAddress(cursor, &ip, &mask)) {
       continue;
     }
 
     // Special case for IPv6 address.
     if (cursor->ifa_addr->sa_family == AF_INET6) {
-      if (IsIgnoredIPv6(ip)) {
+      if (IsIgnoredIPv6(allow_mac_based_ipv6_, ip)) {
         continue;
       }
       scope_id =
@@ -523,6 +586,7 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
 
     AdapterType adapter_type = ADAPTER_TYPE_UNKNOWN;
     AdapterType vpn_underlying_adapter_type = ADAPTER_TYPE_UNKNOWN;
+    NetworkPreference network_preference = NetworkPreference::NEUTRAL;
     if (cursor->ifa_flags & IFF_LOOPBACK) {
       adapter_type = ADAPTER_TYPE_LOOPBACK;
     } else {
@@ -530,6 +594,8 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
       // Otherwise, get the adapter type based on a few name matching rules.
       if (network_monitor_) {
         adapter_type = network_monitor_->GetAdapterType(cursor->ifa_name);
+        network_preference =
+            network_monitor_->GetNetworkPreference(cursor->ifa_name);
       }
       if (adapter_type == ADAPTER_TYPE_UNKNOWN) {
         adapter_type = GetAdapterTypeFromName(cursor->ifa_name);
@@ -540,8 +606,16 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
       vpn_underlying_adapter_type =
           network_monitor_->GetVpnUnderlyingAdapterType(cursor->ifa_name);
     }
+
     int prefix_length = CountIPMaskBits(mask);
     prefix = TruncateIP(ip, prefix_length);
+
+    if (adapter_type != ADAPTER_TYPE_VPN &&
+        IsConfiguredVpn(prefix, prefix_length)) {
+      vpn_underlying_adapter_type = adapter_type;
+      adapter_type = ADAPTER_TYPE_VPN;
+    }
+
     std::string key =
         MakeNetworkKey(std::string(cursor->ifa_name), prefix, prefix_length);
     auto iter = current_networks.find(key);
@@ -555,6 +629,7 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
       network->AddIP(ip);
       network->set_ignored(IsIgnoredNetwork(*network));
       network->set_underlying_type_for_vpn(vpn_underlying_adapter_type);
+      network->set_network_preference(network_preference);
       if (include_ignored || !network->ignored()) {
         current_networks[key] = network.get();
         networks->push_back(network.release());
@@ -567,6 +642,7 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
         existing_network->set_underlying_type_for_vpn(
             vpn_underlying_adapter_type);
       }
+      existing_network->set_network_preference(network_preference);
     }
   }
 }
@@ -687,7 +763,7 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
             scope_id = v6_addr->sin6_scope_id;
             ip = IPAddress(v6_addr->sin6_addr);
 
-            if (IsIgnoredIPv6(InterfaceAddress(ip))) {
+            if (IsIgnoredIPv6(allow_mac_based_ipv6_, InterfaceAddress(ip))) {
               continue;
             }
 
@@ -728,8 +804,24 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
               adapter_type = ADAPTER_TYPE_UNKNOWN;
               break;
           }
+          auto vpn_underlying_adapter_type = ADAPTER_TYPE_UNKNOWN;
+          if (adapter_type != ADAPTER_TYPE_VPN &&
+              IsConfiguredVpn(prefix, prefix_length)) {
+            vpn_underlying_adapter_type = adapter_type;
+            adapter_type = ADAPTER_TYPE_VPN;
+          }
+          if (adapter_type != ADAPTER_TYPE_VPN &&
+              IsVpnMacAddress(rtc::ArrayView<const uint8_t>(
+                  reinterpret_cast<const uint8_t*>(
+                      adapter_addrs->PhysicalAddress),
+                  adapter_addrs->PhysicalAddressLength))) {
+            vpn_underlying_adapter_type = adapter_type;
+            adapter_type = ADAPTER_TYPE_VPN;
+          }
+
           std::unique_ptr<Network> network(new Network(
               name, description, prefix, prefix_length, adapter_type));
+          network->set_underlying_type_for_vpn(vpn_underlying_adapter_type);
           network->set_default_local_address_provider(this);
           network->set_mdns_responder_provider(this);
           network->set_scope_id(scope_id);
@@ -780,6 +872,11 @@ bool BasicNetworkManager::IsIgnoredNetwork(const Network& network) const {
   }
 #endif
 
+  if (network_monitor_ &&
+      !network_monitor_->IsAdapterAvailable(network.name())) {
+    return true;
+  }
+
   // Ignore any networks with a 0.x.y.z IP
   if (network.prefix().family() == AF_INET) {
     return (network.prefix().v4AddressAsHostOrderInteger() < 0x01000000);
@@ -790,6 +887,8 @@ bool BasicNetworkManager::IsIgnoredNetwork(const Network& network) const {
 
 void BasicNetworkManager::StartUpdating() {
   thread_ = Thread::Current();
+  // Redundant but necessary for thread annotations.
+  RTC_DCHECK_RUN_ON(thread_);
   if (start_count_) {
     // If network interfaces are already discovered and signal is sent,
     // we should trigger network signal immediately for the new clients
@@ -804,7 +903,7 @@ void BasicNetworkManager::StartUpdating() {
 }
 
 void BasicNetworkManager::StopUpdating() {
-  RTC_DCHECK(Thread::Current() == thread_);
+  RTC_DCHECK_RUN_ON(thread_);
   if (!start_count_)
     return;
 
@@ -817,18 +916,26 @@ void BasicNetworkManager::StopUpdating() {
 }
 
 void BasicNetworkManager::StartNetworkMonitor() {
-  NetworkMonitorFactory* factory = NetworkMonitorFactory::GetFactory();
-  if (factory == nullptr) {
+  if (network_monitor_factory_ == nullptr) {
     return;
   }
   if (!network_monitor_) {
-    network_monitor_.reset(factory->CreateNetworkMonitor());
+    network_monitor_.reset(network_monitor_factory_->CreateNetworkMonitor());
     if (!network_monitor_) {
       return;
     }
-    network_monitor_->SignalNetworksChanged.connect(
-        this, &BasicNetworkManager::OnNetworksChanged);
+    network_monitor_->SetNetworksChangedCallback(
+        [this]() { OnNetworksChanged(); });
   }
+
+  if (network_monitor_->SupportsBindSocketToNetwork()) {
+    // Set NetworkBinder on SocketServer so that
+    // PhysicalSocket::Bind will call
+    // BasicNetworkManager::BindSocketToNetwork(), (that will lookup interface
+    // name and then call network_monitor_->BindSocketToNetwork()).
+    thread_->socketserver()->set_network_binder(this);
+  }
+
   network_monitor_->Start();
 }
 
@@ -837,9 +944,17 @@ void BasicNetworkManager::StopNetworkMonitor() {
     return;
   }
   network_monitor_->Stop();
+
+  if (network_monitor_->SupportsBindSocketToNetwork()) {
+    // Reset NetworkBinder on SocketServer.
+    if (thread_->socketserver()->network_binder() == this) {
+      thread_->socketserver()->set_network_binder(nullptr);
+    }
+  }
 }
 
 void BasicNetworkManager::OnMessage(Message* msg) {
+  RTC_DCHECK_RUN_ON(thread_);
   switch (msg->message_id) {
     case kUpdateNetworksMessage: {
       UpdateNetworksContinually();
@@ -855,12 +970,18 @@ void BasicNetworkManager::OnMessage(Message* msg) {
 }
 
 IPAddress BasicNetworkManager::QueryDefaultLocalAddress(int family) const {
-  RTC_DCHECK(thread_ == Thread::Current());
-  RTC_DCHECK(thread_->socketserver() != nullptr);
   RTC_DCHECK(family == AF_INET || family == AF_INET6);
 
-  std::unique_ptr<AsyncSocket> socket(
-      thread_->socketserver()->CreateAsyncSocket(family, SOCK_DGRAM));
+  // TODO(bugs.webrtc.org/13145): Delete support for null `socket_factory_`,
+  // require socket factory to be provided to constructor.
+  SocketFactory* socket_factory = socket_factory_;
+  if (!socket_factory) {
+    socket_factory = thread_->socketserver();
+  }
+  RTC_DCHECK(socket_factory);
+
+  std::unique_ptr<Socket> socket(
+      socket_factory->CreateSocket(family, SOCK_DGRAM));
   if (!socket) {
     RTC_LOG_ERR(LERROR) << "Socket creation failed";
     return IPAddress();
@@ -883,8 +1004,6 @@ IPAddress BasicNetworkManager::QueryDefaultLocalAddress(int family) const {
 void BasicNetworkManager::UpdateNetworksOnce() {
   if (!start_count_)
     return;
-
-  RTC_DCHECK(Thread::Current() == thread_);
 
   NetworkList list;
   if (!CreateNetworks(false, &list)) {
@@ -909,6 +1028,7 @@ void BasicNetworkManager::UpdateNetworksContinually() {
 }
 
 void BasicNetworkManager::DumpNetworks() {
+  RTC_DCHECK_RUN_ON(thread_);
   NetworkList list;
   GetNetworks(&list);
   RTC_LOG(LS_INFO) << "NetworkManager detected " << list.size() << " networks:";
@@ -917,6 +1037,20 @@ void BasicNetworkManager::DumpNetworks() {
                      << ", active ? " << network->active()
                      << ((network->ignored()) ? ", Ignored" : "");
   }
+}
+
+NetworkBindingResult BasicNetworkManager::BindSocketToNetwork(
+    int socket_fd,
+    const IPAddress& address) {
+  RTC_DCHECK_RUN_ON(thread_);
+  std::string if_name;
+  if (bind_using_ifname_) {
+    Network* net = GetNetworkFromAddress(address);
+    if (net != nullptr) {
+      if_name = net->name();
+    }
+  }
+  return network_monitor_->BindSocketToNetwork(socket_fd, address, if_name);
 }
 
 Network::Network(const std::string& name,
@@ -931,7 +1065,11 @@ Network::Network(const std::string& name,
       scope_id_(0),
       ignored_(false),
       type_(ADAPTER_TYPE_UNKNOWN),
-      preference_(0) {}
+      preference_(0),
+      use_differentiated_cellular_costs_(webrtc::field_trial::IsEnabled(
+          "WebRTC-UseDifferentiatedCellularCosts")),
+      add_network_cost_to_vpn_(
+          webrtc::field_trial::IsEnabled("WebRTC-AddNetworkCostToVpn")) {}
 
 Network::Network(const std::string& name,
                  const std::string& desc,
@@ -946,7 +1084,11 @@ Network::Network(const std::string& name,
       scope_id_(0),
       ignored_(false),
       type_(type),
-      preference_(0) {}
+      preference_(0),
+      use_differentiated_cellular_costs_(webrtc::field_trial::IsEnabled(
+          "WebRTC-UseDifferentiatedCellularCosts")),
+      add_network_cost_to_vpn_(
+          webrtc::field_trial::IsEnabled("WebRTC-AddNetworkCostToVpn")) {}
 
 Network::Network(const Network&) = default;
 
@@ -1018,7 +1160,9 @@ webrtc::MdnsResponderInterface* Network::GetMdnsResponder() const {
 
 uint16_t Network::GetCost() const {
   AdapterType type = IsVpn() ? underlying_type_for_vpn_ : type_;
-  return ComputeNetworkCostByType(type);
+  return ComputeNetworkCostByType(type, IsVpn(),
+                                  use_differentiated_cellular_costs_,
+                                  add_network_cost_to_vpn_);
 }
 
 std::string Network::ToString() const {
@@ -1033,6 +1177,28 @@ std::string Network::ToString() const {
   }
   ss << ":id=" << id_ << "]";
   return ss.Release();
+}
+
+void BasicNetworkManager::set_vpn_list(const std::vector<NetworkMask>& vpn) {
+  if (thread_ == nullptr) {
+    vpn_ = vpn;
+  } else {
+    thread_->Invoke<void>(RTC_FROM_HERE, [this, vpn] { vpn_ = vpn; });
+  }
+}
+
+bool BasicNetworkManager::IsConfiguredVpn(IPAddress prefix,
+                                          int prefix_length) const {
+  RTC_DCHECK_RUN_ON(thread_);
+  for (const auto& vpn : vpn_) {
+    if (prefix_length >= vpn.prefix_length()) {
+      auto copy = TruncateIP(prefix, vpn.prefix_length());
+      if (copy == vpn.address()) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 }  // namespace rtc

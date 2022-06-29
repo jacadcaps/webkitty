@@ -89,7 +89,7 @@ private:
     bool canRunBeforeUnloadConfirmPanel() final;
     bool runBeforeUnloadConfirmPanel(const String& message, WebCore::Frame&) final;
 
-    void closeWindowSoon() final;
+    void closeWindow() final;
 
     void runJavaScriptAlert(WebCore::Frame&, const String&) override;
     bool runJavaScriptConfirm(WebCore::Frame&, const String&) override;
@@ -112,8 +112,8 @@ private:
     PlatformPageClient platformPageClient() const final;
     void contentsSizeChanged(WebCore::Frame&, const WebCore::IntSize&) const final;
     void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final { }
-    void scrollRectIntoView(const WebCore::IntRect&) const final;
 
+    void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final;
     void setStatusbarText(const String&) override;
 
     bool shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
@@ -122,7 +122,7 @@ private:
 
     void setToolTip(const String&);
 
-    void print(WebCore::Frame&) final;
+    void print(WebCore::Frame&, const WebCore::StringWithDirection&) final;
     void exceededDatabaseQuota(WebCore::Frame&, const String& databaseName, WebCore::DatabaseDetails) final;
     void reachedMaxAppCacheSize(int64_t spaceNeeded) final;
     void reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin&, int64_t totalSpaceNeeded) final;
@@ -147,12 +147,27 @@ private:
     bool canShowDataListSuggestionLabels() const final { return false; }
 #endif
 
+#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    std::unique_ptr<WebCore::DateTimeChooser> createDateTimeChooser(WebCore::DateTimeChooserClient&) final;
+#endif
+
+#if ENABLE(APP_HIGHLIGHTS)
+    void storeAppHighlight(WebCore::AppHighlight&&) const final;
+#endif
+
+    void setTextIndicator(const WebCore::TextIndicatorData&) const final;
+
 #if ENABLE(POINTER_LOCK)
     bool requestPointerLock() final;
     void requestPointerUnlock() final;
 #endif
 
     WebCore::KeyboardUIMode keyboardUIMode() final;
+
+    bool hoverSupportedByPrimaryPointingDevice() const override { return true; }
+    bool hoverSupportedByAnyAvailablePointingDevice() const override { return true; }
+    std::optional<WebCore::PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const override { return WebCore::PointerCharacteristics::Fine; }
+    OptionSet<WebCore::PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const override { return WebCore::PointerCharacteristics::Fine; }
 
     NSResponder *firstResponder() final;
     void makeFirstResponder(NSResponder *) final;
@@ -170,8 +185,7 @@ private:
     void attachRootGraphicsLayer(WebCore::Frame&, WebCore::GraphicsLayer*) override;
     void attachViewOverlayGraphicsLayer(WebCore::GraphicsLayer*) final;
     void setNeedsOneShotDrawingSynchronization() final;
-    void scheduleRenderingUpdate() final;
-    bool needsImmediateRenderingUpdate() const final { return true; }
+    void triggerRenderingUpdate() final;
 
     CompositingTriggerFlags allowedCompositingTriggers() const final
     {
@@ -189,6 +203,7 @@ private:
 #if ENABLE(VIDEO) && PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
     void setUpPlaybackControlsManager(WebCore::HTMLMediaElement&) final;
     void clearPlaybackControlsManager() final;
+    void playbackControlsMediaEngineChanged() final;
 #endif
 
 #if ENABLE(VIDEO)
@@ -196,7 +211,7 @@ private:
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setMockVideoPresentationModeEnabled(bool) final;
     void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool standby) final;
-    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) final;
+    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WTF::CompletionHandler<void(bool)>&& = [](bool) { }) final;
     void exitVideoFullscreenToModeWithoutAnimation(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;
 #endif
 #endif
@@ -228,17 +243,29 @@ private:
     void addPlaybackTargetPickerClient(WebCore::PlaybackTargetClientContextIdentifier) final;
     void removePlaybackTargetPickerClient(WebCore::PlaybackTargetClientContextIdentifier) final;
     void showPlaybackTargetPicker(WebCore::PlaybackTargetClientContextIdentifier, const WebCore::IntPoint&, bool /* hasVideo */) final;
-    void playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier, WebCore::MediaProducer::MediaStateFlags) final;
+    void playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier, WebCore::MediaProducerMediaStateFlags) final;
     void setMockMediaPlaybackTargetPickerEnabled(bool) final;
-    void setMockMediaPlaybackTargetPickerState(const String&, WebCore::MediaPlaybackTargetContext::State) final;
+    void setMockMediaPlaybackTargetPickerState(const String&, WebCore::MediaPlaybackTargetContext::MockState) final;
     void mockMediaPlaybackTargetPickerDismissPopup() override;
 #endif
 
     String signedPublicKeyAndChallengeString(unsigned keySizeIndex, const String& challengeString, const URL&) const final;
 
+#if PLATFORM(MAC)
+    void changeUniversalAccessZoomFocus(const WebCore::IntRect&, const WebCore::IntRect&) final;
+#endif
+
+    RefPtr<PAL::WebGPU::GPU> createGPUForWebGPU() const final;
+
+    void requestCookieConsent(CompletionHandler<void(WebCore::CookieConsentDecisionResult)>&&) final;
+
+    void classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<WebCore::ModalContainerControlType>&&)>&&) final;
+
+    void decidePolicyForModalContainer(OptionSet<WebCore::ModalContainerControlType>, CompletionHandler<void(WebCore::ModalContainerDecision)>&&) final;
+
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     bool m_mockVideoPresentationModeEnabled { false };
 #endif
 
-    WebView *m_webView;
+    __weak WebView *m_webView;
 };

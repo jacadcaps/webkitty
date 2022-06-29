@@ -37,6 +37,7 @@ from webkitpy.common.memoized import memoized
 from webkitpy.common.system.executive import ScriptError
 from webkitpy.common.version_name_map import PUBLIC_TABLE, INTERNAL_TABLE
 from webkitpy.common.version_name_map import VersionNameMap
+from webkitpy.port.base import Port
 from webkitpy.port.config import apple_additions, Config
 from webkitpy.port.darwin import DarwinPort
 
@@ -46,8 +47,8 @@ _log = logging.getLogger(__name__)
 class MacPort(DarwinPort):
     port_name = "mac"
 
-    CURRENT_VERSION = Version(10, 15)
-    LAST_MACOSX = Version(10, 16)  # FIXME: Once we don't need to support the seed, deprecate in favor of Catalina
+    CURRENT_VERSION = Version(12, 0)
+    LAST_MACOSX = Version(10, 15)
 
     SDK = 'macosx'
 
@@ -73,6 +74,18 @@ class MacPort(DarwinPort):
             return 'arm64'
         return result
 
+    # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
+    def expectations_dict(self, device_type=None):
+        result = super(MacPort, self).expectations_dict(device_type=device_type)
+        if self.architecture() == 'x86_64' and self.host.platform.architecture() == 'arm64':
+            rosetta_expectations = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac', 'TestExpectationsRosetta')
+            if self._filesystem.exists(rosetta_expectations):
+                result[rosetta_expectations] = self._filesystem.read_text_file(rosetta_expectations)
+            else:
+                _log.warning('Failed to find Rosetta special-case expectation path at {}'.format(rosetta_expectations))
+        return result
+
+
     def _build_driver_flags(self):
         architecture = self.architecture()
         # The Internal SDK should always prefer arm64e binaries to arm64 ones
@@ -93,15 +106,16 @@ class MacPort(DarwinPort):
             while temp_version != self.CURRENT_VERSION:
                 versions_to_fallback.append(Version.from_iterable(temp_version))
                 if temp_version < self.CURRENT_VERSION:
-                    if temp_version.minor < self.LAST_MACOSX.minor:
-                        temp_version.minor += 1
+                    if temp_version.major == self.LAST_MACOSX.major:
+                        if temp_version.minor < self.LAST_MACOSX.minor:
+                            temp_version.minor += 1
+                        else:
+                            temp_version = Version(11, 0)
                     else:
-                        temp_version = Version(11, 0)
+                        temp_version = Version(temp_version.major + 1)
                 else:
-                    if temp_version.minor > 0:
-                        temp_version.minor -= 1
-                    else:
-                        temp_version = Version(self.LAST_MACOSX.major, self.LAST_MACOSX.minor)
+                    temp_version = Version(temp_version.major - 1)
+
         wk_string = 'wk1'
         if self.get_option('webkit_test_runner'):
             wk_string = 'wk2'
@@ -232,6 +246,8 @@ class MacPort(DarwinPort):
         return min(supportable_instances, default_count)
 
     def start_helper(self, pixel_tests=False, prefer_integrated_gpu=False):
+        self.stop_helper()
+
         helper_path = self._path_to_helper()
         if not helper_path:
             _log.error("No path to LayoutTestHelper binary")
@@ -240,9 +256,9 @@ class MacPort(DarwinPort):
         arguments = [helper_path, '--install-color-profile']
         if prefer_integrated_gpu:
             arguments.append('--prefer-integrated-gpu')
-        self._helper = self._executive.popen(arguments,
+        Port.helper = self._executive.popen(arguments,
             stdin=self._executive.PIPE, stdout=self._executive.PIPE, stderr=None)
-        is_ready = self._helper.stdout.readline()
+        is_ready = Port.helper.stdout.readline()
         if not is_ready.startswith(b'ready'):
             _log.error("LayoutTestHelper could not start")
             return False
@@ -259,17 +275,6 @@ class MacPort(DarwinPort):
                 if e.exit_code != 1:
                     raise e
 
-    def stop_helper(self):
-        if self._helper:
-            _log.debug("Stopping LayoutTestHelper")
-            try:
-                self._helper.stdin.write(b"x\n")
-                self._helper.stdin.close()
-                self._helper.wait()
-            except IOError as e:
-                _log.debug("IOError raised while stopping helper: %s" % str(e))
-            self._helper = None
-
     def logging_patterns_to_strip(self):
         logging_patterns = []
 
@@ -282,7 +287,18 @@ class MacPort(DarwinPort):
         # FIXME: Remove this after <rdar://problem/52897406> is fixed.
         logging_patterns.append((re.compile('VPA info:.*\n'), ''))
 
+        # FIXME: Find where this is coming from and file a bug to have it removed (then remove this line).
+        logging_patterns.append((re.compile('VP9 Info:.*\n'), ''))
+
         return logging_patterns
+
+    def logging_detectors_to_strip_text_start(self, test_name):
+        logging_detectors = []
+
+        if 'webrtc' in test_name and self._os_version.major == 11:
+            logging_detectors.append('')
+
+        return logging_detectors
 
     def stderr_patterns_to_strip(self):
         worthless_patterns = []

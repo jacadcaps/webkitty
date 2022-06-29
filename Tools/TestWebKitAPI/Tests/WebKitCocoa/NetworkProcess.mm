@@ -26,28 +26,32 @@
 #import "config.h"
 
 #import "HTTPServer.h"
+#import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKScriptMessageHandler.h>
+#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
+#import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/UUID.h>
 #import <wtf/Vector.h>
 
-TEST(WebKit, NetworkProcessEntitlements)
+TEST(NetworkProcess, Entitlements)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:[[[WKWebViewConfiguration alloc] init] autorelease]]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get()]);
     [webView synchronouslyLoadTestPageNamed:@"simple"];
-    WKProcessPool *pool = [webView configuration].processPool;
-    bool hasEntitlement = [pool _networkProcessHasEntitlementForTesting:@"com.apple.rootless.storage.WebKitNetworkingSandbox"];
+    WKWebsiteDataStore *store = [webView configuration].websiteDataStore;
+    bool hasEntitlement = [store _networkProcessHasEntitlementForTesting:@"com.apple.rootless.storage.WebKitNetworkingSandbox"];
 #if PLATFORM(MAC) && USE(APPLE_INTERNAL_SDK)
     EXPECT_TRUE(hasEntitlement);
 #else
     EXPECT_FALSE(hasEntitlement);
 #endif
-    EXPECT_FALSE([pool _networkProcessHasEntitlementForTesting:@"test failure case"]);
+    EXPECT_FALSE([store _networkProcessHasEntitlementForTesting:@"test failure case"]);
 }
-
-#if HAVE(NETWORK_FRAMEWORK)
 
 TEST(WebKit, HTTPReferer)
 {
@@ -65,7 +69,7 @@ TEST(WebKit, HTTPReferer)
             });
         });
         auto webView = adoptNS([WKWebView new]);
-        [webView loadHTMLString:[NSString stringWithFormat:@"<body onload='document.getElementById(\"formID\").submit()'><form id='formID' method='post' action='http://127.0.0.1:%d/'></form></body>", server.port()] baseURL:baseURL];
+        [webView loadHTMLString:[NSString stringWithFormat:@"<meta name='referrer' content='unsafe-url'><body onload='document.getElementById(\"formID\").submit()'><form id='formID' method='post' action='http://127.0.0.1:%d/'></form></body>", server.port()] baseURL:baseURL];
         Util::run(&done);
     };
     
@@ -75,10 +79,322 @@ TEST(WebKit, HTTPReferer)
     NSString *shorterPath = [NSString stringWithFormat:@"http://webkit.org/%s?asdf", a3k.data()];
     NSString *longHost = [NSString stringWithFormat:@"http://webkit.org%s/path", a5k.data()];
     NSString *shorterHost = [NSString stringWithFormat:@"http://webkit.org%s/path", a3k.data()];
-    checkReferer([NSURL URLWithString:longPath], "http://webkit.org");
+    checkReferer([NSURL URLWithString:longPath], "http://webkit.org/");
     checkReferer([NSURL URLWithString:shorterPath], shorterPath.UTF8String);
     checkReferer([NSURL URLWithString:longHost], nullptr);
     checkReferer([NSURL URLWithString:shorterHost], shorterHost.UTF8String);
 }
 
-#endif
+TEST(NetworkProcess, LaunchOnlyWhenNecessary)
+{
+    RetainPtr<WKWebsiteDataStore> websiteDataStore;
+
+    @autoreleasepool {
+        auto webView = adoptNS([WKWebView new]);
+        websiteDataStore = adoptNS([webView configuration].websiteDataStore);
+        [websiteDataStore _setResourceLoadStatisticsEnabled:YES];
+        [[webView configuration].processPool _registerURLSchemeAsSecure:@"test"];
+        [[webView configuration].processPool _registerURLSchemeAsBypassingContentSecurityPolicy:@"test"];
+    }
+
+    TestWebKitAPI::Util::spinRunLoop(10);
+    EXPECT_FALSE([websiteDataStore _networkProcessExists]);
+}
+
+TEST(NetworkProcess, CrashWhenNotAssociatedWithDataStore)
+{
+    pid_t networkProcessPID = 0;
+    @autoreleasepool {
+        auto viewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        auto dataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+        auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]);
+        [viewConfiguration setWebsiteDataStore:dataStore.get()];
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:viewConfiguration.get()]);
+        [webView loadHTMLString:@"foo" baseURL:[NSURL URLWithString:@"about:blank"]];
+        while (![dataStore _networkProcessIdentifier])
+            TestWebKitAPI::Util::spinRunLoop(10);
+        networkProcessPID = [dataStore _networkProcessIdentifier];
+        EXPECT_TRUE(!!networkProcessPID);
+    }
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    // Kill the network process once it is no longer associated with any WebsiteDataStore.
+    kill(networkProcessPID, 9);
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    auto viewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto dataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]);
+    [viewConfiguration setWebsiteDataStore:dataStore.get()];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:viewConfiguration.get()]);
+    [webView synchronouslyLoadTestPageNamed:@"simple"];
+    EXPECT_NE(networkProcessPID, [webView configuration].websiteDataStore._networkProcessIdentifier);
+}
+
+TEST(NetworkProcess, TerminateWhenUnused)
+{
+    RetainPtr<WKProcessPool> retainedPool;
+    @autoreleasepool {
+        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        configuration.get().websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+        retainedPool = configuration.get().processPool;
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0) configuration:configuration.get()]);
+        [webView synchronouslyLoadTestPageNamed:@"simple"];
+        EXPECT_TRUE([WKWebsiteDataStore _defaultNetworkProcessExists]);
+    }
+    while ([WKWebsiteDataStore _defaultNetworkProcessExists])
+        TestWebKitAPI::Util::spinRunLoop();
+    
+    retainedPool = nil;
+    
+    @autoreleasepool {
+        auto webView = adoptNS([WKWebView new]);
+        [webView synchronouslyLoadTestPageNamed:@"simple"];
+        EXPECT_TRUE([WKWebsiteDataStore _defaultNetworkProcessExists]);
+    }
+    while ([WKWebsiteDataStore _defaultNetworkProcessExists])
+        TestWebKitAPI::Util::spinRunLoop();
+}
+
+TEST(NetworkProcess, CORSPreflightCachePartitioned)
+{
+    using namespace TestWebKitAPI;
+    size_t preflightRequestsReceived { 0 };
+    HTTPServer server([&] (Connection connection) {
+        connection.receiveHTTPRequest([&, connection] (Vector<char>&& request) {
+            const char* expectedRequestBegin = "OPTIONS / HTTP/1.1\r\n";
+            EXPECT_TRUE(!memcmp(request.data(), expectedRequestBegin, strlen(expectedRequestBegin)));
+            EXPECT_TRUE(strnstr(request.data(), "Origin: http://example.com\r\n", request.size()));
+            EXPECT_TRUE(strnstr(request.data(), "Access-Control-Request-Method: DELETE\r\n", request.size()));
+            
+            const char* response =
+            "HTTP/1.1 204 No Content\r\n"
+            "Access-Control-Allow-Origin: http://example.com\r\n"
+            "Access-Control-Allow-Methods: OPTIONS, GET, POST, DELETE\r\n"
+            "Cache-Control: max-age=604800\r\n\r\n";
+            connection.send(response, [&, connection] {
+                connection.receiveHTTPRequest([&, connection] (Vector<char>&& request) {
+                    const char* expectedRequestBegin = "DELETE / HTTP/1.1\r\n";
+                    EXPECT_TRUE(!memcmp(request.data(), expectedRequestBegin, strlen(expectedRequestBegin)));
+                    EXPECT_TRUE(strnstr(request.data(), "Origin: http://example.com\r\n", request.size()));
+                    const char* response =
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 2\r\n\r\n"
+                    "hi";
+                    connection.send(response, [&, connection] {
+                        preflightRequestsReceived++;
+                    });
+                });
+            });
+        });
+    });
+    NSString *html = [NSString stringWithFormat:@"<script>var xhr = new XMLHttpRequest();xhr.open('DELETE', 'http://localhost:%d/');xhr.send()</script>", server.port()];
+    NSURL *baseURL = [NSURL URLWithString:@"http://example.com/"];
+    auto firstWebView = adoptNS([WKWebView new]);
+    [firstWebView loadHTMLString:html baseURL:baseURL];
+    while (preflightRequestsReceived != 1)
+        TestWebKitAPI::Util::spinRunLoop();
+
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    configuration.get().websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    auto secondWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [secondWebView loadHTMLString:html baseURL:baseURL];
+    while (preflightRequestsReceived != 2)
+        TestWebKitAPI::Util::spinRunLoop();
+}
+
+
+static Vector<RetainPtr<WKScriptMessage>> receivedMessagesVector;
+static bool receivedMessage = false;
+
+@interface BroadcastChannelMessageHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation BroadcastChannelMessageHandler
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    receivedMessagesVector.append(message);
+    receivedMessage = true;
+}
+@end
+
+static void waitUntilNetworkProcessIsResponsive(WKWebView *webView1, WKWebView *webView2)
+{
+    // We've just terminated and relaunched the network process. However, there is no easy well to tell if the webviews'
+    // WebProcesses have been notified of the network process crash or not (we only know that the UIProcess was). Because
+    // we don't want the test to go on with the WebProcesses using stale NetworkProcessConnections, we use the following
+    // trick to wait until both WebProcesses are able to communicate with the new NetworkProcess:
+    // The first WebProcess tries setting a cookie until the second Webview is able to see it.
+    auto expectedCookieString = makeString("TEST=", createVersion4UUIDString());
+    auto setTestCookieString = makeString("setInterval(() => { document.cookie='", expectedCookieString, "'; }, 100);");
+    [webView1 evaluateJavaScript:(NSString *)setTestCookieString completionHandler: [&] (id result, NSError *error) {
+        EXPECT_TRUE(!error);
+    }];
+
+    bool canSecondWebViewSeeNewCookie = false;
+    do {
+        TestWebKitAPI::Util::spinRunLoop(10);
+        String cookieString = (NSString *)[webView2 objectByEvaluatingJavaScript:@"document.cookie"];
+        canSecondWebViewSeeNewCookie = cookieString.contains(expectedCookieString);
+    } while (!canSecondWebViewSeeNewCookie);
+}
+
+TEST(NetworkProcess, BroadcastChannelCrashRecovery)
+{
+    auto webViewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto messageHandler = adoptNS([[BroadcastChannelMessageHandler alloc] init]);
+    [[webViewConfiguration userContentController] addScriptMessageHandler:messageHandler.get() name:@"test"];
+
+    auto webView1 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:webViewConfiguration.get()]);
+    auto webView2 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:webViewConfiguration.get()]);
+
+    receivedMessage = false;
+    receivedMessagesVector.clear();
+
+    NSString *html = [NSString stringWithFormat:@"<script>let bc = new BroadcastChannel('test'); bc.onmessage = (msg) => { webkit.messageHandlers.test.postMessage(msg.data); };</script>"];
+    NSURL *baseURL = [NSURL URLWithString:@"http://example.com/"];
+
+    [webView1 synchronouslyLoadHTMLString:html baseURL:baseURL];
+    [webView2 synchronouslyLoadHTMLString:html baseURL:baseURL];
+
+    auto webPID1 = [webView1 _webProcessIdentifier];
+    auto webPID2 = [webView2 _webProcessIdentifier];
+    EXPECT_NE(webPID1, 0);
+    EXPECT_NE(webPID2, 0);
+    EXPECT_NE(webPID1, webPID2);
+
+    auto networkPID = [[WKWebsiteDataStore defaultDataStore] _networkProcessIdentifier];
+    EXPECT_NE(networkPID, 0);
+
+    EXPECT_FALSE(receivedMessage);
+    EXPECT_TRUE(receivedMessagesVector.isEmpty());
+
+    // Test that initial communication from webView1 to webView2 works.
+    receivedMessage = false;
+    receivedMessagesVector.clear();
+    bool finishedRunningScript = false;
+    [webView1 evaluateJavaScript:@"bc.postMessage('foo')" completionHandler: [&] (id result, NSError *error) {
+        EXPECT_TRUE(!error);
+        finishedRunningScript = true;
+    }];
+    TestWebKitAPI::Util::run(&finishedRunningScript);
+
+    TestWebKitAPI::Util::run(&receivedMessage);
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    EXPECT_EQ(receivedMessagesVector.size(), 1U);
+    EXPECT_EQ([receivedMessagesVector[0] webView], webView2);
+    EXPECT_WK_STREQ([receivedMessagesVector[0] body], @"foo");
+
+    // Test that initial communication from webView2 to webView1 works.
+    receivedMessage = false;
+    receivedMessagesVector.clear();
+    finishedRunningScript = false;
+    [webView2 evaluateJavaScript:@"bc.postMessage('bar')" completionHandler: [&] (id result, NSError *error) {
+        EXPECT_TRUE(!error);
+        finishedRunningScript = true;
+    }];
+    TestWebKitAPI::Util::run(&finishedRunningScript);
+
+    TestWebKitAPI::Util::run(&receivedMessage);
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    EXPECT_EQ(receivedMessagesVector.size(), 1U);
+    EXPECT_EQ([receivedMessagesVector[0] webView], webView1);
+    EXPECT_WK_STREQ([receivedMessagesVector[0] body], @"bar");
+
+    // Kill the network process.
+    kill(networkPID, 9);
+    while ([[WKWebsiteDataStore defaultDataStore] _networkProcessIdentifier] == networkPID)
+        TestWebKitAPI::Util::spinRunLoop(10);
+
+    waitUntilNetworkProcessIsResponsive(webView1.get(), webView2.get());
+
+    // Test that initial communication from webView1 to webView2 works.
+    receivedMessage = false;
+    receivedMessagesVector.clear();
+    finishedRunningScript = false;
+    [webView1 evaluateJavaScript:@"bc.postMessage('foo2')" completionHandler: [&] (id result, NSError *error) {
+        EXPECT_TRUE(!error);
+        finishedRunningScript = true;
+    }];
+    TestWebKitAPI::Util::run(&finishedRunningScript);
+
+    TestWebKitAPI::Util::run(&receivedMessage);
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    EXPECT_EQ(receivedMessagesVector.size(), 1U);
+    EXPECT_EQ([receivedMessagesVector[0] webView], webView2);
+    EXPECT_WK_STREQ([receivedMessagesVector[0] body], @"foo2");
+
+    // Test that initial communication from webView2 to webView1 works.
+    receivedMessage = false;
+    receivedMessagesVector.clear();
+    finishedRunningScript = false;
+    [webView2 evaluateJavaScript:@"bc.postMessage('bar2')" completionHandler: [&] (id result, NSError *error) {
+        EXPECT_TRUE(!error);
+        finishedRunningScript = true;
+    }];
+    TestWebKitAPI::Util::run(&finishedRunningScript);
+
+    TestWebKitAPI::Util::run(&receivedMessage);
+    TestWebKitAPI::Util::spinRunLoop(10);
+
+    EXPECT_EQ(receivedMessagesVector.size(), 1U);
+    EXPECT_EQ([receivedMessagesVector[0] webView], webView1);
+    EXPECT_WK_STREQ([receivedMessagesVector[0] body], @"bar2");
+
+    auto networkPID2 = [[WKWebsiteDataStore defaultDataStore] _networkProcessIdentifier];
+    EXPECT_NE(networkPID2, 0);
+    EXPECT_NE(networkPID, networkPID2);
+
+    EXPECT_EQ(webPID1, [webView1 _webProcessIdentifier]);
+    EXPECT_EQ(webPID2, [webView2 _webProcessIdentifier]);
+}
+
+TEST(NetworkProcess, LoadResource)
+{
+    using namespace TestWebKitAPI;
+    auto html = "<script>document.cookie='testkey=value'</script>";
+    auto secondResponse = "second response";
+    Vector<char> secondRequest;
+    auto server = HTTPServer([&](const Connection& connection) {
+        connection.receiveHTTPRequest([&, connection](Vector<char>&& request) {
+            connection.send(HTTPResponse(html).serialize(), [&, connection] {
+                connection.receiveHTTPRequest([&, connection](Vector<char>&& request) {
+                    secondRequest = WTFMove(request);
+                    connection.send(HTTPResponse(secondResponse).serialize());
+                });
+            });
+        });
+    });
+    auto webView = adoptNS([TestWKWebView new]);
+    [webView synchronouslyLoadRequest:server.request()];
+
+    __block bool done = false;
+    RetainPtr<NSMutableURLRequest> postRequest = adoptNS([server.request() mutableCopy]);
+    [postRequest setMainDocumentURL:postRequest.get().URL];
+    [postRequest setHTTPMethod:@"POST"];
+    auto requestBody = "request body";
+    [postRequest setHTTPBody:[NSData dataWithBytes:requestBody length:strlen(requestBody)]];
+    [webView _requestResource:postRequest.get() completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_WK_STREQ(response.URL.absoluteString, postRequest.get().URL.absoluteString);
+        EXPECT_EQ(data.length, strlen(secondResponse));
+        EXPECT_TRUE(!memcmp(data.bytes, secondResponse, data.length));
+        done = true;
+    }];
+    Util::run(&done);
+    EXPECT_TRUE(strnstr(secondRequest.data(), "Cookie: testkey=value\r\n", secondRequest.size()));
+    EXPECT_WK_STREQ(HTTPServer::parseBody(secondRequest), requestBody);
+
+    done = false;
+    [webView _requestResource:[NSURLRequest requestWithURL:[NSURL URLWithString:@"blob:blank"]] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        EXPECT_WK_STREQ(error.domain, NSURLErrorDomain);
+        EXPECT_EQ(error.code, NSURLErrorUnsupportedURL);
+        EXPECT_NULL(data);
+        EXPECT_NULL(response);
+        done = true;
+    }];
+    Util::run(&done);
+}

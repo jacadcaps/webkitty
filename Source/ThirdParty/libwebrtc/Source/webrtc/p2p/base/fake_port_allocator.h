@@ -18,7 +18,6 @@
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/base/port_allocator.h"
 #include "p2p/base/udp_port.h"
-#include "rtc_base/bind.h"
 #include "rtc_base/net_helpers.h"
 #include "rtc_base/thread.h"
 
@@ -119,8 +118,8 @@ class FakePortAllocatorSession : public PortAllocatorSession {
                                       username(), password(), std::string(),
                                       false));
       RTC_DCHECK(port_);
-      port_->SignalDestroyed.connect(
-          this, &FakePortAllocatorSession::OnPortDestroyed);
+      port_->SubscribePortDestroyed(
+          [this](PortInterface* port) { OnPortDestroyed(port); });
       AddPort(port_.get());
     }
     ++port_config_count_;
@@ -209,11 +208,13 @@ class FakePortAllocatorSession : public PortAllocatorSession {
 
 class FakePortAllocator : public cricket::PortAllocator {
  public:
+  // TODO(bugs.webrtc.org/13145): Require non-null `factory`.
   FakePortAllocator(rtc::Thread* network_thread,
                     rtc::PacketSocketFactory* factory)
       : network_thread_(network_thread), factory_(factory) {
     if (factory_ == NULL) {
-      owned_factory_.reset(new rtc::BasicPacketSocketFactory(network_thread_));
+      owned_factory_.reset(new rtc::BasicPacketSocketFactory(
+          network_thread_ ? network_thread_->socketserver() : nullptr));
       factory_ = owned_factory_.get();
     }
 
@@ -222,9 +223,7 @@ class FakePortAllocator : public cricket::PortAllocator {
       Initialize();
       return;
     }
-    network_thread_->Invoke<void>(RTC_FROM_HERE,
-                                  rtc::Bind(&PortAllocator::Initialize,
-                                            static_cast<PortAllocator*>(this)));
+    network_thread_->Invoke<void>(RTC_FROM_HERE, [this] { Initialize(); });
   }
 
   void SetNetworkIgnoreMask(int network_ignore_mask) override {}
@@ -241,10 +240,19 @@ class FakePortAllocator : public cricket::PortAllocator {
 
   bool initialized() const { return initialized_; }
 
+  // For testing: Manipulate MdnsObfuscationEnabled()
+  bool MdnsObfuscationEnabled() const override {
+    return mdns_obfuscation_enabled_;
+  }
+  void SetMdnsObfuscationEnabledForTesting(bool enabled) {
+    mdns_obfuscation_enabled_ = enabled;
+  }
+
  private:
   rtc::Thread* network_thread_;
   rtc::PacketSocketFactory* factory_;
   std::unique_ptr<rtc::BasicPacketSocketFactory> owned_factory_;
+  bool mdns_obfuscation_enabled_ = false;
 };
 
 }  // namespace cricket

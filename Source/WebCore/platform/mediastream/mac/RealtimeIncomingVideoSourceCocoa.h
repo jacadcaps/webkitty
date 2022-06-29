@@ -29,11 +29,16 @@
 
 #if USE(LIBWEBRTC)
 
+#include "MediaSample.h"
 #include "RealtimeIncomingVideoSource.h"
 
 using CMSampleBufferRef = struct opaqueCMSampleBuffer*;
 using CVPixelBufferPoolRef = struct __CVPixelBufferPool*;
 using CVPixelBufferRef = struct __CVBuffer*;
+
+namespace webrtc {
+enum class BufferType;
+};
 
 namespace WebCore {
 
@@ -44,7 +49,9 @@ public:
 private:
     RealtimeIncomingVideoSourceCocoa(rtc::scoped_refptr<webrtc::VideoTrackInterface>&&, String&&);
     RetainPtr<CVPixelBufferRef> pixelBufferFromVideoFrame(const webrtc::VideoFrame&);
-    CVPixelBufferPoolRef pixelBufferPool(size_t width, size_t height);
+    CVPixelBufferPoolRef pixelBufferPool(size_t width, size_t height, webrtc::BufferType);
+    RefPtr<MediaSample> toVideoFrame(const webrtc::VideoFrame&, MediaSample::VideoRotation);
+    RefPtr<MediaSample> createMediaSampleFromCVPixelBuffer(CVPixelBufferRef, MediaSample::VideoRotation, int64_t);
 
     // rtc::VideoSinkInterface
     void OnFrame(const webrtc::VideoFrame&) final;
@@ -58,9 +65,8 @@ private:
     RetainPtr<CVPixelBufferPoolRef> m_pixelBufferPool;
     size_t m_pixelBufferPoolWidth { 0 };
     size_t m_pixelBufferPoolHeight { 0 };
+    webrtc::BufferType m_pixelBufferPoolBufferType;
 };
-
-RetainPtr<CVPixelBufferRef> createBlackPixelBuffer(size_t width, size_t height);
 
 } // namespace WebCore
 

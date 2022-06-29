@@ -24,7 +24,7 @@ namespace webrtc {
 namespace test {
 
 RandomWalkCrossTraffic::RandomWalkCrossTraffic(RandomWalkConfig config,
-                                               TrafficRoute* traffic_route)
+                                               CrossTrafficRoute* traffic_route)
     : config_(config),
       traffic_route_(traffic_route),
       random_(config_.random_seed) {
@@ -56,6 +56,10 @@ void RandomWalkCrossTraffic::Process(Timestamp at_time) {
   }
 }
 
+TimeDelta RandomWalkCrossTraffic::GetProcessInterval() const {
+  return config_.min_packet_interval;
+}
+
 DataRate RandomWalkCrossTraffic::TrafficRate() const {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   return config_.peak_rate * intensity_;
@@ -70,8 +74,9 @@ ColumnPrinter RandomWalkCrossTraffic::StatsPrinter() {
       32);
 }
 
-PulsedPeaksCrossTraffic::PulsedPeaksCrossTraffic(PulsedPeaksConfig config,
-                                                 TrafficRoute* traffic_route)
+PulsedPeaksCrossTraffic::PulsedPeaksCrossTraffic(
+    PulsedPeaksConfig config,
+    CrossTrafficRoute* traffic_route)
     : config_(config), traffic_route_(traffic_route) {
   sequence_checker_.Detach();
 }
@@ -100,6 +105,10 @@ void PulsedPeaksCrossTraffic::Process(Timestamp at_time) {
       last_send_time_ = at_time;
     }
   }
+}
+
+TimeDelta PulsedPeaksCrossTraffic::GetProcessInterval() const {
+  return config_.min_packet_interval;
 }
 
 DataRate PulsedPeaksCrossTraffic::TrafficRate() const {
@@ -144,13 +153,16 @@ void TcpMessageRouteImpl::SendMessage(size_t size,
           cwnd_ = 10;
           ssthresh_ = INFINITY;
         }
-        size_t data_left = size;
-        size_t kMaxPacketSize = 1200;
+        int64_t data_left = static_cast<int64_t>(size);
+        int64_t kMaxPacketSize = 1200;
+        int64_t kMinPacketSize = 4;
         Message message{std::move(handler)};
         while (data_left > 0) {
-          size_t packet_size = std::min(data_left, kMaxPacketSize);
+          int64_t packet_size = std::min(data_left, kMaxPacketSize);
           int fragment_id = next_fragment_id_++;
-          pending_.push_back(MessageFragment{fragment_id, packet_size});
+          pending_.push_back(MessageFragment{
+              fragment_id,
+              static_cast<size_t>(std::max(kMinPacketSize, packet_size))});
           message.pending_fragment_ids.insert(fragment_id);
           data_left -= packet_size;
         }
@@ -237,21 +249,13 @@ void TcpMessageRouteImpl::HandlePacketTimeout(int seq_num, Timestamp at_time) {
   }
 }
 
-FakeTcpCrossTraffic::FakeTcpCrossTraffic(Clock* clock,
-                                         FakeTcpConfig config,
+FakeTcpCrossTraffic::FakeTcpCrossTraffic(FakeTcpConfig config,
                                          EmulatedRoute* send_route,
                                          EmulatedRoute* ret_route)
-    : clock_(clock), conf_(config), route_(this, send_route, ret_route) {}
+    : conf_(config), route_(this, send_route, ret_route) {}
 
-void FakeTcpCrossTraffic::Start(TaskQueueBase* task_queue) {
-  repeating_task_handle_ = RepeatingTaskHandle::Start(task_queue, [this] {
-    Process(clock_->CurrentTime());
-    return conf_.process_interval;
-  });
-}
-
-void FakeTcpCrossTraffic::Stop() {
-  repeating_task_handle_.Stop();
+TimeDelta FakeTcpCrossTraffic::GetProcessInterval() const {
+  return conf_.process_interval;
 }
 
 void FakeTcpCrossTraffic::Process(Timestamp at_time) {

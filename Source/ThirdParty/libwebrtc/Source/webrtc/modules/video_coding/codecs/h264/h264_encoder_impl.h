@@ -29,7 +29,14 @@
 #include "common_video/h264/h264_bitstream_parser.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/utility/quality_scaler.h"
+
+#ifdef WEBRTC_WEBKIT_BUILD
+#if defined(WEBKIT_LIBWEBRTC_OPENH264_ENCODER) && WEBKIT_LIBWEBRTC_OPENH264_ENCODER
+#include "wels/codec_app_def.h"
+#else
 #include "third_party/openh264/src/codec/api/svc/codec_app_def.h"
+#endif
+#endif
 
 class ISVCEncoder;
 
@@ -57,8 +64,8 @@ class H264EncoderImpl : public H264Encoder {
   explicit H264EncoderImpl(const cricket::VideoCodec& codec);
   ~H264EncoderImpl() override;
 
-  // |settings.max_payload_size| is ignored.
-  // The following members of |codec_settings| are used. The rest are ignored.
+  // `settings.max_payload_size` is ignored.
+  // The following members of `codec_settings` are used. The rest are ignored.
   // - codecType (must be kVideoCodecH264)
   // - targetBitrate
   // - maxFramerate
@@ -72,7 +79,7 @@ class H264EncoderImpl : public H264Encoder {
       EncodedImageCallback* callback) override;
   void SetRates(const RateControlParameters& parameters) override;
 
-  // The result of encoding - an EncodedImage and RTPFragmentationHeader - are
+  // The result of encoding - an EncodedImage and CodecSpecificInfo - are
   // passed to the encode complete callback.
   int32_t Encode(const VideoFrame& frame,
                  const std::vector<VideoFrameType>* frame_types) override;

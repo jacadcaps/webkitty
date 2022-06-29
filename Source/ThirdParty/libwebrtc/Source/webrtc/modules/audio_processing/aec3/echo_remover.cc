@@ -132,8 +132,12 @@ class EchoRemoverImpl final : public EchoRemover {
     echo_leakage_detected_ = leakage_detected;
   }
 
+  void SetCaptureOutputUsage(bool capture_output_used) override {
+    capture_output_used_ = capture_output_used;
+  }
+
  private:
-  // Selects which of the shadow and main linear filter outputs that is most
+  // Selects which of the coarse and refined linear filter outputs that is most
   // appropriate to pass to the suppressor and forms the linear filter output by
   // smoothly transition between those.
   void FormLinearFilterOutput(const SubtractorOutput& subtractor_output,
@@ -147,7 +151,7 @@ class EchoRemoverImpl final : public EchoRemover {
   const int sample_rate_hz_;
   const size_t num_render_channels_;
   const size_t num_capture_channels_;
-  const bool use_shadow_filter_output_;
+  const bool use_coarse_filter_output_;
   Subtractor subtractor_;
   SuppressionGain suppression_gain_;
   ComfortNoiseGenerator cng_;
@@ -155,18 +159,20 @@ class EchoRemoverImpl final : public EchoRemover {
   RenderSignalAnalyzer render_signal_analyzer_;
   ResidualEchoEstimator residual_echo_estimator_;
   bool echo_leakage_detected_ = false;
+  bool capture_output_used_ = true;
   AecState aec_state_;
   EchoRemoverMetrics metrics_;
   std::vector<std::array<float, kFftLengthBy2>> e_old_;
   std::vector<std::array<float, kFftLengthBy2>> y_old_;
   size_t block_counter_ = 0;
   int gain_change_hangover_ = 0;
-  bool main_filter_output_last_selected_ = true;
+  bool refined_filter_output_last_selected_ = true;
 
   std::vector<std::array<float, kFftLengthBy2>> e_heap_;
   std::vector<std::array<float, kFftLengthBy2Plus1>> Y2_heap_;
   std::vector<std::array<float, kFftLengthBy2Plus1>> E2_heap_;
   std::vector<std::array<float, kFftLengthBy2Plus1>> R2_heap_;
+  std::vector<std::array<float, kFftLengthBy2Plus1>> R2_unbounded_heap_;
   std::vector<std::array<float, kFftLengthBy2Plus1>> S2_linear_heap_;
   std::vector<FftData> Y_heap_;
   std::vector<FftData> E_heap_;
@@ -189,8 +195,8 @@ EchoRemoverImpl::EchoRemoverImpl(const EchoCanceller3Config& config,
       sample_rate_hz_(sample_rate_hz),
       num_render_channels_(num_render_channels),
       num_capture_channels_(num_capture_channels),
-      use_shadow_filter_output_(
-          config_.filter.enable_shadow_filter_output_usage),
+      use_coarse_filter_output_(
+          config_.filter.enable_coarse_filter_output_usage),
       subtractor_(config,
                   num_render_channels_,
                   num_capture_channels_,
@@ -200,7 +206,7 @@ EchoRemoverImpl::EchoRemoverImpl(const EchoCanceller3Config& config,
                         optimization_,
                         sample_rate_hz,
                         num_capture_channels),
-      cng_(optimization_, num_capture_channels_),
+      cng_(config_, optimization_, num_capture_channels_),
       suppression_filter_(optimization_,
                           sample_rate_hz_,
                           num_capture_channels_),
@@ -213,6 +219,7 @@ EchoRemoverImpl::EchoRemoverImpl(const EchoCanceller3Config& config,
       Y2_heap_(NumChannelsOnHeap(num_capture_channels_)),
       E2_heap_(NumChannelsOnHeap(num_capture_channels_)),
       R2_heap_(NumChannelsOnHeap(num_capture_channels_)),
+      R2_unbounded_heap_(NumChannelsOnHeap(num_capture_channels_)),
       S2_linear_heap_(NumChannelsOnHeap(num_capture_channels_)),
       Y_heap_(NumChannelsOnHeap(num_capture_channels_)),
       E_heap_(NumChannelsOnHeap(num_capture_channels_)),
@@ -260,6 +267,8 @@ void EchoRemoverImpl::ProcessCapture(
   std::array<std::array<float, kFftLengthBy2Plus1>, kMaxNumChannelsOnStack>
       R2_stack;
   std::array<std::array<float, kFftLengthBy2Plus1>, kMaxNumChannelsOnStack>
+      R2_unbounded_stack;
+  std::array<std::array<float, kFftLengthBy2Plus1>, kMaxNumChannelsOnStack>
       S2_linear_stack;
   std::array<FftData, kMaxNumChannelsOnStack> Y_stack;
   std::array<FftData, kMaxNumChannelsOnStack> E_stack;
@@ -275,6 +284,8 @@ void EchoRemoverImpl::ProcessCapture(
       E2_stack.data(), num_capture_channels_);
   rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>> R2(
       R2_stack.data(), num_capture_channels_);
+  rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>> R2_unbounded(
+      R2_unbounded_stack.data(), num_capture_channels_);
   rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>> S2_linear(
       S2_linear_stack.data(), num_capture_channels_);
   rtc::ArrayView<FftData> Y(Y_stack.data(), num_capture_channels_);
@@ -296,6 +307,8 @@ void EchoRemoverImpl::ProcessCapture(
         E2_heap_.data(), num_capture_channels_);
     R2 = rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>>(
         R2_heap_.data(), num_capture_channels_);
+    R2_unbounded = rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>>(
+        R2_unbounded_heap_.data(), num_capture_channels_);
     S2_linear = rtc::ArrayView<std::array<float, kFftLengthBy2Plus1>>(
         S2_linear_heap_.data(), num_capture_channels_);
     Y = rtc::ArrayView<FftData>(Y_heap_.data(), num_capture_channels_);
@@ -391,45 +404,57 @@ void EchoRemoverImpl::ProcessCapture(
                         1);
   data_dumper_->DumpWav("aec3_output_linear2", kBlockSize, &e[0][0], 16000, 1);
 
-  // Estimate the residual echo power.
-  residual_echo_estimator_.Estimate(aec_state_, *render_buffer, S2_linear, Y2,
-                                    R2);
-
   // Estimate the comfort noise.
   cng_.Compute(aec_state_.SaturatedCapture(), Y2, comfort_noise,
                high_band_comfort_noise);
 
-  // Suppressor nearend estimate.
-  if (aec_state_.UsableLinearEstimate()) {
-    // E2 is bound by Y2.
-    for (size_t ch = 0; ch < num_capture_channels_; ++ch) {
-      std::transform(E2[ch].begin(), E2[ch].end(), Y2[ch].begin(),
-                     E2[ch].begin(),
-                     [](float a, float b) { return std::min(a, b); });
-    }
-  }
-  const auto& nearend_spectrum = aec_state_.UsableLinearEstimate() ? E2 : Y2;
-
-  // Suppressor echo estimate.
-  const auto& echo_spectrum =
-      aec_state_.UsableLinearEstimate() ? S2_linear : R2;
-
-  // Compute preferred gains.
-  float high_bands_gain;
+  // Only do the below processing if the output of the audio processing module
+  // is used.
   std::array<float, kFftLengthBy2Plus1> G;
-  suppression_gain_.GetGain(nearend_spectrum, echo_spectrum, R2,
-                            cng_.NoiseSpectrum(), render_signal_analyzer_,
-                            aec_state_, x, &high_bands_gain, &G);
+  if (capture_output_used_) {
+    // Estimate the residual echo power.
+    residual_echo_estimator_.Estimate(aec_state_, *render_buffer, S2_linear, Y2,
+                                      suppression_gain_.IsDominantNearend(), R2,
+                                      R2_unbounded);
 
-  suppression_filter_.ApplyGain(comfort_noise, high_band_comfort_noise, G,
-                                high_bands_gain, Y_fft, y);
+    // Suppressor nearend estimate.
+    if (aec_state_.UsableLinearEstimate()) {
+      // E2 is bound by Y2.
+      for (size_t ch = 0; ch < num_capture_channels_; ++ch) {
+        std::transform(E2[ch].begin(), E2[ch].end(), Y2[ch].begin(),
+                       E2[ch].begin(),
+                       [](float a, float b) { return std::min(a, b); });
+      }
+    }
+    const auto& nearend_spectrum = aec_state_.UsableLinearEstimate() ? E2 : Y2;
+
+    // Suppressor echo estimate.
+    const auto& echo_spectrum =
+        aec_state_.UsableLinearEstimate() ? S2_linear : R2;
+
+    // Determine if the suppressor should assume clock drift.
+    const bool clock_drift = config_.echo_removal_control.has_clock_drift ||
+                             echo_path_variability.clock_drift;
+
+    // Compute preferred gains.
+    float high_bands_gain;
+    suppression_gain_.GetGain(nearend_spectrum, echo_spectrum, R2, R2_unbounded,
+                              cng_.NoiseSpectrum(), render_signal_analyzer_,
+                              aec_state_, x, clock_drift, &high_bands_gain, &G);
+
+    suppression_filter_.ApplyGain(comfort_noise, high_band_comfort_noise, G,
+                                  high_bands_gain, Y_fft, y);
+
+  } else {
+    G.fill(0.f);
+  }
 
   // Update the metrics.
   metrics_.Update(aec_state_, cng_.NoiseSpectrum()[0], G);
 
   // Debug outputs for the purpose of development and analysis.
   data_dumper_->DumpWav("aec3_echo_estimate", kBlockSize,
-                        &subtractor_output[0].s_main[0], 16000, 1);
+                        &subtractor_output[0].s_refined[0], 16000, 1);
   data_dumper_->DumpRaw("aec3_output", (*y)[0][0]);
   data_dumper_->DumpRaw("aec3_narrow_render",
                         render_signal_analyzer_.NarrowPeakBand() ? 1 : 0);
@@ -456,34 +481,35 @@ void EchoRemoverImpl::ProcessCapture(
 void EchoRemoverImpl::FormLinearFilterOutput(
     const SubtractorOutput& subtractor_output,
     rtc::ArrayView<float> output) {
-  RTC_DCHECK_EQ(subtractor_output.e_main.size(), output.size());
-  RTC_DCHECK_EQ(subtractor_output.e_shadow.size(), output.size());
-  bool use_main_output = true;
-  if (use_shadow_filter_output_) {
-    // As the output of the main adaptive filter generally should be better
-    // than the shadow filter output, add a margin and threshold for when
-    // choosing the shadow filter output.
-    if (subtractor_output.e2_shadow < 0.9f * subtractor_output.e2_main &&
+  RTC_DCHECK_EQ(subtractor_output.e_refined.size(), output.size());
+  RTC_DCHECK_EQ(subtractor_output.e_coarse.size(), output.size());
+  bool use_refined_output = true;
+  if (use_coarse_filter_output_) {
+    // As the output of the refined adaptive filter generally should be better
+    // than the coarse filter output, add a margin and threshold for when
+    // choosing the coarse filter output.
+    if (subtractor_output.e2_coarse < 0.9f * subtractor_output.e2_refined &&
         subtractor_output.y2 > 30.f * 30.f * kBlockSize &&
-        (subtractor_output.s2_main > 60.f * 60.f * kBlockSize ||
-         subtractor_output.s2_shadow > 60.f * 60.f * kBlockSize)) {
-      use_main_output = false;
+        (subtractor_output.s2_refined > 60.f * 60.f * kBlockSize ||
+         subtractor_output.s2_coarse > 60.f * 60.f * kBlockSize)) {
+      use_refined_output = false;
     } else {
-      // If the main filter is diverged, choose the filter output that has the
-      // lowest power.
-      if (subtractor_output.e2_shadow < subtractor_output.e2_main &&
-          subtractor_output.y2 < subtractor_output.e2_main) {
-        use_main_output = false;
+      // If the refined filter is diverged, choose the filter output that has
+      // the lowest power.
+      if (subtractor_output.e2_coarse < subtractor_output.e2_refined &&
+          subtractor_output.y2 < subtractor_output.e2_refined) {
+        use_refined_output = false;
       }
     }
   }
 
-  SignalTransition(
-      main_filter_output_last_selected_ ? subtractor_output.e_main
-                                        : subtractor_output.e_shadow,
-      use_main_output ? subtractor_output.e_main : subtractor_output.e_shadow,
-      output);
-  main_filter_output_last_selected_ = use_main_output;
+  SignalTransition(refined_filter_output_last_selected_
+                       ? subtractor_output.e_refined
+                       : subtractor_output.e_coarse,
+                   use_refined_output ? subtractor_output.e_refined
+                                      : subtractor_output.e_coarse,
+                   output);
+  refined_filter_output_last_selected_ = use_refined_output;
 }
 
 }  // namespace

@@ -38,13 +38,14 @@ namespace WebKit {
 
 struct FrameInfoData {
     void encode(IPC::Encoder&) const;
-    static Optional<FrameInfoData> decode(IPC::Decoder&);
+    static std::optional<FrameInfoData> decode(IPC::Decoder&);
 
     bool isMainFrame { false };
     WebCore::ResourceRequest request;
     WebCore::SecurityOriginData securityOrigin;
-    Optional<WebCore::FrameIdentifier> frameID;
-    Optional<WebCore::FrameIdentifier> parentFrameID;
+    String frameName;
+    std::optional<WebCore::FrameIdentifier> frameID;
+    std::optional<WebCore::FrameIdentifier> parentFrameID;
 };
 
 }

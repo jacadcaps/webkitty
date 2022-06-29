@@ -33,9 +33,12 @@
 #import "CSSToLengthConversionData.h"
 #import "CSSValueKey.h"
 #import "CSSValueKeywords.h"
-#import "ColorIOS.h"
+#import "ColorBlending.h"
+#import "ColorCocoa.h"
+#import "ColorTypes.h"
 #import "DateComponents.h"
 #import "Document.h"
+#import "DrawGlyphsRecorder.h"
 #import "File.h"
 #import "FloatRoundedRect.h"
 #import "FontCache.h"
@@ -48,9 +51,12 @@
 #import "GraphicsContext.h"
 #import "GraphicsContextCG.h"
 #import "HTMLAttachmentElement.h"
+#import "HTMLButtonElement.h"
 #import "HTMLInputElement.h"
+#import "HTMLMeterElement.h"
 #import "HTMLNames.h"
 #import "HTMLSelectElement.h"
+#import "HTMLTextAreaElement.h"
 #import "IOSurface.h"
 #import "Icon.h"
 #import "LocalCurrentTraitCollection.h"
@@ -61,31 +67,35 @@
 #import "PathUtilities.h"
 #import "PlatformLocale.h"
 #import "RenderAttachment.h"
+#import "RenderButton.h"
+#import "RenderMenuList.h"
+#import "RenderMeter.h"
 #import "RenderObject.h"
 #import "RenderProgress.h"
+#import "RenderSlider.h"
 #import "RenderStyle.h"
 #import "RenderView.h"
 #import "RuntimeEnabledFeatures.h"
+#import "Settings.h"
+#import "Theme.h"
 #import "UTIUtilities.h"
-#import "UserAgentScripts.h"
-#import "UserAgentStyleSheets.h"
 #import "WebCoreThreadRun.h"
 #import <CoreGraphics/CoreGraphics.h>
 #import <CoreImage/CoreImage.h>
 #import <objc/runtime.h>
-#import <pal/spi/cocoa/CoreTextSPI.h>
+#import <pal/spi/cf/CoreTextSPI.h>
 #import <pal/spi/ios/UIKitSPI.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/ObjCRuntimeExtras.h>
-#import <wtf/RefPtr.h>
 #import <wtf/StdLibExtras.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+
+#if ENABLE(DATALIST_ELEMENT)
+#include "HTMLDataListElement.h"
+#include "HTMLOptionElement.h"
+#endif
+
 #import <pal/ios/UIKitSoftLink.h>
-
-@interface WebCoreRenderThemeBundle : NSObject
-@end
-
-@implementation WebCoreRenderThemeBundle
-@end
 
 namespace WebCore {
 
@@ -137,36 +147,25 @@ static void interpolateExponentialGradient(void *info, const CGFloat *inData, CG
 
 static CGFunctionRef getSharedFunctionRef(IOSGradientRef gradient, Interpolation interpolation)
 {
-    CGFunctionRef function = nullptr;
-
-    static HashMap<IOSGradientRef, CGFunctionRef>* linearFunctionRefs;
-    static HashMap<IOSGradientRef, CGFunctionRef>* exponentialFunctionRefs;
+    static NeverDestroyed<HashMap<IOSGradientRef, RetainPtr<CGFunctionRef>>> linearFunctionRefs;
+    static NeverDestroyed<HashMap<IOSGradientRef, RetainPtr<CGFunctionRef>>> exponentialFunctionRefs;
 
     if (interpolation == LinearInterpolation) {
-        if (!linearFunctionRefs)
-            linearFunctionRefs = new HashMap<IOSGradientRef, CGFunctionRef>;
-        else
-            function = linearFunctionRefs->get(gradient);
-    
+        auto function = linearFunctionRefs->get(gradient);
         if (!function) {
             static struct CGFunctionCallbacks linearFunctionCallbacks =  { 0, interpolateLinearGradient, 0 };
-            linearFunctionRefs->set(gradient, function = CGFunctionCreate(gradient, 1, nullptr, 4, nullptr, &linearFunctionCallbacks));
+            linearFunctionRefs->set(gradient, function = adoptCF(CGFunctionCreate(gradient, 1, nullptr, 4, nullptr, &linearFunctionCallbacks)));
         }
 
-        return function;
+        return function.get();
     }
 
-    if (!exponentialFunctionRefs)
-        exponentialFunctionRefs = new HashMap<IOSGradientRef, CGFunctionRef>;
-    else
-        function = exponentialFunctionRefs->get(gradient);
-
+    auto function = exponentialFunctionRefs->get(gradient);
     if (!function) {
         static struct CGFunctionCallbacks exponentialFunctionCallbacks =  { 0, interpolateExponentialGradient, 0 };
-        exponentialFunctionRefs->set(gradient, function = CGFunctionCreate(gradient, 1, 0, 4, 0, &exponentialFunctionCallbacks));
+        exponentialFunctionRefs->set(gradient, function = adoptCF(CGFunctionCreate(gradient, 1, 0, 4, 0, &exponentialFunctionCallbacks)));
     }
-
-    return function;
+    return function.get();
 }
 
 static void drawAxialGradient(CGContextRef context, IOSGradientRef gradient, const FloatPoint& startPoint, const FloatPoint& stopPoint, Interpolation interpolation)
@@ -339,14 +338,32 @@ FloatRect RenderThemeIOS::addRoundedBorderClip(const RenderObject& box, Graphics
     return border.rect();
 }
 
-void RenderThemeIOS::adjustCheckboxStyle(RenderStyle& style, const Element*) const
+void RenderThemeIOS::adjustStyleForAlternateFormControlDesignTransition(RenderStyle& style, const Element* element) const
 {
+    if (!element)
+        return;
+
+    if (!element->document().settings().alternateFormControlDesignEnabled())
+        return;
+
+#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
+    // FIXME: We need to find a way to not do this for any running transition, only the UA-owned transition.
+    style.setTransformStyle3D(element->hasRunningTransitionForProperty(PseudoId::None, CSSPropertyID::CSSPropertyTranslate) || element->hovered() ? TransformStyle3D::Optimized3D : TransformStyle3D::Flat);
+#else
+    UNUSED_PARAM(style);
+#endif
+}
+
+void RenderThemeIOS::adjustCheckboxStyle(RenderStyle& style, const Element* element) const
+{
+    adjustStyleForAlternateFormControlDesignTransition(style, element);
+
     if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
         return;
 
     int size = std::max(style.computedFontPixelSize(), 10U);
-    style.setWidth({ size, Fixed });
-    style.setHeight({ size, Fixed });
+    style.setWidth({ size, LengthType::Fixed });
+    style.setHeight({ size, LengthType::Fixed });
 }
 
 static CGPoint shortened(CGPoint start, CGPoint end, float width)
@@ -360,7 +377,7 @@ static CGPoint shortened(CGPoint start, CGPoint end, float width)
 static void drawJoinedLines(CGContextRef context, const Vector<CGPoint>& points, CGLineCap lineCap, float lineWidth, Color strokeColor)
 {
     CGContextSetLineWidth(context, lineWidth);
-    CGContextSetStrokeColorWithColor(context, cachedCGColor(strokeColor));
+    CGContextSetStrokeColorWithColor(context, cachedCGColor(strokeColor).get());
     CGContextSetShouldAntialias(context, true);
     CGContextBeginPath(context);
     CGContextSetLineCap(context, lineCap);
@@ -372,8 +389,24 @@ static void drawJoinedLines(CGContextRef context, const Vector<CGPoint>& points,
     CGContextStrokePath(context);
 }
 
-bool RenderThemeIOS::paintCheckboxDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+bool RenderThemeIOS::canPaint(const PaintInfo& paintInfo, const Settings& settings) const
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (settings.iOSFormControlRefreshEnabled())
+        return true;
+#else
+    UNUSED_PARAM(settings);
+#endif
+    return paintInfo.context().hasPlatformContext();
+}
+
+void RenderThemeIOS::paintCheckboxDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled())
+        return;
+#endif
+
     bool checked = isChecked(box);
     bool indeterminate = isIndeterminate(box);
     CGContextRef cgContext = paintInfo.context().platformContext();
@@ -430,14 +463,25 @@ bool RenderThemeIOS::paintCheckboxDecorations(const RenderObject& box, const Pai
         drawAxialGradient(cgContext, gradientWithName(ShadeGradient), clip.location(), FloatPoint { clip.x(), clip.maxY() }, LinearInterpolation);
         drawRadialGradient(cgContext, gradientWithName(ShineGradient), bottomCenter, 0, bottomCenter, sqrtf((width * width) / 4.0f + height * height), ExponentialInterpolation);
     }
-    return false;
+}
+
+LayoutRect RenderThemeIOS::adjustedPaintRect(const RenderBox& box, const LayoutRect& paintRect) const
+{
+    // Workaround for <rdar://problem/6209763>. Force the painting bounds of checkboxes and radio controls to be square.
+    if (box.style().effectiveAppearance() == CheckboxPart || box.style().effectiveAppearance() == RadioPart) {
+        float width = std::min(paintRect.width(), paintRect.height());
+        float height = width;
+        return enclosingLayoutRect(FloatRect(paintRect.x(), paintRect.y() + (box.height() - height) / 2, width, height)); // Vertically center the checkbox, like on desktop
+    }
+
+    return paintRect;
 }
 
 int RenderThemeIOS::baselinePosition(const RenderBox& box) const
 {
-    if (box.style().appearance() == CheckboxPart || box.style().appearance() == RadioPart)
+    if (box.style().effectiveAppearance() == CheckboxPart || box.style().effectiveAppearance() == RadioPart)
         return box.marginTop() + box.height() - 2; // The baseline is 2px up from the bottom of the checkbox/radio in AppKit.
-    if (box.style().appearance() == MenulistPart)
+    if (box.style().effectiveAppearance() == MenulistPart)
         return box.marginTop() + box.height() - 5; // This is to match AppKit. There might be a better way to calculate this though.
     return RenderTheme::baselinePosition(box);
 }
@@ -445,28 +489,40 @@ int RenderThemeIOS::baselinePosition(const RenderBox& box) const
 bool RenderThemeIOS::isControlStyled(const RenderStyle& style, const RenderStyle& userAgentStyle) const
 {
     // Buttons and MenulistButtons are styled if they contain a background image.
-    if (style.appearance() == PushButtonPart || style.appearance() == MenulistButtonPart)
+    if (style.effectiveAppearance() == PushButtonPart || style.effectiveAppearance() == MenulistButtonPart)
         return !style.visitedDependentColor(CSSPropertyBackgroundColor).isVisible() || style.backgroundLayers().hasImage();
 
-    if (style.appearance() == TextFieldPart || style.appearance() == TextAreaPart)
+    if (style.effectiveAppearance() == TextFieldPart || style.effectiveAppearance() == TextAreaPart)
         return style.backgroundLayers() != userAgentStyle.backgroundLayers();
+
+#if ENABLE(DATALIST_ELEMENT)
+    if (style.effectiveAppearance() == ListButtonPart)
+        return style.hasContent() || style.hasEffectiveContentNone();
+#endif
 
     return RenderTheme::isControlStyled(style, userAgentStyle);
 }
 
-void RenderThemeIOS::adjustRadioStyle(RenderStyle& style, const Element*) const
+void RenderThemeIOS::adjustRadioStyle(RenderStyle& style, const Element* element) const
 {
+    adjustStyleForAlternateFormControlDesignTransition(style, element);
+
     if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
         return;
 
     int size = std::max(style.computedFontPixelSize(), 10U);
-    style.setWidth({ size, Fixed });
-    style.setHeight({ size, Fixed });
+    style.setWidth({ size, LengthType::Fixed });
+    style.setHeight({ size, LengthType::Fixed });
     style.setBorderRadius({ size / 2, size / 2 });
 }
 
-bool RenderThemeIOS::paintRadioDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+void RenderThemeIOS::paintRadioDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled())
+        return;
+#endif
+
     GraphicsContextStateSaver stateSaver(paintInfo.context());
     CGContextRef cgContext = paintInfo.context().platformContext();
 
@@ -501,30 +557,136 @@ bool RenderThemeIOS::paintRadioDecorations(const RenderObject& box, const PaintI
         auto clip = addRoundedBorderClip(box, paintInfo.context(), rect);
         drawShadeAndShineGradients(clip);
     }
-    return false;
 }
 
-bool RenderThemeIOS::paintTextFieldDecorations(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+void RenderThemeIOS::adjustTextFieldStyle(RenderStyle& style, const Element* element) const
 {
+    if (!element)
+        return;
+
+    bool hasTextfieldAppearance = false;
+    // Do not force a background color for elements that have a textfield
+    // appearance by default, so that their background color can be styled.
+    if (is<HTMLInputElement>(*element)) {
+        auto& input = downcast<HTMLInputElement>(*element);
+        // <input type=search> is the only TextFieldInputType that has a
+        // non-textfield appearance value.
+        hasTextfieldAppearance = input.isTextField() && !input.isSearchField();
+    }
+
+    auto adjustBackgroundColor = [&] {
+        auto styleColorOptions = element->document().styleColorOptions(&style);
+        if (!style.backgroundColorEqualsToColorIgnoringVisited(systemColor(CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions)))
+            return;
+
+        style.setBackgroundColor(systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+    };
+
+    bool useAlternateDesign = element->document().settings().alternateFormControlDesignEnabled();
+    if (useAlternateDesign) {
+        if (hasTextfieldAppearance)
+            style.setBackgroundColor(Color::transparentBlack);
+        else
+            adjustBackgroundColor();
+        style.resetBorderExceptRadius();
+        return;
+    }
+
+    if (hasTextfieldAppearance)
+        return;
+
+    adjustBackgroundColor();
+}
+
+void RenderThemeIOS::paintTextFieldInnerShadow(const PaintInfo& paintInfo, const FloatRoundedRect& roundedRect)
+{
+    auto& context = paintInfo.context();
+
+    const FloatSize innerShadowOffset { 0, 5 };
+    constexpr auto innerShadowBlur = 10.0f;
+    auto innerShadowColor = DisplayP3<float> { 0, 0, 0, 0.04f };
+    context.setShadow(innerShadowOffset, innerShadowBlur, innerShadowColor);
+    context.setFillColor(Color::black);
+
+    Path innerShadowPath;
+    FloatRect innerShadowRect = roundedRect.rect();
+    innerShadowRect.inflate(std::max<float>(innerShadowOffset.width(), innerShadowOffset.height()) + innerShadowBlur);
+    innerShadowPath.addRect(innerShadowRect);
+
+    FloatRoundedRect innerShadowHoleRect = roundedRect;
+    // FIXME: This is not from the spec; but without it we get antialiasing fringe from the fill; we need a better solution.
+    innerShadowHoleRect.inflate(0.5);
+    innerShadowPath.addRoundedRect(innerShadowHoleRect);
+
+    context.setFillRule(WindRule::EvenOdd);
+    context.fillPath(innerShadowPath);
+}
+
+void RenderThemeIOS::paintTextFieldDecorations(const RenderBox& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
     auto& style = box.style();
-    FloatPoint point(rect.x() + style.borderLeftWidth(), rect.y() + style.borderTopWidth());
+    auto roundedRect = style.getRoundedBorderFor(LayoutRect(rect)).pixelSnappedRoundedRectForPainting(box.document().deviceScaleFactor());
 
-    GraphicsContextStateSaver stateSaver(paintInfo.context());
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled()) {
+        bool shouldPaintFillAndInnerShadow = false;
+        auto element = box.element();
+        if (is<HTMLInputElement>(*element)) {
+            auto& input = downcast<HTMLInputElement>(*element);
+            if (input.isTextField() && !input.isSearchField())
+                shouldPaintFillAndInnerShadow = true;
+        } else if (is<HTMLTextAreaElement>(*element))
+            shouldPaintFillAndInnerShadow = true;
 
-    paintInfo.context().clipRoundedRect(style.getRoundedBorderFor(LayoutRect(rect)).pixelSnappedRoundedRectForPainting(box.document().deviceScaleFactor()));
+        bool useAlternateDesign = box.settings().alternateFormControlDesignEnabled();
+        if (useAlternateDesign && shouldPaintFillAndInnerShadow) {
+            Path path;
+            path.addRoundedRect(roundedRect);
+
+            context.setFillColor(Color::black.colorWithAlphaByte(10));
+            context.drawPath(path);
+            context.clipPath(path);
+            paintTextFieldInnerShadow(paintInfo, roundedRect);
+        }
+
+        return;
+    }
+#endif
+
+    context.clipRoundedRect(roundedRect);
 
     // This gradient gets drawn black when printing.
     // Do not draw the gradient if there is no visible top border.
     bool topBorderIsInvisible = !style.hasBorder() || !style.borderTopWidth() || style.borderTopIsTransparent();
-    if (!box.view().printing() && !topBorderIsInvisible)
-        drawAxialGradient(paintInfo.context().platformContext(), gradientWithName(InsetGradient), point, FloatPoint(CGPointMake(point.x(), point.y() + 3.0f)), LinearInterpolation);
-    return false;
+    if (!box.view().printing() && !topBorderIsInvisible) {
+        FloatPoint point(rect.x() + style.borderLeftWidth(), rect.y() + style.borderTopWidth());
+        drawAxialGradient(context.platformContext(), gradientWithName(InsetGradient), point, FloatPoint(CGPointMake(point.x(), point.y() + 3.0f)), LinearInterpolation);
+    }
 }
 
-bool RenderThemeIOS::paintTextAreaDecorations(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+void RenderThemeIOS::adjustTextAreaStyle(RenderStyle& style, const Element* element) const
 {
-    return paintTextFieldDecorations(box, paintInfo, rect);
+    if (!element)
+        return;
+
+    if (!element->document().settings().alternateFormControlDesignEnabled())
+        return;
+
+    style.setBackgroundColor(Color::transparentBlack);
+    style.resetBorderExceptRadius();
 }
+
+void RenderThemeIOS::paintTextAreaDecorations(const RenderBox& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    paintTextFieldDecorations(box, paintInfo, rect);
+}
+
+// These values are taken from the UIKit button system.
+constexpr auto largeButtonSize = 45;
+constexpr auto largeButtonBorderRadiusRatio = 0.35f / 2;
 
 const int MenuListMinHeight = 15;
 
@@ -535,17 +697,23 @@ const float MenuListArrowWidth = 7;
 const float MenuListArrowHeight = 6;
 const float MenuListButtonPaddingAfter = 19;
 
-LengthBox RenderThemeIOS::popupInternalPaddingBox(const RenderStyle& style) const
+LengthBox RenderThemeIOS::popupInternalPaddingBox(const RenderStyle& style, const Settings& settings) const
 {
-    if (style.appearance() == MenulistButtonPart) {
+    float padding = MenuListButtonPaddingAfter;
+    if (settings.iOSFormControlRefreshEnabled()) {
+        auto emSize = CSSPrimitiveValue::create(1.0, CSSUnitType::CSS_EMS);
+        padding = emSize->computeLength<float>(CSSToLengthConversionData(&style, nullptr, nullptr, nullptr, 1.0, std::nullopt));
+    }
+
+    if (style.effectiveAppearance() == MenulistButtonPart) {
         if (style.direction() == TextDirection::RTL)
-            return { 0, 0, 0, static_cast<int>(MenuListButtonPaddingAfter + style.borderTopWidth()) };
-        return { 0, static_cast<int>(MenuListButtonPaddingAfter + style.borderTopWidth()), 0, 0 };
+            return { 0, 0, 0, static_cast<int>(padding + style.borderTopWidth()) };
+        return { 0, static_cast<int>(padding + style.borderTopWidth()), 0, 0 };
     }
     return { 0, 0, 0, 0 };
 }
 
-static inline bool canAdjustBorderRadiusForAppearance(ControlPart appearance)
+static inline bool canAdjustBorderRadiusForAppearance(ControlPart appearance, const RenderBox& box)
 {
     switch (appearance) {
     case NoControlPart:
@@ -553,6 +721,12 @@ static inline bool canAdjustBorderRadiusForAppearance(ControlPart appearance)
     case ApplePayButtonPart:
 #endif
         return false;
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    case SearchFieldPart:
+        return !box.settings().iOSFormControlRefreshEnabled();
+    case MenulistButtonPart:
+        return !box.style().hasExplicitlySetBorderRadius() && box.settings().iOSFormControlRefreshEnabled();
+#endif
     default:
         return true;
     };
@@ -560,11 +734,17 @@ static inline bool canAdjustBorderRadiusForAppearance(ControlPart appearance)
 
 void RenderThemeIOS::adjustRoundBorderRadius(RenderStyle& style, RenderBox& box)
 {
-    if (!canAdjustBorderRadiusForAppearance(style.appearance()) || style.backgroundLayers().hasImage())
+    if (!canAdjustBorderRadiusForAppearance(style.effectiveAppearance(), box) || style.backgroundLayers().hasImage())
         return;
 
+    if ((is<RenderButton>(box) || is<RenderMenuList>(box)) && box.height() >= largeButtonSize) {
+        auto largeButtonBorderRadius = std::min(box.width(), box.height()) * largeButtonBorderRadiusRatio;
+        style.setBorderRadius({ { largeButtonBorderRadius, LengthType::Fixed }, { largeButtonBorderRadius, LengthType::Fixed } });
+        return;
+    }
+
     // FIXME: We should not be relying on border radius for the appearance of our controls <rdar://problem/7675493>.
-    style.setBorderRadius({ { std::min(box.width(), box.height()) / 2, Fixed }, { box.height() / 2, Fixed } });
+    style.setBorderRadius({ { std::min(box.width(), box.height()) / 2, LengthType::Fixed }, { box.height() / 2, LengthType::Fixed } });
 }
 
 static void applyCommonButtonPaddingToStyle(RenderStyle& style, const Element& element)
@@ -572,7 +752,7 @@ static void applyCommonButtonPaddingToStyle(RenderStyle& style, const Element& e
     Document& document = element.document();
     auto emSize = CSSPrimitiveValue::create(0.5, CSSUnitType::CSS_EMS);
     // We don't need this element's parent style to calculate `em` units, so it's okay to pass nullptr for it here.
-    int pixels = emSize->computeLength<int>(CSSToLengthConversionData(&style, document.renderStyle(), nullptr, document.renderView(), document.frame()->pageZoomFactor()));
+    int pixels = emSize->computeLength<int>(CSSToLengthConversionData(&style, document.renderStyle(), nullptr, document.renderView(), document.frame() ? document.frame()->pageZoomFactor() : 1.));
     style.setPaddingBox(LengthBox(0, pixels, 0, pixels));
 }
 
@@ -582,7 +762,7 @@ static void adjustSelectListButtonStyle(RenderStyle& style, const Element& eleme
     applyCommonButtonPaddingToStyle(style, element);
 
     // Enforce "line-height: normal".
-    style.setLineHeight(Length(-100.0, Percent));
+    style.setLineHeight(Length(-100.0, LengthType::Percent));
 }
     
 class RenderThemeMeasureTextClient : public MeasureTextClient {
@@ -612,8 +792,8 @@ static void adjustInputElementButtonStyle(RenderStyle& style, const HTMLInputEle
         return;
 
     // Don't adjust for unsupported date input types.
-    DateComponents::Type dateType = inputElement.dateType();
-    if (dateType == DateComponents::Invalid || dateType == DateComponents::Week)
+    DateComponentsType dateType = inputElement.dateType();
+    if (dateType == DateComponentsType::Invalid || dateType == DateComponentsType::Week)
         return;
 
     // Enforce the width and set the box-sizing to content-box to not conflict with the padding.
@@ -625,21 +805,29 @@ static void adjustInputElementButtonStyle(RenderStyle& style, const HTMLInputEle
 
     if (maximumWidth > 0) {
         int width = static_cast<int>(maximumWidth + MenuListButtonPaddingAfter);
-        style.setWidth(Length(width, Fixed));
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+        if (inputElement.document().settings().iOSFormControlRefreshEnabled())
+            width = static_cast<int>(std::ceil(maximumWidth));
+#endif
+        style.setWidth(Length(width, LengthType::Fixed));
         style.setBoxSizing(BoxSizing::ContentBox);
     }
 }
 
 void RenderThemeIOS::adjustMenuListButtonStyle(RenderStyle& style, const Element* element) const
 {
+    adjustStyleForAlternateFormControlDesignTransition(style, element);
+
     // Set the min-height to be at least MenuListMinHeight.
     if (style.height().isAuto())
-        style.setMinHeight(Length(std::max(MenuListMinHeight, static_cast<int>(MenuListBaseHeight / MenuListBaseFontSize * style.fontDescription().computedSize())), Fixed));
+        style.setMinHeight(Length(std::max(MenuListMinHeight, static_cast<int>(MenuListBaseHeight / MenuListBaseFontSize * style.fontDescription().computedSize())), LengthType::Fixed));
     else
-        style.setMinHeight(Length(MenuListMinHeight, Fixed));
+        style.setMinHeight(Length(MenuListMinHeight, LengthType::Fixed));
 
     if (!element)
         return;
+
+    adjustButtonLikeControlStyle(style, *element);
 
     // Enforce some default styles in the case that this is a non-multiple <select> element,
     // or a date input. We don't force these if this is just an element with
@@ -650,8 +838,15 @@ void RenderThemeIOS::adjustMenuListButtonStyle(RenderStyle& style, const Element
         adjustInputElementButtonStyle(style, downcast<HTMLInputElement>(*element));
 }
 
-bool RenderThemeIOS::paintMenuListButtonDecorations(const RenderBox& box, const PaintInfo& paintInfo, const FloatRect& rect)
+void RenderThemeIOS::paintMenuListButtonDecorations(const RenderBox& box, const PaintInfo& paintInfo, const FloatRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled()) {
+        paintMenuListButtonDecorationsWithFormControlRefresh(box, paintInfo, rect);
+        return;
+    }
+#endif
+
     auto& style = box.style();
     bool isRTL = style.direction() == TextDirection::RTL;
     float borderTopWidth = style.borderTopWidth();
@@ -695,7 +890,7 @@ bool RenderThemeIOS::paintMenuListButtonDecorations(const RenderBox& box, const 
 
     float separatorPosition = isRTL ? (clip.x() + MenuListButtonPaddingAfter) : (clip.maxX() - MenuListButtonPaddingAfter);
 
-    box.drawLineForBoxSide(paintInfo.context(), FloatRect(FloatPoint(separatorPosition - borderTopWidth, clip.y()), FloatPoint(separatorPosition, clip.maxY())), BSRight, style.visitedDependentColor(CSSPropertyBorderTopColor), style.borderTopStyle(), 0, 0);
+    box.drawLineForBoxSide(paintInfo.context(), FloatRect(FloatPoint(separatorPosition - borderTopWidth, clip.y()), FloatPoint(separatorPosition, clip.maxY())), BoxSide::Right, style.visitedDependentColor(CSSPropertyBorderTopColor), style.borderTopStyle(), 0, 0);
 
     FloatRect buttonClip;
     if (isRTL)
@@ -767,8 +962,6 @@ bool RenderThemeIOS::paintMenuListButtonDecorations(const RenderBox& box, const 
         paintInfo.context().setFillColor(Color::white);
         paintInfo.context().drawPath(Path::polygonPathFromPoints(arrow));
     }
-
-    return false;
 }
 
 const CGFloat kTrackThickness = 4.0;
@@ -781,16 +974,21 @@ void RenderThemeIOS::adjustSliderTrackStyle(RenderStyle& style, const Element* e
 
     // FIXME: We should not be relying on border radius for the appearance of our controls <rdar://problem/7675493>.
     int radius = static_cast<int>(kTrackRadius);
-    style.setBorderRadius({ { radius, Fixed }, { radius, Fixed } });
+    style.setBorderRadius({ { radius, LengthType::Fixed }, { radius, LengthType::Fixed } });
 }
 
 bool RenderThemeIOS::paintSliderTrack(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled())
+        return paintSliderTrackWithFormControlRefresh(box, paintInfo, rect);
+#endif
+
     IntRect trackClip = rect;
     auto& style = box.style();
 
     bool isHorizontal = true;
-    switch (style.appearance()) {
+    switch (style.effectiveAppearance()) {
     case SliderHorizontalPart:
         isHorizontal = true;
         // Inset slightly so the thumb covers the edge.
@@ -864,21 +1062,26 @@ bool RenderThemeIOS::paintSliderTrack(const RenderObject& box, const PaintInfo& 
 
 void RenderThemeIOS::adjustSliderThumbSize(RenderStyle& style, const Element*) const
 {
-    if (style.appearance() != SliderThumbHorizontalPart && style.appearance() != SliderThumbVerticalPart)
+    if (style.effectiveAppearance() != SliderThumbHorizontalPart && style.effectiveAppearance() != SliderThumbVerticalPart)
         return;
 
     // Enforce "border-radius: 50%".
-    style.setBorderRadius({ { 50, Percent }, { 50, Percent } });
+    style.setBorderRadius({ { 50, LengthType::Percent }, { 50, LengthType::Percent } });
 
     // Enforce a 16x16 size if no size is provided.
     if (style.width().isIntrinsicOrAuto() || style.height().isAuto()) {
-        style.setWidth({ kDefaultSliderThumbSize, Fixed });
-        style.setHeight({ kDefaultSliderThumbSize, Fixed });
+        style.setWidth({ kDefaultSliderThumbSize, LengthType::Fixed });
+        style.setHeight({ kDefaultSliderThumbSize, LengthType::Fixed });
     }
 }
 
-bool RenderThemeIOS::paintSliderThumbDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+void RenderThemeIOS::paintSliderThumbDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled())
+        return;
+#endif
+
     GraphicsContextStateSaver stateSaver(paintInfo.context());
     FloatRect clip = addRoundedBorderClip(box, paintInfo.context(), rect);
 
@@ -890,12 +1093,15 @@ bool RenderThemeIOS::paintSliderThumbDecorations(const RenderObject& box, const 
         drawAxialGradient(cgContext, gradientWithName(ShadeGradient), clip.location(), FloatPoint(clip.x(), clip.maxY()), LinearInterpolation);
         drawRadialGradient(cgContext, gradientWithName(ShineGradient), bottomCenter, 0.0f, bottomCenter, std::max(clip.width(), clip.height()), ExponentialInterpolation);
     }
-
-    return false;
 }
 
 bool RenderThemeIOS::paintProgressBar(const RenderObject& renderer, const PaintInfo& paintInfo, const IntRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (renderer.settings().iOSFormControlRefreshEnabled())
+        return paintProgressBarWithFormControlRefresh(renderer, paintInfo, rect);
+#endif
+
     if (!is<RenderProgress>(renderer))
         return true;
 
@@ -916,7 +1122,7 @@ bool RenderThemeIOS::paintProgressBar(const RenderObject& renderer, const PaintI
     context.setStrokeStyle(SolidStroke);
 
     const float verticalRenderingPosition = rect.y() + verticalOffset;
-    auto strokeGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) });
+    auto strokeGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
     strokeGradient->addColorStop({ 0.0f, SRGBA<uint8_t> { 141, 141, 141 } });
     strokeGradient->addColorStop({ 0.45f, SRGBA<uint8_t> { 238, 238, 238 } });
     strokeGradient->addColorStop({ 0.55f, SRGBA<uint8_t> { 238, 238, 238 } });
@@ -936,7 +1142,7 @@ bool RenderThemeIOS::paintProgressBar(const RenderObject& renderer, const PaintI
     paintInfo.context().clipRoundedRect(FloatRoundedRect(border, roundedCornerRadius, roundedCornerRadius, roundedCornerRadius, roundedCornerRadius));
 
     float upperGradientHeight = progressBarHeight / 2.;
-    auto upperGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition + 0.5f), FloatPoint(rect.x(), verticalRenderingPosition + upperGradientHeight - 1.5) });
+    auto upperGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition + 0.5f), FloatPoint(rect.x(), verticalRenderingPosition + upperGradientHeight - 1.5) }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
     upperGradient->addColorStop({ 0.0f, SRGBA<uint8_t> { 133, 133, 133, 188 } });
     upperGradient->addColorStop({ 1.0f, SRGBA<uint8_t> { 18, 18, 18, 51 } });
     context.setFillGradient(WTFMove(upperGradient));
@@ -948,7 +1154,7 @@ bool RenderThemeIOS::paintProgressBar(const RenderObject& renderer, const PaintI
         // 2) Draw the progress bar.
         double position = clampTo(renderProgress.position(), 0.0, 1.0);
         float barWidth = position * rect.width();
-        auto barGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition + 0.5f), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) });
+        auto barGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition + 0.5f), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
         barGradient->addColorStop({ 0.0f, SRGBA<uint8_t> { 195, 217, 247 } });
         barGradient->addColorStop({ 0.45f, SRGBA<uint8_t> { 118, 164, 228 } });
         barGradient->addColorStop({ 0.49f, SRGBA<uint8_t> { 118, 164, 228 } });
@@ -957,7 +1163,7 @@ bool RenderThemeIOS::paintProgressBar(const RenderObject& renderer, const PaintI
         barGradient->addColorStop({ 1.0f, SRGBA<uint8_t> { 57, 142, 244 } });
         context.setFillGradient(WTFMove(barGradient));
 
-        auto barStrokeGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) });
+        auto barStrokeGradient = Gradient::create(Gradient::LinearData { FloatPoint(rect.x(), verticalRenderingPosition), FloatPoint(rect.x(), verticalRenderingPosition + progressBarHeight - 1) }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
         barStrokeGradient->addColorStop({ 0.0f, SRGBA<uint8_t> { 95, 107, 183 } });
         barStrokeGradient->addColorStop({ 0.5f, SRGBA<uint8_t> { 66, 106, 174, 240 } });
         barStrokeGradient->addColorStop({ 1.0f, SRGBA<uint8_t> { 38, 104, 166 } });
@@ -1006,17 +1212,71 @@ void RenderThemeIOS::adjustSearchFieldStyle(RenderStyle& style, const Element* e
     adjustRoundBorderRadius(style, *box);
 }
 
-bool RenderThemeIOS::paintSearchFieldDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+void RenderThemeIOS::paintSearchFieldDecorations(const RenderBox& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
-    return paintTextFieldDecorations(box, paintInfo, rect);
+    paintTextFieldDecorations(box, paintInfo, rect);
+}
+
+// This value matches the opacity applied to UIKit controls.
+constexpr auto pressedStateOpacity = 0.75f;
+
+bool RenderThemeIOS::isSubmitStyleButton(const Element& element) const
+{
+    if (is<HTMLInputElement>(element) && downcast<HTMLInputElement>(element).isSubmitButton())
+        return true;
+
+    if (is<HTMLButtonElement>(element) && downcast<HTMLButtonElement>(element).isExplicitlySetSubmitButton())
+        return true;
+
+    return false;
+}
+
+void RenderThemeIOS::adjustButtonLikeControlStyle(RenderStyle& style, const Element& element) const
+{
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (!element.document().settings().iOSFormControlRefreshEnabled())
+        return;
+
+    // FIXME: Implement button-like control adjustments for the alternate design.
+    if (element.document().settings().alternateFormControlDesignEnabled())
+        return;
+
+    if (element.isDisabledFormControl())
+        return;
+
+    auto tintColor = style.effectiveAccentColor();
+    if (tintColor.isValid()) {
+        if (isSubmitStyleButton(element))
+            style.setBackgroundColor(tintColor);
+        else
+            style.setColor(tintColor);
+    }
+
+    if (!element.active())
+        return;
+
+    auto textColor = style.color();
+    if (textColor.isValid())
+        style.setColor(textColor.colorWithAlphaMultipliedBy(pressedStateOpacity));
+
+    auto backgroundColor = style.backgroundColor();
+    if (backgroundColor.isValid())
+        style.setBackgroundColor(backgroundColor.colorWithAlphaMultipliedBy(pressedStateOpacity));
+#endif
 }
 
 void RenderThemeIOS::adjustButtonStyle(RenderStyle& style, const Element* element) const
 {
-    RenderTheme::adjustButtonStyle(style, element);
+    adjustStyleForAlternateFormControlDesignTransition(style, element);
+
+    // If no size is specified, ensure the height of the button matches ControlBaseHeight scaled
+    // with the font size. min-height is used rather than height to avoid clipping the contents of
+    // the button in cases where the button contains more than one line of text.
+    if (style.width().isIntrinsicOrAuto() || style.height().isAuto())
+        style.setMinHeight(Length(ControlBaseHeight / ControlBaseFontSize * style.fontDescription().computedSize(), LengthType::Fixed));
 
 #if ENABLE(INPUT_TYPE_COLOR)
-    if (style.appearance() == ColorWellPart)
+    if (style.effectiveAppearance() == ColorWellPart)
         return;
 #endif
 
@@ -1025,11 +1285,13 @@ void RenderThemeIOS::adjustButtonStyle(RenderStyle& style, const Element* elemen
     // Since the element might not be in a document, just pass nullptr for the root element style,
     // the parent element style, and the render view.
     auto emSize = CSSPrimitiveValue::create(1.0, CSSUnitType::CSS_EMS);
-    int pixels = emSize->computeLength<int>(CSSToLengthConversionData(&style, nullptr, nullptr, nullptr, 1.0, WTF::nullopt));
+    int pixels = emSize->computeLength<int>(CSSToLengthConversionData(&style, nullptr, nullptr, nullptr, 1.0, std::nullopt));
     style.setPaddingBox(LengthBox(0, pixels, 0, pixels));
 
     if (!element)
         return;
+
+    adjustButtonLikeControlStyle(style, *element);
 
     RenderBox* box = element->renderBox();
     if (!box)
@@ -1038,21 +1300,26 @@ void RenderThemeIOS::adjustButtonStyle(RenderStyle& style, const Element* elemen
     adjustRoundBorderRadius(style, *box);
 }
 
-bool RenderThemeIOS::paintButtonDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+void RenderThemeIOS::paintButtonDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
-    return paintPushButtonDecorations(box, paintInfo, rect);
+    paintPushButtonDecorations(box, paintInfo, rect);
 }
 
 static bool shouldUseConvexGradient(const Color& backgroundColor)
 {
     // FIXME: This should probably be using luminance.
-    auto [r, g, b, a] = backgroundColor.toSRGBALossy<float>();
+    auto [r, g, b, a] = backgroundColor.toColorTypeLossy<SRGBA<float>>().resolved();
     float largestNonAlphaChannel = std::max({ r, g, b });
     return a > 0.5 && largestNonAlphaChannel < 0.5;
 }
 
-bool RenderThemeIOS::paintPushButtonDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+void RenderThemeIOS::paintPushButtonDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
 {
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (box.settings().iOSFormControlRefreshEnabled())
+        return;
+#endif
+
     GraphicsContextStateSaver stateSaver(paintInfo.context());
     FloatRect clip = addRoundedBorderClip(box, paintInfo.context(), rect);
 
@@ -1063,17 +1330,6 @@ bool RenderThemeIOS::paintPushButtonDecorations(const RenderObject& box, const P
         drawAxialGradient(cgContext, gradientWithName(ShadeGradient), clip.location(), FloatPoint(clip.x(), clip.maxY()), LinearInterpolation);
         drawAxialGradient(cgContext, gradientWithName(ShineGradient), FloatPoint(clip.x(), clip.maxY()), clip.location(), ExponentialInterpolation);
     }
-    return false;
-}
-
-void RenderThemeIOS::setButtonSize(RenderStyle& style) const
-{
-    // If the width and height are both specified, then we have nothing to do.
-    if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
-        return;
-
-    // Use the font size to determine the intrinsic width of the control.
-    style.setHeight(Length(static_cast<int>(ControlBaseHeight / ControlBaseFontSize * style.fontDescription().computedSize()), Fixed));
 }
 
 const int kThumbnailBorderStrokeWidth = 1;
@@ -1081,7 +1337,7 @@ const int kThumbnailBorderCornerRadius = 1;
 const int kVisibleBackgroundImageWidth = 1;
 const int kMultipleThumbnailShrinkSize = 2;
 
-bool RenderThemeIOS::paintFileUploadIconDecorations(const RenderObject&, const RenderObject& buttonRenderer, const PaintInfo& paintInfo, const IntRect& rect, Icon* icon, FileUploadDecorations fileUploadDecorations)
+void RenderThemeIOS::paintFileUploadIconDecorations(const RenderObject&, const RenderObject& buttonRenderer, const PaintInfo& paintInfo, const IntRect& rect, Icon* icon, FileUploadDecorations fileUploadDecorations)
 {
     GraphicsContextStateSaver stateSaver(paintInfo.context());
 
@@ -1123,41 +1379,43 @@ bool RenderThemeIOS::paintFileUploadIconDecorations(const RenderObject&, const R
     // Foreground picture frame and icon.
     paintInfo.context().fillRoundedRect(FloatRoundedRect(thumbnailPictureFrameRect, cornerSize, cornerSize, cornerSize, cornerSize), pictureFrameColor);
     icon->paint(paintInfo.context(), thumbnailRect);
-
-    return false;
 }
 
-Color RenderThemeIOS::platformActiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const
+Color RenderThemeIOS::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
     return Color::transparentBlack;
 }
 
-Color RenderThemeIOS::platformInactiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const
+Color RenderThemeIOS::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
     return Color::transparentBlack;
 }
 
-static Optional<Color>& cachedFocusRingColor()
+static std::optional<Color>& cachedFocusRingColor()
 {
-    static NeverDestroyed<Optional<Color>> color;
+    static NeverDestroyed<std::optional<Color>> color;
     return color;
 }
 
-#if ENABLE(FULL_KEYBOARD_ACCESS)
 Color RenderThemeIOS::systemFocusRingColor()
 {
-    if (!cachedFocusRingColor().hasValue()) {
+    if (!cachedFocusRingColor().has_value()) {
         // FIXME: Should be using -keyboardFocusIndicatorColor. For now, work around <rdar://problem/50838886>.
-        cachedFocusRingColor() = colorFromUIColor([PAL::getUIColorClass() systemBlueColor]);
+        cachedFocusRingColor() = colorFromCocoaColor([PAL::getUIColorClass() systemBlueColor]);
     }
     return *cachedFocusRingColor();
 }
 
-Color RenderThemeIOS::platformFocusRingColor(OptionSet<StyleColor::Options>) const
+Color RenderThemeIOS::platformFocusRingColor(OptionSet<StyleColorOptions>) const
 {
     return systemFocusRingColor();
 }
-#endif
+
+Color RenderThemeIOS::platformAnnotationHighlightColor(OptionSet<StyleColorOptions>) const
+{
+    // FIXME: expose the real value from UIKit.
+    return SRGBA<uint8_t> { 255, 238, 190 };
+}
 
 bool RenderThemeIOS::shouldHaveSpinButton(const HTMLInputElement&) const
 {
@@ -1169,150 +1427,108 @@ bool RenderThemeIOS::supportsFocusRing(const RenderStyle&) const
     return false;
 }
 
-String RenderThemeIOS::mediaControlsStyleSheet()
+bool RenderThemeIOS::supportsBoxShadow(const RenderStyle& style) const
 {
-    if (m_legacyMediaControlsStyleSheet.isEmpty())
-        m_legacyMediaControlsStyleSheet = [NSString stringWithContentsOfFile:[[NSBundle bundleForClass:[WebCoreRenderThemeBundle class]] pathForResource:@"mediaControlsiOS" ofType:@"css"] encoding:NSUTF8StringEncoding error:nil];
-    return m_legacyMediaControlsStyleSheet;
-}
-
-String RenderThemeIOS::modernMediaControlsStyleSheet()
-{
-    if (RuntimeEnabledFeatures::sharedFeatures().modernMediaControlsEnabled()) {
-        if (m_mediaControlsStyleSheet.isEmpty())
-            m_mediaControlsStyleSheet = [NSString stringWithContentsOfFile:[[NSBundle bundleForClass:[WebCoreRenderThemeBundle class]] pathForResource:@"modern-media-controls" ofType:@"css" inDirectory:@"modern-media-controls"] encoding:NSUTF8StringEncoding error:nil];
-        return m_mediaControlsStyleSheet;
+    // FIXME: See if additional native controls can support box shadows.
+    switch (style.effectiveAppearance()) {
+    case SliderThumbHorizontalPart:
+    case SliderThumbVerticalPart:
+        return true;
+    default:
+        return false;
     }
-    return emptyString();
 }
 
-void RenderThemeIOS::purgeCaches()
-{
-    m_legacyMediaControlsScript.clearImplIfNotShared();
-    m_mediaControlsScript.clearImplIfNotShared();
-    m_legacyMediaControlsStyleSheet.clearImplIfNotShared();
-    m_mediaControlsStyleSheet.clearImplIfNotShared();
-}
-
-String RenderThemeIOS::mediaControlsScript()
-{
-    if (RuntimeEnabledFeatures::sharedFeatures().modernMediaControlsEnabled()) {
-        if (m_mediaControlsScript.isEmpty()) {
-            NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
-
-            StringBuilder scriptBuilder;
-            scriptBuilder.append("window.isIOSFamily = true;");
-            scriptBuilder.append([NSString stringWithContentsOfFile:[bundle pathForResource:@"modern-media-controls-localized-strings" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil]);
-            scriptBuilder.append([NSString stringWithContentsOfFile:[bundle pathForResource:@"modern-media-controls" ofType:@"js" inDirectory:@"modern-media-controls"] encoding:NSUTF8StringEncoding error:nil]);
-            m_mediaControlsScript = scriptBuilder.toString();
-        }
-        return m_mediaControlsScript;
-    }
-
-    if (m_legacyMediaControlsScript.isEmpty()) {
-        NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
-
-        StringBuilder scriptBuilder;
-        scriptBuilder.append([NSString stringWithContentsOfFile:[bundle pathForResource:@"mediaControlsLocalizedStrings" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil]);
-        scriptBuilder.append([NSString stringWithContentsOfFile:[bundle pathForResource:@"mediaControlsApple" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil]);
-        scriptBuilder.append([NSString stringWithContentsOfFile:[bundle pathForResource:@"mediaControlsiOS" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil]);
-
-        m_legacyMediaControlsScript = scriptBuilder.toString();
-    }
-    return m_legacyMediaControlsScript;
-}
-
-String RenderThemeIOS::mediaControlsBase64StringForIconNameAndType(const String& iconName, const String& iconType)
-{
-    if (!RuntimeEnabledFeatures::sharedFeatures().modernMediaControlsEnabled())
-        return emptyString();
-
-    String directory = "modern-media-controls/images";
-    NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
-    return [[NSData dataWithContentsOfFile:[bundle pathForResource:iconName ofType:iconType inDirectory:directory]] base64EncodedStringWithOptions:0];
-}
-
-struct CSSValueIDAndSelector {
+struct CSSValueSystemColorInformation {
     CSSValueID cssValueID;
     SEL selector;
+    bool makeOpaque { false };
+    float opacity { 1.0f };
 };
 
-static const Vector<CSSValueIDAndSelector>& cssValueIDSelectorList()
+static const Vector<CSSValueSystemColorInformation>& cssValueSystemColorInformationList()
 {
-    static NeverDestroyed<Vector<CSSValueIDAndSelector>> cssValueIDSelectorList;
+    static NeverDestroyed<Vector<CSSValueSystemColorInformation>> cssValueSystemColorInformationList;
 
     static std::once_flag initializeOnce;
     std::call_once(
         initializeOnce,
         [] {
-        cssValueIDSelectorList.get() = Vector(std::initializer_list<CSSValueIDAndSelector> {
-#if HAVE(OS_DARK_MODE_SUPPORT)
+        cssValueSystemColorInformationList.get() = Vector(std::initializer_list<CSSValueSystemColorInformation> {
             { CSSValueText, @selector(labelColor) },
-            { CSSValueAppleSystemLabel, @selector(labelColor) },
-            { CSSValueAppleSystemHeaderText, @selector(labelColor) },
-            { CSSValueAppleSystemSecondaryLabel, @selector(secondaryLabelColor) },
-            { CSSValueAppleSystemTertiaryLabel, @selector(tertiaryLabelColor) },
-            { CSSValueAppleSystemQuaternaryLabel, @selector(quaternaryLabelColor) },
-            { CSSValueAppleSystemPlaceholderText, @selector(placeholderTextColor) },
             { CSSValueWebkitControlBackground, @selector(systemBackgroundColor) },
-            { CSSValueAppleSystemControlBackground, @selector(systemBackgroundColor) },
-            { CSSValueAppleSystemTextBackground, @selector(systemBackgroundColor) },
-            { CSSValueAppleSystemBackground, @selector(systemBackgroundColor) },
-            { CSSValueAppleSystemSecondaryBackground, @selector(secondarySystemBackgroundColor) },
-            { CSSValueAppleSystemTertiaryBackground, @selector(tertiarySystemBackgroundColor) },
-            { CSSValueAppleSystemGroupedBackground, @selector(systemGroupedBackgroundColor) },
-            { CSSValueAppleSystemSecondaryGroupedBackground, @selector(secondarySystemGroupedBackgroundColor) },
-            { CSSValueAppleSystemTertiaryGroupedBackground, @selector(tertiarySystemGroupedBackgroundColor) },
-            { CSSValueAppleSystemGrid, @selector(separatorColor) },
-            { CSSValueAppleSystemSeparator, @selector(separatorColor) },
-            { CSSValueAppleSystemContainerBorder, @selector(separatorColor) },
-            { CSSValueAppleSystemSelectedContentBackground, @selector(tableCellDefaultSelectionTintColor) },
-            { CSSValueAppleSystemUnemphasizedSelectedContentBackground, @selector(tableCellDefaultSelectionTintColor) },
-            { CSSValueAppleSystemBrown, @selector(systemBrownColor) },
-            { CSSValueAppleSystemIndigo, @selector(systemIndigoColor) },
-#endif
-            { CSSValueAppleSystemTeal, @selector(systemTealColor) },
-            { CSSValueAppleWirelessPlaybackTargetActive, @selector(systemBlueColor) },
             { CSSValueAppleSystemBlue, @selector(systemBlueColor) },
+            { CSSValueAppleSystemBrown, @selector(systemBrownColor) },
             { CSSValueAppleSystemGray, @selector(systemGrayColor) },
             { CSSValueAppleSystemGreen, @selector(systemGreenColor) },
+            { CSSValueAppleSystemIndigo, @selector(systemIndigoColor) },
             { CSSValueAppleSystemOrange, @selector(systemOrangeColor) },
             { CSSValueAppleSystemPink, @selector(systemPinkColor) },
             { CSSValueAppleSystemPurple, @selector(systemPurpleColor) },
             { CSSValueAppleSystemRed, @selector(systemRedColor) },
-            { CSSValueAppleSystemYellow, @selector(systemYellowColor) }
+            { CSSValueAppleSystemTeal, @selector(systemTealColor) },
+            { CSSValueAppleSystemYellow, @selector(systemYellowColor) },
+            { CSSValueAppleSystemBackground, @selector(systemBackgroundColor) },
+            { CSSValueAppleSystemSecondaryBackground, @selector(secondarySystemBackgroundColor) },
+            { CSSValueAppleSystemTertiaryBackground, @selector(tertiarySystemBackgroundColor) },
+            { CSSValueAppleSystemOpaqueFill, @selector(systemFillColor), true },
+            { CSSValueAppleSystemOpaqueSecondaryFill, @selector(secondarySystemFillColor), true },
+            // FIXME: <rdar://problem/75538507> UIKit should expose this color so that we maintain parity with system buttons.
+            { CSSValueAppleSystemOpaqueSecondaryFillDisabled, @selector(secondarySystemFillColor), true, 0.75f },
+            { CSSValueAppleSystemOpaqueTertiaryFill, @selector(tertiarySystemFillColor), true },
+            { CSSValueAppleSystemGroupedBackground, @selector(systemGroupedBackgroundColor) },
+            { CSSValueAppleSystemSecondaryGroupedBackground, @selector(secondarySystemGroupedBackgroundColor) },
+            { CSSValueAppleSystemTertiaryGroupedBackground, @selector(tertiarySystemGroupedBackgroundColor) },
+            { CSSValueAppleSystemLabel, @selector(labelColor) },
+            { CSSValueAppleSystemSecondaryLabel, @selector(secondaryLabelColor) },
+            { CSSValueAppleSystemTertiaryLabel, @selector(tertiaryLabelColor) },
+            { CSSValueAppleSystemQuaternaryLabel, @selector(quaternaryLabelColor) },
+            { CSSValueAppleSystemPlaceholderText, @selector(placeholderTextColor) },
+            { CSSValueAppleSystemSeparator, @selector(separatorColor) },
+            // FIXME: <rdar://problem/79471528> Adopt [UIColor opaqueSeparatorColor] once it has a high contrast variant.
+            { CSSValueAppleSystemOpaqueSeparator, @selector(separatorColor), true },
+            { CSSValueAppleSystemContainerBorder, @selector(separatorColor) },
+            { CSSValueAppleSystemControlBackground, @selector(systemBackgroundColor) },
+            { CSSValueAppleSystemGrid, @selector(separatorColor) },
+            { CSSValueAppleSystemHeaderText, @selector(labelColor) },
+            { CSSValueAppleSystemSelectedContentBackground, @selector(tableCellDefaultSelectionTintColor) },
+            { CSSValueAppleSystemTextBackground, @selector(systemBackgroundColor) },
+            { CSSValueAppleSystemUnemphasizedSelectedContentBackground, @selector(tableCellDefaultSelectionTintColor) },
+            { CSSValueAppleWirelessPlaybackTargetActive, @selector(systemBlueColor) },
         });
     });
 
-    return cssValueIDSelectorList;
+    return cssValueSystemColorInformationList;
 }
 
-static inline Optional<Color> systemColorFromCSSValueIDSelector(CSSValueIDAndSelector idAndSelector)
+static inline std::optional<Color> systemColorFromCSSValueSystemColorInformation(CSSValueSystemColorInformation systemColorInformation, bool useDarkAppearance)
 {
-    if (auto color = wtfObjCMsgSend<UIColor *>(PAL::getUIColorClass(), idAndSelector.selector))
-        return Color { color.CGColor, Color::Semantic };
-    return WTF::nullopt;
+    if (auto color = wtfObjCMsgSend<UIColor *>(PAL::getUIColorClass(), systemColorInformation.selector)) {
+        Color systemColor(roundAndClampToSRGBALossy(color.CGColor), Color::Flags::Semantic);
+
+        if (systemColorInformation.opacity < 1.0f)
+            systemColor = systemColor.colorWithAlphaMultipliedBy(systemColorInformation.opacity);
+
+        if (systemColorInformation.makeOpaque)
+            return blendSourceOver(useDarkAppearance ? Color::black : Color::white, systemColor);
+
+        return systemColor;
+    }
+
+    return std::nullopt;
 }
 
-static Optional<Color> systemColorFromCSSValueID(CSSValueID cssValueID, bool useDarkAppearance, bool useElevatedUserInterfaceLevel)
+static std::optional<Color> systemColorFromCSSValueID(CSSValueID cssValueID, bool useDarkAppearance, bool useElevatedUserInterfaceLevel)
 {
     LocalCurrentTraitCollection localTraitCollection(useDarkAppearance, useElevatedUserInterfaceLevel);
 
-    auto cssColorToSelector = [cssValueID] () -> SEL {
-        for (auto& cssValueIDSelector : cssValueIDSelectorList()) {
-            if (cssValueIDSelector.cssValueID == cssValueID)
-                return cssValueIDSelector.selector;
-        }
-        return nullptr;
-    };
-
-    if (auto selector = cssColorToSelector()) {
-        if (auto color = wtfObjCMsgSend<UIColor *>(PAL::getUIColorClass(), selector))
-            return Color(color.CGColor, Color::Semantic);
+    for (auto& cssValueSystemColorInformation : cssValueSystemColorInformationList()) {
+        if (cssValueSystemColorInformation.cssValueID == cssValueID)
+            return systemColorFromCSSValueSystemColorInformation(cssValueSystemColorInformation, useDarkAppearance);
     }
-    return WTF::nullopt;
-}
 
+    return std::nullopt;
+}
 
 static RenderThemeIOS::CSSValueToSystemColorMap& globalCSSValueToSystemColorMap()
 {
@@ -1328,9 +1544,9 @@ const RenderThemeIOS::CSSValueToSystemColorMap& RenderThemeIOS::cssValueToSystem
         for (bool useDarkAppearance : { false, true }) {
             for (bool useElevatedUserInterfaceLevel : { false, true }) {
                 LocalCurrentTraitCollection localTraitCollection(useDarkAppearance, useElevatedUserInterfaceLevel);
-                for (auto& cssValueIDSelector : cssValueIDSelectorList()) {
-                    if (auto color = systemColorFromCSSValueIDSelector(cssValueIDSelector))
-                        map.add(CSSValueKey { cssValueIDSelector.cssValueID, useDarkAppearance, useElevatedUserInterfaceLevel }, WTFMove(*color));
+                for (auto& cssValueSystemColorInformation : cssValueSystemColorInformationList()) {
+                    if (auto color = systemColorFromCSSValueSystemColorInformation(cssValueSystemColorInformation, useDarkAppearance))
+                        map.add(CSSValueKey { cssValueSystemColorInformation.cssValueID, useDarkAppearance, useElevatedUserInterfaceLevel }, WTFMove(*color));
                 }
             }
         }
@@ -1349,9 +1565,9 @@ void RenderThemeIOS::setFocusRingColor(const Color& color)
     cachedFocusRingColor() = color;
 }
 
-Color RenderThemeIOS::systemColor(CSSValueID cssValueID, OptionSet<StyleColor::Options> options) const
+Color RenderThemeIOS::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOptions> options) const
 {
-    const bool forVisitedLink = options.contains(StyleColor::Options::ForVisitedLink);
+    const bool forVisitedLink = options.contains(StyleColorOptions::ForVisitedLink);
 
     // The system color cache below can't handle visited links. The only color value
     // that cares about visited links is CSSValueWebkitLink, so handle it here by
@@ -1363,8 +1579,8 @@ Color RenderThemeIOS::systemColor(CSSValueID cssValueID, OptionSet<StyleColor::O
 
     auto& cache = colorCache(options);
     return cache.systemStyleColors.ensure(cssValueID, [this, cssValueID, options] () -> Color {
-        const bool useDarkAppearance = options.contains(StyleColor::Options::UseDarkAppearance);
-        const bool useElevatedUserInterfaceLevel = options.contains(StyleColor::Options::UseElevatedUserInterfaceLevel);
+        const bool useDarkAppearance = options.contains(StyleColorOptions::UseDarkAppearance);
+        const bool useElevatedUserInterfaceLevel = options.contains(StyleColorOptions::UseElevatedUserInterfaceLevel);
         if (!globalCSSValueToSystemColorMap().isEmpty()) {
             auto it = globalCSSValueToSystemColorMap().find(CSSValueKey { cssValueID, useDarkAppearance, useElevatedUserInterfaceLevel });
             if (it == globalCSSValueToSystemColorMap().end())
@@ -1376,6 +1592,15 @@ Color RenderThemeIOS::systemColor(CSSValueID cssValueID, OptionSet<StyleColor::O
             return *color;
         return RenderTheme::systemColor(cssValueID, options);
     }).iterator->value;
+}
+
+Color RenderThemeIOS::controlTintColor(const RenderStyle& style, OptionSet<StyleColorOptions> options) const
+{
+    Color tintColor = style.effectiveAccentColor();
+    if (tintColor.isValid())
+        return tintColor;
+
+    return systemColor(CSSValueAppleSystemBlue, options);
 }
 
 #if ENABLE(ATTACHMENT_ELEMENT)
@@ -1399,22 +1624,27 @@ const CFIndex attachmentWrappingTextMaximumLineCount = 2;
 
 static RetainPtr<CTFontRef> attachmentActionFont()
 {
-    RetainPtr<CTFontDescriptorRef> fontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(kCTUIFontTextStyleShortFootnote, RenderThemeIOS::singleton().contentSizeCategory(), 0));
-    RetainPtr<CTFontDescriptorRef> emphasizedFontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor.get(),
-        (CFDictionaryRef)@{
-            (id)kCTFontDescriptorTextStyleAttribute: (id)kCTFontDescriptorTextStyleEmphasized
-    }));
+    auto style = kCTUIFontTextStyleFootnote;
+    auto size = RenderThemeIOS::singleton().contentSizeCategory();
+    auto attributes = static_cast<CFDictionaryRef>(@{ (id)kCTFontTraitsAttribute: @{ (id)kCTFontSymbolicTrait: @(kCTFontTraitTightLeading | kCTFontTraitEmphasized) } });
+#if HAVE(CTFONTDESCRIPTOR_CREATE_WITH_TEXT_STYLE_AND_ATTRIBUTES)
+    auto emphasizedFontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyleAndAttributes(style, size, attributes));
+#else
+    auto fontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(style, size, 0));
+    auto emphasizedFontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor.get(), attributes));
+#endif
+
     return adoptCF(CTFontCreateWithFontDescriptor(emphasizedFontDescriptor.get(), 0, nullptr));
 }
 
-static UIColor *attachmentActionColor(const RenderAttachment& attachment)
+static RetainPtr<UIColor> attachmentActionColor(const RenderAttachment& attachment)
 {
-    return [PAL::getUIColorClass() colorWithCGColor:cachedCGColor(attachment.style().visitedDependentColor(CSSPropertyColor))];
+    return cocoaColor(attachment.style().visitedDependentColor(CSSPropertyColor));
 }
 
 static RetainPtr<CTFontRef> attachmentTitleFont()
 {
-    RetainPtr<CTFontDescriptorRef> fontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(kCTUIFontTextStyleShortCaption1, RenderThemeIOS::singleton().contentSizeCategory(), 0));
+    auto fontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(kCTUIFontTextStyleShortCaption1, RenderThemeIOS::singleton().contentSizeCategory(), 0));
     return adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 0, nullptr));
 }
 
@@ -1449,7 +1679,7 @@ struct RenderAttachmentInfo {
     BOOL hasProgress { NO };
     float progress;
 
-    RetainPtr<UIImage> icon;
+    RefPtr<Image> icon;
     RefPtr<Image> thumbnailIcon;
 
     int baseline { 0 };
@@ -1457,6 +1687,7 @@ struct RenderAttachmentInfo {
     struct LabelLine {
         FloatRect rect;
         RetainPtr<CTLineRef> line;
+        RetainPtr<CTFontRef> font;
     };
     Vector<LabelLine> lines;
 
@@ -1466,10 +1697,10 @@ private:
     void buildWrappedLines(const String&, CTFontRef, UIColor *, unsigned maximumLineCount);
     void buildSingleLine(const String&, CTFontRef, UIColor *);
 
-    void addLine(CTLineRef);
+    void addLine(CTFontRef, CTLineRef);
 };
 
-void RenderAttachmentInfo::addLine(CTLineRef line)
+void RenderAttachmentInfo::addLine(CTFontRef font, CTLineRef line)
 {
     CGRect lineBounds = CTLineGetBoundsWithOptions(line, kCTLineBoundsExcludeTypographicLeading);
     CGFloat trailingWhitespaceWidth = CTLineGetTrailingWhitespaceWidth(line);
@@ -1478,6 +1709,7 @@ void RenderAttachmentInfo::addLine(CTLineRef line)
 
     CGFloat xOffset = (attachmentRect.width() / 2) - (lineWidthIgnoringTrailingWhitespace / 2);
     LabelLine labelLine;
+    labelLine.font = font;
     labelLine.line = line;
     labelLine.rect = FloatRect(xOffset, 0, lineWidthIgnoringTrailingWhitespace, lineHeight);
 
@@ -1512,7 +1744,7 @@ void RenderAttachmentInfo::buildWrappedLines(const String& text, CTFontRef font,
     CFIndex lineIndex = 0;
     CFIndex nonTruncatedLineCount = std::min<CFIndex>(maximumLineCount - 1, lineCount);
     for (; lineIndex < nonTruncatedLineCount; ++lineIndex)
-        addLine((CTLineRef)CFArrayGetValueAtIndex(ctLines, lineIndex));
+        addLine(font, (CTLineRef)CFArrayGetValueAtIndex(ctLines, lineIndex));
 
     if (lineIndex == lineCount)
         return;
@@ -1532,7 +1764,7 @@ void RenderAttachmentInfo::buildWrappedLines(const String& text, CTFontRef font,
     if (!truncatedLine)
         truncatedLine = remainingLine;
 
-    addLine(truncatedLine.get());
+    addLine(font, truncatedLine.get());
 }
 
 void RenderAttachmentInfo::buildSingleLine(const String& text, CTFontRef font, UIColor *color)
@@ -1546,7 +1778,7 @@ void RenderAttachmentInfo::buildSingleLine(const String& text, CTFontRef font, U
     };
     RetainPtr<NSAttributedString> attributedText = adoptNS([[NSAttributedString alloc] initWithString:text attributes:textAttributes]);
 
-    addLine(adoptCF(CTLineCreateWithAttributedString((CFAttributedStringRef)attributedText.get())).get());
+    addLine(font, adoptCF(CTLineCreateWithAttributedString((CFAttributedStringRef)attributedText.get())).get());
 }
 
 static BOOL getAttachmentProgress(const RenderAttachment& attachment, float& progress)
@@ -1559,21 +1791,14 @@ static BOOL getAttachmentProgress(const RenderAttachment& attachment, float& pro
     return validProgress;
 }
 
-static RetainPtr<UIImage> iconForAttachment(const RenderAttachment& attachment, FloatSize& size)
+RenderThemeIOS::IconAndSize RenderThemeIOS::iconForAttachment(const String& fileName, const String& attachmentType, const String& title)
 {
     ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto documentInteractionController = adoptNS([PAL::allocUIDocumentInteractionControllerInstance() init]);
     ALLOW_DEPRECATED_DECLARATIONS_END
 
-    String fileName;
-    if (File* file = attachment.attachmentElement().file())
-        fileName = file->name();
+    [documentInteractionController setName:fileName.isEmpty() ? title : fileName];
 
-    if (fileName.isEmpty())
-        fileName = attachment.attachmentElement().attachmentTitle();
-    [documentInteractionController setName:fileName];
-
-    String attachmentType = attachment.attachmentElement().attachmentType();
     if (!attachmentType.isEmpty()) {
         String UTI;
         if (isDeclaredUTI(attachmentType))
@@ -1590,7 +1815,7 @@ static RetainPtr<UIImage> iconForAttachment(const RenderAttachment& attachment, 
 #if PLATFORM(IOS)
     NSArray *icons = [documentInteractionController icons];
     if (!icons.count)
-        return nil;
+        return IconAndSize { nil, FloatSize() };
 
     result = icons.lastObject;
 
@@ -1611,9 +1836,9 @@ static RetainPtr<UIImage> iconForAttachment(const RenderAttachment& attachment, 
     }
 #endif
     CGFloat iconAspect = [result size].width / [result size].height;
-    size = largestRectWithAspectRatioInsideRect(iconAspect, FloatRect(0, 0, attachmentIconSize, attachmentIconSize)).size();
+    auto size = largestRectWithAspectRatioInsideRect(iconAspect, FloatRect(0, 0, attachmentIconSize, attachmentIconSize)).size();
 
-    return result;
+    return IconAndSize { result, size };
 }
 
 RenderAttachmentInfo::RenderAttachmentInfo(const RenderAttachment& attachment)
@@ -1634,17 +1859,20 @@ RenderAttachmentInfo::RenderAttachmentInfo(const RenderAttachment& attachment)
     }
 
     if (action.isEmpty() && !hasProgress) {
-        FloatSize iconSize;
-        icon = iconForAttachment(attachment, iconSize);
+        FloatSize iconSize = attachment.attachmentElement().iconSize();
+        icon = attachment.attachmentElement().icon();
+        if (!icon)
+            attachment.attachmentElement().requestIconWithSize(FloatSize());
         thumbnailIcon = attachment.attachmentElement().thumbnail();
+        if (thumbnailIcon)
+            iconSize = largestRectWithAspectRatioInsideRect(thumbnailIcon->size().aspectRatio(), FloatRect(0, 0, attachmentIconSize, attachmentIconSize)).size();
         
         if (thumbnailIcon || icon) {
-            auto visibleIconSize = thumbnailIcon ? FloatSize(attachmentIconSize, attachmentIconSize) : iconSize;
-            iconRect = FloatRect(FloatPoint((attachmentRect.width() / 2) - (visibleIconSize.width() / 2), 0), visibleIconSize);
+            iconRect = FloatRect(FloatPoint((attachmentRect.width() / 2) - (iconSize.width() / 2), 0), iconSize);
             yOffset += iconRect.height() + attachmentItemMargin;
         }
     } else
-        buildWrappedLines(action, attachmentActionFont().get(), attachmentActionColor(attachment), attachmentWrappingTextMaximumLineCount);
+        buildWrappedLines(action, attachmentActionFont().get(), attachmentActionColor(attachment).get(), attachmentWrappingTextMaximumLineCount);
 
     bool forceSingleLineTitle = !action.isEmpty() || !subtitle.isEmpty() || hasProgress;
     buildWrappedLines(title, attachmentTitleFont().get(), attachmentTitleColor(), forceSingleLineTitle ? 1 : attachmentWrappingTextMaximumLineCount);
@@ -1679,22 +1907,17 @@ static void paintAttachmentIcon(GraphicsContext& context, RenderAttachmentInfo& 
     if (info.thumbnailIcon)
         iconImage = info.thumbnailIcon;
     else if (info.icon)
-        iconImage = BitmapImage::create([info.icon CGImage]);
+        iconImage = info.icon;
     
     context.drawImage(*iconImage, info.iconRect);
 }
 
 static void paintAttachmentText(GraphicsContext& context, RenderAttachmentInfo& info)
 {
-    for (const auto& line : info.lines) {
-        GraphicsContextStateSaver saver(context);
+    DrawGlyphsRecorder recorder(context, DrawGlyphsRecorder::DeconstructDrawGlyphs::Yes, DrawGlyphsRecorder::DeriveFontFromContext::Yes);
 
-        context.translate(toFloatSize(line.rect.minXMaxYCorner()));
-        context.scale(FloatSize(1, -1));
-
-        CGContextSetTextPosition(context.platformContext(), 0, 0);
-        CTLineDraw(line.line.get(), context.platformContext());
-    }
+    for (const auto& line : info.lines)
+        recorder.drawNativeText(line.font.get(), CTFontGetSize(line.font.get()), line.line.get(), line.rect);
 }
 
 static void paintAttachmentProgress(GraphicsContext& context, RenderAttachmentInfo& info)
@@ -1836,7 +2059,7 @@ void RenderThemeIOS::paintSystemPreviewBadge(Image& image, const PaintInfo& pain
     CGRect insetBadgeRect = CGRectMake(rect.width() - badgeDimension - badgeOffset, badgeOffset, badgeDimension, badgeDimension);
     CGRect badgeRect = CGRectMake(0, 0, badgeDimension, badgeDimension);
 
-    CIImage *inputImage = [CIImage imageWithCGImage:image.nativeImage().get()];
+    CIImage *inputImage = [CIImage imageWithCGImage:image.nativeImage()->platformImage().get()];
 
     // Create a circle to be used for the clipping path in the badge, as well as the drop shadow.
     RetainPtr<CGPathRef> circle = adoptCF(CGPathCreateWithRoundedRect(absoluteBadgeRect, badgeDimension / 2, badgeDimension / 2, nullptr));
@@ -1922,17 +2145,17 @@ void RenderThemeIOS::paintSystemPreviewBadge(Image& image, const PaintInfo& pain
     IOSurfaceRef surface;
     if (useSmallBadge) {
         if (!m_smallBadgeSurface)
-            m_smallBadgeSurface = IOSurface::create({ smallBadgeDimension, smallBadgeDimension }, sRGBColorSpaceRef());
+            m_smallBadgeSurface = IOSurface::create({ smallBadgeDimension, smallBadgeDimension }, DestinationColorSpace::SRGB());
         surface = m_smallBadgeSurface->surface();
     } else {
         if (!m_largeBadgeSurface)
-            m_largeBadgeSurface = IOSurface::create({ largeBadgeDimension, largeBadgeDimension }, sRGBColorSpaceRef());
+            m_largeBadgeSurface = IOSurface::create({ largeBadgeDimension, largeBadgeDimension }, DestinationColorSpace::SRGB());
         surface = m_largeBadgeSurface->surface();
     }
-    [m_ciContext.get() render:translatedImage toIOSurface:surface bounds:badgeRect colorSpace:sRGBColorSpaceRef()];
+    [m_ciContext render:translatedImage toIOSurface:surface bounds:badgeRect colorSpace:sRGBColorSpaceRef()];
     cgImage = useSmallBadge ? m_smallBadgeSurface->createImage() : m_largeBadgeSurface->createImage();
 #else
-    cgImage = adoptCF([m_ciContext.get() createCGImage:sourceOverFilter.outputImage fromRect:flippedInsetBadgeRect]);
+    cgImage = adoptCF([m_ciContext createCGImage:sourceOverFilter.outputImage fromRect:flippedInsetBadgeRect]);
 #endif
 
     // Before we render the result, we should clip to a circle around the badge rectangle.
@@ -1959,6 +2182,813 @@ void RenderThemeIOS::paintSystemPreviewBadge(Image& image, const PaintInfo& pain
     CGContextRestoreGState(ctx);
 }
 #endif
+
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+
+constexpr auto nativeControlBorderWidth = 1.0f;
+
+constexpr auto checkboxRadioBorderWidth = 1.5f;
+constexpr auto checkboxRadioBorderDisabledOpacity = 0.3f;
+
+Color RenderThemeIOS::checkboxRadioBorderColor(OptionSet<ControlStates::States> states, OptionSet<StyleColorOptions> styleColorOptions)
+{
+    auto defaultBorderColor = systemColor(CSSValueAppleSystemSecondaryLabel, styleColorOptions);
+
+    if (!states.contains(ControlStates::States::Enabled))
+        return defaultBorderColor.colorWithAlphaMultipliedBy(checkboxRadioBorderDisabledOpacity);
+
+    if (states.contains(ControlStates::States::Pressed))
+        return defaultBorderColor.colorWithAlphaMultipliedBy(pressedStateOpacity);
+
+    return defaultBorderColor;
+}
+
+Color RenderThemeIOS::checkboxRadioBackgroundColor(bool useAlternateDesign, const RenderStyle& style, OptionSet<ControlStates::States> states, OptionSet<StyleColorOptions> styleColorOptions)
+{
+    bool isEmpty = !states.containsAny({ ControlStates::States::Checked, ControlStates::States::Indeterminate });
+    bool isEnabled = states.contains(ControlStates::States::Enabled);
+    bool isPressed = states.contains(ControlStates::States::Pressed);
+
+    if (useAlternateDesign) {
+        // FIXME (rdar://problem/83895064): The disabled state for the alternate appearance is currently unspecified; this is just a guess.
+        if (!isEnabled)
+            return systemColor(isEmpty ? CSSValueWebkitControlBackground : CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions);
+
+        if (isPressed)
+            return isEmpty ? Color(DisplayP3<float> { 0.773, 0.773, 0.773 }) : Color(DisplayP3<float> { 0.067, 0.38, 0.953 });
+
+        return isEmpty ? Color(DisplayP3<float> { 0.835, 0.835, 0.835 }) : Color(DisplayP3<float> { 0.203, 0.47, 0.964 });
+    }
+
+    if (!isEnabled)
+        return systemColor(isEmpty ? CSSValueWebkitControlBackground : CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions);
+
+    auto enabledBackgroundColor = isEmpty ? systemColor(CSSValueWebkitControlBackground, styleColorOptions) : controlTintColor(style, styleColorOptions);
+    if (isPressed)
+        return enabledBackgroundColor.colorWithAlphaMultipliedBy(pressedStateOpacity);
+
+    return enabledBackgroundColor;
+}
+
+RefPtr<Gradient> RenderThemeIOS::checkboxRadioBackgroundGradient(const FloatRect& rect, OptionSet<ControlStates::States> states)
+{
+    bool isPressed = states.contains(ControlStates::States::Pressed);
+    if (isPressed)
+        return nullptr;
+
+    bool isEmpty = !states.containsAny({ ControlStates::States::Checked, ControlStates::States::Indeterminate });
+    auto gradient = Gradient::create(Gradient::LinearData { rect.minXMinYCorner(), rect.maxXMaxYCorner() }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
+    gradient->addColorStop({ 0.0f, DisplayP3<float> { 0, 0, 0, isEmpty ? 0.05f : 0.125f }});
+    gradient->addColorStop({ 1.0f, DisplayP3<float> { 0, 0, 0, 0 }});
+    return gradient;
+}
+
+Color RenderThemeIOS::checkboxRadioIndicatorColor(OptionSet<ControlStates::States> states, OptionSet<StyleColorOptions> styleColorOptions)
+{
+    if (!states.contains(ControlStates::States::Enabled))
+        return systemColor(CSSValueAppleSystemTertiaryLabel, styleColorOptions);
+
+    Color enabledIndicatorColor = systemColor(CSSValueAppleSystemLabel, styleColorOptions | StyleColorOptions::UseDarkAppearance);
+    if (states.contains(ControlStates::States::Pressed))
+        return enabledIndicatorColor.colorWithAlphaMultipliedBy(pressedStateOpacity);
+
+    return enabledIndicatorColor;
+}
+
+void RenderThemeIOS::paintCheckboxRadioInnerShadow(const PaintInfo& paintInfo, const FloatRoundedRect& roundedRect, OptionSet<ControlStates::States> states)
+{
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver { context };
+
+    if (auto gradient = checkboxRadioBackgroundGradient(roundedRect.rect(), states)) {
+        context.setFillGradient(*gradient);
+
+        Path path;
+        path.addRoundedRect(roundedRect);
+        context.fillPath(path);
+    }
+
+    const FloatSize innerShadowOffset { 2, 2 };
+    constexpr auto innerShadowBlur = 3.0f;
+
+    bool isEmpty = !states.containsAny({ ControlStates::States::Checked, ControlStates::States::Indeterminate });
+    auto firstShadowColor = DisplayP3<float> { 0, 0, 0, isEmpty ? 0.05f : 0.1f };
+    context.setShadow(innerShadowOffset, innerShadowBlur, firstShadowColor);
+    context.setFillColor(Color::black);
+
+    Path innerShadowPath;
+    FloatRect innerShadowRect = roundedRect.rect();
+    innerShadowRect.inflate(std::max<float>(innerShadowOffset.width(), innerShadowOffset.height()) + innerShadowBlur);
+    innerShadowPath.addRect(innerShadowRect);
+
+    FloatRoundedRect innerShadowHoleRect = roundedRect;
+    // FIXME: This is not from the spec; but without it we get antialiasing fringe from the fill; we need a better solution.
+    innerShadowHoleRect.inflate(0.5);
+    innerShadowPath.addRoundedRect(innerShadowHoleRect);
+
+    context.setFillRule(WindRule::EvenOdd);
+    context.fillPath(innerShadowPath);
+
+    constexpr auto secondShadowColor = DisplayP3<float> { 1, 1, 1, 0.5f };
+    context.setShadow(FloatSize { 0, 0 }, 1, secondShadowColor);
+
+    context.fillPath(innerShadowPath);
+}
+
+bool RenderThemeIOS::paintCheckbox(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled())
+        return true;
+
+    bool useAlternateDesign = box.settings().alternateFormControlDesignEnabled();
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver { context };
+
+    constexpr auto checkboxHeight = 16.0f;
+    constexpr auto checkboxCornerRadius = 5.0f;
+
+    FloatRoundedRect checkboxRect(rect, FloatRoundedRect::Radii(checkboxCornerRadius * rect.height() / checkboxHeight));
+
+    auto controlStates = extractControlStatesForRenderer(box);
+    auto styleColorOptions = box.styleColorOptions();
+
+    auto backgroundColor = checkboxRadioBackgroundColor(useAlternateDesign, box.style(), controlStates, styleColorOptions);
+
+    bool checked = controlStates.contains(ControlStates::States::Checked);
+    bool indeterminate = controlStates.contains(ControlStates::States::Indeterminate);
+    bool empty = !checked && !indeterminate;
+
+    if (empty) {
+        Path path;
+        path.addRoundedRect(checkboxRect);
+        if (!useAlternateDesign) {
+            context.setStrokeColor(checkboxRadioBorderColor(controlStates, styleColorOptions));
+            context.setStrokeThickness(checkboxRadioBorderWidth * 2);
+            context.setStrokeStyle(SolidStroke);
+        }
+            
+        context.setFillColor(backgroundColor);
+        context.clipPath(path);
+        context.drawPath(path);
+
+        if (useAlternateDesign)
+            paintCheckboxRadioInnerShadow(paintInfo, checkboxRect, controlStates);
+
+        return false;
+    }
+
+    context.fillRoundedRect(checkboxRect, backgroundColor);
+
+    if (useAlternateDesign) {
+        context.clipRoundedRect(checkboxRect);
+        paintCheckboxRadioInnerShadow(paintInfo, checkboxRect, controlStates);
+    }
+
+    Path path;
+    if (checked) {
+        path.moveTo({ 28.174f, 68.652f });
+        path.addBezierCurveTo({ 31.006f, 68.652f }, { 33.154f, 67.578f }, { 34.668f, 65.332f });
+        path.addLineTo({ 70.02f, 11.28f });
+        path.addBezierCurveTo({ 71.094f, 9.62f }, { 71.582f, 8.107f }, { 71.582f, 6.642f });
+        path.addBezierCurveTo({ 71.582f, 2.784f }, { 68.652f, 0.001f }, { 64.697f, 0.001f });
+        path.addBezierCurveTo({ 62.012f, 0.001f }, { 60.352f, 0.978f }, { 58.691f, 3.565f });
+        path.addLineTo({ 28.027f, 52.1f });
+        path.addLineTo({ 12.354f, 32.52f });
+        path.addBezierCurveTo({ 10.84f, 30.664f }, { 9.18f, 29.834f }, { 6.884f, 29.834f });
+        path.addBezierCurveTo({ 2.882f, 29.834f }, { 0.0f, 32.666f }, { 0.0f, 36.572f });
+        path.addBezierCurveTo({ 0.0f, 38.282f }, { 0.537f, 39.795f }, { 2.002f, 41.504f });
+        path.addLineTo({ 21.826f, 65.625f });
+        path.addBezierCurveTo({ 23.536f, 67.675f }, { 25.536f, 68.652f }, { 28.174f, 68.652f });
+
+        const FloatSize checkmarkSize(72.0f, 69.0f);
+        float scale = (0.65f * rect.width()) / checkmarkSize.width();
+
+        AffineTransform transform;
+        transform.translate(rect.center() - (checkmarkSize * scale * 0.5f));
+        transform.scale(scale);
+        path.transform(transform);
+    } else {
+        const FloatSize indeterminateBarRoundingRadii(1.25f, 1.25f);
+        constexpr float indeterminateBarPadding = 2.5f;
+        float height = 0.12f * rect.height();
+
+        FloatRect indeterminateBarRect(rect.x() + indeterminateBarPadding, rect.center().y() - height / 2.0f, rect.width() - indeterminateBarPadding * 2, height);
+        path.addRoundedRect(indeterminateBarRect, indeterminateBarRoundingRadii);
+    }
+
+    context.setFillColor(checkboxRadioIndicatorColor(controlStates, styleColorOptions));
+    context.fillPath(path);
+
+    return false;
+}
+
+bool RenderThemeIOS::paintRadio(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled())
+        return true;
+
+    bool useAlternateDesign = box.settings().alternateFormControlDesignEnabled();
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto controlStates = extractControlStatesForRenderer(box);
+    auto styleColorOptions = box.styleColorOptions();
+
+    auto backgroundColor = checkboxRadioBackgroundColor(useAlternateDesign, box.style(), controlStates, styleColorOptions);
+
+    FloatRoundedRect radioRect { rect, FloatRoundedRect::Radii(rect.width() / 2, rect.height() / 2) };
+
+    if (controlStates.contains(ControlStates::States::Checked)) {
+        context.setFillColor(backgroundColor);
+        context.fillEllipse(rect);
+
+        if (useAlternateDesign) {
+            context.clipRoundedRect(radioRect);
+            paintCheckboxRadioInnerShadow(paintInfo, radioRect, controlStates);
+        }
+
+        // The inner circle is 6 / 14 the size of the surrounding circle,
+        // leaving 8 / 14 around it. (8 / 14) / 2 = 2 / 7.
+        constexpr float innerInverseRatio = 2 / 7.0f;
+
+        FloatRect innerCircleRect(rect);
+        innerCircleRect.inflateX(-innerCircleRect.width() * innerInverseRatio);
+        innerCircleRect.inflateY(-innerCircleRect.height() * innerInverseRatio);
+
+        context.setFillColor(checkboxRadioIndicatorColor(controlStates, styleColorOptions));
+        context.fillEllipse(innerCircleRect);
+    } else {
+        Path path;
+        path.addEllipse(rect);
+        if (!useAlternateDesign) {
+            context.setStrokeColor(checkboxRadioBorderColor(controlStates, styleColorOptions));
+            context.setStrokeThickness(checkboxRadioBorderWidth * 2);
+            context.setStrokeStyle(SolidStroke);
+        }
+        context.setFillColor(backgroundColor);
+        context.clipPath(path);
+        context.drawPath(path);
+
+        if (useAlternateDesign)
+            paintCheckboxRadioInnerShadow(paintInfo, radioRect, controlStates);
+    }
+
+    return false;
+}
+
+constexpr Seconds progressAnimationRepeatInterval = 16_ms;
+
+constexpr auto reducedMotionProgressAnimationMinOpacity = 0.3f;
+constexpr auto reducedMotionProgressAnimationMaxOpacity = 0.6f;
+
+Seconds RenderThemeIOS::animationRepeatIntervalForProgressBar(const RenderProgress& renderProgress) const
+{
+    if (!renderProgress.settings().iOSFormControlRefreshEnabled())
+        return RenderTheme::animationRepeatIntervalForProgressBar(renderProgress);
+
+    return progressAnimationRepeatInterval;
+}
+
+bool RenderThemeIOS::paintProgressBarWithFormControlRefresh(const RenderObject& renderer, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    if (!is<RenderProgress>(renderer))
+        return true;
+    auto& renderProgress = downcast<RenderProgress>(renderer);
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto styleColorOptions = renderer.styleColorOptions();
+
+    constexpr auto barHeight = 4.0f;
+    FloatRoundedRect::Radii barCornerRadii(2.5f, 1.5f);
+
+    if (rect.height() < barHeight) {
+        // The rect is smaller than the standard progress bar. We clip to the
+        // element's rect to avoid leaking pixels outside the repaint rect.
+        context.clip(rect);
+    }
+
+    float barTop = rect.y() + (rect.height() - barHeight) / 2.0f;
+
+    FloatRect trackRect(rect.x() + nativeControlBorderWidth, barTop, rect.width() - 2 * nativeControlBorderWidth, barHeight);
+    FloatRoundedRect roundedTrackRect(trackRect, barCornerRadii);
+
+    FloatRoundedRect roundedTrackBorderRect(roundedTrackRect);
+    roundedTrackBorderRect.inflateWithRadii(nativeControlBorderWidth);
+    context.fillRoundedRect(roundedTrackBorderRect, systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+
+    context.fillRoundedRect(roundedTrackRect, systemColor(CSSValueAppleSystemOpaqueFill, styleColorOptions));
+
+    float barWidth;
+    float barLeft = trackRect.x();
+    float alpha = 1.0f;
+
+    if (renderProgress.isDeterminate()) {
+        barWidth = clampTo<float>(renderProgress.position(), 0.0f, 1.0f) * trackRect.width();
+
+        if (!renderProgress.style().isLeftToRightDirection())
+            barLeft = trackRect.maxX() - barWidth;
+    } else {
+        Seconds elapsed = MonotonicTime::now() - renderProgress.animationStartTime();
+        float position = fmodf(elapsed.value(), 1.0f);
+        bool reverseDirection = static_cast<int>(elapsed.value()) % 2;
+
+        if (Theme::singleton().userPrefersReducedMotion()) {
+            barWidth = trackRect.width();
+
+            float difference = position * (reducedMotionProgressAnimationMaxOpacity - reducedMotionProgressAnimationMinOpacity);
+            if (reverseDirection)
+                alpha = reducedMotionProgressAnimationMaxOpacity - difference;
+            else
+                alpha = reducedMotionProgressAnimationMinOpacity + difference;
+        } else {
+            barWidth = 0.25f * trackRect.width();
+
+            float offset = position * (trackRect.width() + barWidth);
+            if (reverseDirection)
+                barLeft = trackRect.maxX() - offset;
+            else
+                barLeft -= barWidth - offset;
+
+            context.clipRoundedRect(roundedTrackRect);
+        }
+    }
+
+    FloatRect barRect(barLeft, barTop, barWidth, barHeight);
+    context.fillRoundedRect(FloatRoundedRect(barRect, barCornerRadii), controlTintColor(renderer.style(), styleColorOptions).colorWithAlphaMultipliedBy(alpha));
+
+    return false;
+}
+
+bool RenderThemeIOS::supportsMeter(ControlPart part, const HTMLMeterElement& element) const
+{
+    if (part == MeterPart)
+        return element.document().settings().iOSFormControlRefreshEnabled();
+
+    return false;
+}
+
+bool RenderThemeIOS::paintMeter(const RenderObject& renderer, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    if (!renderer.settings().iOSFormControlRefreshEnabled() || !is<RenderMeter>(renderer))
+        return true;
+
+    auto& renderMeter = downcast<RenderMeter>(renderer);
+    RefPtr element = renderMeter.meterElement();
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto styleColorOptions = renderer.styleColorOptions();
+
+    float cornerRadius = std::min(rect.width(), rect.height()) / 2.0f;
+    FloatRoundedRect roundedFillRect(rect, FloatRoundedRect::Radii(cornerRadius));
+    context.fillRoundedRect(roundedFillRect, systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+
+    roundedFillRect.inflateWithRadii(-nativeControlBorderWidth);
+    context.fillRoundedRect(roundedFillRect, systemColor(CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions));
+
+    context.clipRoundedRect(roundedFillRect);
+
+    FloatRect fillRect(roundedFillRect.rect());
+    if (renderMeter.style().isLeftToRightDirection())
+        fillRect.move(fillRect.width() * (element->valueRatio() - 1), 0);
+    else
+        fillRect.move(fillRect.width() * (1 - element->valueRatio()), 0);
+    roundedFillRect.setRect(fillRect);
+
+    switch (element->gaugeRegion()) {
+    case HTMLMeterElement::GaugeRegionOptimum:
+        context.fillRoundedRect(roundedFillRect, systemColor(CSSValueAppleSystemGreen, styleColorOptions));
+        break;
+    case HTMLMeterElement::GaugeRegionSuboptimal:
+        context.fillRoundedRect(roundedFillRect, systemColor(CSSValueAppleSystemYellow, styleColorOptions));
+        break;
+    case HTMLMeterElement::GaugeRegionEvenLessGood:
+        context.fillRoundedRect(roundedFillRect, systemColor(CSSValueAppleSystemRed, styleColorOptions));
+        break;
+    }
+
+    return false;
+}
+
+#if ENABLE(DATALIST_ELEMENT)
+
+bool RenderThemeIOS::paintListButton(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto& style = box.style();
+
+    float paddingTop = floatValueForLength(style.paddingTop(), rect.height());
+    float paddingRight = floatValueForLength(style.paddingRight(), rect.width());
+    float paddingBottom = floatValueForLength(style.paddingBottom(), rect.height());
+    float paddingLeft = floatValueForLength(style.paddingLeft(), rect.width());
+
+    FloatRect indicatorRect = rect;
+    indicatorRect.move(paddingLeft, paddingTop);
+    indicatorRect.contract(paddingLeft + paddingRight, paddingTop + paddingBottom);
+
+    Path path;
+    path.moveTo({ 35.48, 38.029 });
+    path.addBezierCurveTo({ 36.904, 38.029 }, { 38.125, 37.5 }, { 39.223, 36.361 });
+    path.addLineTo({ 63.352, 11.987 });
+    path.addBezierCurveTo({ 64.206, 11.092 }, { 64.695, 9.993 }, { 64.695, 8.691 });
+    path.addBezierCurveTo({ 64.695, 6.046 }, { 62.579, 3.971 }, { 59.975, 3.971 });
+    path.addBezierCurveTo({ 58.714, 3.971 }, { 57.493, 4.5 }, { 56.557, 5.436 });
+    path.addLineTo({ 35.52, 26.839 });
+    path.addLineTo({ 14.443, 5.436 });
+    path.addBezierCurveTo({ 13.507, 4.5 }, { 12.327, 3.971 }, { 10.984, 3.971 });
+    path.addBezierCurveTo({ 8.38, 3.971 }, { 6.305, 6.046 }, { 6.305, 8.691 });
+    path.addBezierCurveTo({ 6.305, 9.993 }, { 6.753, 11.092 }, { 7.648, 11.987 });
+    path.addLineTo({ 31.777, 36.36 });
+    path.addBezierCurveTo({ 32.916, 37.499 }, { 34.096, 38.028 }, { 35.48, 38.028 });
+
+    const FloatSize indicatorSize(71.0f, 42.0f);
+    float scale = indicatorRect.width() / indicatorSize.width();
+
+    AffineTransform transform;
+    transform.translate(rect.center() - (indicatorSize * scale * 0.5f));
+    transform.scale(scale);
+    path.transform(transform);
+
+    context.setFillColor(controlTintColor(style, box.styleColorOptions()));
+    context.fillPath(path);
+
+    return false;
+}
+
+void RenderThemeIOS::paintSliderTicks(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled()) {
+        RenderTheme::paintSliderTicks(box, paintInfo, rect);
+        return;
+    }
+
+    if (!is<HTMLInputElement>(box.node()))
+        return;
+
+    auto& input = downcast<HTMLInputElement>(*box.node());
+    if (!input.isRangeControl())
+        return;
+
+    auto dataList = input.dataList();
+    if (!dataList)
+        return;
+
+    double min = input.minimum();
+    double max = input.maximum();
+    if (min >= max)
+        return;
+
+    constexpr int tickWidth = 2;
+    constexpr int tickHeight = 8;
+    constexpr int tickCornerRadius = 1;
+
+    FloatRect tickRect;
+    FloatRoundedRect::Radii tickCornerRadii(tickCornerRadius);
+
+    bool isHorizontal = box.style().effectiveAppearance() == SliderHorizontalPart;
+    if (isHorizontal) {
+        tickRect.setWidth(tickWidth);
+        tickRect.setHeight(tickHeight);
+        tickRect.setY(rect.center().y() - tickRect.height() / 2.0f);
+    } else {
+        tickRect.setWidth(tickHeight);
+        tickRect.setHeight(tickWidth);
+        tickRect.setX(rect.center().x() - tickRect.width() / 2.0f);
+    }
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto value = input.valueAsNumber();
+    auto deviceScaleFactor = box.document().deviceScaleFactor();
+    auto styleColorOptions = box.styleColorOptions();
+
+    for (auto& optionElement : dataList->suggestions()) {
+        if (auto optionValue = input.listOptionValueAsDouble(optionElement)) {
+            auto tickFraction = (*optionValue - min) / (max - min);
+            auto tickRatio = isHorizontal && box.style().isLeftToRightDirection() ? tickFraction : 1.0 - tickFraction;
+            if (isHorizontal)
+                tickRect.setX(rect.x() + tickRatio * (rect.width() - tickRect.width()));
+            else
+                tickRect.setY(rect.y() + tickRatio * (rect.height() - tickRect.height()));
+
+            FloatRoundedRect roundedTickRect(snapRectToDevicePixels(LayoutRect(tickRect), deviceScaleFactor), tickCornerRadii);
+            context.fillRoundedRect(roundedTickRect, (value >= *optionValue) ? controlTintColor(box.style(), styleColorOptions) : systemColor(CSSValueAppleSystemOpaqueSeparator, styleColorOptions));
+        }
+    }
+}
+
+#endif // ENABLE(DATALIST_ELEMENT)
+
+bool RenderThemeIOS::paintSliderTrackWithFormControlRefresh(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    if (!is<RenderSlider>(box))
+        return true;
+    auto& renderSlider = downcast<RenderSlider>(box);
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    bool isHorizontal = true;
+    FloatRect trackClip = rect;
+
+    switch (box.style().effectiveAppearance()) {
+    case SliderHorizontalPart:
+        // Inset slightly so the thumb covers the edge.
+        if (trackClip.width() > 2) {
+            trackClip.setWidth(trackClip.width() - 2);
+            trackClip.setX(trackClip.x() + 1);
+        }
+        trackClip.setHeight(kTrackThickness);
+        trackClip.setY(rect.y() + rect.height() / 2 - kTrackThickness / 2);
+        break;
+    case SliderVerticalPart:
+        isHorizontal = false;
+        // Inset slightly so the thumb covers the edge.
+        if (trackClip.height() > 2) {
+            trackClip.setHeight(trackClip.height() - 2);
+            trackClip.setY(trackClip.y() + 1);
+        }
+        trackClip.setWidth(kTrackThickness);
+        trackClip.setX(rect.x() + rect.width() / 2 - kTrackThickness / 2);
+        break;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+
+    auto styleColorOptions = box.styleColorOptions();
+
+    auto cornerWidth = trackClip.width() < kTrackThickness ? trackClip.width() / 2.0f : kTrackRadius;
+    auto cornerHeight = trackClip.height() < kTrackThickness ? trackClip.height() / 2.0f : kTrackRadius;
+
+    FloatRoundedRect::Radii cornerRadii(cornerWidth, cornerHeight);
+    FloatRoundedRect innerBorder(trackClip, cornerRadii);
+
+    FloatRoundedRect outerBorder(innerBorder);
+    outerBorder.inflateWithRadii(nativeControlBorderWidth);
+    context.fillRoundedRect(outerBorder, systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+
+    context.fillRoundedRect(innerBorder, systemColor(CSSValueAppleSystemOpaqueFill, styleColorOptions));
+
+#if ENABLE(DATALIST_ELEMENT)
+    paintSliderTicks(box, paintInfo, trackClip);
+#endif
+
+    double valueRatio = renderSlider.valueRatio();
+    if (isHorizontal) {
+        double newWidth = trackClip.width() * valueRatio;
+
+        if (!box.style().isLeftToRightDirection())
+            trackClip.move(trackClip.width() - newWidth, 0);
+
+        trackClip.setWidth(newWidth);
+    } else {
+        float height = trackClip.height();
+        trackClip.setHeight(height * valueRatio);
+        trackClip.setY(trackClip.y() + height - trackClip.height());
+    }
+
+    FloatRoundedRect fillRect(trackClip, cornerRadii);
+    context.fillRoundedRect(fillRect, controlTintColor(box.style(), styleColorOptions));
+
+    return false;
+}
+
+#if ENABLE(INPUT_TYPE_COLOR)
+
+String RenderThemeIOS::colorInputStyleSheet(const Settings& settings) const
+{
+    if (!settings.iOSFormControlRefreshEnabled())
+        return RenderTheme::colorInputStyleSheet(settings);
+
+    return "input[type=\"color\"] { -webkit-appearance: color-well; width: 28px; height: 28px; outline: none; border: initial; border-radius: 50%; } "_s;
+}
+
+void RenderThemeIOS::adjustColorWellStyle(RenderStyle& style, const Element* element) const
+{
+    adjustStyleForAlternateFormControlDesignTransition(style, element);
+
+    if (!element || element->document().settings().iOSFormControlRefreshEnabled())
+        return;
+
+    RenderTheme::adjustColorWellStyle(style, element);
+}
+
+bool RenderThemeIOS::paintColorWell(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled())
+        return RenderTheme::paintColorWell(box, paintInfo, rect);
+
+    return true;
+}
+
+void RenderThemeIOS::paintColorWellDecorations(const RenderObject& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled()) {
+        RenderTheme::paintColorWellDecorations(box, paintInfo, rect);
+        return;
+    }
+
+    constexpr int strokeThickness = 3;
+    constexpr DisplayP3<float> colorStops[] = {
+        { 1, 1, 0, 1 },
+        { 1, 0.5, 0, 1 },
+        { 1, 0, 0, 1 },
+        { 1, 0, 1, 1},
+        { 0, 0, 1, 1 },
+        { 0, 1, 1, 1 },
+        { 0, 1, 0, 1},
+        { 0.63, 0.88, 0.03, 1 },
+        { 1, 1, 0, 1 }
+    };
+    constexpr int numColorStops = std::size(colorStops);
+
+    auto gradient = Gradient::create(Gradient::ConicData { rect.center(), 0 }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
+    for (int i = 0; i < numColorStops; ++i)
+        gradient->addColorStop({ i * 1.0f / (numColorStops - 1), colorStops[i] });
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    FloatRect strokeRect = rect;
+    strokeRect.inflate(-strokeThickness / 2.0f);
+
+    context.setStrokeThickness(strokeThickness);
+    context.setStrokeStyle(SolidStroke);
+    context.setStrokeGradient(WTFMove(gradient));
+    context.strokeEllipse(strokeRect);
+}
+
+#endif // ENABLE(INPUT_TYPE_COLOR)
+
+void RenderThemeIOS::paintMenuListButtonDecorationsWithFormControlRefresh(const RenderBox& box, const PaintInfo& paintInfo, const FloatRect& rect)
+{
+    if (is<HTMLInputElement>(box.element()))
+        return;
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto& style = box.style();
+
+    Path glyphPath;
+    FloatSize glyphSize;
+
+    if (box.isMenuList() && downcast<HTMLSelectElement>(box.element())->multiple()) {
+        constexpr int length = 18;
+        constexpr int count = 3;
+        constexpr int padding = 12;
+
+        FloatRect ellipse(0, 0, length, length);
+
+        for (int i = 0; i < count; ++i) {
+            glyphPath.addEllipse(ellipse);
+            ellipse.move(length + padding, 0);
+        }
+
+        glyphSize = { length * count + padding * (count - 1), length };
+    } else {
+        constexpr int glyphWidth = 63;
+        constexpr int glyphHeight = 73;
+        glyphSize = { glyphWidth, glyphHeight };
+
+        glyphPath.moveTo({ 31.8593f, 1.0f });
+        glyphPath.addBezierCurveTo({ 30.541f, 1.0f }, { 29.418f, 1.586f }, { 28.0507f, 2.66f });
+        glyphPath.addLineTo({ 2.5625f, 23.168f });
+        glyphPath.addBezierCurveTo({ 1.5859f, 23.998f }, { 1.0f, 25.2188f }, { 1.0f, 26.7325f });
+        glyphPath.addBezierCurveTo({ 1.0f, 29.6133f }, { 3.246f, 31.7129f }, { 5.9316f, 31.7129f });
+        glyphPath.addBezierCurveTo({ 7.1523f, 31.7129f }, { 8.3242f, 31.2246f }, { 9.5449f, 30.248f });
+        glyphPath.addLineTo({ 31.8593f, 12.377f });
+        glyphPath.addLineTo({ 54.2226f, 30.248f });
+        glyphPath.addBezierCurveTo({ 55.3945f, 31.2246f }, { 56.6152f, 31.7129f }, { 57.7871f, 31.7129 });
+        glyphPath.addBezierCurveTo({ 60.4726f, 31.7129f }, { 62.7187f, 29.6133f }, { 62.7187f, 26.7325 });
+        glyphPath.addBezierCurveTo({ 62.7187f, 25.2188f }, { 62.1327f, 23.9981f }, { 61.1562f, 23.168 });
+        glyphPath.addLineTo({ 35.6679f, 2.6602f });
+        glyphPath.addBezierCurveTo({ 34.3496f, 1.586f }, { 33.1777f, 1.0f }, { 31.8593f, 1.0f });
+        glyphPath.moveTo({ 31.8593f, 72.3867f });
+        glyphPath.addBezierCurveTo({ 33.1777f, 72.3867f }, { 34.3496f, 71.8007f }, { 35.6679f, 70.7266f });
+        glyphPath.addLineTo({ 61.1562f, 50.2188f });
+        glyphPath.addBezierCurveTo({ 62.1328f, 49.3888f }, { 62.7187f, 48.168f }, { 62.7187f, 46.6543f });
+        glyphPath.addBezierCurveTo({ 62.7187f, 43.7735f }, { 60.4726f, 41.6739f }, { 57.7871f, 41.6739f });
+        glyphPath.addBezierCurveTo({ 56.6151f, 41.6739f }, { 55.3945f, 42.162f }, { 54.2226f, 43.09f });
+        glyphPath.addLineTo({ 31.8593f, 61.01f });
+        glyphPath.addLineTo({ 9.545f, 43.0898f });
+        glyphPath.addBezierCurveTo({ 8.3243f, 42.1619f }, { 7.1524f, 41.6738f }, { 5.9317f, 41.6738f });
+        glyphPath.addBezierCurveTo({ 3.246f, 41.6739f }, { 1.0f, 43.7735f }, { 1.0f, 46.6543f });
+        glyphPath.addBezierCurveTo({ 1.0f, 48.168f }, { 1.5859, 49.3887 }, { 2.5625, 50.2188f });
+        glyphPath.addLineTo({ 28.0507f, 70.7266f });
+        glyphPath.addBezierCurveTo({ 29.4179f, 71.8f }, { 30.541f, 72.3867f }, { 31.8593f, 72.3867 });
+    }
+
+    auto emSize = CSSPrimitiveValue::create(1.0, CSSUnitType::CSS_EMS);
+    auto emPixels = emSize->computeLength<float>(CSSToLengthConversionData(&style, nullptr, nullptr, nullptr, 1.0, std::nullopt));
+    auto glyphScale = 0.65f * emPixels / glyphSize.width();
+    glyphSize = glyphScale * glyphSize;
+
+    AffineTransform transform;
+    if (style.isLeftToRightDirection())
+        transform.translate(rect.maxX() - glyphSize.width() - box.style().borderEndWidth() - valueForLength(box.style().paddingEnd(), rect.width()), rect.center().y() - glyphSize.height() / 2.0f);
+    else
+        transform.translate(rect.x() + box.style().borderEndWidth() + valueForLength(box.style().paddingEnd(), rect.width()), rect.center().y() - glyphSize.height() / 2.0f);
+    transform.scale(glyphScale);
+    glyphPath.transform(transform);
+
+    if (isEnabled(box))
+        context.setFillColor(style.color());
+    else
+        context.setFillColor(systemColor(CSSValueAppleSystemTertiaryLabel, box.styleColorOptions()));
+
+    context.fillPath(glyphPath);
+}
+
+void RenderThemeIOS::adjustSearchFieldDecorationPartStyle(RenderStyle& style, const Element* element) const
+{
+    if (!element || !element->document().settings().iOSFormControlRefreshEnabled())
+        return;
+
+    constexpr int searchFieldDecorationEmSize = 1;
+    constexpr int searchFieldDecorationMargin = 4;
+
+    CSSToLengthConversionData conversionData(&style, nullptr, nullptr, nullptr, 1.0, std::nullopt);
+
+    auto emSize = CSSPrimitiveValue::create(searchFieldDecorationEmSize, CSSUnitType::CSS_EMS);
+    auto size = emSize->computeLength<float>(conversionData);
+
+    style.setWidth({ size, LengthType::Fixed });
+    style.setHeight({ size, LengthType::Fixed });
+    style.setMarginEnd({ searchFieldDecorationMargin, LengthType::Fixed });
+}
+
+bool RenderThemeIOS::paintSearchFieldDecorationPart(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    if (!box.settings().iOSFormControlRefreshEnabled())
+        return RenderTheme::paintSearchFieldDecorationPart(box, paintInfo, rect);
+
+    auto& context = paintInfo.context();
+    GraphicsContextStateSaver stateSaver(context);
+
+    const FloatSize glyphSize(73.0f, 73.0f);
+
+    Path glyphPath;
+    glyphPath.moveTo({ 29.6875f, 59.375f });
+    glyphPath.addBezierCurveTo({ 35.9863f, 59.375f }, { 41.7969f, 57.422f }, { 46.6309f, 54.0528f });
+    glyphPath.addLineTo({ 63.9649f, 71.3868f });
+    glyphPath.addBezierCurveTo({ 64.8926f, 72.3145f }, { 66.1133f, 72.754f }, { 67.3829f, 72.754f });
+    glyphPath.addBezierCurveTo({ 70.1172f, 72.754f }, { 72.1191f, 70.6544f }, { 72.1191f, 67.9688f });
+    glyphPath.addBezierCurveTo({ 72.1191f, 66.6993f }, { 71.6797f, 65.4786f }, { 70.7519f, 64.5508f });
+    glyphPath.addLineTo({ 53.5644f, 47.3145f });
+    glyphPath.addBezierCurveTo({ 57.2266f, 42.3829f }, { 59.375f, 36.2793f }, { 59.375f, 29.6875f });
+    glyphPath.addBezierCurveTo({ 59.375f, 13.3301f }, { 46.045f, 0.0f }, { 29.6875f, 0.0f });
+    glyphPath.addBezierCurveTo({ 13.3301f, 0.0f }, { 0.0f, 13.3301f }, { 0.0f, 29.6875f });
+    glyphPath.addBezierCurveTo({ 0.0f, 46.045f }, { 13.33f, 59.375f }, { 29.6875f, 59.375f });
+    glyphPath.moveTo({ 29.6875f, 52.0997f });
+    glyphPath.addBezierCurveTo({ 17.4316f, 52.0997f }, { 7.2754f, 41.9434f }, { 7.2754f, 29.6875f });
+    glyphPath.addBezierCurveTo({ 7.2754f, 17.3829f }, { 17.4316f, 7.2754f }, { 29.6875f, 7.2754f });
+    glyphPath.addBezierCurveTo({ 41.9922f, 7.2754f }, { 52.1f, 17.3829f }, { 52.1f, 29.6875f });
+    glyphPath.addBezierCurveTo({ 52.1f, 41.9435f }, { 41.9922f, 52.0997f }, { 29.6875f, 52.0997f });
+
+    FloatRect paintRect(rect);
+    float scale = paintRect.width() / glyphSize.width();
+
+    AffineTransform transform;
+    transform.translate(paintRect.center() - (glyphSize * scale * 0.5f));
+    transform.scale(scale);
+    glyphPath.transform(transform);
+
+    context.setFillColor(systemColor(CSSValueAppleSystemSecondaryLabel, box.styleColorOptions()));
+    context.fillPath(glyphPath);
+
+    return false;
+}
+
+void RenderThemeIOS::adjustSearchFieldResultsDecorationPartStyle(RenderStyle& style, const Element* element) const
+{
+    adjustSearchFieldDecorationPartStyle(style, element);
+}
+
+bool RenderThemeIOS::paintSearchFieldResultsDecorationPart(const RenderBox& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    return paintSearchFieldDecorationPart(box, paintInfo, rect);
+}
+
+void RenderThemeIOS::adjustSearchFieldResultsButtonStyle(RenderStyle& style, const Element* element) const
+{
+    adjustSearchFieldDecorationPartStyle(style, element);
+}
+
+bool RenderThemeIOS::paintSearchFieldResultsButton(const RenderBox& box, const PaintInfo& paintInfo, const IntRect& rect)
+{
+    return paintSearchFieldDecorationPart(box, paintInfo, rect);
+}
+
+#endif // ENABLE(IOS_FORM_CONTROL_REFRESH)
 
 } // namespace WebCore
 

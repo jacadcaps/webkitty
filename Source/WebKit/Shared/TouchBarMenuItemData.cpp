@@ -32,6 +32,7 @@
 #include "Decoder.h"
 #include "Encoder.h"
 #include "WebCoreArgumentCoders.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLMenuItemElement.h>
 #include <WebCore/HTMLNames.h>
 
@@ -57,19 +58,19 @@ void TouchBarMenuItemData::encode(IPC::Encoder& encoder) const
     encoder << priority;
 }
 
-Optional<TouchBarMenuItemData> TouchBarMenuItemData::decode(IPC::Decoder& decoder)
+std::optional<TouchBarMenuItemData> TouchBarMenuItemData::decode(IPC::Decoder& decoder)
 {
     TouchBarMenuItemData result;
     if (!decoder.decode(result.type))
-        return WTF::nullopt;
+        return std::nullopt;
     
     if (!decoder.decode(result.identifier))
-        return WTF::nullopt;
+        return std::nullopt;
     
     if (!decoder.decode(result.priority))
-        return WTF::nullopt;
+        return std::nullopt;
     
-    return makeOptional(WTFMove(result));
+    return std::make_optional(WTFMove(result));
 }
 
 }

@@ -27,7 +27,7 @@
 
 #include "Decoder.h"
 #include "Encoder.h"
-#include <wtf/HashMap.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -64,9 +64,9 @@ struct WebPreferencesStore {
     static void overrideBoolValueForKey(const String& key, bool value);
     static void removeTestRunnerOverrides();
 
-    using Value = Variant<String, bool, uint32_t, double>;
+    using Value = std::variant<String, bool, uint32_t, double>;
 
-    typedef HashMap<String, Value> ValueMap;
+    using ValueMap = MemoryCompactRobinHoodHashMap<String, Value>;
     ValueMap m_values;
     ValueMap m_overriddenDefaults;
 

@@ -416,6 +416,9 @@ TEST_P(DepthStencilFormatsTest, DepthStencilReadback_UShort)
 // This test will initialize a depth texture, clear it and read it back, if possible
 TEST_P(DepthStencilFormatsTest, DepthStencilReadback_UInt)
 {
+    // http://anglebug.com/5269
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsIntelUHD630Mobile() && IsDesktopOpenGL());
+
     GLuint fakeData[10]    = {0};
     ReadbackTestParam type = {
         GL_DEPTH_ATTACHMENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, fakeData, 16, 0};
@@ -425,6 +428,9 @@ TEST_P(DepthStencilFormatsTest, DepthStencilReadback_UInt)
 // This test will initialize a depth texture, clear it and read it back, if possible
 TEST_P(DepthStencilFormatsTest, DepthStencilReadback_Float)
 {
+    // http://anglebug.com/5269
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsIntelUHD630Mobile() && IsDesktopOpenGL());
+
     GLuint fakeData[10]    = {0};
     ReadbackTestParam type = {GL_DEPTH_ATTACHMENT, GL_DEPTH_COMPONENT, GL_FLOAT, fakeData, 32, 0};
     depthStencilReadbackCase(type);
@@ -462,7 +468,8 @@ void main()
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_depth_texture") &&
                        !IsGLExtensionEnabled("GL_ANGLE_depth_texture"));
 
-    bool depthTextureCubeSupport = IsGLExtensionEnabled("GL_OES_depth_texture_cube_map");
+    bool depthTextureCubeSupport  = IsGLExtensionEnabled("GL_OES_depth_texture_cube_map");
+    bool textureSrgbDecodeSupport = IsGLExtensionEnabled("GL_EXT_texture_sRGB_decode");
 
     // http://anglebug.com/3454
     ANGLE_SKIP_TEST_IF(IsIntel() && IsWindows() && IsD3D9());
@@ -544,6 +551,10 @@ void main()
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterMode);
+            if (textureSrgbDecodeSupport)
+            {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SRGB_DECODE_EXT, GL_SKIP_DECODE_EXT);
+            }
 
             // test level > 0
             glTexImage2D(GL_TEXTURE_2D, 1, type.format, 1, 1, 0, type.format, type.type, nullptr);
@@ -1109,9 +1120,9 @@ TEST_P(DepthStencilFormatsTest, VerifyDepth16UploadData)
     ASSERT_GL_NO_ERROR();
 }
 
-// Use this to select which configurations (e.g. which renderer, which GLES major version) these
-// tests should be run against.
 ANGLE_INSTANTIATE_TEST_ES2(DepthStencilFormatsTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DepthStencilFormatsTestES3);
 ANGLE_INSTANTIATE_TEST_ES3(DepthStencilFormatsTestES3);
 
 class TinyDepthStencilWorkaroundTest : public ANGLETest
@@ -1141,6 +1152,10 @@ TEST_P(TinyDepthStencilWorkaroundTest, DepthTexturesStick)
     // http://anglebug.com/4092
     ANGLE_SKIP_TEST_IF((IsAndroid() && IsOpenGLES()) || (IsLinux() && IsVulkan()));
     ANGLE_SKIP_TEST_IF(isSwiftshader());
+
+    // TODO(anglebug.com/5491)
+    ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
+
     constexpr char kDrawVS[] =
         "#version 100\n"
         "attribute vec3 vertex;\n"
@@ -1245,4 +1260,5 @@ TEST_P(TinyDepthStencilWorkaroundTest, DepthTexturesStick)
     }
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TinyDepthStencilWorkaroundTest);
 ANGLE_INSTANTIATE_TEST_ES3(TinyDepthStencilWorkaroundTest);

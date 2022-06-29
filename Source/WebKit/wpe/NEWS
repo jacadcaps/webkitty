@@ -1,26 +1,136 @@
-==================
-WPE WebKit 2.29.91
-==================
+=================
+WPE WebKit 2.36.2
+=================
 
-What's new in WPE WebKit 2.29.91?
+What's new in WPE WebKit 2.36.2?
 
-  - Enable support for the Notification Web API.
-  - Stop using the Firefox User-Agent quirk for Google Docs.
-  - Fix User-Agent header after a redirect when a new quirk is required.
-  - Fix rendering of the frames timeline panel in the Web Inspector.
-  - Fix display of per-thread CPU usage in the Web Inspector.
+  - Fix some pages showing empty content boxes when using threaded rendering.
+  - Fix the build with accessibility disabled.
+  - Fix the build with newer Ruby versions.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.1
+=================
+
+What's new in WPE WebKit 2.36.1?
+
+  - Fix the build with accessibility disabled.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.0
+=================
+
+What's new in WPE WebKit 2.36.0?
+
+  - Fix selection foreground color on text with decorations.
+  - Fix seeking on YouTube videos.
+  - Fix list item marker not exposed to a11y when not a direct child of a list item.
+  - Fix a crash while closing a page.
+  - Fix the build to make it reproducible again.
   - Fix several crashes and rendering issues.
 
 ==================
-WPE WebKit 2.29.90
+WPE WebKit 2.35.90
 ==================
 
-What's new in WPE WebKit 2.29.90?
+What's new in WPE WebKit 2.35.90?
 
-  - Fix font variation settings when font smoothing setting is also present.
-  - Fix argument order for clone syscall seccomp filter on s390x.
-  - Fix a crash when selecting text.
+  - Fix scrolling with the mouse wheel on sites using overscroll-behavior.
+  - Suspend web processes after some time in the process cache.
+  - Ensure EGL displays are terminated before web process exits.
+  - Deinitialize gstreamer before web process exits.
+  - Make fonts under XDG_DATA_DIRS available in web process sanbox.
+  - Canonicalize paths passed to bubblewrap launcher.
+  - The WebKitSettings:enable-developer-extras option is no longer enabled by default.
+  - Allow tweaking media source buffering with the MSE_MAX_BUFFER_SIZE, and configure
+    regular playback on-disk buffering with WPE_SHELL_DISABLE_MEDIA_DISK_CACHE and
+    WPE_SHELL_MEDIA_DISK_CACHE_PATH environment variables.
+  - Add new accessibility implementation using ATSPI DBus interfaces instead of ATK.
+  - Add support for requestVideoFrameCallback.
+  - Fix a crash at startup when bubblewrap sandbox is enabled.
   - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.35.1
+=================
+
+What's new in WPE WebKit 2.35.1?
+
+  - Make user interactive threads (event handler, scrolling, etc.) real time
+    on Linux.
+  - Add new API to set HTTP response information to custom URI schemes.
+  - Add support for the MediaSession API.
+  - Add initial support, disabled by default at build time, for the JPEG-XL
+	image format.
+  - Make the WPE Qt API use only public WPE library symbols, which makes
+    it possible to build it separately from the rest of WebKit.
+  - Fix jsc_value_object_define_property_accessor() to work with objects
+    not having a wrapped instance.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.33.2
+=================
+
+What's new in WPE WebKit 2.33.2?
+
+  - HTTP/2 support when building with libsoup3.
+  - Add API to disable CORS on a web view for particular domains.
+  - Remove dependency on the GStreamer glvideoflip and videoflip elements.
+  - Support building with the uClibc C standard library.
+  - Ensure WebKitScriptWorld::window-object-cleared signal is always emitted.
+  - Fix rendering of VP9 with transparency.
+  - Fix handling of elements with position:sticky in RTL layers with scroll
+	overflow.
+  - Fix handling of 2D axis input events.
+
+=================
+WPE WebKit 2.33.1
+=================
+
+What's new in WPE WebKit 2.33.1?
+
+  - Add support for CSS Scroll Snap.
+  - Add basic support for ICC color management.
+  - Build with libsoup3 by default.
+  - Add new API to handle web process unresponsiveness.
+  - Add support for link preconnect when building with libsoup3.
+  - Refectores Media Source Extensions (MSE) platform code to increase
+    stability and ease adding more features in the futures.
+
+=================
+WPE WebKit 2.31.1
+=================
+
+What's new in WPE WebKit 2.31.1?
+
+  - Remove support for NPAPI plugins.
+  - Enable the web process cache when PSON is enabled too.
+  - TLS errors and proxy settings APIs have been moved from WebKitContext to WebKitWebsiteDataManager.
+  - Add new API to remove individual scripts/stylesheets using WebKitUserContentManager.
+  - Correctly apply the system font scaling factor.
+  - Show main loop frames information in the web inspector.
+  - Internal audio rendering support. The WebProcess can now maintain a single
+    connection to the system audio daemon and perform audio mixing internally.
+	For the time being this has to be enabled at runtime through the
+	WEBKIT_GST_ENABLE_AUDIO_MIXER=1 environment variable.
+  - On-demand GStreamer initialization support, mostly contained to WebProcess.
+    GStreamer used to be initialized unconditionally once from the UI process
+	and once from the WebProcess. GStreamer is now used mostly only from the
+    WebProcess, even for audio/video capture devices probing. Users of the
+    webkit_web_view_can_show_mime_type API will still trigger GStreamer
+    initialization in the UIProcess though.
+  - ImageDecoder video decoder switched to decodebin3.
+  - WebAudio to MediaStream support.
+  - Multi-channel (>2) support for the AudioFileReader.
+  - Multi-channel (>2) support for the WebAudio renderer.
+  - Audio worklet support.
+  - Optional support for native formats rendering.
+  - Opus support for the Thunder CDM.
+  - Common-encryption support for CMAF in Thunder CDM.
+  - MSE/EME/WebAudio and general media playback bug fixes.
 
 =================
 WPE WebKit 2.29.2

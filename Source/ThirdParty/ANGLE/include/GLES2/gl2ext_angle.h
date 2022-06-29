@@ -31,6 +31,7 @@ GL_APICALL void GL_APIENTRY glRequestExtensionANGLE (const GLchar *name);
 #ifndef GL_ANGLE_robust_resource_initialization
 #define GL_ANGLE_robust_resource_initialization 1
 #define GL_ROBUST_RESOURCE_INITIALIZATION_ANGLE 0x93AB
+#define GL_RESOURCE_INITIALIZED_ANGLE 0x969F
 #endif /* GL_ANGLE_robust_resource_initialization */
 
 #ifndef GL_ANGLE_provoking_vertex
@@ -400,15 +401,15 @@ GL_APICALL void GL_APIENTRY glSampleMaskiANGLE(GLuint maskNumber, GLbitfield mas
 #endif
 #endif  // !GL_ANGLE_texture_multisample
 
-#ifndef GL_ANGLE_explicit_context
-#define GL_ANGLE_explicit_context
-typedef void *GLeglContext;
-#include "gl2ext_explicit_context_autogen.inc"
-#include "../GLES3/gl3ext_explicit_context_autogen.inc"
-#include "../GLES3/gl31ext_explicit_context_autogen.inc"
-#include "../GLES3/gl32.h"
-#include "../GLES3/gl32ext_explicit_context_autogen.inc"
-#endif /* GL_ANGLE_explicit_context */
+#ifndef GL_ANGLE_get_tex_level_parameter
+#define GL_ANGLE_get_tex_level_parameter 1
+typedef void(GL_APIENTRYP PFNGLGETTEXLEVELPARAMETERFVANGLEPROC)(GLenum target, GLint level, GLenum pname, GLfloat *params);
+typedef void(GL_APIENTRYP PFNGLGETTEXLEVELPARAMETERIVANGLEPROC)(GLenum target, GLint level, GLenum pname, GLint *params);
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glGetTexLevelParameterfvANGLE(GLenum target, GLint level, GLenum pname, GLfloat *params);
+GL_APICALL void GL_APIENTRY glGetTexLevelParameterivANGLE(GLenum target, GLint level, GLenum pname, GLint *params);
+#endif
+#endif /* GL_ANGLE_get_tex_level_parameter */
 
 #ifndef GL_ANGLE_multi_draw
 #define GL_ANGLE_multi_draw 1
@@ -469,18 +470,59 @@ GL_APICALL void GL_APIENTRY glInvalidateTextureANGLE (GLenum target);
 #ifndef GL_ANGLE_get_image
 #define GL_ANGLE_get_image
 typedef void (GL_APIENTRYP PFNGLGETTEXIMAGEANGLEPROC) (GLenum target, GLint level, GLenum format, GLenum type, void *pixels);
+typedef void (GL_APIENTRYP PFNGLGETCOMPRESSEDTEXIMAGEANGLEPROC) (GLenum target, GLint level, void *pixels);
 typedef void (GL_APIENTRYP PFNGLGETRENDERBUFFERIMAGEANGLEPROC) (GLenum target, GLenum format, GLenum type, void *pixels);
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL void GL_APIENTRY glGetTexImageANGLE (GLenum target, GLint level, GLenum format, GLenum type, void *pixels);
+GL_APICALL void GL_APIENTRY glGetCompressedTexImageANGLE (GLenum target, GLint level, void *pixels);
 GL_APICALL void GL_APIENTRY glGetRenderbufferImageANGLE (GLenum target, GLenum format, GLenum type, void *pixels);
 #endif
-#endif /* GL_ANGLE_texture_external_update */
+#endif /* GL_ANGLE_get_image */
 
 #ifndef GL_WEBGL_video_texture
 #define GL_WEBGL_video_texture 1
 #define GL_TEXTURE_VIDEO_IMAGE_WEBGL 0x9248
 #define GL_SAMPLER_VIDEO_IMAGE_WEBGL 0x9249
 #endif /* GL_WEBGL_video_texture */
+
+#ifndef GL_ANGLE_memory_object_flags
+#define GL_ANGLE_memory_object_flags 1
+#define GL_CREATE_SPARSE_BINDING_BIT_ANGLE                    0x00000001
+#define GL_CREATE_SPARSE_RESIDENCY_BIT_ANGLE                  0x00000002
+#define GL_CREATE_SPARSE_ALIASED_BIT_ANGLE                    0x00000004
+#define GL_CREATE_MUTABLE_FORMAT_BIT_ANGLE                    0x00000008
+#define GL_CREATE_CUBE_COMPATIBLE_BIT_ANGLE                   0x00000010
+#define GL_CREATE_ALIAS_BIT_ANGLE                             0x00000400
+#define GL_CREATE_SPLIT_INSTANCE_BIND_REGIONS_BIT_ANGLE       0x00000040
+#define GL_CREATE_2D_ARRAY_COMPATIBLE_BIT_ANGLE               0x00000020
+#define GL_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT_ANGLE       0x00000080
+#define GL_CREATE_EXTENDED_USAGE_BIT_ANGLE                    0x00000100
+#define GL_CREATE_PROTECTED_BIT_ANGLE                         0x00000800
+#define GL_CREATE_DISJOINT_BIT_ANGLE                          0x00000200
+#define GL_CREATE_CORNER_SAMPLED_BIT_ANGLE                    0x00002000
+#define GL_CREATE_SAMPLE_LOCATIONS_COMPATIBLE_DEPTH_BIT_ANGLE 0x00001000
+#define GL_CREATE_SUBSAMPLED_BIT_ANGLE                        0x00004000
+#define GL_USAGE_TRANSFER_SRC_BIT_ANGLE                       0x00000001
+#define GL_USAGE_TRANSFER_DST_BIT_ANGLE                       0x00000002
+#define GL_USAGE_SAMPLED_BIT_ANGLE                            0x00000004
+#define GL_USAGE_STORAGE_BIT_ANGLE                            0x00000008
+#define GL_USAGE_COLOR_ATTACHMENT_BIT_ANGLE                   0x00000010
+#define GL_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT_ANGLE           0x00000020
+#define GL_USAGE_TRANSIENT_ATTACHMENT_BIT_ANGLE               0x00000040
+#define GL_USAGE_INPUT_ATTACHMENT_BIT_ANGLE                   0x00000080
+#define GL_USAGE_SHADING_RATE_IMAGE_BIT_ANGLE                 0x00000100
+#define GL_USAGE_FRAGMENT_DENSITY_MAP_BIT_ANGLE               0x00000200
+typedef void (GL_APIENTRYP PFNGLTEXSTORAGEMEMFLAGS2DANGLEPROC) (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+typedef void (GL_APIENTRYP PFNGLTEXSTORAGEMEMFLAGS2DMULTISAMPLEANGLEPROC) (GLenum target, GLsizei samples, GLenum internalFormat, GLsizei width, GLsizei height, GLboolean fixedSampleLocations, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+typedef void (GL_APIENTRYP PFNGLTEXSTORAGEMEMFLAGS3DANGLEPROC) (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+typedef void (GL_APIENTRYP PFNGLTEXSTORAGEMEMFLAGS3DMULTISAMPLEANGLEPROC) (GLenum target, GLsizei samples, GLenum internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedSampleLocations, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glTexStorageMemFlags2DANGLE (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+GL_APICALL void GL_APIENTRY glTexStorageMemFlags2DMultisampleANGLE (GLenum target, GLsizei samples, GLenum internalFormat, GLsizei width, GLsizei height, GLboolean fixedSampleLocations, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+GL_APICALL void GL_APIENTRY glTexStorageMemFlags3DANGLE (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+GL_APICALL void GL_APIENTRY glTexStorageMemFlags3DMultisampleANGLE (GLenum target, GLsizei samples, GLenum internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedSampleLocations, GLuint memory, GLuint64 offset, GLbitfield createFlags, GLbitfield usageFlags, const void *imageCreateInfoPNext);
+#endif
+#endif /* GL_ANGLE_memory_object_flags */
 
 #ifndef GL_ANGLE_memory_object_fuchsia
 #define GL_ANGLE_memory_object_fuchsia 1
@@ -510,11 +552,65 @@ GL_APICALL void GL_APIENTRY glImportSemaphoreZirconHandleANGLE(GLuint memory,
 #endif
 #endif /* GL_ANGLE_semaphore_fuchsia */
 
+#ifndef GL_ANGLE_vulkan_image
+#define GL_ANGLE_vulkan_image 1
+typedef void(GL_APIENTRYP PFNGLACQUIRETEXTURESANGLEPROC)(GLuint numTexture, const GLuint *textures, const GLenum *layouts);
+typedef void(GL_APIENTRYP PFNGLRELEASETEXTURESANGLEPROC)(GLuint numTexture, const GLuint *textures, GLenum *layouts);
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glAcquireTexturesANGLE(GLuint numTexture, const GLuint *textures, const GLenum *layouts);
+GL_APICALL void GL_APIENTRY glReleaseTexturesANGLE(GLuint numTexture, const GLuint *textures, GLenum *layouts);
+#endif
+#endif /* GL_ANGLE_vulkan_image */
+
 #ifndef GL_CHROMIUM_texture_filtering_hint
 #define GL_CHROMIUM_texture_filtering_hint
 #define GL_TEXTURE_FILTERING_HINT_CHROMIUM 0x8AF0
 #endif /* GL_CHROMIUM_texture_filtering_hint */
 
+#ifndef GL_NV_robustness_video_memory
+#define GL_NV_robustness_video_memory
+#define GL_PURGED_CONTEXT_RESET_NV 0x92BB
+#endif /* GL_NV_robustness_video_memory */
+
+#ifndef GL_ANGLE_get_serialized_context_string
+#define GL_ANGLE_get_serialized_context_string
+#define GL_SERIALIZED_CONTEXT_STRING_ANGLE 0x96B0
+#endif /* GL_ANGLE_get_serialized_context_string */
+
+#ifndef GL_ANGLE_robust_fragment_shader_output
+#define GL_ANGLE_robust_fragment_shader_output
+#define GL_ROBUST_FRAGMENT_SHADER_OUTPUT_ANGLE 0x96B9
+#endif /* GL_ANGLE_robust_fragment_shader_output */
+
 // clang-format on
+
+#ifndef GL_ANGLE_yuv_internal_format
+#define GL_ANGLE_yuv_internal_format
+
+// YUV formats introduced by GL_ANGLE_yuv_internal_format
+// 8-bit YUV formats
+#define GL_G8_B8R8_2PLANE_420_UNORM_ANGLE 0x96B1
+#define GL_G8_B8_R8_3PLANE_420_UNORM_ANGLE 0x96B2
+
+// 10-bit YUV formats
+#define GL_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16_ANGLE 0x96B3
+#define GL_G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16_ANGLE 0x96B4
+
+// 12-bit YUV formats
+#define GL_G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16_ANGLE 0x96B5
+#define GL_G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16_ANGLE 0x96B6
+
+// 16-bit YUV formats
+#define GL_G16_B16R16_2PLANE_420_UNORM_ANGLE 0x96B7
+#define GL_G16_B16_R16_3PLANE_420_UNORM_ANGLE 0x96B8
+
+#endif /* GL_ANGLE_yuv_internal_format */
+
+#ifndef GL_ANGLE_rgbx_internal_format
+#define GL_ANGLE_rgbx_internal_format
+
+#define GL_RGBX8_ANGLE 0x96BA
+
+#endif /* GL_ANGLE_rgbx_internal_format */
 
 #endif  // INCLUDE_GLES2_GL2EXT_ANGLE_H_

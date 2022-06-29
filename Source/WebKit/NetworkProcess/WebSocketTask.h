@@ -31,7 +31,11 @@
 #include "WebSocketTaskSoup.h"
 #else
 
+#include "DataReference.h"
+
 namespace WebKit {
+
+struct SessionSet;
 
 class WebSocketTask {
     WTF_MAKE_FAST_ALLOCATED;
@@ -44,6 +48,8 @@ public:
 
     void cancel() { }
     void resume() { }
+    
+    SessionSet* sessionSet() { return nullptr; }
 };
 
 } // namespace WebKit

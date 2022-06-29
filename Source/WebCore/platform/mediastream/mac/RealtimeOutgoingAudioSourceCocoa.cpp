@@ -118,7 +118,10 @@ void RealtimeOutgoingAudioSourceCocoa::audioSamplesAvailable(const MediaTime&, c
     if (!hasBufferedEnoughData())
         return;
 
-    LibWebRTCProvider::callOnWebRTCSignalingThread([protectedThis = makeRef(*this)] {
+    // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+    // explicitly allow the following allocation(s).
+    DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
+    LibWebRTCProvider::callOnWebRTCSignalingThread([protectedThis = Ref { *this }] {
         protectedThis->pullAudioData();
     });
 }
@@ -139,7 +142,7 @@ void RealtimeOutgoingAudioSourceCocoa::pullAudioData()
     if (isSilenced() !=  m_sampleConverter->muted())
         m_sampleConverter->setMuted(isSilenced());
 
-    m_sampleConverter->pullAvalaibleSamplesAsChunks(bufferList, chunkSampleCount, m_readCount, [this, chunkSampleCount] {
+    m_sampleConverter->pullAvailableSamplesAsChunks(bufferList, chunkSampleCount, m_readCount, [this, chunkSampleCount] {
         m_readCount += chunkSampleCount;
         sendAudioFrames(m_audioBuffer.data(), LibWebRTCAudioFormat::sampleSize, m_outputStreamDescription.sampleRate(), m_outputStreamDescription.numberOfChannels(), chunkSampleCount);
     });

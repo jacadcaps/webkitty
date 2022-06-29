@@ -11,11 +11,6 @@ add_definitions(-iframework ${QUARTZ_LIBRARY}/Frameworks -iframework ${CORESERVI
 link_directories(../../WebKitLibraries)
 include_directories(../../WebKitLibraries)
 
-list(APPEND TestNetscapePlugIn_LIBRARIES
-    ${QUARTZ_LIBRARY}
-    WebKit
-)
-
 list(APPEND DumpRenderTree_LIBRARIES
     ${CARBON_LIBRARY}
     ${QUARTZ_LIBRARY}
@@ -29,29 +24,11 @@ list(APPEND DumpRenderTree_INCLUDE_DIRECTORIES
     ${DumpRenderTree_DIR}/mac
     ${DumpRenderTree_DIR}/mac/InternalHeaders/WebKit
     ${DumpRenderTree_DIR}/TestNetscapePlugIn
-    ${FORWARDING_HEADERS_DIR}
-    ${FORWARDING_HEADERS_DIR}/WebCore
-    ${FORWARDING_HEADERS_DIR}/WebKit
-    ${FORWARDING_HEADERS_DIR}/WebKitLegacy
     ${WEBCORE_DIR}/testing/cocoa
     ${WEBKITLEGACY_DIR}
     ${WebKitTestRunner_SHARED_DIR}/cocoa
     ${WebKitTestRunner_SHARED_DIR}/mac
     ${WebKitTestRunner_SHARED_DIR}/spi
-)
-
-# Common ${TestNetscapePlugIn_SOURCES} from CMakeLists.txt are C++ source files.
-list(APPEND TestNetscapePlugIn_Cpp_SOURCES
-    ${TestNetscapePlugIn_SOURCES}
-)
-
-list(APPEND TestNetscapePlugIn_ObjCpp_SOURCES
-    TestNetscapePlugIn/PluginObjectMac.mm
-)
-
-set(TestNetscapePlugIn_SOURCES
-    ${TestNetscapePlugIn_Cpp_SOURCES}
-    ${TestNetscapePlugIn_ObjCpp_SOURCES}
 )
 
 # Common ${DumpRenderTree_SOURCES} from CMakeLists.txt are C++ source files.
@@ -113,14 +90,6 @@ set(DumpRenderTree_SOURCES
 
 foreach (_file ${DumpRenderTree_ObjC_SOURCES})
     set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-std=c99")
-endforeach ()
-
-foreach (_file ${DumpRenderTree_Cpp_SOURCES} ${TestNetscapePlugIn_Cpp_SOURCES})
-    set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-std=c++17")
-endforeach ()
-
-foreach (_file ${DumpRenderTree_ObjCpp_SOURCES} ${TestNetscapePlugIn_ObjCpp_SOURCES})
-    set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-ObjC++ -std=c++17")
 endforeach ()
 
 set(DumpRenderTree_RESOURCES

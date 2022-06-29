@@ -27,6 +27,7 @@ constexpr int kCodecTypeBytesCount = 4;
 constexpr uint8_t kFileHeaderStart[kCodecTypeBytesCount] = {'D', 'K', 'I', 'F'};
 constexpr uint8_t kVp8Header[kCodecTypeBytesCount] = {'V', 'P', '8', '0'};
 constexpr uint8_t kVp9Header[kCodecTypeBytesCount] = {'V', 'P', '9', '0'};
+constexpr uint8_t kAv1Header[kCodecTypeBytesCount] = {'A', 'V', '0', '1'};
 constexpr uint8_t kH264Header[kCodecTypeBytesCount] = {'H', '2', '6', '4'};
 
 }  // namespace
@@ -163,14 +164,13 @@ absl::optional<EncodedImage> IvfFileReader::NextFrame() {
     image.SetTimestamp(static_cast<uint32_t>(current_timestamp));
   }
   image.SetEncodedData(payload);
-  image.SetSpatialIndex(static_cast<int>(layer_sizes.size()));
+  image.SetSpatialIndex(static_cast<int>(layer_sizes.size()) - 1);
   for (size_t i = 0; i < layer_sizes.size(); ++i) {
     image.SetSpatialLayerFrameSize(static_cast<int>(i), layer_sizes[i]);
   }
   if (is_first_frame) {
     image._frameType = VideoFrameType::kVideoFrameKey;
   }
-  image._completeFrame = true;
 
   return image;
 }
@@ -190,6 +190,9 @@ absl::optional<VideoCodecType> IvfFileReader::ParseCodecType(uint8_t* buffer,
   }
   if (memcmp(&buffer[start_pos], kVp9Header, kCodecTypeBytesCount) == 0) {
     return VideoCodecType::kVideoCodecVP9;
+  }
+  if (memcmp(&buffer[start_pos], kAv1Header, kCodecTypeBytesCount) == 0) {
+    return VideoCodecType::kVideoCodecAV1;
   }
   if (memcmp(&buffer[start_pos], kH264Header, kCodecTypeBytesCount) == 0) {
     return VideoCodecType::kVideoCodecH264;

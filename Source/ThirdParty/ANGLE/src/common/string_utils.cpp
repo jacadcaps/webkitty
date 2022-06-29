@@ -206,11 +206,44 @@ bool EndsWith(const char *str, const char *suffix)
     return EndsWithSuffix(str, strlen(str), suffix, strlen(suffix));
 }
 
+bool ContainsToken(const std::string &tokenStr, char delimiter, const std::string &token)
+{
+    if (token.empty())
+    {
+        return false;
+    }
+    // Compare token with all sub-strings terminated by delimiter or end of string
+    std::string::size_type start = 0u;
+    do
+    {
+        std::string::size_type end = tokenStr.find(delimiter, start);
+        if (end == std::string::npos)
+        {
+            end = tokenStr.length();
+        }
+        const std::string::size_type length = end - start;
+        if (length == token.length() && tokenStr.compare(start, length, token) == 0)
+        {
+            return true;
+        }
+        start = end + 1u;
+    } while (start < tokenStr.size());
+    return false;
+}
+
 void ToLower(std::string *str)
 {
-    for (auto &ch : *str)
+    for (char &ch : *str)
     {
         ch = static_cast<char>(::tolower(ch));
+    }
+}
+
+void ToUpper(std::string *str)
+{
+    for (char &ch : *str)
+    {
+        ch = static_cast<char>(::toupper(ch));
     }
 }
 
@@ -227,9 +260,73 @@ bool ReplaceSubstring(std::string *str,
     return true;
 }
 
-std::vector<std::string> GetStringsFromEnvironmentVar(const char *varName, const char *separator)
+int ReplaceAllSubstrings(std::string *str,
+                         const std::string &substring,
+                         const std::string &replacement)
 {
-    std::string environment = GetEnvironmentVar(varName);
+    int count = 0;
+    while (ReplaceSubstring(str, substring, replacement))
+    {
+        count++;
+    }
+    return count;
+}
+
+std::vector<std::string> GetStringsFromEnvironmentVarOrAndroidProperty(const char *varName,
+                                                                       const char *propertyName,
+                                                                       const char *separator)
+{
+    std::string environment = GetEnvironmentVarOrAndroidProperty(varName, propertyName);
     return SplitString(environment, separator, TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
 }
+
+std::vector<std::string> GetCachedStringsFromEnvironmentVarOrAndroidProperty(
+    const char *varName,
+    const char *propertyName,
+    const char *separator)
+{
+    std::string environment = GetEnvironmentVarOrAndroidProperty(varName, propertyName);
+    return SplitString(environment, separator, TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
+}
+
+// reference name can have *.
+bool NamesMatchWithWildcard(const char *ref, const char *testName)
+{
+    // Find the first * in ref.
+    const char *firstWildcard = strchr(ref, '*');
+
+    // If there are no wildcards, match the strings precisely.
+    if (firstWildcard == nullptr)
+    {
+        return strcmp(ref, testName) == 0;
+    }
+
+    // Otherwise, match up to the wildcard first.
+    size_t preWildcardLen = firstWildcard - ref;
+    if (strncmp(ref, testName, preWildcardLen) != 0)
+    {
+        return false;
+    }
+
+    const char *postWildcardRef = ref + preWildcardLen + 1;
+
+    // As a small optimization, if the wildcard is the last character in ref, accept the match
+    // already.
+    if (postWildcardRef[0] == '\0')
+    {
+        return true;
+    }
+
+    // Try to match the wildcard with a number of characters.
+    for (size_t matchSize = 0; testName[matchSize] != '\0'; ++matchSize)
+    {
+        if (NamesMatchWithWildcard(postWildcardRef, testName + matchSize))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 }  // namespace angle

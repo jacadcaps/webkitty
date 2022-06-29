@@ -66,18 +66,16 @@ class WebPageProxy;
 @interface WKChildScrollView : UIScrollView <WKContentControlled>
 @end
 
-@interface WKEmbeddedView : UIView <WKContentControlled>
-
-- (instancetype)initWithEmbeddedViewID:(WebCore::GraphicsLayer::EmbeddedViewID)embeddedViewID;
-
-@property (nonatomic, readonly, assign) WebCore::GraphicsLayer::EmbeddedViewID embeddedViewID;
-
-@end
+#if USE(APPLE_INTERNAL_SDK)
+#import <WebKitAdditions/WKSeparatedModelView.h>
+#endif
 
 namespace WebKit {
 
 OptionSet<WebCore::TouchAction> touchActionsForPoint(UIView *rootView, const WebCore::IntPoint&);
 UIScrollView *findActingScrollParent(UIScrollView *, const RemoteLayerTreeHost&);
+
+OptionSet<WebCore::EventListenerRegionType> eventListenerTypesAtPoint(UIView *rootView, const WebCore::IntPoint&);
 
 #if ENABLE(EDITABLE_REGION)
 bool mayContainEditableElementsInRect(UIView *rootView, const WebCore::FloatRect&);

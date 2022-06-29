@@ -49,13 +49,14 @@ NativeWebWheelEvent::NativeWebWheelEvent(GdkEvent* event, const WebCore::IntPoin
 {
 }
 
-NativeWebWheelEvent::NativeWebWheelEvent(const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase)
-    : WebWheelEvent(WebEvent::Wheel, position, globalPosition, delta, wheelTicks, phase, momentumPhase, WebWheelEvent::ScrollByPixelWheelEvent, { }, WallTime::now())
+NativeWebWheelEvent::NativeWebWheelEvent(GdkEvent *event, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase, bool hasPreciseDeltas)
+    : WebWheelEvent(WebEvent::Wheel, position, globalPosition, delta, wheelTicks, phase, momentumPhase, WebWheelEvent::ScrollByPixelWheelEvent, hasPreciseDeltas, { }, WallTime::now())
+    , m_nativeEvent(event ? gdk_event_copy(event) : nullptr)
 {
 }
 
 NativeWebWheelEvent::NativeWebWheelEvent(const NativeWebWheelEvent& event)
-    : WebWheelEvent(event.type(), event.position(), event.globalPosition(), event.delta(), event.wheelTicks(), event.phase(), event.momentumPhase(), event.granularity(), event.modifiers(), event.timestamp())
+    : WebWheelEvent(event.type(), event.position(), event.globalPosition(), event.delta(), event.wheelTicks(), event.phase(), event.momentumPhase(), event.granularity(), event.hasPreciseScrollingDeltas(), event.modifiers(), event.timestamp())
     , m_nativeEvent(event.nativeEvent() ? gdk_event_copy(event.nativeEvent()) : nullptr)
 {
 }

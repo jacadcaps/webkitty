@@ -27,6 +27,7 @@
 #import "_WKProcessPoolConfigurationInternal.h"
 
 #import "LegacyGlobalSettings.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <objc/runtime.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -45,6 +46,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKProcessPoolConfiguration.class, self))
+        return;
+
     _processPoolConfiguration->~ProcessPoolConfiguration();
 
     [super dealloc];
@@ -69,11 +73,11 @@
     if (classes.isEmpty())
         return [NSSet set];
 
-    NSMutableSet *result = [[NSMutableSet alloc] initWithCapacity:classes.size()];
+    auto result = adoptNS([[NSMutableSet alloc] initWithCapacity:classes.size()]);
     for (const auto& value : classes)
         [result addObject: objc_lookUpClass(value.utf8().data())];
 
-    return [result autorelease];
+    return result.autorelease();
 }
 
 - (void)setCustomClassesForParameterCoder:(NSSet<Class> *)classesForCoder
@@ -135,6 +139,16 @@
 - (void)setAttrStyleEnabled:(BOOL)enabled
 {
     return _processPoolConfiguration->setAttrStyleEnabled(enabled);
+}
+
+- (BOOL)shouldThrowExceptionForGlobalConstantRedeclaration
+{
+    return _processPoolConfiguration->shouldThrowExceptionForGlobalConstantRedeclaration();
+}
+
+- (void)setShouldThrowExceptionForGlobalConstantRedeclaration:(BOOL)shouldThrow
+{
+    return _processPoolConfiguration->setShouldThrowExceptionForGlobalConstantRedeclaration(shouldThrow);
 }
 
 - (NSArray<NSURL *> *)additionalReadAccessAllowedURLs
@@ -221,6 +235,18 @@
     return _processPoolConfiguration->presentingApplicationPID();
 }
 
+- (void)setPresentingApplicationProcessToken:(audit_token_t)token
+{
+    _processPoolConfiguration->setPresentingApplicationProcessToken(token);
+}
+
+- (audit_token_t)presentingApplicationProcessToken
+{
+    if (_processPoolConfiguration->presentingApplicationProcessToken())
+        return *_processPoolConfiguration->presentingApplicationProcessToken();
+    return { };
+}
+
 - (void)setProcessSwapsOnNavigation:(BOOL)swaps
 {
     _processPoolConfiguration->setProcessSwapsOnNavigation(swaps);
@@ -271,6 +297,16 @@
     return _processPoolConfiguration->processSwapsOnWindowOpenWithOpener();
 }
 
+- (void)setProcessSwapsOnNavigationWithinSameNonHTTPFamilyProtocol:(BOOL)swaps
+{
+    _processPoolConfiguration->setProcessSwapsOnNavigationWithinSameNonHTTPFamilyProtocol(swaps);
+}
+
+- (BOOL)processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol
+{
+    return _processPoolConfiguration->processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol();
+}
+
 - (BOOL)pageCacheEnabled
 {
     return _processPoolConfiguration->usesBackForwardCache();
@@ -303,16 +339,11 @@
 
 - (void)setHSTSStorageDirectory:(NSURL *)directory
 {
-    if (directory && ![directory isFileURL])
-        [NSException raise:NSInvalidArgumentException format:@"%@ is not a file URL", directory];
-
-    // FIXME: Move this to _WKWebsiteDataStoreConfiguration once rdar://problem/50109631 is fixed.
-    _processPoolConfiguration->setHSTSStorageDirectory(directory.path);
 }
 
 - (NSURL *)hstsStorageDirectory
 {
-    return [NSURL fileURLWithPath:_processPoolConfiguration->hstsStorageDirectory() isDirectory:YES];
+    return nil;
 }
 
 #if PLATFORM(IOS_FAMILY)

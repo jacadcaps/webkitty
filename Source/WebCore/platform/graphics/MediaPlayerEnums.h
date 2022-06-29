@@ -106,9 +106,14 @@ public:
         TargetTypeTVOut
     };
 
+    enum class PitchCorrectionAlgorithm : uint8_t {
+        BestAllAround,
+        BestForMusic,
+        BestForSpeech,
+    };
 };
 
-String convertEnumerationToString(MediaPlayerEnums::ReadyState);
+WEBCORE_EXPORT String convertEnumerationToString(MediaPlayerEnums::ReadyState);
 String convertEnumerationToString(MediaPlayerEnums::NetworkState);
 String convertEnumerationToString(MediaPlayerEnums::Preload);
 String convertEnumerationToString(MediaPlayerEnums::SupportsType);
@@ -124,7 +129,7 @@ struct LogArgument;
 
 template <>
 struct LogArgument<WebCore::MediaPlayerEnums::ReadyState> {
-    static WTF::String toString(const WebCore::MediaPlayerEnums::ReadyState state)
+    static String toString(const WebCore::MediaPlayerEnums::ReadyState state)
     {
         return convertEnumerationToString(state);
     }
@@ -132,7 +137,7 @@ struct LogArgument<WebCore::MediaPlayerEnums::ReadyState> {
 
 template <>
 struct LogArgument<WebCore::MediaPlayerEnums::NetworkState> {
-    static WTF::String toString(const WebCore::MediaPlayerEnums::NetworkState state)
+    static String toString(const WebCore::MediaPlayerEnums::NetworkState state)
     {
         return convertEnumerationToString(state);
     }
@@ -140,7 +145,7 @@ struct LogArgument<WebCore::MediaPlayerEnums::NetworkState> {
 
 template <>
 struct LogArgument<WebCore::MediaPlayerEnums::BufferingPolicy> {
-    static WTF::String toString(const WebCore::MediaPlayerEnums::BufferingPolicy policy)
+    static String toString(const WebCore::MediaPlayerEnums::BufferingPolicy policy)
     {
         return convertEnumerationToString(policy);
     }
@@ -237,6 +242,15 @@ using values = EnumValues<
     WebCore::MediaPlayerEnums::WirelessPlaybackTargetType::TargetTypeNone,
     WebCore::MediaPlayerEnums::WirelessPlaybackTargetType::TargetTypeAirPlay,
     WebCore::MediaPlayerEnums::WirelessPlaybackTargetType::TargetTypeTVOut
+    >;
+};
+
+template<> struct EnumTraits<WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm> {
+using values = EnumValues<
+    WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm,
+    WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm::BestAllAround,
+    WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm::BestForMusic,
+    WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm::BestForSpeech
     >;
 };
 

@@ -80,7 +80,7 @@
 
 - (NSRect)_candidateRect
 {
-    return _page->editorState().postLayoutData().focusedElementRect;
+    return _page->editorState().postLayoutData().selectionBoundingRect;
 }
 
 - (void)viewDidChangeEffectiveAppearance
@@ -103,11 +103,22 @@
     _page->setFooterBannerHeightForTesting(height);
 }
 
+- (NSSet<NSView *> *)_pdfHUDs
+{
+#if ENABLE(UI_PROCESS_PDF_HUD)
+    return _impl->pdfHUDs();
+#else
+    return nil;
+#endif
+}
+
 - (NSMenu *)_activeMenu
 {
-    // FIXME: Only the DOM paste access menu is supported for now. In the future, it could be
-    // extended to recognize the regular context menu as well.
-    return _impl->domPasteMenu();
+    if (NSMenu *contextMenu = _page->platformActiveContextMenu())
+        return contextMenu;
+    if (NSMenu *domPasteMenu = _impl->domPasteMenu())
+        return domPasteMenu;
+    return nil;
 }
 
 @end

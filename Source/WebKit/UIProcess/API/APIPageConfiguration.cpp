@@ -79,18 +79,29 @@ Ref<PageConfiguration> PageConfiguration::copy() const
     copy->m_applicationManifest = this->m_applicationManifest;
 #endif
     copy->m_shouldRelaxThirdPartyCookieBlocking = this->m_shouldRelaxThirdPartyCookieBlocking;
+    copy->m_attributedBundleIdentifier = this->m_attributedBundleIdentifier;
     for (auto& pair : this->m_urlSchemeHandlers)
         copy->m_urlSchemeHandlers.set(pair.key, pair.value.copyRef());
     copy->m_corsDisablingPatterns = this->m_corsDisablingPatterns;
     copy->m_crossOriginAccessControlCheckEnabled = this->m_crossOriginAccessControlCheckEnabled;
     copy->m_userScriptsShouldWaitUntilNotification = this->m_userScriptsShouldWaitUntilNotification;
-    copy->m_webViewCategory = this->m_webViewCategory;
 
     copy->m_processDisplayName = this->m_processDisplayName;
-    copy->m_ignoresAppBoundDomains = this->m_ignoresAppBoundDomains;
     copy->m_loadsSubresources = this->m_loadsSubresources;
-    copy->m_loadsFromNetwork = this->m_loadsFromNetwork;
+    copy->m_allowedNetworkHosts = this->m_allowedNetworkHosts;
+#if ENABLE(APP_BOUND_DOMAINS)
+    copy->m_ignoresAppBoundDomains = this->m_ignoresAppBoundDomains;
     copy->m_limitsNavigationsToAppBoundDomains = this->m_limitsNavigationsToAppBoundDomains;
+#endif
+
+    copy->m_mediaCaptureEnabled = this->m_mediaCaptureEnabled;
+    copy->m_httpsUpgradeEnabled = this->m_httpsUpgradeEnabled;
+#if PLATFORM(IOS_FAMILY)
+    copy->m_appInitiatedOverrideValueForTesting = this->m_appInitiatedOverrideValueForTesting;
+#endif
+#if HAVE(TOUCH_BAR)
+    copy->m_requiresUserActionForEditingControlsManager = this->m_requiresUserActionForEditingControlsManager;
+#endif
 
     return copy;
 }
@@ -184,6 +195,18 @@ RefPtr<WebKit::WebURLSchemeHandler> PageConfiguration::urlSchemeHandlerForURLSch
 void PageConfiguration::setURLSchemeHandlerForURLScheme(Ref<WebKit::WebURLSchemeHandler>&& handler, const WTF::String& scheme)
 {
     m_urlSchemeHandlers.set(scheme, WTFMove(handler));
+}
+
+bool PageConfiguration::captivePortalModeEnabled() const
+{
+    if (m_defaultWebsitePolicies)
+        return m_defaultWebsitePolicies->captivePortalModeEnabled();
+    return captivePortalModeEnabledBySystem();
+}
+
+bool PageConfiguration::isCaptivePortalModeExplicitlySet() const
+{
+    return m_defaultWebsitePolicies && m_defaultWebsitePolicies->isCaptivePortalModeExplicitlySet();
 }
 
 #if ENABLE(APPLICATION_MANIFEST)

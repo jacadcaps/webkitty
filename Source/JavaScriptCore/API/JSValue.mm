@@ -71,9 +71,11 @@ NSString * const JSPropertyDescriptorSetKey = @"set";
 
 - (void)dealloc
 {
-    JSValueUnprotect([_context JSGlobalContextRef], m_value);
-    [_context release];
-    _context = nil;
+    if (_context) {
+        JSValueUnprotect([_context JSGlobalContextRef], m_value);
+        [_context release];
+        _context = nil;
+    }
     [super dealloc];
 }
 
@@ -398,37 +400,65 @@ inline Expected<Result, JSValueRef> performPropertyOperation(NSStringFunction st
 
 - (BOOL)isUndefined
 {
+#if !CPU(ADDRESS64)
     return JSValueIsUndefined([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isUndefined();
+#endif
 }
 
 - (BOOL)isNull
 {
+#if !CPU(ADDRESS64)
     return JSValueIsNull([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isNull();
+#endif
 }
 
 - (BOOL)isBoolean
 {
+#if !CPU(ADDRESS64)
     return JSValueIsBoolean([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isBoolean();
+#endif
 }
 
 - (BOOL)isNumber
 {
+#if !CPU(ADDRESS64)
     return JSValueIsNumber([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isNumber();
+#endif
 }
 
 - (BOOL)isString
 {
+#if !CPU(ADDRESS64)
     return JSValueIsString([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isString();
+#endif
 }
 
 - (BOOL)isObject
 {
+#if !CPU(ADDRESS64)
     return JSValueIsObject([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isObject();
+#endif
 }
 
 - (BOOL)isSymbol
 {
+#if !CPU(ADDRESS64)
     return JSValueIsSymbol([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isSymbol();
+#endif
 }
 
 - (BOOL)isArray
@@ -745,7 +775,7 @@ static JSContainerConvertor::Task valueToObjectWithoutCopy(JSGlobalContextRef co
         } else if (JSValueIsString(context, value)) {
             // Would be nice to unique strings, too.
             auto jsstring = adoptRef(JSValueToStringCopy(context, value, 0));
-            primitive = CFBridgingRelease(JSStringCopyCFString(kCFAllocatorDefault, jsstring.get()));
+            primitive = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, jsstring.get())).bridgingAutorelease();
         } else if (JSValueIsNull(context, value))
             primitive = [NSNull null];
         else {
@@ -853,7 +883,7 @@ id valueToString(JSGlobalContextRef context, JSValueRef value, JSValueRef* excep
         return nil;
     }
 
-    return CFBridgingRelease(JSStringCopyCFString(kCFAllocatorDefault, jsstring.get()));
+    return adoptCF(JSStringCopyCFString(kCFAllocatorDefault, jsstring.get())).bridgingAutorelease();
 }
 
 id valueToDate(JSGlobalContextRef context, JSValueRef value, JSValueRef* exception)
@@ -1080,8 +1110,10 @@ JSValueRef valueInternalValue(JSValue * value)
 
 - (JSValue *)initWithValue:(JSValueRef)value inContext:(JSContext *)context
 {
-    if (!value || !context)
+    if (!value || !context) {
+        [self release];
         return nil;
+    }
 
     self = [super init];
     if (!self)
@@ -1181,7 +1213,7 @@ static StructHandlers* createStructHandlerMap()
 static StructTagHandler* handerForStructTag(const char* encodedType)
 {
     static Lock handerForStructTagLock;
-    LockHolder lockHolder(&handerForStructTagLock);
+    Locker lockHolder { handerForStructTagLock };
 
     static StructHandlers* structHandlers = createStructHandlerMap();
 

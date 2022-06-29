@@ -54,7 +54,7 @@ void CalculateConstantBufferParams(GLintptr offset,
 
     // The GL size is not required to be aligned to a 256 bytes boundary.
     // Round the size up to a 256 bytes boundary then express the results in constants of 16-bytes.
-    *outNumConstants = static_cast<UINT>(rx::roundUp(size, static_cast<GLsizeiptr>(256)) / 16);
+    *outNumConstants = static_cast<UINT>(rx::roundUpPow2(size, static_cast<GLsizeiptr>(256)) / 16);
 
     // Since the size is rounded up, firstConstant + numConstants may be bigger than the actual size
     // of the buffer. This behaviour is explictly allowed according to the documentation on
@@ -999,6 +999,11 @@ angle::Result Buffer11::updateBufferStorage(const gl::Context *context,
         return angle::Result::Continue;
     }
 
+    if (latestBuffer->getSize() == 0 || storage->getSize() == 0)
+    {
+        return angle::Result::Continue;
+    }
+
     // Copy through a staging buffer if we're copying from or to a non-staging, mappable
     // buffer storage. This is because we can't map a GPU buffer, and copy CPU
     // data directly. If we're already using a staging buffer we're fine.
@@ -1230,7 +1235,7 @@ angle::Result Buffer11::NativeStorage::resize(const gl::Context *context,
     d3d11::Buffer newBuffer;
     ANGLE_TRY(
         mRenderer->allocateResource(SafeGetImplAs<Context11>(context), bufferDesc, &newBuffer));
-    newBuffer.setDebugName("Buffer11::NativeStorage");
+    newBuffer.setInternalName("Buffer11::NativeStorage");
 
     if (mBuffer.valid() && preserveData)
     {
@@ -1326,7 +1331,7 @@ void Buffer11::NativeStorage::FillBufferDesc(D3D11_BUFFER_DESC *bufferDesc,
 
             // Constant buffers must be of a limited size, and aligned to 16 byte boundaries
             // For our purposes we ignore any buffer data past the maximum constant buffer size
-            bufferDesc->ByteWidth = roundUp(bufferDesc->ByteWidth, 16u);
+            bufferDesc->ByteWidth = roundUpPow2(bufferDesc->ByteWidth, 16u);
 
             // Note: it seems that D3D11 allows larger buffers on some platforms, but not all.
             // (Windows 10 seems to allow larger constant buffers, but not Windows 7)
@@ -1478,7 +1483,7 @@ angle::Result Buffer11::StructuredBufferStorage::resizeStructuredBuffer(
     d3d11::Buffer newBuffer;
     ANGLE_TRY(
         mRenderer->allocateResource(SafeGetImplAs<Context11>(context), bufferDesc, &newBuffer));
-    newBuffer.setDebugName("Buffer11::StructuredBufferStorage");
+    newBuffer.setInternalName("Buffer11::StructuredBufferStorage");
 
     // No longer need the old buffer
     mBuffer = std::move(newBuffer);
@@ -1632,7 +1637,7 @@ angle::Result Buffer11::EmulatedIndexedStorage::getBuffer(const gl::Context *con
 
         ANGLE_TRY(mRenderer->allocateResource(GetImplAs<Context11>(context), bufferDesc,
                                               &subResourceData, &mBuffer));
-        mBuffer.setDebugName("Buffer11::EmulatedIndexedStorage");
+        mBuffer.setInternalName("Buffer11::EmulatedIndexedStorage");
     }
 
     *bufferOut = &mBuffer;

@@ -14,8 +14,8 @@
 
 #include <algorithm>
 
-#include "absl/algorithm/container.h"
 #include "absl/container/inlined_vector.h"
+#include "absl/strings/match.h"
 #include "absl/types/variant.h"
 #include "api/video/video_timing.h"
 #include "modules/video_coding/codecs/h264/include/h264_globals.h"
@@ -28,7 +28,6 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/random.h"
 #include "rtc_base/time_utils.h"
-#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 
@@ -37,6 +36,7 @@ void PopulateRtpWithCodecSpecifics(const CodecSpecificInfo& info,
                                    absl::optional<int> spatial_index,
                                    RTPVideoHeader* rtp) {
   rtp->codec = info.codecType;
+  rtp->is_last_frame_in_picture = info.end_of_picture;
   switch (info.codecType) {
     case kVideoCodecVP8: {
       auto& vp8_header = rtp->video_type_header.emplace<RTPVideoHeaderVP8>();
@@ -86,7 +86,7 @@ void PopulateRtpWithCodecSpecifics(const CodecSpecificInfo& info,
       for (int i = 0; i < info.codecSpecific.VP9.num_ref_pics; ++i) {
         vp9_header.pid_diff[i] = info.codecSpecific.VP9.p_diff[i];
       }
-      vp9_header.end_of_picture = info.codecSpecific.VP9.end_of_picture;
+      vp9_header.end_of_picture = info.end_of_picture;
       return;
     }
     case kVideoCodecH264: {
@@ -94,24 +94,16 @@ void PopulateRtpWithCodecSpecifics(const CodecSpecificInfo& info,
       h264_header.packetization_mode =
           info.codecSpecific.H264.packetization_mode;
       rtp->simulcastIdx = spatial_index.value_or(0);
-      rtp->frame_marking.temporal_id = kNoTemporalIdx;
-      if (info.codecSpecific.H264.temporal_idx != kNoTemporalIdx) {
-        rtp->frame_marking.temporal_id = info.codecSpecific.H264.temporal_idx;
-        rtp->frame_marking.layer_id = 0;
-        rtp->frame_marking.independent_frame =
-            info.codecSpecific.H264.idr_frame;
-        rtp->frame_marking.base_layer_sync =
-            info.codecSpecific.H264.base_layer_sync;
-      }
       return;
     }
 #ifndef DISABLE_H265
     case kVideoCodecH265: {
-      auto h265_header = rtp->video_type_header.emplace<RTPVideoHeaderH265>();
+      auto& h265_header = rtp->video_type_header.emplace<RTPVideoHeaderH265>();
       h265_header.packetization_mode =
           info.codecSpecific.H265.packetization_mode;
+      rtp->simulcastIdx = spatial_index.value_or(0);
+      return;
     }
-    return;
 #endif
     case kVideoCodecMultiplex:
     case kVideoCodecGeneric:
@@ -143,15 +135,19 @@ void SetVideoTiming(const EncodedImage& image, VideoSendTiming* timing) {
 }  // namespace
 
 RtpPayloadParams::RtpPayloadParams(const uint32_t ssrc,
-                                   const RtpPayloadState* state)
+                                   const RtpPayloadState* state,
+                                   const WebRtcKeyValueConfig& trials)
     : ssrc_(ssrc),
       generic_picture_id_experiment_(
-          field_trial::IsEnabled("WebRTC-GenericPictureId")),
-      generic_descriptor_experiment_(
-          !field_trial::IsDisabled("WebRTC-GenericDescriptor")) {
+          absl::StartsWith(trials.Lookup("WebRTC-GenericPictureId"),
+                           "Enabled")),
+      simulate_generic_vp9_(
+          !absl::StartsWith(trials.Lookup("WebRTC-Vp9DependencyDescriptor"),
+                            "Disabled")) {
   for (auto& spatial_layer : last_shared_frame_id_)
     spatial_layer.fill(-1);
 
+  chain_last_frame_id_.fill(-1);
   buffer_id_to_frame_id_.fill(-1);
 
   Random random(rtc::TimeMicros());
@@ -173,7 +169,7 @@ RTPVideoHeader RtpPayloadParams::GetRtpVideoHeader(
     PopulateRtpWithCodecSpecifics(*codec_specific_info, image.SpatialIndex(),
                                   &rtp_video_header);
   }
-  rtp_video_header.frame_type = image._frameType,
+  rtp_video_header.frame_type = image._frameType;
   rtp_video_header.rotation = image.rotation_;
   rtp_video_header.content_type = image.content_type_;
   rtp_video_header.playout_delay = image.playout_delay_;
@@ -182,6 +178,7 @@ RTPVideoHeader RtpPayloadParams::GetRtpVideoHeader(
   rtp_video_header.color_space = image.ColorSpace()
                                      ? absl::make_optional(*image.ColorSpace())
                                      : absl::nullopt;
+  rtp_video_header.video_frame_tracking_id = image.VideoFrameTrackingId();
   SetVideoTiming(image, &rtp_video_header.video_timing);
 
   const bool is_keyframe = image._frameType == VideoFrameType::kVideoFrameKey;
@@ -192,9 +189,8 @@ RTPVideoHeader RtpPayloadParams::GetRtpVideoHeader(
 
   SetCodecSpecific(&rtp_video_header, first_frame_in_picture);
 
-  if (generic_descriptor_experiment_)
-    SetGeneric(codec_specific_info, shared_frame_id, is_keyframe,
-               &rtp_video_header);
+  SetGeneric(codec_specific_info, shared_frame_id, is_keyframe,
+             &rtp_video_header);
 
   return rtp_video_header;
 }
@@ -243,14 +239,6 @@ void RtpPayloadParams::SetCodecSpecific(RTPVideoHeader* rtp_video_header,
       vp9_header.tl0_pic_idx = state_.tl0_pic_idx;
     }
   }
-  if (rtp_video_header->codec == kVideoCodecH264) {
-    if (rtp_video_header->frame_marking.temporal_id != kNoTemporalIdx) {
-      if (rtp_video_header->frame_marking.temporal_id == 0) {
-        ++state_.tl0_pic_idx;
-      }
-      rtp_video_header->frame_marking.tl0_pic_idx = state_.tl0_pic_idx;
-    }
-  }
   if (generic_picture_id_experiment_ &&
       rtp_video_header->codec == kVideoCodecGeneric) {
     rtp_video_header->video_type_header.emplace<RTPVideoHeaderLegacyGeneric>()
@@ -261,18 +249,17 @@ void RtpPayloadParams::SetCodecSpecific(RTPVideoHeader* rtp_video_header,
 RTPVideoHeader::GenericDescriptorInfo
 RtpPayloadParams::GenericDescriptorFromFrameInfo(
     const GenericFrameInfo& frame_info,
-    int64_t frame_id,
-    VideoFrameType frame_type) {
+    int64_t frame_id) {
   RTPVideoHeader::GenericDescriptorInfo generic;
   generic.frame_id = frame_id;
   generic.dependencies = dependencies_calculator_.FromBuffersUsage(
-      frame_type, frame_id, frame_info.encoder_buffers);
+      frame_id, frame_info.encoder_buffers);
+  generic.chain_diffs =
+      chains_calculator_.From(frame_id, frame_info.part_of_chain);
   generic.spatial_index = frame_info.spatial_id;
   generic.temporal_index = frame_info.temporal_id;
   generic.decode_target_indications = frame_info.decode_target_indications;
-  generic.discardable =
-      absl::c_linear_search(frame_info.decode_target_indications,
-                            DecodeTargetIndication::kDiscardable);
+  generic.active_decode_targets = frame_info.active_decode_targets;
   return generic;
 }
 
@@ -282,9 +269,13 @@ void RtpPayloadParams::SetGeneric(const CodecSpecificInfo* codec_specific_info,
                                   RTPVideoHeader* rtp_video_header) {
   if (codec_specific_info && codec_specific_info->generic_frame_info &&
       !codec_specific_info->generic_frame_info->encoder_buffers.empty()) {
-    rtp_video_header->generic =
-        GenericDescriptorFromFrameInfo(*codec_specific_info->generic_frame_info,
-                                       frame_id, rtp_video_header->frame_type);
+    if (is_keyframe) {
+      // Key frame resets all chains it is in.
+      chains_calculator_.Reset(
+          codec_specific_info->generic_frame_info->part_of_chain);
+    }
+    rtp_video_header->generic = GenericDescriptorFromFrameInfo(
+        *codec_specific_info->generic_frame_info, frame_id);
     return;
   }
 
@@ -299,8 +290,13 @@ void RtpPayloadParams::SetGeneric(const CodecSpecificInfo* codec_specific_info,
       }
       return;
     case VideoCodecType::kVideoCodecVP9:
+      if (simulate_generic_vp9_ && codec_specific_info != nullptr) {
+        Vp9ToGeneric(codec_specific_info->codecSpecific.VP9, frame_id,
+                     *rtp_video_header);
+      }
+      return;
     case VideoCodecType::kVideoCodecAV1:
-      // TODO(philipel): Implement VP9 and AV1 to generic descriptor.
+      // TODO(philipel): Implement AV1 to generic descriptor.
       return;
     case VideoCodecType::kVideoCodecH264:
       if (codec_specific_info) {
@@ -310,6 +306,8 @@ void RtpPayloadParams::SetGeneric(const CodecSpecificInfo* codec_specific_info,
       return;
 #ifndef DISABLE_H265
     case VideoCodecType::kVideoCodecH265:
+      // FIXME: Implement H265 to generic descriptor.
+      return;
 #endif
     case VideoCodecType::kVideoCodecMultiplex:
       return;
@@ -324,13 +322,16 @@ void RtpPayloadParams::GenericToGeneric(int64_t shared_frame_id,
       rtp_video_header->generic.emplace();
 
   generic.frame_id = shared_frame_id;
+  generic.decode_target_indications.push_back(DecodeTargetIndication::kSwitch);
 
   if (is_keyframe) {
+    generic.chain_diffs.push_back(0);
     last_shared_frame_id_[0].fill(-1);
   } else {
     int64_t frame_id = last_shared_frame_id_[0][0];
     RTC_DCHECK_NE(frame_id, -1);
     RTC_DCHECK_LT(frame_id, shared_frame_id);
+    generic.chain_diffs.push_back(shared_frame_id - frame_id);
     generic.dependencies.push_back(frame_id);
   }
 
@@ -421,6 +422,147 @@ void RtpPayloadParams::Vp8ToGeneric(const CodecSpecificInfoVP8& vp8_info,
     SetDependenciesVp8Deprecated(vp8_info, shared_frame_id, is_keyframe,
                                  spatial_index, temporal_index,
                                  vp8_header.layerSync, &generic);
+  }
+}
+
+FrameDependencyStructure RtpPayloadParams::MinimalisticStructure(
+    int num_spatial_layers,
+    int num_temporal_layers) {
+  RTC_DCHECK_LE(num_spatial_layers * num_temporal_layers, 32);
+  FrameDependencyStructure structure;
+  structure.num_decode_targets = num_spatial_layers * num_temporal_layers;
+  structure.num_chains = num_spatial_layers;
+  structure.templates.reserve(num_spatial_layers * num_temporal_layers);
+  for (int sid = 0; sid < num_spatial_layers; ++sid) {
+    for (int tid = 0; tid < num_temporal_layers; ++tid) {
+      FrameDependencyTemplate a_template;
+      a_template.spatial_id = sid;
+      a_template.temporal_id = tid;
+      for (int s = 0; s < num_spatial_layers; ++s) {
+        for (int t = 0; t < num_temporal_layers; ++t) {
+          // Prefer kSwitch indication for frames that is part of the decode
+          // target because dependency descriptor information generated in this
+          // class use kSwitch indications more often that kRequired, increasing
+          // the chance of a good (or complete) template match.
+          a_template.decode_target_indications.push_back(
+              sid <= s && tid <= t ? DecodeTargetIndication::kSwitch
+                                   : DecodeTargetIndication::kNotPresent);
+        }
+      }
+      a_template.frame_diffs.push_back(tid == 0 ? num_spatial_layers *
+                                                      num_temporal_layers
+                                                : num_spatial_layers);
+      a_template.chain_diffs.assign(structure.num_chains, 1);
+      structure.templates.push_back(a_template);
+
+      structure.decode_target_protected_by_chain.push_back(sid);
+    }
+  }
+  return structure;
+}
+
+void RtpPayloadParams::Vp9ToGeneric(const CodecSpecificInfoVP9& vp9_info,
+                                    int64_t shared_frame_id,
+                                    RTPVideoHeader& rtp_video_header) {
+  const auto& vp9_header =
+      absl::get<RTPVideoHeaderVP9>(rtp_video_header.video_type_header);
+  const int num_spatial_layers = vp9_header.num_spatial_layers;
+  const int num_temporal_layers = kMaxTemporalStreams;
+
+  int spatial_index =
+      vp9_header.spatial_idx != kNoSpatialIdx ? vp9_header.spatial_idx : 0;
+  int temporal_index =
+      vp9_header.temporal_idx != kNoTemporalIdx ? vp9_header.temporal_idx : 0;
+
+  if (spatial_index >= num_spatial_layers ||
+      temporal_index >= num_temporal_layers ||
+      num_spatial_layers > RtpGenericFrameDescriptor::kMaxSpatialLayers) {
+    // Prefer to generate no generic layering than an inconsistent one.
+    return;
+  }
+
+  RTPVideoHeader::GenericDescriptorInfo& result =
+      rtp_video_header.generic.emplace();
+
+  result.frame_id = shared_frame_id;
+  result.spatial_index = spatial_index;
+  result.temporal_index = temporal_index;
+
+  result.decode_target_indications.reserve(num_spatial_layers *
+                                           num_temporal_layers);
+  for (int sid = 0; sid < num_spatial_layers; ++sid) {
+    for (int tid = 0; tid < num_temporal_layers; ++tid) {
+      DecodeTargetIndication dti;
+      if (sid < spatial_index || tid < temporal_index) {
+        dti = DecodeTargetIndication::kNotPresent;
+      } else if (spatial_index != sid &&
+                 vp9_header.non_ref_for_inter_layer_pred) {
+        dti = DecodeTargetIndication::kNotPresent;
+      } else if (sid == spatial_index && tid == temporal_index) {
+        // Assume that if frame is decodable, all of its own layer is decodable.
+        dti = DecodeTargetIndication::kSwitch;
+      } else if (sid == spatial_index && vp9_header.temporal_up_switch) {
+        dti = DecodeTargetIndication::kSwitch;
+      } else if (!vp9_header.inter_pic_predicted) {
+        // Key frame or spatial upswitch
+        dti = DecodeTargetIndication::kSwitch;
+      } else {
+        // Make no other assumptions. That should be safe, though suboptimal.
+        // To provide more accurate dti, encoder wrapper should fill in
+        // CodecSpecificInfo::generic_frame_info
+        dti = DecodeTargetIndication::kRequired;
+      }
+      result.decode_target_indications.push_back(dti);
+    }
+  }
+
+  // Calculate frame dependencies.
+  static constexpr int kPictureDiffLimit = 128;
+  if (last_vp9_frame_id_.empty()) {
+    // Create the array only if it is ever used.
+    last_vp9_frame_id_.resize(kPictureDiffLimit);
+  }
+  if (vp9_header.inter_layer_predicted && spatial_index > 0) {
+    result.dependencies.push_back(
+        last_vp9_frame_id_[vp9_header.picture_id % kPictureDiffLimit]
+                          [spatial_index - 1]);
+  }
+  if (vp9_header.inter_pic_predicted) {
+    for (size_t i = 0; i < vp9_header.num_ref_pics; ++i) {
+      // picture_id is 15 bit number that wraps around. Though undeflow may
+      // produce picture that exceeds 2^15, it is ok because in this
+      // code block only last 7 bits of the picture_id are used.
+      uint16_t depend_on = vp9_header.picture_id - vp9_header.pid_diff[i];
+      result.dependencies.push_back(
+          last_vp9_frame_id_[depend_on % kPictureDiffLimit][spatial_index]);
+    }
+  }
+  last_vp9_frame_id_[vp9_header.picture_id % kPictureDiffLimit][spatial_index] =
+      shared_frame_id;
+
+  // Calculate chains, asuming chain includes all frames with temporal_id = 0
+  if (!vp9_header.inter_pic_predicted && !vp9_header.inter_layer_predicted) {
+    // Assume frames without dependencies also reset chains.
+    for (int sid = spatial_index; sid < num_spatial_layers; ++sid) {
+      chain_last_frame_id_[sid] = -1;
+    }
+  }
+  result.chain_diffs.resize(num_spatial_layers);
+  for (int sid = 0; sid < num_spatial_layers; ++sid) {
+    if (chain_last_frame_id_[sid] == -1) {
+      result.chain_diffs[sid] = 0;
+      continue;
+    }
+    result.chain_diffs[sid] = shared_frame_id - chain_last_frame_id_[sid];
+  }
+
+  if (temporal_index == 0) {
+    chain_last_frame_id_[spatial_index] = shared_frame_id;
+    if (!vp9_header.non_ref_for_inter_layer_pred) {
+      for (int sid = spatial_index + 1; sid < num_spatial_layers; ++sid) {
+        chain_last_frame_id_[sid] = shared_frame_id;
+      }
+    }
   }
 }
 

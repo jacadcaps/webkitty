@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,13 +38,14 @@
 namespace WebCore {
 using namespace JSC;
 
-// https://heycam.github.io/webidl/#call-a-user-objects-operation
-JSValue JSCallbackData::invokeCallback(JSDOMGlobalObject& globalObject, JSObject* callback, JSValue thisValue, MarkedArgumentBuffer& args, CallbackType method, PropertyName functionName, NakedPtr<JSC::Exception>& returnedException)
+// https://webidl.spec.whatwg.org/#call-a-user-objects-operation
+JSValue JSCallbackData::invokeCallback(VM& vm, JSObject* callback, JSValue thisValue, MarkedArgumentBuffer& args, CallbackType method, PropertyName functionName, NakedPtr<JSC::Exception>& returnedException)
 {
     ASSERT(callback);
 
-    JSGlobalObject* lexicalGlobalObject = &globalObject;
-    VM& vm = lexicalGlobalObject->vm();
+    // https://webidl.spec.whatwg.org/#ref-for-prepare-to-run-script makes callback's [[Realm]] a running JavaScript execution context,
+    // which is used for creating TypeError objects: https://tc39.es/ecma262/#sec-ecmascript-function-objects-call-thisargument-argumentslist (step 4).
+    JSGlobalObject* lexicalGlobalObject = callback->globalObject(vm);
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSValue function;
@@ -80,7 +81,7 @@ JSValue JSCallbackData::invokeCallback(JSDOMGlobalObject& globalObject, JSObject
     ASSERT(!function.isEmpty());
     ASSERT(callData.type != CallData::Type::None);
 
-    ScriptExecutionContext* context = globalObject.scriptExecutionContext();
+    ScriptExecutionContext* context = jsCast<JSDOMGlobalObject*>(lexicalGlobalObject)->scriptExecutionContext();
     // We will fail to get the context if the frame has been detached.
     if (!context)
         return JSValue();
@@ -95,12 +96,16 @@ JSValue JSCallbackData::invokeCallback(JSDOMGlobalObject& globalObject, JSObject
     return result;
 }
 
-void JSCallbackDataWeak::visitJSFunction(JSC::SlotVisitor& vistor)
+template<typename Visitor>
+void JSCallbackDataWeak::visitJSFunction(Visitor& visitor)
 {
-    vistor.append(m_callback);
+    visitor.append(m_callback);
 }
 
-bool JSCallbackDataWeak::WeakOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, SlotVisitor& visitor, const char** reason)
+template void JSCallbackDataWeak::visitJSFunction(JSC::AbstractSlotVisitor&);
+template void JSCallbackDataWeak::visitJSFunction(JSC::SlotVisitor&);
+
+bool JSCallbackDataWeak::WeakOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, AbstractSlotVisitor& visitor, const char** reason)
 {
     if (UNLIKELY(reason))
         *reason = "Context is opaque root"; // FIXME: what is the context.

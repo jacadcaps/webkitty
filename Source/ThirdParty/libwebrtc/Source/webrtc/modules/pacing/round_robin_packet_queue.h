@@ -19,6 +19,7 @@
 #include <memory>
 #include <queue>
 #include <set>
+#include <unordered_map>
 
 #include "absl/types/optional.h"
 #include "api/transport/webrtc_key_value_config.h"
@@ -46,7 +47,11 @@ class RoundRobinPacketQueue {
   bool Empty() const;
   size_t SizeInPackets() const;
   DataSize Size() const;
-  bool NextPacketIsAudio() const;
+  // If the next packet, that would be returned by Pop() if called
+  // now, is an audio packet this method returns the enqueue time
+  // of that packet. If queue is empty or top packet is not audio,
+  // returns nullopt.
+  absl::optional<Timestamp> LeadingAudioPacketEnqueueTime() const;
 
   Timestamp OldestEnqueueTime() const;
   TimeDelta AverageQueueTime() const;
@@ -77,6 +82,7 @@ class RoundRobinPacketQueue {
     RtpPacketToSend* RtpPacket() const;
 
     std::multiset<Timestamp>::iterator EnqueueTimeIterator() const;
+    void UpdateEnqueueTimeIterator(std::multiset<Timestamp>::iterator it);
     void SubtractPauseTime(TimeDelta pause_time_sum);
 
    private:
@@ -122,8 +128,8 @@ class RoundRobinPacketQueue {
 
     PriorityPacketQueue packet_queue;
 
-    // Whenever a packet is inserted for this stream we check if |priority_it|
-    // points to an element in |stream_priorities_|, and if it does it means
+    // Whenever a packet is inserted for this stream we check if `priority_it`
+    // points to an element in `stream_priorities_`, and if it does it means
     // this stream has already been scheduled, and if the scheduled priority is
     // lower than the priority of the incoming packet we reschedule this stream
     // with the higher priority.
@@ -131,6 +137,9 @@ class RoundRobinPacketQueue {
   };
 
   void Push(QueuedPacket packet);
+
+  DataSize PacketSize(const QueuedPacket& packet) const;
+  void MaybePromoteSinglePacketToNormalQueue();
 
   Stream* GetHighestPriorityStream();
 
@@ -155,11 +164,13 @@ class RoundRobinPacketQueue {
   std::multimap<StreamPrioKey, uint32_t> stream_priorities_;
 
   // A map of SSRCs to Streams.
-  std::map<uint32_t, Stream> streams_;
+  std::unordered_map<uint32_t, Stream> streams_;
 
   // The enqueue time of every packet currently in the queue. Used to figure out
   // the age of the oldest packet in the queue.
   std::multiset<Timestamp> enqueue_times_;
+
+  absl::optional<QueuedPacket> single_packet_queue_;
 
   bool include_overhead_;
 };

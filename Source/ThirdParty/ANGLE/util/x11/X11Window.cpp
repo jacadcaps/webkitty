@@ -277,7 +277,7 @@ X11Window::~X11Window()
     destroy();
 }
 
-bool X11Window::initialize(const std::string &name, int width, int height)
+bool X11Window::initializeImpl(const std::string &name, int width, int height)
 {
     destroy();
 
@@ -396,9 +396,15 @@ EGLNativeWindowType X11Window::getNativeWindow() const
     return mWindow;
 }
 
+void *X11Window::getPlatformExtension()
+{
+    // X11 native window for eglCreateSurfacePlatformEXT is Window*
+    return &mWindow;
+}
+
 EGLNativeDisplayType X11Window::getNativeDisplay() const
 {
-    return mDisplay;
+    return reinterpret_cast<EGLNativeDisplayType>(mDisplay);
 }
 
 void X11Window::messageLoop()
@@ -438,10 +444,11 @@ bool X11Window::resize(int width, int height)
     Timer timer;
     timer.start();
 
-    // Wait until the window as actually been resized so that the code calling resize
+    // Wait until the window has actually been resized so that the code calling resize
     // can assume the window has been resized.
     const double kResizeWaitDelay = 0.2;
-    while ((mHeight != height || mWidth != width) && timer.getElapsedTime() < kResizeWaitDelay)
+    while ((mHeight != height || mWidth != width) &&
+           timer.getElapsedWallClockTime() < kResizeWaitDelay)
     {
         messageLoop();
         angle::Sleep(10);
@@ -465,8 +472,9 @@ void X11Window::setVisible(bool isVisible)
         // code calling setVisible can assume the window is visible.
         // This is important when creating a framebuffer as the framebuffer content
         // is undefined when the window is not visible.
-        XEvent dummyEvent;
-        XIfEvent(mDisplay, &dummyEvent, WaitForMapNotify, reinterpret_cast<XPointer>(mWindow));
+        XEvent placeholderEvent;
+        XIfEvent(mDisplay, &placeholderEvent, WaitForMapNotify,
+                 reinterpret_cast<XPointer>(mWindow));
     }
     else
     {

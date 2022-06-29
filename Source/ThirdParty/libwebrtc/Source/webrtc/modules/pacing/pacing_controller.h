@@ -31,7 +31,6 @@
 #include "modules/rtp_rtcp/include/rtp_packet_sender.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/thread_annotations.h"
 
@@ -55,8 +54,10 @@ class PacingController {
   class PacketSender {
    public:
     virtual ~PacketSender() = default;
-    virtual void SendRtpPacket(std::unique_ptr<RtpPacketToSend> packet,
-                               const PacedPacketInfo& cluster_info) = 0;
+    virtual void SendPacket(std::unique_ptr<RtpPacketToSend> packet,
+                            const PacedPacketInfo& cluster_info) = 0;
+    // Should be called after each call to SendPacket().
+    virtual std::vector<std::unique_ptr<RtpPacketToSend>> FetchFec() = 0;
     virtual std::vector<std::unique_ptr<RtpPacketToSend>> GeneratePadding(
         DataSize size) = 0;
   };
@@ -72,7 +73,7 @@ class PacingController {
   // Increasing this factor will result in lower delays in cases of bitrate
   // overshoots from the encoder.
   static const float kDefaultPaceMultiplier;
-  // If no media or paused, wake up at least every |kPausedProcessIntervalMs| in
+  // If no media or paused, wake up at least every `kPausedProcessIntervalMs` in
   // order to send a keep-alive packet so we don't get stuck in a bad state due
   // to lack of feedback.
   static const TimeDelta kPausedProcessInterval;
@@ -146,6 +147,8 @@ class PacingController {
 
   bool Congested() const;
 
+  bool IsProbing() const;
+
  private:
   void EnqueuePacketInternal(std::unique_ptr<RtpPacketToSend> packet,
                              int priority);
@@ -156,7 +159,7 @@ class PacingController {
   void UpdateBudgetWithElapsedTime(TimeDelta delta);
   void UpdateBudgetWithSentData(DataSize size);
 
-  DataSize PaddingToAdd(absl::optional<DataSize> recommended_probe_size,
+  DataSize PaddingToAdd(DataSize recommended_probe_size,
                         DataSize data_sent) const;
 
   std::unique_ptr<RtpPacketToSend> GetPendingPacket(
@@ -179,19 +182,21 @@ class PacingController {
   const bool drain_large_queues_;
   const bool send_padding_if_silent_;
   const bool pace_audio_;
-  const bool small_first_probe_packet_;
   const bool ignore_transport_overhead_;
+  // In dynamic mode, indicates the target size when requesting padding,
+  // expressed as a duration in order to adjust for varying padding rate.
+  const TimeDelta padding_target_duration_;
 
   TimeDelta min_packet_limit_;
 
   DataSize transport_overhead_per_packet_;
 
   // TODO(webrtc:9716): Remove this when we are certain clocks are monotonic.
-  // The last millisecond timestamp returned by |clock_|.
+  // The last millisecond timestamp returned by `clock_`.
   mutable Timestamp last_timestamp_;
   bool paused_;
 
-  // If |use_interval_budget_| is true, |media_budget_| and |padding_budget_|
+  // If `use_interval_budget_` is true, `media_budget_` and `padding_budget_`
   // will be used to track when packets can be sent. Otherwise the media and
   // padding debt counters will be used together with the target rates.
 

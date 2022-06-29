@@ -37,6 +37,7 @@
 
 #include "CurlStreamScheduler.h"
 #include "DeprecatedGlobalSettings.h"
+#include "SharedBuffer.h"
 #include "SocketStreamError.h"
 #include "SocketStreamHandleClient.h"
 #include "StorageSessionProvider.h"
@@ -60,10 +61,10 @@ SocketStreamHandleImpl::~SocketStreamHandleImpl()
     destructStream();
 }
 
-Optional<size_t> SocketStreamHandleImpl::platformSendInternal(const uint8_t* data, size_t length)
+std::optional<size_t> SocketStreamHandleImpl::platformSendInternal(const uint8_t* data, size_t length)
 {
     if (isStreamInvalidated())
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (m_totalSendDataSize + length > maxBufferSize)
         return 0;
@@ -104,12 +105,12 @@ void SocketStreamHandleImpl::didSendData(CurlStreamID, size_t length)
     sendPendingData();
 }
 
-void SocketStreamHandleImpl::didReceiveData(CurlStreamID, const char* data, size_t length)
+void SocketStreamHandleImpl::didReceiveData(CurlStreamID, const SharedBuffer& data)
 {
     if (m_state != Open)
         return;
 
-    m_client.didReceiveSocketStreamData(*this, data, length);
+    m_client.didReceiveSocketStreamData(*this, data.data(), data.size());
 }
 
 void SocketStreamHandleImpl::didFail(CurlStreamID, CURLcode errorCode)

@@ -69,6 +69,10 @@ WK_CLASS_AVAILABLE(macos(10.15), ios(13.0))
 
  The default value is YES.
 */
-@property (nonatomic) BOOL allowsContentJavaScript WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic) BOOL allowsContentJavaScript WK_API_AVAILABLE(macos(11.0), ios(14.0));
+
+#if 0 // API_WEBKIT_ADDITIONS_REPLACEMENT
+#import <WebKitAdditions/WKWebpagePreferencesAdditions.h>
+#endif
 
 @end

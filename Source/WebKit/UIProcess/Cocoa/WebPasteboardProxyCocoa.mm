@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,14 @@
 #import "WebPasteboardProxy.h"
 
 #import "Connection.h"
+#import "PasteboardAccessIntent.h"
 #import "SandboxExtension.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessMessages.h"
 #import "WebProcessProxy.h"
 #import <WebCore/Color.h>
+#import <WebCore/DataOwnerType.h>
 #import <WebCore/Pasteboard.h>
 #import <WebCore/PasteboardItemInfo.h>
 #import <WebCore/PlatformPasteboard.h>
@@ -58,7 +60,7 @@ void WebPasteboardProxy::grantAccessToCurrentData(WebProcessProxy& process, cons
 
 void WebPasteboardProxy::grantAccess(WebProcessProxy& process, const String& pasteboardName, PasteboardAccessType type)
 {
-    if (!m_webProcessProxyList.contains(&process))
+    if (!m_webProcessProxySet.contains(process))
         return;
 
     if (pasteboardName.isEmpty()) {
@@ -73,7 +75,7 @@ void WebPasteboardProxy::grantAccess(WebProcessProxy& process, const String& pas
         return;
     }
 
-    m_pasteboardNameToAccessInformationMap.set(pasteboardName, PasteboardAccessInformation { changeCount, {{ makeWeakPtr(process), type }} });
+    m_pasteboardNameToAccessInformationMap.set(pasteboardName, PasteboardAccessInformation { changeCount, {{ process, type }} });
 }
 
 void WebPasteboardProxy::revokeAccess(WebProcessProxy& process)
@@ -93,12 +95,12 @@ bool WebPasteboardProxy::canAccessPasteboardData(IPC::Connection& connection, co
     return type && *type == PasteboardAccessType::TypesAndData;
 }
 
-Optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::accessType(IPC::Connection& connection, const String& pasteboardName) const
+std::optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::accessType(IPC::Connection& connection, const String& pasteboardName) const
 {
-    MESSAGE_CHECK_WITH_RETURN_VALUE(!pasteboardName.isEmpty(), WTF::nullopt);
+    MESSAGE_CHECK_WITH_RETURN_VALUE(!pasteboardName.isEmpty(), std::nullopt);
 
     auto* process = webProcessProxyForConnection(connection);
-    MESSAGE_CHECK_WITH_RETURN_VALUE(process, WTF::nullopt);
+    MESSAGE_CHECK_WITH_RETURN_VALUE(process, std::nullopt);
 
     for (auto* page : process->pages()) {
         auto& preferences = page->preferences();
@@ -116,11 +118,11 @@ Optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::accessTyp
 
     auto changeCountAndProcesses = m_pasteboardNameToAccessInformationMap.find(pasteboardName);
     if (changeCountAndProcesses == m_pasteboardNameToAccessInformationMap.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     auto& information = changeCountAndProcesses->value;
     if (information.changeCount != PlatformPasteboard(pasteboardName).changeCount())
-        return WTF::nullopt;
+        return std::nullopt;
 
     return information.accessType(*process);
 }
@@ -133,22 +135,27 @@ void WebPasteboardProxy::didModifyContentsOfPasteboard(IPC::Connection& connecti
     auto changeCountAndProcesses = m_pasteboardNameToAccessInformationMap.find(pasteboardName);
     if (changeCountAndProcesses != m_pasteboardNameToAccessInformationMap.end() && previousChangeCount == changeCountAndProcesses->value.changeCount) {
         if (auto accessType = changeCountAndProcesses->value.accessType(*process))
-            changeCountAndProcesses->value = PasteboardAccessInformation { newChangeCount, {{ makeWeakPtr(*process), *accessType }} };
+            changeCountAndProcesses->value = PasteboardAccessInformation { newChangeCount, {{ *process, *accessType }} };
     }
 }
 
-void WebPasteboardProxy::getPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler({ });
 
-    Vector<String> pasteboardTypes;
-    PlatformPasteboard(pasteboardName).getTypes(pasteboardTypes);
-    completionHandler(WTFMove(pasteboardTypes));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        Vector<String> pasteboardTypes;
+        PlatformPasteboard(pasteboardName).getTypes(pasteboardTypes);
+        completionHandler(WTFMove(pasteboardTypes));
+    });
 }
 
-void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType,
-    CompletionHandler<void(Vector<String>&& pathnames, SandboxExtension::HandleArray&& sandboxExtensions)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, std::optional<PageIdentifier> pageID,
+    CompletionHandler<void(Vector<String>&& pathnames, Vector<SandboxExtension::Handle>&& sandboxExtensions)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }, { }));
 
@@ -156,357 +163,530 @@ void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connecti
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler({ }, { });
 
-    Vector<String> pathnames;
-    SandboxExtension::HandleArray sandboxExtensions;
-    if (webProcessProxyForConnection(connection)) {
-        PlatformPasteboard(pasteboardName).getPathnamesForType(pathnames, pasteboardType);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }, { }));
 
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        Vector<String> pathnames;
+        Vector<SandboxExtension::Handle> sandboxExtensions;
+        if (webProcessProxyForConnection(connection)) {
+            PlatformPasteboard(pasteboardName).getPathnamesForType(pathnames, pasteboardType);
+            // On iOS, files are copied into app's container upon paste.
 #if PLATFORM(MAC)
-        // On iOS, files are copied into app's container upon paste.
-        sandboxExtensions.allocate(pathnames.size());
-        for (size_t i = 0; i < pathnames.size(); i++) {
-            auto& filename = pathnames[i];
-            if (![[NSFileManager defaultManager] fileExistsAtPath:filename])
-                continue;
-            SandboxExtension::createHandle(filename, SandboxExtension::Type::ReadOnly, sandboxExtensions[i]);
-        }
+            sandboxExtensions = pathnames.map([](auto& filename) {
+                if (![[NSFileManager defaultManager] fileExistsAtPath:filename])
+                    return SandboxExtension::Handle { };
+
+                return valueOrDefault(SandboxExtension::createHandle(filename, SandboxExtension::Type::ReadOnly));
+            });
 #endif
-    }
-    completionHandler(WTFMove(pathnames), WTFMove(sandboxExtensions));
+        }
+        completionHandler(WTFMove(pathnames), WTFMove(sandboxExtensions));
+    });
 }
 
-void WebPasteboardProxy::getPasteboardStringForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(String&&)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardStringForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, std::optional<PageIdentifier> pageID, CompletionHandler<void(String&&)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }));
 
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).stringForType(pasteboardType));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).stringForType(pasteboardType));
+    });
 }
 
-void WebPasteboardProxy::getPasteboardStringsForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardStringsForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, std::optional<PageIdentifier> pageID, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }));
 
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).allStringsForType(pasteboardType));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).allStringsForType(pasteboardType));
+    });
 }
 
-void WebPasteboardProxy::getPasteboardBufferForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(SharedMemory::Handle&&, uint64_t)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardBufferForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, std::optional<PageIdentifier> pageID, CompletionHandler<void(SharedMemory::IPCHandle&&)>&& completionHandler)
 {
-    MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }, 0));
+    MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }));
 
     if (!canAccessPasteboardData(connection, pasteboardName))
-        return completionHandler({ }, 0);
+        return completionHandler({ });
 
-    RefPtr<SharedBuffer> buffer = PlatformPasteboard(pasteboardName).bufferForType(pasteboardType);
-    if (!buffer)
-        return completionHandler({ }, 0);
-    uint64_t size = buffer->size();
-    if (!size)
-        return completionHandler({ }, 0);
-    RefPtr<SharedMemory> sharedMemoryBuffer = SharedMemory::allocate(size);
-    if (!sharedMemoryBuffer)
-        return completionHandler({ }, 0);
-    memcpy(sharedMemoryBuffer->data(), buffer->data(), size);
-    SharedMemory::Handle handle;
-    sharedMemoryBuffer->createHandle(handle, SharedMemory::Protection::ReadOnly);
-    completionHandler(WTFMove(handle), size);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto buffer = PlatformPasteboard(pasteboardName).bufferForType(pasteboardType);
+        if (!buffer)
+            return completionHandler({ });
+        uint64_t size = buffer->size();
+        if (!size)
+            return completionHandler({ });
+        auto sharedMemoryBuffer = SharedMemory::copyBuffer(*buffer);
+        if (!sharedMemoryBuffer)
+            return completionHandler({ });
+        SharedMemory::Handle handle;
+        if (!sharedMemoryBuffer->createHandle(handle, SharedMemory::Protection::ReadOnly))
+            return completionHandler({ });
+        completionHandler(SharedMemory::IPCHandle { WTFMove(handle), size });
+    });
 }
 
-void WebPasteboardProxy::getPasteboardChangeCount(const String& pasteboardName, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardChangeCount(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
-    completionHandler(PlatformPasteboard(pasteboardName).changeCount());
+    MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
+
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).changeCount());
+    });
 }
 
-void WebPasteboardProxy::getPasteboardColor(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(WebCore::Color&&)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardColor(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(WebCore::Color&&)>&& completionHandler)
 {
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).color());
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).color());
+    });
 }
 
-void WebPasteboardProxy::getPasteboardURL(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(const String&)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardURL(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).url().string());
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).url().string());
+    });
 }
 
-void WebPasteboardProxy::addPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, const Vector<String>& pasteboardTypes, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::addPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, const Vector<String>& pasteboardTypes, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
 
     for (auto& type : pasteboardTypes)
         MESSAGE_CHECK_COMPLETION(!type.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    auto newChangeCount = PlatformPasteboard(pasteboardName).addTypes(pasteboardTypes);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, previousChangeCount);
-    completionHandler(newChangeCount);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        auto newChangeCount = PlatformPasteboard(pasteboardName).addTypes(pasteboardTypes);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::setPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, const Vector<String>& pasteboardTypes, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::setPasteboardTypes(IPC::Connection& connection, const String& pasteboardName, const Vector<String>& pasteboardTypes, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
 
     for (auto& type : pasteboardTypes)
         MESSAGE_CHECK_COMPLETION(!type.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    auto newChangeCount = PlatformPasteboard(pasteboardName).setTypes(pasteboardTypes);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-    completionHandler(newChangeCount);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        auto newChangeCount = PlatformPasteboard(pasteboardName).setTypes(pasteboardTypes);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::setPasteboardURL(IPC::Connection& connection, const PasteboardURL& pasteboardURL, const String& pasteboardName, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::setPasteboardURL(IPC::Connection& connection, const PasteboardURL& pasteboardURL, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
 
-    if (auto* webProcessProxy = webProcessProxyForConnection(connection)) {
-        if (!webProcessProxy->checkURLReceivedFromWebProcess(pasteboardURL.url.string()))
-            return completionHandler(0);
+    auto* process = webProcessProxyForConnection(connection);
+    MESSAGE_CHECK_COMPLETION(process, completionHandler(0));
 
+    if (!pasteboardURL.url.isValid())
+        return completionHandler(0);
+
+    if (!process->checkURLReceivedFromWebProcess(pasteboardURL.url.string(), CheckBackForwardList::No))
+        return completionHandler(0);
+
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
         auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
         auto newChangeCount = PlatformPasteboard(pasteboardName).setURL(pasteboardURL);
         didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-        return completionHandler(newChangeCount);
-    }
-    completionHandler(0);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::setPasteboardColor(IPC::Connection& connection, const String& pasteboardName, const WebCore::Color& color, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::setPasteboardColor(IPC::Connection& connection, const String& pasteboardName, const WebCore::Color& color, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    auto newChangeCount = PlatformPasteboard(pasteboardName).setColor(color);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-    completionHandler(newChangeCount);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        auto newChangeCount = PlatformPasteboard(pasteboardName).setColor(color);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::setPasteboardStringForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, const String& string, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::setPasteboardStringForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, const String& string, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    auto newChangeCount = PlatformPasteboard(pasteboardName).setStringForType(string, pasteboardType);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-    completionHandler(newChangeCount);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        auto newChangeCount = PlatformPasteboard(pasteboardName).setStringForType(string, pasteboardType);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::containsURLStringSuitableForLoading(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(bool)>&& completionHandler)
+void WebPasteboardProxy::containsURLStringSuitableForLoading(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(bool)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler(false);
 
-    completionHandler(PlatformPasteboard(pasteboardName).containsURLStringSuitableForLoading());
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(false));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).containsURLStringSuitableForLoading());
+    });
 }
 
-void WebPasteboardProxy::urlStringSuitableForLoading(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(String&& url, String&& title)>&& completionHandler)
+void WebPasteboardProxy::urlStringSuitableForLoading(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(String&& url, String&& title)>&& completionHandler)
 {
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ }, { });
 
-    String title;
-    auto urlString = PlatformPasteboard(pasteboardName).urlStringSuitableForLoading(title);
-    completionHandler(WTFMove(urlString), WTFMove(title));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }, { }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        String title;
+        auto urlString = PlatformPasteboard(pasteboardName).urlStringSuitableForLoading(title);
+        completionHandler(WTFMove(urlString), WTFMove(title));
+    });
 }
 
-void WebPasteboardProxy::setPasteboardBufferForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, const SharedMemory::Handle& handle, uint64_t size, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::setPasteboardBufferForType(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, const SharedMemory::IPCHandle& ipcHandle, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    if (handle.isNull()) {
-        auto newChangeCount = PlatformPasteboard(pasteboardName).setBufferForType(nullptr, pasteboardType);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        if (ipcHandle.handle.isNull()) {
+            auto newChangeCount = PlatformPasteboard(pasteboardName).setBufferForType(nullptr, pasteboardType);
+            didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+            return completionHandler(newChangeCount);
+        }
+
+        auto sharedMemoryBuffer = SharedMemory::map(ipcHandle.handle, SharedMemory::Protection::ReadOnly);
+        if (!sharedMemoryBuffer)
+            return completionHandler(0);
+        auto buffer = sharedMemoryBuffer->createSharedBuffer(ipcHandle.dataSize);
+        auto newChangeCount = PlatformPasteboard(pasteboardName).setBufferForType(buffer.ptr(), pasteboardType);
         didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-        return completionHandler(newChangeCount);
-    }
-
-    // SharedMemory::Handle::size() is rounded up to the nearest page.
-    MESSAGE_CHECK_COMPLETION(size <= handle.size(), completionHandler(0));
-
-    RefPtr<SharedMemory> sharedMemoryBuffer = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
-    if (!sharedMemoryBuffer)
-        return completionHandler(0);
-    auto buffer = SharedBuffer::create(static_cast<unsigned char *>(sharedMemoryBuffer->data()), static_cast<size_t>(size));
-    auto newChangeCount = PlatformPasteboard(pasteboardName).setBufferForType(buffer.ptr(), pasteboardType);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-    completionHandler(newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::getNumberOfFiles(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(uint64_t)>&& completionHandler)
+void WebPasteboardProxy::getNumberOfFiles(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler(0);
 
-    completionHandler(PlatformPasteboard(pasteboardName).numberOfFiles());
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).numberOfFiles());
+    });
 }
 
-void WebPasteboardProxy::typesSafeForDOMToReadAndWrite(IPC::Connection& connection, const String& pasteboardName, const String& origin, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void WebPasteboardProxy::typesSafeForDOMToReadAndWrite(IPC::Connection& connection, const String& pasteboardName, const String& origin, std::optional<PageIdentifier> pageID, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!origin.isNull(), completionHandler({ }));
 
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).typesSafeForDOMToReadAndWrite(origin));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).typesSafeForDOMToReadAndWrite(origin));
+    });
 }
 
-void WebPasteboardProxy::writeCustomData(IPC::Connection& connection, const Vector<PasteboardCustomData>& data, const String& pasteboardName, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::writeCustomData(IPC::Connection& connection, const Vector<PasteboardCustomData>& data, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(0));
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    auto newChangeCount = PlatformPasteboard(pasteboardName).write(data);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
-    completionHandler(newChangeCount);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        auto newChangeCount = PlatformPasteboard(pasteboardName).write(data);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, newChangeCount);
+        completionHandler(newChangeCount);
+    });
 }
 
-void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection& connection, const String& pasteboardName, int64_t changeCount, CompletionHandler<void(Optional<Vector<PasteboardItemInfo>>&&)>&& completionHandler)
+void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection& connection, const String& pasteboardName, int64_t changeCount, std::optional<PageIdentifier> pageID, CompletionHandler<void(std::optional<Vector<PasteboardItemInfo>>&&)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).allPasteboardItemInfo(changeCount));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).allPasteboardItemInfo(changeCount));
+    });
 }
 
-void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection& connection, size_t index, const String& pasteboardName, int64_t changeCount, CompletionHandler<void(Optional<PasteboardItemInfo>&&)>&& completionHandler)
+void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection& connection, size_t index, const String& pasteboardName, int64_t changeCount, std::optional<PageIdentifier> pageID, CompletionHandler<void(std::optional<PasteboardItemInfo>&&)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
-        return completionHandler(WTF::nullopt);
+        return completionHandler(std::nullopt);
 
-    completionHandler(PlatformPasteboard(pasteboardName).informationForItemAtIndex(index, changeCount));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(std::nullopt));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).informationForItemAtIndex(index, changeCount));
+    });
 }
 
-void WebPasteboardProxy::getPasteboardItemsCount(IPC::Connection& connection, const String& pasteboardName, CompletionHandler<void(uint64_t)>&& completionHandler)
+void WebPasteboardProxy::getPasteboardItemsCount(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler(0);
 
-    completionHandler(PlatformPasteboard(pasteboardName).count());
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(0));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).count());
+    });
 }
 
-void WebPasteboardProxy::readStringFromPasteboard(IPC::Connection& connection, size_t index, const String& pasteboardType, const String& pasteboardName, CompletionHandler<void(String&&)>&& completionHandler)
+void WebPasteboardProxy::readStringFromPasteboard(IPC::Connection& connection, size_t index, const String& pasteboardType, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(String&&)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }));
 
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ });
 
-    completionHandler(PlatformPasteboard(pasteboardName).readString(index, pasteboardType));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).readString(index, pasteboardType));
+    });
 }
 
-void WebPasteboardProxy::readURLFromPasteboard(IPC::Connection& connection, size_t index, const String& pasteboardName, CompletionHandler<void(String&& url, String&& title)>&& completionHandler)
+void WebPasteboardProxy::readURLFromPasteboard(IPC::Connection& connection, size_t index, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(String&& url, String&& title)>&& completionHandler)
 {
     if (!canAccessPasteboardData(connection, pasteboardName))
         return completionHandler({ }, { });
 
-    String title;
-    String url = PlatformPasteboard(pasteboardName).readURL(index, title).string();
-    completionHandler(WTFMove(url), WTFMove(title));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }, { }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        String title;
+        String url = PlatformPasteboard(pasteboardName).readURL(index, title).string();
+        completionHandler(WTFMove(url), WTFMove(title));
+    });
 }
 
-void WebPasteboardProxy::readBufferFromPasteboard(IPC::Connection& connection, size_t index, const String& pasteboardType, const String& pasteboardName, CompletionHandler<void(SharedMemory::Handle&&, uint64_t size)>&& completionHandler)
+void WebPasteboardProxy::readBufferFromPasteboard(IPC::Connection& connection, std::optional<size_t> index, const String& pasteboardType, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(SharedMemory::IPCHandle&&)>&& completionHandler)
 {
-    MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }, 0));
+    MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler({ }));
 
     if (!canAccessPasteboardData(connection, pasteboardName))
-        return completionHandler({ }, 0);
+        return completionHandler({ });
 
-    RefPtr<SharedBuffer> buffer = PlatformPasteboard(pasteboardName).readBuffer(index, pasteboardType);
-    if (!buffer)
-        return completionHandler({ }, 0);
-    uint64_t size = buffer->size();
-    if (!size)
-        return completionHandler({ }, 0);
-    RefPtr<SharedMemory> sharedMemoryBuffer = SharedMemory::allocate(size);
-    if (!sharedMemoryBuffer)
-        return completionHandler({ }, 0);
-    memcpy(sharedMemoryBuffer->data(), buffer->data(), size);
-    SharedMemory::Handle handle;
-    sharedMemoryBuffer->createHandle(handle, SharedMemory::Protection::ReadOnly);
-    completionHandler(WTFMove(handle), size);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler({ }));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto buffer = PlatformPasteboard(pasteboardName).readBuffer(index, pasteboardType);
+        if (!buffer)
+            return completionHandler({ });
+        uint64_t size = buffer->size();
+        if (!size)
+            return completionHandler({ });
+        auto sharedMemoryBuffer = SharedMemory::copyBuffer(*buffer);
+        if (!sharedMemoryBuffer)
+            return completionHandler({ });
+        SharedMemory::Handle handle;
+        if (!sharedMemoryBuffer->createHandle(handle, SharedMemory::Protection::ReadOnly))
+            return completionHandler({ });
+        completionHandler(SharedMemory::IPCHandle { WTFMove(handle), size });
+    });
 }
 
-void WebPasteboardProxy::containsStringSafeForDOMToReadForType(IPC::Connection& connection, const String& type, const String& pasteboardName, CompletionHandler<void(bool)>&& completionHandler)
+void WebPasteboardProxy::containsStringSafeForDOMToReadForType(IPC::Connection& connection, const String& type, const String& pasteboardName, std::optional<PageIdentifier> pageID, CompletionHandler<void(bool)>&& completionHandler)
 {
     if (!canAccessPasteboardTypes(connection, pasteboardName))
         return completionHandler(false);
 
-    completionHandler(PlatformPasteboard(pasteboardName).containsStringSafeForDOMToReadForType(type));
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Read);
+    MESSAGE_CHECK_COMPLETION(dataOwner, completionHandler(false));
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        completionHandler(PlatformPasteboard(pasteboardName).containsStringSafeForDOMToReadForType(type));
+    });
 }
 
 #if PLATFORM(IOS_FAMILY)
 
-void WebPasteboardProxy::writeURLToPasteboard(IPC::Connection& connection, const PasteboardURL& url, const String& pasteboardName)
+void WebPasteboardProxy::writeURLToPasteboard(IPC::Connection& connection, const PasteboardURL& url, const String& pasteboardName, std::optional<PageIdentifier> pageID)
 {
     MESSAGE_CHECK(!pasteboardName.isEmpty());
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    PlatformPasteboard(pasteboardName).write(url);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
-    if (auto process = webProcessProxyForConnection(connection))
-        process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK(dataOwner);
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        PlatformPasteboard(pasteboardName).write(url);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
+        if (auto process = webProcessProxyForConnection(connection))
+            process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    });
 }
 
-void WebPasteboardProxy::writeWebContentToPasteboard(IPC::Connection& connection, const WebCore::PasteboardWebContent& content, const String& pasteboardName)
+void WebPasteboardProxy::writeWebContentToPasteboard(IPC::Connection& connection, const WebCore::PasteboardWebContent& content, const String& pasteboardName, std::optional<PageIdentifier> pageID)
 {
     MESSAGE_CHECK(!pasteboardName.isEmpty());
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    PlatformPasteboard(pasteboardName).write(content);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
-    if (auto process = webProcessProxyForConnection(connection))
-        process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK(dataOwner);
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        PlatformPasteboard(pasteboardName).write(content);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
+        if (auto process = webProcessProxyForConnection(connection))
+            process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    });
 }
 
-void WebPasteboardProxy::writeImageToPasteboard(IPC::Connection& connection, const WebCore::PasteboardImage& pasteboardImage, const String& pasteboardName)
+void WebPasteboardProxy::writeImageToPasteboard(IPC::Connection& connection, const WebCore::PasteboardImage& pasteboardImage, const String& pasteboardName, std::optional<PageIdentifier> pageID)
 {
     MESSAGE_CHECK(!pasteboardName.isEmpty());
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    PlatformPasteboard(pasteboardName).write(pasteboardImage);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
-    if (auto process = webProcessProxyForConnection(connection))
-        process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK(dataOwner);
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        PlatformPasteboard(pasteboardName).write(pasteboardImage);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
+        if (auto process = webProcessProxyForConnection(connection))
+            process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    });
 }
 
-void WebPasteboardProxy::writeStringToPasteboard(IPC::Connection& connection, const String& pasteboardType, const String& text, const String& pasteboardName)
+void WebPasteboardProxy::writeStringToPasteboard(IPC::Connection& connection, const String& pasteboardType, const String& text, const String& pasteboardName, std::optional<PageIdentifier> pageID)
 {
     MESSAGE_CHECK(!pasteboardName.isEmpty());
     MESSAGE_CHECK(!pasteboardType.isEmpty() || text.isEmpty());
 
-    auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
-    PlatformPasteboard(pasteboardName).write(pasteboardType, text);
-    didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
-    if (auto process = webProcessProxyForConnection(connection))
-        process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    auto dataOwner = determineDataOwner(connection, pasteboardName, pageID, PasteboardAccessIntent::Write);
+    MESSAGE_CHECK(dataOwner);
+
+    PlatformPasteboard::performAsDataOwner(*dataOwner, [&] {
+        auto previousChangeCount = PlatformPasteboard(pasteboardName).changeCount();
+        PlatformPasteboard(pasteboardName).write(pasteboardType, text);
+        didModifyContentsOfPasteboard(connection, pasteboardName, previousChangeCount, PlatformPasteboard(pasteboardName).changeCount());
+        if (auto process = webProcessProxyForConnection(connection))
+            process->send(Messages::WebProcess::DidWriteToPasteboardAsynchronously(pasteboardName), 0);
+    });
 }
 
-void WebPasteboardProxy::updateSupportedTypeIdentifiers(const Vector<String>& identifiers, const String& pasteboardName)
+void WebPasteboardProxy::updateSupportedTypeIdentifiers(const Vector<String>& identifiers, const String& pasteboardName, std::optional<PageIdentifier>)
 {
     PlatformPasteboard(pasteboardName).updateSupportedTypeIdentifiers(identifiers);
 }
 
 #endif // PLATFORM(IOS_FAMILY)
 
+std::optional<DataOwnerType> WebPasteboardProxy::determineDataOwner(IPC::Connection& connection, const String& pasteboardName, std::optional<PageIdentifier> pageID, PasteboardAccessIntent intent) const
+{
+    MESSAGE_CHECK_WITH_RETURN_VALUE(!pasteboardName.isEmpty(), std::nullopt);
+
+    auto* process = webProcessProxyForConnection(connection);
+    MESSAGE_CHECK_WITH_RETURN_VALUE(process, std::nullopt);
+
+    if (!pageID)
+        return DataOwnerType::Undefined;
+
+#if HAVE(PASTEBOARD_DATA_OWNER)
+    std::optional<DataOwnerType> result;
+    for (auto* page : process->pages()) {
+        if (page->webPageID() == *pageID) {
+            result = page->dataOwnerForPasteboard(intent);
+            break;
+        }
+    }
+    // If this message check is hit, then the incoming web page ID doesn't correspond to any page
+    // currently known to the UI process.
+    MESSAGE_CHECK_WITH_RETURN_VALUE(result.has_value(), std::nullopt);
+    return result;
+#else
+    UNUSED_PARAM(intent);
+    return DataOwnerType::Undefined;
+#endif
+}
+
 void WebPasteboardProxy::PasteboardAccessInformation::grantAccess(WebProcessProxy& process, PasteboardAccessType type)
 {
-    auto matchIndex = processes.findMatching([&](auto& processAndType) {
+    auto matchIndex = processes.findIf([&](auto& processAndType) {
         return processAndType.first == &process;
     });
 
     if (matchIndex == notFound) {
-        processes.append({ makeWeakPtr(process), type });
+        processes.append({ process, type });
         return;
     }
 
@@ -525,14 +705,14 @@ void WebPasteboardProxy::PasteboardAccessInformation::revokeAccess(WebProcessPro
     });
 }
 
-Optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::PasteboardAccessInformation::accessType(WebProcessProxy& process) const
+std::optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::PasteboardAccessInformation::accessType(WebProcessProxy& process) const
 {
-    auto matchIndex = processes.findMatching([&](auto& processAndType) {
+    auto matchIndex = processes.findIf([&](auto& processAndType) {
         return processAndType.first == &process;
     });
 
     if (matchIndex == notFound)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return processes[matchIndex].second;
 }

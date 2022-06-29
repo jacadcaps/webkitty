@@ -45,7 +45,7 @@ class RenderView;
 #if ENABLE(LAYOUT_FORMATTING_CONTEXT)
 namespace Layout {
 class LayoutState;
-class LayoutTreeContent;
+class LayoutTree;
 }
 #endif
     
@@ -118,9 +118,6 @@ public:
 
 #if ENABLE(LAYOUT_FORMATTING_CONTEXT)
     const Layout::LayoutState* layoutFormattingState() const { return m_layoutState.get(); }
-    Layout::LayoutTreeContent* layoutTreeContent() const { return m_layoutTreeContent.get(); }
-    void invalidateLayoutTreeContent();
-    void invalidateLayoutState();
 #endif
 
 private:
@@ -191,8 +188,8 @@ private:
     unsigned m_paintOffsetCacheDisableCount { 0 };
     LayoutStateStack m_layoutStateStack;
 #if ENABLE(LAYOUT_FORMATTING_CONTEXT)
+    std::unique_ptr<Layout::LayoutTree> m_layoutTree;
     std::unique_ptr<Layout::LayoutState> m_layoutState;
-    std::unique_ptr<Layout::LayoutTreeContent> m_layoutTreeContent;
 #endif
 };
 

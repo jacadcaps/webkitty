@@ -28,14 +28,27 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#import <WebCore/UserVerificationRequirement.h>
+
 namespace WebKit {
 using namespace WebCore;
 
-ClientDataType getClientDataType(const Variant<PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions>& options)
+ClientDataType getClientDataType(const std::variant<PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions>& options)
 {
-    if (WTF::holds_alternative<PublicKeyCredentialCreationOptions>(options))
+    if (std::holds_alternative<PublicKeyCredentialCreationOptions>(options))
         return ClientDataType::Create;
     return ClientDataType::Get;
+}
+
+UserVerificationRequirement getUserVerificationRequirement(const std::variant<PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions>& options)
+{
+    if (std::holds_alternative<PublicKeyCredentialCreationOptions>(options)) {
+        if (auto authenticatorSelection = std::get<PublicKeyCredentialCreationOptions>(options).authenticatorSelection)
+            return authenticatorSelection->userVerification;
+        return UserVerificationRequirement::Preferred;
+    }
+
+    return std::get<PublicKeyCredentialRequestOptions>(options).userVerification;
 }
 
 } // namespace WebKit

@@ -27,7 +27,7 @@
 #include "WebEditorClient.h"
 
 #include "EditorState.h"
-#include "SharedBufferDataReference.h"
+#include "SharedBufferCopy.h"
 #include "UndoOrRedo.h"
 #include "WKBundlePageEditorClient.h"
 #include "WebCoreArgumentCoders.h"
@@ -69,13 +69,7 @@ namespace WebKit {
 using namespace WebCore;
 using namespace HTMLNames;
 
-static uint64_t generateTextCheckingRequestID()
-{
-    static uint64_t uniqueTextCheckingRequestID = 1;
-    return uniqueTextCheckingRequestID++;
-}
-
-bool WebEditorClient::shouldDeleteRange(const Optional<SimpleRange>& range)
+bool WebEditorClient::shouldDeleteRange(const std::optional<SimpleRange>& range)
 {
     return m_page->injectedBundleEditorClient().shouldDeleteRange(*m_page, range);
 }
@@ -126,31 +120,31 @@ bool WebEditorClient::shouldEndEditing(const SimpleRange& range)
     return m_page->injectedBundleEditorClient().shouldEndEditing(*m_page, range);
 }
 
-bool WebEditorClient::shouldInsertNode(Node& node, const Optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
+bool WebEditorClient::shouldInsertNode(Node& node, const std::optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
 {
     return m_page->injectedBundleEditorClient().shouldInsertNode(*m_page, node, rangeToReplace, action);
 }
 
-bool WebEditorClient::shouldInsertText(const String& text, const Optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
+bool WebEditorClient::shouldInsertText(const String& text, const std::optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
 {
     return m_page->injectedBundleEditorClient().shouldInsertText(*m_page, text, rangeToReplace, action);
 }
 
-bool WebEditorClient::shouldChangeSelectedRange(const Optional<SimpleRange>& fromRange, const Optional<SimpleRange>& toRange, EAffinity affinity, bool stillSelecting)
+bool WebEditorClient::shouldChangeSelectedRange(const std::optional<SimpleRange>& fromRange, const std::optional<SimpleRange>& toRange, Affinity affinity, bool stillSelecting)
 {
     return m_page->injectedBundleEditorClient().shouldChangeSelectedRange(*m_page, fromRange, toRange, affinity, stillSelecting);
 }
     
-bool WebEditorClient::shouldApplyStyle(const StyleProperties& style, const Optional<SimpleRange>& range)
+bool WebEditorClient::shouldApplyStyle(const StyleProperties& style, const std::optional<SimpleRange>& range)
 {
     return m_page->injectedBundleEditorClient().shouldApplyStyle(*m_page, style, range);
 }
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 
-void WebEditorClient::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& preferredFileName, Ref<SharedBuffer>&& data)
+void WebEditorClient::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& preferredFileName, Ref<FragmentedSharedBuffer>&& data)
 {
-    m_page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromData(identifier, contentType, preferredFileName, data.get()));
+    m_page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromData(identifier, contentType, preferredFileName, IPC::SharedBufferCopy(WTFMove(data))));
 }
 
 void WebEditorClient::registerAttachments(Vector<WebCore::SerializedAttachmentData>&& data)
@@ -266,12 +260,12 @@ void WebEditorClient::didWriteSelectionToPasteboard()
     m_page->injectedBundleEditorClient().didWriteToPasteboard(*m_page);
 }
 
-void WebEditorClient::willWriteSelectionToPasteboard(const Optional<SimpleRange>& range)
+void WebEditorClient::willWriteSelectionToPasteboard(const std::optional<SimpleRange>& range)
 {
     m_page->injectedBundleEditorClient().willWriteToPasteboard(*m_page, range);
 }
 
-void WebEditorClient::getClientPasteboardData(const Optional<SimpleRange>& range, Vector<String>& pasteboardTypes, Vector<RefPtr<SharedBuffer>>& pasteboardData)
+void WebEditorClient::getClientPasteboardData(const std::optional<SimpleRange>& range, Vector<String>& pasteboardTypes, Vector<RefPtr<SharedBuffer>>& pasteboardData)
 {
     m_page->injectedBundleEditorClient().getPasteboardDataForRange(*m_page, range, pasteboardTypes, pasteboardData);
 }
@@ -338,9 +332,9 @@ void WebEditorClient::redo()
     m_page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Redo), Messages::WebPageProxy::ExecuteUndoRedo::Reply());
 }
 
-WebCore::DOMPasteAccessResponse WebEditorClient::requestDOMPasteAccess(const String& originIdentifier)
+WebCore::DOMPasteAccessResponse WebEditorClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, const String& originIdentifier)
 {
-    return m_page->requestDOMPasteAccess(originIdentifier);
+    return m_page->requestDOMPasteAccess(pasteAccessCategory, originIdentifier);
 }
 
 #if !PLATFORM(COCOA) && !USE(GLIB)
@@ -581,10 +575,20 @@ void WebEditorClient::getGuessesForWord(const String& word, const String& contex
 
 void WebEditorClient::requestCheckingOfString(TextCheckingRequest& request, const WebCore::VisibleSelection& currentSelection)
 {
-    uint64_t requestID = generateTextCheckingRequestID();
+    auto requestID = TextCheckerRequestID::generate();
     m_page->addTextCheckingRequest(requestID, request);
 
     m_page->send(Messages::WebPageProxy::RequestCheckingOfString(requestID, request.data(), insertionPointFromCurrentSelection(currentSelection)));
+}
+
+void WebEditorClient::willChangeSelectionForAccessibility()
+{
+    m_page->willChangeSelectionForAccessibility();
+}
+
+void WebEditorClient::didChangeSelectionForAccessibility()
+{
+    m_page->didChangeSelectionForAccessibility();
 }
 
 void WebEditorClient::willSetInputMethodState()

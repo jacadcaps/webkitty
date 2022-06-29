@@ -30,9 +30,31 @@
 
 #import "AccessibilitySupportSPI.h"
 #import "WKFullKeyboardAccessWatcher.h"
+#import "WKMouseDeviceObserver.h"
+#import "WKStylusDeviceObserver.h"
 #import "WebProcessMessages.h"
 
 namespace WebKit {
+
+void WebProcessProxy::platformInitialize()
+{
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    [[WKMouseDeviceObserver sharedInstance] start];
+#endif
+#if HAVE(STYLUS_DEVICE_OBSERVATION)
+    [[WKStylusDeviceObserver sharedInstance] start];
+#endif
+}
+
+void WebProcessProxy::platformDestroy()
+{
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    [[WKMouseDeviceObserver sharedInstance] stop];
+#endif
+#if HAVE(STYLUS_DEVICE_OBSERVATION)
+    [[WKStylusDeviceObserver sharedInstance] stop];
+#endif
+}
 
 bool WebProcessProxy::fullKeyboardAccessEnabled()
 {

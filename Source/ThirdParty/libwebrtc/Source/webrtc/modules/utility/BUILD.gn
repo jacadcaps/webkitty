@@ -26,11 +26,12 @@ rtc_library("utility") {
   }
 
   if (is_ios) {
-    libs = [ "AVFoundation.framework" ]
+    frameworks = [ "AVFoundation.framework" ]
   }
 
   deps = [
     "..:module_api",
+    "../../api:sequence_checker",
     "../../api/task_queue",
     "../../common_audio",
     "../../rtc_base:checks",

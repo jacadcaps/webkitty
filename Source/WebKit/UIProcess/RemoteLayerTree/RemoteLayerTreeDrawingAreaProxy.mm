@@ -34,9 +34,11 @@
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
 #import <QuartzCore/QuartzCore.h>
+#import <WebCore/AnimationFrameRate.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/IOSurfacePool.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/SystemTracing.h>
 
@@ -67,6 +69,19 @@
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
         _displayLink.paused = YES;
         _displayLink.preferredFramesPerSecond = 60;
+
+        if (drawingAreaProxy) {
+            auto& page = drawingAreaProxy->page();
+            if (page.preferences().webAnimationsCustomFrameRateEnabled()) {
+                auto minimumRefreshInterval = _displayLink.maximumRefreshRate;
+                if (minimumRefreshInterval > 0) {
+                    if (auto displayId = page.displayId()) {
+                        WebCore::FramesPerSecond frameRate = std::round(1.0 / minimumRefreshInterval);
+                        page.windowScreenDidChange(*displayId, frameRate);
+                    }
+                }
+            }
+        }
     }
     return self;
 }
@@ -112,7 +127,7 @@ using namespace IPC;
 using namespace WebCore;
 
 RemoteLayerTreeDrawingAreaProxy::RemoteLayerTreeDrawingAreaProxy(WebPageProxy& webPageProxy, WebProcessProxy& process)
-    : DrawingAreaProxy(DrawingAreaTypeRemoteLayerTree, webPageProxy, process)
+    : DrawingAreaProxy(DrawingAreaType::RemoteLayerTree, webPageProxy, process)
     , m_remoteLayerTreeHost(makeUnique<RemoteLayerTreeHost>(*this))
 {
     // We don't want to pool surfaces in the UI process.
@@ -212,8 +227,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(const RemoteLayerTreeTrans
     m_transactionIDForPendingCACommit = layerTreeTransaction.transactionID();
     m_activityStateChangeID = layerTreeTransaction.activityStateChangeID();
 
-    if (layerTreeTransaction.hasEditorState())
-        m_webPageProxy.updateEditorState(layerTreeTransaction.editorState());
+    bool didUpdateEditorState = layerTreeTransaction.hasEditorState() && m_webPageProxy.updateEditorState(layerTreeTransaction.editorState());
 
     if (m_remoteLayerTreeHost->updateLayerTree(layerTreeTransaction)) {
         if (layerTreeTransaction.transactionID() >= m_transactionIDForUnhidingContent)
@@ -223,8 +237,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(const RemoteLayerTreeTrans
     }
 
 #if ENABLE(ASYNC_SCROLLING)
-    RemoteScrollingCoordinatorProxy::RequestedScrollInfo requestedScrollInfo;
-    m_webPageProxy.scrollingCoordinatorProxy()->commitScrollingTreeState(scrollingTreeTransaction, requestedScrollInfo);
+    auto requestedScroll = m_webPageProxy.scrollingCoordinatorProxy()->commitScrollingTreeState(scrollingTreeTransaction);
 #endif
 
     m_webPageProxy.didCommitLayerTree(layerTreeTransaction);
@@ -237,8 +250,8 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(const RemoteLayerTreeTrans
 
     // Handle requested scroll position updates from the scrolling tree transaction after didCommitLayerTree()
     // has updated the view size based on the content size.
-    if (requestedScrollInfo.requestsScrollPositionUpdate)
-        m_webPageProxy.requestScroll(requestedScrollInfo.requestedScrollPosition, layerTreeTransaction.scrollOrigin());
+    if (requestedScroll)
+        m_webPageProxy.requestScroll(requestedScroll->scrollPosition, layerTreeTransaction.scrollOrigin(), requestedScroll->animated);
 #endif // ENABLE(ASYNC_SCROLLING)
 
     if (m_debugIndicatorLayerTreeHost) {
@@ -263,7 +276,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(const RemoteLayerTreeTrans
     didRefreshDisplay();
 #endif
 
-    if (layerTreeTransaction.hasEditorState())
+    if (didUpdateEditorState)
         m_webPageProxy.dispatchDidUpdateEditorState();
 
     if (auto milestones = layerTreeTransaction.newlyReachedPaintingMilestones())
@@ -503,14 +516,15 @@ bool RemoteLayerTreeDrawingAreaProxy::hasVisibleContent() const
     return m_remoteLayerTreeHost->rootLayer();
 }
 
-bool RemoteLayerTreeDrawingAreaProxy::isAlwaysOnLoggingAllowed() const
-{
-    return m_webPageProxy.isAlwaysOnLoggingAllowed();
-}
-
 CALayer *RemoteLayerTreeDrawingAreaProxy::layerWithIDForTesting(uint64_t layerID) const
 {
     return m_remoteLayerTreeHost->layerWithIDForTesting(layerID);
+}
+
+void RemoteLayerTreeDrawingAreaProxy::windowKindDidChange()
+{
+    if (m_webPageProxy.windowKind() == WindowKind::InProcessSnapshotting)
+        m_remoteLayerTreeHost->mapAllIOSurfaceBackingStore();
 }
 
 } // namespace WebKit

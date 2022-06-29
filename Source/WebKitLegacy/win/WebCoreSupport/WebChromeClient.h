@@ -85,7 +85,7 @@ public:
     bool canRunBeforeUnloadConfirmPanel() final;
     bool runBeforeUnloadConfirmPanel(const WTF::String& message, WebCore::Frame&) final;
 
-    void closeWindowSoon() final;
+    void closeWindow() final;
 
     void runJavaScriptAlert(WebCore::Frame&, const WTF::String&) final;
     bool runJavaScriptConfirm(WebCore::Frame&, const WTF::String&) final;
@@ -93,6 +93,11 @@ public:
     void setStatusbarText(const WTF::String&) final;
 
     WebCore::KeyboardUIMode keyboardUIMode() final;
+
+    bool hoverSupportedByPrimaryPointingDevice() const final { return true; }
+    bool hoverSupportedByAnyAvailablePointingDevice() const final { return true; }
+    std::optional<WebCore::PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const final { return WebCore::PointerCharacteristics::Fine; }
+    OptionSet<WebCore::PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const final { return WebCore::PointerCharacteristics::Fine; }
 
     void invalidateRootView(const WebCore::IntRect&) final;
     void invalidateContentsAndRootView(const WebCore::IntRect&) final;
@@ -111,7 +116,7 @@ public:
     bool shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
     void unavailablePluginButtonClicked(WebCore::Element&, WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
 
-    void print(WebCore::Frame&) final;
+    void print(WebCore::Frame&, const WebCore::StringWithDirection&) final;
 
     void exceededDatabaseQuota(WebCore::Frame&, const WTF::String&, WebCore::DatabaseDetails) final;
 
@@ -133,18 +138,19 @@ public:
     void setNeedsOneShotDrawingSynchronization() final { }
     // Sets a flag to specify that the view needs to be updated, so we need
     // to do an eager layout before the drawing.
-    void scheduleRenderingUpdate() final;
+    void triggerRenderingUpdate() final;
 
 #if PLATFORM(WIN) && USE(AVFOUNDATION)
     WebCore::GraphicsDeviceAdapter* graphicsDeviceAdapter() const final;
 #endif
 
-    void scrollRectIntoView(const WebCore::IntRect&) const final { }
+    void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final { }
+    void scrollMainFrameToRevealRect(const WebCore::IntRect&) const final { }
 
 #if ENABLE(VIDEO)
     bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;
     void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool) final;
-    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&) final;
+    void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WTF::CompletionHandler<void(bool)>&& = [](bool) { }) final;
 #endif
 
 #if ENABLE(NOTIFICATIONS)
@@ -164,6 +170,8 @@ public:
 
     void wheelEventHandlersChanged(bool) final { }
 
+    void setTextIndicator(const WebCore::TextIndicatorData&) const final { }
+
     WebView* webView() { return m_webView; }
 
     void AXStartFrameLoad() final;
@@ -174,6 +182,12 @@ public:
     RefPtr<WebCore::Icon> createIconForFiles(const Vector<String>&) final;
 
     void didFinishLoadingImageForElement(WebCore::HTMLImageElement&) final;
+
+    void requestCookieConsent(CompletionHandler<void(WebCore::CookieConsentDecisionResult)>&&);
+
+    void classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<WebCore::ModalContainerControlType>&&)>&&) final;
+
+    void decidePolicyForModalContainer(OptionSet<WebCore::ModalContainerControlType>, CompletionHandler<void(WebCore::ModalContainerDecision)>&&) final;
 
 private:
     COMPtr<IWebUIDelegate> uiDelegate();

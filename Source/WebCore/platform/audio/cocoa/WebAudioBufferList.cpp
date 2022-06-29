@@ -27,10 +27,11 @@
 #include "WebAudioBufferList.h"
 
 #include "CAAudioStreamDescription.h"
+#include <wtf/CheckedArithmetic.h>
+
 #include <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
-using namespace PAL;
 
 WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format)
     : m_bytesPerFrame(format.bytesPerFrame())
@@ -40,10 +41,9 @@ WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format)
     // with a custom size, and initialize the struct manually.
     uint32_t bufferCount = format.numberOfChannelStreams();
 
-    uint64_t bufferListSize = offsetof(AudioBufferList, mBuffers) + (sizeof(AudioBuffer) * std::max(1U, bufferCount));
-    ASSERT(bufferListSize <= SIZE_MAX);
-
-    m_listBufferSize = static_cast<size_t>(bufferListSize);
+    CheckedSize bufferListSize = offsetof(AudioBufferList, mBuffers);
+    bufferListSize += CheckedSize { sizeof(AudioBuffer) } * std::max(1U, bufferCount);
+    m_listBufferSize = bufferListSize;
     m_canonicalList = std::unique_ptr<AudioBufferList>(static_cast<AudioBufferList*>(::operator new (m_listBufferSize)));
     memset(m_canonicalList.get(), 0, m_listBufferSize);
     m_canonicalList->mNumberBuffers = bufferCount;
@@ -59,20 +59,50 @@ WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format, u
     setSampleCount(sampleCount);
 }
 
+static inline std::optional<std::pair<size_t, size_t>> computeBufferSizes(uint32_t numberOfInterleavedChannels, uint32_t bytesPerFrame, uint32_t numberOfChannelStreams, uint32_t sampleCount)
+{
+    size_t totalSampleCount;
+    bool result = WTF::safeMultiply(sampleCount, numberOfInterleavedChannels, totalSampleCount);
+    if (!result)
+        return { };
+
+    size_t bytesPerBuffer;
+    result = WTF::safeMultiply(bytesPerFrame, totalSampleCount, bytesPerBuffer);
+    if (!result)
+        return { };
+
+    size_t flatBufferSize;
+    result = WTF::safeMultiply(numberOfChannelStreams, bytesPerBuffer, flatBufferSize);
+    if (!result)
+        return { };
+
+    return std::make_pair(bytesPerBuffer, flatBufferSize);
+}
+
+bool WebAudioBufferList::isSupportedDescription(const CAAudioStreamDescription& format, uint32_t sampleCount)
+{
+    return !!computeBufferSizes(format.numberOfInterleavedChannels(), format.bytesPerFrame(), format.numberOfChannelStreams(), sampleCount);
+}
+
 void WebAudioBufferList::setSampleCount(uint32_t sampleCount)
 {
     if (!sampleCount || m_sampleCount == sampleCount)
         return;
 
+    auto bufferSizes = computeBufferSizes(m_channelCount, m_bytesPerFrame, m_canonicalList->mNumberBuffers, sampleCount);
+    ASSERT(bufferSizes);
+    if (!bufferSizes)
+        return;
+
     m_sampleCount = sampleCount;
-    size_t bytesPerBuffer = m_sampleCount * m_channelCount * m_bytesPerFrame;
-    m_flatBuffer.resize(m_canonicalList->mNumberBuffers * bytesPerBuffer);
+
+    m_flatBuffer.resize(bufferSizes->second);
     auto* data = m_flatBuffer.data();
 
     for (uint32_t buffer = 0; buffer < m_canonicalList->mNumberBuffers; ++buffer) {
         m_canonicalList->mBuffers[buffer].mData = data;
-        m_canonicalList->mBuffers[buffer].mDataByteSize = bytesPerBuffer;
-        data += bytesPerBuffer;
+        m_canonicalList->mBuffers[buffer].mDataByteSize = bufferSizes->first;
+        data += bufferSizes->first;
     }
 
     reset();
@@ -85,7 +115,7 @@ WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format, C
         return;
 
     CMBlockBufferRef buffer = nullptr;
-    if (noErr == CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, m_canonicalList.get(), m_listBufferSize, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
+    if (noErr == PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, m_canonicalList.get(), m_listBufferSize, kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
         m_blockBuffer = adoptCF(buffer);
 
     reset();
@@ -98,7 +128,7 @@ void WebAudioBufferList::reset()
     memcpy(m_list.get(), m_canonicalList.get(), m_listBufferSize);
 }
 
-WTF::IteratorRange<AudioBuffer*> WebAudioBufferList::buffers() const
+IteratorRange<AudioBuffer*> WebAudioBufferList::buffers() const
 {
     return WTF::makeIteratorRange(&m_list->mBuffers[0], &m_list->mBuffers[m_list->mNumberBuffers]);
 }
@@ -114,6 +144,11 @@ AudioBuffer* WebAudioBufferList::buffer(uint32_t index) const
     if (index < m_list->mNumberBuffers)
         return &m_list->mBuffers[index];
     return nullptr;
+}
+
+void WebAudioBufferList::zeroFlatBuffer()
+{
+    memset(m_flatBuffer.data(), 0, m_flatBuffer.size());
 }
 
 }

@@ -29,13 +29,14 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "RemoteMediaPlayerProxy.h"
+#include <WebCore/ResourceError.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
 RemoteMediaResourceLoader::RemoteMediaResourceLoader(RemoteMediaPlayerProxy& remoteMediaPlayerProxy)
-    : m_remoteMediaPlayerProxy(makeWeakPtr(remoteMediaPlayerProxy))
+    : m_remoteMediaPlayerProxy(remoteMediaPlayerProxy)
 {
 }
 

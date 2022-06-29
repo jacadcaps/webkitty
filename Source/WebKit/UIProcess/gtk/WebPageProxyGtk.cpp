@@ -35,15 +35,8 @@
 #include "WebPageMessages.h"
 #include "WebPasteboardProxy.h"
 #include "WebProcessProxy.h"
-#include "WebsiteDataStore.h"
-#include <WebCore/NotImplemented.h>
 #include <WebCore/PlatformDisplay.h>
-#include <WebCore/UserAgent.h>
 #include <wtf/NeverDestroyed.h>
-
-#if PLATFORM(X11) && ENABLE(NETSCAPE_PLUGIN_API)
-#include <gtk/gtkx.h>
-#endif
 
 namespace WebKit {
 
@@ -56,119 +49,30 @@ GtkWidget* WebPageProxy::viewWidget()
     return static_cast<PageClientImpl&>(pageClient()).viewWidget();
 }
 
-String WebPageProxy::userAgentForURL(const URL& url)
-{
-    if (url.isNull() || !preferences().needsSiteSpecificQuirks())
-        return this->userAgent();
-
-    auto userAgent = WebCore::standardUserAgentForURL(url);
-    return userAgent.isNull() ? this->userAgent() : userAgent;
-}
-
-String WebPageProxy::standardUserAgent(const String& applicationNameForUserAgent)
-{
-    return WebCore::standardUserAgent(applicationNameForUserAgent);
-}
-
 void WebPageProxy::bindAccessibilityTree(const String& plugID)
 {
+#if USE(GTK4)
+    // FIXME: We need a way to override accessible interface of WebView and send the atspi reference to the web process.
+    ASSERT_NOT_IMPLEMENTED_YET();
+#else
     auto* accessible = gtk_widget_get_accessible(viewWidget());
     atk_socket_embed(ATK_SOCKET(accessible), const_cast<char*>(plugID.utf8().data()));
     atk_object_notify_state_change(accessible, ATK_STATE_TRANSIENT, FALSE);
+#endif
 }
 
-void WebPageProxy::saveRecentSearches(const String&, const Vector<WebCore::RecentSearch>&)
+void WebPageProxy::didUpdateEditorState(const EditorState&, const EditorState& newEditorState)
 {
-    notImplemented();
-}
-
-void WebPageProxy::loadRecentSearches(const String&, CompletionHandler<void(Vector<WebCore::RecentSearch>&&)>&& completionHandler)
-{
-    notImplemented();
-    completionHandler({ });
-}
-
-void WebsiteDataStore::platformRemoveRecentSearches(WallTime oldestTimeToRemove)
-{
-    UNUSED_PARAM(oldestTimeToRemove);
-    notImplemented();
-}
-
-void WebPageProxy::updateEditorState(const EditorState& editorState)
-{
-    m_editorState = editorState;
-    
-    if (editorState.shouldIgnoreSelectionChanges)
+    if (newEditorState.shouldIgnoreSelectionChanges)
         return;
-    if (m_editorState.selectionIsRange)
+    if (newEditorState.selectionIsRange)
         WebPasteboardProxy::singleton().setPrimarySelectionOwner(focusedFrame());
     pageClient().selectionDidChange();
 }
 
-#if PLATFORM(X11) && ENABLE(NETSCAPE_PLUGIN_API)
-typedef HashMap<uint64_t, GtkWidget* > PluginWindowMap;
-static PluginWindowMap& pluginWindowMap()
-{
-    static NeverDestroyed<PluginWindowMap> map;
-    return map;
-}
-
-static gboolean pluginContainerPlugRemoved(GtkSocket* socket)
-{
-    uint64_t windowID = static_cast<uint64_t>(gtk_socket_get_id(socket));
-    pluginWindowMap().remove(windowID);
-    return FALSE;
-}
-
-void WebPageProxy::createPluginContainer(CompletionHandler<void(uint64_t)>&& completionHandler)
-{
-    RELEASE_ASSERT(WebCore::PlatformDisplay::sharedDisplay().type() == WebCore::PlatformDisplay::Type::X11);
-    GtkWidget* socket = gtk_socket_new();
-    g_signal_connect(socket, "plug-removed", G_CALLBACK(pluginContainerPlugRemoved), 0);
-    gtk_container_add(GTK_CONTAINER(viewWidget()), socket);
-
-    uint64_t windowID = static_cast<uint64_t>(gtk_socket_get_id(GTK_SOCKET(socket)));
-    pluginWindowMap().set(windowID, socket);
-    completionHandler(windowID);
-}
-
-void WebPageProxy::windowedPluginGeometryDidChange(const WebCore::IntRect& frameRect, const WebCore::IntRect& clipRect, uint64_t windowID)
-{
-    GtkWidget* plugin = pluginWindowMap().get(windowID);
-    if (!plugin)
-        return;
-
-    if (gtk_widget_get_realized(plugin)) {
-        GdkRectangle clip = clipRect;
-        cairo_region_t* clipRegion = cairo_region_create_rectangle(&clip);
-        gdk_window_shape_combine_region(gtk_widget_get_window(plugin), clipRegion, 0, 0);
-        cairo_region_destroy(clipRegion);
-    }
-
-    webkitWebViewBaseChildMoveResize(WEBKIT_WEB_VIEW_BASE(viewWidget()), plugin, frameRect);
-}
-
-void WebPageProxy::windowedPluginVisibilityDidChange(bool isVisible, uint64_t windowID)
-{
-    GtkWidget* plugin = pluginWindowMap().get(windowID);
-    if (!plugin)
-        return;
-
-    if (isVisible)
-        gtk_widget_show(plugin);
-    else
-        gtk_widget_hide(plugin);
-}
-#endif // PLATFORM(X11) && ENABLE(NETSCAPE_PLUGIN_API)
-
-void WebPageProxy::setInputMethodState(Optional<InputMethodState>&& state)
+void WebPageProxy::setInputMethodState(std::optional<InputMethodState>&& state)
 {
     webkitWebViewBaseSetInputMethodState(WEBKIT_WEB_VIEW_BASE(viewWidget()), WTFMove(state));
-}
-
-void WebPageProxy::getCenterForZoomGesture(const WebCore::IntPoint& centerInViewCoordinates, WebCore::IntPoint& center)
-{
-    sendSync(Messages::WebPage::GetCenterForZoomGesture(centerInViewCoordinates), Messages::WebPage::GetCenterForZoomGesture::Reply(center));
 }
 
 bool WebPageProxy::makeGLContextCurrent()
@@ -179,6 +83,12 @@ bool WebPageProxy::makeGLContextCurrent()
 void WebPageProxy::showEmojiPicker(const WebCore::IntRect& caretRect, CompletionHandler<void(String)>&& completionHandler)
 {
     webkitWebViewBaseShowEmojiChooser(WEBKIT_WEB_VIEW_BASE(viewWidget()), caretRect, WTFMove(completionHandler));
+}
+
+void WebPageProxy::showValidationMessage(const WebCore::IntRect& anchorClientRect, const String& message)
+{
+    m_validationBubble = pageClient().createValidationBubble(message, { m_preferences->minimumFontSize() });
+    m_validationBubble->showRelativeTo(anchorClientRect);
 }
 
 void WebPageProxy::sendMessageToWebViewWithReply(UserMessage&& message, CompletionHandler<void(UserMessage&&)>&& completionHandler)
@@ -196,13 +106,14 @@ void WebPageProxy::sendMessageToWebView(UserMessage&& message)
     sendMessageToWebViewWithReply(WTFMove(message), [](UserMessage&&) { });
 }
 
-void WebPageProxy::themeDidChange()
+void WebPageProxy::accentColorDidChange()
 {
     if (!hasRunningProcess())
         return;
 
-    send(Messages::WebPage::ThemeDidChange(pageClient().themeName()));
-    effectiveAppearanceDidChange();
+    WebCore::Color accentColor = pageClient().accentColor();
+
+    send(Messages::WebPage::SetAccentColor(accentColor));
 }
 
 } // namespace WebKit

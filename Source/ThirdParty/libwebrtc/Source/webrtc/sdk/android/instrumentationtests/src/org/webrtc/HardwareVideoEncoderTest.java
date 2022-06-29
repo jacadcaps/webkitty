@@ -18,9 +18,9 @@ import static org.junit.Assert.fail;
 import android.annotation.TargetApi;
 import android.graphics.Matrix;
 import android.opengl.GLES11Ext;
-import android.support.annotation.Nullable;
-import android.support.test.filters.SmallTest;
 import android.util.Log;
+import androidx.annotation.Nullable;
+import androidx.test.filters.SmallTest;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -101,7 +101,6 @@ public class HardwareVideoEncoderTest {
                            .setCaptureTimeNs(frame.captureTimeNs)
                            .setFrameType(frame.frameType)
                            .setRotation(frame.rotation)
-                           .setCompleteFrame(frame.completeFrame)
                            .setQp(frame.qp)
                            .createEncodedImage());
     }

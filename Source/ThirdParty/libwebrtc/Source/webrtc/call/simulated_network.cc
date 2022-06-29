@@ -77,6 +77,7 @@ bool CoDelSimulation::DropDequeuedPacket(Timestamp now,
       }
       return false;
   }
+  RTC_CHECK_NOTREACHED();
 }
 
 SimulatedNetwork::SimulatedNetwork(Config config, uint64_t random_seed)
@@ -87,7 +88,7 @@ SimulatedNetwork::SimulatedNetwork(Config config, uint64_t random_seed)
 SimulatedNetwork::~SimulatedNetwork() = default;
 
 void SimulatedNetwork::SetConfig(const Config& config) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   config_state_.config = config;  // Shallow copy of the struct.
   double prob_loss = config.loss_percent / 100.0;
   if (config_state_.config.avg_burst_loss_length == -1) {
@@ -111,8 +112,14 @@ void SimulatedNetwork::SetConfig(const Config& config) {
   }
 }
 
+void SimulatedNetwork::UpdateConfig(
+    std::function<void(BuiltInNetworkBehaviorConfig*)> config_modifier) {
+  MutexLock lock(&config_lock_);
+  config_modifier(&config_state_.config);
+}
+
 void SimulatedNetwork::PauseTransmissionUntil(int64_t until_us) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   config_state_.pause_transmission_until_us = until_us;
 }
 
@@ -209,8 +216,8 @@ void SimulatedNetwork::UpdateCapacityQueue(ConfigState state,
     pending_drain_bits_ -= packet.packet.size * 8;
     RTC_DCHECK(pending_drain_bits_ >= 0);
 
-    // Drop packets at an average rate of |state.config.loss_percent| with
-    // and average loss burst length of |state.config.avg_burst_loss_length|.
+    // Drop packets at an average rate of `state.config.loss_percent` with
+    // and average loss burst length of `state.config.avg_burst_loss_length`.
     if ((bursting_ && random_.Rand<double>() < state.prob_loss_bursting) ||
         (!bursting_ && random_.Rand<double>() < state.prob_start_bursting)) {
       bursting_ = true;
@@ -254,7 +261,7 @@ void SimulatedNetwork::UpdateCapacityQueue(ConfigState state,
 }
 
 SimulatedNetwork::ConfigState SimulatedNetwork::GetConfigState() const {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   return config_state_;
 }
 

@@ -173,7 +173,7 @@ using namespace TestWebKitAPI;
 {
     auto items = adoptNS([[NSMutableArray alloc] init]);
     for (NSItemProvider *itemProvider in providers)
-        [items addObject:[[[UIDragItem alloc] initWithItemProvider:itemProvider] autorelease]];
+        [items addObject:adoptNS([[UIDragItem alloc] initWithItemProvider:itemProvider]).get()];
 
     return [super initWithItems:items.get() location:locationInWindow window:window allowMove:allowMove];
 }
@@ -344,9 +344,9 @@ IGNORE_WARNINGS_END
 - (instancetype)initWithWebViewFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration
 {
     if (configuration)
-        return [self initWithWebView:[[[TestWKWebView alloc] initWithFrame:frame configuration:configuration] autorelease]];
+        return [self initWithWebView:adoptNS([[TestWKWebView alloc] initWithFrame:frame configuration:configuration]).get()];
 
-    return [self initWithWebView:[[[TestWKWebView alloc] initWithFrame:frame] autorelease]];
+    return [self initWithWebView:adoptNS([[TestWKWebView alloc] initWithFrame:frame]).get()];
 }
 
 - (instancetype)initWithWebView:(TestWKWebView *)webView
@@ -863,6 +863,17 @@ IGNORE_WARNINGS_END
     [[_webView dropInteractionDelegate] dropInteraction:[_webView dropInteraction] concludeDrop:_dropSession.get()];
 }
 
+- (BOOL)containsDraggedType:(NSString *)expectedType
+{
+    for (NSItemProvider *itemProvider in self.sourceItemProviders) {
+        for (NSString *type in itemProvider.registeredTypeIdentifiers) {
+            if ([type isEqualToString:expectedType])
+                return YES;
+        }
+    }
+    return NO;
+}
+
 #pragma mark - WKUIDelegatePrivate
 
 - (void)_webView:(WKWebView *)webView dataInteraction:(UIDragInteraction *)interaction sessionWillBegin:(id <UIDragSession>)session
@@ -892,7 +903,7 @@ IGNORE_WARNINGS_END
     if (!self.overrideDragUpdateBlock)
         return proposal;
 
-    return [[[UIDropProposal alloc] initWithDropOperation:self.overrideDragUpdateBlock(proposal.operation, session)] autorelease];
+    return adoptNS([[UIDropProposal alloc] initWithDropOperation:self.overrideDragUpdateBlock(proposal.operation, session)]).autorelease();
 }
 
 - (NSArray *)_webView:(WKWebView *)webView adjustedDataInteractionItemProvidersForItemProvider:(NSItemProvider *)itemProvider representingObjects:(NSArray *)representingObjects additionalData:(NSDictionary *)additionalData

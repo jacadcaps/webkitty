@@ -52,7 +52,7 @@
 #import <WebCore/Range.h>
 #import <WebCore/RenderText.h>
 #import <WebCore/RenderedDocumentMarker.h>
-#import <WebCore/SelectionRect.h>
+#import <WebCore/SelectionGeometry.h>
 #import <WebCore/SimpleRange.h>
 #import <WebCore/TextBoundaries.h>
 #import <WebCore/TextFlags.h>
@@ -158,21 +158,21 @@ using namespace WebCore;
     if (point.y < firstRect.origin.y) {
         point.y = firstRect.origin.y;
         position = [self visiblePositionForPoint:point];
-        position.setAffinity(UPSTREAM);
+        position.setAffinity(Affinity::Upstream);
     } else if (point.y >= lastRect.origin.y) {
         point.y = lastRect.origin.y;
         position = [self visiblePositionForPoint:point];
-        position.setAffinity(DOWNSTREAM);
+        position.setAffinity(Affinity::Downstream);
     } else {
         position = [self visiblePositionForPoint:point];
     }
 
     if (position == start || position < start) {
-        start.setAffinity(UPSTREAM);
+        start.setAffinity(Affinity::Upstream);
         return start.absoluteCaretBounds();
     }
     if (position > end) {
-        end.setAffinity(DOWNSTREAM);
+        end.setAffinity(Affinity::Downstream);
         return end.absoluteCaretBounds();
     }
     return position.absoluteCaretBounds();
@@ -206,17 +206,17 @@ using namespace WebCore;
 
 - (NSArray *)selectionRectsForCoreRange:(const SimpleRange&)range
 {
-    return createNSArray(RenderObject::collectSelectionRects(range), [] (auto& coreRect) {
+    return createNSArray(RenderObject::collectSelectionGeometries(range), [] (auto& geometry) {
         auto webRect = [WebSelectionRect selectionRect];
-        webRect.rect = coreRect.rect();
-        webRect.writingDirection = coreRect.direction() == TextDirection::LTR ? WKWritingDirectionLeftToRight : WKWritingDirectionRightToLeft;
-        webRect.isLineBreak = coreRect.isLineBreak();
-        webRect.isFirstOnLine = coreRect.isFirstOnLine();
-        webRect.isLastOnLine = coreRect.isLastOnLine();
-        webRect.containsStart = coreRect.containsStart();
-        webRect.containsEnd = coreRect.containsEnd();
-        webRect.isInFixedPosition = coreRect.isInFixedPosition();
-        webRect.isHorizontal = coreRect.isHorizontal();
+        webRect.rect = geometry.rect();
+        webRect.writingDirection = geometry.direction() == TextDirection::LTR ? WKWritingDirectionLeftToRight : WKWritingDirectionRightToLeft;
+        webRect.isLineBreak = geometry.isLineBreak();
+        webRect.isFirstOnLine = geometry.isFirstOnLine();
+        webRect.isLastOnLine = geometry.isLastOnLine();
+        webRect.containsStart = geometry.containsStart();
+        webRect.containsEnd = geometry.containsEnd();
+        webRect.isInFixedPosition = geometry.isInFixedPosition();
+        webRect.isHorizontal = geometry.isHorizontal();
         return webRect;
     }).autorelease();
 }
@@ -745,16 +745,15 @@ static VisiblePosition SimpleSmartExtendEnd(const VisiblePosition& start, const 
     
     Frame *frame = [self coreFrame];
     FrameSelection& frameSelection = frame->selection();
-    EAffinity affinity = frameSelection.selection().affinity();
-    VisiblePosition start(frameSelection.selection().start(), affinity);
-    VisiblePosition end(frameSelection.selection().end(), affinity);
+    auto start = frameSelection.selection().visibleStart();
+    auto end = frameSelection.selection().visibleEnd();
     VisiblePosition base(frame->rangedSelectionBase().base());  // should equal start or end
 
     // Base must equal start or end
     if (base != start && base != end)
         return;
 
-    VisiblePosition extent(frameSelection.selection().extent(), affinity);
+    auto extent = frameSelection.selection().visibleExtent();
     
     // We don't yet support smart extension for languages which
     // require context for word boundary.
@@ -803,7 +802,7 @@ static VisiblePosition SimpleSmartExtendEnd(const VisiblePosition& start, const 
 {
     Frame *frame = [self coreFrame];
     IntPoint adjustedPoint = frame->view()->windowToContents(roundedIntPoint(point));
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::AllowChildFrameContent };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::AllowChildFrameContent };
     HitTestResult result = frame->eventHandler().hitTestResultAtPoint(adjustedPoint, hitType);
     Node* hitNode = result.innerNode();
     if (!hitNode || !hitNode->renderer())

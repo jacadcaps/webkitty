@@ -35,6 +35,7 @@
 #import "JSHTMLElement.h"
 #import "JSPluginElementFunctions.h"
 #import "ObjCRuntimeObject.h"
+#import "WebCoreJITOperations.h"
 #import "WebCoreObjCExtras.h"
 #import "objc_instance.h"
 #import "runtime_object.h"
@@ -69,11 +70,11 @@ using JSC::makeSource;
 
 namespace WebCore {
 
-static Lock spinLock;
+static Lock wrapperCacheLock;
 static CreateWrapperFunction createDOMWrapperFunction;
 static DisconnectWindowWrapperFunction disconnectWindowWrapperFunction;
 
-static HashMap<JSObject*, NSObject *>& wrapperCache()
+static HashMap<JSObject*, NSObject *>& wrapperCache() WTF_REQUIRES_LOCK(wrapperCacheLock)
 {
     static NeverDestroyed<HashMap<JSObject*, NSObject *>> map;
     return map;
@@ -82,30 +83,30 @@ static HashMap<JSObject*, NSObject *>& wrapperCache()
 NSObject *getJSWrapper(JSObject* impl)
 {
     ASSERT(isMainThread());
-    LockHolder holder(&spinLock);
+    Locker locker { wrapperCacheLock };
 
     NSObject* wrapper = wrapperCache().get(impl);
-    return wrapper ? [[wrapper retain] autorelease] : nil;
+    return wrapper ? retainPtr(wrapper).autorelease() : nil;
 }
 
 void addJSWrapper(NSObject *wrapper, JSObject* impl)
 {
     ASSERT(isMainThread());
-    LockHolder holder(&spinLock);
+    Locker locker { wrapperCacheLock };
 
     wrapperCache().set(impl, wrapper);
 }
 
 void removeJSWrapper(JSObject* impl)
 {
-    LockHolder holder(&spinLock);
+    Locker locker { wrapperCacheLock };
 
     wrapperCache().remove(impl);
 }
 
 static void removeJSWrapperIfRetainCountOne(NSObject* wrapper, JSObject* impl)
 {
-    LockHolder holder(&spinLock);
+    Locker locker { wrapperCacheLock };
 
     if ([wrapper retainCount] == 1)
         wrapperCache().remove(impl);
@@ -115,7 +116,7 @@ id createJSWrapper(JSC::JSObject* object, RefPtr<JSC::Bindings::RootObject>&& or
 {
     if (id wrapper = getJSWrapper(object))
         return wrapper;
-    return [[[WebScriptObject alloc] _initWithJSObject:object originRootObject:WTFMove(origin) rootObject:WTFMove(root)] autorelease];
+    return adoptNS([[WebScriptObject alloc] _initWithJSObject:object originRootObject:WTFMove(origin) rootObject:WTFMove(root)]).autorelease();
 }
 
 static void addExceptionToConsole(JSC::JSGlobalObject* lexicalGlobalObject, JSC::Exception* exception)
@@ -166,6 +167,7 @@ void disconnectWindowWrapper(WebScriptObject *windowWrapper)
 #if !USE(WEB_THREAD)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
@@ -712,7 +714,7 @@ IGNORE_WARNINGS_END
 
 + (WebUndefined *)undefined
 {
-    return [[[WebUndefined alloc] init] autorelease];
+    return adoptNS([[WebUndefined alloc] init]).autorelease();
 }
 
 @end

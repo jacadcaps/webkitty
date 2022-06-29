@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -177,11 +177,38 @@ TEST(WTF_Vector, ConstructWithFromMoveOnly)
 
 TEST(WTF_Vector, InitializeFromOtherInitialCapacity)
 {
+    Vector<int> vector = { 1, 3, 2, 4, 5 };
+    Vector<int> vectorCopy(vector);
+    EXPECT_EQ(5U, vector.size());
+    EXPECT_EQ(5U, vectorCopy.size());
+    EXPECT_EQ(5U, vectorCopy.capacity());
+}
+
+TEST(WTF_Vector, InitializeFromOtherInlineInitialCapacity)
+{
     Vector<int, 3> vector = { 1, 3, 2, 4 };
     Vector<int, 5> vectorCopy(vector);
     EXPECT_EQ(4U, vector.size());
     EXPECT_EQ(4U, vectorCopy.size());
     EXPECT_EQ(5U, vectorCopy.capacity());
+
+    EXPECT_EQ(1, vectorCopy[0]);
+    EXPECT_EQ(3, vectorCopy[1]);
+    EXPECT_EQ(2, vectorCopy[2]);
+    EXPECT_EQ(4, vectorCopy[3]);
+
+    EXPECT_TRUE(vector == vectorCopy);
+    EXPECT_FALSE(vector != vectorCopy);
+}
+
+TEST(WTF_Vector, InitializeFromOtherInlineBigToSmallInitialCapacity)
+{
+    Vector<int, 5> vector = { 1, 3, 2, 4 };
+    Vector<int, 3> vectorCopy(vector);
+    EXPECT_EQ(4U, vector.size());
+    EXPECT_EQ(5U, vector.capacity());
+    EXPECT_EQ(4U, vectorCopy.size());
+    EXPECT_EQ(4U, vectorCopy.capacity());
 
     EXPECT_EQ(1, vectorCopy[0]);
     EXPECT_EQ(3, vectorCopy[1]);
@@ -658,19 +685,59 @@ TEST(WTF_Vector, RemoveAll)
     EXPECT_TRUE(v2 == vExpected);
 }
 
-TEST(WTF_Vector, FindMatching)
+TEST(WTF_Vector, ClearContainsAndFind)
 {
     Vector<int> v;
-    EXPECT_TRUE(v.findMatching([](int) { return false; }) == notFound);
-    EXPECT_TRUE(v.findMatching([](int) { return true; }) == notFound);
+    EXPECT_TRUE(v.isEmpty());
+    v.clear();
+    EXPECT_TRUE(v.isEmpty());
+
+    v = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(10U, v.size());
+    EXPECT_FALSE(v.contains(1));
+    EXPECT_EQ(notFound, v.find(1));
+    v.clear();
+    EXPECT_TRUE(v.isEmpty());
+    EXPECT_FALSE(v.contains(1));
+    EXPECT_EQ(notFound, v.find(1));
+
+    v = { 3, 1, 2, 1, 1, 4, 2, 2, 1, 1, 3, 5 };
+    EXPECT_EQ(12U, v.size());
+    EXPECT_TRUE(v.contains(3));
+    EXPECT_TRUE(v.contains(4));
+    EXPECT_TRUE(v.contains(5));
+    EXPECT_FALSE(v.contains(6));
+    EXPECT_EQ(0U, v.find(3));
+    EXPECT_EQ(5U, v.find(4));
+    EXPECT_EQ(11U, v.find(5));
+    EXPECT_EQ(notFound, v.find(6));
+    EXPECT_TRUE(v == Vector<int>({ 3, 1, 2, 1, 1, 4, 2, 2, 1, 1, 3, 5 }));
+    v.clear();
+    EXPECT_EQ(0U, v.size());
+    EXPECT_FALSE(v.contains(3));
+    EXPECT_FALSE(v.contains(4));
+    EXPECT_FALSE(v.contains(5));
+    EXPECT_FALSE(v.contains(6));
+    EXPECT_EQ(notFound, v.find(3));
+    EXPECT_EQ(notFound, v.find(4));
+    EXPECT_EQ(notFound, v.find(5));
+    EXPECT_EQ(notFound, v.find(6));
+    EXPECT_TRUE(v == Vector<int>({ }));
+}
+
+TEST(WTF_Vector, FindIf)
+{
+    Vector<int> v;
+    EXPECT_TRUE(v.findIf([](int) { return false; }) == notFound);
+    EXPECT_TRUE(v.findIf([](int) { return true; }) == notFound);
 
     v = {3, 1, 2, 1, 2, 1, 2, 2, 1, 1, 1, 3};
-    EXPECT_TRUE(v.findMatching([](int value) { return value > 3; }) == notFound);
-    EXPECT_TRUE(v.findMatching([](int) { return false; }) == notFound);
-    EXPECT_EQ(0U, v.findMatching([](int) { return true; }));
-    EXPECT_EQ(0U, v.findMatching([](int value) { return value <= 3; }));
-    EXPECT_EQ(1U, v.findMatching([](int value) { return value < 3; }));
-    EXPECT_EQ(2U, v.findMatching([](int value) { return value == 2; }));
+    EXPECT_TRUE(v.findIf([](int value) { return value > 3; }) == notFound);
+    EXPECT_TRUE(v.findIf([](int) { return false; }) == notFound);
+    EXPECT_EQ(0U, v.findIf([](int) { return true; }));
+    EXPECT_EQ(0U, v.findIf([](int value) { return value <= 3; }));
+    EXPECT_EQ(1U, v.findIf([](int value) { return value < 3; }));
+    EXPECT_EQ(2U, v.findIf([](int value) { return value == 2; }));
 }
 
 TEST(WTF_Vector, RemoveFirstMatching)
@@ -869,6 +936,284 @@ TEST(WTF_Vector, MapFromHashMap)
     EXPECT_TRUE(map.get("k2").isNull());
     EXPECT_TRUE(map.get("k3").isNull());
 
+}
+
+std::optional<int> evenMultipliedByFive(int input)
+{
+    if (input % 2)
+        return std::nullopt;
+    return input * 5;
+}
+
+TEST(WTF_Vector, CompactMapStaticFunctionReturnOptional)
+{
+    Vector<int> vector { 1, 2, 3, 4 };
+
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, evenMultipliedByFive)), typename WTF::Vector<int>>::value,
+        "WTF::compactMap returns Vector<Ref<>> when the mapped function returns std::optional<>");
+    auto mapped = WTF::compactMap(vector, evenMultipliedByFive);
+
+    EXPECT_EQ(2U, mapped.size());
+    EXPECT_EQ(10, mapped[0]);
+    EXPECT_EQ(20, mapped[1]);
+}
+
+struct RefCountedObject : public RefCounted<RefCountedObject> {
+public:
+    static Ref<RefCountedObject> create(int value) { return adoptRef(*new RefCountedObject(value)); }
+
+    void ref() const
+    {
+        RefCounted<RefCountedObject>::ref();
+        ++s_totalRefCount;
+    }
+
+    int value { 0 };
+
+    static unsigned s_totalRefCount;
+
+private:
+    RefCountedObject(int value)
+        : value(value)
+    { }
+};
+
+unsigned RefCountedObject::s_totalRefCount = 0;
+
+RefPtr<RefCountedObject> createRefCountedForOdd(int input)
+{
+    if (input % 2)
+        return RefCountedObject::create(input);
+    return nullptr;
+}
+
+TEST(WTF_Vector, CompactMapStaticFunctionReturnRefPtr)
+{
+    Vector<int> vector { 1, 2, 3, 4 };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, createRefCountedForOdd)), typename WTF::Vector<Ref<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<int> when the mapped function returns std::optional<int>");
+    auto mapped = WTF::compactMap(vector, createRefCountedForOdd);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(2U, mapped.size());
+    EXPECT_EQ(1, mapped[0]->value);
+    EXPECT_EQ(3, mapped[1]->value);
+}
+
+std::optional<Ref<RefCountedObject>> createRefCountedForEven(int input)
+{
+    if (input % 2)
+        return std::nullopt;
+    return RefCountedObject::create(input);
+}
+
+TEST(WTF_Vector, CompactMapStaticFunctionReturnOptionalRef)
+{
+    Vector<int> vector { 1, 2, 3, 4 };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, createRefCountedForEven)), typename WTF::Vector<Ref<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<Ref<>> when the mapped function returns RefPtr<>");
+    auto mapped = WTF::compactMap(vector, createRefCountedForEven);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(2U, mapped.size());
+    EXPECT_EQ(2, mapped[0]->value);
+    EXPECT_EQ(4, mapped[1]->value);
+}
+
+std::optional<RefPtr<RefCountedObject>> createRefCountedWhenDivisibleByThree(int input)
+{
+    if (input % 3)
+        return std::nullopt;
+    if (input % 2)
+        return RefPtr<RefCountedObject>();
+    return RefPtr<RefCountedObject>(RefCountedObject::create(input));
+}
+
+TEST(WTF_Vector, CompactMapStaticFunctionReturnOptionalRefPtr)
+{
+    Vector<int> vector { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, createRefCountedWhenDivisibleByThree)), typename WTF::Vector<RefPtr<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<RefPtr<>> when the mapped function returns std::optional<RefPtr<>>");
+    auto mapped = WTF::compactMap(vector, createRefCountedWhenDivisibleByThree);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(3U, mapped.size());
+    EXPECT_EQ(nullptr, mapped[0]);
+    EXPECT_EQ(6, mapped[1]->value);
+    EXPECT_EQ(nullptr, mapped[2]);
+}
+
+TEST(WTF_Vector, CompactMapLambdaReturnOptional)
+{
+    Vector<String> vector { "a", "b", "hello", "ciao", "world", "webkit" };
+
+    auto function = [](const String& value) -> std::optional<String> {
+        if (value.length() < 5)
+            return std::nullopt;
+        return value.convertToASCIIUppercase();
+    };
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, function)), typename WTF::Vector<String>>::value,
+        "WTF::compactMap returns Vector<String> when the mapped function returns std::optional<String>");
+    auto mapped = WTF::compactMap(vector, function);
+
+    EXPECT_EQ(3U, mapped.size());
+    EXPECT_STREQ("HELLO", mapped[0].ascii().data());
+    EXPECT_STREQ("WORLD", mapped[1].ascii().data());
+    EXPECT_STREQ("WEBKIT", mapped[2].ascii().data());
+}
+
+class CountedObject {
+public:
+    explicit CountedObject(int value)
+        : m_value(value)
+    { ++s_count; }
+
+    CountedObject(const CountedObject& other)
+        : m_value(other.m_value)
+    { ++s_count; }
+
+    CountedObject(CountedObject&& other)
+        : m_value(other.m_value)
+    { }
+
+    int value() const { return m_value; }
+
+    static unsigned& count() { return s_count; }
+
+private:
+    int m_value;
+
+    static unsigned s_count;
+};
+
+unsigned CountedObject::s_count = 0;
+
+TEST(WTF_Vector, CompactMapLambdaCopyVectorReturnOptionalCountedObject)
+{
+    Vector<CountedObject> vector { CountedObject(1), CountedObject(2), CountedObject(3), CountedObject(4) };
+
+    CountedObject::count() = 0;
+
+    auto function = [](const CountedObject& object) -> std::optional<CountedObject> {
+        if (object.value() % 2)
+            return object;
+        return std::nullopt;
+    };
+
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, function)), typename WTF::Vector<CountedObject>>::value,
+        "WTF::compactMap returns Vector<CountedObject> when the lambda returns std::optional<CountedObject>");
+    auto mapped = WTF::compactMap(vector, function);
+
+    EXPECT_EQ(2U, CountedObject::count());
+
+    EXPECT_EQ(2U, mapped.size());
+    EXPECT_EQ(1, mapped[0].value());
+    EXPECT_EQ(3, mapped[1].value());
+}
+
+TEST(WTF_Vector, CompactMapLambdaMoveVectorReturnOptionalCountedObject)
+{
+    Vector<CountedObject> vector { CountedObject(1), CountedObject(2), CountedObject(3), CountedObject(4) };
+
+    CountedObject::count() = 0;
+
+    auto function = [](CountedObject&& object) -> std::optional<CountedObject> {
+        if (object.value() % 2)
+            return WTFMove(object);
+        return std::nullopt;
+    };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(WTFMove(vector), function)), typename WTF::Vector<CountedObject>>::value,
+        "WTF::compactMap returns Vector<CountedObject> when the lambda returns std::optional<CountedObject>");
+    auto mapped = WTF::compactMap(WTFMove(vector), function);
+
+    EXPECT_EQ(0U, CountedObject::count());
+
+    EXPECT_EQ(2U, mapped.size());
+    EXPECT_EQ(1, mapped[0].value());
+    EXPECT_EQ(3, mapped[1].value());
+}
+
+TEST(WTF_Vector, CompactMapLambdaReturnRefPtr)
+{
+    Vector<int> vector { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+
+    auto function = [](int value) -> RefPtr<RefCountedObject> {
+        if (value % 3)
+            return nullptr;
+        return RefCountedObject::create(value);
+    };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, function)), typename WTF::Vector<Ref<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<Ref<RefCountedObject>> when the lambda returns RefPtr<RefCountedObject>");
+    auto mapped = WTF::compactMap(vector, function);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(3U, mapped.size());
+    EXPECT_EQ(3, mapped[0]->value);
+    EXPECT_EQ(6, mapped[1]->value);
+    EXPECT_EQ(9, mapped[2]->value);
+}
+
+TEST(WTF_Vector, CompactMapLambdaReturnRefPtrFromMovedRef)
+{
+    Vector<int> vector { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+
+    auto countedObjects = WTF::map(vector, [](int value) -> Ref<RefCountedObject> {
+        return RefCountedObject::create(value);
+    });
+
+    auto function = [](Ref<RefCountedObject>&& object) -> RefPtr<RefCountedObject> {
+        if (object->value % 3)
+            return nullptr;
+        return WTFMove(object);
+    };
+
+    RefCountedObject::s_totalRefCount = 0;
+    static_assert(std::is_same<decltype(WTF::compactMap(WTFMove(countedObjects), function)), typename WTF::Vector<Ref<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<Ref<RefCountedObject>> when the lambda returns RefPtr<RefCountedObject>");
+    auto mapped = WTF::compactMap(WTFMove(countedObjects), function);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(3U, mapped.size());
+    EXPECT_EQ(3, mapped[0]->value);
+    EXPECT_EQ(6, mapped[1]->value);
+    EXPECT_EQ(9, mapped[2]->value);
+}
+
+TEST(WTF_Vector, CompactMapLambdaReturnOptionalRefPtr)
+{
+    Vector<int> vector { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+
+    RefCountedObject::s_totalRefCount = 0;
+
+    auto function = [&](int value) -> std::optional<RefPtr<RefCountedObject>> {
+        if (!(value % 2))
+            return std::nullopt;
+        if (!(value % 3))
+            return RefPtr<RefCountedObject>();
+        return RefPtr<RefCountedObject>(RefCountedObject::create(value));
+    };
+
+    static_assert(std::is_same<decltype(WTF::compactMap(vector, function)), typename WTF::Vector<RefPtr<RefCountedObject>>>::value,
+        "WTF::compactMap returns Vector<RefPtr<RefCountedObject>> when the lambda returns std::optional<RefPtr<RefCountedObject>>");
+    Vector<RefPtr<RefCountedObject>> mapped = WTF::compactMap(vector, function);
+
+    EXPECT_EQ(0U, RefCountedObject::s_totalRefCount);
+    EXPECT_EQ(5U, mapped.size());
+    EXPECT_EQ(1, mapped[0]->value);
+    EXPECT_EQ(nullptr, mapped[1]);
+    EXPECT_EQ(5, mapped[2]->value);
+    EXPECT_EQ(7, mapped[3]->value);
+    EXPECT_EQ(nullptr, mapped[4]);
 }
 
 TEST(WTF_Vector, CopyToVector)
@@ -1139,5 +1484,31 @@ TEST(WTF_Vector, HashKeyString)
 
     EXPECT_TRUE(hash.isEmpty());
 }
-    
+
+TEST(WTF_Vector, ConstructorFromRawPointerAndSize)
+{
+    constexpr size_t inputSize = 5;
+    uint8_t input[inputSize] = { 1, 2, 3, 4, 5 };
+
+    Vector<uint8_t> vector { input, inputSize };
+    ASSERT_EQ(vector.size(), inputSize);
+    EXPECT_EQ(vector[0], 1);
+    EXPECT_EQ(vector[1], 2);
+    EXPECT_EQ(vector[2], 3);
+    EXPECT_EQ(vector[3], 4);
+    EXPECT_EQ(vector[4], 5);
+}
+
+TEST(WTF_Vector, MapCustomReturnType)
+{
+    Vector<int> input { 1, 2 };
+    Vector<float, 2> output = input.map<Vector<float, 2>>([] (int value) {
+        return static_cast<float>(value);
+    });
+
+    ASSERT_EQ(output.size(), input.size());
+    EXPECT_FLOAT_EQ(output[0], 1.0f);
+    EXPECT_FLOAT_EQ(output[1], 2.0f);
+}
+
 } // namespace TestWebKitAPI

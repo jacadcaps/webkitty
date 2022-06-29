@@ -27,10 +27,12 @@
 
 @interface TestUIDelegate : NSObject <WKUIDelegate>
 
+@property (nonatomic, copy) WKWebView* (^createWebViewWithConfiguration)(WKWebViewConfiguration *, WKNavigationAction *, WKWindowFeatures *);
 @property (nonatomic, copy) void (^runJavaScriptAlertPanelWithMessage)(WKWebView *, NSString *, WKFrameInfo *, void (^)(void));
 #if PLATFORM(MAC)
 @property (nonatomic, copy) void (^getContextMenuFromProposedMenu)(NSMenu *, _WKContextMenuElementInfo *, id <NSSecureCoding>, void (^)(NSMenu *));
 #endif
+@property (nonatomic, copy) void (^saveDataToFile)(WKWebView *, NSData *, NSString *, NSString *, NSURL *);
 
 - (NSString *)waitForAlert;
 
@@ -38,4 +40,5 @@
 
 @interface WKWebView (TestUIDelegateExtras)
 - (NSString *)_test_waitForAlert;
+- (void)_test_waitForInspectorToShow;
 @end

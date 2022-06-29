@@ -25,7 +25,7 @@
 
 namespace webrtc {
 namespace {
-// Periodic time interval for processing samples for |freq_offset_counter_|.
+// Periodic time interval for processing samples for `freq_offset_counter_`.
 const int64_t kFreqOffsetProcessIntervalMs = 40000;
 
 // Configuration for bad call detection.
@@ -129,11 +129,11 @@ void ReceiveStatisticsProxy::UpdateHistograms(
     const StreamDataCounters* rtx_stats) {
   // Not actually running on the decoder thread, but must be called after
   // DecoderThreadStopped, which detaches the thread checker. It is therefore
-  // safe to access |qp_counters_|, which were updated on the decode thread
+  // safe to access `qp_counters_`, which were updated on the decode thread
   // earlier.
   RTC_DCHECK_RUN_ON(&decode_thread_);
 
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
 
   char log_stream_buf[8 * 1024];
   rtc::SimpleStringBuilder log_stream(log_stream_buf);
@@ -381,12 +381,12 @@ void ReceiveStatisticsProxy::UpdateHistograms(
                    << " " << media_bitrate_kbps << '\n';
       }
 
-      int num_total_frames =
+      int num_total_frames2 =
           stats.frame_counts.key_frames + stats.frame_counts.delta_frames;
-      if (num_total_frames >= kMinRequiredSamples) {
+      if (num_total_frames2 >= kMinRequiredSamples) {
         int num_key_frames = stats.frame_counts.key_frames;
         int key_frames_permille =
-            (num_key_frames * 1000 + num_total_frames / 2) / num_total_frames;
+            (num_key_frames * 1000 + num_total_frames2 / 2) / num_total_frames2;
         RTC_HISTOGRAM_COUNTS_SPARSE_1000(
             uma_prefix + ".KeyFramesReceivedInPermille" + uma_suffix,
             key_frames_permille);
@@ -394,12 +394,12 @@ void ReceiveStatisticsProxy::UpdateHistograms(
                    << " " << key_frames_permille << '\n';
       }
 
-      absl::optional<int> qp = stats.qp_counter.Avg(kMinRequiredSamples);
-      if (qp) {
+      absl::optional<int> qp2 = stats.qp_counter.Avg(kMinRequiredSamples);
+      if (qp2) {
         RTC_HISTOGRAM_COUNTS_SPARSE_200(
-            uma_prefix + ".Decoded.Vp8.Qp" + uma_suffix, *qp);
+            uma_prefix + ".Decoded.Vp8.Qp" + uma_suffix, *qp2);
         log_stream << uma_prefix << ".Decoded.Vp8.Qp" << uma_suffix << " "
-                   << *qp << '\n';
+                   << *qp2 << '\n';
       }
     }
   }
@@ -623,7 +623,7 @@ ReceiveStatisticsProxy::GetCurrentEstimatedPlayoutNtpTimestampMs(
 }
 
 VideoReceiveStream::Stats ReceiveStatisticsProxy::GetStats() const {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   // Get current frame rates here, as only updating them on new frames prevents
   // us from ever correctly displaying frame rate of 0.
   int64_t now_ms = clock_->TimeInMilliseconds();
@@ -654,13 +654,13 @@ VideoReceiveStream::Stats ReceiveStatisticsProxy::GetStats() const {
 }
 
 void ReceiveStatisticsProxy::OnIncomingPayloadType(int payload_type) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   stats_.current_payload_type = payload_type;
 }
 
 void ReceiveStatisticsProxy::OnDecoderImplementationName(
     const char* implementation_name) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   stats_.decoder_implementation_name = implementation_name;
 }
 
@@ -671,7 +671,7 @@ void ReceiveStatisticsProxy::OnFrameBufferTimingsUpdated(
     int jitter_buffer_ms,
     int min_playout_delay_ms,
     int render_delay_ms) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   stats_.max_decode_ms = max_decode_ms;
   stats_.current_delay_ms = current_delay_ms;
   stats_.target_delay_ms = target_delay_ms;
@@ -687,13 +687,13 @@ void ReceiveStatisticsProxy::OnFrameBufferTimingsUpdated(
 }
 
 void ReceiveStatisticsProxy::OnUniqueFramesCounted(int num_unique_frames) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   num_unique_frames_.emplace(num_unique_frames);
 }
 
 void ReceiveStatisticsProxy::OnTimingFrameInfoUpdated(
     const TimingFrameInfo& info) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   if (info.flags != VideoSendTiming::kInvalid) {
     int64_t now_ms = clock_->TimeInMilliseconds();
     timing_frame_info_counter_.Add(info, now_ms);
@@ -714,14 +714,14 @@ void ReceiveStatisticsProxy::OnTimingFrameInfoUpdated(
 void ReceiveStatisticsProxy::RtcpPacketTypesCounterUpdated(
     uint32_t ssrc,
     const RtcpPacketTypeCounter& packet_counter) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   if (stats_.ssrc != ssrc)
     return;
   stats_.rtcp_packet_type_counts = packet_counter;
 }
 
 void ReceiveStatisticsProxy::OnCname(uint32_t ssrc, absl::string_view cname) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   // TODO(pbos): Handle both local and remote ssrcs here and RTC_DCHECK that we
   // receive stats from one of them.
   if (stats_.ssrc != ssrc)
@@ -733,7 +733,7 @@ void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
                                             absl::optional<uint8_t> qp,
                                             int32_t decode_time_ms,
                                             VideoContentType content_type) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
 
   uint64_t now_ms = clock_->TimeInMilliseconds();
 
@@ -799,7 +799,7 @@ void ReceiveStatisticsProxy::OnRenderedFrame(const VideoFrame& frame) {
   RTC_DCHECK_GT(width, 0);
   RTC_DCHECK_GT(height, 0);
   int64_t now_ms = clock_->TimeInMilliseconds();
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
 
   video_quality_observer_->OnRenderedFrame(frame, now_ms);
 
@@ -833,7 +833,7 @@ void ReceiveStatisticsProxy::OnRenderedFrame(const VideoFrame& frame) {
 void ReceiveStatisticsProxy::OnSyncOffsetUpdated(int64_t video_playout_ntp_ms,
                                                  int64_t sync_offset_ms,
                                                  double estimated_freq_khz) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   sync_offset_counter_.Add(std::abs(sync_offset_ms));
   stats_.sync_offset_ms = sync_offset_ms;
   last_estimated_playout_ntp_timestamp_ms_ = video_playout_ntp_ms;
@@ -851,7 +851,7 @@ void ReceiveStatisticsProxy::OnSyncOffsetUpdated(int64_t video_playout_ntp_ms,
 void ReceiveStatisticsProxy::OnCompleteFrame(bool is_keyframe,
                                              size_t size_bytes,
                                              VideoContentType content_type) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   if (is_keyframe) {
     ++stats_.frame_counts.key_frames;
   } else {
@@ -881,13 +881,13 @@ void ReceiveStatisticsProxy::OnCompleteFrame(bool is_keyframe,
 }
 
 void ReceiveStatisticsProxy::OnDroppedFrames(uint32_t frames_dropped) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   stats_.frames_dropped += frames_dropped;
 }
 
 void ReceiveStatisticsProxy::OnPreDecode(VideoCodecType codec_type, int qp) {
   RTC_DCHECK_RUN_ON(&decode_thread_);
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   last_codec_type_ = codec_type;
   if (last_codec_type_ == kVideoCodecVP8 && qp != -1) {
     qp_counters_.vp8.Add(qp);
@@ -898,7 +898,7 @@ void ReceiveStatisticsProxy::OnPreDecode(VideoCodecType codec_type, int qp) {
 void ReceiveStatisticsProxy::OnStreamInactive() {
   // TODO(sprang): Figure out any other state that should be reset.
 
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   // Don't report inter-frame delay if stream was paused.
   last_decoded_frame_time_ms_.reset();
   video_quality_observer_->OnStreamInactive();
@@ -906,7 +906,7 @@ void ReceiveStatisticsProxy::OnStreamInactive() {
 
 void ReceiveStatisticsProxy::OnRttUpdate(int64_t avg_rtt_ms,
                                          int64_t max_rtt_ms) {
-  rtc::CritScope lock(&crit_);
+  MutexLock lock(&mutex_);
   avg_rtt_ms_ = avg_rtt_ms;
 }
 

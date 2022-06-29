@@ -22,7 +22,6 @@ config:
 
     Environment:
       GI_TYPELIB_PATH: /app/lib/girepository-1.0
-      GST_PLUGIN_SYSTEM_PATH: /app/lib/gstreamer-1.0:/usr/lib/extensions/gstreamer-1.0:%{libdir}/gstreamer-1.0
       XDG_DATA_DIRS: /app/share:/usr/share:/usr/share/runtime/share:/run/host/share
 
     Extension org.webkit.Platform.Locale:
@@ -32,6 +31,7 @@ config:
     # bst doesn't support inheriting extensions.
     # When syncing, skip the Locale extension, and add the freedesktop-sdk
     # version to extensions that don't have a version
+
     Extension org.freedesktop.Platform.GL:
       # 1.4 is for Nvidia drivers
       versions: "%{freedesktop-sdk-flatpak-branch};1.4"
@@ -41,18 +41,13 @@ config:
       no-autodownload: "true"
       autodelete: "false"
       add-ld-path: "lib"
-      merge-dirs: "vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d"
+      merge-dirs: "vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d"
       download-if: "active-gl-driver"
       enable-if: "active-gl-driver"
+      autoprune-unless: active-gl-driver
 
     Extension org.freedesktop.Platform.Timezones:
       directory: share/zoneinfo
-      version: '%{freedesktop-sdk-flatpak-branch}'
-
-    Extension org.freedesktop.Platform.GStreamer:
-      directory: lib/extensions/gstreamer-1.0
-      subdirectories: 'true'
-      no-autodownload: 'true'
       version: '%{freedesktop-sdk-flatpak-branch}'
 
     Extension org.freedesktop.Platform.Icontheme:
@@ -81,4 +76,11 @@ config:
       directory: '%{lib}/openh264'
       add-ld-path: extra
       autodelete: 'false'
+      version: '%{freedesktop-sdk-flatpak-branch}'
+
+    Extension org.freedesktop.Platform.sparkle-cdm:
+      directory: '%{lib}/sparkle-cdm'
+      autodelete: 'false'
+      no-autodownload: 'true'
+      add-ld-path: lib
       version: '%{freedesktop-sdk-flatpak-branch}'

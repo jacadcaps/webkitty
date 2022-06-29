@@ -14,10 +14,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/win"
 )
 
-list(APPEND WebCore_INCLUDE_DIRECTORIES
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders"
-)
-
 list(APPEND WebCore_SOURCES
     accessibility/win/AXObjectCacheWin.cpp
     accessibility/win/AccessibilityObjectWin.cpp
@@ -39,24 +35,16 @@ list(APPEND WebCore_SOURCES
 
     platform/graphics/egl/GLContextEGL.cpp
 
-    platform/graphics/opengl/ExtensionsGLOpenGLCommon.cpp
-    platform/graphics/opengl/ExtensionsGLOpenGLES.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLCommon.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLES.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLPrivate.cpp
     platform/graphics/opengl/TemporaryOpenGLSetting.cpp
 
     platform/graphics/opentype/OpenTypeUtilities.cpp
 
-    platform/graphics/win/ColorDirect2D.cpp
-    platform/graphics/win/ComplexTextControllerDirectWrite.cpp
     platform/graphics/win/ComplexTextControllerUniscribe.cpp
     platform/graphics/win/DIBPixelData.cpp
     platform/graphics/win/DisplayRefreshMonitorWin.cpp
-    platform/graphics/win/FloatPointDirect2D.cpp
-    platform/graphics/win/FloatRectDirect2D.cpp
-    platform/graphics/win/FloatSizeDirect2D.cpp
+    platform/graphics/win/FloatRectWin.cpp
     platform/graphics/win/FontCacheWin.cpp
+    platform/graphics/win/FontDescriptionWin.cpp
     platform/graphics/win/FontPlatformDataWin.cpp
     platform/graphics/win/FontWin.cpp
     platform/graphics/win/FullScreenController.cpp
@@ -68,7 +56,6 @@ list(APPEND WebCore_SOURCES
     platform/graphics/win/IntSizeWin.cpp
     platform/graphics/win/MediaPlayerPrivateFullscreenWindow.cpp
     platform/graphics/win/SimpleFontDataWin.cpp
-    platform/graphics/win/TransformationMatrixDirect2D.cpp
     platform/graphics/win/TransformationMatrixWin.cpp
 
     platform/network/win/DownloadBundleWin.cpp
@@ -96,7 +83,6 @@ list(APPEND WebCore_SOURCES
     platform/win/ScrollbarThemeWin.cpp
     platform/win/SearchPopupMenuDB.cpp
     platform/win/SearchPopupMenuWin.cpp
-    platform/win/SharedBufferWin.cpp
     platform/win/SystemInfo.cpp
     platform/win/UserAgentWin.cpp
     platform/win/WCDataObject.cpp
@@ -116,9 +102,13 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     page/win/FrameWin.h
 
+    platform/graphics/opentype/FontMemoryResource.h
+
     platform/graphics/win/DIBPixelData.h
+    platform/graphics/win/FontCustomPlatformData.h
     platform/graphics/win/FullScreenController.h
     platform/graphics/win/FullScreenControllerClient.h
+    platform/graphics/win/GraphicsContextWin.h
     platform/graphics/win/LocalWindowsContext.h
     platform/graphics/win/MediaPlayerPrivateFullscreenWindow.h
     platform/graphics/win/SharedGDIObject.h
@@ -220,17 +210,5 @@ file(COPY
     DESTINATION
     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources
 )
-if (WTF_PLATFORM_WIN_CAIRO AND EXISTS ${WEBKIT_LIBRARIES_DIR}/etc/ssl/cert.pem)
-    make_directory(${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates)
-    file(COPY
-        ${WEBKIT_LIBRARIES_DIR}/etc/ssl/cert.pem
-        DESTINATION
-        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates
-    )
-    file(RENAME
-        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates/cert.pem
-        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates/cacert.pem
-    )
-endif ()
 
 set(WebCore_OUTPUT_NAME WebCore${DEBUG_SUFFIX})

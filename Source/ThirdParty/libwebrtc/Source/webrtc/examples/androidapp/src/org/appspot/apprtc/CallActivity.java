@@ -24,7 +24,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.annotation.Nullable;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
@@ -32,6 +31,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
 import java.io.IOException;
 import java.lang.RuntimeException;
 import java.util.ArrayList;
@@ -51,10 +51,10 @@ import org.webrtc.FileVideoCapturer;
 import org.webrtc.IceCandidate;
 import org.webrtc.Logging;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RTCStatsReport;
 import org.webrtc.RendererCommon.ScalingType;
 import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.SessionDescription;
-import org.webrtc.StatsReport;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoCapturer;
 import org.webrtc.VideoFileRenderer;
@@ -676,7 +676,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     }
   }
 
-  // Log |msg| and Toast about it.
+  // Log `msg` and Toast about it.
   private void logAndToast(String msg) {
     Log.d(TAG, msg);
     if (logToast != null) {
@@ -786,7 +786,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   }
 
   @Override
-  public void onRemoteDescription(final SessionDescription sdp) {
+  public void onRemoteDescription(final SessionDescription desc) {
     final long delta = System.currentTimeMillis() - callStartedTimeMs;
     runOnUiThread(new Runnable() {
       @Override
@@ -795,8 +795,8 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
           Log.e(TAG, "Received remote SDP for non-initilized peer connection.");
           return;
         }
-        logAndToast("Received remote " + sdp.type + ", delay=" + delta + "ms");
-        peerConnectionClient.setRemoteDescription(sdp);
+        logAndToast("Received remote " + desc.type + ", delay=" + delta + "ms");
+        peerConnectionClient.setRemoteDescription(desc);
         if (!signalingParameters.initiator) {
           logAndToast("Creating ANSWER...");
           // Create answer. Answer SDP will be sent to offering client in
@@ -856,17 +856,17 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   // All callbacks are invoked from peer connection client looper thread and
   // are routed to UI thread.
   @Override
-  public void onLocalDescription(final SessionDescription sdp) {
+  public void onLocalDescription(final SessionDescription desc) {
     final long delta = System.currentTimeMillis() - callStartedTimeMs;
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
         if (appRtcClient != null) {
-          logAndToast("Sending " + sdp.type + ", delay=" + delta + "ms");
+          logAndToast("Sending " + desc.type + ", delay=" + delta + "ms");
           if (signalingParameters.initiator) {
-            appRtcClient.sendOfferSdp(sdp);
+            appRtcClient.sendOfferSdp(desc);
           } else {
-            appRtcClient.sendAnswerSdp(sdp);
+            appRtcClient.sendAnswerSdp(desc);
           }
         }
         if (peerConnectionParameters.videoMaxBitrate > 0) {
@@ -951,12 +951,12 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   public void onPeerConnectionClosed() {}
 
   @Override
-  public void onPeerConnectionStatsReady(final StatsReport[] reports) {
+  public void onPeerConnectionStatsReady(final RTCStatsReport report) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
         if (!isError && connected) {
-          hudFragment.updateEncoderStatistics(reports);
+          hudFragment.updateEncoderStatistics(report);
         }
       }
     });

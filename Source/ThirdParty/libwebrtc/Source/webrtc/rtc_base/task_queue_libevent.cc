@@ -29,11 +29,11 @@
 #include "api/task_queue/task_queue_base.h"
 #include "base/third_party/libevent/event.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/platform_thread_types.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/time_utils.h"
 
@@ -93,16 +93,12 @@ void EventAssign(struct event* ev,
 rtc::ThreadPriority TaskQueuePriorityToThreadPriority(Priority priority) {
   switch (priority) {
     case Priority::HIGH:
-      return rtc::kRealtimePriority;
+      return rtc::ThreadPriority::kRealtime;
     case Priority::LOW:
-      return rtc::kLowPriority;
+      return rtc::ThreadPriority::kLow;
     case Priority::NORMAL:
-      return rtc::kNormalPriority;
-    default:
-      RTC_NOTREACHED();
-      break;
+      return rtc::ThreadPriority::kNormal;
   }
-  return rtc::kNormalPriority;
 }
 
 class TaskQueueLibevent final : public TaskQueueBase {
@@ -120,7 +116,6 @@ class TaskQueueLibevent final : public TaskQueueBase {
 
   ~TaskQueueLibevent() override = default;
 
-  static void ThreadMain(void* context);
   static void OnWakeup(int socket, short flags, void* context);  // NOLINT
   static void RunTimer(int fd, short flags, void* context);      // NOLINT
 
@@ -130,7 +125,7 @@ class TaskQueueLibevent final : public TaskQueueBase {
   event_base* event_base_;
   event wakeup_event_;
   rtc::PlatformThread thread_;
-  rtc::CriticalSection pending_lock_;
+  Mutex pending_lock_;
   absl::InlinedVector<std::unique_ptr<QueuedTask>, 4> pending_
       RTC_GUARDED_BY(pending_lock_);
   // Holds a list of events pending timers for cleanup when the loop exits.
@@ -172,8 +167,7 @@ class TaskQueueLibevent::SetTimerTask : public QueuedTask {
 
 TaskQueueLibevent::TaskQueueLibevent(absl::string_view queue_name,
                                      rtc::ThreadPriority priority)
-    : event_base_(event_base_new()),
-      thread_(&TaskQueueLibevent::ThreadMain, this, queue_name, priority) {
+    : event_base_(event_base_new()) {
   int fds[2];
   RTC_CHECK(pipe(fds) == 0);
   SetNonBlocking(fds[0]);
@@ -184,7 +178,18 @@ TaskQueueLibevent::TaskQueueLibevent(absl::string_view queue_name,
   EventAssign(&wakeup_event_, event_base_, wakeup_pipe_out_,
               EV_READ | EV_PERSIST, OnWakeup, this);
   event_add(&wakeup_event_, 0);
-  thread_.Start();
+  thread_ = rtc::PlatformThread::SpawnJoinable(
+      [this] {
+        {
+          CurrentTaskQueueSetter set_current(this);
+          while (is_active_)
+            event_base_loop(event_base_, 0);
+        }
+
+        for (TimerEvent* timer : pending_timers_)
+          delete timer;
+      },
+      queue_name, rtc::ThreadAttributes().SetPriority(priority));
 }
 
 void TaskQueueLibevent::Delete() {
@@ -199,7 +204,7 @@ void TaskQueueLibevent::Delete() {
     nanosleep(&ts, nullptr);
   }
 
-  thread_.Stop();
+  thread_.Finalize();
 
   event_del(&wakeup_event_);
 
@@ -216,7 +221,7 @@ void TaskQueueLibevent::Delete() {
 
 void TaskQueueLibevent::PostTask(std::unique_ptr<QueuedTask> task) {
   {
-    rtc::CritScope lock(&pending_lock_);
+    MutexLock lock(&pending_lock_);
     bool had_pending_tasks = !pending_.empty();
     pending_.push_back(std::move(task));
 
@@ -253,20 +258,6 @@ void TaskQueueLibevent::PostDelayedTask(std::unique_ptr<QueuedTask> task,
 }
 
 // static
-void TaskQueueLibevent::ThreadMain(void* context) {
-  TaskQueueLibevent* me = static_cast<TaskQueueLibevent*>(context);
-
-  {
-    CurrentTaskQueueSetter set_current(me);
-    while (me->is_active_)
-      event_base_loop(me->event_base_, 0);
-  }
-
-  for (TimerEvent* timer : me->pending_timers_)
-    delete timer;
-}
-
-// static
 void TaskQueueLibevent::OnWakeup(int socket,
                                  short flags,  // NOLINT
                                  void* context) {
@@ -282,7 +273,7 @@ void TaskQueueLibevent::OnWakeup(int socket,
     case kRunTasks: {
       absl::InlinedVector<std::unique_ptr<QueuedTask>, 4> tasks;
       {
-        rtc::CritScope lock(&me->pending_lock_);
+        MutexLock lock(&me->pending_lock_);
         tasks.swap(me->pending_);
       }
       RTC_DCHECK(!tasks.empty());
@@ -290,7 +281,7 @@ void TaskQueueLibevent::OnWakeup(int socket,
         if (task->Run()) {
           task.reset();
         } else {
-          // |false| means the task should *not* be deleted.
+          // `false` means the task should *not* be deleted.
           task.release();
         }
       }

@@ -13,6 +13,7 @@
 // the media-related aspects of SDP.
 
 #include <memory>
+#include <set>
 #include <tuple>
 
 #include "absl/algorithm/container.h"
@@ -290,8 +291,8 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
   // Stop both audio and video transceivers on the caller.
   auto transceivers = caller->pc()->GetTransceivers();
   ASSERT_EQ(2u, transceivers.size());
-  transceivers[0]->Stop();
-  transceivers[1]->Stop();
+  transceivers[0]->StopInternal();
+  transceivers[1]->StopInternal();
 
   ASSERT_TRUE(caller->ExchangeOfferAnswerWith(callee.get()));
 
@@ -388,8 +389,8 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
   // Stop both audio and video transceivers on the callee.
   auto transceivers = callee->pc()->GetTransceivers();
   ASSERT_EQ(2u, transceivers.size());
-  transceivers[0]->Stop();
-  transceivers[1]->Stop();
+  transceivers[0]->StopInternal();
+  transceivers[1]->StopInternal();
 
   ASSERT_TRUE(caller->ExchangeOfferAnswerWith(callee.get()));
 
@@ -825,8 +826,10 @@ TEST_P(PeerConnectionMediaTest, AnswerHasDifferentDirectionsForAudioVideo) {
 }
 
 void AddComfortNoiseCodecsToSend(cricket::FakeMediaEngine* media_engine) {
-  const cricket::AudioCodec kComfortNoiseCodec8k(102, "CN", 8000, 0, 1);
-  const cricket::AudioCodec kComfortNoiseCodec16k(103, "CN", 16000, 0, 1);
+  const cricket::AudioCodec kComfortNoiseCodec8k(102, cricket::kCnCodecName,
+                                                 8000, 0, 1);
+  const cricket::AudioCodec kComfortNoiseCodec16k(103, cricket::kCnCodecName,
+                                                  16000, 0, 1);
 
   auto codecs = media_engine->voice().send_codecs();
   codecs.push_back(kComfortNoiseCodec8k);
@@ -837,8 +840,31 @@ void AddComfortNoiseCodecsToSend(cricket::FakeMediaEngine* media_engine) {
 bool HasAnyComfortNoiseCodecs(const cricket::SessionDescription* desc) {
   const auto* audio_desc = cricket::GetFirstAudioContentDescription(desc);
   for (const auto& codec : audio_desc->codecs()) {
-    if (codec.name == "CN") {
+    if (codec.name == cricket::kCnCodecName) {
       return true;
+    }
+  }
+  return false;
+}
+
+bool HasPayloadTypeConflict(const cricket::SessionDescription* desc) {
+  std::set<int> payload_types;
+  const auto* audio_desc = cricket::GetFirstAudioContentDescription(desc);
+  if (audio_desc) {
+    for (const auto& codec : audio_desc->codecs()) {
+      if (payload_types.count(codec.id) > 0) {
+        return true;
+      }
+      payload_types.insert(codec.id);
+    }
+  }
+  const auto* video_desc = cricket::GetFirstVideoContentDescription(desc);
+  if (video_desc) {
+    for (const auto& codec : video_desc->codecs()) {
+      if (payload_types.count(codec.id) > 0) {
+        return true;
+      }
+      payload_types.insert(codec.id);
     }
   }
   return false;
@@ -846,8 +872,9 @@ bool HasAnyComfortNoiseCodecs(const cricket::SessionDescription* desc) {
 
 TEST_P(PeerConnectionMediaTest,
        CreateOfferWithNoVoiceActivityDetectionIncludesNoComfortNoiseCodecs) {
-  auto caller = CreatePeerConnectionWithAudioVideo();
-  AddComfortNoiseCodecsToSend(caller->media_engine());
+  auto fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(fake_engine.get());
+  auto caller = CreatePeerConnectionWithAudioVideo(std::move(fake_engine));
 
   RTCOfferAnswerOptions options;
   options.voice_activity_detection = false;
@@ -857,11 +884,47 @@ TEST_P(PeerConnectionMediaTest,
 }
 
 TEST_P(PeerConnectionMediaTest,
-       CreateAnswerWithNoVoiceActivityDetectionIncludesNoComfortNoiseCodecs) {
+       CreateOfferWithVoiceActivityDetectionIncludesComfortNoiseCodecs) {
+  auto fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(fake_engine.get());
+  auto caller = CreatePeerConnectionWithAudioVideo(std::move(fake_engine));
+
+  RTCOfferAnswerOptions options;
+  options.voice_activity_detection = true;
+  auto offer = caller->CreateOffer(options);
+
+  EXPECT_TRUE(HasAnyComfortNoiseCodecs(offer->description()));
+}
+
+TEST_P(PeerConnectionMediaTest,
+       CreateAnswerWithVoiceActivityDetectionIncludesNoComfortNoiseCodecs) {
   auto caller = CreatePeerConnectionWithAudioVideo();
-  AddComfortNoiseCodecsToSend(caller->media_engine());
-  auto callee = CreatePeerConnectionWithAudioVideo();
-  AddComfortNoiseCodecsToSend(callee->media_engine());
+
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(callee_fake_engine.get());
+  auto callee =
+      CreatePeerConnectionWithAudioVideo(std::move(callee_fake_engine));
+
+  ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
+
+  RTCOfferAnswerOptions options;
+  options.voice_activity_detection = true;
+  auto answer = callee->CreateAnswer(options);
+
+  EXPECT_FALSE(HasAnyComfortNoiseCodecs(answer->description()));
+}
+
+TEST_P(PeerConnectionMediaTest,
+       CreateAnswerWithNoVoiceActivityDetectionIncludesNoComfortNoiseCodecs) {
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(caller_fake_engine.get());
+  auto caller =
+      CreatePeerConnectionWithAudioVideo(std::move(caller_fake_engine));
+
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(callee_fake_engine.get());
+  auto callee =
+      CreatePeerConnectionWithAudioVideo(std::move(callee_fake_engine));
 
   ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
 
@@ -1118,10 +1181,11 @@ TEST_P(PeerConnectionMediaTest, MediaEngineErrorPropagatedToClients) {
   std::string error;
   ASSERT_FALSE(caller->SetRemoteDescription(callee->CreateAnswerAndSetAsLocal(),
                                             &error));
-  EXPECT_EQ(
-      "Failed to set remote answer sdp: Failed to set remote video description "
-      "send parameters.",
-      error);
+  EXPECT_EQ(std::string("Failed to set remote answer sdp: Failed to set remote "
+                        "video description "
+                        "send parameters for m-section with mid='") +
+                (IsUnifiedPlan() ? "1" : "video") + "'.",
+            error);
 }
 
 // Tests that if the underlying video encoder fails once then subsequent
@@ -1237,6 +1301,258 @@ TEST_P(PeerConnectionMediaTest,
   const cricket::AudioOptions& audio_options = caller_voice->options();
   EXPECT_EQ(config.combined_audio_video_bwe,
             audio_options.combined_audio_video_bwe);
+}
+
+// Test that if a RED codec refers to another codec in its fmtp line, but that
+// codec's payload type was reassigned for some reason (either the remote
+// endpoint selected a different payload type or there was a conflict), the RED
+// fmtp line is modified to refer to the correct payload type.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadTypeReassigned) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  callee_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "120/120");
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  ASSERT_EQ(1u, answer_description->codecs().size());
+
+  // Offer from the callee should respect the established payload type, and
+  // attempt to add RED, which should refer to the correct payload type.
+  offer = callee->CreateOfferAndSetAsLocal();
+  auto* offer_description =
+      cricket::GetFirstAudioContentDescription(offer->description());
+  ASSERT_EQ(2u, offer_description->codecs().size());
+  for (const auto& codec : offer_description->codecs()) {
+    if (codec.name == "foo") {
+      ASSERT_EQ(100, codec.id);
+    } else if (codec.name == cricket::kRedCodecName) {
+      std::string fmtp;
+      ASSERT_TRUE(codec.GetParam("", &fmtp));
+      EXPECT_EQ("100/100", fmtp);
+    }
+  }
+}
+
+// Test that RED without fmtp does match RED without fmtp.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadTypeNoFmtpMatchNoFmtp) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  caller_fake_codecs.push_back(
+      cricket::AudioCodec(101, cricket::kRedCodecName, 0, 0, 1));
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  // Red (without fmtp) is negotiated.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  ASSERT_EQ(2u, answer_description->codecs().size());
+
+  // Offer from the callee should respect the established payload type, and
+  // attempt to add RED.
+  offer = callee->CreateOfferAndSetAsLocal();
+  auto* offer_description =
+      cricket::GetFirstAudioContentDescription(offer->description());
+  ASSERT_EQ(2u, offer_description->codecs().size());
+  for (const auto& codec : offer_description->codecs()) {
+    if (codec.name == "foo") {
+      ASSERT_EQ(100, codec.id);
+    } else if (codec.name == cricket::kRedCodecName) {
+      ASSERT_EQ(101, codec.id);
+    }
+  }
+}
+
+// Test that RED without fmtp does not match RED with fmtp.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadTypeNoFmtpNoMatchFmtp) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  caller_fake_codecs.push_back(
+      cricket::AudioCodec(101, cricket::kRedCodecName, 0, 0, 1));
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  callee_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "120/120");
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  // It should not negotiate RED.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  ASSERT_EQ(1u, answer_description->codecs().size());
+
+  // Offer from the callee should respect the established payload type, and
+  // attempt to add RED, which should refer to the correct payload type.
+  offer = callee->CreateOfferAndSetAsLocal();
+  auto* offer_description =
+      cricket::GetFirstAudioContentDescription(offer->description());
+  ASSERT_EQ(2u, offer_description->codecs().size());
+  for (const auto& codec : offer_description->codecs()) {
+    if (codec.name == "foo") {
+      ASSERT_EQ(100, codec.id);
+    } else if (codec.name == cricket::kRedCodecName) {
+      std::string fmtp;
+      ASSERT_TRUE(
+          codec.GetParam(cricket::kCodecParamNotInNameValueFormat, &fmtp));
+      EXPECT_EQ("100/100", fmtp);
+    }
+  }
+}
+
+// Test that RED with fmtp must match base codecs.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadTypeMustMatchBaseCodecs) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  caller_fake_codecs.push_back(
+      cricket::AudioCodec(101, cricket::kRedCodecName, 0, 0, 1));
+  caller_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "100/100");
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  callee_fake_codecs.push_back(cricket::AudioCodec(122, "bar", 0, 0, 1));
+  callee_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "122/122");
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  // It should not negotiate RED since RED is associated with foo, not bar.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  ASSERT_EQ(1u, answer_description->codecs().size());
+}
+
+// Test behaviour when the RED fmtp attempts to specify different codecs
+// which is not supported.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadMixed) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  caller_fake_codecs.push_back(cricket::AudioCodec(102, "bar", 0, 0, 1));
+  caller_fake_codecs.push_back(
+      cricket::AudioCodec(101, cricket::kRedCodecName, 0, 0, 1));
+  caller_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "100/102");
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  callee_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "120/120");
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  // RED is not negotiated.
+  ASSERT_EQ(1u, answer_description->codecs().size());
+}
+
+// Test behaviour when the RED fmtp attempts to negotiate different levels of
+// redundancy.
+TEST_P(PeerConnectionMediaTest, RedFmtpPayloadDifferentRedundancy) {
+  std::vector<cricket::AudioCodec> caller_fake_codecs;
+  caller_fake_codecs.push_back(cricket::AudioCodec(100, "foo", 0, 0, 1));
+  caller_fake_codecs.push_back(
+      cricket::AudioCodec(101, cricket::kRedCodecName, 0, 0, 1));
+  caller_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "100/100");
+  auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
+  caller_fake_engine->SetAudioCodecs(caller_fake_codecs);
+  auto caller = CreatePeerConnectionWithAudio(std::move(caller_fake_engine));
+
+  std::vector<cricket::AudioCodec> callee_fake_codecs;
+  callee_fake_codecs.push_back(cricket::AudioCodec(120, "foo", 0, 0, 1));
+  callee_fake_codecs.push_back(
+      cricket::AudioCodec(121, cricket::kRedCodecName, 0, 0, 1));
+  callee_fake_codecs.back().SetParam(cricket::kCodecParamNotInNameValueFormat,
+                                     "120/120/120");
+  auto callee_fake_engine = std::make_unique<FakeMediaEngine>();
+  callee_fake_engine->SetAudioCodecs(callee_fake_codecs);
+  auto callee = CreatePeerConnectionWithAudio(std::move(callee_fake_engine));
+
+  // Offer from the caller establishes 100 as the "foo" payload type.
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  callee->SetRemoteDescription(std::move(offer));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  auto answer_description =
+      cricket::GetFirstAudioContentDescription(answer->description());
+  // RED is negotiated.
+  ASSERT_EQ(2u, answer_description->codecs().size());
+
+  // Offer from the callee should respect the established payload type, and
+  // attempt to add RED, which should refer to the correct payload type.
+  offer = callee->CreateOfferAndSetAsLocal();
+  auto* offer_description =
+      cricket::GetFirstAudioContentDescription(offer->description());
+  ASSERT_EQ(2u, offer_description->codecs().size());
+  for (const auto& codec : offer_description->codecs()) {
+    if (codec.name == "foo") {
+      ASSERT_EQ(100, codec.id);
+    } else if (codec.name == cricket::kRedCodecName) {
+      std::string fmtp;
+      ASSERT_TRUE(
+          codec.GetParam(cricket::kCodecParamNotInNameValueFormat, &fmtp));
+      EXPECT_EQ("100/100", fmtp);
+    }
+  }
 }
 
 template <typename C>
@@ -1434,9 +1750,11 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
 TEST_F(PeerConnectionMediaTestUnifiedPlan,
        SetCodecPreferencesVideoRejectsOnlyRtxRedFec) {
   auto fake_engine = std::make_unique<FakeMediaEngine>();
-  auto video_codecs = fake_engine->video().codecs();
+  auto video_codecs = fake_engine->video().send_codecs();
   video_codecs.push_back(
       cricket::VideoCodec(video_codecs.back().id + 1, cricket::kRtxCodecName));
+  video_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] =
+      std::to_string(video_codecs.back().id - 1);
   video_codecs.push_back(
       cricket::VideoCodec(video_codecs.back().id + 1, cricket::kRedCodecName));
   video_codecs.push_back(cricket::VideoCodec(video_codecs.back().id + 1,
@@ -1540,7 +1858,7 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
 
 TEST_F(PeerConnectionMediaTestUnifiedPlan, SetCodecPreferencesVideoWithRtx) {
   auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
-  auto caller_video_codecs = caller_fake_engine->video().codecs();
+  auto caller_video_codecs = caller_fake_engine->video().send_codecs();
   caller_video_codecs.push_back(cricket::VideoCodec(
       caller_video_codecs.back().id + 1, cricket::kVp8CodecName));
   caller_video_codecs.push_back(cricket::VideoCodec(
@@ -1592,7 +1910,7 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan, SetCodecPreferencesVideoWithRtx) {
 TEST_F(PeerConnectionMediaTestUnifiedPlan,
        SetCodecPreferencesVideoCodecsNegotiation) {
   auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
-  auto caller_video_codecs = caller_fake_engine->video().codecs();
+  auto caller_video_codecs = caller_fake_engine->video().send_codecs();
   caller_video_codecs.push_back(cricket::VideoCodec(
       caller_video_codecs.back().id + 1, cricket::kVp8CodecName));
   caller_video_codecs.push_back(cricket::VideoCodec(
@@ -1666,7 +1984,7 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
 TEST_F(PeerConnectionMediaTestUnifiedPlan,
        SetCodecPreferencesVideoCodecsNegotiationReverseOrder) {
   auto caller_fake_engine = std::make_unique<FakeMediaEngine>();
-  auto caller_video_codecs = caller_fake_engine->video().codecs();
+  auto caller_video_codecs = caller_fake_engine->video().send_codecs();
   caller_video_codecs.push_back(cricket::VideoCodec(
       caller_video_codecs.back().id + 1, cricket::kVp8CodecName));
   caller_video_codecs.push_back(cricket::VideoCodec(
@@ -1729,6 +2047,167 @@ TEST_F(PeerConnectionMediaTestUnifiedPlan,
                          ->codecs();
 
   EXPECT_TRUE(CompareCodecs(video_codecs_vpx_reverse, recv_codecs));
+}
+
+TEST_F(PeerConnectionMediaTestUnifiedPlan,
+       SetCodecPreferencesVoiceActivityDetection) {
+  auto fake_engine = std::make_unique<FakeMediaEngine>();
+  AddComfortNoiseCodecsToSend(fake_engine.get());
+  auto caller = CreatePeerConnectionWithAudio(std::move(fake_engine));
+
+  RTCOfferAnswerOptions options;
+  auto offer = caller->CreateOffer(options);
+  EXPECT_TRUE(HasAnyComfortNoiseCodecs(offer->description()));
+
+  auto transceiver = caller->pc()->GetTransceivers().front();
+  auto capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_AUDIO);
+  EXPECT_TRUE(transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  options.voice_activity_detection = false;
+  offer = caller->CreateOffer(options);
+  EXPECT_FALSE(HasAnyComfortNoiseCodecs(offer->description()));
+}
+
+// If the "default" payload types of audio/video codecs are the same, and
+// audio/video are bundled (as is the default), payload types should be
+// remapped to avoid conflict, as normally happens without using
+// SetCodecPreferences.
+TEST_F(PeerConnectionMediaTestUnifiedPlan,
+       SetCodecPreferencesAvoidsPayloadTypeConflictInOffer) {
+  auto fake_engine = std::make_unique<cricket::FakeMediaEngine>();
+
+  std::vector<cricket::AudioCodec> audio_codecs;
+  audio_codecs.emplace_back(100, "foo", 0, 0, 1);
+  audio_codecs.emplace_back(101, cricket::kRtxCodecName, 0, 0, 1);
+  audio_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetAudioCodecs(audio_codecs);
+
+  std::vector<cricket::VideoCodec> video_codecs;
+  video_codecs.emplace_back(100, "bar");
+  video_codecs.emplace_back(101, cricket::kRtxCodecName);
+  video_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetVideoCodecs(video_codecs);
+
+  auto caller = CreatePeerConnectionWithAudioVideo(std::move(fake_engine));
+  auto transceivers = caller->pc()->GetTransceivers();
+  ASSERT_EQ(2u, transceivers.size());
+
+  auto audio_transceiver = caller->pc()->GetTransceivers()[0];
+  auto capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_AUDIO);
+  EXPECT_TRUE(audio_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  auto video_transceiver = caller->pc()->GetTransceivers()[1];
+  capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_VIDEO);
+  EXPECT_TRUE(video_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  RTCOfferAnswerOptions options;
+  auto offer = caller->CreateOffer(options);
+  EXPECT_FALSE(HasPayloadTypeConflict(offer->description()));
+  // Sanity check that we got the primary codec and RTX.
+  EXPECT_EQ(2u, cricket::GetFirstAudioContentDescription(offer->description())
+                    ->codecs()
+                    .size());
+  EXPECT_EQ(2u, cricket::GetFirstVideoContentDescription(offer->description())
+                    ->codecs()
+                    .size());
+}
+
+// Same as above, but preferences set for the answer.
+TEST_F(PeerConnectionMediaTestUnifiedPlan,
+       SetCodecPreferencesAvoidsPayloadTypeConflictInAnswer) {
+  auto fake_engine = std::make_unique<cricket::FakeMediaEngine>();
+
+  std::vector<cricket::AudioCodec> audio_codecs;
+  audio_codecs.emplace_back(100, "foo", 0, 0, 1);
+  audio_codecs.emplace_back(101, cricket::kRtxCodecName, 0, 0, 1);
+  audio_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetAudioCodecs(audio_codecs);
+
+  std::vector<cricket::VideoCodec> video_codecs;
+  video_codecs.emplace_back(100, "bar");
+  video_codecs.emplace_back(101, cricket::kRtxCodecName);
+  video_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetVideoCodecs(video_codecs);
+
+  auto caller = CreatePeerConnectionWithAudioVideo(std::move(fake_engine));
+
+  RTCOfferAnswerOptions options;
+  caller->SetRemoteDescription(caller->CreateOffer(options));
+
+  auto transceivers = caller->pc()->GetTransceivers();
+  ASSERT_EQ(2u, transceivers.size());
+
+  auto audio_transceiver = caller->pc()->GetTransceivers()[0];
+  auto capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_AUDIO);
+  EXPECT_TRUE(audio_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  auto video_transceiver = caller->pc()->GetTransceivers()[1];
+  capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_VIDEO);
+  EXPECT_TRUE(video_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  auto answer = caller->CreateAnswer(options);
+
+  EXPECT_FALSE(HasPayloadTypeConflict(answer->description()));
+  // Sanity check that we got the primary codec and RTX.
+  EXPECT_EQ(2u, cricket::GetFirstAudioContentDescription(answer->description())
+                    ->codecs()
+                    .size());
+  EXPECT_EQ(2u, cricket::GetFirstVideoContentDescription(answer->description())
+                    ->codecs()
+                    .size());
+}
+
+// Same as above, but preferences set for a subsequent offer.
+TEST_F(PeerConnectionMediaTestUnifiedPlan,
+       SetCodecPreferencesAvoidsPayloadTypeConflictInSubsequentOffer) {
+  auto fake_engine = std::make_unique<cricket::FakeMediaEngine>();
+
+  std::vector<cricket::AudioCodec> audio_codecs;
+  audio_codecs.emplace_back(100, "foo", 0, 0, 1);
+  audio_codecs.emplace_back(101, cricket::kRtxCodecName, 0, 0, 1);
+  audio_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetAudioCodecs(audio_codecs);
+
+  std::vector<cricket::VideoCodec> video_codecs;
+  video_codecs.emplace_back(100, "bar");
+  video_codecs.emplace_back(101, cricket::kRtxCodecName);
+  video_codecs.back().params[cricket::kCodecParamAssociatedPayloadType] = "100";
+  fake_engine->SetVideoCodecs(video_codecs);
+
+  auto caller = CreatePeerConnectionWithAudioVideo(std::move(fake_engine));
+
+  RTCOfferAnswerOptions options;
+  caller->SetRemoteDescription(caller->CreateOffer(options));
+  caller->SetLocalDescription(caller->CreateAnswer(options));
+
+  auto transceivers = caller->pc()->GetTransceivers();
+  ASSERT_EQ(2u, transceivers.size());
+
+  auto audio_transceiver = caller->pc()->GetTransceivers()[0];
+  auto capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_AUDIO);
+  EXPECT_TRUE(audio_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  auto video_transceiver = caller->pc()->GetTransceivers()[1];
+  capabilities = caller->pc_factory()->GetRtpSenderCapabilities(
+      cricket::MediaType::MEDIA_TYPE_VIDEO);
+  EXPECT_TRUE(video_transceiver->SetCodecPreferences(capabilities.codecs).ok());
+
+  auto reoffer = caller->CreateOffer(options);
+
+  EXPECT_FALSE(HasPayloadTypeConflict(reoffer->description()));
+  // Sanity check that we got the primary codec and RTX.
+  EXPECT_EQ(2u, cricket::GetFirstAudioContentDescription(reoffer->description())
+                    ->codecs()
+                    .size());
+  EXPECT_EQ(2u, cricket::GetFirstVideoContentDescription(reoffer->description())
+                    ->codecs()
+                    .size());
 }
 
 INSTANTIATE_TEST_SUITE_P(PeerConnectionMediaTest,

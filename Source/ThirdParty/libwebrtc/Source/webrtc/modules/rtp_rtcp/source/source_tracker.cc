@@ -25,7 +25,7 @@ void SourceTracker::OnFrameDelivered(const RtpPacketInfos& packet_infos) {
   }
 
   int64_t now_ms = clock_->TimeInMilliseconds();
-  rtc::CritScope lock_scope(&lock_);
+  MutexLock lock_scope(&lock_);
 
   for (const auto& packet_info : packet_infos) {
     for (uint32_t csrc : packet_info.csrcs()) {
@@ -54,7 +54,7 @@ std::vector<RtpSource> SourceTracker::GetSources() const {
   std::vector<RtpSource> sources;
 
   int64_t now_ms = clock_->TimeInMilliseconds();
-  rtc::CritScope lock_scope(&lock_);
+  MutexLock lock_scope(&lock_);
 
   PruneEntries(now_ms);
 
@@ -72,7 +72,7 @@ std::vector<RtpSource> SourceTracker::GetSources() const {
 
 SourceTracker::SourceEntry& SourceTracker::UpdateEntry(const SourceKey& key) {
   // We intentionally do |find() + emplace()|, instead of checking the return
-  // value of |emplace()|, for performance reasons. It's much more likely for
+  // value of `emplace()`, for performance reasons. It's much more likely for
   // the key to already exist than for it not to.
   auto map_it = map_.find(key);
   if (map_it == map_.end()) {

@@ -37,6 +37,7 @@
 #include "Event.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
+#include "JSDOMWindow.h"
 #include "JSEvent.h"
 #include "JSExecState.h"
 #include "JSExecStateInstrumentation.h"
@@ -48,7 +49,7 @@ namespace WebCore {
 using namespace JSC;
 
 inline JSErrorHandler::JSErrorHandler(JSObject& listener, JSObject& wrapper, bool isAttribute, DOMWrapperWorld& world)
-    : JSEventListener(&listener, &wrapper, isAttribute, world)
+    : JSEventListener(&listener, &wrapper, isAttribute, CreatedFromMarkup::No, world)
 {
 }
 
@@ -79,8 +80,15 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
     if (callData.type != CallData::Type::None) {
         Ref<JSErrorHandler> protectedThis(*this);
 
-        Event* savedEvent = globalObject->currentEvent();
-        globalObject->setCurrentEvent(&event);
+        RefPtr<Event> savedEvent;
+        auto* jsFunctionWindow = jsDynamicCast<JSDOMWindow*>(vm, jsFunction->globalObject());
+        if (jsFunctionWindow) {
+            savedEvent = jsFunctionWindow->currentEvent();
+
+            // window.event should not be set when the target is inside a shadow tree, as per the DOM specification.
+            if (!event.currentTargetIsInShadowTree())
+                jsFunctionWindow->setCurrentEvent(&event);
+        }
 
         auto& errorEvent = downcast<ErrorEvent>(event);
 
@@ -102,7 +110,8 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
 
         InspectorInstrumentation::didCallFunction(&scriptExecutionContext);
 
-        globalObject->setCurrentEvent(savedEvent);
+        if (jsFunctionWindow)
+            jsFunctionWindow->setCurrentEvent(savedEvent.get());
 
         if (exception)
             reportException(globalObject, exception);

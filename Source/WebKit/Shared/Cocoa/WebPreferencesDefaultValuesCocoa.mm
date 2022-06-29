@@ -26,10 +26,10 @@
 #import "config.h"
 #import "WebPreferencesDefaultValues.h"
 
-#if PLATFORM(COCOA) && HAVE(SYSTEM_FEATURE_FLAGS)
+#if PLATFORM(COCOA)
 
+#import "TextRecognitionUtilities.h"
 #import <Foundation/NSBundle.h>
-
 #import <pal/spi/cocoa/FeatureFlagsSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -38,21 +38,62 @@
 namespace WebKit {
 
 // Because of <rdar://problem/60608008>, WebKit has to parse the feature flags plist file
-bool isFeatureFlagEnabled(const String& featureName)
+bool isFeatureFlagEnabled(const char* featureName, bool defaultValue)
 {
-    BOOL isWebKitBundleFromStagedFramework = [[[NSBundle mainBundle] bundlePath] hasPrefix:@"/Library/Apple/System/Library/StagedFrameworks/WebKit"];
+#if HAVE(SYSTEM_FEATURE_FLAGS)
 
-    if (!isWebKitBundleFromStagedFramework)
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.utf8().data());
+#if PLATFORM(MAC)
+    static bool isSystemWebKit = [] {
+        NSBundle *bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
+        return [bundle.bundlePath hasPrefix:@"/System/"];
+    }();
 
-    static NSDictionary* dictionary = [[NSDictionary dictionaryWithContentsOfFile:@"/Library/Apple/System/Library/FeatureFlags/Domain/WebKit.plist"] retain];
+    if (isSystemWebKit)
+        return _os_feature_enabled_impl("WebKit", featureName);
 
-    if (![[dictionary objectForKey:featureName] objectForKey:@"Enabled"])
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.characters8());
+    return defaultValue;
+#else
+    UNUSED_PARAM(defaultValue);
+    return _os_feature_enabled_impl("WebKit", featureName);
+#endif // PLATFORM(MAC)
 
-    return [[[dictionary objectForKey:featureName] objectForKey:@"Enabled"] isKindOfClass:[NSNumber class]] && [[[dictionary objectForKey:featureName] objectForKey:@"Enabled"] boolValue];
+#else
+
+    UNUSED_PARAM(featureName);
+    return defaultValue;
+
+#endif // HAVE(SYSTEM_FEATURE_FLAGS)
 }
+
+#if PLATFORM(MAC)
+bool defaultScrollAnimatorEnabled()
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"NSScrollAnimationEnabled"];
+}
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS)
+
+bool defaultTextRecognitionEnhancementsEnabled()
+{
+    return textRecognitionEnhancementsSystemFeatureEnabled();
+}
+
+bool defaultImageAnalysisQueueEnabled()
+{
+    return imageAnalysisQueueSystemFeatureEnabled();
+}
+
+bool defaultImageAnalysisMarkupEnabled()
+{
+    // FIXME: The is- prefix on this helper method is inconsistent with the adjacent system
+    // feature flag checks. This will be fixed upon upstreaming the code from WebKitAdditions,
+    // when these helper methods will be removed entirely.
+    return isImageAnalysisMarkupSystemFeatureEnabled();
+}
+
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 } // namespace WebKit
 
-#endif
+#endif // PLATFORM(COCOA)

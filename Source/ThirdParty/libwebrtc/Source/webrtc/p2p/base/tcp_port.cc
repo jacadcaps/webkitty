@@ -18,10 +18,10 @@
  *    before stun binding completed will trigger IPC socket layer to shutdown
  *    the connection.
  *
- *  - PendingTCP: |connection_pending_| indicates whether there is an
+ *  - PendingTCP: `connection_pending_` indicates whether there is an
  *    outstanding TCP connection in progress.
  *
- *  - PretendWri: Tracked by |pretending_to_be_writable_|. Marking connection as
+ *  - PretendWri: Tracked by `pretending_to_be_writable_`. Marking connection as
  *    WRITE_TIMEOUT will cause the connection be deleted. Instead, we're
  *    "pretending" we're still writable for a period of time such that reconnect
  *    could work.
@@ -71,6 +71,7 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/memory/memory.h"
 #include "p2p/base/p2p_constants.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/ip_address.h"
@@ -99,7 +100,6 @@ TCPPort::TCPPort(rtc::Thread* thread,
            username,
            password),
       allow_listen_(allow_listen),
-      socket_(NULL),
       error_(0) {
   // TODO(mallinath) - Set preference value as per RFC 6544.
   // http://b/issue?id=7141794
@@ -109,7 +109,7 @@ TCPPort::TCPPort(rtc::Thread* thread,
 }
 
 TCPPort::~TCPPort() {
-  delete socket_;
+  listen_socket_ = nullptr;
   std::list<Incoming>::iterator it;
   for (it = incoming_.begin(); it != incoming_.end(); ++it)
     delete it->socket;
@@ -122,7 +122,8 @@ Connection* TCPPort::CreateConnection(const Candidate& address,
     return NULL;
   }
 
-  if (address.tcptype() == TCPTYPE_ACTIVE_STR ||
+  if ((address.tcptype() == TCPTYPE_ACTIVE_STR &&
+       address.type() != PRFLX_PORT_TYPE) ||
       (address.tcptype().empty() && address.address().port() == 0)) {
     // It's active only candidate, we should not try to create connections
     // for these candidates.
@@ -164,17 +165,16 @@ Connection* TCPPort::CreateConnection(const Candidate& address,
 }
 
 void TCPPort::PrepareAddress() {
-  if (socket_) {
-    // If socket isn't bound yet the address will be added in
-    // OnAddressReady(). Socket may be in the CLOSED state if Listen()
+  if (listen_socket_) {
+    // Socket may be in the CLOSED state if Listen()
     // failed, we still want to add the socket address.
     RTC_LOG(LS_VERBOSE) << "Preparing TCP address, current state: "
-                        << socket_->GetState();
-    if (socket_->GetState() == rtc::AsyncPacketSocket::STATE_BOUND ||
-        socket_->GetState() == rtc::AsyncPacketSocket::STATE_CLOSED)
-      AddAddress(socket_->GetLocalAddress(), socket_->GetLocalAddress(),
-                 rtc::SocketAddress(), TCP_PROTOCOL_NAME, "",
-                 TCPTYPE_PASSIVE_STR, LOCAL_PORT_TYPE,
+                        << listen_socket_->GetState();
+    if (listen_socket_->GetState() == rtc::AsyncPacketSocket::STATE_BOUND ||
+        listen_socket_->GetState() == rtc::AsyncPacketSocket::STATE_CLOSED)
+      AddAddress(listen_socket_->GetLocalAddress(),
+                 listen_socket_->GetLocalAddress(), rtc::SocketAddress(),
+                 TCP_PROTOCOL_NAME, "", TCPTYPE_PASSIVE_STR, LOCAL_PORT_TYPE,
                  ICE_TYPE_PREFERENCE_HOST_TCP, 0, "", true);
   } else {
     RTC_LOG(LS_INFO) << ToString()
@@ -245,16 +245,16 @@ int TCPPort::SendTo(const void* data,
 }
 
 int TCPPort::GetOption(rtc::Socket::Option opt, int* value) {
-  if (socket_) {
-    return socket_->GetOption(opt, value);
+  if (listen_socket_) {
+    return listen_socket_->GetOption(opt, value);
   } else {
     return SOCKET_ERROR;
   }
 }
 
 int TCPPort::SetOption(rtc::Socket::Option opt, int value) {
-  if (socket_) {
-    return socket_->SetOption(opt, value);
+  if (listen_socket_) {
+    return listen_socket_->SetOption(opt, value);
   } else {
     return SOCKET_ERROR;
   }
@@ -272,9 +272,9 @@ ProtocolType TCPPort::GetProtocol() const {
   return PROTO_TCP;
 }
 
-void TCPPort::OnNewConnection(rtc::AsyncPacketSocket* socket,
+void TCPPort::OnNewConnection(rtc::AsyncListenSocket* socket,
                               rtc::AsyncPacketSocket* new_socket) {
-  RTC_DCHECK(socket == socket_);
+  RTC_DCHECK(socket == listen_socket_.get());
 
   Incoming incoming;
   incoming.addr = new_socket->GetRemoteAddress();
@@ -289,17 +289,16 @@ void TCPPort::OnNewConnection(rtc::AsyncPacketSocket* socket,
 }
 
 void TCPPort::TryCreateServerSocket() {
-  socket_ = socket_factory()->CreateServerTcpSocket(
+  listen_socket_ = absl::WrapUnique(socket_factory()->CreateServerTcpSocket(
       rtc::SocketAddress(Network()->GetBestIP(), 0), min_port(), max_port(),
-      false /* ssl */);
-  if (!socket_) {
+      false /* ssl */));
+  if (!listen_socket_) {
     RTC_LOG(LS_WARNING)
         << ToString()
         << ": TCP server socket creation failed; continuing anyway.";
     return;
   }
-  socket_->SignalNewConnection.connect(this, &TCPPort::OnNewConnection);
-  socket_->SignalAddressReady.connect(this, &TCPPort::OnAddressReady);
+  listen_socket_->SignalNewConnection.connect(this, &TCPPort::OnNewConnection);
 }
 
 rtc::AsyncPacketSocket* TCPPort::GetIncoming(const rtc::SocketAddress& addr,
@@ -334,15 +333,8 @@ void TCPPort::OnReadyToSend(rtc::AsyncPacketSocket* socket) {
   Port::OnReadyToSend();
 }
 
-void TCPPort::OnAddressReady(rtc::AsyncPacketSocket* socket,
-                             const rtc::SocketAddress& address) {
-  AddAddress(address, address, rtc::SocketAddress(), TCP_PROTOCOL_NAME, "",
-             TCPTYPE_PASSIVE_STR, LOCAL_PORT_TYPE, ICE_TYPE_PREFERENCE_HOST_TCP,
-             0, "", true);
-}
-
-// TODO(qingsi): |CONNECTION_WRITE_CONNECT_TIMEOUT| is overriden by
-// |ice_unwritable_timeout| in IceConfig when determining the writability state.
+// TODO(qingsi): `CONNECTION_WRITE_CONNECT_TIMEOUT` is overriden by
+// `ice_unwritable_timeout` in IceConfig when determining the writability state.
 // Replace this constant with the config parameter assuming the default value if
 // we decide it is also applicable here.
 TCPConnection::TCPConnection(TCPPort* port,
@@ -363,12 +355,12 @@ TCPConnection::TCPConnection(TCPPort* port,
     RTC_LOG(LS_VERBOSE) << ToString() << ": socket ipaddr: "
                         << socket_->GetLocalAddress().ToSensitiveString()
                         << ", port() Network:" << port->Network()->ToString();
-    RTC_DCHECK(absl::c_any_of(
-        port_->Network()->GetIPs(), [this](const rtc::InterfaceAddress& addr) {
 #if defined(WEBRTC_WEBKIT_BUILD)
-          if (socket_->GetLocalAddress().IsLoopbackIP())
-            return true;
+    RTC_DCHECK(socket->GetLocalAddress().IsLoopbackIP() || absl::c_any_of(
+#else
+    RTC_DCHECK(absl::c_any_of(
 #endif
+        port_->Network()->GetIPs(), [this](const rtc::InterfaceAddress& addr) {
           return socket_->GetLocalAddress().ipaddr() == addr;
         }));
     ConnectSocketSignals(socket);
@@ -406,12 +398,14 @@ int TCPConnection::Send(const void* data,
   static_cast<TCPPort*>(port_)->CopyPortInformationToPacketInfo(
       &modified_options.info_signaled_after_sent);
   int sent = socket_->Send(data, size, modified_options);
+  int64_t now = rtc::TimeMillis();
   if (sent < 0) {
     stats_.sent_discarded_packets++;
     error_ = socket_->GetError();
   } else {
-    send_rate_tracker_.AddSamples(sent);
+    send_rate_tracker_.AddSamplesAtTime(now, sent);
   }
+  last_send_data_ = now;
   return sent;
 }
 
@@ -507,7 +501,7 @@ void TCPConnection::OnClose(rtc::AsyncPacketSocket* socket, int error) {
                                   MSG_TCPCONNECTION_DELAYED_ONCLOSE);
   } else if (!pretending_to_be_writable_) {
     // OnClose could be called when the underneath socket times out during the
-    // initial connect() (i.e. |pretending_to_be_writable_| is false) . We have
+    // initial connect() (i.e. `pretending_to_be_writable_` is false) . We have
     // to manually destroy here as this connection, as never connected, will not
     // be scheduled for ping to trigger destroy.
     Destroy();

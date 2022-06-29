@@ -35,6 +35,7 @@
 #import "WKContentRuleListStoreInternal.h"
 #import "WKContentWorldInternal.h"
 #import "WKContextMenuElementInfoInternal.h"
+#import "WKDownloadInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHTTPCookieStoreInternal.h"
 #import "WKNSArray.h"
@@ -58,11 +59,11 @@
 #import "WKUserContentControllerInternal.h"
 #import "WKUserScriptInternal.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+#import "WKWebProcessPlugInCSSStyleDeclarationHandleInternal.h"
 #import "WKWebProcessPlugInFrameInternal.h"
 #import "WKWebProcessPlugInHitTestResultInternal.h"
 #import "WKWebProcessPlugInInternal.h"
 #import "WKWebProcessPlugInNodeHandleInternal.h"
-#import "WKWebProcessPlugInPageGroupInternal.h"
 #import "WKWebProcessPlugInRangeHandleInternal.h"
 #import "WKWebProcessPlugInScriptWorldInternal.h"
 #import "WKWebpagePreferencesInternal.h"
@@ -73,12 +74,12 @@
 #import "_WKAutomationSessionInternal.h"
 #import "_WKContentRuleListActionInternal.h"
 #import "_WKCustomHeaderFieldsInternal.h"
-#import "_WKDownloadInternal.h"
 #import "_WKExperimentalFeatureInternal.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
 #import "_WKGeolocationPositionInternal.h"
 #import "_WKHitTestResultInternal.h"
+#import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
 #import "_WKInternalDebugFeatureInternal.h"
@@ -96,6 +97,10 @@
 
 #if ENABLE(APPLICATION_MANIFEST)
 #import "_WKApplicationManifestInternal.h"
+#endif
+
+#if ENABLE(INSPECTOR_EXTENSIONS)
+#import "_WKInspectorExtensionInternal.h"
 #endif
 
 static const size_t minimumObjectAlignment = alignof(std::aligned_storage<std::numeric_limits<size_t>::max()>::type);
@@ -223,7 +228,7 @@ void* Object::newObject(size_t size, Type type)
         break;
 
     case Type::Download:
-        wrapper = [_WKDownload alloc];
+        wrapper = [WKDownload alloc];
         break;
 
     case Type::ExperimentalFeature:
@@ -255,7 +260,7 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [WKHTTPCookieStore alloc];
         break;
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     case Type::HitTestResult:
         wrapper = [_WKHitTestResult alloc];
         break;
@@ -264,7 +269,17 @@ void* Object::newObject(size_t size, Type type)
     case Type::Inspector:
         wrapper = [_WKInspector alloc];
         break;
-        
+
+    case Type::InspectorConfiguration:
+        wrapper = [_WKInspectorConfiguration alloc];
+        break;
+
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    case Type::InspectorExtension:
+        wrapper = [_WKInspectorExtension alloc];
+        break;
+#endif
+
     case Type::Navigation:
         wrapper = [WKNavigation alloc];
         break;
@@ -408,12 +423,12 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [WKWebProcessPlugInHitTestResult alloc];
         break;
 
-    case Type::BundleNodeHandle:
-        wrapper = [WKWebProcessPlugInNodeHandle alloc];
+    case Type::BundleCSSStyleDeclarationHandle:
+        wrapper = [WKWebProcessPlugInCSSStyleDeclarationHandle alloc];
         break;
 
-    case Type::BundlePageGroup:
-        wrapper = [WKWebProcessPlugInPageGroup alloc];
+    case Type::BundleNodeHandle:
+        wrapper = [WKWebProcessPlugInNodeHandle alloc];
         break;
 
     case Type::BundleRangeHandle:

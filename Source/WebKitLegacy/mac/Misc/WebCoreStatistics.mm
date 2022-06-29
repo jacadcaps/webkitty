@@ -39,7 +39,7 @@
 #import <WebCore/Frame.h>
 #import <WebCore/GCController.h>
 #import <WebCore/GlyphPage.h>
-#import <WebCore/GraphicsContext.h>
+#import <WebCore/GraphicsContextCG.h>
 #import <WebCore/JSDOMWindow.h>
 #import <WebCore/PageConsoleClient.h>
 #import <WebCore/PrintContext.h>
@@ -140,17 +140,17 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<const cha
 
 + (size_t)cachedFontDataCount
 {
-    return FontCache::singleton().fontCount();
+    return FontCache::forCurrentThread().fontCount();
 }
 
 + (size_t)cachedFontDataInactiveCount
 {
-    return FontCache::singleton().inactiveFontCount();
+    return FontCache::forCurrentThread().inactiveFontCount();
 }
 
 + (void)purgeInactiveFontData
 {
-    FontCache::singleton().purgeInactiveFontData();
+    FontCache::forCurrentThread().purgeInactiveFontData();
 }
 
 + (size_t)glyphPageCount
@@ -305,7 +305,7 @@ static OptionSet<RenderAsTextFlag> toRenderAsTextFlags(WebRenderTreeAsTextOption
     if (!coreFrame)
         return;
 
-    GraphicsContext graphicsContext(cgContext);
+    GraphicsContextCG graphicsContext(cgContext);
     PrintContext::spoolAllPagesWithBoundaries(*coreFrame, graphicsContext, FloatSize(pageWidthInPixels, pageHeightInPixels));
 }
 

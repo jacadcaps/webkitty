@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -141,6 +141,10 @@ MACRO_INSTRUCTIONS =
      "move",
      "sxi2q",
      "zxi2q",
+     "sxb2i",
+     "sxh2i",
+     "sxb2q",
+     "sxh2q",
      "nop",
      "bieq",
      "bineq",
@@ -299,10 +303,12 @@ MACRO_INSTRUCTIONS =
      "leai",
      "leap",
      "memfence",
+     "tagCodePtr",
      "tagReturnAddress",
      "untagReturnAddress",
      "removeCodePtrTag",
-     "untagArrayPtr",    
+     "untagArrayPtr",
+     "removeArrayPtrTag",
      "tzcnti",
      "tzcntq",
      "lzcnti",
@@ -341,6 +347,32 @@ X86_INSTRUCTIONS =
      "cqoq",
      "idivq",
      "udivq",
+     "notq",
+     "atomicxchgaddb",
+     "atomicxchgaddh",
+     "atomicxchgaddi",
+     "atomicxchgaddq",
+     "atomicxchgsubb",
+     "atomicxchgsubh",
+     "atomicxchgsubi",
+     "atomicxchgsubq",
+     "atomicxchgb",
+     "atomicxchgh",
+     "atomicxchgi",
+     "atomicxchgq",
+     "batomicweakcasb",
+     "batomicweakcash",
+     "batomicweakcasi",
+     "batomicweakcasq",
+     "atomicweakcasb",
+     "atomicweakcash",
+     "atomicweakcasi",
+     "atomicweakcasq",
+     "atomicloadb",
+     "atomicloadh",
+     "atomicloadi",
+     "atomicloadq",
+     "fence",
     ]
 
 ARM_INSTRUCTIONS =
@@ -355,10 +387,45 @@ ARM64_INSTRUCTIONS =
      "bfiq", # Bit field insert <source reg> <last bit written> <width immediate> <dest reg>
      "pcrtoaddr",   # Address from PC relative offset - adr instruction
      "globaladdr",
-     "divi",
-     "divis",
-     "divq",
-     "divqs",
+     "notq",
+     "loadlinkacqb",
+     "loadlinkacqh",
+     "loadlinkacqi",
+     "loadlinkacqq",
+     "storecondrelb",
+     "storecondrelh",
+     "storecondreli",
+     "storecondrelq",
+     "fence",
+     # They are available only if Atomic LSE is supported.
+     "atomicxchgaddb",
+     "atomicxchgaddh",
+     "atomicxchgaddi",
+     "atomicxchgaddq",
+     "atomicxchgclearb",
+     "atomicxchgclearh",
+     "atomicxchgcleari",
+     "atomicxchgclearq",
+     "atomicxchgorb",
+     "atomicxchgorh",
+     "atomicxchgori",
+     "atomicxchgorq",
+     "atomicxchgxorb",
+     "atomicxchgxorh",
+     "atomicxchgxori",
+     "atomicxchgxorq",
+     "atomicxchgb",
+     "atomicxchgh",
+     "atomicxchgi",
+     "atomicxchgq",
+     "atomicweakcasb",
+     "atomicweakcash",
+     "atomicweakcasi",
+     "atomicweakcasq",
+     "atomicloadb",
+     "atomicloadh",
+     "atomicloadi",
+     "atomicloadq",
     ]
 
 RISC_INSTRUCTIONS =
@@ -367,7 +434,15 @@ RISC_INSTRUCTIONS =
      "addis",   # Add integers and set a flag.
      "subis",   # Same, but for subtraction.
      "oris",    # Same, but for bitwise or.
-     "addps"    # addis but for pointers.
+     "addps",   # addis but for pointers.
+     "divi",
+     "divis",
+     "divq",
+     "divqs",
+     "remi",
+     "remis",
+     "remq",
+     "remqs"
     ]
 
 MIPS_INSTRUCTIONS =
@@ -388,6 +463,8 @@ CXX_INSTRUCTIONS =
      "cloopCallNative",         # operands: callee
      "cloopCallSlowPath",       # operands: callTarget, currentFrame, currentPC
      "cloopCallSlowPathVoid",   # operands: callTarget, currentFrame, currentPC
+     "cloopCallSlowPath3",      # operands: callTarget, a0, a1, a2
+     "cloopCallSlowPath4",      # operands: callTarget, a0, a1, a2, a3
 
      # For debugging only:
      # Takes no operands but simply emits whatever follows in // comments as

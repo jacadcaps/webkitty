@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,10 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "SandboxExtension.h"
 #include <wtf/ProcessID.h>
+
 namespace IPC {
 class Decoder;
 class Encoder;
@@ -39,15 +41,26 @@ namespace WebKit {
 struct GPUProcessCreationParameters {
     GPUProcessCreationParameters();
 
+    AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
 #if ENABLE(MEDIA_STREAM)
     bool useMockCaptureDevices { false };
-    SandboxExtension::Handle cameraSandboxExtensionHandle;
+#if PLATFORM(MAC)
     SandboxExtension::Handle microphoneSandboxExtensionHandle;
-#if PLATFORM(IOS)
-    SandboxExtension::Handle tccSandboxExtensionHandle;
 #endif
 #endif
     ProcessID parentPID;
+
+#if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
+    SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
+    SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
+    Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
+    Vector<SandboxExtension::Handle> dynamicMachExtensionHandles;
+#endif
+
+    String applicationVisibleName;
 
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, GPUProcessCreationParameters&);

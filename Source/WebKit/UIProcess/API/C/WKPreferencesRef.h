@@ -80,10 +80,6 @@ WK_EXPORT void WKPreferencesSetLoadsSiteIconsIgnoringImageLoadingPreference(WKPr
 WK_EXPORT bool WKPreferencesGetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef preferences);
 
 // Defaults to true.
-WK_EXPORT void WKPreferencesSetIsITPDatabaseEnabled(WKPreferencesRef preferences, bool isITPDatabaseEnabled);
-WK_EXPORT bool WKPreferencesGetIsITPDatabaseEnabled(WKPreferencesRef preferences);
-
-// Defaults to true.
 WK_EXPORT void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef preferences, bool offlineWebApplicationCacheEnabled);
 WK_EXPORT bool WKPreferencesGetOfflineWebApplicationCacheEnabled(WKPreferencesRef preferences);
 
@@ -95,9 +91,9 @@ WK_EXPORT bool WKPreferencesGetLocalStorageEnabled(WKPreferencesRef preferences)
 WK_EXPORT void WKPreferencesSetDatabasesEnabled(WKPreferencesRef preferences, bool databasesEnabled);
 WK_EXPORT bool WKPreferencesGetDatabasesEnabled(WKPreferencesRef preferences);
 
-// Defaults to true.
-WK_EXPORT void WKPreferencesSetXSSAuditorEnabled(WKPreferencesRef preferences, bool xssAuditorEnabled);
-WK_EXPORT bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef preferences);
+// Defaults to false.
+WK_EXPORT void WKPreferencesSetXSSAuditorEnabled(WKPreferencesRef preferences, bool xssAuditorEnabled) WK_C_API_DEPRECATED;
+WK_EXPORT bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef preferences) WK_C_API_DEPRECATED;
 
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetFrameFlatteningEnabled(WKPreferencesRef preferences, bool frameFlatteningEnabled);
@@ -327,15 +323,15 @@ WK_EXPORT void WKPreferencesSetMediaCapabilitiesEnabled(WKPreferencesRef prefere
 WK_EXPORT bool WKPreferencesGetRestrictedHTTPResponseAccess(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetRestrictedHTTPResponseAccess(WKPreferencesRef preferencesRef, bool allow);
 
-// Defaults to false.
-WK_EXPORT bool WKPreferencesGetCrossOriginResourcePolicyEnabled(WKPreferencesRef preferencesRef);
-WK_EXPORT void WKPreferencesSetCrossOriginResourcePolicyEnabled(WKPreferencesRef preferencesRef, bool allow);
+// Obsolete. Always returns true.
+WK_EXPORT bool WKPreferencesGetCrossOriginResourcePolicyEnabled(WKPreferencesRef preferencesRef) WK_C_API_DEPRECATED;
+WK_EXPORT void WKPreferencesSetCrossOriginResourcePolicyEnabled(WKPreferencesRef preferencesRef, bool allow) WK_C_API_DEPRECATED;
 
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetProcessSwapOnNavigationEnabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetProcessSwapOnNavigationEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
-// Defaults to false.
+// Obsolete. Always returns true.
 WK_EXPORT bool WKPreferencesGetWebSQLDisabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetWebSQLDisabled(WKPreferencesRef preferencesRef, bool enabled);
 
@@ -348,6 +344,9 @@ WK_EXPORT bool WKPreferencesGetCaptureVideoInUIProcessEnabled(WKPreferencesRef p
 WK_EXPORT void WKPreferencesSetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag);
 WK_EXPORT bool WKPreferencesGetCaptureVideoInGPUProcessEnabled(WKPreferencesRef preferencesRef);
 
+WK_EXPORT bool WKPreferencesGetVP9DecoderEnabled(WKPreferencesRef preferencesRef);
+WK_EXPORT void WKPreferencesSetVP9DecoderEnabled(WKPreferencesRef preferencesRef, bool enabled);
+
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetRemotePlaybackEnabled(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetRemotePlaybackEnabled(WKPreferencesRef preferencesRef, bool enabled);
@@ -355,6 +354,10 @@ WK_EXPORT void WKPreferencesSetRemotePlaybackEnabled(WKPreferencesRef preference
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef, bool enabled);
+
+// Defaults to false.
+WK_EXPORT bool WKPreferencesGetRequestVideoFrameCallbackEnabled(WKPreferencesRef preferencesRef);
+WK_EXPORT void WKPreferencesSetRequestVideoFrameCallbackEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 #ifdef __cplusplus
 }

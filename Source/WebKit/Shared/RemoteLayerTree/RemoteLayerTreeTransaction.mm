@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/EventRegion.h>
 #import <WebCore/LengthFunctions.h>
+#import <WebCore/Model.h>
 #import <WebCore/TimingFunction.h>
 #import <wtf/text/CString.h>
 #import <wtf/text/TextStream.h>
@@ -45,7 +46,6 @@ RemoteLayerTreeTransaction& RemoteLayerTreeTransaction::operator=(RemoteLayerTre
 RemoteLayerTreeTransaction::LayerCreationProperties::LayerCreationProperties()
     : layerID(0)
     , type(WebCore::PlatformCALayer::LayerTypeLayer)
-    , embeddedViewID(0)
     , hostingContextID(0)
     , hostingDeviceScaleFactor(1)
 {
@@ -55,28 +55,47 @@ void RemoteLayerTreeTransaction::LayerCreationProperties::encode(IPC::Encoder& e
 {
     encoder << layerID;
     encoder << type;
-    encoder << embeddedViewID;
+    
+    // PlatformCALayerRemoteCustom
     encoder << hostingContextID;
     encoder << hostingDeviceScaleFactor;
+    
+#if ENABLE(MODEL_ELEMENT)
+    // PlatformCALayerRemoteModelHosting
+    encoder << !!model;
+    if (model)
+        encoder << *model;
+#endif
 }
 
-auto RemoteLayerTreeTransaction::LayerCreationProperties::decode(IPC::Decoder& decoder) -> Optional<LayerCreationProperties>
+auto RemoteLayerTreeTransaction::LayerCreationProperties::decode(IPC::Decoder& decoder) -> std::optional<LayerCreationProperties>
 {
     LayerCreationProperties result;
     if (!decoder.decode(result.layerID))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(result.type))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.embeddedViewID))
-        return WTF::nullopt;
-
+        return std::nullopt;
+    
+    // PlatformCALayerRemoteCustom
     if (!decoder.decode(result.hostingContextID))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(result.hostingDeviceScaleFactor))
-        return WTF::nullopt;
+        return std::nullopt;
+    
+#if ENABLE(MODEL_ELEMENT)
+    // PlatformCALayerRemoteModelHosting
+    bool hasModel;
+    if (!decoder.decode(hasModel))
+        return std::nullopt;
+    if (hasModel) {
+        auto model = WebCore::Model::decode(decoder);
+        if (!model)
+            return std::nullopt;
+        result.model = model;
+    }
+#endif
 
     return WTFMove(result);
 }
@@ -108,6 +127,13 @@ RemoteLayerTreeTransaction::LayerProperties::LayerProperties()
     , opaque(false)
     , contentsHidden(false)
     , userInteractionEnabled(true)
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    , isSeparated(false)
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    , isSeparatedPortal(false)
+    , isDescendentOfSeparatedPortal(false)
+#endif
+#endif
 {
 }
 
@@ -147,6 +173,13 @@ RemoteLayerTreeTransaction::LayerProperties::LayerProperties(const LayerProperti
     , contentsHidden(other.contentsHidden)
     , userInteractionEnabled(other.userInteractionEnabled)
     , eventRegion(other.eventRegion)
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    , isSeparated(other.isSeparated)
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    , isSeparatedPortal(other.isSeparatedPortal)
+    , isDescendentOfSeparatedPortal(other.isDescendentOfSeparatedPortal)
+#endif
+#endif
 {
     // FIXME: LayerProperties should reference backing store by ID, so that two layers can have the same backing store (for clones).
     // FIXME: LayerProperties shouldn't be copyable; PlatformCALayerRemote::clone should copy the relevant properties.
@@ -163,7 +196,7 @@ RemoteLayerTreeTransaction::LayerProperties::LayerProperties(const LayerProperti
 
 void RemoteLayerTreeTransaction::LayerProperties::encode(IPC::Encoder& encoder) const
 {
-    encoder.encode(changedProperties);
+    encoder << changedProperties;
 
     if (changedProperties & NameChanged)
         encoder << name;
@@ -284,6 +317,19 @@ void RemoteLayerTreeTransaction::LayerProperties::encode(IPC::Encoder& encoder) 
 
     if (changedProperties & EventRegionChanged)
         encoder << eventRegion;
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    if (changedProperties & SeparatedChanged)
+        encoder << isSeparated;
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    if (changedProperties & SeparatedPortalChanged)
+        encoder << isSeparatedPortal;
+
+    if (changedProperties & DescendentOfSeparatedPortalChanged)
+        encoder << isDescendentOfSeparatedPortal;
+#endif
+#endif
 }
 
 bool RemoteLayerTreeTransaction::LayerProperties::decode(IPC::Decoder& decoder, LayerProperties& result)
@@ -508,23 +554,37 @@ bool RemoteLayerTreeTransaction::LayerProperties::decode(IPC::Decoder& decoder, 
     }
 
     if (result.changedProperties & EventRegionChanged) {
-        Optional<WebCore::EventRegion> eventRegion;
+        std::optional<WebCore::EventRegion> eventRegion;
         decoder >> eventRegion;
         if (!eventRegion)
             return false;
         result.eventRegion = WTFMove(*eventRegion);
     }
 
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    if (result.changedProperties & SeparatedChanged) {
+        if (!decoder.decode(result.isSeparated))
+            return false;
+    }
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    if (result.changedProperties & SeparatedPortalChanged) {
+        if (!decoder.decode(result.isSeparatedPortal))
+            return false;
+    }
+
+    if (result.changedProperties & DescendentOfSeparatedPortalChanged) {
+        if (!decoder.decode(result.isDescendentOfSeparatedPortal))
+            return false;
+    }
+#endif
+#endif
+
     return true;
 }
 
-RemoteLayerTreeTransaction::RemoteLayerTreeTransaction()
-{
-}
-
-RemoteLayerTreeTransaction::~RemoteLayerTreeTransaction()
-{
-}
+RemoteLayerTreeTransaction::RemoteLayerTreeTransaction() = default;
+RemoteLayerTreeTransaction::~RemoteLayerTreeTransaction() = default;
 
 void RemoteLayerTreeTransaction::encode(IPC::Encoder& encoder) const
 {
@@ -551,7 +611,10 @@ void RemoteLayerTreeTransaction::encode(IPC::Encoder& encoder) const
 
     encoder << m_scrollPosition;
 
+    encoder << m_themeColor;
     encoder << m_pageExtendedBackgroundColor;
+    encoder << m_sampledPageTopColor;
+
     encoder << m_pageScaleFactor;
     encoder << m_minimumScaleFactor;
     encoder << m_maximumScaleFactor;
@@ -580,7 +643,9 @@ void RemoteLayerTreeTransaction::encode(IPC::Encoder& encoder) const
     if (m_editorState)
         encoder << *m_editorState;
 
+#if PLATFORM(IOS_FAMILY)
     encoder << m_dynamicViewportSizeUpdateID;
+#endif
 }
 
 bool RemoteLayerTreeTransaction::decode(IPC::Decoder& decoder, RemoteLayerTreeTransaction& result)
@@ -645,8 +710,14 @@ bool RemoteLayerTreeTransaction::decode(IPC::Decoder& decoder, RemoteLayerTreeTr
 
     if (!decoder.decode(result.m_scrollPosition))
         return false;
-    
+
+    if (!decoder.decode(result.m_themeColor))
+        return false;
+
     if (!decoder.decode(result.m_pageExtendedBackgroundColor))
+        return false;
+
+    if (!decoder.decode(result.m_sampledPageTopColor))
         return false;
 
     if (!decoder.decode(result.m_pageScaleFactor))
@@ -694,7 +765,7 @@ bool RemoteLayerTreeTransaction::decode(IPC::Decoder& decoder, RemoteLayerTreeTr
     if (!decoder.decode(result.m_isInStableState))
         return false;
 
-    Optional<Vector<TransactionCallbackID>> callbackIDs;
+    std::optional<Vector<TransactionCallbackID>> callbackIDs;
     decoder >> callbackIDs;
     if (!callbackIDs)
         return false;
@@ -711,8 +782,10 @@ bool RemoteLayerTreeTransaction::decode(IPC::Decoder& decoder, RemoteLayerTreeTr
         result.setEditorState(editorState);
     }
 
+#if PLATFORM(IOS_FAMILY)
     if (!decoder.decode(result.m_dynamicViewportSizeUpdateID))
         return false;
+#endif
 
     return true;
 }
@@ -746,14 +819,24 @@ void RemoteLayerTreeTransaction::setLayerIDsWithNewlyUnreachableBackingStore(Vec
 
 #if !defined(NDEBUG) || !LOG_DISABLED
 
+static const char* nameForBackingStoreType(RemoteLayerBackingStore::Type type)
+{
+    switch (type) {
+    case RemoteLayerBackingStore::Type::IOSurface:
+        return "IOSurface";
+    case RemoteLayerBackingStore::Type::Bitmap:
+        return "Bitmap";
+    }
+    return nullptr;
+}
+
 static TextStream& operator<<(TextStream& ts, const RemoteLayerBackingStore& backingStore)
 {
     ts << backingStore.size();
     ts << " scale=" << backingStore.scale();
     if (backingStore.isOpaque())
         ts << " opaque";
-    if (backingStore.acceleratesDrawing())
-        ts << " accelerated";
+    ts << " " << nameForBackingStoreType(backingStore.type());
     return ts;
 }
 
@@ -888,6 +971,19 @@ static void dumpChangedLayers(TextStream& ts, const RemoteLayerTreeTransaction::
 
         if (layerProperties.changedProperties & RemoteLayerTreeTransaction::UserInteractionEnabledChanged)
             ts.dumpProperty("userInteractionEnabled", layerProperties.userInteractionEnabled);
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+        if (layerProperties.changedProperties & RemoteLayerTreeTransaction::SeparatedChanged)
+            ts.dumpProperty("isSeparated", layerProperties.isSeparated);
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+        if (layerProperties.changedProperties & RemoteLayerTreeTransaction::SeparatedPortalChanged)
+            ts.dumpProperty("isSeparatedPortal", layerProperties.isSeparatedPortal);
+
+        if (layerProperties.changedProperties & RemoteLayerTreeTransaction::DescendentOfSeparatedPortalChanged)
+            ts.dumpProperty("isDescendentOfSeparatedPortal", layerProperties.isDescendentOfSeparatedPortal);
+#endif
+#endif
     }
 }
 
@@ -939,12 +1035,14 @@ String RemoteLayerTreeTransaction::description() const
             case WebCore::PlatformCALayer::LayerTypeAVPlayerLayer:
                 ts << " (context-id " << createdLayer.hostingContextID << ")";
                 break;
-            case WebCore::PlatformCALayer::LayerTypeContentsProvidedLayer:
-                ts << " (context-id " << createdLayer.hostingContextID << ")";
-                break;
             case WebCore::PlatformCALayer::LayerTypeCustom:
                 ts << " (context-id " << createdLayer.hostingContextID << ")";
                 break;
+#if ENABLE(MODEL_ELEMENT)
+            case WebCore::PlatformCALayer::LayerTypeModelLayer:
+                ts << " (model " << *createdLayer.model << ")";
+                break;
+#endif
             default:
                 break;
             }

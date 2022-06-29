@@ -28,7 +28,7 @@
 #include "Font.h"
 
 #include <CoreText/CoreText.h>
-#include <pal/spi/cocoa/CoreTextSPI.h>
+#include <pal/spi/cf/CoreTextSPI.h>
 
 namespace WebCore {
 
@@ -63,9 +63,9 @@ RetainPtr<CFDictionaryRef> Font::getCFStringAttributes(bool enableKerning, FontO
 
     if (!enableKerning) {
         const float zero = 0;
-        static CFNumberRef zeroKerningValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &zero);
+        static NeverDestroyed<RetainPtr<CFNumberRef>> zeroKerningValue = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &zero));
         keys[count] = kCTKernAttributeName;
-        values[count] = zeroKerningValue;
+        values[count] = zeroKerningValue.get().get();
         ++count;
     }
 

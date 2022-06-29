@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "api/sequence_checker.h"
 #include "api/transport/stun.h"
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/base/turn_server.h"
@@ -21,7 +22,6 @@
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/ssl_identity.h"
 #include "rtc_base/thread.h"
-#include "rtc_base/thread_checker.h"
 
 namespace cricket {
 
@@ -58,8 +58,11 @@ class TestTurnServer : public TurnAuthInterface {
                  const std::string& common_name = "test turn server")
       : server_(thread), thread_(thread) {
     AddInternalSocket(int_addr, int_protocol, ignore_bad_cert, common_name);
-    server_.SetExternalSocketFactory(new rtc::BasicPacketSocketFactory(thread),
-                                     udp_ext_addr);
+    // TODO(bugs.webrtc.org/13145): Take a SocketFactory as argument, so we
+    // don't need thread_->socketserver().
+    server_.SetExternalSocketFactory(
+        new rtc::BasicPacketSocketFactory(thread_->socketserver()),
+        udp_ext_addr);
     server_.set_realm(kTestRealm);
     server_.set_software(kTestSoftware);
     server_.set_auth_hook(this);
@@ -99,8 +102,8 @@ class TestTurnServer : public TurnAuthInterface {
     } else if (proto == cricket::PROTO_TCP || proto == cricket::PROTO_TLS) {
       // For TCP we need to create a server socket which can listen for incoming
       // new connections.
-      rtc::AsyncSocket* socket =
-          thread_->socketserver()->CreateAsyncSocket(AF_INET, SOCK_STREAM);
+      rtc::Socket* socket =
+          thread_->socketserver()->CreateSocket(AF_INET, SOCK_STREAM);
       if (proto == cricket::PROTO_TLS) {
         // For TLS, wrap the TCP socket with an SSL adapter. The adapter must
         // be configured with a self-signed certificate for testing.
@@ -109,7 +112,7 @@ class TestTurnServer : public TurnAuthInterface {
         rtc::SSLAdapter* adapter = rtc::SSLAdapter::Create(socket);
         adapter->SetRole(rtc::SSL_SERVER);
         adapter->SetIdentity(
-            rtc::SSLIdentity::Generate(common_name, rtc::KeyParams()));
+            rtc::SSLIdentity::Create(common_name, rtc::KeyParams()));
         adapter->SetIgnoreBadCert(ignore_bad_cert);
         socket = adapter;
       }
@@ -147,7 +150,7 @@ class TestTurnServer : public TurnAuthInterface {
 
   TurnServer server_;
   rtc::Thread* thread_;
-  rtc::ThreadChecker thread_checker_;
+  webrtc::SequenceChecker thread_checker_;
 };
 
 }  // namespace cricket

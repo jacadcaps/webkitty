@@ -29,7 +29,6 @@
 #include "api/video/video_rotation.h"
 #include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
-#include "modules/include/module_common_types.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -82,8 +81,7 @@ VideoEncoder::EncoderInfo GetEncoderInfoWithInternalSource(
 class FakeEncodedImageCallback : public EncodedImageCallback {
  public:
   Result OnEncodedImage(const EncodedImage& encoded_image,
-                        const CodecSpecificInfo* codec_specific_info,
-                        const RTPFragmentationHeader* fragmentation) override {
+                        const CodecSpecificInfo* codec_specific_info) override {
     ++callback_count_;
     return Result(Result::OK, callback_count_);
   }
@@ -123,8 +121,7 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
       last_video_frame_ = frame;
       if (encode_complete_callback_ &&
           encode_return_code_ == WEBRTC_VIDEO_CODEC_OK) {
-        encode_complete_callback_->OnEncodedImage(EncodedImage(), nullptr,
-                                                  nullptr);
+        encode_complete_callback_->OnEncodedImage(EncodedImage(), nullptr);
       }
       return encode_return_code_;
     }
@@ -148,6 +145,8 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
       info.scaling_settings = ScalingSettings(kLowThreshold, kHighThreshold);
       info.supports_native_handle = supports_native_handle_;
       info.implementation_name = implementation_name_;
+      if (is_qp_trusted_)
+        info.is_qp_trusted = is_qp_trusted_;
       return info;
     }
 
@@ -159,6 +158,7 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
     int release_count_ = 0;
     mutable int supports_native_handle_count_ = 0;
     bool supports_native_handle_ = false;
+    bool is_qp_trusted_ = false;
     std::string implementation_name_ = "fake-encoder";
     absl::optional<VideoFrame> last_video_frame_;
   };
@@ -175,7 +175,7 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
 
   test::ScopedFieldTrials override_field_trials_;
   FakeEncodedImageCallback callback_;
-  // |fake_encoder_| is owned and released by |fallback_wrapper_|.
+  // `fake_encoder_` is owned and released by `fallback_wrapper_`.
   CountingFakeEncoder* fake_encoder_;
   CountingFakeEncoder* fake_sw_encoder_;
   bool wrapper_initialized_;
@@ -422,6 +422,16 @@ TEST_F(VideoEncoderSoftwareFallbackWrapperTest, ReportsImplementationName) {
 }
 
 TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
+       IsQpTrustedNotForwardedDuringFallback) {
+  // Fake encoder signals trusted QP, default (libvpx) does not.
+  fake_encoder_->is_qp_trusted_ = true;
+  EXPECT_TRUE(fake_encoder_->GetEncoderInfo().is_qp_trusted.value_or(false));
+  UtilizeFallbackEncoder();
+  EXPECT_FALSE(fallback_wrapper_->GetEncoderInfo().is_qp_trusted.has_value());
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, fallback_wrapper_->Release());
+}
+
+TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
        ReportsFallbackImplementationName) {
   UtilizeFallbackEncoder();
   CheckLastEncoderName(fake_sw_encoder_->implementation_name_.c_str());
@@ -616,13 +626,13 @@ TEST_F(ForcedFallbackTestEnabled, FallbackIsEndedForNonValidSettings) {
   EncodeFrameAndVerifyLastName("libvpx");
 
   // Re-initialize encoder with invalid setting, expect no fallback.
-  codec_.VP8()->numberOfTemporalLayers = 2;
+  codec_.numberOfSimulcastStreams = 2;
   InitEncode(kWidth, kHeight);
   EXPECT_EQ(1, fake_encoder_->init_encode_count_);
   EncodeFrameAndVerifyLastName("fake-encoder");
 
   // Re-initialize encoder with valid setting.
-  codec_.VP8()->numberOfTemporalLayers = 1;
+  codec_.numberOfSimulcastStreams = 1;
   InitEncode(kWidth, kHeight);
   EXPECT_EQ(1, fake_encoder_->init_encode_count_);
   EncodeFrameAndVerifyLastName("libvpx");
@@ -856,11 +866,15 @@ class PreferTemporalLayersFallbackTest : public ::testing::Test {
 
  protected:
   void SetSupportsLayers(VideoEncoder::EncoderInfo* info, bool tl_enabled) {
-    info->fps_allocation[0].clear();
     int num_layers = 1;
     if (tl_enabled) {
       num_layers = codec_settings.VP8()->numberOfTemporalLayers;
     }
+    SetNumLayers(info, num_layers);
+  }
+
+  void SetNumLayers(VideoEncoder::EncoderInfo* info, int num_layers) {
+    info->fps_allocation[0].clear();
     for (int i = 0; i < num_layers; ++i) {
       info->fps_allocation[0].push_back(
           VideoEncoder::EncoderInfo::kMaxFramerateFraction >>
@@ -911,6 +925,15 @@ TEST_F(PreferTemporalLayersFallbackTest, UsesMainWhenNeitherSupportsTemporal) {
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
             wrapper_->InitEncode(&codec_settings, kSettings));
   EXPECT_EQ(wrapper_->GetEncoderInfo().implementation_name, "hw");
+}
+
+TEST_F(PreferTemporalLayersFallbackTest, UsesFallbackWhenLayersAreUndefined) {
+  codec_settings.VP8()->numberOfTemporalLayers = 2;
+  SetNumLayers(&hw_info_, 1);
+  SetNumLayers(&sw_info_, 0);
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
+            wrapper_->InitEncode(&codec_settings, kSettings));
+  EXPECT_EQ(wrapper_->GetEncoderInfo().implementation_name, "sw");
 }
 
 TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {

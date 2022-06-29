@@ -15,6 +15,7 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "api/neteq/neteq_factory.h"
 #include "api/test/neteq_simulator.h"
 
@@ -41,6 +42,12 @@ class NetEqSimulatorFactory {
     int skip_get_audio_events = 0;
     // A WebRTC field trial string to be used during the simulation.
     std::string field_trial_string;
+    // A filename for the generated output audio file.
+    absl::optional<std::string> output_audio_filename;
+    // A filename for the python plot.
+    absl::optional<std::string> python_plot_filename;
+    // A filename for the text log.
+    absl::optional<std::string> text_log_filename;
     // A custom NetEqFactory can be used.
     NetEqFactory* neteq_factory = nullptr;
   };

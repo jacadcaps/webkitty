@@ -29,15 +29,19 @@
 
 #include "MessageReceiver.h"
 #include <WebCore/AudioSession.h>
+#include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
+
+#if HAVE(AVAUDIO_ROUTING_ARBITER)
+#import <WebCore/SharedRoutingArbitrator.h>
+#endif
 
 namespace WebKit {
 
 class WebProcessProxy;
 
 class AudioSessionRoutingArbitratorProxy
-    : public IPC::MessageReceiver
-    , public CanMakeWeakPtr<AudioSessionRoutingArbitratorProxy> {
+    : public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     AudioSessionRoutingArbitratorProxy(WebProcessProxy&);
@@ -50,7 +54,7 @@ public:
 
     using RoutingArbitrationError = WebCore::AudioSessionRoutingArbitrationClient::RoutingArbitrationError;
     using DefaultRouteChanged = WebCore::AudioSessionRoutingArbitrationClient::DefaultRouteChanged;
-    using ArbitrationCallback = CompletionHandler<void(RoutingArbitrationError, DefaultRouteChanged)>;
+    using ArbitrationCallback = WebCore::AudioSessionRoutingArbitrationClient::ArbitrationCallback;
 
     enum class ArbitrationStatus : uint8_t {
         None,
@@ -59,6 +63,7 @@ public:
     };
 
     ArbitrationStatus arbitrationStatus() const { return m_arbitrationStatus; }
+    WallTime arbitrationUpdateTime() const { return m_arbitrationUpdateTime; }
 
 private:
     // IPC::MessageReceiver
@@ -69,8 +74,13 @@ private:
     void endRoutingArbitration();
 
     WebProcessProxy& m_process;
-    WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::None };
+    WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::CategoryType::None };
     ArbitrationStatus m_arbitrationStatus { ArbitrationStatus::None };
+    WallTime m_arbitrationUpdateTime;
+
+#if HAVE(AVAUDIO_ROUTING_ARBITER)
+    UniqueRef<WebCore::SharedRoutingArbitrator::Token> m_token;
+#endif
 };
 
 }

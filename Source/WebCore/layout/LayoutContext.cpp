@@ -30,13 +30,12 @@
 
 #include "BlockFormattingContext.h"
 #include "BlockFormattingState.h"
-#include "DisplayBox.h"
-#include "DisplayPainter.h"
+#include "FlexFormattingContext.h"
+#include "FlexFormattingState.h"
 #include "InlineFormattingContext.h"
 #include "InlineFormattingState.h"
-#include "InvalidationContext.h"
-#include "InvalidationState.h"
 #include "LayoutBox.h"
+#include "LayoutBoxGeometry.h"
 #include "LayoutContainerBox.h"
 #include "LayoutPhase.h"
 #include "LayoutTreeBuilder.h"
@@ -58,58 +57,47 @@ LayoutContext::LayoutContext(LayoutState& layoutState)
 {
 }
 
-void LayoutContext::layout(const LayoutSize& rootContentBoxSize, InvalidationState& invalidationState)
+void LayoutContext::layout(const LayoutSize& rootContentBoxSize)
 {
     // Set the geometry on the root.
     // Note that we never layout the root box. It has to have an already computed geometry (in case of ICB, it's the view geometry).
     // ICB establishes the initial BFC, but it does not live in a formatting context and while a non-ICB root(subtree layout) has to have a formatting context,
     // we could not lay it out even if we wanted to since it's outside of this LayoutContext.
-    auto& displayBox = layoutState().displayBoxForRootLayoutBox();
-    displayBox.setHorizontalMargin({ });
-    displayBox.setVerticalMargin({ });
-    displayBox.setBorder({ });
-    displayBox.setPadding({ });
-    displayBox.setTopLeft({ });
-    displayBox.setContentBoxHeight(rootContentBoxSize.height());
-    displayBox.setContentBoxWidth(rootContentBoxSize.width());
+    auto& boxGeometry = layoutState().geometryForRootBox();
+    boxGeometry.setHorizontalMargin({ });
+    boxGeometry.setVerticalMargin({ });
+    boxGeometry.setBorder({ });
+    boxGeometry.setPadding({ });
+    boxGeometry.setLogicalTopLeft({ });
+    boxGeometry.setContentBoxHeight(rootContentBoxSize.height());
+    boxGeometry.setContentBoxWidth(rootContentBoxSize.width());
 
-    layoutWithPreparedRootGeometry(invalidationState);
+    auto scope = PhaseScope { Phase::Type::Layout };
+    layoutFormattingContextSubtree(m_layoutState.root());
 }
 
-void LayoutContext::layoutWithPreparedRootGeometry(InvalidationState& invalidationState)
-{
-    PhaseScope scope(Phase::Type::Layout);
 
-    auto& formattingContextRootsForLayout = invalidationState.formattingContextRoots();
-    // When invalidation is empty, we assume constraint mutation and start running layout on the context root. Layout logic should be able to figure out the damage.
-    if (formattingContextRootsForLayout.computesEmpty())
-        return layoutFormattingContextSubtree(m_layoutState.root(), invalidationState);
-
-    for (auto& formattingContextRoot : formattingContextRootsForLayout)
-        layoutFormattingContextSubtree(formattingContextRoot, invalidationState);
-}
-
-void LayoutContext::layoutFormattingContextSubtree(const ContainerBox& formattingContextRoot, InvalidationState& invalidationState)
+void LayoutContext::layoutFormattingContextSubtree(const ContainerBox& formattingContextRoot)
 {
     RELEASE_ASSERT(formattingContextRoot.establishesFormattingContext());
     if (!formattingContextRoot.hasChild())
         return;
 
     auto formattingContext = createFormattingContext(formattingContextRoot, layoutState());
-    auto& displayBox = layoutState().displayBoxForLayoutBox(formattingContextRoot);
+    auto& boxGeometry = layoutState().geometryForBox(formattingContextRoot);
 
     if (formattingContextRoot.hasInFlowOrFloatingChild()) {
-        auto constraintsForInFlowContent = FormattingContext::ConstraintsForInFlowContent { { displayBox.contentBoxLeft(), displayBox.contentBoxWidth() }, { displayBox.contentBoxTop(), { } } };
-        formattingContext->layoutInFlowContent(invalidationState, constraintsForInFlowContent);
+        auto constraintsForInFlowContent = ConstraintsForInFlowContent { { boxGeometry.contentBoxLeft(), boxGeometry.contentBoxWidth() }, boxGeometry.contentBoxTop() };
+        formattingContext->layoutInFlowContent(constraintsForInFlowContent);
     }
 
     // FIXME: layoutFormattingContextSubtree() does not perform layout on the root, rather it lays out the root's content.
     // It constructs an FC for descendant boxes and runs layout on them. The formattingContextRoot is laid out in the FC in which it lives (parent formatting context).
     // It also means that the formattingContextRoot has to have a valid/clean geometry at this point.
     {
-        auto constraints = FormattingContext::ConstraintsForOutOfFlowContent { { displayBox.paddingBoxLeft(), displayBox.paddingBoxWidth() },
-            { displayBox.paddingBoxTop(), displayBox.paddingBoxHeight() }, displayBox.contentBoxWidth() };
-        formattingContext->layoutOutOfFlowContent(invalidationState, constraints);
+        auto constraints = ConstraintsForOutOfFlowContent { { boxGeometry.paddingBoxLeft(), boxGeometry.paddingBoxWidth() },
+            { boxGeometry.paddingBoxTop(), boxGeometry.paddingBoxHeight() }, boxGeometry.contentBoxWidth() };
+        formattingContext->layoutOutOfFlowContent(constraints);
     }
 }
 
@@ -129,17 +117,17 @@ std::unique_ptr<FormattingContext> LayoutContext::createFormattingContext(const 
         return makeUnique<BlockFormattingContext>(formattingContextRoot, blockFormattingState);
     }
 
+    if (formattingContextRoot.establishesFlexFormattingContext()) {
+        auto& flexFormattingState = layoutState.ensureFlexFormattingState(formattingContextRoot);
+        return makeUnique<FlexFormattingContext>(formattingContextRoot, flexFormattingState);
+    }
+
     if (formattingContextRoot.establishesTableFormattingContext()) {
         auto& tableFormattingState = layoutState.ensureTableFormattingState(formattingContextRoot);
         return makeUnique<TableFormattingContext>(formattingContextRoot, tableFormattingState);
     }
 
     CRASH();
-}
-
-void LayoutContext::paint(const LayoutState& layoutState, GraphicsContext& context, const IntRect& dirtyRect)
-{
-    Display::Painter::paint(layoutState, context, dirtyRect);
 }
 
 }

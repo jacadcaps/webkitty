@@ -31,6 +31,7 @@
 #import "APIHitTestResult.h"
 #import "APIIconLoadingClient.h"
 #import "APIPageConfiguration.h"
+#import "AppKitSPI.h"
 #import "WKBrowsingContextGroupPrivate.h"
 #import "WKNSData.h"
 #import "WKProcessGroupPrivate.h"
@@ -43,6 +44,7 @@
 #import "WebProcessPool.h"
 #import "WebViewImpl.h"
 #import "_WKLinkIconParametersInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/WebViewVisualIdentificationOverlay.h>
 #import <WebKit/WKDragDestinationAction.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
@@ -64,6 +66,11 @@
 
 #if HAVE(TOUCH_BAR)
 @interface WKView () <NSTouchBarProvider>
+@end
+#endif
+
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+@interface WKView () <NSScrollViewSeparatorTrackingAdapter>
 @end
 #endif
 
@@ -90,6 +97,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKView.class, self))
+        return;
+
     _data->_impl->page().setIconLoadingClient(nullptr);
     _data->_impl = nullptr;
 
@@ -195,6 +205,7 @@ WEBCORE_COMMAND(alignJustified)
 WEBCORE_COMMAND(alignLeft)
 WEBCORE_COMMAND(alignRight)
 WEBCORE_COMMAND(copy)
+WEBCORE_COMMAND(copyFont)
 WEBCORE_COMMAND(cut)
 WEBCORE_COMMAND(delete)
 WEBCORE_COMMAND(deleteBackward)
@@ -268,6 +279,7 @@ WEBCORE_COMMAND(pageUp)
 WEBCORE_COMMAND(pageUpAndModifySelection)
 WEBCORE_COMMAND(paste)
 WEBCORE_COMMAND(pasteAsPlainText)
+WEBCORE_COMMAND(pasteFont)
 WEBCORE_COMMAND(scrollPageDown)
 WEBCORE_COMMAND(scrollPageUp)
 WEBCORE_COMMAND(scrollLineDown)
@@ -329,11 +341,9 @@ individual methods here with Mac-specific code.
 Editing-related methods still unimplemented that are implemented in WebKit1:
 
 - (void)complete:(id)sender;
-- (void)copyFont:(id)sender;
 - (void)makeBaseWritingDirectionLeftToRight:(id)sender;
 - (void)makeBaseWritingDirectionNatural:(id)sender;
 - (void)makeBaseWritingDirectionRightToLeft:(id)sender;
-- (void)pasteFont:(id)sender;
 - (void)scrollLineDown:(id)sender;
 - (void)scrollLineUp:(id)sender;
 - (void)showGuessPanel:(id)sender;
@@ -902,11 +912,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return _data->_impl->namesOfPromisedFilesDroppedAtDestination(dropDestination);
 }
 
-- (void)_web_grantDOMPasteAccess
-{
-    _data->_impl->handleDOMPasteRequestWithResult(WebCore::DOMPasteAccessResponse::GrantedForGesture);
-}
-
 - (void)maybeInstallIconLoadingClient
 {
     ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -926,18 +931,15 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     private:
         typedef void (^IconLoadCompletionHandler)(NSData*);
 
-        void getLoadDecisionForIcon(const WebCore::LinkIcon& linkIcon, WTF::CompletionHandler<void(WTF::Function<void(API::Data*, WebKit::CallbackBase::Error)>&&)>&& completionHandler) override
+        void getLoadDecisionForIcon(const WebCore::LinkIcon& linkIcon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
         {
             RetainPtr<_WKLinkIconParameters> parameters = adoptNS([[_WKLinkIconParameters alloc] _initWithLinkIcon:linkIcon]);
 
             [m_wkView _shouldLoadIconWithParameters:parameters.get() completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler)](IconLoadCompletionHandler loadCompletionHandler) mutable {
                 ASSERT(RunLoop::isMain());
                 if (loadCompletionHandler) {
-                    completionHandler([loadCompletionHandler = BlockPtr<void (NSData *)>(loadCompletionHandler)](API::Data* data, WebKit::CallbackBase::Error error) {
-                        if (error != WebKit::CallbackBase::Error::None || !data)
-                            loadCompletionHandler(nil);
-                        else
-                            loadCompletionHandler(wrapper(*data));
+                    completionHandler([loadCompletionHandler = makeBlockPtr(loadCompletionHandler)](API::Data* data) {
+                        loadCompletionHandler(wrapper(data));
                     });
                 } else
                     completionHandler(nullptr);
@@ -1130,6 +1132,24 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 #endif // HAVE(TOUCH_BAR)
 
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+
+- (NSRect)scrollViewFrame
+{
+    if (!_data->_impl)
+        return NSZeroRect;
+    return _data->_impl->scrollViewFrame();
+}
+
+- (BOOL)hasScrolledContentsUnderTitlebar
+{
+    if (!_data->_impl)
+        return NO;
+    return _data->_impl->hasScrolledContentsUnderTitlebar();
+}
+
+#endif // HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+
 #if ENABLE(DRAG_SUPPORT)
 
 - (NSString *)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider fileNameForType:(NSString *)fileType
@@ -1303,7 +1323,7 @@ static WebCore::UserInterfaceLayoutDirection toUserInterfaceLayoutDirection(NSUs
 
 - (NSColor *)underlayColor
 {
-    return _data->_impl->underlayColor();
+    return _data->_impl->underlayColor().autorelease();
 }
 
 - (void)setUnderlayColor:(NSColor *)underlayColor
@@ -1319,16 +1339,6 @@ static WebCore::UserInterfaceLayoutDirection toUserInterfaceLayoutDirection(NSUs
 - (void)_setInspectorAttachmentView:(NSView *)newView
 {
     _data->_impl->setInspectorAttachmentView(newView);
-}
-
-- (BOOL)_requiresUserActionForEditingControlsManager
-{
-    return _data->_impl->requiresUserActionForEditingControlsManager();
-}
-
-- (void)_setRequiresUserActionForEditingControlsManager:(BOOL)requiresUserAction
-{
-    _data->_impl->setRequiresUserActionForEditingControlsManager(requiresUserAction);
 }
 
 - (NSView *)fullScreenPlaceholderView
@@ -1501,7 +1511,7 @@ static WebCore::UserInterfaceLayoutDirection toUserInterfaceLayoutDirection(NSUs
 
 - (NSColor *)_pageExtendedBackgroundColor
 {
-    return _data->_impl->pageExtendedBackgroundColor();
+    return _data->_impl->pageExtendedBackgroundColor().autorelease();
 }
 
 - (BOOL)isUsingUISideCompositing
@@ -1691,6 +1701,21 @@ static WebCore::UserInterfaceLayoutDirection toUserInterfaceLayoutDirection(NSUs
 - (BOOL)_useSystemAppearance
 {
     return _data->_impl->useSystemAppearance();
+}
+
+- (BOOL)acceptsPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    return _data->_impl->acceptsPreviewPanelControl(panel);
+}
+
+- (void)beginPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    _data->_impl->beginPreviewPanelControl(panel);
+}
+
+- (void)endPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    _data->_impl->endPreviewPanelControl(panel);
 }
 
 @end

@@ -29,6 +29,7 @@
 
 #if USE(APPLE_INTERNAL_SDK)
 
+#import <UIKit/NSTextAlternatives.h>
 #import <UIKit/UIApplication_Private.h>
 #import <UIKit/UIBarButtonItemGroup_Private.h>
 #import <UIKit/UICalloutBar.h>
@@ -36,6 +37,8 @@
 #import <UIKit/UIKeyboard_Private.h>
 #import <UIKit/UIResponder_Private.h>
 #import <UIKit/UIScreen_Private.h>
+#import <UIKit/UIScrollEvent_Private.h>
+#import <UIKit/UIScrollView_ForWebKitOnly.h>
 #import <UIKit/UIScrollView_Private.h>
 #import <UIKit/UITextAutofillSuggestion.h>
 #import <UIKit/UITextInputMultiDocument.h>
@@ -44,6 +47,7 @@
 #import <UIKit/UIViewController_Private.h>
 #import <UIKit/UIWKTextInteractionAssistant.h>
 #import <UIKit/UIWebFormAccessory.h>
+#import <UIKit/UIWebTouchEventsGestureRecognizer.h>
 #import <UIKit/_UINavigationInteractiveTransition.h>
 
 IGNORE_WARNINGS_BEGIN("deprecated-implementations")
@@ -60,6 +64,12 @@ IGNORE_WARNINGS_END
 #endif // PLATFORM(IOS)
 
 #else // USE(APPLE_INTERNAL_SDK)
+
+@interface NSTextAlternatives : NSObject
+@property (readonly) NSString *primaryString;
+@property (readonly) NSArray<NSString *> *alternativeStrings;
+@property (readonly) BOOL isLowConfidence;
+@end
 
 WTF_EXTERN_C_BEGIN
 
@@ -130,6 +140,7 @@ WTF_EXTERN_C_END
 
 @interface UICalloutBar : UIView
 + (UICalloutBar *)sharedCalloutBar;
++ (UICalloutBar *)activeCalloutBar;
 @end
 
 @interface _UINavigationInteractiveTransitionBase : UIPercentDrivenInteractiveTransition
@@ -157,6 +168,8 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
     UIWKDocumentRequestRects = 1 << 2,
     UIWKDocumentRequestSpatial = 1 << 3,
     UIWKDocumentRequestAnnotation = 1 << 4,
+    UIWKDocumentRequestMarkedTextRects = 1 << 5,
+    UIWKDocumentRequestSpatialAndCurrentSelection = 1 << 6,
 };
 
 @interface UIWKDocumentRequest : NSObject
@@ -173,11 +186,18 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
 @end
 
 @interface UIWKAutocorrectionContext : NSObject
+@property (nonatomic, copy) NSString *contextBeforeSelection;
+@property (nonatomic, copy) NSString *selectedText;
+@property (nonatomic, copy) NSString *contextAfterSelection;
 @end
 
 @protocol UIWebFormAccessoryDelegate
 - (void)accessoryDone;
 @end
+
+typedef NS_ENUM(NSInteger, UIWKGestureType) {
+    UIWKGestureLoupe
+};
 
 @protocol UIWKInteractionViewProtocol
 - (void)pasteWithCompletionHandler:(void (^)(void))completionHandler;
@@ -189,6 +209,8 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
 - (void)updateSelectionWithExtentPoint:(CGPoint)point completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)updateSelectionWithExtentPoint:(CGPoint)point withBoundary:(UITextGranularity)granularity completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)selectWordForReplacement;
+- (BOOL)textInteractionGesture:(UIWKGestureType)gesture shouldBeginAtPoint:(CGPoint)point;
+- (NSArray<NSTextAlternatives *> *)alternativesForSelectedText;
 @property (nonatomic, readonly) NSString *selectedText;
 
 @optional
@@ -233,10 +255,21 @@ IGNORE_WARNINGS_END
 @property (nonatomic, getter=_isAutomaticContentOffsetAdjustmentEnabled, setter=_setAutomaticContentOffsetAdjustmentEnabled:) BOOL isAutomaticContentOffsetAdjustmentEnabled;
 @end
 
-#endif // USE(APPLE_INTERNAL_SDK)
+@interface UIScrollEvent : UIEvent
+@end
 
-#define UIWKDocumentRequestMarkedTextRects (1 << 5)
-#define UIWKDocumentRequestSpatialAndCurrentSelection (1 << 6)
+@interface NSObject (UIScrollViewDelegate_ForWebKitOnly)
+- (void)_scrollView:(UIScrollView *)scrollView asynchronouslyHandleScrollEvent:(UIScrollEvent *)scrollEvent completion:(void (^)(BOOL handled))completion;
+@end
+
+@interface UITextInteractionAssistant : NSObject <UIResponderStandardEditActions>
+@end
+
+@interface UIWKTextInteractionAssistant : UITextInteractionAssistant
+- (void)lookup:(NSString *)textWithContext withRange:(NSRange)range fromRect:(CGRect)presentationRect;
+@end
+
+#endif // USE(APPLE_INTERNAL_SDK)
 
 @interface UITextAutofillSuggestion ()
 + (instancetype)autofillSuggestionWithUsername:(NSString *)username password:(NSString *)password;
@@ -260,6 +293,8 @@ IGNORE_WARNINGS_END
 - (void)_dropInteraction:(UIDropInteraction *)interaction delayedPreviewProviderForDroppingItem:(UIDragItem *)item previewProvider:(void(^)(UITargetedDragPreview *preview))previewProvider;
 @end
 
+#endif // PLATFORM(IOS)
+
 typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
     _UIClickInteractionEventBegan = 0,
     _UIClickInteractionEventClickedDown,
@@ -277,14 +312,19 @@ typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
 - (BOOL)clickDriver:(id<_UIClickInteractionDriving>)driver shouldDelayGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
 @end
 
-#endif // PLATFORM(IOS)
-
 @protocol UITextInputInternal
 - (CGRect)_selectionClipRect;
 @end
 
 @interface UIResponder (Internal)
 - (void)_share:(id)sender;
+@end
+
+@interface UIWebGeolocationPolicyDecider : NSObject
+@end
+
+@interface UIWebGeolocationPolicyDecider ()
++ (instancetype)sharedPolicyDecider;
 @end
 
 #endif // PLATFORM(IOS_FAMILY)

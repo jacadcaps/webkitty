@@ -25,11 +25,13 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
+#import "TestWKWebView.h"
 #import <WebKit/WKPreferences.h>
 #import <WebKit/WKUIDelegatePrivate.h>
-#import <WebKit/WKWebView.h>
 #import <WebKit/WKWebViewConfiguration.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWindowFeaturesPrivate.h>
 #import <wtf/RetainPtr.h>
 
@@ -37,7 +39,6 @@
 @class OpenAndCloseWindowUIDelegateAsync;
 @class CheckWindowFeaturesUIDelegate;
 
-static bool isDone;
 static RetainPtr<WKWebView> openedWebView;
 static RetainPtr<WKWindowFeatures> openWindowFeatures;
 static RetainPtr<OpenAndCloseWindowUIDelegate> sharedUIDelegate;
@@ -208,9 +209,9 @@ TEST(WebKit, OpenAsyncWithNil)
 
 @interface CheckWindowFeaturesUIDelegate : NSObject <WKUIDelegate>
 
-@property (nullable, nonatomic, readonly) NSNumber *menuBarVisibility;
-@property (nullable, nonatomic, readonly) NSNumber *statusBarVisibility;
-@property (nullable, nonatomic, readonly) NSNumber *toolbarsVisibility;
+@property (nonatomic, readonly) NSNumber *menuBarVisibility;
+@property (nonatomic, readonly) NSNumber *statusBarVisibility;
+@property (nonatomic, readonly) NSNumber *toolbarsVisibility;
 
 @end
 
@@ -235,7 +236,7 @@ TEST(WebKit, OpenWindowFeatures)
     sharedCheckWindowFeaturesUIDelegate = adoptNS([[CheckWindowFeaturesUIDelegate alloc] init]);
     [webView setUIDelegate:sharedCheckWindowFeaturesUIDelegate.get()];
     [webView configuration].preferences.javaScriptCanOpenWindowsAutomatically = YES;
-    NSString *windowOpenFormatString = @"window.open(\"about:blank\", \"_blank\", \"%@\")";
+    constexpr NSString *windowOpenFormatString = @"window.open(\"about:blank\", \"_blank\", \"%@\")";
 
     [webView evaluateJavaScript:@"window.open(\"about:blank\")" completionHandler:nil];
     TestWebKitAPI::Util::run(&isDone);
@@ -338,4 +339,13 @@ TEST(WebKit, OpenFileURLWithHost)
 
     while (![[[webView URL] absoluteString] hasPrefix:@"file:///"])
         TestWebKitAPI::Util::spinRunLoop();
+}
+
+TEST(WebKit, TryClose)
+{
+    auto webView = adoptNS([TestWKWebView new]);
+    [webView synchronouslyLoadHTMLString:@"load something"];
+    EXPECT_TRUE([webView _tryClose]);
+    [webView synchronouslyLoadHTMLString:@"<body onunload='runScriptThatDoesNotNeedToExist()'/>"];
+    EXPECT_FALSE([webView _tryClose]);
 }

@@ -47,13 +47,13 @@ RtpHeaderExtensionMap RegisterSupportedExtensions(
     const std::vector<RtpExtension>& rtp_header_extensions) {
   RtpHeaderExtensionMap map;
   for (const auto& extension : rtp_header_extensions) {
-    if (extension.uri == TransportSequenceNumber::kUri) {
+    if (extension.uri == TransportSequenceNumber::Uri()) {
       map.Register<TransportSequenceNumber>(extension.id);
-    } else if (extension.uri == AbsoluteSendTime::kUri) {
+    } else if (extension.uri == AbsoluteSendTime::Uri()) {
       map.Register<AbsoluteSendTime>(extension.id);
-    } else if (extension.uri == TransmissionOffset::kUri) {
+    } else if (extension.uri == TransmissionOffset::Uri()) {
       map.Register<TransmissionOffset>(extension.id);
-    } else if (extension.uri == RtpMid::kUri) {
+    } else if (extension.uri == RtpMid::Uri()) {
       map.Register<RtpMid>(extension.id);
     } else {
       RTC_LOG(LS_INFO)
@@ -176,7 +176,7 @@ std::vector<std::unique_ptr<RtpPacketToSend>> FlexfecSender::GetFecPackets() {
     last_generated_packet_ms_ = now_ms;
   }
 
-  rtc::CritScope cs(&crit_);
+  MutexLock lock(&mutex_);
   fec_bitrate_.Update(total_fec_data_bytes, now_ms);
 
   return fec_packets_to_send;
@@ -188,12 +188,12 @@ size_t FlexfecSender::MaxPacketOverhead() const {
 }
 
 DataRate FlexfecSender::CurrentFecRate() const {
-  rtc::CritScope cs(&crit_);
+  MutexLock lock(&mutex_);
   return DataRate::BitsPerSec(
       fec_bitrate_.Rate(clock_->TimeInMilliseconds()).value_or(0));
 }
 
-RtpState FlexfecSender::GetRtpState() {
+absl::optional<RtpState> FlexfecSender::GetRtpState() {
   RtpState rtp_state;
   rtp_state.sequence_number = seq_num_;
   rtp_state.start_timestamp = timestamp_offset_;

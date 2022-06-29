@@ -22,11 +22,13 @@
 #include "JSTestIterable.h"
 
 #include "ActiveDOMObject.h"
-#include "DOMIsoSubspaces.h"
+#include "ExtendedDOMClientIsoSubspaces.h"
+#include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMIterator.h"
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
@@ -38,6 +40,7 @@
 #include <JavaScriptCore/HeapAnalyzer.h>
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
+#include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
@@ -49,33 +52,31 @@ using namespace JSC;
 
 // Functions
 
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionSymbolIterator(JSC::JSGlobalObject*, JSC::CallFrame*);
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionEntries(JSC::JSGlobalObject*, JSC::CallFrame*);
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionKeys(JSC::JSGlobalObject*, JSC::CallFrame*);
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionValues(JSC::JSGlobalObject*, JSC::CallFrame*);
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionForEach(JSC::JSGlobalObject*, JSC::CallFrame*);
+static JSC_DECLARE_HOST_FUNCTION(jsTestIterablePrototypeFunction_entries);
+static JSC_DECLARE_HOST_FUNCTION(jsTestIterablePrototypeFunction_keys);
+static JSC_DECLARE_HOST_FUNCTION(jsTestIterablePrototypeFunction_values);
+static JSC_DECLARE_HOST_FUNCTION(jsTestIterablePrototypeFunction_forEach);
 
 // Attributes
 
-JSC::EncodedJSValue jsTestIterableConstructor(JSC::JSGlobalObject*, JSC::EncodedJSValue, JSC::PropertyName);
-bool setJSTestIterableConstructor(JSC::JSGlobalObject*, JSC::EncodedJSValue, JSC::EncodedJSValue);
+static JSC_DECLARE_CUSTOM_GETTER(jsTestIterableConstructor);
 
 class JSTestIterablePrototype final : public JSC::JSNonFinalObject {
 public:
     using Base = JSC::JSNonFinalObject;
     static JSTestIterablePrototype* create(JSC::VM& vm, JSDOMGlobalObject* globalObject, JSC::Structure* structure)
     {
-        JSTestIterablePrototype* ptr = new (NotNull, JSC::allocateCell<JSTestIterablePrototype>(vm.heap)) JSTestIterablePrototype(vm, globalObject, structure);
+        JSTestIterablePrototype* ptr = new (NotNull, JSC::allocateCell<JSTestIterablePrototype>(vm)) JSTestIterablePrototype(vm, globalObject, structure);
         ptr->finishCreation(vm);
         return ptr;
     }
 
     DECLARE_INFO;
     template<typename CellType, JSC::SubspaceAccess>
-    static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestIterablePrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
     static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
     {
@@ -92,32 +93,34 @@ private:
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestIterablePrototype, JSTestIterablePrototype::Base);
 
-using JSTestIterableConstructor = JSDOMConstructorNotConstructable<JSTestIterable>;
+using JSTestIterableDOMConstructor = JSDOMConstructorNotConstructable<JSTestIterable>;
 
-template<> JSValue JSTestIterableConstructor::prototypeForStructure(JSC::VM& vm, const JSDOMGlobalObject& globalObject)
+template<> const ClassInfo JSTestIterableDOMConstructor::s_info = { "TestIterable", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterableDOMConstructor) };
+
+template<> JSValue JSTestIterableDOMConstructor::prototypeForStructure(JSC::VM& vm, const JSDOMGlobalObject& globalObject)
 {
     UNUSED_PARAM(vm);
     return globalObject.functionPrototype();
 }
 
-template<> void JSTestIterableConstructor::initializeProperties(VM& vm, JSDOMGlobalObject& globalObject)
+template<> void JSTestIterableDOMConstructor::initializeProperties(VM& vm, JSDOMGlobalObject& globalObject)
 {
-    putDirect(vm, vm.propertyNames->prototype, JSTestIterable::prototype(vm, globalObject), JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
-    putDirect(vm, vm.propertyNames->name, jsNontrivialString(vm, "TestIterable"_s), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
     putDirect(vm, vm.propertyNames->length, jsNumber(0), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
+    JSString* nameString = jsNontrivialString(vm, "TestIterable"_s);
+    m_originalName.set(vm, this, nameString);
+    putDirect(vm, vm.propertyNames->name, nameString, JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
+    putDirect(vm, vm.propertyNames->prototype, JSTestIterable::prototype(vm, globalObject), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum | JSC::PropertyAttribute::DontDelete);
 }
-
-template<> const ClassInfo JSTestIterableConstructor::s_info = { "TestIterable", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterableConstructor) };
 
 /* Hash table for prototype */
 
 static const HashTableValue JSTestIterablePrototypeTableValues[] =
 {
-    { "constructor", static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestIterableConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestIterableConstructor) } },
-    { "entries", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunctionEntries), (intptr_t) (0) } },
-    { "keys", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunctionKeys), (intptr_t) (0) } },
-    { "values", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunctionValues), (intptr_t) (0) } },
-    { "forEach", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunctionForEach), (intptr_t) (1) } },
+    { "constructor", static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestIterableConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "entries", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_entries), (intptr_t) (0) } },
+    { "keys", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_keys), (intptr_t) (0) } },
+    { "values", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_values), (intptr_t) (0) } },
+    { "forEach", static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_forEach), (intptr_t) (1) } },
 };
 
 const ClassInfo JSTestIterablePrototype::s_info = { "TestIterable", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterablePrototype) };
@@ -158,7 +161,7 @@ JSObject* JSTestIterable::prototype(VM& vm, JSDOMGlobalObject& globalObject)
 
 JSValue JSTestIterable::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 {
-    return getDOMConstructor<JSTestIterableConstructor>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
+    return getDOMConstructor<JSTestIterableDOMConstructor, DOMConstructorID::TestIterable>(vm, *jsCast<const JSDOMGlobalObject*>(globalObject));
 }
 
 void JSTestIterable::destroy(JSC::JSCell* cell)
@@ -167,12 +170,7 @@ void JSTestIterable::destroy(JSC::JSCell* cell)
     thisObject->JSTestIterable::~JSTestIterable();
 }
 
-template<> inline JSTestIterable* IDLOperation<JSTestIterable>::cast(JSGlobalObject& lexicalGlobalObject, CallFrame& callFrame)
-{
-    return jsDynamicCast<JSTestIterable*>(JSC::getVM(&lexicalGlobalObject), callFrame.thisValue());
-}
-
-EncodedJSValue jsTestIterableConstructor(JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName)
+JSC_DEFINE_CUSTOM_GETTER(jsTestIterableConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
     VM& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
@@ -180,19 +178,6 @@ EncodedJSValue jsTestIterableConstructor(JSGlobalObject* lexicalGlobalObject, En
     if (UNLIKELY(!prototype))
         return throwVMTypeError(lexicalGlobalObject, throwScope);
     return JSValue::encode(JSTestIterable::getConstructor(JSC::getVM(lexicalGlobalObject), prototype->globalObject()));
-}
-
-bool setJSTestIterableConstructor(JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, EncodedJSValue encodedValue)
-{
-    VM& vm = JSC::getVM(lexicalGlobalObject);
-    auto throwScope = DECLARE_THROW_SCOPE(vm);
-    auto* prototype = jsDynamicCast<JSTestIterablePrototype*>(vm, JSValue::decode(thisValue));
-    if (UNLIKELY(!prototype)) {
-        throwVMTypeError(lexicalGlobalObject, throwScope);
-        return false;
-    }
-    // Shadowing a built-in constructor
-    return prototype->putDirect(vm, vm.propertyNames->constructor, JSValue::decode(encodedValue));
 }
 
 struct TestIterableIteratorTraits {
@@ -207,27 +192,16 @@ public:
     using Base = TestIterableIteratorBase;
     DECLARE_INFO;
 
-    template<typename, JSC::SubspaceAccess mode> static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    template<typename, SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         if constexpr (mode == JSC::SubspaceAccess::Concurrently)
             return nullptr;
-        auto& clientData = *static_cast<JSVMClientData*>(vm.clientData);
-        auto& spaces = clientData.subspaces();
-        if (auto* space = spaces.m_subspaceForTestIterableIterator.get())
-            return space;
-        static_assert(std::is_base_of_v<JSC::JSDestructibleObject, TestIterableIterator> || !TestIterableIterator::needsDestruction);
-        if constexpr (std::is_base_of_v<JSC::JSDestructibleObject, TestIterableIterator>)
-            spaces.m_subspaceForTestIterableIterator = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(vm.heap, vm.destructibleObjectHeapCellType.get(), TestIterableIterator);
-        else
-            spaces.m_subspaceForTestIterableIterator = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), TestIterableIterator);
-        auto* space = spaces.m_subspaceForTestIterableIterator.get();
-IGNORE_WARNINGS_BEGIN("unreachable-code")
-IGNORE_WARNINGS_BEGIN("tautological-compare")
-        if (&TestIterableIterator::visitOutputConstraints != &JSC::JSCell::visitOutputConstraints)
-            clientData.outputConstraintSpaces().append(space);
-IGNORE_WARNINGS_END
-IGNORE_WARNINGS_END
-        return space;
+        return WebCore::subspaceForImpl<TestIterableIterator, UseCustomHeapCellType::No>(vm,
+            [] (auto& spaces) { return spaces.m_clientSubspaceForTestIterableIterator.get(); },
+            [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterableIterator = WTFMove(space); },
+            [] (auto& spaces) { return spaces.m_subspaceForTestIterableIterator.get(); },
+            [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterableIterator = WTFMove(space); }
+        );
     }
 
     static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
@@ -237,7 +211,7 @@ IGNORE_WARNINGS_END
 
     static TestIterableIterator* create(JSC::VM& vm, JSC::Structure* structure, JSTestIterable& iteratedObject, IterationKind kind)
     {
-        auto* instance = new (NotNull, JSC::allocateCell<TestIterableIterator>(vm.heap)) TestIterableIterator(structure, iteratedObject, kind);
+        auto* instance = new (NotNull, JSC::allocateCell<TestIterableIterator>(vm)) TestIterableIterator(structure, iteratedObject, kind);
         instance->finishCreation(vm);
         return instance;
     }
@@ -250,6 +224,7 @@ private:
 };
 
 using TestIterableIteratorPrototype = JSDOMIteratorPrototype<JSTestIterable, TestIterableIteratorTraits>;
+JSC_ANNOTATE_HOST_FUNCTION(TestIterableIteratorPrototypeNext, TestIterableIteratorPrototype::next);
 
 template<>
 const JSC::ClassInfo TestIterableIteratorBase::s_info = { "TestIterable Iterator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestIterableIteratorBase) };
@@ -258,65 +233,54 @@ const JSC::ClassInfo TestIterableIterator::s_info = { "TestIterable Iterator", &
 template<>
 const JSC::ClassInfo TestIterableIteratorPrototype::s_info = { "TestIterable Iterator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestIterableIteratorPrototype) };
 
-static inline EncodedJSValue jsTestIterablePrototypeFunctionEntriesCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
+static inline EncodedJSValue jsTestIterablePrototypeFunction_entriesCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
 {
     return JSValue::encode(iteratorCreate<TestIterableIterator>(*thisObject, IterationKind::Values));
 }
 
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionEntries(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(jsTestIterablePrototypeFunction_entries, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
 {
-    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunctionEntriesCaller>(*lexicalGlobalObject, *callFrame, "entries");
+    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunction_entriesCaller>(*lexicalGlobalObject, *callFrame, "entries");
 }
 
-static inline EncodedJSValue jsTestIterablePrototypeFunctionKeysCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
+static inline EncodedJSValue jsTestIterablePrototypeFunction_keysCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
 {
     return JSValue::encode(iteratorCreate<TestIterableIterator>(*thisObject, IterationKind::Keys));
 }
 
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionKeys(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(jsTestIterablePrototypeFunction_keys, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
 {
-    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunctionKeysCaller>(*lexicalGlobalObject, *callFrame, "keys");
+    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunction_keysCaller>(*lexicalGlobalObject, *callFrame, "keys");
 }
 
-static inline EncodedJSValue jsTestIterablePrototypeFunctionValuesCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
+static inline EncodedJSValue jsTestIterablePrototypeFunction_valuesCaller(JSGlobalObject*, CallFrame*, JSTestIterable* thisObject)
 {
     return JSValue::encode(iteratorCreate<TestIterableIterator>(*thisObject, IterationKind::Values));
 }
 
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionValues(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(jsTestIterablePrototypeFunction_values, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
 {
-    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunctionValuesCaller>(*lexicalGlobalObject, *callFrame, "values");
+    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunction_valuesCaller>(*lexicalGlobalObject, *callFrame, "values");
 }
 
-static inline EncodedJSValue jsTestIterablePrototypeFunctionForEachCaller(JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame, JSTestIterable* thisObject)
+static inline EncodedJSValue jsTestIterablePrototypeFunction_forEachCaller(JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame, JSTestIterable* thisObject)
 {
     return JSValue::encode(iteratorForEach<TestIterableIterator>(*lexicalGlobalObject, *callFrame, *thisObject));
 }
 
-JSC::EncodedJSValue JSC_HOST_CALL jsTestIterablePrototypeFunctionForEach(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(jsTestIterablePrototypeFunction_forEach, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
 {
-    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunctionForEachCaller>(*lexicalGlobalObject, *callFrame, "forEach");
+    return IDLOperation<JSTestIterable>::call<jsTestIterablePrototypeFunction_forEachCaller>(*lexicalGlobalObject, *callFrame, "forEach");
 }
 
-JSC::IsoSubspace* JSTestIterable::subspaceForImpl(JSC::VM& vm)
+JSC::GCClient::IsoSubspace* JSTestIterable::subspaceForImpl(JSC::VM& vm)
 {
-    auto& clientData = *static_cast<JSVMClientData*>(vm.clientData);
-    auto& spaces = clientData.subspaces();
-    if (auto* space = spaces.m_subspaceForTestIterable.get())
-        return space;
-    static_assert(std::is_base_of_v<JSC::JSDestructibleObject, JSTestIterable> || !JSTestIterable::needsDestruction);
-    if constexpr (std::is_base_of_v<JSC::JSDestructibleObject, JSTestIterable>)
-        spaces.m_subspaceForTestIterable = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(vm.heap, vm.destructibleObjectHeapCellType.get(), JSTestIterable);
-    else
-        spaces.m_subspaceForTestIterable = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), JSTestIterable);
-    auto* space = spaces.m_subspaceForTestIterable.get();
-IGNORE_WARNINGS_BEGIN("unreachable-code")
-IGNORE_WARNINGS_BEGIN("tautological-compare")
-    if (&JSTestIterable::visitOutputConstraints != &JSC::JSCell::visitOutputConstraints)
-        clientData.outputConstraintSpaces().append(space);
-IGNORE_WARNINGS_END
-IGNORE_WARNINGS_END
-    return space;
+    return WebCore::subspaceForImpl<JSTestIterable, UseCustomHeapCellType::No>(vm,
+        [] (auto& spaces) { return spaces.m_clientSubspaceForTestIterable.get(); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterable = WTFMove(space); },
+        [] (auto& spaces) { return spaces.m_subspaceForTestIterable.get(); },
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterable = WTFMove(space); }
+    );
 }
 
 void JSTestIterable::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
@@ -328,7 +292,7 @@ void JSTestIterable::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
     Base::analyzeHeap(cell, analyzer);
 }
 
-bool JSTestIterableOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, SlotVisitor& visitor, const char** reason)
+bool JSTestIterableOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char** reason)
 {
     UNUSED_PARAM(handle);
     UNUSED_PARAM(visitor);
@@ -355,24 +319,22 @@ extern "C" { extern void* _ZTVN7WebCore12TestIterableE[]; }
 JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestIterable>&& impl)
 {
 
+    if constexpr (std::is_polymorphic_v<TestIterable>) {
 #if ENABLE(BINDING_INTEGRITY)
-    const void* actualVTablePointer = getVTablePointer(impl.ptr());
+        const void* actualVTablePointer = getVTablePointer(impl.ptr());
 #if PLATFORM(WIN)
-    void* expectedVTablePointer = __identifier("??_7TestIterable@WebCore@@6B@");
+        void* expectedVTablePointer = __identifier("??_7TestIterable@WebCore@@6B@");
 #else
-    void* expectedVTablePointer = &_ZTVN7WebCore12TestIterableE[2];
+        void* expectedVTablePointer = &_ZTVN7WebCore12TestIterableE[2];
 #endif
 
-    // If this fails TestIterable does not have a vtable, so you need to add the
-    // ImplementationLacksVTable attribute to the interface definition
-    static_assert(std::is_polymorphic<TestIterable>::value, "TestIterable is not polymorphic");
-
-    // If you hit this assertion you either have a use after free bug, or
-    // TestIterable has subclasses. If TestIterable has subclasses that get passed
-    // to toJS() we currently require TestIterable you to opt out of binding hardening
-    // by adding the SkipVTableValidation attribute to the interface IDL definition
-    RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        // If you hit this assertion you either have a use after free bug, or
+        // TestIterable has subclasses. If TestIterable has subclasses that get passed
+        // to toJS() we currently require TestIterable you to opt out of binding hardening
+        // by adding the SkipVTableValidation attribute to the interface IDL definition
+        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
 #endif
+    }
     return createWrapper<TestIterable>(globalObject, WTFMove(impl));
 }
 

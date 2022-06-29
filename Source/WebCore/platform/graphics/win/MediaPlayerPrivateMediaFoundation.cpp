@@ -35,7 +35,6 @@
 #include "NotImplemented.h"
 #if USE(CAIRO)
 #include "CairoOperations.h"
-#include "PlatformContextCairo.h"
 #include <cairo.h>
 #endif
 
@@ -58,14 +57,13 @@ static const double tenMegahertz = 10000000;
 namespace WebCore {
 
 MediaPlayerPrivateMediaFoundation::MediaPlayerPrivateMediaFoundation(MediaPlayer* player) 
-    : m_weakThis(makeWeakPtr(this))
+    : m_weakThis(this)
     , m_player(player)
     , m_visible(false)
     , m_loadingProgress(false)
     , m_paused(true)
     , m_hasAudio(false)
     , m_hasVideo(false)
-    , m_preparingToPlay(false)
     , m_volume(1.0)
     , m_networkState(MediaPlayer::NetworkState::Empty)
     , m_readyState(MediaPlayer::ReadyState::HaveNothing)
@@ -155,7 +153,7 @@ MediaPlayer::SupportsType MediaPlayerPrivateMediaFoundation::supportsType(const 
 void MediaPlayerPrivateMediaFoundation::load(const String& url)
 {
     {
-        LockHolder locker(m_cachedNaturalSizeLock);
+        Locker locker { m_cachedNaturalSizeLock };
         m_cachedNaturalSize = FloatSize();
     }
 
@@ -175,8 +173,6 @@ void MediaPlayerPrivateMediaFoundation::cancelLoad()
 void MediaPlayerPrivateMediaFoundation::play()
 {
     m_paused = !startSession();
-
-    m_preparingToPlay = false;
 }
 
 void MediaPlayerPrivateMediaFoundation::pause()
@@ -194,7 +190,7 @@ bool MediaPlayerPrivateMediaFoundation::supportsFullscreen() const
 
 FloatSize MediaPlayerPrivateMediaFoundation::naturalSize() const
 {
-    LockHolder locker(m_cachedNaturalSizeLock);
+    Locker locker { m_cachedNaturalSizeLock };
     return m_cachedNaturalSize;
 }
 
@@ -208,15 +204,14 @@ bool MediaPlayerPrivateMediaFoundation::hasAudio() const
     return m_hasAudio;
 }
 
-void MediaPlayerPrivateMediaFoundation::setVisible(bool visible)
+void MediaPlayerPrivateMediaFoundation::setPageIsVisible(bool visible)
 {
     m_visible = visible;
 }
 
 bool MediaPlayerPrivateMediaFoundation::seeking() const
 {
-    // We assume seeking is immediately complete.
-    return false;
+    return m_seeking;
 }
 
 void MediaPlayerPrivateMediaFoundation::seek(float time)
@@ -230,7 +225,8 @@ void MediaPlayerPrivateMediaFoundation::seek(float time)
     ASSERT_UNUSED(hr, SUCCEEDED(hr));
     PropVariantClear(&propVariant);
 
-    m_player->timeChanged();
+    m_seeking = true;
+    m_sessionEnded = false;
 }
 
 void MediaPlayerPrivateMediaFoundation::setRate(float rate)
@@ -266,10 +262,28 @@ float MediaPlayerPrivateMediaFoundation::duration() const
 
 float MediaPlayerPrivateMediaFoundation::currentTime() const
 {
-    if (!m_presenter)
-        return 0.0f;
+    if (m_sessionEnded)
+        return duration();
+    if (!m_mediaSession)
+        return 0;
+    COMPtr<IMFClock> clock;
+    HRESULT hr = m_mediaSession->GetClock(&clock);
+    if (FAILED(hr))
+        return 0;
 
-    return m_presenter->currentTime();
+    LONGLONG clockTime;
+    MFTIME systemTime;
+    hr = clock->GetCorrelatedTime(0, &clockTime, &systemTime);
+    if (FAILED(hr))
+        return 0;
+
+    // clockTime is in 100 nanoseconds, we need to convert to seconds.
+    float currentTime = clockTime / tenMegahertz;
+
+    if (currentTime > m_maxTimeLoaded)
+        m_maxTimeLoaded = currentTime;
+
+    return currentTime;
 }
 
 bool MediaPlayerPrivateMediaFoundation::paused() const
@@ -320,8 +334,8 @@ float MediaPlayerPrivateMediaFoundation::maxTimeSeekable() const
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMediaFoundation::buffered() const
 { 
     auto ranges = makeUnique<PlatformTimeRanges>();
-    if (m_presenter && m_presenter->maxTimeLoaded() > 0)
-        ranges->add(MediaTime::zeroTime(), MediaTime::createWithDouble(m_presenter->maxTimeLoaded()));
+    if (maxTimeLoaded() > 0)
+        ranges->add(MediaTime::zeroTime(), MediaTime::createWithDouble(maxTimeLoaded()));
     return ranges;
 }
 
@@ -333,32 +347,20 @@ bool MediaPlayerPrivateMediaFoundation::didLoadingProgress() const
 void MediaPlayerPrivateMediaFoundation::setSize(const IntSize& size)
 {
     m_size = size;
-
-    auto videoDisplay = this->videoDisplay();
-    if (!videoDisplay)
-        return;
-
-    FrameView* view = nullptr;
-    float deviceScaleFactor = 1.0f;
-    if (m_player && m_player->cachedResourceLoader() && m_player->cachedResourceLoader()->document()) {
-        view = m_player->cachedResourceLoader()->document()->view();
-        deviceScaleFactor = m_player->cachedResourceLoader()->document()->deviceScaleFactor();
-    }
-
-    int w = m_size.width() * deviceScaleFactor;
-    int h = m_size.height() * deviceScaleFactor;
-
-    RECT rc = { 0, 0, w, h };
-    videoDisplay->SetVideoPosition(nullptr, &rc);
 }
 
 void MediaPlayerPrivateMediaFoundation::paint(GraphicsContext& context, const FloatRect& rect)
 {
-    if (context.paintingDisabled() || !m_player->visible())
+    if (context.paintingDisabled() || !m_visible)
         return;
 
     if (m_presenter)
         m_presenter->paintCurrentFrame(context, rect);
+}
+
+DestinationColorSpace MediaPlayerPrivateMediaFoundation::colorSpace()
+{
+    return DestinationColorSpace::SRGB();
 }
 
 bool MediaPlayerPrivateMediaFoundation::createSession()
@@ -429,8 +431,18 @@ bool MediaPlayerPrivateMediaFoundation::endCreatedMediaSource(IMFAsyncResult* as
     COMPtr<IUnknown> source;
 
     HRESULT hr = m_sourceResolver->EndCreateObjectFromURL(asyncResult, &objectType, &source);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+        callOnMainThread([this, weakPtr = m_weakThis, hr] {
+            if (!weakPtr)
+                return;
+            if (hr == MF_E_UNSUPPORTED_BYTESTREAM_TYPE)
+                m_networkState = MediaPlayer::NetworkState::FormatError;
+            else
+                m_networkState = MediaPlayer::NetworkState::NetworkError;
+            m_player->networkStateChanged();
+        });
         return false;
+    }
 
     hr = source->QueryInterface(IID_PPV_ARGS(&m_mediaSource));
     if (FAILED(hr))
@@ -465,6 +477,21 @@ bool MediaPlayerPrivateMediaFoundation::endGetEvent(IMFAsyncResult* asyncResult)
     hr = event->GetType(&mediaEventType);
     if (FAILED(hr))
         return false;
+
+    HRESULT status;
+    hr = event->GetStatus(&status);
+    if (FAILED(hr))
+        return false;
+
+    if (status == MF_E_TOPO_CODEC_NOT_FOUND) {
+        callOnMainThread([this, weakPtr = m_weakThis] {
+            if (!weakPtr)
+                return;
+            m_networkState = MediaPlayer::NetworkState::FormatError;
+            m_player->networkStateChanged();
+        });
+        return false;
+    }
 
     switch (mediaEventType) {
     case MESessionTopologySet: {
@@ -515,11 +542,14 @@ bool MediaPlayerPrivateMediaFoundation::endGetEvent(IMFAsyncResult* asyncResult)
     case MEMediaSample:
         break;
 
-    case MEError: {
-        HRESULT status = S_OK;
-        event->GetStatus(&status);
-        break;
-    }
+    case MEError:
+        callOnMainThread([this, weakPtr = m_weakThis] {
+            if (!weakPtr)
+                return;
+            m_networkState = MediaPlayer::NetworkState::DecodeError;
+            m_player->networkStateChanged();
+        });
+        return false;
     }
 
     if (mediaEventType != MESessionClosed) {
@@ -605,35 +635,28 @@ HWND MediaPlayerPrivateMediaFoundation::hostWindow()
     return GetDesktopWindow();
 }
 
-void MediaPlayerPrivateMediaFoundation::invalidateFrameView()
+void MediaPlayerPrivateMediaFoundation::invalidateVideoArea()
 {
-    FrameView* view = nullptr;
-    if (!m_player || !m_player->cachedResourceLoader() || !m_player->cachedResourceLoader()->document())
-        return;
-    view = m_player->cachedResourceLoader()->document()->view();
-    if (!view)
-        return;
-
-    view->invalidate();
+    m_player->repaint();
 }
 
 void MediaPlayerPrivateMediaFoundation::addListener(MediaPlayerListener* listener)
 {
-    LockHolder locker(m_mutexListeners);
+    Locker locker { m_mutexListeners };
 
     m_listeners.add(listener);
 }
 
 void MediaPlayerPrivateMediaFoundation::removeListener(MediaPlayerListener* listener)
 {
-    LockHolder locker(m_mutexListeners);
+    Locker locker { m_mutexListeners };
 
     m_listeners.remove(listener);
 }
 
 void MediaPlayerPrivateMediaFoundation::notifyDeleted()
 {
-    LockHolder locker(m_mutexListeners);
+    Locker locker { m_mutexListeners };
 
     for (HashSet<MediaPlayerListener*>::const_iterator it = m_listeners.begin(); it != m_listeners.end(); ++it)
         (*it)->onMediaPlayerDeleted();
@@ -641,7 +664,7 @@ void MediaPlayerPrivateMediaFoundation::notifyDeleted()
 
 void MediaPlayerPrivateMediaFoundation::setNaturalSize(const FloatSize& size)
 {
-    LockHolder locker(m_cachedNaturalSizeLock);
+    Locker locker { m_cachedNaturalSizeLock };
     m_cachedNaturalSize = size;
 }
 
@@ -750,9 +773,8 @@ void MediaPlayerPrivateMediaFoundation::updateReadyState()
     MediaPlayer::ReadyState oldReadyState = m_readyState;
     if (percentageOfPlaybackBufferFilled >= 100) {
         m_readyState = MediaPlayer::ReadyState::HaveEnoughData;
-        if (m_preparingToPlay) {
+        if (m_paused) {
             pause();
-            m_preparingToPlay = false;
         }
     } else if (percentageOfPlaybackBufferFilled > 0)
         m_readyState = MediaPlayer::ReadyState::HaveFutureData;
@@ -786,18 +808,11 @@ void MediaPlayerPrivateMediaFoundation::onCreatedMediaSource()
 void MediaPlayerPrivateMediaFoundation::onTopologySet()
 {
     // This method is called on the main thread as a result of load() being called.
-
-    if (auto videoDisplay = this->videoDisplay()) {
-        RECT rc = { 0, 0, m_size.width(), m_size.height() };
-        videoDisplay->SetVideoPosition(nullptr, &rc);
-    }
-
     // It is expected that we start buffering data from the network now.
     // We call startSession() to start buffering video data.
-    // When we have received enough data, we pause, so that we don't actually start the playback.
-    ASSERT(m_paused);
-    ASSERT(!m_preparingToPlay);
-    m_preparingToPlay = startSession();
+    // When we have received enough data, we pause if it is not
+    // playing, so that we don't actually start the playback.
+    startSession();
 }
 
 void MediaPlayerPrivateMediaFoundation::onBufferingStarted()
@@ -812,16 +827,33 @@ void MediaPlayerPrivateMediaFoundation::onBufferingStopped()
 
 void MediaPlayerPrivateMediaFoundation::onSessionStarted()
 {
+    m_sessionEnded = false;
+    if (m_seeking) {
+        m_seeking = false;
+        if (m_paused)
+            m_mediaSession->Pause();
+        m_player->timeChanged();
+        return;
+    }
+
+    if (auto videoDisplay = this->videoDisplay()) {
+        RECT rc = { 0, 0, m_size.width(), m_size.height() };
+        videoDisplay->SetVideoPosition(nullptr, &rc);
+    }
+
     updateReadyState();
 }
 
 void MediaPlayerPrivateMediaFoundation::onSessionEnded()
 {
+    m_sessionEnded = true;
     m_networkState = MediaPlayer::NetworkState::Loaded;
     m_player->networkStateChanged();
 
     m_paused = true;
     m_player->playbackStateChanged();
+
+    m_player->timeChanged();
 }
 
 MediaPlayerPrivateMediaFoundation::AsyncCallback::AsyncCallback(MediaPlayerPrivateMediaFoundation* mediaPlayer, bool event)
@@ -875,7 +907,7 @@ HRESULT STDMETHODCALLTYPE MediaPlayerPrivateMediaFoundation::AsyncCallback::GetP
 
 HRESULT STDMETHODCALLTYPE MediaPlayerPrivateMediaFoundation::AsyncCallback::Invoke(__RPC__in_opt IMFAsyncResult *pAsyncResult)
 {
-    LockHolder locker(m_mutex);
+    Locker locker { m_mutex };
 
     if (!m_mediaPlayer)
         return S_OK;
@@ -890,7 +922,7 @@ HRESULT STDMETHODCALLTYPE MediaPlayerPrivateMediaFoundation::AsyncCallback::Invo
 
 void MediaPlayerPrivateMediaFoundation::AsyncCallback::onMediaPlayerDeleted()
 {
-    LockHolder locker(m_mutex);
+    Locker locker { m_mutex };
 
     m_mediaPlayer = nullptr;
 }
@@ -964,7 +996,7 @@ ULONG MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::Release()
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockStart(MFTIME hnsSystemTime, LONGLONG llClockStartOffset)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     // After shutdown, we cannot start.
     HRESULT hr = checkShutdown();
@@ -987,7 +1019,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockStart(MF
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockStop(MFTIME hnsSystemTime)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = checkShutdown();
     if (FAILED(hr))
@@ -1003,7 +1035,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockStop(MFT
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockPause(MFTIME hnsSystemTime)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     // After shutdown, we cannot pause.
     HRESULT hr = checkShutdown();
@@ -1017,7 +1049,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockPause(MF
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockRestart(MFTIME hnsSystemTime)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = checkShutdown();
     if (FAILED(hr))
@@ -1034,7 +1066,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockRestart(
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockSetRate(MFTIME hnsSystemTime, float rate)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = checkShutdown();
     if (FAILED(hr))
@@ -1049,7 +1081,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::OnClockSetRate(
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::ProcessMessage(MFVP_MESSAGE_TYPE eMessage, ULONG_PTR ulParam)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = checkShutdown();
     if (FAILED(hr))
@@ -1092,7 +1124,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::ProcessMessage(
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::GetCurrentMediaType(_Outptr_  IMFVideoMediaType **ppMediaType)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!ppMediaType)
         return E_POINTER;
@@ -1123,7 +1155,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::InitServicePoin
 
     HRESULT hr = S_OK;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (isActive())
         return MF_E_INVALIDREQUEST;
@@ -1159,7 +1191,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::InitServicePoin
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::ReleaseServicePointers()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     m_renderState = RenderStateShutdown;
 
@@ -1216,7 +1248,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::ShutdownObject(
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::SetVideoWindow(HWND hwndVideo)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!IsWindow(hwndVideo))
         return E_INVALIDARG;
@@ -1236,7 +1268,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::SetVideoWindow(
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::GetVideoWindow(HWND* phwndVideo)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!phwndVideo)
         return E_POINTER;
@@ -1262,7 +1294,7 @@ static HRESULT setMixerSourceRect(IMFTransform* mixer, const MFVideoNormalizedRe
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::SetVideoPosition(const MFVideoNormalizedRect* pnrcSource, const LPRECT prcDest)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     // First, check that the parameters are valid.
 
@@ -1331,7 +1363,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::SetVideoPositio
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::GetVideoPosition(MFVideoNormalizedRect* pnrcSource, LPRECT prcDest)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!pnrcSource || !prcDest)
         return E_POINTER;
@@ -1344,7 +1376,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::GetVideoPositio
 
 HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::RepaintVideo()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = checkShutdown();
     if (FAILED(hr))
@@ -1373,27 +1405,6 @@ void MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::paintCurrentFrame(
 {
     if (m_presenterEngine)
         m_presenterEngine->paintCurrentFrame(context, r);
-}
-
-float MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::currentTime()
-{
-    if (!m_clock)
-        return 0.0f;
-
-    LONGLONG clockTime;
-    MFTIME systemTime;
-    HRESULT hr = m_clock->GetCorrelatedTime(0, &clockTime, &systemTime);
-
-    if (FAILED(hr))
-        return 0.0f;
-
-    // clockTime is in 100 nanoseconds, we need to convert to seconds.
-    float currentTime = clockTime / tenMegahertz;
-
-    if (currentTime > m_maxTimeLoaded)
-        m_maxTimeLoaded = currentTime;
-
-    return currentTime;
 }
 
 bool MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::isActive() const
@@ -1604,7 +1615,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::processInputNot
     if (m_mediaPlayer) {
         callOnMainThread([weakPtr = m_mediaPlayer->m_weakThis] {
             if (weakPtr)
-                weakPtr->invalidateFrameView();
+                weakPtr->invalidateVideoArea();
         });
     }
 
@@ -2181,7 +2192,7 @@ void MediaPlayerPrivateMediaFoundation::CustomVideoPresenter::notifyEvent(long E
 
 HRESULT MediaPlayerPrivateMediaFoundation::VideoSamplePool::getSample(COMPtr<IMFSample>& sample)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!m_initialized)
         return MF_E_NOT_INITIALIZED;
@@ -2201,7 +2212,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoSamplePool::returnSample(IMFSamp
     if (!sample)
         return E_POINTER;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!m_initialized)
         return MF_E_NOT_INITIALIZED;
@@ -2213,7 +2224,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoSamplePool::returnSample(IMFSamp
 
 bool MediaPlayerPrivateMediaFoundation::VideoSamplePool::areSamplesPending()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!m_initialized)
         return FALSE;
@@ -2223,7 +2234,7 @@ bool MediaPlayerPrivateMediaFoundation::VideoSamplePool::areSamplesPending()
 
 HRESULT MediaPlayerPrivateMediaFoundation::VideoSamplePool::initialize(VideoSampleList& samples)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (m_initialized)
         return MF_E_INVALIDREQUEST;
@@ -2240,7 +2251,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoSamplePool::initialize(VideoSamp
 
 void MediaPlayerPrivateMediaFoundation::VideoSamplePool::clear()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     m_videoSampleQueue.clear();
     m_initialized = false;
@@ -2319,7 +2330,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoScheduler::stopScheduler()
     // Wait for the scheduler thread to finish.
     ::WaitForSingleObject(m_schedulerThread.get(), INFINITE);
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     m_scheduledSamples.clear();
     m_schedulerThread.clear();
@@ -2370,7 +2381,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoScheduler::scheduleSample(IMFSam
         m_presenter->presentSample(sample, 0);
     else {
         // Submit the sample for scheduling.
-        LockHolder locker(m_lock);
+        Locker locker { m_lock };
         m_scheduledSamples.append(sample);
 
         ::PostThreadMessage(m_threadID, EventSchedule, 0, 0);
@@ -2390,7 +2401,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoScheduler::processSamplesInQueue
         COMPtr<IMFSample> sample;
 
         if (true) {
-            LockHolder locker(m_lock);
+            Locker locker { m_lock };
             if (m_scheduledSamples.isEmpty())
                 break;
             sample = m_scheduledSamples.takeFirst();
@@ -2476,7 +2487,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::VideoScheduler::processSample(IMFSamp
         hr = m_presenter->presentSample(sample, presentationTime);
     else {
         // Return the sample to the queue, since it is not ready.
-        LockHolder locker(m_lock);
+        Locker locker { m_lock };
         m_scheduledSamples.prepend(sample);
     }
 
@@ -2526,7 +2537,7 @@ DWORD MediaPlayerPrivateMediaFoundation::VideoScheduler::schedulerThreadProcPriv
 
             case EventFlush:
                 {
-                    LockHolder lock(m_lock);
+                    Locker locker { m_lock };
                     m_scheduledSamples.clear();
                 }
                 wait = INFINITE;
@@ -2634,7 +2645,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::setVideoWindow(HWN
     ASSERT(hwnd != m_hwnd);
 
     {
-        LockHolder locker(m_lock);
+        Locker locker { m_lock };
         m_hwnd = hwnd;
     }
 
@@ -2646,7 +2657,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::setDestinationRect
     if (EqualRect(&rcDest, &m_destRect))
         return S_OK;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     m_destRect = rcDest;
 
@@ -2668,7 +2679,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::createVideoSamples
         return MF_E_UNEXPECTED;
 
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     releaseResources();
 
@@ -2709,7 +2720,7 @@ void MediaPlayerPrivateMediaFoundation::Direct3DPresenter::releaseResources()
 
 HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::checkDeviceState(DeviceState& state)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     HRESULT hr = m_device->CheckDeviceState(m_hwnd);
 
@@ -2750,7 +2761,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::presentSample(IMFS
 {
     HRESULT hr = S_OK;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     COMPtr<IDirect3DSurface9> surface;
 
@@ -2808,7 +2819,7 @@ void MediaPlayerPrivateMediaFoundation::Direct3DPresenter::paintCurrentFrame(Web
     if (!width || !height)
         return;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!m_memSurface)
         return;
@@ -2839,15 +2850,11 @@ void MediaPlayerPrivateMediaFoundation::Direct3DPresenter::paintCurrentFrame(Web
         ASSERT(cairoFormat != CAIRO_FORMAT_INVALID);
 
         cairo_surface_t* image = nullptr;
-        if (cairoFormat != CAIRO_FORMAT_INVALID)
-            image = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), cairoFormat, width, height, pitch);
-
-        FloatRect srcRect(0, 0, width, height);
-        if (image) {
-            ASSERT(context.hasPlatformContext());
-            auto& state = context.state();
-            Cairo::drawSurface(*context.platformContext(), image, destRect, srcRect, state.imageInterpolationQuality, state.alpha, Cairo::ShadowState(state));
-            cairo_surface_destroy(image);
+        if (cairoFormat != CAIRO_FORMAT_INVALID) {
+            auto surface = adoptRef(cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), cairoFormat, width, height, pitch));
+            auto image = NativeImage::create(WTFMove(surface));
+            FloatRect srcRect(0, 0, width, height);
+            context.drawNativeImage(*image, srcRect.size(), destRect, srcRect);
         }
 #else
 #error "Platform needs to implement drawing of Direct3D surface to graphics context!"
@@ -2873,7 +2880,7 @@ HRESULT MediaPlayerPrivateMediaFoundation::Direct3DPresenter::createD3DDevice()
     HRESULT hr = S_OK;
     UINT adapterID = D3DADAPTER_DEFAULT;
 
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
 
     if (!m_direct3D9 || !m_deviceManager)
         return MF_E_NOT_INITIALIZED;

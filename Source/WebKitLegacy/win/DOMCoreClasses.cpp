@@ -30,6 +30,7 @@
 #include "DOMEventsClasses.h"
 #include "DOMHTMLClasses.h"
 #include "WebKitGraphics.h"
+#include <WebCore/AddEventListenerOptions.h>
 #include <WebCore/Attr.h>
 #include <WebCore/BString.h>
 #include <WebCore/COMPtr.h>
@@ -1620,7 +1621,7 @@ IDOMRange* DOMRange::createInstance(WebCore::Range* range)
     return newRange;
 }
 
-IDOMRange* DOMRange::createInstance(const Optional<WebCore::SimpleRange>& range)
+IDOMRange* DOMRange::createInstance(const std::optional<WebCore::SimpleRange>& range)
 {
     return createInstance(createLiveRange(range).get());
 }

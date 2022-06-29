@@ -24,8 +24,15 @@
  */
 
 #import "WKWebViewInternal.h"
+#import "_WKTapHandlingResult.h"
+
+@class UIScrollEvent;
 
 #if PLATFORM(IOS_FAMILY)
+
+namespace WebKit {
+enum class TapHandlingResult : uint8_t;
+}
 
 @interface WKWebView (WKViewInternalIOS)
 
@@ -55,19 +62,19 @@
 - (void)_layerTreeCommitComplete;
 
 - (void)_couldNotRestorePageState;
-- (void)_restorePageScrollPosition:(Optional<WebCore::FloatPoint>)scrollPosition scrollOrigin:(WebCore::FloatPoint)scrollOrigin previousObscuredInset:(WebCore::FloatBoxExtent)insets scale:(double)scale;
-- (void)_restorePageStateToUnobscuredCenter:(Optional<WebCore::FloatPoint>)center scale:(double)scale; // FIXME: needs scroll origin?
+- (void)_restorePageScrollPosition:(std::optional<WebCore::FloatPoint>)scrollPosition scrollOrigin:(WebCore::FloatPoint)scrollOrigin previousObscuredInset:(WebCore::FloatBoxExtent)insets scale:(double)scale;
+- (void)_restorePageStateToUnobscuredCenter:(std::optional<WebCore::FloatPoint>)center scale:(double)scale; // FIXME: needs scroll origin?
 
 - (RefPtr<WebKit::ViewSnapshot>)_takeViewSnapshot;
 
-- (void)_scrollToContentScrollPosition:(WebCore::FloatPoint)scrollPosition scrollOrigin:(WebCore::IntPoint)scrollOrigin;
+- (void)_scrollToContentScrollPosition:(WebCore::FloatPoint)scrollPosition scrollOrigin:(WebCore::IntPoint)scrollOrigin animated:(BOOL)animated;
 - (BOOL)_scrollToRect:(WebCore::FloatRect)targetRect origin:(WebCore::FloatPoint)origin minimumScrollDistance:(float)minimumScrollDistance;
 
 - (double)_initialScaleFactor;
 - (double)_contentZoomScale;
 
 - (double)_targetContentZoomScaleForRect:(const WebCore::FloatRect&)targetRect currentScale:(double)currentScale fitEntireRect:(BOOL)fitEntireRect minimumScale:(double)minimumScale maximumScale:(double)maximumScale;
-- (void)_zoomToFocusRect:(const WebCore::FloatRect&)focusedElementRect selectionRect:(const WebCore::FloatRect&)selectionRectInDocumentCoordinates insideFixed:(BOOL)insideFixed fontSize:(float)fontSize minimumScale:(double)minimumScale maximumScale:(double)maximumScale allowScaling:(BOOL)allowScaling forceScroll:(BOOL)forceScroll;
+- (void)_zoomToFocusRect:(const WebCore::FloatRect&)focusedElementRect selectionRect:(const WebCore::FloatRect&)selectionRectInDocumentCoordinates fontSize:(float)fontSize minimumScale:(double)minimumScale maximumScale:(double)maximumScale allowScaling:(BOOL)allowScaling forceScroll:(BOOL)forceScroll;
 - (BOOL)_zoomToRect:(WebCore::FloatRect)targetRect withOrigin:(WebCore::FloatPoint)origin fitEntireRect:(BOOL)fitEntireRect minimumScale:(double)minimumScale maximumScale:(double)maximumScale minimumScrollDistance:(float)minimumScrollDistance;
 - (void)_zoomOutWithOrigin:(WebCore::FloatPoint)origin animated:(BOOL)animated;
 - (void)_zoomToInitialScaleWithOrigin:(WebCore::FloatPoint)origin animated:(BOOL)animated;
@@ -92,7 +99,9 @@
 - (BOOL)_isShowingVideoPictureInPicture;
 - (BOOL)_mayAutomaticallyShowVideoPictureInPicture;
 
+- (void)_resetCachedScrollViewBackgroundColor;
 - (void)_updateScrollViewBackground;
+- (void)_updateScrollViewIndicatorStyle;
 
 - (void)_videoControlsManagerDidChange;
 
@@ -111,6 +120,13 @@
 - (void)_promptForReplace:(id)sender;
 - (void)_transliterateChinese:(id)sender;
 - (void)replace:(id)sender;
+- (void)_translate:(id)sender;
+
+#if HAVE(UIFINDINTERACTION)
+- (void)find:(id)sender;
+- (void)findNext:(id)sender;
+- (void)findPrevious:(id)sender;
+#endif
 
 - (void)_nextAccessoryTab:(id)sender;
 - (void)_previousAccessoryTab:(id)sender;
@@ -125,22 +141,27 @@
 - (WebCore::FloatSize)activeViewLayoutSize:(const CGRect&)bounds;
 - (void)_updateScrollViewInsetAdjustmentBehavior;
 
+- (BOOL)_effectiveAppearanceIsDark;
+- (BOOL)_effectiveUserInterfaceLevelIsElevated;
+
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+- (void)_scrollView:(UIScrollView *)scrollView asynchronouslyHandleScrollEvent:(UIScrollEvent *)scrollEvent completion:(void (^)(BOOL handled))completion;
+#endif
+
 @property (nonatomic, readonly) WKPasswordView *_passwordView;
 @property (nonatomic, readonly) WKWebViewContentProviderRegistry *_contentProviderRegistry;
 @property (nonatomic, readonly) WKSelectionGranularity _selectionGranularity;
 
 @property (nonatomic, readonly) BOOL _isBackground;
 @property (nonatomic, readonly) BOOL _allowsDoubleTapGestures;
-@property (nonatomic, readonly) BOOL _stylusTapGestureShouldCreateEditableImage;
 @property (nonatomic, readonly) BOOL _haveSetObscuredInsets;
 @property (nonatomic, readonly) UIEdgeInsets _computedObscuredInset;
 @property (nonatomic, readonly) UIEdgeInsets _computedUnobscuredSafeAreaInset;
 @property (nonatomic, readonly, getter=_isRetainingActiveFocusedState) BOOL _retainingActiveFocusedState;
 @property (nonatomic, readonly) int32_t _deviceOrientation;
 
-- (BOOL)_effectiveAppearanceIsDark;
-- (BOOL)_effectiveUserInterfaceLevelIsElevated;
-
 @end
+
+_WKTapHandlingResult wkTapHandlingResult(WebKit::TapHandlingResult);
 
 #endif // PLATFORM(IOS_FAMILY)

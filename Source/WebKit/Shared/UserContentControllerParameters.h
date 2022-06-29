@@ -44,11 +44,11 @@ struct UserContentControllerParameters {
     Vector<WebUserStyleSheetData> userStyleSheets;
     Vector<WebScriptMessageHandlerData> messageHandlers;
 #if ENABLE(CONTENT_EXTENSIONS)
-    Vector<std::pair<String, WebCompiledContentRuleListData>> contentRuleLists;
+    Vector<std::pair<WebCompiledContentRuleListData, URL>> contentRuleLists;
 #endif
 
     void encode(IPC::Encoder&) const;
-    static Optional<UserContentControllerParameters> decode(IPC::Decoder&);
+    static std::optional<UserContentControllerParameters> decode(IPC::Decoder&);
 };
 
 } // namespace WebKit

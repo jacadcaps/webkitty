@@ -36,6 +36,7 @@
 #import <wtf/RunLoop.h>
 #import <wtf/UniqueRef.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/WeakPtr.h>
 
 @class WKWebView;
 @protocol WKHistoryDelegatePrivate;
@@ -53,7 +54,7 @@ namespace WebKit {
 
 struct WebNavigationDataStore;
 
-class NavigationState final : private PageLoadState::Observer {
+class NavigationState final : private PageLoadState::Observer, public CanMakeWeakPtr<NavigationState> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit NavigationState(WKWebView *);
@@ -117,7 +118,7 @@ private:
 
         void didReceiveAuthenticationChallenge(WebPageProxy&, AuthenticationChallengeProxy&) override;
         void shouldAllowLegacyTLS(WebPageProxy&, AuthenticationChallengeProxy&, CompletionHandler<void(bool)>&&) final;
-        void didNegotiateModernTLS(const WebCore::AuthenticationChallenge&) final;
+        void didNegotiateModernTLS(const URL&) final;
         bool processDidTerminate(WebPageProxy&, ProcessTerminationReason) override;
         void processDidBecomeResponsive(WebPageProxy&) override;
         void processDidBecomeUnresponsive(WebPageProxy&) override;
@@ -126,22 +127,25 @@ private:
 
         RefPtr<API::String> signedPublicKeyAndChallengeString(WebPageProxy&, unsigned keySizeIndex, const RefPtr<API::String>& challengeString, const URL&) override;
 
+        void navigationActionDidBecomeDownload(WebPageProxy&, API::NavigationAction&, DownloadProxy&) final;
+        void navigationResponseDidBecomeDownload(WebPageProxy&, API::NavigationResponse&, DownloadProxy&) final;
+        void contextMenuDidCreateDownload(WebPageProxy&, DownloadProxy&) final;
+
 #if USE(QUICK_LOOK)
         void didStartLoadForQuickLookDocumentInMainFrame(const WTF::String& fileName, const WTF::String& uti) override;
-        void didFinishLoadForQuickLookDocumentInMainFrame(const WebCore::SharedBuffer&) override;
+        void didFinishLoadForQuickLookDocumentInMainFrame(const WebCore::FragmentedSharedBuffer&) override;
 #endif
 
 #if PLATFORM(MAC)
         void webGLLoadPolicy(WebPageProxy&, const URL&, CompletionHandler<void(WebCore::WebGLLoadPolicy)>&&) const final;
         void resolveWebGLLoadPolicy(WebPageProxy&, const URL&, CompletionHandler<void(WebCore::WebGLLoadPolicy)>&&) const final;
-        bool didFailToInitializePlugIn(WebPageProxy&, API::Dictionary&) final;
-        bool didBlockInsecurePluginVersion(WebPageProxy&, API::Dictionary&) final;
-        void decidePolicyForPluginLoad(WebKit::WebPageProxy&, WebKit::PluginModuleLoadPolicy, API::Dictionary&, CompletionHandler<void(WebKit::PluginModuleLoadPolicy, const WTF::String&)>&&) final;
         bool didChangeBackForwardList(WebPageProxy&, WebBackForwardListItem*, const Vector<Ref<WebBackForwardListItem>>&) final;
 #endif
         bool willGoToBackForwardListItem(WebPageProxy&, WebBackForwardListItem&, bool inBackForwardCache) final;
 
+#if ENABLE(CONTENT_EXTENSIONS)
         void contentRuleListNotification(WebPageProxy&, URL&&, WebCore::ContentRuleListResults&&) final;
+#endif
         void decidePolicyForNavigationAction(WebPageProxy&, Ref<API::NavigationAction>&&, Ref<WebFramePolicyListenerProxy>&&, API::Object* userData) override;
         void decidePolicyForNavigationResponse(WebPageProxy&, Ref<API::NavigationResponse>&&, Ref<WebFramePolicyListenerProxy>&&, API::Object* userData) override;
 
@@ -149,7 +153,7 @@ private:
         void decidePolicyForSOAuthorizationLoad(WebPageProxy&, SOAuthorizationLoadPolicy, const String&, CompletionHandler<void(SOAuthorizationLoadPolicy)>&&) override;
 #endif
 
-        NavigationState& m_navigationState;
+        WeakPtr<NavigationState> m_navigationState;
     };
     
     class HistoryClient final : public API::HistoryClient {
@@ -163,7 +167,7 @@ private:
         void didPerformServerRedirect(WebPageProxy&, const WTF::String&, const WTF::String&) override;
         void didUpdateHistoryTitle(WebPageProxy&, const WTF::String&, const WTF::String&) override;
         
-        NavigationState& m_navigationState;
+        WeakPtr<NavigationState> m_navigationState;
     };
 
     // PageLoadState::Observer
@@ -202,8 +206,6 @@ private:
         bool webViewDecidePolicyForNavigationActionDecisionHandler : 1;
         bool webViewDecidePolicyForNavigationActionWithPreferencesDecisionHandler : 1;
         bool webViewDecidePolicyForNavigationActionWithPreferencesUserInfoDecisionHandler : 1;
-        bool webViewDecidePolicyForNavigationActionDecisionHandlerWebsitePolicies : 1;
-        bool webViewDecidePolicyForNavigationActionUserInfoDecisionHandlerWebsitePolicies : 1;
         bool webViewDecidePolicyForNavigationResponseDecisionHandler : 1;
 
         bool webViewDidStartProvisionalNavigation : 1;
@@ -238,6 +240,9 @@ private:
         bool webViewWebProcessDidBecomeResponsive : 1;
         bool webViewWebProcessDidBecomeUnresponsive : 1;
         bool webCryptoMasterKeyForWebView : 1;
+        bool navigationActionDidBecomeDownload : 1;
+        bool navigationResponseDidBecomeDownload : 1;
+        bool contextMenuDidCreateDownload;
         bool webViewDidBeginNavigationGesture : 1;
         bool webViewWillEndNavigationGestureWithNavigationToBackForwardListItem : 1;
         bool webViewDidEndNavigationGestureWithNavigationToBackForwardListItem : 1;
@@ -255,9 +260,6 @@ private:
         bool webViewWebGLLoadPolicyForURL : 1;
         bool webViewResolveWebGLLoadPolicyForURL : 1;
         bool webViewBackForwardListItemAddedRemoved : 1;
-        bool webViewDidFailToInitializePlugInWithInfo : 1;
-        bool webViewDidBlockInsecurePluginVersionWithInfo : 1;
-        bool webViewDecidePolicyForPluginLoadWithCurrentPolicyPluginInfoCompletionHandler : 1;
 #endif
         bool webViewWillGoToBackForwardListItemInBackForwardCache : 1;
 

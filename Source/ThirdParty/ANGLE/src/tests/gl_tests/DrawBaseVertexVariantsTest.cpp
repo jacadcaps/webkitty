@@ -339,7 +339,12 @@ void main()
                 return false;
             }
         }
-        return EnsureGLExtensionEnabled("GL_ANGLE_base_vertex_base_instance");
+        if (!EnsureGLExtensionEnabled("GL_ANGLE_base_vertex_base_instance"))
+        {
+            return false;
+        }
+
+        return EnsureGLExtensionEnabled("GL_ANGLE_base_vertex_base_instance_shader_builtin");
     }
 
     bool requestNativeBaseVertexExtensions()
@@ -434,10 +439,12 @@ TEST_P(DrawBaseVertexVariantsTest, DrawElementsInstancedBaseVertexBaseInstance)
     doDrawElementsBaseVertexVariants(DrawCallVariants::DrawElementsInstancedBaseVertexBaseInstance);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DrawBaseVertexVariantsTest);
 ANGLE_INSTANTIATE_TEST_COMBINE_1(DrawBaseVertexVariantsTest,
                                  DrawBaseVertexVariantsTestPrint,
                                  testing::ValuesIn(kBufferDataUsage),
                                  ES3_D3D11(),
+                                 ES3_METAL(),
                                  ES3_OPENGL(),
                                  ES3_OPENGLES(),
                                  ES3_VULKAN());

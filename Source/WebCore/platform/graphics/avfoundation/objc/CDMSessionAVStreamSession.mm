@@ -79,8 +79,6 @@
 }
 @end
 
-static const NSString *PlaybackSessionIdKey = @"PlaybackSessionID";
-
 namespace WebCore {
 
 CDMSessionAVStreamSession::CDMSessionAVStreamSession(Vector<int>&& protocolVersions, CDMPrivateMediaSourceAVFObjC& cdm, LegacyCDMSessionClient* client)
@@ -96,7 +94,7 @@ CDMSessionAVStreamSession::~CDMSessionAVStreamSession()
     setStreamSession(nullptr);
 
     for (auto& sourceBuffer : m_sourceBuffers)
-        removeParser(sourceBuffer->parser());
+        removeParser(sourceBuffer->streamDataParser());
 }
 
 RefPtr<Uint8Array> CDMSessionAVStreamSession::generateKeyRequest(const String& mimeType, Uint8Array* initData, String& destinationURL, unsigned short& errorCode, uint32_t& systemCode)
@@ -141,9 +139,11 @@ void CDMSessionAVStreamSession::releaseKeys()
         if (storagePath.isEmpty() || ![PAL::getAVStreamSessionClass() respondsToSelector:@selector(pendingExpiredSessionReportsWithAppIdentifier:storageDirectoryAtURL:)])
             return;
 
+        // FIXME: This code is repeated in three places.
         RetainPtr<NSData> certificateData = adoptNS([[NSData alloc] initWithBytes:m_certificate->data() length:m_certificate->length()]);
         NSArray* expiredSessions = [PAL::getAVStreamSessionClass() pendingExpiredSessionReportsWithAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]];
         for (NSData* expiredSessionData in expiredSessions) {
+            static const NSString *PlaybackSessionIdKey = @"PlaybackSessionID";
             NSDictionary *expiredSession = [NSPropertyListSerialization propertyListWithData:expiredSessionData options:kCFPropertyListImmutable format:nullptr error:nullptr];
             NSString *playbackSessionIdValue = (NSString *)[expiredSession objectForKey:PlaybackSessionIdKey];
             if (![playbackSessionIdValue isKindOfClass:[NSString class]])
@@ -159,7 +159,7 @@ void CDMSessionAVStreamSession::releaseKeys()
     }
 }
 
-static bool isEqual(Uint8Array* data, const char* literal)
+static bool isEqual2(Uint8Array* data, const char* literal)
 {
     ASSERT(data);
     ASSERT(literal);
@@ -177,14 +177,14 @@ static bool isEqual(Uint8Array* data, const char* literal)
 
 bool CDMSessionAVStreamSession::update(Uint8Array* key, RefPtr<Uint8Array>& nextMessage, unsigned short& errorCode, uint32_t& systemCode)
 {
-    bool shouldGenerateKeyRequest = !m_certificate || isEqual(key, "renew");
+    bool shouldGenerateKeyRequest = !m_certificate || isEqual2(key, "renew");
     if (!m_certificate) {
         LOG(Media, "CDMSessionAVStreamSession::update(%p) - certificate data", this);
 
         m_certificate = key;
     }
 
-    if (isEqual(key, "acknowledged")) {
+    if (isEqual2(key, "acknowledged")) {
         LOG(Media, "CDMSessionAVStreamSession::update(%p) - acknowleding secure stop message", this);
 
         if (!m_expiredSession) {
@@ -234,11 +234,11 @@ bool CDMSessionAVStreamSession::update(Uint8Array* key, RefPtr<Uint8Array>& next
 
         NSError* error = nil;
         ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        RetainPtr<NSData> request = [protectedSourceBuffer->parser() streamingContentKeyRequestDataForApp:certificateData.get() contentIdentifier:initData.get() trackID:protectedSourceBuffer->protectedTrackID() options:options.get() error:&error];
+        RetainPtr<NSData> request = [protectedSourceBuffer->streamDataParser() streamingContentKeyRequestDataForApp:certificateData.get() contentIdentifier:initData.get() trackID:protectedSourceBuffer->protectedTrackID() options:options.get() error:&error];
         ALLOW_DEPRECATED_DECLARATIONS_END
 
-        if (![protectedSourceBuffer->parser() respondsToSelector:@selector(contentProtectionSessionIdentifier)])
-            m_sessionId = createCanonicalUUIDString();
+        if (![protectedSourceBuffer->streamDataParser() respondsToSelector:@selector(contentProtectionSessionIdentifier)])
+            m_sessionId = createVersion4UUIDString();
 
         if (error) {
             LOG(Media, "CDMSessionAVStreamSession::update(%p) - error:%@", this, [error description]);
@@ -263,10 +263,15 @@ bool CDMSessionAVStreamSession::update(Uint8Array* key, RefPtr<Uint8Array>& next
     systemCode = 0;
     RetainPtr<NSData> keyData = adoptNS([[NSData alloc] initWithBytes:key->data() length:key->length()]);
     ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    [protectedSourceBuffer->parser() processContentKeyResponseData:keyData.get() forTrackID:protectedSourceBuffer->protectedTrackID()];
+    [protectedSourceBuffer->streamDataParser() processContentKeyResponseData:keyData.get() forTrackID:protectedSourceBuffer->protectedTrackID()];
     ALLOW_DEPRECATED_DECLARATIONS_END
 
     return true;
+}
+
+RefPtr<ArrayBuffer> CDMSessionAVStreamSession::cachedKeyForKeyID(const String&) const
+{
+    return nullptr;
 }
 
 void CDMSessionAVStreamSession::setStreamSession(AVStreamSession *streamSession)

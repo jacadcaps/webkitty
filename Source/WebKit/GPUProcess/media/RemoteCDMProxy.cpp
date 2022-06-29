@@ -31,9 +31,9 @@
 #include "RemoteCDMConfiguration.h"
 #include "RemoteCDMInstanceConfiguration.h"
 #include "RemoteCDMInstanceProxy.h"
-#include "SharedBufferDataReference.h"
 #include <WebCore/CDMKeySystemConfiguration.h>
 #include <WebCore/CDMPrivate.h>
+#include <WebCore/SharedBuffer.h>
 
 namespace WebKit {
 
@@ -63,17 +63,17 @@ RemoteCDMProxy::RemoteCDMProxy(WeakPtr<RemoteCDMFactoryProxy>&& factory, std::un
 
 RemoteCDMProxy::~RemoteCDMProxy() = default;
 
-bool RemoteCDMProxy::supportsInitData(const AtomString& type, const SharedBuffer& data)
+bool RemoteCDMProxy::supportsInitData(const AtomString& type, const FragmentedSharedBuffer& data)
 {
     return m_private->supportsInitData(type, data);
 }
 
-RefPtr<SharedBuffer> RemoteCDMProxy::sanitizeResponse(const SharedBuffer& response)
+RefPtr<FragmentedSharedBuffer> RemoteCDMProxy::sanitizeResponse(const FragmentedSharedBuffer& response)
 {
     return m_private->sanitizeResponse(response);
 }
 
-Optional<String> RemoteCDMProxy::sanitizeSessionId(const String& sessionId)
+std::optional<String> RemoteCDMProxy::sanitizeSessionId(const String& sessionId)
 {
     return m_private->sanitizeSessionId(sessionId);
 }
@@ -90,8 +90,8 @@ void RemoteCDMProxy::createInstance(CompletionHandler<void(RemoteCDMInstanceIden
         completion({ }, { });
         return;
     }
-    auto instance = RemoteCDMInstanceProxy::create(makeWeakPtr(this), privateInstance.releaseNonNull());
     auto identifier = RemoteCDMInstanceIdentifier::generate();
+    auto instance = RemoteCDMInstanceProxy::create(*this, privateInstance.releaseNonNull(), identifier);
     RemoteCDMInstanceConfiguration configuration = instance->configuration();
     m_factory->addInstance(identifier, WTFMove(instance));
     completion(identifier, WTFMove(configuration));

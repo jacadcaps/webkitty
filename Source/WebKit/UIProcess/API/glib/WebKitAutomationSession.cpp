@@ -165,14 +165,14 @@ private:
         webkitWebViewSetCurrentScriptDialogUserInput(webView, userInput);
     }
 
-    Optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy& page) override
+    std::optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy& page) override
     {
         auto* webView = webkitWebContextGetWebViewForPage(m_session->priv->webContext, &page);
         if (!webView)
-            return WTF::nullopt;
+            return std::nullopt;
         auto dialogType = webkitWebViewGetCurrentScriptDialogType(webView);
         if (!dialogType)
-            return WTF::nullopt;
+            return std::nullopt;
         switch (dialogType.value()) {
         case WEBKIT_SCRIPT_DIALOG_ALERT:
             return API::AutomationSessionClient::JavaScriptDialogType::Alert;
@@ -185,7 +185,7 @@ private:
         }
 
         ASSERT_NOT_REACHED();
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     API::AutomationSessionClient::BrowsingContextPresentation currentPresentationOfPage(WebAutomationSession&, WebPageProxy& page) override
@@ -350,7 +350,8 @@ WebKitAutomationSession* webkitAutomationSessionCreate(WebKitWebContext* webCont
     auto* session = WEBKIT_AUTOMATION_SESSION(g_object_new(WEBKIT_TYPE_AUTOMATION_SESSION, "id", sessionID, nullptr));
     session->priv->webContext = webContext;
     if (capabilities.acceptInsecureCertificates)
-        webkit_web_context_set_tls_errors_policy(webContext, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+        webkit_website_data_manager_set_tls_errors_policy(webkit_web_context_get_website_data_manager(webContext), WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
     for (auto& certificate : capabilities.certificates) {
         GRefPtr<GTlsCertificate> tlsCertificate = adoptGRef(g_tls_certificate_new_from_file(certificate.second.utf8().data(), nullptr));
         if (tlsCertificate)
@@ -359,7 +360,7 @@ WebKitAutomationSession* webkitAutomationSessionCreate(WebKitWebContext* webCont
     if (capabilities.proxy) {
         WebKitNetworkProxySettings* proxySettings = nullptr;
         auto proxyMode = parseProxyCapabilities(*capabilities.proxy, &proxySettings);
-        webkit_web_context_set_network_proxy_settings(webContext, proxyMode, proxySettings);
+        webkit_website_data_manager_set_network_proxy_settings(webkit_web_context_get_website_data_manager(webContext), proxyMode, proxySettings);
         if (proxySettings)
             webkit_network_proxy_settings_free(proxySettings);
     }

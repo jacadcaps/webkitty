@@ -50,6 +50,14 @@
 #import <CFNetwork/CFNSURLConnection.h>
 #endif
 
+#if HAVE(NSURLPROTOCOL_WITH_SKIPAPPSSO)
+#if defined(__OBJC__)
+@interface NSURLProtocol (NSURLConnectionAppSSOPrivate)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO;
+@end
+#endif
+#endif
+
 #else // !USE(APPLE_INTERNAL_SDK)
 
 #if HAVE(PRECONNECT_PING) && defined(__OBJC__)
@@ -114,6 +122,16 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
     CFHTTPCookieStorageAcceptPolicyExclusivelyFromMainDocumentDomain = 3,
 };
 
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+typedef enum {
+    nw_connection_privacy_stance_unknown = 0,
+    nw_connection_privacy_stance_not_eligible = 1,
+    nw_connection_privacy_stance_proxied = 2,
+    nw_connection_privacy_stance_failed = 3,
+    nw_connection_privacy_stance_direct = 4,
+} nw_connection_privacy_stance_t;
+#endif
+
 #if defined(__OBJC__)
 
 @interface NSURLSessionTask ()
@@ -145,9 +163,7 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 - (id)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)cfStorage;
 - (CFHTTPCookieStorageRef)_cookieStorage;
 - (void)_saveCookies;
-#if HAVE(FOUNDATION_WITH_SAVE_COOKIES_WITH_COMPLETION_HANDLER)
 - (void)_saveCookies:(dispatch_block_t) completionHandler;
-#endif
 #if HAVE(CFNETWORK_OVERRIDE_SESSION_COOKIE_ACCEPT_POLICY)
 @property (nonatomic, readwrite) BOOL _overrideSessionCookieAcceptPolicy;
 #endif
@@ -168,6 +184,12 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 + (Class)_protocolClassForRequest:(NSURLRequest *)request;
 @end
 
+#if HAVE(NSURLPROTOCOL_WITH_SKIPAPPSSO)
+@interface NSURLProtocol (NSURLConnectionAppSSOPrivate)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO;
+@end
+#endif
+
 @interface NSURLRequest ()
 + (NSArray *)allowsSpecificHTTPSCertificateForHost:(NSString *)host;
 + (void)setAllowsSpecificHTTPSCertificate:(NSArray *)allow forHost:(NSString *)host;
@@ -180,6 +202,9 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 - (BOOL)_schemeWasUpgradedDueToDynamicHSTS;
 - (BOOL)_preventHSTSStorage;
 - (BOOL)_ignoreHSTS;
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+@property (setter=_setPrivacyProxyFailClosed:) BOOL _privacyProxyFailClosed;
+#endif
 @end
 
 @interface NSURLResponse ()
@@ -198,6 +223,16 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
 @class _NSHTTPAlternativeServicesStorage;
+#endif
+
+#if HAVE(HSTS_STORAGE)
+@interface _NSHSTSStorage : NSObject
+- (instancetype)initPersistentStoreWithURL:(nullable NSURL*)path;
+- (BOOL)shouldPromoteHostToHTTPS:(NSString *)host;
+- (NSArray<NSString *> *)nonPreloadedHosts;
+- (void)resetHSTSForHost:(NSString *)host;
+- (void)resetHSTSHostsSinceDate:(NSDate *)date;
+@end
 #endif
 
 @interface NSURLSessionConfiguration ()
@@ -228,6 +263,20 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (nullable, retain) _NSHTTPAlternativeServicesStorage *_alternativeServicesStorage;
 @property (readwrite, assign) BOOL _allowsHTTP3;
 #endif
+#if HAVE(HSTS_STORAGE)
+@property (nullable, retain) _NSHSTSStorage *_hstsStorage;
+#endif
+#if HAVE(NETWORK_LOADER)
+@property BOOL _usesNWLoader;
+#endif
+#if HAVE(CFNETWORK_NSURLSESSION_CONNECTION_CACHE_LIMITS)
+@property (readwrite, assign) NSInteger _connectionCacheNumPriorityLevels;
+@property (readwrite, assign) NSInteger _connectionCacheNumFastLanes;
+@property (readwrite, assign) NSInteger _connectionCacheMinimumFastLanePriority;
+#endif
+#if HAVE(CFNETWORK_NSURLSESSION_ATTRIBUTED_BUNDLE_IDENTIFIER)
+@property (nullable, copy) NSString *_attributedBundleIdentifier;
+#endif
 @end
 
 @interface NSURLSessionTask ()
@@ -250,19 +299,18 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (assign, readonly) NSInteger _responseHeaderBytesReceived;
 @property (assign, readonly) int64_t _responseBodyBytesReceived;
 @property (assign, readonly) int64_t _responseBodyBytesDecoded;
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+@property (assign, readonly) nw_connection_privacy_stance_t _privacyStance;
+#endif
 @end
 
-#if HAVE(CFNETWORK_NEGOTIATED_SSL_PROTOCOL_CIPHER)
 @interface NSURLSessionTaskTransactionMetrics ()
 @property (assign) SSLProtocol _negotiatedTLSProtocol;
 @property (assign) SSLCipherSuite _negotiatedTLSCipher;
 @end
-#endif
 
 @interface NSURLSession (SPI)
-#if HAVE(CFNETWORK_NSURLSESSION_STRICTRUSTEVALUATE)
 + (void)_strictTrustEvaluate:(NSURLAuthenticationChallenge *)challenge queue:(dispatch_queue_t)queue completionHandler:(void (^)(NSURLAuthenticationChallenge *challenge, OSStatus trustResult))cb;
-#endif
 #if HAVE(APP_SSO)
 + (void)_disableAppSSO;
 #endif
@@ -314,6 +362,9 @@ typedef void (^CFCachedURLResponseCallBackBlock)(CFCachedURLResponseRef);
 void _CFCachedURLResponseSetBecameFileBackedCallBackBlock(CFCachedURLResponseRef, CFCachedURLResponseCallBackBlock, dispatch_queue_t);
 #endif
 
+#if HAVE(CFNETWORK_DISABLE_CACHE_SPI)
+void _CFURLStorageSessionDisableCache(CFURLStorageSessionRef);
+#endif
 CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStringRef, CFDictionaryRef);
 CFURLCacheRef _CFURLStorageSessionCopyCache(CFAllocatorRef, CFURLStorageSessionRef);
 void CFURLRequestSetShouldStartSynchronously(CFURLRequestRef, Boolean);
@@ -323,7 +374,6 @@ CFIndex CFURLCacheMemoryCapacity(CFURLCacheRef);
 void CFURLCacheSetDiskCapacity(CFURLCacheRef, CFIndex);
 CFCachedURLResponseRef CFURLCacheCopyResponseForRequest(CFURLCacheRef, CFURLRequestRef);
 void CFHTTPCookieStorageDeleteAllCookies(CFHTTPCookieStorageRef);
-void _CFHTTPCookieStorageFlushCookieStores();
 CFDataRef _CFCachedURLResponseGetMemMappedData(CFCachedURLResponseRef);
 
 extern CFStringRef const kCFHTTPCookieLocalFileDomain;
@@ -379,10 +429,6 @@ void _CFURLRequestCreateArchiveList(CFAllocatorRef, CFURLRequestRef, CFIndex* ve
 CFMutableURLRequestRef _CFURLRequestCreateFromArchiveList(CFAllocatorRef, CFIndex version, CFTypeRef* objects, CFIndex objectCount, CFDictionaryRef protocolProperties);
 void CFURLRequestSetProxySettings(CFMutableURLRequestRef, CFDictionaryRef);
 
-#if HAVE(HSTS_STORAGE_PATH)
-void _CFNetworkSetHSTSStoragePath(CFStringRef);
-#endif
-
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxy;
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxyHost;
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxyPort;
@@ -395,12 +441,14 @@ CFN_EXPORT void _CFHTTPMessageSetResponseProxyURL(CFHTTPMessageRef, CFURLRef);
 CFDataRef _CFNetworkCopyATSContext(void);
 Boolean _CFNetworkSetATSContext(CFDataRef);
 
+Boolean _CFNetworkIsKnownHSTSHostWithSession(CFURLRef, CFURLStorageSessionRef);
+#if !HAVE(HSTS_STORAGE)
 extern const CFStringRef _kCFNetworkHSTSPreloaded;
 CFDictionaryRef _CFNetworkCopyHSTSPolicies(CFURLStorageSessionRef);
 void _CFNetworkResetHSTS(CFURLRef, CFURLStorageSessionRef);
 void _CFNetworkResetHSTSHostsSinceDate(CFURLStorageSessionRef, CFDateRef);
-Boolean _CFNetworkIsKnownHSTSHostWithSession(CFURLRef, CFURLStorageSessionRef);
 void _CFNetworkResetHSTSHostsWithSession(CFURLStorageSessionRef);
+#endif
 
 CFDataRef CFHTTPCookieStorageCreateIdentifyingData(CFAllocatorRef inAllocator, CFHTTPCookieStorageRef inStorage);
 CFHTTPCookieStorageRef CFHTTPCookieStorageCreateFromIdentifyingData(CFAllocatorRef inAllocator, CFDataRef inData);
@@ -442,14 +490,20 @@ WTF_EXTERN_C_END
 - (void)_setMIMEType:(NSString *)type;
 @end
 
-@interface NSURLSessionConfiguration ()
+@interface NSURLSessionConfiguration (SPI)
 // FIXME: Remove this once rdar://problem/40650244 is in a build.
 @property (copy) NSDictionary *_socketStreamProperties;
+// FIXME: Remove this once rdar://80550123 is in a build.
+@property (nonatomic) BOOL _allowsHSTSWithUntrustedRootCertificate;
 @end
 
 @interface NSURLSessionTask ()
 - (void)_setExplicitCookieStorage:(CFHTTPCookieStorageRef)storage;
 @property (readonly) SSLProtocol _TLSNegotiatedProtocolVersion;
+@end
+
+@interface NSURLSessionWebSocketTask (SPI)
+- (void)_sendCloseCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason;
 @end
 
 #endif // defined(__OBJC__)

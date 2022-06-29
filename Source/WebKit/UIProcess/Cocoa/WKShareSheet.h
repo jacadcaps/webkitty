@@ -38,8 +38,13 @@ struct ShareDataWithParsedURL;
 
 - (instancetype)initWithView:(WKWebView *)view;
 
-- (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL&)data inRect:(WTF::Optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
+- (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL&)data inRect:(std::optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
 - (void)dismiss;
+
+#if PLATFORM(MAC)
+- (BOOL)canShowPickerAsync:(NSSharingServicePicker *)picker;
+- (void)showPickerAsync:(NSSharingServicePicker *)picker showRelativeToRect:(NSRect)presentationRect ofView:(WKWebView *)webView completion:(void (^)(void))completionHandler;
+#endif
 
 @property (nonatomic, weak) id <WKShareSheetDelegate> delegate;
 @end

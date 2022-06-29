@@ -35,7 +35,6 @@
 #include "EventNames.h"
 #include "KeyframeEffect.h"
 #include "Logging.h"
-#include "PseudoElement.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
@@ -43,9 +42,10 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(DeclarativeAnimation);
 
-DeclarativeAnimation::DeclarativeAnimation(Element& owningElement, const Animation& backingAnimation)
-    : WebAnimation(owningElement.document())
-    , m_owningElement(makeWeakPtr(owningElement))
+DeclarativeAnimation::DeclarativeAnimation(const Styleable& styleable, const Animation& backingAnimation)
+    : WebAnimation(styleable.element.document())
+    , m_owningElement(styleable.element)
+    , m_owningPseudoId(styleable.pseudoId)
     , m_backingAnimation(const_cast<Animation&>(backingAnimation))
 {
 }
@@ -54,9 +54,11 @@ DeclarativeAnimation::~DeclarativeAnimation()
 {
 }
 
-Element* DeclarativeAnimation::owningElement() const
+const std::optional<const Styleable> DeclarativeAnimation::owningElement() const
 {
-    return m_owningElement.get();
+    if (m_owningElement)
+        return Styleable(*m_owningElement.get(), m_owningPseudoId);
+    return std::nullopt;
 }
 
 void DeclarativeAnimation::tick()
@@ -92,8 +94,7 @@ void DeclarativeAnimation::disassociateFromOwningElement()
     if (!m_owningElement)
         return;
 
-    if (auto* animationTimeline = timeline())
-        animationTimeline->removeDeclarativeAnimationFromListsForOwningElement(*this, *m_owningElement);
+    owningElement()->removeDeclarativeAnimationFromListsForOwningElement(*this);
     m_owningElement = nullptr;
 }
 
@@ -103,8 +104,10 @@ void DeclarativeAnimation::setBackingAnimation(const Animation& backingAnimation
     syncPropertiesWithBackingAnimation();
 }
 
-void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderStyle& newStyle)
+void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderStyle& newStyle, const Style::ResolutionContext& resolutionContext)
 {
+    WebAnimation::initialize();
+
     // We need to suspend invalidation of the animation's keyframe effect during its creation
     // as it would otherwise trigger invalidation of the document's style and this would be
     // incorrect since it would happen during style invalidation.
@@ -112,14 +115,9 @@ void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderS
 
     ASSERT(m_owningElement);
 
-    if (is<PseudoElement>(m_owningElement.get())) {
-        auto& pseudoOwningElement = downcast<PseudoElement>(*m_owningElement);
-        ASSERT(pseudoOwningElement.hostElement());
-        setEffect(KeyframeEffect::create(*pseudoOwningElement.hostElement(), pseudoOwningElement.pseudoId()));
-    } else
-        setEffect(KeyframeEffect::create(*m_owningElement, m_owningElement->pseudoId()));
+    setEffect(KeyframeEffect::create(*m_owningElement, m_owningPseudoId));
     setTimeline(&m_owningElement->document().timeline());
-    downcast<KeyframeEffect>(effect())->computeDeclarativeAnimationBlendingKeyframes(oldStyle, newStyle);
+    downcast<KeyframeEffect>(effect())->computeDeclarativeAnimationBlendingKeyframes(oldStyle, newStyle, resolutionContext);
     syncPropertiesWithBackingAnimation();
     if (backingAnimation().playState() == AnimationPlayState::Playing)
         play();
@@ -133,28 +131,16 @@ void DeclarativeAnimation::syncPropertiesWithBackingAnimation()
 {
 }
 
-Optional<double> DeclarativeAnimation::bindingsStartTime() const
+std::optional<double> DeclarativeAnimation::bindingsStartTime() const
 {
     flushPendingStyleChanges();
     return WebAnimation::bindingsStartTime();
 }
 
-void DeclarativeAnimation::setBindingsStartTime(Optional<double> startTime)
-{
-    flushPendingStyleChanges();
-    return WebAnimation::setBindingsStartTime(startTime);
-}
-
-Optional<double> DeclarativeAnimation::bindingsCurrentTime() const
+std::optional<double> DeclarativeAnimation::bindingsCurrentTime() const
 {
     flushPendingStyleChanges();
     return WebAnimation::bindingsCurrentTime();
-}
-
-ExceptionOr<void> DeclarativeAnimation::setBindingsCurrentTime(Optional<double> currentTime)
-{
-    flushPendingStyleChanges();
-    return WebAnimation::setBindingsCurrentTime(currentTime);
 }
 
 WebAnimation::PlayState DeclarativeAnimation::bindingsPlayState() const
@@ -217,7 +203,7 @@ void DeclarativeAnimation::setTimeline(RefPtr<AnimationTimeline>&& newTimeline)
     WebAnimation::setTimeline(WTFMove(newTimeline));
 }
 
-void DeclarativeAnimation::cancel(Silently silently)
+void DeclarativeAnimation::cancel()
 {
     auto cancelationTime = 0_s;
     if (auto* animationEffect = effect()) {
@@ -225,7 +211,7 @@ void DeclarativeAnimation::cancel(Silently silently)
             cancelationTime = *activeTime;
     }
 
-    WebAnimation::cancel(silently);
+    WebAnimation::cancel();
 
     invalidateDOMEvents(cancelationTime);
 }
@@ -352,8 +338,8 @@ void DeclarativeAnimation::enqueueDOMEvent(const AtomString& eventType, Seconds 
         return;
 
     auto time = secondsToWebAnimationsAPITime(elapsedTime) / 1000;
-    const auto& pseudoId = PseudoElement::pseudoElementNameForEvents(m_owningElement->pseudoId());
-    auto timelineTime = timeline() ? timeline()->currentTime() : WTF::nullopt;
+    auto pseudoId = pseudoIdAsString(m_owningPseudoId);
+    auto timelineTime = timeline() ? timeline()->currentTime() : std::nullopt;
     auto event = createEvent(eventType, time, pseudoId, timelineTime);
     event->setTarget(m_owningElement.get());
     enqueueAnimationEvent(WTFMove(event));

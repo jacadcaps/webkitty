@@ -54,7 +54,7 @@ void WebPluginInfoProvider::refreshPlugins()
     [[WebPluginDatabase sharedDatabaseIfExists] refresh];
 }
 
-Vector<WebCore::PluginInfo> WebPluginInfoProvider::pluginInfo(WebCore::Page& page, Optional<Vector<SupportedPluginIdentifier>>&)
+Vector<WebCore::PluginInfo> WebPluginInfoProvider::pluginInfo(WebCore::Page& page, std::optional<Vector<SupportedPluginIdentifier>>&)
 {
     Vector<WebCore::PluginInfo> plugins;
 
@@ -62,7 +62,7 @@ Vector<WebCore::PluginInfo> WebPluginInfoProvider::pluginInfo(WebCore::Page& pag
 
 
     // WebKit1 has no application plug-ins, so we don't need to add them here.
-    if (!page.mainFrame().loader().arePluginsEnabled())
+    if (!page.mainFrame().arePluginsEnabled())
         return plugins;
 
     for (WebPluginPackage *plugin in [WebPluginDatabase sharedDatabase].plugins)
@@ -75,6 +75,6 @@ Vector<WebCore::PluginInfo> WebPluginInfoProvider::pluginInfo(WebCore::Page& pag
 
 Vector<WebCore::PluginInfo> WebPluginInfoProvider::webVisiblePluginInfo(WebCore::Page& page, const URL&)
 {
-    Optional<Vector<SupportedPluginIdentifier>> supportedPluginIdentifiers;
+    std::optional<Vector<SupportedPluginIdentifier>> supportedPluginIdentifiers;
     return pluginInfo(page, supportedPluginIdentifiers);
 }

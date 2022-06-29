@@ -26,10 +26,12 @@
 #include "config.h"
 #include "RemoteMediaRecorderManager.h"
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "DataReference.h"
 #include "Decoder.h"
+#include "GPUConnectionToWebProcess.h"
+#include "GPUProcess.h"
 #include "RemoteMediaRecorder.h"
 #include <WebCore/ExceptionData.h>
 
@@ -51,20 +53,27 @@ void RemoteMediaRecorderManager::didReceiveRemoteMediaRecorderMessage(IPC::Conne
         recorder->didReceiveMessage(connection, decoder);
 }
 
-void RemoteMediaRecorderManager::createRecorder(MediaRecorderIdentifier identifier, bool recordAudio, bool recordVideo, CompletionHandler<void(Optional<ExceptionData>&&)>&& completionHandler)
+void RemoteMediaRecorderManager::createRecorder(MediaRecorderIdentifier identifier, bool recordAudio, bool recordVideo, const MediaRecorderPrivateOptions& options, CompletionHandler<void(std::optional<ExceptionData>&&, String&&, unsigned, unsigned)>&& completionHandler)
 {
     ASSERT(!m_recorders.contains(identifier));
-    auto recorder = RemoteMediaRecorder::create(m_gpuConnectionToWebProcess, identifier, recordAudio, recordVideo);
+    auto recorder = RemoteMediaRecorder::create(m_gpuConnectionToWebProcess, identifier, recordAudio, recordVideo, options);
     if (!recorder)
-        return completionHandler(ExceptionData { NotSupportedError, "Unable to create a recorder with the provided stream"_s });
+        return completionHandler(ExceptionData { NotSupportedError, "Unable to create a recorder with the provided stream"_s }, { }, 0, 0);
 
+    completionHandler({ }, recorder->mimeType(), recorder->audioBitRate(), recorder->videoBitRate());
     m_recorders.add(identifier, WTFMove(recorder));
-    completionHandler({ });
 }
 
 void RemoteMediaRecorderManager::releaseRecorder(MediaRecorderIdentifier identifier)
 {
     m_recorders.remove(identifier);
+    if (allowsExitUnderMemoryPressure())
+        m_gpuConnectionToWebProcess.gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
+}
+
+bool RemoteMediaRecorderManager::allowsExitUnderMemoryPressure() const
+{
+    return m_recorders.isEmpty();
 }
 
 }

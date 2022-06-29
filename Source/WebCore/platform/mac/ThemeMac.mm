@@ -38,8 +38,8 @@
 #import "LocalCurrentGraphicsContext.h"
 #import "LocalDefaultSystemAppearance.h"
 #import "ScrollView.h"
-#import <Carbon/Carbon.h>
 #import <pal/spi/cocoa/NSButtonCellSPI.h>
+#import <pal/spi/mac/CoreUISPI.h>
 #import <pal/spi/mac/NSAppearanceSPI.h>
 #import <pal/spi/mac/NSGraphicsSPI.h>
 #import <wtf/BlockObjCExceptions.h>
@@ -66,18 +66,27 @@ static BOOL themeWindowHasKeyAppearance;
 {
     return themeWindowHasKeyAppearance;
 }
-
 @end
 
-@implementation WebCoreThemeView
+@implementation WebCoreThemeView {
+    RetainPtr<WebCoreThemeWindow> _window;
+}
+
+- (instancetype)init
+{
+    if (!(self = [super init]))
+        return nil;
+
+    // Using defer:YES prevents us from wasting any window server resources for this window, since we're not actually
+    // going to draw into it. The other arguments match what you get when calling -[NSWindow init].
+    _window = adoptNS([[WebCoreThemeWindow alloc] initWithContentRect:NSMakeRect(100, 100, 100, 100) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:YES]);
+
+    return self;
+}
 
 - (NSWindow *)window
 {
-    // Using defer:YES prevents us from wasting any window server resources for this window, since we're not actually
-    // going to draw into it. The other arguments match what you get when calling -[NSWindow init].
-    static WebCoreThemeWindow *window = [[WebCoreThemeWindow alloc] initWithContentRect:NSMakeRect(100, 100, 100, 100)
-        styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:YES];
-    return window;
+    return _window.get();
 }
 
 - (BOOL)isFlipped
@@ -156,9 +165,9 @@ static LengthSize sizeFromNSControlSize(NSControlSize nsControlSize, const Lengt
         controlSize = IntSize(controlSize.width() * zoomFactor, controlSize.height() * zoomFactor);
     LengthSize result = zoomedSize;
     if (zoomedSize.width.isIntrinsicOrAuto() && controlSize.width() > 0)
-        result.width = { controlSize.width(), Fixed };
+        result.width = { controlSize.width(), LengthType::Fixed };
     if (zoomedSize.height.isIntrinsicOrAuto() && controlSize.height() > 0)
-        result.height = { controlSize.height(), Fixed };
+        result.height = { controlSize.height(), LengthType::Fixed };
     return result;
 }
 
@@ -167,7 +176,7 @@ static LengthSize sizeFromFont(const FontCascade& font, const LengthSize& zoomed
     return sizeFromNSControlSize(controlSizeForFont(font), zoomedSize, zoomFactor, sizes);
 }
 
-static ControlSize controlSizeFromPixelSize(const std::array<IntSize, 4>& sizes, const IntSize& minZoomedSize, float zoomFactor)
+static NSControlSize controlSizeFromPixelSize(const std::array<IntSize, 4>& sizes, const IntSize& minZoomedSize, float zoomFactor)
 {
 #if HAVE(LARGE_CONTROL_SIZE)
     if (ThemeMac::supportsLargeFormControls()
@@ -186,9 +195,9 @@ static ControlSize controlSizeFromPixelSize(const std::array<IntSize, 4>& sizes,
 
 static void setControlSize(NSCell* cell, const std::array<IntSize, 4>& sizes, const IntSize& minZoomedSize, float zoomFactor)
 {
-    ControlSize size = controlSizeFromPixelSize(sizes, minZoomedSize, zoomFactor);
+    auto size = controlSizeFromPixelSize(sizes, minZoomedSize, zoomFactor);
     if (size != [cell controlSize]) // Only update if we have to, since AppKit does work even if the size is the same.
-        [cell setControlSize:(NSControlSize)size];
+        [cell setControlSize:size];
 }
 
 static void updateStates(NSCell* cell, const ControlStates& controlStates, bool useAnimation = false)
@@ -198,27 +207,27 @@ static void updateStates(NSCell* cell, const ControlStates& controlStates, bool 
     if (AXObjectCache::accessibilityEnhancedUserInterfaceEnabled())
         useAnimation = false;
     
-    ControlStates::States states = controlStates.states();
+    auto states = controlStates.states();
 
     // Hover state is not supported by Aqua.
     
     // Pressed state
     bool oldPressed = [cell isHighlighted];
-    bool pressed = states & ControlStates::PressedState;
+    bool pressed = states.contains(ControlStates::States::Pressed);
     if (pressed != oldPressed) {
         [(NSButtonCell*)cell _setHighlighted:pressed animated:useAnimation];
     }
     
     // Enabled state
     bool oldEnabled = [cell isEnabled];
-    bool enabled = states & ControlStates::EnabledState;
+    bool enabled = states.contains(ControlStates::States::Enabled);
     if (enabled != oldEnabled)
         [cell setEnabled:enabled];
 
     // Checked and Indeterminate
     bool oldIndeterminate = [cell state] == NSControlStateValueMixed;
-    bool indeterminate = (states & ControlStates::IndeterminateState);
-    bool checked = states & ControlStates::CheckedState;
+    bool indeterminate = states.contains(ControlStates::States::Indeterminate);
+    bool checked = states.contains(ControlStates::States::Checked);
     bool oldChecked = [cell state] == NSControlStateValueOn;
     if (oldIndeterminate != indeterminate || checked != oldChecked) {
         NSControlStateValue newState = indeterminate ? NSControlStateValueMixed : (checked ? NSControlStateValueOn : NSControlStateValueOff);
@@ -226,27 +235,11 @@ static void updateStates(NSCell* cell, const ControlStates& controlStates, bool 
     }
 
     // Presenting state
-    if (states & ControlStates::PresentingState)
+    if (states.contains(ControlStates::States::Presenting))
         [(NSButtonCell*)cell _setHighlighted:YES animated:NO];
 
     // Window inactive state does not need to be checked explicitly, since we paint parented to 
     // a view in a window whose key state can be detected.
-}
-
-static ThemeDrawState convertControlStatesToThemeDrawState(ThemeButtonKind kind, const ControlStates& controlStates)
-{
-    ControlStates::States states = controlStates.states();
-
-    if (!(states & ControlStates::EnabledState))
-        return kThemeStateUnavailableInactive;
-
-    // Do not process PressedState if !EnabledState.
-    if (states & ControlStates::PressedState) {
-        if (kind == kThemeIncDecButton || kind == kThemeIncDecButtonSmall || kind == kThemeIncDecButtonMini)
-            return states & ControlStates::SpinUpState ? kThemeStatePressedUp : kThemeStatePressedDown;
-        return kThemeStatePressed;
-    }
-    return kThemeStateActive;
 }
 
 static FloatRect inflateRect(const FloatRect& zoomedRect, const IntSize& zoomedSize, const int* margins, float zoomFactor)
@@ -288,14 +281,13 @@ static const int* checkboxMargins(NSControlSize controlSize)
     return margins[controlSize];
 }
 
-static LengthSize checkboxSize(const FontCascade& font, const LengthSize& zoomedSize, float zoomFactor)
+static LengthSize checkboxSize(const LengthSize& zoomedSize, float zoomFactor)
 {
     // If the width and height are both specified, then we have nothing to do.
     if (!zoomedSize.width.isIntrinsicOrAuto() && !zoomedSize.height.isIntrinsicOrAuto())
         return zoomedSize;
 
-    // Use the font size to determine the intrinsic width of the control.
-    return sizeFromFont(font, zoomedSize, zoomFactor, checkboxSizes());
+    return sizeFromNSControlSize(NSControlSizeSmall, zoomedSize, zoomFactor, checkboxSizes());
 }
 
 // Radio Buttons
@@ -329,14 +321,13 @@ static const int* radioMargins(NSControlSize controlSize)
     return margins[controlSize];
 }
 
-static LengthSize radioSize(const FontCascade& font, const LengthSize& zoomedSize, float zoomFactor)
+static LengthSize radioSize(const LengthSize& zoomedSize, float zoomFactor)
 {
     // If the width and height are both specified, then we have nothing to do.
     if (!zoomedSize.width.isIntrinsicOrAuto() && !zoomedSize.height.isIntrinsicOrAuto())
         return zoomedSize;
 
-    // Use the font size to determine the intrinsic width of the control.
-    return sizeFromFont(font, zoomedSize, zoomFactor, radioSizes());
+    return sizeFromNSControlSize(NSControlSizeSmall, zoomedSize, zoomFactor, radioSizes());
 }
     
 static void configureToggleButton(NSCell* cell, ControlPart buttonType, const ControlStates& states, const IntSize& zoomedSize, float zoomFactor, bool isStateChange)
@@ -398,8 +389,8 @@ static bool drawCellFocusRingWithFrameAtTime(NSCell *cell, NSRect cellFrame, NSV
 
     // FIXME: This color should be shared with RenderThemeMac. For now just use the same NSColor color.
     // The color is expected to be opaque, since CoreGraphics will apply opacity when drawing (because opacity is normally animated).
-    auto color = colorFromNSColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
-    auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color)));
+    auto color = colorFromCocoaColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
+    auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
     CGContextSetStyle(cgContext, style.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext, NSRectToCGRect(cellFrame), nullptr);
@@ -460,7 +451,7 @@ static void paintToggleButton(ControlPart buttonType, ControlStates& controlStat
     NSView *view = ThemeMac::ensuredView(scrollView, controlStates, true /* useUnparentedView */);
 
     bool needsRepaint = false;
-    bool isCellFocused = controlStates.states() & ControlStates::FocusState;
+    bool isCellFocused = controlStates.states().contains(ControlStates::States::Focused);
 
     if ([toggleButtonCell _stateAnimationRunning]) {
         context.translate(inflatedRect.location());
@@ -509,9 +500,9 @@ static const int* buttonMargins(NSControlSize controlSize)
 
 enum ButtonCellType { NormalButtonCell, DefaultButtonCell };
 
-static NSButtonCell *leakButtonCell(ButtonCellType type)
+static RetainPtr<NSButtonCell> buttonCell(ButtonCellType type)
 {
-    NSButtonCell *cell = [[NSButtonCell alloc] init];
+    auto cell = adoptNS([[NSButtonCell alloc] init]);
     [cell setTitle:nil];
     [cell setButtonType:NSButtonTypeMomentaryPushIn];
     if (type == DefaultButtonCell)
@@ -551,14 +542,14 @@ static void setUpButtonCell(NSButtonCell *cell, ControlPart part, const ControlS
 
 static NSButtonCell *button(ControlPart part, const ControlStates& controlStates, const IntSize& zoomedSize, float zoomFactor)
 {
-    ControlStates::States states = controlStates.states();
+    auto states = controlStates.states();
     NSButtonCell *cell;
-    if (states & ControlStates::DefaultState) {
-        static NSButtonCell *defaultCell = leakButtonCell(DefaultButtonCell);
-        cell = defaultCell;
+    if (states.contains(ControlStates::States::Default)) {
+        static NeverDestroyed<RetainPtr<NSButtonCell>> defaultCell = buttonCell(DefaultButtonCell);
+        cell = defaultCell.get().get();
     } else {
-        static NSButtonCell *normalCell = leakButtonCell(NormalButtonCell);
-        cell = normalCell;
+        static NeverDestroyed<RetainPtr<NSButtonCell>> normalCell = buttonCell(NormalButtonCell);
+        cell = normalCell.get().get();
     }
     setUpButtonCell(cell, part, controlStates, zoomedSize, zoomFactor);
     return cell;
@@ -569,7 +560,7 @@ static void paintButton(ControlPart part, ControlStates& controlStates, Graphics
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     
     // Determine the width and height needed for the control and prepare the cell for painting.
-    ControlStates::States states = controlStates.states();
+    auto states = controlStates.states();
     NSButtonCell *buttonCell = button(part, controlStates, IntSize(zoomedRect.size()), zoomFactor);
     GraphicsContextStateSaver stateSaver(context);
 
@@ -603,8 +594,8 @@ static void paintButton(ControlPart part, ControlStates& controlStates, Graphics
     NSWindow *window = [view window];
     NSButtonCell *previousDefaultButtonCell = [window defaultButtonCell];
 
-    bool needsRepaint = ThemeMac::drawCellOrFocusRingWithViewIntoContext(buttonCell, context, inflatedRect, view, true, states & ControlStates::FocusState, deviceScaleFactor);
-    if (states & ControlStates::DefaultState)
+    bool needsRepaint = ThemeMac::drawCellOrFocusRingWithViewIntoContext(buttonCell, context, inflatedRect, view, true, states.contains(ControlStates::States::Focused), deviceScaleFactor);
+    if (states.contains(ControlStates::States::Default))
         [window setDefaultButtonCell:buttonCell];
     else if ([previousDefaultButtonCell isEqual:buttonCell])
         [window setDefaultButtonCell:nil];
@@ -643,22 +634,28 @@ static NSControlSize stepperControlSizeForFont(const FontCascade& font)
     return NSControlSizeMini;
 }
 
-static void paintStepper(ControlStates& states, GraphicsContext& context, const FloatRect& zoomedRect, float zoomFactor, ScrollView*)
+static void paintStepper(ControlStates& controlStates, GraphicsContext& context, const FloatRect& zoomedRect, float zoomFactor, ScrollView*)
 {
     // We don't use NSStepperCell because there are no ways to draw an
     // NSStepperCell with the up button highlighted.
 
-    HIThemeButtonDrawInfo drawInfo;
-    drawInfo.version = 0;
-    drawInfo.state = convertControlStatesToThemeDrawState(kThemeIncDecButton, states);
-    drawInfo.adornment = kThemeAdornmentDefault;
-    ControlSize controlSize = controlSizeFromPixelSize(stepperSizes(), IntSize(zoomedRect.size()), zoomFactor);
-    if (controlSize == NSControlSizeSmall)
-        drawInfo.kind = kThemeIncDecButtonSmall;
-    else if (controlSize == NSControlSizeMini)
-        drawInfo.kind = kThemeIncDecButtonMini;
+    NSString *coreUIState;
+    auto states = controlStates.states();
+    if (!states.contains(ControlStates::States::Enabled))
+        coreUIState = (__bridge NSString *)kCUIStateDisabled;
+    else if (states.contains(ControlStates::States::Pressed))
+        coreUIState = (__bridge NSString *)kCUIStatePressed;
     else
-        drawInfo.kind = kThemeIncDecButton;
+        coreUIState = (__bridge NSString *)kCUIStateActive;
+
+    NSString *coreUISize;
+    auto controlSize = controlSizeFromPixelSize(stepperSizes(), IntSize(zoomedRect.size()), zoomFactor);
+    if (controlSize == NSControlSizeMini)
+        coreUISize = (__bridge NSString *)kCUISizeMini;
+    else if (controlSize == NSControlSizeSmall)
+        coreUISize = (__bridge NSString *)kCUISizeSmall;
+    else
+        coreUISize = (__bridge NSString *)kCUISizeRegular;
 
     IntRect rect(zoomedRect);
     GraphicsContextStateSaver stateSaver(context);
@@ -669,18 +666,19 @@ static void paintStepper(ControlStates& states, GraphicsContext& context, const 
         context.scale(zoomFactor);
         context.translate(-rect.location());
     }
-    CGRect bounds(rect);
-    CGRect backgroundBounds;
-    HIThemeGetButtonBackgroundBounds(&bounds, &drawInfo, &backgroundBounds);
-    // Center the stepper rectangle in the specified area.
-    backgroundBounds.origin.x = bounds.origin.x + (bounds.size.width - backgroundBounds.size.width) / 2;
-    if (backgroundBounds.size.height < bounds.size.height) {
-        int heightDiff = clampToInteger(bounds.size.height - backgroundBounds.size.height);
-        backgroundBounds.origin.y = bounds.origin.y + (heightDiff / 2) + 1;
-    }
 
     LocalCurrentGraphicsContext localContext(context);
-    HIThemeDrawButton(&backgroundBounds, &drawInfo, localContext.cgContext(), kHIThemeOrientationNormal, 0);
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    [[NSAppearance currentAppearance] _drawInRect:rect context:localContext.cgContext() options:@{
+    ALLOW_DEPRECATED_DECLARATIONS_END
+        (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetButtonLittleArrows,
+        (__bridge NSString *)kCUISizeKey: coreUISize,
+        (__bridge NSString *)kCUIStateKey: coreUIState,
+        (__bridge NSString *)kCUIValueKey: states.contains(ControlStates::States::SpinUp) ? @1 : @0,
+        (__bridge NSString *)kCUIIsFlippedKey: @NO,
+        (__bridge NSString *)kCUIScaleKey: @1,
+        (__bridge NSString *)kCUIMaskOnlyKey: @NO
+    }];
 }
 
 // This will ensure that we always return a valid NSView, even if ScrollView doesn't have an associated document NSView.
@@ -695,9 +693,11 @@ NSView *ThemeMac::ensuredView(ScrollView* scrollView, const ControlStates& contr
     // Use a fake view.
     static WebCoreThemeView *themeView = [[WebCoreThemeView alloc] init];
     [themeView setFrameSize:NSSizeFromCGSize(scrollView->totalContentsSize())];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [themeView setAppearance:[NSAppearance currentAppearance]];
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
-    themeWindowHasKeyAppearance = !(controlStates.states() & ControlStates::WindowInactiveState);
+    themeWindowHasKeyAppearance = !controlStates.states().contains(ControlStates::States::WindowInactive);
 
     return themeView;
 }
@@ -734,7 +734,7 @@ bool ThemeMac::drawCellOrFocusRingWithViewIntoContext(NSCell *cell, GraphicsCont
 
     if (useImageBuffer) {
         NSRect imageBufferDrawRect = NSRect(FloatRect(buttonFocusRectOutlineWidth, buttonFocusRectOutlineWidth, rect.width(), rect.height()));
-        auto imageBuffer = ImageBuffer::createCompatibleBuffer(rect.size() + 2 * FloatSize(buttonFocusRectOutlineWidth, buttonFocusRectOutlineWidth), deviceScaleFactor, ColorSpace::SRGB, context);
+        auto imageBuffer = context.createImageBuffer(rect.size() + 2 * FloatSize(buttonFocusRectOutlineWidth, buttonFocusRectOutlineWidth), { deviceScaleFactor, deviceScaleFactor });
         if (!imageBuffer)
             return needsRepaint;
         {
@@ -758,7 +758,7 @@ static void paintColorWell(ControlStates& controlStates, GraphicsContext& contex
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
     // Determine the width and height needed for the control and prepare the cell for painting.
-    ControlStates::States states = controlStates.states();
+    auto states = controlStates.states();
     NSButtonCell *buttonCell = button(ColorWellPart, controlStates, IntSize(zoomedRect.size()), zoomFactor);
     GraphicsContextStateSaver stateSaver(context);
 
@@ -774,7 +774,7 @@ static void paintColorWell(ControlStates& controlStates, GraphicsContext& contex
     NSWindow *window = [view window];
     NSButtonCell *previousDefaultButtonCell = [window defaultButtonCell];
 
-    bool needsRepaint = ThemeMac::drawCellOrFocusRingWithViewIntoContext(buttonCell, context, inflatedRect, view, true, states & ControlStates::FocusState, deviceScaleFactor);
+    bool needsRepaint = ThemeMac::drawCellOrFocusRingWithViewIntoContext(buttonCell, context, inflatedRect, view, true, states.contains(ControlStates::States::Focused), deviceScaleFactor);
     if ([previousDefaultButtonCell isEqual:buttonCell])
         [window setDefaultButtonCell:nil];
 
@@ -798,7 +798,7 @@ int ThemeMac::baselinePositionAdjustment(ControlPart part) const
     return Theme::baselinePositionAdjustment(part);
 }
 
-Optional<FontCascadeDescription> ThemeMac::controlFont(ControlPart part, const FontCascade& font, float zoomFactor) const
+std::optional<FontCascadeDescription> ThemeMac::controlFont(ControlPart part, const FontCascade& font, float zoomFactor) const
 {
     switch (part) {
     case PushButtonPart: {
@@ -812,7 +812,7 @@ Optional<FontCascadeDescription> ThemeMac::controlFont(ControlPart part, const F
         return fontDescription;
     }
     default:
-        return WTF::nullopt;
+        return std::nullopt;
     }
 }
 
@@ -820,9 +820,9 @@ LengthSize ThemeMac::controlSize(ControlPart part, const FontCascade& font, cons
 {
     switch (part) {
     case CheckboxPart:
-        return checkboxSize(font, zoomedSize, zoomFactor);
+        return checkboxSize(zoomedSize, zoomFactor);
     case RadioPart:
-        return radioSize(font, zoomedSize, zoomFactor);
+        return radioSize(zoomedSize, zoomFactor);
     case PushButtonPart:
         // Height is reset to auto so that specified heights can be ignored.
         return sizeFromFont(font, { zoomedSize.width, { } }, zoomFactor, buttonSizes());
@@ -844,11 +844,11 @@ LengthSize ThemeMac::minimumControlSize(ControlPart part, const FontCascade& fon
 #endif
     case DefaultButtonPart:
     case ButtonPart:
-        return { { 0, Fixed }, { static_cast<int>(15 * zoomFactor), Fixed } };
+        return { { 0, LengthType::Fixed }, { static_cast<int>(15 * zoomFactor), LengthType::Fixed } };
     case InnerSpinButtonPart: {
         auto& base = stepperSizes()[NSControlSizeMini];
-        return { { static_cast<int>(base.width() * zoomFactor), Fixed },
-            { static_cast<int>(base.height() * zoomFactor), Fixed } };
+        return { { static_cast<int>(base.width() * zoomFactor), LengthType::Fixed },
+            { static_cast<int>(base.height() * zoomFactor), LengthType::Fixed } };
     }
     default:
         return Theme::minimumControlSize(part, font, zoomedSize, zoomFactor);
@@ -931,7 +931,7 @@ void ThemeMac::inflateControlPaintRect(ControlPart part, const ControlStates& st
         }
         case InnerSpinButtonPart: {
             static const int stepperMargin[4] = { 0, 0, 0, 0 };
-            ControlSize controlSize = controlSizeFromPixelSize(stepperSizes(), zoomRectSize, zoomFactor);
+            auto controlSize = controlSizeFromPixelSize(stepperSizes(), zoomRectSize, zoomFactor);
             IntSize zoomedSize = stepperSizes()[controlSize];
             zoomedSize.setHeight(zoomedSize.height() * zoomFactor);
             zoomedSize.setWidth(zoomedSize.width() * zoomFactor);
@@ -944,12 +944,12 @@ void ThemeMac::inflateControlPaintRect(ControlPart part, const ControlStates& st
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-void ThemeMac::paint(ControlPart part, ControlStates& states, GraphicsContext& context, const FloatRect& zoomedRect, float zoomFactor, ScrollView* scrollView, float deviceScaleFactor, float pageScaleFactor, bool useSystemAppearance, bool useDarkAppearance)
+void ThemeMac::paint(ControlPart part, ControlStates& states, GraphicsContext& context, const FloatRect& zoomedRect, float zoomFactor, ScrollView* scrollView, float deviceScaleFactor, float pageScaleFactor, bool useSystemAppearance, bool useDarkAppearance, const Color& tintColor)
 {
     UNUSED_PARAM(useSystemAppearance);
     UNUSED_PARAM(pageScaleFactor);
 
-    LocalDefaultSystemAppearance localAppearance(useDarkAppearance);
+    LocalDefaultSystemAppearance localAppearance(useDarkAppearance, tintColor);
 
     switch (part) {
         case CheckboxPart:
@@ -982,11 +982,18 @@ bool ThemeMac::userPrefersReducedMotion() const
     return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion];
 }
 
+bool ThemeMac::userPrefersContrast() const
+{
+    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast];
+}
+
 #if HAVE(LARGE_CONTROL_SIZE)
 
 bool ThemeMac::supportsLargeFormControls()
 {
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     static bool hasSupport = [[NSAppearance currentAppearance] _usesMetricsAppearance];
+    ALLOW_DEPRECATED_DECLARATIONS_END
     return hasSupport;
 }
 

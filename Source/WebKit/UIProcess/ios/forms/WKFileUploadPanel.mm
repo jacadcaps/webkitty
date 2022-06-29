@@ -32,6 +32,7 @@
 #import "APIData.h"
 #import "APIOpenPanelParameters.h"
 #import "APIString.h"
+#import "PhotosUISPI.h"
 #import "UIKitSPI.h"
 #import "UserInterfaceIdiom.h"
 #import "WKContentViewInteraction.h"
@@ -41,16 +42,32 @@
 #import "WebIconUtilities.h"
 #import "WebOpenPanelResultListenerProxy.h"
 #import "WebPageProxy.h"
-#import <MobileCoreServices/MobileCoreServices.h>
 #import <UIKit/UIDocumentPickerViewController.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/MIMETypeRegistry.h>
-#import <WebCore/UTIUtilities.h>
+#import <wtf/MainThread.h>
+#import <wtf/OptionSet.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/text/StringView.h>
 
+#import <pal/cocoa/AVFoundationSoftLink.h>
+
+#if HAVE(PHOTOS_UI_PRIVATE)
+SOFT_LINK_PRIVATE_FRAMEWORK(PhotosUIPrivate)
+SOFT_LINK_CLASS(PhotosUIPrivate, PUActivityProgressController)
+#elif HAVE(PHOTOS_UI)
+SOFT_LINK_FRAMEWORK(PhotosUI)
+SOFT_LINK_CLASS(PhotosUI, PUActivityProgressController)
+#endif
+
 using namespace WebKit;
+
+enum class WKFileUploadPanelImagePickerType : uint8_t {
+    Image = 1 << 0,
+    Video  = 1 << 1,
+};
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
@@ -59,10 +76,11 @@ static inline UIImagePickerControllerCameraDevice cameraDeviceForMediaCaptureTyp
     return mediaCaptureType == WebCore::MediaCaptureTypeUser ? UIImagePickerControllerCameraDeviceFront : UIImagePickerControllerCameraDeviceRear;
 }
 
-static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers, CFStringRef conformToUTI)
+static bool setContainsUTIThatConformsTo(NSSet<NSString *> *typeIdentifiers, UTType *conformToUTType)
 {
     for (NSString *uti in typeIdentifiers) {
-        if (UTTypeConformsTo((__bridge CFStringRef)uti, conformToUTI))
+        UTType *type = [UTType typeWithIdentifier:uti];
+        if ([type conformsToType:conformToUTType])
             return true;
     }
     return false;
@@ -73,7 +91,6 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
 @interface _WKFileUploadItem : NSObject
 - (instancetype)initWithFileURL:(NSURL *)fileURL;
 @property (nonatomic, readonly, getter=isVideo) BOOL video;
-@property (nonatomic, readonly) NSURL *fileURL;
 @property (nonatomic, readonly) RetainPtr<UIImage> displayImage;
 @end
 
@@ -101,6 +118,11 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
 - (NSURL *)fileURL
 {
     return _fileURL.get();
+}
+
+- (void)setFileURL:(NSURL *)fileURL
+{
+    _fileURL = fileURL;
 }
 
 - (RetainPtr<UIImage>)displayImage
@@ -147,9 +169,168 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
 
 @end
 
+#pragma mark - WKFileUploadMediaTranscoder
+
+#if ENABLE(TRANSCODE_UIIMAGEPICKERCONTROLLER_VIDEO)
+
+@interface WKFileUploadMediaTranscoder : NSObject
+
+- (instancetype)initWithItems:(NSArray *)items videoCount:(NSUInteger)videoCount completionHandler:(WTF::Function<void(NSArray<_WKFileUploadItem *> *)>&&)completionHandler;
+
+- (void)start;
+
+@end
+
+@implementation WKFileUploadMediaTranscoder {
+    RetainPtr<NSTimer> _progressTimer;
+    RetainPtr<PUActivityProgressController> _progressController;
+    RetainPtr<AVAssetExportSession> _exportSession;
+    RetainPtr<NSArray<_WKFileUploadItem *>> _items;
+    RetainPtr<NSString> _temporaryDirectoryPath;
+
+    // Only called if the transcoding is not cancelled.
+    WTF::Function<void(NSArray<_WKFileUploadItem *> *)> _completionHandler;
+
+    NSUInteger _videoCount;
+    NSUInteger _processedVideoCount;
+}
+
+- (instancetype)initWithItems:(NSArray<_WKFileUploadItem *> *)items videoCount:(NSUInteger)videoCount completionHandler:(WTF::Function<void(NSArray<_WKFileUploadItem *> *)>&&)completionHandler
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _items = items;
+    _processedVideoCount = 0;
+    _videoCount = videoCount;
+
+    _completionHandler = WTFMove(completionHandler);
+
+    return self;
+}
+
+- (void)start
+{
+    _progressController = adoptNS([allocPUActivityProgressControllerInstance() init]);
+    [_progressController setTitle:WEB_UI_STRING_KEY("Preparing…", "Preparing (file upload)", "Title for file upload progress view")];
+    [_progressController showAnimated:YES allowDelay:YES];
+
+    [_progressController setCancellationHandler:makeBlockPtr([weakSelf = WeakObjCPtr<WKFileUploadMediaTranscoder>(self)] {
+        auto strongSelf = weakSelf.get();
+        if (!strongSelf)
+            return;
+
+        [strongSelf->_exportSession cancelExport];
+        [strongSelf _dismissProgress];
+    }).get()];
+
+    _progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.1f target:self selector:@selector(_updateProgress:) userInfo:nil repeats:YES];
+
+    [self _processItemAtIndex:0];
+}
+
+- (void)_processItemAtIndex:(NSUInteger)index
+{
+    if ([_progressController isCancelled])
+        return;
+
+    if (index >= [_items count]) {
+        [self _finishedProcessing];
+        return;
+    }
+
+    _WKFileUploadItem *item = [_items objectAtIndex:index];
+
+    while (!item.isVideo) {
+        index++;
+
+        if (index == [_items count]) {
+            [self _finishedProcessing];
+            return;
+        }
+
+        item = [_items objectAtIndex:index];
+    }
+
+    NSString *temporaryDirectory = [self _temporaryDirectoryCreateIfNecessary];
+    if (!temporaryDirectory) {
+        LOG_ERROR("WKFileUploadMediaTranscoder: Failed to make temporary directory");
+        [self _finishedProcessing];
+        return;
+    }
+
+    NSString *fileName = [item.fileURL.lastPathComponent.stringByDeletingPathExtension stringByAppendingPathExtension:UTTypeQuickTimeMovie.preferredFilenameExtension.uppercaseString];
+    NSString *filePath = [temporaryDirectory stringByAppendingPathComponent:fileName];
+    NSURL *outputURL = [NSURL fileURLWithPath:filePath isDirectory:NO];
+
+    RetainPtr<AVURLAsset> asset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:item.fileURL options:nil]);
+    _exportSession = adoptNS([PAL::allocAVAssetExportSessionInstance() initWithAsset:asset.get() presetName:AVAssetExportPresetHighestQuality]);
+    [_exportSession setOutputURL:outputURL];
+    [_exportSession setOutputFileType:AVFileTypeQuickTimeMovie];
+
+    [_exportSession exportAsynchronouslyWithCompletionHandler:makeBlockPtr([weakSelf = WeakObjCPtr<WKFileUploadMediaTranscoder>(self), index] () mutable {
+        ensureOnMainRunLoop([weakSelf = WTFMove(weakSelf), index] {
+            auto strongSelf = weakSelf.get();
+            if (!strongSelf)
+                return;
+
+            AVAssetExportSessionStatus status = [strongSelf->_exportSession status];
+
+            if (status == AVAssetExportSessionStatusCancelled)
+                return;
+
+            if (status == AVAssetExportSessionStatusCompleted) {
+                _WKFileUploadItem *item = [strongSelf->_items objectAtIndex:index];
+                [item setFileURL:[strongSelf->_exportSession outputURL]];
+            }
+
+            strongSelf->_exportSession = nil;
+
+            strongSelf->_processedVideoCount++;
+            [strongSelf _processItemAtIndex:index + 1];
+        });
+    }).get()];
+}
+
+- (void)_finishedProcessing
+{
+    [self _dismissProgress];
+
+    if (auto completionHandler = std::exchange(_completionHandler, nullptr))
+        completionHandler(_items.get());
+}
+
+- (void)_dismissProgress
+{
+    [_progressTimer invalidate];
+    [_progressController hideAnimated:NO allowDelay:NO];
+}
+
+- (void)_updateProgress:(NSTimer *)timer
+{
+    auto currentSessionProgress = [_exportSession progress];
+    [_progressController setFractionCompleted:(currentSessionProgress + _processedVideoCount) / _videoCount];
+}
+
+- (NSString *)_temporaryDirectoryCreateIfNecessary
+{
+    if (_temporaryDirectoryPath) {
+        BOOL isDirectory = NO;
+        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:_temporaryDirectoryPath.get() isDirectory:&isDirectory];
+
+        if (exists && isDirectory)
+            return _temporaryDirectoryPath.get();
+    }
+
+    _temporaryDirectoryPath = FileSystem::createTemporaryDirectory(@"WKVideoUpload");
+    return _temporaryDirectoryPath.get();
+}
+
+@end
+
+#endif // ENABLE(TRANSCODE_UIIMAGEPICKERCONTROLLER_VIDEO)
 
 #pragma mark - WKFileUploadPanel
-
 
 @interface WKFileUploadPanel () <UIPopoverControllerDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate
 #if USE(UICONTEXTMENU)
@@ -161,10 +342,14 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
 @implementation WKFileUploadPanel {
     WeakObjCPtr<WKContentView> _view;
     RefPtr<WebKit::WebOpenPanelResultListenerProxy> _listener;
-    RetainPtr<NSArray> _mimeTypes;
+    RetainPtr<NSSet<NSString *>> _acceptedUTIs;
+    OptionSet<WKFileUploadPanelImagePickerType> _allowedImagePickerTypes;
     CGPoint _interactionPoint;
     BOOL _allowMultipleFiles;
     BOOL _usingCamera;
+#if ENABLE(TRANSCODE_UIIMAGEPICKERCONTROLLER_VIDEO)
+    RetainPtr<WKFileUploadMediaTranscoder> _mediaTranscoder;
+#endif
     RetainPtr<UIImagePickerController> _imagePicker;
     RetainPtr<UIViewController> _presentationViewController; // iPhone always. iPad for Fullscreen Camera.
     ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -213,6 +398,30 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
     [self _dispatchDidDismiss];
 }
 
+- (void)_chooseMediaItems:(NSArray<_WKFileUploadItem *> *)mediaItems
+{
+    RetainPtr<UIImage> iconImage = nil;
+    NSMutableArray *fileURLs = [NSMutableArray array];
+    NSUInteger videoCount = 0;
+
+    for (_WKFileUploadItem *item in mediaItems) {
+        [fileURLs addObject:item.fileURL];
+
+        if (!iconImage)
+            iconImage = item.displayImage;
+
+        if (item.isVideo)
+            videoCount++;
+    }
+
+    NSUInteger imageCount = mediaItems.count - videoCount;
+
+    NSString *displayString = (imageCount || videoCount) ? [NSString localizedStringWithFormat:WEB_UI_NSSTRING(@"%lu photo(s) and %lu video(s)", "label next to file upload control; parameters are the number of photos and the number of videos"), (unsigned long)imageCount, (unsigned long)videoCount] : nil;
+
+    [self _dismissDisplayAnimated:YES];
+    [self _chooseFiles:fileURLs displayString:displayString iconImage:iconImage.get()];
+}
+
 - (void)_chooseFiles:(NSArray *)fileURLs displayString:(NSString *)displayString iconImage:(UIImage *)iconImage
 {
     NSUInteger count = [fileURLs count];
@@ -255,7 +464,15 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
             [mimeTypes addObject:mimeType];
     }
 
-    _mimeTypes = adoptNS([mimeTypes copy]);
+    _acceptedUTIs = UTIsForMIMETypes(mimeTypes);
+    if (![_acceptedUTIs count])
+        _allowedImagePickerTypes.add({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video });
+    else {
+        if (setContainsUTIThatConformsTo(_acceptedUTIs.get(), UTTypeImage))
+            _allowedImagePickerTypes.add({ WKFileUploadPanelImagePickerType::Image });
+        if (setContainsUTIThatConformsTo(_acceptedUTIs.get(), UTTypeMovie))
+            _allowedImagePickerTypes.add({ WKFileUploadPanelImagePickerType::Video });
+    }
 
     _mediaCaptureType = WebCore::MediaCaptureTypeNone;
 #if ENABLE(MEDIA_CAPTURE)
@@ -316,20 +533,22 @@ static bool arrayContainsUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers,
 {
     NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
 
-    NSArray *mediaTypes = UTIsForMIMETypes(_mimeTypes.get()).allObjects;
-    BOOL allowsImageMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeImage);
-    BOOL allowsVideoMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeMovie);
-    if (allowsImageMediaType || allowsVideoMediaType) {
+    if (_allowedImagePickerTypes.containsAny({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video })) {
         [actionTitles addObject:@"Photo Library"];
-        if (allowsImageMediaType && allowsVideoMediaType)
+        if (_allowedImagePickerTypes.containsAll({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video }))
             [actionTitles addObject:@"Take Photo or Video"];
-        else if (allowsVideoMediaType)
+        else if (_allowedImagePickerTypes.contains(WKFileUploadPanelImagePickerType::Video))
             [actionTitles addObject:@"Take Video"];
         else
             [actionTitles addObject:@"Take Photo"];
     }
-    [actionTitles addObject:@"Browse"];
+    [actionTitles addObject:[self _chooseFilesButtonLabel]];
     return actionTitles;
+}
+
+- (NSArray<NSString *> *)acceptedTypeIdentifiers
+{
+    return [[_acceptedUTIs allObjects] sortedArrayUsingSelector:@selector(compare:)];
 }
 
 #pragma mark - Media Types
@@ -338,18 +557,21 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
 {
     NSMutableSet *mediaTypes = [NSMutableSet set];
     for (NSString *mimeType in mimeTypes) {
+        if ([mimeType isEqualToString:@"*/*"])
+            return [NSSet set];
+
         if ([mimeType caseInsensitiveCompare:@"image/*"] == NSOrderedSame)
-            [mediaTypes addObject:(__bridge NSString *)kUTTypeImage];
+            [mediaTypes addObject:UTTypeImage.identifier];
         else if ([mimeType caseInsensitiveCompare:@"video/*"] == NSOrderedSame)
-            [mediaTypes addObject:(__bridge NSString *)kUTTypeMovie];
+            [mediaTypes addObject:UTTypeMovie.identifier];
         else if ([mimeType caseInsensitiveCompare:@"audio/*"] == NSOrderedSame)
             // UIImagePickerController doesn't allow audio-only recording, so show the video
             // recorder for "audio/*".
-            [mediaTypes addObject:(__bridge NSString *)kUTTypeMovie];
+            [mediaTypes addObject:UTTypeMovie.identifier];
         else {
-            auto uti = WebCore::UTIFromMIMEType(mimeType);
-            if (!uti.isEmpty())
-                [mediaTypes addObject:(__bridge NSString *)uti];
+            auto uti = [UTType typeWithMIMEType:mimeType];
+            if (uti)
+                [mediaTypes addObject:uti.identifier];
         }
     }
     return mediaTypes;
@@ -357,17 +579,19 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
 
 - (NSArray<NSString *> *)_mediaTypesForPickerSourceType:(UIImagePickerControllerSourceType)sourceType
 {
-    NSArray<NSString *> *availableMediaTypes = [UIImagePickerController availableMediaTypesForSourceType:sourceType];
-    NSSet<NSString *> *acceptedMediaTypes = UTIsForMIMETypes(_mimeTypes.get());
-    if (acceptedMediaTypes.count) {
+    NSArray<NSString *> *availableMediaTypeUTIs = [UIImagePickerController availableMediaTypesForSourceType:sourceType];
+    NSSet<NSString *> *acceptedMediaTypeUTIs = _acceptedUTIs.get();
+    if (acceptedMediaTypeUTIs.count) {
         NSMutableArray<NSString *> *mediaTypes = [NSMutableArray array];
-        for (NSString *availableMediaType in availableMediaTypes) {
-            if ([acceptedMediaTypes containsObject:availableMediaType])
-                [mediaTypes addObject:availableMediaType];
+        for (NSString *availableMediaTypeUTI in availableMediaTypeUTIs) {
+            if ([acceptedMediaTypeUTIs containsObject:availableMediaTypeUTI])
+                [mediaTypes addObject:availableMediaTypeUTI];
             else {
-                for (NSString *acceptedMediaType in acceptedMediaTypes) {
-                    if (UTTypeConformsTo((__bridge CFStringRef)acceptedMediaType, (__bridge CFStringRef)availableMediaType)) {
-                        [mediaTypes addObject:availableMediaType];
+                UTType *availableMediaType = [UTType typeWithIdentifier:availableMediaTypeUTI];
+                for (NSString *acceptedMediaTypeUTI in acceptedMediaTypeUTIs) {
+                    UTType *acceptedMediaType = [UTType typeWithIdentifier:acceptedMediaTypeUTI];
+                    if ([acceptedMediaType conformsToType:availableMediaType]) {
+                        [mediaTypes addObject:availableMediaTypeUTI];
                         break;
                     }
                 }
@@ -380,14 +604,17 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
     }
 
     // Fallback to every supported media type if there is no filter.
-    return availableMediaTypes;
+    return availableMediaTypeUTIs;
 }
 
 #pragma mark - Source selection menu
 
-- (NSString *)_browseFilesButtonLabel
+- (NSString *)_chooseFilesButtonLabel
 {
-    return WEB_UI_STRING_KEY("Browse", "Browse (file upload action sheet)", "File Upload alert sheet button string for choosing an existing file from the file brower");
+    if (_allowMultipleFiles)
+        return WebCore::fileButtonChooseMultipleFilesLabel();
+
+    return WebCore::fileButtonChooseFileLabel();
 }
 
 - (NSString *)_photoLibraryButtonLabel
@@ -395,13 +622,14 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
     return WEB_UI_STRING_KEY("Photo Library", "Photo Library (file upload action sheet)", "File Upload alert sheet button string for choosing an existing media item from the Photo Library");
 }
 
-- (NSString *)_cameraButtonLabelAllowingPhoto:(BOOL)allowPhoto allowingVideo:(BOOL)allowVideo
+- (NSString *)_cameraButtonLabel
 {
-    ASSERT(allowPhoto || allowVideo);
-    if (allowPhoto && allowVideo)
+    ASSERT(_allowedImagePickerTypes.containsAny({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video }));
+
+    if (_allowedImagePickerTypes.containsAll({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video }))
         return WEB_UI_STRING_KEY("Take Photo or Video", "Take Photo or Video (file upload action sheet)", "File Upload alert sheet camera button string for taking photos or videos");
 
-    if (allowVideo)
+    if (_allowedImagePickerTypes.contains(WKFileUploadPanelImagePickerType::Video))
         return WEB_UI_STRING_KEY("Take Video", "Take Video (file upload action sheet)", "File Upload alert sheet camera button string for taking only videos");
 
     return WEB_UI_STRING_KEY("Take Photo", "Take Photo (file upload action sheet)", "File Upload alert sheet camera button string for taking only photos");
@@ -425,36 +653,32 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
 
     UIContextMenuActionProvider actionMenuProvider = [self, weakSelf = WeakObjCPtr<WKFileUploadPanel>(self)] (NSArray<UIMenuElement *> *) -> UIMenu * {
         NSArray *actions;
-        NSArray *mediaTypes = UTIsForMIMETypes(_mimeTypes.get()).allObjects;
 
-        BOOL allowsImageMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeImage);
-        BOOL allowsVideoMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeMovie);
         auto strongSelf = weakSelf.get();
-        
         if (!strongSelf)
             return nil;
-        
+
         self->_isPresentingSubMenu = NO;
-        UIAction *browseAction = [UIAction actionWithTitle:[strongSelf _browseFilesButtonLabel] image:[UIImage systemImageNamed:@"ellipsis"] identifier:@"browse" handler:^(__kindof UIAction *action) {
+        UIAction *chooseAction = [UIAction actionWithTitle:[strongSelf _chooseFilesButtonLabel] image:[UIImage systemImageNamed:@"folder"] identifier:@"choose" handler:^(__kindof UIAction *action) {
             self->_isPresentingSubMenu = YES;
             [self showFilePickerMenu];
         }];
 
-        UIAction *photoAction = [UIAction actionWithTitle:[strongSelf _photoLibraryButtonLabel] image:[UIImage systemImageNamed:@"rectangle.on.rectangle"] identifier:@"photo" handler:^(__kindof UIAction *action) {
+        UIAction *photoAction = [UIAction actionWithTitle:[strongSelf _photoLibraryButtonLabel] image:[UIImage systemImageNamed:@"photo.on.rectangle"] identifier:@"photo" handler:^(__kindof UIAction *action) {
             self->_isPresentingSubMenu = YES;
             [self _showPhotoPickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
         }];
 
         if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
-            NSString *cameraString = [strongSelf _cameraButtonLabelAllowingPhoto:allowsImageMediaType allowingVideo:allowsVideoMediaType];
-            UIAction *cameraAction = [UIAction actionWithTitle:cameraString image:[UIImage systemImageNamed:@"camera.fill"] identifier:@"camera" handler:^(__kindof UIAction *action) {
+            NSString *cameraString = [strongSelf _cameraButtonLabel];
+            UIAction *cameraAction = [UIAction actionWithTitle:cameraString image:[UIImage systemImageNamed:@"camera"] identifier:@"camera" handler:^(__kindof UIAction *action) {
                 _usingCamera = YES;
                 self->_isPresentingSubMenu = YES;
                 [self _showPhotoPickerWithSourceType:UIImagePickerControllerSourceTypeCamera];
             }];
-            actions = @[photoAction, cameraAction, browseAction];
+            actions = @[photoAction, cameraAction, chooseAction];
         } else
-            actions = @[photoAction, browseAction];
+            actions = @[photoAction, chooseAction];
 
         return [UIMenu menuWithTitle:@"" children:actions];
     };
@@ -476,7 +700,7 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
     if (_documentContextMenuInteraction) {
         [_view removeInteraction:_documentContextMenuInteraction.get()];
         _documentContextMenuInteraction = nil;
-        [_view _removeContextMenuViewIfPossible];
+        [_view _removeContextMenuHintContainerIfPossible];
     }
 }
 
@@ -493,8 +717,8 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
 
 - (void)showFilePickerMenu
 {
-    NSArray *mediaTypes = UTIsForMIMETypes(_mimeTypes.get()).allObjects;
-    NSArray *documentTypes = mediaTypes.count ? mediaTypes : @[(__bridge NSString *)kUTTypeItem];
+    NSArray *mediaTypes = [_acceptedUTIs allObjects];
+    NSArray *documentTypes = mediaTypes.count ? mediaTypes : @[ UTTypeItem.identifier ];
     
     _documentPickerController = adoptNS([[UIDocumentPickerViewController alloc] initWithDocumentTypes:documentTypes inMode:UIDocumentPickerModeImport]);
     [_documentPickerController setAllowsMultipleSelection:_allowMultipleFiles];
@@ -509,17 +733,13 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
 {
     // FIXME 49961589: Support picking media with UIImagePickerController
 #if HAVE(UICONTEXTMENU_LOCATION)
-    NSArray *mediaTypes = UTIsForMIMETypes(_mimeTypes.get()).allObjects;
-    BOOL allowsImageMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeImage);
-    BOOL allowsVideoMediaType = !mediaTypes.count || arrayContainsUTIThatConformsTo(mediaTypes, kUTTypeMovie);
-    BOOL shouldPresentDocumentMenuViewController = allowsImageMediaType || allowsVideoMediaType;
-    if (shouldPresentDocumentMenuViewController) {
+    if (_allowedImagePickerTypes.containsAny({ WKFileUploadPanelImagePickerType::Image, WKFileUploadPanelImagePickerType::Video })) {
         [self ensureContextMenuInteraction];
-        [_documentContextMenuInteraction _presentMenuAtLocation:_interactionPoint];
+        [_view presentContextMenu:_documentContextMenuInteraction.get() atLocation:_interactionPoint];
     } else // Image and Video types are not accepted so bypass the menu and open the file picker directly.
 #endif
         [self showFilePickerMenu];
-    
+
     // Clear out the view controller we just presented. Don't save a reference to the UIDocumentPickerViewController as it is self dismissing.
     _presentationViewController = nil;
 }
@@ -556,36 +776,33 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
     _imagePicker = adoptNS([[UIImagePickerController alloc] init]);
     [_imagePicker setSourceType:sourceType];
     [_imagePicker setMediaTypes:[self _mediaTypesForPickerSourceType:sourceType]];
-    [self _configureImagePicker:_imagePicker.get()];
+    [_imagePicker setDelegate:self];
+    [_imagePicker setAllowsEditing:NO];
+    [_imagePicker setModalPresentationStyle:UIModalPresentationFullScreen];
+    [_imagePicker _setAllowsMultipleSelection:_allowMultipleFiles];
+    [_imagePicker _setRequiresPickingConfirmation:YES];
+    [_imagePicker _setShowsFileSizePicker:YES];
+
+    if (_mediaCaptureType != WebCore::MediaCaptureTypeNone)
+        [_imagePicker setCameraDevice:cameraDeviceForMediaCaptureType(_mediaCaptureType)];
 
     // Use a popover on the iPad if the source type is not the camera.
     // The camera will use a fullscreen, modal view controller.
-    BOOL usePopover = currentUserInterfaceIdiomIsPad() && sourceType != UIImagePickerControllerSourceTypeCamera;
+    BOOL usePopover = !currentUserInterfaceIdiomIsSmallScreen() && sourceType != UIImagePickerControllerSourceTypeCamera;
     if (usePopover)
         [self _presentPopoverWithContentViewController:_imagePicker.get() animated:YES];
     else
         [self _presentFullscreenViewController:_imagePicker.get() animated:YES];
 }
 
-- (void)_configureImagePicker:(UIImagePickerController *)imagePicker
-{
-    [imagePicker setDelegate:self];
-    [imagePicker setAllowsEditing:NO];
-    [imagePicker setModalPresentationStyle:UIModalPresentationFullScreen];
-    [imagePicker _setAllowsMultipleSelection:_allowMultipleFiles];
-
-    if (_mediaCaptureType != WebCore::MediaCaptureTypeNone)
-        [imagePicker setCameraDevice:cameraDeviceForMediaCaptureType(_mediaCaptureType)];
-}
-
 #pragma mark - Presenting View Controllers
 
 - (void)_presentMenuOptionForCurrentInterfaceIdiom:(UIViewController *)viewController
 {
-    if (currentUserInterfaceIdiomIsPad())
-        [self _presentPopoverWithContentViewController:viewController animated:YES];
-    else
+    if (currentUserInterfaceIdiomIsSmallScreen())
         [self _presentFullscreenViewController:viewController animated:YES];
+    else
+        [self _presentPopoverWithContentViewController:viewController animated:YES];
 }
 
 - (void)_presentPopoverWithContentViewController:(UIViewController *)contentViewController animated:(BOOL)animated
@@ -635,11 +852,55 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
     return WebCore::multipleFileUploadText(urlsCount);
 }
 
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urlsFromUIKit
 {
-    ASSERT(urls.count);
+    ASSERT(urlsFromUIKit.count);
     [self _dismissDisplayAnimated:YES];
-    [self _chooseFiles:urls displayString:displayStringForDocumentsAtURLs(urls) iconImage:iconForFile(urls[0]).get()];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), makeBlockPtr([retainedSelf = retainPtr(self), urlsFromUIKit = retainPtr(urlsFromUIKit)] () mutable {
+
+        auto copyToNewTemporaryDirectory = [] (NSArray<NSURL *> *originalURLs) -> std::pair<RetainPtr<NSArray<NSURL *>>, Vector<RetainPtr<NSURL>>> {
+            ASSERT(!RunLoop::isMain());
+            auto maybeMovedURLs = adoptNS([[NSMutableArray alloc] initWithCapacity:originalURLs.count]);
+            __block Vector<RetainPtr<NSURL>> temporaryURLs;
+            auto manager = adoptNS([[NSFileManager alloc] init]);
+            auto coordinator = adoptNS([[NSFileCoordinator alloc] init]);
+            for (NSURL *originalURL in originalURLs) {
+                NSError *error = nil;
+                NSString *temporaryDirectory = FileSystem::createTemporaryDirectory(@"WKFileUploadPanel");
+                if (!temporaryDirectory) {
+                    LOG_ERROR("WKFileUploadPanel: Failed to make temporary directory");
+                    [maybeMovedURLs addObject:originalURL];
+                    continue;
+                }
+                NSString *filePath = [temporaryDirectory stringByAppendingPathComponent:originalURL.lastPathComponent];
+                auto destinationFileURL = adoptNS([[NSURL alloc] initFileURLWithPath:filePath isDirectory:NO]);
+                [coordinator coordinateWritingItemAtURL:originalURL options:NSFileCoordinatorWritingForMoving error:&error byAccessor:^(NSURL *coordinatedOriginalURL) {
+                    NSError *error = nil;
+                    if (![manager moveItemAtURL:coordinatedOriginalURL toURL:destinationFileURL.get() error:&error] || error) {
+                        LOG_ERROR("WKFileUploadPanel: Failed to move file to new path %@ with error %@", destinationFileURL.get(), error);
+                        // If moving fails, keep the original URL and our 60 second time limit before it is deleted. We tried our best to extend it.
+                        [maybeMovedURLs addObject:coordinatedOriginalURL];
+                    } else
+                        [maybeMovedURLs addObject:destinationFileURL.get()];
+                }];
+                if (error) {
+                    LOG_ERROR("WKFileUploadPanel: Failed to coordinate moving file with error %@", error);
+                    // If moving fails, keep the original URL and our 60 second time limit before it is deleted. We tried our best to extend it.
+                    [maybeMovedURLs addObject:originalURL];
+                }
+                temporaryURLs.append(adoptNS([[NSURL alloc] initFileURLWithPath:temporaryDirectory isDirectory:YES]));
+            }
+            return { WTFMove(maybeMovedURLs), WTFMove(temporaryURLs) };
+        };
+
+        auto [maybeMovedURLs, temporaryURLs] = copyToNewTemporaryDirectory(urlsFromUIKit.get());
+        [retainedSelf->_view _removeTemporaryDirectoriesWhenDeallocated:WTFMove(temporaryURLs)];
+        RunLoop::main().dispatch([retainedSelf = WTFMove(retainedSelf), maybeMovedURLs = WTFMove(maybeMovedURLs)] {
+            [retainedSelf _chooseFiles:maybeMovedURLs.get() displayString:displayStringForDocumentsAtURLs(maybeMovedURLs.get()) iconImage:iconForFile(maybeMovedURLs.get()[0]).get()];
+        });
+    }).get());
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)documentPicker
@@ -670,18 +931,16 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
     if ([self _willMultipleSelectionDelegateBeCalled])
         return;
 
-    [self _dismissDisplayAnimated:YES];
-
     [self _processMediaInfoDictionaries:@[info]
-        successBlock:^(NSArray *processedResults, NSString *displayString) {
-            ASSERT([processedResults count] == 1);
-            _WKFileUploadItem *result = [processedResults objectAtIndex:0];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self _chooseFiles:@[result.fileURL] displayString:displayString iconImage:result.displayImage.get()];
+        successBlock:^(NSArray<_WKFileUploadItem *> *items) {
+            ASSERT([items count] == 1);
+            ensureOnMainRunLoop([self, strongSelf = retainPtr(self), items = retainPtr(items)] {
+                [self _chooseMediaItems:items.get()];
             });
         }
         failureBlock:^{
-            dispatch_async(dispatch_get_main_queue(), ^{
+            ensureOnMainRunLoop([self, strongSelf = retainPtr(self)] {
+                [self _dismissDisplayAnimated:YES];
                 [self _cancel];
             });
         }
@@ -690,27 +949,19 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
 
 - (void)imagePickerController:(UIImagePickerController *)imagePicker didFinishPickingMultipleMediaWithInfo:(NSArray *)infos
 {
-    [self _dismissDisplayAnimated:YES];
-
     [self _processMediaInfoDictionaries:infos
-        successBlock:^(NSArray *processedResults, NSString *displayString) {
-            RetainPtr<UIImage> iconImage = nil;
-            NSMutableArray *fileURLs = [NSMutableArray array];
-            for (_WKFileUploadItem *result in processedResults) {
-                NSURL *fileURL = result.fileURL;
-                if (!fileURL)
-                    continue;
-                [fileURLs addObject:result.fileURL];
-                if (!iconImage)
-                    iconImage = result.displayImage;
-            }
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self _chooseFiles:fileURLs displayString:displayString iconImage:iconImage.get()];
+        successBlock:^(NSArray<_WKFileUploadItem *> *items) {
+#if ENABLE(TRANSCODE_UIIMAGEPICKERCONTROLLER_VIDEO)
+            [self _uploadMediaItemsTranscodingVideo:items];
+#else
+            ensureOnMainRunLoop([self, strongSelf = retainPtr(self), items = retainPtr(items)] {
+                [self _chooseMediaItems:items.get()];
             });
+#endif
         }
         failureBlock:^{
-            dispatch_async(dispatch_get_main_queue(), ^{
+            ensureOnMainRunLoop([self, strongSelf = retainPtr(self)] {
+                [self _dismissDisplayAnimated:YES];
                 [self _cancel];
             });
         }
@@ -725,17 +976,16 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
 
 #pragma mark - Process UIImagePicker results
 
-- (void)_processMediaInfoDictionaries:(NSArray *)infos successBlock:(void (^)(NSArray *processedResults, NSString *displayString))successBlock failureBlock:(void (^)(void))failureBlock
+- (void)_processMediaInfoDictionaries:(NSArray *)infos successBlock:(void (^)(NSArray<_WKFileUploadItem *> *processedResults))successBlock failureBlock:(void (^)(void))failureBlock
 {
-    [self _processMediaInfoDictionaries:infos atIndex:0 processedResults:[NSMutableArray array] processedImageCount:0 processedVideoCount:0 successBlock:successBlock failureBlock:failureBlock];
+    [self _processMediaInfoDictionaries:infos atIndex:0 processedResults:[NSMutableArray array] successBlock:successBlock failureBlock:failureBlock];
 }
 
-- (void)_processMediaInfoDictionaries:(NSArray *)infos atIndex:(NSUInteger)index processedResults:(NSMutableArray *)processedResults processedImageCount:(NSUInteger)processedImageCount processedVideoCount:(NSUInteger)processedVideoCount successBlock:(void (^)(NSArray *processedResults, NSString *displayString))successBlock failureBlock:(void (^)(void))failureBlock
+- (void)_processMediaInfoDictionaries:(NSArray *)infos atIndex:(NSUInteger)index processedResults:(NSMutableArray<_WKFileUploadItem *> *)processedResults successBlock:(void (^)(NSArray<_WKFileUploadItem *> *processedResults))successBlock failureBlock:(void (^)(void))failureBlock
 {
     NSUInteger count = [infos count];
     if (index == count) {
-        NSString *displayString = (processedImageCount || processedVideoCount) ? [NSString localizedStringWithFormat:WEB_UI_NSSTRING(@"%lu photo(s) and %lu video(s)", "label next to file upload control; parameters are the number of photos and the number of videos"), (unsigned long)processedImageCount, (unsigned long)processedVideoCount] : nil;
-        successBlock(processedResults, displayString);
+        successBlock(processedResults);
         return;
     }
 
@@ -744,10 +994,8 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
     index++;
 
     auto uploadItemSuccessBlock = ^(_WKFileUploadItem *uploadItem) {
-        NSUInteger newProcessedVideoCount = processedVideoCount + (uploadItem.isVideo ? 1 : 0);
-        NSUInteger newProcessedImageCount = processedImageCount + (uploadItem.isVideo ? 0 : 1);
         [processedResults addObject:uploadItem];
-        [self _processMediaInfoDictionaries:infos atIndex:index processedResults:processedResults processedImageCount:newProcessedImageCount processedVideoCount:newProcessedVideoCount successBlock:successBlock failureBlock:failureBlock];
+        [self _processMediaInfoDictionaries:infos atIndex:index processedResults:processedResults successBlock:successBlock failureBlock:failureBlock];
     };
 
     [self _uploadItemFromMediaInfo:info successBlock:uploadItemSuccessBlock failureBlock:failureBlock];
@@ -807,10 +1055,11 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
 
 - (void)_uploadItemFromMediaInfo:(NSDictionary *)info successBlock:(void (^)(_WKFileUploadItem *))successBlock failureBlock:(void (^)(void))failureBlock
 {
-    NSString *mediaType = [info objectForKey:UIImagePickerControllerMediaType];
+    NSString *mediaTypeUTI = [info objectForKey:UIImagePickerControllerMediaType];
+    UTType *mediaType = [UTType typeWithIdentifier:mediaTypeUTI];
 
     // For videos from the existing library or camera, the media URL will give us a file path.
-    if (UTTypeConformsTo((CFStringRef)mediaType, kUTTypeMovie)) {
+    if ([mediaType conformsToType:UTTypeMovie]) {
         NSURL *mediaURL = [info objectForKey:UIImagePickerControllerMediaURL];
         if (![mediaURL isFileURL]) {
             LOG_ERROR("WKFileUploadPanel: Expected media URL to be a file path, it was not");
@@ -823,14 +1072,13 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
         return;
     }
 
-    if (!UTTypeConformsTo((CFStringRef)mediaType, kUTTypeImage)) {
+    if (![mediaType conformsToType:UTTypeImage]) {
         LOG_ERROR("WKFileUploadPanel: Unexpected media type. Expected image or video, got: %@", mediaType);
         ASSERT_NOT_REACHED();
         failureBlock();
         return;
     }
 
-#if PLATFORM(IOS_FAMILY)
     if (NSURL *imageURL = info[UIImagePickerControllerImageURL]) {
         if (!imageURL.isFileURL) {
             LOG_ERROR("WKFileUploadPanel: Expected image URL to be a file path, it was not");
@@ -842,7 +1090,6 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
         successBlock(adoptNS([[_WKImageFileUploadItem alloc] initWithFileURL:imageURL]).get());
         return;
     }
-#endif
 
     UIImage *originalImage = [info objectForKey:UIImagePickerControllerOriginalImage];
     if (!originalImage) {
@@ -855,6 +1102,34 @@ static NSString *displayStringForDocumentsAtURLs(NSArray<NSURL *> *urls)
     // Photos taken with the camera will not have an image URL. Fall back to a JPEG representation.
     [self _uploadItemForJPEGRepresentationOfImage:originalImage successBlock:successBlock failureBlock:failureBlock];
 }
+
+#if ENABLE(TRANSCODE_UIIMAGEPICKERCONTROLLER_VIDEO)
+
+- (void)_uploadMediaItemsTranscodingVideo:(NSArray<_WKFileUploadItem *> *)items
+{
+    auto videoCount = [[items indexesOfObjectsPassingTest:^(_WKFileUploadItem *item, NSUInteger, BOOL*) {
+        return item.isVideo;
+    }] count];
+
+    ensureOnMainRunLoop([self, strongSelf = retainPtr(self), items = retainPtr(items), videoCount] {
+        if (!videoCount) {
+            [self _chooseMediaItems:items.get()];
+            return;
+        }
+
+        _mediaTranscoder = adoptNS([[WKFileUploadMediaTranscoder alloc] initWithItems:items.get() videoCount:videoCount completionHandler:[weakSelf = WeakObjCPtr<WKFileUploadPanel>(self)] (NSArray<_WKFileUploadItem *> *items) {
+            auto strongSelf = weakSelf.get();
+            if (!strongSelf)
+                return;
+
+            [strongSelf _chooseMediaItems:items];
+        }]);
+
+        [_mediaTranscoder start];
+    });
+}
+
+#endif
 
 - (BOOL)platformSupportsPickerViewController
 {

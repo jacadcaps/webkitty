@@ -59,9 +59,9 @@ my $cli = 0;
 my $makeArgs = "";
 my @cmakeArgs;
 my $buildDir = "";
-my $copyLibraries = 1;
 my $startTime = time();
 my $useCCache = -1;
+my $exportCompileCommands = 0;
 
 my @features = getFeatureOptionList();
 
@@ -87,7 +87,6 @@ Usage: $programName [options] [options to pass to build system]
   --[no-]analyze                Toggle code static analysis (default: $shouldRunStaticAnalyzer)
   --[no-]coverage               Toggle code coverage support (default: $coverageSupport)
   --[no-]ftl-jit                Toggle FTL JIT support (default: $ftlJIT)
-  --[no-]copy-libraries         Toggle whether to copy libraries (default: $copyLibraries)
   --cloop                       Use C Loop interpreter (default: $forceCLoop)
   --cli                         Build the new jsc command line interface (default: $cli)
   --makeargs=<arguments>        Optional Makefile flags
@@ -95,6 +94,7 @@ Usage: $programName [options] [options to pass to build system]
   --build-dir=<path>            Build out of tree in directory at <path>
 
   --[no-]use-ccache             Enable (or disable) CCache, if available
+  --export-compile-commands     Generate compile_commands.json (Apple platforms only)
 EOF
 
 my %options = (
@@ -104,11 +104,11 @@ my %options = (
     'ftl-jit!' => \$ftlJIT,
     'cloop!' => \$forceCLoop,
     'cli!' => \$cli,
-    'copy-libraries!' => \$copyLibraries,
     'makeargs=s' => \$makeArgs,
     'cmakeargs=s' => \@cmakeArgs,
     'build-dir=s' => \$buildDir,
-    'use-ccache!' => \$useCCache
+    'use-ccache!' => \$useCCache,
+    'export-compile-commands' => \$exportCompileCommands
 );
 
 foreach (@features) {
@@ -145,6 +145,8 @@ if ($useCCache == 1) {
     $ENV{'WK_USE_CCACHE'} = "NO";
 }
 
+$ENV{'EXPORT_COMPILE_COMMANDS'} = "YES" if $exportCompileCommands;
+
 checkRequiredSystemConfig();
 setConfiguration();
 chdirWebKit();
@@ -158,6 +160,17 @@ if ($forceCLoop) {
 }
 
 if (isCMakeBuild()) {
+    if (scalar(@ARGV) > 0) {
+        foreach (@ARGV) {
+            my $arg = $_;
+            if ($arg =~ /^-.*/) {
+                print STDERR "Unrecognized option `$arg'\n";
+            } else {
+                print STDERR "Stray anonymous argument `$arg'\n";
+            }
+        }
+        exit 2;
+    }
     if ($forceCLoop) {
         push @cmakeArgs, " -DENABLE_JIT=OFF";
         push @cmakeArgs, " -DENABLE_C_LOOP=ON";
@@ -202,13 +215,6 @@ if (isAppleCocoaWebKit()) {
             my $option = option($_->{define}, ${$_->{value}}, $_->{default});
             push @options, $option unless $option eq "";
         }
-    }
-
-    if ($copyLibraries) {
-        my @copyLibrariesArgs = ("perl", "Tools/Scripts/copy-webkitlibraries-to-product-directory");
-        push @copyLibrariesArgs, "--device" if willUseIOSDeviceSDK();
-        push @copyLibrariesArgs, productDir();
-        (system(@copyLibrariesArgs) == 0) or die;
     }
 }
 

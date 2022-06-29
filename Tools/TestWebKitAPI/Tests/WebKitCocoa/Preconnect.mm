@@ -25,14 +25,13 @@
 
 #import "config.h"
 
-#if HAVE(NETWORK_FRAMEWORK)
-
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "TestNavigationDelegate.h"
 #import "TestUIDelegate.h"
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
+#import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/RetainPtr.h>
@@ -104,10 +103,6 @@ TEST(Preconnect, ConnectionCount)
     EXPECT_EQ(connectionCount, 2u);
 }
 
-// Mojave CFNetwork _preconnect SPI seems to have a bug causing this to time out.
-// That's no problem, because this is a test for SPI only to be used on later OS versions.
-#if !PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
-
 TEST(Preconnect, HTTPS)
 {
     bool connected = false;
@@ -136,8 +131,6 @@ TEST(Preconnect, HTTPS)
     Util::run(&requested);
     EXPECT_TRUE(receivedChallenge);
 }
-
-#endif
 
 #if HAVE(PRECONNECT_PING)
 static void pingPong(Ref<H2::Connection>&& connection, size_t* headersCount)
@@ -233,6 +226,43 @@ TEST(Preconnect, H2PingFromWebCoreNSURLSession)
 
 #endif // HAVE(PRECONNECT_PING)
 
+static void verifyPreconnectDisabled(void(*disabler)(WKWebViewConfiguration *))
+{
+    size_t connectionCount { 0 };
+    HTTPServer server([&](Connection) {
+        connectionCount++;
+    });
+    NSString *html = [NSString stringWithFormat:@"<link rel='preconnect' href='http://127.0.0.1:%d'>", server.port()];
+
+    {
+        auto configuration = adoptNS([WKWebViewConfiguration new]);
+        disabler(configuration.get());
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+        [webView loadHTMLString:html baseURL:nil];
+        [webView _test_waitForDidFinishNavigation];
+        Util::spinRunLoop(10);
+        usleep(10000);
+        Util::spinRunLoop(10);
+        EXPECT_EQ(connectionCount, 0u);
+    }
+
+    {
+        auto webView = adoptNS([WKWebView new]);
+        [webView loadHTMLString:html baseURL:nil];
+        [webView _test_waitForDidFinishNavigation];
+        while (connectionCount != 1)
+            Util::spinRunLoop();
+    }
 }
 
-#endif
+TEST(Preconnect, DisablePreconnect)
+{
+    verifyPreconnectDisabled([] (WKWebViewConfiguration *configuration) {
+        configuration._allowedNetworkHosts = [NSSet set];
+    });
+    verifyPreconnectDisabled([] (WKWebViewConfiguration *configuration) {
+        configuration._loadsSubresources = NO;
+    });
+}
+
+}

@@ -39,19 +39,15 @@
 #import "NotImplemented.h"
 #import "RealtimeMediaSourceSettings.h"
 #import "WebAudioBufferList.h"
-#import "WebAudioSourceProviderAVFObjC.h"
+#import "WebAudioSourceProviderCocoa.h"
 #import <AVFoundation/AVAudioBuffer.h>
 #import <AudioToolbox/AudioConverter.h>
 #import <CoreAudio/CoreAudioTypes.h>
 
+#import <pal/cf/AudioToolboxSoftLink.h>
 #import <pal/cf/CoreMediaSoftLink.h>
 
-SOFT_LINK_FRAMEWORK(AudioToolbox)
-
-SOFT_LINK(AudioToolbox, AudioConverterNew, OSStatus, (const AudioStreamBasicDescription* inSourceFormat, const AudioStreamBasicDescription* inDestinationFormat, AudioConverterRef* outAudioConverter), (inSourceFormat, inDestinationFormat, outAudioConverter))
-
 namespace WebCore {
-using namespace PAL;
 
 static inline size_t alignTo16Bytes(size_t size)
 {
@@ -94,7 +90,7 @@ CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&&
     if (!device)
         return { "No mock microphone device"_s };
 
-    MockAudioSharedUnit::singleton().setSampleRate(WTF::get<MockMicrophoneProperties>(device->properties).defaultSampleRate);
+    MockAudioSharedUnit::singleton().setDeviceID(deviceID);
     return CoreAudioCaptureSource::createForTesting(WTFMove(deviceID),  WTFMove(name), WTFMove(hashSalt), constraints, MockAudioSharedUnit::singleton());
 }
 
@@ -105,9 +101,15 @@ MockAudioSharedUnit& MockAudioSharedUnit::singleton()
 }
 
 MockAudioSharedUnit::MockAudioSharedUnit()
-    : m_timer(RunLoop::current(), this, &MockAudioSharedUnit::tick)
-    , m_workQueue(WorkQueue::create("MockAudioSharedUnit Capture Queue"))
+    : m_timer(RunLoop::current(), this, &MockAudioSharedUnit::start)
+    , m_workQueue(WorkQueue::create("MockAudioSharedUnit Capture Queue", WorkQueue::QOS::UserInteractive))
 {
+}
+
+void MockAudioSharedUnit::resetSampleRate()
+{
+    if (auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(persistentID()))
+        setSampleRate(std::get<MockMicrophoneProperties>(device->properties).defaultSampleRate);
 }
 
 bool MockAudioSharedUnit::hasAudioUnit() const
@@ -115,7 +117,7 @@ bool MockAudioSharedUnit::hasAudioUnit() const
     return m_hasAudioUnit;
 }
 
-void MockAudioSharedUnit::setCaptureDevice(String&&, uint32_t)
+void MockAudioSharedUnit::captureDeviceChanged()
 {
     reconfigureAudioUnit();
 }
@@ -125,13 +127,11 @@ OSStatus MockAudioSharedUnit::reconfigureAudioUnit()
     if (!hasAudioUnit())
         return 0;
 
-    m_timer.stop();
     m_lastRenderTime = MonotonicTime::nan();
     m_workQueue->dispatch([this] {
         reconfigure();
         callOnMainThread([this] {
-            m_lastRenderTime = MonotonicTime::now();
-            m_timer.startRepeating(renderInterval());
+            startInternal();
         });
     });
     return 0;
@@ -140,57 +140,45 @@ OSStatus MockAudioSharedUnit::reconfigureAudioUnit()
 void MockAudioSharedUnit::cleanupAudioUnit()
 {
     m_hasAudioUnit = false;
-    m_timer.stop();
+    m_isProducingData = false;
     m_lastRenderTime = MonotonicTime::nan();
 }
 
 OSStatus MockAudioSharedUnit::startInternal()
 {
+    start();
+    return 0;
+}
+
+void MockAudioSharedUnit::start()
+{
     if (!m_hasAudioUnit)
         m_hasAudioUnit = true;
 
     m_lastRenderTime = MonotonicTime::now();
-    m_timer.startRepeating(renderInterval());
-    return 0;
+    m_isProducingData = true;
+    m_workQueue->dispatch([this, renderTime = m_lastRenderTime] {
+        render(renderTime);
+    });
 }
 
 void MockAudioSharedUnit::stopInternal()
 {
+    m_isProducingData = false;
     if (!m_hasAudioUnit)
         return;
-    m_timer.stop();
     m_lastRenderTime = MonotonicTime::nan();
 }
 
 bool MockAudioSharedUnit::isProducingData() const
 {
-    return m_timer.isActive();
-}
-
-void MockAudioSharedUnit::tick()
-{
-    if (std::isnan(m_lastRenderTime))
-        m_lastRenderTime = MonotonicTime::now();
-
-    MonotonicTime now = MonotonicTime::now();
-
-    if (m_delayUntil) {
-        if (m_delayUntil < now)
-            return;
-        m_delayUntil = MonotonicTime();
-    }
-
-    Seconds delta = now - m_lastRenderTime;
-    m_lastRenderTime = now;
-
-    m_workQueue->dispatch([this, delta] {
-        render(delta);
-    });
+    return m_isProducingData;
 }
 
 void MockAudioSharedUnit::delaySamples(Seconds delta)
 {
-    m_delayUntil = MonotonicTime::now() + delta;
+    stopInternal();
+    m_timer.startOneShot(delta);
 }
 
 void MockAudioSharedUnit::reconfigure()
@@ -214,7 +202,7 @@ void MockAudioSharedUnit::reconfigure()
     m_audioBufferList = makeUnique<WebAudioBufferList>(m_streamFormat, m_maximiumFrameCount);
 
     CMFormatDescriptionRef formatDescription;
-    CMAudioFormatDescriptionCreate(NULL, &m_streamFormat, 0, NULL, 0, NULL, NULL, &formatDescription);
+    PAL::CMAudioFormatDescriptionCreate(NULL, &m_streamFormat, 0, NULL, 0, NULL, NULL, &formatDescription);
     m_formatDescription = adoptCF(formatDescription);
 
     size_t sampleCount = 2 * rate;
@@ -236,15 +224,30 @@ void MockAudioSharedUnit::emitSampleBuffers(uint32_t frameCount)
     ASSERT(!isMainThread());
     ASSERT(m_formatDescription);
 
-    CMTime startTime = CMTimeMake(m_samplesEmitted, sampleRate());
+    CMTime startTime = PAL::CMTimeMake(m_samplesEmitted, sampleRate());
     m_samplesEmitted += frameCount;
 
     audioSamplesAvailable(PAL::toMediaTime(startTime), *m_audioBufferList, CAAudioStreamDescription(m_streamFormat), frameCount);
 }
 
-void MockAudioSharedUnit::render(Seconds delta)
+void MockAudioSharedUnit::render(MonotonicTime renderTime)
 {
     ASSERT(!isMainThread());
+    if (!isProducingData())
+        return;
+
+    auto delta = renderInterval();
+    auto currentTime = MonotonicTime::now();
+    auto nextRenderTime = renderTime + delta;
+    Seconds nextRenderDelay = nextRenderTime.secondsSinceEpoch() - currentTime.secondsSinceEpoch();
+    if (nextRenderDelay.seconds() < 0) {
+        nextRenderTime = currentTime;
+        nextRenderDelay = 0_s;
+    }
+    m_workQueue->dispatchAfter(nextRenderDelay, [this, nextRenderTime] {
+        render(nextRenderTime);
+    });
+
     if (!m_audioBufferList || !m_bipBopBuffer.size())
         reconfigure();
 

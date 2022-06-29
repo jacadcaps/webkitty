@@ -26,8 +26,10 @@
 #include "config.h"
 #include "StyleSharingResolver.h"
 
+#include "ElementInlines.h"
 #include "ElementRuleCollector.h"
 #include "FullscreenManager.h"
+#include "HTMLDialogElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "NodeRenderStyle.h"
@@ -55,10 +57,10 @@ struct SharingResolver::Context {
     InsideLink elementLinkState;
 };
 
-SharingResolver::SharingResolver(const Document& document, const ScopeRuleSets& ruleSets, const SelectorFilter& selectorFilter)
+SharingResolver::SharingResolver(const Document& document, const ScopeRuleSets& ruleSets, SelectorMatchingState& selectorMatchingState)
     : m_document(document)
     , m_ruleSets(ruleSets)
-    , m_selectorFilter(selectorFilter)
+    , m_selectorMatchingState(selectorMatchingState)
 {
 }
 
@@ -72,11 +74,11 @@ static inline bool elementHasDirectionAuto(const Element& element)
     return is<HTMLElement>(element) && downcast<HTMLElement>(element).hasDirectionAuto();
 }
 
-std::unique_ptr<RenderStyle> SharingResolver::resolve(const Element& searchElement, const Update& update)
+std::unique_ptr<RenderStyle> SharingResolver::resolve(const Styleable& searchStyleable, const Update& update)
 {
-    if (!is<StyledElement>(searchElement))
+    if (!is<StyledElement>(searchStyleable.element))
         return nullptr;
-    auto& element = downcast<StyledElement>(searchElement);
+    auto& element = downcast<StyledElement>(searchStyleable.element);
     if (!element.parentElement())
         return nullptr;
     auto& parentElement = *element.parentElement();
@@ -100,6 +102,13 @@ std::unique_ptr<RenderStyle> SharingResolver::resolve(const Element& searchEleme
     if (elementHasDirectionAuto(element))
         return nullptr;
     if (element.shadowRoot() && !element.shadowRoot()->styleScope().resolver().ruleSets().authorStyle().hostPseudoClassRules().isEmpty())
+        return nullptr;
+    if (auto* keyframeEffectStack = searchStyleable.keyframeEffectStack()) {
+        if (keyframeEffectStack->hasEffectWithImplicitKeyframes())
+            return nullptr;
+    }
+    // FIXME: Do something smarter here, for example RuleSet based matching like with attribute/sibling selectors.
+    if (Scope::forNode(element).usesHasPseudoClass())
         return nullptr;
 
     Context context {
@@ -223,6 +232,8 @@ bool SharingResolver::canShareStyleWithElement(const Context& context, const Sty
         return false;
     if (candidateElement.focused() != element.focused())
         return false;
+    if (candidateElement.hasFocusVisible() != element.hasFocusVisible())
+        return false;
     if (candidateElement.hasFocusWithin() != element.hasFocusWithin())
         return false;
     if (candidateElement.isBeingDragged() != element.isBeingDragged())
@@ -235,7 +246,7 @@ bool SharingResolver::canShareStyleWithElement(const Context& context, const Sty
         return false;
     if (!sharingCandidateHasIdenticalStyleAffectingAttributes(context, candidateElement))
         return false;
-    if (const_cast<StyledElement&>(candidateElement).additionalPresentationAttributeStyle() != const_cast<StyledElement&>(element).additionalPresentationAttributeStyle())
+    if (const_cast<StyledElement&>(candidateElement).additionalPresentationalHintStyle() != const_cast<StyledElement&>(element).additionalPresentationalHintStyle())
         return false;
     if (candidateElement.affectsNextSiblingElementStyle() || candidateElement.styleIsAffectedByPreviousSibling())
         return false;
@@ -252,7 +263,7 @@ bool SharingResolver::canShareStyleWithElement(const Context& context, const Sty
     if (isControl && !canShareStyleWithControl(downcast<HTMLFormControlElement>(element), downcast<HTMLFormControlElement>(candidateElement)))
         return false;
 
-    if (style->transitions() || style->animations())
+    if (candidateElement.hasKeyframeEffects(PseudoId::None))
         return false;
 
     // Turn off style sharing for elements that can gain layers for reasons outside of the style system.
@@ -271,6 +282,8 @@ bool SharingResolver::canShareStyleWithElement(const Context& context, const Sty
 
     if (candidateElement.elementData() != element.elementData()) {
         if (candidateElement.attributeWithoutSynchronization(HTMLNames::readonlyAttr) != element.attributeWithoutSynchronization(HTMLNames::readonlyAttr))
+            return false;
+        if (m_document.settings().inertAttributeEnabled() && candidateElement.attributeWithoutSynchronization(HTMLNames::inertAttr) != element.attributeWithoutSynchronization(HTMLNames::inertAttr))
             return false;
         if (candidateElement.isSVGElement()) {
             if (candidateElement.getAttribute(HTMLNames::typeAttr) != element.getAttribute(HTMLNames::typeAttr))
@@ -296,6 +309,14 @@ bool SharingResolver::canShareStyleWithElement(const Context& context, const Sty
     if (candidateElement.shadowRoot() && !candidateElement.shadowRoot()->styleScope().resolver().ruleSets().authorStyle().hostPseudoClassRules().isEmpty())
         return false;
 
+#if ENABLE(WHEEL_EVENT_REGIONS)
+    if (candidateElement.hasEventListeners() || element.hasEventListeners())
+        return false;
+#endif
+
+    if (&candidateElement == m_document.activeModalDialog() || &element == m_document.activeModalDialog())
+        return false;
+
 #if ENABLE(FULLSCREEN_API)
     if (&candidateElement == m_document.fullscreenManager().currentFullscreenElement() || &element == m_document.fullscreenManager().currentFullscreenElement())
         return false;
@@ -308,8 +329,8 @@ bool SharingResolver::styleSharingCandidateMatchesRuleSet(const StyledElement& e
     if (!ruleSet)
         return false;
 
-    ElementRuleCollector collector(const_cast<StyledElement&>(element), m_ruleSets, &m_selectorFilter);
-    return collector.hasAnyMatchingRules(ruleSet);
+    ElementRuleCollector collector(element, m_ruleSets, &m_selectorMatchingState);
+    return collector.hasAnyMatchingRules(*ruleSet);
 }
 
 bool SharingResolver::sharingCandidateHasIdenticalStyleAffectingAttributes(const Context& context, const StyledElement& sharingCandidate) const
@@ -336,7 +357,7 @@ bool SharingResolver::sharingCandidateHasIdenticalStyleAffectingAttributes(const
     } else if (sharingCandidate.hasClass() && classNamesAffectedByRules(sharingCandidate.classNames()))
         return false;
 
-    if (const_cast<StyledElement&>(element).presentationAttributeStyle() != const_cast<StyledElement&>(sharingCandidate).presentationAttributeStyle())
+    if (const_cast<StyledElement&>(element).presentationalHintStyle() != const_cast<StyledElement&>(sharingCandidate).presentationalHintStyle())
         return false;
 
     return true;

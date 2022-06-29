@@ -37,8 +37,7 @@ void LoadParameters::platformEncode(IPC::Encoder& encoder) const
 {
     IPC::encode(encoder, dataDetectionContext.get());
 
-    encoder << neHelperExtensionHandle;
-    encoder << neSessionManagerExtensionHandle;
+    encoder << networkExtensionSandboxExtensionHandles;
 #if PLATFORM(IOS)
     encoder << contentFilterExtensionHandle;
     encoder << frontboardServiceExtensionHandle;
@@ -50,26 +49,20 @@ bool LoadParameters::platformDecode(IPC::Decoder& decoder, LoadParameters& param
     if (!IPC::decode(decoder, parameters.dataDetectionContext))
         return false;
 
-    Optional<Optional<SandboxExtension::Handle>> neHelperExtensionHandle;
-    decoder >> neHelperExtensionHandle;
-    if (!neHelperExtensionHandle)
+    std::optional<Vector<SandboxExtension::Handle>> networkExtensionSandboxExtensionHandles;
+    decoder >> networkExtensionSandboxExtensionHandles;
+    if (!networkExtensionSandboxExtensionHandles)
         return false;
-    parameters.neHelperExtensionHandle = WTFMove(*neHelperExtensionHandle);
-
-    Optional<Optional<SandboxExtension::Handle>> neSessionManagerExtensionHandle;
-    decoder >> neSessionManagerExtensionHandle;
-    if (!neSessionManagerExtensionHandle)
-        return false;
-    parameters.neSessionManagerExtensionHandle = WTFMove(*neSessionManagerExtensionHandle);
-
+    parameters.networkExtensionSandboxExtensionHandles = WTFMove(*networkExtensionSandboxExtensionHandles);
+    
 #if PLATFORM(IOS)
-    Optional<Optional<SandboxExtension::Handle>> contentFilterExtensionHandle;
+    std::optional<std::optional<SandboxExtension::Handle>> contentFilterExtensionHandle;
     decoder >> contentFilterExtensionHandle;
     if (!contentFilterExtensionHandle)
         return false;
     parameters.contentFilterExtensionHandle = WTFMove(*contentFilterExtensionHandle);
 
-    Optional<Optional<SandboxExtension::Handle>> frontboardServiceExtensionHandle;
+    std::optional<std::optional<SandboxExtension::Handle>> frontboardServiceExtensionHandle;
     decoder >> frontboardServiceExtensionHandle;
     if (!frontboardServiceExtensionHandle)
         return false;

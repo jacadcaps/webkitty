@@ -46,16 +46,18 @@ _log = logging.getLogger(__name__)
 
 
 class DriverInput(object):
-    def __init__(self, test_name, timeout, image_hash, should_run_pixel_test, should_dump_jsconsolelog_in_stderr=None, args=None):
+    def __init__(self, test_name, timeout, image_hash, should_run_pixel_test, should_dump_jsconsolelog_in_stderr=None, args=None, self_comparison_header=None, force_dump_pixels=False):
         self.test_name = test_name
         self.timeout = timeout  # in ms
         self.image_hash = image_hash
         self.should_run_pixel_test = should_run_pixel_test
         self.should_dump_jsconsolelog_in_stderr = should_dump_jsconsolelog_in_stderr
         self.args = args or []
+        self.self_comparison_header = self_comparison_header
+        self.force_dump_pixels = force_dump_pixels
 
     def __repr__(self):
-        return "DriverInput(test_name='{}', timeout={}, image_hash={}, should_run_pixel_test={}, should_dump_jsconsolelog_in_stderr={}'".format(self.test_name, self.timeout, self.image_hash, self.should_run_pixel_test, self.should_dump_jsconsolelog_in_stderr)
+        return "DriverInput(test_name='{}', timeout={}, image_hash={}, should_run_pixel_test={}, should_dump_jsconsolelog_in_stderr={}, self_comparison_header={}, force_dump_pixels={}'".format(self.test_name, self.timeout, self.image_hash, self.should_run_pixel_test, self.should_dump_jsconsolelog_in_stderr, self.self_comparison_header, self.force_dump_pixels)
 
 
 class DriverOutput(object):
@@ -63,7 +65,7 @@ class DriverOutput(object):
     and post-processing of data."""
 
     metrics_patterns = []
-    metrics_patterns.append((re.compile('at \(-?[0-9]+,-?[0-9]+\) *'), ''))
+    metrics_patterns.append((re.compile(r'at \(-?[0-9]+,-?[0-9]+\) *'), ''))
     metrics_patterns.append((re.compile('size -?[0-9]+x-?[0-9]+ *'), ''))
     metrics_patterns.append((re.compile('text run width -?[0-9]+: '), ''))
     metrics_patterns.append((re.compile('text run width -?[0-9]+ [a-zA-Z ]+: '), ''))
@@ -71,12 +73,12 @@ class DriverOutput(object):
     metrics_patterns.append((re.compile('RenderImage {INPUT} .*'), 'RenderImage {INPUT}'))
     metrics_patterns.append((re.compile('RenderBlock {INPUT} .*'), 'RenderBlock {INPUT}'))
     metrics_patterns.append((re.compile('RenderTextControl {INPUT} .*'), 'RenderTextControl {INPUT}'))
-    metrics_patterns.append((re.compile('\([0-9]+px'), 'px'))
+    metrics_patterns.append((re.compile(r'\([0-9]+px'), 'px'))
     metrics_patterns.append((re.compile(' *" *\n +" *'), ' '))
     metrics_patterns.append((re.compile('" +$'), '"'))
     metrics_patterns.append((re.compile('- '), '-'))
-    metrics_patterns.append((re.compile('\n( *)"\s+'), '\n\g<1>"'))
-    metrics_patterns.append((re.compile('\s+"\n'), '"\n'))
+    metrics_patterns.append((re.compile('\n( *)"\\s+'), '\n\\g<1>"'))
+    metrics_patterns.append((re.compile('\\s+"\n'), '"\n'))
     metrics_patterns.append((re.compile('scrollWidth [0-9]+'), 'scrollWidth'))
     metrics_patterns.append((re.compile('scrollHeight [0-9]+'), 'scrollHeight'))
     metrics_patterns.append((re.compile('scrollX [0-9]+'), 'scrollX'))
@@ -113,6 +115,20 @@ class DriverOutput(object):
             return
         for pattern in patterns:
             self.text = re.sub(pattern[0], pattern[1], self.text)
+
+    def strip_text_start_if_needed(self, detectors):
+        if not self.text or not len(detectors):
+            return
+
+        result = self.text.split('Content-Type: text/plain\n')
+        if len(result) != 2:
+            return
+
+        for detector in detectors:
+            if detector in result[0]:
+                self.text = result[1]
+                self.error += '\nRemoved logging from stdout:\n' + result[0]
+                return
 
     def strip_stderror_patterns(self, patterns):
         if not self.error:
@@ -229,7 +245,7 @@ class Driver(object):
             # In the timeout case, we kill the hung process as well.
             out, err = self._server_process.stop(self._port.driver_stop_timeout() if stop_when_done else 0.0)
             if out:
-                text += string_utils.decode(out, target_type=str)
+                text += string_utils.decode(out, target_type=str, errors='backslashreplace')
             if err:
                 self.error_from_test += string_utils.decode(err, target_type=str)
             self._server_process = None
@@ -435,7 +451,7 @@ class Driver(object):
         environment['__XPC_ASAN_OPTIONS'] = environment['ASAN_OPTIONS']
 
         # Disable vnode-guard related simulated crashes for WKTR / DRT (rdar://problem/40674034).
-        environment['SQLITE_EXEMPT_PATH_FROM_VNODE_GUARDS'] = os.path.realpath(environment['DUMPRENDERTREE_TEMP'])
+        environment['SQLITE_EXEMPT_PATH_FROM_VNODE_GUARDS'] = '/'
         environment['__XPC_SQLITE_EXEMPT_PATH_FROM_VNODE_GUARDS'] = environment['SQLITE_EXEMPT_PATH_FROM_VNODE_GUARDS']
 
         environment['JSC_useKernTCSM'] = 'false'
@@ -523,6 +539,8 @@ class Driver(object):
             cmd.append('--no-timeout')
         if self._port.get_option('show_touches'):
             cmd.append('--show-touches')
+        if self._port.get_option('show_window'):
+            cmd.append('--show-window')
         if self._port.get_option('accessibility_isolated_tree'):
             cmd.append('--accessibility-isolated-tree')
 
@@ -533,6 +551,9 @@ class Driver(object):
         for feature in self._port.internal_feature():
             cmd.append('--internal-feature')
             cmd.append(feature)
+
+        if not self._port.get_option('enable_all_experimental_features'):
+            cmd.append('--no-enable-all-experimental-features')
 
         for feature in self._port.experimental_feature():
             cmd.append('--experimental-feature')
@@ -548,16 +569,16 @@ class Driver(object):
 
     def _check_for_driver_timeout(self, out_line):
         if out_line.startswith(b"#PID UNRESPONSIVE - "):
-            match = re.match(b'#PID UNRESPONSIVE - (\S+)', out_line)
+            match = re.match(br'#PID UNRESPONSIVE - (\S+)', out_line)
             child_process_name = string_utils.decode(match.group(1), target_type=str) if match else 'WebProcess'
-            match = re.search(b'pid (\d+)', out_line)
+            match = re.search(br'pid (\d+)', out_line)
             child_process_pid = int(match.group(1)) if match else None
             err_line = 'Wait on notifyDone timed out, process ' + child_process_name + ' pid = ' + str(child_process_pid)
             self.error_from_test += err_line
             _log.debug(err_line)
             if self._port.get_option("sample_on_timeout"):
                 self._port.sample_process(child_process_name, child_process_pid, self._target_host)
-        if out_line == "FAIL: Timed out waiting for notifyDone to be called\n":
+        if out_line == b"FAIL: Timed out waiting for notifyDone to be called\n":
             self._driver_timed_out = True
 
     def _check_for_address_sanitizer_violation(self, error_line):
@@ -571,16 +592,16 @@ class Driver(object):
             self._crashed_pid = self._server_process.system_pid()
             return True
         elif error_line.startswith(b"#CRASHED - "):
-            match = re.match(b'#CRASHED - (\S+)', error_line)
+            match = re.match(br'#CRASHED - (\S+)', error_line)
             self._crashed_process_name = string_utils.decode(match.group(1), target_type=str) if match else 'WebProcess'
-            match = re.search(b'pid (\d+)', error_line)
+            match = re.search(br'pid (\d+)', error_line)
             self._crashed_pid = int(match.group(1)) if match else None
             _log.debug('%s crash, pid = %s' % (self._crashed_process_name, str(self._crashed_pid)))
             return True
         elif error_line.startswith(b"#PROCESS UNRESPONSIVE - "):
-            match = re.match(b'#PROCESS UNRESPONSIVE - (\S+)', error_line)
+            match = re.match(br'#PROCESS UNRESPONSIVE - (\S+)', error_line)
             child_process_name = string_utils.decode(match.group(1), target_type=str) if match else 'WebProcess'
-            match = re.search(b'pid (\d+)', error_line)
+            match = re.search(br'pid (\d+)', error_line)
             child_process_pid = int(match.group(1)) if match else None
             _log.debug('%s is unresponsive, pid = %s' % (child_process_name, str(child_process_pid)))
             self._driver_timed_out = True
@@ -612,12 +633,19 @@ class Driver(object):
         # ' is the separator between arguments.
         if self._port.supports_per_test_timeout():
             command += "'--timeout'%s" % driver_input.timeout
-        if driver_input.should_run_pixel_test:
-            command += "'--pixel-test"
         if driver_input.should_dump_jsconsolelog_in_stderr:
             command += "'--dump-jsconsolelog-in-stderr"
-        if driver_input.image_hash:
-            command += "'" + driver_input.image_hash
+        if driver_input.self_comparison_header:
+            command += "'--self-compare-with-header'%s" % driver_input.self_comparison_header
+        if driver_input.force_dump_pixels:
+            command += "'--force-dump-pixels"
+
+        # --pixel-test must be the last argument, because the hash is optional,
+        # and any argument put in its place will be incorrectly consumed as the hash.
+        if driver_input.should_run_pixel_test:
+            command += "'--pixel-test"
+            if driver_input.image_hash:
+                command += "'" + driver_input.image_hash
         return command + "\n"
 
     def _read_first_block(self, deadline, test_name):
@@ -713,7 +741,7 @@ class Driver(object):
                     break
                 elif self._check_for_address_sanitizer_violation(err_line):
                     asan_violation_detected = True
-                    self._crash_report_from_driver = b''
+                    self._crash_report_from_driver = ''
                     # ASan report starts with a nondescript line, we only detect the second line.
                     end_of_previous_error_line = self.error_from_test.rfind('\n', 0, -1)
                     if end_of_previous_error_line > 0:

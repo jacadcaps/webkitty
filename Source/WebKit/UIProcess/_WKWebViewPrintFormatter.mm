@@ -44,6 +44,15 @@
     BOOL _suppressPageCountRecalc;
 }
 
+#if HAVE(UIKIT_BACKGROUND_THREAD_PRINTING)
+
+- (BOOL)requiresMainThread
+{
+    return self._webView._printProvider._wk_printFormatterRequiresMainThread;
+}
+
+#endif // HAVE(UIKIT_BACKGROUND_THREAD_PRINTING)
+
 - (_WKFrameHandle *)frameToPrint
 {
     return _frameToPrint.get();
@@ -91,8 +100,11 @@
 
 - (void)drawInRect:(CGRect)rect forPageAtIndex:(NSInteger)pageIndex
 {
-    if (!_printedDocument)
+    if (!_printedDocument) {
         _printedDocument = self._webView._printProvider._wk_printedDocument;
+        if (!_printedDocument)
+            return;
+    }
 
     NSInteger offsetFromStartPage = pageIndex - self.startPage;
     if (offsetFromStartPage < 0)

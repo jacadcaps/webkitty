@@ -79,6 +79,15 @@
     [self _didSelectPaymentMethod:paymentMethod completion:completion];
 }
 
+#if HAVE(PASSKIT_COUPON_CODE)
+
+- (void)paymentAuthorizationViewController:(PKPaymentAuthorizationViewController *)controller didChangeCouponCode:(NSString *)couponCode handler:(void (^)(PKPaymentRequestCouponCodeUpdate *update))completion
+{
+    [self _didChangeCouponCode:couponCode completion:completion];
+}
+
+#endif // HAVE(PASSKIT_COUPON_CODE)
+
 #pragma mark PKPaymentAuthorizationViewControllerDelegatePrivate
 
 - (void)paymentAuthorizationViewController:(PKPaymentAuthorizationViewController *)controller willFinishWithError:(NSError *)error
@@ -143,6 +152,14 @@ void PaymentAuthorizationViewController::present(UIViewController *presentingVie
     [presentingViewController presentViewController:m_viewController.get() animated:YES completion:nullptr];
     completionHandler(true);
 }
+
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+void PaymentAuthorizationViewController::presentInScene(const String&, CompletionHandler<void(bool)>&& completionHandler)
+{
+    ASSERT_NOT_REACHED();
+    completionHandler(false);
+}
+#endif
 
 #endif
 

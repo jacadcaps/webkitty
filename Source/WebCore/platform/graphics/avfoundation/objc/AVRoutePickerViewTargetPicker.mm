@@ -28,9 +28,9 @@
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && HAVE(AVROUTEPICKERVIEW)
 
+#import "FloatRect.h"
 #import "Logging.h"
 #import <AVFoundation/AVRouteDetector.h>
-#import <WebCore/FloatRect.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
 #import <wtf/MainThread.h>
@@ -60,7 +60,7 @@ bool AVRoutePickerViewTargetPicker::isAvailable()
     static bool available;
     static std::once_flag flag;
     std::call_once(flag, [] () {
-        if (!PAL::getAVRoutePickerViewClass())
+        if (!getAVRoutePickerViewClass())
             return;
 
         if (auto picker = adoptNS([allocAVRoutePickerViewInstance() init]))
@@ -72,7 +72,7 @@ bool AVRoutePickerViewTargetPicker::isAvailable()
 
 AVRoutePickerViewTargetPicker::AVRoutePickerViewTargetPicker(AVPlaybackTargetPicker::Client& client)
     : AVPlaybackTargetPicker(client)
-    , m_routePickerViewDelegate(adoptNS([[WebAVRoutePickerViewHelper alloc] initWithCallback:makeWeakPtr(*this)]))
+    , m_routePickerViewDelegate(adoptNS([[WebAVRoutePickerViewHelper alloc] initWithCallback:*this]))
 {
     ASSERT(isAvailable());
 }
@@ -82,10 +82,13 @@ AVRoutePickerViewTargetPicker::~AVRoutePickerViewTargetPicker()
     [m_routePickerViewDelegate clearCallback];
 }
 
-AVOutputContext * AVRoutePickerViewTargetPicker::outputContextInternal()
+AVOutputContext * AVRoutePickerViewTargetPicker::outputContextInternal(bool useiTunesAVOutputContext)
 {
     if (!m_outputContext) {
-        m_outputContext = [PAL::getAVOutputContextClass() iTunesAudioContext];
+        if (useiTunesAVOutputContext)
+            m_outputContext = [PAL::getAVOutputContextClass() iTunesAudioContext];
+        else
+            m_outputContext = [PAL::getAVOutputContextClass() outputContext];
         ASSERT(m_outputContext);
         if (m_outputContext)
             [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::get_AVFoundation_AVOutputContextOutputDevicesDidChangeNotification() object:m_outputContext.get()];
@@ -116,7 +119,7 @@ AVRouteDetector *AVRoutePickerViewTargetPicker::routeDetector()
     return m_routeDetector.get();
 }
 
-void AVRoutePickerViewTargetPicker::showPlaybackTargetPicker(NSView *view, const FloatRect& rectInScreenCoordinates, bool hasActiveRoute, bool useDarkAppearance)
+void AVRoutePickerViewTargetPicker::showPlaybackTargetPicker(NSView *view, const FloatRect& rectInScreenCoordinates, bool hasActiveRoute, bool useDarkAppearance, bool useiTunesAVOutputContext)
 {
     if (!client())
         return;
@@ -129,18 +132,29 @@ void AVRoutePickerViewTargetPicker::showPlaybackTargetPicker(NSView *view, const
 
     auto rectInWindowCoordinates = [view.window convertRectFromScreen:NSMakeRect(rectInScreenCoordinates.x(), rectInScreenCoordinates.y(), 1.0, 1.0)];
     auto rectInViewCoordinates = [view convertRect:rectInWindowCoordinates fromView:view];
-    [picker showRoutePickingControlsForOutputContext:outputContextInternal() relativeToRect:rectInViewCoordinates ofView:view];
+    [picker showRoutePickingControlsForOutputContext:outputContextInternal(useiTunesAVOutputContext) relativeToRect:rectInViewCoordinates ofView:view];
 }
 
 void AVRoutePickerViewTargetPicker::startingMonitoringPlaybackTargets()
 {
+    m_ignoreNextMultipleRoutesDetectedDidChangeNotification = false;
+
     routeDetector().routeDetectionEnabled = YES;
 }
 
 void AVRoutePickerViewTargetPicker::stopMonitoringPlaybackTargets()
 {
-    if (m_routeDetector)
-        [m_routeDetector setRouteDetectionEnabled:NO];
+    if (!m_routeDetector)
+        return;
+
+    // `-[AVRouteDetector multipleRoutesDetected]` will always return `NO` if route detection is
+    // disabled and `-[AVRouteDetector setRouteDetectionEnabled:]` will always dispatch a
+    // `AVRouteDetectorMultipleRoutesDetectedDidChange` notification, so ignore the next one in
+    // order to prevent the cached value in the WebProcess from always being `false` when the last
+    // JS `"webkitplaybacktargetavailabilitychanged"` event listener is removed.
+    m_ignoreNextMultipleRoutesDetectedDidChangeNotification = true;
+
+    [m_routeDetector setRouteDetectionEnabled:NO];
 }
 
 bool AVRoutePickerViewTargetPicker::externalOutputDeviceAvailable()
@@ -174,6 +188,11 @@ void AVRoutePickerViewTargetPicker::invalidatePlaybackTargets()
 }
 void AVRoutePickerViewTargetPicker::availableDevicesDidChange()
 {
+    if (m_ignoreNextMultipleRoutesDetectedDidChangeNotification) {
+        m_ignoreNextMultipleRoutesDetectedDidChangeNotification = false;
+        return;
+    }
+
     if (client())
         client()->availableDevicesChanged();
 }

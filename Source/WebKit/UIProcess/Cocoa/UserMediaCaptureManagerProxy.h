@@ -29,15 +29,19 @@
 
 #include "Connection.h"
 #include "MessageReceiver.h"
+#include "RemoteVideoFrameObjectHeap.h"
 #include "UserMediaCaptureManager.h"
 #include <WebCore/CaptureDevice.h>
 #include <WebCore/OrientationNotifier.h>
+#include <WebCore/ProcessIdentity.h>
 #include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
+#include <pal/spi/cocoa/TCCSPI.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {
 class PlatformMediaSessionManager;
+struct VideoPresetData;
 }
 
 namespace WebKit {
@@ -56,6 +60,13 @@ public:
         virtual IPC::Connection& connection() = 0;
         virtual bool willStartCapture(WebCore::CaptureDevice::DeviceType) const = 0;
         virtual Logger& logger() = 0;
+        virtual bool setCaptureAttributionString() { return true; }
+        virtual const WebCore::ProcessIdentity& resourceOwner() const = 0;
+#if ENABLE(APP_PRIVACY_REPORT)
+        virtual void setTCCIdentity() { }
+#endif
+        virtual void startProducingData(WebCore::RealtimeMediaSource::Type) { }
+        virtual RemoteVideoFrameObjectHeap* remoteVideoFrameObjectHeap() { return nullptr; }
     };
     explicit UserMediaCaptureManagerProxy(UniqueRef<ConnectionProxy>&&);
     ~UserMediaCaptureManagerProxy();
@@ -66,11 +77,14 @@ public:
 
     void didReceiveMessageFromGPUProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
 
+    bool hasSourceProxies() const;
+
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
-    void createMediaSourceForCaptureDeviceWithConstraints(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice& deviceID, String&&, const WebCore::MediaConstraints&, CompletionHandler<void(bool succeeded, String invalidConstraints, WebCore::RealtimeMediaSourceSettings&&, WebCore::RealtimeMediaSourceCapabilities&&)>&&);
+    using CreateSourceCallback = CompletionHandler<void(bool succeeded, String invalidConstraints, WebCore::RealtimeMediaSourceSettings&&, WebCore::RealtimeMediaSourceCapabilities&&, Vector<WebCore::VideoPresetData>&&, WebCore::IntSize, double)>;
+    void createMediaSourceForCaptureDeviceWithConstraints(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice& deviceID, String&&, const WebCore::MediaConstraints&, bool shouldUseGPUProcessRemoteFrames, CreateSourceCallback&&);
     void startProducingData(WebCore::RealtimeMediaSourceIdentifier);
     void stopProducingData(WebCore::RealtimeMediaSourceIdentifier);
     void end(WebCore::RealtimeMediaSourceIdentifier);

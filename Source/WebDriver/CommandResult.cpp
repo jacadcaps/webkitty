@@ -38,7 +38,7 @@ enum ProtocolErrorCode {
     ServerError = -32000
 };
 
-CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> errorCode)
+CommandResult::CommandResult(RefPtr<JSON::Value>&& result, std::optional<ErrorCode> errorCode)
     : m_errorCode(errorCode)
 {
     if (!m_errorCode) {
@@ -49,18 +49,19 @@ CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> e
     if (!result)
         return;
 
-    RefPtr<JSON::Object> errorObject;
-    if (!result->asObject(errorObject))
+    auto errorObject = result->asObject();
+    if (!errorObject)
         return;
 
-    int error;
-    if (!errorObject->getInteger("code", error))
-        return;
-    String errorMessage;
-    if (!errorObject->getString("message", errorMessage))
+    auto error = errorObject->getInteger("code");
+    if (!error)
         return;
 
-    switch (error) {
+    auto errorMessage = errorObject->getString("message");
+    if (!errorMessage)
+        return;
+
+    switch (*error) {
     case ProtocolErrorCode::ParseError:
     case ProtocolErrorCode::InvalidRequest:
     case ProtocolErrorCode::MethodNotFound:
@@ -118,7 +119,7 @@ CommandResult::CommandResult(RefPtr<JSON::Value>&& result, Optional<ErrorCode> e
     }
 }
 
-CommandResult::CommandResult(ErrorCode errorCode, Optional<String> errorMessage)
+CommandResult::CommandResult(ErrorCode errorCode, std::optional<String> errorMessage)
     : m_errorCode(errorCode)
     , m_errorMessage(errorMessage)
 {
@@ -144,7 +145,9 @@ unsigned CommandResult::httpStatusCode() const
     case ErrorCode::NoSuchElement:
     case ErrorCode::NoSuchFrame:
     case ErrorCode::NoSuchWindow:
+    case ErrorCode::NoSuchShadowRoot:
     case ErrorCode::StaleElementReference:
+    case ErrorCode::DetachedShadowRoot:
     case ErrorCode::InvalidSessionID:
     case ErrorCode::UnknownCommand:
         return 404;
@@ -175,6 +178,8 @@ String CommandResult::errorString() const
         return "element not selectable"_s;
     case ErrorCode::ElementNotInteractable:
         return "element not interactable"_s;
+    case ErrorCode::DetachedShadowRoot:
+        return "detached shadow root"_s;
     case ErrorCode::InvalidArgument:
         return "invalid argument"_s;
     case ErrorCode::InvalidElementState:
@@ -193,6 +198,8 @@ String CommandResult::errorString() const
         return "no such element"_s;
     case ErrorCode::NoSuchFrame:
         return "no such frame"_s;
+    case ErrorCode::NoSuchShadowRoot:
+        return "no such shadow root"_s;
     case ErrorCode::NoSuchWindow:
         return "no such window"_s;
     case ErrorCode::ScriptTimeout:

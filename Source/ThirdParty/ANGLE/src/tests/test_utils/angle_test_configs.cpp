@@ -49,6 +49,21 @@ bool PlatformParameters::isSwiftshader() const
     return eglParameters.deviceType == EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE;
 }
 
+bool PlatformParameters::isVulkan() const
+{
+    return eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE;
+}
+
+bool PlatformParameters::isANGLE() const
+{
+    return driver == GLESDriverType::AngleEGL;
+}
+
+EGLint PlatformParameters::getAllocateNonZeroMemoryFeature() const
+{
+    return eglParameters.allocateNonZeroMemoryFeature;
+}
+
 void PlatformParameters::initDefaultParameters()
 {
     // Default debug layers to enabled in tests.
@@ -181,11 +196,6 @@ std::ostream &operator<<(std::ostream &stream, const PlatformParameters &pp)
         stream << "_NoFixture";
     }
 
-    if (pp.eglParameters.contextVirtualization == EGL_FALSE)
-    {
-        stream << "_NoVirtual";
-    }
-
     if (pp.eglParameters.transformFeedbackFeature == EGL_FALSE)
     {
         stream << "_NoTransformFeedback";
@@ -207,6 +217,123 @@ std::ostream &operator<<(std::ostream &stream, const PlatformParameters &pp)
     if (pp.eglParameters.emulateCopyTexImage2DFromRenderbuffers == EGL_TRUE)
     {
         stream << "_EmulateCopyTexImage2DFromRenderbuffers";
+    }
+
+    if (pp.eglParameters.shaderStencilOutputFeature == EGL_FALSE)
+    {
+        stream << "_NoStencilOutput";
+    }
+
+    if (pp.eglParameters.genMultipleMipsPerPassFeature == EGL_FALSE)
+    {
+        stream << "_NoGenMultipleMipsPerPass";
+    }
+
+    switch (pp.eglParameters.emulatedPrerotation)
+    {
+        case 90:
+            stream << "_PreRotate90";
+            break;
+        case 180:
+            stream << "_PreRotate180";
+            break;
+        case 270:
+            stream << "_PreRotate270";
+            break;
+        default:
+            break;
+    }
+
+    if (pp.eglParameters.asyncCommandQueueFeatureVulkan == EGL_TRUE)
+    {
+        stream << "_AsyncQueue";
+    }
+
+    if (pp.eglParameters.hasExplicitMemBarrierFeatureMtl == EGL_FALSE)
+    {
+        stream << "_NoMetalExplicitMemoryBarrier";
+    }
+
+    if (pp.eglParameters.hasCheapRenderPassFeatureMtl == EGL_FALSE)
+    {
+        stream << "_NoMetalCheapRenderPass";
+    }
+
+    if (pp.eglParameters.forceBufferGPUStorageFeatureMtl == EGL_TRUE)
+    {
+        stream << "_ForceMetalBufferGPUStorage";
+    }
+
+    if (pp.eglParameters.supportsVulkanViewportFlip == EGL_TRUE)
+    {
+        stream << "_VulkanViewportFlip";
+    }
+    else if (pp.eglParameters.supportsVulkanViewportFlip == EGL_FALSE)
+    {
+        stream << "_NoVulkanViewportFlip";
+    }
+
+    if (pp.eglParameters.supportsVulkanMultiDrawIndirect == EGL_TRUE)
+    {
+        stream << "_VulkanMultiDrawIndirect";
+    }
+    else if (pp.eglParameters.supportsVulkanMultiDrawIndirect == EGL_FALSE)
+    {
+        stream << "_VulkanNoMultiDrawIndirect";
+    }
+
+    if (pp.eglParameters.WithVulkanPreferCPUForBufferSubData == EGL_TRUE)
+    {
+        stream << "_VulkanPreferCPUForBufferSubData";
+    }
+    else if (pp.eglParameters.WithVulkanPreferCPUForBufferSubData == EGL_FALSE)
+    {
+        stream << "_VulkanNoPreferCPUForBufferSubData";
+    }
+
+    if (pp.eglParameters.emulatedVAOs == EGL_TRUE)
+    {
+        stream << "_EmulatedVAOs";
+    }
+
+    if (pp.eglParameters.generateSPIRVThroughGlslang == EGL_TRUE)
+    {
+        stream << "_Glslang";
+    }
+
+    if (pp.eglParameters.directMetalGeneration == EGL_TRUE)
+    {
+        stream << "_DirectMetalGen";
+    }
+
+    if (pp.eglParameters.forceInitShaderVariables == EGL_TRUE)
+    {
+        stream << "_InitShaderVars";
+    }
+
+    if (pp.eglParameters.forceVulkanFallbackFormat == EGL_TRUE)
+    {
+        stream << "_FallbackFormat";
+    }
+
+    if (pp.eglParameters.displayPowerPreference == EGL_LOW_POWER_ANGLE)
+    {
+        stream << "_LowPowerGPU";
+    }
+
+    if (pp.eglParameters.displayPowerPreference == EGL_HIGH_POWER_ANGLE)
+    {
+        stream << "_HighPowerGPU";
+    }
+
+    if (pp.eglParameters.forceSubmitImmutableTextureUpdates == EGL_TRUE)
+    {
+        stream << "_VulkanForceSubmitImmutableTextureUpdates";
+    }
+
+    if (pp.eglParameters.createPipelineDuringLink == EGL_TRUE)
+    {
+        stream << "_CreatePipelineDuringLink";
     }
 
     return stream;
@@ -282,12 +409,6 @@ EGLPlatformParameters D3D11_FL10_0()
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
 }
 
-EGLPlatformParameters D3D11_FL9_3()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
-}
-
 EGLPlatformParameters D3D11_NULL()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
@@ -324,12 +445,6 @@ EGLPlatformParameters D3D11_FL10_0_WARP()
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_WARP_ANGLE);
 }
 
-EGLPlatformParameters D3D11_FL9_3_WARP()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_WARP_ANGLE);
-}
-
 EGLPlatformParameters D3D11_REFERENCE()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
@@ -357,12 +472,6 @@ EGLPlatformParameters D3D11_FL10_1_REFERENCE()
 EGLPlatformParameters D3D11_FL10_0_REFERENCE()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 10, 0,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
-}
-
-EGLPlatformParameters D3D11_FL9_3_REFERENCE()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
 }
 
@@ -490,11 +599,6 @@ PlatformParameters ES2_D3D11_FL10_0()
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0());
 }
 
-PlatformParameters ES2_D3D11_FL9_3()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3());
-}
-
 PlatformParameters ES2_D3D11_WARP()
 {
     return PlatformParameters(2, 0, egl_platform::D3D11_WARP());
@@ -515,11 +619,6 @@ PlatformParameters ES2_D3D11_FL10_0_WARP()
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0_WARP());
 }
 
-PlatformParameters ES2_D3D11_FL9_3_WARP()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3_WARP());
-}
-
 PlatformParameters ES2_D3D11_REFERENCE()
 {
     return PlatformParameters(2, 0, egl_platform::D3D11_REFERENCE());
@@ -538,11 +637,6 @@ PlatformParameters ES2_D3D11_FL10_1_REFERENCE()
 PlatformParameters ES2_D3D11_FL10_0_REFERENCE()
 {
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0_REFERENCE());
-}
-
-PlatformParameters ES2_D3D11_FL9_3_REFERENCE()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3_REFERENCE());
 }
 
 PlatformParameters ES3_D3D11()
@@ -748,6 +842,21 @@ PlatformParameters ES31_VULKAN_NULL()
 PlatformParameters ES31_VULKAN_SWIFTSHADER()
 {
     return PlatformParameters(3, 1, egl_platform::VULKAN_SWIFTSHADER());
+}
+
+PlatformParameters ES32_VULKAN()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN());
+}
+
+PlatformParameters ES32_VULKAN_NULL()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN_NULL());
+}
+
+PlatformParameters ES32_VULKAN_SWIFTSHADER()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN_SWIFTSHADER());
 }
 
 PlatformParameters ES1_METAL()

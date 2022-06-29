@@ -27,15 +27,15 @@
 
 #include "PlatformWebView.h"
 #include "TestController.h"
-#include "UIScriptController.h"
+#include "UIScriptControllerCommon.h"
 #include <WebKit/WKViewPrivate.h>
 
 namespace WTR {
 
-class UIScriptControllerGtk : public UIScriptController {
+class UIScriptControllerGtk : public UIScriptControllerCommon {
 public:
     explicit UIScriptControllerGtk(UIScriptContext& context)
-        : UIScriptController(context)
+        : UIScriptControllerCommon(context)
     {
     }
 
@@ -52,6 +52,11 @@ public:
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
     void removeViewFromWindow(JSValueRef) override;
     void addViewToWindow(JSValueRef) override;
+    void setWebViewEditable(bool) override;
+
+private:
+    void overridePreference(JSStringRef, JSStringRef) override;
+    JSObjectRef contentsOfUserInterfaceItem(JSStringRef) const override;
 };
 
 } // namespace WTR

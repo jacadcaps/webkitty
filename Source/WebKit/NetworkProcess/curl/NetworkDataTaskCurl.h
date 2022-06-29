@@ -36,6 +36,7 @@
 
 namespace WebCore {
 class CurlRequest;
+class SharedBuffer;
 }
 
 namespace WebKit {
@@ -68,7 +69,7 @@ private:
     Ref<WebCore::CurlRequest> createCurlRequest(WebCore::ResourceRequest&&, RequestStatus = RequestStatus::NewRequest);
     void curlDidSendData(WebCore::CurlRequest&, unsigned long long, unsigned long long) override;
     void curlDidReceiveResponse(WebCore::CurlRequest&, WebCore::CurlResponse&&) override;
-    void curlDidReceiveBuffer(WebCore::CurlRequest&, Ref<WebCore::SharedBuffer>&&) override;
+    void curlDidReceiveData(WebCore::CurlRequest&, const WebCore::SharedBuffer&) override;
     void curlDidComplete(WebCore::CurlRequest&, WebCore::NetworkLoadMetrics&&) override;
     void curlDidFailWithError(WebCore::CurlRequest&, WebCore::ResourceError&&, WebCore::CertificateInfo&&) override;
 
@@ -91,13 +92,14 @@ private:
     void blockCookies();
     void unblockCookies();
 
+    String suggestedFilename() const override;
+
     State m_state { State::Suspended };
 
     RefPtr<WebCore::CurlRequest> m_curlRequest;
     WebCore::ResourceResponse m_response;
     unsigned m_redirectCount { 0 };
     unsigned m_authFailureCount { 0 };
-    MonotonicTime m_startTime;
 
     WebCore::FrameIdentifier m_frameID;
     WebCore::PageIdentifier m_pageID;

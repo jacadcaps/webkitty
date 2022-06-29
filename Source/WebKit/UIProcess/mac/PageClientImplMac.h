@@ -65,7 +65,7 @@ private:
     // PageClient
     std::unique_ptr<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) override;
     void setViewNeedsDisplay(const WebCore::Region&) override;
-    void requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin) override;
+    void requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated) override;
     WebCore::FloatPoint viewScrollPosition() override;
 
     WebCore::IntSize viewSize() override;
@@ -76,7 +76,7 @@ private:
     bool isViewInWindow() override;
     bool isVisuallyIdle() override;
     LayerHostingMode viewLayerHostingMode() override;
-    ColorSpaceData colorSpace() override;
+    WebCore::DestinationColorSpace colorSpace() override;
     void setRemoteLayerTreeRootNode(RemoteLayerTreeNode*) override;
     CALayer *acceleratedCompositingRootLayer() const override;
 
@@ -100,13 +100,13 @@ private:
     void executeUndoRedo(UndoOrRedo) override;
     bool executeSavedCommandBySelector(const String& selector) override;
     void startDrag(const WebCore::DragItem&, const ShareableBitmap::Handle& image) override;
-    void setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::SharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title,
-        const String& url, const String& visibleUrl, RefPtr<WebCore::SharedBuffer>&& archiveBuffer) override;
+    void setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title,
+        const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier) override;
     void updateSecureInputState() override;
     void resetSecureInputState() override;
     void notifyInputContextAboutDiscardedComposition() override;
     void selectionDidChange() override;
-    void showSafeBrowsingWarning(const SafeBrowsingWarning&, CompletionHandler<void(Variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&) override;
+    void showSafeBrowsingWarning(const SafeBrowsingWarning&, CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&) override;
     void clearSafeBrowsingWarning() override;
     void clearSafeBrowsingWarningIfForMainFrameNavigation() override;
     bool hasSafeBrowsingWarning() const override;
@@ -130,9 +130,16 @@ private:
 
     void doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled) override;
 
+#if ENABLE(IMAGE_ANALYSIS)
+    void requestTextRecognition(const URL& imageURL, const ShareableBitmap::Handle& imageData, const String& identifier, CompletionHandler<void(WebCore::TextRecognitionResult&&)>&&) override;
+    void computeHasImageAnalysisResults(const URL&, ShareableBitmap&, ImageAnalysisType, CompletionHandler<void(bool)>&&) override;
+#endif
+
     RefPtr<WebPopupMenuProxy> createPopupMenuProxy(WebPageProxy&) override;
 #if ENABLE(CONTEXT_MENUS)
     Ref<WebContextMenuProxy> createContextMenuProxy(WebPageProxy&, ContextMenuContextData&&, const UserData&) override;
+    void didShowContextMenu() override;
+    void didDismissContextMenu() override;
 #endif
 
 #if ENABLE(INPUT_TYPE_COLOR)
@@ -143,10 +150,14 @@ private:
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
 #endif
 
+#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) override;
+#endif
+
     Ref<WebCore::ValidationBubble> createValidationBubble(const String& message, const WebCore::ValidationBubble::Settings&) final;
 
-    void setTextIndicator(Ref<WebCore::TextIndicator>, WebCore::TextIndicatorWindowLifetime) override;
-    void clearTextIndicator(WebCore::TextIndicatorWindowDismissalAnimation) override;
+    void setTextIndicator(Ref<WebCore::TextIndicator>, WebCore::TextIndicatorLifetime) override;
+    void clearTextIndicator(WebCore::TextIndicatorDismissalAnimation) override;
     void setTextIndicatorAnimationProgress(float) override;
 
     void enterAcceleratedCompositingMode(const LayerTreeContext&) override;
@@ -154,16 +165,13 @@ private:
     void updateAcceleratedCompositingMode(const LayerTreeContext&) override;
     void didFirstLayerFlush(const LayerTreeContext&) override;
 
-    RefPtr<ViewSnapshot> takeViewSnapshot(Optional<WebCore::IntRect>&&) override;
+    RefPtr<ViewSnapshot> takeViewSnapshot(std::optional<WebCore::IntRect>&&) override;
     void wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&) override;
 #if ENABLE(MAC_GESTURE_EVENTS)
     void gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent&) override;
 #endif
 
     void accessibilityWebProcessTokenReceived(const IPC::DataReference&) override;
-
-    void pluginFocusOrWindowFocusChanged(uint64_t pluginComplexTextInputIdentifier, bool pluginHasFocusAndWindowHasFocus) override;
-    void setPluginComplexTextInputState(uint64_t pluginComplexTextInputIdentifier, PluginComplexTextInputState) override;
 
     void makeFirstResponder() override;
     void assistiveTechnologyMakeFirstResponder() override;
@@ -185,6 +193,13 @@ private:
     void setEditableElementIsFocused(bool) override;
 
     void registerInsertionUndoGrouping() override;
+
+#if ENABLE(UI_PROCESS_PDF_HUD)
+    void createPDFHUD(PDFPluginIdentifier, const WebCore::IntRect&) override;
+    void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) override;
+    void removePDFHUD(PDFPluginIdentifier) override;
+    void removeAllPDFHUDs() override;
+#endif
 
     // Auxiliary Client Creation
 #if ENABLE(FULLSCREEN_API)
@@ -208,10 +223,13 @@ private:
     void willRecordNavigationSnapshot(WebBackForwardListItem&) override;
     void didRemoveNavigationGestureSnapshot() override;
 
-    void requestDOMPasteAccess(const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+
+    void makeViewBlank(bool) final;
 
     NSView *activeView() const;
     NSWindow *activeWindow() const;
+    NSView *viewForPresentingRevealPopover() const override { return activeView(); }
 
     void didStartProvisionalLoadForMainFrame() override;
     void didFirstVisuallyNonEmptyLayoutForMainFrame() override;
@@ -252,6 +270,7 @@ private:
     void refView() override;
     void derefView() override;
 
+    void pageDidScroll(const WebCore::IntPoint&) override;
     void didRestoreScrollPosition() override;
     bool windowIsFrontWindowUnderMouse(const NativeWebMouseEvent&) override;
 
@@ -260,6 +279,17 @@ private:
 #if HAVE(APP_ACCENT_COLORS)
     WebCore::Color accentColor() override;
 #endif
+
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+    bool canHandleContextMenuTranslation() const override;
+    void handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&) override;
+#endif
+
+#if ENABLE(DATA_DETECTION)
+    void handleClickForDataDetectionResult(const WebCore::DataDetectorElementInfo&, const WebCore::IntPoint&) final;
+#endif
+        
+    void requestScrollToRect(const WebCore::FloatRect& targetRect, const WebCore::FloatPoint& origin) override;
 
     NSView *m_view;
     WeakPtr<WebViewImpl> m_impl;

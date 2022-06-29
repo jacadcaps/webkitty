@@ -43,6 +43,13 @@
 
 namespace JSC {
 
+#if ENABLE(WEBASSEMBLY)
+namespace Wasm {
+class Callee;
+struct HandlerInfo;
+}
+#endif
+
     class CodeBlock;
     class EvalExecutable;
     class FunctionExecutable;
@@ -58,6 +65,7 @@ namespace JSC {
     class JSScope;
     class SourceCode;
     class StackFrame;
+    enum class HandlerType : uint8_t;
     struct CallFrameClosure;
     struct HandlerInfo;
     struct Instruction;
@@ -79,6 +87,22 @@ namespace JSC {
         StackFrameModuleCode,
         StackFrameFunctionCode,
         StackFrameNativeCode
+    };
+
+    struct CatchInfo {
+        CatchInfo() = default;
+
+        CatchInfo(const HandlerInfo*, CodeBlock*);
+#if ENABLE(WEBASSEMBLY)
+        CatchInfo(const Wasm::HandlerInfo*, const Wasm::Callee*);
+#endif
+
+        bool m_valid { false };
+        HandlerType m_type;
+#if ENABLE(JIT)
+        MacroAssemblerCodePtr<ExceptionHandlerPtrTag> m_nativeCode;
+#endif
+        const Instruction* m_catchPCForInterpreter;
     };
 
     class Interpreter {
@@ -105,14 +129,14 @@ namespace JSC {
 #endif
 
         JSValue executeProgram(const SourceCode&, JSGlobalObject*, JSObject* thisObj);
-        JSValue executeModuleProgram(ModuleProgramExecutable*, JSGlobalObject*, JSModuleEnvironment*);
+        JSValue executeModuleProgram(JSModuleRecord*, ModuleProgramExecutable*, JSGlobalObject*, JSModuleEnvironment*, JSValue sentValue, JSValue resumeMode);
         JSValue executeCall(JSGlobalObject*, JSObject* function, const CallData&, JSValue thisValue, const ArgList&);
         JSObject* executeConstruct(JSGlobalObject*, JSObject* function, const CallData&, const ArgList&, JSValue newTarget);
         JSValue execute(EvalExecutable*, JSGlobalObject*, JSValue thisValue, JSScope*);
 
         void getArgumentsData(CallFrame*, JSFunction*&, ptrdiff_t& firstParameterIndex, Register*& argv, int& argc);
 
-        NEVER_INLINE HandlerInfo* unwind(VM&, CallFrame*&, Exception*);
+        NEVER_INLINE CatchInfo unwind(VM&, CallFrame*&, Exception*);
         void notifyDebuggerOfExceptionToBeThrown(VM&, JSGlobalObject*, CallFrame*, Exception*);
         NEVER_INLINE void debug(CallFrame*, DebugHookType);
         static String stackTraceAsString(VM&, const Vector<StackFrame>&);

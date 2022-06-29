@@ -35,7 +35,7 @@
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
-#include <wtf/Optional.h>
+#include <wtf/PriorityQueue.h>
 #include <wtf/WallTime.h>
 #include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
@@ -55,7 +55,7 @@ public:
         WallTime timeStamp;
         Data header;
         Data body;
-        Optional<SHA1::Digest> bodyHash;
+        std::optional<SHA1::Digest> bodyHash;
 
         WTF_MAKE_FAST_ALLOCATED;
     };
@@ -143,15 +143,15 @@ private:
     void finishWriteOperation(WriteOperation&, int error = 0);
 
     bool shouldStoreBodyAsBlob(const Data& bodyData);
-    Optional<BlobStorage::Blob> storeBodyAsBlob(WriteOperation&);
-    Data encodeRecord(const Record&, Optional<BlobStorage::Blob>);
+    std::optional<BlobStorage::Blob> storeBodyAsBlob(WriteOperation&);
+    Data encodeRecord(const Record&, std::optional<BlobStorage::Blob>);
     void readRecord(ReadOperation&, const Data&);
 
     void updateFileModificationTime(const String& path);
     void removeFromPendingWriteOperations(const Key&);
 
-    WorkQueue& ioQueue() { return m_ioQueue.get(); }
-    WorkQueue& backgroundIOQueue() { return m_backgroundIOQueue.get(); }
+    ConcurrentWorkQueue& ioQueue() { return m_ioQueue.get(); }
+    ConcurrentWorkQueue& backgroundIOQueue() { return m_backgroundIOQueue.get(); }
     WorkQueue& serialBackgroundIOQueue() { return m_serialBackgroundIOQueue.get(); }
 
     bool mayContain(const Key&) const;
@@ -159,6 +159,11 @@ private:
 
     void addToRecordFilter(const Key&);
     void deleteFiles(const Key&);
+
+    static bool isHigherPriority(const std::unique_ptr<ReadOperation>&, const std::unique_ptr<ReadOperation>&);
+
+    size_t estimateRecordsSize(unsigned recordCount, unsigned blobCount) const;
+    uint32_t volumeBlockSize() const;
 
     const String m_basePath;
     const String m_recordsPath;
@@ -168,6 +173,7 @@ private:
 
     size_t m_capacity { std::numeric_limits<size_t>::max() };
     size_t m_approximateRecordsSize { 0 };
+    mutable std::optional<uint32_t> m_volumeBlockSize;
 
     // 2^18 bit filter can support up to 26000 entries with false positive rate < 1%.
     using ContentsFilter = BloomFilter<18>;
@@ -181,8 +187,7 @@ private:
     Vector<Key::HashType> m_recordFilterHashesAddedDuringSynchronization;
     Vector<Key::HashType> m_blobFilterHashesAddedDuringSynchronization;
 
-    static const int maximumRetrievePriority = 4;
-    Deque<std::unique_ptr<ReadOperation>> m_pendingReadOperationsByPriority[maximumRetrievePriority + 1];
+    PriorityQueue<std::unique_ptr<ReadOperation>, &isHigherPriority> m_pendingReadOperations;
     HashSet<std::unique_ptr<ReadOperation>> m_activeReadOperations;
     WebCore::Timer m_readOperationTimeoutTimer;
 
@@ -193,8 +198,8 @@ private:
     struct TraverseOperation;
     HashSet<std::unique_ptr<TraverseOperation>> m_activeTraverseOperations;
 
-    Ref<WorkQueue> m_ioQueue;
-    Ref<WorkQueue> m_backgroundIOQueue;
+    Ref<ConcurrentWorkQueue> m_ioQueue;
+    Ref<ConcurrentWorkQueue> m_backgroundIOQueue;
     Ref<WorkQueue> m_serialBackgroundIOQueue;
 
     BlobStorage m_blobStorage;

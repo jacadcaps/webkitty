@@ -25,11 +25,13 @@
 
 #pragma once
 
+#include "DataReference.h"
 #include "LegacyCustomProtocolID.h"
 #include "MessageReceiver.h"
 #include "NetworkProcessSupplement.h"
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/Lock.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -38,10 +40,6 @@
 OBJC_CLASS NSURLSessionConfiguration;
 OBJC_CLASS WKCustomProtocol;
 #endif
-
-namespace IPC {
-class DataReference;
-} // namespace IPC
 
 namespace WebCore {
 class ResourceError;
@@ -98,12 +96,12 @@ private:
     NetworkProcess& m_networkProcess;
 
     typedef HashMap<LegacyCustomProtocolID, CustomProtocol> CustomProtocolMap;
-    CustomProtocolMap m_customProtocolMap;
-    Lock m_customProtocolMapMutex;
+    CustomProtocolMap m_customProtocolMap WTF_GUARDED_BY_LOCK(m_customProtocolMapLock);
+    Lock m_customProtocolMapLock;
 
 #if PLATFORM(COCOA)
-    HashSet<String, ASCIICaseInsensitiveHash> m_registeredSchemes;
-    Lock m_registeredSchemesMutex;
+    HashSet<String, ASCIICaseInsensitiveHash> m_registeredSchemes WTF_GUARDED_BY_LOCK(m_registeredSchemesLock);
+    Lock m_registeredSchemesLock;
 
     // WKCustomProtocol objects can be removed from the m_customProtocolMap from multiple threads.
     // We return a RetainPtr here because it is unsafe to return a raw pointer since the object might immediately be destroyed from a different thread.
@@ -112,4 +110,3 @@ private:
 };
 
 } // namespace WebKit
-

@@ -34,6 +34,7 @@ TextStream& operator<<(TextStream& ts, ControlPart controlPart)
 {
     switch (controlPart) {
     case NoControlPart: ts << "no-control-part"; break;
+    case AutoPart: ts << "auto-part"; break;
     case CheckboxPart: ts << "checkbox-part"; break;
     case RadioPart: ts << "radio-part"; break;
     case PushButtonPart: ts << "push-button-part"; break;
@@ -85,7 +86,6 @@ TextStream& operator<<(TextStream& ts, ControlPart controlPart)
     case SearchFieldResultsDecorationPart: ts << "search-field-results-decoration-part"; break;
     case SearchFieldResultsButtonPart: ts << "search-field-results-button-part"; break;
     case SearchFieldCancelButtonPart: ts << "search-field-cancel-button-part"; break;
-    case SnapshottedPluginOverlayPart: ts << "snapshotted-plugin-overlay-part"; break;
     case TextFieldPart: ts << "text-field-part"; break;
     case RelevancyLevelIndicatorPart: ts << "relevancy-level-indicator-part"; break;
     case ContinuousCapacityLevelIndicatorPart: ts << "continuous-capacity-level-indicator-part"; break;

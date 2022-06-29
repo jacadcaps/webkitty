@@ -17,6 +17,9 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebCore_SOURCES
     editing/libwpe/EditorLibWPE.cpp
 
+    page/playstation/ResourceUsageOverlayPlayStation.cpp
+    page/playstation/ResourceUsageThreadPlayStation.cpp
+
     page/scrolling/nicosia/ScrollingCoordinatorNicosia.cpp
     page/scrolling/nicosia/ScrollingStateNodeNicosia.cpp
     page/scrolling/nicosia/ScrollingTreeFixedNode.cpp
@@ -25,14 +28,14 @@ list(APPEND WebCore_SOURCES
     page/scrolling/nicosia/ScrollingTreeOverflowScrollProxyNode.cpp
     page/scrolling/nicosia/ScrollingTreeOverflowScrollingNodeNicosia.cpp
     page/scrolling/nicosia/ScrollingTreePositionedNode.cpp
-    page/scrolling/nicosia/ScrollingTreeStickyNode.cpp
+    page/scrolling/nicosia/ScrollingTreeScrollingNodeDelegateNicosia.cpp
+    page/scrolling/nicosia/ScrollingTreeStickyNodeNicosia.cpp
 
     platform/ScrollAnimationKinetic.cpp
     platform/ScrollAnimationSmooth.cpp
 
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
-    platform/generic/ScrollAnimatorGeneric.cpp
 
     platform/graphics/GLContext.cpp
     platform/graphics/PlatformDisplay.cpp
@@ -41,13 +44,6 @@ list(APPEND WebCore_SOURCES
     platform/graphics/egl/GLContextEGLLibWPE.cpp
 
     platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
-
-    platform/graphics/opengl/ExtensionsGLOpenGLCommon.cpp
-    platform/graphics/opengl/ExtensionsGLOpenGLES.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLCommon.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLES.cpp
-    platform/graphics/opengl/GraphicsContextGLOpenGLPrivate.cpp
-    platform/graphics/opengl/TemporaryOpenGLSetting.cpp
 
     platform/libwpe/PasteboardLibWPE.cpp
     platform/libwpe/PlatformKeyboardEventLibWPE.cpp
@@ -60,8 +56,7 @@ list(APPEND WebCore_SOURCES
     platform/playstation/PlatformScreenPlayStation.cpp
     platform/playstation/ScrollbarThemePlayStation.cpp
     platform/playstation/UserAgentPlayStation.cpp
-
-    platform/posix/SharedBufferPOSIX.cpp
+    platform/playstation/WidgetPlayStation.cpp
 
     platform/text/Hyphenation.cpp
     platform/text/LocaleICU.cpp
@@ -84,11 +79,21 @@ list(APPEND WebCore_LIBRARIES
     WPE::libwpe
 )
 
-PLAYSTATION_COPY_SHARED_LIBRARIES(WebCore_CopySharedLibs
+# Find the extras needed to copy for EGL besides the libraries
+set(EGL_EXTRAS)
+foreach (EGL_EXTRA_NAME ${EGL_EXTRA_NAMES})
+    find_file(${EGL_EXTRA_NAME}_FOUND ${EGL_EXTRA_NAME} PATH_SUFFIXES bin)
+    if (${EGL_EXTRA_NAME}_FOUND)
+        list(APPEND EGL_EXTRAS ${${EGL_EXTRA_NAME}_FOUND})
+    endif ()
+endforeach ()
+
+PLAYSTATION_COPY_REQUIREMENTS(WebCore_CopySharedLibs
     FILES
         ${CURL_LIBRARIES}
         ${Cairo_LIBRARIES}
         ${EGL_LIBRARIES}
+        ${EGL_EXTRAS}
         ${FREETYPE_LIBRARIES}
         ${Fontconfig_LIBRARIES}
         ${HarfBuzz_LIBRARIES}

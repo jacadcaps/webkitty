@@ -50,11 +50,12 @@ struct DragSourceState {
     CGPoint adjustedOrigin { CGPointZero };
     CGRect dragPreviewFrameInRootViewCoordinates { CGRectZero };
     RetainPtr<UIImage> image;
-    Optional<WebCore::TextIndicatorData> indicatorData;
-    Optional<WebCore::Path> visiblePath;
+    std::optional<WebCore::TextIndicatorData> indicatorData;
+    std::optional<WebCore::Path> visiblePath;
     String linkTitle;
     URL linkURL;
     bool possiblyNeedsDragPreviewUpdate { true };
+    bool containsSelection { false };
 
     NSInteger itemIdentifier { 0 };
 };
@@ -71,7 +72,7 @@ struct ItemAndPreviewProvider {
 
 class DragDropInteractionState {
 public:
-    bool anyActiveDragSourceIs(WebCore::DragSourceAction) const;
+    bool anyActiveDragSourceContainsSelection() const;
 
     // These helper methods are unique to UIDragInteraction.
     void prepareForDragSession(id <UIDragSession>, dispatch_block_t completionHandler);
@@ -111,7 +112,7 @@ public:
 
 private:
     void updatePreviewsForActiveDragSources();
-    Optional<DragSourceState> activeDragSourceForItem(UIDragItem *) const;
+    std::optional<DragSourceState> activeDragSourceForItem(UIDragItem *) const;
     UITargetedDragPreview *defaultDropPreview(UIDragItem *) const;
     BlockPtr<void(UITargetedDragPreview *)> dropPreviewProvider(UIDragItem *);
 
@@ -125,7 +126,7 @@ private:
     BlockPtr<void()> m_dragCancelSetDownBlock;
     BlockPtr<void(NSArray<UIDragItem *> *)> m_addDragItemCompletionBlock;
 
-    Optional<DragSourceState> m_stagedDragSource;
+    std::optional<DragSourceState> m_stagedDragSource;
     Vector<DragSourceState> m_activeDragSources;
     Vector<ItemAndPreviewProvider> m_delayedItemPreviewProviders;
     Vector<ItemAndPreview> m_defaultDropPreviews;

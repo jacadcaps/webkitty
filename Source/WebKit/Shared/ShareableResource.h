@@ -38,7 +38,7 @@ class SharedBuffer;
 
 namespace WebKit {
     
-class ShareableResource : public RefCounted<ShareableResource> {
+class ShareableResource : public ThreadSafeRefCounted<ShareableResource> {
 public:
 
     class Handle {
@@ -60,8 +60,8 @@ public:
         friend class ShareableResource;
 
         mutable SharedMemory::Handle m_handle;
-        unsigned m_offset;
-        unsigned m_size;
+        unsigned m_offset { 0 };
+        unsigned m_size { 0 };
     };
 
     // Create a shareable resource that uses malloced memory.
@@ -75,7 +75,7 @@ public:
 
     ~ShareableResource();
 
-    const char* data() const;
+    const uint8_t* data() const;
     unsigned size() const;
     
 private:
@@ -84,8 +84,8 @@ private:
 
     Ref<SharedMemory> m_sharedMemory;
 
-    unsigned m_offset;
-    unsigned m_size;    
+    const unsigned m_offset;
+    const unsigned m_size;
 };
 
 } // namespace WebKit

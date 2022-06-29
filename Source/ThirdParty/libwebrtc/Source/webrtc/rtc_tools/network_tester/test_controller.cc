@@ -23,7 +23,9 @@ TestController::TestController(int min_port,
                                int max_port,
                                const std::string& config_file_path,
                                const std::string& log_file_path)
-    : socket_factory_(rtc::ThreadManager::Instance()->WrapCurrentThread()),
+    // TODO(bugs.webrtc.org/13145): Add a SocketFactory argument.
+    : socket_factory_(
+          rtc::ThreadManager::Instance()->WrapCurrentThread()->socketserver()),
       config_file_path_(config_file_path),
       packet_logger_(log_file_path),
       local_test_done_(false),
@@ -43,7 +45,7 @@ void TestController::SendConnectTo(const std::string& hostname, int port) {
   NetworkTesterPacket packet;
   packet.set_type(NetworkTesterPacket::HAND_SHAKING);
   SendData(packet, absl::nullopt);
-  rtc::CritScope scoped_lock(&local_test_done_lock_);
+  MutexLock scoped_lock(&local_test_done_lock_);
   local_test_done_ = false;
   remote_test_done_ = false;
 }
@@ -71,13 +73,13 @@ void TestController::OnTestDone() {
   NetworkTesterPacket packet;
   packet.set_type(NetworkTesterPacket::TEST_DONE);
   SendData(packet, absl::nullopt);
-  rtc::CritScope scoped_lock(&local_test_done_lock_);
+  MutexLock scoped_lock(&local_test_done_lock_);
   local_test_done_ = true;
 }
 
 bool TestController::IsTestDone() {
   RTC_DCHECK_RUN_ON(&test_controller_thread_checker_);
-  rtc::CritScope scoped_lock(&local_test_done_lock_);
+  MutexLock scoped_lock(&local_test_done_lock_);
   return local_test_done_ && remote_test_done_;
 }
 
@@ -100,7 +102,7 @@ void TestController::OnReadPacket(rtc::AsyncPacketSocket* socket,
       SendData(packet, absl::nullopt);
       packet_sender_.reset(new PacketSender(this, config_file_path_));
       packet_sender_->StartSending();
-      rtc::CritScope scoped_lock(&local_test_done_lock_);
+      MutexLock scoped_lock(&local_test_done_lock_);
       local_test_done_ = false;
       remote_test_done_ = false;
       break;
@@ -108,7 +110,7 @@ void TestController::OnReadPacket(rtc::AsyncPacketSocket* socket,
     case NetworkTesterPacket::TEST_START: {
       packet_sender_.reset(new PacketSender(this, config_file_path_));
       packet_sender_->StartSending();
-      rtc::CritScope scoped_lock(&local_test_done_lock_);
+      MutexLock scoped_lock(&local_test_done_lock_);
       local_test_done_ = false;
       remote_test_done_ = false;
       break;

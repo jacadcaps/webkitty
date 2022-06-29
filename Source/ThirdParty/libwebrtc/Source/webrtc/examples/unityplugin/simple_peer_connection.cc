@@ -190,13 +190,16 @@ bool SimplePeerConnection::CreatePeerConnection(const char** turn_urls,
   webrtc::PeerConnectionInterface::IceServer stun_server;
   stun_server.uri = GetPeerConnectionString();
   config_.servers.push_back(stun_server);
-  config_.enable_rtp_data_channel = true;
   config_.enable_dtls_srtp = false;
 
-  peer_connection_ = g_peer_connection_factory->CreatePeerConnection(
-      config_, nullptr, nullptr, this);
-
-  return peer_connection_.get() != nullptr;
+  auto result = g_peer_connection_factory->CreatePeerConnectionOrError(
+      config_, webrtc::PeerConnectionDependencies(this));
+  if (!result.ok()) {
+    peer_connection_ = nullptr;
+    return false;
+  }
+  peer_connection_ = result.MoveValue();
+  return true;
 }
 
 void SimplePeerConnection::DeletePeerConnection() {
@@ -336,10 +339,10 @@ bool SimplePeerConnection::SetRemoteDescription(const char* type,
     return false;
 
   std::string remote_desc(sdp);
-  std::string sdp_type(type);
+  std::string desc_type(type);
   webrtc::SdpParseError error;
   webrtc::SessionDescriptionInterface* session_description(
-      webrtc::CreateSessionDescription(sdp_type, remote_desc, &error));
+      webrtc::CreateSessionDescription(desc_type, remote_desc, &error));
   if (!session_description) {
     RTC_LOG(WARNING) << "Can't parse received session description message. "
                         "SdpParseError was: "
@@ -494,8 +497,9 @@ bool SimplePeerConnection::CreateDataChannel() {
   struct webrtc::DataChannelInit init;
   init.ordered = true;
   init.reliable = true;
-  data_channel_ = peer_connection_->CreateDataChannel("Hello", &init);
-  if (data_channel_.get()) {
+  auto result = peer_connection_->CreateDataChannelOrError("Hello", &init);
+  if (result.ok()) {
+    data_channel_ = result.MoveValue();
     data_channel_->RegisterObserver(this);
     RTC_LOG(LS_INFO) << "Succeeds to create data channel";
     return true;

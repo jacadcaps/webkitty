@@ -28,8 +28,25 @@ using VideoCodecConfig = PeerConnectionE2EQualityTestFixture::VideoCodecConfig;
 std::string CodecRequiredParamsToString(
     const std::map<std::string, std::string>& codec_required_params) {
   rtc::StringBuilder out;
-  for (auto entry : codec_required_params) {
+  for (const auto& entry : codec_required_params) {
     out << entry.first << "=" << entry.second << ";";
+  }
+  return out.str();
+}
+
+std::string SupportedCodecsToString(
+    rtc::ArrayView<const RtpCodecCapability> supported_codecs) {
+  rtc::StringBuilder out;
+  for (const auto& codec : supported_codecs) {
+    out << codec.name;
+    if (!codec.parameters.empty()) {
+      out << "(";
+      for (const auto& param : codec.parameters) {
+        out << param.first << "=" << param.second << ";";
+      }
+      out << ")";
+    }
+    out << "; ";
   }
   return out.str();
 }
@@ -42,16 +59,6 @@ std::vector<RtpCodecCapability> FilterVideoCodecCapabilities(
     bool use_ulpfec,
     bool use_flexfec,
     rtc::ArrayView<const RtpCodecCapability> supported_codecs) {
-  RTC_LOG(INFO) << "Peer connection support these codecs:";
-  for (const auto& codec : supported_codecs) {
-    RTC_LOG(INFO) << "Codec: " << codec.name;
-    if (!codec.parameters.empty()) {
-      RTC_LOG(INFO) << "Params:";
-      for (auto param : codec.parameters) {
-        RTC_LOG(INFO) << "  " << param.first << "=" << param.second;
-      }
-    }
-  }
   std::vector<RtpCodecCapability> output_codecs;
   // Find requested codecs among supported and add them to output in the order
   // they were requested.
@@ -62,7 +69,7 @@ std::vector<RtpCodecCapability> FilterVideoCodecCapabilities(
         continue;
       }
       bool parameters_matched = true;
-      for (auto item : codec_request.required_params) {
+      for (const auto& item : codec_request.required_params) {
         auto it = codec.parameters.find(item.first);
         if (it == codec.parameters.end()) {
           parameters_matched = false;
@@ -80,7 +87,8 @@ std::vector<RtpCodecCapability> FilterVideoCodecCapabilities(
     RTC_CHECK_GT(output_codecs.size(), size_before)
         << "Codec with name=" << codec_request.name << " and params {"
         << CodecRequiredParamsToString(codec_request.required_params)
-        << "} is unsupported for this peer connection";
+        << "} is unsupported for this peer connection. Supported codecs are: "
+        << SupportedCodecsToString(supported_codecs);
   }
 
   // Add required FEC and RTX codecs to output.
@@ -131,7 +139,7 @@ void SignalingInterceptor::FillSimulcastContext(
       media_desc->set_simulcast_description(simulcast_description);
 
       info.simulcast_description = media_desc->simulcast_description();
-      for (auto extension : media_desc->rtp_header_extensions()) {
+      for (const auto& extension : media_desc->rtp_header_extensions()) {
         if (extension.uri == RtpExtension::kMidUri) {
           info.mid_extension = extension;
         } else if (extension.uri == RtpExtension::kRidUri) {
@@ -443,7 +451,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Answer(
     // but it have to have receive layers instead of send. So we need to put
     // send layers from offer to receive layers in answer.
     cricket::SimulcastDescription simulcast_description;
-    for (auto layer : info.simulcast_description.send_layers()) {
+    for (const auto& layer : info.simulcast_description.send_layers()) {
       simulcast_description.receive_layers().AddLayerWithAlternatives(layer);
     }
     media_desc->set_simulcast_description(simulcast_description);
@@ -524,9 +532,11 @@ SignalingInterceptor::PatchOffererIceCandidates(
         context_.simulcast_infos_by_mid.find(candidate->sdp_mid());
     if (simulcast_info_it != context_.simulcast_infos_by_mid.end()) {
       // This is candidate for simulcast section, so it should be transformed
-      // into candidates for replicated sections
-      out.push_back(CreateIceCandidate(simulcast_info_it->second->rids[0], 0,
-                                       candidate->candidate()));
+      // into candidates for replicated sections. The sdpMLineIndex is set to
+      // -1 and ignored if the rid is present.
+      for (auto rid : simulcast_info_it->second->rids) {
+        out.push_back(CreateIceCandidate(rid, -1, candidate->candidate()));
+      }
     } else {
       out.push_back(CreateIceCandidate(candidate->sdp_mid(),
                                        candidate->sdp_mline_index(),
@@ -550,6 +560,9 @@ SignalingInterceptor::PatchAnswererIceCandidates(
       // section.
       out.push_back(CreateIceCandidate(simulcast_info_it->second->mid, 0,
                                        candidate->candidate()));
+    } else if (context_.simulcast_infos_by_rid.size()) {
+      // When using simulcast and bundle, put everything on the first m-line.
+      out.push_back(CreateIceCandidate("", 0, candidate->candidate()));
     } else {
       out.push_back(CreateIceCandidate(candidate->sdp_mid(),
                                        candidate->sdp_mline_index(),

@@ -159,11 +159,12 @@ void PlatformCALayer::drawTextAtPoint(CGContextRef context, CGFloat x, CGFloat y
         kCTStrokeWidthAttributeName,
         kCTStrokeColorAttributeName,
     };
+    auto strokeCGColor = cachedCGColor(strokeColor);
     CFTypeRef values[] = {
         font.get(),
         kCFBooleanTrue,
         strokeWidthNumber.get(),
-        cachedCGColor(strokeColor),
+        strokeCGColor.get(),
     };
 
     auto attributes = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, keys, values, WTF_ARRAY_LENGTH(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
@@ -198,6 +199,15 @@ LayerPool& PlatformCALayer::layerPool()
     return *sharedPool;
 }
 
+void PlatformCALayer::clearContents()
+{
+    setContents(nullptr);
+}
+
+void PlatformCALayer::dumpAdditionalProperties(TextStream&, OptionSet<PlatformLayerTreeAsTextFlags>)
+{
+}
+
 TextStream& operator<<(TextStream& ts, PlatformCALayer::LayerType layerType)
 {
     switch (layerType) {
@@ -220,9 +230,6 @@ TextStream& operator<<(TextStream& ts, PlatformCALayer::LayerType layerType)
         break;
     case PlatformCALayer::LayerTypeRootLayer:
         ts << "root-layer";
-        break;
-    case PlatformCALayer::LayerTypeEditableImageLayer:
-        ts << "editable-image";
         break;
     case PlatformCALayer::LayerTypeBackdropLayer:
         ts << "backdrop-layer";
@@ -248,6 +255,11 @@ TextStream& operator<<(TextStream& ts, PlatformCALayer::LayerType layerType)
     case PlatformCALayer::LayerTypeDarkSystemBackdropLayer:
         ts << "dark-system-backdrop-layer";
         break;
+#if ENABLE(MODEL_ELEMENT)
+    case PlatformCALayer::LayerTypeModelLayer:
+        ts << "model-layer";
+        break;
+#endif
     }
     return ts;
 }

@@ -60,9 +60,9 @@
 #import <WebCore/CSSStyleDeclaration.h>
 #import <WebCore/Comment.h>
 #import <WebCore/DOMWindow.h>
-#import <WebCore/Document.h>
 #import <WebCore/DocumentFragment.h>
 #import <WebCore/DocumentFullscreen.h>
+#import <WebCore/DocumentInlines.h>
 #import <WebCore/DocumentType.h>
 #import <WebCore/Event.h>
 #import <WebCore/HTMLCollection.h>
@@ -391,8 +391,6 @@
         return @"hidden";
     case WebCore::VisibilityState::Visible:
         return @"visible";
-    case WebCore::VisibilityState::Prerender:
-        return @"prerender";
     }
 }
 
@@ -615,7 +613,8 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (BOOL)execCommand:(NSString *)command userInterface:(BOOL)userInterface value:(NSString *)value
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->execCommand(command, userInterface, value);
+    auto result = IMPL->execCommand(command, userInterface, value);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)execCommand:(NSString *)command userInterface:(BOOL)userInterface
@@ -631,31 +630,36 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (BOOL)queryCommandEnabled:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandEnabled(command);
+    auto result = IMPL->queryCommandEnabled(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandIndeterm:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandIndeterm(command);
+    auto result = IMPL->queryCommandIndeterm(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandState:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandState(command);
+    auto result = IMPL->queryCommandState(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandSupported:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandSupported(command);
+    auto result = IMPL->queryCommandSupported(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (NSString *)queryCommandValue:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandValue(command);
+    auto result = IMPL->queryCommandValue(command);
+    return result.hasException() ? String() : result.returnValue();
 }
 
 - (DOMNodeList *)getElementsByName:(NSString *)elementName

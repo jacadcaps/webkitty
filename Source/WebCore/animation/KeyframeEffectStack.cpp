@@ -31,6 +31,7 @@
 #include "KeyframeEffect.h"
 #include "WebAnimation.h"
 #include "WebAnimationUtilities.h"
+#include <wtf/PointerComparison.h>
 
 namespace WebCore {
 
@@ -46,10 +47,11 @@ bool KeyframeEffectStack::addEffect(KeyframeEffect& effect)
 {
     // To qualify for membership in an effect stack, an effect must have a target, an animation, a timeline and be relevant.
     // This method will be called in WebAnimation and KeyframeEffect as those properties change.
-    if (!effect.targetElementOrPseudoElement() || !effect.animation() || !effect.animation()->timeline() || !effect.animation()->isRelevant())
+    if (!effect.targetStyleable() || !effect.animation() || !effect.animation()->timeline() || !effect.animation()->isRelevant())
         return false;
 
-    m_effects.append(makeWeakPtr(&effect));
+    effect.invalidate();
+    m_effects.append(effect);
     m_isSorted = false;
     return true;
 }
@@ -63,6 +65,15 @@ bool KeyframeEffectStack::requiresPseudoElement() const
 {
     for (auto& effect : m_effects) {
         if (effect->requiresPseudoElement())
+            return true;
+    }
+    return false;
+}
+
+bool KeyframeEffectStack::hasEffectWithImplicitKeyframes() const
+{
+    for (auto& effect : m_effects) {
+        if (effect->hasImplicitKeyframes())
             return true;
     }
     return false;
@@ -109,6 +120,83 @@ void KeyframeEffectStack::setCSSAnimationList(RefPtr<const AnimationList>&& cssA
     m_cssAnimationList = WTFMove(cssAnimationList);
     // Since the list of animation names has changed, the sorting order of the animation effects may have changed as well.
     m_isSorted = false;
+}
+
+OptionSet<AnimationImpact> KeyframeEffectStack::applyKeyframeEffects(RenderStyle& targetStyle, const RenderStyle& previousLastStyleChangeEventStyle, const Style::ResolutionContext& resolutionContext)
+{
+    OptionSet<AnimationImpact> impact;
+
+    auto transformRelatedPropertyChanged = [&]() -> bool {
+        return !arePointingToEqualData(targetStyle.translate(), previousLastStyleChangeEventStyle.translate())
+            || !arePointingToEqualData(targetStyle.scale(), previousLastStyleChangeEventStyle.scale())
+            || !arePointingToEqualData(targetStyle.rotate(), previousLastStyleChangeEventStyle.rotate())
+            || targetStyle.transform() != previousLastStyleChangeEventStyle.transform();
+    }();
+
+    auto propertyAffectingLogicalPropertiesChanged = previousLastStyleChangeEventStyle.direction() != targetStyle.direction()
+        || previousLastStyleChangeEventStyle.writingMode() != targetStyle.writingMode();
+
+    auto unanimatedStyle = RenderStyle::clone(targetStyle);
+
+    for (const auto& effect : sortedEffects()) {
+        ASSERT(effect->animation());
+
+        if (propertyAffectingLogicalPropertiesChanged)
+            effect->propertyAffectingLogicalPropertiesDidChange(unanimatedStyle, resolutionContext);
+
+        effect->animation()->resolve(targetStyle, resolutionContext);
+
+        if (effect->isRunningAccelerated() || effect->isAboutToRunAccelerated())
+            impact.add(AnimationImpact::RequiresRecomposite);
+
+        if (effect->triggersStackingContext())
+            impact.add(AnimationImpact::ForcesStackingContext);
+
+        if (transformRelatedPropertyChanged && effect->isRunningAcceleratedTransformRelatedAnimation())
+            effect->transformRelatedPropertyDidChange();
+    }
+
+    return impact;
+}
+
+void KeyframeEffectStack::stopAcceleratingTransformRelatedProperties(UseAcceleratedAction useAcceleratedAction)
+{
+    for (auto& effect : m_effects)
+        effect->stopAcceleratingTransformRelatedProperties(useAcceleratedAction);
+}
+
+void KeyframeEffectStack::clearInvalidCSSAnimationNames()
+{
+    m_invalidCSSAnimationNames.clear();
+}
+
+bool KeyframeEffectStack::hasInvalidCSSAnimationNames() const
+{
+    return !m_invalidCSSAnimationNames.isEmpty();
+}
+
+bool KeyframeEffectStack::containsInvalidCSSAnimationName(const String& name) const
+{
+    return m_invalidCSSAnimationNames.contains(name);
+}
+
+void KeyframeEffectStack::addInvalidCSSAnimationName(const String& name)
+{
+    m_invalidCSSAnimationNames.add(name);
+}
+
+bool KeyframeEffectStack::containsEffectThatPreventsAccelerationOfEffect(const KeyframeEffect& potentiallyAcceleratedEffect)
+{
+    ensureEffectsAreSorted();
+
+    for (auto& effect : m_effects) {
+        if (effect.get() == &potentiallyAcceleratedEffect)
+            continue;
+        if (effect->preventsAcceleration())
+            return true;
+    }
+
+    return false;
 }
 
 } // namespace WebCore

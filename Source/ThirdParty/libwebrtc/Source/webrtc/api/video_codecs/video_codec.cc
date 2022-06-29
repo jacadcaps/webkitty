@@ -21,13 +21,11 @@ namespace webrtc {
 namespace {
 constexpr char kPayloadNameVp8[] = "VP8";
 constexpr char kPayloadNameVp9[] = "VP9";
-// TODO(bugs.webrtc.org/11042): Rename to AV1 when rtp payload format for av1 is
-// frozen.
-constexpr char kPayloadNameAv1[] = "AV1X";
+constexpr char kPayloadNameAv1[] = "AV1";
+// TODO(bugs.webrtc.org/13166): Delete after all dependent projects updated.
+constexpr char kPayloadNameAv1x[] = "AV1X";
 constexpr char kPayloadNameH264[] = "H264";
-#ifndef DISABLE_H265
 constexpr char kPayloadNameH265[] = "H265";
-#endif
 constexpr char kPayloadNameGeneric[] = "Generic";
 constexpr char kPayloadNameMultiplex[] = "Multiplex";
 }  // namespace
@@ -59,30 +57,8 @@ bool VideoCodecH264::operator==(const VideoCodecH264& other) const {
           numberOfTemporalLayers == other.numberOfTemporalLayers);
 }
 
-#ifndef DISABLE_H265
-bool VideoCodecH265::operator==(const VideoCodecH265& other) const {
-  return (frameDroppingOn == other.frameDroppingOn &&
-          keyFrameInterval == other.keyFrameInterval &&
-          vpsLen == other.vpsLen && spsLen == other.spsLen &&
-          ppsLen == other.ppsLen &&
-          (spsLen == 0 || memcmp(spsData, other.spsData, spsLen) == 0) &&
-          (ppsLen == 0 || memcmp(ppsData, other.ppsData, ppsLen) == 0));
-}
-#endif
-
-bool SpatialLayer::operator==(const SpatialLayer& other) const {
-  return (width == other.width && height == other.height &&
-          maxFramerate == other.maxFramerate &&
-          numberOfTemporalLayers == other.numberOfTemporalLayers &&
-          maxBitrate == other.maxBitrate &&
-          targetBitrate == other.targetBitrate &&
-          minBitrate == other.minBitrate && qpMax == other.qpMax &&
-          active == other.active);
-}
-
 VideoCodec::VideoCodec()
     : codecType(kVideoCodecGeneric),
-      plType(0),
       width(0),
       height(0),
       startBitrate(0),
@@ -97,6 +73,7 @@ VideoCodec::VideoCodec()
       mode(VideoCodecMode::kRealtimeVideo),
       expect_encode_from_texture(false),
       timing_frame_thresholds({0, 0}),
+      legacy_conference_mode(false),
       codec_specific_() {}
 
 VideoCodecVP8* VideoCodec::VP8() {
@@ -129,18 +106,6 @@ const VideoCodecH264& VideoCodec::H264() const {
   return codec_specific_.H264;
 }
 
-#ifndef DISABLE_H265
-VideoCodecH265* VideoCodec::H265() {
-  RTC_DCHECK_EQ(codecType, kVideoCodecH265);
-  return &codec_specific_.H265;
-}
-
-const VideoCodecH265& VideoCodec::H265() const {
-  RTC_DCHECK_EQ(codecType, kVideoCodecH265);
-  return codec_specific_.H265;
-}
-#endif
-
 const char* CodecTypeToPayloadString(VideoCodecType type) {
   switch (type) {
     case kVideoCodecVP8:
@@ -160,6 +125,7 @@ const char* CodecTypeToPayloadString(VideoCodecType type) {
     case kVideoCodecGeneric:
       return kPayloadNameGeneric;
   }
+  RTC_CHECK_NOTREACHED();
 }
 
 VideoCodecType PayloadStringToCodecType(const std::string& name) {
@@ -167,7 +133,8 @@ VideoCodecType PayloadStringToCodecType(const std::string& name) {
     return kVideoCodecVP8;
   if (absl::EqualsIgnoreCase(name, kPayloadNameVp9))
     return kVideoCodecVP9;
-  if (absl::EqualsIgnoreCase(name, kPayloadNameAv1))
+  if (absl::EqualsIgnoreCase(name, kPayloadNameAv1) ||
+      absl::EqualsIgnoreCase(name, kPayloadNameAv1x))
     return kVideoCodecAV1;
   if (absl::EqualsIgnoreCase(name, kPayloadNameH264))
     return kVideoCodecH264;

@@ -31,9 +31,11 @@
 #include "LibWebRTCUtils.h"
 
 ALLOW_UNUSED_PARAMETERS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
 #include <webrtc/api/peer_connection_interface.h>
 
+ALLOW_DEPRECATED_DECLARATIONS_END
 ALLOW_UNUSED_PARAMETERS_END
 
 namespace WebCore {
@@ -57,38 +59,50 @@ private:
 };
 
 template<typename Endpoint>
-class SetLocalSessionDescriptionObserver final : public webrtc::SetSessionDescriptionObserver {
+class SetLocalSessionDescriptionObserver final : public webrtc::SetLocalDescriptionObserverInterface {
 public:
     explicit SetLocalSessionDescriptionObserver(Endpoint &endpoint)
         : m_endpoint(endpoint)
     {
     }
 
-    void OnSuccess() final { m_endpoint.setLocalSessionDescriptionSucceeded(); }
-    void OnFailure(webrtc::RTCError error) final { m_endpoint.setLocalSessionDescriptionFailed(toExceptionCode(error.type()), error.message()); }
-
     void AddRef() const { m_endpoint.AddRef(); }
     rtc::RefCountReleaseStatus Release() const { return m_endpoint.Release(); }
 
 private:
+    void OnSetLocalDescriptionComplete(webrtc::RTCError error) final
+    {
+        if (!error.ok()) {
+            m_endpoint.setLocalSessionDescriptionFailed(toExceptionCode(error.type()), error.message());
+            return;
+        }
+        m_endpoint.setLocalSessionDescriptionSucceeded();
+    }
+
     Endpoint& m_endpoint;
 };
 
 template<typename Endpoint>
-class SetRemoteSessionDescriptionObserver final : public webrtc::SetSessionDescriptionObserver {
+class SetRemoteSessionDescriptionObserver final : public webrtc::SetRemoteDescriptionObserverInterface {
 public:
     explicit SetRemoteSessionDescriptionObserver(Endpoint &endpoint)
         : m_endpoint(endpoint)
     {
     }
 
-    void OnSuccess() final { m_endpoint.setRemoteSessionDescriptionSucceeded(); }
-    void OnFailure(webrtc::RTCError error) final { m_endpoint.setRemoteSessionDescriptionFailed(toExceptionCode(error.type()), error.message()); }
-
     void AddRef() const { m_endpoint.AddRef(); }
     rtc::RefCountReleaseStatus Release() const { return m_endpoint.Release(); }
 
 private:
+    void OnSetRemoteDescriptionComplete(webrtc::RTCError error) final
+    {
+        if (!error.ok()) {
+            m_endpoint.setRemoteSessionDescriptionFailed(toExceptionCode(error.type()), error.message());
+            return;
+        }
+        m_endpoint.setRemoteSessionDescriptionSucceeded();
+    }
+
     Endpoint& m_endpoint;
 };
 

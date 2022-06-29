@@ -35,7 +35,6 @@ from webkitpy.port.factory import PortFactory
 from webkitpy.port import server_process
 from webkitpy.common.system.systemhost import SystemHost
 from webkitpy.common.system.systemhost_mock import MockSystemHost
-from webkitpy.common.system.outputcapture import OutputCapture
 
 
 class TrivialMockPort(object):
@@ -71,7 +70,7 @@ class MockFile(object):
 
     def read(self, size=0):
         # This means end of file
-        return ''
+        return b''
 
     def close(self):
         self.closed = True

@@ -61,29 +61,46 @@ void ScrollingTreeOverflowScrollingNodeMac::commitStateBeforeChildren(const Scro
     m_delegate.updateFromStateNode(downcast<ScrollingStateOverflowScrollingNode>(stateNode));
 }
 
-void ScrollingTreeOverflowScrollingNodeMac::commitStateAfterChildren(const ScrollingStateNode& stateNode)
-{
-    ScrollingTreeOverflowScrollingNode::commitStateAfterChildren(stateNode);
-
-    const auto& overflowStateNode = downcast<ScrollingStateOverflowScrollingNode>(stateNode);
-
-    if (overflowStateNode.hasChangedProperty(ScrollingStateScrollingNode::RequestedScrollPosition)) {
-        const auto& requestedScrollData = overflowStateNode.requestedScrollData();
-        scrollTo(requestedScrollData.scrollPosition, requestedScrollData.scrollType, requestedScrollData.clamping);
-    }
-}
-
-WheelEventHandlingResult ScrollingTreeOverflowScrollingNodeMac::handleWheelEvent(const PlatformWheelEvent& wheelEvent)
+WheelEventHandlingResult ScrollingTreeOverflowScrollingNodeMac::handleWheelEvent(const PlatformWheelEvent& wheelEvent, EventTargeting eventTargeting)
 {
 #if ENABLE(SCROLLING_THREAD)
-    if (hasSynchronousScrollingReasons())
-        return { { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForDOMEventDispatch }, false };
+    if (hasSynchronousScrollingReasons() && eventTargeting != EventTargeting::NodeOnly)
+        return { { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch }, false };
 #endif
 
-    if (!canHandleWheelEvent(wheelEvent))
+    if (!canHandleWheelEvent(wheelEvent, eventTargeting))
         return WheelEventHandlingResult::unhandled();
 
     return WheelEventHandlingResult::result(m_delegate.handleWheelEvent(wheelEvent));
+}
+
+bool ScrollingTreeOverflowScrollingNodeMac::startAnimatedScrollToPosition(FloatPoint destinationPosition)
+{
+    bool started = m_delegate.startAnimatedScrollToPosition(destinationPosition);
+    if (started)
+        willStartAnimatedScroll();
+    return started;
+}
+
+void ScrollingTreeOverflowScrollingNodeMac::stopAnimatedScroll()
+{
+    m_delegate.stopAnimatedScroll();
+}
+
+void ScrollingTreeOverflowScrollingNodeMac::serviceScrollAnimation(MonotonicTime currentTime)
+{
+    m_delegate.serviceScrollAnimation(currentTime);
+}
+
+void ScrollingTreeOverflowScrollingNodeMac::willDoProgrammaticScroll(const FloatPoint& targetScrollPosition)
+{
+    m_delegate.willDoProgrammaticScroll(targetScrollPosition);
+}
+
+void ScrollingTreeOverflowScrollingNodeMac::currentScrollPositionChanged(ScrollType scrollType, ScrollingLayerPositionAction action)
+{
+    ScrollingTreeOverflowScrollingNode::currentScrollPositionChanged(scrollType, action);
+    m_delegate.currentScrollPositionChanged();
 }
 
 FloatPoint ScrollingTreeOverflowScrollingNodeMac::adjustedScrollPosition(const FloatPoint& position, ScrollClamping clamp) const

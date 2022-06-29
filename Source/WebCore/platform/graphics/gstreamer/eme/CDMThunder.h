@@ -36,6 +36,7 @@
 #include "CDMPrivate.h"
 #include "CDMProxy.h"
 #include "GStreamerEMEUtilities.h"
+#include "MediaKeyStatus.h"
 #include "SharedBuffer.h"
 #include <wtf/WeakPtr.h>
 
@@ -48,8 +49,6 @@ struct ThunderSystemDeleter {
 };
 
 using UniqueThunderSystem = std::unique_ptr<OpenCDMSystem, ThunderSystemDeleter>;
-
-using UniqueThunderSession = std::unique_ptr<OpenCDMSession, WTF::BoxPtrDeleter<OpenCDMSession>>;
 
 } // namespace Thunder
 
@@ -73,7 +72,7 @@ private:
 class CDMPrivateThunder final : public CDMPrivate {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    CDMPrivateThunder(const String& keySystem) : m_keySystem(keySystem) { };
+    CDMPrivateThunder(const String& keySystem);
     virtual ~CDMPrivateThunder() = default;
 
     Vector<AtomString> supportedInitDataTypes() const final;
@@ -94,12 +93,13 @@ public:
     void loadAndInitialize() final;
     bool supportsServerCertificates() const final;
     bool supportsSessions() const final;
-    bool supportsInitData(const AtomString&, const SharedBuffer&) const final;
-    RefPtr<SharedBuffer> sanitizeResponse(const SharedBuffer&) const final;
-    Optional<String> sanitizeSessionId(const String&) const final;
+    bool supportsInitData(const AtomString&, const FragmentedSharedBuffer&) const final;
+    RefPtr<FragmentedSharedBuffer> sanitizeResponse(const FragmentedSharedBuffer&) const final;
+    std::optional<String> sanitizeSessionId(const String&) const final;
 
 private:
     String m_keySystem;
+    Thunder::UniqueThunderSystem m_thunderSystem;
 };
 
 class CDMInstanceThunder final : public CDMInstanceProxy {
@@ -110,19 +110,12 @@ public:
     // CDMInstance
     ImplementationType implementationType() const final { return ImplementationType::Thunder; }
     void initializeWithConfiguration(const CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers, AllowPersistentState, SuccessCallback&&) final;
-    void setServerCertificate(Ref<SharedBuffer>&&, SuccessCallback&&) final;
+    void setServerCertificate(Ref<FragmentedSharedBuffer>&&, SuccessCallback&&) final;
     void setStorageDirectory(const String&) final;
     const String& keySystem() const final { return m_keySystem; }
     RefPtr<CDMInstanceSession> createSession() final;
 
     OpenCDMSystem& thunderSystem() const { return *m_thunderSystem.get(); };
-
-    void releaseDecryptionResources() final
-    {
-        ASSERT(isMainThread());
-        CDMInstanceProxy::releaseDecryptionResources();
-        m_thunderSystem.reset(nullptr);
-    }
 
 private:
     Thunder::UniqueThunderSystem m_thunderSystem;
@@ -133,8 +126,8 @@ class CDMInstanceSessionThunder final : public CDMInstanceSessionProxy {
 public:
     CDMInstanceSessionThunder(CDMInstanceThunder&);
 
-    void requestLicense(LicenseType, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
-    void updateLicense(const String&, LicenseType, Ref<SharedBuffer>&&, LicenseUpdateCallback&&) final;
+    void requestLicense(LicenseType, const AtomString& initDataType, Ref<FragmentedSharedBuffer>&& initData, LicenseCallback&&) final;
+    void updateLicense(const String&, LicenseType, Ref<FragmentedSharedBuffer>&&, LicenseUpdateCallback&&) final;
     void loadSession(LicenseType, const String&, const String&, LoadSessionCallback&&) final;
     void closeSession(const String&, CloseSessionCallback&&) final;
     void removeSessionData(const String&, LicenseType, RemoveSessionDataCallback&&) final;
@@ -145,25 +138,17 @@ public:
     void setClient(WeakPtr<CDMInstanceSessionClient>&& client) final { m_client = WTFMove(client); }
     void clearClient() final { m_client.clear(); }
 
-    void releaseDecryptionResources() final
-    {
-        ASSERT(isMainThread());
-        m_keyStore.removeAllKeys();
-        m_session.reset(nullptr);
-        CDMInstanceSessionProxy::releaseDecryptionResources();
-    }
-
 private:
-    Optional<CDMInstanceThunder&> cdmInstanceThunder() const;
+    CDMInstanceThunder* cdmInstanceThunder() const;
 
-    using Notification = void (CDMInstanceSessionThunder::*)(RefPtr<WebCore::SharedBuffer>&&);
+    using Notification = void (CDMInstanceSessionThunder::*)(RefPtr<WebCore::FragmentedSharedBuffer>&&);
     using ChallengeGeneratedCallback = Function<void()>;
-    using SessionChangedCallback = Function<void(bool, RefPtr<SharedBuffer>&&)>;
+    using SessionChangedCallback = Function<void(bool, RefPtr<FragmentedSharedBuffer>&&)>;
 
-    void challengeGeneratedCallback(RefPtr<SharedBuffer>&&);
+    void challengeGeneratedCallback(RefPtr<FragmentedSharedBuffer>&&);
     void keyUpdatedCallback(KeyIDType&&);
     void keysUpdateDoneCallback();
-    void errorCallback(RefPtr<SharedBuffer>&&);
+    void errorCallback(RefPtr<FragmentedSharedBuffer>&&);
     CDMInstanceSession::KeyStatus status(const KeyIDType&) const;
     void sessionFailure();
 
@@ -173,8 +158,8 @@ private:
     bool m_doesKeyStoreNeedMerging { false };
     InitData m_initData;
     OpenCDMSessionCallbacks m_thunderSessionCallbacks { };
-    Thunder::UniqueThunderSession m_session;
-    RefPtr<SharedBuffer> m_message;
+    BoxPtr<OpenCDMSession> m_session;
+    RefPtr<FragmentedSharedBuffer> m_message;
     bool m_needsIndividualization { false };
     Vector<ChallengeGeneratedCallback> m_challengeCallbacks;
     Vector<SessionChangedCallback> m_sessionChangedCallbacks;

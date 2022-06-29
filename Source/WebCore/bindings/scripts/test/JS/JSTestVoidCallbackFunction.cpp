@@ -24,6 +24,7 @@
 
 #include "JSTestVoidCallbackFunction.h"
 
+#include "JSDOMConvertBase.h"
 #include "JSDOMConvertBoolean.h"
 #include "JSDOMConvertBufferSource.h"
 #include "JSDOMConvertInterface.h"
@@ -40,9 +41,9 @@
 namespace WebCore {
 using namespace JSC;
 
-JSTestVoidCallbackFunction::JSTestVoidCallbackFunction(JSObject* callback, JSDOMGlobalObject* globalObject)
-    : TestVoidCallbackFunction(globalObject->scriptExecutionContext())
-    , m_data(new JSCallbackDataStrong(callback, globalObject, this))
+JSTestVoidCallbackFunction::JSTestVoidCallbackFunction(VM& vm, JSObject* callback)
+    : TestVoidCallbackFunction(jsCast<JSDOMGlobalObject*>(callback->globalObject(vm))->scriptExecutionContext())
+    , m_data(new JSCallbackDataStrong(vm, callback, this))
 {
 }
 
@@ -60,14 +61,14 @@ JSTestVoidCallbackFunction::~JSTestVoidCallbackFunction()
 #endif
 }
 
-CallbackResult<typename IDLVoid::ImplementationType> JSTestVoidCallbackFunction::handleEvent(typename IDLFloat32Array::ParameterType arrayParam, typename IDLSerializedScriptValue<SerializedScriptValue>::ParameterType srzParam, typename IDLDOMString::ParameterType strArg, typename IDLBoolean::ParameterType boolParam, typename IDLLong::ParameterType longParam, typename IDLInterface<TestNode>::ParameterType testNodeParam)
+CallbackResult<typename IDLUndefined::ImplementationType> JSTestVoidCallbackFunction::handleEvent(typename IDLFloat32Array::ParameterType arrayParam, typename IDLSerializedScriptValue<SerializedScriptValue>::ParameterType srzParam, typename IDLDOMString::ParameterType strArg, typename IDLBoolean::ParameterType boolParam, typename IDLLong::ParameterType longParam, typename IDLInterface<TestNode>::ParameterType testNodeParam)
 {
     if (!canInvokeCallback())
         return CallbackResultType::UnableToExecute;
 
     Ref<JSTestVoidCallbackFunction> protectedThis(*this);
 
-    auto& globalObject = *m_data->globalObject();
+    auto& globalObject = *jsCast<JSDOMGlobalObject*>(scriptExecutionContext()->globalObject());
     auto& vm = globalObject.vm();
 
     JSLockHolder lock(vm);
@@ -83,7 +84,7 @@ CallbackResult<typename IDLVoid::ImplementationType> JSTestVoidCallbackFunction:
     ASSERT(!args.hasOverflowed());
 
     NakedPtr<JSC::Exception> returnedException;
-    m_data->invokeCallback(thisValue, args, JSCallbackData::CallbackType::Function, Identifier(), returnedException);
+    m_data->invokeCallback(vm, thisValue, args, JSCallbackData::CallbackType::Function, Identifier(), returnedException);
     if (returnedException) {
         reportException(&lexicalGlobalObject, returnedException);
         return CallbackResultType::ExceptionThrown;

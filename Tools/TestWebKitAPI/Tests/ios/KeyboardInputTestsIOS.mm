@@ -36,12 +36,14 @@
 #import "UIKitSPI.h"
 #import "UserInterfaceSwizzler.h"
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKitLegacy/WebEvent.h>
 #import <cmath>
 
 @interface WKContentView ()
+@property (nonatomic, readonly) NSUndoManager *undoManagerForWebView;
 - (BOOL)_shouldSimulateKeyboardInputOnTextInsertion;
 @end
 
@@ -71,23 +73,23 @@
 + (UIBarButtonItemGroup *)leadingItemsForWebView:(WKWebView *)webView
 {
     static dispatch_once_t onceToken;
-    static UIBarButtonItemGroup *sharedItems;
+    static RetainPtr<UIBarButtonItemGroup> sharedItems;
     dispatch_once(&onceToken, ^{
         auto leadingItem = adoptNS([[UIBarButtonItem alloc] initWithImage:self.barButtonIcon style:UIBarButtonItemStylePlain target:webView action:@selector(fakeLeadingBarButtonItemAction)]);
-        sharedItems = [[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ leadingItem.get() ] representativeItem:nil];
+        sharedItems = adoptNS([[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ leadingItem.get() ] representativeItem:nil]);
     });
-    return sharedItems;
+    return sharedItems.get();
 }
 
 + (UIBarButtonItemGroup *)trailingItemsForWebView:(WKWebView *)webView
 {
     static dispatch_once_t onceToken;
-    static UIBarButtonItemGroup *sharedItems;
+    static RetainPtr<UIBarButtonItemGroup> sharedItems;
     dispatch_once(&onceToken, ^{
         auto trailingItem = adoptNS([[UIBarButtonItem alloc] initWithImage:self.barButtonIcon style:UIBarButtonItemStylePlain target:webView action:@selector(fakeTrailingBarButtonItemAction)]);
-        sharedItems = [[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ trailingItem.get() ] representativeItem:nil];
+        sharedItems = adoptNS([[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ trailingItem.get() ] representativeItem:nil]);
     });
-    return sharedItems;
+    return sharedItems.get();
 }
 
 - (UITextInputAssistantItem *)inputAssistantItem
@@ -183,6 +185,19 @@ static CGRect rounded(CGRect rect)
 - (UIView *)inputAccessoryView
 {
     return _customInputAccessoryView.get();
+}
+
+@end
+
+@interface CustomUndoManagerWebView : TestWKWebView
+@property (nonatomic, strong) NSUndoManager *customUndoManager;
+@end
+
+@implementation CustomUndoManagerWebView
+
+- (NSUndoManager *)undoManager
+{
+    return _customUndoManager ?: super.undoManager;
 }
 
 @end
@@ -659,7 +674,7 @@ TEST(KeyboardInputTests, SelectionClipRectsWhenPresentingInputView)
 
     EXPECT_EQ(11, selectionClipRect.origin.x);
     EXPECT_EQ(11, selectionClipRect.origin.y);
-    EXPECT_EQ(136, selectionClipRect.size.width);
+    EXPECT_EQ(153, selectionClipRect.size.width);
     EXPECT_EQ(20, selectionClipRect.size.height);
 }
 
@@ -689,6 +704,7 @@ TEST(KeyboardInputTests, TestWebViewAdditionalContextForStrongPasswordAssistance
 
     NSDictionary *actual = [[webView textInputContentView] _autofillContext];
     EXPECT_TRUE([[actual allValues] containsObject:expected]);
+    EXPECT_TRUE([actual[@"_automaticPasswordKeyboard"] boolValue]);
 }
 
 TEST(KeyboardInputTests, TestWebViewAccessoryDoneDuringStrongPasswordAssistance)
@@ -798,6 +814,61 @@ TEST(KeyboardInputTests, InsertDictationAlternativesSimulatingKeyboardInput)
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.body.focus()"];
     [[webView textInputContentView] insertText:@"hello" alternatives:@[ @"helo" ] style:UITextAlternativeStyleNone];
     EXPECT_NS_EQUAL((@[@"keydown", @"beforeinput", @"input", @"keyup", @"change"]), [webView objectByEvaluatingJavaScript:@"firedEvents"]);
+}
+
+TEST(KeyboardInputTests, OverrideUndoManager)
+{
+    auto webView = adoptNS([[CustomUndoManagerWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto contentView = [webView wkContentView];
+    EXPECT_EQ(contentView.undoManager, contentView.undoManagerForWebView);
+
+    auto undoManager = adoptNS([[NSUndoManager alloc] init]);
+    [webView setCustomUndoManager:undoManager.get()];
+    EXPECT_EQ(contentView.undoManager, undoManager);
+}
+
+TEST(KeyboardInputTests, DoNotRegisterActionsInOverriddenUndoManager)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration _setUndoManagerAPIEnabled:YES];
+
+    auto webView = adoptNS([[CustomUndoManagerWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    auto contentView = [webView wkContentView];
+    EXPECT_FALSE([contentView.undoManagerForWebView canUndo]);
+
+    auto overrideUndoManager = adoptNS([[NSUndoManager alloc] init]);
+    [webView setCustomUndoManager:overrideUndoManager.get()];
+
+    __block bool doneWaiting = false;
+    [webView synchronouslyLoadHTMLString:@"<body></body>"];
+    [webView evaluateJavaScript:@"document.undoManager.addItem(new UndoItem({ label: '', undo: () => debug(\"Performed undo.\"), redo: () => debug(\"Performed redo.\") }))" completionHandler:^(id, NSError *) {
+        doneWaiting = true;
+    }];
+
+    TestWebKitAPI::Util::run(&doneWaiting);
+    EXPECT_TRUE([contentView.undoManagerForWebView canUndo]);
+    EXPECT_FALSE([overrideUndoManager canUndo]);
+}
+
+static UIView * nilResizableSnapshotViewFromRect(id, SEL, CGRect, BOOL, UIEdgeInsets)
+{
+    return nil;
+}
+
+TEST(KeyboardInputTests, DoNotCrashWhenFocusingSelectWithoutViewSnapshot)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto delegate = adoptNS([TestInputDelegate new]);
+    [webView _setInputDelegate:delegate.get()];
+    [delegate setFocusStartsInputSessionPolicyHandler:[](WKWebView *, id <_WKFocusedElementInfo>) {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    [webView synchronouslyLoadHTMLString:@"<select id='select'><option>foo</option><option>bar</option></select>"];
+
+    InstanceMethodSwizzler swizzler { UIView.class, @selector(resizableSnapshotViewFromRect:afterScreenUpdates:withCapInsets:), reinterpret_cast<IMP>(nilResizableSnapshotViewFromRect) };
+    [webView stringByEvaluatingJavaScript:@"select.focus()"];
+    [webView waitForNextPresentationUpdate];
 }
 
 } // namespace TestWebKitAPI

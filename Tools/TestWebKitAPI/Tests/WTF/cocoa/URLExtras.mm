@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "Test.h"
 #import "WTFStringUtilities.h"
 #import <wtf/URL.h>
 #import <wtf/Vector.h>
@@ -78,7 +79,11 @@ TEST(WTF_URLExtras, URLExtras)
     EXPECT_STREQ("-a.example.com", [WTF::decodeHostName(@"-a.example.com") UTF8String]);
     EXPECT_STREQ("a-.example.com", [WTF::decodeHostName(@"a-.example.com") UTF8String]);
     EXPECT_STREQ("ab--cd.example.com", [WTF::decodeHostName(@"ab--cd.example.com") UTF8String]);
+#if HAVE(NSURL_EMPTY_PUNYCODE_CHECK)
+    EXPECT_NULL([WTF::decodeHostName(@"xn--.example.com") UTF8String]);
+#else
     EXPECT_STREQ(".example.com", [WTF::decodeHostName(@"xn--.example.com") UTF8String]);
+#endif
     EXPECT_STREQ("a..example.com", [WTF::decodeHostName(@"a..example.com") UTF8String]);
 }
     
@@ -113,6 +118,14 @@ TEST(WTF_URLExtras, URLExtras_Spoof)
         "xn--2-zic", // U+0032 U+05E1
         "xn--uoa", // U+027E
         "xn--fja", // U+01C0
+        "xn--koa", // U+0274
+        "xn--tma", // U+0237
+        "xn--o-pdc", // U+0585 'o'
+        "xn--o-qdc", // 'o' U+0585
+        "xn--g-hdc", // U+0581 'g'
+        "xn--g-idc", // 'g' U+0581
+        "xn--o-00e", // U+0BE6 'o'
+        "xn--o-10e", // 'o' U+0BE6
     };
     for (const String& host : punycodedSpoofHosts) {
         auto url = makeString("http://", host, "/").utf8();
@@ -128,10 +141,17 @@ TEST(WTF_URLExtras, URLExtras_NotSpoofed)
     EXPECT_STREQ("https://\u0573-1-\u0574\u0578.\u0570\u0561\u0575", userVisibleString(literalURL("https://\u0573-1-\u0574\u0578.\u0570\u0561\u0575")));
     EXPECT_STREQ("https://2\u0573_\u0574\u0578.\u0570\u0561\u0575", userVisibleString(literalURL("https://2\u0573_\u0574\u0578.\u0570\u0561\u0575")));
     EXPECT_STREQ("https://\u0573_\u0574\u05783.\u0570\u0561\u0575", userVisibleString(literalURL("https://\u0573_\u0574\u05783.\u0570\u0561\u0575")));
-    EXPECT_STREQ("https://got\u0551\u0535\u0543.com", userVisibleString(literalURL("https://got\u0551\u0535\u0543.com")));
+    EXPECT_STREQ("https://got%D5%91\u0535\u0543.com", userVisibleString(literalURL("https://got\u0551\u0535\u0543.com")));
     EXPECT_STREQ("https://\u0551\u0535\u0543fans.net", userVisibleString(literalURL("https://\u0551\u0535\u0543fans.net")));
     EXPECT_STREQ("https://\u0551\u0535or\u0575\u0543.biz", userVisibleString(literalURL("https://\u0551\u0535or\u0575\u0543.biz")));
     EXPECT_STREQ("https://\u0551\u0535and!$^&*()-~+={}or<>,.?\u0575\u0543.biz", userVisibleString(literalURL("https://\u0551\u0535and!$^&*()-~+={}or<>,.?\u0575\u0543.biz")));
+    EXPECT_STREQ("https://\u0551%67/", userVisibleString(literalURL("https://\u0551g/")));
+    EXPECT_STREQ("https://\u0581%67/", userVisibleString(literalURL("https://\u0581g/")));
+    EXPECT_STREQ("https://o%D5%95%2F", userVisibleString(literalURL("https://o\u0555/")));
+    EXPECT_STREQ("https://o%D6%85%2F", userVisibleString(literalURL("https://o\u0585/")));
+
+    // Tamil
+    EXPECT_STREQ("https://\u0BE6\u0BE7\u0BE8\u0BE9count/", userVisibleString(literalURL("https://\u0BE6\u0BE7\u0BE8\u0BE9count/")));
 }
 
 TEST(WTF_URLExtras, URLExtras_DivisionSign)
@@ -205,8 +225,8 @@ TEST(WTF_URLExtras, URLExtras_ParsingError)
     NSString *encodedHostName = WTF::encodeHostName(@"http://.com");
     EXPECT_TRUE(encodedHostName == nil);
 
-    WTF::URL url2(URL(), utf16String(u"http://\u2267\u222E\uFE63"));
-    EXPECT_STREQ([[url2 absoluteString] UTF8String], "http://%E2%89%A7%E2%88%AE%EF%B9%A3");
+    WTF::URL url2(URL(), utf16String(u"http://\u2267\u222E\uFE63\u0661\u06F1"));
+    EXPECT_STREQ([[url2 absoluteString] UTF8String], "http://%E2%89%A7%E2%88%AE%EF%B9%A3%D9%A1%DB%B1");
 
     std::array<UChar, 3> utf16 { 0xC2, 0xB6, 0x00 };
     WTF::URL url3(URL(), String(utf16.data()));
@@ -229,10 +249,10 @@ TEST(WTF_URLExtras, URLExtras_ParsingError)
 
 TEST(WTF_URLExtras, URLExtras_Nil)
 {
-    NSURL *url1 = WTF::URLWithUserTypedString(nil, nil);
+    NSURL *url1 = WTF::URLWithUserTypedString(nil);
     EXPECT_TRUE(url1 == nil);
 
-    NSURL *url2 = WTF::URLWithUserTypedStringDeprecated(nil, nil);
+    NSURL *url2 = WTF::URLWithUserTypedStringDeprecated(nil);
     EXPECT_TRUE(url2 == nil);
 }
 

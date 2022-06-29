@@ -221,7 +221,8 @@ class ProgramGL::LinkEventGL final : public LinkEvent
 
 std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
                                            const gl::ProgramLinkedResources &resources,
-                                           gl::InfoLog &infoLog)
+                                           gl::InfoLog &infoLog,
+                                           const gl::ProgramMergedVaryings & /*mergedVaryings*/)
 {
     ANGLE_TRACE_EVENT0("gpu.angle", "ProgramGL::link");
 
@@ -296,7 +297,7 @@ std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
         // Bind the secondary fragment color outputs defined in EXT_blend_func_extended. We only use
         // the API to bind fragment output locations in case EXT_blend_func_extended is enabled.
         // Otherwise shader-assigned locations will work.
-        if (context->getExtensions().blendFuncExtended)
+        if (context->getExtensions().blendFuncExtendedEXT)
         {
             gl::Shader *fragmentShader = mState.getAttachedShader(gl::ShaderType::Fragment);
             if (fragmentShader && fragmentShader->getShaderVersion() == 100)
@@ -323,12 +324,12 @@ std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
                         mFunctions->bindFragDataLocationIndexed(mProgramID, 0, 0,
                                                                 "webgl_FragColor");
                         mFunctions->bindFragDataLocationIndexed(mProgramID, 0, 1,
-                                                                "angle_SecondaryFragColor");
+                                                                "webgl_SecondaryFragColor");
                     }
                     else if (output.name == "gl_SecondaryFragDataEXT")
                     {
                         // Basically we should have a loop here going over the output
-                        // array binding "webgl_FragData[i]" and "angle_SecondaryFragData[i]" array
+                        // array binding "webgl_FragData[i]" and "webgl_SecondaryFragData[i]" array
                         // indices to the correct color buffers and color indices.
                         // However I'm not sure if this construct is legal or not, neither ARB or
                         // EXT version of the spec mention this. They only mention that
@@ -348,7 +349,7 @@ std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
 
                         mFunctions->bindFragDataLocationIndexed(mProgramID, 0, 0, "webgl_FragData");
                         mFunctions->bindFragDataLocationIndexed(mProgramID, 0, 1,
-                                                                "angle_SecondaryFragData");
+                                                                "webgl_SecondaryFragData");
                     }
                 }
             }
@@ -406,7 +407,7 @@ std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
             }
         }
     }
-    auto workerPool = context->getWorkerThreadPool();
+    auto workerPool = context->getShaderCompileThreadPool();
     auto linkTask   = std::make_shared<LinkTask>([this](std::string &infoLog) {
         std::string workerInfoLog;
         ScopedWorkerContextGL worker(mRenderer.get(), &workerInfoLog);
@@ -475,8 +476,7 @@ std::unique_ptr<LinkEvent> ProgramGL::link(const gl::Context *context,
     if (mRenderer->hasNativeParallelCompile())
     {
         mFunctions->linkProgram(mProgramID);
-        // Verify the link
-        checkLinkStatus(infoLog);
+
         return std::make_unique<LinkEventNativeParallel>(postLinkImplTask, mFunctions, mProgramID);
     }
     else if (workerPool->isAsync() &&
@@ -1088,12 +1088,22 @@ void ProgramGL::markUnusedUniformLocations(std::vector<gl::VariableLocation> *un
             if (mState.isSamplerUniformIndex(locationRef.index))
             {
                 GLuint samplerIndex = mState.getSamplerIndexFromUniformIndex(locationRef.index);
-                (*samplerBindings)[samplerIndex].unreferenced = true;
+                gl::SamplerBinding &samplerBinding = (*samplerBindings)[samplerIndex];
+                if (locationRef.arrayIndex < samplerBinding.boundTextureUnits.size())
+                {
+                    // Crop unused sampler bindings in the sampler array.
+                    samplerBinding.boundTextureUnits.resize(locationRef.arrayIndex);
+                }
             }
             else if (mState.isImageUniformIndex(locationRef.index))
             {
                 GLuint imageIndex = mState.getImageIndexFromUniformIndex(locationRef.index);
-                (*imageBindings)[imageIndex].unreferenced = true;
+                gl::ImageBinding &imageBinding = (*imageBindings)[imageIndex];
+                if (locationRef.arrayIndex < imageBinding.boundImageUnits.size())
+                {
+                    // Crop unused image bindings in the image array.
+                    imageBinding.boundImageUnits.resize(locationRef.arrayIndex);
+                }
             }
             // If the location has been previously bound by a glBindUniformLocation call, it should
             // be marked as ignored. Otherwise it's unused.

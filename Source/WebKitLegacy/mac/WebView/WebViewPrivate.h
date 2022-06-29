@@ -105,13 +105,6 @@ extern NSString *WebElementIsInScrollBarKey;
 // One of the subviews of the WebView entered compositing mode.
 extern NSString *_WebViewDidStartAcceleratedCompositingNotification;
 
-#if ENABLE_REMOTE_INSPECTOR
-// FIXME: Legacy, remove this, switch to something from JavaScriptCore Inspector::RemoteInspectorServer.
-// Notification when the number of inspector sessions becomes non-zero or returns to 0.
-// Check the current state via -[WebView _hasRemoteInspectorSession].
-extern NSString *_WebViewRemoteInspectorHasSessionChangedNotification;
-#endif
-
 #if TARGET_OS_IPHONE
 extern NSString *WebQuickLookFileNameKey;
 extern NSString *WebQuickLookUTIKey;
@@ -160,11 +153,6 @@ typedef enum {
     WebPaginationModeRightToLeft,
     WebPaginationModeTopToBottom,
     WebPaginationModeBottomToTop,
-#if TARGET_OS_IPHONE
-    // FIXME: Remove these once UIKit has switched to the above.
-    WebPaginationModeHorizontal = WebPaginationModeLeftToRight,
-    WebPaginationModeVertical = WebPaginationModeTopToBottom,
-#endif
 } WebPaginationMode;
 
 enum {
@@ -313,6 +301,10 @@ typedef enum {
 
 - (void)suspendAllMediaPlayback;
 - (void)resumeAllMediaPlayback;
+
+#if !TARGET_OS_IPHONE
+@property (nonatomic, setter=_setAllowsLinkPreview:) BOOL _allowsLinkPreview;
+#endif
 
 // Add visited links
 - (void)addVisitedLinks:(NSArray *)visitedLinks;
@@ -793,22 +785,15 @@ Could be worth adding to the API.
 - (NSPasteboard *)_insertionPasteboard;
 #endif
 
-// Whitelists access from an origin (sourceOrigin) to a set of one or more origins described by the parameters:
+// Allow lists access from an origin (sourceOrigin) to a set of one or more origins described by the parameters:
 // - destinationProtocol: The protocol to grant access to.
 // - destinationHost: The host to grant access to.
-// - allowDestinationSubdomains: If host is a domain, setting this to YES will whitelist host and all its subdomains, recursively.
+// - allowDestinationSubdomains: If host is a domain, setting this to YES will allow host and all its subdomains, recursively.
 + (void)_addOriginAccessAllowListEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
 + (void)_removeOriginAccessAllowListEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
 
 // Removes all allow list entries created with _addOriginAccessAllowListEntryWithSourceOrigin.
 + (void)_resetOriginAccessAllowLists;
-
-// FIXME: The following two methods are deprecated in favor of the overloads below that take the WebUserContentInjectedFrames argument. https://bugs.webkit.org/show_bug.cgi?id=41800.
-+ (void)_addUserScriptToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url whitelist:(NSArray *)whitelist blacklist:(NSArray *)blacklist injectionTime:(WebUserScriptInjectionTime)injectionTime __attribute__((deprecated("use _addUserScriptToGroup:world:source:url:includeMatchPatternStrings:excludeMatchPatternStrings:injectionTime:injectedFrames:")));
-+ (void)_addUserStyleSheetToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url whitelist:(NSArray *)whitelist blacklist:(NSArray *)blacklist __attribute__((deprecated("use _addUserStyleSheetToGroup:world:source:url:includeMatchPatternStrings:excludeMatchPatternStrings:injectedFrames:")));
-
-+ (void)_addUserScriptToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url whitelist:(NSArray *)whitelist blacklist:(NSArray *)blacklist injectionTime:(WebUserScriptInjectionTime)injectionTime injectedFrames:(WebUserContentInjectedFrames)injectedFrames __attribute__((deprecated("use _addUserScriptToGroup:world:source:url:includeMatchPatternStrings:excludeMatchPatternStrings:injectionTime:injectedFrames:")));
-+ (void)_addUserStyleSheetToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url whitelist:(NSArray *)whitelist blacklist:(NSArray *)blacklist injectedFrames:(WebUserContentInjectedFrames)injectedFrames __attribute__((deprecated("use _addUserStyleSheetToGroup:world:source:url:includeMatchPatternStrings:excludeMatchPatternStrings:injectedFrames:")));
 
 + (void)_addUserScriptToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url includeMatchPatternStrings:(NSArray *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray *)excludeMatchPatternStrings injectionTime:(WebUserScriptInjectionTime)injectionTime injectedFrames:(WebUserContentInjectedFrames)injectedFrames;
 + (void)_addUserStyleSheetToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url includeMatchPatternStrings:(NSArray *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray *)excludeMatchPatternStrings injectedFrames:(WebUserContentInjectedFrames)injectedFrames;
@@ -952,11 +937,9 @@ typedef struct WebEdgeInsets {
 
 @interface WebView (WebViewGrammarChecking)
 
-// FIXME: These two methods should be merged into WebViewEditing when we're not in API freeze
 - (BOOL)isGrammarCheckingEnabled;
 - (void)setGrammarCheckingEnabled:(BOOL)flag;
 
-// FIXME: This method should be merged into WebIBActions when we're not in API freeze
 - (void)toggleGrammarChecking:(id)sender;
 
 @end

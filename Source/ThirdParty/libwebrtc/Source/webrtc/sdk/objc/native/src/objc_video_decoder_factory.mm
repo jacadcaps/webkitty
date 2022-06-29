@@ -36,8 +36,8 @@ class ObjCVideoDecoder : public VideoDecoder {
   ObjCVideoDecoder(id<RTCVideoDecoder> decoder)
       : decoder_(decoder), implementation_name_([decoder implementationName].stdString) {}
 
-  int32_t InitDecode(const VideoCodec *codec_settings, int32_t number_of_cores) override {
-    return [decoder_ startDecodeWithNumberOfCores:number_of_cores];
+  bool Configure(const Settings& settings) override {
+    return [decoder_ startDecodeWithNumberOfCores:settings.number_of_cores()] == WEBRTC_VIDEO_CODEC_OK;
   }
 
   int32_t Decode(const EncodedImage &input_image,
@@ -100,7 +100,11 @@ std::unique_ptr<VideoDecoder> ObjCVideoDecoderFactory::CreateVideoDecoder(
       // Because of symbol conflict, isKindOfClass doesn't work as expected.
       // See https://bugs.webkit.org/show_bug.cgi?id=198782.
       // if ([decoder isKindOfClass:[RTCWrappedNativeVideoDecoder class]]) {
-      if ([codecName isEqual:@"VP8"] || [codecName isEqual:@"VP9"]) {
+#if !defined(WEBRTC_WEBKIT_BUILD)
+        if ([codecName isEqual:@"VP8"] || [codecName isEqual:@"VP9"]) {
+#else
+        if (![decoder.implementationName isEqual:@"VideoToolbox"]) {
+#endif
         return [(RTCWrappedNativeVideoDecoder *)decoder releaseWrappedDecoder];
       } else {
         return std::unique_ptr<ObjCVideoDecoder>(new ObjCVideoDecoder(decoder));

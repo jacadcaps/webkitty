@@ -33,6 +33,7 @@
 #include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
 #include "rtc_base/third_party/base64/base64.h"
+#include "rtc_base/trace_event.h"
 #include "system_wrappers/include/field_trial.h"
 
 namespace {
@@ -104,16 +105,6 @@ std::string Port::ComputeFoundation(const std::string& type,
   return rtc::ToString(rtc::ComputeCrc32(sb.Release()));
 }
 
-CandidateStats::CandidateStats() = default;
-
-CandidateStats::CandidateStats(const CandidateStats&) = default;
-
-CandidateStats::CandidateStats(Candidate candidate) {
-  this->candidate = candidate;
-}
-
-CandidateStats::~CandidateStats() = default;
-
 Port::Port(rtc::Thread* thread,
            const std::string& type,
            rtc::PacketSocketFactory* factory,
@@ -137,6 +128,7 @@ Port::Port(rtc::Thread* thread,
       tiebreaker_(0),
       shared_socket_(true),
       weak_factory_(this) {
+  RTC_DCHECK(factory_ != NULL);
   Construct();
 }
 
@@ -188,6 +180,9 @@ void Port::Construct() {
 }
 
 Port::~Port() {
+  RTC_DCHECK_RUN_ON(thread_);
+  CancelPendingTasks();
+
   // Delete all of the remaining connections.  We copy the list up front
   // because each deletion will cause it to be modified.
 
@@ -252,20 +247,6 @@ Connection* Port::GetConnection(const rtc::SocketAddress& remote_addr) {
     return iter->second;
   else
     return NULL;
-}
-
-void Port::AddAddress(const rtc::SocketAddress& address,
-                      const rtc::SocketAddress& base_address,
-                      const rtc::SocketAddress& related_address,
-                      const std::string& protocol,
-                      const std::string& relay_protocol,
-                      const std::string& tcptype,
-                      const std::string& type,
-                      uint32_t type_preference,
-                      uint32_t relay_preference,
-                      bool is_final) {
-  AddAddress(address, base_address, related_address, protocol, relay_protocol,
-             tcptype, type, type_preference, relay_preference, "", is_final);
 }
 
 void Port::AddAddress(const rtc::SocketAddress& address,
@@ -469,6 +450,12 @@ bool Port::GetStunMessage(const char* data,
     return false;
   }
 
+  // Get list of attributes in the "comprehension-required" range that were not
+  // comprehended. If one or more is found, the behavior differs based on the
+  // type of the incoming message; see below.
+  std::vector<uint16_t> unknown_attributes =
+      stun_msg->GetNonComprehendedAttributes();
+
   if (stun_msg->type() == STUN_BINDING_REQUEST) {
     // Check for the presence of USERNAME and MESSAGE-INTEGRITY (if ICE) first.
     // If not present, fail with a 400 Bad Request.
@@ -498,7 +485,8 @@ bool Port::GetStunMessage(const char* data,
     }
 
     // If ICE, and the MESSAGE-INTEGRITY is bad, fail with a 401 Unauthorized
-    if (!stun_msg->ValidateMessageIntegrity(data, size, password_)) {
+    if (stun_msg->ValidateMessageIntegrity(password_) !=
+        StunMessage::IntegrityStatus::kIntegrityOk) {
       RTC_LOG(LS_ERROR) << ToString() << ": Received "
                         << StunMethodToString(stun_msg->type())
                         << " with bad M-I from " << addr.ToSensitiveString()
@@ -507,6 +495,15 @@ bool Port::GetStunMessage(const char* data,
                                STUN_ERROR_REASON_UNAUTHORIZED);
       return true;
     }
+
+    // If a request contains unknown comprehension-required attributes, reply
+    // with an error. See RFC5389 section 7.3.1.
+    if (!unknown_attributes.empty()) {
+      SendUnknownAttributesErrorResponse(stun_msg.get(), addr,
+                                         unknown_attributes);
+      return true;
+    }
+
     out_username->assign(remote_ufrag);
   } else if ((stun_msg->type() == STUN_BINDING_RESPONSE) ||
              (stun_msg->type() == STUN_BINDING_ERROR_RESPONSE)) {
@@ -527,6 +524,15 @@ bool Port::GetStunMessage(const char* data,
         return true;
       }
     }
+    // If a response contains unknown comprehension-required attributes, it's
+    // simply discarded and the transaction is considered failed. See RFC5389
+    // sections 7.3.3 and 7.3.4.
+    if (!unknown_attributes.empty()) {
+      RTC_LOG(LS_ERROR) << ToString()
+                        << ": Discarding STUN response due to unknown "
+                           "comprehension-required attribute";
+      return true;
+    }
     // NOTE: Username should not be used in verifying response messages.
     out_username->clear();
   } else if (stun_msg->type() == STUN_BINDING_INDICATION) {
@@ -534,10 +540,20 @@ bool Port::GetStunMessage(const char* data,
                         << StunMethodToString(stun_msg->type()) << ": from "
                         << addr.ToSensitiveString();
     out_username->clear();
+
+    // If an indication contains unknown comprehension-required attributes,[]
+    // it's simply discarded. See RFC5389 section 7.3.2.
+    if (!unknown_attributes.empty()) {
+      RTC_LOG(LS_ERROR) << ToString()
+                        << ": Discarding STUN indication due to "
+                           "unknown comprehension-required attribute";
+      return true;
+    }
     // No stun attributes will be verified, if it's stun indication message.
     // Returning from end of the this method.
   } else if (stun_msg->type() == GOOG_PING_REQUEST) {
-    if (!stun_msg->ValidateMessageIntegrity32(data, size, password_)) {
+    if (stun_msg->ValidateMessageIntegrity(password_) !=
+        StunMessage::IntegrityStatus::kIntegrityOk) {
       RTC_LOG(LS_ERROR) << ToString() << ": Received "
                         << StunMethodToString(stun_msg->type())
                         << " with bad M-I from " << addr.ToSensitiveString()
@@ -590,6 +606,16 @@ rtc::DiffServCodePoint Port::StunDscpValue() const {
   return rtc::DSCP_NO_CHANGE;
 }
 
+void Port::set_timeout_delay(int delay) {
+  RTC_DCHECK_RUN_ON(thread_);
+  // Although this method is meant to only be used by tests, some downstream
+  // projects have started using it. Ideally we should update our tests to not
+  // require to modify this state and instead use a testing harness that allows
+  // adjusting the clock and then just use the kPortTimeoutDelay constant
+  // directly.
+  timeout_delay_ = delay;
+}
+
 bool Port::ParseStunUsername(const StunMessage* stun_msg,
                              std::string* local_ufrag,
                              std::string* remote_ufrag) const {
@@ -629,7 +655,7 @@ bool Port::MaybeIceRoleConflict(const rtc::SocketAddress& addr,
     remote_tiebreaker = stun_attr->value();
   }
 
-  // If |remote_ufrag| is same as port local username fragment and
+  // If `remote_ufrag` is same as port local username fragment and
   // tie breaker value received in the ping message matches port
   // tiebreaker value this must be a loopback call.
   // We will treat this as valid scenario.
@@ -749,6 +775,44 @@ void Port::SendBindingErrorResponse(StunMessage* request,
                    << addr.ToSensitiveString();
 }
 
+void Port::SendUnknownAttributesErrorResponse(
+    StunMessage* request,
+    const rtc::SocketAddress& addr,
+    const std::vector<uint16_t>& unknown_types) {
+  RTC_DCHECK(request->type() == STUN_BINDING_REQUEST);
+
+  // Fill in the response message.
+  StunMessage response;
+  response.SetType(STUN_BINDING_ERROR_RESPONSE);
+  response.SetTransactionID(request->transaction_id());
+
+  auto error_attr = StunAttribute::CreateErrorCode();
+  error_attr->SetCode(STUN_ERROR_UNKNOWN_ATTRIBUTE);
+  error_attr->SetReason(STUN_ERROR_REASON_UNKNOWN_ATTRIBUTE);
+  response.AddAttribute(std::move(error_attr));
+
+  std::unique_ptr<StunUInt16ListAttribute> unknown_attr =
+      StunAttribute::CreateUnknownAttributes();
+  for (uint16_t type : unknown_types) {
+    unknown_attr->AddType(type);
+  }
+  response.AddAttribute(std::move(unknown_attr));
+
+  response.AddMessageIntegrity(password_);
+  response.AddFingerprint();
+
+  // Send the response message.
+  rtc::ByteBufferWriter buf;
+  response.Write(&buf);
+  rtc::PacketOptions options(StunDscpValue());
+  options.info_signaled_after_sent.packet_type =
+      rtc::PacketType::kIceConnectivityCheckResponse;
+  SendTo(buf.Data(), buf.Length(), addr, options, false);
+  RTC_LOG(LS_ERROR) << ToString() << ": Sending STUN binding error: reason="
+                    << STUN_ERROR_UNKNOWN_ATTRIBUTE << " to "
+                    << addr.ToSensitiveString();
+}
+
 void Port::KeepAliveUntilPruned() {
   // If it is pruned, we won't bring it up again.
   if (state_ == State::INIT) {
@@ -761,7 +825,15 @@ void Port::Prune() {
   thread_->Post(RTC_FROM_HERE, this, MSG_DESTROY_IF_DEAD);
 }
 
+// Call to stop any currently pending operations from running.
+void Port::CancelPendingTasks() {
+  TRACE_EVENT0("webrtc", "Port::CancelPendingTasks");
+  RTC_DCHECK_RUN_ON(thread_);
+  thread_->Clear(this);
+}
+
 void Port::OnMessage(rtc::Message* pmsg) {
+  RTC_DCHECK_RUN_ON(thread_);
   RTC_DCHECK(pmsg->message_id == MSG_DESTROY_IF_DEAD);
   bool dead =
       (state_ == State::INIT || state_ == State::PRUNED) &&
@@ -772,6 +844,14 @@ void Port::OnMessage(rtc::Message* pmsg) {
   }
 }
 
+void Port::SubscribePortDestroyed(
+    std::function<void(PortInterface*)> callback) {
+  port_destroyed_callback_list_.AddReceiver(callback);
+}
+
+void Port::SendPortDestroyed(Port* port) {
+  port_destroyed_callback_list_.Send(port);
+}
 void Port::OnNetworkTypeChanged(const rtc::Network* network) {
   RTC_DCHECK(network == network_);
 
@@ -836,7 +916,7 @@ void Port::OnConnectionDestroyed(Connection* conn) {
 void Port::Destroy() {
   RTC_DCHECK(connections_.empty());
   RTC_LOG(LS_INFO) << ToString() << ": Port deleted";
-  SignalDestroyed(this);
+  SendPortDestroyed(this);
   delete this;
 }
 

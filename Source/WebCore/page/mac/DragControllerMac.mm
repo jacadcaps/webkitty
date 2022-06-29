@@ -61,13 +61,13 @@ const float DragController::DragImageAlpha = 0.75f;
 
 bool DragController::isCopyKeyDown(const DragData& dragData)
 {
-    return dragData.flags().contains(DragApplicationIsCopyKeyDown);
+    return dragData.flags().contains(DragApplicationFlags::IsCopyKeyDown);
 }
     
-Optional<DragOperation> DragController::dragOperation(const DragData& dragData)
+std::optional<DragOperation> DragController::dragOperation(const DragData& dragData)
 {
-    if (dragData.flags().contains(DragApplicationIsModal))
-        return WTF::nullopt;
+    if (dragData.flags().contains(DragApplicationFlags::IsModal))
+        return std::nullopt;
 
     bool mayContainURL;
     if (canLoadDataFromDraggingPasteboard())
@@ -76,12 +76,12 @@ Optional<DragOperation> DragController::dragOperation(const DragData& dragData)
         mayContainURL = dragData.containsURLTypeIdentifier();
 
     if (!mayContainURL && !dragData.containsPromise())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    if (!m_documentUnderMouse || (!(dragData.flags().containsAll({ DragApplicationHasAttachedSheet, DragApplicationIsSource }))))
+    if (!m_documentUnderMouse || (!(dragData.flags().containsAll({ DragApplicationFlags::HasAttachedSheet, DragApplicationFlags::IsSource }))))
         return DragOperation::Copy;
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 const IntSize& DragController::maxDragImageSize()
@@ -117,6 +117,7 @@ DragOperation DragController::platformGenericDragOperation()
 void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHandlingMethod dragHandlingMethod, const DragData& dragData) const
 {
     Vector<String> supportedTypes;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     switch (dragHandlingMethod) {
     case DragHandlingMethod::PageLoad:
         supportedTypes.append(kUTTypeURL);
@@ -143,7 +144,9 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
             supportedTypes.append(type);
         break;
     }
-    platformStrategies()->pasteboardStrategy()->updateSupportedTypeIdentifiers(supportedTypes, dragData.pasteboardName());
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto context = dragData.createPasteboardContext();
+    platformStrategies()->pasteboardStrategy()->updateSupportedTypeIdentifiers(supportedTypes, dragData.pasteboardName(), context.get());
 }
 
 #endif // PLATFORM(IOS_FAMILY)

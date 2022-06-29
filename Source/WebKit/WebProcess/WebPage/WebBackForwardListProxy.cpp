@@ -57,8 +57,9 @@ static IDToHistoryItemMap& idToHistoryItemMap()
 
 void WebBackForwardListProxy::addItemFromUIProcess(const BackForwardItemIdentifier& itemID, Ref<HistoryItem>&& item, PageIdentifier pageID, OverwriteExistingItem overwriteExistingItem)
 {
-    // This item/itemID pair should not already exist in our map.
-    ASSERT_UNUSED(overwriteExistingItem, overwriteExistingItem == OverwriteExistingItem::Yes || !idToHistoryItemMap().contains(itemID));
+    if (overwriteExistingItem == OverwriteExistingItem::No && idToHistoryItemMap().contains(itemID))
+        return;
+
     idToHistoryItemMap().set(itemID, item.ptr());
     clearCachedListCounts();
 }
@@ -118,7 +119,7 @@ RefPtr<HistoryItem> WebBackForwardListProxy::itemAtIndex(int itemIndex)
     if (!m_page)
         return nullptr;
 
-    Optional<BackForwardItemIdentifier> itemID;
+    std::optional<BackForwardItemIdentifier> itemID;
     if (!WebProcess::singleton().parentProcessConnection()->sendSync(Messages::WebPageProxy::BackForwardItemAtIndex(itemIndex), Messages::WebPageProxy::BackForwardItemAtIndex::Reply(itemID), m_page->identifier()))
         return nullptr;
 
@@ -151,7 +152,7 @@ const WebBackForwardListCounts& WebBackForwardListProxy::cacheListCountsIfNecess
 
 void WebBackForwardListProxy::clearCachedListCounts()
 {
-    m_cachedBackForwardListCounts = WTF::nullopt;
+    m_cachedBackForwardListCounts = std::nullopt;
 }
 
 void WebBackForwardListProxy::close()

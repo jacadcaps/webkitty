@@ -105,7 +105,7 @@ public:
         if (!m_callback)
             return;
 
-        auto callback = std::exchange(m_callback, WTF::nullopt);
+        auto callback = std::exchange(m_callback, std::nullopt);
         callback.value()(returnValue..., Error::None);
     }
 
@@ -121,7 +121,7 @@ public:
         if (!m_callback)
             return;
 
-        auto callback = std::exchange(m_callback, WTF::nullopt);
+        auto callback = std::exchange(m_callback, std::nullopt);
         callback.value()(typename std::remove_reference<T>::type()..., error);
     }
 
@@ -139,25 +139,14 @@ private:
         return &tag;
     }
 
-    Optional<CallbackFunction> m_callback;
+    std::optional<CallbackFunction> m_callback;
 
 #if ASSERT_ENABLED
     Ref<Thread> m_originThread { Thread::current() };
 #endif
 };
 
-template<typename APIReturnValueType, typename InternalReturnValueType = typename APITypeInfo<APIReturnValueType>::ImplType*>
-static typename GenericCallback<InternalReturnValueType>::CallbackFunction toGenericCallbackFunction(void* context, void (*callback)(APIReturnValueType, WKErrorRef, void*))
-{
-    return [context, callback](InternalReturnValueType returnValue, CallbackBase::Error error) {
-        callback(toAPI(returnValue), error != CallbackBase::Error::None ? toAPI(API::Error::create().ptr()) : 0, context);
-    };
-}
-
 typedef GenericCallback<> VoidCallback;
-typedef GenericCallback<const Vector<WebCore::IntRect>&, double, WebCore::FloatBoxExtent> ComputedPagesCallback;
-typedef GenericCallback<const ShareableBitmap::Handle&> ImageCallback;
-typedef GenericCallback<bool> BoolCallback;
 
 template<typename T>
 void invalidateCallbackMap(HashMap<uint64_t, T>& callbackMap, CallbackBase::Error error)

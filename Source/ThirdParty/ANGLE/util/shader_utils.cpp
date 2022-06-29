@@ -11,6 +11,7 @@
 #include <iostream>
 #include <vector>
 
+#include "common/utilities.h"
 #include "util/test_utils.h"
 
 namespace
@@ -27,6 +28,8 @@ bool ReadEntireFile(const std::string &filePath, std::string *contentsOut)
 }
 
 GLuint CompileProgramInternal(const char *vsSource,
+                              const char *tcsSource,
+                              const char *tesSource,
                               const char *gsSource,
                               const char *fsSource,
                               const std::function<void(GLuint)> &preLinkCallback)
@@ -49,7 +52,40 @@ GLuint CompileProgramInternal(const char *vsSource,
     glAttachShader(program, fs);
     glDeleteShader(fs);
 
-    GLuint gs = 0;
+    GLuint tcs = 0;
+    GLuint tes = 0;
+    GLuint gs  = 0;
+
+    if (strlen(tcsSource) > 0)
+    {
+        tcs = CompileShader(GL_TESS_CONTROL_SHADER_EXT, tcsSource);
+        if (tcs == 0)
+        {
+            glDeleteShader(vs);
+            glDeleteShader(fs);
+            glDeleteProgram(program);
+            return 0;
+        }
+
+        glAttachShader(program, tcs);
+        glDeleteShader(tcs);
+    }
+
+    if (strlen(tesSource) > 0)
+    {
+        tes = CompileShader(GL_TESS_EVALUATION_SHADER_EXT, tesSource);
+        if (tes == 0)
+        {
+            glDeleteShader(vs);
+            glDeleteShader(fs);
+            glDeleteShader(tcs);
+            glDeleteProgram(program);
+            return 0;
+        }
+
+        glAttachShader(program, tes);
+        glDeleteShader(tes);
+    }
 
     if (strlen(gsSource) > 0)
     {
@@ -58,6 +94,8 @@ GLuint CompileProgramInternal(const char *vsSource,
         {
             glDeleteShader(vs);
             glDeleteShader(fs);
+            glDeleteShader(tcs);
+            glDeleteShader(tes);
             glDeleteProgram(program);
             return 0;
         }
@@ -74,6 +112,50 @@ GLuint CompileProgramInternal(const char *vsSource,
     glLinkProgram(program);
 
     return CheckLinkStatusAndReturnProgram(program, true);
+}
+
+const void *gCallbackChainUserParam;
+
+void KHRONOS_APIENTRY DebugMessageCallback(GLenum source,
+                                           GLenum type,
+                                           GLuint id,
+                                           GLenum severity,
+                                           GLsizei length,
+                                           const GLchar *message,
+                                           const void *userParam)
+{
+    std::string sourceText   = gl::GetDebugMessageSourceString(source);
+    std::string typeText     = gl::GetDebugMessageTypeString(type);
+    std::string severityText = gl::GetDebugMessageSeverityString(severity);
+    std::cerr << sourceText << ", " << typeText << ", " << severityText << ": " << message << "\n";
+
+    GLDEBUGPROC callbackChain = reinterpret_cast<GLDEBUGPROC>(const_cast<void *>(userParam));
+    if (callbackChain)
+    {
+        callbackChain(source, type, id, severity, length, message, gCallbackChainUserParam);
+    }
+}
+
+void GetPerfCounterValue(const CounterNameToIndexMap &counterIndexMap,
+                         std::vector<angle::PerfMonitorTriplet> &triplets,
+                         const char *name,
+                         GLuint *counterOut)
+{
+    auto iter = counterIndexMap.find(name);
+    ASSERT(iter != counterIndexMap.end());
+    GLuint counterIndex = iter->second;
+
+    for (const angle::PerfMonitorTriplet &triplet : triplets)
+    {
+        ASSERT(triplet.group == 0);
+        if (triplet.counter == counterIndex)
+        {
+            *counterOut = triplet.value;
+            return;
+        }
+    }
+
+    UNREACHABLE();
 }
 }  // namespace
 
@@ -205,24 +287,32 @@ GLuint CompileProgramWithTransformFeedback(
         }
     };
 
-    return CompileProgramInternal(vsSource, "", fsSource, preLink);
+    return CompileProgramInternal(vsSource, "", "", "", fsSource, preLink);
 }
 
 GLuint CompileProgram(const char *vsSource, const char *fsSource)
 {
-    return CompileProgramInternal(vsSource, "", fsSource, nullptr);
+    return CompileProgramInternal(vsSource, "", "", "", fsSource, nullptr);
 }
 
 GLuint CompileProgram(const char *vsSource,
                       const char *fsSource,
                       const std::function<void(GLuint)> &preLinkCallback)
 {
-    return CompileProgramInternal(vsSource, "", fsSource, preLinkCallback);
+    return CompileProgramInternal(vsSource, "", "", "", fsSource, preLinkCallback);
 }
 
 GLuint CompileProgramWithGS(const char *vsSource, const char *gsSource, const char *fsSource)
 {
-    return CompileProgramInternal(vsSource, gsSource, fsSource, nullptr);
+    return CompileProgramInternal(vsSource, "", "", gsSource, fsSource, nullptr);
+}
+
+GLuint CompileProgramWithTESS(const char *vsSource,
+                              const char *tcsSource,
+                              const char *tesSource,
+                              const char *fsSource)
+{
+    return CompileProgramInternal(vsSource, tcsSource, tesSource, "", fsSource, nullptr);
 }
 
 GLuint CompileProgramFromFiles(const std::string &vsPath, const std::string &fsPath)
@@ -280,6 +370,120 @@ bool LinkAttachedProgram(GLuint program)
 {
     glLinkProgram(program);
     return (CheckLinkStatusAndReturnProgram(program, true) != 0);
+}
+
+void EnableDebugCallback(GLDEBUGPROC callbackChain, const void *userParam)
+{
+    gCallbackChainUserParam = userParam;
+
+    glEnable(GL_DEBUG_OUTPUT);
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    // Enable medium and high priority messages.
+    glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_HIGH, 0, nullptr,
+                             GL_TRUE);
+    glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_MEDIUM, 0, nullptr,
+                             GL_TRUE);
+    // Disable low and notification priority messages.
+    glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_LOW, 0, nullptr,
+                             GL_FALSE);
+    glDebugMessageControlKHR(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION, 0, nullptr,
+                             GL_FALSE);
+    // Disable performance messages to reduce spam.
+    glDebugMessageControlKHR(GL_DONT_CARE, GL_DEBUG_TYPE_PERFORMANCE, GL_DONT_CARE, 0, nullptr,
+                             GL_FALSE);
+    glDebugMessageCallbackKHR(DebugMessageCallback, reinterpret_cast<const void *>(callbackChain));
+}
+
+CounterNameToIndexMap BuildCounterNameToIndexMap()
+{
+    GLint numCounters = 0;
+    glGetPerfMonitorCountersAMD(0, &numCounters, nullptr, 0, nullptr);
+    if (glGetError() != GL_NO_ERROR)
+    {
+        return {};
+    }
+
+    std::vector<GLuint> counterIndexes(numCounters, 0);
+    glGetPerfMonitorCountersAMD(0, nullptr, nullptr, numCounters, counterIndexes.data());
+    if (glGetError() != GL_NO_ERROR)
+    {
+        return {};
+    }
+
+    CounterNameToIndexMap indexMap;
+
+    for (GLuint counterIndex : counterIndexes)
+    {
+        static constexpr size_t kBufSize = 1000;
+        char buffer[kBufSize]            = {};
+        glGetPerfMonitorCounterStringAMD(0, counterIndex, kBufSize, nullptr, buffer);
+        if (glGetError() != GL_NO_ERROR)
+        {
+            return {};
+        }
+
+        indexMap[buffer] = counterIndex;
+    }
+
+    return indexMap;
+}
+
+std::vector<angle::PerfMonitorTriplet> GetPerfMonitorTriplets()
+{
+    GLuint resultSize = 0;
+    glGetPerfMonitorCounterDataAMD(0, GL_PERFMON_RESULT_SIZE_AMD, sizeof(GLuint), &resultSize,
+                                   nullptr);
+    if (glGetError() != GL_NO_ERROR || resultSize == 0)
+    {
+        return {};
+    }
+
+    std::vector<angle::PerfMonitorTriplet> perfResults(resultSize /
+                                                       sizeof(angle::PerfMonitorTriplet));
+    glGetPerfMonitorCounterDataAMD(
+        0, GL_PERFMON_RESULT_AMD, static_cast<GLsizei>(perfResults.size() * sizeof(perfResults[0])),
+        &perfResults.data()->group, nullptr);
+
+    if (glGetError() != GL_NO_ERROR)
+    {
+        return {};
+    }
+
+    return perfResults;
+}
+
+angle::VulkanPerfCounters GetPerfCounters(const CounterNameToIndexMap &indexMap)
+{
+    std::vector<angle::PerfMonitorTriplet> perfResults = GetPerfMonitorTriplets();
+
+    angle::VulkanPerfCounters counters;
+
+#define ANGLE_UNPACK_PERF_COUNTER(COUNTER) \
+    GetPerfCounterValue(indexMap, perfResults, #COUNTER, &counters.COUNTER);
+
+    ANGLE_VK_PERF_COUNTERS_X(ANGLE_UNPACK_PERF_COUNTER)
+
+#undef ANGLE_UNPACK_PERF_COUNTER
+
+    return counters;
+}
+
+CounterNameToIndexMap BuildCounterNameToValueMap()
+{
+    CounterNameToIndexMap indexMap                     = BuildCounterNameToIndexMap();
+    std::vector<angle::PerfMonitorTriplet> perfResults = GetPerfMonitorTriplets();
+
+    CounterNameToValueMap valueMap;
+
+    for (const auto &iter : indexMap)
+    {
+        const std::string &name = iter.first;
+        GLuint index            = iter.second;
+
+        valueMap[name] = perfResults[index].value;
+    }
+
+    return valueMap;
 }
 
 namespace angle
@@ -370,13 +574,29 @@ varying vec4 v_position;
 
 void main()
 {
-    if (v_position.x * v_position.y > 0.0)
+    bool isLeft = v_position.x < 0.0;
+    bool isTop = v_position.y < 0.0;
+    if (isLeft)
     {
-        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        if (isTop)
+        {
+            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        }
+        else
+        {
+            gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        }
     }
     else
     {
-        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        if (isTop)
+        {
+            gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
+        }
+        else
+        {
+            gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
+        }
     }
 })";
 }
@@ -641,6 +861,20 @@ out vec4 my_FragColor;
 void main()
 {
     my_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+})";
+}
+
+// A shader that renders a simple gradient of red to green. Needs varying v_position.
+const char *RedGreenGradient()
+{
+    return R"(#version 310 es
+precision highp float;
+in vec4 v_position;
+out vec4 my_FragColor;
+
+void main()
+{
+    my_FragColor = vec4(v_position.xy * 0.5 + vec2(0.5), 0.0, 1.0);
 })";
 }
 

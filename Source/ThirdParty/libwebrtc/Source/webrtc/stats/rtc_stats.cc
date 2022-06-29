@@ -20,7 +20,7 @@ namespace webrtc {
 
 namespace {
 
-// Produces "[a,b,c]". Works for non-vector |RTCStatsMemberInterface::Type|
+// Produces "[a,b,c]". Works for non-vector `RTCStatsMemberInterface::Type`
 // types.
 template <typename T>
 std::string VectorToString(const std::vector<T>& vector) {
@@ -28,6 +28,20 @@ std::string VectorToString(const std::vector<T>& vector) {
   sb << "[";
   const char* separator = "";
   for (const T& element : vector) {
+    sb << separator << rtc::ToString(element);
+    separator = ",";
+  }
+  sb << "]";
+  return sb.Release();
+}
+
+// This overload is required because std::vector<bool> range loops don't
+// return references but objects, causing -Wrange-loop-analysis diagnostics.
+std::string VectorToString(const std::vector<bool>& vector) {
+  rtc::StringBuilder sb;
+  sb << "[";
+  const char* separator = "";
+  for (bool element : vector) {
     sb << separator << rtc::ToString(element);
     separator = ",";
   }
@@ -47,6 +61,20 @@ std::string VectorOfStringsToString(const std::vector<T>& strings) {
     separator = ",";
   }
   sb << "]";
+  return sb.Release();
+}
+
+template <typename T>
+std::string MapToString(const std::map<std::string, T>& map) {
+  rtc::StringBuilder sb;
+  sb << "{";
+  const char* separator = "";
+  for (const auto& element : map) {
+    sb << separator << rtc::ToString(element.first) << ":"
+       << rtc::ToString(element.second);
+    separator = ",";
+  }
+  sb << "}";
   return sb.Release();
 }
 
@@ -71,6 +99,20 @@ std::string VectorToStringAsDouble(const std::vector<T>& vector) {
     separator = ",";
   }
   sb << "]";
+  return sb.Release();
+}
+
+template <typename T>
+std::string MapToStringAsDouble(const std::map<std::string, T>& map) {
+  rtc::StringBuilder sb;
+  sb << "{";
+  const char* separator = "";
+  for (const auto& element : map) {
+    sb << separator << "\"" << rtc::ToString(element.first)
+       << "\":" << ToStringAsDouble(element.second);
+    separator = ",";
+  }
+  sb << "}";
   return sb.Release();
 }
 
@@ -234,6 +276,18 @@ WEBRTC_DEFINE_RTCSTATSMEMBER(std::vector<std::string>,
                              false,
                              VectorOfStringsToString(value_),
                              VectorOfStringsToString(value_));
+WEBRTC_DEFINE_RTCSTATSMEMBER(rtc_stats_internal::MapStringUint64,
+                             kMapStringUint64,
+                             false,
+                             false,
+                             MapToString(value_),
+                             MapToStringAsDouble(value_));
+WEBRTC_DEFINE_RTCSTATSMEMBER(rtc_stats_internal::MapStringDouble,
+                             kMapStringDouble,
+                             false,
+                             false,
+                             MapToString(value_),
+                             MapToStringAsDouble(value_));
 
 template class RTC_EXPORT_TEMPLATE_DEFINE(RTC_EXPORT)
     RTCNonStandardStatsMember<bool>;

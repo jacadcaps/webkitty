@@ -14,8 +14,8 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaFormat;
 import android.os.SystemClock;
-import android.support.annotation.Nullable;
 import android.view.Surface;
+import androidx.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingDeque;
@@ -180,7 +180,7 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
 
     try {
       codec = mediaCodecWrapperFactory.createByCodecName(codecName);
-    } catch (IOException | IllegalArgumentException e) {
+    } catch (IOException | IllegalArgumentException | IllegalStateException e) {
       Logging.e(TAG, "Cannot create media decoder " + codecName);
       return VideoCodecStatus.FALLBACK_SOFTWARE;
     }
@@ -191,7 +191,7 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
       }
       codec.configure(format, surface, null, 0);
       codec.start();
-    } catch (IllegalStateException e) {
+    } catch (IllegalStateException | IllegalArgumentException e) {
       Logging.e(TAG, "initDecode failed", e);
       release();
       return VideoCodecStatus.FALLBACK_SOFTWARE;
@@ -246,10 +246,6 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
         Logging.e(TAG, "decode() - key frame required first");
         return VideoCodecStatus.NO_OUTPUT;
       }
-      if (!frame.completeFrame) {
-        Logging.e(TAG, "decode() - complete frame required first");
-        return VideoCodecStatus.NO_OUTPUT;
-      }
     }
 
     int index;
@@ -293,11 +289,6 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
       keyFrameRequired = false;
     }
     return VideoCodecStatus.OK;
-  }
-
-  @Override
-  public boolean getPrefersLateDecoding() {
-    return true;
   }
 
   @Override
@@ -523,7 +514,7 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
       throw new AssertionError("Stride is not divisible by two: " + stride);
     }
 
-    // Note that the case with odd |sliceHeight| is handled in a special way.
+    // Note that the case with odd `sliceHeight` is handled in a special way.
     // The chroma height contained in the payload is rounded down instead of
     // up, making it one row less than what we expect in WebRTC. Therefore, we
     // have to duplicate the last chroma rows for this case. Also, the offset
@@ -594,13 +585,21 @@ class AndroidVideoDecoder implements VideoDecoder, VideoSink {
     }
     // Compare to existing width, height, and save values under the dimension lock.
     synchronized (dimensionLock) {
-      if (hasDecodedFirstFrame && (width != newWidth || height != newHeight)) {
-        stopOnOutputThread(new RuntimeException("Unexpected size change. Configured " + width + "*"
-            + height + ". New " + newWidth + "*" + newHeight));
-        return;
+      if (newWidth != width || newHeight != height) {
+        if (hasDecodedFirstFrame) {
+          stopOnOutputThread(new RuntimeException("Unexpected size change. "
+              + "Configured " + width + "*" + height + ". "
+              + "New " + newWidth + "*" + newHeight));
+          return;
+        } else if (newWidth <= 0 || newHeight <= 0) {
+          Logging.w(TAG,
+              "Unexpected format dimensions. Configured " + width + "*" + height + ". "
+                  + "New " + newWidth + "*" + newHeight + ". Skip it");
+          return;
+        }
+        width = newWidth;
+        height = newHeight;
       }
-      width = newWidth;
-      height = newHeight;
     }
 
     // Note:  texture mode ignores colorFormat.  Hence, if the texture helper is non-null, skip

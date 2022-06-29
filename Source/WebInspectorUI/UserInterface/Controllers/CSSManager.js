@@ -48,6 +48,8 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._modifiedStyles = new Map;
         this._defaultAppearance = null;
         this._forcedAppearance = null;
+
+        this._propertyNameCompletions = null;
     }
 
     // Target
@@ -56,6 +58,90 @@ WI.CSSManager = class CSSManager extends WI.Object
     {
         if (target.hasDomain("CSS"))
             target.CSSAgent.enable();
+    }
+
+    initializeCSSPropertyNameCompletions(target)
+    {
+        console.assert(target.hasDomain("CSS"));
+
+        if (this._propertyNameCompletions)
+            return;
+
+        target.CSSAgent.getSupportedCSSProperties((error, cssProperties) => {
+            if (error)
+                return;
+
+            this._propertyNameCompletions = new WI.CSSPropertyNameCompletions(cssProperties);
+
+            WI.CSSKeywordCompletions.addCustomCompletions(cssProperties);
+
+            // CodeMirror is not included by tests so we shouldn't assume it always exists.
+            // If it isn't available we skip MIME type associations.
+            if (!window.CodeMirror)
+                return;
+
+            let propertyNamesForCodeMirror = {};
+            let valueKeywordsForCodeMirror = {"inherit": true, "initial": true, "unset": true, "revert": true, "revert-layer": true, "var": true, "env": true};
+            let colorKeywordsForCodeMirror = {};
+
+            function nameForCodeMirror(name) {
+                // CodeMirror parses the vendor prefix separate from the property or keyword name,
+                // so we need to strip vendor prefixes from our names. Also strip function parenthesis.
+                return name.replace(/^-[^-]+-/, "").replace(/\(\)$/, "").toLowerCase();
+            }
+
+            for (let property of cssProperties) {
+                // Properties can also be value keywords, like when used in a transition.
+                // So we add them to both lists.
+                let codeMirrorPropertyName = nameForCodeMirror(property.name);
+                propertyNamesForCodeMirror[codeMirrorPropertyName] = true;
+                valueKeywordsForCodeMirror[codeMirrorPropertyName] = true;
+            }
+
+            for (let propertyName in WI.CSSKeywordCompletions._propertyKeywordMap) {
+                let keywords = WI.CSSKeywordCompletions._propertyKeywordMap[propertyName];
+                for (let keyword of keywords) {
+                    // Skip numbers, like the ones defined for font-weight.
+                    if (keyword === WI.CSSKeywordCompletions.AllPropertyNamesPlaceholder || !isNaN(Number(keyword)))
+                        continue;
+                    valueKeywordsForCodeMirror[nameForCodeMirror(keyword)] = true;
+                }
+            }
+
+            for (let color of WI.CSSKeywordCompletions._colors)
+                colorKeywordsForCodeMirror[nameForCodeMirror(color)] = true;
+
+            // TODO: Remove these keywords once they are built-in codemirror or once we get values from WebKit itself.
+            valueKeywordsForCodeMirror["conic-gradient"] = true;
+            valueKeywordsForCodeMirror["repeating-conic-gradient"] = true;
+
+            function updateCodeMirrorCSSMode(mimeType) {
+                let modeSpec = CodeMirror.resolveMode(mimeType);
+
+                console.assert(modeSpec.propertyKeywords);
+                console.assert(modeSpec.valueKeywords);
+                console.assert(modeSpec.colorKeywords);
+
+                modeSpec.propertyKeywords = propertyNamesForCodeMirror;
+                modeSpec.valueKeywords = valueKeywordsForCodeMirror;
+                modeSpec.colorKeywords = colorKeywordsForCodeMirror;
+
+                CodeMirror.defineMIME(mimeType, modeSpec);
+            }
+
+            updateCodeMirrorCSSMode("text/css");
+            updateCodeMirrorCSSMode("text/x-scss");
+        });
+
+        if (target.hasCommand("CSS.getSupportedSystemFontFamilyNames")) {
+            target.CSSAgent.getSupportedSystemFontFamilyNames((error, fontFamilyNames) =>{
+                if (error)
+                    return;
+
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font-family", fontFamilyNames);
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font", fontFamilyNames);
+            });
+        }
     }
 
     // Static
@@ -155,6 +241,8 @@ WI.CSSManager = class CSSManager extends WI.Object
             return WI.unlocalizedString("::after");
         case CSSManager.PseudoSelectorNames.Selection:
             return WI.unlocalizedString("::selection");
+        case CSSManager.PseudoSelectorNames.Backdrop:
+            return WI.unlocalizedString("::backdrop");
         case CSSManager.PseudoSelectorNames.Scrollbar:
             return WI.unlocalizedString("::scrollbar");
         case CSSManager.PseudoSelectorNames.ScrollbarThumb:
@@ -177,6 +265,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     }
 
     // Public
+
+    get propertyNameCompletions() { return this._propertyNameCompletions; }
 
     get preferredColorFormat()
     {
@@ -203,35 +293,46 @@ WI.CSSManager = class CSSManager extends WI.Object
         if (!this.canForceAppearance())
             return;
 
-        let protocolName = "";
+        let commandArguments = {};
 
         switch (name) {
         case WI.CSSManager.Appearance.Light:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Light;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Light;
             break;
 
         case WI.CSSManager.Appearance.Dark:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Dark;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Dark;
             break;
 
         case null:
-        case undefined:
-        case "":
-            protocolName = "";
+            // COMPATIBILITY (iOS 14): the `appearance`` parameter of `Page.setForcedAppearance` was not optional.
+            // Since support can't be tested directly, check for the `options`` parameter of `DOMDebugger.setDOMBreakpoint` (iOS 14.0+).
+            // FIXME: Use explicit version checking once https://webkit.org/b/148680 is fixed.
+            if (!InspectorBackend.hasCommand("DOMDebugger.setDOMBreakpoint", "options"))
+                commandArguments.appearance = "";
             break;
 
         default:
-            // Abort for unknown values.
+            console.assert(false, "Unknown appearance", name);
             return;
         }
 
         this._forcedAppearance = name || null;
 
         let target = WI.assumingMainTarget();
-        target.PageAgent.setForcedAppearance(protocolName).then(() => {
+        target.PageAgent.setForcedAppearance.invoke(commandArguments).then(() => {
             this.mediaQueryResultChanged();
             this.dispatchEventToListeners(WI.CSSManager.Event.ForcedAppearanceDidChange, {appearance: this._forcedAppearance});
         });
+    }
+
+    set layoutContextTypeChangedMode(layoutContextTypeChangedMode)
+    {
+        for (let target of WI.targets) {
+            // COMPATIBILITY (iOS 14.5): CSS.setLayoutContextTypeChangedMode did not exist.
+            if (target.hasCommand("CSS.setLayoutContextTypeChangedMode"))
+                target.CSSAgent.setLayoutContextTypeChangedMode(layoutContextTypeChangedMode);
+        }
     }
 
     canForceAppearance()
@@ -270,6 +371,7 @@ WI.CSSManager = class CSSManager extends WI.Object
         if (!name || name.length < 8 || name.charAt(0) !== "-")
             return name;
 
+        // Keep in sync with prefix list from Source/WebInspectorUI/Scripts/update-inspector-css-documentation
         var match = name.match(/^(?:-webkit-|-khtml-|-apple-)(.+)/);
         if (!match)
             return name;
@@ -342,6 +444,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     addModifiedStyle(style)
     {
         this._modifiedStyles.set(style.stringId, style);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     getModifiedStyle(style)
@@ -352,6 +456,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     removeModifiedStyle(style)
     {
         this._modifiedStyles.delete(style.stringId);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     // PageObserver
@@ -567,7 +673,7 @@ WI.CSSManager = class CSSManager extends WI.Object
             return;
 
         // Ignore changes to resource overrides, those are not live on the page.
-        if (resource.isLocalResourceOverride)
+        if (resource.localResourceOverride)
             return;
 
         // Ignore if it isn't a CSS style sheet.
@@ -661,6 +767,7 @@ WI.CSSManager = class CSSManager extends WI.Object
 WI.CSSManager.Event = {
     StyleSheetAdded: "css-manager-style-sheet-added",
     StyleSheetRemoved: "css-manager-style-sheet-removed",
+    ModifiedStylesChanged: "css-manager-modified-styles-changed",
     DefaultAppearanceDidChange: "css-manager-default-appearance-did-change",
     ForcedAppearanceDidChange: "css-manager-forced-appearance-did-change",
 };
@@ -673,6 +780,7 @@ WI.CSSManager.Appearance = {
 WI.CSSManager.PseudoSelectorNames = {
     After: "after",
     Before: "before",
+    Backdrop: "backdrop",
     FirstLetter: "first-letter",
     FirstLine: "first-line",
     Highlight: "highlight",
@@ -685,6 +793,11 @@ WI.CSSManager.PseudoSelectorNames = {
     ScrollbarTrack: "scrollbar-track",
     ScrollbarTrackPiece: "scrollbar-track-piece",
     Selection: "selection",
+};
+
+WI.CSSManager.LayoutContextTypeChangedMode = {
+    Observed: "observed",
+    All: "all",
 };
 
 WI.CSSManager.PseudoElementNames = ["before", "after"];

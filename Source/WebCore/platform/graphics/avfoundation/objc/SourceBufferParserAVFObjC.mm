@@ -40,6 +40,7 @@
 #import "MediaSampleAVFObjC.h"
 #import "NotImplemented.h"
 #import "SharedBuffer.h"
+#import "SourceBufferPrivate.h"
 #import "TimeRanges.h"
 #import "VideoTrackPrivateMediaSourceAVFObjC.h"
 #import <AVFoundation/AVAssetTrack.h>
@@ -48,12 +49,19 @@
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/cf/TypeCastsCF.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
 #pragma mark -
 #pragma mark WebAVStreamDataParserListener
+
+#if HAVE(AVCONTENTKEYSPECIFIER)
+@interface AVContentKeySpecifier (WebCorePrivate)
+@property (readonly) NSData *initializationData;
+@end
+#endif
 
 @interface WebAVStreamDataParserListener : NSObject<AVStreamDataParserOutputHandling> {
     WebCore::SourceBufferParserAVFObjC* _parent;
@@ -77,7 +85,7 @@
     return self;
 }
 
-@synthesize parent=_parent;
+@synthesize parent = _parent;
 
 - (void)dealloc
 {
@@ -131,6 +139,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     ASSERT_UNUSED(streamDataParser, streamDataParser == _parser);
     _parent->didProvideContentKeyRequestInitializationDataForTrackID(initData, trackID);
 }
+
+#if HAVE(AVCONTENTKEYSPECIFIER)
+- (void)streamDataParser:(AVStreamDataParser *)streamDataParser didProvideContentKeySpecifier:(AVContentKeySpecifier *)keySpecifier forTrackID:(CMPersistentTrackID)trackID
+{
+    ASSERT_UNUSED(streamDataParser, streamDataParser == _parser);
+    if ([keySpecifier respondsToSelector:@selector(initializationData)])
+        _parent->didProvideContentKeyRequestSpecifierForTrackID(keySpecifier.initializationData, trackID);
+}
+#endif
+
 @end
 
 namespace WebCore {
@@ -169,14 +187,13 @@ private:
         if (description) {
             m_originalCodec = PAL::softLink_CoreMedia_CMFormatDescriptionGetMediaSubType(description);
             CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? PAL::get_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() : CFSTR("CommonEncryptionOriginalFormat");
-            CFTypeRef originalFormat = CMFormatDescriptionGetExtension(description, originalFormatKey);
-            if (originalFormat && CFGetTypeID(originalFormat) == CFNumberGetTypeID())
-                CFNumberGetValue((CFNumberRef)originalFormat, kCFNumberSInt32Type, &m_originalCodec);
+            if (auto originalFormat = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(description, originalFormatKey)))
+                CFNumberGetValue(originalFormat, kCFNumberSInt32Type, &m_originalCodec);
         }
     }
 
     FourCharCode m_originalCodec;
-    mutable Optional<AtomString> m_codec;
+    mutable std::optional<AtomString> m_codec;
     bool m_isVideo;
     bool m_isAudio;
     bool m_isText;
@@ -194,15 +211,7 @@ MediaPlayerEnums::SupportsType SourceBufferParserAVFObjC::isContentTypeSupported
         extendedType = makeString(type.containerType(), "; codecs=\"", outputCodecs, "\"");
     }
 
-    auto& streamDataParserCache = AVStreamDataParserMIMETypeCache::singleton();
-    if (streamDataParserCache.isAvailable())
-        return streamDataParserCache.canDecodeType(extendedType);
-
-    auto& assetCache = AVAssetMIMETypeCache::singleton();
-    if (assetCache.isAvailable())
-        return assetCache.canDecodeType(extendedType);
-
-    return MediaPlayerEnums::SupportsType::IsNotSupported;
+    return AVStreamDataParserMIMETypeCache::singleton().canDecodeType(extendedType);
 }
 
 SourceBufferParserAVFObjC::SourceBufferParserAVFObjC()
@@ -217,15 +226,16 @@ SourceBufferParserAVFObjC::~SourceBufferParserAVFObjC()
     [m_delegate invalidate];
 }
 
-void SourceBufferParserAVFObjC::appendData(Vector<unsigned char>&& data, AppendFlags flags)
+void SourceBufferParserAVFObjC::appendData(Segment&& segment, CompletionHandler<void()>&& completionHandler, AppendFlags flags)
 {
-    auto sharedData = SharedBuffer::create(WTFMove(data));
-    auto nsData = sharedData->createNSData();
+    auto sharedBuffer = segment.takeSharedBuffer();
+    auto nsData = sharedBuffer->makeContiguous()->createNSData();
     if (m_parserStateWasReset || flags == AppendFlags::Discontinuity)
         [m_parser appendStreamData:nsData.get() withFlags:AVStreamDataParserStreamDataDiscontinuity];
     else
         [m_parser appendStreamData:nsData.get()];
     m_parserStateWasReset = false;
+    completionHandler();
 }
 
 void SourceBufferParserAVFObjC::flushPendingMediaData()
@@ -235,7 +245,9 @@ void SourceBufferParserAVFObjC::flushPendingMediaData()
 
 void SourceBufferParserAVFObjC::setShouldProvideMediaDataForTrackID(bool should, uint64_t trackID)
 {
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_parser setShouldProvideMediaData:should forTrackID:trackID];
+    END_BLOCK_OBJC_EXCEPTIONS
 }
 
 bool SourceBufferParserAVFObjC::shouldProvideMediadataForTrackID(uint64_t trackID)
@@ -246,7 +258,6 @@ bool SourceBufferParserAVFObjC::shouldProvideMediadataForTrackID(uint64_t trackI
 void SourceBufferParserAVFObjC::resetParserState()
 {
     m_parserStateWasReset = true;
-    m_discardSamplesUntilNextInitializationSegment = true;
 }
 
 void SourceBufferParserAVFObjC::invalidate()
@@ -256,11 +267,17 @@ void SourceBufferParserAVFObjC::invalidate()
     m_parser = nullptr;
 }
 
+#if !RELEASE_LOG_DISABLED
+void SourceBufferParserAVFObjC::setLogger(const Logger& logger, const void* logIdentifier)
+{
+    m_logger = &logger;
+    m_logIdentifier = logIdentifier;
+}
+#endif
+
 void SourceBufferParserAVFObjC::didParseStreamDataAsAsset(AVAsset* asset)
 {
-    callOnMainThread([this, strongThis = makeRef(*this), asset = retainPtr(asset)] {
-        m_discardSamplesUntilNextInitializationSegment = false;
-
+    m_callOnClientThreadCallback([this, strongThis = Ref { *this }, asset = retainPtr(asset)] {
         if (!m_didParseInitializationDataCallback)
             return;
 
@@ -301,7 +318,7 @@ void SourceBufferParserAVFObjC::didParseStreamDataAsAsset(AVAsset* asset)
 
 void SourceBufferParserAVFObjC::didFailToParseStreamDataWithError(NSError* error)
 {
-    callOnMainThread([this, strongThis = makeRef(*this), error = retainPtr(error)] {
+    m_callOnClientThreadCallback([this, strongThis = Ref { *this }, error = retainPtr(error)] {
         if (m_didEncounterErrorDuringParsingCallback)
             m_didEncounterErrorDuringParsingCallback(error.get().code);
     });
@@ -310,11 +327,8 @@ void SourceBufferParserAVFObjC::didFailToParseStreamDataWithError(NSError* error
 void SourceBufferParserAVFObjC::didProvideMediaDataForTrackID(uint64_t trackID, CMSampleBufferRef sampleBuffer, const String& mediaType, unsigned flags)
 {
     UNUSED_PARAM(flags);
-    callOnMainThread([this, strongThis = makeRef(*this), sampleBuffer = retainPtr(sampleBuffer), trackID, mediaType = mediaType] {
+    m_callOnClientThreadCallback([this, strongThis = Ref { *this }, sampleBuffer = retainPtr(sampleBuffer), trackID, mediaType = mediaType] {
         if (!m_didProvideMediaDataCallback)
-            return;
-
-        if (m_discardSamplesUntilNextInitializationSegment)
             return;
 
         auto mediaSample = MediaSampleAVFObjC::create(sampleBuffer.get(), trackID);
@@ -336,10 +350,14 @@ void SourceBufferParserAVFObjC::willProvideContentKeyRequestInitializationDataFo
 
 void SourceBufferParserAVFObjC::didProvideContentKeyRequestInitializationDataForTrackID(NSData* nsInitData, uint64_t trackID)
 {
-    auto initData = Uint8Array::create(nsInitData.length);
-    [nsInitData getBytes:initData->data() length:initData->length()];
+    m_didProvideContentKeyRequestInitializationDataForTrackIDCallback(SharedBuffer::create(nsInitData), trackID);
+}
 
-    m_didProvideContentKeyRequestInitializationDataForTrackIDCallback(WTFMove(initData), trackID);
+void SourceBufferParserAVFObjC::didProvideContentKeyRequestSpecifierForTrackID(NSData* nsInitData, uint64_t trackID)
+{
+    m_callOnClientThreadCallback([this, strongThis = Ref { *this }, nsInitData = retainPtr(nsInitData), trackID] {
+        m_didProvideContentKeyRequestIdentifierForTrackIDCallback(SharedBuffer::create(nsInitData.get()), trackID);
+    });
 }
 
 }

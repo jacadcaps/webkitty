@@ -30,6 +30,8 @@
 #include "CSSFontSelector.h"
 #include "Chrome.h"
 #include "ColorBlending.h"
+#include "DocumentInlines.h"
+#include "ElementInlines.h"
 #include "Frame.h"
 #include "FrameView.h"
 #include "HTMLNames.h"
@@ -51,6 +53,7 @@
 
 #if PLATFORM(IOS_FAMILY)
 #include "LocalizedStrings.h"
+#include "RenderThemeIOS.h"
 #endif
 
 namespace WebCore {
@@ -103,7 +106,7 @@ void RenderMenuList::willBeDestroyed()
 void RenderMenuList::setInnerRenderer(RenderBlock& innerRenderer)
 {
     ASSERT(!m_innerBlock.get());
-    m_innerBlock = makeWeakPtr(innerRenderer);
+    m_innerBlock = innerRenderer;
     adjustInnerStyle();
 }
 
@@ -113,7 +116,7 @@ void RenderMenuList::adjustInnerStyle()
     innerStyle.setFlexGrow(1);
     innerStyle.setFlexShrink(1);
     // min-width: 0; is needed for correct shrinking.
-    innerStyle.setMinWidth(Length(0, Fixed));
+    innerStyle.setMinWidth(Length(0, LengthType::Fixed));
     // Use margin:auto instead of align-items:center to get safe centering, i.e.
     // when the content overflows, treat it the same as align-items: flex-start.
     // But we only do that for the cases where html.css would otherwise use center.
@@ -123,7 +126,7 @@ void RenderMenuList::adjustInnerStyle()
         innerStyle.setAlignSelfPosition(ItemPosition::FlexStart);
     }
 
-    innerStyle.setPaddingBox(theme().popupInternalPaddingBox(style()));
+    innerStyle.setPaddingBox(theme().popupInternalPaddingBox(style(), document().settings()));
 
     if (document().page()->chrome().selectItemWritingDirectionIsNatural()) {
         // Items in the popup will not respect the CSS text-align and direction properties,
@@ -135,10 +138,10 @@ void RenderMenuList::adjustInnerStyle()
     } else if (document().page()->chrome().selectItemAlignmentFollowsMenuWritingDirection()) {
         innerStyle.setTextAlign(style().direction() == TextDirection::LTR ? TextAlignMode::Left : TextAlignMode::Right);
         TextDirection direction;
-        EUnicodeBidi unicodeBidi;
+        UnicodeBidi unicodeBidi;
         if (multiple() && selectedOptionCount(*this) != 1) {
             direction = (m_buttonText && m_buttonText->text().defaultWritingDirection() == U_RIGHT_TO_LEFT) ? TextDirection::RTL : TextDirection::LTR;
-            unicodeBidi = UBNormal;
+            unicodeBidi = UnicodeBidi::Normal;
         } else if (m_optionStyle) {
             direction = m_optionStyle->direction();
             unicodeBidi = m_optionStyle->unicodeBidi();
@@ -273,11 +276,12 @@ void RenderMenuList::setText(const String& s)
 {
     String textToUse = s.isEmpty() ? "\n"_str : s;
 
-    if (m_buttonText)
+    if (m_buttonText) {
         m_buttonText->setText(textToUse.impl(), true);
-    else {
+        m_buttonText->dirtyLineBoxes(false);
+    } else {
         auto newButtonText = createRenderer<RenderText>(document(), textToUse);
-        m_buttonText = makeWeakPtr(*newButtonText);
+        m_buttonText = *newButtonText;
         // FIXME: This mutation should go through the normal RenderTreeBuilder path.
         if (RenderTreeBuilder::current())
             RenderTreeBuilder::current()->attach(*this, WTFMove(newButtonText));
@@ -313,7 +317,8 @@ LayoutRect RenderMenuList::controlClipRect(const LayoutPoint& additionalOffset) 
 
 void RenderMenuList::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
 {
-    maxLogicalWidth = std::max(m_optionsWidth, theme().minimumMenuListSize(style())) + m_innerBlock->paddingLeft() + m_innerBlock->paddingRight();
+    maxLogicalWidth = shouldApplySizeContainment(*this) ? theme().minimumMenuListSize(style()) : std::max(m_optionsWidth, theme().minimumMenuListSize(style()));
+    maxLogicalWidth += m_innerBlock->paddingLeft() + m_innerBlock->paddingRight();
     if (!style().width().isPercentOrCalculated())
         minLogicalWidth = maxLogicalWidth;
 }
@@ -324,23 +329,11 @@ void RenderMenuList::computePreferredLogicalWidths()
     m_maxPreferredLogicalWidth = 0;
     
     if (style().width().isFixed() && style().width().value() > 0)
-        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(style().width().value());
+        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(style().width());
     else
         computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
 
-    if (style().minWidth().isFixed() && style().minWidth().value() > 0) {
-        m_maxPreferredLogicalWidth = std::max(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().minWidth().value()));
-        m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().minWidth().value()));
-    }
-
-    if (style().maxWidth().isFixed()) {
-        m_maxPreferredLogicalWidth = std::min(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().maxWidth().value()));
-        m_minPreferredLogicalWidth = std::min(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().maxWidth().value()));
-    }
-
-    LayoutUnit toAdd = horizontalBorderAndPaddingExtent();
-    m_minPreferredLogicalWidth += toAdd;
-    m_maxPreferredLogicalWidth += toAdd;
+    RenderBox::computePreferredLogicalWidths(style().minWidth(), style().maxWidth(), horizontalBorderAndPaddingExtent());
 
     setPreferredLogicalWidthsDirty(false);
 }
@@ -549,14 +542,14 @@ PopupMenuStyle RenderMenuList::menuStyle() const
     IntRect absBounds = absoluteBoundingBoxRectIgnoringTransforms();
     return PopupMenuStyle(styleToUse.visitedDependentColorWithColorFilter(CSSPropertyColor), styleToUse.visitedDependentColorWithColorFilter(CSSPropertyBackgroundColor),
         styleToUse.fontCascade(), styleToUse.visibility() == Visibility::Visible, styleToUse.display() == DisplayType::None,
-        style().hasAppearance() && style().appearance() == MenulistPart, styleToUse.textIndent(),
+        style().hasEffectiveAppearance() && style().effectiveAppearance() == MenulistPart, styleToUse.textIndent(),
         style().direction(), isOverride(style().unicodeBidi()), PopupMenuStyle::DefaultBackgroundColor,
         PopupMenuStyle::SelectPopup, theme().popupMenuSize(styleToUse, absBounds));
 }
 
 HostWindow* RenderMenuList::hostWindow() const
 {
-    return view().frameView().hostWindow();
+    return RenderFlexibleBox::hostWindow();
 }
 
 Ref<Scrollbar> RenderMenuList::createScrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize controlSize)
@@ -581,7 +574,7 @@ const int endOfLinePadding = 2;
 
 LayoutUnit RenderMenuList::clientPaddingLeft() const
 {
-    if ((style().appearance() == MenulistPart || style().appearance() == MenulistButtonPart) && style().direction() == TextDirection::RTL) {
+    if ((style().effectiveAppearance() == MenulistPart || style().effectiveAppearance() == MenulistButtonPart) && style().direction() == TextDirection::RTL) {
         // For these appearance values, the theme applies padding to leave room for the
         // drop-down button. But leaving room for the button inside the popup menu itself
         // looks strange, so we return a small default padding to avoid having a large empty
@@ -595,7 +588,7 @@ LayoutUnit RenderMenuList::clientPaddingLeft() const
 
 LayoutUnit RenderMenuList::clientPaddingRight() const
 {
-    if ((style().appearance() == MenulistPart || style().appearance() == MenulistButtonPart) && style().direction() == TextDirection::LTR)
+    if ((style().effectiveAppearance() == MenulistPart || style().effectiveAppearance() == MenulistButtonPart) && style().direction() == TextDirection::LTR)
         return endOfLinePadding;
 
     return paddingRight() + m_innerBlock->paddingRight();
@@ -649,5 +642,27 @@ FontSelector* RenderMenuList::fontSelector() const
 {
     return &document().fontSelector();
 }
+
+#if PLATFORM(IOS_FAMILY)
+void RenderMenuList::layout()
+{
+    RenderFlexibleBox::layout();
+
+    // Ideally, we should not be adjusting styles during layout. However, for a
+    // pill-shaped appearance, the horizontal border radius is dependent on the
+    // computed height of the box. This means that the appearance cannot be declared
+    // prior to layout, since CSS only allows the horizontal border radius to be
+    // dependent on the computed width of the box.
+    //
+    // Ignoring the style's border radius and forcing a pill-shaped appearance at
+    // paint time is not an option, since focus rings and tap highlights will not
+    // use the correct border radius. Consequently, we need to adjust the border
+    // radius here.
+    //
+    // Note that similar adjustments are made in RenderSliderThumb, RenderButton
+    // and RenderTextControlSingleLine.
+    RenderThemeIOS::adjustRoundBorderRadius(mutableStyle(), *this);
+}
+#endif
 
 }

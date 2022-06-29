@@ -25,7 +25,13 @@
 
 #pragma once
 
-#include "WebEvent.h"
+#include "WebKeyboardEvent.h"
+#include "WebMouseEvent.h"
+#include "WebWheelEvent.h"
+
+#if ENABLE(TOUCH_EVENTS)
+#include "WebTouchEvent.h"
+#endif
 
 struct wpe_input_axis_event;
 struct wpe_input_keyboard_event;
@@ -38,7 +44,7 @@ namespace WebKit {
 
 class WebEventFactory {
 public:
-    static WebKeyboardEvent createWebKeyboardEvent(struct wpe_input_keyboard_event*, const String&, bool handledByInputMethod, Optional<Vector<WebCore::CompositionUnderline>>&&, Optional<EditingRange>&&);
+    static WebKeyboardEvent createWebKeyboardEvent(struct wpe_input_keyboard_event*, const String&, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&);
     static WebMouseEvent createWebMouseEvent(struct wpe_input_pointer_event*, float deviceScaleFactor);
     static WebWheelEvent createWebWheelEvent(struct wpe_input_axis_event*, float deviceScaleFactor, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase);
 #if ENABLE(TOUCH_EVENTS)

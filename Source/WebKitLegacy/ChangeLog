@@ -1,3 +1,1406 @@
+2022-02-19  Chris Dumez  <cdumez@apple.com>
+
+        Optimize DOM storage event dispatch
+        https://bugs.webkit.org/show_bug.cgi?id=236871
+
+        Reviewed by Sihui Liu.
+
+        Made the following optimization to DOM storage event dispatch:
+        1. Pass a SecurityOrigin around instead of a SecurityOriginData. Otherwise,
+           dispatchLocalStorageEvents() / dispatchSessionStorageEvents() just keep
+           reconstructing the SecurityOrigin from the SecurityOriginData for every
+           frame.
+        2. When gathering the list of frames where we need to dispatch the storage
+           event, discard the ones that do not have a "storage" event listener.
+
+        * Storage/StorageAreaImpl.cpp:
+        (WebKit::StorageAreaImpl::StorageAreaImpl):
+        (WebKit::StorageAreaImpl::create):
+        (WebKit::StorageAreaImpl::clearForOriginDeletion):
+        (WebKit::StorageAreaImpl::sync):
+        (WebKit::StorageAreaImpl::sessionChanged):
+        * Storage/StorageAreaImpl.h:
+        * Storage/StorageNamespaceImpl.cpp:
+        (WebKit::StorageNamespaceImpl::storageArea):
+        * Storage/StorageNamespaceImpl.h:
+
+2022-02-09  Sihui Liu  <sihui_liu@apple.com>
+
+        Manage IndexedDB storage by origin
+        https://bugs.webkit.org/show_bug.cgi?id=234925
+        <rdar://problem/87555014>
+
+        Reviewed by Chris Dumez.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::quotaManager):
+
+2022-02-02  Elliott Williams  <emw@apple.com>
+
+        [Xcode] Fix redundant execution of "Check VTables..." script
+        https://bugs.webkit.org/show_bug.cgi?id=236032
+
+        Reviewed by Jonathan Bedard.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj: Add timestamp file to script phase.
+
+2022-02-02  Youenn Fablet  <youenn@apple.com>
+
+        Clarify that some UUID routines are dedicated to UUID v4
+        https://bugs.webkit.org/show_bug.cgi?id=235430
+
+        Reviewed by Darin Adler.
+
+        * WebCoreSupport/NetworkStorageSessionMap.cpp:
+        (NetworkStorageSessionMap::ensureSession):
+
+2022-01-27  Elliott Williams  <emw@apple.com>
+
+        [XCBuild] Add missing task dependencies on generate-unified-source-bundles.rb
+        https://bugs.webkit.org/show_bug.cgi?id=235724
+
+        Reviewed by Alexey Proskuryakov.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2022-01-27  Elliott Williams  <emw@apple.com>
+
+        Generated xcfilelists contain symlinks when building for macOS
+        https://bugs.webkit.org/show_bug.cgi?id=235663
+        rdar://88054903
+
+        Reviewed by Alexey Proskuryakov.
+
+        * Configurations/Base.xcconfig:
+        * Configurations/BaseTarget.xcconfig:
+        * Configurations/BaseXPCService.xcconfig:
+        * Configurations/WebKitSwift.xcconfig:
+        * Configurations/adattributiond.xcconfig:
+        * Configurations/webpushd.xcconfig:
+
+2022-01-21  Sihui Liu  <sihui_liu@apple.com>
+
+        Disable CFURLCache in WebKit2
+        https://bugs.webkit.org/show_bug.cgi?id=234988
+        <rdar://problem/87619196>
+
+        Reviewed by Geoffrey Garen.
+
+        * WebCoreSupport/NetworkStorageSessionMap.cpp:
+        (NetworkStorageSessionMap::ensureSession):
+
+2022-01-11  Michael Saboff  <msaboff@apple.com>
+
+        Fixed installhdr build failures in WebCore and WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=235059
+
+        Reviewed by Filip Pizlo.
+
+        On iOS, we need to create symbolic links for WebKitLegacy when using the SYSTEM_CONTENT_PATH.
+        Copied the creation script to the project and updated the configuration file accordingly.
+ 
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        * scripts/create-symlink-to-altroot.sh: Added.
+
+2022-01-10  Alex Christensen  <achristensen@webkit.org>
+
+        Start using C++20
+        https://bugs.webkit.org/show_bug.cgi?id=233963
+
+        Reviewed by Yusuke Suzuki.
+
+        * PlatformMac.cmake:
+
+2022-01-09  Sam Weinig  <weinig@apple.com>
+
+        Remove support for Direct2D
+        https://bugs.webkit.org/show_bug.cgi?id=234999
+
+        Reviewed by Darin Adler.
+
+        Direct2D and FTW have not been building for over a year. It is
+        time to remove them.
+
+        * PlatformFTW.cmake: Removed.
+
+2022-01-07  Alex Christensen  <achristensen@webkit.org>
+
+        Unreviewed, reverting r287698.
+
+        Broke an internal build
+
+        Reverted changeset:
+
+        "Start using C++20"
+        https://bugs.webkit.org/show_bug.cgi?id=233963
+        https://commits.webkit.org/r287698
+
+2022-01-06  Alex Christensen  <achristensen@webkit.org>
+
+        Start using C++20
+        https://bugs.webkit.org/show_bug.cgi?id=233963
+
+        Reviewed by Yusuke Suzuki.
+
+        * PlatformMac.cmake:
+
+2022-01-06  Jean-Yves Avenard  <jya@apple.com>
+
+        Have CachedRawResourceClient and related networking actors use SharedBuffer.
+        https://bugs.webkit.org/show_bug.cgi?id=232424
+        rdar://84744687
+
+        Reviewed by Youenn Fablet.
+
+        * WebCoreSupport/PingHandle.h:
+
+2021-12-14  Jean-Yves Avenard  <jya@apple.com>
+
+        Rename SharedBuffer classes.
+        https://bugs.webkit.org/show_bug.cgi?id=233677
+        rdar://problem/85963900
+
+        Reviewed by Youenn Fablet.
+
+        SharedBuffer are renamed FragmentedSharedBuffer and
+        ContiguousSharedBuffer to SharedBuffer to better reflect their actual
+        types.
+
+        * WebCoreSupport/PingHandle.h:
+
+2021-12-09  Myles C. Maxfield  <mmaxfield@apple.com> and Don Olmstead  <don.olmstead@sony.com>
+
+        Move TextCodec files from WebCore/platform/text to WebCore/PAL/text
+        https://bugs.webkit.org/show_bug.cgi?id=233683
+
+        Reviewed by Yusuke Suzuki.
+
+        Update to use the new PAL files.
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::internalInitialize):
+
+2021-11-12  Darin Adler  <darin@apple.com>
+
+        Make sort-Xcode-project-file idempotent
+        https://bugs.webkit.org/show_bug.cgi?id=233077
+
+        Reviewed by Wenson Hsieh.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj: Sorted.
+
+2021-11-03  Chris Dumez  <cdumez@apple.com>
+
+        Clicking a link should preconnect to destination as first party
+        https://bugs.webkit.org/show_bug.cgi?id=232668
+
+        Reviewed by Alex Christensen.
+
+        Clicking a link should preconnect to destination as first party, not third-party. Otherwise, the
+        preconnect is wasted when session isolation based on registrable domain is enabled. This is a
+        follow-up to r284730.
+
+        * WebCoreSupport/WebResourceLoadScheduler.cpp:
+        (WebResourceLoadScheduler::preconnectTo):
+        * WebCoreSupport/WebResourceLoadScheduler.h:
+
+2021-10-29  Alex Christensen  <achristensen@webkit.org>
+
+        Remove code inside ENABLE(NETSCAPE_PLUGIN_API)
+        https://bugs.webkit.org/show_bug.cgi?id=232462
+
+        Reviewed by Anders Carlsson.
+
+        * PlatformMac.cmake:
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-10-22  Ian Anderson  <iana@apple.com>
+
+        Add a module map file for PrivateFrameworks/WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=230735
+
+        Reviewed by David Kilzer.
+
+        Add module map files for WebKitLegacy. The public module is empty
+        because there are no public headers. The private module map sets
+        PrivateHeaders as the umbrella directory because there isn't an umbrella
+        header already. Then it makes an explicit submodule for each header so
+        as to mimic the non-modular environment.
+
+        * Modules/WebKitLegacy.modulemap: Added.
+        * Modules/WebKitLegacy.private.modulemap: Added.
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-10-22  Commit Queue  <commit-queue@webkit.org>
+
+        Unreviewed, reverting r284713.
+        https://bugs.webkit.org/show_bug.cgi?id=232187
+
+        Broke some Apple internal builds
+
+        Reverted changeset:
+
+        "Add a module map file for PrivateFrameworks/WebKitLegacy"
+        https://bugs.webkit.org/show_bug.cgi?id=230735
+        https://commits.webkit.org/r284713
+
+2021-10-22  Ian Anderson  <iana@apple.com>
+
+        Add a module map file for PrivateFrameworks/WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=230735
+
+        Reviewed by David Kilzer.
+
+        Add module map files for WebKitLegacy. The public module is empty
+        because there are no public headers. The private module map sets
+        PrivateHeaders as the umbrella directory because there isn't an umbrella
+        header already. Then it makes an explicit submodule for each header so
+        as to mimic the non-modular environment.
+
+        * Modules/WebKitLegacy.modulemap: Added.
+        * Modules/WebKitLegacy.private.modulemap: Added.
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-10-14  Chris Dumez  <cdumez@apple.com>
+
+        Unreviewed, fix up previous commit.
+
+        * Storage/InProcessIDBServer.cpp:
+        (storageQuotaManagerSpaceRequester):
+
+2021-10-14  Chris Dumez  <cdumez@apple.com>
+
+        Unreviewed, very tiny partial revert of r284142 to address assertion hits on the bots.
+
+        * Storage/InProcessIDBServer.cpp:
+        (storageQuotaManagerSpaceRequester):
+
+2021-10-13  Chris Dumez  <cdumez@apple.com>
+
+        Drop makeWeakPtr() and use WeakPtr { } directly
+        https://bugs.webkit.org/show_bug.cgi?id=231679
+
+        Reviewed by Darin Adler.
+
+        * Storage/InProcessIDBServer.cpp:
+        (storageQuotaManagerSpaceRequester):
+        * WebCoreSupport/PageStorageSessionProvider.h:
+        * WebCoreSupport/WebBroadcastChannelRegistry.cpp:
+        (WebBroadcastChannelRegistry::getOrCreate):
+
+2021-10-01  Ian Anderson  <iana@apple.com>
+
+        WebKitLegacy's module map files don't get installed
+        https://bugs.webkit.org/show_bug.cgi?id=230736
+
+        Reviewed by David Kilzer.
+
+        Revert r271607 because it doesn't work and isn't the right approach.
+
+        * Modules/WebKitLegacy_iOS.private.modulemap: Removed.
+        * Modules/WebKitLegacy_macOS.private.modulemap: Removed.
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-09-29  Jer Noble  <jer.noble@apple.com>
+
+        Build-time optimization: forward declare more things in MediaPlayer.h and HTMLMediaElement.h
+        https://bugs.webkit.org/show_bug.cgi?id=230853
+
+        Reviewed by Eric Carlson.
+
+        Use nullptr rather than zero for null values.
+
+        * Storage/StorageNamespaceImpl.cpp:
+        (WebKit::StorageNamespaceImpl::StorageNamespaceImpl):
+
+2021-09-28  Alex Christensen  <achristensen@webkit.org>
+
+        Mostly fix Mac CMake build
+        https://bugs.webkit.org/show_bug.cgi?id=230868
+
+        Reviewed by Don Olmstead.
+
+        * PlatformMac.cmake:
+
+2021-09-20  Chris Dumez  <cdumez@apple.com>
+
+        Stop using makeRef(*this) / makeRefPtr(this)
+        https://bugs.webkit.org/show_bug.cgi?id=230464
+
+        Reviewed by Alex Christensen.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::InProcessIDBServer):
+        (InProcessIDBServer::deleteDatabase):
+        (InProcessIDBServer::didDeleteDatabase):
+        (InProcessIDBServer::openDatabase):
+        (InProcessIDBServer::didOpenDatabase):
+        (InProcessIDBServer::didAbortTransaction):
+        (InProcessIDBServer::didCommitTransaction):
+        (InProcessIDBServer::didCreateObjectStore):
+        (InProcessIDBServer::didDeleteObjectStore):
+        (InProcessIDBServer::didRenameObjectStore):
+        (InProcessIDBServer::didClearObjectStore):
+        (InProcessIDBServer::didCreateIndex):
+        (InProcessIDBServer::didDeleteIndex):
+        (InProcessIDBServer::didRenameIndex):
+        (InProcessIDBServer::didPutOrAdd):
+        (InProcessIDBServer::didGetRecord):
+        (InProcessIDBServer::didGetAllRecords):
+        (InProcessIDBServer::didGetCount):
+        (InProcessIDBServer::didDeleteRecord):
+        (InProcessIDBServer::didOpenCursor):
+        (InProcessIDBServer::didIterateCursor):
+        (InProcessIDBServer::abortTransaction):
+        (InProcessIDBServer::commitTransaction):
+        (InProcessIDBServer::didFinishHandlingVersionChangeTransaction):
+        (InProcessIDBServer::createObjectStore):
+        (InProcessIDBServer::deleteObjectStore):
+        (InProcessIDBServer::renameObjectStore):
+        (InProcessIDBServer::clearObjectStore):
+        (InProcessIDBServer::createIndex):
+        (InProcessIDBServer::deleteIndex):
+        (InProcessIDBServer::renameIndex):
+        (InProcessIDBServer::putOrAdd):
+        (InProcessIDBServer::getRecord):
+        (InProcessIDBServer::getAllRecords):
+        (InProcessIDBServer::getCount):
+        (InProcessIDBServer::deleteRecord):
+        (InProcessIDBServer::openCursor):
+        (InProcessIDBServer::iterateCursor):
+        (InProcessIDBServer::establishTransaction):
+        (InProcessIDBServer::fireVersionChangeEvent):
+        (InProcessIDBServer::didStartTransaction):
+        (InProcessIDBServer::didCloseFromServer):
+        (InProcessIDBServer::notifyOpenDBRequestBlocked):
+        (InProcessIDBServer::databaseConnectionPendingClose):
+        (InProcessIDBServer::databaseConnectionClosed):
+        (InProcessIDBServer::abortOpenAndUpgradeNeeded):
+        (InProcessIDBServer::didFireVersionChangeEvent):
+        (InProcessIDBServer::openDBRequestCancelled):
+        (InProcessIDBServer::getAllDatabaseNamesAndVersions):
+        (InProcessIDBServer::didGetAllDatabaseNamesAndVersions):
+        (InProcessIDBServer::closeAndDeleteDatabasesModifiedSince):
+
+2021-09-17  Alex Christensen  <achristensen@webkit.org>
+
+        Use ObjectIdentifier for ResourceLoader
+        https://bugs.webkit.org/show_bug.cgi?id=230278
+
+        Reviewed by Michael Catanzaro.
+
+        * WebCoreSupport/WebResourceLoadScheduler.cpp:
+        (WebResourceLoadScheduler::loadResourceSynchronously):
+        * WebCoreSupport/WebResourceLoadScheduler.h:
+
+2021-09-07  Chris Dumez  <cdumez@apple.com>
+
+        Implement origin partitioning (top-origin/frame-origin) for BroadcastChannel
+        https://bugs.webkit.org/show_bug.cgi?id=229814
+
+        Reviewed by Alex Christensen.
+
+        Implement origin partitioning (top-origin/frame-origin) for BroadcastChannel to address privacy
+        concerns, as discussed here:
+        - https://github.com/whatwg/html/issues/5803
+
+        * WebCoreSupport/WebBroadcastChannelRegistry.cpp:
+        (WebBroadcastChannelRegistry::registerChannel):
+        (WebBroadcastChannelRegistry::unregisterChannel):
+        (WebBroadcastChannelRegistry::postMessage):
+        * WebCoreSupport/WebBroadcastChannelRegistry.h:
+
+2021-08-27  Russell Epstein  <repstein@apple.com>
+
+        Land Windows build fixes from safari-612.1.29.14-branch.
+        https://bugs.webkit.org/show_bug.cgi?id=229627.
+
+        Reviewed by Per Arne Vollan.
+
+        * WebKitLegacy.vcxproj/WebKitLegacy.proj:
+
+2021-08-07  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Deduplicate logging channel algorithms
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+
+        Reviewed by Fujii Hironori.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-08-07  Commit Queue  <commit-queue@webkit.org>
+
+        Unreviewed, reverting r280756.
+        https://bugs.webkit.org/show_bug.cgi?id=228897
+
+        Broke gtk build
+
+        Reverted changeset:
+
+        "Deduplicate logging channel algorithms"
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+        https://commits.webkit.org/r280756
+
+2021-08-07  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Deduplicate logging channel algorithms
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+
+        Reviewed by Fujii Hironori.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-08-02  Chris Dumez  <cdumez@apple.com>
+
+        imported/w3c/web-platform-tests/webmessaging/broadcastchannel/blobs.html is a flaky failure since implementing BlobChannel
+        https://bugs.webkit.org/show_bug.cgi?id=228168
+        <rdar://problem/80922502>
+
+        Reviewed by Alex Christensen.
+
+        * WebCoreSupport/WebBroadcastChannelRegistry.cpp:
+        (WebBroadcastChannelRegistry::postMessage):
+        * WebCoreSupport/WebBroadcastChannelRegistry.h:
+
+2021-07-19  Sihui Liu  <sihui_liu@apple.com>
+
+        Implement IDBTransaction.commit()
+        https://bugs.webkit.org/show_bug.cgi?id=227815
+        <rdar://problem/80651270>
+
+        Reviewed by Brady Eidson.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::commitTransaction):
+        * Storage/InProcessIDBServer.h:
+
+2021-07-15  Chris Dumez  <cdumez@apple.com>
+
+        Add initial support for BroadcastChannel behind a runtime flag
+        https://bugs.webkit.org/show_bug.cgi?id=227924
+
+        Reviewed by Sam Weinig.
+
+        Add BroadcastChannelRegistry implementation for WebKitLegacy.
+
+        * Sources.txt:
+        * WebCoreSupport/WebBroadcastChannelRegistry.cpp: Added.
+        (WebBroadcastChannelRegistry::getOrCreate):
+        (WebBroadcastChannelRegistry::registerChannel):
+        (WebBroadcastChannelRegistry::unregisterChannel):
+        (WebBroadcastChannelRegistry::postMessage):
+        * WebCoreSupport/WebBroadcastChannelRegistry.h: Added.
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-06-21  Sihui Liu  <sihui_liu@apple.com>
+
+        Make InProcessIDBServer use WorkQueue instead of Thread
+        https://bugs.webkit.org/show_bug.cgi?id=227225
+
+        Reviewed by Chris Dumez.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::~InProcessIDBServer):
+        (InProcessIDBServer::InProcessIDBServer):
+        (InProcessIDBServer::dispatchTask):
+        * Storage/InProcessIDBServer.h:
+
+2021-06-17  Alex Christensen  <achristensen@webkit.org>
+
+        Remove empty header WebTypesInternal.h
+        https://bugs.webkit.org/show_bug.cgi?id=227094
+
+        Reviewed by Fujii Hironori.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2021-06-14  Alex Christensen  <achristensen@webkit.org>
+
+        Pass PAL::SessionID by value instead of reference
+        https://bugs.webkit.org/show_bug.cgi?id=226983
+
+        Reviewed by Geoffrey Garen.
+
+        * Storage/WebDatabaseProvider.cpp:
+        (WebDatabaseProvider::idbConnectionToServerForSession):
+        * Storage/WebDatabaseProvider.h:
+        * WebCoreSupport/NetworkStorageSessionMap.cpp:
+        (NetworkStorageSessionMap::storageSession):
+        (NetworkStorageSessionMap::ensureSession):
+        (NetworkStorageSessionMap::destroySession):
+        * WebCoreSupport/NetworkStorageSessionMap.h:
+
+2021-06-10  Alex Christensen  <achristensen@webkit.org>
+
+        Move Timing-Allow-Origin checks to the network process
+        https://bugs.webkit.org/show_bug.cgi?id=226678
+        <rdar://problem/45227788>
+
+        Reviewed by Chris Dumez.
+
+        * WebCoreSupport/PingHandle.h:
+        * WebCoreSupport/WebResourceLoadScheduler.cpp:
+        (WebResourceLoadScheduler::loadResourceSynchronously):
+
+2021-05-30  Darin Adler  <darin@apple.com>
+
+        Remove some of the unneeded WebKitLegacy Windows-specific plug-in code
+        https://bugs.webkit.org/show_bug.cgi?id=226410
+
+        Reviewed by Chris Dumez.
+
+        * PlatformFTW.cmake: Removed all the code in the win/Plugins directory,
+        and EmbeddedWidget.h/cpp.
+        * PlatformWin.cmake: Ditto.
+
+2021-05-27  Darin Adler  <darin@apple.com>
+
+        Next step toward using std::optional directly instead of through WTF::Optional typedef
+        https://bugs.webkit.org/show_bug.cgi?id=226280
+
+        Reviewed by Chris Dumez.
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::diskUsageForOrigin): Accept the renaming done by do-webcore-rename.
+
+2021-05-24  Darin Adler  <darin@apple.com>
+
+        Remove StringBuilder::appendLiteral
+        https://bugs.webkit.org/show_bug.cgi?id=226137
+
+        Reviewed by Chris Dumez.
+
+        * WebCoreSupport/NetworkStorageSessionMap.cpp:
+        (NetworkStorageSessionMap::switchToNewTestingSession): Do not use local
+        for return value of makeString.
+
+2021-05-24  Chris Dumez  <cdumez@apple.com>
+
+        Drop CheckedLock / CheckedCondition aliases
+        https://bugs.webkit.org/show_bug.cgi?id=226176
+
+        Reviewed by Kate Cheney.
+
+        Drop CheckedLock / CheckedCondition aliases now that they are the default.
+
+        * Storage/StorageAreaSync.h:
+
+2021-05-22  Chris Dumez  <cdumez@apple.com>
+
+        Replace LockHolder with Locker in local variables
+        https://bugs.webkit.org/show_bug.cgi?id=226133
+
+        Reviewed by Darin Adler.
+
+        Replace LockHolder with Locker in local variables. It is shorter and it allows switching the lock
+        type more easily since the compiler with deduce the lock type T for Locker<T>.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::InProcessIDBServer):
+        (InProcessIDBServer::deleteDatabase):
+        (InProcessIDBServer::openDatabase):
+        (InProcessIDBServer::abortTransaction):
+        (InProcessIDBServer::commitTransaction):
+        (InProcessIDBServer::didFinishHandlingVersionChangeTransaction):
+        (InProcessIDBServer::createObjectStore):
+        (InProcessIDBServer::deleteObjectStore):
+        (InProcessIDBServer::renameObjectStore):
+        (InProcessIDBServer::clearObjectStore):
+        (InProcessIDBServer::createIndex):
+        (InProcessIDBServer::deleteIndex):
+        (InProcessIDBServer::renameIndex):
+        (InProcessIDBServer::putOrAdd):
+        (InProcessIDBServer::getRecord):
+        (InProcessIDBServer::getAllRecords):
+        (InProcessIDBServer::getCount):
+        (InProcessIDBServer::deleteRecord):
+        (InProcessIDBServer::openCursor):
+        (InProcessIDBServer::iterateCursor):
+        (InProcessIDBServer::establishTransaction):
+        (InProcessIDBServer::databaseConnectionPendingClose):
+        (InProcessIDBServer::databaseConnectionClosed):
+        (InProcessIDBServer::abortOpenAndUpgradeNeeded):
+        (InProcessIDBServer::didFireVersionChangeEvent):
+        (InProcessIDBServer::openDBRequestCancelled):
+        (InProcessIDBServer::getAllDatabaseNamesAndVersions):
+        (InProcessIDBServer::closeAndDeleteDatabasesModifiedSince):
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::syncTimerFired):
+        (WebKit::StorageAreaSync::performSync):
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::finishedImportingOriginIdentifiers):
+        (WebKit::StorageTracker::syncImportOriginIdentifiers):
+        (WebKit::StorageTracker::syncFileSystemAndTrackerDatabase):
+        (WebKit::StorageTracker::setOriginDetails):
+        (WebKit::StorageTracker::syncSetOriginDetails):
+        (WebKit::StorageTracker::origins):
+        (WebKit::StorageTracker::deleteAllOrigins):
+        (WebKit::StorageTracker::syncDeleteAllOrigins):
+        (WebKit::StorageTracker::deleteOrigin):
+        (WebKit::StorageTracker::syncDeleteOrigin):
+        (WebKit::StorageTracker::canDeleteOrigin):
+        (WebKit::StorageTracker::cancelDeletingOrigin):
+        (WebKit::StorageTracker::diskUsageForOrigin):
+
+2021-05-22  Commit Queue  <commit-queue@webkit.org>
+
+        Unreviewed, reverting r277913.
+        https://bugs.webkit.org/show_bug.cgi?id=226140
+
+        Caused multiple layout-test crash on mac debug queues
+
+        Reverted changeset:
+
+        "Replace LockHolder with Locker in local variables"
+        https://bugs.webkit.org/show_bug.cgi?id=226133
+        https://trac.webkit.org/changeset/277913
+
+2021-05-21  Chris Dumez  <cdumez@apple.com>
+
+        Replace LockHolder with Locker in local variables
+        https://bugs.webkit.org/show_bug.cgi?id=226133
+
+        Reviewed by Darin Adler.
+
+        Replace LockHolder with Locker in local variables. It is shorter and it allows switching the lock
+        type more easily since the compiler with deduce the lock type T for Locker<T>.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::InProcessIDBServer):
+        (InProcessIDBServer::deleteDatabase):
+        (InProcessIDBServer::openDatabase):
+        (InProcessIDBServer::abortTransaction):
+        (InProcessIDBServer::commitTransaction):
+        (InProcessIDBServer::didFinishHandlingVersionChangeTransaction):
+        (InProcessIDBServer::createObjectStore):
+        (InProcessIDBServer::deleteObjectStore):
+        (InProcessIDBServer::renameObjectStore):
+        (InProcessIDBServer::clearObjectStore):
+        (InProcessIDBServer::createIndex):
+        (InProcessIDBServer::deleteIndex):
+        (InProcessIDBServer::renameIndex):
+        (InProcessIDBServer::putOrAdd):
+        (InProcessIDBServer::getRecord):
+        (InProcessIDBServer::getAllRecords):
+        (InProcessIDBServer::getCount):
+        (InProcessIDBServer::deleteRecord):
+        (InProcessIDBServer::openCursor):
+        (InProcessIDBServer::iterateCursor):
+        (InProcessIDBServer::establishTransaction):
+        (InProcessIDBServer::databaseConnectionPendingClose):
+        (InProcessIDBServer::databaseConnectionClosed):
+        (InProcessIDBServer::abortOpenAndUpgradeNeeded):
+        (InProcessIDBServer::didFireVersionChangeEvent):
+        (InProcessIDBServer::openDBRequestCancelled):
+        (InProcessIDBServer::getAllDatabaseNamesAndVersions):
+        (InProcessIDBServer::closeAndDeleteDatabasesModifiedSince):
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::syncTimerFired):
+        (WebKit::StorageAreaSync::performSync):
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::finishedImportingOriginIdentifiers):
+        (WebKit::StorageTracker::syncImportOriginIdentifiers):
+        (WebKit::StorageTracker::syncFileSystemAndTrackerDatabase):
+        (WebKit::StorageTracker::setOriginDetails):
+        (WebKit::StorageTracker::syncSetOriginDetails):
+        (WebKit::StorageTracker::origins):
+        (WebKit::StorageTracker::deleteAllOrigins):
+        (WebKit::StorageTracker::syncDeleteAllOrigins):
+        (WebKit::StorageTracker::deleteOrigin):
+        (WebKit::StorageTracker::syncDeleteOrigin):
+        (WebKit::StorageTracker::canDeleteOrigin):
+        (WebKit::StorageTracker::cancelDeletingOrigin):
+        (WebKit::StorageTracker::diskUsageForOrigin):
+
+2021-05-21  Chris Dumez  <cdumez@apple.com>
+
+        Adopt CheckedLock in StorageAreaSync
+        https://bugs.webkit.org/show_bug.cgi?id=226099
+
+        Reviewed by Sam Weinig.
+
+        Adopt CheckedLock in StorageAreaSync to benefit from Clang Thread Safety Analysis.
+
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::markImported):
+        (WebKit::StorageAreaSync::blockUntilImportComplete):
+        * Storage/StorageAreaSync.h:
+
+2021-05-19  Alex Christensen  <achristensen@webkit.org>
+
+        Add support for Navigation Timing Level 2
+        https://bugs.webkit.org/show_bug.cgi?id=184363
+
+        Reviewed by Ryosuke Niwa.
+
+        * WebCoreSupport/PingHandle.h:
+
+2021-05-19  Chris Dumez  <cdumez@apple.com>
+
+        Drop "get" prefix from SQLiteStatement member functions as well as out-parameters
+        https://bugs.webkit.org/show_bug.cgi?id=225971
+
+        Reviewed by Darin Adler.
+
+        Update code base due to SQLiteStatement API changes.
+
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::performImport):
+        (WebKit::StorageAreaSync::deleteEmptyDatabase):
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::syncImportOriginIdentifiers):
+        (WebKit::StorageTracker::syncDeleteAllOrigins):
+        (WebKit::StorageTracker::databasePathForOrigin):
+
+2021-05-19  Sam Weinig  <weinig@apple.com>
+
+        Update Base64 encoding/decoding to match more modern WebKit conventions
+        https://bugs.webkit.org/show_bug.cgi?id=225920
+
+        Reviewed by Chris Dumez.
+
+        * WebCoreSupport/WebResourceLoadScheduler.cpp:
+        (WebResourceLoadScheduler::loadResourceSynchronously):
+        * WebCoreSupport/WebResourceLoadScheduler.h:
+        Update to match new signature. char -> uint8_t.
+
+2021-05-17  Chris Dumez  <cdumez@apple.com>
+
+        Avoid more String creations when preparing SQLite statements
+        https://bugs.webkit.org/show_bug.cgi?id=225855
+
+        Reviewed by Alex Christensen.
+
+        Avoid more String creations when preparing SQLite statements by using ASCIILiteral. Also rename the
+        SQLiteDatabase::prepareStatement() / SQLiteDatabase::executeCommand() overloads that take in a 
+        String to make sure they are not called by mistake.
+
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::openDatabase):
+        (WebKit::StorageAreaSync::migrateItemTableIfNeeded):
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::openTrackerDatabase):
+
+2021-05-16  Chris Dumez  <cdumez@apple.com>
+
+        Modernize / Optimize SQLiteStatement creation and preparation
+        https://bugs.webkit.org/show_bug.cgi?id=225791
+
+        Reviewed by Sam Weinig.
+
+        Update code base now that the SQLiteDatabase & SQLiteStatement API has changed.
+        Also use more ASCIILiterals.
+
+        * Storage/StorageAreaSync.cpp:
+        (WebKit::StorageAreaSync::migrateItemTableIfNeeded):
+        (WebKit::StorageAreaSync::performImport):
+        (WebKit::StorageAreaSync::sync):
+        (WebKit::StorageAreaSync::deleteEmptyDatabase):
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::syncImportOriginIdentifiers):
+        (WebKit::StorageTracker::syncSetOriginDetails):
+        (WebKit::StorageTracker::syncDeleteAllOrigins):
+        (WebKit::StorageTracker::syncDeleteOrigin):
+        (WebKit::StorageTracker::databasePathForOrigin):
+
+2021-05-14  Chris Dumez  <cdumez@apple.com>
+
+        Rename FileSystem::getFileSize() to FileSystem::fileSize()
+        https://bugs.webkit.org/show_bug.cgi?id=225798
+
+        Reviewed by Alex Christensen.
+
+        Update code path to due to the API change.
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::diskUsageForOrigin):
+        * Storage/StorageTracker.h:
+
+2021-05-13  Chris Dumez  <cdumez@apple.com>
+
+        Rename FileSystem::directoryName() to FileSystem::parentPath()
+        https://bugs.webkit.org/show_bug.cgi?id=225768
+
+        Reviewed by Darin Adler.
+
+        Rename FileSystem::directoryName() to FileSystem::parentPath() for clarity and
+        consistency with std::filesystem::parent_path() which is used internally.
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::ensureDatabaseFileExists):
+
+2021-05-11  Chris Dumez  <cdumez@apple.com>
+
+        Port WTF::FileSystem::listDirectory to std::filesystem
+        https://bugs.webkit.org/show_bug.cgi?id=225633
+
+        Reviewed by Darin Adler.
+
+        Update FileSystem::listDirectory() call sites to deal with the fact that:
+        - The function now returns file names instead of full file paths
+        - The callers now have to do filtering by themselves if they need it
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::syncFileSystemAndTrackerDatabase):
+
+2021-05-04  Alex Christensen  <achristensen@webkit.org>
+
+        Remove unused references to PageGroup from WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=225359
+
+        Reviewed by Sihui Liu.
+
+        * Storage/StorageTracker.cpp:
+
+2021-04-27  Chris Dumez  <cdumez@apple.com>
+
+        Copy-on-write semantics should be an internal implementation detail of StorageMap
+        https://bugs.webkit.org/show_bug.cgi?id=225108
+
+        Reviewed by Alex Christensen.
+
+        Update StorageAreaImpl due to StorageMap API changes.
+
+        * Storage/StorageAreaImpl.cpp:
+        (WebKit::StorageAreaImpl::StorageAreaImpl):
+        (WebKit::StorageAreaImpl::length):
+        (WebKit::StorageAreaImpl::key):
+        (WebKit::StorageAreaImpl::item):
+        (WebKit::StorageAreaImpl::setItem):
+        (WebKit::StorageAreaImpl::removeItem):
+        (WebKit::StorageAreaImpl::clear):
+        (WebKit::StorageAreaImpl::contains):
+        (WebKit::StorageAreaImpl::importItems):
+        (WebKit::StorageAreaImpl::clearForOriginDeletion):
+        (WebKit::StorageAreaImpl::sessionChanged):
+        * Storage/StorageAreaImpl.h:
+
+2021-04-27  Chris Dumez  <cdumez@apple.com>
+
+        Don't keep local storage data in memory in the NetworkProcess
+        https://bugs.webkit.org/show_bug.cgi?id=225065
+
+        Reviewed by Alex Christensen.
+
+        * Storage/StorageAreaImpl.cpp:
+        (WebKit::StorageAreaImpl::clear):
+        (WebKit::StorageAreaImpl::clearForOriginDeletion):
+        Use the new StorageMap::clear() to avoid constructing a new StorageMap unnecessarily
+        when:
+        - The StorageMap is not shared
+        - The StorageMap is empty
+
+2021-04-26  Alex Christensen  <achristensen@webkit.org>
+
+        Update Mac-specific CMake files
+        https://bugs.webkit.org/show_bug.cgi?id=225064
+
+        Rubber-stamped by Tim Horton.
+
+        * PlatformMac.cmake:
+
+2021-04-13  Sihui Liu  <sihui_liu@apple.com>
+
+        Make WebIDBServer not block main thread during initialization
+        https://bugs.webkit.org/show_bug.cgi?id=224299
+
+        Reviewed by Geoffrey Garen.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::InProcessIDBServer):
+        (InProcessIDBServer::deleteDatabase):
+        (InProcessIDBServer::openDatabase):
+        (InProcessIDBServer::abortTransaction):
+        (InProcessIDBServer::commitTransaction):
+        (InProcessIDBServer::didFinishHandlingVersionChangeTransaction):
+        (InProcessIDBServer::createObjectStore):
+        (InProcessIDBServer::deleteObjectStore):
+        (InProcessIDBServer::renameObjectStore):
+        (InProcessIDBServer::clearObjectStore):
+        (InProcessIDBServer::createIndex):
+        (InProcessIDBServer::deleteIndex):
+        (InProcessIDBServer::renameIndex):
+        (InProcessIDBServer::putOrAdd):
+        (InProcessIDBServer::getRecord):
+        (InProcessIDBServer::getAllRecords):
+        (InProcessIDBServer::getCount):
+        (InProcessIDBServer::deleteRecord):
+        (InProcessIDBServer::openCursor):
+        (InProcessIDBServer::iterateCursor):
+        (InProcessIDBServer::establishTransaction):
+        (InProcessIDBServer::databaseConnectionPendingClose):
+        (InProcessIDBServer::databaseConnectionClosed):
+        (InProcessIDBServer::abortOpenAndUpgradeNeeded):
+        (InProcessIDBServer::didFireVersionChangeEvent):
+        (InProcessIDBServer::openDBRequestCancelled):
+        (InProcessIDBServer::getAllDatabaseNamesAndVersions):
+        (InProcessIDBServer::closeAndDeleteDatabasesModifiedSince):
+        * Storage/InProcessIDBServer.h:
+
+2021-04-08  Sihui Liu  <sihui_liu@apple.com>
+
+        Remove logging for investigating http/tests/IndexedDB/storage-limit-1.html failure
+        https://bugs.webkit.org/show_bug.cgi?id=223086
+        <rdar://problem/75591816>
+
+        Reviewed by Chris Dumez.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::quotaManager):
+
+2021-04-05  Alex Christensen  <achristensen@webkit.org>
+
+        Resurrect Mac CMake build
+        https://bugs.webkit.org/show_bug.cgi?id=224084
+
+        Reviewed by Tim Horton.
+
+        * PlatformMac.cmake:
+
+2021-03-28  Sam Weinig  <weinig@apple.com>
+
+        Remove ENABLE_INDEXED_DATABASE & ENABLE_INDEXED_DATABASE_IN_WORKERS, it seems like it is on for all ports
+        https://bugs.webkit.org/show_bug.cgi?id=223810
+
+        Reviewed by Simon Fraser.
+
+        Remove ENABLE_INDEXED_DATABASE & ENABLE_INDEXED_DATABASE_IN_WORKERS conditionals.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::dispatchTaskReply):
+        * Storage/InProcessIDBServer.h:
+        * Storage/WebDatabaseProvider.cpp:
+        (WebDatabaseProvider::deleteAllDatabases):
+        * Storage/WebDatabaseProvider.h:
+
+2021-03-26  Don Olmstead  <don.olmstead@sony.com>
+
+        [CMake] Deprecate using DERIVED_SOURCES_DIR/FOWARDING_HEADERS_DIR directly
+        https://bugs.webkit.org/show_bug.cgi?id=223763
+
+        Reviewed by Michael Catanzaro.
+
+        Remove any usages of DERIVED_SOURCES_DIR and FOWARDING_HEADERS_DIR.
+
+        * PlatformMac.cmake:
+
+2021-03-19  Per Arne  <pvollan@apple.com>
+
+        [Win] Fix build issue
+        https://bugs.webkit.org/show_bug.cgi?id=223451
+        <rdar://75545172>
+
+        Reviewed by Brent Fulgham.
+
+        Specify that WebKitLegacy links WebCore and PAL statically, since the correctness of the WEBCORE_EXPORT macro depends on that.
+
+        * PlatformWin.cmake:
+
+2021-03-11  Chris Dumez  <cdumez@apple.com>
+
+        Introduce ensureOnMainThread()
+        https://bugs.webkit.org/show_bug.cgi?id=223105
+
+        Reviewed by Darin Adler.
+
+        Introduce ensureOnMainThread(), similarly to the recently added ensureOnMainThreadRunLoop(). It runs
+        the task synchronously when on the main thread, otherwise dispatches the task to the main thread.
+
+        * Storage/StorageTracker.cpp:
+        (WebKit::StorageTracker::setOriginDetails):
+
+2021-03-11  Sihui Liu  <sihui_liu@appe.com>
+
+        Add some logging to help debug flaky quota tests
+        https://bugs.webkit.org/show_bug.cgi?id=222995
+
+        Reviewed by Youenn Fablet.
+
+        * Storage/InProcessIDBServer.cpp:
+        (InProcessIDBServer::quotaManager):
+
+2021-03-10  Chris Dumez  <cdumez@apple.com>
+
+        Use RetainPtr<> / OSObjectPtr<> more in WebKit
+        https://bugs.webkit.org/show_bug.cgi?id=223030
+
+        Reviewed by Darin Adler.
+
+        223030_RetainPtr
+
+        * WebCoreSupport/NetworkStorageSessionMap.cpp:
+        (NetworkStorageSessionMap::switchToNewTestingSession):
+        (NetworkStorageSessionMap::ensureSession):
+
+2021-03-05  Don Olmstead  <don.olmstead@sony.com>
+
+        [CMake] Bump cmake_minimum_required version to 3.12 or later
+        https://bugs.webkit.org/show_bug.cgi?id=221727
+        <rdar://problem/74454980>
+
+        Reviewed by Konstantin Tokarev.
+
+        Sync cmake_minimum_required version for AppleWin internal builds.
+
+        * CMakeLists.txt:
+
+2021-02-08  Commit Queue  <commit-queue@webkit.org>
+
+        Unreviewed, reverting r272480, r272481, and r272500.
+        https://bugs.webkit.org/show_bug.cgi?id=221586
+
+        Caused assertion failure seen with EME tests
+
+        Reverted changesets:
+
+        "Permission request API for MediaKeySystem access support"
+        https://bugs.webkit.org/show_bug.cgi?id=221187
+        https://trac.webkit.org/changeset/272480
+
+        "Unreviewed, build fix after r272480"
+        https://trac.webkit.org/changeset/272481
+
+        "Permission request API for MediaKeySystem access support"
+        https://bugs.webkit.org/show_bug.cgi?id=221187
+        https://trac.webkit.org/changeset/272500
+
+2021-01-22  Sam Weinig  <weinig@apple.com>
+
+        Remove generate-preferences.sh from the WebKitLegacy target so it doesn't get included in the framework
+        https://bugs.webkit.org/show_bug.cgi?id=220871
+        <rdar://problem/73503409>
+
+        Reviewed by Simon Fraser.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        Remove generate-preferences.sh from the WebKitLegacy target so it doesn't get included in the framework.
+
+2021-01-19  Keith Rollin  <krollin@apple.com>
+
+        Modularize WebKitLegacy.framework
+        https://bugs.webkit.org/show_bug.cgi?id=220026
+        <rdar://57173237>
+
+        Reviewed by Darin Adler.
+
+        Add .modulemap files to WebKitLegacy to help speed up client builds.
+
+        * Modules/WebKitLegacy_iOS.private.modulemap: Added.
+        * Modules/WebKitLegacy_macOS.private.modulemap: Added.
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2020-12-11  Don Olmstead  <don.olmstead@sony.com>
+
+        [CMake] Determine correct visibility for linked frameworks
+        https://bugs.webkit.org/show_bug.cgi?id=210366
+
+        Reviewed by Michael Catanzaro.
+
+        Remove explicit setting of STATICALLY_LINKED_WITH_${framework}.
+
+        * PlatformFTW.cmake:
+        * PlatformWin.cmake:
+
+2020-12-03  Adam Roben  <aroben@apple.com>
+
+        Adopt FALLBACK_PLATFORM
+        https://bugs.webkit.org/show_bug.cgi?id=219504
+
+        Reviewed by Tim Horton.
+
+        * scripts/check-xcfilelists.sh: Use FALLBACK_PLATFORM it if it's
+        defined, otherwise use PLATFORM_NAME as before.
+
+2020-12-01  Keith Rollin  <krollin@apple.com>
+
+        Consolidate header postprocessing scripts
+        https://bugs.webkit.org/show_bug.cgi?id=219388
+        <rdar://problem/71840357>
+
+        Reviewed by David Kilzer.
+
+        Our build system contains the following scripts to perform some
+        postprocessing of headers that we export to the SDK:
+
+            JavaScriptCore/postprocess-headers.sh
+            WebKit/mac/postprocess-framework-headers.sh
+            WebKitLegacy/mac/postprocess-headers.sh
+
+        The preceding scripts are used when using the non-XCBuild -- or
+        "legacy" -- Xcode build system. They are invoked in a custom Run
+        Script build phase after the headers have been exported with the
+        standard Xcode facility for creating frameworks.
+
+        Alternatively, we also have the following postprocessing scripts:
+
+            WebKit/Scripts/postprocess-header-rule
+            JavaScriptCore/Scripts/postprocess-header-rule
+            WebKitLegacy/scripts/postprocess-header-rule
+
+        These scripts are used when using the XCBuild build system. They are
+        invoked *during* the header export process to copy and postprocess the
+        headers in one blow. They are part of a Custom Build Rule for
+        exporting files ending in ".h".
+
+        The reason why we have two sets of scripts is because of the different
+        capabilities of the two Xcode build systems. The legacy system does
+        not support a custom "export header" step that would allow us to copy
+        and postprocess each header in a single step. Therefore, when using
+        the legacy build system, we export in one build step and postprocess
+        in a subsequent build step. And XCBuild doesn't like the approach
+        taken by the old build system where files are exported first and then
+        munged in a separate step, since that confuses its notion of the state
+        of the build ("Hey! That file I exported in the previous build? I see
+        now that it's been changed, so I'm going to export it again. And
+        change its modification date. And then rebuild everything downstream
+        that uses it."). Therefore, XCBuild added a facility for copying and
+        postprocessing in one step.
+
+        The scripts supporting each of these approaches are very similar to
+        each other, such that there is a lot of code duplication between them.
+        At the same time, by having two sets of scripts that are very similar
+        to each other, we run the risk of "drift", where files in one set may
+        get updated while their counterparts in the other set are not.
+
+        Address this duplication by making the scripts in the "legacy" set be
+        mere stubs that invoke the scripts in the new "XCBuild" set. In doing
+        this, we also fix a case of drift: the legacy-based scripts made use
+        of a timestamp file to determine if headers needed to be reprocessed
+        and exported, while the XCBuild-based scripts used a "process the
+        files and export them if any actual changes now exist between this new
+        version and any previously-exported version" approach.
+
+        Along the way, fix a bug in WebKitLegacy's postprocess-header-rule
+        that resulted in WebKitAvailability.h not being processed. The
+        practical effect of this bug is that the file ended up with both macOS
+        and iOS code, along with the #if that controlled which chunk of code
+        was compiled, instead of just the chunk of code specific to the
+        targeted SDK. Normally, the unused chunk of code would get removed
+        through the invocation of `unifdef`. But, because of the bug, the
+        results of running `unifdef` were being discarded.
+
+        * scripts/postprocess-header-rule:
+
+2020-11-04  David Kilzer  <ddkilzer@apple.com>
+
+        WebKit should remove unused debug variant support
+        <https://webkit.org/b/218315>
+        <rdar://problem/70785369>
+
+        Reviewed by Darin Adler.
+
+        Remove support for building the debug variant since it is
+        currently unused. We now set default values for the
+        DEAD_CODE_STRIPPING, DEBUG_DEFINES, GCC_OPTIMIZATION_LEVEL and
+        STRIP_INSTALLED_PRODUCT variables.
+
+        Also move these values out of the Xcode project into
+        Base.xcconfig files using the [config=Debug] specifier so that
+        these overrides are next to the definitions.
+
+        Additional changes in behavior are noted below.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        - Move DEBUG_DEFINES to mac/Configurations/Base.xcconfig.
+        - Remove useless OTHER_LDFLAGS definitions.
+        - Remove unneeded BUILD_VARIANTS definition.
+
+2020-11-03  David Kilzer  <ddkilzer@apple.com>
+
+        Add test for cacheModelForMainBundle() in WebKitLegacy
+        <https://webkit.org/b/217960>
+
+        Reviewed by Darin Adler.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        - Add TestingFunctions.h to the project.
+        (Generate Export Files):
+        - Append WebKit.Testing.exp to the generated export file if
+          WK_BUILD_FOR_TESTING is set to YES.
+
+2020-11-03  Keith Rollin  <krollin@apple.com>
+
+        Extend check-for-inappropriate-files-in-framework to WebKitLegacy and JavaScriptCore
+        https://bugs.webkit.org/show_bug.cgi?id=218272
+        <rdar://problem/70748116>
+
+        Reviewed by Simon Fraser.
+
+        Bug 218268 reports that some *.txt files got included in WebKitLegacy.
+        To help protect against this happening in the future, extend
+        check-for-inappropriate-files-in-framework to check for *.txt files,
+        and apply the script to WebKitLegacy and JavaScriptCore in addition to
+        WebCore and WebKit.
+
+        In order to prevent this change from breaking local engineering builds
+        that still have these files in their build output directories, add a
+        couple of lines that will delete those *.txt files before making the
+        check for them.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2020-10-27  Keith Rollin  <krollin@apple.com>
+
+        Unexpected txt file: .../WebKitLegacy.framework/.../Sources.txt
+        https://bugs.webkit.org/show_bug.cgi?id=218268
+        <rdar://problem/70742539>
+
+        Reviewed by Tim Horton.
+
+        Sources.txt and SourcesCocoa.txt were added to the WebKitLegacy
+        project in https://trac.webkit.org/changeset/247401 as targets of the
+        WebKitLegacy target. This caused them to be treated as resources and
+        so were copied to the framework's Resources directory on a build.
+        These files don't need to be included in the build, and so are removed
+        from that target.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2020-10-17  Sam Weinig  <weinig@apple.com>
+
+        [Preferences] Add infrastructure for generating preferences for Windows WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=217876
+
+        Reviewed by Simon Fraser.
+
+        * PlatformWin.cmake:
+        Add generation of WebPreferences.
+
+2020-10-07  Keith Rollin  <krollin@apple.com>
+
+        Update post-processing rules for headers to not unnecessarily change timestamps
+        https://bugs.webkit.org/show_bug.cgi?id=217371
+        <rdar://problem/69992230>
+
+        Reviewed by Darin Adler.
+
+        Under XCBuild, the scripts employed in custom build rules can be
+        invoked in innocuous situations. A common example is when the user is
+        building from the command-line and they change the `make` output from
+        stdout to a file, or vice-versa. Changing the output changes the
+        setting of the COLOR_DIAGNOSTICS environment variable, which is enough
+        to cause XCBuild to think something is different and that the custom
+        build rule needs to be invoked. For the script's part, nothing
+        significant has changed, yet it post-processes the header files,
+        causing their modification dates to change, causing downstream
+        rebuilds to occur.
+
+        Fix this problem by adopting an approach that doesn't modify the
+        post-processed header files unless their contents actually change.
+
+        * scripts/postprocess-header-rule:
+
+2020-09-28  Sam Weinig  <weinig@apple.com>
+
+        [Preferences] Move GeneratePreferences.rb and yaml configuration files to WTF to be shared
+        https://bugs.webkit.org/show_bug.cgi?id=217056
+
+        Reviewed by Darin Adler.
+
+        Move GeneratePreferences.rb and WebPreferences*.yaml files from WebKitLegacy to WTF, and install them into the existing
+        $SDKROOT/usr/local/install/wtf/Scripts for use by down stack projects.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
+2020-09-26  Sam Weinig  <weinig@apple.com>
+
+        [Preferences] Generate Debug and Internal preferences for WebKitLegacy
+        https://bugs.webkit.org/show_bug.cgi?id=217015
+
+        Reviewed by Darin Adler.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        Adds generation of WebPreferencesInternalFeatures.mm from WebPreferencesInternalFeatures.mm.erb.
+
+2020-09-26  Sam Weinig  <weinig@apple.com>
+
+        [Preferences] It should be possible to have different default values for WebKitLegacy and WebKit in preference yaml files
+        https://bugs.webkit.org/show_bug.cgi?id=216987
+
+        Reviewed by Darin Adler.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        Update script phase to explicitly specify the frontend (WebKitLegacy) and the templates to generate.
+
+2020-09-25  Sam Weinig  <weinig@apple.com>
+
+        [Preferences] Start generating experimental feature preferences for legacy WebKit
+        https://bugs.webkit.org/show_bug.cgi?id=216909
+
+        Reviewed by Tim Horton.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+        Add new files.
+
+2020-09-18  Youenn Fablet  <youenn@apple.com>
+
+        XHR.timeout is affected by long tasks
+        https://bugs.webkit.org/show_bug.cgi?id=216266
+        <rdar://problem/68908150>
+
+        Reviewed by Alex Christensen.
+
+        * WebCoreSupport/WebResourceLoadScheduler.cpp:
+        (WebResourceLoadScheduler::isResourceLoadFinished):
+        * WebCoreSupport/WebResourceLoadScheduler.h:
+
+2020-09-14  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [WinCairo][MediaFoundation] r264188 introduced linker warning: LNK4199: /DELAYLOAD:mf.dll ignored; no imports found from mf.dll
+        https://bugs.webkit.org/show_bug.cgi?id=214170
+
+        Reviewed by Alex Christensen.
+
+        * PlatformWin.cmake:
+
+2020-08-12  Keith Rollin  <krollin@apple.com>
+
+        Remove the need for defining USE_NEW_BUILD_SYSTEM
+        https://bugs.webkit.org/show_bug.cgi?id=215439
+
+        Reviewed by Darin Adler.
+
+        When building WebKit for XCBuild, we currently require that the
+        external build system (such as the Makefile, build-webkit, etc.)
+        defines the USE_NEW_BUILD_SYSTEM=YES build setting. This build setting
+        controls parts of our build instructions that are sensitive to when
+        XCBuild or the Legacy build system are being used. Notably, we need to
+        know when to use our custom “copy and modify” scripts with copying
+        certain header files (used with the Legacy build system) vs. using the
+        enhanced Copy Headers build phase that’s enabled with
+        APPLY_RULES_IN_COPY_HEADERS=YES (introduced with and used by XCBuild).
+        The choice of which method to copy headers is used is controlled by
+        USE_NEW_BUILD_SYSTEM.
+
+        There is no built-in build setting that we can probe to help us
+        determine which approach to take when copying and modifying headers,
+        which is why we need to define USE_NEW_BUILD_SYSTEM ourselves. But it
+        turns out that we can *detect* which build system is being used by
+        taking advantage of a subtle difference between the two systems. As
+        noted in:
+
+            https://developer.apple.com/documentation/xcode-release-notes/build-system-release-notes-for-xcode-10
+
+            “When an .xcconfig file contains multiple assignments of the same
+             build setting, later assignments using $(inherited) or
+             $(<setting_name>) will inherit from earlier assignments in the
+             .xcconfig. The legacy build system caused every use of
+             $(inherited) or $(<setting_name>) skip any other values defined
+             within the .xcconfig.”
+
+        This difference can be exploited as follows:
+
+            WK_WHICH_BUILD_SYSTEM = not_
+            WK_WHICH_BUILD_SYSTEM = $(inherited)legacy
+            WK_USE_NEW_BUILD_SYSTEM = $(WK_USE_NEW_BUILD_SYSTEM_$(WK_WHICH_BUILD_SYSTEM))
+            WK_USE_NEW_BUILD_SYSTEM_legacy = NO
+            WK_USE_NEW_BUILD_SYSTEM_not_legacy = YES
+
+        We can then use WK_USE_NEW_BUILD_SYSTEM where we used to use the
+        externally-defined USE_NEW_BUILD_SYSTEM.
+
+        * WebKitLegacy.xcodeproj/project.pbxproj:
+
 2020-07-29  Darin Adler  <darin@apple.com>
 
         Improve range idioms and other changes to prepare the way for more reduction in live range use

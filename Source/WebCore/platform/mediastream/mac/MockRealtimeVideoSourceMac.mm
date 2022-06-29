@@ -51,7 +51,6 @@
 #import <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
-using namespace PAL;
 
 CaptureSourceOrError MockRealtimeVideoSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
 {
@@ -78,7 +77,7 @@ Ref<MockRealtimeVideoSource> MockRealtimeVideoSourceMac::createForMockDisplayCap
 
 MockRealtimeVideoSourceMac::MockRealtimeVideoSourceMac(String&& deviceID, String&& name, String&& hashSalt)
     : MockRealtimeVideoSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt))
-    , m_workQueue(WorkQueue::create("MockRealtimeVideoSource Render Queue", WorkQueue::Type::Serial, WorkQueue::QOS::UserInteractive))
+    , m_workQueue(WorkQueue::create("MockRealtimeVideoSource Render Queue", WorkQueue::QOS::UserInteractive))
 {
 }
 
@@ -91,13 +90,20 @@ void MockRealtimeVideoSourceMac::updateSampleBuffer()
     if (!m_imageTransferSession)
         m_imageTransferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
 
+    PlatformImagePtr platformImage;
+    if (auto nativeImage = imageBuffer->copyImage()->nativeImage())
+        platformImage = nativeImage->platformImage();
+
     auto sampleTime = MediaTime::createWithDouble((elapsedTime() + 100_ms).seconds());
-    auto sampleBuffer = m_imageTransferSession->createMediaSample(imageBuffer->copyImage()->nativeImage().get(), sampleTime, size(), sampleRotation());
+    auto sampleBuffer = m_imageTransferSession->createMediaSample(platformImage.get(), sampleTime, size(), sampleRotation());
     if (!sampleBuffer)
         return;
 
-    m_workQueue->dispatch([this, protectedThis = makeRef(*this), sampleBuffer = WTFMove(sampleBuffer)]() mutable {
-        dispatchMediaSampleToObservers(*sampleBuffer);
+    auto captureTime = MonotonicTime::now().secondsSinceEpoch();
+    m_workQueue->dispatch([this, protectedThis = Ref { *this }, sampleBuffer = WTFMove(sampleBuffer), captureTime]() mutable {
+        VideoSampleMetadata metadata;
+        metadata.captureTime = captureTime;
+        dispatchMediaSampleToObservers(*sampleBuffer, metadata);
     });
 }
 

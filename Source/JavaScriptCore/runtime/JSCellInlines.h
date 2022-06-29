@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,7 @@
 #include "CompleteSubspaceInlines.h"
 #include "CPU.h"
 #include "CallFrameInlines.h"
-#include "DeferGC.h"
+#include "DeferGCInlines.h"
 #include "FreeListInlines.h"
 #include "Handle.h"
 #include "HeapInlines.h"
@@ -81,7 +81,7 @@ inline void JSCell::finishCreation(VM& vm)
 {
     // This object is ready to be escaped so the concurrent GC may see it at any time. We have
     // to make sure that none of our stores sink below here.
-    vm.heap.mutatorFence();
+    vm.mutatorFence();
 #if ENABLE(GC_VALIDATION)
     ASSERT(vm.isInitializingObject());
     vm.setInitializingObjectClass(0);
@@ -133,22 +133,29 @@ inline IndexingType JSCell::indexingMode() const
 
 ALWAYS_INLINE Structure* JSCell::structure() const
 {
-    return structure(vm());
+    return m_structureID.decode();
 }
 
-ALWAYS_INLINE Structure* JSCell::structure(VM& vm) const
+// FIXME: Delete this in a cleanup fixup.
+ALWAYS_INLINE Structure* JSCell::structure(VM&) const
 {
-    return vm.getStructure(m_structureID);
+    return structure();
 }
 
-inline void JSCell::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSCell::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     visitor.appendUnbarriered(cell->structure(visitor.vm()));
 }
 
-inline void JSCell::visitOutputConstraints(JSCell*, SlotVisitor&)
+DEFINE_VISIT_CHILDREN_WITH_MODIFIER(inline, JSCell);
+
+template<typename Visitor>
+ALWAYS_INLINE void JSCell::visitOutputConstraintsImpl(JSCell*, Visitor&)
 {
 }
+
+DEFINE_VISIT_OUTPUT_CONSTRAINTS_WITH_MODIFIER(inline, JSCell);
 
 ALWAYS_INLINE VM& CallFrame::deprecatedVM() const
 {
@@ -158,10 +165,10 @@ ALWAYS_INLINE VM& CallFrame::deprecatedVM() const
 }
 
 template<typename Type>
-inline Allocator allocatorForNonVirtualConcurrently(VM& vm, size_t allocationSize, AllocatorForMode mode)
+inline Allocator allocatorForConcurrently(VM& vm, size_t allocationSize, AllocatorForMode mode)
 {
     if (auto* subspace = subspaceForConcurrently<Type>(vm))
-        return subspace->allocatorForNonVirtual(allocationSize, mode);
+        return subspace->allocatorFor(allocationSize, mode);
     return { };
 }
 
@@ -169,9 +176,9 @@ template<typename T>
 ALWAYS_INLINE void* tryAllocateCellHelper(Heap& heap, size_t size, GCDeferralContext* deferralContext, AllocationFailureMode failureMode)
 {
     VM& vm = heap.vm();
-    ASSERT(deferralContext || !DisallowGC::isInEffectOnCurrentThread());
+    ASSERT(deferralContext || heap.isDeferred() || !DisallowGC::isInEffectOnCurrentThread());
     ASSERT(size >= sizeof(T));
-    JSCell* result = static_cast<JSCell*>(subspaceFor<T>(vm)->allocateNonVirtual(vm, size, deferralContext, failureMode));
+    JSCell* result = static_cast<JSCell*>(subspaceFor<T>(vm)->allocate(vm, size, deferralContext, failureMode));
     if (failureMode == AllocationFailureMode::ReturnNull && !result)
         return nullptr;
 #if ENABLE(GC_VALIDATION)
@@ -183,27 +190,27 @@ ALWAYS_INLINE void* tryAllocateCellHelper(Heap& heap, size_t size, GCDeferralCon
 }
 
 template<typename T>
-void* allocateCell(Heap& heap, size_t size)
+void* allocateCell(VM& vm, size_t size)
 {
-    return tryAllocateCellHelper<T>(heap, size, nullptr, AllocationFailureMode::Assert);
+    return tryAllocateCellHelper<T>(vm.heap, size, nullptr, AllocationFailureMode::Assert);
 }
 
 template<typename T>
-void* tryAllocateCell(Heap& heap, size_t size)
+void* tryAllocateCell(VM& vm, size_t size)
 {
-    return tryAllocateCellHelper<T>(heap, size, nullptr, AllocationFailureMode::ReturnNull);
+    return tryAllocateCellHelper<T>(vm.heap, size, nullptr, AllocationFailureMode::ReturnNull);
 }
 
 template<typename T>
-void* allocateCell(Heap& heap, GCDeferralContext* deferralContext, size_t size)
+void* allocateCell(VM& vm, GCDeferralContext* deferralContext, size_t size)
 {
-    return tryAllocateCellHelper<T>(heap, size, deferralContext, AllocationFailureMode::Assert);
+    return tryAllocateCellHelper<T>(vm.heap, size, deferralContext, AllocationFailureMode::Assert);
 }
 
 template<typename T>
-void* tryAllocateCell(Heap& heap, GCDeferralContext* deferralContext, size_t size)
+void* tryAllocateCell(VM& vm, GCDeferralContext* deferralContext, size_t size)
 {
-    return tryAllocateCellHelper<T>(heap, size, deferralContext, AllocationFailureMode::ReturnNull);
+    return tryAllocateCellHelper<T>(vm.heap, size, deferralContext, AllocationFailureMode::ReturnNull);
 }
 
 inline bool JSCell::isObject() const
@@ -238,21 +245,54 @@ inline bool JSCell::isCustomGetterSetter() const
 
 inline bool JSCell::isProxy() const
 {
-    return m_type == ImpureProxyType || m_type == PureForwardingProxyType || m_type == ProxyObjectType;
+    return m_type == PureForwardingProxyType || m_type == ProxyObjectType;
+}
+
+// FIXME: Consider making getCallData concurrency-safe once NPAPI support is removed.
+// https://bugs.webkit.org/show_bug.cgi?id=215801
+template<Concurrency concurrency>
+ALWAYS_INLINE TriState JSCell::isCallableWithConcurrency(VM& vm)
+{
+    if (!isObject())
+        return TriState::False;
+    // JSFunction and InternalFunction assert during construction that derived classes don't override getCallData,
+    // which guarantees that CallData::Type::None is never returned.
+    if (type() == JSFunctionType || type() == InternalFunctionType)
+        return TriState::True;
+    if (inlineTypeFlags() & OverridesGetCallData) {
+        if constexpr (concurrency == Concurrency::MainThread)
+            return (methodTable(vm)->getCallData(this).type != CallData::Type::None) ? TriState::True : TriState::False;
+        return TriState::Indeterminate;
+    }
+    return TriState::False;
+}
+
+template<Concurrency concurrency>
+inline TriState JSCell::isConstructorWithConcurrency(VM& vm)
+{
+    if (!isObject())
+        return TriState::False;
+    if constexpr (concurrency == Concurrency::MainThread)
+        return (methodTable(vm)->getConstructData(this).type != CallData::Type::None) ? TriState::True : TriState::False;
+    // We know that both getConstructData of both types are concurrency aware. Plus, derived classes of JSFunction and InternalFunction
+    // never override getConstructData (this is ensured by ASSERT in JSFunction and InternalFunction).
+    if (type() == JSFunctionType || type() == InternalFunctionType)
+        return (methodTable(vm)->getConstructData(this).type != CallData::Type::None) ? TriState::True : TriState::False;
+    return TriState::Indeterminate;
 }
 
 ALWAYS_INLINE bool JSCell::isCallable(VM& vm)
 {
-    if (type() == JSFunctionType)
-        return true;
-    if (inlineTypeFlags() & OverridesGetCallData)
-        return methodTable(vm)->getCallData(this).type != CallData::Type::None;
-    return false;
+    auto result = isCallableWithConcurrency<Concurrency::MainThread>(vm);
+    ASSERT(result != TriState::Indeterminate);
+    return result == TriState::True;
 }
 
-inline bool JSCell::isConstructor(VM& vm)
+ALWAYS_INLINE bool JSCell::isConstructor(VM& vm)
 {
-    return methodTable(vm)->getConstructData(this).type != CallData::Type::None;
+    auto result = isConstructorWithConcurrency<Concurrency::MainThread>(vm);
+    ASSERT(result != TriState::Indeterminate);
+    return result == TriState::True;
 }
 
 inline bool JSCell::isAPIValueWrapper() const
@@ -265,7 +305,7 @@ ALWAYS_INLINE void JSCell::setStructure(VM& vm, Structure* structure)
     ASSERT(structure->classInfo() == this->structure(vm)->classInfo());
     ASSERT(!this->structure(vm)
         || this->structure(vm)->transitionWatchpointSetHasBeenInvalidated()
-        || Heap::heap(this)->structureIDTable().get(structure->id()) == structure);
+        || structure->id().decode() == structure);
     m_structureID = structure->id();
     m_flags = TypeInfo::mergeInlineTypeFlags(structure->typeInfo().inlineTypeFlags(), m_flags);
     m_type = structure->typeInfo().type();
@@ -279,7 +319,7 @@ ALWAYS_INLINE void JSCell::setStructure(VM& vm, Structure* structure)
                 break;
         }
     }
-    vm.heap.writeBarrier(this, structure);
+    vm.writeBarrier(this, structure);
 }
 
 inline const MethodTable* JSCell::methodTable(VM& vm) const

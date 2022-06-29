@@ -32,6 +32,7 @@
 #include "RemoteScrollingTree.h"
 #include "RemoteScrollingUIState.h"
 #include <WebCore/GraphicsLayer.h>
+#include <WebCore/ScrollSnapOffsetsInfo.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
 
@@ -57,8 +58,9 @@ public:
     virtual ~RemoteScrollingCoordinatorProxy();
 
     // Inform the web process that the scroll position changed (called from the scrolling tree)
-    void scrollingTreeNodeDidScroll(WebCore::ScrollingNodeID, const WebCore::FloatPoint& newScrollPosition, const Optional<WebCore::FloatPoint>& layoutViewportOrigin, WebCore::ScrollingLayerPositionAction);
-    void scrollingTreeNodeRequestsScroll(WebCore::ScrollingNodeID, const WebCore::FloatPoint& scrollPosition, WebCore::ScrollType, WebCore::ScrollClamping);
+    void scrollingTreeNodeDidScroll(WebCore::ScrollingNodeID, const WebCore::FloatPoint& newScrollPosition, const std::optional<WebCore::FloatPoint>& layoutViewportOrigin, WebCore::ScrollingLayerPositionAction);
+    bool scrollingTreeNodeRequestsScroll(WebCore::ScrollingNodeID, const WebCore::RequestedScrollData&);
+    void scrollingTreeNodeDidStopAnimatedScroll(WebCore::ScrollingNodeID);
 
     WebCore::TrackingType eventTrackingTypeForPoint(const AtomString& eventName, WebCore::IntPoint) const;
 
@@ -67,7 +69,7 @@ public:
 
     void applyScrollingTreeLayerPositionsAfterCommit();
 
-    void currentSnapPointIndicesDidChange(WebCore::ScrollingNodeID, unsigned horizontal, unsigned vertical);
+    void currentSnapPointIndicesDidChange(WebCore::ScrollingNodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical);
 
     // FIXME: expose the tree and pass this to that?
     bool handleWheelEvent(const WebCore::PlatformWheelEvent&);
@@ -78,12 +80,7 @@ public:
     const RemoteLayerTreeHost* layerTreeHost() const;
     WebPageProxy& webPageProxy() const { return m_webPageProxy; }
 
-    struct RequestedScrollInfo {
-        bool requestsScrollPositionUpdate { };
-        bool requestIsProgrammaticScroll { };
-        WebCore::FloatPoint requestedScrollPosition;
-    };
-    void commitScrollingTreeState(const RemoteScrollingCoordinatorTransaction&, RequestedScrollInfo&);
+    std::optional<WebCore::RequestedScrollData> commitScrollingTreeState(const RemoteScrollingCoordinatorTransaction&);
 
     void setPropagatesMainFrameScrolls(bool propagatesMainFrameScrolls) { m_propagatesMainFrameScrolls = propagatesMainFrameScrolls; }
     bool propagatesMainFrameScrolls() const { return m_propagatesMainFrameScrolls; }
@@ -98,12 +95,11 @@ public:
     void scrollingTreeNodeWillStartPanGesture(WebCore::ScrollingNodeID);
     void scrollingTreeNodeWillStartScroll(WebCore::ScrollingNodeID);
     void scrollingTreeNodeDidEndScroll(WebCore::ScrollingNodeID);
-#if ENABLE(CSS_SCROLL_SNAP)
-    void adjustTargetContentOffsetForSnapping(CGSize maxScrollDimensions, CGPoint velocity, CGFloat topInset, CGPoint* targetContentOffset);
+    void adjustTargetContentOffsetForSnapping(CGSize maxScrollDimensions, CGPoint velocity, CGFloat topInset, CGPoint currentContentOffset, CGPoint* targetContentOffset);
     bool hasActiveSnapPoint() const;
     CGPoint nearestActiveContentInsetAdjustedSnapOffset(CGFloat topInset, const CGPoint&) const;
     bool shouldSetScrollViewDecelerationRateFast() const;
-#endif
+    void setRootNodeIsInUserScroll(bool);
 #endif
 
     String scrollingTreeAsText() const;
@@ -118,22 +114,18 @@ private:
     void connectStateNodeLayers(WebCore::ScrollingStateTree&, const RemoteLayerTreeHost&);
     void establishLayerTreeScrollingRelations(const RemoteLayerTreeHost&);
 
-#if ENABLE(CSS_SCROLL_SNAP)
     bool shouldSnapForMainFrameScrolling(WebCore::ScrollEventAxis) const;
-    float closestSnapOffsetForMainFrameScrolling(WebCore::ScrollEventAxis, float scrollDestination, float velocity, unsigned& closestIndex) const;
-#endif
+    std::pair<float, std::optional<unsigned>> closestSnapOffsetForMainFrameScrolling(WebCore::ScrollEventAxis, float currentScrollOffset, WebCore::FloatPoint scrollDestination, float velocity) const;
 
     void sendUIStateChangedIfNecessary();
 
     WebPageProxy& m_webPageProxy;
     RefPtr<RemoteScrollingTree> m_scrollingTree;
     HashMap<unsigned, OptionSet<WebCore::TouchAction>> m_touchActionsByTouchIdentifier;
-    RequestedScrollInfo* m_requestedScrollInfo { nullptr };
+    std::optional<WebCore::RequestedScrollData> m_requestedScroll;
     RemoteScrollingUIState m_uiState;
-#if ENABLE(CSS_SCROLL_SNAP)
-    unsigned m_currentHorizontalSnapPointIndex { 0 };
-    unsigned m_currentVerticalSnapPointIndex { 0 };
-#endif
+    std::optional<unsigned> m_currentHorizontalSnapPointIndex;
+    std::optional<unsigned> m_currentVerticalSnapPointIndex;
     bool m_propagatesMainFrameScrolls { true };
     HashSet<WebCore::GraphicsLayer::PlatformLayerID> m_layersWithScrollingRelations;
 };

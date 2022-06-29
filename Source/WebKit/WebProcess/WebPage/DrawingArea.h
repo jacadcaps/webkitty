@@ -31,6 +31,7 @@
 #include "MessageReceiver.h"
 #include "WebPage.h"
 #include <WebCore/ActivityState.h>
+#include <WebCore/DisplayRefreshMonitorFactory.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/LayoutMilestone.h>
@@ -49,6 +50,7 @@ class Decoder;
 }
 
 namespace WebCore {
+class DestinationColorSpace;
 class DisplayRefreshMonitor;
 class Frame;
 class FrameView;
@@ -59,12 +61,11 @@ struct ViewportAttributes;
 
 namespace WebKit {
 
-struct ColorSpaceData;
 class LayerTreeHost;
 struct WebPageCreationParameters;
 struct WebPreferencesStore;
 
-class DrawingArea : public IPC::MessageReceiver {
+class DrawingArea : public IPC::MessageReceiver, public WebCore::DisplayRefreshMonitorFactory {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(DrawingArea);
 
@@ -75,6 +76,8 @@ public:
     DrawingAreaType type() const { return m_type; }
     DrawingAreaIdentifier identifier() const { return m_identifier; }
 
+    static bool supportsGPUProcessRendering(DrawingAreaType);
+
     virtual void setNeedsDisplay() = 0;
     virtual void setNeedsDisplayInRect(const WebCore::IntRect&) = 0;
     virtual void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollDelta) = 0;
@@ -83,7 +86,7 @@ public:
 
     // FIXME: These should be pure virtual.
     virtual void forceRepaint() { }
-    virtual bool forceRepaintAsync(CallbackID) { return false; }
+    virtual void forceRepaintAsync(WebPage&, CompletionHandler<void()>&&) = 0;
     virtual void setLayerTreeStateIsFrozen(bool) { }
     virtual bool layerTreeStateIsFrozen() const { return false; }
 
@@ -92,8 +95,8 @@ public:
     virtual void mainFrameContentSizeChanged(const WebCore::IntSize&) { }
 
 #if PLATFORM(COCOA)
-    virtual void setViewExposedRect(Optional<WebCore::FloatRect>) = 0;
-    virtual Optional<WebCore::FloatRect> viewExposedRect() const = 0;
+    virtual void setViewExposedRect(std::optional<WebCore::FloatRect>) = 0;
+    virtual std::optional<WebCore::FloatRect> viewExposedRect() const = 0;
 
     virtual void acceleratedAnimationDidStart(uint64_t /*layerID*/, const String& /*key*/, MonotonicTime /*startTime*/) { }
     virtual void acceleratedAnimationDidEnd(uint64_t /*layerID*/, const String& /*key*/) { }
@@ -113,17 +116,14 @@ public:
 
     virtual WebCore::GraphicsLayerFactory* graphicsLayerFactory() { return nullptr; }
     virtual void setRootCompositingLayer(WebCore::GraphicsLayer*) = 0;
-    virtual void scheduleRenderingUpdate() = 0;
-    virtual void scheduleImmediateRenderingUpdate() = 0;
-
-    virtual RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID);
+    virtual void triggerRenderingUpdate() = 0;
 
     virtual void dispatchAfterEnsuringUpdatedScrollPosition(WTF::Function<void ()>&&);
 
-    virtual void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, const Vector<CallbackID>&) { }
+    virtual void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, CompletionHandler<void()>&& completionHandler) { completionHandler(); };
     virtual void setLayerHostingMode(LayerHostingMode) { }
 
-    virtual bool markLayersVolatileImmediatelyIfPossible() { return true; }
+    virtual void tryMarkLayersVolatile(CompletionHandler<void(bool)>&&);
 
     virtual void attachViewOverlayGraphicsLayer(WebCore::GraphicsLayer*) { }
 
@@ -136,7 +136,11 @@ public:
     virtual void updateGeometry(const WebCore::IntSize& viewSize, bool flushSynchronously, const WTF::MachSendRight& fencePort) { }
 #endif
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(GRAPHICS_LAYER_WC)
+    virtual void updateGeometry(uint64_t, WebCore::IntSize) { };
+#endif
+
+#if USE(COORDINATED_GRAPHICS) || USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
     virtual void layerHostDidFlushLayers() { }
 #endif
 
@@ -158,7 +162,7 @@ protected:
         return m_webPage.send(message, m_identifier.toUInt64(), { });
     }
 
-    DrawingAreaType m_type;
+    const DrawingAreaType m_type;
     DrawingAreaIdentifier m_identifier;
     WebPage& m_webPage;
 
@@ -174,15 +178,20 @@ private:
 #endif
     virtual void didUpdate() { }
 
+    // DisplayRefreshMonitorFactory.
+    RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID) override;
+
 #if PLATFORM(COCOA)
     // Used by TiledCoreAnimationDrawingArea.
     virtual void setDeviceScaleFactor(float) { }
-    virtual void setColorSpace(const ColorSpaceData&) { }
-
-    virtual void adjustTransientZoom(double scale, WebCore::FloatPoint origin) { }
-    virtual void commitTransientZoom(double scale, WebCore::FloatPoint origin) { }
+    virtual void setColorSpace(std::optional<WebCore::DestinationColorSpace>) { }
 
     virtual void addTransactionCallbackID(WebKit::CallbackID) { ASSERT_NOT_REACHED(); }
+#endif
+
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+    virtual void adjustTransientZoom(double scale, WebCore::FloatPoint origin) { }
+    virtual void commitTransientZoom(double scale, WebCore::FloatPoint origin) { }
 #endif
 
     bool m_hasRemovedMessageReceiver { false };

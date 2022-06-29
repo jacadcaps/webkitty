@@ -51,6 +51,7 @@ public:
     const TestOptions& options() const { return m_options; }
 
     void setIsPixelTest(const std::string& expectedPixelHash);
+    void setForceDumpPixels(bool forceDumpPixels) { m_forceDumpPixels = forceDumpPixels; }
 
     void setCustomTimeout(Seconds duration) { m_timeout = duration; }
     void setDumpJSConsoleLogInStdErr(bool value) { m_dumpJSConsoleLogInStdErr = value; }
@@ -90,7 +91,7 @@ public:
     void didSetVeryPrevalentResource();
     void didSetHasHadUserInteraction();
     void didReceiveAllStorageAccessEntries(Vector<String>&& domains);
-    void didReceiveLoadedThirdPartyDomains(Vector<String>&& domains);
+    void didReceiveLoadedSubresourceDomains(Vector<String>&& domains);
 
     void didRemoveAllSessionCredentials();
 
@@ -100,7 +101,7 @@ public:
 
     bool canOpenWindows() const { return m_canOpenWindows; }
 
-    void dumpAdClickAttribution();
+    void dumpPrivateClickMeasurement();
     void performCustomMenuAction();
 
     void willCreateNewPage();
@@ -112,6 +113,10 @@ private:
     void initializeWaitToDumpWatchdogTimerIfNeeded();
     void invalidateWaitToDumpWatchdogTimer();
 
+    void waitForPostDumpWatchdogTimerFired();
+    void initializeWaitForPostDumpWatchdogTimerIfNeeded();
+    void invalidateWaitForPostDumpWatchdogTimer();
+    
     void done();
     void setWaitUntilDone(bool);
 
@@ -143,6 +148,7 @@ private:
     WKRetainPtr<WKURLRef> m_url;
     String m_urlString;
     RunLoop::Timer<TestInvocation> m_waitToDumpWatchdogTimer;
+    RunLoop::Timer<TestInvocation> m_waitForPostDumpWatchdogTimer;
 
     std::string m_expectedPixelHash;
 
@@ -159,10 +165,11 @@ private:
     bool m_waitUntilDone { false };
     bool m_dumpFrameLoadCallbacks { false };
     bool m_dumpPixels { false };
+    bool m_forceDumpPixels { false };
     bool m_pixelResultIsPending { false };
     bool m_shouldDumpResourceLoadStatistics { false };
-    bool m_canOpenWindows { false };
-    bool m_shouldDumpAdClickAttribution { false };
+    bool m_canOpenWindows { true };
+    bool m_shouldDumpPrivateClickMeasurement { false };
     WhatToDump m_whatToDump { WhatToDump::RenderTree };
 
     StringBuilder m_textOutput;

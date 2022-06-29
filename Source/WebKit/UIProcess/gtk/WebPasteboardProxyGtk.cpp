@@ -27,14 +27,13 @@
 #include "WebPasteboardProxy.h"
 
 #include "Clipboard.h"
-#include "SharedBufferDataReference.h"
+#include "SharedBufferCopy.h"
 #include "WebFrameProxy.h"
 #include <WebCore/Pasteboard.h>
 #include <WebCore/PasteboardCustomData.h>
 #include <WebCore/PasteboardItemInfo.h>
 #include <WebCore/PlatformPasteboard.h>
 #include <WebCore/SelectionData.h>
-#include <WebCore/SharedBuffer.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/SetForScope.h>
 
@@ -56,9 +55,11 @@ void WebPasteboardProxy::readFilePaths(const String& pasteboardName, CompletionH
     Clipboard::get(pasteboardName).readFilePaths(WTFMove(completionHandler));
 }
 
-void WebPasteboardProxy::readBuffer(const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(IPC::SharedBufferDataReference&&)>&& completionHandler)
+void WebPasteboardProxy::readBuffer(const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(IPC::SharedBufferCopy&&)>&& completionHandler)
 {
-    Clipboard::get(pasteboardName).readBuffer(pasteboardType.utf8().data(), WTFMove(completionHandler));
+    Clipboard::get(pasteboardName).readBuffer(pasteboardType.utf8().data(), [completionHandler = WTFMove(completionHandler)](auto&& buffer) mutable {
+        completionHandler(IPC::SharedBufferCopy(WTFMove(buffer)));
+    });
 }
 
 void WebPasteboardProxy::writeToClipboard(const String& pasteboardName, SelectionData&& selectionData)
@@ -88,17 +89,15 @@ void WebPasteboardProxy::didDestroyFrame(WebFrameProxy* frame)
         m_primarySelectionOwner = nullptr;
 }
 
-void WebPasteboardProxy::typesSafeForDOMToReadAndWrite(IPC::Connection&, const String& pasteboardName, const String& origin, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void WebPasteboardProxy::typesSafeForDOMToReadAndWrite(IPC::Connection&, const String& pasteboardName, const String& origin, std::optional<WebCore::PageIdentifier>, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     auto& clipboard = Clipboard::get(pasteboardName);
-    clipboard.readBuffer(PasteboardCustomData::gtkType(), [&clipboard, origin, completionHandler = WTFMove(completionHandler)](IPC::SharedBufferDataReference&& buffer) mutable {
+    clipboard.readBuffer(PasteboardCustomData::gtkType(), [&clipboard, origin, completionHandler = WTFMove(completionHandler)](auto&& buffer) mutable {
         ListHashSet<String> domTypes;
-        if (auto dataBuffer = buffer.buffer()) {
-            auto customData = PasteboardCustomData::fromSharedBuffer(*dataBuffer);
-            if (customData.origin() == origin) {
-                for (auto& type : customData.orderedTypes())
-                    domTypes.add(type);
-            }
+        auto customData = PasteboardCustomData::fromSharedBuffer(WTFMove(buffer));
+        if (customData.origin() == origin) {
+            for (auto& type : customData.orderedTypes())
+                domTypes.add(type);
         }
 
         clipboard.formats([domTypes = WTFMove(domTypes), completionHandler = WTFMove(completionHandler)](Vector<String>&& formats) mutable {
@@ -115,7 +114,7 @@ void WebPasteboardProxy::typesSafeForDOMToReadAndWrite(IPC::Connection&, const S
     });
 }
 
-void WebPasteboardProxy::writeCustomData(IPC::Connection&, const Vector<PasteboardCustomData>& data, const String& pasteboardName, CompletionHandler<void(int64_t)>&& completionHandler)
+void WebPasteboardProxy::writeCustomData(IPC::Connection&, const Vector<PasteboardCustomData>& data, const String& pasteboardName, std::optional<WebCore::PageIdentifier>, CompletionHandler<void(int64_t)>&& completionHandler)
 {
     if (data.isEmpty() || data.size() > 1) {
         // We don't support more than one custom item in the clipboard.
@@ -126,13 +125,13 @@ void WebPasteboardProxy::writeCustomData(IPC::Connection&, const Vector<Pasteboa
     SelectionData selectionData;
     const auto& customData = data[0];
     customData.forEachPlatformStringOrBuffer([&selectionData] (auto& type, auto& stringOrBuffer) {
-        if (WTF::holds_alternative<String>(stringOrBuffer)) {
+        if (std::holds_alternative<String>(stringOrBuffer)) {
             if (type == "text/plain"_s)
-                selectionData.setText(WTF::get<String>(stringOrBuffer));
+                selectionData.setText(std::get<String>(stringOrBuffer));
             else if (type == "text/html"_s)
-                selectionData.setMarkup(WTF::get<String>(stringOrBuffer));
+                selectionData.setMarkup(std::get<String>(stringOrBuffer));
             else if (type == "text/uri-list"_s)
-                selectionData.setURIList(WTF::get<String>(stringOrBuffer));
+                selectionData.setURIList(std::get<String>(stringOrBuffer));
         }
     });
 

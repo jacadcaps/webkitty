@@ -28,6 +28,7 @@
 #include "common/system_utils.h"
 #include "common/tls.h"
 #include "common/utilities.h"
+#include "gpu_info_util/SystemInfo.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/Device.h"
 #include "libANGLE/EGLSync.h"
@@ -36,6 +37,7 @@
 #include "libANGLE/Stream.h"
 #include "libANGLE/Surface.h"
 #include "libANGLE/Thread.h"
+#include "libANGLE/capture/FrameCapture.h"
 #include "libANGLE/histogram_macros.h"
 #include "libANGLE/renderer/DeviceImpl.h"
 #include "libANGLE/renderer/DisplayImpl.h"
@@ -51,10 +53,8 @@
 #if defined(ANGLE_ENABLE_OPENGL)
 #    if defined(ANGLE_PLATFORM_WINDOWS)
 #        include "libANGLE/renderer/gl/wgl/DisplayWGL.h"
-#    elif defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
-#        include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
-#    elif defined(ANGLE_PLATFORM_IOS)
-#        include "libANGLE/renderer/gl/eagl/DisplayEAGL.h"
+#    elif defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_IOS)
+#        include "libANGLE/renderer/gl/apple/DisplayApple_api.h"
 #    elif defined(ANGLE_PLATFORM_LINUX)
 #        include "libANGLE/renderer/gl/egl/DisplayEGL.h"
 #        if defined(ANGLE_USE_GBM)
@@ -99,7 +99,45 @@ static WindowSurfaceMap *GetWindowSurfaces()
     return windowSurfaces.get();
 }
 
-typedef std::map<EGLNativeDisplayType, Display *> ANGLEPlatformDisplayMap;
+struct ANGLEPlatformDisplay
+{
+    ANGLEPlatformDisplay() = default;
+
+    ANGLEPlatformDisplay(EGLNativeDisplayType nativeDisplayType)
+        : nativeDisplayType(nativeDisplayType)
+    {}
+
+    ANGLEPlatformDisplay(EGLNativeDisplayType nativeDisplayType,
+                         EGLAttrib powerPreference,
+                         EGLAttrib platformANGLEType,
+                         EGLAttrib deviceIdHigh,
+                         EGLAttrib deviceIdLow)
+        : nativeDisplayType(nativeDisplayType),
+          powerPreference(powerPreference),
+          platformANGLEType(platformANGLEType),
+          deviceIdHigh(deviceIdHigh),
+          deviceIdLow(deviceIdLow)
+    {}
+
+    auto tie() const
+    {
+        return std::tie(nativeDisplayType, powerPreference, platformANGLEType, deviceIdHigh,
+                        deviceIdLow);
+    }
+
+    EGLNativeDisplayType nativeDisplayType{EGL_DEFAULT_DISPLAY};
+    EGLAttrib powerPreference{EGL_LOW_POWER_ANGLE};
+    EGLAttrib platformANGLEType{EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE};
+    EGLAttrib deviceIdHigh{0};
+    EGLAttrib deviceIdLow{0};
+};
+
+inline bool operator<(const ANGLEPlatformDisplay &a, const ANGLEPlatformDisplay &b)
+{
+    return a.tie() < b.tie();
+}
+
+typedef std::map<ANGLEPlatformDisplay, Display *> ANGLEPlatformDisplayMap;
 static ANGLEPlatformDisplayMap *GetANGLEPlatformDisplayMap()
 {
     static angle::base::NoDestructor<ANGLEPlatformDisplayMap> displays;
@@ -175,13 +213,26 @@ EGLAttrib GetDisplayTypeFromEnvironment()
     }
 #endif
 
+#if defined(ANGLE_ENABLE_METAL)
+    if (angleDefaultEnv == "metal")
+    {
+        return EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE;
+    }
+#endif
+
 #if defined(ANGLE_ENABLE_NULL)
     if (angleDefaultEnv == "null")
     {
         return EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE;
     }
 #endif
+#if defined(ANGLE_ENABLE_METAL)
+    if (angleDefaultEnv == "metal")
+    {
+        return EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE;
+    }
 
+#endif
 #if defined(ANGLE_ENABLE_D3D11)
     return EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE;
 #elif defined(ANGLE_ENABLE_D3D9)
@@ -225,11 +276,17 @@ EGLAttrib GetDeviceTypeFromEnvironment()
 
 EGLAttrib GetPlatformTypeFromEnvironment()
 {
-#if defined(ANGLE_USE_X11) && !defined(ANGLE_USE_OZONE)
+#if defined(ANGLE_USE_OZONE)
+    return 0;
+#elif defined(ANGLE_USE_X11)
     return EGL_PLATFORM_X11_EXT;
+#elif defined(ANGLE_USE_VULKAN_DISPLAY) && defined(ANGLE_VULKAN_DISPLAY_MODE_SIMPLE)
+    return EGL_PLATFORM_VULKAN_DISPLAY_MODE_SIMPLE_ANGLE;
+#elif defined(ANGLE_USE_VULKAN_DISPLAY) && defined(ANGLE_VULKAN_DISPLAY_MODE_HEADLESS)
+    return EGL_PLATFORM_VULKAN_DISPLAY_MODE_HEADLESS_ANGLE;
 #else
     return 0;
-#endif
+#endif  // defined(ANGLE_USE_OZONE)
 }
 
 rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
@@ -244,26 +301,33 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
     {
         case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
             UNREACHABLE();
+#if !UNREACHABLE_IS_NORETURN
             break;
+#endif
 
         case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
         case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
 #if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
             impl = new rx::DisplayD3D(state);
+            break;
 #else
             // A D3D display was requested on a platform that doesn't support it
             UNREACHABLE();
-#endif
+#    if !UNREACHABLE_IS_NORETURN
             break;
+#    endif
+#endif
 
         case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
 #if defined(ANGLE_ENABLE_OPENGL)
 #    if defined(ANGLE_PLATFORM_WINDOWS)
             impl = new rx::DisplayWGL(state);
-#    elif defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
-            impl = new rx::DisplayCGL(state);
-#    elif defined(ANGLE_PLATFORM_IOS)
-            impl = new rx::DisplayEAGL(state);
+            break;
+
+#    elif defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_IOS)
+            impl = rx::CreateDisplayCGLOrEAGL(state);
+            break;
+
 #    elif defined(ANGLE_PLATFORM_LINUX)
 #        if defined(ANGLE_USE_GBM)
             if (platformType == 0)
@@ -279,27 +343,31 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
                 impl = new rx::DisplayEGL(state);
                 break;
             }
-            else
-            {
 #        if defined(ANGLE_USE_X11)
-                if (platformType == EGL_PLATFORM_X11_EXT)
-                {
-                    impl = new rx::DisplayGLX(state);
-                    break;
-                }
-#        endif
+            if (platformType == EGL_PLATFORM_X11_EXT)
+            {
+                impl = new rx::DisplayGLX(state);
+                break;
             }
+#        endif
+            break;
+
 #    elif defined(ANGLE_PLATFORM_ANDROID)
             // No GL support on this platform, fail display creation.
             impl = nullptr;
+            break;
+
 #    else
 #        error Unsupported OpenGL platform.
 #    endif
 #else
             // No display available
             UNREACHABLE();
-#endif  // defined(ANGLE_ENABLE_OPENGL)
+#    if !UNREACHABLE_IS_NORETURN
             break;
+#    endif
+
+#endif  // defined(ANGLE_ENABLE_OPENGL)
 
         case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
 #if defined(ANGLE_ENABLE_OPENGL)
@@ -307,10 +375,13 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
             impl = new rx::DisplayWGL(state);
 #    elif defined(ANGLE_PLATFORM_LINUX)
 #        if defined(ANGLE_USE_GBM)
-            if (platformType == 0)
+            if (platformType == 0 ||
+                platformType == EGL_PLATFORM_VULKAN_DISPLAY_MODE_HEADLESS_ANGLE)
             {
                 // If platformType is unknown, use DisplayGbm now. In the future, it should use
                 // DisplayEGL letting native EGL decide what display to use.
+                // platformType == EGL_PLATFORM_VULKAN_DISPLAY_MODE_HEADLESS_ANGLE is a hack,
+                // to allow ChromeOS GLES backend to continue functioning when Vulkan is enabled.
                 impl = new rx::DisplayGbm(state);
                 break;
             }
@@ -341,11 +412,18 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
 
         case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
 #if defined(ANGLE_ENABLE_VULKAN)
-#    if defined(ANGLE_PLATFORM_WINDOWS)
+#    if defined(ANGLE_USE_VULKAN_NULL_DISPLAY)
+            if (rx::IsVulkanNullDisplayAvailable())
+            {
+                impl = rx::CreateVulkanNullDisplay(state);
+            }
+            break;
+#    elif defined(ANGLE_PLATFORM_WINDOWS)
             if (rx::IsVulkanWin32DisplayAvailable())
             {
                 impl = rx::CreateVulkanWin32Display(state);
             }
+            break;
 #    elif defined(ANGLE_PLATFORM_LINUX)
 #        if defined(ANGLE_USE_X11)
             if (platformType == EGL_PLATFORM_X11_EXT && rx::IsVulkanXcbDisplayAvailable())
@@ -354,34 +432,59 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
                 break;
             }
 #        endif
+#        if defined(ANGLE_USE_VULKAN_DISPLAY)
+            if (platformType == EGL_PLATFORM_VULKAN_DISPLAY_MODE_SIMPLE_ANGLE &&
+                rx::IsVulkanSimpleDisplayAvailable())
+            {
+                impl = rx::CreateVulkanSimpleDisplay(state);
+            }
+            else if (platformType == EGL_PLATFORM_VULKAN_DISPLAY_MODE_HEADLESS_ANGLE &&
+                     rx::IsVulkanHeadlessDisplayAvailable())
+            {
+                impl = rx::CreateVulkanHeadlessDisplay(state);
+            }
+            else
+            {
+                // Not supported creation type on vulkan display, fail display creation.
+                impl = nullptr;
+            }
+#        endif
+            break;
 #    elif defined(ANGLE_PLATFORM_ANDROID)
             if (rx::IsVulkanAndroidDisplayAvailable())
             {
                 impl = rx::CreateVulkanAndroidDisplay(state);
             }
+            break;
 #    elif defined(ANGLE_PLATFORM_FUCHSIA)
             if (rx::IsVulkanFuchsiaDisplayAvailable())
             {
                 impl = rx::CreateVulkanFuchsiaDisplay(state);
             }
+            break;
 #    elif defined(ANGLE_PLATFORM_GGP)
             if (rx::IsVulkanGGPDisplayAvailable())
             {
                 impl = rx::CreateVulkanGGPDisplay(state);
             }
+            break;
 #    elif defined(ANGLE_PLATFORM_APPLE)
             if (rx::IsVulkanMacDisplayAvailable())
             {
                 impl = rx::CreateVulkanMacDisplay(state);
             }
+            break;
 #    else
 #        error Unsupported Vulkan platform.
 #    endif
 #else
             // No display available
             UNREACHABLE();
-#endif  // defined(ANGLE_ENABLE_VULKAN)
+#    if !UNREACHABLE_IS_NORETURN
             break;
+#    endif
+#endif  // defined(ANGLE_ENABLE_VULKAN)
+
         case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
 #if defined(ANGLE_ENABLE_METAL)
             if (rx::IsMetalDisplayAvailable())
@@ -392,19 +495,27 @@ rx::DisplayImpl *CreateDisplayFromAttribs(EGLAttrib displayType,
 #endif
             // No display available
             UNREACHABLE();
+#if !UNREACHABLE_IS_NORETURN
             break;
+#endif
+
         case EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE:
 #if defined(ANGLE_ENABLE_NULL)
             impl = new rx::DisplayNULL(state);
+            break;
 #else
             // No display available
             UNREACHABLE();
-#endif  // defined(ANGLE_ENABLE_NULL)
+#    if !UNREACHABLE_IS_NORETURN
             break;
+#    endif
+#endif  // defined(ANGLE_ENABLE_NULL)
 
         default:
             UNREACHABLE();
+#if !UNREACHABLE_IS_NORETURN
             break;
+#endif
     }
 
     return impl;
@@ -451,14 +562,60 @@ void ANGLESetDefaultDisplayPlatform(angle::EGLDisplayType display)
     platformMethods->logInfo    = Display_logInfo;
 }
 
+void UpdateAttribsFromEnvironment(AttributeMap &attribMap)
+{
+    EGLAttrib displayType =
+        attribMap.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE);
+    if (displayType == EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE)
+    {
+        displayType = GetDisplayTypeFromEnvironment();
+        attribMap.insert(EGL_PLATFORM_ANGLE_TYPE_ANGLE, displayType);
+    }
+    EGLAttrib deviceType = attribMap.get(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, 0);
+    if (deviceType == 0)
+    {
+        deviceType = GetDeviceTypeFromEnvironment();
+        attribMap.insert(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, deviceType);
+    }
+    EGLAttrib platformType = attribMap.get(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE, 0);
+    if (platformType == 0)
+    {
+        platformType = GetPlatformTypeFromEnvironment();
+        attribMap.insert(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE, platformType);
+    }
+}
+
 static constexpr uint32_t kScratchBufferLifetime = 64u;
 
 }  // anonymous namespace
 
 // ShareGroup
 ShareGroup::ShareGroup(rx::EGLImplFactory *factory)
-    : mRefCount(1), mImplementation(factory->createShareGroup())
+    : mRefCount(1),
+      mImplementation(factory->createShareGroup()),
+      mFrameCaptureShared(new angle::FrameCaptureShared)
 {}
+
+void ShareGroup::finishAllContexts()
+{
+    for (gl::Context *shareContext : mContexts)
+    {
+        if (shareContext->hasBeenCurrent() && !shareContext->isDestroyed())
+        {
+            shareContext->finish();
+        }
+    }
+}
+
+void ShareGroup::addSharedContext(gl::Context *context)
+{
+    mContexts.insert(context);
+}
+
+void ShareGroup::removeSharedContext(gl::Context *context)
+{
+    mContexts.erase(context);
+}
 
 ShareGroup::~ShareGroup()
 {
@@ -471,10 +628,14 @@ void ShareGroup::addRef()
     mRefCount++;
 }
 
-void ShareGroup::release(const gl::Context *context)
+void ShareGroup::release(const Display *display)
 {
     if (--mRefCount == 0)
     {
+        if (mImplementation)
+        {
+            mImplementation->onDestroy(display);
+        }
         delete this;
     }
 }
@@ -526,8 +687,19 @@ Display *Display::GetDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay
 {
     Display *display = nullptr;
 
+    AttributeMap updatedAttribMap(attribMap);
+    UpdateAttribsFromEnvironment(updatedAttribMap);
+
+    EGLAttrib powerPreference =
+        updatedAttribMap.get(EGL_POWER_PREFERENCE_ANGLE, EGL_LOW_POWER_ANGLE);
+    EGLAttrib platformANGLEType =
+        updatedAttribMap.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE);
+    EGLAttrib deviceIdHigh = updatedAttribMap.get(EGL_PLATFORM_ANGLE_DEVICE_ID_HIGH_ANGLE, 0);
+    EGLAttrib deviceIdLow  = updatedAttribMap.get(EGL_PLATFORM_ANGLE_DEVICE_ID_LOW_ANGLE, 0);
     ANGLEPlatformDisplayMap *displays = GetANGLEPlatformDisplayMap();
-    const auto &iter                  = displays->find(nativeDisplay);
+    ANGLEPlatformDisplay displayKey(nativeDisplay, powerPreference, platformANGLEType, deviceIdHigh,
+                                    deviceIdLow);
+    const auto &iter = displays->find(displayKey);
     if (iter != displays->end())
     {
         display = iter->second;
@@ -542,15 +714,12 @@ Display *Display::GetDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay
         }
 
         display = new Display(EGL_PLATFORM_ANGLE_ANGLE, nativeDisplay, nullptr);
-        displays->insert(std::make_pair(nativeDisplay, display));
+        displays->insert(std::make_pair(displayKey, display));
     }
-
     // Apply new attributes if the display is not initialized yet.
     if (!display->isInitialized())
     {
-        display->setAttributes(attribMap);
-
-        display->updateAttribsFromEnvironment(attribMap);
+        display->setAttributes(updatedAttribMap);
 
         EGLAttrib displayType = display->mAttributeMap.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
         EGLAttrib deviceType  = display->mAttributeMap.get(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE);
@@ -563,7 +732,11 @@ Display *Display::GetDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay
             // No valid display implementation for these attributes
             return nullptr;
         }
-        SetUseAndroidOpenGLTlsSlot(displayType == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE);
+
+#if defined(ANGLE_PLATFORM_ANDROID)
+        angle::gUseAndroidOpenGLTlsSlot = displayType == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE;
+#endif  // defined(ANGLE_PLATFORM_ANDROID)
+
         display->setupDisplayPlatform(impl);
     }
 
@@ -633,6 +806,27 @@ Display *Display::GetDisplayFromDevice(Device *device, const AttributeMap &attri
     return display;
 }
 
+// static
+Display::EglDisplaySet Display::GetEglDisplaySet()
+{
+    Display::EglDisplaySet displays;
+
+    ANGLEPlatformDisplayMap *anglePlatformDisplays   = GetANGLEPlatformDisplayMap();
+    DevicePlatformDisplayMap *devicePlatformDisplays = GetDevicePlatformDisplayMap();
+
+    for (auto anglePlatformDisplayMapEntry : *anglePlatformDisplays)
+    {
+        displays.insert(anglePlatformDisplayMapEntry.second);
+    }
+
+    for (auto devicePlatformDisplayMapEntry : *devicePlatformDisplays)
+    {
+        displays.insert(devicePlatformDisplayMapEntry.second);
+    }
+
+    return displays;
+}
+
 Display::Display(EGLenum platform, EGLNativeDisplayType displayId, Device *eglDevice)
     : mState(displayId),
       mImplementation(nullptr),
@@ -641,30 +835,39 @@ Display::Display(EGLenum platform, EGLNativeDisplayType displayId, Device *eglDe
       mConfigSet(),
       mContextSet(),
       mStreamSet(),
+      mInvalidImageSet(),
+      mInvalidStreamSet(),
+      mInvalidSurfaceSet(),
+      mInvalidSyncSet(),
       mInitialized(false),
       mDeviceLost(false),
       mCaps(),
       mDisplayExtensions(),
       mDisplayExtensionString(),
       mVendorString(),
+      mVersionString(),
       mDevice(eglDevice),
       mSurface(nullptr),
       mPlatform(platform),
       mTextureManager(nullptr),
+      mSemaphoreManager(nullptr),
       mBlobCache(gl::kDefaultMaxProgramCacheMemoryBytes),
       mMemoryProgramCache(mBlobCache),
-      mGlobalTextureShareGroupUsers(0)
+      mGlobalTextureShareGroupUsers(0),
+      mGlobalSemaphoreShareGroupUsers(0),
+      mIsTerminated(false)
 {}
 
 Display::~Display()
 {
-    // TODO(jmadill): When is this called?
-    // terminate();
-
     if (mPlatform == EGL_PLATFORM_ANGLE_ANGLE)
     {
         ANGLEPlatformDisplayMap *displays      = GetANGLEPlatformDisplayMap();
-        ANGLEPlatformDisplayMap::iterator iter = displays->find(mState.displayId);
+        ANGLEPlatformDisplayMap::iterator iter = displays->find(ANGLEPlatformDisplay(
+            mState.displayId, mAttributeMap.get(EGL_POWER_PREFERENCE_ANGLE, EGL_LOW_POWER_ANGLE),
+            mAttributeMap.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE),
+            mAttributeMap.get(EGL_PLATFORM_ANGLE_DEVICE_ID_HIGH_ANGLE, 0),
+            mAttributeMap.get(EGL_PLATFORM_ANGLE_DEVICE_ID_LOW_ANGLE, 0)));
         if (iter != displays->end())
         {
             displays->erase(iter);
@@ -740,31 +943,10 @@ void Display::setupDisplayPlatform(rx::DisplayImpl *impl)
     mImplementation->addObserver(&mGPUSwitchedBinding);
 }
 
-void Display::updateAttribsFromEnvironment(const AttributeMap &attribMap)
-{
-    EGLAttrib displayType =
-        attribMap.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE);
-    if (displayType == EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE)
-    {
-        displayType = GetDisplayTypeFromEnvironment();
-        mAttributeMap.insert(EGL_PLATFORM_ANGLE_TYPE_ANGLE, displayType);
-    }
-    EGLAttrib deviceType = attribMap.get(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, 0);
-    if (deviceType == 0)
-    {
-        deviceType = GetDeviceTypeFromEnvironment();
-        mAttributeMap.insert(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, deviceType);
-    }
-    EGLAttrib platformType = attribMap.get(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE, 0);
-    if (platformType == 0)
-    {
-        platformType = GetPlatformTypeFromEnvironment();
-        mAttributeMap.insert(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE, platformType);
-    }
-}
-
 Error Display::initialize()
 {
+    mIsTerminated = false;
+
     ASSERT(mImplementation != nullptr);
     mImplementation->setBlobCache(&mBlobCache);
 
@@ -776,7 +958,7 @@ Error Display::initialize()
         mBlobCache.resize(1024 * 1024);
     }
 
-    gl::InitializeDebugAnnotations(&mAnnotator);
+    setGlobalDebugAnnotator();
 
     gl::InitializeDebugMutexIfNeeded();
 
@@ -802,7 +984,7 @@ Error Display::initialize()
     if (mConfigSet.size() == 0)
     {
         mImplementation->terminate();
-        return EglNotInitialized();
+        return EglNotInitialized() << "No configs were generated.";
     }
 
     // OpenGL ES1 is implemented in the frontend, explicitly add ES1 support to all configs
@@ -825,34 +1007,34 @@ Error Display::initialize()
 
     initDisplayExtensions();
     initVendorString();
+    initVersionString();
 
     // Populate the Display's EGLDeviceEXT if the Display wasn't created using one
-    if (mPlatform != EGL_PLATFORM_DEVICE_EXT)
-    {
-        if (mDisplayExtensions.deviceQuery)
-        {
-            std::unique_ptr<rx::DeviceImpl> impl(mImplementation->createDevice());
-            ASSERT(impl != nullptr);
-            error = impl->initialize();
-            if (error.isError())
-            {
-                ERR() << "Failed to initialize display because device creation failed: "
-                      << error.getMessage();
-                mImplementation->terminate();
-                return error;
-            }
-            mDevice = new Device(this, impl.release());
-        }
-        else
-        {
-            mDevice = nullptr;
-        }
-    }
-    else
+    if (mPlatform == EGL_PLATFORM_DEVICE_EXT)
     {
         // For EGL_PLATFORM_DEVICE_EXT, mDevice should always be populated using
         // an external device
         ASSERT(mDevice != nullptr);
+    }
+    else if (GetClientExtensions().deviceQueryEXT)
+    {
+        std::unique_ptr<rx::DeviceImpl> impl(mImplementation->createDevice());
+        ASSERT(impl);
+        error = impl->initialize();
+        if (error.isError())
+        {
+            ERR() << "Failed to initialize display because device creation failed: "
+                  << error.getMessage();
+            mImplementation->terminate();
+            return error;
+        }
+        // Don't leak Device memory.
+        ASSERT(mDevice == nullptr);
+        mDevice = new Device(this, impl.release());
+    }
+    else
+    {
+        mDevice = nullptr;
     }
 
     mInitialized = true;
@@ -860,45 +1042,121 @@ Error Display::initialize()
     return NoError();
 }
 
-Error Display::terminate(const Thread *thread)
+Error Display::destroyInvalidEglObjects()
 {
+    // Destroy invalid EGL objects
+
+    ImageSet images     = {};
+    StreamSet streams   = {};
+    SurfaceSet surfaces = {};
+    SyncSet syncs       = {};
+    {
+        // Retrieve objects to be destroyed
+        std::lock_guard<std::mutex> lock(mInvalidEglObjectsMutex);
+        images   = mInvalidImageSet;
+        streams  = mInvalidStreamSet;
+        surfaces = mInvalidSurfaceSet;
+        syncs    = mInvalidSyncSet;
+
+        // Update invalid object sets
+        mInvalidImageSet.clear();
+        mInvalidStreamSet.clear();
+        mInvalidSurfaceSet.clear();
+        mInvalidSyncSet.clear();
+    }
+
+    while (!images.empty())
+    {
+        destroyImageImpl(*images.begin(), &images);
+    }
+
+    while (!streams.empty())
+    {
+        destroyStreamImpl(*streams.begin(), &streams);
+    }
+
+    while (!surfaces.empty())
+    {
+        ANGLE_TRY(destroySurfaceImpl(*surfaces.begin(), &surfaces));
+    }
+
+    while (!syncs.empty())
+    {
+        destroySyncImpl(*syncs.begin(), &syncs);
+    }
+
+    return NoError();
+}
+
+Error Display::terminate(Thread *thread, TerminateReason terminateReason)
+{
+    mIsTerminated = true;
+
     if (!mInitialized)
     {
         return NoError();
     }
 
+    // EGL 1.5 Specification
+    // 3.2 Initialization
+    // Termination marks all EGL-specific resources, such as contexts and surfaces, associated
+    // with the specified display for deletion. Handles to all such resources are invalid as soon
+    // as eglTerminate returns
+    // Cache EGL objects that are no longer valid
+    // TODO (http://www.anglebug.com/6798): Invalidate context handles as well.
+    {
+        std::lock_guard<std::mutex> lock(mInvalidEglObjectsMutex);
+
+        mInvalidImageSet.insert(mImageSet.begin(), mImageSet.end());
+        mImageSet.clear();
+
+        mInvalidStreamSet.insert(mStreamSet.begin(), mStreamSet.end());
+        mStreamSet.clear();
+
+        mInvalidSurfaceSet.insert(mState.surfaceSet.begin(), mState.surfaceSet.end());
+        mState.surfaceSet.clear();
+
+        mInvalidSyncSet.insert(mSyncSet.begin(), mSyncSet.end());
+        mSyncSet.clear();
+    }
+
+    // All EGL objects, except contexts, have been marked invalid by the block above and will be
+    // cleaned up during eglReleaseThread. If no contexts are current on any thread, perform the
+    // cleanup right away.
+    for (gl::Context *context : mContextSet)
+    {
+        if (context->getRefCount() > 0)
+        {
+            if (terminateReason == TerminateReason::ProcessExit)
+            {
+                context->release();
+                (void)context->unMakeCurrent(this);
+            }
+            else
+            {
+                return NoError();
+            }
+        }
+    }
+
+    // Destroy all of the Contexts for this Display, since none of them are current anymore.
+    while (!mContextSet.empty())
+    {
+        gl::Context *context = *mContextSet.begin();
+        context->setIsDestroyed();
+        ANGLE_TRY(releaseContext(context, thread));
+    }
+
     mMemoryProgramCache.clear();
     mBlobCache.setBlobCacheFuncs(nullptr, nullptr);
 
-    while (!mContextSet.empty())
-    {
-        ANGLE_TRY(destroyContext(thread, *mContextSet.begin()));
-    }
-
-    ANGLE_TRY(makeCurrent(thread, nullptr, nullptr, nullptr));
-
-    // The global texture manager should be deleted with the last context that uses it.
+    // The global texture and semaphore managers should be deleted with the last context that uses
+    // it.
     ASSERT(mGlobalTextureShareGroupUsers == 0 && mTextureManager == nullptr);
+    ASSERT(mGlobalSemaphoreShareGroupUsers == 0 && mSemaphoreManager == nullptr);
 
-    while (!mImageSet.empty())
-    {
-        destroyImage(*mImageSet.begin());
-    }
-
-    while (!mStreamSet.empty())
-    {
-        destroyStream(*mStreamSet.begin());
-    }
-
-    while (!mSyncSet.empty())
-    {
-        destroySync(*mSyncSet.begin());
-    }
-
-    while (!mState.surfaceSet.empty())
-    {
-        ANGLE_TRY(destroySurface(*mState.surfaceSet.begin()));
-    }
+    // Now that contexts have been destroyed, clean up any remaining invalid objects
+    ANGLE_TRY(destroyInvalidEglObjects());
 
     mConfigSet.clear();
 
@@ -921,6 +1179,17 @@ Error Display::terminate(const Thread *thread)
     ANGLEResetDisplayPlatform(this);
 
     return NoError();
+}
+
+Error Display::prepareForCall()
+{
+    return mImplementation->prepareForCall();
+}
+
+Error Display::releaseThread()
+{
+    ANGLE_TRY(mImplementation->releaseThread());
+    return destroyInvalidEglObjects();
 }
 
 std::vector<const Config *> Display::getConfigs(const egl::AttributeMap &attribs) const
@@ -965,7 +1234,8 @@ Error Display::createWindowSurface(const Config *configuration,
         ANGLE_TRY(restoreLostDevice());
     }
 
-    SurfacePointer surface(new WindowSurface(mImplementation, configuration, window, attribs),
+    SurfacePointer surface(new WindowSurface(mImplementation, configuration, window, attribs,
+                                             mFrontendFeatures.forceRobustResourceInit.enabled),
                            this);
     ANGLE_TRY(surface->initialize(this));
 
@@ -993,7 +1263,9 @@ Error Display::createPbufferSurface(const Config *configuration,
         ANGLE_TRY(restoreLostDevice());
     }
 
-    SurfacePointer surface(new PbufferSurface(mImplementation, configuration, attribs), this);
+    SurfacePointer surface(new PbufferSurface(mImplementation, configuration, attribs,
+                                              mFrontendFeatures.forceRobustResourceInit.enabled),
+                           this);
     ANGLE_TRY(surface->initialize(this));
 
     ASSERT(outSurface != nullptr);
@@ -1017,7 +1289,9 @@ Error Display::createPbufferFromClientBuffer(const Config *configuration,
     }
 
     SurfacePointer surface(
-        new PbufferSurface(mImplementation, configuration, buftype, clientBuffer, attribs), this);
+        new PbufferSurface(mImplementation, configuration, buftype, clientBuffer, attribs,
+                           mFrontendFeatures.forceRobustResourceInit.enabled),
+        this);
     ANGLE_TRY(surface->initialize(this));
 
     ASSERT(outSurface != nullptr);
@@ -1039,7 +1313,8 @@ Error Display::createPixmapSurface(const Config *configuration,
         ANGLE_TRY(restoreLostDevice());
     }
 
-    SurfacePointer surface(new PixmapSurface(mImplementation, configuration, nativePixmap, attribs),
+    SurfacePointer surface(new PixmapSurface(mImplementation, configuration, nativePixmap, attribs,
+                                             mFrontendFeatures.forceRobustResourceInit.enabled),
                            this);
     ANGLE_TRY(surface->initialize(this));
 
@@ -1119,6 +1394,7 @@ Error Display::createContext(const Config *configuration,
                              const AttributeMap &attribs,
                              gl::Context **outContext)
 {
+    ASSERT(!mIsTerminated);
     ASSERT(isInitialized());
 
     if (mImplementation->testDeviceLost())
@@ -1143,6 +1419,23 @@ Error Display::createContext(const Config *configuration,
         shareTextures = mTextureManager;
     }
 
+    // This display semaphore sharing will allow the first context to create the semaphore share
+    // group.
+    bool usingDisplaySemaphoreShareGroup =
+        attribs.get(EGL_DISPLAY_SEMAPHORE_SHARE_GROUP_ANGLE, EGL_FALSE) == EGL_TRUE;
+    gl::SemaphoreManager *shareSemaphores = nullptr;
+    if (usingDisplaySemaphoreShareGroup)
+    {
+        ASSERT((mSemaphoreManager == nullptr) == (mGlobalSemaphoreShareGroupUsers == 0));
+        if (mSemaphoreManager == nullptr)
+        {
+            mSemaphoreManager = new gl::SemaphoreManager();
+        }
+
+        mGlobalSemaphoreShareGroupUsers++;
+        shareSemaphores = mSemaphoreManager;
+    }
+
     gl::MemoryProgramCache *cachePointer = &mMemoryProgramCache;
 
     // Check context creation attributes to see if we are using EGL_ANGLE_program_cache_control.
@@ -1162,9 +1455,16 @@ Error Display::createContext(const Config *configuration,
         }
     }
 
-    gl::Context *context =
-        new gl::Context(this, configuration, shareContext, shareTextures, cachePointer, clientType,
-                        attribs, mDisplayExtensions, GetClientExtensions());
+    gl::Context *context = new gl::Context(this, configuration, shareContext, shareTextures,
+                                           shareSemaphores, cachePointer, clientType, attribs,
+                                           mDisplayExtensions, GetClientExtensions());
+    Error error          = context->initialize();
+    if (error.isError())
+    {
+        delete context;
+        return error;
+    }
+
     if (shareContext != nullptr)
     {
         shareContext->setShared();
@@ -1204,7 +1504,8 @@ Error Display::createSync(const gl::Context *currentContext,
     return NoError();
 }
 
-Error Display::makeCurrent(const Thread *thread,
+Error Display::makeCurrent(Thread *thread,
+                           gl::Context *previousContext,
                            egl::Surface *drawSurface,
                            egl::Surface *readSurface,
                            gl::Context *context)
@@ -1214,17 +1515,33 @@ Error Display::makeCurrent(const Thread *thread,
         return NoError();
     }
 
-    gl::Context *previousContext = thread->getContext();
-    if (previousContext)
+    bool contextChanged = context != previousContext;
+    if (previousContext != nullptr && contextChanged)
     {
-        ANGLE_TRY(previousContext->unMakeCurrent(this));
+        previousContext->release();
+        thread->setCurrent(nullptr);
+
+        auto error = previousContext->unMakeCurrent(this);
+        if (previousContext->getRefCount() == 0 && previousContext->isDestroyed())
+        {
+            // The previous Context may have been created with a different Display.
+            Display *previousDisplay = previousContext->getDisplay();
+            ANGLE_TRY(previousDisplay->releaseContext(previousContext, thread));
+        }
+        ANGLE_TRY(error);
     }
 
-    ANGLE_TRY(mImplementation->makeCurrent(drawSurface, readSurface, context));
+    thread->setCurrent(context);
+
+    ANGLE_TRY(mImplementation->makeCurrent(this, drawSurface, readSurface, context));
 
     if (context != nullptr)
     {
         ANGLE_TRY(context->makeCurrent(this, drawSurface, readSurface));
+        if (contextChanged)
+        {
+            context->addRef();
+        }
     }
 
     // Tick all the scratch buffers to make sure they get cleaned up eventually if they stop being
@@ -1260,7 +1577,7 @@ Error Display::restoreLostDevice()
     return mImplementation->restoreLostDevice(this);
 }
 
-Error Display::destroySurface(Surface *surface)
+Error Display::destroySurfaceImpl(Surface *surface, SurfaceSet *surfaces)
 {
     if (surface->getType() == EGL_WINDOW_BIT)
     {
@@ -1282,38 +1599,39 @@ Error Display::destroySurface(Surface *surface)
         ASSERT(surfaceRemoved);
     }
 
-    mState.surfaceSet.erase(surface);
+    auto iter = surfaces->find(surface);
+    ASSERT(iter != surfaces->end());
+    surfaces->erase(iter);
     ANGLE_TRY(surface->onDestroy(this));
     return NoError();
 }
 
-void Display::destroyImage(egl::Image *image)
+void Display::destroyImageImpl(Image *image, ImageSet *images)
 {
-    auto iter = mImageSet.find(image);
-    ASSERT(iter != mImageSet.end());
+    auto iter = images->find(image);
+    ASSERT(iter != images->end());
     (*iter)->release(this);
-    mImageSet.erase(iter);
+    images->erase(iter);
 }
 
-void Display::destroyStream(egl::Stream *stream)
+void Display::destroyStreamImpl(Stream *stream, StreamSet *streams)
 {
-    mStreamSet.erase(stream);
+    streams->erase(stream);
     SafeDelete(stream);
 }
 
-Error Display::destroyContext(const Thread *thread, gl::Context *context)
+// releaseContext must be called with the context being deleted as current.
+// To do that we can only call this in two places, Display::makeCurrent at the point where this
+// context is being made uncurrent and in Display::destroyContext where we make the context current
+// as part of destruction.
+Error Display::releaseContext(gl::Context *context, Thread *thread)
 {
-    gl::Context *currentContext   = thread->getContext();
-    Surface *currentDrawSurface   = thread->getCurrentDrawSurface();
-    Surface *currentReadSurface   = thread->getCurrentReadSurface();
-    bool changeContextForDeletion = context != currentContext;
+    ASSERT(context->getRefCount() == 0);
 
-    // Make the context being deleted current during it's deletion.  This allows it to delete
-    // any resources it's holding.
-    if (changeContextForDeletion)
-    {
-        ANGLE_TRY(makeCurrent(thread, nullptr, nullptr, context));
-    }
+    // Use scoped_ptr to make sure the context is always freed.
+    std::unique_ptr<gl::Context> unique_context(context);
+    ASSERT(mContextSet.find(context) != mContextSet.end());
+    mContextSet.erase(context);
 
     if (context->usingDisplayTextureShareGroup())
     {
@@ -1329,25 +1647,104 @@ Error Display::destroyContext(const Thread *thread, gl::Context *context)
         mGlobalTextureShareGroupUsers--;
     }
 
-    ANGLE_TRY(context->onDestroy(this));
-    mContextSet.erase(context);
-    SafeDelete(context);
-
-    // Set the previous context back to current
-    if (changeContextForDeletion)
+    if (context->usingDisplaySemaphoreShareGroup())
     {
-        ANGLE_TRY(makeCurrent(thread, currentDrawSurface, currentReadSurface, currentContext));
+        ASSERT(mGlobalSemaphoreShareGroupUsers >= 1 && mSemaphoreManager != nullptr);
+        if (mGlobalSemaphoreShareGroupUsers == 1)
+        {
+            // If this is the last context using the global share group, destroy the global
+            // semaphore manager so that the semaphores can be destroyed while a context still
+            // exists
+            mSemaphoreManager->release(context);
+            mSemaphoreManager = nullptr;
+        }
+        mGlobalSemaphoreShareGroupUsers--;
+    }
+
+    ANGLE_TRY(context->onDestroy(this));
+
+    return NoError();
+}
+
+Error Display::destroyContext(Thread *thread, gl::Context *context)
+{
+    auto *currentContext     = thread->getContext();
+    auto *currentDrawSurface = thread->getCurrentDrawSurface();
+    auto *currentReadSurface = thread->getCurrentReadSurface();
+
+    context->setIsDestroyed();
+
+    // If the context is still current on at least 1 thread, just return since it'll be released
+    // once no threads have it current anymore.
+    if (context->getRefCount() > 0)
+    {
+        return NoError();
+    }
+
+    // For external context, we cannot change the current native context, and the API user should
+    // make sure the native context is current.
+    if (context->isExternal())
+    {
+        ANGLE_TRY(releaseContext(context, thread));
+    }
+    else
+    {
+        // Keep |currentContext| alive, while releasing |context|.
+        gl::ScopedContextRef scopedContextRef(currentContext);
+
+        // Make the context current, so we can release resources belong to the context, and then
+        // when context is released from the current, it will be destroyed.
+        // TODO(http://www.anglebug.com/6322): Don't require a Context to be current in order to
+        // destroy it.
+        ANGLE_TRY(makeCurrent(thread, currentContext, nullptr, nullptr, context));
+        ANGLE_TRY(
+            makeCurrent(thread, context, currentDrawSurface, currentReadSurface, currentContext));
+    }
+
+    // If eglTerminate() has previously been called and this is the last Context the Display owns,
+    // we can now fully terminate the display and release all of its resources.
+    if (mIsTerminated)
+    {
+        for (const gl::Context *ctx : mContextSet)
+        {
+            if (ctx->getRefCount() > 0)
+            {
+                return NoError();
+            }
+        }
+
+        return terminate(thread, TerminateReason::InternalCleanup);
     }
 
     return NoError();
 }
 
-void Display::destroySync(egl::Sync *sync)
+void Display::destroySyncImpl(Sync *sync, SyncSet *syncs)
 {
-    auto iter = mSyncSet.find(sync);
-    ASSERT(iter != mSyncSet.end());
+    auto iter = syncs->find(sync);
+    ASSERT(iter != syncs->end());
     (*iter)->release(this);
-    mSyncSet.erase(iter);
+    syncs->erase(iter);
+}
+
+void Display::destroyImage(Image *image)
+{
+    return destroyImageImpl(image, &mImageSet);
+}
+
+void Display::destroyStream(Stream *stream)
+{
+    return destroyStreamImpl(stream, &mStreamSet);
+}
+
+Error Display::destroySurface(Surface *surface)
+{
+    return destroySurfaceImpl(surface, &mState.surfaceSet);
+}
+
+void Display::destroySync(Sync *sync)
+{
+    return destroySyncImpl(sync, &mSyncSet);
 }
 
 bool Display::isDeviceLost() const
@@ -1394,6 +1791,28 @@ void Display::setBlobCacheFuncs(EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID
 EGLClientBuffer Display::GetNativeClientBuffer(const AHardwareBuffer *buffer)
 {
     return angle::android::AHardwareBufferToClientBuffer(buffer);
+}
+
+// static
+Error Display::CreateNativeClientBuffer(const egl::AttributeMap &attribMap,
+                                        EGLClientBuffer *eglClientBuffer)
+{
+    int androidHardwareBufferFormat = gl::GetAndroidHardwareBufferFormatFromChannelSizes(attribMap);
+    int width                       = attribMap.getAsInt(EGL_WIDTH, 0);
+    int height                      = attribMap.getAsInt(EGL_HEIGHT, 0);
+    int usage                       = attribMap.getAsInt(EGL_NATIVE_BUFFER_USAGE_ANDROID, 0);
+
+    // https://developer.android.com/ndk/reference/group/a-hardware-buffer#ahardwarebuffer_lock
+    // for AHardwareBuffer_lock()
+    // The passed AHardwareBuffer must have one layer, otherwise the call will fail.
+    constexpr int kLayerCount = 1;
+
+    *eglClientBuffer = angle::android::CreateEGLClientBufferFromAHardwareBuffer(
+        width, height, kLayerCount, androidHardwareBufferFormat, usage);
+
+    return (*eglClientBuffer == nullptr)
+               ? egl::EglBadParameter() << "native client buffer allocation failed."
+               : NoError();
 }
 
 Error Display::waitClient(const gl::Context *context)
@@ -1473,13 +1892,11 @@ static ClientExtensions GenerateClientExtensions()
 #    else
     extensions.platformANGLED3D11ON12 = IsWindows10OrGreater();
 #    endif
+    extensions.platformANGLEDeviceId = true;
 #endif
 
 #if defined(ANGLE_ENABLE_OPENGL)
     extensions.platformANGLEOpenGL = true;
-
-    // Selecting context virtualization is currently only supported in the OpenGL backend.
-    extensions.platformANGLEContextVirtualization = true;
 #endif
 
 #if defined(ANGLE_ENABLE_NULL)
@@ -1501,7 +1918,8 @@ static ClientExtensions GenerateClientExtensions()
 #endif
 
 #if defined(ANGLE_ENABLE_METAL)
-    extensions.platformANGLEMetal = true;
+    extensions.platformANGLEMetal    = true;
+    extensions.platformANGLEDeviceId = true;
 #endif
 
 #if defined(ANGLE_USE_X11)
@@ -1512,10 +1930,23 @@ static ClientExtensions GenerateClientExtensions()
     extensions.platformANGLEDeviceTypeEGLANGLE = true;
 #endif
 
+#if (defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)) || \
+    (defined(ANGLE_PLATFORM_MACCATALYST) && defined(ANGLE_CPU_ARM64))
+    extensions.platformANGLEDeviceContextVolatileEagl = true;
+#endif
+
+#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
+    extensions.platformANGLEDeviceContextVolatileCgl = true;
+#endif
+
+#if defined(ANGLE_ENABLE_METAL)
+    extensions.displayPowerPreferenceANGLE = true;
+#endif
+
     extensions.clientGetAllProcAddresses = true;
     extensions.debug                     = true;
-    extensions.explicitContext           = true;
     extensions.featureControlANGLE       = true;
+    extensions.deviceQueryEXT            = true;
 
     return extensions;
 }
@@ -1557,12 +1988,13 @@ void Display::initDisplayExtensions()
     mDisplayExtensions.createContextBindGeneratesResource = true;
     mDisplayExtensions.createContextClientArrays          = true;
     mDisplayExtensions.pixelFormatFloat                   = true;
+    mDisplayExtensions.reusableSyncKHR                    = true;
 
     // Force EGL_KHR_get_all_proc_addresses on.
     mDisplayExtensions.getAllProcAddresses = true;
 
     // Enable program cache control since it is not back-end dependent.
-    mDisplayExtensions.programCacheControl = true;
+    mDisplayExtensions.programCacheControlANGLE = true;
 
     // Request extension is implemented in the ANGLE frontend
     mDisplayExtensions.createContextExtensionsEnabled = true;
@@ -1576,6 +2008,10 @@ void Display::initDisplayExtensions()
 
     // All backends support specific context versions
     mDisplayExtensions.createContextBackwardsCompatible = true;
+
+    // Note: we don't notify the back-end of a change to the renderbuffer right now. This extension
+    // is implemented only in the front-end. A full implementation involves notifying the back-end.
+    mDisplayExtensions.mutableRenderBufferKHR = true;
 
     mDisplayExtensionString = GenerateExtensionsString(mDisplayExtensions);
 }
@@ -1601,7 +2037,7 @@ Error Display::validateImageClientBuffer(const gl::Context *context,
     return mImplementation->validateImageClientBuffer(context, target, clientBuffer, attribs);
 }
 
-Error Display::valdiatePixmap(Config *config,
+Error Display::valdiatePixmap(const Config *config,
                               EGLNativePixmapType pixmap,
                               const AttributeMap &attributes) const
 {
@@ -1653,14 +2089,31 @@ bool Display::isValidNativeDisplay(EGLNativeDisplayType display)
 
 void Display::initVendorString()
 {
-    mVendorString = mImplementation->getVendorString();
+    mVendorString                = "Google Inc.";
+    std::string vendorStringImpl = mImplementation->getVendorString();
+    if (!vendorStringImpl.empty())
+    {
+        mVendorString += " (" + vendorStringImpl + ")";
+    }
+}
+
+void Display::initVersionString()
+{
+    mVersionString = mImplementation->getVersionString(true);
 }
 
 void Display::initializeFrontendFeatures()
 {
     // Enable on all Impls
     ANGLE_FEATURE_CONDITION((&mFrontendFeatures), loseContextOnOutOfMemory, true);
-    ANGLE_FEATURE_CONDITION((&mFrontendFeatures), scalarizeVecAndMatConstructorArgs, true);
+    ANGLE_FEATURE_CONDITION((&mFrontendFeatures), allowCompressedFormats, true);
+
+    // No longer enable this on any Impl - crbug.com/1165751
+    ANGLE_FEATURE_CONDITION((&mFrontendFeatures), scalarizeVecAndMatConstructorArgs, false);
+
+    // Disabled by default. To reduce the risk, create a feature to enable
+    // compressing pipeline cache in multi-thread pool.
+    ANGLE_FEATURE_CONDITION(&mFrontendFeatures, enableCompressingPipelineCacheInThreadPool, false);
 
     mImplementation->initializeFrontendFeatures(&mFrontendFeatures);
 
@@ -1680,6 +2133,26 @@ const std::string &Display::getExtensionString() const
 const std::string &Display::getVendorString() const
 {
     return mVendorString;
+}
+
+const std::string &Display::getVersionString() const
+{
+    return mVersionString;
+}
+
+std::string Display::getBackendRendererDescription() const
+{
+    return mImplementation->getRendererDescription();
+}
+
+std::string Display::getBackendVendorString() const
+{
+    return mImplementation->getVendorString();
+}
+
+std::string Display::getBackendVersionString(bool includeFullVersion) const
+{
+    return mImplementation->getVersionString(includeFullVersion);
 }
 
 Device *Display::getDevice() const
@@ -1797,6 +2270,11 @@ EGLint Display::programCacheResize(EGLint limit, EGLenum mode)
     }
 }
 
+void Display::overrideFrontendFeatures(const std::vector<std::string> &featureNames, bool enabled)
+{
+    mFrontendFeatures.overrideFeatures(featureNames, enabled);
+}
+
 const char *Display::queryStringi(const EGLint name, const EGLint index)
 {
     const char *result = nullptr;
@@ -1887,9 +2365,40 @@ void Display::returnScratchBufferImpl(angle::ScratchBuffer scratchBuffer,
     bufferVector->push_back(std::move(scratchBuffer));
 }
 
-egl::Error Display::handleGPUSwitch()
+Error Display::handleGPUSwitch()
 {
-    return mImplementation->handleGPUSwitch();
+    ANGLE_TRY(mImplementation->handleGPUSwitch());
+    initVendorString();
+    return NoError();
+}
+
+Error Display::forceGPUSwitch(EGLint gpuIDHigh, EGLint gpuIDLow)
+{
+    ANGLE_TRY(mImplementation->forceGPUSwitch(gpuIDHigh, gpuIDLow));
+    initVendorString();
+    return NoError();
+}
+
+bool Display::supportsDmaBufFormat(EGLint format) const
+{
+    return mImplementation->supportsDmaBufFormat(format);
+}
+
+Error Display::queryDmaBufFormats(EGLint max_formats, EGLint *formats, EGLint *num_formats)
+{
+    ANGLE_TRY(mImplementation->queryDmaBufFormats(max_formats, formats, num_formats));
+    return NoError();
+}
+
+Error Display::queryDmaBufModifiers(EGLint format,
+                                    EGLint max_modifiers,
+                                    EGLuint64KHR *modifiers,
+                                    EGLBoolean *external_only,
+                                    EGLint *num_modifiers)
+{
+    ANGLE_TRY(mImplementation->queryDmaBufModifiers(format, max_modifiers, modifiers, external_only,
+                                                    num_modifiers));
+    return NoError();
 }
 
 }  // namespace egl

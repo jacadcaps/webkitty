@@ -31,13 +31,14 @@
 #include "test/fake_vp8_encoder.h"
 #include "test/frame_generator_capturer.h"
 #include "test/rtp_rtcp_observer.h"
+#include "test/run_loop.h"
 
 namespace webrtc {
 namespace test {
 
 class BaseTest;
 
-class CallTest : public ::testing::Test {
+class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
  public:
   CallTest();
   virtual ~CallTest();
@@ -155,9 +156,6 @@ class CallTest : public ::testing::Test {
 
   void ConnectVideoSourcesToStreams();
 
-  void AssociateFlexfecStreamsWithVideoStreams();
-  void DissociateFlexfecStreamsFromVideoStreams();
-
   void Start();
   void StartVideoStreams();
   void Stop();
@@ -175,6 +173,11 @@ class CallTest : public ::testing::Test {
   VideoSendStream* GetVideoSendStream();
   FlexfecReceiveStream::Config* GetFlexFecConfig();
   TaskQueueBase* task_queue() { return task_queue_.get(); }
+
+  // RtpPacketSinkInterface implementation.
+  void OnRtpPacket(const RtpPacketReceived& packet) override;
+
+  test::RunLoop loop_;
 
   Clock* const clock_;
   const FieldTrialBasedConfig field_trials_;

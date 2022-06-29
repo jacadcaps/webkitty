@@ -25,7 +25,6 @@
 from __future__ import print_function
 
 import logging
-import json
 import os
 import sys
 import urllib
@@ -37,9 +36,7 @@ else:
     from BaseHTTPServer import HTTPServer
     from SocketServer import ThreadingMixIn
 
-from webkitpy.common.memoized import memoized
 from webkitpy.tool.servers.reflectionhandler import ReflectionHandler
-from webkitpy.port import builders
 
 
 _log = logging.getLogger(__name__)
@@ -69,8 +66,8 @@ class GardeningHTTPRequestHandler(ReflectionHandler):
         '..',
         '..',
         '..',
-        'BuildSlaveSupport',
-        'build.webkit.org-config',
+        'CISupport',
+        'build-webkit-org',
         'public_html',
         'TestFailures')
 

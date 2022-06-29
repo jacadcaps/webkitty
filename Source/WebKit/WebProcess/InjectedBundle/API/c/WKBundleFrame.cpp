@@ -77,11 +77,11 @@ WKFrameLoadState WKBundleFrameGetFrameLoadState(WKBundleFrameRef frameRef)
         return kWKFrameLoadStateFinished;
 
     switch (coreFrame->loader().state()) {
-    case WebCore::FrameStateProvisional:
+    case WebCore::FrameState::Provisional:
         return kWKFrameLoadStateProvisional;
-    case WebCore::FrameStateCommittedPage:
+    case WebCore::FrameState::CommittedPage:
         return kWKFrameLoadStateCommitted;
-    case WebCore::FrameStateComplete:
+    case WebCore::FrameState::Complete:
         return kWKFrameLoadStateFinished;
     }
 
@@ -281,9 +281,9 @@ WKSecurityOriginRef WKBundleFrameCopySecurityOrigin(WKBundleFrameRef frameRef)
 
 void WKBundleFrameFocus(WKBundleFrameRef frameRef)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreFrame();
     if (!coreFrame)
         return;
 
-    coreFrame->page()->focusController().setFocusedFrame(coreFrame);
+    CheckedRef(coreFrame->page()->focusController())->setFocusedFrame(coreFrame.get());
 }

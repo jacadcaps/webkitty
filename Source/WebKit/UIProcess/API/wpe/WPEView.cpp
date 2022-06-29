@@ -35,7 +35,7 @@
 #include "NativeWebMouseEvent.h"
 #include "NativeWebTouchEvent.h"
 #include "NativeWebWheelEvent.h"
-#include "ScrollGestureController.h"
+#include "TouchGestureController.h"
 #include "WebPageGroup.h"
 #include "WebProcessPool.h"
 #include <WebCore/CompositionUnderline.h>
@@ -47,7 +47,7 @@ namespace WKWPE {
 
 View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseConfiguration)
     : m_client(makeUnique<API::ViewClient>())
-    , m_scrollGestureController(makeUnique<ScrollGestureController>())
+    , m_touchGestureController(makeUnique<TouchGestureController>())
     , m_pageClient(makeUnique<PageClientImpl>(*this))
     , m_size { 800, 600 }
     , m_viewStateFlags { WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsFocused, WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsInWindow }
@@ -65,9 +65,7 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
         preferences->setAcceleratedCompositingEnabled(true);
         preferences->setForceCompositingMode(true);
         preferences->setThreadedScrollingEnabled(true);
-        preferences->setAccelerated2dCanvasEnabled(true);
         preferences->setWebGLEnabled(true);
-        preferences->setDeveloperExtrasEnabled(true);
     }
 
     auto* pool = configuration->processPool();
@@ -160,8 +158,54 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
         // handle_axis_event
         [](void* data, struct wpe_input_axis_event* event)
         {
-            auto& page = reinterpret_cast<View*>(data)->page();
-            page.handleWheelEvent(WebKit::NativeWebWheelEvent(event, page.deviceScaleFactor(), WebWheelEvent::Phase::PhaseNone, WebWheelEvent::Phase::PhaseNone));
+            auto& view = *reinterpret_cast<View*>(data);
+
+            // FIXME: We shouldn't hard-code this.
+            enum Axis {
+                Vertical,
+                Horizontal
+            };
+
+            // We treat an axis motion event with a value of zero to be equivalent
+            // to a 'stop' event. Motion events with zero motion don't exist naturally,
+            // so this allows a backend to express 'stop' events without changing API.
+            // The wheel event phase is adjusted accordingly.
+            WebWheelEvent::Phase phase = WebWheelEvent::Phase::PhaseChanged;
+            WebWheelEvent::Phase momentumPhase = WebWheelEvent::Phase::PhaseNone;
+
+#if WPE_CHECK_VERSION(1, 5, 0)
+            if (event->type & wpe_input_axis_event_type_mask_2d) {
+                auto* event2D = reinterpret_cast<struct wpe_input_axis_2d_event*>(event);
+                view.m_horizontalScrollActive = !!event2D->x_axis;
+                view.m_verticalScrollActive = !!event2D->y_axis;
+                if (!view.m_horizontalScrollActive && !view.m_verticalScrollActive)
+                    phase = WebWheelEvent::Phase::PhaseEnded;
+
+                auto& page = view.page();
+                page.handleWheelEvent(WebKit::NativeWebWheelEvent(event, page.deviceScaleFactor(), phase, momentumPhase));
+                return;
+            }
+#endif
+
+            switch (event->axis) {
+            case Vertical:
+                view.m_horizontalScrollActive = !!event->value;
+                break;
+            case Horizontal:
+                view.m_verticalScrollActive = !!event->value;
+                break;
+            }
+
+            bool shouldDispatch = !!event->value;
+            if (!view.m_horizontalScrollActive && !view.m_verticalScrollActive) {
+                shouldDispatch = true;
+                phase = WebWheelEvent::Phase::PhaseEnded;
+            }
+
+            if (shouldDispatch) {
+                auto& page = view.page();
+                page.handleWheelEvent(WebKit::NativeWebWheelEvent(event, page.deviceScaleFactor(), phase, momentumPhase));
+            }
         },
         // handle_touch_event
         [](void* data, struct wpe_input_touch_event* event)
@@ -171,13 +215,35 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
 
             WebKit::NativeWebTouchEvent touchEvent(event, page.deviceScaleFactor());
 
-            auto& scrollGestureController = *view.m_scrollGestureController;
-            if (scrollGestureController.isHandling()) {
-                const struct wpe_input_touch_event_raw* touchPoint = touchEvent.nativeFallbackTouchPoint();
-                if (touchPoint->type != wpe_input_touch_event_type_null && scrollGestureController.handleEvent(touchPoint)) {
-                    page.handleWheelEvent(WebKit::NativeWebWheelEvent(scrollGestureController.axisEvent(), page.deviceScaleFactor(), scrollGestureController.phase(), WebWheelEvent::Phase::PhaseNone));
+            // If already gesturing axis events, short-cut directly to the controller,
+            // avoiding the usual roundtrip.
+            auto& touchGestureController = *view.m_touchGestureController;
+            if (touchGestureController.gesturedEvent() == TouchGestureController::GesturedEvent::Axis) {
+                bool handledThroughGestureController = false;
+
+                auto generatedEvent = touchGestureController.handleEvent(touchEvent.nativeFallbackTouchPoint());
+                WTF::switchOn(generatedEvent,
+                    [](TouchGestureController::NoEvent&) { },
+                    [](TouchGestureController::ClickEvent&) { },
+                    [&](TouchGestureController::AxisEvent& axisEvent)
+                    {
+#if WPE_CHECK_VERSION(1, 5, 0)
+                        auto* event = &axisEvent.event.base;
+#else
+                        auto* event = &axisEvent.event;
+#endif
+                        if (event->type != wpe_input_axis_event_type_null) {
+                            page.handleWheelEvent(WebKit::NativeWebWheelEvent(event, page.deviceScaleFactor(),
+                                axisEvent.phase, WebWheelEvent::Phase::PhaseNone));
+                            handledThroughGestureController = true;
+                        }
+                    });
+
+                // In case of the axis event gesturing, the generic touch event handling should be skipped.
+                // Exception to this are touch-up events that should still be handled just like the corresponding
+                // touch-down events were.
+                if (handledThroughGestureController && event->type != wpe_input_touch_event_type_up)
                     return;
-                }
             }
 
             page.handleTouchEvent(touchEvent);
@@ -189,6 +255,40 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
         nullptr
     };
     wpe_view_backend_set_input_client(m_backend, &s_inputClient, this);
+
+#if ENABLE(FULLSCREEN_API) && WPE_CHECK_VERSION(1, 11, 1)
+    static struct wpe_view_backend_fullscreen_client s_fullscreenClient = {
+        // did_enter_fullscreen
+        [](void* data)
+        {
+            auto& view = *reinterpret_cast<View*>(data);
+            view.page().fullScreenManager()->didEnterFullScreen();
+        },
+        // did_exit_fullscreen
+        [](void* data)
+        {
+            auto& view = *reinterpret_cast<View*>(data);
+            view.page().fullScreenManager()->didExitFullScreen();
+        },
+        // request_enter_fullscreen
+        [](void* data)
+        {
+            auto& view = *reinterpret_cast<View*>(data);
+            view.page().fullScreenManager()->requestEnterFullScreen();
+        },
+        // request_exit_fullscreen
+        [](void* data)
+        {
+            auto& view = *reinterpret_cast<View*>(data);
+            view.page().fullScreenManager()->requestExitFullScreen();
+        },
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    };
+    wpe_view_backend_set_fullscreen_client(m_backend, &s_fullscreenClient, this);
+#endif
 
     wpe_view_backend_initialize(m_backend);
 
@@ -246,7 +346,7 @@ WebKitInputMethodContext* View::inputMethodContext() const
     return m_inputMethodFilter.context();
 }
 
-void View::setInputMethodState(Optional<InputMethodState>&& state)
+void View::setInputMethodState(std::optional<InputMethodState>&& state)
 {
     m_inputMethodFilter.setState(WTFMove(state));
 }
@@ -290,10 +390,10 @@ void View::handleKeyboardEvent(struct wpe_input_keyboard_event* event)
     if (filterResult.handled)
         return;
 
-    page().handleKeyboardEvent(WebKit::NativeWebKeyboardEvent(event, event->pressed ? filterResult.keyText : String(), NativeWebKeyboardEvent::HandledByInputMethod::No, WTF::nullopt, WTF::nullopt));
+    page().handleKeyboardEvent(WebKit::NativeWebKeyboardEvent(event, event->pressed ? filterResult.keyText : String(), NativeWebKeyboardEvent::HandledByInputMethod::No, std::nullopt, std::nullopt));
 }
 
-void View::synthesizeCompositionKeyPress(const String& text, Optional<Vector<WebCore::CompositionUnderline>>&& underlines, Optional<EditingRange>&& selectionRange)
+void View::synthesizeCompositionKeyPress(const String& text, std::optional<Vector<WebCore::CompositionUnderline>>&& underlines, std::optional<EditingRange>&& selectionRange)
 {
     // The Windows composition key event code is 299 or VK_PROCESSKEY. We need to
     // emit this code for web compatibility reasons when key events trigger
@@ -307,6 +407,18 @@ void View::close()
 {
     m_pageProxy->close();
 }
+
+#if ENABLE(FULLSCREEN_API)
+bool View::setFullScreen(bool fullScreenState)
+{
+#if WPE_CHECK_VERSION(1, 11, 1)
+    if (!wpe_view_backend_platform_set_fullscreen(m_backend, fullScreenState))
+        return false;
+#endif
+    m_fullScreenModeActive = fullScreenState;
+    return true;
+};
+#endif
 
 #if ENABLE(ACCESSIBILITY)
 WebKitWebViewAccessible* View::accessible() const

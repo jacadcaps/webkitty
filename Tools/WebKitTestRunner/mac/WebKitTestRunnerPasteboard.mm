@@ -30,6 +30,7 @@
 
 #import "NSPasteboardAdditions.h"
 #import <objc/runtime.h>
+#import <wtf/Lock.h>
 #import <wtf/RetainPtr.h>
 
 @interface LocalPasteboard : NSPasteboard
@@ -45,25 +46,25 @@
 -(id)initWithName:(NSString *)name;
 @end
 
-static NSMutableDictionary *localPasteboards;
+static Lock localPasteboardsLock;
+static RetainPtr<NSMutableDictionary> localPasteboards WTF_GUARDED_BY_LOCK(localPasteboardsLock);
 
 @implementation WebKitTestRunnerPasteboard
 
 // Return a local pasteboard so we don't disturb the real pasteboards when running tests.
 + (NSPasteboard *)_pasteboardWithName:(NSString *)name
 {
-    static int number = 0;
+    Locker locker { localPasteboardsLock };
+    static uint64_t number WTF_GUARDED_BY_LOCK(localPasteboardsLock) = 0;
     if (!name)
-        name = [NSString stringWithFormat:@"LocalPasteboard%d", ++number];
+        name = [NSString stringWithFormat:@"LocalPasteboard%llu", ++number];
     if (!localPasteboards)
-        localPasteboards = [[NSMutableDictionary alloc] init];
-    LocalPasteboard *pasteboard = [localPasteboards objectForKey:name];
-    if (pasteboard)
+        localPasteboards = adoptNS([[NSMutableDictionary alloc] init]);
+    if (LocalPasteboard *pasteboard = [localPasteboards objectForKey:name])
         return pasteboard;
-    pasteboard = [[LocalPasteboard alloc] initWithName:name];
-    [localPasteboards setObject:pasteboard forKey:name];
-    [pasteboard release];
-    return pasteboard;
+    auto pasteboard = adoptNS([[LocalPasteboard alloc] initWithName:name]);
+    [localPasteboards setObject:pasteboard.get() forKey:name];
+    return pasteboard.autorelease();
 }
 
 // This method crashes when called on LocalPasteboard.
@@ -74,7 +75,7 @@ static NSMutableDictionary *localPasteboards;
 
 + (void)releaseLocalPasteboards
 {
-    [localPasteboards release];
+    Locker locker { localPasteboardsLock };
     localPasteboards = nil;
 }
 
@@ -151,15 +152,14 @@ static NSMutableDictionary *localPasteboards;
     unsigned i;
     for (i = 0; i < count; ++i) {
         NSString *type = [newTypes objectAtIndex:i];
-        NSString *setType = [_typesSet member:type];
+        RetainPtr<NSString> setType = [_typesSet member:type];
         if (!setType) {
-            setType = [type copy];
-            [_typesArray addObject:setType];
-            [_typesSet addObject:setType];
-            [setType release];
+            setType = adoptNS([type copy]);
+            [_typesArray addObject:setType.get()];
+            [_typesSet addObject:setType.get()];
         }
         if (newOwner && [newOwner respondsToSelector:@selector(pasteboard:provideDataForType:)])
-            [newOwner pasteboard:self provideDataForType:setType];
+            [newOwner pasteboard:self provideDataForType:setType.get()];
     }
 }
 

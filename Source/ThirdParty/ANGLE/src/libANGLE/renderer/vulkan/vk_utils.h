@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <limits>
+#include <queue>
 
 #include "GLSLANG/ShaderLang.h"
 #include "common/FixedVector.h"
@@ -20,8 +21,10 @@
 #include "common/debug.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Observer.h"
+#include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/serial_utils.h"
 #include "libANGLE/renderer/vulkan/SecondaryCommandBuffer.h"
+#include "libANGLE/renderer/vulkan/VulkanSecondaryCommandBuffer.h"
 #include "libANGLE/renderer/vulkan/vk_wrapper.h"
 #include "vulkan/vulkan_fuchsia_ext.h"
 
@@ -30,10 +33,11 @@
     PROC(Context)                \
     PROC(Framebuffer)            \
     PROC(MemoryObject)           \
-    PROC(Query)                  \
     PROC(Overlay)                \
     PROC(Program)                \
     PROC(ProgramPipeline)        \
+    PROC(Query)                  \
+    PROC(Renderbuffer)           \
     PROC(Sampler)                \
     PROC(Semaphore)              \
     PROC(Texture)                \
@@ -51,12 +55,8 @@ class ShareGroup;
 
 namespace gl
 {
-struct Box;
-class DummyOverlay;
-struct Extents;
+class MockOverlay;
 struct RasterizerState;
-struct Rectangle;
-class State;
 struct SwizzleState;
 struct VertexAttribute;
 class VertexBinding;
@@ -70,6 +70,8 @@ namespace rx
 {
 class DisplayVk;
 class ImageVk;
+class ProgramExecutableVk;
+class RenderbufferVk;
 class RenderTargetVk;
 class RendererVk;
 class RenderPassCache;
@@ -103,9 +105,46 @@ enum class TextureDimension
     TEX_2D_ARRAY,
 };
 
+// A maximum offset of 4096 covers almost every Vulkan driver on desktop (80%) and mobile (99%). The
+// next highest values to meet native drivers are 16 bits or 32 bits.
+constexpr uint32_t kAttributeOffsetMaxBits = 15;
+constexpr uint32_t kInvalidMemoryTypeIndex = UINT32_MAX;
+
 namespace vk
 {
-struct Format;
+// A packed attachment index interface with vulkan API
+class PackedAttachmentIndex final
+{
+  public:
+    explicit constexpr PackedAttachmentIndex(uint32_t index) : mAttachmentIndex(index) {}
+    constexpr PackedAttachmentIndex(const PackedAttachmentIndex &other) = default;
+    constexpr PackedAttachmentIndex &operator=(const PackedAttachmentIndex &other) = default;
+
+    constexpr uint32_t get() const { return mAttachmentIndex; }
+    PackedAttachmentIndex &operator++()
+    {
+        ++mAttachmentIndex;
+        return *this;
+    }
+    constexpr bool operator==(const PackedAttachmentIndex &other) const
+    {
+        return mAttachmentIndex == other.mAttachmentIndex;
+    }
+    constexpr bool operator!=(const PackedAttachmentIndex &other) const
+    {
+        return mAttachmentIndex != other.mAttachmentIndex;
+    }
+    constexpr bool operator<(const PackedAttachmentIndex &other) const
+    {
+        return mAttachmentIndex < other.mAttachmentIndex;
+    }
+
+  private:
+    uint32_t mAttachmentIndex;
+};
+using PackedAttachmentCount                                    = PackedAttachmentIndex;
+static constexpr PackedAttachmentIndex kAttachmentIndexInvalid = PackedAttachmentIndex(-1);
+static constexpr PackedAttachmentIndex kAttachmentIndexZero    = PackedAttachmentIndex(0);
 
 // Prepend ptr to the pNext chain at chainStart
 template <typename VulkanStruct1, typename VulkanStruct2>
@@ -117,6 +156,31 @@ void AddToPNextChain(VulkanStruct1 *chainStart, VulkanStruct2 *ptr)
     ptr->pNext                   = localPtr->pNext;
     localPtr->pNext              = reinterpret_cast<VkBaseOutStructure *>(ptr);
 }
+
+// Append ptr to the end of the chain
+template <typename VulkanStruct1, typename VulkanStruct2>
+void AppendToPNextChain(VulkanStruct1 *chainStart, VulkanStruct2 *ptr)
+{
+    if (!ptr)
+    {
+        return;
+    }
+
+    VkBaseOutStructure *endPtr = reinterpret_cast<VkBaseOutStructure *>(chainStart);
+    while (endPtr->pNext)
+    {
+        endPtr = endPtr->pNext;
+    }
+    endPtr->pNext = reinterpret_cast<VkBaseOutStructure *>(ptr);
+}
+
+struct Error
+{
+    VkResult errorCode;
+    const char *file;
+    const char *function;
+    uint32_t line;
+};
 
 // Abstracts error handling. Implemented by both ContextVk for GL and DisplayVk for EGL errors.
 class Context : angle::NonCopyable
@@ -132,21 +196,38 @@ class Context : angle::NonCopyable
     VkDevice getDevice() const;
     RendererVk *getRenderer() const { return mRenderer; }
 
-    // This is a special override needed so we can determine if we need to initialize images.
-    // It corresponds to the EGL or GL extensions depending on the vk::Context type.
-    virtual bool isRobustResourceInitEnabled() const = 0;
+    const angle::VulkanPerfCounters &getPerfCounters() const { return mPerfCounters; }
+    angle::VulkanPerfCounters &getPerfCounters() { return mPerfCounters; }
 
   protected:
     RendererVk *const mRenderer;
+    angle::VulkanPerfCounters mPerfCounters;
 };
 
-#if ANGLE_USE_CUSTOM_VULKAN_CMD_BUFFERS
-using CommandBuffer = priv::SecondaryCommandBuffer;
+class RenderPassDesc;
+
+#if ANGLE_USE_CUSTOM_VULKAN_OUTSIDE_RENDER_PASS_CMD_BUFFERS
+using OutsideRenderPassCommandBuffer = priv::SecondaryCommandBuffer;
 #else
-using CommandBuffer = priv::CommandBuffer;
+using OutsideRenderPassCommandBuffer         = VulkanSecondaryCommandBuffer;
+#endif
+#if ANGLE_USE_CUSTOM_VULKAN_RENDER_PASS_CMD_BUFFERS
+using RenderPassCommandBuffer = priv::SecondaryCommandBuffer;
+#else
+using RenderPassCommandBuffer                = VulkanSecondaryCommandBuffer;
 #endif
 
-using PrimaryCommandBuffer = priv::CommandBuffer;
+struct SecondaryCommandBufferList
+{
+    std::vector<OutsideRenderPassCommandBuffer> outsideRenderPassCommandBuffers;
+    std::vector<RenderPassCommandBuffer> renderPassCommandBuffers;
+};
+
+struct SecondaryCommandPools
+{
+    CommandPool outsideRenderPassPool;
+    CommandPool renderPassPool;
+};
 
 VkImageAspectFlags GetDepthStencilAspectFlags(const angle::Format &format);
 VkImageAspectFlags GetFormatAspectFlags(const angle::Format &format);
@@ -166,7 +247,7 @@ struct ImplTypeHelper<gl::OBJ>         \
 ANGLE_GL_OBJECTS_X(ANGLE_IMPL_TYPE_HELPER_GL)
 
 template <>
-struct ImplTypeHelper<gl::DummyOverlay>
+struct ImplTypeHelper<gl::MockOverlay>
 {
     using ImplType = OverlayVk;
 };
@@ -198,8 +279,14 @@ GetImplType<T> *GetImpl(const T *glObject)
     return GetImplAs<GetImplType<T>>(glObject);
 }
 
+template <typename T>
+GetImplType<T> *SafeGetImpl(const T *glObject)
+{
+    return SafeGetImplAs<GetImplType<T>>(glObject);
+}
+
 template <>
-inline OverlayVk *GetImpl(const gl::DummyOverlay *glObject)
+inline OverlayVk *GetImpl(const gl::MockOverlay *glObject)
 {
     return nullptr;
 }
@@ -284,7 +371,7 @@ using GarbageAndSerial = ObjectAndSerial<GarbageList>;
 
 // Houses multiple lists of garbage objects. Each sub-list has a different lifetime. They should be
 // sorted such that later-living garbage is ordered later in the list.
-using GarbageQueue = std::vector<GarbageAndSerial>;
+using GarbageQueue = std::queue<GarbageAndSerial>;
 
 class MemoryProperties final : angle::NonCopyable
 {
@@ -292,9 +379,11 @@ class MemoryProperties final : angle::NonCopyable
     MemoryProperties();
 
     void init(VkPhysicalDevice physicalDevice);
+    bool hasLazilyAllocatedMemory() const;
     angle::Result findCompatibleMemoryIndex(Context *context,
                                             const VkMemoryRequirements &memoryRequirements,
                                             VkMemoryPropertyFlags requestedMemoryPropertyFlags,
+                                            bool isExternalMemory,
                                             VkMemoryPropertyFlags *memoryPropertyFlagsOut,
                                             uint32_t *indexOut) const;
     void destroy();
@@ -304,6 +393,8 @@ class MemoryProperties final : angle::NonCopyable
         uint32_t heapIndex = mMemoryProperties.memoryTypes[memoryType].heapIndex;
         return mMemoryProperties.memoryHeaps[heapIndex].size;
     }
+
+    uint32_t getMemoryTypeCount() const { return mMemoryProperties.memoryTypeCount; }
 
   private:
     VkPhysicalDeviceMemoryProperties mMemoryProperties;
@@ -331,14 +422,14 @@ class StagingBuffer final : angle::NonCopyable
 };
 
 angle::Result InitMappableAllocation(Context *context,
-                                     const vk::Allocator &allocator,
+                                     const Allocator &allocator,
                                      Allocation *allocation,
                                      VkDeviceSize size,
                                      int value,
                                      VkMemoryPropertyFlags memoryPropertyFlags);
 
 angle::Result InitMappableDeviceMemory(Context *context,
-                                       vk::DeviceMemory *deviceMemory,
+                                       DeviceMemory *deviceMemory,
                                        VkDeviceSize size,
                                        int value,
                                        VkMemoryPropertyFlags memoryPropertyFlags);
@@ -359,12 +450,22 @@ angle::Result AllocateImageMemory(Context *context,
                                   DeviceMemory *deviceMemoryOut,
                                   VkDeviceSize *sizeOut);
 
-angle::Result AllocateImageMemoryWithRequirements(Context *context,
-                                                  VkMemoryPropertyFlags memoryPropertyFlags,
-                                                  const VkMemoryRequirements &memoryRequirements,
-                                                  const void *extraAllocationInfo,
-                                                  Image *image,
-                                                  DeviceMemory *deviceMemoryOut);
+angle::Result AllocateImageMemoryWithRequirements(
+    Context *context,
+    VkMemoryPropertyFlags memoryPropertyFlags,
+    const VkMemoryRequirements &memoryRequirements,
+    const void *extraAllocationInfo,
+    const VkBindImagePlaneMemoryInfoKHR *extraBindInfo,
+    Image *image,
+    DeviceMemory *deviceMemoryOut);
+
+angle::Result AllocateBufferMemoryWithRequirements(Context *context,
+                                                   VkMemoryPropertyFlags memoryPropertyFlags,
+                                                   const VkMemoryRequirements &memoryRequirements,
+                                                   const void *extraAllocationInfo,
+                                                   Buffer *buffer,
+                                                   VkMemoryPropertyFlags *memoryPropertyFlagsOut,
+                                                   DeviceMemory *deviceMemoryOut);
 
 using ShaderAndSerial = ObjectAndSerial<ShaderModule>;
 
@@ -397,6 +498,23 @@ class DeviceScoped final : angle::NonCopyable
 
   private:
     VkDevice mDevice;
+    T mVar;
+};
+
+template <typename T>
+class AllocatorScoped final : angle::NonCopyable
+{
+  public:
+    AllocatorScoped(const Allocator &allocator) : mAllocator(allocator) {}
+    ~AllocatorScoped() { mVar.destroy(mAllocator); }
+
+    const T &get() const { return mVar; }
+    T &get() { return mVar; }
+
+    T &&release() { return std::move(mVar); }
+
+  private:
+    const Allocator &mAllocator;
     T mVar;
 };
 
@@ -476,6 +594,9 @@ class RefCounted : angle::NonCopyable
     T &get() { return mObject; }
     const T &get() const { return mObject; }
 
+    // A debug function to validate that the reference count is as expected used for assertions.
+    bool isRefCountAsExpected(uint32_t expectedRefCount) { return mRefCount == expectedRefCount; }
+
   private:
     uint32_t mRefCount;
     T mObject;
@@ -485,8 +606,7 @@ template <typename T>
 class BindingPointer final : angle::NonCopyable
 {
   public:
-    BindingPointer() : mRefCounted(nullptr) {}
-
+    BindingPointer() = default;
     ~BindingPointer() { reset(); }
 
     BindingPointer(BindingPointer &&other)
@@ -518,7 +638,7 @@ class BindingPointer final : angle::NonCopyable
     bool valid() const { return mRefCounted != nullptr; }
 
   private:
-    RefCounted<T> *mRefCounted;
+    RefCounted<T> *mRefCounted = nullptr;
 };
 
 // Helper class to share ref-counted Vulkan objects.  Requires that T have a destroy method
@@ -559,12 +679,23 @@ class Shared final : angle::NonCopyable
         }
     }
 
+    void setUnreferenced(RefCounted<T> *refCounted)
+    {
+        ASSERT(!mRefCounted);
+        ASSERT(refCounted);
+
+        mRefCounted = refCounted;
+        mRefCounted->addRef();
+    }
+
     void assign(VkDevice device, T &&newObject)
     {
         set(device, new RefCounted<T>(std::move(newObject)));
     }
 
     void copy(VkDevice device, const Shared<T> &other) { set(device, other.mRefCounted); }
+
+    void copyUnreferenced(const Shared<T> &other) { setUnreferenced(other.mRefCounted); }
 
     void reset(VkDevice device) { set(device, nullptr); }
 
@@ -578,6 +709,23 @@ class Shared final : angle::NonCopyable
             {
                 ASSERT(mRefCounted->get().valid());
                 recycler->recycle(std::move(mRefCounted->get()));
+                SafeDelete(mRefCounted);
+            }
+
+            mRefCounted = nullptr;
+        }
+    }
+
+    template <typename OnRelease>
+    void resetAndRelease(OnRelease *onRelease)
+    {
+        if (mRefCounted)
+        {
+            mRefCounted->releaseRef();
+            if (!mRefCounted->isReferenced())
+            {
+                ASSERT(mRefCounted->get().valid());
+                (*onRelease)(std::move(mRefCounted->get()));
                 SafeDelete(mRefCounted);
             }
 
@@ -629,6 +777,7 @@ class Recycler final : angle::NonCopyable
         {
             object.destroy(device);
         }
+        mObjectFreeList.clear();
     }
 
     bool empty() const { return mObjectFreeList.empty(); }
@@ -637,17 +786,27 @@ class Recycler final : angle::NonCopyable
     std::vector<T> mObjectFreeList;
 };
 
-using SpecializationConstantBitSet =
-    angle::PackedEnumBitSet<sh::vk::SpecializationConstantId, uint32_t>;
-static_assert(sizeof(SpecializationConstantBitSet) == sizeof(uint32_t), "Unexpected size");
+ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
+struct SpecializationConstants final
+{
+    VkBool32 lineRasterEmulation;
+    uint32_t surfaceRotation;
+    float drawableWidth;
+    float drawableHeight;
+    uint32_t dither;
+};
+ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 
 template <typename T>
 using SpecializationConstantMap = angle::PackedEnumMap<sh::vk::SpecializationConstantId, T>;
 
+using ShaderAndSerialPointer = BindingPointer<ShaderAndSerial>;
+using ShaderAndSerialMap     = gl::ShaderMap<ShaderAndSerialPointer>;
+
 void MakeDebugUtilsLabel(GLenum source, const char *marker, VkDebugUtilsLabelEXT *label);
 
-constexpr size_t kClearValueDepthIndex   = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS;
-constexpr size_t kClearValueStencilIndex = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS + 1;
+constexpr size_t kUnpackedDepthIndex   = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS;
+constexpr size_t kUnpackedStencilIndex = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS + 1;
 
 class ClearValuesArray final
 {
@@ -659,6 +818,7 @@ class ClearValuesArray final
     ClearValuesArray &operator=(const ClearValuesArray &rhs);
 
     void store(uint32_t index, VkImageAspectFlags aspectFlags, const VkClearValue &clearValue);
+    void storeNoDepthStencil(uint32_t index, const VkClearValue &clearValue);
 
     void reset(size_t index)
     {
@@ -667,29 +827,435 @@ class ClearValuesArray final
     }
 
     bool test(size_t index) const { return mEnabled.test(index); }
-    bool testDepth() const { return mEnabled.test(kClearValueDepthIndex); }
-    bool testStencil() const { return mEnabled.test(kClearValueStencilIndex); }
+    bool testDepth() const { return mEnabled.test(kUnpackedDepthIndex); }
+    bool testStencil() const { return mEnabled.test(kUnpackedStencilIndex); }
+    gl::DrawBufferMask getColorMask() const;
 
     const VkClearValue &operator[](size_t index) const { return mValues[index]; }
 
-    float getDepthValue() const { return mValues[kClearValueDepthIndex].depthStencil.depth; }
-    uint32_t getStencilValue() const
-    {
-        return mValues[kClearValueStencilIndex].depthStencil.stencil;
-    }
+    float getDepthValue() const { return mValues[kUnpackedDepthIndex].depthStencil.depth; }
+    uint32_t getStencilValue() const { return mValues[kUnpackedStencilIndex].depthStencil.stencil; }
 
     const VkClearValue *data() const { return mValues.data(); }
     bool empty() const { return mEnabled.none(); }
-
-    gl::DrawBufferMask getEnabledColorAttachmentsMask() const
-    {
-        return gl::DrawBufferMask(mEnabled.to_ulong());
-    }
+    bool any() const { return mEnabled.any(); }
 
   private:
     gl::AttachmentArray<VkClearValue> mValues;
     gl::AttachmentsMask mEnabled;
 };
+
+// Defines Serials for Vulkan objects.
+#define ANGLE_VK_SERIAL_OP(X) \
+    X(Buffer)                 \
+    X(Image)                  \
+    X(ImageOrBufferView)      \
+    X(Sampler)
+
+#define ANGLE_DEFINE_VK_SERIAL_TYPE(Type)                                     \
+    class Type##Serial                                                        \
+    {                                                                         \
+      public:                                                                 \
+        constexpr Type##Serial() : mSerial(kInvalid) {}                       \
+        constexpr explicit Type##Serial(uint32_t serial) : mSerial(serial) {} \
+                                                                              \
+        constexpr bool operator==(const Type##Serial &other) const            \
+        {                                                                     \
+            ASSERT(mSerial != kInvalid || other.mSerial != kInvalid);         \
+            return mSerial == other.mSerial;                                  \
+        }                                                                     \
+        constexpr bool operator!=(const Type##Serial &other) const            \
+        {                                                                     \
+            ASSERT(mSerial != kInvalid || other.mSerial != kInvalid);         \
+            return mSerial != other.mSerial;                                  \
+        }                                                                     \
+        constexpr uint32_t getValue() const { return mSerial; }               \
+        constexpr bool valid() const { return mSerial != kInvalid; }          \
+                                                                              \
+      private:                                                                \
+        uint32_t mSerial;                                                     \
+        static constexpr uint32_t kInvalid = 0;                               \
+    };                                                                        \
+    static constexpr Type##Serial kInvalid##Type##Serial = Type##Serial();
+
+ANGLE_VK_SERIAL_OP(ANGLE_DEFINE_VK_SERIAL_TYPE)
+
+#define ANGLE_DECLARE_GEN_VK_SERIAL(Type) Type##Serial generate##Type##Serial();
+
+class ResourceSerialFactory final : angle::NonCopyable
+{
+  public:
+    ResourceSerialFactory();
+    ~ResourceSerialFactory();
+
+    ANGLE_VK_SERIAL_OP(ANGLE_DECLARE_GEN_VK_SERIAL)
+
+  private:
+    uint32_t issueSerial();
+
+    // Kept atomic so it can be accessed from multiple Context threads at once.
+    std::atomic<uint32_t> mCurrentUniqueSerial;
+};
+
+// BufferBlock
+class BufferBlock final : angle::NonCopyable
+{
+  public:
+    BufferBlock();
+    BufferBlock(BufferBlock &&other);
+    ~BufferBlock();
+
+    void destroy(RendererVk *renderer);
+    angle::Result init(ContextVk *contextVk,
+                       Buffer &buffer,
+                       vma::VirtualBlockCreateFlags flags,
+                       DeviceMemory &deviceMemory,
+                       VkMemoryPropertyFlags memoryPropertyFlags,
+                       VkDeviceSize size);
+    void initWithoutVirtualBlock(Context *context,
+                                 Buffer &buffer,
+                                 DeviceMemory &deviceMemory,
+                                 VkMemoryPropertyFlags memoryPropertyFlags,
+                                 VkDeviceSize size);
+
+    BufferBlock &operator=(BufferBlock &&other);
+
+    const Buffer &getBuffer() const { return mBuffer; }
+    const DeviceMemory &getDeviceMemory() const { return mDeviceMemory; }
+    DeviceMemory &getDeviceMemory() { return mDeviceMemory; }
+    BufferSerial getBufferSerial() const { return mSerial; }
+
+    VkMemoryPropertyFlags getMemoryPropertyFlags() const;
+    VkDeviceSize getMemorySize() const;
+
+    VkResult allocate(VkDeviceSize size, VkDeviceSize alignment, VkDeviceSize *offsetOut);
+    void free(VkDeviceSize offset);
+    VkBool32 isEmpty();
+
+    bool hasVirtualBlock() const { return mVirtualBlock.valid(); }
+    bool isHostVisible() const;
+    bool isCoherent() const;
+    bool isMapped() const;
+    VkResult map(const VkDevice device);
+    void unmap(const VkDevice device);
+    uint8_t *getMappedMemory() const;
+
+    // This should be called whenever this found to be empty. The total number of count of empty is
+    // returned.
+    int32_t getAndIncrementEmptyCounter();
+
+  private:
+    // Protect multi-thread access to mVirtualBlock, which could be possible when asyncCommandQueue
+    // is enabled.
+    ConditionalMutex mVirtualBlockMutex;
+    VirtualBlock mVirtualBlock;
+
+    Buffer mBuffer;
+    DeviceMemory mDeviceMemory;
+    VkMemoryPropertyFlags mMemoryPropertyFlags;
+    VkDeviceSize mSize;
+    uint8_t *mMappedMemory;
+    BufferSerial mSerial;
+    // Heuristic information for pruneEmptyBuffer. This tracks how many times (consecutively) this
+    // buffer block is found to be empty when pruneEmptyBuffer is called. This gets reset whenever
+    // it becomes non-empty.
+    int32_t mCountRemainsEmpty;
+};
+using BufferBlockPointerVector = std::vector<std::unique_ptr<BufferBlock>>;
+
+// BufferSuballocation
+class BufferSuballocation final : angle::NonCopyable
+{
+  public:
+    BufferSuballocation();
+
+    BufferSuballocation(BufferSuballocation &&other);
+    BufferSuballocation &operator=(BufferSuballocation &&other);
+
+    void destroy(RendererVk *renderer);
+
+    void init(VkDevice device, BufferBlock *block, VkDeviceSize offset, VkDeviceSize size);
+    void initWithEntireBuffer(Context *context,
+                              Buffer &buffer,
+                              DeviceMemory &deviceMemory,
+                              VkMemoryPropertyFlags memoryPropertyFlags,
+                              VkDeviceSize size);
+
+    const Buffer &getBuffer() const;
+    VkDeviceSize getSize() const;
+    const DeviceMemory &getDeviceMemory() const;
+    VkMemoryMapFlags getMemoryPropertyFlags() const;
+    bool isHostVisible() const;
+    bool isCoherent() const;
+    bool isMapped() const;
+    uint8_t *getMappedMemory() const;
+    void flush(const VkDevice &device);
+    void invalidate(const VkDevice &device);
+    VkDeviceSize getOffset() const;
+    bool valid() const;
+    VkResult map(Context *context);
+    BufferSerial getBlockSerial() const;
+    uint8_t *getBlockMemory() const;
+    VkDeviceSize getBlockMemorySize() const;
+
+  private:
+    // Only used by DynamicBuffer where DynamicBuffer does the actual suballocation and pass the
+    // offset/size to this object. Since DynamicBuffer does not have a VMA virtual allocator, they
+    // will be ignored at destroy time. The offset/size is set here mainly for easy retrieval when
+    // the BufferHelper object is passed around.
+    friend class BufferHelper;
+    void setOffsetAndSize(VkDeviceSize offset, VkDeviceSize size);
+
+    BufferBlock *mBufferBlock;
+    VkDeviceSize mOffset;
+    VkDeviceSize mSize;
+};
+
+// BufferBlock implementation.
+ANGLE_INLINE VkMemoryPropertyFlags BufferBlock::getMemoryPropertyFlags() const
+{
+    return mMemoryPropertyFlags;
+}
+
+ANGLE_INLINE VkDeviceSize BufferBlock::getMemorySize() const
+{
+    return mSize;
+}
+
+ANGLE_INLINE VkBool32 BufferBlock::isEmpty()
+{
+    std::lock_guard<ConditionalMutex> lock(mVirtualBlockMutex);
+    return vma::IsVirtualBlockEmpty(mVirtualBlock.getHandle());
+}
+
+ANGLE_INLINE bool BufferBlock::isHostVisible() const
+{
+    return (mMemoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
+}
+
+ANGLE_INLINE bool BufferBlock::isCoherent() const
+{
+    return (mMemoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+}
+
+ANGLE_INLINE bool BufferBlock::isMapped() const
+{
+    return mMappedMemory != nullptr;
+}
+
+ANGLE_INLINE uint8_t *BufferBlock::getMappedMemory() const
+{
+    ASSERT(mMappedMemory != nullptr);
+    return mMappedMemory;
+}
+
+ANGLE_INLINE VkResult BufferBlock::allocate(VkDeviceSize size,
+                                            VkDeviceSize alignment,
+                                            VkDeviceSize *offsetOut)
+{
+    std::lock_guard<ConditionalMutex> lock(mVirtualBlockMutex);
+    mCountRemainsEmpty = 0;
+    return mVirtualBlock.allocate(size, alignment, offsetOut);
+}
+
+// BufferSuballocation implementation.
+ANGLE_INLINE BufferSuballocation::BufferSuballocation()
+    : mBufferBlock(nullptr), mOffset(0), mSize(0)
+{}
+
+ANGLE_INLINE BufferSuballocation::BufferSuballocation(BufferSuballocation &&other)
+    : BufferSuballocation()
+{
+    *this = std::move(other);
+}
+
+ANGLE_INLINE BufferSuballocation &BufferSuballocation::operator=(BufferSuballocation &&other)
+{
+    std::swap(mBufferBlock, other.mBufferBlock);
+    std::swap(mSize, other.mSize);
+    std::swap(mOffset, other.mOffset);
+    return *this;
+}
+
+ANGLE_INLINE bool BufferSuballocation::valid() const
+{
+    return mBufferBlock != nullptr;
+}
+
+ANGLE_INLINE void BufferSuballocation::destroy(RendererVk *renderer)
+{
+    if (valid())
+    {
+        ASSERT(mBufferBlock);
+        if (mBufferBlock->hasVirtualBlock())
+        {
+            mBufferBlock->free(mOffset);
+            mBufferBlock = nullptr;
+        }
+        else
+        {
+            // When virtual block is invalid, this is the standalone buffer that are created by
+            // BufferSuballocation::initWithEntireBuffer call. In this case, vmaBufferSuballocation
+            // owns block, we must properly delete the block object.
+            mBufferBlock->destroy(renderer);
+            SafeDelete(mBufferBlock);
+        }
+        mOffset = 0;
+        mSize   = 0;
+    }
+}
+
+ANGLE_INLINE void BufferSuballocation::init(VkDevice device,
+                                            BufferBlock *block,
+                                            VkDeviceSize offset,
+                                            VkDeviceSize size)
+{
+    ASSERT(!valid());
+    ASSERT(block != nullptr);
+    ASSERT(offset != VK_WHOLE_SIZE);
+    mBufferBlock = block;
+    mOffset      = offset;
+    mSize        = size;
+}
+
+ANGLE_INLINE void BufferSuballocation::initWithEntireBuffer(
+    Context *context,
+    Buffer &buffer,
+    DeviceMemory &deviceMemory,
+    VkMemoryPropertyFlags memoryPropertyFlags,
+    VkDeviceSize size)
+{
+    ASSERT(!valid());
+
+    std::unique_ptr<BufferBlock> block = std::make_unique<BufferBlock>();
+    block->initWithoutVirtualBlock(context, buffer, deviceMemory, memoryPropertyFlags, size);
+
+    mBufferBlock = block.release();
+    mOffset      = 0;
+    mSize        = mBufferBlock->getMemorySize();
+}
+
+ANGLE_INLINE const Buffer &BufferSuballocation::getBuffer() const
+{
+    return mBufferBlock->getBuffer();
+}
+
+ANGLE_INLINE VkDeviceSize BufferSuballocation::getSize() const
+{
+    return mSize;
+}
+
+ANGLE_INLINE const DeviceMemory &BufferSuballocation::getDeviceMemory() const
+{
+    return mBufferBlock->getDeviceMemory();
+}
+
+ANGLE_INLINE VkMemoryMapFlags BufferSuballocation::getMemoryPropertyFlags() const
+{
+    return mBufferBlock->getMemoryPropertyFlags();
+}
+
+ANGLE_INLINE bool BufferSuballocation::isHostVisible() const
+{
+    return mBufferBlock->isHostVisible();
+}
+ANGLE_INLINE bool BufferSuballocation::isCoherent() const
+{
+    return mBufferBlock->isCoherent();
+}
+ANGLE_INLINE bool BufferSuballocation::isMapped() const
+{
+    return mBufferBlock->isMapped();
+}
+ANGLE_INLINE uint8_t *BufferSuballocation::getMappedMemory() const
+{
+    return mBufferBlock->getMappedMemory() + getOffset();
+}
+
+ANGLE_INLINE void BufferSuballocation::flush(const VkDevice &device)
+{
+    if (!isCoherent())
+    {
+        VkMappedMemoryRange mappedRange = {};
+        mappedRange.sType               = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        mappedRange.memory              = mBufferBlock->getDeviceMemory().getHandle();
+        mappedRange.offset              = getOffset();
+        mappedRange.size                = mSize;
+        mBufferBlock->getDeviceMemory().flush(device, mappedRange);
+    }
+}
+
+ANGLE_INLINE void BufferSuballocation::invalidate(const VkDevice &device)
+{
+    if (!isCoherent())
+    {
+        VkMappedMemoryRange mappedRange = {};
+        mappedRange.sType               = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        mappedRange.memory              = mBufferBlock->getDeviceMemory().getHandle();
+        mappedRange.offset              = getOffset();
+        mappedRange.size                = mSize;
+        mBufferBlock->getDeviceMemory().invalidate(device, mappedRange);
+    }
+}
+
+ANGLE_INLINE VkDeviceSize BufferSuballocation::getOffset() const
+{
+    return mOffset;
+}
+
+ANGLE_INLINE void BufferSuballocation::setOffsetAndSize(VkDeviceSize offset, VkDeviceSize size)
+{
+    mOffset = offset;
+    mSize   = size;
+}
+
+ANGLE_INLINE uint8_t *BufferSuballocation::getBlockMemory() const
+{
+    return mBufferBlock->getMappedMemory();
+}
+ANGLE_INLINE VkDeviceSize BufferSuballocation::getBlockMemorySize() const
+{
+    return mBufferBlock->getMemorySize();
+}
+ANGLE_INLINE BufferSerial BufferSuballocation::getBlockSerial() const
+{
+    ASSERT(valid());
+    return mBufferBlock->getBufferSerial();
+}
+#if defined(ANGLE_ENABLE_PERF_COUNTER_OUTPUT)
+constexpr bool kOutputCumulativePerfCounters = ANGLE_ENABLE_PERF_COUNTER_OUTPUT;
+#else
+constexpr bool kOutputCumulativePerfCounters = false;
+#endif
+
+// Performance and resource counters.
+struct RenderPassPerfCounters
+{
+    // load/storeOps. Includes ops for resolve attachment. Maximum value = 2.
+    uint8_t depthClears;
+    uint8_t depthLoads;
+    uint8_t depthStores;
+    uint8_t stencilClears;
+    uint8_t stencilLoads;
+    uint8_t stencilStores;
+    // Number of unresolve and resolve operations.  Maximum value for color =
+    // gl::IMPLEMENTATION_MAX_DRAW_BUFFERS and for depth/stencil = 1 each.
+    uint8_t colorAttachmentUnresolves;
+    uint8_t colorAttachmentResolves;
+    uint8_t depthAttachmentUnresolves;
+    uint8_t depthAttachmentResolves;
+    uint8_t stencilAttachmentUnresolves;
+    uint8_t stencilAttachmentResolves;
+    // Whether the depth/stencil attachment is using a read-only layout.
+    uint8_t readOnlyDepthStencil;
+};
+
+// A Vulkan image level index.
+using LevelIndex = gl::LevelIndexWrapper<uint32_t>;
+
+// Ensure viewport is within Vulkan requirements
+void ClampViewport(VkViewport *viewport);
+
 }  // namespace vk
 
 #if !defined(ANGLE_SHARED_LIBVULKAN)
@@ -699,6 +1265,7 @@ void InitDebugReportEXTFunctions(VkInstance instance);
 void InitGetPhysicalDeviceProperties2KHRFunctions(VkInstance instance);
 void InitTransformFeedbackEXTFunctions(VkDevice device);
 void InitSamplerYcbcrKHRFunctions(VkDevice device);
+void InitRenderPass2KHRFunctions(VkDevice device);
 
 #    if defined(ANGLE_PLATFORM_FUCHSIA)
 // VK_FUCHSIA_imagepipe_surface
@@ -721,8 +1288,17 @@ void InitExternalSemaphoreFdFunctions(VkInstance instance);
 // VK_EXT_external_memory_host
 void InitExternalMemoryHostFunctions(VkInstance instance);
 
+// VK_EXT_external_memory_host
+void InitHostQueryResetFunctions(VkInstance instance);
+
 // VK_KHR_external_fence_capabilities
 void InitExternalFenceCapabilitiesFunctions(VkInstance instance);
+
+// VK_KHR_get_memory_requirements2
+void InitGetMemoryRequirements2KHRFunctions(VkDevice device);
+
+// VK_KHR_bind_memory2
+void InitBindMemory2KHRFunctions(VkDevice device);
 
 // VK_KHR_external_fence_fd
 void InitExternalFenceFdFunctions(VkInstance instance);
@@ -730,9 +1306,13 @@ void InitExternalFenceFdFunctions(VkInstance instance);
 // VK_KHR_external_semaphore_capabilities
 void InitExternalSemaphoreCapabilitiesFunctions(VkInstance instance);
 
+// VK_KHR_shared_presentable_image
+void InitGetSwapchainStatusKHRFunctions(VkDevice device);
+
 #endif  // !defined(ANGLE_SHARED_LIBVULKAN)
 
-GLenum CalculateGenerateMipmapFilter(ContextVk *contextVk, const vk::Format &format);
+GLenum CalculateGenerateMipmapFilter(ContextVk *contextVk, angle::FormatID formatID);
+size_t PackSampleCount(GLint sampleCount);
 
 namespace gl_vk
 {
@@ -749,6 +1329,8 @@ VkCompareOp GetCompareOp(const GLenum compareFunc);
 
 constexpr gl::ShaderMap<VkShaderStageFlagBits> kShaderStageMap = {
     {gl::ShaderType::Vertex, VK_SHADER_STAGE_VERTEX_BIT},
+    {gl::ShaderType::TessControl, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT},
+    {gl::ShaderType::TessEvaluation, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT},
     {gl::ShaderType::Fragment, VK_SHADER_STAGE_FRAGMENT_BIT},
     {gl::ShaderType::Geometry, VK_SHADER_STAGE_GEOMETRY_BIT},
     {gl::ShaderType::Compute, VK_SHADER_STAGE_COMPUTE_BIT},
@@ -765,6 +1347,7 @@ void GetViewport(const gl::Rectangle &viewport,
                  float nearPlane,
                  float farPlane,
                  bool invertViewport,
+                 bool upperLeftOrigin,
                  GLint renderAreaHeight,
                  VkViewport *viewportOut);
 
@@ -772,6 +1355,9 @@ void GetExtentsAndLayerCount(gl::TextureType textureType,
                              const gl::Extents &extents,
                              VkExtent3D *extentsOut,
                              uint32_t *layerCountOut);
+
+vk::LevelIndex GetLevelIndex(gl::LevelIndex levelGL, gl::LevelIndex baseLevel);
+
 }  // namespace gl_vk
 
 namespace vk_gl
@@ -796,19 +1382,97 @@ void AddSampleCounts(VkSampleCountFlags sampleCounts, gl::SupportedSampleSet *ou
 GLuint GetMaxSampleCount(VkSampleCountFlags sampleCounts);
 // Return a supported sample count that's at least as large as the requested one.
 GLuint GetSampleCount(VkSampleCountFlags supportedCounts, GLuint requestedCount);
+
+gl::LevelIndex GetLevelIndex(vk::LevelIndex levelVk, gl::LevelIndex baseLevel);
 }  // namespace vk_gl
+
+enum class RenderPassClosureReason
+{
+    // Don't specify the reason (it should already be specified elsewhere)
+    AlreadySpecifiedElsewhere,
+
+    // Implicit closures due to flush/wait/etc.
+    ContextDestruction,
+    ContextChange,
+    GLFlush,
+    GLFinish,
+    EGLSwapBuffers,
+    EGLWaitClient,
+
+    // Closure due to switching rendering to another framebuffer.
+    FramebufferBindingChange,
+    FramebufferChange,
+    NewRenderPass,
+
+    // Incompatible use of resource in the same render pass
+    BufferUseThenXfbWrite,
+    XfbWriteThenVertexIndexBuffer,
+    XfbWriteThenIndirectDrawBuffer,
+    XfbResumeAfterDrawBasedClear,
+    DepthStencilUseInFeedbackLoop,
+    DepthStencilWriteAfterFeedbackLoop,
+    PipelineBindWhileXfbActive,
+
+    // Use of resource after render pass
+    BufferWriteThenMap,
+    BufferUseThenOutOfRPRead,
+    BufferUseThenOutOfRPWrite,
+    ImageUseThenOutOfRPRead,
+    ImageUseThenOutOfRPWrite,
+    XfbWriteThenComputeRead,
+    XfbWriteThenIndirectDispatchBuffer,
+    ImageAttachmentThenComputeRead,
+    GetQueryResult,
+    BeginNonRenderPassQuery,
+    EndNonRenderPassQuery,
+    TimestampQuery,
+    GLReadPixels,
+
+    // Synchronization
+    BufferUseThenReleaseToExternal,
+    ImageUseThenReleaseToExternal,
+    BufferInUseWhenSynchronizedMap,
+    ImageOrphan,
+    GLMemoryBarrierThenStorageResource,
+    StorageResourceUseThenGLMemoryBarrier,
+    ExternalSemaphoreSignal,
+    SyncObjectInit,
+    SyncObjectWithFdInit,
+    SyncObjectClientWait,
+    SyncObjectServerWait,
+
+    // Closures that ANGLE could have avoided, but doesn't for simplicity or optimization of more
+    // common cases.
+    XfbPause,
+    FramebufferFetchEmulation,
+    ColorBufferInvalidate,
+    GenerateMipmapOnCPU,
+    CopyTextureOnCPU,
+    TextureReformatToRenderable,
+    DeviceLocalBufferMap,
+
+    // UtilsVk
+    PrepareForBlit,
+    PrepareForImageCopy,
+    TemporaryForImageClear,
+    TemporaryForImageCopy,
+    TemporaryForOverlayDraw,
+
+    InvalidEnum,
+    EnumCount = InvalidEnum,
+};
 
 }  // namespace rx
 
-#define ANGLE_VK_TRY(context, command)                                                 \
-    do                                                                                 \
-    {                                                                                  \
-        auto ANGLE_LOCAL_VAR = command;                                                \
-        if (ANGLE_UNLIKELY(ANGLE_LOCAL_VAR != VK_SUCCESS))                             \
-        {                                                                              \
-            context->handleError(ANGLE_LOCAL_VAR, __FILE__, ANGLE_FUNCTION, __LINE__); \
-            return angle::Result::Stop;                                                \
-        }                                                                              \
+#define ANGLE_VK_TRY(context, command)                                                   \
+    do                                                                                   \
+    {                                                                                    \
+        auto ANGLE_LOCAL_VAR = command;                                                  \
+        if (ANGLE_UNLIKELY(ANGLE_LOCAL_VAR != VK_SUCCESS))                               \
+        {                                                                                \
+            (context)->handleError(ANGLE_LOCAL_VAR, __FILE__, ANGLE_FUNCTION, __LINE__); \
+            return angle::Result::Stop;                                                  \
+        }                                                                                \
     } while (0)
 
 #define ANGLE_VK_CHECK(context, test, error) ANGLE_VK_TRY(context, test ? VK_SUCCESS : error)
@@ -822,5 +1486,21 @@ GLuint GetSampleCount(VkSampleCountFlags supportedCounts, GLuint requestedCount)
 #define ANGLE_VK_UNREACHABLE(context) \
     UNREACHABLE();                    \
     ANGLE_VK_CHECK(context, false, VK_ERROR_FEATURE_NOT_PRESENT)
+
+// NVIDIA uses special formatting for the driver version:
+// Major: 10
+// Minor: 8
+// Sub-minor: 8
+// patch: 6
+#define ANGLE_VK_VERSION_MAJOR_NVIDIA(version) (((uint32_t)(version) >> 22) & 0x3ff)
+#define ANGLE_VK_VERSION_MINOR_NVIDIA(version) (((uint32_t)(version) >> 14) & 0xff)
+#define ANGLE_VK_VERSION_SUB_MINOR_NVIDIA(version) (((uint32_t)(version) >> 6) & 0xff)
+#define ANGLE_VK_VERSION_PATCH_NVIDIA(version) ((uint32_t)(version)&0x3f)
+
+// Similarly for Intel on Windows:
+// Major: 18
+// Minor: 14
+#define ANGLE_VK_VERSION_MAJOR_WIN_INTEL(version) (((uint32_t)(version) >> 14) & 0x3ffff)
+#define ANGLE_VK_VERSION_MINOR_WIN_INTEL(version) ((uint32_t)(version)&0x3fff)
 
 #endif  // LIBANGLE_RENDERER_VULKAN_VK_UTILS_H_

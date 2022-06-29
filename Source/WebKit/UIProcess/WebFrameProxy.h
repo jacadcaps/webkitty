@@ -103,9 +103,9 @@ public:
     bool isDisplayingMarkupDocument() const;
     bool isDisplayingPDFDocument() const;
 
-    void getWebArchive(Function<void (API::Data*, CallbackBase::Error)>&&);
-    void getMainResourceData(Function<void (API::Data*, CallbackBase::Error)>&&);
-    void getResourceData(API::URL*, Function<void (API::Data*, CallbackBase::Error)>&&);
+    void getWebArchive(CompletionHandler<void(API::Data*)>&&);
+    void getMainResourceData(CompletionHandler<void(API::Data*)>&&);
+    void getResourceData(API::URL*, CompletionHandler<void(API::Data*)>&&);
 
     void didStartProvisionalLoad(const URL&);
     void didExplicitOpen(URL&&, String&& mimeType);
@@ -117,7 +117,7 @@ public:
     void didSameDocumentNavigation(const URL&); // eg. anchor navigation, session state change.
     void didChangeTitle(const String&);
 
-    WebFramePolicyListenerProxy& setUpPolicyListenerProxy(CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, Optional<NavigatingToAppBoundDomain>)>&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult);
+    WebFramePolicyListenerProxy& setUpPolicyListenerProxy(CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, std::optional<NavigatingToAppBoundDomain>)>&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult);
 
 #if ENABLE(CONTENT_FILTERING)
     void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler contentFilterUnblockHandler) { m_contentFilterUnblockHandler = WTFMove(contentFilterUnblockHandler); }

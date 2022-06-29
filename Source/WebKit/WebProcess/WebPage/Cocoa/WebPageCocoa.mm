@@ -27,11 +27,12 @@
 #import "WebPage.h"
 
 #import "InsertTextOptions.h"
-#import "LaunchServicesDatabaseManager.h"
 #import "LoadParameters.h"
 #import "PluginView.h"
+#import "UserMediaCaptureManager.h"
 #import "WKAccessibilityWebPageObjectBase.h"
 #import "WebPageProxyMessages.h"
+#import "WebPasteboardOverrides.h"
 #import "WebPaymentCoordinator.h"
 #import "WebRemoteObjectRegistry.h"
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
@@ -42,10 +43,12 @@
 #import <WebCore/EventNames.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FrameView.h>
+#import <WebCore/GraphicsContextCG.h>
 #import <WebCore/HTMLConverter.h>
 #import <WebCore/HTMLOListElement.h>
 #import <WebCore/HTMLUListElement.h>
 #import <WebCore/HitTestResult.h>
+#import <WebCore/ImageOverlay.h>
 #import <WebCore/NetworkExtensionContentFilter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/PaymentCoordinator.h>
@@ -62,38 +65,33 @@
 
 namespace WebKit {
 
+void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
+{
+    platformInitializeAccessibility();
+
+#if ENABLE(MEDIA_STREAM)
+    if (auto* captureManager = WebProcess::singleton().supplement<UserMediaCaptureManager>())
+        captureManager->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess, m_page->settings().webRTCRemoteVideoFrameEnabled());
+#endif
+}
+
 void WebPage::platformDidReceiveLoadParameters(const LoadParameters& parameters)
 {
-#if HAVE(LSDATABASECONTEXT)
-    auto startTime = WallTime::now();
-    bool databaseUpdated = LaunchServicesDatabaseManager::singleton().waitForDatabaseUpdate(1_s);
-    auto elapsedTime = WallTime::now() - startTime;
-    if (elapsedTime.value() > 0.5)
-        RELEASE_LOG(Loading, "Waiting for Launch Services database update took %f seconds", elapsedTime.value());
-    ASSERT_UNUSED(databaseUpdated, databaseUpdated);
-    if (!databaseUpdated)
-        RELEASE_LOG_ERROR(Loading, "Timed out waiting for Launch Services database update.");
-#endif
-
     m_dataDetectionContext = parameters.dataDetectionContext;
 
-    if (parameters.neHelperExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.neHelperExtensionHandle);
-    if (parameters.neSessionManagerExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.neSessionManagerExtensionHandle);
-    NetworkExtensionContentFilter::setHasConsumedSandboxExtensions(parameters.neHelperExtensionHandle.hasValue() && parameters.neSessionManagerExtensionHandle.hasValue());
+    consumeNetworkExtensionSandboxExtensions(parameters.networkExtensionSandboxExtensionHandles);
 
 #if PLATFORM(IOS)
     if (parameters.contentFilterExtensionHandle)
         SandboxExtension::consumePermanently(*parameters.contentFilterExtensionHandle);
-    ParentalControlsContentFilter::setHasConsumedSandboxExtension(parameters.contentFilterExtensionHandle.hasValue());
+    ParentalControlsContentFilter::setHasConsumedSandboxExtension(parameters.contentFilterExtensionHandle.has_value());
 
     if (parameters.frontboardServiceExtensionHandle)
         SandboxExtension::consumePermanently(*parameters.frontboardServiceExtensionHandle);
 #endif
 }
 
-void WebPage::requestActiveNowPlayingSessionInfo(CallbackID callbackID)
+void WebPage::requestActiveNowPlayingSessionInfo(CompletionHandler<void(bool, bool, const String&, double, double, uint64_t)>&& completionHandler)
 {
     bool hasActiveSession = false;
     String title = emptyString();
@@ -110,7 +108,7 @@ void WebPage::requestActiveNowPlayingSessionInfo(CallbackID callbackID)
         registeredAsNowPlayingApplication = sharedManager->registeredAsNowPlayingApplication();
     }
 
-    send(Messages::WebPageProxy::NowPlayingInfoCallback(hasActiveSession, registeredAsNowPlayingApplication, title, duration, elapsedTime, uniqueIdentifier, callbackID));
+    completionHandler(hasActiveSession, registeredAsNowPlayingApplication, title, duration, elapsedTime, uniqueIdentifier);
 }
     
 void WebPage::performDictionaryLookupAtLocation(const FloatPoint& floatPoint)
@@ -121,10 +119,10 @@ void WebPage::performDictionaryLookupAtLocation(const FloatPoint& floatPoint)
     }
     
     // Find the frame the point is over.
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     auto result = m_page->mainFrame().eventHandler().hitTestResultAtPoint(m_page->mainFrame().view()->windowToContents(roundedIntPoint(floatPoint)), hitType);
 
-    auto* frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+    RefPtr frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &CheckedRef(m_page->focusController())->focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -148,8 +146,8 @@ void WebPage::performDictionaryLookupForSelection(Frame& frame, const VisibleSel
 
 void WebPage::performDictionaryLookupOfCurrentSelection()
 {
-    auto& frame = m_page->focusController().focusedOrMainFrame();
-    performDictionaryLookupForSelection(frame, frame.selection().selection(), TextIndicatorPresentationTransition::BounceAndCrossfade);
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    performDictionaryLookupForSelection(frame, frame->selection().selection(), TextIndicatorPresentationTransition::BounceAndCrossfade);
 }
     
 void WebPage::performDictionaryLookupForRange(Frame& frame, const SimpleRange& range, NSDictionary *options, TextIndicatorPresentationTransition presentationTransition)
@@ -179,7 +177,7 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
     IntRect rangeRect = frame.view()->contentsToWindow(quads[0].enclosingBoundingBox());
 
     const RenderStyle* style = range.startContainer().renderStyle();
-    float scaledAscent = style ? style->fontMetrics().ascent() * pageScaleFactor() : 0;
+    float scaledAscent = style ? style->metricsOfPrimaryFont().ascent() * pageScaleFactor() : 0;
     dictionaryPopupInfo.origin = FloatPoint(rangeRect.x(), rangeRect.y() + scaledAscent);
     dictionaryPopupInfo.options = options;
 
@@ -199,6 +197,9 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
 #endif // PLATFORM(MAC)
 
     OptionSet<TextIndicatorOption> indicatorOptions { TextIndicatorOption::UseBoundingRectAndPaintAllContentForComplexRanges };
+    if (ImageOverlay::isInsideOverlay(range))
+        indicatorOptions.add({ TextIndicatorOption::PaintAllContent, TextIndicatorOption::PaintBackgrounds });
+
     if (presentationTransition == TextIndicatorPresentationTransition::BounceAndCrossfade)
         indicatorOptions.add(TextIndicatorOption::IncludeSnapshotWithSelectionHighlight);
     
@@ -221,24 +222,23 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
 
 void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& replacementEditingRange, const Vector<WebCore::DictationAlternative>& dictationAlternativeLocations, InsertTextOptions&& options)
 {
-    auto& frame = m_page->focusController().focusedOrMainFrame();
-    Ref<Frame> protector { frame };
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
 
     if (replacementEditingRange.location != notFound) {
         auto replacementRange = EditingRange::toRange(frame, replacementEditingRange);
         if (replacementRange)
-            frame.selection().setSelection(VisibleSelection { *replacementRange, SEL_DEFAULT_AFFINITY });
+            frame->selection().setSelection(VisibleSelection { *replacementRange });
     }
 
     if (options.registerUndoGroup)
         send(Messages::WebPageProxy::RegisterInsertionUndoGrouping { });
 
-    RefPtr<Element> focusedElement = frame.document() ? frame.document()->focusedElement() : nullptr;
+    RefPtr<Element> focusedElement = frame->document() ? frame->document()->focusedElement() : nullptr;
     if (focusedElement && options.shouldSimulateKeyboardInput)
         focusedElement->dispatchEvent(Event::create(eventNames().keydownEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes));
 
-    ASSERT(!frame.editor().hasComposition());
-    frame.editor().insertDictatedText(text, dictationAlternativeLocations, nullptr /* triggeringEvent */);
+    ASSERT(!frame->editor().hasComposition());
+    frame->editor().insertDictatedText(text, dictationAlternativeLocations, nullptr /* triggeringEvent */);
 
     if (focusedElement && options.shouldSimulateKeyboardInput) {
         focusedElement->dispatchEvent(Event::create(eventNames().keyupEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes));
@@ -257,8 +257,7 @@ WebPaymentCoordinator* WebPage::paymentCoordinator()
 {
     if (!m_page)
         return nullptr;
-    auto& client = m_page->paymentCoordinator().client();
-    return is<WebPaymentCoordinator>(client) ? downcast<WebPaymentCoordinator>(&client) : nullptr;
+    return dynamicDowncast<WebPaymentCoordinator>(m_page->paymentCoordinator().client());
 }
 #endif
 
@@ -269,7 +268,7 @@ void WebPage::getContentsAsAttributedString(CompletionHandler<void(const WebCore
 
 void WebPage::setRemoteObjectRegistry(WebRemoteObjectRegistry* registry)
 {
-    m_remoteObjectRegistry = makeWeakPtr(registry);
+    m_remoteObjectRegistry = registry;
 }
 
 WebRemoteObjectRegistry* WebPage::remoteObjectRegistry()
@@ -317,7 +316,7 @@ RetainPtr<CFDataRef> WebPage::pdfSnapshotAtSize(IntRect rect, IntSize bitmapSize
 
         CGPDFContextBeginPage(pdfContext.get(), dictionary);
 
-        GraphicsContext graphicsContext { pdfContext.get() };
+        GraphicsContextCG graphicsContext { pdfContext.get() };
         graphicsContext.scale({ 1, -1 });
         graphicsContext.translate(0, -bitmapSize.height());
 
@@ -337,7 +336,11 @@ RetainPtr<CFDataRef> WebPage::pdfSnapshotAtSize(IntRect rect, IntSize bitmapSize
 void WebPage::getProcessDisplayName(CompletionHandler<void(String&&)>&& completionHandler)
 {
 #if PLATFORM(MAC)
+#if ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS)
+    WebProcess::singleton().getProcessDisplayName(WTFMove(completionHandler));
+#else
     completionHandler(adoptCF((CFStringRef)_LSCopyApplicationInformationItem(kLSDefaultSessionID, _LSGetCurrentApplicationASN(), _kLSDisplayNameKey)).get());
+#endif
 #else
     completionHandler({ });
 #endif
@@ -406,6 +409,90 @@ void WebPage::getPlatformEditorStateCommon(const Frame& frame, EditorState& resu
     }
 
     postLayoutData.baseWritingDirection = frame.editor().baseWritingDirectionForSelectionStart();
+}
+
+void WebPage::consumeNetworkExtensionSandboxExtensions(const Vector<SandboxExtension::Handle>& networkExtensionsHandles)
+{
+#if ENABLE(CONTENT_FILTERING)
+    SandboxExtension::consumePermanently(networkExtensionsHandles);
+    NetworkExtensionContentFilter::setHasConsumedSandboxExtensions(networkExtensionsHandles.size());
+#else
+    UNUSED_PARAM(networkExtensionsHandles);
+#endif
+}
+
+void WebPage::getPDFFirstPageSize(WebCore::FrameIdentifier frameID, CompletionHandler<void(WebCore::FloatSize)>&& completionHandler)
+{
+    auto* webFrame = WebProcess::singleton().webFrame(frameID);
+    if (!webFrame)
+        return completionHandler({ });
+
+    auto* coreFrame = webFrame->coreFrame();
+    if (!coreFrame)
+        return completionHandler({ });
+
+    auto* pluginView = pluginViewForFrame(coreFrame);
+    if (!pluginView)
+        return completionHandler({ });
+    
+    auto* plugin = pluginView->plugin();
+    if (!plugin)
+        return completionHandler({ });
+
+    completionHandler(FloatSize(plugin->pdfDocumentSizeForPrinting()));
+}
+
+#if ENABLE(DATA_DETECTION)
+
+void WebPage::handleClickForDataDetectionResult(const DataDetectorElementInfo& info, const IntPoint& clickLocation)
+{
+    send(Messages::WebPageProxy::HandleClickForDataDetectionResult(info, clickLocation));
+}
+
+#endif
+
+static String& replaceSelectionPasteboardName()
+{
+    static NeverDestroyed<String> string("ReplaceSelectionPasteboard");
+    return string;
+}
+
+void WebPage::replaceWithPasteboardData(const ElementContext& elementContext, const Vector<String>& types, const IPC::DataReference& data)
+{
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    auto element = elementForContext(elementContext);
+    if (!element || !element->isContentEditable())
+        return;
+
+    if (frame->document() != &element->document())
+        return;
+
+    auto replacementRange = makeRangeSelectingNode(*element);
+    if (!replacementRange)
+        return;
+
+    frame->selection().setSelection(VisibleSelection { *replacementRange });
+    replaceSelectionWithPasteboardData(types, data);
+}
+
+void WebPage::replaceSelectionWithPasteboardData(const Vector<String>& types, const IPC::DataReference& data)
+{
+    for (auto& type : types)
+        WebPasteboardOverrides::sharedPasteboardOverrides().addOverride(replaceSelectionPasteboardName(), type, { data });
+
+    readSelectionFromPasteboard(replaceSelectionPasteboardName(), [](bool) { });
+
+    for (auto& type : types)
+        WebPasteboardOverrides::sharedPasteboardOverrides().removeOverride(replaceSelectionPasteboardName(), type);
+}
+
+void WebPage::readSelectionFromPasteboard(const String& pasteboardName, CompletionHandler<void(bool&&)>&& completionHandler)
+{
+    auto& frame = m_page->focusController().focusedOrMainFrame();
+    if (frame.selection().isNone())
+        return completionHandler(false);
+    frame.editor().readSelectionFromPasteboard(pasteboardName);
+    completionHandler(true);
 }
 
 } // namespace WebKit

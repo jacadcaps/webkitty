@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WKDatePickerViewController.h"
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
 #import <WebCore/LocalizedStrings.h>
 #import <wtf/RetainPtr.h>
@@ -306,8 +306,6 @@ struct EraAndYear {
     _statusBarAssertion = [[PUICApplication sharedPUICApplication] _takeStatusBarGlobalContextAssertionAnimated:NO];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_handleStatusBarNavigation) name:PUICStatusBarNavigationBackButtonPressedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_handleStatusBarNavigation) name:PUICStatusBarTitleTappedNotification object:nil];
-
-    configureStatusBarForController(self, self.delegate);
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -512,13 +510,13 @@ struct EraAndYear {
 
 - (NSDateComponents *)_dateComponentForDay:(NSInteger)day month:(NSInteger)month year:(NSInteger)year era:(NSInteger)era
 {
-    NSDateComponents *dateComponents = [[[NSDateComponents alloc] init] autorelease];
-    dateComponents.day = day;
-    dateComponents.month = month;
-    dateComponents.year = year;
-    dateComponents.era = era;
-    dateComponents.calendar = _calendar.get();
-    return dateComponents;
+    auto dateComponents = adoptNS([[NSDateComponents alloc] init]);
+    [dateComponents setDay:day];
+    [dateComponents setMonth:month];
+    [dateComponents setYear:year];
+    [dateComponents setEra:era];
+    [dateComponents setCalendar:_calendar.get()];
+    return dateComponents.autorelease();
 }
 
 - (void)_adjustDateToValidDateIfNecessary
@@ -689,4 +687,4 @@ struct EraAndYear {
 @end
 
 
-#endif
+#endif // HAVE(PEPPER_UI_CORE)

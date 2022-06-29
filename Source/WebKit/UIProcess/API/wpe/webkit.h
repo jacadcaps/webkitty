@@ -53,6 +53,8 @@
 #include <wpe/WebKitInputMethodContext.h>
 #include <wpe/WebKitInstallMissingMediaPluginsPermissionRequest.h>
 #include <wpe/WebKitJavascriptResult.h>
+#include <wpe/WebKitMediaKeySystemPermissionRequest.h>
+#include <wpe/WebKitMemoryPressureSettings.h>
 #include <wpe/WebKitMimeInfo.h>
 #include <wpe/WebKitNavigationAction.h>
 #include <wpe/WebKitNavigationPolicyDecision.h>
@@ -71,6 +73,7 @@
 #include <wpe/WebKitURIRequest.h>
 #include <wpe/WebKitURIResponse.h>
 #include <wpe/WebKitURISchemeRequest.h>
+#include <wpe/WebKitURISchemeResponse.h>
 #include <wpe/WebKitURIUtilities.h>
 #include <wpe/WebKitUserContent.h>
 #include <wpe/WebKitUserContentFilterStore.h>

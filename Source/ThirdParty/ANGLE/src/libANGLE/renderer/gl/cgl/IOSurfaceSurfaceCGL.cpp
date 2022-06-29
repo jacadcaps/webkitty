@@ -18,6 +18,7 @@
 #    include <OpenGL/OpenGL.h>
 
 #    include "common/debug.h"
+#    include "common/gl/cgl/FunctionsCGL.h"
 #    include "libANGLE/AttributeMap.h"
 #    include "libANGLE/renderer/gl/BlitGL.h"
 #    include "libANGLE/renderer/gl/FramebufferGL.h"
@@ -48,8 +49,10 @@ struct IOSurfaceFormatInfo
 // clang-format off
 static const IOSurfaceFormatInfo kIOSurfaceFormats[] = {
     {GL_RED,      GL_UNSIGNED_BYTE,                1, GL_RED,  GL_RED,  GL_UNSIGNED_BYTE              },
+    {GL_RED,      GL_UNSIGNED_SHORT,               2, GL_RED,  GL_RED,  GL_UNSIGNED_SHORT             },
     {GL_R16UI,    GL_UNSIGNED_SHORT,               2, GL_RED,  GL_RED,  GL_UNSIGNED_SHORT             },
     {GL_RG,       GL_UNSIGNED_BYTE,                2, GL_RG,   GL_RG,   GL_UNSIGNED_BYTE              },
+    {GL_RG,       GL_UNSIGNED_SHORT,               4, GL_RG,   GL_RG,   GL_UNSIGNED_SHORT             },
     {GL_RGB,      GL_UNSIGNED_BYTE,                4, GL_RGBA, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV   },
     {GL_BGRA_EXT, GL_UNSIGNED_BYTE,                4, GL_RGBA, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV   },
     {GL_RGB10_A2, GL_UNSIGNED_INT_2_10_10_10_REV,  4, GL_RGBA, GL_BGRA, GL_UNSIGNED_INT_2_10_10_10_REV},
@@ -247,12 +250,10 @@ bool IOSurfaceSurfaceCGL::validateAttributes(EGLClientBuffer buffer,
         return false;
     }
 
-    // Check that the format matches this IOSurface plane
-    if (IOSurfaceGetBytesPerElementOfPlane(ioSurface, plane) !=
-        kIOSurfaceFormats[formatIndex].componentBytes)
-    {
-        return false;
-    }
+    // FIXME: Check that the format matches this IOSurface plane for pixel formats that we know of.
+    // We could map IOSurfaceGetPixelFormat to expected type plane and format type.
+    // However, the caller might supply us non-public pixel format, which makes exhaustive checks
+    // problematic.
 
     return true;
 }

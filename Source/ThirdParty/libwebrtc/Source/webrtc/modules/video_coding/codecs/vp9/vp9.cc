@@ -12,14 +12,24 @@
 
 #include <memory>
 
+#include "api/transport/field_trial_based_config.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "modules/video_coding/codecs/vp9/vp9_impl.h"
+#include "api/video_codecs/vp9_profile.h"
+#include "modules/video_coding/codecs/vp9/libvpx_vp9_decoder.h"
+#include "modules/video_coding/codecs/vp9/libvpx_vp9_encoder.h"
 #include "rtc_base/checks.h"
 #include "vpx/vp8cx.h"
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_codec.h"
 
 namespace webrtc {
+namespace {
+constexpr absl::string_view kSupportedScalabilityModes[] = {
+    "L1T2",     "L1T3",     "L2T1",    "L2T2",  "L2T3",     "L3T1",
+    "L3T2",     "L3T3",     "L1T2h",   "L1T3h", "L2T1h",    "L2T2h",
+    "L2T3h",    "L3T1h",    "L3T2h",   "L3T3h", "L2T2_KEY", "L2T3_KEY",
+    "L3T1_KEY", "L3T2_KEY", "L3T3_KEY"};
+}  // namespace
 
 std::vector<SdpVideoFormat> SupportedVP9Codecs() {
 #ifdef RTC_ENABLE_VP9
@@ -39,6 +49,22 @@ std::vector<SdpVideoFormat> SupportedVP9Codecs() {
         cricket::kVp9CodecName,
         {{kVP9FmtpProfileId, VP9ProfileToString(VP9Profile::kProfile2)}}));
   }
+
+  return supported_formats;
+#else
+  return std::vector<SdpVideoFormat>();
+#endif
+}
+
+std::vector<SdpVideoFormat> SupportedVP9DecoderCodecs() {
+#ifdef RTC_ENABLE_VP9
+  std::vector<SdpVideoFormat> supported_formats = SupportedVP9Codecs();
+  // The WebRTC internal decoder supports VP9 profile 1. However, there's
+  // currently no way of sending VP9 profile 1 using the internal encoder.
+  // It would require extended support for I444, I422, and I440 buffers.
+  supported_formats.push_back(SdpVideoFormat(
+      cricket::kVp9CodecName,
+      {{kVP9FmtpProfileId, VP9ProfileToString(VP9Profile::kProfile1)}}));
   return supported_formats;
 #else
   return std::vector<SdpVideoFormat>();
@@ -47,7 +73,9 @@ std::vector<SdpVideoFormat> SupportedVP9Codecs() {
 
 std::unique_ptr<VP9Encoder> VP9Encoder::Create() {
 #ifdef RTC_ENABLE_VP9
-  return std::make_unique<VP9EncoderImpl>(cricket::VideoCodec());
+  return std::make_unique<LibvpxVp9Encoder>(cricket::VideoCodec(),
+                                            LibvpxInterface::Create(),
+                                            FieldTrialBasedConfig());
 #else
   RTC_NOTREACHED();
   return nullptr;
@@ -57,16 +85,26 @@ std::unique_ptr<VP9Encoder> VP9Encoder::Create() {
 std::unique_ptr<VP9Encoder> VP9Encoder::Create(
     const cricket::VideoCodec& codec) {
 #ifdef RTC_ENABLE_VP9
-  return std::make_unique<VP9EncoderImpl>(codec);
+  return std::make_unique<LibvpxVp9Encoder>(codec, LibvpxInterface::Create(),
+                                            FieldTrialBasedConfig());
 #else
   RTC_NOTREACHED();
   return nullptr;
 #endif
 }
 
+bool VP9Encoder::SupportsScalabilityMode(absl::string_view scalability_mode) {
+  for (const auto& entry : kSupportedScalabilityModes) {
+    if (entry == scalability_mode) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::unique_ptr<VP9Decoder> VP9Decoder::Create() {
 #ifdef RTC_ENABLE_VP9
-  return std::make_unique<VP9DecoderImpl>();
+  return std::make_unique<LibvpxVp9Decoder>();
 #else
   RTC_NOTREACHED();
   return nullptr;

@@ -31,7 +31,6 @@ import datetime
 import logging
 
 from webkitpy.common.net.bugzilla.bug import Bug
-from webkitpy.common.net.bugzilla.attachment import Attachment
 from webkitpy.common.config.committers import CommitterList, Reviewer
 
 _log = logging.getLogger(__name__)
@@ -473,7 +472,7 @@ class MockBugzilla(object):
     def reopen_bug(self, bug_id, message):
         _log.info("MOCK reopen_bug %s with comment '%s'" % (bug_id, message))
 
-    def close_bug_as_fixed(self, bug_id, message):
+    def close_bug_as_fixed(self, bug_id, comment_text=None):
         pass
 
     def clear_attachment_flags(self, attachment_id, message):

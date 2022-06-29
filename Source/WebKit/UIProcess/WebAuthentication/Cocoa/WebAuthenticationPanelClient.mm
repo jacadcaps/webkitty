@@ -33,7 +33,7 @@
 #import "CompletionHandlerCallChecker.h"
 #import "WKNSArray.h"
 #import "_WKWebAuthenticationAssertionResponseInternal.h"
-#import "_WKWebAuthenticationPanel.h"
+#import <WebKit/_WKWebAuthenticationPanel.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RunLoop.h>
 
@@ -50,6 +50,7 @@ WebAuthenticationPanelClient::WebAuthenticationPanelClient(_WKWebAuthenticationP
     m_delegateMethods.panelRequestPinWithRemainingRetriesCompletionHandler = [delegate respondsToSelector:@selector(panel:requestPINWithRemainingRetries:completionHandler:)];
     m_delegateMethods.panelSelectAssertionResponseSourceCompletionHandler = [delegate respondsToSelector:@selector(panel:selectAssertionResponse:source:completionHandler:)];
     m_delegateMethods.panelDecidePolicyForLocalAuthenticatorCompletionHandler = [delegate respondsToSelector:@selector(panel:decidePolicyForLocalAuthenticatorWithCompletionHandler:)];
+    m_delegateMethods.panelRequestLAContextForUserVerificationCompletionHandler = [delegate respondsToSelector:@selector(panel:requestLAContextForUserVerificationWithCompletionHandler:)];
 }
 
 RetainPtr<id <_WKWebAuthenticationPanelDelegate> > WebAuthenticationPanelClient::delegate()
@@ -164,11 +165,9 @@ void WebAuthenticationPanelClient::selectAssertionResponse(Vector<Ref<WebCore::A
         return;
     }
 
-    Vector<RefPtr<API::Object>> apiResponses;
-    apiResponses.reserveInitialCapacity(responses.size());
-    for (auto& response : responses)
-        apiResponses.uncheckedAppend(API::WebAuthenticationAssertionResponse::create(response.copyRef()));
-
+    auto apiResponses = responses.map([](auto& response) -> RefPtr<API::Object> {
+        return API::WebAuthenticationAssertionResponse::create(response.copyRef());
+    });
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:selectAssertionResponse:source:completionHandler:));
     [delegate panel:m_panel selectAssertionResponse:wrapper(API::Array::create(WTFMove(apiResponses))) source:wkWebAuthenticationSource(source) completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](_WKWebAuthenticationAssertionResponse *response) mutable {
         if (checker->completionHandlerHasBeenCalled())
@@ -214,6 +213,28 @@ void WebAuthenticationPanelClient::decidePolicyForLocalAuthenticator(CompletionH
             return;
         checker->didCallCompletionHandler();
         completionHandler(localAuthenticatorPolicy(policy));
+    }).get()];
+}
+
+void WebAuthenticationPanelClient::requestLAContextForUserVerification(CompletionHandler<void(LAContext *)>&& completionHandler) const
+{
+    if (!m_delegateMethods.panelRequestLAContextForUserVerificationCompletionHandler) {
+        completionHandler(nullptr);
+        return;
+    }
+
+    auto delegate = m_delegate.get();
+    if (!delegate) {
+        completionHandler(nullptr);
+        return;
+    }
+
+    auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:requestLAContextForUserVerificationWithCompletionHandler:));
+    [delegate panel:m_panel requestLAContextForUserVerificationWithCompletionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](LAContext *context) mutable {
+        if (checker->completionHandlerHasBeenCalled())
+            return;
+        checker->didCallCompletionHandler();
+        completionHandler(context);
     }).get()];
 }
 

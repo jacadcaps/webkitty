@@ -29,19 +29,18 @@ namespace WebCore {
 
 enum class RenderingPurpose : uint8_t {
     Unspecified,
-    Canvas
+    Canvas,
+    DOM,
+    MediaPainting
 };
 
-enum class ShouldAccelerate : bool { No, Yes };
 enum class ShouldUseDisplayList : bool { No, Yes };
+enum class RenderingMode : bool { Unaccelerated, Accelerated };
 
-enum class RenderingMode : uint8_t {
-    Accelerated,
-    Unaccelerated,
-    DisplayListAccelerated,
-    DisplayListUnaccelerated,
-    RemoteAccelerated,
-    RemoteUnaccelerated
+enum class RenderingMethod : uint8_t {
+    Default,
+    Local,
+    DisplayList
 };
 
 } // namespace WebCore

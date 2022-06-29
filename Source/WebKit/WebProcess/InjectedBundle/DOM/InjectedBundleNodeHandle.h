@@ -30,7 +30,6 @@
 #include <JavaScriptCore/JSBase.h>
 #include <WebCore/ActiveDOMObject.h>
 #include <wtf/Forward.h>
-#include <wtf/Optional.h>
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
@@ -63,14 +62,16 @@ public:
     // Note: These should only be operations that are not exposed to JavaScript.
     WebCore::IntRect elementBounds();
     WebCore::IntRect renderRect(bool*);
-    RefPtr<WebImage> renderedImage(SnapshotOptions, bool shouldExcludeOverflow, const Optional<float>& bitmapWidth = WTF::nullopt);
+    RefPtr<WebImage> renderedImage(SnapshotOptions, bool shouldExcludeOverflow, const std::optional<float>& bitmapWidth = std::nullopt);
     RefPtr<InjectedBundleRangeHandle> visibleRange();
     void setHTMLInputElementValueForUser(const String&);
     void setHTMLInputElementSpellcheckEnabled(bool);
     bool isHTMLInputElementAutoFilled() const;
     bool isHTMLInputElementAutoFilledAndViewable() const;
+    bool isHTMLInputElementAutoFilledAndObscured() const;
     void setHTMLInputElementAutoFilled(bool);
     void setHTMLInputElementAutoFilledAndViewable(bool);
+    void setHTMLInputElementAutoFilledAndObscured(bool);
     bool isHTMLInputElementAutoFillButtonEnabled() const;
     void setHTMLInputElementAutoFillButtonEnabled(WebCore::AutoFillButtonType);
     WebCore::AutoFillButtonType htmlInputElementAutoFillButtonType() const;
@@ -82,6 +83,7 @@ public:
     bool htmlTextAreaElementLastChangeWasUserEdit();
     bool isTextField() const;
     bool isSelectElement() const;
+    bool isSelectableTextNode() const;
     
     RefPtr<InjectedBundleNodeHandle> htmlTableCellElementCellAbove();
 

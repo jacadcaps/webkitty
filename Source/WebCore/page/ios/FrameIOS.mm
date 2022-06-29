@@ -57,6 +57,7 @@
 #import "Range.h"
 #import "RenderLayer.h"
 #import "RenderLayerCompositor.h"
+#import "RenderLayerScrollableArea.h"
 #import "RenderTextControl.h"
 #import "RenderView.h"
 #import "RenderedDocumentMarker.h"
@@ -183,7 +184,7 @@ CGRect Frame::renderRectForPoint(CGPoint point, bool* isReplaced, float* fontSiz
     if (!layer)
         return CGRectZero;
 
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     auto result = eventHandler().hitTestResultAtPoint(IntPoint(roundf(point.x), roundf(point.y)), hitType);
 
     Node* node = result.innerNode();
@@ -203,8 +204,8 @@ CGRect Frame::renderRectForPoint(CGPoint point, bool* isReplaced, float* fontSiz
             printf("%s %f %f %f %f\n", nodeName, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
         }
 #endif
-        if (renderer->isRenderBlock() || renderer->isInlineBlockOrInlineTable() || renderer->isReplaced()) {
-            *isReplaced = renderer->isReplaced();
+        if (renderer->isRenderBlock() || renderer->isInlineBlockOrInlineTable() || renderer->isReplacedOrInlineBlock()) {
+            *isReplaced = renderer->isReplacedOrInlineBlock();
 #if CHECK_FONT_SIZE
             for (RenderObject* textRenderer = hitRenderer; textRenderer; textRenderer = textRenderer->traverseNext(hitRenderer)) {
                 if (textRenderer->isText()) {
@@ -228,7 +229,7 @@ CGRect Frame::renderRectForPoint(CGPoint point, bool* isReplaced, float* fontSiz
 void Frame::betterApproximateNode(const IntPoint& testPoint, const NodeQualifier& nodeQualifierFunction, Node*& best, Node* failedNode, IntPoint& bestPoint, IntRect& bestRect, const IntRect& testRect)
 {
     IntRect candidateRect;
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowVisibleChildFrameContentOnly };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowVisibleChildFrameContentOnly };
     auto* candidate = nodeQualifierFunction(eventHandler().hitTestResultAtPoint(testPoint, hitType), failedNode, &candidateRect);
 
     // Bail if we have no candidate, or the candidate is already equal to our current best node,
@@ -264,7 +265,7 @@ bool Frame::hitTestResultAtViewportLocation(const FloatPoint& viewportLocation, 
         return false;
 
     center = view->windowToContents(roundedIntPoint(viewportLocation));
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowVisibleChildFrameContentOnly };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowVisibleChildFrameContentOnly };
     hitTestResult = eventHandler().hitTestResultAtPoint(center, hitType);
     return true;
 }
@@ -311,7 +312,7 @@ Node* Frame::qualifyingNodeAtViewportLocation(const FloatPoint& viewportLocation
             IntSize testOffset(testOffsets[n] * searchRadius, testOffsets[n + 1] * searchRadius);
             IntPoint testPoint = testCenter + testOffset;
 
-            constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
+            constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
             auto candidateInfo = eventHandler().hitTestResultAtPoint(testPoint, hitType);
             Node* candidateNode = nodeQualifierFunction(candidateInfo, 0, 0);
             if (candidateNode && candidateNode->isDescendantOf(originalApproximateNode)) {
@@ -396,7 +397,7 @@ static bool nodeIsMouseFocusable(Node& node)
     if (element.isMouseFocusable())
         return true;
 
-    if (auto shadowRoot = makeRefPtr(element.shadowRoot())) {
+    if (RefPtr shadowRoot = element.shadowRoot()) {
         if (shadowRoot->delegatesFocus()) {
             for (auto& node : composedTreeDescendants(element)) {
                 if (is<Element>(node) && downcast<Element>(node).isMouseFocusable())
@@ -559,7 +560,7 @@ Node* Frame::nodeRespondingToScrollWheelEvents(const FloatPoint& viewportLocatio
 
             auto& style = renderer->style();
 
-            if (renderer->hasOverflowClip()
+            if (renderer->hasNonVisibleOverflow()
                 && (style.overflowY() == Overflow::Auto || style.overflowY() == Overflow::Scroll
                 || style.overflowX() == Overflow::Auto || style.overflowX() == Overflow::Scroll)) {
                 scrollingAncestor = node;
@@ -626,14 +627,6 @@ NSRect Frame::rectForScrollToVisible()
     return unionRect(selection.visibleStart().absoluteCaretBounds(), selection.visibleEnd().absoluteCaretBounds());
 }
 
-unsigned Frame::formElementsCharacterCount() const
-{
-    Document* document = this->document();
-    if (!document)
-        return 0;
-    return document->formController().formElementsCharacterCount();
-}
-
 void Frame::setTimersPaused(bool paused)
 {
     if (!m_page)
@@ -651,8 +644,9 @@ void Frame::dispatchPageHideEventBeforePause()
     if (!isMainFrame())
         return;
 
-    for (Frame* frame = this; frame; frame = frame->tree().traverseNext(this))
-        frame->document()->domWindow()->dispatchEvent(PageTransitionEvent::create(eventNames().pagehideEvent, true), document());
+    Page::forEachDocumentFromMainFrame(*this, [pagehideEvent = eventNames().pagehideEvent, mainDocument = document()](Document& document) {
+        document.domWindow()->dispatchEvent(PageTransitionEvent::create(pagehideEvent, true), mainDocument);
+    });
 }
 
 void Frame::dispatchPageShowEventBeforeResume()
@@ -661,8 +655,9 @@ void Frame::dispatchPageShowEventBeforeResume()
     if (!isMainFrame())
         return;
 
-    for (Frame* frame = this; frame; frame = frame->tree().traverseNext(this))
-        frame->document()->domWindow()->dispatchEvent(PageTransitionEvent::create(eventNames().pageshowEvent, true), document());
+    Page::forEachDocumentFromMainFrame(*this, [pageshowEvent = eventNames().pageshowEvent, mainDocument = document()](Document& document) {
+        document.domWindow()->dispatchEvent(PageTransitionEvent::create(pageshowEvent, true), mainDocument);
+    });
 }
 
 void Frame::setRangedSelectionBaseToCurrentSelection()
@@ -722,7 +717,7 @@ NSArray *Frame::interpretationsForCurrentRoot() const
     if (!document())
         return nil;
 
-    auto* root = selection().selection().selectionType() == VisibleSelection::NoSelection ? document()->bodyOrFrameset() : selection().selection().rootEditableElement();
+    auto* root = selection().isNone() ? document()->bodyOrFrameset() : selection().selection().rootEditableElement();
     auto rangeOfRootContents = makeRangeSelectingNodeContents(*root);
 
     auto markersInRoot = document()->markers().markersInRange(rangeOfRootContents, DocumentMarker::DictationPhraseWithAlternatives);
@@ -735,18 +730,18 @@ NSArray *Frame::interpretationsForCurrentRoot() const
     size_t interpretationsCount = 1;
 
     for (auto* marker : markersInRoot)
-        interpretationsCount *= WTF::get<Vector<String>>(marker->data()).size() + 1;
+        interpretationsCount *= std::get<Vector<String>>(marker->data()).size() + 1;
 
     Vector<Vector<UChar>> interpretations;
     interpretations.grow(interpretationsCount);
 
-    Position precedingTextStartPosition = createLegacyEditingPosition(root, 0);
+    Position precedingTextStartPosition = makeDeprecatedLegacyPosition(root, 0);
 
     unsigned combinationsSoFar = 1;
 
     for (auto& node : intersectingNodes(rangeOfRootContents)) {
         for (auto* marker : document()->markers().markersFor(node, DocumentMarker::DictationPhraseWithAlternatives)) {
-            auto& alternatives = WTF::get<Vector<String>>(marker->data());
+            auto& alternatives = std::get<Vector<String>>(marker->data());
 
             auto rangeForMarker = makeSimpleRange(node, *marker);
 
@@ -770,7 +765,7 @@ NSArray *Frame::interpretationsForCurrentRoot() const
 
             combinationsSoFar *= interpretationsCountForCurrentMarker;
 
-            precedingTextStartPosition = createLegacyEditingPosition(rangeForMarker.end);
+            precedingTextStartPosition = makeDeprecatedLegacyPosition(rangeForMarker.end);
         }
     }
 
@@ -819,14 +814,17 @@ void Frame::overflowScrollPositionChangedForNode(const IntPoint& position, Node*
     if (!renderer || !renderer->hasLayer())
         return;
 
-    RenderLayer& layer = *downcast<RenderBoxModelObject>(*renderer).layer();
+    auto* layer = downcast<RenderBoxModelObject>(*renderer).layer();
+    if (!layer)
+        return;
+    auto* scrollableArea = layer->ensureLayerScrollableArea();
 
-    auto oldScrollType = layer.currentScrollType();
-    layer.setCurrentScrollType(isUserScroll ? ScrollType::User : ScrollType::Programmatic);
-    layer.scrollToOffsetWithoutAnimation(position);
-    layer.setCurrentScrollType(oldScrollType);
+    auto oldScrollType = scrollableArea->currentScrollType();
+    scrollableArea->setCurrentScrollType(isUserScroll ? ScrollType::User : ScrollType::Programmatic);
+    scrollableArea->scrollToOffsetWithoutAnimation(position);
+    scrollableArea->setCurrentScrollType(oldScrollType);
 
-    layer.didEndScroll(); // FIXME: Should we always call this?
+    scrollableArea->didEndScroll(); // FIXME: Should we always call this?
 }
 
 void Frame::resetAllGeolocationPermission()

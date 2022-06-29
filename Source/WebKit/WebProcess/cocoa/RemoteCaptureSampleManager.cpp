@@ -26,23 +26,35 @@
 #include "config.h"
 #include "RemoteCaptureSampleManager.h"
 
+#include "Logging.h"
 #include "RemoteCaptureSampleManagerMessages.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
+#include "RemoteVideoFrameProxy.h"
 #include "SharedRingBufferStorage.h"
+#include "WebProcess.h"
+#include <WebCore/ImageTransferSessionVT.h>
+#include <WebCore/RemoteVideoSample.h>
 #include <WebCore/WebAudioBufferList.h>
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 
 namespace WebKit {
-using namespace PAL;
 using namespace WebCore;
 
 RemoteCaptureSampleManager::RemoteCaptureSampleManager()
-    : m_queue(WorkQueue::create("RemoteCaptureSampleManager", WorkQueue::Type::Serial, WorkQueue::QOS::UserInteractive))
+    : m_queue(WorkQueue::create("RemoteCaptureSampleManager", WorkQueue::QOS::UserInteractive))
 {
 }
 
 RemoteCaptureSampleManager::~RemoteCaptureSampleManager()
 {
+    ASSERT(!m_connection);
+}
+
+void RemoteCaptureSampleManager::stopListeningForIPC()
+{
+    if (m_isRegisteredToParentProcessConnection)
+        WebProcess::singleton().parentProcessConnection()->removeThreadMessageReceiver(Messages::RemoteCaptureSampleManager::messageReceiverName());
     setConnection(nullptr);
 }
 
@@ -51,6 +63,14 @@ void RemoteCaptureSampleManager::setConnection(IPC::Connection* connection)
     if (m_connection == connection)
         return;
 
+    auto* parentConnection = WebProcess::singleton().parentProcessConnection();
+    if (connection == parentConnection) {
+        if (!m_isRegisteredToParentProcessConnection) {
+            m_isRegisteredToParentProcessConnection = true;
+            parentConnection->addThreadMessageReceiver(Messages::RemoteCaptureSampleManager::messageReceiverName(), this);
+        }
+        return;
+    }
     if (m_connection)
         m_connection->removeThreadMessageReceiver(Messages::RemoteCaptureSampleManager::messageReceiverName());
 
@@ -60,26 +80,65 @@ void RemoteCaptureSampleManager::setConnection(IPC::Connection* connection)
         m_connection->addThreadMessageReceiver(Messages::RemoteCaptureSampleManager::messageReceiverName(), this);
 }
 
-void RemoteCaptureSampleManager::addSource(Ref<RemoteRealtimeMediaSource>&& source)
+void RemoteCaptureSampleManager::addSource(Ref<RemoteRealtimeAudioSource>&& source)
 {
     ASSERT(WTF::isMainRunLoop());
     setConnection(source->connection());
 
-    dispatchToThread([this, source = WTFMove(source)]() mutable {
+    m_queue->dispatch([this, protectedThis = Ref { *this }, source = WTFMove(source)]() mutable {
         auto identifier = source->identifier();
 
-        ASSERT(!m_sources.contains(identifier));
-        m_sources.add(identifier, makeUnique<RemoteAudio>(WTFMove(source)));
+        ASSERT(!m_audioSources.contains(identifier));
+        m_audioSources.add(identifier, makeUnique<RemoteAudio>(WTFMove(source)));
+    });
+}
+
+void RemoteCaptureSampleManager::addSource(Ref<RemoteRealtimeVideoSource>&& source)
+{
+    ASSERT(WTF::isMainRunLoop());
+    setConnection(source->connection());
+
+    m_queue->dispatch([this, protectedThis = Ref { *this }, source = WTFMove(source)]() mutable {
+        auto identifier = source->identifier();
+
+        ASSERT(!m_videoSources.contains(identifier));
+        m_videoSources.add(identifier, makeUnique<RemoteVideo>(WTFMove(source)));
+    });
+}
+
+void RemoteCaptureSampleManager::addSource(Ref<RemoteRealtimeDisplaySource>&& source)
+{
+    ASSERT(WTF::isMainRunLoop());
+    setConnection(source->connection());
+
+    m_queue->dispatch([this, protectedThis = Ref { *this }, source = WTFMove(source)]() mutable {
+        auto identifier = source->identifier();
+
+        ASSERT(!m_videoSources.contains(identifier));
+        m_videoSources.add(identifier, makeUnique<RemoteVideo>(WTFMove(source)));
     });
 }
 
 void RemoteCaptureSampleManager::removeSource(WebCore::RealtimeMediaSourceIdentifier identifier)
 {
     ASSERT(WTF::isMainRunLoop());
-    dispatchToThread([this, identifier] {
-        ASSERT(m_sources.contains(identifier));
-        m_sources.remove(identifier);
+    m_queue->dispatch([this, protectedThis = Ref { *this }, identifier] {
+        ASSERT(m_audioSources.contains(identifier) || m_videoSources.contains(identifier));
+        if (!m_audioSources.remove(identifier))
+            m_videoSources.remove(identifier);
     });
+}
+
+void RemoteCaptureSampleManager::didUpdateSourceConnection(IPC::Connection* connection)
+{
+    ASSERT(WTF::isMainRunLoop());
+    setConnection(connection);
+}
+
+void RemoteCaptureSampleManager::setVideoFrameObjectHeapProxy(RemoteVideoFrameObjectHeapProxy* proxy)
+{
+    Locker lock(m_videoFrameObjectHeapProxyLock);
+    m_videoFrameObjectHeapProxy = proxy;
 }
 
 void RemoteCaptureSampleManager::dispatchToThread(Function<void()>&& callback)
@@ -87,71 +146,138 @@ void RemoteCaptureSampleManager::dispatchToThread(Function<void()>&& callback)
     m_queue->dispatch(WTFMove(callback));
 }
 
-void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier identifier, const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
+void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier identifier, const SharedMemory::IPCHandle& ipcHandle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames, IPC::Semaphore&& semaphore, const MediaTime& mediaTime, size_t frameChunkSize)
 {
     ASSERT(!WTF::isMainRunLoop());
 
-    auto iterator = m_sources.find(identifier);
-    if (iterator == m_sources.end()) {
+    auto iterator = m_audioSources.find(identifier);
+    if (iterator == m_audioSources.end()) {
         RELEASE_LOG_ERROR(WebRTC, "Unable to find source %llu for storageChanged", identifier.toUInt64());
         return;
     }
-    iterator->value->setStorage(handle, description, numberOfFrames);
+    iterator->value->setStorage(ipcHandle.handle, description, numberOfFrames, WTFMove(semaphore), mediaTime, frameChunkSize);
 }
 
-void RemoteCaptureSampleManager::audioSamplesAvailable(WebCore::RealtimeMediaSourceIdentifier identifier, MediaTime time, uint64_t numberOfFrames, uint64_t startFrame, uint64_t endFrame)
+void RemoteCaptureSampleManager::videoSampleAvailable(RealtimeMediaSourceIdentifier identifier, RemoteVideoSample&& sample, std::optional<RemoteVideoFrameIdentifier> remoteIdentifier, VideoSampleMetadata metadata)
 {
     ASSERT(!WTF::isMainRunLoop());
 
-    auto iterator = m_sources.find(identifier);
-    if (iterator == m_sources.end()) {
-        RELEASE_LOG_ERROR(WebRTC, "Unable to find source %llu for audioSamplesAvailable", identifier.toUInt64());
+    RefPtr<MediaSample> videoFrame;
+    // We always create RemoteVideoFrameProxy so that we can release the corresponding GPUProcess IOSurface right away if there is no video source.
+    if (remoteIdentifier) {
+        RemoteVideoFrameProxy::Properties properties { { *remoteIdentifier, 0 }, sample.time(), sample.mirrored(), sample.rotation(), sample.size(), sample.videoFormat() };
+        // FIXME: We need to either get GPUProcess or UIProcess object heap proxy. For now we always go to GPUProcess.
+        Locker lock(m_videoFrameObjectHeapProxyLock);
+        videoFrame = RemoteVideoFrameProxy::create(*m_connection, *m_videoFrameObjectHeapProxy, WTFMove(properties));
+    }
+
+    auto iterator = m_videoSources.find(identifier);
+    if (iterator == m_videoSources.end()) {
+        RELEASE_LOG_ERROR(WebRTC, "Unable to find source %llu for remoteVideoSampleAvailable", identifier.toUInt64());
         return;
     }
-    iterator->value->audioSamplesAvailable(time, numberOfFrames, startFrame, endFrame);
+    if (videoFrame) {
+        iterator->value->videoFrameAvailable(videoFrame.releaseNonNull(), sample.size(), metadata);
+        return;
+    }
+    iterator->value->videoSampleAvailable(WTFMove(sample), metadata);
 }
 
-RemoteCaptureSampleManager::RemoteAudio::RemoteAudio(Ref<RemoteRealtimeMediaSource>&& source)
+RemoteCaptureSampleManager::RemoteAudio::RemoteAudio(Ref<RemoteRealtimeAudioSource>&& source)
     : m_source(WTFMove(source))
-    , m_ringBuffer(makeUnique<CARingBuffer>(makeUniqueRef<SharedRingBufferStorage>(nullptr)))
 {
 }
 
-void RemoteCaptureSampleManager::RemoteAudio::setStorage(const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
+RemoteCaptureSampleManager::RemoteAudio::~RemoteAudio()
 {
+    stopThread();
+}
+
+void RemoteCaptureSampleManager::RemoteAudio::stopThread()
+{
+    if (!m_thread)
+        return;
+
+    m_shouldStopThread = true;
+    m_semaphore.signal();
+    m_thread->waitForCompletion();
+    m_thread = nullptr;
+}
+
+void RemoteCaptureSampleManager::RemoteAudio::startThread()
+{
+    ASSERT(!m_thread);
+    m_shouldStopThread = false;
+    auto threadLoop = [this]() mutable {
+        m_readOffset = 0;
+        do {
+            // If wait fails, the semaphore on the other side was probably destroyed and we should just exit here and wait to launch a new thread.
+            if (!m_semaphore.wait())
+                break;
+            if (m_shouldStopThread)
+                break;
+
+            auto currentTime = m_startTime + MediaTime { m_readOffset, static_cast<uint32_t>(m_description.sampleRate()) };
+            m_ringBuffer->fetch(m_buffer->list(), m_frameChunkSize, m_readOffset);
+            m_readOffset += m_frameChunkSize;
+
+            m_source->remoteAudioSamplesAvailable(currentTime, *m_buffer, m_description, m_frameChunkSize);
+        } while (!m_shouldStopThread);
+    };
+    m_thread = Thread::create("RemoteCaptureSampleManager::RemoteAudio thread", WTFMove(threadLoop), ThreadType::Audio, Thread::QOS::UserInteractive);
+}
+
+void RemoteCaptureSampleManager::RemoteAudio::setStorage(const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames, IPC::Semaphore&& semaphore, const MediaTime& mediaTime, size_t frameChunkSize)
+{
+    stopThread();
+
+    if (!numberOfFrames) {
+        m_ringBuffer = nullptr;
+        m_buffer = nullptr;
+        return;
+    }
+
+    m_semaphore = WTFMove(semaphore);
     m_description = description;
+    m_startTime = mediaTime;
+    m_frameChunkSize = frameChunkSize;
 
-    RefPtr<SharedMemory> memory;
-    if (!handle.isNull()) {
-        memory = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
-        RELEASE_LOG_ERROR_IF(!memory, WebRTC, "Unable to create shared memory for audio source %llu", m_source->identifier().toUInt64());
-    }
+    m_ringBuffer = CARingBuffer::adoptStorage(makeUniqueRef<ReadOnlySharedRingBufferStorage>(handle), description, numberOfFrames).moveToUniquePtr();
+    m_buffer = makeUnique<WebAudioBufferList>(description, m_frameChunkSize);
 
-    auto& storage = static_cast<SharedRingBufferStorage&>(m_ringBuffer->storage());
-    if (!memory) {
-        m_ringBuffer->deallocate();
-        storage.setReadOnly(false);
-        storage.setStorage(nullptr);
-        return;
-    }
-
-    storage.setStorage(memory.releaseNonNull());
-    storage.setReadOnly(true);
-    m_ringBuffer->allocate(description, numberOfFrames);
-    m_buffer = makeUnique<WebAudioBufferList>(description, numberOfFrames);
+    startThread();
 }
 
-void RemoteCaptureSampleManager::RemoteAudio::audioSamplesAvailable(MediaTime time, uint64_t numberOfFrames, uint64_t startFrame, uint64_t endFrame)
+RemoteCaptureSampleManager::RemoteVideo::RemoteVideo(Source&& source)
+    : m_source(WTFMove(source))
 {
-    if (!m_buffer)
+}
+
+void RemoteCaptureSampleManager::RemoteVideo::videoSampleAvailable(RemoteVideoSample&& remoteSample, VideoSampleMetadata metadata)
+{
+    if (!m_imageTransferSession || m_imageTransferSession->pixelFormat() != remoteSample.videoFormat())
+        m_imageTransferSession = ImageTransferSessionVT::create(remoteSample.videoFormat());
+
+    if (!m_imageTransferSession) {
+        ASSERT_NOT_REACHED();
         return;
+    }
 
-    m_buffer->setSampleCount(numberOfFrames);
+    auto sampleRef = m_imageTransferSession->createMediaSample(remoteSample);
+    if (!sampleRef) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    videoFrameAvailable(sampleRef.releaseNonNull(), remoteSample.size(), metadata);
+}
 
-    m_ringBuffer->setCurrentFrameBounds(startFrame, endFrame);
-    m_ringBuffer->fetch(m_buffer->list(), numberOfFrames, time.timeValue());
-
-    m_source->remoteAudioSamplesAvailable(time, *m_buffer, m_description, numberOfFrames);
+void RemoteCaptureSampleManager::RemoteVideo::videoFrameAvailable(Ref<MediaSample>&& sample, IntSize size, VideoSampleMetadata metadata)
+{
+    switchOn(m_source, [&](Ref<RemoteRealtimeVideoSource>& source) {
+        source->videoSampleAvailable(sample.get(), size, metadata);
+    }, [&](Ref<RemoteRealtimeDisplaySource>& source) {
+        source->remoteVideoSampleAvailable(sample.get(), metadata);
+    });
 }
 
 }

@@ -31,6 +31,7 @@
 #include "NetworkCacheEntry.h"
 #include "NetworkLoadClient.h"
 #include "PolicyDecision.h"
+#include "PrivateRelayed.h"
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/SharedBuffer.h>
@@ -46,7 +47,7 @@ class SpeculativeLoad final : public NetworkLoadClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     using RevalidationCompletionHandler = CompletionHandler<void(std::unique_ptr<NetworkCache::Entry>)>;
-    SpeculativeLoad(Cache&, const GlobalFrameID&, const WebCore::ResourceRequest&, std::unique_ptr<NetworkCache::Entry>, Optional<NavigatingToAppBoundDomain>, RevalidationCompletionHandler&&);
+    SpeculativeLoad(Cache&, const GlobalFrameID&, const WebCore::ResourceRequest&, std::unique_ptr<NetworkCache::Entry>, std::optional<NavigatingToAppBoundDomain>, RevalidationCompletionHandler&&);
 
     virtual ~SpeculativeLoad();
 
@@ -60,8 +61,8 @@ private:
     bool isSynchronous() const override { return false; }
     bool isAllowedToAskUserForCredentials() const final { return false; }
     void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) override;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) override;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) override;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) override;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&, int reportedEncodedDataLength) override;
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) override;
     void didFailLoading(const WebCore::ResourceError&) override;
 
@@ -75,9 +76,10 @@ private:
 
     WebCore::ResourceResponse m_response;
 
-    RefPtr<WebCore::SharedBuffer> m_bufferedDataForCache;
+    WebCore::SharedBufferBuilder m_bufferedDataForCache;
     std::unique_ptr<NetworkCache::Entry> m_cacheEntry;
     bool m_didComplete { false };
+    PrivateRelayed m_privateRelayed { PrivateRelayed::No };
 };
 
 bool requestsHeadersMatch(const WebCore::ResourceRequest& speculativeValidationRequest, const WebCore::ResourceRequest& actualRequest);

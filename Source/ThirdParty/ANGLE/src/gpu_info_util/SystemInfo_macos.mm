@@ -15,6 +15,14 @@
 #    import <Cocoa/Cocoa.h>
 #    import <IOKit/IOKitLib.h>
 
+#    include "common/gl/cgl/FunctionsCGL.h"
+
+#    if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
+#        define HAVE_MAIN_PORT_DEFAULT 1
+#    else
+#        define HAVE_MAIN_PORT_DEFAULT 0
+#    endif
+
 namespace angle
 {
 
@@ -26,8 +34,16 @@ constexpr CGLRendererProperty kCGLRPRegistryIDHigh = static_cast<CGLRendererProp
 
 std::string GetMachineModel()
 {
-    io_service_t platformExpert = IOServiceGetMatchingService(
-        kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+#    if HAVE_MAIN_PORT_DEFAULT
+    const mach_port_t mainPort = kIOMainPortDefault;
+#    else
+#        pragma clang diagnostic push
+#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    const mach_port_t mainPort = kIOMasterPortDefault;
+#        pragma clang diagnostic pop
+#    endif
+    io_service_t platformExpert =
+        IOServiceGetMatchingService(mainPort, IOServiceMatching("IOPlatformExpertDevice"));
 
     if (platformExpert == IO_OBJECT_NULL)
     {
@@ -77,43 +93,105 @@ bool GetEntryProperty(io_registry_entry_t entry, CFStringRef name, uint32_t *val
     return true;
 }
 
-// Gathers the vendor and device IDs for the PCI GPUs
-bool GetPCIDevices(std::vector<GPUDeviceInfo> *devices)
+// Gathers the vendor and device IDs for GPUs listed in the IORegistry.
+void GetIORegistryDevices(std::vector<GPUDeviceInfo> *devices)
 {
-    // matchDictionary will be consumed by IOServiceGetMatchingServices, no need to release it.
-    CFMutableDictionaryRef matchDictionary = IOServiceMatching("IOPCIDevice");
-
-    io_iterator_t entryIterator;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, matchDictionary, &entryIterator) !=
-        kIOReturnSuccess)
+    constexpr uint32_t kNumServices         = 2;
+    const char *kServiceNames[kNumServices] = {"IOGraphicsAccelerator2", "AGXAccelerator"};
+    const bool kServiceIsGraphicsAccelerator2[kNumServices] = {true, false};
+    for (uint32_t i = 0; i < kNumServices; ++i)
     {
-        return false;
-    }
+        // matchDictionary will be consumed by IOServiceGetMatchingServices, no need to release it.
+        CFMutableDictionaryRef matchDictionary = IOServiceMatching(kServiceNames[i]);
 
-    io_registry_entry_t entry = IO_OBJECT_NULL;
-
-    while ((entry = IOIteratorNext(entryIterator)) != IO_OBJECT_NULL)
-    {
-        constexpr uint32_t kClassCodeDisplayVGA = 0x30000;
-        uint32_t classCode;
-        GPUDeviceInfo info;
-
-        if (GetEntryProperty(entry, CFSTR("class-code"), &classCode) &&
-            classCode == kClassCodeDisplayVGA &&
-            GetEntryProperty(entry, CFSTR("vendor-id"), &info.vendorId) &&
-            GetEntryProperty(entry, CFSTR("device-id"), &info.deviceId))
+        io_iterator_t entryIterator;
+#    if HAVE_MAIN_PORT_DEFAULT
+        const mach_port_t mainPort = kIOMainPortDefault;
+#    else
+#        pragma clang diagnostic push
+#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        const mach_port_t mainPort = kIOMasterPortDefault;
+#        pragma clang diagnostic pop
+#    endif
+        if (IOServiceGetMatchingServices(mainPort, matchDictionary, &entryIterator) !=
+            kIOReturnSuccess)
         {
-            devices->push_back(info);
+            continue;
         }
 
-        IOObjectRelease(entry);
-    }
-    IOObjectRelease(entryIterator);
+        io_registry_entry_t entry = IO_OBJECT_NULL;
+        while ((entry = IOIteratorNext(entryIterator)) != IO_OBJECT_NULL)
+        {
+            constexpr uint32_t kClassCodeDisplayVGA = 0x30000;
+            uint32_t classCode;
+            GPUDeviceInfo info;
+            // The registry ID of an IOGraphicsAccelerator2 or AGXAccelerator matches the ID used
+            // for GPU selection by ANGLE_platform_angle_device_id
+            if (IORegistryEntryGetRegistryEntryID(entry, &info.systemDeviceId) != kIOReturnSuccess)
+            {
+                IOObjectRelease(entry);
+                continue;
+            }
 
-    return true;
+            io_registry_entry_t queryEntry = entry;
+            if (kServiceIsGraphicsAccelerator2[i])
+            {
+                // If the matching entry is an IOGraphicsAccelerator2, get the parent entry that
+                // will be the IOPCIDevice which holds vendor-id and device-id
+                io_registry_entry_t deviceEntry = IO_OBJECT_NULL;
+                if (IORegistryEntryGetParentEntry(entry, kIOServicePlane, &deviceEntry) !=
+                        kIOReturnSuccess ||
+                    deviceEntry == IO_OBJECT_NULL)
+                {
+                    IOObjectRelease(entry);
+                    continue;
+                }
+                IOObjectRelease(entry);
+                queryEntry = deviceEntry;
+            }
+
+            if (!GetEntryProperty(queryEntry, CFSTR("vendor-id"), &info.vendorId))
+            {
+                IOObjectRelease(queryEntry);
+                continue;
+            }
+            // AGXAccelerator entries only provide a vendor ID.
+            if (kServiceIsGraphicsAccelerator2[i])
+            {
+                if (!GetEntryProperty(queryEntry, CFSTR("class-code"), &classCode))
+                {
+                    IOObjectRelease(queryEntry);
+                    continue;
+                }
+                if (classCode != kClassCodeDisplayVGA)
+                {
+                    IOObjectRelease(queryEntry);
+                    continue;
+                }
+                if (!GetEntryProperty(queryEntry, CFSTR("device-id"), &info.deviceId))
+                {
+                    IOObjectRelease(queryEntry);
+                    continue;
+                }
+                // Populate revisionId if we can
+                GetEntryProperty(queryEntry, CFSTR("revision-id"), &info.revisionId);
+            }
+
+            devices->push_back(info);
+            IOObjectRelease(queryEntry);
+        }
+        IOObjectRelease(entryIterator);
+
+        // If any devices have been populated by IOGraphicsAccelerator2, do not continue to
+        // AGXAccelerator.
+        if (!devices->empty())
+        {
+            break;
+        }
+    }
 }
 
-void SetActiveGPUIndex(SystemInfo *info)
+void ForceGPUSwitchIndex(SystemInfo *info)
 {
     VendorID activeVendor = 0;
     DeviceID activeDevice = 0;
@@ -124,7 +202,15 @@ void SetActiveGPUIndex(SystemInfo *info)
         return;
 
     CFMutableDictionaryRef matchDictionary = IORegistryEntryIDMatching(gpuID);
-    io_service_t gpuEntry = IOServiceGetMatchingService(kIOMasterPortDefault, matchDictionary);
+#    if HAVE_MAIN_PORT_DEFAULT
+    const mach_port_t mainPort = kIOMainPortDefault;
+#    else
+#        pragma clang diagnostic push
+#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    const mach_port_t mainPort = kIOMasterPortDefault;
+#        pragma clang diagnostic pop
+#    endif
+    io_service_t gpuEntry = IOServiceGetMatchingService(mainPort, matchDictionary);
 
     if (gpuEntry == IO_OBJECT_NULL)
     {
@@ -208,7 +294,63 @@ uint64_t GetGpuIDFromOpenGLDisplayMask(uint32_t displayMask)
     return 0;
 }
 
-bool GetSystemInfo(SystemInfo *info)
+// Get VendorID from metal device's registry ID
+VendorID GetVendorIDFromMetalDeviceRegistryID(uint64_t registryID)
+{
+#    if defined(ANGLE_PLATFORM_MACOS)
+    // On macOS, the following code is only supported since 10.13.
+    if (@available(macOS 10.13, *))
+#    endif
+    {
+        // Get a matching dictionary for the IOGraphicsAccelerator2
+        CFMutableDictionaryRef matchingDict = IORegistryEntryIDMatching(registryID);
+        if (matchingDict == nullptr)
+        {
+            return 0;
+        }
+
+        // IOServiceGetMatchingService will consume the reference on the matching dictionary,
+        // so we don't need to release the dictionary.
+#    if HAVE_MAIN_PORT_DEFAULT
+        const mach_port_t mainPort = kIOMainPortDefault;
+#    else
+#        pragma clang diagnostic push
+#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        const mach_port_t mainPort = kIOMasterPortDefault;
+#        pragma clang diagnostic pop
+#    endif
+        io_registry_entry_t acceleratorEntry = IOServiceGetMatchingService(mainPort, matchingDict);
+        if (acceleratorEntry == IO_OBJECT_NULL)
+        {
+            return 0;
+        }
+
+        // Get the parent entry that will be the IOPCIDevice
+        io_registry_entry_t deviceEntry = IO_OBJECT_NULL;
+        if (IORegistryEntryGetParentEntry(acceleratorEntry, kIOServicePlane, &deviceEntry) !=
+                kIOReturnSuccess ||
+            deviceEntry == IO_OBJECT_NULL)
+        {
+            IOObjectRelease(acceleratorEntry);
+            return 0;
+        }
+
+        IOObjectRelease(acceleratorEntry);
+
+        uint32_t vendorId;
+        if (!GetEntryProperty(deviceEntry, CFSTR("vendor-id"), &vendorId))
+        {
+            vendorId = 0;
+        }
+
+        IOObjectRelease(deviceEntry);
+
+        return vendorId;
+    }
+    return 0;
+}
+
+bool GetSystemInfo_mac(SystemInfo *info)
 {
     {
         int32_t major = 0;
@@ -217,7 +359,8 @@ bool GetSystemInfo(SystemInfo *info)
         info->machineModelVersion = std::to_string(major) + "." + std::to_string(minor);
     }
 
-    if (!GetPCIDevices(&(info->gpus)))
+    GetIORegistryDevices(&info->gpus);
+    if (info->gpus.empty())
     {
         return false;
     }
@@ -230,7 +373,7 @@ bool GetSystemInfo(SystemInfo *info)
     // GPU instead of the non-intel GPU
     if (@available(macOS 10.13, *))
     {
-        SetActiveGPUIndex(info);
+        ForceGPUSwitchIndex(info);
     }
 
     // Figure out whether this is a dual-GPU system.
@@ -245,6 +388,10 @@ bool GetSystemInfo(SystemInfo *info)
     {
         info->isMacSwitchable = true;
     }
+
+#    if defined(ANGLE_PLATFORM_MACCATALYST) && defined(ANGLE_CPU_ARM64)
+    info->needsEAGLOnMac = true;
+#    endif
 
     return true;
 }

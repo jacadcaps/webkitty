@@ -45,6 +45,7 @@ class FileList;
 class Icon;
 
 class FileInputType final : public BaseClickableWithKeyInputType, private FileChooserClient, private FileIconLoaderClient, public CanMakeWeakPtr<FileInputType> {
+    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
 public:
     explicit FileInputType(HTMLInputElement&);
     virtual ~FileInputType();
@@ -55,16 +56,16 @@ private:
     const AtomString& formControlType() const final;
     FormControlState saveFormControlState() const final;
     void restoreFormControlState(const FormControlState&) final;
-    bool appendFormData(DOMFormData&, bool) const final;
+    bool appendFormData(DOMFormData&) const final;
     bool valueMissing(const String&) const final;
     String valueMissingText() const final;
     void handleDOMActivateEvent(Event&) final;
     RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
     bool canSetStringValue() const final;
     FileList* files() final;
-    void setFiles(RefPtr<FileList>&&) final;
+    void setFiles(RefPtr<FileList>&&, WasSetByJavaScript) final;
     enum class RequestIcon { Yes, No };
-    void setFiles(RefPtr<FileList>&&, RequestIcon);
+    void setFiles(RefPtr<FileList>&&, RequestIcon, WasSetByJavaScript);
     String displayString() const final;
     bool canSetValue(const String&) final;
     bool getTypeSpecificValue(String&) final; // Checked first, before internal storage or the value attribute.
@@ -76,7 +77,6 @@ private:
 #endif
 
     Icon* icon() const final;
-    bool isFileUpload() const final;
     void createShadowSubtree() final;
     void disabledStateChanged() final;
     void attributeChanged(const QualifiedName&) final;

@@ -16,15 +16,16 @@
 
 #include <memory>
 
+#include "api/sequence_checker.h"
 #include "modules/include/module.h"
-#include "rtc_base/critical_section.h"
-#include "rtc_base/thread_checker.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "video/stream_synchronization.h"
 
 namespace webrtc {
 
 class Syncable;
 
+// DEPRECATED.
 class RtpStreamsSynchronizer : public Module {
  public:
   explicit RtpStreamsSynchronizer(Syncable* syncable_video);
@@ -37,9 +38,9 @@ class RtpStreamsSynchronizer : public Module {
   void Process() override;
 
   // Gets the estimated playout NTP timestamp for the video frame with
-  // |rtp_timestamp| and the sync offset between the current played out audio
+  // `rtp_timestamp` and the sync offset between the current played out audio
   // frame and the video frame. Returns true on success, false otherwise.
-  // The |estimated_freq_khz| is the frequency used in the RTP to NTP timestamp
+  // The `estimated_freq_khz` is the frequency used in the RTP to NTP timestamp
   // conversion.
   bool GetStreamSyncOffsetInMs(uint32_t rtp_timestamp,
                                int64_t render_time_ms,
@@ -50,13 +51,13 @@ class RtpStreamsSynchronizer : public Module {
  private:
   Syncable* syncable_video_;
 
-  rtc::CriticalSection crit_;
-  Syncable* syncable_audio_ RTC_GUARDED_BY(crit_);
-  std::unique_ptr<StreamSynchronization> sync_ RTC_GUARDED_BY(crit_);
-  StreamSynchronization::Measurements audio_measurement_ RTC_GUARDED_BY(crit_);
-  StreamSynchronization::Measurements video_measurement_ RTC_GUARDED_BY(crit_);
+  mutable Mutex mutex_;
+  Syncable* syncable_audio_ RTC_GUARDED_BY(mutex_);
+  std::unique_ptr<StreamSynchronization> sync_ RTC_GUARDED_BY(mutex_);
+  StreamSynchronization::Measurements audio_measurement_ RTC_GUARDED_BY(mutex_);
+  StreamSynchronization::Measurements video_measurement_ RTC_GUARDED_BY(mutex_);
 
-  rtc::ThreadChecker process_thread_checker_;
+  SequenceChecker process_thread_checker_;
   int64_t last_sync_time_ RTC_GUARDED_BY(&process_thread_checker_);
   int64_t last_stats_log_ms_ RTC_GUARDED_BY(&process_thread_checker_);
 };

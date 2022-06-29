@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple, Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@ const ClassInfo JSMapIterator::s_info = { "Map Iterator", &Base::s_info, nullptr
 
 JSMapIterator* JSMapIterator::createWithInitialValues(VM& vm, Structure* structure)
 {
-    JSMapIterator* iterator = new (NotNull, allocateCell<JSMapIterator>(vm.heap)) JSMapIterator(vm, structure);
+    JSMapIterator* iterator = new (NotNull, allocateCell<JSMapIterator>(vm)) JSMapIterator(vm, structure);
     iterator->finishCreation(vm);
     return iterator;
 }
@@ -57,12 +57,15 @@ void JSMapIterator::finishCreation(VM& vm)
         Base::internalField(index).set(vm, this, values[index]);
 }
 
-void JSMapIterator::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSMapIterator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     auto* thisObject = jsCast<JSMapIterator*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 }
+
+DEFINE_VISIT_CHILDREN(JSMapIterator);
 
 JSValue JSMapIterator::createPair(JSGlobalObject* globalObject, JSValue key, JSValue value)
 {

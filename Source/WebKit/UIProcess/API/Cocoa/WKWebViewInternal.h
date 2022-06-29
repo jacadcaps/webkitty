@@ -23,18 +23,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "WKWebViewPrivate.h"
-
+#import "PDFPluginIdentifier.h"
 #import "SameDocumentNavigationType.h"
-#import "WKShareSheet.h"
-#import "WKWebViewConfiguration.h"
+#import <WebKit/WKShareSheet.h>
+#import <WebKit/WKWebViewConfiguration.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import "_WKAttachmentInternal.h"
 #import "_WKWebViewPrintFormatterInternal.h"
+#import <variant>
 #import <wtf/CompletionHandler.h>
 #import <wtf/NakedPtr.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
-#import <wtf/Variant.h>
 #import <wtf/WeakObjCPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -65,10 +65,15 @@ namespace API {
 class Attachment;
 }
 
+namespace WebCore {
+struct AppHighlight;
+struct ExceptionDetails;
+enum class WheelScrollGestureState : uint8_t;
+}
+
 namespace WebKit {
 enum class ContinueUnsafeLoad : bool;
 class IconLoadingDelegate;
-class InspectorDelegate;
 class NavigationState;
 class ResourceLoadDelegate;
 class SafeBrowsingWarning;
@@ -102,6 +107,7 @@ class ViewGestureController;
 
 @protocol _WKTextManipulationDelegate;
 @protocol _WKInputDelegate;
+@protocol _WKAppHighlightDelegate;
 
 @interface WKWebView () WK_WEB_VIEW_PROTOCOLS {
 
@@ -113,14 +119,14 @@ class ViewGestureController;
     std::unique_ptr<WebKit::UIDelegate> _uiDelegate;
     std::unique_ptr<WebKit::IconLoadingDelegate> _iconLoadingDelegate;
     std::unique_ptr<WebKit::ResourceLoadDelegate> _resourceLoadDelegate;
-    std::unique_ptr<WebKit::InspectorDelegate> _inspectorDelegate;
 
     WeakObjCPtr<id <_WKTextManipulationDelegate>> _textManipulationDelegate;
     WeakObjCPtr<id <_WKInputDelegate>> _inputDelegate;
+    WeakObjCPtr<id <_WKAppHighlightDelegate>> _appHighlightDelegate;
 
     RetainPtr<WKSafeBrowsingWarning> _safeBrowsingWarning;
 
-    Optional<BOOL> _resolutionForShareSheetImmediateCompletionForTesting;
+    std::optional<BOOL> _resolutionForShareSheetImmediateCompletionForTesting;
 
     _WKSelectionAttributes _selectionAttributes;
     _WKRenderingProgressEvents _observedRenderingProgressEvents;
@@ -133,7 +139,7 @@ class ViewGestureController;
     // Only used with UI-side compositing.
     RetainPtr<WKScrollView> _scrollView;
     RetainPtr<WKContentView> _contentView;
-#endif
+#endif // PLATFORM(MAC)
 
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<WKScrollView> _scrollView;
@@ -145,13 +151,20 @@ class ViewGestureController;
     RetainPtr<WKFullScreenWindowController> _fullScreenWindowController;
 #endif
 
+#if HAVE(UIFINDINTERACTION)
+    RetainPtr<_UIFindInteraction> _findInteraction;
+    BOOL _findInteractionEnabled;
+#endif
+
     RetainPtr<_WKRemoteObjectRegistry> _remoteObjectRegistry;
 
-    Optional<CGSize> _viewLayoutSizeOverride;
-    Optional<WebCore::FloatSize> _lastSentViewLayoutSize;
-    Optional<CGSize> _maximumUnobscuredSizeOverride;
-    Optional<WebCore::FloatSize> _lastSentMaximumUnobscuredSize;
-    CGRect _inputViewBounds;
+    std::optional<CGSize> _viewLayoutSizeOverride;
+    std::optional<WebCore::FloatSize> _lastSentViewLayoutSize;
+    std::optional<CGSize> _minimumUnobscuredSizeOverride;
+    std::optional<WebCore::FloatSize> _lastSentMinimumUnobscuredSize;
+    std::optional<CGSize> _maximumUnobscuredSizeOverride;
+    std::optional<WebCore::FloatSize> _lastSentMaximumUnobscuredSize;
+    CGRect _inputViewBoundsInWindow;
 
     CGFloat _viewportMetaTagWidth;
     BOOL _viewportMetaTagWidthWasExplicit;
@@ -172,7 +185,7 @@ class ViewGestureController;
 
     UIInterfaceOrientation _interfaceOrientationOverride;
     BOOL _overridesInterfaceOrientation;
-    Optional<int32_t> _lastSentDeviceOrientation;
+    std::optional<int32_t> _lastSentDeviceOrientation;
 
     BOOL _allowsViewportShrinkToFit;
 
@@ -184,18 +197,26 @@ class ViewGestureController;
     WebKit::DynamicViewportSizeUpdateID _currentDynamicViewportSizeUpdateID;
     CATransform3D _resizeAnimationTransformAdjustments;
     CGFloat _animatedResizeOriginalContentWidth;
+    CGRect _animatedResizeOldBounds;
+    CGFloat _animatedResizeOldMinimumEffectiveDeviceWidth;
+    int32_t _animatedResizeOldOrientation;
+    UIEdgeInsets _animatedResizeOldObscuredInsets;
     RetainPtr<UIView> _resizeAnimationView;
     CGFloat _lastAdjustmentForScroller;
-    Optional<CGRect> _frozenVisibleContentRect;
-    Optional<CGRect> _frozenUnobscuredContentRect;
+    std::optional<CGRect> _frozenVisibleContentRect;
+    std::optional<CGRect> _frozenUnobscuredContentRect;
 
     BOOL _commitDidRestoreScrollPosition;
-    Optional<WebCore::FloatPoint> _scrollOffsetToRestore;
+    std::optional<WebCore::FloatPoint> _scrollOffsetToRestore;
     WebCore::FloatBoxExtent _obscuredInsetsWhenSaved;
 
-    Optional<WebCore::FloatPoint> _unobscuredCenterToRestore;
-    Optional<WebKit::TransactionID> _firstTransactionIDAfterPageRestore;
+    std::optional<WebCore::FloatPoint> _unobscuredCenterToRestore;
+    std::optional<WebKit::TransactionID> _firstTransactionIDAfterPageRestore;
     double _scaleToRestore;
+
+#if HAVE(MAC_CATALYST_LIVE_RESIZE)
+    Vector<RetainPtr<id<_UIInvalidatable>>> _resizeAssertions;
+#endif
 
     BOOL _allowsBackForwardNavigationGestures;
 
@@ -229,7 +250,10 @@ class ViewGestureController;
     RetainPtr<WKPasswordView> _passwordView;
 
     BOOL _hasScheduledVisibleRectUpdate;
-    BOOL _visibleContentRectUpdateScheduledFromScrollViewInStableState;
+    OptionSet<WebKit::ViewStabilityFlag> _viewStabilityWhenVisibleContentRectUpdateScheduled;
+
+    std::optional<WebCore::WheelScrollGestureState> _currentScrollGestureState;
+    uint64_t _wheelEventCountInCurrentScrollGesture;
 
     _WKDragInteractionPolicy _dragInteractionPolicy;
 
@@ -237,7 +261,7 @@ class ViewGestureController;
     MonotonicTime _timeOfRequestForVisibleContentRectUpdate;
     MonotonicTime _timeOfLastVisibleContentRectUpdate;
 
-    Optional<MonotonicTime> _timeOfFirstVisibleContentRectUpdateWithPendingCommit;
+    std::optional<MonotonicTime> _timeOfFirstVisibleContentRectUpdateWithPendingCommit;
 
     NSUInteger _focusPreservationCount;
     NSUInteger _activeFocusedStateRetainCount;
@@ -253,20 +277,24 @@ class ViewGestureController;
 - (void)_didInvalidateDataForAttachment:(API::Attachment&)attachment;
 #endif
 
+#if ENABLE(APP_HIGHLIGHTS)
+- (void)_storeAppHighlight:(const WebCore::AppHighlight&)info;
+#endif
+
 - (void)_internalDoAfterNextPresentationUpdate:(void (^)(void))updateBlock withoutWaitingForPainting:(BOOL)withoutWaitingForPainting withoutWaitingForAnimatedResize:(BOOL)withoutWaitingForAnimatedResize;
 
-- (void)_showSafeBrowsingWarning:(const WebKit::SafeBrowsingWarning&)warning completionHandler:(CompletionHandler<void(Variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
+- (void)_showSafeBrowsingWarning:(const WebKit::SafeBrowsingWarning&)warning completionHandler:(CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
 - (void)_clearSafeBrowsingWarning;
 - (void)_clearSafeBrowsingWarningIfForMainFrameNavigation;
 
-- (Optional<BOOL>)_resolutionForShareSheetImmediateCompletionForTesting;
+- (std::optional<BOOL>)_resolutionForShareSheetImmediateCompletionForTesting;
 
 - (WKPageRef)_pageForTesting;
 - (NakedPtr<WebKit::WebPageProxy>)_page;
 
 @end
 
-WKWebView* fromWebPageProxy(WebKit::WebPageProxy&);
+RetainPtr<NSError> nsErrorFromExceptionDetails(const WebCore::ExceptionDetails&);
 
 #if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
 @interface WKWebView (FullScreenAPI_Internal)

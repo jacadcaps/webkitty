@@ -43,10 +43,8 @@ class StunProberTest : public ::testing::Test {
       : ss_(new rtc::VirtualSocketServer()),
         main_(ss_.get()),
         result_(StunProber::SUCCESS),
-        stun_server_1_(cricket::TestStunServer::Create(rtc::Thread::Current(),
-                                                       kStunAddr1)),
-        stun_server_2_(cricket::TestStunServer::Create(rtc::Thread::Current(),
-                                                       kStunAddr2)) {
+        stun_server_1_(cricket::TestStunServer::Create(ss_.get(), kStunAddr1)),
+        stun_server_2_(cricket::TestStunServer::Create(ss_.get(), kStunAddr2)) {
     stun_server_1_->set_fake_stun_addr(kStunMappedAddr);
     stun_server_2_->set_fake_stun_addr(kStunMappedAddr);
     rtc::InitializeSSL();
@@ -82,8 +80,8 @@ class StunProberTest : public ::testing::Test {
     rtc::NetworkManager::NetworkList networks;
     networks.push_back(&ipv4_network1);
 
-    std::unique_ptr<rtc::BasicPacketSocketFactory> socket_factory(
-        new rtc::BasicPacketSocketFactory());
+    auto socket_factory =
+        std::make_unique<rtc::BasicPacketSocketFactory>(ss_.get());
 
     // Set up the expected results for verification.
     std::set<std::string> srflx_addresses;

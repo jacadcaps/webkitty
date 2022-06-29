@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.arrayBufferSpace<mode>();
     }
@@ -55,6 +55,7 @@ public:
     
     // This is the default DOM unwrapping. It calls toUnsharedArrayBuffer().
     static ArrayBuffer* toWrapped(VM&, JSValue);
+    static ArrayBuffer* toWrappedAllowShared(VM&, JSValue);
     
 private:
     JSArrayBuffer(VM&, Structure*, RefPtr<ArrayBuffer>&&);
@@ -84,6 +85,11 @@ inline ArrayBuffer* toUnsharedArrayBuffer(VM& vm, JSValue value)
 inline ArrayBuffer* JSArrayBuffer::toWrapped(VM& vm, JSValue value)
 {
     return toUnsharedArrayBuffer(vm, value);
+}
+
+inline ArrayBuffer* JSArrayBuffer::toWrappedAllowShared(VM& vm, JSValue value)
+{
+    return toPossiblySharedArrayBuffer(vm, value);
 }
 
 } // namespace JSC

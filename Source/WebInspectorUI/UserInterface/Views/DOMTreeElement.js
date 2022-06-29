@@ -51,6 +51,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         this._highlightedAttributes = new Set;
         this._recentlyModifiedAttributes = new Map;
         this._closeTagTreeElement = null;
+        this._layoutBadgeElement = null;
 
         node.addEventListener(WI.DOMNode.Event.EnabledPseudoClassesChanged, this._updatePseudoClassIndicator, this);
 
@@ -73,6 +74,8 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
     }
 
     // Public
+
+    get statusImageElement() { return this._statusImageElement; }
 
     get hasBreakpoint()
     {
@@ -440,6 +443,23 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
             this.listItemElement.draggable = true;
             this.listItemElement.addEventListener("dragstart", this);
         }
+
+        if (this.representedObject.layoutContextType) {
+            WI.overlayManager.addEventListener(WI.OverlayManager.Event.OverlayShown, this._updateLayoutBadgeStatus, this);
+            WI.overlayManager.addEventListener(WI.OverlayManager.Event.OverlayHidden, this._updateLayoutBadgeStatus, this);
+        }
+        this.representedObject.addEventListener(WI.DOMNode.Event.LayoutContextTypeChanged, this._handleLayoutContextTypeChanged, this);
+
+        this._updateLayoutBadge();
+    }
+
+    ondetach()
+    {
+        if (this.representedObject.layoutContextType === WI.DOMNode.LayoutContextType.Grid) {
+            WI.overlayManager.removeEventListener(WI.OverlayManager.Event.OverlayShown, this._updateLayoutBadgeStatus, this);
+            WI.overlayManager.removeEventListener(WI.OverlayManager.Event.OverlayHidden, this._updateLayoutBadgeStatus, this);
+        }
+        this.representedObject.removeEventListener(WI.DOMNode.Event.LayoutContextTypeChanged, this._handleLayoutContextTypeChanged, this);
     }
 
     onpopulate()
@@ -817,7 +837,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
                 }, WI.isBeingEdited(attributeNode));
             }
 
-            if (InspectorBackend.hasCommand("DOM.setNodeName") && !DOMTreeElement.EditTagBlacklist.has(this.representedObject.nodeNameInCorrectCase())) {
+            if (InspectorBackend.hasCommand("DOM.setNodeName") && !DOMTreeElement.UneditableTagNames.has(this.representedObject.nodeNameInCorrectCase())) {
                 let tagNameNode = event.target.closest(".html-tag-name");
 
                 subMenus.edit.appendItem(WI.UIString("Tag", "A submenu item of 'Edit' to change DOM element's tag name"), () => {
@@ -1006,7 +1026,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         }
 
         var tagName = tagNameElement.textContent;
-        if (WI.DOMTreeElement.EditTagBlacklist.has(tagName.toLowerCase()))
+        if (WI.DOMTreeElement.UneditableTagNames.has(tagName.toLowerCase()))
             return false;
 
         if (WI.isBeingEdited(tagNameElement))
@@ -1314,6 +1334,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
             this.title.appendChild(this._nodeTitleInfo().titleDOM);
             this._highlightResult = undefined;
         }
+        this._updateLayoutBadge();
 
         // Setting this.title will implicitly remove all children. Clear the
         // selection element so that we properly recreate it if necessary.
@@ -1972,6 +1993,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         let contextMenu = WI.ContextMenu.createFromEvent(event);
 
         WI.appendContextMenuItemsForDOMNodeBreakpoints(contextMenu, this.representedObject, {
+            popoverTargetElement: event.target,
             revealDescendantBreakpointsMenuItemHandler: this.bindRevealDescendantBreakpointsMenuItemHandler(),
         });
     }
@@ -1987,6 +2009,92 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
 
         this._animatingHighlight = false;
     }
+
+    _updateLayoutBadge()
+    {
+        if (!this.listItemElement || this._elementCloseTag)
+            return;
+
+        if (this._layoutBadgeElement) {
+            this._layoutBadgeElement.remove();
+            this._layoutBadgeElement = null;
+        }
+
+        if (!this.representedObject.layoutContextType)
+            return;
+
+        this._layoutBadgeElement = this.title.appendChild(document.createElement("span"));
+        this._layoutBadgeElement.className = "layout-badge";
+
+        switch (this.representedObject.layoutContextType) {
+        case WI.DOMNode.LayoutContextType.Grid:
+            this._layoutBadgeElement.textContent = WI.unlocalizedString("grid");
+            break;
+
+        case WI.DOMNode.LayoutContextType.Flex:
+            this._layoutBadgeElement.textContent = WI.unlocalizedString("flex");
+            break;
+
+        default:
+            console.assert(false, this.representedObject.layoutContextType);
+            break;
+        }
+
+        this._updateLayoutBadgeStatus();
+
+        this._layoutBadgeElement.addEventListener("click", this._layoutBadgeClicked.bind(this), true);
+        this._layoutBadgeElement.addEventListener("dblclick", this._layoutBadgeDoubleClicked, true);
+    }
+
+    _layoutBadgeClicked(event)
+    {
+        if (event.button !== 0 || event.ctrlKey)
+            return;
+
+        // Don't expand or collapse a tree element when clicking on the grid badge.
+        event.stop();
+
+        WI.overlayManager.toggleOverlay(this.representedObject, {
+            initiator: this.representedObject.layoutContextType === WI.DOMNode.LayoutContextType.Grid ? WI.GridOverlayDiagnosticEventRecorder.Initiator.Badge : null,
+        });
+    }
+
+    _layoutBadgeDoubleClicked(event)
+    {
+        event.stop();
+    }
+
+    _updateLayoutBadgeStatus()
+    {
+        if (!this._layoutBadgeElement)
+            return;
+
+        let hasVisibleOverlay = WI.overlayManager.hasVisibleOverlay(this.representedObject);
+        this._layoutBadgeElement.classList.toggle("activated", hasVisibleOverlay);
+
+        if (hasVisibleOverlay) {
+            let color = WI.overlayManager.getColorForNode(this.representedObject);
+            let hue = color.hsl[0];
+            this._layoutBadgeElement.style.borderColor = color.toString();
+            this._layoutBadgeElement.style.backgroundColor = `hsl(${hue}, 90%, 95%)`;
+            this._layoutBadgeElement.style.setProperty("color", `hsl(${hue}, 55%, 40%)`);
+        } else
+            this._layoutBadgeElement.removeAttribute("style");
+    }
+
+    _handleLayoutContextTypeChanged(event)
+    {
+        let domNode = event.target;
+        if (domNode.layoutContextType) {
+            WI.overlayManager.addEventListener(WI.OverlayManager.Event.OverlayShown, this._updateLayoutBadgeStatus, this);
+            WI.overlayManager.addEventListener(WI.OverlayManager.Event.OverlayHidden, this._updateLayoutBadgeStatus, this);
+        } else {
+            WI.overlayManager.removeEventListener(WI.OverlayManager.Event.OverlayShown, this._updateLayoutBadgeStatus, this);
+            WI.overlayManager.removeEventListener(WI.OverlayManager.Event.OverlayHidden, this._updateLayoutBadgeStatus, this);
+        }
+
+        this._updateLayoutBadge();
+    }
 };
 
 WI.DOMTreeElement.InitialChildrenLimit = 500;
@@ -2001,7 +2109,7 @@ WI.DOMTreeElement.ForbiddenClosingTagElements = new Set([
 ]);
 
 // These tags we do not allow editing their tag name.
-WI.DOMTreeElement.EditTagBlacklist = new Set([
+WI.DOMTreeElement.UneditableTagNames = new Set([
     "html", "head", "body"
 ]);
 

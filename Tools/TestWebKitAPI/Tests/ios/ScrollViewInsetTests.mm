@@ -58,7 +58,7 @@
 
 @implementation AsyncPolicyDelegateForInsetTest
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     _navigationComplete = true;
 }
@@ -257,6 +257,22 @@ TEST(ScrollViewInsetTests, ChangeInsetWithoutAutomaticAdjustmentWhileWebProcessI
     EXPECT_EQ(-100, scrollViewDelegate->_contentOffsetHistory.first().y);
     EXPECT_EQ(-70, scrollViewDelegate->_contentOffsetHistory.last().y);
     EXPECT_EQ(0, [[webView stringByEvaluatingJavaScript:@"document.scrollingElement.scrollTop"] intValue]);
+}
+
+TEST(ScrollViewInsetTests, PreserveContentOffsetForRefreshControl)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, viewHeight)]);
+    [webView scrollView].refreshControl = adoptNS([[UIRefreshControl alloc] init]).get();
+    [webView synchronouslyLoadHTMLString:@""];
+
+    [webView scrollView].contentOffset = CGPointMake(0, -100);
+
+    [webView synchronouslyLoadHTMLString:@"<body bgcolor='red'>"];
+    [webView waitForNextPresentationUpdate];
+
+    CGPoint contentOffsetAfterNavigation = [webView scrollView].contentOffset;
+    EXPECT_EQ(0, contentOffsetAfterNavigation.x);
+    EXPECT_EQ(-100, contentOffsetAfterNavigation.y);
 }
 
 } // namespace TestWebKitAPI

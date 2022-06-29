@@ -38,6 +38,7 @@
 #import "WKStringCF.h"
 #import "WKURL.h"
 #import "WKURLCF.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/Vector.h>
 
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
@@ -48,6 +49,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBrowsingContextGroup.class, self))
+        return;
+
     _pageGroup->~WebPageGroup();
 
     [super dealloc];
@@ -128,11 +132,6 @@ static WKRetainPtr<WKArrayRef> createWKArray(NSArray *array)
     return WebKit::toAPI(&API::Array::create(WTFMove(strings)).leakRef());
 }
 
--(void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist mainFrameOnly:(BOOL)mainFrameOnly
-{
-    [self addUserStyleSheet:source baseURL:baseURL includeMatchPatternStrings:whitelist excludeMatchPatternStrings:blacklist mainFrameOnly:mainFrameOnly];
-}
-
 - (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings mainFrameOnly:(BOOL)mainFrameOnly
 {
     if (!source)
@@ -150,11 +149,6 @@ static WKRetainPtr<WKArrayRef> createWKArray(NSArray *array)
 - (void)removeAllUserStyleSheets
 {
     WKPageGroupRemoveAllUserStyleSheets(WebKit::toAPI(_pageGroup.get()));
-}
-
-- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly
-{
-    [self addUserScript:source baseURL:baseURL includeMatchPatternStrings:whitelist excludeMatchPatternStrings:blacklist injectionTime:injectionTime mainFrameOnly:mainFrameOnly];
 }
 
 - (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly

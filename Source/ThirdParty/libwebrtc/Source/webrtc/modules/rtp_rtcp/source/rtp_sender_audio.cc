@@ -46,15 +46,22 @@ const char* FrameTypeToString(AudioFrameType frame_type) {
     case AudioFrameType::kAudioFrameCN:
       return "audio_cn";
   }
+  RTC_CHECK_NOTREACHED();
 }
 #endif
+
+constexpr char kIncludeCaptureClockOffset[] =
+    "WebRTC-IncludeCaptureClockOffset";
 
 }  // namespace
 
 RTPSenderAudio::RTPSenderAudio(Clock* clock, RTPSender* rtp_sender)
     : clock_(clock),
       rtp_sender_(rtp_sender),
-      absolute_capture_time_sender_(clock) {
+      absolute_capture_time_sender_(clock),
+      include_capture_clock_offset_(
+          !absl::StartsWith(field_trials_.Lookup(kIncludeCaptureClockOffset),
+                            "Disabled")) {
   RTC_DCHECK(clock_);
 }
 
@@ -66,7 +73,7 @@ int32_t RTPSenderAudio::RegisterAudioPayload(absl::string_view payload_name,
                                              const size_t channels,
                                              const uint32_t rate) {
   if (absl::EqualsIgnoreCase(payload_name, "cn")) {
-    rtc::CritScope cs(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     //  we can have multiple CNG payload types
     switch (frequency) {
       case 8000:
@@ -85,14 +92,14 @@ int32_t RTPSenderAudio::RegisterAudioPayload(absl::string_view payload_name,
         return -1;
     }
   } else if (absl::EqualsIgnoreCase(payload_name, "telephone-event")) {
-    rtc::CritScope cs(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     // Don't add it to the list
     // we dont want to allow send with a DTMF payloadtype
     dtmf_payload_type_ = payload_type;
     dtmf_payload_freq_ = frequency;
     return 0;
   } else if (payload_name == "audio") {
-    rtc::CritScope cs(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     encoder_rtp_timestamp_frequency_ = frequency;
     return 0;
   }
@@ -100,7 +107,7 @@ int32_t RTPSenderAudio::RegisterAudioPayload(absl::string_view payload_name,
 }
 
 bool RTPSenderAudio::MarkerBit(AudioFrameType frame_type, int8_t payload_type) {
-  rtc::CritScope cs(&send_audio_critsect_);
+  MutexLock lock(&send_audio_mutex_);
   // for audio true for first packet in a speech burst
   bool marker_bit = false;
   if (last_payload_type_ != payload_type) {
@@ -150,7 +157,7 @@ bool RTPSenderAudio::SendAudio(AudioFrameType frame_type,
   return SendAudio(frame_type, payload_type, rtp_timestamp, payload_data,
                    payload_size,
                    // TODO(bugs.webrtc.org/10739) replace once plumbed.
-                   /*absolute_capture_timestamp_ms=*/0);
+                   /*absolute_capture_timestamp_ms=*/-1);
 }
 
 bool RTPSenderAudio::SendAudio(AudioFrameType frame_type,
@@ -174,7 +181,7 @@ bool RTPSenderAudio::SendAudio(AudioFrameType frame_type,
   uint32_t dtmf_payload_freq = 0;
   absl::optional<uint32_t> encoder_rtp_timestamp_frequency;
   {
-    rtc::CritScope cs(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     audio_level_dbov = audio_level_dbov_;
     dtmf_payload_freq = dtmf_payload_freq_;
     encoder_rtp_timestamp_frequency = encoder_rtp_timestamp_frequency_;
@@ -270,21 +277,26 @@ bool RTPSenderAudio::SendAudio(AudioFrameType frame_type,
   packet->SetExtension<AudioLevel>(
       frame_type == AudioFrameType::kAudioFrameSpeech, audio_level_dbov);
 
-  // Send absolute capture time periodically in order to optimize and save
-  // network traffic. Missing absolute capture times can be interpolated on the
-  // receiving end if sending intervals are small enough.
-  auto absolute_capture_time = absolute_capture_time_sender_.OnSendPacket(
-      AbsoluteCaptureTimeSender::GetSource(packet->Ssrc(), packet->Csrcs()),
-      packet->Timestamp(),
-      // Replace missing value with 0 (invalid frequency), this will trigger
-      // absolute capture time sending.
-      encoder_rtp_timestamp_frequency.value_or(0),
-      Int64MsToUQ32x32(absolute_capture_timestamp_ms + NtpOffsetMs()),
-      /*estimated_capture_clock_offset=*/absl::nullopt);
-  if (absolute_capture_time) {
-    // It also checks that extension was registered during SDP negotiation. If
-    // not then setter won't do anything.
-    packet->SetExtension<AbsoluteCaptureTimeExtension>(*absolute_capture_time);
+  if (absolute_capture_timestamp_ms > 0) {
+    // Send absolute capture time periodically in order to optimize and save
+    // network traffic. Missing absolute capture times can be interpolated on
+    // the receiving end if sending intervals are small enough.
+    auto absolute_capture_time = absolute_capture_time_sender_.OnSendPacket(
+        AbsoluteCaptureTimeSender::GetSource(packet->Ssrc(), packet->Csrcs()),
+        packet->Timestamp(),
+        // Replace missing value with 0 (invalid frequency), this will trigger
+        // absolute capture time sending.
+        encoder_rtp_timestamp_frequency.value_or(0),
+        Int64MsToUQ32x32(clock_->ConvertTimestampToNtpTimeInMilliseconds(
+            absolute_capture_timestamp_ms)),
+        /*estimated_capture_clock_offset=*/
+        include_capture_clock_offset_ ? absl::make_optional(0) : absl::nullopt);
+    if (absolute_capture_time) {
+      // It also checks that extension was registered during SDP negotiation. If
+      // not then setter won't do anything.
+      packet->SetExtension<AbsoluteCaptureTimeExtension>(
+          *absolute_capture_time);
+    }
   }
 
   uint8_t* payload = packet->AllocatePayload(payload_size);
@@ -292,11 +304,8 @@ bool RTPSenderAudio::SendAudio(AudioFrameType frame_type,
     return false;
   memcpy(payload, payload_data, payload_size);
 
-  if (!rtp_sender_->AssignSequenceNumber(packet.get()))
-    return false;
-
   {
-    rtc::CritScope cs(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     last_payload_type_ = payload_type;
   }
   TRACE_EVENT_ASYNC_END2("webrtc", "Audio", rtp_timestamp, "timestamp",
@@ -316,7 +325,7 @@ int32_t RTPSenderAudio::SetAudioLevel(uint8_t level_dbov) {
   if (level_dbov > 127) {
     return -1;
   }
-  rtc::CritScope cs(&send_audio_critsect_);
+  MutexLock lock(&send_audio_mutex_);
   audio_level_dbov_ = level_dbov;
   return 0;
 }
@@ -327,7 +336,7 @@ int32_t RTPSenderAudio::SendTelephoneEvent(uint8_t key,
                                            uint8_t level) {
   DtmfQueue::Event event;
   {
-    rtc::CritScope lock(&send_audio_critsect_);
+    MutexLock lock(&send_audio_mutex_);
     if (dtmf_payload_type_ < 0) {
       // TelephoneEvent payloadtype not configured
       return -1;
@@ -362,8 +371,6 @@ bool RTPSenderAudio::SendTelephoneEventPacket(bool ended,
     packet->SetSsrc(rtp_sender_->SSRC());
     packet->SetTimestamp(dtmf_timestamp);
     packet->set_capture_time_ms(clock_->TimeInMilliseconds());
-    if (!rtp_sender_->AssignSequenceNumber(packet.get()))
-      return false;
 
     // Create DTMF data.
     uint8_t* dtmfbuffer = packet->AllocatePayload(kDtmfSize);

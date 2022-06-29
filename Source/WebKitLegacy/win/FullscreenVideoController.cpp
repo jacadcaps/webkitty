@@ -36,6 +36,7 @@
 #include <WebCore/FontCascade.h>
 #include <WebCore/FontSelector.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/GraphicsContextWin.h>
 #include <WebCore/HWndDC.h>
 #include <WebCore/Page.h>
 #include <WebCore/TextRun.h>
@@ -325,8 +326,8 @@ void FullscreenVideoController::exitFullscreen()
     // As a side effect of setting the player to invisible/visible,
     // the player's layer will be recreated, and will be picked up 
     // the next time the layer tree is synched.
-    m_videoElement->player()->setVisible(0);
-    m_videoElement->player()->setVisible(1);
+    m_videoElement->player()->setPageIsVisible(0);
+    m_videoElement->player()->setPageIsVisible(1);
 }
 
 bool FullscreenVideoController::canPlay() const
@@ -490,7 +491,7 @@ void FullscreenVideoController::draw()
     auto bitmapDC = adoptGDIObject(::CreateCompatibleDC(HWndDC(m_hudWindow)));
     HGDIOBJ oldBitmap = SelectObject(bitmapDC.get(), m_bitmap.get());
 
-    GraphicsContext context(bitmapDC.get(), true);
+    GraphicsContextWin context(bitmapDC.get(), true);
 
     context.save();
 
@@ -524,7 +525,7 @@ void FullscreenVideoController::draw()
 
     desc.setComputedSize(textSize);
     FontCascade font = FontCascade(WTFMove(desc), 0, 0);
-    font.update(0);
+    font.update();
 
     String s;
 
@@ -534,7 +535,7 @@ void FullscreenVideoController::draw()
     // the text at the center of the slider.
     // Left string
     s = timeToString(currentTime());
-    int fontHeight = font.fontMetrics().height();
+    int fontHeight = font.metricsOfPrimaryFont().height();
     TextRun leftText(s);
     context.setFillColor(Color(textColor));
     context.drawText(font, leftText, IntPoint(windowWidth / 2 - timeSliderWidth / 2 - margin - font.width(leftText), windowHeight - margin - sliderHeight / 2 + fontHeight / 4));

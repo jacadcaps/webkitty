@@ -29,7 +29,7 @@
 #include "PixelDumpSupport.h"
 #include "PlatformWebView.h"
 #include "TestController.h"
-#include <ImageIO/CGImageDestination.h>
+#include <ImageIO/ImageIO.h>
 #include <WebKit/WKImageCG.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/SHA1.h>
@@ -45,25 +45,25 @@ static const CFStringRef kUTTypePNG = CFSTR("public.png");
 
 namespace WTR {
 
-static CGContextRef createCGContextFromCGImage(CGImageRef image)
+static RetainPtr<CGContextRef> createCGContextFromCGImage(CGImageRef image)
 {
     size_t pixelsWide = CGImageGetWidth(image);
     size_t pixelsHigh = CGImageGetHeight(image);
     size_t rowBytes = (4 * pixelsWide + 63) & ~63;
 
     // Creating this bitmap in the device color space should prevent any color conversion when the image of the web view is drawn into it.
-    RetainPtr<CGColorSpaceRef> colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    CGContextRef context = CGBitmapContextCreate(0, pixelsWide, pixelsHigh, 8, rowBytes, colorSpace.get(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
+    auto colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+    auto context = adoptCF(CGBitmapContextCreate(0, pixelsWide, pixelsHigh, 8, rowBytes, colorSpace.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
     if (!context)
         return nullptr;
 
-    CGContextDrawImage(context, CGRectMake(0, 0, pixelsWide, pixelsHigh), image);
+    CGContextDrawImage(context.get(), CGRectMake(0, 0, pixelsWide, pixelsHigh), image);
     return context;
 }
 
-static CGContextRef createCGContextFromImage(WKImageRef wkImage)
+static RetainPtr<CGContextRef> createCGContextFromImage(WKImageRef wkImage)
 {
-    RetainPtr<CGImageRef> image = adoptCF(WKImageCreateCGImage(wkImage));
+    auto image = adoptCF(WKImageCreateCGImage(wkImage));
     return createCGContextFromCGImage(image.get());
 }
 
@@ -107,12 +107,21 @@ void computeSHA1HashStringForContext(CGContextRef bitmapContext, char hashString
         snprintf(hashString, 33, "%s%02x", hashString, hash[i]);
 }
 
-static void dumpBitmap(CGContextRef bitmapContext, const char* checksum)
+static void dumpBitmap(CGContextRef bitmapContext, const char* checksum, WKSize imageSize, WKSize windowSize)
 {
-    RetainPtr<CGImageRef> image = adoptCF(CGBitmapContextCreateImage(bitmapContext));
-    RetainPtr<CFMutableDataRef> imageData = adoptCF(CFDataCreateMutable(0, 0));
-    RetainPtr<CGImageDestinationRef> imageDest = adoptCF(CGImageDestinationCreateWithData(imageData.get(), kUTTypePNG, 1, 0));
-    CGImageDestinationAddImage(imageDest.get(), image.get(), 0);
+    auto image = adoptCF(CGBitmapContextCreateImage(bitmapContext));
+    auto imageData = adoptCF(CFDataCreateMutable(0, 0));
+    auto imageDest = adoptCF(CGImageDestinationCreateWithData(imageData.get(), kUTTypePNG, 1, 0));
+
+    auto propertiesDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    double resolutionWidth = 72.0 * imageSize.width / windowSize.width;
+    double resolutionHeight = 72.0 * imageSize.height / windowSize.height;
+    auto resolutionWidthNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &resolutionWidth));
+    auto resolutionHeightNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &resolutionHeight));
+    CFDictionarySetValue(propertiesDictionary.get(), kCGImagePropertyDPIWidth, resolutionWidthNumber.get());
+    CFDictionarySetValue(propertiesDictionary.get(), kCGImagePropertyDPIHeight, resolutionHeightNumber.get());
+
+    CGImageDestinationAddImage(imageDest.get(), image.get(), propertiesDictionary.get());
     CGImageDestinationFinalize(imageDest.get());
 
     const unsigned char* data = CFDataGetBytePtr(imageData.get());
@@ -158,7 +167,7 @@ void TestInvocation::dumpPixelsAndCompareWithExpected(SnapshotResultType snapsho
             WTFLogAlways("dumpPixelsAndCompareWithExpected: image is null\n");
             return;
         }
-        context = adoptCF(createCGContextFromImage(wkImage));
+        context = createCGContextFromImage(wkImage);
         imageSize = WKImageGetSize(wkImage);
         break;
     case SnapshotResultType::WebView:
@@ -167,7 +176,7 @@ void TestInvocation::dumpPixelsAndCompareWithExpected(SnapshotResultType snapsho
             WTFLogAlways("dumpPixelsAndCompareWithExpected: image is null\n");
             return;
         }
-        context = adoptCF(createCGContextFromCGImage(image.get()));
+        context = createCGContextFromCGImage(image.get());
         imageSize = WKSizeMake(CGImageGetWidth(image.get()), CGImageGetHeight(image.get()));
         break;
     }
@@ -181,10 +190,12 @@ void TestInvocation::dumpPixelsAndCompareWithExpected(SnapshotResultType snapsho
     if (repaintRects)
         paintRepaintRectOverlay(context.get(), imageSize, repaintRects);
 
+    auto windowSize = TestController::singleton().mainWebView()->windowFrame().size;
+
     char actualHash[33];
     computeSHA1HashStringForContext(context.get(), actualHash);
     if (!compareActualHashToExpectedAndDumpResults(actualHash))
-        dumpBitmap(context.get(), actualHash);
+        dumpBitmap(context.get(), actualHash, imageSize, windowSize);
 }
 
 } // namespace WTR

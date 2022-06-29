@@ -18,7 +18,9 @@
 #include <vector>
 
 #include "api/network_state_predictor.h"
+#include "api/sequence_checker.h"
 #include "api/transport/network_control.h"
+#include "api/units/data_rate.h"
 #include "call/rtp_bitrate_configurator.h"
 #include "call/rtp_transport_controller_send_interface.h"
 #include "call/rtp_video_sender.h"
@@ -61,6 +63,7 @@ class RtpTransportControllerSend final
       const WebRtcKeyValueConfig* trials);
   ~RtpTransportControllerSend() override;
 
+  // TODO(tommi): Change to std::unique_ptr<>.
   RtpVideoSenderInterface* CreateRtpVideoSender(
       std::map<uint32_t, RtpState> suspended_ssrcs,
       const std::map<uint32_t, RtpPayloadState>&
@@ -105,10 +108,11 @@ class RtpTransportControllerSend final
   void SetClientBitratePreferences(const BitrateSettings& preferences) override;
 
   void OnTransportOverheadChanged(
-      size_t transport_overhead_per_packet) override;
+      size_t transport_overhead_bytes_per_packet) override;
 
   void AccountForAudioPacketsInPacedSender(bool account_for_audio) override;
   void IncludeOverheadInPacedSender() override;
+  void EnsureStarted() override;
 
   // Implements RtcpBandwidthObserver interface
   void OnReceivedEstimatedBitrate(uint32_t bitrate) override;
@@ -131,6 +135,10 @@ class RtpTransportControllerSend final
   void StartProcessPeriodicTasks() RTC_RUN_ON(task_queue_);
   void UpdateControllerWithTimeInterval() RTC_RUN_ON(task_queue_);
 
+  absl::optional<BitrateConstraints> ApplyOrLiftRelayCap(bool is_relayed);
+  bool IsRelevantRouteChange(const rtc::NetworkRoute& old_route,
+                             const rtc::NetworkRoute& new_route) const;
+  void UpdateBitrateConstraints(const BitrateConstraints& updated);
   void UpdateStreamsConfig() RTC_RUN_ON(task_queue_);
   void OnReceivedRtcpReceiverReportBlocks(const ReportBlockList& report_blocks,
                                           int64_t now_ms)
@@ -142,10 +150,13 @@ class RtpTransportControllerSend final
 
   Clock* const clock_;
   RtcEventLog* const event_log_;
+  SequenceChecker main_thread_;
   PacketRouter packet_router_;
-  std::vector<std::unique_ptr<RtpVideoSenderInterface>> video_rtp_senders_;
+  std::vector<std::unique_ptr<RtpVideoSenderInterface>> video_rtp_senders_
+      RTC_GUARDED_BY(&main_thread_);
   RtpBitrateConfigurator bitrate_configurator_;
   std::map<std::string, rtc::NetworkRoute> network_routes_;
+  bool pacer_started_;
   const std::unique_ptr<ProcessThread> process_thread_;
   const bool use_task_queue_pacer_;
   std::unique_ptr<PacedSender> process_thread_pacer_;
@@ -180,6 +191,7 @@ class RtpTransportControllerSend final
   const bool reset_feedback_on_route_change_;
   const bool send_side_bwe_with_overhead_;
   const bool add_pacing_to_cwin_;
+  FieldTrialParameter<DataRate> relay_bandwidth_cap_;
 
   size_t transport_overhead_bytes_per_packet_ RTC_GUARDED_BY(task_queue_);
   bool network_available_ RTC_GUARDED_BY(task_queue_);
@@ -189,8 +201,8 @@ class RtpTransportControllerSend final
   // Protected by internal locks.
   RateLimiter retransmission_rate_limiter_;
 
-  // TODO(perkj): |task_queue_| is supposed to replace |process_thread_|.
-  // |task_queue_| is defined last to ensure all pending tasks are cancelled
+  // TODO(perkj): `task_queue_` is supposed to replace `process_thread_`.
+  // `task_queue_` is defined last to ensure all pending tasks are cancelled
   // and deleted before any other members.
   rtc::TaskQueue task_queue_;
   RTC_DISALLOW_COPY_AND_ASSIGN(RtpTransportControllerSend);

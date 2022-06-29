@@ -32,11 +32,12 @@
 namespace WebCore {
 
 class WebGLCompressedTextureETC final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(WebGLCompressedTextureETC);
 public:
     explicit WebGLCompressedTextureETC(WebGLRenderingContextBase&);
     virtual ~WebGLCompressedTextureETC();
 
-    static bool supported(WebGLRenderingContextBase&);
+    static bool supported(GraphicsContextGL&);
     ExtensionName getName() const override;
 };
 

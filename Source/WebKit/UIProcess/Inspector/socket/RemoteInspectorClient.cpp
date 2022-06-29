@@ -29,17 +29,18 @@
 #if ENABLE(REMOTE_INSPECTOR)
 
 #include "APIDebuggableInfo.h"
-#include "RemoteWebInspectorProxy.h"
+#include "APIInspectorConfiguration.h"
+#include "RemoteWebInspectorUIProxy.h"
 #include <wtf/MainThread.h>
 #include <wtf/text/Base64.h>
 
 namespace WebKit {
 
-class RemoteInspectorProxy final : public RemoteWebInspectorProxyClient {
+class RemoteInspectorProxy final : public RemoteWebInspectorUIProxyClient {
     WTF_MAKE_FAST_ALLOCATED();
 public:
     RemoteInspectorProxy(RemoteInspectorClient& inspectorClient, ConnectionID connectionID, TargetID targetID, Inspector::DebuggableType debuggableType)
-        : m_proxy(RemoteWebInspectorProxy::create())
+        : m_proxy(RemoteWebInspectorUIProxy::create())
         , m_inspectorClient(inspectorClient)
         , m_connectionID(connectionID)
         , m_targetID(targetID)
@@ -67,6 +68,8 @@ public:
         m_proxy->show();
     }
 
+    // MARK: RemoteWebInspectorUIProxyClient methods
+
     void sendMessageToFrontend(const String& message)
     {
         m_proxy->sendMessageToFrontend(message);
@@ -82,8 +85,13 @@ public:
         m_inspectorClient.closeFromFrontend(m_connectionID, m_targetID);
     }
 
+    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&)
+    {
+        return API::InspectorConfiguration::create();
+    }
+
 private:
-    Ref<RemoteWebInspectorProxy> m_proxy;
+    Ref<RemoteWebInspectorUIProxy> m_proxy;
     RemoteInspectorClient& m_inspectorClient;
     ConnectionID m_connectionID;
     TargetID m_targetID;
@@ -113,10 +121,10 @@ RemoteInspectorClient::~RemoteInspectorClient()
 
 void RemoteInspectorClient::sendWebInspectorEvent(const String& event)
 {
-    ASSERT(isMainThread());
-    ASSERT(m_connectionID.hasValue());
+    ASSERT(isMainRunLoop());
+    ASSERT(m_connectionID);
     auto message = event.utf8();
-    send(m_connectionID.value(), reinterpret_cast<const uint8_t*>(message.data()), message.length());
+    send(m_connectionID.value(), message.dataAsUInt8Ptr(), message.length());
 }
 
 HashMap<String, Inspector::RemoteInspectorConnectionClient::CallHandler>& RemoteInspectorClient::dispatchMap()
@@ -145,9 +153,9 @@ void RemoteInspectorClient::connectionClosed()
     m_observer.targetListChanged(*this);
 }
 
-void RemoteInspectorClient::didClose(ConnectionID)
+void RemoteInspectorClient::didClose(Inspector::RemoteInspectorSocketEndpoint&, ConnectionID)
 {
-    callOnMainThread([this] {
+    callOnMainRunLoop([this] {
         connectionClosed();
     });
 }
@@ -198,7 +206,7 @@ void RemoteInspectorClient::setBackendCommands(const Event& event)
     if (!event.message || event.message->isEmpty())
         return;
 
-    m_backendCommandsURL = makeString("data:text/javascript;base64,", base64Encode(event.message->utf8()));
+    m_backendCommandsURL = makeString("data:text/javascript;base64,", base64Encoded(event.message->utf8()));
 }
 
 void RemoteInspectorClient::setTargetList(const Event& event)
@@ -206,25 +214,38 @@ void RemoteInspectorClient::setTargetList(const Event& event)
     if (!event.connectionID || !event.message)
         return;
 
-    RefPtr<JSON::Value> messageValue;
-    if (!JSON::Value::parseJSON(event.message.value(), messageValue))
+    auto messageValue = JSON::Value::parseJSON(event.message.value());
+    if (!messageValue)
         return;
 
-    RefPtr<JSON::Array> messageArray;
-    if (!messageValue->asArray(messageArray))
+    auto messageArray = messageValue->asArray();
+    if (!messageArray)
         return;
 
     Vector<Target> targetList;
     for (auto& itemValue : *messageArray) {
-        RefPtr<JSON::Object> itemObject;
-        if (!itemValue->asObject(itemObject))
+        auto itemObject = itemValue->asObject();
+        if (!itemObject)
             continue;
 
         Target target;
-        if (!itemObject->getInteger("targetID"_s, target.id)
-            || !itemObject->getString("name"_s, target.name)
-            || !itemObject->getString("url"_s, target.url)
-            || !itemObject->getString("type"_s, target.type))
+
+        auto targetID = itemObject->getInteger("targetID"_s);
+        if (!targetID)
+            continue;
+
+        target.id = *targetID;
+
+        target.name = itemObject->getString("name"_s);
+        if (!target.name)
+            continue;
+
+        target.url = itemObject->getString("url"_s);
+        if (!target.url)
+            continue;
+
+        target.type = itemObject->getString("type"_s);
+        if (!target.type)
             continue;
 
         targetList.append(WTFMove(target));

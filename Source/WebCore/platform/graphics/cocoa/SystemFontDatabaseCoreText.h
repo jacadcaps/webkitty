@@ -26,7 +26,7 @@
 #pragma once
 
 #include "FontDescription.h"
-#include <pal/spi/cocoa/CoreTextSPI.h>
+#include <pal/spi/cf/CoreTextSPI.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashTraits.h>
 #include <wtf/text/AtomString.h>
@@ -64,6 +64,7 @@ public:
             return fontName == other.fontName
                 && locale == other.locale
                 && weight == other.weight
+                && width == other.width
                 && size == other.size
                 && allowUserInstalledFonts == other.allowUserInstalledFonts
                 && italic == other.italic;
@@ -71,32 +72,19 @@ public:
 
         unsigned hash() const
         {
-            IntegerHasher hasher;
-            ASSERT(!fontName.isNull());
-            hasher.add(locale.existingHash());
-            hasher.add(locale.isNull() ? 0 : locale.existingHash());
-            hasher.add(weight);
-            hasher.add(size);
-            hasher.add(static_cast<unsigned>(allowUserInstalledFonts));
-            hasher.add(italic);
-            return hasher.hash();
+            return computeHash(fontName, locale, weight, width, size, allowUserInstalledFonts, italic);
         }
 
-        struct CascadeListParametersHash : WTF::PairHash<AtomString, float> {
-            static unsigned hash(const CascadeListParameters& parameters)
-            {
-                return parameters.hash();
-            }
-            static bool equal(const CascadeListParameters& a, const CascadeListParameters& b)
-            {
-                return a == b;
-            }
+        struct Hash {
+            static unsigned hash(const CascadeListParameters& parameters) { return parameters.hash(); }
+            static bool equal(const CascadeListParameters& a, const CascadeListParameters& b) { return a == b; }
             static const bool safeToCompareToEmptyOrDeleted = true;
         };
 
         AtomString fontName;
         AtomString locale;
         CGFloat weight { 0 };
+        CGFloat width { 0 };
         float size { 0 };
         AllowUserInstalledFonts allowUserInstalledFonts { AllowUserInstalledFonts::No };
         bool italic { false };
@@ -123,12 +111,12 @@ private:
     RetainPtr<CTFontRef> createSystemDesignFont(SystemFontKind, const CascadeListParameters&);
     RetainPtr<CTFontRef> createTextStyleFont(const CascadeListParameters&);
 
-    static RetainPtr<CTFontRef> createFontByApplyingWeightItalicsAndFallbackBehavior(CTFontRef, CGFloat weight, bool italic, float size, AllowUserInstalledFonts, CFStringRef design = nullptr);
+    static RetainPtr<CTFontRef> createFontByApplyingWeightWidthItalicsAndFallbackBehavior(CTFontRef, CGFloat weight, CGFloat width, bool italic, float size, AllowUserInstalledFonts, CFStringRef design = nullptr);
     static RetainPtr<CTFontDescriptorRef> removeCascadeList(CTFontDescriptorRef);
     static Vector<RetainPtr<CTFontDescriptorRef>> computeCascadeList(CTFontRef, CFStringRef locale);
     static CascadeListParameters systemFontParameters(const FontDescription&, const AtomString& familyName, SystemFontKind, AllowUserInstalledFonts);
 
-    HashMap<CascadeListParameters, Vector<RetainPtr<CTFontDescriptorRef>>, CascadeListParameters::CascadeListParametersHash, SimpleClassHashTraits<CascadeListParameters>> m_systemFontCache;
+    HashMap<CascadeListParameters, Vector<RetainPtr<CTFontDescriptorRef>>, CascadeListParameters::Hash, SimpleClassHashTraits<CascadeListParameters>> m_systemFontCache;
 
     HashMap<String, String> m_serifFamilies;
     HashMap<String, String> m_sansSeriferifFamilies;

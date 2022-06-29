@@ -54,8 +54,7 @@ DropTarget::DropTarget(GtkWidget* webView)
         static_cast<GdkDragAction>(GDK_ACTION_COPY | GDK_ACTION_MOVE | GDK_ACTION_LINK));
     g_signal_connect(target, "accept", G_CALLBACK(+[](GtkDropTargetAsync*, GdkDrop* gdkDrop, gpointer userData) -> gboolean {
         auto& drop = *static_cast<DropTarget*>(userData);
-        drop.m_drop = gdkDrop;
-        drop.accept();
+        drop.accept(gdkDrop);
         return TRUE;
     }), this);
 
@@ -102,9 +101,10 @@ DropTarget::~DropTarget()
     g_cancellable_cancel(m_cancellable.get());
 }
 
-void DropTarget::accept(unsigned)
+void DropTarget::accept(GdkDrop* drop, std::optional<WebCore::IntPoint> position, unsigned)
 {
-    m_position = WTF::nullopt;
+    m_drop = drop;
+    m_position = position;
     m_selectionData = SelectionData();
     m_dataRequestCount = 0;
     m_cancellable = adoptGRef(g_cancellable_new());
@@ -294,14 +294,14 @@ void DropTarget::leave()
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
 
-    auto position = m_position.valueOr(IntPoint());
+    auto position = m_position.value_or(IntPoint());
     DragData dragData(&m_selectionData.value(), position, position, { });
     page->dragExited(dragData);
     page->resetCurrentDragInformation();
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
     m_cancellable = nullptr;
 }
 

@@ -124,7 +124,7 @@ RetainPtr<UIImage> iconForVideoFile(NSURL *file)
     [generator setAppliesPreferredTrackTransform:YES];
 
     NSError *error = nil;
-    RetainPtr<CGImageRef> imageRef = adoptCF([generator copyCGImageAtTime:kCMTimeZero actualTime:nil error:&error]);
+    RetainPtr<CGImageRef> imageRef = adoptCF([generator copyCGImageAtTime:PAL::kCMTimeZero actualTime:nil error:&error]);
     if (!imageRef) {
         LOG_ERROR("Error creating image for video '%@': %@", file, error);
         return fallbackIconForFile(file);
@@ -141,6 +141,7 @@ RetainPtr<UIImage> iconForFile(NSURL *file)
     if (!fileExtension.length)
         return nil;
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<CFStringRef> fileUTI = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (CFStringRef)fileExtension, 0));
 
     if (UTTypeConformsTo(fileUTI.get(), kUTTypeImage))
@@ -148,6 +149,7 @@ RetainPtr<UIImage> iconForFile(NSURL *file)
 
     if (UTTypeConformsTo(fileUTI.get(), kUTTypeMovie))
         return iconForVideoFile(file);
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return fallbackIconForFile(file);
 }

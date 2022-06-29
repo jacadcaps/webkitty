@@ -42,7 +42,7 @@ struct CDMKeySystemConfiguration;
 }
 
 namespace IPC {
-class SharedBufferDataReference;
+class SharedBufferCopy;
 }
 
 namespace WebKit {
@@ -50,9 +50,12 @@ namespace WebKit {
 struct RemoteCDMInstanceConfiguration;
 class RemoteCDMInstanceSessionProxy;
 
-class RemoteCDMInstanceProxy : private IPC::MessageReceiver  {
+class RemoteCDMInstanceProxy : public WebCore::CDMInstanceClient, private IPC::MessageReceiver  {
 public:
-    static std::unique_ptr<RemoteCDMInstanceProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstance>&&);
+    using WebCore::CDMInstanceClient::weakPtrFactory;
+    using WeakValueType = WebCore::CDMInstanceClient::WeakValueType;
+
+    static std::unique_ptr<RemoteCDMInstanceProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstance>&&, RemoteCDMInstanceIdentifier);
     ~RemoteCDMInstanceProxy();
 
     const RemoteCDMInstanceConfiguration& configuration() const { return m_configuration.get(); }
@@ -60,11 +63,14 @@ public:
 
 private:
     friend class RemoteCDMFactoryProxy;
-    RemoteCDMInstanceProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstance>&&, UniqueRef<RemoteCDMInstanceConfiguration>&&);
+    RemoteCDMInstanceProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstance>&&, UniqueRef<RemoteCDMInstanceConfiguration>&&, RemoteCDMInstanceIdentifier);
+
+    // CDMInstanceClient
+    void unrequestedInitializationDataReceived(const String&, Ref<WebCore::FragmentedSharedBuffer>&&) final;
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     using SuccessValue = WebCore::CDMInstance::SuccessValue;
     using AllowDistinctiveIdentifiers = WebCore::CDMInstance::AllowDistinctiveIdentifiers;
@@ -72,13 +78,14 @@ private:
 
     // Messages
     void initializeWithConfiguration(const WebCore::CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers, AllowPersistentState, CompletionHandler<void(SuccessValue)>&&);
-    void setServerCertificate(IPC::SharedBufferDataReference&&, CompletionHandler<void(SuccessValue)>&&);
+    void setServerCertificate(IPC::SharedBufferCopy&&, CompletionHandler<void(SuccessValue)>&&);
     void setStorageDirectory(const String&);
     void createSession(CompletionHandler<void(const RemoteCDMInstanceSessionIdentifier&)>&&);
 
     WeakPtr<RemoteCDMProxy> m_cdm;
     Ref<WebCore::CDMInstance> m_instance;
     UniqueRef<RemoteCDMInstanceConfiguration> m_configuration;
+    RemoteCDMInstanceIdentifier m_identifier;
     HashMap<RemoteCDMInstanceSessionIdentifier, std::unique_ptr<RemoteCDMInstanceSessionProxy>> m_sessions;
 };
 

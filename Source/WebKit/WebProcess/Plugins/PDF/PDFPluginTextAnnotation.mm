@@ -29,10 +29,10 @@
 #if ENABLE(PDFKIT_PLUGIN)
 
 #import "PDFAnnotationTextWidgetDetails.h"
-#import "PDFKitImports.h"
 #import "PDFLayerControllerSPI.h"
 #import "PDFPlugin.h"
 #import <Quartz/Quartz.h>
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/CSSPrimitiveValue.h>
 #import <WebCore/CSSPropertyNames.h>
 #import <WebCore/ColorMac.h>
@@ -95,7 +95,7 @@ Ref<Element> PDFPluginTextAnnotation::createAnnotationElement()
         return element;
 
     // FIXME: Match font weight and style as well?
-    styledElement.setInlineStyleProperty(CSSPropertyColor, serializationForHTML(colorFromNSColor(textAnnotation.fontColor)));
+    styledElement.setInlineStyleProperty(CSSPropertyColor, serializationForHTML(colorFromCocoaColor(textAnnotation.fontColor)));
     styledElement.setInlineStyleProperty(CSSPropertyFontFamily, textAnnotation.font.familyName);
     styledElement.setInlineStyleProperty(CSSPropertyTextAlign, cssAlignmentValueForNSTextAlignment(textAnnotation.alignment));
 

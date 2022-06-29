@@ -15,6 +15,7 @@
 #include <string>
 
 #include "p2p/base/async_stun_tcp_socket.h"
+#include "rtc_base/async_resolver.h"
 #include "rtc_base/async_tcp_socket.h"
 #include "rtc_base/async_udp_socket.h"
 #include "rtc_base/checks.h"
@@ -24,19 +25,12 @@
 #include "rtc_base/socket_adapters.h"
 #include "rtc_base/socket_server.h"
 #include "rtc_base/ssl_adapter.h"
-#include "rtc_base/thread.h"
 
 namespace rtc {
 
-BasicPacketSocketFactory::BasicPacketSocketFactory()
-    : thread_(Thread::Current()), socket_factory_(NULL) {}
-
-BasicPacketSocketFactory::BasicPacketSocketFactory(Thread* thread)
-    : thread_(thread), socket_factory_(NULL) {}
-
 BasicPacketSocketFactory::BasicPacketSocketFactory(
     SocketFactory* socket_factory)
-    : thread_(NULL), socket_factory_(socket_factory) {}
+    : socket_factory_(socket_factory) {}
 
 BasicPacketSocketFactory::~BasicPacketSocketFactory() {}
 
@@ -45,8 +39,7 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateUdpSocket(
     uint16_t min_port,
     uint16_t max_port) {
   // UDP sockets are simple.
-  AsyncSocket* socket =
-      socket_factory()->CreateAsyncSocket(address.family(), SOCK_DGRAM);
+  Socket* socket = socket_factory_->CreateSocket(address.family(), SOCK_DGRAM);
   if (!socket) {
     return NULL;
   }
@@ -58,7 +51,7 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateUdpSocket(
   return new AsyncUDPSocket(socket);
 }
 
-AsyncPacketSocket* BasicPacketSocketFactory::CreateServerTcpSocket(
+AsyncListenSocket* BasicPacketSocketFactory::CreateServerTcpSocket(
     const SocketAddress& local_address,
     uint16_t min_port,
     uint16_t max_port,
@@ -69,8 +62,8 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateServerTcpSocket(
     return NULL;
   }
 
-  AsyncSocket* socket =
-      socket_factory()->CreateAsyncSocket(local_address.family(), SOCK_STREAM);
+  Socket* socket =
+      socket_factory_->CreateSocket(local_address.family(), SOCK_STREAM);
   if (!socket) {
     return NULL;
   }
@@ -81,18 +74,21 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateServerTcpSocket(
     return NULL;
   }
 
+  // Set TCP_NODELAY (via OPT_NODELAY) for improved performance; this causes
+  // small media packets to be sent immediately rather than being buffered up,
+  // reducing latency.
+  if (socket->SetOption(Socket::OPT_NODELAY, 1) != 0) {
+    RTC_LOG(LS_ERROR) << "Setting TCP_NODELAY option failed with error "
+                      << socket->GetError();
+  }
+
   // If using fake TLS, wrap the TCP socket in a pseudo-SSL socket.
   if (opts & PacketSocketFactory::OPT_TLS_FAKE) {
     RTC_DCHECK(!(opts & PacketSocketFactory::OPT_TLS));
     socket = new AsyncSSLSocket(socket);
   }
 
-  // Set TCP_NODELAY (via OPT_NODELAY) for improved performance.
-  // See http://go/gtalktcpnodelayexperiment
-  socket->SetOption(Socket::OPT_NODELAY, 1);
-
-  if (opts & PacketSocketFactory::OPT_STUN)
-    return new cricket::AsyncStunTCPSocket(socket, true);
+  RTC_CHECK(!(opts & PacketSocketFactory::OPT_STUN));
 
   return new AsyncTCPSocket(socket, true);
 }
@@ -103,8 +99,8 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateClientTcpSocket(
     const ProxyInfo& proxy_info,
     const std::string& user_agent,
     const PacketSocketTcpOptions& tcp_options) {
-  AsyncSocket* socket =
-      socket_factory()->CreateAsyncSocket(local_address.family(), SOCK_STREAM);
+  Socket* socket =
+      socket_factory_->CreateSocket(local_address.family(), SOCK_STREAM);
   if (!socket) {
     return NULL;
   }
@@ -121,6 +117,16 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateClientTcpSocket(
       delete socket;
       return NULL;
     }
+  }
+
+  // Set TCP_NODELAY (via OPT_NODELAY) for improved performance; this causes
+  // small media packets to be sent immediately rather than being buffered up,
+  // reducing latency.
+  //
+  // Must be done before calling Connect, otherwise it may fail.
+  if (socket->SetOption(Socket::OPT_NODELAY, 1) != 0) {
+    RTC_LOG(LS_ERROR) << "Setting TCP_NODELAY option failed with error "
+                      << socket->GetError();
   }
 
   // If using a proxy, wrap the socket in a proxy socket.
@@ -157,7 +163,7 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateClientTcpSocket(
 
     socket = ssl_adapter;
 
-    if (ssl_adapter->StartSSL(remote_address.hostname().c_str(), false) != 0) {
+    if (ssl_adapter->StartSSL(remote_address.hostname().c_str()) != 0) {
       delete ssl_adapter;
       return NULL;
     }
@@ -176,14 +182,10 @@ AsyncPacketSocket* BasicPacketSocketFactory::CreateClientTcpSocket(
   // Finally, wrap that socket in a TCP or STUN TCP packet socket.
   AsyncPacketSocket* tcp_socket;
   if (tcp_options.opts & PacketSocketFactory::OPT_STUN) {
-    tcp_socket = new cricket::AsyncStunTCPSocket(socket, false);
+    tcp_socket = new cricket::AsyncStunTCPSocket(socket);
   } else {
     tcp_socket = new AsyncTCPSocket(socket, false);
   }
-
-  // Set TCP_NODELAY (via OPT_NODELAY) for improved performance.
-  // See http://go/gtalktcpnodelayexperiment
-  tcp_socket->SetOption(Socket::OPT_NODELAY, 1);
 
   return tcp_socket;
 }
@@ -192,7 +194,7 @@ AsyncResolverInterface* BasicPacketSocketFactory::CreateAsyncResolver() {
   return new AsyncResolver();
 }
 
-int BasicPacketSocketFactory::BindSocket(AsyncSocket* socket,
+int BasicPacketSocketFactory::BindSocket(Socket* socket,
                                          const SocketAddress& local_address,
                                          uint16_t min_port,
                                          uint16_t max_port) {
@@ -207,15 +209,6 @@ int BasicPacketSocketFactory::BindSocket(AsyncSocket* socket,
     }
   }
   return ret;
-}
-
-SocketFactory* BasicPacketSocketFactory::socket_factory() {
-  if (thread_) {
-    RTC_DCHECK(thread_ == Thread::Current());
-    return thread_->socketserver();
-  } else {
-    return socket_factory_;
-  }
 }
 
 }  // namespace rtc

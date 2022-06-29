@@ -37,7 +37,7 @@
 #import <WebCore/Document.h>
 #import <WebCore/DragController.h>
 #import <WebCore/Editor.h>
-#import <WebCore/Element.h>
+#import <WebCore/ElementInlines.h>
 #import <WebCore/Frame.h>
 #import <WebCore/FrameDestructionObserver.h>
 #import <WebCore/FrameView.h>
@@ -46,6 +46,7 @@
 #import <WebCore/LocalCurrentGraphicsContext.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/Page.h>
+#import <WebCore/PagePasteboardContext.h>
 #import <WebCore/Pasteboard.h>
 #import <WebCore/RenderImage.h>
 #import <WebCore/StringTruncator.h>
@@ -67,9 +68,7 @@ using DragImage = CGImageRef;
 
 static RefPtr<ShareableBitmap> convertDragImageToBitmap(DragImage image, const IntSize& size, Frame& frame)
 {
-    ShareableBitmap::Configuration bitmapConfiguration;
-    bitmapConfiguration.colorSpace.cgColorSpace = screenColorSpace(frame.mainFrame().view());
-    auto bitmap = ShareableBitmap::createShareable(size, bitmapConfiguration);
+    auto bitmap = ShareableBitmap::createShareable(size, { screenColorSpace(frame.mainFrame().view()) });
     if (!bitmap)
         return nullptr;
 
@@ -151,14 +150,13 @@ void WebDragClient::declareAndWriteDragImage(const String& pasteboardName, Eleme
 
     NSURLResponse *response = image->response().nsURLResponse();
     
-    RefPtr<SharedBuffer> imageBuffer = image->image()->data();
+    auto imageBuffer = image->image()->data();
     size_t imageSize = imageBuffer->size();
-    SharedMemory::Handle imageHandle;
-    
-    RefPtr<SharedMemory> sharedMemoryBuffer = SharedMemory::allocate(imageBuffer->size());
+
+    auto sharedMemoryBuffer = SharedMemory::copyBuffer(*imageBuffer);
     if (!sharedMemoryBuffer)
         return;
-    memcpy(sharedMemoryBuffer->data(), imageBuffer->data(), imageSize);
+    SharedMemory::Handle imageHandle;
     sharedMemoryBuffer->createHandle(imageHandle, SharedMemory::Protection::ReadOnly);
     
     RetainPtr<CFDataRef> data = archive ? archive->rawDataRepresentation() : 0;
@@ -166,11 +164,10 @@ void WebDragClient::declareAndWriteDragImage(const String& pasteboardName, Eleme
     size_t archiveSize = 0;
     if (data) {
         auto archiveBuffer = SharedBuffer::create((__bridge NSData *)data.get());
-        RefPtr<SharedMemory> archiveSharedMemoryBuffer = SharedMemory::allocate(archiveBuffer->size());
+        auto archiveSharedMemoryBuffer = SharedMemory::copyBuffer(archiveBuffer.get());
         if (!archiveSharedMemoryBuffer)
             return;
         archiveSize = archiveBuffer->size();
-        memcpy(archiveSharedMemoryBuffer->data(), archiveBuffer->data(), archiveSize);
         archiveSharedMemoryBuffer->createHandle(archiveHandle, SharedMemory::Protection::ReadOnly);
     }
 
@@ -181,15 +178,15 @@ void WebDragClient::declareAndWriteDragImage(const String& pasteboardName, Eleme
             filename = downloadFilename;
     }
 
-    m_page->send(Messages::WebPageProxy::SetPromisedDataForImage(pasteboardName, imageHandle, imageSize, filename, extension, title, String([[response URL] absoluteString]), WTF::userVisibleString(url), archiveHandle, archiveSize));
+    m_page->send(Messages::WebPageProxy::SetPromisedDataForImage(pasteboardName, SharedMemory::IPCHandle { WTFMove(imageHandle), imageSize }, filename, extension, title, String([[response URL] absoluteString]), WTF::userVisibleString(url), SharedMemory::IPCHandle { WTFMove(archiveHandle), archiveSize }, element.document().originIdentifierForPasteboard()));
 }
 
 #else
 
 void WebDragClient::declareAndWriteDragImage(const String& pasteboardName, Element& element, const URL& url, const String& label, Frame*)
 {
-    if (auto frame = element.document().frame())
-        frame->editor().writeImageToPasteboard(*Pasteboard::createForDragAndDrop(), element, url, label);
+    if (RefPtr frame = element.document().frame())
+        frame->editor().writeImageToPasteboard(*Pasteboard::createForDragAndDrop(PagePasteboardContext::create(frame->pageID())), element, url, label);
 }
 
 #endif // USE(APPKIT)

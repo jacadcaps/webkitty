@@ -19,12 +19,17 @@
 #include <string>
 #include <vector>
 
+#include "api/array_view.h"
+#include "api/sequence_checker.h"
 #include "rtc_base/ip_address.h"
 #include "rtc_base/mdns_responder_interface.h"
 #include "rtc_base/message_handler.h"
 #include "rtc_base/network_monitor.h"
+#include "rtc_base/network_monitor_factory.h"
+#include "rtc_base/socket_factory.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/thread_annotations.h"
 
 #if defined(WEBRTC_POSIX)
 struct ifaddrs;
@@ -74,6 +79,25 @@ class MdnsResponderProvider {
   //
   // The provider MUST outlive the mDNS responder.
   virtual webrtc::MdnsResponderInterface* GetMdnsResponder() const = 0;
+};
+
+// Network/mask in CIDR representation.
+class NetworkMask {
+ public:
+  NetworkMask(const IPAddress& addr, int prefix_length)
+      : address_(addr), prefix_length_(prefix_length) {}
+
+  const IPAddress& address() const { return address_; }
+  int prefix_length() const { return prefix_length_; }
+
+  bool operator==(const NetworkMask& o) const {
+    return address_ == o.address_ && prefix_length_ == o.prefix_length_;
+  }
+
+ private:
+  IPAddress address_;
+  // Length of valid bits in address_ (for ipv4 valid range is 0-32)
+  int prefix_length_;
 };
 
 // Generic network manager interface. It provides list of local
@@ -155,6 +179,8 @@ class RTC_EXPORT NetworkManager : public DefaultLocalAddressProvider,
 
   // MdnsResponderProvider interface.
   webrtc::MdnsResponderInterface* GetMdnsResponder() const override;
+
+  virtual void set_vpn_list(const std::vector<NetworkMask>& vpn) {}
 };
 
 // Base class for NetworkManager implementations.
@@ -170,16 +196,20 @@ class RTC_EXPORT NetworkManagerBase : public NetworkManager {
 
   bool GetDefaultLocalAddress(int family, IPAddress* ipaddr) const override;
 
+  // Check if MAC address in |bytes| is one of the pre-defined
+  // MAC addresses for know VPNs.
+  static bool IsVpnMacAddress(rtc::ArrayView<const uint8_t> address);
+
  protected:
   typedef std::map<std::string, Network*> NetworkMap;
-  // Updates |networks_| with the networks listed in |list|. If
-  // |network_map_| already has a Network object for a network listed
-  // in the |list| then it is reused. Accept ownership of the Network
-  // objects in the |list|. |changed| will be set to true if there is
+  // Updates `networks_` with the networks listed in `list`. If
+  // `network_map_` already has a Network object for a network listed
+  // in the `list` then it is reused. Accept ownership of the Network
+  // objects in the `list`. `changed` will be set to true if there is
   // any change in the network list.
   void MergeNetworkList(const NetworkList& list, bool* changed);
 
-  // |stats| will be populated even if |*changed| is false.
+  // `stats` will be populated even if |*changed| is false.
   void MergeNetworkList(const NetworkList& list,
                         bool* changed,
                         NetworkManager::Stats* stats);
@@ -191,10 +221,10 @@ class RTC_EXPORT NetworkManagerBase : public NetworkManager {
   void set_default_local_addresses(const IPAddress& ipv4,
                                    const IPAddress& ipv6);
 
+  Network* GetNetworkFromAddress(const rtc::IPAddress& ip) const;
+
  private:
   friend class NetworkTest;
-
-  Network* GetNetworkFromAddress(const rtc::IPAddress& ip) const;
 
   EnumerationPermission enumeration_permission_;
 
@@ -212,15 +242,26 @@ class RTC_EXPORT NetworkManagerBase : public NetworkManager {
   // network id 0 because we only compare the network ids in the old and the new
   // best connections in the transport channel.
   uint16_t next_available_network_id_ = 1;
+
+  // True if calling network_preference() with a changed value
+  // should result in firing the SignalNetworkChanged signal.
+  bool signal_network_preference_change_ = false;
 };
 
 // Basic implementation of the NetworkManager interface that gets list
 // of networks using OS APIs.
 class RTC_EXPORT BasicNetworkManager : public NetworkManagerBase,
-                                       public MessageHandler,
+                                       public MessageHandlerAutoCleanup,
+                                       public NetworkBinderInterface,
                                        public sigslot::has_slots<> {
  public:
   BasicNetworkManager();
+
+  ABSL_DEPRECATED(
+      "Use the version with socket_factory, see bugs.webrtc.org/13145")
+  explicit BasicNetworkManager(NetworkMonitorFactory* network_monitor_factory);
+  BasicNetworkManager(NetworkMonitorFactory* network_monitor_factory,
+                      SocketFactory* socket_factory);
   ~BasicNetworkManager() override;
 
   void StartUpdating() override;
@@ -234,9 +275,26 @@ class RTC_EXPORT BasicNetworkManager : public NetworkManagerBase,
 
   // Sets the network ignore list, which is empty by default. Any network on the
   // ignore list will be filtered from network enumeration results.
+  // Should be called only before initialization.
   void set_network_ignore_list(const std::vector<std::string>& list) {
+    RTC_DCHECK(thread_ == nullptr);
     network_ignore_list_ = list;
   }
+
+  // Set a list of manually configured VPN's.
+  void set_vpn_list(const std::vector<NetworkMask>& vpn) override;
+
+  // Check if |prefix| is configured as VPN.
+  bool IsConfiguredVpn(IPAddress prefix, int prefix_length) const;
+
+  // Bind a socket to interface that ip address belong to.
+  // Implementation look up interface name and calls
+  // BindSocketToNetwork on NetworkMonitor.
+  // The interface name is needed as e.g ipv4 over ipv6 addresses
+  // are not exposed using Android functions, but it is possible
+  // bind an ipv4 address to the interface.
+  NetworkBindingResult BindSocketToNetwork(int socket_fd,
+                                           const IPAddress& address) override;
 
  protected:
 #if defined(WEBRTC_POSIX)
@@ -244,41 +302,49 @@ class RTC_EXPORT BasicNetworkManager : public NetworkManagerBase,
   void ConvertIfAddrs(ifaddrs* interfaces,
                       IfAddrsConverter* converter,
                       bool include_ignored,
-                      NetworkList* networks) const;
+                      NetworkList* networks) const RTC_RUN_ON(thread_);
 #endif  // defined(WEBRTC_POSIX)
 
   // Creates a network object for each network available on the machine.
-  bool CreateNetworks(bool include_ignored, NetworkList* networks) const;
+  bool CreateNetworks(bool include_ignored, NetworkList* networks) const
+      RTC_RUN_ON(thread_);
 
   // Determines if a network should be ignored. This should only be determined
   // based on the network's property instead of any individual IP.
-  bool IsIgnoredNetwork(const Network& network) const;
+  bool IsIgnoredNetwork(const Network& network) const RTC_RUN_ON(thread_);
 
   // This function connects a UDP socket to a public address and returns the
   // local address associated it. Since it binds to the "any" address
   // internally, it returns the default local address on a multi-homed endpoint.
-  IPAddress QueryDefaultLocalAddress(int family) const;
+  IPAddress QueryDefaultLocalAddress(int family) const RTC_RUN_ON(thread_);
 
  private:
   friend class NetworkTest;
 
   // Creates a network monitor and listens for network updates.
-  void StartNetworkMonitor();
+  void StartNetworkMonitor() RTC_RUN_ON(thread_);
   // Stops and removes the network monitor.
-  void StopNetworkMonitor();
+  void StopNetworkMonitor() RTC_RUN_ON(thread_);
   // Called when it receives updates from the network monitor.
   void OnNetworksChanged();
 
   // Updates the networks and reschedules the next update.
-  void UpdateNetworksContinually();
+  void UpdateNetworksContinually() RTC_RUN_ON(thread_);
   // Only updates the networks; does not reschedule the next update.
-  void UpdateNetworksOnce();
+  void UpdateNetworksOnce() RTC_RUN_ON(thread_);
 
-  Thread* thread_;
-  bool sent_first_update_;
-  int start_count_;
+  Thread* thread_ = nullptr;
+  bool sent_first_update_ = true;
+  int start_count_ = 0;
   std::vector<std::string> network_ignore_list_;
-  std::unique_ptr<NetworkMonitorInterface> network_monitor_;
+  NetworkMonitorFactory* const network_monitor_factory_;
+  SocketFactory* const socket_factory_;
+  std::unique_ptr<NetworkMonitorInterface> network_monitor_
+      RTC_GUARDED_BY(thread_);
+  bool allow_mac_based_ipv6_ RTC_GUARDED_BY(thread_) = false;
+  bool bind_using_ifname_ RTC_GUARDED_BY(thread_) = false;
+
+  std::vector<NetworkMask> vpn_;
 };
 
 // Represents a Unix-type network interface, with a name and single address.
@@ -296,8 +362,12 @@ class RTC_EXPORT Network {
           AdapterType type);
   Network(const Network&);
   ~Network();
+
   // This signal is fired whenever type() or underlying_type_for_vpn() changes.
   sigslot::signal1<const Network*> SignalTypeChanged;
+
+  // This signal is fired whenever network preference changes.
+  sigslot::signal1<const Network*> SignalNetworkPreferenceChanged;
 
   const DefaultLocalAddressProvider* default_local_address_provider() {
     return default_local_address_provider_;
@@ -323,7 +393,7 @@ class RTC_EXPORT Network {
   // Returns the length, in bits, of this network's prefix.
   int prefix_length() const { return prefix_length_; }
 
-  // |key_| has unique value per network interface. Used in sorting network
+  // `key_` has unique value per network interface. Used in sorting network
   // interfaces. Key is derived from interface name and it's prefix.
   std::string key() const { return key_; }
 
@@ -409,6 +479,21 @@ class RTC_EXPORT Network {
 
   bool IsVpn() const { return type_ == ADAPTER_TYPE_VPN; }
 
+  bool IsCellular() const { return IsCellular(type_); }
+
+  static bool IsCellular(AdapterType type) {
+    switch (type) {
+      case ADAPTER_TYPE_CELLULAR:
+      case ADAPTER_TYPE_CELLULAR_2G:
+      case ADAPTER_TYPE_CELLULAR_3G:
+      case ADAPTER_TYPE_CELLULAR_4G:
+      case ADAPTER_TYPE_CELLULAR_5G:
+        return true;
+      default:
+        return false;
+    }
+  }
+
   uint16_t GetCost() const;
   // A unique id assigned by the network manager, which may be signaled
   // to the remote side in the candidate.
@@ -426,6 +511,17 @@ class RTC_EXPORT Network {
     if (active_ != active) {
       active_ = active;
     }
+  }
+
+  // Property set by operating system/firmware that has information
+  // about connection strength to e.g WIFI router or CELL base towers.
+  NetworkPreference network_preference() const { return network_preference_; }
+  void set_network_preference(NetworkPreference val) {
+    if (network_preference_ == val) {
+      return;
+    }
+    network_preference_ = val;
+    SignalNetworkPreferenceChanged(this);
   }
 
   // Debugging description of this network
@@ -447,6 +543,9 @@ class RTC_EXPORT Network {
   int preference_;
   bool active_ = true;
   uint16_t id_ = 0;
+  bool use_differentiated_cellular_costs_ = false;
+  bool add_network_cost_to_vpn_ = false;
+  NetworkPreference network_preference_ = NetworkPreference::NEUTRAL;
 
   friend class NetworkManager;
 };

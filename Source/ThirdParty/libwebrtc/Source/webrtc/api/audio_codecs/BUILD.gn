@@ -33,11 +33,12 @@ rtc_library("audio_codecs_api") {
     "..:bitrate_allocation",
     "..:scoped_refptr",
     "../../rtc_base:checks",
-    "../../rtc_base:deprecation",
     "../../rtc_base:rtc_base_approved",
     "../../rtc_base:sanitizer",
     "../../rtc_base/system:rtc_export",
     "../units:time_delta",
+  ]
+  absl_deps = [
     "//third_party/abseil-cpp/absl/strings",
     "//third_party/abseil-cpp/absl/types:optional",
   ]

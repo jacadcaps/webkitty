@@ -25,12 +25,15 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
+#import "TestUIDelegate.h"
 #import "TestURLSchemeHandler.h"
 #import "TestWKWebView.h"
+#import "WKWebViewConfigurationExtras.h"
 #import <WebKit/WKErrorPrivate.h>
 #import <WebKit/WKFrameInfoPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
@@ -47,10 +50,10 @@
 #import <wtf/Threading.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/text/StringConcatenateNumbers.h>
 #import <wtf/text/StringHash.h>
+#import <wtf/text/StringToIntegerConversion.h>
 #import <wtf/text/WTFString.h>
-
-static bool done;
 
 @interface SchemeHandler : NSObject <WKURLSchemeHandler>
 @property (readonly) NSMutableArray<NSURL *> *startedURLs;
@@ -303,7 +306,7 @@ static bool responsePolicyDecided;
     ASSERT_TRUE(false);
 }
 
-- (void)webView:(WKWebView *)webView didReceiveServerRedirectForProvisionalNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation
 {
     ASSERT_FALSE(receivedRedirect);
     receivedRedirect = true;
@@ -345,6 +348,7 @@ TEST(URLSchemeHandler, Redirection)
 
 enum class Command {
     Redirect,
+    APIRedirect,
     Response,
     Data,
     Finish,
@@ -379,13 +383,16 @@ enum class Command {
         for (auto command : commands) {
             switch (command) {
             case Command::Redirect:
-                [(id<WKURLSchemeTaskPrivate>)task _didPerformRedirection:[[[NSURLResponse alloc] init] autorelease] newRequest:[[[NSURLRequest alloc] init] autorelease]];
+                [(id<WKURLSchemeTaskPrivate>)task _didPerformRedirection:adoptNS([[NSURLResponse alloc] init]).get() newRequest:adoptNS([[NSURLRequest alloc] init]).get()];
+                break;
+            case Command::APIRedirect:
+                [(id<WKURLSchemeTaskPrivate>)task _willPerformRedirection:adoptNS([[NSURLResponse alloc] init]).get() newRequest:adoptNS([[NSURLRequest alloc] init]).get() completionHandler:^(NSURLRequest*) { }];
                 break;
             case Command::Response:
-                [task didReceiveResponse:[[[NSURLResponse alloc] init] autorelease]];
+                [task didReceiveResponse:adoptNS([[NSURLResponse alloc] init]).get()];
                 break;
             case Command::Data:
-                [task didReceiveData:[[[NSData alloc] init] autorelease]];
+                [task didReceiveData:adoptNS([[NSData alloc] init]).get()];
                 break;
             case Command::Finish:
                 [task didFinish];
@@ -436,6 +443,11 @@ TEST(URLSchemeHandler, Exceptions)
     checkCallSequence({Command::Response, Command::Finish, Command::Response}, ShouldRaiseException::Yes);
     checkCallSequence({Command::Response, Command::Finish, Command::Finish}, ShouldRaiseException::Yes);
     checkCallSequence({Command::Response, Command::Finish, Command::Error}, ShouldRaiseException::Yes);
+    checkCallSequence({Command::APIRedirect, Command::Redirect}, ShouldRaiseException::Yes);
+    checkCallSequence({Command::APIRedirect, Command::Response}, ShouldRaiseException::Yes);
+    checkCallSequence({Command::APIRedirect, Command::Data}, ShouldRaiseException::Yes);
+    checkCallSequence({Command::APIRedirect, Command::Finish}, ShouldRaiseException::Yes);
+    checkCallSequence({Command::APIRedirect, Command::Error}, ShouldRaiseException::No);
 }
 
 struct SchemeResourceInfo {
@@ -487,7 +499,6 @@ static bool receivedStop;
 
 @end
 
-static RetainPtr<NSMutableArray> receivedMessages = adoptNS([@[] mutableCopy]);
 static bool receivedMessage;
 
 @interface SyncMessageHandler : NSObject <WKScriptMessageHandler>
@@ -527,39 +538,38 @@ static const char* syncXHRBytes = "My XHR text!";
 
 TEST(URLSchemeHandler, SyncXHR)
 {
-    auto *pool = [[NSAutoreleasePool alloc] init];
+    @autoreleasepool {
+        auto webViewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        auto handler = adoptNS([[SyncScheme alloc] init]);
+        [webViewConfiguration setURLSchemeHandler:handler.get() forURLScheme:@"syncxhr"];
 
-    auto webViewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    auto handler = adoptNS([[SyncScheme alloc] init]);
-    [webViewConfiguration setURLSchemeHandler:handler.get() forURLScheme:@"syncxhr"];
-    
-    handler.get()->resources.set("syncxhr://host/main.html", SchemeResourceInfo { @"text/html", syncMainBytes, true });
-    handler.get()->resources.set("syncxhr://host/test.dat", SchemeResourceInfo { @"text/plain", syncXHRBytes, true });
+        handler.get()->resources.set("syncxhr://host/main.html", SchemeResourceInfo { @"text/html", syncMainBytes, true });
+        handler.get()->resources.set("syncxhr://host/test.dat", SchemeResourceInfo { @"text/plain", syncXHRBytes, true });
 
-    auto messageHandler = adoptNS([[SyncMessageHandler alloc] init]);
-    [[webViewConfiguration userContentController] addScriptMessageHandler:messageHandler.get() name:@"sync"];
-    
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:webViewConfiguration.get()]);
+        auto messageHandler = adoptNS([[SyncMessageHandler alloc] init]);
+        [[webViewConfiguration userContentController] addScriptMessageHandler:messageHandler.get() name:@"sync"];
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"syncxhr://host/main.html"]];
-    [webView loadRequest:request];
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:webViewConfiguration.get()]);
 
-    TestWebKitAPI::Util::run(&receivedMessage);
-    receivedMessage = false;
+        NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"syncxhr://host/main.html"]];
+        [webView loadRequest:request];
 
-    EXPECT_EQ((unsigned)receivedMessages.get().count, (unsigned)1);
-    EXPECT_TRUE([receivedMessages.get()[0] isEqualToString:@"My XHR text!"]);
+        TestWebKitAPI::Util::run(&receivedMessage);
+        receivedMessage = false;
 
-    // Now try again, but hang the WebProcess in the reply to the XHR by telling the scheme handler to never
-    // respond to it.
-    handler.get()->resources.find("syncxhr://host/test.dat")->value.shouldRespond = false;
-    [webView loadRequest:request];
+        EXPECT_EQ((unsigned)receivedMessages.get().count, (unsigned)1);
+        EXPECT_TRUE([receivedMessages.get()[0] isEqualToString:@"My XHR text!"]);
 
-    TestWebKitAPI::Util::run(&startedXHR);
-    receivedMessage = false;
+        // Now try again, but hang the WebProcess in the reply to the XHR by telling the scheme handler to never
+        // respond to it.
+        handler.get()->resources.find("syncxhr://host/test.dat")->value.shouldRespond = false;
+        [webView loadRequest:request];
 
-    webView = nil;
-    [pool drain];
+        TestWebKitAPI::Util::run(&startedXHR);
+        receivedMessage = false;
+
+        [webView _close];
+    }
     
     TestWebKitAPI::Util::run(&receivedStop);
 }
@@ -573,12 +583,12 @@ TEST(URLSchemeHandler, SyncXHR)
 {
     if ([task.request.URL.absoluteString isEqualToString:@"syncerror:///main.html"]) {
         static const char* bytes = "<script>var xhr=new XMLHttpRequest();xhr.open('GET','subresource',false);try{xhr.send(null);alert('no error')}catch(e){alert(e)}</script>";
-        [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:strlen(bytes) textEncodingName:nil] autorelease]];
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:strlen(bytes) textEncodingName:nil]).get()];
         [task didReceiveData:[NSData dataWithBytes:bytes length:strlen(bytes)]];
         [task didFinish];
     } else {
         EXPECT_STREQ(task.request.URL.absoluteString.UTF8String, "syncerror:///subresource");
-        [task didReceiveResponse:[[[NSURLResponse alloc] init] autorelease]];
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] init]).get()];
         [task didFailWithError:[NSError errorWithDomain:@"TestErrorDomain" code:123 userInfo:nil]];
     }
 }
@@ -740,40 +750,37 @@ TEST(URLSchemeHandler, XHRPost)
 
 TEST(URLSchemeHandler, Threads)
 {
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-
-    auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"threads"];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
-
     static bool done;
-    static id<WKURLSchemeTask> theTask;
+    static NeverDestroyed<RetainPtr<id<WKURLSchemeTask>>> theTask;
     static RefPtr<Thread> theThread;
-    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        theTask = task;
-        [task retain];
-        theThread = Thread::create("A", [task] {
-            auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]);
-            [task didReceiveResponse:response.get()];
-            [task didFinish];
-            done = true;
-        });
-    }];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"threads://main.html"]]];
+    @autoreleasepool {
+        auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
+        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        [configuration setURLSchemeHandler:handler.get() forURLScheme:@"threads"];
+        auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+        [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+            theTask.get() = retainPtr(task);
+            theThread = Thread::create("A", [task] {
+                auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]);
+                [task didReceiveResponse:response.get()];
+                [task didFinish];
+                done = true;
+            });
+        }];
 
-    TestWebKitAPI::Util::run(&done);
+        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"threads://main.html"]]];
 
-    handler = nil;
-    configuration = nil;
-    webView = nil;
-    theThread = nullptr;
-    [pool drain];
+        TestWebKitAPI::Util::run(&done);
+
+        handler = nil;
+        configuration = nil;
+        webView = nil;
+        theThread = nullptr;
+    }
 
     Thread::create("B", [] {
-        [theTask release];
-        theTask = nil;
+        theTask.get() = nil;
     })->waitForCompletion();
 }
 
@@ -791,18 +798,18 @@ TEST(URLSchemeHandler, CORS)
     [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.path isEqualToString:@"/main.html"]) {
             NSData *data = [@"<script>fetch('cors://host2/corsresource').then(function(){fetch('/corssuccess')}).catch(function(){fetch('/corsfailure')})</script>" dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.path isEqualToString:@"/corsresource"]) {
             if (includeCORSHeaderFieldInResponse) {
-                [task didReceiveResponse:[[[NSHTTPURLResponse alloc] initWithURL:task.request.URL statusCode:200 HTTPVersion:nil headerFields:@{
+                [task didReceiveResponse:adoptNS([[NSHTTPURLResponse alloc] initWithURL:task.request.URL statusCode:200 HTTPVersion:nil headerFields:@{
                     @"Access-Control-Allow-Origin": @"*",
                     @"Content-Length": @"2",
                     @"Content-Type":@"text/html"
-                }] autorelease]];
+                }]).get()];
             } else
-                [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+                [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didReceiveData:[@"HI" dataUsingEncoding:NSUTF8StringEncoding]];
             [task didFinish];
         } else if ([task.request.URL.path isEqualToString:@"/corssuccess"]) {
@@ -831,8 +838,6 @@ TEST(URLSchemeHandler, CORS)
     EXPECT_FALSE(corsfailure);
 }
 
-#if HAVE(NETWORK_FRAMEWORK)
-
 TEST(URLSchemeHandler, DisableCORS)
 {
     TestWebKitAPI::HTTPServer server({
@@ -845,7 +850,7 @@ TEST(URLSchemeHandler, DisableCORS)
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"cors"];
 
     NSString *testJS = [NSString stringWithFormat:
@@ -863,7 +868,7 @@ TEST(URLSchemeHandler, DisableCORS)
         if ([task.request.URL.path isEqualToString:@"/main.html"]) {
             NSData *data = [[NSString stringWithFormat:
                 @"<script>%@</script>", testJS] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.path isEqualToString:@"/corssuccess"]) {
@@ -877,7 +882,7 @@ TEST(URLSchemeHandler, DisableCORS)
     }];
     
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -888,8 +893,8 @@ TEST(URLSchemeHandler, DisableCORS)
     corsfailure = false;
     done = false;
 
-    configuration._corsDisablingPatterns = @[@"*://*/*"];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+    configuration.get()._corsDisablingPatterns = @[@"*://*/*"];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
     TestWebKitAPI::Util::run(&done);
     EXPECT_TRUE(corssuccess);
@@ -928,13 +933,13 @@ TEST(URLSchemeHandler, DisableCORSCredentials)
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"cors"];
 
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.path isEqualToString:@"/main.html"]) {
             NSData *data = [[NSString stringWithFormat:@"<script>fetch('http://127.0.0.1:%d/subresource', {credentials:'include'}).then(function(){fetch('/corssuccess')}).catch(function(){fetch('/corsfailure')})</script>", server.port()] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.path isEqualToString:@"/corssuccess"]) {
@@ -948,7 +953,7 @@ TEST(URLSchemeHandler, DisableCORSCredentials)
     }];
     
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -959,9 +964,9 @@ TEST(URLSchemeHandler, DisableCORSCredentials)
     corsfailure = false;
     done = false;
 
-    configuration._crossOriginAccessControlCheckEnabled = NO;
+    configuration.get()._crossOriginAccessControlCheckEnabled = NO;
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -981,14 +986,14 @@ TEST(URLSchemeHandler, DisableCORSScript)
 
     auto handler = adoptNS([TestURLSchemeHandler new]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"cors"];
 
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.path isEqualToString:@"/main.html"]) {
             NSData *data = [[NSString stringWithFormat:@"<script type='text/javascript' crossorigin='anonymous' onerror='fetch(\"loadFail\")' src='http://127.0.0.1:%d/'></script>", server.port()] dataUsingEncoding:NSUTF8StringEncoding];
             
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.path isEqualToString:@"/loadSuccess"]) {
@@ -1002,7 +1007,7 @@ TEST(URLSchemeHandler, DisableCORSScript)
     }];
 
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -1013,9 +1018,9 @@ TEST(URLSchemeHandler, DisableCORSScript)
     loadFail = false;
     done = false;
 
-    configuration._corsDisablingPatterns = @[@"*://*/*"];
+    configuration.get()._corsDisablingPatterns = @[@"*://*/*"];
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -1031,7 +1036,7 @@ TEST(URLSchemeHandler, DisableCORSCanvas)
 
     auto handler = adoptNS([TestURLSchemeHandler new]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"cors"];
 
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
@@ -1066,14 +1071,14 @@ TEST(URLSchemeHandler, DisableCORSCanvas)
             ASSERT_NOT_REACHED();
 
         if (response) {
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:response.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:response.length textEncodingName:nil]).get()];
             [task didReceiveData:response];
             [task didFinish];
         }
     }];
 
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -1084,9 +1089,9 @@ TEST(URLSchemeHandler, DisableCORSCanvas)
     corsfailure = false;
     done = false;
 
-    configuration._corsDisablingPatterns = @[@"*://*/*"];
+    configuration.get()._corsDisablingPatterns = @[@"*://*/*"];
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"cors://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
     }
@@ -1096,96 +1101,197 @@ TEST(URLSchemeHandler, DisableCORSCanvas)
 
 TEST(URLSchemeHandler, LoadsFromNetwork)
 {
-    TestWebKitAPI::HTTPServer server({
+    using namespace TestWebKitAPI;
+    HTTPServer server({
         { "/", { {{ "Access-Control-Allow-Origin", "*" }}, "test content" } }
     });
 
-    bool loadSuccess = false;
-    bool loadFail = false;
+    HTTPServer webSocketServer([](Connection connection) {
+        connection.webSocketHandshake();
+    });
+
+    std::optional<bool> loadSuccess;
+    std::optional<bool> webSocketSuccess;
     bool done = false;
 
     auto handler = adoptNS([TestURLSchemeHandler new]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
 
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
-        if ([task.request.URL.path isEqualToString:@"/main.html"]) {
-            NSData *data = [[NSString stringWithFormat:@"<script>"
-                "fetch('http://127.0.0.1:%d/').then(()=>{"
-                    "fetch('/loadSuccess')"
-                "}).catch(()=>{"
+        NSString *path = task.request.URL.path;
+        if ([path isEqualToString:@"/main.html"]) {
+            respond(task, [NSString stringWithFormat:@"<script>"
+                "function checkWebSockets() {"
                     "var ws = new WebSocket('ws://127.0.0.1:%d');"
-                    "ws.onerror = function() { fetch('/loadFail') };"
+                    "ws.onerror = function() { fetch('/webSocketFail') };"
+                    "ws.onopen = function() { fetch('/webSocketSuccess') };"
+                "}"
+                "fetch('http://localhost:%d/').then(()=>{"
+                    "fetch('/loadSuccess').then(()=>{ checkWebSockets() })"
+                "}).catch(()=>{"
+                    "fetch('/loadFail').then(()=>{ checkWebSockets() })"
                 "})"
-                "</script>", server.port(), server.port()] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
-            [task didReceiveData:data];
-            [task didFinish];
-        } else if ([task.request.URL.path isEqualToString:@"/loadSuccess"]) {
+                "</script>", webSocketServer.port(), server.port()].UTF8String);
+        } else if ([path isEqualToString:@"/loadSuccess"]) {
+            respond(task, "hi");
             loadSuccess = true;
+        } else if ([path isEqualToString:@"/loadFail"]) {
+            respond(task, "hi");
+            loadSuccess = false;
+        } else if ([path isEqualToString:@"/webSocketSuccess"]) {
+            webSocketSuccess = true;
             done = true;
-        } else if ([task.request.URL.path isEqualToString:@"/loadFail"]) {
-            loadFail = true;
+        } else if ([path isEqualToString:@"/webSocketFail"]) {
+            webSocketSuccess = false;
             done = true;
         } else
             ASSERT_NOT_REACHED();
     }];
     
-    {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+    auto runTest = [&] {
+        loadSuccess = std::nullopt;
+        webSocketSuccess = std::nullopt;
+        done = false;
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://host1/main.html"]]];
         TestWebKitAPI::Util::run(&done);
-    }
-    EXPECT_TRUE(loadSuccess);
-    EXPECT_FALSE(loadFail);
+    };
+
+    runTest();
+    EXPECT_TRUE(*loadSuccess);
+    EXPECT_TRUE(*webSocketSuccess);
+    EXPECT_EQ(server.totalRequests(), 1u);
+
+    configuration.get()._loadsFromNetwork = NO;
+    runTest();
+    EXPECT_FALSE(*loadSuccess);
+    EXPECT_FALSE(*webSocketSuccess);
     EXPECT_EQ(server.totalRequests(), 1u);
     
-    loadSuccess = false;
-    loadFail = false;
-    done = false;
-
-    configuration._loadsFromNetwork = NO;
-    {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://host1/main.html"]]];
-        TestWebKitAPI::Util::run(&done);
-    }
-    EXPECT_FALSE(loadSuccess);
-    EXPECT_TRUE(loadFail);
+    configuration.get()._allowedNetworkHosts = [NSSet set];
+    runTest();
+    EXPECT_FALSE(*loadSuccess);
+    EXPECT_FALSE(*webSocketSuccess);
     EXPECT_EQ(server.totalRequests(), 1u);
+
+    configuration.get()._allowedNetworkHosts = nil;
+    runTest();
+    EXPECT_TRUE(*loadSuccess);
+    EXPECT_TRUE(*webSocketSuccess);
+    EXPECT_EQ(server.totalRequests(), 2u);
+
+    configuration.get()._allowedNetworkHosts = [NSSet setWithObject:@"localhost"];
+    runTest();
+    EXPECT_TRUE(*loadSuccess);
+    EXPECT_FALSE(*webSocketSuccess);
+    EXPECT_EQ(server.totalRequests(), 3u);
 }
 
-TEST(URLSchemeHandler, LoadsSubresources)
+TEST(URLSchemeHandler, AllowedNetworkHostsRedirect)
+{
+    TestWebKitAPI::HTTPServer serverLocalhost({
+        { "/redirectTarget", { {{ "Access-Control-Allow-Origin", "*" }}, "test content" } }
+    });
+    TestWebKitAPI::HTTPServer server127001({
+        { "/", { 301, {
+            { "Access-Control-Allow-Origin", "*" },
+            { "Location", makeString("http://localhost:", serverLocalhost.port(), "/redirectTarget") }
+        }}},
+    });
+
+    std::optional<bool> loadSuccess;
+    bool done = false;
+
+    auto handler = adoptNS([TestURLSchemeHandler new]);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
+
+    [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *path = task.request.URL.path;
+        if ([path isEqualToString:@"/main.html"]) {
+            respond(task, [NSString stringWithFormat:@"<script>"
+                "fetch('http://127.0.0.1:%d/').then(()=>{"
+                    "fetch('/loadSuccess')"
+                "}).catch(()=>{"
+                    "fetch('/loadFail')"
+                "})"
+                "</script>", server127001.port()].UTF8String);
+        } else if ([path isEqualToString:@"/loadSuccess"]) {
+            loadSuccess = true;
+            done = true;
+        } else if ([path isEqualToString:@"/loadFail"]) {
+            loadSuccess = false;
+            done = true;
+        }
+    }];
+
+    auto runTest = [&] {
+        loadSuccess = std::nullopt;
+        done = false;
+        configuration.get().websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://host1/main.html"]]];
+        TestWebKitAPI::Util::run(&done);
+    };
+
+    runTest();
+    EXPECT_TRUE(*loadSuccess);
+    EXPECT_EQ(serverLocalhost.totalRequests(), 1u);
+    EXPECT_EQ(server127001.totalRequests(), 1u);
+    
+    configuration.get()._allowedNetworkHosts = [NSSet set];
+    runTest();
+    EXPECT_FALSE(*loadSuccess);
+    EXPECT_EQ(serverLocalhost.totalRequests(), 1u);
+    EXPECT_EQ(server127001.totalRequests(), 1u);
+
+    configuration.get()._allowedNetworkHosts = [NSSet setWithObject:@"127.0.0.1"];
+    runTest();
+    EXPECT_FALSE(*loadSuccess);
+    EXPECT_EQ(serverLocalhost.totalRequests(), 1u);
+    EXPECT_EQ(server127001.totalRequests(), 2u);
+}
+
+static void serverLoop(const TestWebKitAPI::Connection& connection, bool& loadedImage, bool& loadedIFrame)
+{
+    using namespace TestWebKitAPI;
+    connection.receiveHTTPRequest([&, connection] (Vector<char>&& request) {
+        auto path = HTTPServer::parsePath(request);
+        auto sendReply = [&, connection] (const HTTPResponse& response) {
+            connection.send(response.serialize(), [&, connection] {
+                serverLoop(connection, loadedImage, loadedIFrame);
+            });
+        };
+        if (path == "/main.html")
+            sendReply({ { { "Content-Type", "text/html" } }, "<img src='/imgsrc'></img><iframe src='/iframesrc'></iframe>" });
+        else if (path == "/imgsrc") {
+            loadedImage = true;
+            sendReply({ "image content" });
+        } else if (path == "/iframesrc") {
+            loadedIFrame = true;
+            sendReply({ "iframe content" });
+        } else
+            ASSERT_NOT_REACHED();
+    });
+}
+
+TEST(WKWebViewConfiguration, LoadsSubresources)
 {
     bool loadedImage = false;
     bool loadedIFrame = false;
 
-    auto handler = adoptNS([TestURLSchemeHandler new]);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
-    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
+    TestWebKitAPI::HTTPServer server([&] (const TestWebKitAPI::Connection& connection) {
+        serverLoop(connection, loadedIFrame, loadedImage);
+    });
 
-    [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
-        NSString *response = nil;
-        if ([task.request.URL.path isEqualToString:@"/main.html"])
-            response = @"<img src='/imgsrc'></img><iframe src='/iframesrc'></iframe>";
-        else if ([task.request.URL.path isEqualToString:@"/imgsrc"]) {
-            response = @"image content";
-            loadedImage = true;
-        } else if ([task.request.URL.path isEqualToString:@"/iframesrc"]) {
-            response = @"iframe content";
-            loadedIFrame = true;
-        } else
-            ASSERT_NOT_REACHED();
-        [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:response.length textEncodingName:nil] autorelease]];
-        [task didReceiveData:[response dataUsingEncoding:NSUTF8StringEncoding]];
-        [task didFinish];
-    }];
-    
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://host1/main.html"]]];
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+        [webView loadRequest:server.request("/main.html")];
         TestWebKitAPI::Util::run(&loadedImage);
         TestWebKitAPI::Util::run(&loadedIFrame);
     }
@@ -1193,20 +1299,18 @@ TEST(URLSchemeHandler, LoadsSubresources)
     loadedImage = false;
     loadedIFrame = false;
 
-    configuration._loadsSubresources = NO;
+    configuration.get()._loadsSubresources = NO;
     {
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
         auto delegate = adoptNS([TestNavigationDelegate new]);
         webView.get().navigationDelegate = delegate.get();
-        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://host1/main.html"]]];
+        [webView loadRequest:server.request("/main.html")];
         [delegate waitForDidFinishNavigation];
         TestWebKitAPI::Util::spinRunLoop(100);
         EXPECT_FALSE(loadedIFrame);
         EXPECT_FALSE(loadedImage);
     }
 }
-
-#endif // HAVE(NETWORK_FRAMEWORK)
 
 @interface FrameSchemeHandler : NSObject <WKURLSchemeHandler>
 - (void)waitForAllRequests;
@@ -1243,7 +1347,7 @@ TEST(URLSchemeHandler, LoadsSubresources)
     };
 
     auto respond = [] (id<WKURLSchemeTask> task, const char* bytes) {
-        [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:strlen(bytes) textEncodingName:nil] autorelease]];
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:strlen(bytes) textEncodingName:nil]).get()];
         [task didReceiveData:[NSData dataWithBytes:bytes length:strlen(bytes)]];
         [task didFinish];
     };
@@ -1251,14 +1355,14 @@ TEST(URLSchemeHandler, LoadsSubresources)
     switch (++_requestCount) {
     case 1:
         check(task, "frame://host1/main", true, "", "", "", 0);
-        respond(task, "<iframe src='//host2:123/iframe'></iframe>");
+        respond(task, "<iframe src='//host2:1234/iframe'></iframe>");
         return;
     case 2:
-        check(task, "frame://host2:123/iframe", false, "", "frame", "host1", 0);
+        check(task, "frame://host2:1234/iframe", false, "", "frame", "host1", 0);
         respond(task, "<script>fetch('subresource')</script>");
         return;
     case 3:
-        check(task, "frame://host2:123/subresource", false, "frame://host2:123/iframe", "frame", "host2", 123);
+        check(task, "frame://host2:1234/subresource", false, "frame://host2:1234/iframe", "frame", "host2", 1234);
         respond(task, "done!");
         return;
     }
@@ -1373,5 +1477,165 @@ TEST(URLSchemeHandler, Frames)
             done = true;
         }];
     }];
+    TestWebKitAPI::Util::run(&done);
+}
+
+TEST(URLSchemeHandler, Origin)
+{
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    auto handler = adoptNS([TestURLSchemeHandler new]);
+    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *responseString = @"<script>alert("
+            "new URL('registered://host:123/path').origin + ', ' + "
+            "new URL('notregistered://host:123/path').origin"
+        ")</script>";
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:responseString.length textEncodingName:nil]).get()];
+        [task didReceiveData:[responseString dataUsingEncoding:NSUTF8StringEncoding]];
+        [task didFinish];
+    }];
+    auto delegate = adoptNS([TestUIDelegate new]);
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"registered"];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView setUIDelegate:delegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"registered:///"]]];
+    EXPECT_WK_STREQ([delegate waitForAlert], "registered://host:123, null");
+}
+
+@interface URLSchemeHandlerMessageHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation URLSchemeHandlerMessageHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    lastScriptMessage = message;
+    receivedScriptMessage = true;
+}
+@end
+
+TEST(URLSchemeHandler, isSecureContext)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto schemeHandler = adoptNS([TestURLSchemeHandler new]);
+    [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *responseString = @"<script>window.webkit.messageHandlers.testHandler.postMessage(window.isSecureContext ? 'secure': 'not secure');</script>";
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:responseString.length textEncodingName:nil]).get()];
+        [task didReceiveData:[responseString dataUsingEncoding:NSUTF8StringEncoding]];
+        [task didFinish];
+    }];
+
+    [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"testing"];
+
+    auto messageHandler = adoptNS([[URLSchemeHandlerMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    receivedScriptMessage = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"testing://localhost/test.html"]]];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"secure", [lastScriptMessage body]);
+
+    receivedScriptMessage = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"testing://main/test.html"]]];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"secure", [lastScriptMessage body]);
+}
+
+TEST(URLSchemeHandler, APIRedirect)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto schemeHandler = adoptNS([TestURLSchemeHandler new]);
+    [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        auto redirectResponse = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:nil expectedContentLength:0 textEncodingName:nil]);
+        auto redirectRequest = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL URLWithString:@"redirectone://bar.com/anothertest.html"]]);
+
+        [(id<WKURLSchemeTaskPrivate>)task _willPerformRedirection:redirectResponse.get() newRequest:redirectRequest.get() completionHandler:^(NSURLRequest *proposedRequest) {
+            NSString *html = @"<script>window.webkit.messageHandlers.testHandler.postMessage('Document URL: ' + document.URL);</script>";
+            auto finalResponse = adoptNS([[NSURLResponse alloc] initWithURL:proposedRequest.URL MIMEType:@"text/html" expectedContentLength:html.length textEncodingName:nil]);
+
+            [task didReceiveResponse:finalResponse.get()];
+            [task didReceiveData:[html dataUsingEncoding:NSUTF8StringEncoding]];
+            [task didFinish];
+        }];
+    }];
+
+    [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"redirectone"];
+
+    auto messageHandler = adoptNS([[URLSchemeHandlerMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    receivedScriptMessage = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"redirectone://foo.com/test.html"]]];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"Document URL: redirectone://bar.com/anothertest.html", [lastScriptMessage body]);
+}
+
+TEST(URLSchemeHandler, Ranges)
+{
+    RetainPtr<NSData> videoData = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"test" withExtension:@"mp4" subdirectory:@"TestWebKitAPI.resources"]];
+
+    auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"ranges"];
+    configuration.get().mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    __block bool foundRangeRequest = false;
+    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        if ([task.request.URL.path isEqualToString:@"/main.html"]) {
+            NSString *html = @"<video autoplay onplaying=\"alert('playing')\"><source src='/video.m4v' type='video/mp4'></video>";
+            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:html.length textEncodingName:nil] autorelease]];
+            [task didReceiveData:[html dataUsingEncoding:NSUTF8StringEncoding]];
+            [task didFinish];
+            return;
+        }
+
+        NSString *requestRange = [task.request.allHTTPHeaderFields objectForKey:@"Range"];
+        EXPECT_TRUE(requestRange);
+
+        String requestRangeString(requestRange);
+        String rangeBytes = "bytes="_s;
+        auto begin = requestRangeString.find(rangeBytes, 0);
+        ASSERT(begin != notFound);
+        auto dash = requestRangeString.find('-', begin);
+        ASSERT(dash != notFound);
+        auto end = requestRangeString.length();
+
+        auto rangeBeginString = requestRangeString.substring(begin + rangeBytes.length(), dash - begin - rangeBytes.length());
+        auto rangeEndString = requestRangeString.substring(dash + 1, end - dash - 1);
+        auto rangeBegin = parseInteger<uint64_t>(rangeBeginString).value_or(0);
+        auto rangeEnd = rangeEndString.isEmpty() ? [videoData length] - 1 : parseInteger<uint64_t>(rangeEndString).value_or(0);
+        auto contentLength = rangeEnd - rangeBegin + 1;
+
+        auto response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:@"https://webkit.org/"] statusCode:206 HTTPVersion:@"HTTP/1.1" headerFields:@{
+            @"Content-Range" : [NSString stringWithFormat:@"bytes %llu-%llu/%lu", rangeBegin, rangeEnd, (unsigned long)[videoData length]],
+            @"Content-Length" : [NSString stringWithFormat:@"%llu", contentLength]
+        }]);
+
+        [task didReceiveResponse:response.get()];
+        [task didReceiveData:[videoData subdataWithRange:NSMakeRange(rangeBegin, contentLength)]];
+        [task didFinish];
+        foundRangeRequest = true;
+    }];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"ranges:///main.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "playing");
+    EXPECT_TRUE(foundRangeRequest);
+}
+
+TEST(URLSchemeHandler, HandleURLRewrittenByPlugIn)
+{
+    WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"SchemeChangingPlugIn"];
+    configuration._allowedNetworkHosts = [NSSet set];
+    auto handler = adoptNS([TestURLSchemeHandler new]);
+    __block bool done = false;
+    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        EXPECT_WK_STREQ(task.request.URL.absoluteString, "test+rewritten+scheme://webkit.org/testpath");
+        done = true;
+    }];
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test+rewritten+scheme"];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://webkit.org/testpath"]]];
     TestWebKitAPI::Util::run(&done);
 }

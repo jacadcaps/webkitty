@@ -47,64 +47,71 @@ void SubresourceInfo::encode(WTF::Persistence::Encoder& encoder) const
         return;
 
     encoder << m_isSameSite;
+    encoder << m_isAppInitiated;
     encoder << m_firstPartyForCookies;
     encoder << m_requestHeaders;
     encoder << m_priority;
 }
 
-Optional<SubresourceInfo> SubresourceInfo::decode(WTF::Persistence::Decoder& decoder)
+std::optional<SubresourceInfo> SubresourceInfo::decode(WTF::Persistence::Decoder& decoder)
 {
     SubresourceInfo info;
 
-    Optional<Key> key;
+    std::optional<Key> key;
     decoder >> key;
     if (!key)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_key = WTFMove(*key);
 
-    Optional<WallTime> lastSeen;
+    std::optional<WallTime> lastSeen;
     decoder >> lastSeen;
     if (!lastSeen)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_lastSeen = WTFMove(*lastSeen);
 
-    Optional<WallTime> firstSeen;
+    std::optional<WallTime> firstSeen;
     decoder >> firstSeen;
     if (!firstSeen)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_firstSeen = WTFMove(*firstSeen);
 
-    Optional<bool> isTransient;
+    std::optional<bool> isTransient;
     decoder >> isTransient;
     if (!isTransient)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_isTransient = WTFMove(*isTransient);
 
     if (info.m_isTransient)
         return { WTFMove(info) };
 
-    Optional<bool> isSameSite;
+    std::optional<bool> isSameSite;
     decoder >> isSameSite;
     if (!isSameSite)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_isSameSite = WTFMove(*isSameSite);
 
-    Optional<URL> firstPartyForCookies;
+    std::optional<bool> isAppInitiated;
+    decoder >> isAppInitiated;
+    if (!isAppInitiated)
+        return std::nullopt;
+    info.m_isAppInitiated = WTFMove(*isAppInitiated);
+
+    std::optional<URL> firstPartyForCookies;
     decoder >> firstPartyForCookies;
     if (!firstPartyForCookies)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_firstPartyForCookies = WTFMove(*firstPartyForCookies);
 
-    Optional<WebCore::HTTPHeaderMap> requestHeaders;
+    std::optional<WebCore::HTTPHeaderMap> requestHeaders;
     decoder >> requestHeaders;
     if (!requestHeaders)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_requestHeaders = WTFMove(*requestHeaders);
 
-    Optional<WebCore::ResourceLoadPriority> priority;
+    std::optional<WebCore::ResourceLoadPriority> priority;
     decoder >> priority;
     if (!priority)
-        return WTF::nullopt;
+        return std::nullopt;
     info.m_priority = WTFMove(*priority);
     
     return { WTFMove(info) };
@@ -130,8 +137,8 @@ std::unique_ptr<SubresourcesEntry> SubresourcesEntry::decodeStorageRecord(const 
 {
     auto entry = makeUnique<SubresourcesEntry>(storageEntry);
 
-    WTF::Persistence::Decoder decoder(storageEntry.header.data(), storageEntry.header.size());
-    Optional<Vector<SubresourceInfo>> subresources;
+    WTF::Persistence::Decoder decoder(storageEntry.header.span());
+    std::optional<Vector<SubresourceInfo>> subresources;
     decoder >> subresources;
     if (!subresources)
         return nullptr;
@@ -158,6 +165,7 @@ SubresourceInfo::SubresourceInfo(const Key& key, const WebCore::ResourceRequest&
     , m_firstSeen(previousInfo ? previousInfo->firstSeen() : m_lastSeen)
     , m_isTransient(!previousInfo)
     , m_isSameSite(request.isSameSite())
+    , m_isAppInitiated(request.isAppInitiated())
     , m_firstPartyForCookies(request.firstPartyForCookies())
     , m_requestHeaders(request.httpHeaderFields())
     , m_priority(request.priority())

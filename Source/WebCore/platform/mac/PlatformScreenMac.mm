@@ -33,6 +33,7 @@
 #import "HostWindow.h"
 #import "ScreenProperties.h"
 #import <ColorSync/ColorSync.h>
+#import <pal/cocoa/OpenGLSoftLinkCocoa.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <wtf/ProcessPrivilege.h>
@@ -129,9 +130,7 @@ ScreenProperties collectScreenProperties()
         FloatRect screenAvailableRect = screen.visibleFrame;
         screenAvailableRect.setY(NSMaxY(screen.frame) - (screenAvailableRect.y() + screenAvailableRect.height())); // flip
         FloatRect screenRect = screen.frame;
-
-        RetainPtr<CGColorSpaceRef> colorSpace = screen.colorSpace.CGColorSpace;
-
+        DestinationColorSpace colorSpace { screen.colorSpace.CGColorSpace };
         int screenDepth = NSBitsPerPixelFromDepth(screen.depth);
         int screenDepthPerComponent = NSBitsPerSampleFromDepth(screen.depth);
         bool screenSupportsExtendedColor = [screen canRepresentDisplayGamut:NSDisplayGamutP3];
@@ -162,7 +161,7 @@ ScreenProperties collectScreenProperties()
         if (displayMask)
             gpuID = gpuIDForDisplayMask(displayMask);
 
-        screenProperties.screenDataMap.set(displayID, ScreenData { screenAvailableRect, screenRect, colorSpace, screenDepth, screenDepthPerComponent, screenSupportsExtendedColor, screenHasInvertedColors, screenSupportsHighDynamicRange, screenIsMonochrome, displayMask, gpuID, dynamicRangeMode, scaleFactor });
+        screenProperties.screenDataMap.set(displayID, ScreenData { screenAvailableRect, screenRect, WTFMove(colorSpace), screenDepth, screenDepthPerComponent, screenSupportsExtendedColor, screenHasInvertedColors, screenSupportsHighDynamicRange, screenIsMonochrome, displayMask, gpuID, dynamicRangeMode, scaleFactor });
 
         if (!screenProperties.primaryDisplayID)
             screenProperties.primaryDisplayID = displayID;
@@ -201,13 +200,10 @@ IORegistryGPUID primaryGPUID()
 
 IORegistryGPUID gpuIDForDisplay(PlatformDisplayID displayID)
 {
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
     if (auto data = screenData(displayID))
         return data->gpuID;
+
     return 0;
-#else
-    return gpuIDForDisplayMask(CGDisplayIDToOpenGLDisplayMask(displayID));
-#endif
 }
 
 IORegistryGPUID gpuIDForDisplayMask(GLuint displayMask)
@@ -342,13 +338,13 @@ NSScreen *screen(PlatformDisplayID displayID)
     return firstScreen();
 }
 
-CGColorSpaceRef screenColorSpace(Widget* widget)
+DestinationColorSpace screenColorSpace(Widget* widget)
 {
     if (auto data = screenProperties(widget))
-        return data->colorSpace.get();
+        return data->colorSpace;
 
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    return screen(widget).colorSpace.CGColorSpace;
+    return DestinationColorSpace { screen(widget).colorSpace.CGColorSpace };
 }
 
 bool screenSupportsExtendedColor(Widget* widget)
@@ -418,6 +414,18 @@ NSPoint flipScreenPoint(const NSPoint& screenPoint, NSScreen *screen)
     flippedPoint.y = NSMaxY([screen frame]) - flippedPoint.y;
     return flippedPoint;
 }
+
+FloatRect safeScreenFrame(NSScreen* screen)
+{
+    FloatRect frame = screen.frame;
+#if HAVE(NSSCREEN_SAFE_AREA)
+    auto insets = screen.safeAreaInsets;
+    frame.contract(insets.left + insets.right, insets.top + insets.bottom);
+    frame.move(insets.left, insets.bottom);
+#endif
+    return frame;
+}
+
 
 } // namespace WebCore
 

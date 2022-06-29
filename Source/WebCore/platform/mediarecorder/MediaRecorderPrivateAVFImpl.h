@@ -24,36 +24,48 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if ENABLE(MEDIA_RECORDER)
 
+#include "CAAudioStreamDescription.h"
 #include "MediaRecorderPrivate.h"
 #include "MediaRecorderPrivateWriterCocoa.h"
+
+using CVPixelBufferRef = struct __CVBuffer*;
+typedef const struct opaqueCMFormatDescription* CMFormatDescriptionRef;
 
 namespace WebCore {
 
 class MediaStreamPrivate;
+class WebAudioBufferList;
 
 class MediaRecorderPrivateAVFImpl final
     : public MediaRecorderPrivate {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static std::unique_ptr<MediaRecorderPrivateAVFImpl> create(MediaStreamPrivate&);
-
-    explicit MediaRecorderPrivateAVFImpl(Ref<MediaRecorderPrivateWriter>&&);
+    static std::unique_ptr<MediaRecorderPrivateAVFImpl> create(MediaStreamPrivate&, const MediaRecorderPrivateOptions&);
     ~MediaRecorderPrivateAVFImpl();
 
 private:
-    // MediaRecorderPrivate
-    void videoSampleAvailable(MediaSample&) final;
-    void fetchData(FetchDataCallback&&) final;
-    void audioSamplesAvailable(const WTF::MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final;
+    explicit MediaRecorderPrivateAVFImpl(Ref<MediaRecorderPrivateWriter>&&);
 
-    const String& mimeType();
-    void stopRecording();
+    // MediaRecorderPrivate
+    void videoSampleAvailable(MediaSample&, VideoSampleMetadata) final;
+    void fetchData(FetchDataCallback&&) final;
+    void audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final;
+    void startRecording(StartRecordingCallback&&) final;
+    const String& mimeType() const final;
+
+    void stopRecording(CompletionHandler<void()>&&) final;
+    void pauseRecording(CompletionHandler<void()>&&) final;
+    void resumeRecording(CompletionHandler<void()>&&) final;
 
     Ref<MediaRecorderPrivateWriter> m_writer;
+    RetainPtr<CVPixelBufferRef> m_blackFrame;
+    RetainPtr<CMFormatDescriptionRef> m_blackFrameDescription;
+    CAAudioStreamDescription m_description;
+    std::unique_ptr<WebAudioBufferList> m_audioBuffer;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#endif // ENABLE(MEDIA_RECORDER)

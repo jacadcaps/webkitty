@@ -29,9 +29,9 @@
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
 #import "AVOutputDeviceMenuControllerTargetPicker.h"
+#import "FloatRect.h"
 #import "Logging.h"
-#import <WebCore/FloatRect.h>
-#import <WebCore/MediaPlaybackTargetCocoa.h>
+#import "MediaPlaybackTargetCocoa.h"
 #import <objc/runtime.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
@@ -46,8 +46,6 @@
 
 SOFTLINK_AVKIT_FRAMEWORK()
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVOutputDeviceMenuController)
-
-using namespace WebCore;
 
 namespace WebCore {
 
@@ -86,9 +84,9 @@ AVPlaybackTargetPicker& MediaPlaybackTargetPickerMac::routePicker()
     return *m_routePicker;
 }
 
-void MediaPlaybackTargetPickerMac::showPlaybackTargetPicker(PlatformView* view, const FloatRect& location, bool hasActiveRoute, bool useDarkAppearance)
+void MediaPlaybackTargetPickerMac::showPlaybackTargetPicker(PlatformView* view, const FloatRect& location, bool hasActiveRoute, bool useDarkAppearance, bool useiTunesAVOutputContext)
 {
-    routePicker().showPlaybackTargetPicker(view, location, hasActiveRoute, useDarkAppearance);
+    routePicker().showPlaybackTargetPicker(view, location, hasActiveRoute, useDarkAppearance, useiTunesAVOutputContext);
 }
 
 void MediaPlaybackTargetPickerMac::startingMonitoringPlaybackTargets()

@@ -72,6 +72,7 @@ enum {
     if (self) {
         _browserWindowControllers = [[NSMutableSet alloc] init];
         _extensionManagerWindowController = [[ExtensionManagerWindowController alloc] init];
+        _openNewWindowAtStartup = true;
     }
 
     return self;
@@ -97,6 +98,11 @@ static WKWebsiteDataStore *persistentDataStore()
     if (!dataStore) {
         _WKWebsiteDataStoreConfiguration *configuration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
         configuration.networkCacheSpeculativeValidationEnabled = YES;
+
+        // FIXME: When built-in notifications are enabled, WebKit doesn't yet gracefully handle a missing webpushd service
+        // Until it does, uncomment this line when the service is known to be installed.
+        // [configuration setWebPushMachServiceName:@"org.webkit.webpushtestdaemon.service"];
+
         dataStore = [[WKWebsiteDataStore alloc] _initWithConfiguration:configuration];
     }
     
@@ -139,12 +145,12 @@ static WKWebsiteDataStore *persistentDataStore()
             [configuration.preferences _setEnabled:enabled forInternalDebugFeature:feature];
         }
 
-        configuration.preferences._fullScreenEnabled = YES;
+        configuration.preferences.elementFullscreenEnabled = YES;
         configuration.preferences._allowsPictureInPictureMediaPlayback = YES;
         configuration.preferences._developerExtrasEnabled = YES;
-        configuration.preferences._mediaDevicesEnabled = YES;
         configuration.preferences._mockCaptureDevicesEnabled = YES;
         configuration.preferences._accessibilityIsolatedTreeEnabled = YES;
+        configuration.preferences._logsPageMessagesToSystemConsoleEnabled = YES;
     }
 
     configuration.suppressesIncrementalRendering = _settingsController.incrementalRenderingSuppressed;
@@ -234,6 +240,9 @@ static WKWebsiteDataStore *persistentDataStore()
 
     [self _updateNewWindowKeyEquivalents];
 
+    if (!_openNewWindowAtStartup)
+        return;
+
     if (_settingsController.createEditorByDefault)
         [self newEditorWindow:self];
     else
@@ -264,6 +273,7 @@ static WKWebsiteDataStore *persistentDataStore()
 
     [controller.window makeKeyAndOrderFront:self];
     [controller loadURLString:[NSURL fileURLWithPath:filename].absoluteString];
+    _openNewWindowAtStartup = false;
     return YES;
 }
 

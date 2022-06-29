@@ -28,8 +28,12 @@
 
 #import "GraphicsContextCG.h"
 #import "HTMLInputElement.h"
+#import "ImageBuffer.h"
 #import "RenderText.h"
-#import <pal/spi/cocoa/CoreTextSPI.h>
+#import "UserAgentScripts.h"
+#import "UserAgentStyleSheets.h"
+#import <algorithm>
+#import <pal/spi/cf/CoreTextSPI.h>
 
 #if ENABLE(VIDEO)
 #import "LocalizedStrings.h"
@@ -47,6 +51,12 @@
 #import <pal/cocoa/PassKitSoftLink.h>
 #endif
 
+@interface WebCoreRenderThemeBundle : NSObject
+@end
+
+@implementation WebCoreRenderThemeBundle
+@end
+
 namespace WebCore {
 
 RenderThemeCocoa& RenderThemeCocoa::singleton()
@@ -54,9 +64,15 @@ RenderThemeCocoa& RenderThemeCocoa::singleton()
     return static_cast<RenderThemeCocoa&>(RenderTheme::singleton());
 }
 
-bool RenderThemeCocoa::canPaint(const PaintInfo& paintInfo) const
+void RenderThemeCocoa::purgeCaches()
 {
-    return paintInfo.context().hasPlatformContext();
+#if ENABLE(VIDEO) && ENABLE(MODERN_MEDIA_CONTROLS)
+    m_mediaControlsLocalizedStringsScript.clearImplIfNotShared();
+    m_mediaControlsScript.clearImplIfNotShared();
+    m_mediaControlsStyleSheet.clearImplIfNotShared();
+#endif // ENABLE(VIDEO) && ENABLE(MODERN_MEDIA_CONTROLS)
+
+    RenderTheme::purgeCaches();
 }
 
 bool RenderThemeCocoa::shouldHaveCapsLockIndicator(const HTMLInputElement& element) const
@@ -73,14 +89,14 @@ static const auto applePayButtonMinimumHeight = 30;
 void RenderThemeCocoa::adjustApplePayButtonStyle(RenderStyle& style, const Element*) const
 {
     if (style.applePayButtonType() == ApplePayButtonType::Plain)
-        style.setMinWidth(Length(applePayButtonPlainMinimumWidth, Fixed));
+        style.setMinWidth(Length(applePayButtonPlainMinimumWidth, LengthType::Fixed));
     else
-        style.setMinWidth(Length(applePayButtonMinimumWidth, Fixed));
-    style.setMinHeight(Length(applePayButtonMinimumHeight, Fixed));
+        style.setMinWidth(Length(applePayButtonMinimumWidth, LengthType::Fixed));
+    style.setMinHeight(Length(applePayButtonMinimumHeight, LengthType::Fixed));
 
     if (!style.hasExplicitlySetBorderRadius()) {
         auto cornerRadius = PAL::get_PassKit_PKApplePayButtonDefaultCornerRadius();
-        style.setBorderRadius({ { cornerRadius, Fixed }, { cornerRadius, Fixed } });
+        style.setBorderRadius({ { cornerRadius, LengthType::Fixed }, { cornerRadius, LengthType::Fixed } });
     }
 }
 
@@ -136,10 +152,11 @@ static PKPaymentButtonType toPKPaymentButtonType(ApplePayButtonType type)
 
 bool RenderThemeCocoa::paintApplePayButton(const RenderObject& renderer, const PaintInfo& paintInfo, const IntRect& paintRect)
 {
-    GraphicsContextStateSaver stateSaver(paintInfo.context());
+    auto& destinationContext = paintInfo.context();
 
-    paintInfo.context().setShouldSmoothFonts(true);
-    paintInfo.context().scale(FloatSize(1, -1));
+    auto imageBuffer = destinationContext.createCompatibleImageBuffer(paintRect.size());
+    if (!imageBuffer)
+        return false;
 
     auto& style = renderer.style();
     auto largestCornerRadius = std::max<CGFloat>({
@@ -153,11 +170,50 @@ bool RenderThemeCocoa::paintApplePayButton(const RenderObject& renderer, const P
         floatValueForLength(style.borderBottomRightRadius().width, paintRect.width())
     });
 
-    PKDrawApplePayButtonWithCornerRadius(paintInfo.context().platformContext(), CGRectMake(paintRect.x(), -paintRect.maxY(), paintRect.width(), paintRect.height()), 1.0, largestCornerRadius, toPKPaymentButtonType(style.applePayButtonType()), toPKPaymentButtonStyle(style.applePayButtonStyle()), style.computedLocale());
+    auto& imageContext = imageBuffer->context();
+    imageContext.setShouldSmoothFonts(true);
+    imageContext.setShouldSubpixelQuantizeFonts(false);
+    imageContext.scale(FloatSize(1, -1));
+    PKDrawApplePayButtonWithCornerRadius(imageContext.platformContext(), CGRectMake(0, -paintRect.height(), paintRect.width(), paintRect.height()), 1.0, largestCornerRadius, toPKPaymentButtonType(style.applePayButtonType()), toPKPaymentButtonStyle(style.applePayButtonStyle()), style.computedLocale());
+
+    destinationContext.drawConsumingImageBuffer(WTFMove(imageBuffer), paintRect);
     return false;
 }
 
 #endif // ENABLE(APPLE_PAY)
+
+#if ENABLE(VIDEO) && ENABLE(MODERN_MEDIA_CONTROLS)
+
+String RenderThemeCocoa::mediaControlsStyleSheet()
+{
+    if (m_mediaControlsStyleSheet.isEmpty())
+        m_mediaControlsStyleSheet = StringImpl::createWithoutCopying(ModernMediaControlsUserAgentStyleSheet, sizeof(ModernMediaControlsUserAgentStyleSheet));
+    return m_mediaControlsStyleSheet;
+}
+
+Vector<String, 2> RenderThemeCocoa::mediaControlsScripts()
+{
+    // FIXME: Localized strings are not worth having a script. We should make it JSON data etc. instead.
+    if (m_mediaControlsLocalizedStringsScript.isEmpty()) {
+        NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
+        m_mediaControlsLocalizedStringsScript = [NSString stringWithContentsOfFile:[bundle pathForResource:@"modern-media-controls-localized-strings" ofType:@"js"] encoding:NSUTF8StringEncoding error:nil];
+    }
+
+    if (m_mediaControlsScript.isEmpty())
+        m_mediaControlsScript = StringImpl::createWithoutCopying(ModernMediaControlsJavaScript, sizeof(ModernMediaControlsJavaScript));
+
+    return {
+        m_mediaControlsLocalizedStringsScript,
+        m_mediaControlsScript,
+    };
+}
+
+String RenderThemeCocoa::mediaControlsBase64StringForIconNameAndType(const String& iconName, const String& iconType)
+{
+    NSString *directory = @"modern-media-controls/images";
+    NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
+    return [[NSData dataWithContentsOfFile:[bundle pathForResource:iconName ofType:iconType inDirectory:directory]] base64EncodedStringWithOptions:0];
+}
 
 String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double durationInSeconds)
 {
@@ -172,87 +228,55 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
         m_durationFormatter.get().formattingContext = NSFormattingContextStandalone;
         m_durationFormatter.get().maximumUnitCount = 2;
     }
-    return [m_durationFormatter.get() stringFromTimeInterval:durationInSeconds];
+    return [m_durationFormatter stringFromTimeInterval:durationInSeconds];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
+#endif // ENABLE(VIDEO) && ENABLE(MODERN_MEDIA_CONTROLS)
+
 FontCascadeDescription& RenderThemeCocoa::cachedSystemFontDescription(CSSValueID valueID) const
 {
-    static NeverDestroyed<FontCascadeDescription> systemFont;
-    static NeverDestroyed<FontCascadeDescription> headlineFont;
-    static NeverDestroyed<FontCascadeDescription> bodyFont;
-    static NeverDestroyed<FontCascadeDescription> subheadlineFont;
-    static NeverDestroyed<FontCascadeDescription> footnoteFont;
-    static NeverDestroyed<FontCascadeDescription> caption1Font;
-    static NeverDestroyed<FontCascadeDescription> caption2Font;
-    static NeverDestroyed<FontCascadeDescription> shortHeadlineFont;
-    static NeverDestroyed<FontCascadeDescription> shortBodyFont;
-    static NeverDestroyed<FontCascadeDescription> shortSubheadlineFont;
-    static NeverDestroyed<FontCascadeDescription> shortFootnoteFont;
-    static NeverDestroyed<FontCascadeDescription> shortCaption1Font;
-    static NeverDestroyed<FontCascadeDescription> tallBodyFont;
-    static NeverDestroyed<FontCascadeDescription> title0Font;
-    static NeverDestroyed<FontCascadeDescription> title1Font;
-    static NeverDestroyed<FontCascadeDescription> title2Font;
-    static NeverDestroyed<FontCascadeDescription> title3Font;
-    static NeverDestroyed<FontCascadeDescription> title4Font;
+    static NeverDestroyed<std::array<FontCascadeDescription, 17>> fontDescriptions;
 
-    static CFStringRef userTextSize = contentSizeCategory();
-
-    if (userTextSize != contentSizeCategory()) {
-        userTextSize = contentSizeCategory();
-
-        headlineFont.get().setIsAbsoluteSize(false);
-        bodyFont.get().setIsAbsoluteSize(false);
-        subheadlineFont.get().setIsAbsoluteSize(false);
-        footnoteFont.get().setIsAbsoluteSize(false);
-        caption1Font.get().setIsAbsoluteSize(false);
-        caption2Font.get().setIsAbsoluteSize(false);
-        shortHeadlineFont.get().setIsAbsoluteSize(false);
-        shortBodyFont.get().setIsAbsoluteSize(false);
-        shortSubheadlineFont.get().setIsAbsoluteSize(false);
-        shortFootnoteFont.get().setIsAbsoluteSize(false);
-        shortCaption1Font.get().setIsAbsoluteSize(false);
-        tallBodyFont.get().setIsAbsoluteSize(false);
-    }
+    ASSERT(std::all_of(std::begin(fontDescriptions.get()), std::end(fontDescriptions.get()), [](auto& description) {
+        return !description.isAbsoluteSize();
+    }));
 
     switch (valueID) {
     case CSSValueAppleSystemHeadline:
-        return headlineFont;
+        return fontDescriptions.get()[0];
     case CSSValueAppleSystemBody:
-        return bodyFont;
+        return fontDescriptions.get()[1];
     case CSSValueAppleSystemTitle0:
-        return title0Font;
+        return fontDescriptions.get()[2];
     case CSSValueAppleSystemTitle1:
-        return title1Font;
+        return fontDescriptions.get()[3];
     case CSSValueAppleSystemTitle2:
-        return title2Font;
+        return fontDescriptions.get()[4];
     case CSSValueAppleSystemTitle3:
-        return title3Font;
+        return fontDescriptions.get()[5];
     case CSSValueAppleSystemTitle4:
-        return title4Font;
+        return fontDescriptions.get()[6];
     case CSSValueAppleSystemSubheadline:
-        return subheadlineFont;
+        return fontDescriptions.get()[7];
     case CSSValueAppleSystemFootnote:
-        return footnoteFont;
+        return fontDescriptions.get()[8];
     case CSSValueAppleSystemCaption1:
-        return caption1Font;
+        return fontDescriptions.get()[9];
     case CSSValueAppleSystemCaption2:
-        return caption2Font;
-        // Short version.
+        return fontDescriptions.get()[10];
     case CSSValueAppleSystemShortHeadline:
-        return shortHeadlineFont;
+        return fontDescriptions.get()[11];
     case CSSValueAppleSystemShortBody:
-        return shortBodyFont;
+        return fontDescriptions.get()[12];
     case CSSValueAppleSystemShortSubheadline:
-        return shortSubheadlineFont;
+        return fontDescriptions.get()[13];
     case CSSValueAppleSystemShortFootnote:
-        return shortFootnoteFont;
+        return fontDescriptions.get()[14];
     case CSSValueAppleSystemShortCaption1:
-        return shortCaption1Font;
-        // Tall version.
+        return fontDescriptions.get()[15];
     case CSSValueAppleSystemTallBody:
-        return tallBodyFont;
+        return fontDescriptions.get()[16];
     default:
         return RenderTheme::cachedSystemFontDescription(valueID);
     }
@@ -260,12 +284,16 @@ FontCascadeDescription& RenderThemeCocoa::cachedSystemFontDescription(CSSValueID
 
 static inline FontSelectionValue cssWeightOfSystemFont(CTFontRef font)
 {
-    auto traits = adoptCF(CTFontCopyTraits(font));
-    CFNumberRef resultRef = (CFNumberRef)CFDictionaryGetValue(traits.get(), kCTFontWeightTrait);
+    auto resultRef = adoptCF(static_cast<CFNumberRef>(CTFontCopyAttribute(font, kCTFontCSSWeightAttribute)));
     float result = 0;
-    CFNumberGetValue(resultRef, kCFNumberFloatType, &result);
+    if (resultRef && CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result))
+        return FontSelectionValue(result);
+
+    auto traits = adoptCF(CTFontCopyTraits(font));
+    resultRef = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontWeightTrait));
+    CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result);
     // These numbers were experimentally gathered from weights of the system font.
-    static constexpr const float weightThresholds[] = { -0.6, -0.365, -0.115, 0.130, 0.235, 0.350, 0.5, 0.7 };
+    static constexpr float weightThresholds[] = { -0.6, -0.365, -0.115, 0.130, 0.235, 0.350, 0.5, 0.7 };
     for (unsigned i = 0; i < WTF_ARRAY_LENGTH(weightThresholds); ++i) {
         if (result < weightThresholds[i])
             return FontSelectionValue((static_cast<int>(i) + 1) * 100);
@@ -409,7 +437,7 @@ void RenderThemeCocoa::updateCachedSystemFontDescription(CSSValueID valueID, Fon
         style = textStyle;
 
     ASSERT(fontDescriptor);
-    RetainPtr<CTFontRef> font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 0, nullptr));
+    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 0, nullptr));
     fontDescription.setIsAbsoluteSize(true);
     fontDescription.setOneFamily(style);
     fontDescription.setSpecifiedSize(CTFontGetSize(font.get()));

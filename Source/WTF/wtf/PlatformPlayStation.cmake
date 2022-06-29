@@ -4,16 +4,18 @@ list(APPEND WTF_SOURCES
     generic/RunLoopGeneric.cpp
     generic/WorkQueueGeneric.cpp
 
+    playstation/FileSystemPlayStation.cpp
     playstation/LanguagePlayStation.cpp
     playstation/UniStdExtrasPlayStation.cpp
 
+    posix/CPUTimePOSIX.cpp
     posix/FileSystemPOSIX.cpp
     posix/OSAllocatorPOSIX.cpp
     posix/ThreadingPOSIX.cpp
 
     text/unix/TextBreakIteratorInternalICUUnix.cpp
 
-    unix/CPUTimeUnix.cpp
+    unix/LoggingUnix.cpp
     unix/MemoryPressureHandlerUnix.cpp
 )
 
@@ -22,10 +24,7 @@ list(APPEND WTF_LIBRARIES
     Threads::Threads
 )
 
-PLAYSTATION_COPY_SHARED_LIBRARIES(WTF_CopySharedLibs
+PLAYSTATION_COPY_REQUIREMENTS(WTF_CopySharedLibs
     FILES
         ${ICU_LIBRARIES}
 )
-
-# bmalloc is compiled as an OBJECT library so it is statically linked
-list(APPEND WTF_PRIVATE_DEFINITIONS STATICALLY_LINKED_WITH_bmalloc)

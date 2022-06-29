@@ -121,7 +121,7 @@ class NetEqTestFactory {
     // Prints concealment events.
     bool concealment_events = false;
     // Maximum allowed number of packets in the buffer.
-    static constexpr int default_max_nr_packets_in_buffer() { return 50; }
+    static constexpr int default_max_nr_packets_in_buffer() { return 200; }
     int max_nr_packets_in_buffer = default_max_nr_packets_in_buffer();
     // Number of dummy packets to put in the packet buffer at the start of the
     // simulation.
@@ -134,7 +134,7 @@ class NetEqTestFactory {
     bool enable_fast_accelerate = false;
     // Dumps events that describes the simulation on a step-by-step basis.
     bool textlog = false;
-    // If specified and |textlog| is true, the output of |textlog| is written to
+    // If specified and `textlog` is true, the output of `textlog` is written to
     // the specified file name.
     absl::optional<std::string> textlog_filename;
     // Base name for the output script files for plotting the delay profile.

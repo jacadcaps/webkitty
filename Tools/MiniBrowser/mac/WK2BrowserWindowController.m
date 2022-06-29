@@ -212,6 +212,14 @@ static const int testFooterBannerHeight = 58;
     return 1;
 }
 
+- (void)_webView:(WKWebView *)webView requestNotificationPermissionForSecurityOrigin:(WKSecurityOrigin *)securityOrigin decisionHandler:(void (^)(BOOL))decisionHandler
+{
+    // For testing, grant notification permission to all origins.
+    // FIXME: Consider adding a dialog and in-memory permissions manager
+    NSLog(@"Granting notifications permission to origin %@", securityOrigin);
+    decisionHandler(YES);
+}
+
 - (IBAction)setViewScale:(id)sender
 {
     CGFloat scale = [self viewScaleForMenuItemTag:[sender tag]];
@@ -471,8 +479,7 @@ static BOOL areEssentiallyEqual(double a, double b)
     preferences._tiledScrollingIndicatorVisible = settings.tiledScrollingIndicatorVisible;
     preferences._compositingBordersVisible = settings.layerBordersVisible;
     preferences._compositingRepaintCountersVisible = settings.layerBordersVisible;
-    preferences._simpleLineLayoutEnabled = settings.simpleLineLayoutEnabled;
-    preferences._simpleLineLayoutDebugBordersEnabled = settings.simpleLineLayoutDebugBordersEnabled;
+    preferences._legacyLineLayoutVisualCoverageEnabled = settings.legacyLineLayoutVisualCoverageEnabled;
     preferences._acceleratedDrawingEnabled = settings.acceleratedDrawingEnabled;
     preferences._resourceUsageOverlayVisible = settings.resourceUsageOverlayVisible;
     preferences._displayListDrawingEnabled = settings.displayListDrawingEnabled;
@@ -616,7 +623,10 @@ static BOOL areEssentiallyEqual(double a, double b)
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
 
     openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     [openPanel setAllowedFileTypes:parameters._allowedFileExtensions];
+#pragma clang diagnostic pop
 
     [openPanel beginSheetModalForWindow:webView.window completionHandler:^(NSInteger result) {
         if (result == NSModalResponseOK)
@@ -873,20 +883,13 @@ static NSSet *dataTypes()
 {
 }
 
-- (void)_webView:(WKWebView *)webView requestMediaCaptureAuthorization: (_WKCaptureDevices)devices decisionHandler:(void (^)(BOOL authorized))decisionHandler
-{
-    decisionHandler(true);
-}
-
-- (void)_webView:(WKWebView *)webView includeSensitiveMediaDeviceDetails:(void (^)(BOOL includeSensitiveDetails))decisionHandler
-{
-    decisionHandler(false);
-}
-
 - (IBAction)saveAsPDF:(id)sender
 {
     NSSavePanel *panel = [NSSavePanel savePanel];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     panel.allowedFileTypes = @[ @"pdf" ];
+#pragma clang diagnostic pop
     [panel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result) {
         if (result == NSModalResponseOK) {
             [_webView createPDFWithConfiguration:nil completionHandler:^(NSData *pdfSnapshotData, NSError *error) {
@@ -899,7 +902,11 @@ static NSSet *dataTypes()
 - (IBAction)saveAsWebArchive:(id)sender
 {
     NSSavePanel *panel = [NSSavePanel savePanel];
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     panel.allowedFileTypes = @[ @"webarchive" ];
+#pragma clang diagnostic pop
     [panel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result) {
         if (result == NSModalResponseOK) {
             [_webView createWebArchiveDataWithCompletionHandler:^(NSData *archiveData, NSError *error) {

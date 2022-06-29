@@ -27,15 +27,19 @@
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
 
-#include "MessageReceiver.h"
+#include "Connection.h"
+#include "DataReference.h"
 #include "RTCDecoderIdentifier.h"
 #include "RTCEncoderIdentifier.h"
-#include <WebCore/ImageTransferSessionVT.h>
+#include "RemoteVideoFrameIdentifier.h"
+#include "SharedMemory.h"
+#include "SharedVideoFrame.h"
+#include <wtf/Lock.h>
 
 namespace IPC {
 class Connection;
 class Decoder;
-class DataReference;
+class Semaphore;
 }
 
 namespace WebCore {
@@ -50,36 +54,56 @@ using LocalEncoder = void*;
 namespace WebKit {
 
 class GPUConnectionToWebProcess;
+class RemoteVideoFrameObjectHeap;
+class SharedVideoFrameReader;
 
-class LibWebRTCCodecsProxy : private IPC::MessageReceiver {
+class LibWebRTCCodecsProxy : public IPC::Connection::ThreadMessageReceiverRefCounted {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit LibWebRTCCodecsProxy(GPUConnectionToWebProcess&);
+    static Ref<LibWebRTCCodecsProxy> create(GPUConnectionToWebProcess& process) { return adoptRef(*new LibWebRTCCodecsProxy(process)); }
     ~LibWebRTCCodecsProxy();
 
-    void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
+    void close();
+
+    bool allowsExitUnderMemoryPressure() const;
 
 private:
+    explicit LibWebRTCCodecsProxy(GPUConnectionToWebProcess&);
+
+    // IPC::Connection::ThreadMessageReceiver
+    void dispatchToThread(Function<void()>&&) final;
+
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void createH264Decoder(RTCDecoderIdentifier);
-    void createH265Decoder(RTCDecoderIdentifier);
+    void createH264Decoder(RTCDecoderIdentifier, bool useRemoteFrames);
+    void createH265Decoder(RTCDecoderIdentifier, bool useRemoteFrames);
+    void createVP9Decoder(RTCDecoderIdentifier, bool useRemoteFrames);
     void releaseDecoder(RTCDecoderIdentifier);
     void decodeFrame(RTCDecoderIdentifier, uint32_t timeStamp, const IPC::DataReference&);
+    void setFrameSize(RTCDecoderIdentifier, uint16_t width, uint16_t height);
 
-    void createEncoder(RTCEncoderIdentifier, const String&, const Vector<std::pair<String, String>>&);
+    void createEncoder(RTCEncoderIdentifier, const String&, const Vector<std::pair<String, String>>&, bool useLowLatency);
     void releaseEncoder(RTCEncoderIdentifier);
     void initializeEncoder(RTCEncoderIdentifier, uint16_t width, uint16_t height, unsigned startBitrate, unsigned maxBitrate, unsigned minBitrate, uint32_t maxFramerate);
-    void encodeFrame(RTCEncoderIdentifier, WebCore::RemoteVideoSample&&, bool shouldEncodeAsKeyFrame);
+    void encodeFrame(RTCEncoderIdentifier, WebCore::RemoteVideoSample&&, uint32_t timeStamp, bool shouldEncodeAsKeyFrame, std::optional<RemoteVideoFrameReadReference>);
     void setEncodeRates(RTCEncoderIdentifier, uint32_t bitRate, uint32_t frameRate);
-
-    CFDictionaryRef ioSurfacePixelBufferCreationOptions(IOSurfaceRef);
+    void setSharedVideoFrameSemaphore(RTCEncoderIdentifier, IPC::Semaphore&&);
+    void setSharedVideoFrameMemory(RTCEncoderIdentifier, const SharedMemory::IPCHandle&);
+    void setRTCLoggingLevel(WTFLogLevel);
 
     GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;
-    HashMap<RTCDecoderIdentifier, webrtc::LocalDecoder> m_decoders;
-    HashMap<RTCEncoderIdentifier, webrtc::LocalEncoder> m_encoders;
 
-    std::unique_ptr<WebCore::ImageTransferSessionVT> m_imageTransferSession;
+    struct Encoder {
+        webrtc::LocalEncoder webrtcEncoder { nullptr };
+        std::unique_ptr<SharedVideoFrameReader> frameReader;
+    };
+    Encoder* findEncoderWithoutLock(RTCEncoderIdentifier);
+
+    mutable Lock m_lock;
+    HashMap<RTCDecoderIdentifier, webrtc::LocalDecoder> m_decoders WTF_GUARDED_BY_LOCK(m_lock); // Only modified on the libWebRTCCodecsQueue but may get accessed from the main thread.
+    HashMap<RTCEncoderIdentifier, Encoder> m_encoders WTF_GUARDED_BY_LOCK(m_lock); // Only modified on the libWebRTCCodecsQueue but may get accessed from the main thread.
+    Ref<WorkQueue> m_queue;
+    Ref<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
 };
 
 }

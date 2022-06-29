@@ -3,8 +3,8 @@ kind: cmake
 sources:
 - kind: git_tag
   url: github_com:MaskRay/ccls.git
-  track: 0.20190823.6
-  ref: 0.20190823.6-0-gb3d694b8bd4105ffe4e57f9ae290245aea6ef0fc
+  track: '0.20210330'
+  ref: 0.20210330-0-g0ada56ef3bb785b9b56eeebb70dff2aad60b3f39
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-cmake.bst

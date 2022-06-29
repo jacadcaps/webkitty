@@ -51,7 +51,7 @@ protected:
     void commitStateBeforeChildren(const ScrollingStateNode&) override;
     void commitStateAfterChildren(const ScrollingStateNode&) override;
 
-    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&) override;
+    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&, EventTargeting) override;
 
     WEBCORE_EXPORT void repositionRelatedLayers() override;
 
@@ -64,10 +64,15 @@ protected:
 
 private:
     void willBeDestroyed() final;
+    void willDoProgrammaticScroll(const FloatPoint&) final;
 
-    FloatPoint adjustedScrollPosition(const FloatPoint&, ScrollClamping) const override;
+    bool startAnimatedScrollToPosition(FloatPoint) final;
+    void stopAnimatedScroll() final;
+    void serviceScrollAnimation(MonotonicTime) final;
 
-    void currentScrollPositionChanged(ScrollingLayerPositionAction) final;
+    FloatPoint adjustedScrollPosition(const FloatPoint&, ScrollClamping) const final;
+
+    void currentScrollPositionChanged(ScrollType, ScrollingLayerPositionAction) final;
     void repositionScrollingLayers() final;
 
     ScrollingTreeScrollingNodeDelegateMac m_delegate;

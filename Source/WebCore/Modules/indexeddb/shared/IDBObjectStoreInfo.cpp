@@ -25,9 +25,9 @@
 
 #include "config.h"
 #include "IDBObjectStoreInfo.h"
-#include <wtf/text/StringBuilder.h>
 
-#if ENABLE(INDEXED_DATABASE)
+#include <wtf/CrossThreadCopier.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
@@ -35,7 +35,7 @@ IDBObjectStoreInfo::IDBObjectStoreInfo()
 {
 }
 
-IDBObjectStoreInfo::IDBObjectStoreInfo(uint64_t identifier, const String& name, Optional<IDBKeyPath>&& keyPath, bool autoIncrement)
+IDBObjectStoreInfo::IDBObjectStoreInfo(uint64_t identifier, const String& name, std::optional<IDBKeyPath>&& keyPath, bool autoIncrement)
     : m_identifier(identifier)
     , m_name(name)
     , m_keyPath(WTFMove(keyPath))
@@ -52,7 +52,8 @@ IDBIndexInfo IDBObjectStoreInfo::createNewIndex(uint64_t indexID, const String& 
 
 void IDBObjectStoreInfo::addExistingIndex(const IDBIndexInfo& info)
 {
-    ASSERT(!m_indexMap.contains(info.identifier()));
+    if (m_indexMap.contains(info.identifier()))
+        LOG_ERROR("Adding an index '%s' with existing Index ID", info.name().utf8().data());
 
     m_indexMap.set(info.identifier(), info);
 }
@@ -93,7 +94,7 @@ IDBIndexInfo* IDBObjectStoreInfo::infoForExistingIndex(uint64_t identifier)
 
 IDBObjectStoreInfo IDBObjectStoreInfo::isolatedCopy() const
 {
-    IDBObjectStoreInfo result = { m_identifier, m_name.isolatedCopy(), WebCore::isolatedCopy(m_keyPath), m_autoIncrement };
+    IDBObjectStoreInfo result = { m_identifier, m_name.isolatedCopy(), crossThreadCopy(m_keyPath), m_autoIncrement };
 
     for (auto& iterator : m_indexMap)
         result.m_indexMap.set(iterator.key, iterator.value.isolatedCopy());
@@ -103,12 +104,9 @@ IDBObjectStoreInfo IDBObjectStoreInfo::isolatedCopy() const
 
 Vector<String> IDBObjectStoreInfo::indexNames() const
 {
-    Vector<String> names;
-    names.reserveCapacity(m_indexMap.size());
-    for (auto& index : m_indexMap.values())
-        names.uncheckedAppend(index.name());
-
-    return names;
+    return WTF::map(m_indexMap, [](auto& pair) -> String {
+        return pair.value.name();
+    });
 }
 
 void IDBObjectStoreInfo::deleteIndex(const String& indexName)
@@ -146,5 +144,3 @@ String IDBObjectStoreInfo::condensedLoggingString() const
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

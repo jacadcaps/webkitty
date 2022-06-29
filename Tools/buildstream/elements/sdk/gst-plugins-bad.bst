@@ -1,45 +1,38 @@
 kind: meson
 sources:
 - kind: tar
-  url: gst_downloads:gst-plugins-bad/gst-plugins-bad-1.16.2.tar.xz
-  ref: f1cb7aa2389569a5343661aae473f0a940a90b872001824bc47fa8072a041e74
+  url: gst_downloads:gst-plugins-bad/gst-plugins-bad-1.20.0.tar.xz
+  ref: 015b8d4d9a395ebf444d40876867a2034dd3304b3ad48bc3a0dd0c1ee71dc11d
+# To be shipped in 1.20.1.
 - kind: patch
-  path: patches/gst-plugins-bad-0001-h264parse-Post-a-WARNING-when-data-is-broken.patch
-
+  path: patches/gstreamer-0001-dtlstransport-Notify-ICE-transport-property-changes.patch
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
 - sdk/gstreamer.bst
 - sdk/gst-plugins-base.bst
-- sdk/openjpeg.bst
+- freedesktop-sdk.bst:components/openjpeg.bst
+- freedesktop-sdk.bst:components/libdrm.bst
 - sdk/libkate.bst
 - sdk/libusrsctp.bst
-- sdk/libsrtp2.bst
-- sdk-build-depends/libusb.bst
+- freedesktop-sdk.bst:components/libusb.bst
 - filtered-openh264.bst
 - freedesktop-sdk.bst:components/aom.bst
 - freedesktop-sdk.bst:components/librsvg.bst
 - freedesktop-sdk.bst:components/frei0r.bst
 - freedesktop-sdk.bst:components/ladspa-sdk.bst
-- freedesktop-sdk.bst:components/libdrm.bst
 - freedesktop-sdk.bst:components/libfdk-aac.bst
 - freedesktop-sdk.bst:components/libglvnd.bst
 - freedesktop-sdk.bst:components/libnice.bst
+- freedesktop-sdk.bst:components/libsrtp2.bst
 - freedesktop-sdk.bst:components/libwebp.bst
 - freedesktop-sdk.bst:components/libgudev.bst
 - freedesktop-sdk.bst:components/openal.bst
 - freedesktop-sdk.bst:components/orc.bst
 - freedesktop-sdk.bst:components/sndfile.bst
-- freedesktop-sdk.bst:components/vulkan.bst
 - freedesktop-sdk.bst:components/wayland.bst
 - freedesktop-sdk.bst:components/webrtc-audio-processing.bst
 - freedesktop-sdk.bst:bootstrap-import.bst
-
-(?):
-- arch == "aarch64":
-    variables:
-      meson-local: >-
-        -Dopenh264=disabled
 
 variables:
   meson-local: >-
@@ -47,6 +40,7 @@ variables:
     -Dintrospection=disabled
     -Dexamples=disabled
     -Dassrender=disabled
+    -Davtp=disabled
     -Dbluez=disabled
     -Dbs2b=disabled
     -Dchromaprint=disabled
@@ -59,6 +53,7 @@ variables:
     -Ddecklink=disabled
     -Ddirectfb=disabled
     -Ddirectsound=disabled
+    -Ddoc=disabled
     -Ddts=disabled
     -Ddvb=disabled
     -Dfaac=disabled
@@ -67,12 +62,17 @@ variables:
     -Dflite=disabled
     -Dfluidsynth=disabled
     -Dgme=disabled
+    -Dgs=disabled
     -Dgsm=disabled
     -Diqa=disabled
+    -Disac=disabled
     -Dladspa=disabled
+    -Dldac=disabled
     -Dlibde265=disabled
     -Dlibmms=disabled
     -Dlv2=disabled
+    -Dmagicleap=disabled
+    -Dmicrodns=disabled
     -Dmodplug=disabled
     -Dmpeg2enc=disabled
     -Dmplex=disabled
@@ -83,13 +83,16 @@ variables:
     -Dnvdec=disabled
     -Dnvenc=disabled
     -Dofa=disabled
+    -Donnx=disabled
     -Dopenal=disabled
+    -Dopenaptx=disabled
     -Dopencv=disabled
     -Dopenexr=disabled
+    -Dopenh264=disabled
     -Dopenmpt=disabled
     -Dopenni2=disabled
     -Dopensles=disabled
-    -Dopensles=disabled
+    -Dqroverlay=disabled
     -Dresindvd=disabled
     -Drsvg=disabled
     -Drtmp=disabled
@@ -98,23 +101,26 @@ variables:
     -Dsoundtouch=disabled
     -Dspandsp=disabled
     -Dsrt=disabled
+    -Dsvthevcenc=disabled
     -Dteletext=disabled
     -Dtinyalsa=disabled
     -Dttml=disabled
+    -Dva=disabled
     -Dvaacenc=disabled
     -Dvdpau=disabled
     -Dvoaacenc=disabled
     -Dvoamrwbenc=disabled
+    -Dvulkan=disabled
     -Dwasapi=disabled
+    -Dwasapi2=disabled
     -Dwebp=disabled
-    -Dwebrtcdsp=disabled
     -Dwildmidi=disabled
     -Dwinks=disabled
     -Dwinscreencap=disabled
     -Dwpe=disabled
     -Dx265=disabled
     -Dzbar=disabled
-    
+    -Dzxing=disabled
 public:
   bst:
     split-rules:

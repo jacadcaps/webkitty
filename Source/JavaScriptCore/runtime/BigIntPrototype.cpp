@@ -29,7 +29,7 @@
 
 #include "BigIntObject.h"
 #include "IntegrityInlines.h"
-#include "IntlNumberFormat.h"
+#include "IntlNumberFormatInlines.h"
 #include "JSBigInt.h"
 #include "JSCInlines.h"
 #include "JSCast.h"
@@ -38,9 +38,9 @@
 
 namespace JSC {
 
-static EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToString(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToLocaleString(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL bigIntProtoFuncValueOf(JSGlobalObject*, CallFrame*);
+static JSC_DECLARE_HOST_FUNCTION(bigIntProtoFuncToString);
+static JSC_DECLARE_HOST_FUNCTION(bigIntProtoFuncToLocaleString);
+static JSC_DECLARE_HOST_FUNCTION(bigIntProtoFuncValueOf);
 
 }
 
@@ -103,7 +103,7 @@ static ALWAYS_INLINE JSBigInt* toThisBigIntValue(JSGlobalObject* globalObject, J
     return nullptr;
 }
 
-EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToString(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(bigIntProtoFuncToString, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -113,7 +113,7 @@ EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToString(JSGlobalObject* globalObjec
 
     ASSERT(value);
 
-    Integrity::auditStructureID(vm, value->structureID());
+    Integrity::auditStructureID(value->structureID());
     int32_t radix = extractToStringRadixArgument(globalObject, callFrame->argument(0), scope);
     RETURN_IF_EXCEPTION(scope, { });
 
@@ -127,21 +127,28 @@ EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToString(JSGlobalObject* globalObjec
 }
 
 // FIXME: this function should introduce the right separators for thousands and similar things.
-EncodedJSValue JSC_HOST_CALL bigIntProtoFuncToLocaleString(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(bigIntProtoFuncToLocaleString, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSBigInt* value = toThisBigIntValue(globalObject, callFrame->thisValue());
+    JSBigInt* thisValue = toThisBigIntValue(globalObject, callFrame->thisValue());
     RETURN_IF_EXCEPTION(scope, { });
 
     auto* numberFormat = IntlNumberFormat::create(vm, globalObject->numberFormatStructure());
     numberFormat->initializeNumberFormat(globalObject, callFrame->argument(0), callFrame->argument(1));
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    RELEASE_AND_RETURN(scope, JSValue::encode(numberFormat->format(globalObject, value)));
+    RETURN_IF_EXCEPTION(scope, { });
+
+    auto value = toIntlMathematicalValue(globalObject, thisValue);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (auto number = value.tryGetDouble())
+        RELEASE_AND_RETURN(scope, JSValue::encode(numberFormat->format(globalObject, number.value())));
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(numberFormat->format(globalObject, WTFMove(value))));
 }
 
-EncodedJSValue JSC_HOST_CALL bigIntProtoFuncValueOf(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(bigIntProtoFuncValueOf, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -149,7 +156,7 @@ EncodedJSValue JSC_HOST_CALL bigIntProtoFuncValueOf(JSGlobalObject* globalObject
     JSBigInt* value = toThisBigIntValue(globalObject, callFrame->thisValue());
     RETURN_IF_EXCEPTION(scope, { });
 
-    Integrity::auditStructureID(vm, value->structureID());
+    Integrity::auditStructureID(value->structureID());
     return JSValue::encode(value);
 }
 
