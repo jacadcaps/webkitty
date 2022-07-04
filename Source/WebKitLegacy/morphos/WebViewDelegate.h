@@ -93,7 +93,7 @@ struct WebViewDelegate
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
 	
 	std::function<bool(const WTF::URL &url)> _fFavIconLoad;
-	std::function<void(WebCore::SharedBuffer *, const WTF::URL &url)> _fFavIconLoaded;
+	std::function<void(RefPtr<WebCore::SharedBuffer>&&, const WTF::URL &url)> _fFavIconLoaded;
 
 	std::function<void(void)> _fPrint;
 	

@@ -1596,7 +1596,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 	{
 		WebPage* webPage = m_frame->page();
 		if (webPage && webPage->_fFavIconLoaded)
-			webPage->_fFavIconLoaded(data.get(), documentLoader->url());
+			webPage->_fFavIconLoaded(WTFMove(data), documentLoader->url());
 	}
 }
 
