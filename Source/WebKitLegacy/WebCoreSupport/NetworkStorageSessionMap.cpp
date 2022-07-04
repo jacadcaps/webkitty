@@ -60,6 +60,12 @@ WebCore::NetworkStorageSession& NetworkStorageSessionMap::defaultStorageSession(
     return *defaultNetworkStorageSession();
 }
 
+void NetworkStorageSessionMap::destroyAllSessions()
+{
+	globalSessionMap().clear();
+	defaultNetworkStorageSession() = nullptr;
+}
+
 void NetworkStorageSessionMap::switchToNewTestingSession()
 {
 #if PLATFORM(COCOA) || USE(CFURLCONNECTION)
@@ -84,13 +90,13 @@ void NetworkStorageSessionMap::ensureSession(PAL::SessionID sessionID, const Str
     if (!addResult.isNewEntry)
         return;
 
-    auto identifier = makeString(identifierBase, ".PrivateBrowsing.", createVersion4UUIDString()).createCFString();
+    auto identifier = makeString(identifierBase, ".PrivateBrowsing.", createCanonicalUUIDString()).createCFString();
 
     RetainPtr<CFURLStorageSessionRef> storageSession;
     if (sessionID.isEphemeral())
         storageSession = WebCore::createPrivateStorageSession(identifier.get());
     else
-        storageSession = WebCore::NetworkStorageSession::createCFStorageSessionForIdentifier(identifier.get(), WebCore::NetworkStorageSession::ShouldDisableCFURLCache::Yes);
+        storageSession = WebCore::NetworkStorageSession::createCFStorageSessionForIdentifier(identifier.get());
 
     RetainPtr<CFHTTPCookieStorageRef> cookieStorage;
     if (WebCore::NetworkStorageSession::processMayUseCookieAPI()) {

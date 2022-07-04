@@ -150,6 +150,7 @@ WTF_EXPORT_PRIVATE std::optional<Vector<uint8_t>> readEntireFile(const String& p
 
 // Prefix is what the filename should be prefixed with, not the full path.
 WTF_EXPORT_PRIVATE String openTemporaryFile(const String& prefix, PlatformFileHandle&, const String& suffix = { });
+WTF_EXPORT_PRIVATE String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle&, const String& suffix = { });
 WTF_EXPORT_PRIVATE PlatformFileHandle openFile(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
 WTF_EXPORT_PRIVATE void closeFile(PlatformFileHandle&);
 // Returns the resulting offset from the beginning of the file if successful, -1 otherwise.
@@ -160,6 +161,8 @@ WTF_EXPORT_PRIVATE bool flushFile(PlatformFileHandle);
 WTF_EXPORT_PRIVATE int writeToFile(PlatformFileHandle, const void* data, int length);
 // Returns number of bytes actually written if successful, -1 otherwise.
 WTF_EXPORT_PRIVATE int readFromFile(PlatformFileHandle, void* data, int length);
+WTF_EXPORT_PRIVATE String temporaryFilePathForPrefix(const String& prefix);
+WTF_EXPORT_PRIVATE void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix);
 
 WTF_EXPORT_PRIVATE PlatformFileHandle openAndLockFile(const String&, FileOpenMode, OptionSet<FileLockMode> = FileLockMode::Exclusive);
 WTF_EXPORT_PRIVATE void unlockAndCloseFile(PlatformFileHandle);

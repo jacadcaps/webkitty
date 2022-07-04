@@ -103,8 +103,12 @@ public:
     void clipPath(const Path&, WindRule) final;
     IntRect clipBounds() const final;
     void clipToImageBuffer(ImageBuffer&, const FloatRect&) final;
-    
+
+#if OS(MORPHOS)
+	RenderingMode renderingMode() const final { return RenderingMode::Unaccelerated; }
+#else
     RenderingMode renderingMode() const final;
+#endif
 
     FloatRect roundToDevicePixels(const FloatRect&, GraphicsContext::RoundingMode) final;
 

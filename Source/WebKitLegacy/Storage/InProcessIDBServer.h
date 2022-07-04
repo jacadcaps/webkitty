@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/IDBConnectionToClient.h>
 #include <WebCore/IDBConnectionToServer.h>
 #include <WebCore/IDBServer.h>

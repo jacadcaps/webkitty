@@ -30,7 +30,6 @@
 #include <WebCore/ResourceHandleClient.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
-#include <WebCore/SharedBuffer.h>
 #include <WebCore/Timer.h>
 #include <wtf/CompletionHandler.h>
 

@@ -253,7 +253,9 @@ static bool shouldSuppressThreadSafetyCheck()
     return WebThreadIsEnabled() || !linkedOnOrAfter(SDKVersion::FirstWithTimerThreadSafetyChecks);
 #elif PLATFORM(MAC)
     return !isInWebProcess() && !linkedOnOrAfter(SDKVersion::FirstWithTimerThreadSafetyChecks);
-#else
+#elif OS(MORPHOS)
+    return true; // wut?
+ #else
     return false;
 #endif
 }
@@ -473,7 +475,7 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
-        RELEASE_ASSERT(!std::isnan(newTime));
+        // RELEASE_ASSERT(!std::isnan(newTime));
         m_unalignedNextFireTime = newTime;
     }
 

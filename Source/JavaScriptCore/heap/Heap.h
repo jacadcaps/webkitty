@@ -316,6 +316,8 @@ public:
 
     VM& vm() const;
 
+	void forceSweep();
+
     MarkedSpace& objectSpace() { return m_objectSpace; }
     MachineThreads& machineThreads() { return *m_machineThreads; }
 

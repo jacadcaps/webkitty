@@ -467,6 +467,12 @@ std::unique_ptr<MIMETypeRegistryThreadGlobalData> MIMETypeRegistry::createMIMETy
         "image/png"_s,
         "image/jpeg"_s,
         "image/gif"_s,
+#elif OS(MORPHOS)
+        "image/png"_s,
+        "image/jpeg"_s,
+        "image/tiff"_s,
+        "image/bmp"_s,
+        "image/ico"_s,
 #elif PLATFORM(GTK)
         "image/png"_s,
         "image/jpeg"_s,

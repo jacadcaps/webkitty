@@ -40,6 +40,10 @@ typedef const struct opaqueCMFormatDescription *CMFormatDescriptionRef;
 
 namespace WebCore {
 
+namespace Acinerella {
+    class AcinerellaPackage;
+}
+
 class MockSampleBox;
 
 struct PlatformSample {
@@ -49,6 +53,7 @@ struct PlatformSample {
         CMSampleBufferType,
         GStreamerSampleType,
         ByteRangeSampleType,
+        MorphOSSampleType,
         VideoFrameType, // FIXME: To be removed when VideoFrame is not MediaSample.
     } type;
     union {
@@ -56,6 +61,7 @@ struct PlatformSample {
         CMSampleBufferRef cmSampleBuffer;
         GstSample* gstSample;
         std::pair<MTPluginByteSourceRef, CMFormatDescriptionRef> byteRangeSample;
+        Acinerella::AcinerellaPackage* mosSample;
     } sample;
 };
 

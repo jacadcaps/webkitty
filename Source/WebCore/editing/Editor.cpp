@@ -2381,6 +2381,61 @@ void Editor::advanceToNextMisspelling(bool startBeforeSelection)
 
 #endif // !PLATFORM(IOS_FAMILY)
 
+#if OS(MORPHOS)
+void Editor::checkEntireDocument()
+{
+    Ref<Document> protectedDocument(m_document);
+
+	// remove all previously set markers...
+	protectedDocument->markers().removeMarkers(DocumentMarker::allMarkers());
+
+    auto spellingSearchRange = makeRangeSelectingNodeContents(document());
+
+    auto position = makeDeprecatedLegacyPosition(spellingSearchRange.start);
+    if (!isEditablePosition(position)) {
+        // This shouldn't happen in very often because the Spelling menu items aren't enabled unless the
+        // selection is editable.
+        // This can happen in Mail for a mix of non-editable and editable content (like Stationary),
+        // when spell checking the whole document before sending the message.
+        // In that case the document might not be editable, but there are editable pockets that need to be spell checked.
+
+        position = VisiblePosition(firstEditablePositionAfterPositionInRoot(position, document().documentElement())).deepEquivalent();
+        if (position.isNull())
+            return;
+        
+        if (auto point = makeBoundaryPoint(position.parentAnchoredEquivalent()))
+            spellingSearchRange.start = *point;
+    }
+
+    // topNode defines the whole range we want to operate on
+    auto* topNode = highestEditableRoot(position);
+    if (topNode)
+        spellingSearchRange.end = makeBoundaryPointAfterNodeContents(*topNode);
+
+    if (spellingSearchRange.collapsed())
+        return; // nothing to search in
+
+    // Get the spell checker if it is available
+    if (!client())
+        return;
+        
+	TextCheckingHelper::MisspelledWord misspelledWord;
+	
+	for (;;)
+	{
+		misspelledWord = TextCheckingHelper(*client(), spellingSearchRange).findFirstMisspelledWord();
+        if (!misspelledWord.word.isEmpty()) {
+			auto misspellingRange = resolveCharacterRange(spellingSearchRange, { misspelledWord.offset, misspelledWord.word.length() });
+	        addMarker(misspellingRange, DocumentMarker::Spelling);
+			spellingSearchRange = SimpleRange(misspellingRange.end, spellingSearchRange.end);
+        }
+        else {
+			break;
+		}
+	}
+}
+#endif
+
 String Editor::misspelledWordAtCaretOrRange(Node* clickedNode) const
 {
     if (!isContinuousSpellCheckingEnabled() || !clickedNode || !isSpellCheckingEnabledFor(clickedNode))
@@ -2693,6 +2748,18 @@ std::optional<SimpleRange> Editor::markMisspellingsOrBadGrammar(const VisibleSel
     if (!client())
         return std::nullopt;
     
+#if OS(MORPHOS)
+       // w/o this, "that's" would leave "that'" hilighted on coursor move
+    OptionSet<DocumentMarker::MarkerType> markerTypesToRemove {
+        DocumentMarker::CorrectionIndicator,
+        DocumentMarker::DictationAlternatives,
+        DocumentMarker::SpellCheckingExemption,
+        DocumentMarker::Spelling,
+        DocumentMarker::Grammar,
+    };
+    removeMarkers(*searchRange, markerTypesToRemove, RemovePartiallyOverlappingMarker::Yes);
+#endif
+
     TextCheckingHelper checker(*client(), *searchRange);
     if (checkSpelling)
         return checker.markAllMisspelledWords();

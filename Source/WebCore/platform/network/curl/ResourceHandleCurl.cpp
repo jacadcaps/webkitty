@@ -82,6 +82,10 @@ bool ResourceHandle::start()
         return true;
     }
 
+    if (d->m_curlRequest) {
+        d->m_curlRequest->cancel();
+	}
+
     d->m_curlRequest = createCurlRequest(WTFMove(request));
 
     if (auto credential = getCredential(d->m_firstRequest, false)) {
@@ -117,6 +121,15 @@ void ResourceHandle::addCacheValidationHeaders(ResourceRequest& request)
     ASSERT(isMainThread());
 
     d->m_addedCacheValidationHeaders = false;
+
+    switch (request.cachePolicy())
+    {
+	case ResourceRequestCachePolicy::ReloadIgnoringCacheData:
+	case ResourceRequestCachePolicy::DoNotUseAnyCache:
+		return;
+	default:
+		break;
+    }
 
     auto hasCacheHeaders = request.httpHeaderFields().contains(HTTPHeaderName::IfModifiedSince) || request.httpHeaderFields().contains(HTTPHeaderName::IfNoneMatch);
     if (hasCacheHeaders)
@@ -163,7 +176,7 @@ CurlResourceHandleDelegate* ResourceHandle::delegate()
     return d->m_delegate.get();
 }
 
-#if OS(WINDOWS)
+#if OS(WINDOWS) || OS(MORPHOS)
 
 void ResourceHandle::setHostAllowsAnyHTTPSCertificate(const String& host)
 {
@@ -180,6 +193,11 @@ void ResourceHandle::setClientCertificateInfo(const String& host, const String& 
         CurlContext::singleton().sslHandle().setClientCertificateInfo(host, certificate, key);
     else
         LOG(Network, "Invalid client certificate file: %s!\n", certificate.latin1().data());
+}
+
+void ResourceHandle::clearClientCertificateInfo(const String& host)
+{
+	CurlContext::singleton().sslHandle().clearClientCertificateInfo(host);
 }
 
 #endif
@@ -386,6 +404,11 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
     }
 
     auto requestCopy = handle->firstRequest();
+
+    if (handle->d->m_curlRequest) {
+        handle->d->m_curlRequest->cancel();
+	}
+
     handle->d->m_curlRequest = handle->createCurlRequest(WTFMove(requestCopy));
 
     if (auto credential = handle->getCredential(handle->d->m_firstRequest, false)) {
@@ -493,10 +516,7 @@ void ResourceHandle::continueAfterWillSendRequest(ResourceRequest&& request)
     ASSERT(isMainThread());
 
     // willSendRequest might cancel the load.
-    if (cancelledOrClientless() || !d->m_curlRequest)
-        return;
-
-    if (request.isNull()) {
+    if (cancelledOrClientless() || !d->m_curlRequest || request.isNull()) {
         cancel();
         return;
     }

@@ -165,16 +165,22 @@ bool Options::isAvailable(Options::ID id, Options::Availability availability)
     if (id == logJITCodeForPerfID)
         return true;
 #endif
+#if !OS(MORPHOS)
     if (id == traceLLIntExecutionID)
         return !!LLINT_TRACING;
     if (id == traceLLIntSlowPathID)
         return !!LLINT_TRACING;
+#endif
     return false;
 }
 
 template<typename T>
 bool overrideOptionWithHeuristic(T& variable, Options::ID id, const char* name, Options::Availability availability)
 {
+#if OS(MORPHOS)
+	(void)variable; (void)id; (void)name; (void)availability;
+	return false;
+#else
     bool available = (availability == Options::Availability::Normal)
         || Options::isAvailable(id, availability);
 
@@ -192,10 +198,15 @@ bool overrideOptionWithHeuristic(T& variable, Options::ID id, const char* name, 
     
     fprintf(stderr, "WARNING: failed to parse %s=%s\n", name, stringValue);
     return false;
+#endif
 }
 
 bool Options::overrideAliasedOptionWithHeuristic(const char* name)
 {
+#if OS(MORPHOS)
+	(void)name;
+	return false;
+#else
     const char* stringValue = getenv(name);
     if (!stringValue)
         return false;
@@ -207,6 +218,7 @@ bool Options::overrideAliasedOptionWithHeuristic(const char* name)
 
     fprintf(stderr, "WARNING: failed to parse %s=%s\n", name, stringValue);
     return false;
+#endif
 }
 
 static unsigned computeNumberOfWorkerThreads(int maxNumberOfWorkerThreads, int minimum = 1)

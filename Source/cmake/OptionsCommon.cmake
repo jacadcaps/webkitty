@@ -78,6 +78,12 @@ message(STATUS "  Linker supports split debug info - ${LD_SUPPORTS_SPLIT_DEBUG}"
 message(STATUS "  Linker supports --gdb-index - ${LD_SUPPORTS_GDB_INDEX}")
 message(STATUS "  Linker supports --disable-new-dtags - ${LD_SUPPORTS_DISABLE_NEW_DTAGS}")
 
+# MorphOS
+set(LD_SUPPORTS_DISABLE_NEW_DTAGS FALSE)
+if (MORPHOS_MINIMAL)
+    set (USE_THIN_ARCHIVES OFF)
+endif()
+
 # Determine whether the archiver in use supports thin archives.
 separate_arguments(AR_VERSION_COMMAND UNIX_COMMAND "${CMAKE_AR} -V")
 execute_process(

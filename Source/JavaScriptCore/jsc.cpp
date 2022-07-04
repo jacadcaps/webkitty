@@ -110,6 +110,10 @@
 #include <wtf/OSObjectPtr.h>
 #endif
 
+#if OS(MORPHOS)
+unsigned long __stack = 2 * 1024 * 1024;
+#endif
+
 #if PLATFORM(GTK)
 #include <locale.h>
 #endif
@@ -208,15 +212,15 @@ template<typename Func>
 int runJSC(const CommandLine&, bool isWorker, const Func&);
 static void checkException(GlobalObject*, bool isLastFile, bool hasException, JSValue, const CommandLine&, bool& success);
 
-class Message : public ThreadSafeRefCounted<Message> {
+class JSCMessage : public ThreadSafeRefCounted<JSCMessage> {
 public:
 #if ENABLE(WEBASSEMBLY)
     using Content = std::variant<ArrayBufferContents, Ref<Wasm::MemoryHandle>>;
 #else
     using Content = std::variant<ArrayBufferContents>;
 #endif
-    Message(Content&&, int32_t);
-    ~Message();
+    JSCMessage(Content&&, int32_t);
+    ~JSCMessage();
     
     Content&& releaseContents() { return WTFMove(m_contents); }
     int32_t index() const { return m_index; }
@@ -231,8 +235,8 @@ public:
     Worker(Workers&);
     ~Worker();
     
-    void enqueue(const AbstractLocker&, RefPtr<Message>);
-    RefPtr<Message> dequeue();
+    void enqueue(const AbstractLocker&, RefPtr<JSCMessage>);
+    RefPtr<JSCMessage> dequeue();
     
     static Worker& current();
 
@@ -240,7 +244,7 @@ private:
     static ThreadSpecific<Worker*>& currentWorker();
 
     Workers& m_workers;
-    Deque<RefPtr<Message>> m_messages;
+    Deque<RefPtr<JSCMessage>> m_messages;
 };
 
 class Workers {
@@ -1915,13 +1919,13 @@ JSC_DEFINE_HOST_FUNCTION(functionCallerIsBBQOrOMGCompiled, (JSGlobalObject* glob
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-Message::Message(Content&& contents, int32_t index)
+JSCMessage::JSCMessage(Content&& contents, int32_t index)
     : m_contents(WTFMove(contents))
     , m_index(index)
 {
 }
 
-Message::~Message()
+JSCMessage::~JSCMessage()
 {
 }
 
@@ -1941,12 +1945,12 @@ Worker::~Worker()
     remove();
 }
 
-void Worker::enqueue(const AbstractLocker&, RefPtr<Message> message)
+void Worker::enqueue(const AbstractLocker&, RefPtr<JSCMessage> message)
 {
     m_messages.append(message);
 }
 
-RefPtr<Message> Worker::dequeue()
+RefPtr<JSCMessage> Worker::dequeue()
 {
     Locker locker { m_workers.m_lock };
     while (m_messages.isEmpty())
@@ -2173,7 +2177,7 @@ JSC_DEFINE_HOST_FUNCTION(functionDollarAgentReceiveBroadcast, (JSGlobalObject* g
     if (callData.type == CallData::Type::None)
         return JSValue::encode(throwException(globalObject, scope, createError(globalObject, "Expected callback"_s)));
     
-    RefPtr<Message> message;
+    RefPtr<JSCMessage> message;
     {
         ReleaseHeapAccessScope releaseAccess(vm.heap);
         message = Worker::current().dequeue();
@@ -2250,7 +2254,7 @@ JSC_DEFINE_HOST_FUNCTION(functionDollarAgentBroadcast, (JSGlobalObject* globalOb
                 ArrayBuffer* nativeBuffer = jsBuffer->impl();
                 ArrayBufferContents contents;
                 nativeBuffer->transferTo(vm, contents); // "transferTo" means "share" if the buffer is shared.
-                RefPtr<Message> message = adoptRef(new Message(WTFMove(contents), index));
+                RefPtr<JSCMessage> message = adoptRef(new JSCMessage(WTFMove(contents), index));
                 worker.enqueue(locker, message);
             });
         return JSValue::encode(jsUndefined());
@@ -2262,7 +2266,7 @@ JSC_DEFINE_HOST_FUNCTION(functionDollarAgentBroadcast, (JSGlobalObject* globalOb
         Workers::singleton().broadcast(
             [&] (const AbstractLocker& locker, Worker& worker) {
                 Ref<Wasm::MemoryHandle> handle { memory->memory().handle() };
-                RefPtr<Message> message = adoptRef(new Message(WTFMove(handle), index));
+                RefPtr<JSCMessage> message = adoptRef(new JSCMessage(WTFMove(handle), index));
                 worker.enqueue(locker, message);
             });
         return JSValue::encode(jsUndefined());

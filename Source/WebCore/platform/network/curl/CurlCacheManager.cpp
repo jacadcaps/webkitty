@@ -91,9 +91,23 @@ void CurlCacheManager::setCacheDirectory(const String& directory)
     loadIndex();
 }
 
-void CurlCacheManager::setStorageSizeLimit(size_t sizeLimit)
+void CurlCacheManager::setStorageSizeLimit(CurlCacheSizeType sizeLimit)
 {
     m_storageSizeLimit = sizeLimit;
+
+	if (!m_cacheDir.isEmpty())
+	{
+		if (sizeLimit == 0)
+		{
+			saveIndex();
+			m_disabled = true;
+		}
+		else
+		{
+			m_disabled = false;
+			loadIndex();
+		}
+	}
 }
 
 void CurlCacheManager::loadIndex()
@@ -118,16 +132,31 @@ void CurlCacheManager::loadIndex()
     if (indexURLs.size() > 1)
         --end; // Last line is empty
     while (it != end) {
-        String url = it->stripWhiteSpace();
-        auto cacheEntry = makeUnique<CurlCacheEntry>(url, nullptr, m_cacheDir);
+        String entry = it->stripWhiteSpace();
+        Vector<String> entryComponents = entry.split('\t');
+        std::unique_ptr<CurlCacheEntry> cacheEntry;
 
-        if (cacheEntry->isCached() && cacheEntry->entrySize() < m_storageSizeLimit) {
-            m_currentStorageSize += cacheEntry->entrySize();
-            makeRoomForNewEntry();
-            m_LRUEntryList.prependOrMoveToFirst(url);
-            m_index.set(url, WTFMove(cacheEntry));
-        } else
-            cacheEntry->invalidate();
+        if (1 == entryComponents.size())
+        {
+            cacheEntry = makeUnique<CurlCacheEntry>(entry, nullptr, m_cacheDir);
+            cacheEntry->isCached(); // force header load
+        }
+        else if (3 == entryComponents.size()) {
+            cacheEntry = makeUnique<CurlCacheEntry>(entryComponents.at(0), entryComponents.at(1).toDouble(), entryComponents.at(2).toDouble(), m_cacheDir);
+        }
+
+        if (!!cacheEntry)
+        {
+            if (cacheEntry->isValid() && cacheEntry->entrySize() < m_storageSizeLimit) {
+                m_currentStorageSize += cacheEntry->entrySize();
+                makeRoomForNewEntry();
+                m_LRUEntryList.prependOrMoveToFirst(entryComponents.at(0));
+                m_index.set(entryComponents.at(0), WTFMove(cacheEntry));
+            }
+            else {
+                cacheEntry->invalidate();
+            }
+        }
 
         ++it;
     }
@@ -152,8 +181,23 @@ void CurlCacheManager::saveIndex()
     const auto& end = m_LRUEntryList.end();
     while (it != end) {
         const CString& urlLatin1 = it->latin1();
-        FileSystem::writeToFile(indexFile, urlLatin1.data(), urlLatin1.length());
-        FileSystem::writeToFile(indexFile, "\n", 1);
+        auto entryIt = m_index.find(*it);
+        if (entryIt != m_index.end())
+        {
+            if (!entryIt->value->isLoading()) {
+                FileSystem::writeToFile(indexFile, urlLatin1.data(), urlLatin1.length());
+                String sizeAndTime("\t");
+                sizeAndTime.append(String::number(entryIt->value->entrySize()));
+                sizeAndTime.append("\t");
+                sizeAndTime.append(String::number(entryIt->value->expireDate().secondsSinceEpoch().seconds()));
+                sizeAndTime.append("\n");
+                auto cSizeAndTime = sizeAndTime.latin1();
+                FileSystem::writeToFile(indexFile, cSizeAndTime.data(), cSizeAndTime.length());
+            }
+            else {
+                entryIt->value->invalidate();
+            }
+        }
         ++it;
     }
 
@@ -191,6 +235,11 @@ void CurlCacheManager::didReceiveResponse(ResourceHandle& job, ResourceResponse&
 
         invalidateCacheEntry(url); // Invalidate existing entry on 200
 
+        // Exclude HEAD, etc requests from being cached. We still want them to invalidate the
+        // caches, though.
+        if (job.firstRequest().httpMethod() != "GET" && job.firstRequest().httpMethod() != "POST")
+            return;
+
         auto cacheEntry = makeUnique<CurlCacheEntry>(url, &job, m_cacheDir);
         bool cacheable = cacheEntry->parseResponseHeaders(response);
         if (cacheable) {
@@ -209,7 +258,6 @@ void CurlCacheManager::didFinishLoading(ResourceHandle& job)
         return;
 
     const String& url = job.firstRequest().url().string();
-
     auto it = m_index.find(url);
     if (it != m_index.end())
         it->value->didFinishLoading();
@@ -236,7 +284,7 @@ HTTPHeaderMap& CurlCacheManager::requestHeaders(const String& url)
 bool CurlCacheManager::getCachedResponse(const String& url, ResourceResponse& response)
 {
     auto it = m_index.find(url);
-    if (it != m_index.end()) {
+    if (it != m_index.end() && it->value->isCached() && !it->value->isLoading()) {
         it->value->setResponseFromCachedHeaders(response);
         return true;
     }
@@ -334,6 +382,22 @@ void CurlCacheManager::readCachedData(const String& url, ResourceHandle* job, Re
         if (!it->value->readCachedData(job))
             invalidateCacheEntry(url);
     }
+}
+
+void CurlCacheManager::removeEntriesMatchingHost(const String& host)
+{
+	auto it = m_index.begin();
+	while (it != m_index.end()) {
+		URL url({ }, it->key);
+		if (url.host() == host) {
+			String kurl = it->key;
+			++it;
+			invalidateCacheEntry(kurl);
+		}
+		else {
+			++it;
+		}
+	}
 }
 
 }

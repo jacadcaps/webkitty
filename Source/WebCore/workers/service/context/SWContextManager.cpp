@@ -192,7 +192,12 @@ void SWContextManager::serviceWorkerFailedToTerminate(ServiceWorkerIdentifier se
     UNUSED_PARAM(serviceWorkerIdentifier);
     RELEASE_LOG_ERROR(ServiceWorker, "Failed to terminate service worker with identifier %s, killing the service worker process", serviceWorkerIdentifier.loggingString().utf8().data());
     ASSERT_NOT_REACHED();
+#if OS(MORPHOS)
+	dprintf("Failed to terminate service worker with identifier %s, freezing the service worker process", serviceWorkerIdentifier.loggingString().utf8().data());
+	Wait(0);
+#else
     _exit(EXIT_FAILURE);
+#endif
 }
 
 SWContextManager::ServiceWorkerTerminationRequest::ServiceWorkerTerminationRequest(SWContextManager& manager, ServiceWorkerIdentifier serviceWorkerIdentifier, Seconds timeout)

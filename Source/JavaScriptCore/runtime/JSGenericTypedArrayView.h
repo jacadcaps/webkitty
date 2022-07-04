@@ -29,6 +29,7 @@
 #include "ThrowScope.h"
 #include "ToNativeFromValue.h"
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/FlipBytes.h>
 
 namespace JSC {
 
@@ -147,7 +148,18 @@ public:
     
     JSValue getIndexQuickly(size_t i) const
     {
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+            return Adaptor::toJSValue(nullptr, flipBytes(getIndexQuicklyAsNativeValue(i)));
+        }
+#else
         return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+#endif
     }
     
     void setIndexQuicklyToNativeValue(size_t i, typename Adaptor::Type value)
@@ -159,7 +171,20 @@ public:
     void setIndexQuickly(size_t i, JSValue value)
     {
         ASSERT(!value.isObject());
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+            break;
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+            setIndexQuicklyToNativeValue(i, flipBytes(toNativeFromValue<Adaptor>(value)));
+            break;
+        }
+#else
         setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+#endif
     }
     
     bool setIndex(JSGlobalObject* globalObject, size_t i, JSValue jsValue)
@@ -173,17 +198,53 @@ public:
         if (isDetached() || i >= m_length)
             return false;
 
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            setIndexQuicklyToNativeValue(i, value);
+            break;
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+           setIndexQuicklyToNativeValue(i, flipBytes(value));
+            break;
+        }
+#else
         setIndexQuicklyToNativeValue(i, value);
+#endif
         return true;
     }
 
     static ElementType toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue)
     {
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            return toNativeFromValue<Adaptor>(globalObject, jsValue);
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+            return flipBytes(toNativeFromValue<Adaptor>(globalObject, jsValue));
+        }
+#else
         return toNativeFromValue<Adaptor>(globalObject, jsValue);
+#endif
     }
 
     static std::optional<ElementType> toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue)
     {
+#if CPU(BIG_ENDIAN)
+        switch (Adaptor::typeValue) {
+        case TypeFloat32:
+        case TypeFloat64:
+            break;
+        default:
+            // typed array views are commonly expected to be little endian views of the underlying data
+            if (!jsValue)
+                break;
+            return flipBytes(toNativeFromValueWithoutCoercion<Adaptor>(jsValue));
+        }
+#endif
         return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
     }
 
