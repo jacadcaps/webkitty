@@ -80,9 +80,6 @@ message(STATUS "  Linker supports --disable-new-dtags - ${LD_SUPPORTS_DISABLE_NE
 
 # MorphOS
 set(LD_SUPPORTS_DISABLE_NEW_DTAGS FALSE)
-if (MORPHOS_MINIMAL)
-    set (USE_THIN_ARCHIVES OFF)
-endif()
 
 # Determine whether the archiver in use supports thin archives.
 separate_arguments(AR_VERSION_COMMAND UNIX_COMMAND "${CMAKE_AR} -V")
@@ -132,6 +129,10 @@ else ()
     set(USE_THIN_ARCHIVES_DEFAULT OFF)
 endif ()
 option(USE_THIN_ARCHIVES "Produce all static libraries as thin archives" ${USE_THIN_ARCHIVES_DEFAULT})
+
+if (MORPHOS_MINIMAL)
+    set (USE_THIN_ARCHIVES OFF)
+endif()
 
 if (USE_THIN_ARCHIVES)
     set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> crT <TARGET> <LINK_FLAGS> <OBJECTS>")
