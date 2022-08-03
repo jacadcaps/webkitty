@@ -474,7 +474,7 @@ public:
 							params.iv = BufferSource(asAB);
 						}
 					}
-					auto decryptResult = CryptoAlgorithmAES_CBC::platformDecrypt(params, *key, m_buffer->extractData(), CryptoAlgorithmAES_CBC::Padding::No);
+					auto decryptResult = CryptoAlgorithmAES_CBC::platformDecrypt(params, *key, m_bufferBuilder.takeAsContiguous()->extractData(), CryptoAlgorithmAES_CBC::Padding::No);
 					if (!decryptResult.hasException())
 					{
 						auto encrypted = decryptResult.releaseReturnValue();
