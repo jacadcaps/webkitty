@@ -370,4 +370,31 @@ extern "C" void dprintf(const char *,...);
 	return _bitrate;
 }
 
+- (LONG)compareByHeightAndBitRate:(WkHLSStreamPrivate *)other
+{
+	if (_height != 0)
+	{
+		int otherHeight = [other height];
+
+		if (_height < otherHeight)
+			return OBLesser;
+
+		if (_height > otherHeight)
+			return OBGreater;
+	}
+
+	if (_bitrate != 0)
+	{
+		int otherBitRate = [other bitrate];
+		
+		if (_bitrate < otherBitRate)
+			return OBLesser;
+
+		if (_bitrate > otherBitRate)
+			return OBGreater;
+	}
+
+	return OBSame;
+}
+
 @end
