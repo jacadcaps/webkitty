@@ -461,6 +461,8 @@ namespace  {
 				[streams addObject:[[[WkHLSStreamPrivate alloc] initWithURL:[OBString stringWithUTF8String:uurl.data()] codecs:[OBString stringWithUTF8String:ucodecs.data()] fps:_info.m_hlsStreams[i].m_fps bitrate:_info.m_hlsStreams[i].m_bitRate
 					width:_info.m_hlsStreams[i].m_width height:_info.m_hlsStreams[i].m_height] autorelease]];
 			}
+			
+			[streams sortUsingSelector:@selector(compareByHeightAndBitRate:)];
 		}
 		
 		_hlsStreams = [streams retain];
