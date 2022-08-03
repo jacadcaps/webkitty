@@ -52,6 +52,7 @@ list(APPEND WebCore_SOURCES
     platform/morphos/DragDataMorphOS.cpp
     platform/morphos/DragImageMorphOS.cpp
     platform/morphos/SelectionData.cpp
+    platform/morphos/UserAgentMorphOS.cpp
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
     platform/graphics/morphos/GraphicsLayerMorphOS.cpp
