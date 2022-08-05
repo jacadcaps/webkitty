@@ -18,6 +18,7 @@ namespace WebCore {
 	class DocumentLoader;
 	class CacheStorageProvider;
     class SWServer;
+    class LocalWebLockRegistry;
 };
 
 namespace WebKit {
@@ -85,6 +86,8 @@ public:
 
 	void returnedFromConstrainedRunLoop();
 	void dispatchAllEvents();
+
+    Ref<WebCore::LocalWebLockRegistry> getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled);
 
 #if ENABLE(SERVICE_WORKER)
     void addSoftUpdateLoader(std::unique_ptr<ServiceWorkerSoftUpdateLoader>&& loader) { m_softUpdateLoaders.add(WTFMove(loader)); }

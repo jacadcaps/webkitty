@@ -40,6 +40,7 @@
 #include <WebCore/CurlContext.h>
 #include <WebCore/HTMLMediaElement.h>
 #include <WebCore/Page.h>
+#include <WebCore/WebLockRegistry.h>
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
@@ -50,6 +51,8 @@
 #include "WebSWServerToContextConnection.h"
 #include "WebSWServerConnection.h"
 #include "WebSWContextManagerConnection.h"
+#include "storage/WebStorageTrackerClient.h"
+#include "StorageTracker.h"
 #include <WebCore/SWContextManager.h>
 #include "ServiceWorkerSoftUpdateLoader.h"
 #include <WebCore/PageConsoleClient.h>
@@ -225,6 +228,8 @@ void WebProcess::initialize(int sigbit)
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasEnabled(true);
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasInWorkersEnabled(true);
     
+    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
+    
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
     WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
@@ -232,6 +237,8 @@ void WebProcess::initialize(int sigbit)
 	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
 
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
+
+    WebKit::StorageTracker::initializeTracker("PROGDIR:Cache/WebStorage", WebStorageTrackerClient::sharedWebStorageTrackerClient());
 
 #if ENABLE(VIDEO)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
@@ -740,6 +747,18 @@ void WebProcess::garbageCollectJavaScriptObjects()
     GCController::singleton().garbageCollectNow();
 }
 
+Ref<WebCore::LocalWebLockRegistry> WebProcess::getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled)
+{
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> defaultRegistry;
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> privateRegistry;
+    auto& existingRegistry = isPrivateBrowsingEnabled ? privateRegistry : defaultRegistry;
+    if (existingRegistry.get())
+        return *existingRegistry.get();
+    auto registry = WebCore::LocalWebLockRegistry::create();
+    existingRegistry.get() = registry;
+    return registry;
+}
+
 void WebProcess::clearResourceCaches()
 {
     // Toggling the cache model like this forces the cache to evict all its in-memory resources.
@@ -893,8 +912,16 @@ WebSWServerConnection* WebProcess::swConnection()
 void WebProcess::establishServiceWorkerContextConnectionToNetworkProcess(WebCore::PageIdentifier pageID,
     WebCore::RegistrableDomain&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&completionHandler)
 {
-    SWContextManager::singleton().setConnection(makeUnique<WebSWContextManagerConnection>(WTFMove(registrableDomain), serviceWorkerPageIdentifier, pageID));
-    SWContextManager::singleton().connection()->establishConnection(WTFMove(completionHandler));
+    if (nullptr == SWContextManager::singleton().connection())
+    {
+        SWContextManager::singleton().setConnection(makeUnique<WebSWContextManagerConnection>(WTFMove(registrableDomain), serviceWorkerPageIdentifier, pageID));
+        SWContextManager::singleton().connection()->establishConnection(WTFMove(completionHandler));
+    }
+    else
+    {
+        dprintf("-- already established!\n");
+        callOnMainThread(WTFMove(completionHandler));
+    }
 }
 
 void WebProcess::addServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier identifier)
