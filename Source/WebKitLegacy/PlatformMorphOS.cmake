@@ -76,6 +76,24 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebNotificationClient.cpp
 )
 
+list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
+#    morphos/cache/CacheStorageEngine.cpp
+#    morphos/cache/CacheStorageEngineConnection.cpp
+#    morphos/cache/NetworkCacheData.cpp
+#    morphos/cache/NetworkCacheFileSystem.cpp
+#    morphos/cache/NetworkCacheStorage.cpp
+#    morphos/cache/NetworkCache.cpp
+#    morphos/cache/CacheStorageEngineCache.cpp
+#    morphos/cache/NetworkCacheDataCurl.cpp
+#    morphos/cache/NetworkCacheIOChannelCurl.cpp
+#    morphos/cache/NetworkCacheSubresourcesEntry.cpp
+#    morphos/cache/CacheStorageEngineCaches.cpp
+#    morphos/cache/NetworkCacheBlobStorage.cpp
+#    morphos/cache/NetworkCacheEntry.cpp
+#    morphos/cache/NetworkCacheKey.cpp
+#    morphos/cache/PrefetchCache.cpp
+    )
+
 if (NOT MORPHOS_MINIMAL)
 	list(APPEND WebKitLegacy_ABP
 		morphos/ABPFilterParser/ABPFilterParser.cpp

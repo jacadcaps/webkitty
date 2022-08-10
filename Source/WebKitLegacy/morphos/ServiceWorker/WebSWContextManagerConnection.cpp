@@ -40,6 +40,9 @@
 #include <WebCore/ServiceWorkerClientData.h>
 #include <WebCore/ServiceWorkerClientQueryOptions.h>
 #include <WebCore/ServiceWorkerJobDataIdentifier.h>
+#include <WebCore/SocketProvider.h>
+#include "../../WebCoreSupport/WebBroadcastChannelRegistry.h"
+#include <WebCore/WebLockRegistry.h>
 #include <WebCore/UserAgent.h>
 #include <wtf/ProcessID.h>
 #include "WebSWOriginTable.h"
@@ -91,9 +94,9 @@ void WebSWContextManagerConnection::installServiceWorker(ServiceWorkerContextDat
     auto pageConfiguration = pageConfigurationWithEmptyClients(WebProcess::singleton().sessionID());
 
     pageConfiguration.databaseProvider = Ref{WebDatabaseProvider::singleton()};
-//    pageConfiguration.socketProvider = WebSocketProvider::create(m_webPageProxyID);
-//    pageConfiguration.broadcastChannelRegistry = WebProcess::singleton().broadcastChannelRegistry();
-//    pageConfiguration.webLockRegistry = WebProcess::singleton().webLockRegistry();
+    pageConfiguration.socketProvider = WebCore::SocketProvider::create();
+    pageConfiguration.broadcastChannelRegistry = WebBroadcastChannelRegistry::getOrCreate(false);
+    pageConfiguration.webLockRegistry = WebProcess::singleton().getOrCreateWebLockRegistry(false);
 //    pageConfiguration.userContentProvider = m_userContentController;
 
     auto effectiveUserAgent =  WTFMove(userAgent);
@@ -333,6 +336,10 @@ void WebSWContextManagerConnection::matchAllCompleted(uint64_t requestIdentifier
 void WebSWContextManagerConnection::claim(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, CompletionHandler<void(ExceptionOr<void>&&)>&& callback)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
+
+    m_swContextConnection->claim(serviceWorkerIdentifier, [callback = WTFMove(callback)](auto&& result) mutable {
+        callback(result ? result->toException() : ExceptionOr<void> { });
+    });
 
     // m_connectionToNetworkProcess->sendWithAsyncReply(Messages::WebSWServerToContextConnection::Claim { serviceWorkerIdentifier }, [callback = WTFMove(callback)](auto&& result) mutable {
 //        callback(result ? result->toException() : ExceptionOr<void> { });
