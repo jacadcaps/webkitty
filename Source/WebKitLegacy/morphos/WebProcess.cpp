@@ -506,9 +506,11 @@ void WebProcess::terminate()
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
 	CurlCacheManager::singleton().setStorageSizeLimit(0);
-	
+
+#if ENABLE(SERVICE_WORKER)
     m_swServer.reset();
- 
+#endif
+
 	waitForThreads();
 
     GCController::singleton().garbageCollectNow();
