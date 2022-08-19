@@ -228,8 +228,7 @@ void WebProcess::initialize(int sigbit)
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasEnabled(true);
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasInWorkersEnabled(true);
     
-// This doesn't work yet in WebKitLegacy so it will potentially break pages if enabled
-//    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
+    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
     
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
@@ -420,7 +419,6 @@ void WebProcess::initialize(int sigbit)
 #if ENABLE(SERVICE_WORKER)
     ServiceWorkerProvider::setSharedProvider(WebServiceWorkerProvider::singleton());
 	RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
-    RuntimeEnabledFeatures::sharedFeatures().setPushAPIEnabled(true);
 #endif
 // TODO: check this
 //    SharedWorkerProvider::setSharedProvider(WebSharedWorkerProvider::singleton());
@@ -828,9 +826,13 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 {
 #if USE_ADFILTER
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
-    WebPage *page = frame ? frame->page() : nullptr;
+	if (!frame)
+		return false;
+	WebPage *page = frame->page();
+	if (!page)
+		return false;
 
-	if (page && !page->adBlockingEnabled())
+	if (!page->adBlockingEnabled())
 		return true;
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
