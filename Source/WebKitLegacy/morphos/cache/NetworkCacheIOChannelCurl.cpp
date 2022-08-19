@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include "WebKit.h"
 #include "NetworkCacheIOChannel.h"
 
 #include <wtf/RunLoop.h>

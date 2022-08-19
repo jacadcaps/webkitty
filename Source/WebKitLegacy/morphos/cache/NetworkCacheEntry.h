@@ -27,7 +27,9 @@
 
 #include "NetworkCacheStorage.h"
 #include "PrivateRelayed.h"
+#if ENABLE(SHAREABLE_RESOURCE)
 #include "ShareableResource.h"
+#endif
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <wtf/Noncopyable.h>

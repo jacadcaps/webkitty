@@ -27,15 +27,16 @@
 #include "CacheStorageEngine.h"
 
 #include "CacheStorageEngineCaches.h"
-#include "NetworkCacheCoders.h"
 #include "NetworkCacheIOChannel.h"
 #include "NetworkCacheKey.h"
-#include "NetworkProcess.h"
-#include "WebCoreArgumentCoders.h"
+#include "NetworkCacheCoders.h"
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/RetrieveRecordsOptions.h>
+#include <WebCore/ResourceError.h>
+#include <WebCore/ResourceRequest.h>
+#include <WebCore/HTTPHeaderMap.h>
 #include <pal/SessionID.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>

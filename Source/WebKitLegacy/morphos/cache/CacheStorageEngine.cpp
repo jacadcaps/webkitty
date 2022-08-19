@@ -28,6 +28,8 @@
 
 #include "NetworkCacheFileSystem.h"
 #include "NetworkCacheIOChannel.h"
+#include "NetworkSession.h"
+#include "WebsiteDataType.h"
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/RetrieveRecordsOptions.h>
 #include <WebCore/SecurityOrigin.h>
@@ -81,6 +83,11 @@ Engine::~Engine()
     auto readCallbacks = WTFMove(m_pendingReadCallbacks);
     for (auto& callback : readCallbacks.values())
         callback(Data { }, 1);
+}
+
+void Engine::shutdown()
+{
+    m_ioQueue->shutdown();
 }
 
 void Engine::fetchEntries(NetworkSession& networkSession, bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>)>&& completionHandler)
@@ -233,6 +240,7 @@ void Engine::requestSpace(const WebCore::ClientOrigin& origin, uint64_t spaceReq
 {
     ASSERT(isMainThread());
 
+/*
     if (!m_networkProcess)
         callback(false);
 
@@ -245,11 +253,12 @@ void Engine::requestSpace(const WebCore::ClientOrigin& origin, uint64_t spaceReq
         callback(false);
 
     storageManager->requestSpace(origin, spaceRequested, WTFMove(callback));
+*/
+    callback(true);
 }
 
 Engine::Engine(NetworkSession& networkSession, String&& rootPath)
     : m_sessionID(networkSession.sessionID())
-    , m_networkProcess(networkSession.networkProcess())
     , m_rootPath(WTFMove(rootPath))
 {
     if (!m_rootPath.isNull())

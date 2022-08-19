@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include "WebKit.h"
 #include "NetworkCacheFileSystem.h"
 
-#include "Logging.h"
 #include <wtf/Assertions.h>
 #include <wtf/FileSystem.h>
 #include <wtf/Function.h>

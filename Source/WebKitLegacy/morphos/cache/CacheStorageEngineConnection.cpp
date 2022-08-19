@@ -24,29 +24,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include "WebKit.h"
+#include "WebProcess.h"
 #include "CacheStorageEngineConnection.h"
 
-#include "Logging.h"
-#include "NetworkConnectionToWebProcess.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/CacheQueryOptions.h>
 
 namespace WebKit {
 using namespace WebCore::DOMCacheEngine;
 using namespace CacheStorage;
 
-#define CACHE_STORAGE_RELEASE_LOG(fmt, ...) RELEASE_LOG(CacheStorage, "%p - CacheStorageEngineConnection::" fmt, &m_connection.connection(), ##__VA_ARGS__)
-#define CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK(functionName, fmt, resultGetter) \
-    if (!result.has_value())\
-        RELEASE_LOG_ERROR(CacheStorage, "CacheStorageEngineConnection::%s - failed - error %d", functionName, (int)result.error()); \
-    else {\
-        auto value = resultGetter(result.value()); \
-        UNUSED_PARAM(value); \
-        RELEASE_LOG(CacheStorage, "CacheStorageEngineConnection::%s - succeeded - " fmt, functionName, value); \
-    }
-CacheStorageEngineConnection::CacheStorageEngineConnection(NetworkConnectionToWebProcess& connection)
-    : m_connection(connection)
+#define D(x) x
+
+#define CACHE_STORAGE_RELEASE_LOG(fmt, ...) D(dprintf("%s:" fmt "\n", __func__, ##__VA_ARGS__));
+#define CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK(functionName, fmt, resultGetter) D(dprintf(functionName ":" fmt "\n", resultGetter));
+
+CacheStorageEngineConnection::CacheStorageEngineConnection()
 {
 }
 
@@ -200,6 +193,16 @@ void CacheStorageEngineConnection::engineRepresentation(CompletionHandler<void(S
 PAL::SessionID CacheStorageEngineConnection::sessionID() const
 {
     return m_connection.sessionID();
+}
+
+NetworkSession* CacheStorageEngineConnection::NetworkConnectionDummy::networkSession()
+{
+    return &WebProcess::singleton().networkSession();
+}
+
+PAL::SessionID CacheStorageEngineConnection::NetworkConnectionDummy::sessionID() const
+{
+    return WebProcess::singleton().sessionID();
 }
 
 }

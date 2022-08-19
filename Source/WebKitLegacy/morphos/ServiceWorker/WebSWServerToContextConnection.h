@@ -30,6 +30,7 @@
 
 #include "ServiceWorkerDownloadTask.h"
 #include "ServiceWorkerFetchTask.h"
+#include "WebPageProxyIdentifier.h"
 #include <WebCore/SWServerToContextConnection.h>
 #include <WebCore/FetchIdentifier.h>
 #include <wtf/URLHash.h>
@@ -51,7 +52,6 @@ class NetworkConnectionToWebProcess;
 class WebSWServerConnection;
 class ServiceWorkerFetchTask;
 class ServiceWorkerDownloadTask;
-typedef uint32_t WebPageProxyIdentifier; // TODO
 
 class WebSWServerToContextConnection: public WebCore::SWServerToContextConnection {
 public:

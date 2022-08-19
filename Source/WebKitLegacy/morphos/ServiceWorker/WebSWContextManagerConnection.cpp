@@ -30,6 +30,7 @@
 
 #include "WebProcess.h"
 #include "WebDatabaseProvider.h"
+#include "WebPageProxyIdentifier.h"
 #include <WebCore/EditorClient.h>
 #include <WebCore/EmptyClients.h>
 #include <WebCore/MessageWithMessagePorts.h>
@@ -76,7 +77,7 @@ void WebSWContextManagerConnection::establishConnection(CompletionHandler<void()
     // m_connectionToNetworkProcess->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::EstablishSWContextConnection { m_webPageProxyID, m_registrableDomain, m_serviceWorkerPageIdentifier }, WTFMove(completionHandler), 0);
     
     if (auto* swServer = WebProcess::singleton().swServer())
-        m_swContextConnection = makeUnique<WebSWServerToContextConnection>(0 /*?*/, WebCore::RegistrableDomain(m_registrableDomain),
+        m_swContextConnection = makeUnique<WebSWServerToContextConnection>(WebPageProxyIdentifier(), WebCore::RegistrableDomain(m_registrableDomain),
             m_serviceWorkerPageIdentifier, *swServer);
     completionHandler();
 }

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include "WebKit.h"
 
 #if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
 #include "NetworkCacheSubresourcesEntry.h"

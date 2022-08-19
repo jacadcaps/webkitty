@@ -27,9 +27,8 @@
 
 #include "NetworkCacheEntry.h"
 #include "NetworkCacheStorage.h"
-#include "PolicyDecision.h"
-#include "ShareableResource.h"
 #include "WebPageProxyIdentifier.h"
+#include "NavigatingToAppBoundDomain.h"
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ResourceResponse.h>
@@ -39,6 +38,8 @@
 #include <wtf/Seconds.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
+
+#define NetworkProcess WebProcess
 
 namespace WebCore {
 class LowPowerModeNotifier;
@@ -202,9 +203,10 @@ public:
 
     void browsingContextRemoved(WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::FrameIdentifier);
 
-    NetworkProcess& networkProcess() { return m_networkProcess.get(); }
     PAL::SessionID sessionID() const { return m_sessionID; }
     const String& storageDirectory() const { return m_storageDirectory; }
+
+    NetworkProcess& networkProcess() { return *m_networkProcess; }
 
     ~Cache();
 
@@ -221,7 +223,7 @@ private:
     std::optional<Seconds> maxAgeCap(Entry&, const WebCore::ResourceRequest&, PAL::SessionID);
 
     Ref<Storage> m_storage;
-    Ref<NetworkProcess> m_networkProcess;
+    NetworkProcess* m_networkProcess;
 
 #if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
     std::unique_ptr<WebCore::LowPowerModeNotifier> m_lowPowerModeNotifier;

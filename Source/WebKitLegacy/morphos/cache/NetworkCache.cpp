@@ -23,16 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include "WebKit.h"
 #include "NetworkCache.h"
 
-#include "AsyncRevalidation.h"
-#include "Logging.h"
-#include "NetworkCacheSpeculativeLoad.h"
-#include "NetworkCacheSpeculativeLoadManager.h"
 #include "NetworkCacheStorage.h"
-#include "NetworkProcess.h"
 #include "NetworkSession.h"
+#include "CacheModel.h"
+#include "WebProcess.h"
 #include <WebCore/CacheValidation.h>
 #include <WebCore/HTTPHeaderNames.h>
 #include <WebCore/LowPowerModeNotifier.h>
@@ -100,7 +97,7 @@ static void dumpFileChanged(Cache* cache)
 
 Cache::Cache(NetworkProcess& networkProcess, const String& storageDirectory, Ref<Storage>&& storage, OptionSet<CacheOption> options, PAL::SessionID sessionID)
     : m_storage(WTFMove(storage))
-    , m_networkProcess(networkProcess)
+    , m_networkProcess(&networkProcess)
     , m_sessionID(sessionID)
     , m_storageDirectory(storageDirectory)
 {
@@ -403,7 +400,7 @@ void Cache::retrieve(const WebCore::ResourceRequest& request, const GlobalFrameI
     }
 #endif
 
-    m_storage->retrieve(storageKey, priority, [this, protectedThis = Ref { *this }, request, completionHandler = WTFMove(completionHandler), info = WTFMove(info), storageKey, networkProcess = Ref { networkProcess() }, sessionID = m_sessionID, frameID, isNavigatingToAppBoundDomain](auto record, auto timings) mutable {
+    m_storage->retrieve(storageKey, priority, [this, protectedThis = Ref { *this }, request, completionHandler = WTFMove(completionHandler), info = WTFMove(info), storageKey, sessionID = m_sessionID, frameID, isNavigatingToAppBoundDomain](auto record, auto timings) mutable {
         info.storageTimings = timings;
 
         if (!record) {
@@ -416,7 +413,7 @@ void Cache::retrieve(const WebCore::ResourceRequest& request, const GlobalFrameI
 
         auto entry = Entry::decodeStorageRecord(*record);
 
-        auto useDecision = entry ? makeUseDecision(networkProcess, sessionID, *entry, request) : UseDecision::NoDueToDecodeFailure;
+        auto useDecision = entry ? makeUseDecision(networkProcess(), sessionID, *entry, request) : UseDecision::NoDueToDecodeFailure;
         switch (useDecision) {
         case UseDecision::AsyncRevalidate: {
 #if ENABLE(NETWORK_CACHE_STALE_WHILE_REVALIDATE)
