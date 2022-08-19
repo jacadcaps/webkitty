@@ -1115,6 +1115,18 @@ Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationPara
     return page;
 }
 
+static Ref<WebCore::LocalWebLockRegistry> getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled)
+{
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> defaultRegistry;
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> privateRegistry;
+    auto& existingRegistry = isPrivateBrowsingEnabled ? privateRegistry : defaultRegistry;
+    if (existingRegistry.get())
+        return *existingRegistry.get();
+    auto registry = WebCore::LocalWebLockRegistry::create();
+    existingRegistry.get() = registry;
+    return registry;
+}
+
 WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 	: m_mainFrame(WebFrame::create())
 	, m_pageID(pageID)
@@ -1165,7 +1177,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         makeUniqueRef<MediaRecorderProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
-        WebProcess::singleton().getOrCreateWebLockRegistry(false),
+        getOrCreateWebLockRegistry(false),
         WebCore::DummyPermissionController::create(),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         makeUniqueRef<WebCore::DummyModelPlayerProvider>()
