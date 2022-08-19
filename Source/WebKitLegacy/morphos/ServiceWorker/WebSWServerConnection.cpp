@@ -31,7 +31,6 @@
 #include "WebProcess.h"
 #include "WebSWServerToContextConnection.h"
 #include "WebServiceWorkerProvider.h"
-#include "WebSWContextManagerConnection.h"
 #include <WebCore/ExceptionData.h>
 #include <WebCore/LegacySchemeRegistry.h>
 #include <WebCore/NotImplemented.h>
@@ -42,7 +41,6 @@
 #include <WebCore/ServiceWorkerContextData.h>
 #include <WebCore/ServiceWorkerJobData.h>
 #include <WebCore/ServiceWorkerUpdateViaCache.h>
-#include <WebCore/MessageWithMessagePorts.h>
 #include <cstdint>
 #include <wtf/Algorithms.h>
 #include <wtf/MainThread.h>
@@ -75,11 +73,10 @@ WebSWServerConnection::~WebSWServerConnection()
 
 void WebSWServerConnection::rejectJobInClient(ServiceWorkerJobIdentifier jobIdentifier, const ExceptionData& exceptionData)
 {
-    D(dprintf("%s(%d): '%s'\n", __PRETTY_FUNCTION__, WTF::isMainThread(), exceptionData.message.utf8().data()));
+    D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
     if (auto completionHandler = m_unregisterJobs.take(jobIdentifier))
         return completionHandler(makeUnexpected(exceptionData));
-    WebServiceWorkerProvider::singleton().jobRejectedInServer(jobIdentifier, exceptionData);
 //    send(Messages::WebSWClientConnection::JobRejectedInServer(jobIdentifier, exceptionData));
 }
 
@@ -118,8 +115,7 @@ void WebSWServerConnection::updateRegistrationStateInClient(ServiceWorkerRegistr
 void WebSWServerConnection::fireUpdateFoundEvent(ServiceWorkerRegistrationIdentifier identifier)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-
-    WebServiceWorkerProvider::singleton().fireUpdateFoundEvent(identifier);
+    D(dprintf("%s(%d): NYI\n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
 //    send(Messages::WebSWClientConnection::FireUpdateFoundEvent(identifier));
 }
@@ -128,16 +124,13 @@ void WebSWServerConnection::setRegistrationLastUpdateTime(ServiceWorkerRegistrat
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
-    WebServiceWorkerProvider::singleton().setRegistrationLastUpdateTime(identifier, lastUpdateTime);
-
 //    send(Messages::WebSWClientConnection::SetRegistrationLastUpdateTime(identifier, lastUpdateTime));
 }
 
 void WebSWServerConnection::setRegistrationUpdateViaCache(ServiceWorkerRegistrationIdentifier identifier, ServiceWorkerUpdateViaCache updateViaCache)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-
-    WebServiceWorkerProvider::singleton().setRegistrationUpdateViaCache(identifier, updateViaCache);
+    D(dprintf("%s(%d): NYI\n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
 //    send(Messages::WebSWClientConnection::SetRegistrationUpdateViaCache(identifier, updateViaCache));
 }
@@ -145,8 +138,7 @@ void WebSWServerConnection::setRegistrationUpdateViaCache(ServiceWorkerRegistrat
 void WebSWServerConnection::notifyClientsOfControllerChange(const HashSet<ScriptExecutionContextIdentifier>& contextIdentifiers, const ServiceWorkerData& newController)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-
-    WebServiceWorkerProvider::singleton().notifyClientsOfControllerChange(contextIdentifiers, ServiceWorkerData(newController));
+    D(dprintf("%s(%d): NYI\n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
  //   send(Messages::WebSWClientConnection::NotifyClientsOfControllerChange(contextIdentifiers, newController));
 }
@@ -298,7 +290,10 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
 void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier destinationIdentifier, MessageWithMessagePorts&& message, const ServiceWorkerOrClientIdentifier& sourceIdentifier)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
+    D(dprintf("%s(%d): NYI\n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
+
+#if 0
     auto* destinationWorker = server().workerByID(destinationIdentifier);
     if (!destinationWorker)
         return;
@@ -317,18 +312,10 @@ void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier d
 
     // It's possible this specific worker cannot be re-run (e.g. its registration has been removed)
     server().runServiceWorkerIfNecessary(destinationIdentifier, [destinationIdentifier, message = WTFMove(message), sourceData = WTFMove(*sourceData)](auto* contextConnection) mutable {
-    
-        SWContextManager::singleton().postMessageToServiceWorker(destinationIdentifier, WTFMove(message), WTFMove(sourceData));
-    
-    //    static_cast<WebSWServerToContextConnection&>(connection).
-    
-        //if (contextConnection)
-        //    contextConnection->postMessageToServiceWorker(destinationIdentifier, WTFMove(message), WTFMove(sourceData));
-//            sendToContextProcess(*contextConnection, Messages::WebSWContextManagerConnection::PostMessageToServiceWorker { destinationIdentifier, WTFMove(message), WTFMove(sourceData) });
-
-// WebCore::ScriptExecutionContextIdentifier destinationContextIdentifier, struct WebCore::MessageWithMessagePorts message, struct WebCore::ServiceWorkerData source, String sourceOrigin
-
+        if (contextConnection)
+            sendToContextProcess(*contextConnection, Messages::WebSWContextManagerConnection::PostMessageToServiceWorker { destinationIdentifier, WTFMove(message), WTFMove(sourceData) });
     });
+#endif
 }
 
 void WebSWServerConnection::scheduleJobInServer(ServiceWorkerJobData&& jobData)
@@ -398,8 +385,6 @@ void WebSWServerConnection::postMessageToServiceWorkerClient(ScriptExecutionCont
     auto* sourceServiceWorker = server().workerByID(sourceIdentifier);
     if (!sourceServiceWorker)
         return;
-
-    WebServiceWorkerProvider::singleton().postMessageToServiceWorkerClient(destinationContextIdentifier, MessageWithMessagePorts(message), WebCore::ServiceWorkerData(sourceServiceWorker->data()), String(sourceOrigin));
 
    // send(Messages::WebSWClientConnection::PostMessageToServiceWorkerClient { destinationContextIdentifier, message, sourceServiceWorker->data(), sourceOrigin });
 }

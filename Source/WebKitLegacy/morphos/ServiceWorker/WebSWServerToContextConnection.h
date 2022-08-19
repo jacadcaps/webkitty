@@ -69,6 +69,7 @@ public:
     void registerDownload(ServiceWorkerDownloadTask&);
     void unregisterDownload(ServiceWorkerDownloadTask&);
 
+private:
     void postMessageToServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier& destinationIdentifier, const WebCore::MessageWithMessagePorts&, WebCore::ServiceWorkerIdentifier sourceIdentifier, const String& sourceOrigin);
 
     // Messages to the SW host WebProcess
@@ -84,7 +85,6 @@ public:
     void connectionIsNoLongerNeeded() final;
     void terminateDueToUnresponsiveness() final;
 
-private:
     void connectionClosed();
 
     WeakPtr<WebCore::SWServer> m_server;

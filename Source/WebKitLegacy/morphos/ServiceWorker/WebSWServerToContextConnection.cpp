@@ -78,8 +78,7 @@ void WebSWServerToContextConnection::postMessageToServiceWorkerClient(const Scri
 void WebSWServerToContextConnection::installServiceWorkerContext(const ServiceWorkerContextData& contextData, const ServiceWorkerData& workerData, const String& userAgent, WorkerThreadMode workerThreadMode)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    auto *managerConnection = static_cast<WebSWContextManagerConnection*>(SWContextManager::singleton().connection());
-    managerConnection->installServiceWorker(ServiceWorkerContextData(contextData), ServiceWorkerData(workerData), String(userAgent), workerThreadMode);
+    static_cast<WebSWContextManagerConnection *>(SWContextManager::singleton().connection())->installServiceWorker(ServiceWorkerContextData(contextData), ServiceWorkerData(workerData), String(userAgent), workerThreadMode);
 
 //    send(Messages::WebSWContextManagerConnection::InstallServiceWorker { contextData, workerData, userAgent, workerThreadMode });
 }
@@ -87,8 +86,6 @@ void WebSWServerToContextConnection::installServiceWorkerContext(const ServiceWo
 void WebSWServerToContextConnection::updateAppInitiatedValue(ServiceWorkerIdentifier serviceWorkerIdentifier, WebCore::LastNavigationWasAppInitiated lastNavigationWasAppInitiated)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    auto *managerConnection = static_cast<WebSWContextManagerConnection*>(SWContextManager::singleton().connection());
-    managerConnection->updateAppInitiatedValue(serviceWorkerIdentifier, lastNavigationWasAppInitiated);
 //    send(Messages::WebSWContextManagerConnection::UpdateAppInitiatedValue(serviceWorkerIdentifier, lastNavigationWasAppInitiated));
 }
 
@@ -126,8 +123,6 @@ void WebSWServerToContextConnection::firePushEvent(WebCore::ServiceWorkerIdentif
 void WebSWServerToContextConnection::terminateWorker(ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    auto *managerConnection = static_cast<WebSWContextManagerConnection*>(SWContextManager::singleton().connection());
-    managerConnection->terminateWorker(serviceWorkerIdentifier);
     //send(Messages::WebSWContextManagerConnection::TerminateWorker(serviceWorkerIdentifier));
 }
 
@@ -144,8 +139,6 @@ void WebSWServerToContextConnection::terminateDueToUnresponsiveness()
 void WebSWServerToContextConnection::matchAllCompleted(uint64_t requestIdentifier, const Vector<ServiceWorkerClientData>& clientsData)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    auto *managerConnection = static_cast<WebSWContextManagerConnection*>(SWContextManager::singleton().connection());
-    managerConnection->matchAllCompleted(requestIdentifier, Vector<ServiceWorkerClientData>(clientsData));
     //send(Messages::WebSWContextManagerConnection::MatchAllCompleted { requestIdentifier, clientsData });
 }
 

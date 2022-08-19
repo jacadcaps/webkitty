@@ -46,7 +46,7 @@ public:
     WebCore::SWServerConnectionIdentifier serverConnectionIdentifier() const final { return m_identifier; }
     bool mayHaveServiceWorkerRegisteredForOrigin(const WebCore::SecurityOriginData&) const final;
 
-public:
+private:
     friend NeverDestroyed<WebServiceWorkerProvider>;
     WebServiceWorkerProvider();
 

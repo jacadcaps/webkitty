@@ -40,7 +40,7 @@ void WebServiceWorkerProvider::terminateWorkerForTesting(WebCore::ServiceWorkerI
 bool WebServiceWorkerProvider::mayHaveServiceWorkerRegisteredForOrigin(const WebCore::SecurityOriginData&) const
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    return true;
+    return false;
 }
 
 void WebServiceWorkerProvider::addServiceWorkerRegistrationInServer(WebCore::ServiceWorkerRegistrationIdentifier identifier)

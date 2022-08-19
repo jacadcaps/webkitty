@@ -138,12 +138,13 @@ void WebSWContextManagerConnection::serviceWorkerStarted(std::optional<ServiceWo
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
     m_swContextConnection->scriptContextStarted(jobDataIdentifier, serviceWorkerIdentifier, doesHandleFetch);
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::ScriptContextStarted { jobDataIdentifier, serviceWorkerIdentifier, doesHandleFetch }, 0);
 }
 
 void WebSWContextManagerConnection::serviceWorkerFailedToStart(std::optional<ServiceWorkerJobDataIdentifier> jobDataIdentifier, WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, const String& exceptionMessage)
 {
-    D(dprintf("%s(%d): %s\n", __PRETTY_FUNCTION__, WTF::isMainThread(), exceptionMessage.utf8().data()));
-    m_swContextConnection->scriptContextFailedToStart(jobDataIdentifier, serviceWorkerIdentifier, exceptionMessage);
+    D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::ScriptContextFailedToStart { jobDataIdentifier, serviceWorkerIdentifier, exceptionMessage }, 0);
 }
 
 static inline bool isValidFetch(const ResourceRequest& request, const FetchOptions& options, const URL& serviceWorkerURL, const String& referrer)
@@ -222,7 +223,7 @@ void WebSWContextManagerConnection::postMessageToServiceWorker(WebCore::ServiceW
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
-    SWContextManager::singleton().postMessageToServiceWorker(destinationIdentifier, WTFMove(message), WTFMove(sourceData));
+//    SWContextManager::singleton().postMessageToServiceWorker(destinationIdentifier, WTFMove(message), WTFMove(sourceData));
 }
 
 void WebSWContextManagerConnection::fireInstallEvent(WebCore::ServiceWorkerIdentifier identifier)
@@ -257,18 +258,20 @@ void WebSWContextManagerConnection::postMessageToServiceWorkerClient(const Scrip
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
-    m_swContextConnection->postMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin);
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::PostMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin), 0);
 }
 
 void WebSWContextManagerConnection::didFinishInstall(std::optional<ServiceWorkerJobDataIdentifier> jobDataIdentifier, WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, bool wasSuccessful)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
     m_swContextConnection->didFinishInstall(jobDataIdentifier, serviceWorkerIdentifier, wasSuccessful);
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::DidFinishInstall(jobDataIdentifier, serviceWorkerIdentifier, wasSuccessful), 0);
 }
 
 void WebSWContextManagerConnection::didFinishActivation(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::DidFinishActivation(serviceWorkerIdentifier), 0);
     m_swContextConnection->didFinishActivation(serviceWorkerIdentifier);
 }
 
@@ -276,25 +279,22 @@ void WebSWContextManagerConnection::setServiceWorkerHasPendingEvents(WebCore::Se
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
-    m_swContextConnection->setServiceWorkerHasPendingEvents(serviceWorkerIdentifier, hasPendingEvents);
+    // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::SetServiceWorkerHasPendingEvents(serviceWorkerIdentifier, hasPendingEvents), 0);
 }
 
 void WebSWContextManagerConnection::skipWaiting(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, CompletionHandler<void()>&& callback)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    m_swContextConnection->skipWaiting(serviceWorkerIdentifier, WTFMove(callback));
     // m_connectionToNetworkProcess->sendWithAsyncReply(Messages::WebSWServerToContextConnection::SkipWaiting(serviceWorkerIdentifier), WTFMove(callback));
 }
 
 void WebSWContextManagerConnection::setScriptResource(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, const URL& url, const ServiceWorkerContextData::ImportedScript& script)
 {
-    m_swContextConnection->setScriptResource(serviceWorkerIdentifier, URL(url), ServiceWorkerContextData::ImportedScript(script));
     // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::SetScriptResource { serviceWorkerIdentifier, url, script }, 0);
 }
 
 void WebSWContextManagerConnection::workerTerminated(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
-    m_swContextConnection->workerTerminated(serviceWorkerIdentifier);
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
     // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::WorkerTerminated(serviceWorkerIdentifier), 0);
 }
@@ -302,7 +302,7 @@ void WebSWContextManagerConnection::workerTerminated(WebCore::ServiceWorkerIdent
 void WebSWContextManagerConnection::findClientByVisibleIdentifier(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, const String& clientIdentifier, FindClientByIdentifierCallback&& callback)
 {
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
-    m_swContextConnection->findClientByVisibleIdentifier(serviceWorkerIdentifier, clientIdentifier, WTFMove(callback));
+
     // m_connectionToNetworkProcess->sendWithAsyncReply(Messages::WebSWServerToContextConnection::FindClientByVisibleIdentifier { serviceWorkerIdentifier, clientIdentifier }, WTFMove(callback));
 }
 
@@ -312,7 +312,6 @@ void WebSWContextManagerConnection::matchAll(WebCore::ServiceWorkerIdentifier se
 
     auto requestIdentifier = ++m_previousRequestIdentifier;
     m_matchAllRequests.add(requestIdentifier, WTFMove(callback));
-    m_swContextConnection->matchAll(requestIdentifier, serviceWorkerIdentifier, options);
     // m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::MatchAll { requestIdentifier, serviceWorkerIdentifier, options }, 0);
 }
 
@@ -321,13 +320,7 @@ void WebSWContextManagerConnection::matchAllCompleted(uint64_t requestIdentifier
     D(dprintf("%s(%d): \n", __PRETTY_FUNCTION__, WTF::isMainThread()));
 
     if (auto callback = m_matchAllRequests.take(requestIdentifier))
-    {
         callback(WTFMove(clientsData));
-    }
-    else
-    {
-        D(dprintf("--!no matchall callback!\n"));
-    }
 }
 
 void WebSWContextManagerConnection::claim(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, CompletionHandler<void(ExceptionOr<void>&&)>&& callback)
