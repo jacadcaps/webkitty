@@ -52,8 +52,6 @@
 #include "WebSWServerConnection.h"
 #include "WebSWContextManagerConnection.h"
 #include "storage/WebStorageTrackerClient.h"
-#include "cache/WebCacheStorageProvider.h"
-#include "cache/CacheStorageEngineConnection.h"
 #include "StorageTracker.h"
 #include <WebCore/SWContextManager.h>
 #include "ServiceWorkerSoftUpdateLoader.h"
@@ -160,9 +158,7 @@ QUAD calculateMaxCacheSize(const char *path)
 
 WebProcess::WebProcess()
 	: m_sessionID(PAL::SessionID::defaultSessionID())
-	, m_cacheStorageProvider(WebCacheStorageProvider::create())
-    , m_cacheStorageEngineConnection(CacheStorageEngineConnection::create())
-    , m_networkSession(NetworkSession::create())
+	, m_cacheStorageProvider(CacheStorageProvider::create())
 {
 }
 
@@ -233,7 +229,7 @@ void WebProcess::initialize(int sigbit)
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasInWorkersEnabled(true);
     
 // This doesn't work yet in WebKitLegacy so it will potentially break pages if enabled
-    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
+//    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
     
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
@@ -514,8 +510,6 @@ void WebProcess::terminate()
 #if ENABLE(SERVICE_WORKER)
     m_swServer.reset();
 #endif
-
-    m_networkSession->shutdown();
 
 	waitForThreads();
 
@@ -853,11 +847,6 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 	return true;
 }
 
-WebCore::NetworkStorageSession* WebProcess::storageSession(PAL::SessionID) const
-{
-    return &NetworkStorageSessionMap::defaultStorageSession();
-}
-
 #if ENABLE(SERVICE_WORKER)
 WebCore::SWServer& WebProcess::ensureSWServer()
 {
@@ -923,9 +912,6 @@ WebSWServerConnection* WebProcess::swConnection()
 void WebProcess::establishServiceWorkerContextConnectionToNetworkProcess(WebCore::PageIdentifier pageID,
     WebCore::RegistrableDomain&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&completionHandler)
 {
-
-    D(dprintf("%s: domain %s\n", __PRETTY_FUNCTION__, registrableDomain.string().utf8().data()));
-
     if (nullptr == SWContextManager::singleton().connection())
     {
         SWContextManager::singleton().setConnection(makeUnique<WebSWContextManagerConnection>(WTFMove(registrableDomain), serviceWorkerPageIdentifier, pageID));

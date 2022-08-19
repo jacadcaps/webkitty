@@ -26,6 +26,7 @@
 #include "config.h"
 #include "CacheStorageEngine.h"
 
+#include "Logging.h"
 #include "NetworkCacheCoders.h"
 #include "NetworkCacheIOChannel.h"
 #include <WebCore/SecurityOrigin.h>

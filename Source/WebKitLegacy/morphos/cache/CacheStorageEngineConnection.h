@@ -25,20 +25,43 @@
 
 #pragma once
 
+#include "ArgumentCoders.h"
 #include "CacheStorageEngine.h"
+#include "Connection.h"
 #include <WebCore/CacheStorageConnection.h>
 #include <pal/SessionID.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
+namespace IPC {
+
+template<> struct AsyncReplyError<WebCore::DOMCacheEngine::CacheIdentifierOrError> {
+    static WebCore::DOMCacheEngine::CacheIdentifierOrError create() { return makeUnexpected(WebCore::DOMCacheEngine::Error::Internal); };
+};
+template<> struct AsyncReplyError<WebCore::DOMCacheEngine::RecordIdentifiersOrError> {
+    static WebCore::DOMCacheEngine::RecordIdentifiersOrError create() { return makeUnexpected(WebCore::DOMCacheEngine::Error::Internal); };
+};
+template<> struct AsyncReplyError<WebCore::DOMCacheEngine::CacheInfosOrError> {
+    static WebCore::DOMCacheEngine::CacheInfosOrError create() { return makeUnexpected(WebCore::DOMCacheEngine::Error::Internal); };
+};
+template<> struct AsyncReplyError<WebCore::DOMCacheEngine::RecordsOrError> {
+    static WebCore::DOMCacheEngine::RecordsOrError create() { return makeUnexpected(WebCore::DOMCacheEngine::Error::Internal); };
+};
+
+}
+
 namespace WebKit {
 
-class NetworkSession;
+class NetworkConnectionToWebProcess;
 
 class CacheStorageEngineConnection : public RefCounted<CacheStorageEngineConnection> {
 public:
-    static Ref<CacheStorageEngineConnection> create() { return adoptRef(*new CacheStorageEngineConnection()); }
+    static Ref<CacheStorageEngineConnection> create(NetworkConnectionToWebProcess& connection) { return adoptRef(*new CacheStorageEngineConnection(connection)); }
     ~CacheStorageEngineConnection();
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
+
+private:
+    explicit CacheStorageEngineConnection(NetworkConnectionToWebProcess&);
 
     void open(WebCore::ClientOrigin&&, String&& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
     void remove(uint64_t cacheIdentifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
@@ -53,17 +76,10 @@ public:
 
     void clearMemoryRepresentation(WebCore::ClientOrigin&&, CompletionHandler<void(std::optional<WebCore::DOMCacheEngine::Error>&&)>&&);
     void engineRepresentation( CompletionHandler<void(String&&)>&&);
-
-private:
-    explicit CacheStorageEngineConnection();
-   
+    
     PAL::SessionID sessionID() const;
 
-    struct NetworkConnectionDummy {
-        NetworkSession* networkSession();
-        PAL::SessionID sessionID() const;
-    };
-    NetworkConnectionDummy m_connection;
+    NetworkConnectionToWebProcess& m_connection;
     HashMap<CacheStorage::CacheIdentifier, CacheStorage::LockCount> m_cachesLocks;
 };
 

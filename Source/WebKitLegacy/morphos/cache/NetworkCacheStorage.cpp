@@ -23,9 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebKit.h"
+#include "config.h"
 #include "NetworkCacheStorage.h"
 
+#include "AuxiliaryProcess.h"
+#include "Logging.h"
 #include "NetworkCacheCoders.h"
 #include "NetworkCacheFileSystem.h"
 #include "NetworkCacheIOChannel.h"

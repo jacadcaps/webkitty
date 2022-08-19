@@ -59,8 +59,6 @@ public:
     static Ref<Engine> create(NetworkSession&, String&& rootPath);
     ~Engine();
 
-    void shutdown();
-
     static void fetchEntries(NetworkSession&, bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>)>&&);
 
     static void open(NetworkSession&, WebCore::ClientOrigin&&, String&& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
@@ -144,6 +142,7 @@ private:
     Cache* cache(uint64_t cacheIdentifier);
 
     PAL::SessionID m_sessionID;
+    WeakPtr<NetworkProcess> m_networkProcess;
     HashMap<WebCore::ClientOrigin, RefPtr<Caches>> m_caches;
     uint64_t m_nextCacheIdentifier { 0 };
     String m_rootPath;

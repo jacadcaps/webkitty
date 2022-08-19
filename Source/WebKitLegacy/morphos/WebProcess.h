@@ -8,7 +8,6 @@
 #include <WebCore/NetworkingContext.h>
 #include <WebCore/SWServer.h>
 #include "ServiceWorkerSoftUpdateLoader.h"
-#include "NetworkSession.h"
 #include <wtf/HashCountedSet.h>
 
 #if !MORPHOS_MINIMAL
@@ -30,7 +29,6 @@ class WebSWOriginStore;
 class WebSWServerConnection;
 class WebSWServerToContextConnection;
 class ServiceWorkerFetchTask;
-class CacheStorageEngineConnection;
 
 class WebPageCreationParameters
 {
@@ -64,12 +62,6 @@ public:
 	RefPtr<WebCore::NetworkingContext> networkingContext() { return m_dummyNetworkingContext; }
 
 	WebCore::CacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
-    CacheStorageEngineConnection& cacheStorageEngineConnection() { return *m_cacheStorageEngineConnection.get(); }
-    NetworkSession& networkSession() { return *m_networkSession.get(); }
-
-    // those two are to simplify NetworkCache stuff
-    NetworkSession* networkSession(PAL::SessionID) { return &networkSession(); }
-    WebCore::NetworkStorageSession* storageSession(PAL::SessionID) const;
 
 	void setCacheModel(WebKit::CacheModel cacheModel);
 	WebKit::CacheModel cacheModel() const { return m_cacheModel; }
@@ -141,10 +133,8 @@ protected:
     std::optional<PAL::SessionID> m_sessionID;
     Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
     RefPtr<WebCore::NetworkingContext> m_dummyNetworkingContext;
-    RefPtr<CacheStorageEngineConnection> m_cacheStorageEngineConnection;
 
     std::function<void()> m_fLastPageClosed;
-    std::unique_ptr<NetworkSession> m_networkSession;
 	
 	struct Task *m_sigTask;
     uint32_t m_sigMask;

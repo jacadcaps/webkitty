@@ -26,8 +26,10 @@
 #include "config.h"
 #include "NetworkCache.h"
 
+#include "Logging.h"
 #include "NetworkCacheCoders.h"
-//#include "WebCoreArgumentCoders.h"
+#include "NetworkProcess.h"
+#include "WebCoreArgumentCoders.h"
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/text/StringBuilder.h>

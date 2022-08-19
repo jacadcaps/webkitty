@@ -3,7 +3,7 @@
 #if ENABLE(SERVICE_WORKER)
 
 #include <WebCore/ServiceWorkerProvider.h>
-//#include <WebCore/WorkerSWClientConnection.h>
+#include <WebCore/WorkerSWClientConnection.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/ExceptionData.h>

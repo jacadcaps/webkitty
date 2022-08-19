@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebKit.h"
+#include "config.h"
 #include "NetworkCacheData.h"
 
 #include "SharedMemory.h"
