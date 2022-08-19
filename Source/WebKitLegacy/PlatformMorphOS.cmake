@@ -17,7 +17,6 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/../include/private/WebCore"
     "${WEBKITLEGACY_DIR}/morphos"
     "${WEBKITLEGACY_DIR}/morphos/WebCoreSupport"
-    "${WEBKITLEGACY_DIR}/morphos/ServiceWorker"
     "${WebKitLegacy_DERIVED_SOURCES_DIR}/include"
     "${WebKitLegacy_DERIVED_SOURCES_DIR}/Interfaces"
     ${SQLITE_INCLUDE_DIR}
@@ -87,18 +86,6 @@ if (NOT MORPHOS_MINIMAL)
 	list(APPEND WebKitLegacy_SOURCES_Classes
 		morphos/WebDatabaseManager.cpp
 		morphos/WebCoreSupport/WebUserMediaClient.cpp
-
-		morphos/ServiceWorker/WebServiceWorkerProvider.cpp
-        morphos/ServiceWorker/SharedMemory.cpp
-        morphos/ServiceWorker/SharedStringHashTable.cpp
-        morphos/ServiceWorker/SharedStringHashTableReadOnly.cpp
-        morphos/ServiceWorker/SharedStringHashStore.cpp
-        morphos/ServiceWorker/WebSWOriginTable.cpp
-        morphos/ServiceWorker/WebSWOriginStore.cpp
-        morphos/ServiceWorker/WebSWServerConnection.cpp
-        morphos/ServiceWorker/WebSWServerToContextConnection.cpp
-        morphos/ServiceWorker/WebSWContextManagerConnection.cpp
-        morphos/ServiceWorker/ServiceWorkerSoftUpdateLoader.cpp
 	)
 endif()
 
