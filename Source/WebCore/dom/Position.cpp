@@ -56,6 +56,7 @@
 #include "TextIterator.h"
 #include "VisiblePosition.h"
 #include "VisibleUnits.h"
+#include "SVGElement.h"
 #include <stdio.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/TextStream.h>
@@ -632,6 +633,9 @@ static bool endsOfNodeAreVisuallyDistinctPositions(Node* node)
     if (!node || !node->renderer())
         return false;
         
+    if (is<SVGElement>(*node))
+        return false;
+
     if (!node->renderer()->isInline())
         return true;
         
@@ -1001,6 +1005,9 @@ bool Position::isCandidate() const
     }
 
     if (is<HTMLHtmlElement>(*m_anchorNode))
+        return false;
+
+    if (is<SVGElement>(*m_anchorNode))
         return false;
 
     if (is<RenderBlockFlow>(*renderer) || is<RenderGrid>(*renderer) || is<RenderFlexibleBox>(*renderer)) {

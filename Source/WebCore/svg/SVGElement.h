@@ -70,6 +70,7 @@ public:
     virtual bool isGradientStop() const { return false; }
     virtual bool isTextContent() const { return false; }
     virtual bool isSMILElement() const { return false; }
+    bool canContainRangeEndPoint() const override { return false; }
 
     // For SVGTests
     virtual bool isValid() const { return true; }
