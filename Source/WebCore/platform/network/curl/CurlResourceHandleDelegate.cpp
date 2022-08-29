@@ -140,8 +140,8 @@ void CurlResourceHandleDelegate::curlDidReceiveResponse(CurlRequest& request, Cu
         if (!cancelledOrClientless())
         {
             CurlCacheManager::singleton().didReceiveResponse(m_handle, m_response);
+            m_handle.continueAfterDidReceiveResponse();
         }
-        m_handle.continueAfterDidReceiveResponse();
     });
 }
 
