@@ -5,6 +5,7 @@
 * GCC - I am using GCC11, GCC9+ work for sure. Anything older and you are in unknown territory (morphos branch might work, morphos_3.32.1 likely would not)
 * GCC shall have **good** C++ support including threading
   * Make sure examples from https://en.cppreference.com/w/cpp/thread/call_once https://www.cplusplus.com/reference/condition_variable/condition_variable/ work OK, if not, you're in trouble - either you fix those or you'll need to implement your own primitives in WTF instead of using linux/posix ones
+* GCC threading normally requires a compliant pthreads library and fast TLS (thread-local storage) available in the kernel. If you're trying to do TLS just inside the pthreads implementation instead, your performance WILL suffer badly
 * cmake - using 3.16.2 myself
 * GNU make
 * Cross-compile environment. You will want 12 or more threads **and** 1GB RAM per each thread you use for compilation (will fail otherwise)
