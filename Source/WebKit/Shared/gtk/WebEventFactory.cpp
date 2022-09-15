@@ -246,7 +246,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const IntPoint& position)
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event)
 {
-    WebWheelEvent::Phase phase = gdk_event_is_scroll_stop_event(event) ?
+    WebWheelEvent::Phase phase = !event || gdk_event_is_scroll_stop_event(event) ?
         WebWheelEvent::Phase::PhaseEnded :
         WebWheelEvent::Phase::PhaseChanged;
     return createWebWheelEvent(event, phase, WebWheelEvent::Phase::PhaseNone);
@@ -298,7 +298,8 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const 
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& wheelTicks)
 {
-    WebWheelEvent::Phase phase = gdk_event_is_scroll_stop_event(event) ?
+    WebWheelEvent::Phase phase = gdk_event_get_event_type(const_cast<GdkEvent*>(event)) != GDK_SCROLL
+        || gdk_event_is_scroll_stop_event(event) ?
         WebWheelEvent::Phase::PhaseEnded :
         WebWheelEvent::Phase::PhaseChanged;
     return createWebWheelEvent(event, position, globalPosition, wheelTicks, phase, WebWheelEvent::Phase::PhaseNone);
@@ -309,9 +310,20 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const 
     // FIXME: [GTK] Add a setting to change the pixels per line used for scrolling
     // https://bugs.webkit.org/show_bug.cgi?id=54826
     float step = static_cast<float>(Scrollbar::pixelsPerLineStep());
-    FloatSize delta(wheelTicks.width() * step, wheelTicks.height() * step);
-
+    FloatSize delta;
     bool hasPreciseScrollingDeltas = false;
+
+#if GTK_CHECK_VERSION(4, 7, 0)
+    hasPreciseScrollingDeltas = gdk_event_get_event_type(const_cast<GdkEvent*>(event)) != GDK_SCROLL
+        || gdk_scroll_event_get_unit(const_cast<GdkEvent*>(event)) != GDK_SCROLL_UNIT_WHEEL;
+
+    if (hasPreciseScrollingDeltas)
+        delta = wheelTicks;
+    else
+        delta = wheelTicks.scaled(step);
+#else
+    delta = wheelTicks.scaled(step);
+
     GdkScrollDirection direction;
     if (!gdk_event_get_scroll_direction(event, &direction)) {
         double deltaX, deltaY;
@@ -320,6 +332,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const 
                 hasPreciseScrollingDeltas = gdk_device_get_source(device) != GDK_SOURCE_MOUSE;
         }
     }
+#endif
 
     return WebWheelEvent(WebEvent::Wheel,
         position,

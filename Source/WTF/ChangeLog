@@ -1,3 +1,25 @@
+2022-04-13  Alex Christensen  <achristensen@webkit.org>
+
+        Punycode encode U+15AF when not in context of other Canadian aboriginal code points
+        https://bugs.webkit.org/show_bug.cgi?id=239316
+        <rdar://91248059>
+
+        Reviewed by Darin Adler.
+
+        * wtf/URLHelpers.cpp:
+        (WTF::URLHelpers::isLookalikeCharacterOfScriptType<USCRIPT_CANADIAN_ABORIGINAL>):
+        (WTF::URLHelpers::isLookalikeCharacter):
+
+2022-03-08  Youenn Fablet  <youenn@apple.com>
+
+        Add a preference to mute video capture in case audio capture gets interrupted
+        https://bugs.webkit.org/show_bug.cgi?id=237524
+        <rdar://78421282>
+
+        Reviewed by Eric Carlson.
+
+        * Scripts/Preferences/WebPreferencesInternal.yaml:
+
 2022-02-22  Angelos Oikonomopoulos  <angelos@igalia.com>
 
         Ruby ERB.new compatibility fix

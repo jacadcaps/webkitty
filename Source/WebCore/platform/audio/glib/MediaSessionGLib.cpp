@@ -174,6 +174,9 @@ static const GDBusInterfaceVTable gInterfaceVTable = {
 
 std::unique_ptr<MediaSessionGLib> MediaSessionGLib::create(MediaSessionManagerGLib& manager, MediaSessionIdentifier identifier)
 {
+    if (!manager.areDBusNotificationsEnabled())
+        return makeUnique<MediaSessionGLib>(manager, nullptr, identifier);
+
     GUniqueOutPtr<GError> error;
     GUniquePtr<char> address(g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SESSION, nullptr, &error.outPtr()));
     if (error) {
@@ -197,6 +200,25 @@ MediaSessionGLib::MediaSessionGLib(MediaSessionManagerGLib& manager, GRefPtr<GDB
     , m_manager(manager)
     , m_connection(WTFMove(connection))
 {
+}
+
+MediaSessionGLib::~MediaSessionGLib()
+{
+    if (m_connection) {
+        if (m_rootRegistrationId && !g_dbus_connection_unregister_object(m_connection.get(), m_rootRegistrationId))
+            g_warning("Unable to unregister MPRIS D-Bus object.");
+        if (m_playerRegistrationId && !g_dbus_connection_unregister_object(m_connection.get(), m_playerRegistrationId))
+            g_warning("Unable to unregister MPRIS D-Bus player object.");
+    }
+    if (m_ownerId)
+        g_bus_unown_name(m_ownerId);
+}
+
+void MediaSessionGLib::ensureMprisSessionRegistered()
+{
+    if (m_ownerId || !m_connection)
+        return;
+
     const auto& mprisInterface = m_manager.mprisInterface();
     GUniqueOutPtr<GError> error;
     m_rootRegistrationId = g_dbus_connection_register_object(m_connection.get(), DBUS_MPRIS_OBJECT_PATH, mprisInterface->interfaces[0],
@@ -216,25 +238,18 @@ MediaSessionGLib::MediaSessionGLib(MediaSessionManagerGLib& manager, GRefPtr<GDB
     }
 
     const auto& applicationID = getApplicationID();
-    m_instanceId = applicationID.isEmpty() ? makeString("org.mpris.MediaPlayer2.webkit.instance", getpid(), "-", identifier.toUInt64()) : makeString("org.mpris.MediaPlayer2.", applicationID.ascii().data(), "-", identifier.toUInt64());
+    m_instanceId = applicationID.isEmpty() ? makeString("org.mpris.MediaPlayer2.webkit.instance", getpid(), "-", m_identifier.toUInt64()) : makeString("org.mpris.MediaPlayer2.", applicationID.ascii().data(), ".instance-", m_identifier.toUInt64());
 
     m_ownerId = g_bus_own_name_on_connection(m_connection.get(), m_instanceId.ascii().data(), G_BUS_NAME_OWNER_FLAGS_NONE, nullptr, nullptr, this, nullptr);
 }
 
-MediaSessionGLib::~MediaSessionGLib()
-{
-    if (m_connection) {
-        if (m_rootRegistrationId && !g_dbus_connection_unregister_object(m_connection.get(), m_rootRegistrationId))
-            g_warning("Unable to unregister MPRIS D-Bus object.");
-        if (m_playerRegistrationId && !g_dbus_connection_unregister_object(m_connection.get(), m_playerRegistrationId))
-            g_warning("Unable to unregister MPRIS D-Bus player object.");
-    }
-    if (m_ownerId)
-        g_bus_unown_name(m_ownerId);
-}
-
 void MediaSessionGLib::emitPositionChanged(double time)
 {
+    if (!m_connection)
+        return;
+
+    ensureMprisSessionRegistered();
+
     GUniqueOutPtr<GError> error;
     int64_t position = time * 1000000;
     if (!g_dbus_connection_emit_signal(m_connection.get(), nullptr, DBUS_MPRIS_OBJECT_PATH, DBUS_MPRIS_PLAYER_INTERFACE, "Seeked", g_variant_new("(x)", position), &error.outPtr()))
@@ -243,6 +258,9 @@ void MediaSessionGLib::emitPositionChanged(double time)
 
 void MediaSessionGLib::updateNowPlaying(NowPlayingInfo& nowPlayingInfo)
 {
+    if (!m_connection)
+        return;
+
     GVariantBuilder propertiesBuilder;
     g_variant_builder_init(&propertiesBuilder, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&propertiesBuilder, "{sv}", "Metadata", getMetadataAsGVariant(nowPlayingInfo));
@@ -308,6 +326,8 @@ void MediaSessionGLib::emitPropertiesChanged(GVariant* parameters)
     if (!m_connection)
         return;
 
+    ensureMprisSessionRegistered();
+
     GUniqueOutPtr<GError> error;
     if (!g_dbus_connection_emit_signal(m_connection.get(), nullptr, DBUS_MPRIS_OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged", parameters, &error.outPtr()))
         g_warning("Failed to emit MPRIS properties changed: %s", error->message);
@@ -315,6 +335,9 @@ void MediaSessionGLib::emitPropertiesChanged(GVariant* parameters)
 
 void MediaSessionGLib::playbackStatusChanged(PlatformMediaSession& platformSession)
 {
+    if (!m_connection)
+        return;
+
     GVariantBuilder builder;
     g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&builder, "{sv}", "PlaybackStatus", getPlaybackStatusAsGVariant(&platformSession));
