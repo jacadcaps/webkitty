@@ -1,3 +1,251 @@
+2022-04-15  Chris Dumez  <cdumez@apple.com>
+
+        Rename WebCore::webCoreBuiltinNames() to WebCore::builtinNames()
+        https://bugs.webkit.org/show_bug.cgi?id=239408
+
+        Reviewed by Darin Adler.
+
+        * bindings/js/JSDOMGlobalObject.cpp:
+        (WebCore::JSDOMGlobalObject::addBuiltinGlobals):
+        * bindings/js/JSDOMMapLike.cpp:
+        (WebCore::getBackingMap):
+        * bindings/js/JSDOMSetLike.cpp:
+        (WebCore::getBackingSet):
+        * bindings/js/JSDOMWindowBase.cpp:
+        (WebCore::JSDOMWindowBase::initStaticGlobals):
+        (WebCore::JSDOMWindowBase::finishCreation):
+        (WebCore::JSDOMWindowBase::updateDocument):
+        * bindings/js/JSDOMWindowCustom.cpp:
+        (WebCore::jsDOMWindowGetOwnPropertySlotRestrictedAccess):
+        (WebCore::JSDOMWindow::getOwnPropertySlot):
+        (WebCore::JSDOMWindow::put):
+        (WebCore::addCrossOriginPropertyNames):
+        (WebCore::JSDOMWindow::defineOwnProperty):
+        (WebCore::JSDOMWindow::setOpener):
+        (WebCore::JSDOMWindow::openDatabase const):
+        (WebCore::JSDOMWindow::setOpenDatabase):
+        * bindings/js/JSEventListener.cpp:
+        (WebCore::JSEventListener::handleEvent):
+        * bindings/js/JSLocationCustom.cpp:
+        (WebCore::getOwnPropertySlotCommon):
+        (WebCore::JSLocation::put):
+        * bindings/js/JSRemoteDOMWindowCustom.cpp:
+        (WebCore::JSRemoteDOMWindow::put):
+        * bindings/js/ReadableStream.cpp:
+        (WebCore::ReadableStream::create):
+        (WebCore::ReadableStream::lock):
+        * bindings/js/ScriptController.cpp:
+        (WebCore::ScriptController::setupModuleScriptHandlers):
+        * bindings/js/ScriptModuleLoader.cpp:
+        (WebCore::rejectToPropagateNetworkError):
+        (WebCore::rejectWithFetchError):
+        * bindings/js/WebCoreJSClientData.h:
+        (WebCore::builtinNames):
+        (WebCore::webCoreBuiltinNames): Deleted.
+        * bindings/scripts/CodeGeneratorJS.pm:
+        (GenerateImplementation):
+        * bindings/scripts/test/JS/JSDOMWindow.cpp:
+        (WebCore::JSDOMWindow::finishCreation):
+        * bindings/scripts/test/JS/JSTestConditionallyReadWrite.cpp:
+        (WebCore::JSTestConditionallyReadWritePrototype::finishCreation):
+        (WebCore::JSTestConditionallyReadWrite::finishCreation):
+        * bindings/scripts/test/JS/JSTestEnabledBySetting.cpp:
+        (WebCore::JSTestEnabledBySetting::finishCreation):
+        * bindings/scripts/test/JS/JSTestEnabledForContext.cpp:
+        (WebCore::JSTestEnabledForContext::finishCreation):
+        * bindings/scripts/test/JS/JSTestGlobalObject.cpp:
+        (WebCore::JSTestGlobalObject::finishCreation):
+        * bindings/scripts/test/JS/JSTestObj.cpp:
+        (WebCore::JSTestObjPrototype::finishCreation):
+        * html/HTMLMediaElement.cpp:
+        (WebCore::controllerJSValue):
+        (WebCore::HTMLMediaElement::didAddUserAgentShadowRoot):
+        * testing/Internals.cpp:
+        (WebCore::Internals::cloneArrayBuffer):
+        * workers/WorkerOrWorkletScriptController.cpp:
+        (WebCore::WorkerOrWorkletScriptController::loadModuleSynchronously):
+        (WebCore::WorkerOrWorkletScriptController::loadAndEvaluateModule):
+
+2022-04-14  Chris Dumez  <cdumez@apple.com>
+
+        Use WebCoreBuiltinNames when possible
+        https://bugs.webkit.org/show_bug.cgi?id=239361
+
+        Reviewed by Yusuke Suzuki.
+
+        Use WebCoreBuiltinNames when possible to avoid unnecessary calls to Identifier::fromString().
+        This is more efficient.
+
+        * Modules/encryptedmedia/legacy/LegacyCDMSessionClearKey.cpp:
+        (WebCore::CDMSessionClearKey::update):
+        * bindings/js/JSDOMGlobalObject.cpp:
+        (WebCore::JSDOMGlobalObject::addBuiltinGlobals):
+        * bindings/js/JSDOMMapLike.cpp:
+        (WebCore::getBackingMap):
+        * bindings/js/JSDOMSetLike.cpp:
+        (WebCore::getBackingSet):
+        * bindings/js/JSDOMWindowBase.cpp:
+        (WebCore::JSDOMWindowBase::initStaticGlobals):
+        (WebCore::JSDOMWindowBase::finishCreation):
+        (WebCore::JSDOMWindowBase::updateDocument):
+        * bindings/js/JSDOMWindowCustom.cpp:
+        (WebCore::jsDOMWindowGetOwnPropertySlotRestrictedAccess):
+        (WebCore::JSDOMWindow::getOwnPropertySlot):
+        (WebCore::JSDOMWindow::put):
+        (WebCore::addCrossOriginPropertyNames):
+        (WebCore::JSDOMWindow::defineOwnProperty):
+        (WebCore::JSDOMWindow::setOpener):
+        (WebCore::JSDOMWindow::openDatabase const):
+        (WebCore::JSDOMWindow::setOpenDatabase):
+        * bindings/js/JSEventListener.cpp:
+        (WebCore::JSEventListener::handleEvent):
+        * bindings/js/JSLocationCustom.cpp:
+        (WebCore::getOwnPropertySlotCommon):
+        (WebCore::JSLocation::put):
+        * bindings/js/JSRemoteDOMWindowCustom.cpp:
+        (WebCore::JSRemoteDOMWindow::put):
+        * bindings/js/ReadableStream.cpp:
+        (WebCore::ReadableStream::create):
+        (WebCore::ReadableStream::lock):
+        * bindings/js/ScriptController.cpp:
+        (WebCore::ScriptController::setupModuleScriptHandlers):
+        * bindings/js/ScriptModuleLoader.cpp:
+        (WebCore::rejectToPropagateNetworkError):
+        (WebCore::rejectWithFetchError):
+        * bindings/js/WebCoreBuiltinNames.h:
+        * bindings/js/WebCoreJSClientData.h:
+        (WebCore::webCoreBuiltinNames):
+        * bindings/scripts/CodeGeneratorJS.pm:
+        (GenerateImplementation):
+        * bindings/scripts/test/JS/JSDOMWindow.cpp:
+        (WebCore::JSDOMWindow::finishCreation):
+        * bindings/scripts/test/JS/JSTestConditionallyReadWrite.cpp:
+        (WebCore::JSTestConditionallyReadWritePrototype::finishCreation):
+        (WebCore::JSTestConditionallyReadWrite::finishCreation):
+        * bindings/scripts/test/JS/JSTestEnabledBySetting.cpp:
+        (WebCore::JSTestEnabledBySetting::finishCreation):
+        * bindings/scripts/test/JS/JSTestEnabledForContext.cpp:
+        (WebCore::JSTestEnabledForContext::finishCreation):
+        * bindings/scripts/test/JS/JSTestGlobalObject.cpp:
+        (WebCore::JSTestGlobalObject::finishCreation):
+        * bindings/scripts/test/JS/JSTestObj.cpp:
+        (WebCore::JSTestObjPrototype::finishCreation):
+        * html/HTMLMediaElement.cpp:
+        (WebCore::controllerJSValue):
+        (WebCore::HTMLMediaElement::didAddUserAgentShadowRoot):
+        * testing/Internals.cpp:
+        (WebCore::Internals::cloneArrayBuffer):
+        * workers/WorkerOrWorkletScriptController.cpp:
+        (WebCore::WorkerOrWorkletScriptController::loadModuleSynchronously):
+        (WebCore::WorkerOrWorkletScriptController::loadAndEvaluateModule):
+
+2022-03-28  Cameron McCormack  <heycam@apple.com>
+
+        Remove pending UA shadow tree state when an input element is removed from the document
+        https://bugs.webkit.org/show_bug.cgi?id=238429
+        <rdar://90682918>
+
+        Reviewed by Antti Koivisto.
+
+        If an <input> element has a pending UA shadow tree, and the element is
+        removed from the document, we don't currently remove the element from
+        Document::m_elementsWithPendingUserAgentShadowTreeUpdates. Not only
+        does that means we may wastefully create the shadow tree if the
+        element is not inserted into the document again, but if the element is
+        then inserted into a different document, flushing style in the new
+        document won't correctly create the shadow tree.
+
+        Test: fast/forms/lazy-shadow-tree-creation-move-document-crash.html
+
+        * html/HTMLInputElement.cpp:
+        (WebCore::HTMLInputElement::removedFromAncestor):
+
+2022-04-30  Philippe Normand  <philn@igalia.com>
+
+        REGRESSION(r283437) a number of media tests fail/timeout on the test bots
+        https://bugs.webkit.org/show_bug.cgi?id=231811
+        <rdar://problem/84552871>
+
+        Reviewed by Michael Catanzaro.
+
+        Disable DBus MPRIS notifications when running the tests, these leak to the host when running
+        on desktop and trigger timeouts on under-powered bots.
+
+        * platform/audio/glib/MediaSessionGLib.cpp:
+        (WebCore::MediaSessionGLib::create):
+        (WebCore::MediaSessionGLib::MediaSessionGLib):
+        (WebCore::MediaSessionGLib::emitPositionChanged):
+        (WebCore::MediaSessionGLib::updateNowPlaying):
+        (WebCore::MediaSessionGLib::playbackStatusChanged):
+        * platform/audio/glib/MediaSessionManagerGLib.h:
+        (WebCore::MediaSessionManagerGLib::setDBusNotificationsEnabled):
+        (WebCore::MediaSessionManagerGLib::areDBusNotificationsEnabled const):
+        * testing/Internals.cpp:
+        (WebCore::Internals::resetToConsistentState):
+
+2022-05-03  Philippe Normand  <philn@igalia.com>
+
+        [GStreamer] Mediastream mock audio interruption fixes after r290985
+        https://bugs.webkit.org/show_bug.cgi?id=239926
+
+        Reviewed by Chris Dumez.
+
+        Similarly to mock video sources, the GStreamer mock audio sources are now cached in a
+        hashset, which is used to dispatch interruption requests.
+
+        * platform/mediastream/gstreamer/GStreamerAudioCaptureSource.cpp:
+        (WebCore::GStreamerAudioCaptureSource::interrupted const): Avoid runtime critical GObject
+        warnings that would happen if this method is called before the pipeline has been created.
+        * platform/mediastream/gstreamer/MockRealtimeAudioSourceGStreamer.cpp: Cache mock sources in a hashset.
+        (WebCore::MockRealtimeAudioSourceGStreamer::~MockRealtimeAudioSourceGStreamer):
+        * platform/mediastream/gstreamer/MockRealtimeAudioSourceGStreamer.h:
+        * platform/mock/MockRealtimeAudioSource.cpp: Dispatch interruption requests to currently
+        cached GStreamer mock audio sources.
+        (WebCore::MockRealtimeAudioSource::setIsInterrupted):
+        * platform/mock/MockRealtimeVideoSource.cpp: Switch to MainThreadNeverDestroyed<T> for caching sources.
+        (WebCore::MockRealtimeVideoSource::MockRealtimeVideoSource):
+        (WebCore::MockRealtimeVideoSource::~MockRealtimeVideoSource):
+
+2022-03-08  Youenn Fablet  <youenn@apple.com>
+
+        Add a preference to mute video capture in case audio capture gets interrupted
+        https://bugs.webkit.org/show_bug.cgi?id=237524
+        <rdar://78421282>
+
+        Reviewed by Eric Carlson.
+
+        In case we detect that a microphone track source gets muted due to interruption, we mute
+        capture video tracks based if allowed by the new MuteCameraOnMicrophoneInterruptionEnabled setting.
+
+        Add support for mock microphone interruption and remove previous in process internals API.
+
+        Test: fast/mediastream/media-stream-video-track-interrupted-from-audio.html
+
+        * Modules/mediastream/MediaStreamTrack.cpp:
+        * Modules/mediastream/MediaStreamTrack.h:
+        * platform/mediastream/mac/CoreAudioCaptureSource.cpp:
+        * platform/mediastream/mac/CoreAudioCaptureSource.h:
+        * platform/mock/MockRealtimeAudioSource.cpp:
+        (WebCore::MockRealtimeAudioSource::setIsInterrupted):
+        * platform/mock/MockRealtimeAudioSource.h:
+        * platform/mock/MockRealtimeMediaSourceCenter.cpp:
+        (WebCore::MockRealtimeMediaSourceCenter::setMockCaptureDevicesInterrupted):
+        (WebCore::MockRealtimeMediaSourceCenter::setMockCameraIsInterrupted): Deleted.
+        * platform/mock/MockRealtimeMediaSourceCenter.h:
+
+2022-03-04  Tyler Wilcock  <tyler_w@apple.com>
+
+        AX: Protect incoming object with Ref in AXObjectCache::textChanged
+        https://bugs.webkit.org/show_bug.cgi?id=237475
+
+        Reviewed by Chris Fleizach.
+
+        This is better practice as ascending the hierarchy could cause
+        the object to get deleted.
+
+        * accessibility/AXObjectCache.cpp:
+        (WebCore::AXObjectCache::textChanged):
+
 2022-04-24  Philippe Normand  <philn@igalia.com>
 
         [GStreamer] Disable new demuxers based on adaptivedemux2

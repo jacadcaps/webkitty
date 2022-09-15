@@ -1,4 +1,66 @@
 =================
+WPE WebKit 2.36.7
+=================
+
+What's new in WPE WebKit 2.36.7?
+
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.6
+=================
+
+What's new in WPE WebKit 2.36.6?
+
+  - Fix handling of touchpad scrolling on GTK4 builds.
+  - Fix WebKitGTK not allowing to be used from non-main threads.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.5
+=================
+
+What's new in WPE WebKit 2.36.5?
+
+  - Add support for PAC proxy in the WebDriver implementation.
+  - Fix video playback when loaded through custom URIs.
+  - Fix LTO builds with GCC.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.4
+=================
+
+What's new in WPE WebKit 2.36.4?
+
+  - Fix the new ATSPI accessibility implementation to add the missing
+    Collection interface for the loaded document.
+  - Fix the MediaSession implementation to make the MPRIS object names more
+    sandbox friendly, which plays better with Flatpak and WebKit's own
+    Bubblwrap-based sandboxing.
+  - Fix leaked Web Processes in some particular situations.
+  - Fix the build with media capture support enabled.
+  - Fix cross-compilation when targeting 64-bit ARM.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.36.3
+=================
+
+What's new in WPE WebKit 2.36.3?
+
+  - Support capturing already encoded video streams, which takes advantage
+    of encoding done in hardware by devices which support this feature.
+  - Avoid using experimental GStreamer elements for video demuxing.
+  - Avoid using the legacy GStreamer VA-API decoding plug-ins, which often
+    cause rendering issues and are not much maintained. Their usage can be
+    re-enabled setting WEBKIT_GST_ENABLE_LEGACY_VAAPI=1 in the environment.
+  - Fix playback of YouTube streams which use dynamic ad insertion.
+  - Fix display capture with Pipewire.
+  - Fix the build without the X11 target when X11 headers are not present.
+  - Fix several crashes and rendering issues.
+
+=================
 WPE WebKit 2.36.2
 =================
 

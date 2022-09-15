@@ -4494,10 +4494,13 @@ void WebPageProxy::forceRepaint(CompletionHandler<void()>&& callback)
 
     m_drawingArea->waitForBackingStoreUpdateOnNextPaint();
 
-    sendWithAsyncReply(Messages::WebPage::ForceRepaint(), [this, protectedThis = Ref { *this }, callback = WTFMove(callback)] () mutable {
-        callAfterNextPresentationUpdate([callback = WTFMove(callback)] (auto) mutable {
+    sendWithAsyncReply(Messages::WebPage::ForceRepaint(), [weakThis = WeakPtr { *this }, callback = WTFMove(callback)] () mutable {
+        if (weakThis) {
+            weakThis->callAfterNextPresentationUpdate([callback = WTFMove(callback)] (auto) mutable {
+                callback();
+            });
+        } else
             callback();
-        });
     });
 }
 
@@ -7811,15 +7814,16 @@ void WebPageProxy::resetStateAfterProcessTermination(ProcessTerminationReason re
     pageClient().removeAllPDFHUDs();
 #endif
 
-    // For bringup of process swapping, NavigationSwap termination will not go out to clients.
-    // If it does *during* process swapping, and the client triggers a reload, that causes bizarre WebKit re-entry.
-    // FIXME: This might have to change
-    if (reason != ProcessTerminationReason::NavigationSwap)
+    if (reason != ProcessTerminationReason::NavigationSwap) {
+        // For bringup of process swapping, NavigationSwap termination will not go out to clients.
+        // If it does *during* process swapping, and the client triggers a reload, that causes bizarre WebKit re-entry.
+        // FIXME: This might have to change
         navigationState().clearAllNavigations();
 
-    if (m_controlledByAutomation) {
-        if (auto* automationSession = process().processPool().automationSession())
-            automationSession->terminate();
+        if (m_controlledByAutomation) {
+            if (auto* automationSession = process().processPool().automationSession())
+                automationSession->terminate();
+        }
     }
 }
 
@@ -10874,9 +10878,9 @@ void WebPageProxy::setOrientationForMediaCapture(uint64_t orientation)
 }
 
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
-void WebPageProxy::setMockCameraIsInterrupted(bool isInterrupted)
+void WebPageProxy::setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
 {
-    send(Messages::WebPage::SetMockCameraIsInterrupted(isInterrupted));
+    send(Messages::WebPage::SetMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted));
 }
 #endif
 

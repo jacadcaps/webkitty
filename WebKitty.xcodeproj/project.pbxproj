@@ -169,6 +169,7 @@
 				019E907426FB9D4D00C68B31 /* WTF */,
 			);
 			sourceTree = "<group>";
+			usesTabs = 0;
 		};
 		016C0E6427E4EE24008E755F /* MorphOS */ = {
 			isa = PBXGroup;
