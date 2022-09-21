@@ -464,7 +464,9 @@ void RenderLayerBacking::updateDebugIndicators(bool showBorder, bool showRepaint
 {
     m_graphicsLayer->setShowDebugBorder(showBorder);
     m_graphicsLayer->setShowRepaintCounter(showRepaintCounter);
-    
+
+    // m_viewportAnchorLayer can't show layer borders becuase it's a structural layer.
+
     if (m_ancestorClippingStack) {
         for (auto& entry : m_ancestorClippingStack->stack())
             entry.clippingLayer->setShowDebugBorder(showBorder);
@@ -595,6 +597,7 @@ void RenderLayerBacking::destroyGraphicsLayers()
     if (m_overflowControlsHostLayerAncestorClippingStack)
         removeClippingStackLayers(*m_overflowControlsHostLayerAncestorClippingStack);
 
+    GraphicsLayer::unparentAndClear(m_viewportAnchorLayer);
     GraphicsLayer::unparentAndClear(m_contentsContainmentLayer);
     GraphicsLayer::unparentAndClear(m_foregroundLayer);
     GraphicsLayer::unparentAndClear(m_backgroundLayer);
@@ -999,6 +1002,9 @@ bool RenderLayerBacking::updateConfiguration(const RenderLayer* compositingAnces
     bool layerConfigChanged = false;
     auto& compositor = this->compositor();
 
+    if (updateViewportConstrainedAnchorLayer(compositor.isViewportConstrainedFixedOrStickyLayer(m_owningLayer)))
+        layerConfigChanged = true;
+
     setBackgroundLayerPaintsFixedRootBackground(compositor.needsFixedRootBackgroundLayer(m_owningLayer));
 
     if (updateBackgroundLayer(m_backgroundLayerPaintsFixedRootBackground || m_requiresBackgroundLayer))
@@ -1331,6 +1337,12 @@ void RenderLayerBacking::updateGeometry(const RenderLayer* compositedAncestor)
 
     // FIXME: reflections should force transform-style to be flat in the style: https://bugs.webkit.org/show_bug.cgi?id=106959
     bool preserves3D = style.preserves3D() && !renderer().hasReflection();
+
+    if (m_viewportAnchorLayer) {
+        m_viewportAnchorLayer->setPosition(primaryLayerPosition);
+        primaryLayerPosition = { };
+    }
+
     if (m_contentsContainmentLayer) {
         m_contentsContainmentLayer->setPreserves3D(preserves3D);
         m_contentsContainmentLayer->setPosition(primaryLayerPosition);
@@ -1667,26 +1679,39 @@ void RenderLayerBacking::updateInternalHierarchy()
         lastClippingLayer = m_ancestorClippingStack->lastClippingLayer();
     }
 
+    constexpr size_t maxOrderedLayers = 5;
+    Vector<GraphicsLayer*, maxOrderedLayers> orderedLayers;
+
+    if (lastClippingLayer)
+        orderedLayers.append(lastClippingLayer);
+
+    if (m_viewportAnchorLayer)
+        orderedLayers.append(m_viewportAnchorLayer.get());
+
     if (m_contentsContainmentLayer) {
         m_contentsContainmentLayer->removeAllChildren();
-        if (lastClippingLayer)
-            lastClippingLayer->addChild(*m_contentsContainmentLayer);
-    }
-    
-    if (m_backgroundLayer)
+
+        ASSERT(m_backgroundLayer);
         m_contentsContainmentLayer->addChild(*m_backgroundLayer);
 
-    if (m_contentsContainmentLayer)
-        m_contentsContainmentLayer->addChild(*m_graphicsLayer);
-    else if (lastClippingLayer)
-        lastClippingLayer->addChild(*m_graphicsLayer);
+        // The loop below will add a second child to the m_contentsContainmentLayer.
+        orderedLayers.append(m_contentsContainmentLayer.get());
+    }
+
+    orderedLayers.append(m_graphicsLayer.get());
 
     if (m_childContainmentLayer)
-        m_graphicsLayer->addChild(*m_childContainmentLayer);
+        orderedLayers.append(m_childContainmentLayer.get());
 
-    if (m_scrollContainerLayer) {
-        auto* superlayer = m_childContainmentLayer ? m_childContainmentLayer.get() : m_graphicsLayer.get();
-        superlayer->addChild(*m_scrollContainerLayer);
+    if (m_scrollContainerLayer)
+        orderedLayers.append(m_scrollContainerLayer.get());
+
+    GraphicsLayer* previousLayer = nullptr;
+    for (auto* layer : orderedLayers) {
+        if (previousLayer)
+            previousLayer->addChild(*layer);
+    
+        previousLayer = layer;
     }
 
     // The clip for child layers does not include space for overflow controls, so they exist as
@@ -2204,6 +2229,24 @@ void RenderLayerBacking::positionOverflowControlsLayers()
         layer->setSize(cornerRect.size());
         layer->setDrawsContent(!cornerRect.isEmpty());
     }
+}
+
+bool RenderLayerBacking::updateViewportConstrainedAnchorLayer(bool needsAnchorLayer)
+{
+    bool layerChanged = false;
+    if (needsAnchorLayer) {
+        if (!m_viewportAnchorLayer) {
+            String layerName = m_owningLayer.name() + " (anchor)";
+            m_viewportAnchorLayer = createGraphicsLayer(layerName, GraphicsLayer::Type::Structural);
+            layerChanged = true;
+        }
+    } else if (m_viewportAnchorLayer) {
+        willDestroyLayer(m_viewportAnchorLayer.get());
+        GraphicsLayer::unparentAndClear(m_viewportAnchorLayer);
+        layerChanged = true;
+    }
+
+    return layerChanged;
 }
 
 bool RenderLayerBacking::updateForegroundLayer(bool needsForegroundLayer)
@@ -3057,6 +3100,9 @@ GraphicsLayer* RenderLayerBacking::childForSuperlayers() const
 {
     if (m_ancestorClippingStack)
         return m_ancestorClippingStack->firstClippingLayer();
+
+    if (m_viewportAnchorLayer)
+        return m_viewportAnchorLayer.get();
 
     if (m_contentsContainmentLayer)
         return m_contentsContainmentLayer.get();
