@@ -35,6 +35,7 @@
 #include "TypedArrays.h"
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/FlipBytes.h>
 
 namespace JSC {
 
@@ -496,6 +497,10 @@ bool JSGenericTypedArrayView<Adaptor>::getOwnPropertySlotByIndex(
         value = thisObject->getIndexQuickly(propertyName);
     } else {
         auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(propertyName);
+#if CPU(BIG_ENDIAN)
+        if constexpr (TypeFloat32 != Adaptor::typeValue && TypeFloat64 != Adaptor::typeValue)
+            nativeValue = flipBytes(nativeValue);
+#endif
         value = Adaptor::toJSValue(globalObject, nativeValue);
         RETURN_IF_EXCEPTION(scope, false);
     }

@@ -149,11 +149,10 @@ public:
     JSValue getIndexQuickly(size_t i) const
     {
 #if CPU(BIG_ENDIAN)
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-        case TypeFloat64:
+        if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
             return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
-        default:
+        }
+        else {
             // typed array views are commonly expected to be little endian views of the underlying data
             return Adaptor::toJSValue(nullptr, flipBytes(getIndexQuicklyAsNativeValue(i)));
         }
@@ -172,15 +171,12 @@ public:
     {
         ASSERT(!value.isObject());
 #if CPU(BIG_ENDIAN)
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-        case TypeFloat64:
+        if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
             setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
-            break;
-        default:
+        }
+        else {
             // typed array views are commonly expected to be little endian views of the underlying data
             setIndexQuicklyToNativeValue(i, flipBytes(toNativeFromValue<Adaptor>(value)));
-            break;
         }
 #else
         setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
@@ -199,15 +195,11 @@ public:
             return false;
 
 #if CPU(BIG_ENDIAN)
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-        case TypeFloat64:
+        if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
             setIndexQuicklyToNativeValue(i, value);
-            break;
-        default:
-            // typed array views are commonly expected to be little endian views of the underlying data
-           setIndexQuicklyToNativeValue(i, flipBytes(value));
-            break;
+        }
+        else {
+            setIndexQuicklyToNativeValue(i, flipBytes(value));
         }
 #else
         setIndexQuicklyToNativeValue(i, value);
@@ -218,11 +210,10 @@ public:
     static ElementType toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue)
     {
 #if CPU(BIG_ENDIAN)
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-        case TypeFloat64:
+        if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
             return toNativeFromValue<Adaptor>(globalObject, jsValue);
-        default:
+        }
+        else {
             // typed array views are commonly expected to be little endian views of the underlying data
             return flipBytes(toNativeFromValue<Adaptor>(globalObject, jsValue));
         }
@@ -234,18 +225,16 @@ public:
     static std::optional<ElementType> toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue)
     {
 #if CPU(BIG_ENDIAN)
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-        case TypeFloat64:
-            break;
-        default:
+        if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+            return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+        }
+        else {
             // typed array views are commonly expected to be little endian views of the underlying data
-            if (!jsValue)
-                break;
             return flipBytes(toNativeFromValueWithoutCoercion<Adaptor>(jsValue));
         }
-#endif
+#else
         return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+#endif
     }
 
     void sort()

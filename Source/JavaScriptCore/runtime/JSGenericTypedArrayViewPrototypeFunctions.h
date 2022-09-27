@@ -215,11 +215,10 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
 
     double targetOptionLittleEndianAsDouble;
 #if CPU(BIG_ENDIAN)
-    switch (ViewClass::TypedArrayStorageType) {
-    case TypeFloat32:
-    case TypeFloat64:
+    if constexpr (TypeFloat32 == ViewClass::TypedArrayStorageType || TypeFloat64 == ViewClass::TypedArrayStorageType) {
         targetOptionLittleEndianAsDouble = static_cast<double>(*targetOption);
-    default:
+    }
+    else {
         // typed array views are commonly expected to be little endian views of the underlying data
         targetOptionLittleEndianAsDouble = static_cast<double>(flipBytes(*targetOption));
     }
@@ -231,11 +230,10 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
         for (; index < length; ++index) {
             double arrayElementLittleEndianAsDouble;
 #if CPU(BIG_ENDIAN)
-            switch (ViewClass::TypedArrayStorageType) {
-            case TypeFloat32:
-            case TypeFloat64:
+            if constexpr (TypeFloat32 == ViewClass::TypedArrayStorageType || TypeFloat64 == ViewClass::TypedArrayStorageType) {
                 arrayElementLittleEndianAsDouble = static_cast<double>(array[index]);
-            default:
+            }
+            else {
                 // typed array views are commonly expected to be little endian views of the underlying data
                 arrayElementLittleEndianAsDouble = static_cast<double>(flipBytes(array[index]));
             }
@@ -312,6 +310,11 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
                     value = thisObject->getIndexQuickly(i);
                 else {
                     auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(i);
+#if CPU(BIG_ENDIAN)
+                    if constexpr (TypeFloat32 != ViewClass::Adaptor::typeValue && TypeFloat64 != ViewClass::Adaptor::typeValue) {
+                        nativeValue = flipBytes(nativeValue);
+                    }
+#endif
                     value = ViewClass::Adaptor::toJSValue(globalObject, nativeValue);
                     RETURN_IF_EXCEPTION(scope, { });
                 }
