@@ -31,6 +31,7 @@
 #include "Logging.h"
 #include "MessageWithMessagePorts.h"
 #include "ServiceWorkerGlobalScope.h"
+#include <proto/exec.h>
 
 namespace WebCore {
 
