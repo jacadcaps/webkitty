@@ -17,6 +17,7 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/../include/private/WebCore"
     "${WEBKITLEGACY_DIR}/morphos"
     "${WEBKITLEGACY_DIR}/morphos/WebCoreSupport"
+    "${WEBKITLEGACY_DIR}/morphos/ServiceWorker"
     "${WebKitLegacy_DERIVED_SOURCES_DIR}/include"
     "${WebKitLegacy_DERIVED_SOURCES_DIR}/Interfaces"
     ${SQLITE_INCLUDE_DIR}
@@ -32,11 +33,13 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/BackForwardClient.cpp
     morphos/WebApplicationCache.cpp
     morphos/storage/WebDatabaseProvider.cpp
+    morphos/storage/WebStorageTrackerClient.cpp
     morphos/WebDocumentLoader.cpp
     morphos/CacheModel.cpp
     morphos/WebDragClient.cpp
     morphos/PopupMenu.cpp
     morphos/Gamepad.cpp
+    morphos/NetworkSession.cpp
 )
 
 list(APPEND WebKitLegacy_SOURCES_Classes
@@ -74,6 +77,27 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebNotificationClient.cpp
 )
 
+list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
+    morphos/cache/CacheStorageEngine.cpp
+    morphos/cache/CacheStorageEngineCache.cpp
+    morphos/cache/CacheStorageEngineCaches.cpp
+    morphos/cache/NetworkCacheCoders.cpp
+    morphos/cache/NetworkCacheDataCurl.cpp
+    morphos/cache/NetworkCacheIOChannelCurl.cpp
+    morphos/cache/NetworkCacheSubresourcesEntry.cpp
+    morphos/cache/NetworkCacheBlobStorage.cpp
+    morphos/cache/NetworkCacheEntry.cpp
+    morphos/cache/NetworkCacheKey.cpp
+    morphos/cache/PrefetchCache.cpp
+    morphos/cache/NetworkCacheData.cpp
+    morphos/cache/NetworkCacheFileSystem.cpp
+    morphos/cache/NetworkCacheStorage.cpp
+    morphos/cache/NetworkCache.cpp
+    morphos/cache/CacheStorageEngineConnection.cpp
+    morphos/cache/WebCacheStorageProvider.cpp
+    morphos/cache/WebCacheStorageConnection.cpp
+    )
+
 if (NOT MORPHOS_MINIMAL)
 	list(APPEND WebKitLegacy_ABP
 		morphos/ABPFilterParser/ABPFilterParser.cpp
@@ -86,6 +110,18 @@ if (NOT MORPHOS_MINIMAL)
 	list(APPEND WebKitLegacy_SOURCES_Classes
 		morphos/WebDatabaseManager.cpp
 		morphos/WebCoreSupport/WebUserMediaClient.cpp
+
+		morphos/ServiceWorker/WebServiceWorkerProvider.cpp
+        morphos/ServiceWorker/SharedMemory.cpp
+        morphos/ServiceWorker/SharedStringHashTable.cpp
+        morphos/ServiceWorker/SharedStringHashTableReadOnly.cpp
+        morphos/ServiceWorker/SharedStringHashStore.cpp
+        morphos/ServiceWorker/WebSWOriginTable.cpp
+        morphos/ServiceWorker/WebSWOriginStore.cpp
+        morphos/ServiceWorker/WebSWServerConnection.cpp
+        morphos/ServiceWorker/WebSWServerToContextConnection.cpp
+        morphos/ServiceWorker/WebSWContextManagerConnection.cpp
+        morphos/ServiceWorker/ServiceWorkerSoftUpdateLoader.cpp
 	)
 endif()
 

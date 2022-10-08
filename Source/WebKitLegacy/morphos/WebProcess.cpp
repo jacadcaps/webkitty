@@ -40,11 +40,23 @@
 #include <WebCore/CurlContext.h>
 #include <WebCore/HTMLMediaElement.h>
 #include <WebCore/Page.h>
+#include <WebCore/WebLockRegistry.h>
 #include "NetworkStorageSessionMap.h"
 #include "WebDatabaseProvider.h"
 #include "WebStorageNamespaceProvider.h"
 #include "WebPlatformStrategies.h"
 #include "WebFrameNetworkingContext.h"
+#include "WebServiceWorkerProvider.h"
+#include "WebSWOriginStore.h"
+#include "WebSWServerToContextConnection.h"
+#include "WebSWServerConnection.h"
+#include "WebSWContextManagerConnection.h"
+#include "storage/WebStorageTrackerClient.h"
+#include "cache/WebCacheStorageProvider.h"
+#include "cache/CacheStorageEngineConnection.h"
+#include "StorageTracker.h"
+#include <WebCore/SWContextManager.h>
+#include "ServiceWorkerSoftUpdateLoader.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/RuntimeEnabledFeatures.h>
 #include "Gamepad.h"
@@ -148,7 +160,9 @@ QUAD calculateMaxCacheSize(const char *path)
 
 WebProcess::WebProcess()
 	: m_sessionID(PAL::SessionID::defaultSessionID())
-	, m_cacheStorageProvider(CacheStorageProvider::create())
+	, m_cacheStorageProvider(WebCacheStorageProvider::create())
+    , m_cacheStorageEngineConnection(CacheStorageEngineConnection::create())
+    , m_networkSession(NetworkSession::create())
 {
 }
 
@@ -218,16 +232,18 @@ void WebProcess::initialize(int sigbit)
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasEnabled(true);
     RuntimeEnabledFeatures::sharedFeatures().setOffscreenCanvasInWorkersEnabled(true);
     
+// This doesn't work yet in WebKitLegacy so it will potentially break pages if enabled
+    RuntimeEnabledFeatures::sharedFeatures().setCacheAPIEnabled(true);
+    
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
     WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
  
-	// TODO: implement workers!
-	//RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
-
 	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
 
 	WTF::FileSystemImpl::makeAllDirectories("PROGDIR:Cache/FavIcons");
+
+    WebKit::StorageTracker::initializeTracker("PROGDIR:Cache/WebStorage", WebStorageTrackerClient::sharedWebStorageTrackerClient());
 
 #if ENABLE(VIDEO)
 	MediaPlayerMorphOSSettings::settings().m_networkingContextForRequests = WebKit::WebProcess::singleton().networkingContext().get();
@@ -405,6 +421,14 @@ void WebProcess::initialize(int sigbit)
 	GamepadProvider::setSharedProvider(GamepadProviderMorphOS::singleton());
 #endif
 
+#if ENABLE(SERVICE_WORKER)
+    ServiceWorkerProvider::setSharedProvider(WebServiceWorkerProvider::singleton());
+	RuntimeEnabledFeatures::sharedFeatures().setServiceWorkerEnabled(true);
+    RuntimeEnabledFeatures::sharedFeatures().setPushAPIEnabled(true);
+#endif
+// TODO: check this
+//    SharedWorkerProvider::setSharedProvider(WebSharedWorkerProvider::singleton());
+
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt";
 	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat";
@@ -486,7 +510,13 @@ void WebProcess::terminate()
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
 	CurlCacheManager::singleton().setStorageSizeLimit(0);
-	
+
+#if ENABLE(SERVICE_WORKER)
+    m_swServer.reset();
+#endif
+
+    m_networkSession->shutdown();
+
 	waitForThreads();
 
     GCController::singleton().garbageCollectNow();
@@ -727,6 +757,18 @@ void WebProcess::garbageCollectJavaScriptObjects()
     GCController::singleton().garbageCollectNow();
 }
 
+Ref<WebCore::LocalWebLockRegistry> WebProcess::getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled)
+{
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> defaultRegistry;
+    static NeverDestroyed<WeakPtr<WebCore::LocalWebLockRegistry>> privateRegistry;
+    auto& existingRegistry = isPrivateBrowsingEnabled ? privateRegistry : defaultRegistry;
+    if (existingRegistry.get())
+        return *existingRegistry.get();
+    auto registry = WebCore::LocalWebLockRegistry::create();
+    existingRegistry.get() = registry;
+    return registry;
+}
+
 void WebProcess::clearResourceCaches()
 {
     // Toggling the cache model like this forces the cache to evict all its in-memory resources.
@@ -794,13 +836,9 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 {
 #if USE_ADFILTER
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
-	if (!frame)
-		return false;
-	WebPage *page = frame->page();
-	if (!page)
-		return false;
+    WebPage *page = frame ? frame->page() : nullptr;
 
-	if (!page->adBlockingEnabled())
+	if (page && !page->adBlockingEnabled())
 		return true;
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
@@ -814,6 +852,104 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 #endif
 	return true;
 }
+
+WebCore::NetworkStorageSession* WebProcess::storageSession(PAL::SessionID) const
+{
+    return &NetworkStorageSessionMap::defaultStorageSession();
+}
+
+#if ENABLE(SERVICE_WORKER)
+WebCore::SWServer& WebProcess::ensureSWServer()
+{
+    if (!m_swServer) {
+        auto info = valueOrDefault(m_serviceWorkerInfo);
+        auto path = info.databasePath;
+        // There should already be a registered path for this PAL::SessionID.
+        // If there's not, then where did this PAL::SessionID come from?
+        ASSERT(m_sessionID.isEphemeral() || !path.isEmpty());
+
+        auto appBoundDomainsCallback = [] (auto&& completionHandler) {
+            completionHandler({ });
+        };
+
+        m_swServer = makeUnique<SWServer>(makeUniqueRef<WebSWOriginStore>(), info.processTerminationDelayEnabled, WTFMove(path), sessionID(), false, true/* m_networkProcess->parentProcessHasServiceWorkerEntitlement() */, [this](auto&& jobData, bool shouldRefreshCache, auto&& request, auto&& completionHandler) mutable {
+            ServiceWorkerSoftUpdateLoader::start(WTFMove(jobData), shouldRefreshCache, WTFMove(request), WTFMove(completionHandler));
+        }, [this](auto& registrableDomain, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, auto&& completionHandler) {
+
+            establishServiceWorkerContextConnectionToNetworkProcess({}, WebCore::RegistrableDomain(registrableDomain), serviceWorkerPageIdentifier, std::move(completionHandler));
+        }, WTFMove(appBoundDomainsCallback));
+    }
+    return *m_swServer;
+}
+
+WebSWOriginStore* WebProcess::swOriginStore() const
+{
+    return m_swServer ? &static_cast<WebSWOriginStore&>(m_swServer->originStore()) : nullptr;
+}
+
+void WebProcess::registerSWServerConnection(WebSWServerConnection& connection)
+{
+    auto* store = swOriginStore();
+    ASSERT(store);
+    if (store)
+        store->registerSWServerConnection(connection);
+}
+
+void WebProcess::unregisterSWServerConnection(WebSWServerConnection& connection)
+{
+    if (auto* store = swOriginStore())
+        store->unregisterSWServerConnection(connection);
+}
+
+bool WebProcess::hasServiceWorkerDatabasePath() const
+{
+    return m_serviceWorkerInfo && !m_serviceWorkerInfo->databasePath.isEmpty();
+}
+
+WebSWServerConnection* WebProcess::swConnection()
+{
+    if (!m_swConnection)
+    {
+        auto& server = ensureSWServer();
+        auto connection = makeUnique<WebSWServerConnection>(server);
+
+        m_swConnection = *connection;
+        server.addConnection(WTFMove(connection));
+    }
+
+    return m_swConnection.get();
+}
+
+void WebProcess::establishServiceWorkerContextConnectionToNetworkProcess(WebCore::PageIdentifier pageID,
+    WebCore::RegistrableDomain&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&completionHandler)
+{
+
+    D(dprintf("%s: domain %s\n", __PRETTY_FUNCTION__, registrableDomain.string().utf8().data()));
+
+    if (nullptr == SWContextManager::singleton().connection())
+    {
+        SWContextManager::singleton().setConnection(makeUnique<WebSWContextManagerConnection>(WTFMove(registrableDomain), serviceWorkerPageIdentifier, pageID));
+        SWContextManager::singleton().connection()->establishConnection(WTFMove(completionHandler));
+    }
+    else
+    {
+        dprintf("-- already established!\n");
+        callOnMainThread(WTFMove(completionHandler));
+    }
+}
+
+void WebProcess::addServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier identifier)
+{
+    m_swRegistrationCounts.add(identifier);
+}
+
+bool WebProcess::removeServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier identifier)
+{
+    ASSERT(m_swRegistrationCounts.contains(identifier));
+    return m_swRegistrationCounts.remove(identifier);
+}
+
+#endif
 
 }
 
