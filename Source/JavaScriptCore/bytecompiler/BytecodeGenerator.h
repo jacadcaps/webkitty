@@ -1019,10 +1019,15 @@ namespace JSC {
 
         bool shouldBeConcernedWithCompletionValue() const { return m_codeType != FunctionCode; }
 
+#if OS(MORPHOS)
+        bool shouldEmitDebugHooks() const { return false; }
+        bool shouldEmitTypeProfilerHooks() const { return false; }
+        bool shouldEmitControlFlowProfilerHooks() const { return false; }
+#else
         bool shouldEmitDebugHooks() const { return m_codeGenerationMode.contains(CodeGenerationMode::Debugger) && !m_isBuiltinFunction; }
         bool shouldEmitTypeProfilerHooks() const { return m_codeGenerationMode.contains(CodeGenerationMode::TypeProfiler); }
         bool shouldEmitControlFlowProfilerHooks() const { return m_codeGenerationMode.contains(CodeGenerationMode::ControlFlowProfiler); }
-        
+#endif
         ECMAMode ecmaMode() const { return m_ecmaMode; }
         void setUsesCheckpoints() { m_codeBlock->setHasCheckpoints(); }
 
