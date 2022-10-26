@@ -24,6 +24,7 @@
 #import <WebCore/UserGestureIndicator.h>
 #import <wtf/MediaTime.h>
 #import <pal/text/TextEncoding.h>
+#import <wtf/text/Base64.h>
 #define __OBJC__
 
 #import "WkHitTest_private.h"
@@ -47,6 +48,7 @@
 #import "WkMedia_private.h"
 #import "WkNotification_private.h"
 #import "WkResourceResponse_private.h"
+#import "WkWebInspectorView.h"
 
 #import <proto/dos.h>
 #import <proto/exec.h>
@@ -70,7 +72,7 @@ struct Library *FreetypeBase;
 extern "C" { void dprintf(const char *, ...); }
 extern "C" { void _oomCrash(); }
 
-#define D(x)
+#define D(x) 
 
 // #define VALIDATE_ALLOCS 15.f
 #ifdef VALIDATE_ALLOCS
@@ -494,13 +496,56 @@ namespace  {
 		player->selectHLSStream(String::fromUTF8([[hlsStream url] cString]));
 	}
 }
+
+- (OBURL *)downloadableURL
+{
+    return nil;
+}
+
+- (WkMediaObjectType)type
+{
+    if (_info.m_isHLS)
+        return WkMediaObjectType_HLS;
+    if (_info.m_isMediaSource)
+        return WkMediaObjectType_MediaSource;
+    return WkMediaObjectType_File;
+}
+
+- (OBArray *)allAudioTracks
+{
+    return nil;
+}
+
+- (OBArray *)allVideoTracks
+{
+    return nil;
+}
+
+- (OBArray *)allTracks
+{
+    return nil;
+}
+
+- (WkWebViewMediaIdentifier)identifier
+{
+    return (WkWebViewMediaIdentifier)self;
+}
+
 @end
 #endif
+
+@interface WkWebInspectorView ()
+
+- (id)initWithWebView:(WkWebView *)inspectedView;
+- (void)parentViewClosed;
+
+@end
 
 @interface WkWebViewPrivate : OBObject<OBSignalHandlerDelegate>
 {
 	WTF::RefPtr<WebKit::WebPage>            _page;
 	WkWebView                              *_parentWeak;
+	WkWebInspectorView                     *_inspectorView;
 	id<WkWebViewScrollingDelegate>          _scrollingDelegate;
 	id<WkWebViewClientDelegate>             _clientDelegate;
 	id<WkWebViewBackForwardListDelegate>    _backForwardDelegate;
@@ -513,7 +558,7 @@ namespace  {
 	id<WkWebViewAllRequestsHandlerDelegate> _allRequestsDelegate;
 	id<WkWebViewEditorDelegate>             _editorDelegate;
 	id<WkWebViewMediaDelegate>              _mediaDelegate;
-	id<WkNotificationDelegate>            _notificationDelegate;
+	id<WkNotificationDelegate>              _notificationDelegate;
 	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
@@ -617,6 +662,13 @@ namespace  {
 	[_ddWindowSignalHandler release];
 	if (_ddWindow)
 		CloseWindow(_ddWindow);
+	
+	if (_inspectorView)
+	{
+		[_inspectorView parentViewClosed];
+		[_inspectorView release];
+	}
+	
 #if ENABLE(VIDEO)
 	[[_mediaPlayers allValues] makeObjectsPerformSelector:@selector(invalidate)];
 	[_mediaPlayers release];
@@ -685,6 +737,17 @@ namespace  {
 - (id<WkWebViewDebugConsoleDelegate>)consoleDelegate
 {
 	return _consoleDelegate;
+}
+
+- (WkWebInspectorView *)inspectorView
+{
+	return _inspectorView;
+}
+
+- (void)setInspectorView:(WkWebInspectorView *)inspector
+{
+	[_inspectorView autorelease];
+	_inspectorView = [inspector retain];
 }
 
 - (void)setTitle:(OBString *)title
@@ -2194,7 +2257,98 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 			return nullptr;
 		};
-		
+
+        webPage->_fInspectorDestroyed = [self]() {
+            validateObjCContext();
+            WkWebViewPrivate *privateObject = [self privateObject];
+            WkWebInspectorView *inspector = (id)([self isKindOfClass:[WkWebInspectorView class]] ? self : nil);
+            if (inspector)
+            {
+				[inspector parentViewClosed];
+            }
+			else if ([privateObject inspectorView])
+            {
+				[[privateObject inspectorView] parentViewClosed];
+                [privateObject setInspectorView:nil];
+            }
+        };
+        
+        webPage->_fInspectorSave = [self](const WTF::String& url, const WTF::String& data, bool base64) {
+            validateObjCContext();
+            WkWebViewPrivate *privateObject = [self privateObject];
+            WkWebInspectorView *inspector = (id)([self isKindOfClass:[WkWebInspectorView class]] ? self : nil);
+            id<WkWebInspectorViewDelegate> inspectorDelegate = [inspector inspectorDelegate];
+            if (inspectorDelegate)
+            {
+                auto uurl = url.utf8();
+                OBString *path = [inspectorDelegate webInspectorView:inspector wantsToSaveFile:[[OBString stringWithUTF8String:uurl.data()] filePart]];
+                if (path)
+                {
+                    BPTR f = Open([path nativeCString], MODE_NEWFILE);
+                    if (f)
+                    {
+                        if (base64)
+                        {
+                            auto decoded = WTF::base64Decode(data);
+                            if (decoded.has_value())
+                            {
+                                if (LONG(decoded->size()) != Write(f, APTR(decoded->data()), decoded->size()))
+                                    DisplayBeep(0);
+                            }
+                            else
+                                DisplayBeep(0);
+                        }
+                        else
+                        {
+                            auto udata = data.utf8();
+                            if (LONG(udata.length()) != Write(f, APTR(udata.data()), udata.length()))
+                                DisplayBeep(0);
+                        }
+                        Close(f);
+                    }
+                    else
+                        DisplayBeep(0);
+                }
+            }
+        };
+
+        webPage->_fOpenInspectorWindow = [self]() -> WebCore::Page * {
+            validateObjCContext();
+            WkWebViewPrivate *privateObject = [self privateObject];
+            
+            if ([privateObject inspectorView])
+            {
+            // todo: popup to front?
+                return nullptr;
+            }
+            
+            id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
+            if (!clientDelegate)
+                return nullptr;
+
+            WkWebInspectorView *newView = [[WkWebInspectorView alloc] initWithWebView:self];
+            WkWebViewPrivate *newPrivateObject = [newView privateObject];
+            WebKit::WebPage *page = [newPrivateObject page];
+            if (page && page->corePage())
+            {
+                [clientDelegate webView:self createdNewInspectorView:newView];
+                [privateObject setInspectorView:newView];
+                [newView release];
+                return page->corePage();
+            }
+            [newView release];
+            return nullptr;
+        };
+        
+        webPage->_fInspectorURLChanged = [self](const WTF::String& url) {
+            validateObjCContext();
+            WkWebViewPrivate *privateObject = [self privateObject];
+            WkWebInspectorView *inspector = (id)([self isKindOfClass:[WkWebInspectorView class]] ? self : nil);
+            id<WkWebInspectorViewDelegate> inspectorDelegate = [inspector inspectorDelegate];
+            auto uurl = url.utf8();
+			[inspectorDelegate webInspectorView:inspector changedURL:[OBString stringWithUTF8String:uurl.data()]];
+		};
+
 		webPage->_fPopup = [self](const WebCore::IntRect& pos, const WTF::Vector<WTF::String>& items) -> int {
 			validateObjCContext();
 			MUIMenu *menu = [[MUIMenu new] autorelease];
@@ -2366,31 +2520,54 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return true;
 		};
 		
-		webPage->_fDownload = [self](const WTF::URL &url, const WTF::String &) {
+		webPage->_fDownload = [self](const WTF::URL &url, const WTF::String &filename) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
 			if (downloadDelegate)
 			{
+                WkDownload *download = nil;
 				auto uurl = url.string().utf8();
-				WkDownload *download = [WkDownload download:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] withDelegate:downloadDelegate];
+                auto uuname = filename.utf8();
+                auto protocol = url.protocol().toString();
+                if (protocol == "data") {
+                    download = [WkDownload downloadWithDataURL:url pageURL:[self URL] filename:[OBString stringWithUTF8String:uuname.data()] withDelegate:downloadDelegate];
+                }
+                else if (protocol == "blob") {
+                    download = [WkDownload downloadWithBlobURL:url pageURL:[self URL] filename:[OBString stringWithUTF8String:uuname.data()] withDelegate:downloadDelegate];
+                }
+                else {
+                    download = [WkDownload download:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] withDelegate:downloadDelegate];
+                }
 				[download start];
 			}
 		};
-		
+
 		webPage->_fDownloadFromResource = [self](WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkDownloadDelegate> downloadDelegate = [privateObject downloadDelegate];
 			if (downloadDelegate)
 			{
-				WkDownload *download = [WkDownload downloadWithHandle:handle request:request response:response withDelegate:downloadDelegate];
+				WkDownload *download = nil;
+				auto protocol = request.url().protocol().toString();
+				if (protocol == "data") {
+					auto uuname = response.suggestedFilename().utf8();
+					download = [WkDownload downloadWithDataURL:request.url() pageURL:[self URL] filename:[OBString stringWithUTF8String:uuname.data()] withDelegate:downloadDelegate];
+				}
+				else if (protocol == "blob") {
+					auto uuname = response.suggestedFilename().utf8();
+					download = [WkDownload downloadWithBlobURL:request.url() pageURL:[self URL] filename:[OBString stringWithUTF8String:uuname.data()] withDelegate:downloadDelegate];
+				}
+				else {
+					download = [WkDownload downloadWithHandle:handle request:request response:response withDelegate:downloadDelegate];
+				}
 				[download start];
 			}
 		};
-		
+
 		webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest&,
-			WebCore::PolicyCheckIdentifier identifier, const WTF::String&, WebCore::FramePolicyFunction&& function) {
+			WebCore::PolicyCheckIdentifier identifier, const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
@@ -2400,10 +2577,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 				auto uurl = response.url().string().utf8();
 				auto umime = response.mimeType().utf8();
 				auto uname = response.suggestedFilename().utf8();
-				
+
+                if (0 == uname.length()) {
+                    uname = downloadAttribute.utf8();
+                }
+
 				if (0 == uname.length())
 					uname = PAL::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
-				
+
 				[clientDelegate webView:self
 					confirmDownloadOfURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
 					mimeType:[OBString stringWithUTF8String:umime.data()]
@@ -4062,6 +4243,123 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	auto webPage = [_private page];
 	if (w && webPage)
 		webPage->drawDragImage(w->RPort, 0, 0, w->Width, w->Height);
+}
+
+- (BOOL)developerToolsEnabled
+{
+	auto webPage = [_private page];
+	if (webPage)
+		return webPage->developerToolsEnabled();
+	return NO;
+}
+
+- (void)setDeveloperToolsEnabled:(BOOL)enabled
+{
+	auto webPage = [_private page];
+	if (webPage)
+		webPage->setDeveloperToolsEnabled(enabled);
+}
+
+@end
+
+@interface __WkWebInspectorViewPrivate : OBObject
+{
+	id<WkWebInspectorViewDelegate> _delegate;
+	WkWebView *_inspectedViewWeak;
+}
+@end
+
+@implementation __WkWebInspectorViewPrivate
+
+- (id)initWithWebView:(WkWebView *)inspectedView
+{
+	if ((self = [super init]))
+	{
+		_inspectedViewWeak = inspectedView;
+	}
+	
+	return self;
+}
+
+- (void)setDelegate:(id<WkWebInspectorViewDelegate>)delegate
+{
+	_delegate = delegate;
+}
+
+- (id<WkWebInspectorViewDelegate>)delegate
+{
+	return _delegate;
+}
+
+- (WkWebView *)inspectedView
+{
+	return _inspectedViewWeak;
+}
+
+@end
+
+@implementation WkWebInspectorView
+
+- (id)initWithWebView:(WkWebView *)inspectedView
+{
+	if ((self = [super init]))
+	{
+		_inspectorPrivate = [[__WkWebInspectorViewPrivate alloc] initWithWebView:inspectedView];
+		if (!_inspectorPrivate)
+		{
+			[self release];
+			return nil;
+		}
+	}
+	
+	return self;
+}
+
+- (void)dealloc
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	[_inspectorPrivate release];
+	[super dealloc];
+}
+
+- (void)setInspectorDelegate:(id<WkWebInspectorViewDelegate>)delegate
+{
+	[(__WkWebInspectorViewPrivate *)_inspectorPrivate setDelegate:delegate];
+}
+
+- (id<WkWebInspectorViewDelegate>)inspectorDelegate
+{
+	return [(__WkWebInspectorViewPrivate *)_inspectorPrivate delegate];
+}
+
+- (void)setDeveloperToolsEnabled:(BOOL)enabled
+{
+	// don't inspect the inspector
+}
+
+- (BOOL)developerToolsEnabled
+{
+	return NO;
+}
+
+- (void)close
+{
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	[[self inspectedView] setDeveloperToolsEnabled:NO];
+}
+
+- (void)parentViewClosed
+{
+	id<WkWebInspectorViewDelegate> delegate = [self inspectorDelegate];
+	D(dprintf("%s: delegate %p\n", __PRETTY_FUNCTION__, delegate));
+	[_inspectorPrivate release];
+	_inspectorPrivate = nil;
+	[delegate webInspectorViewDestroyed:self];
+}
+
+- (WkWebView *)inspectedView
+{
+	return [_inspectorPrivate inspectedView];
 }
 
 @end

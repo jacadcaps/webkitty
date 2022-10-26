@@ -139,6 +139,7 @@
 		019E907526FB9D4D00C68B31 /* WebKitLegacy */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebKitLegacy; path = Source/WebKitLegacy; sourceTree = "<group>"; };
 		019E907626FB9D4D00C68B31 /* WebCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebCore; path = Source/WebCore; sourceTree = "<group>"; };
 		019E907726FB9D4E00C68B31 /* cmake */ = {isa = PBXFileReference; lastKnownFileType = folder; name = cmake; path = Source/cmake; sourceTree = "<group>"; };
+		01B299B92901DAA500E6E11C /* DerivedSources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DerivedSources; path = "cross-build/WebCore/DerivedSources"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -155,6 +156,7 @@
 		014F0CEC23531626004F1830 = {
 			isa = PBXGroup;
 			children = (
+				01B299B92901DAA500E6E11C /* DerivedSources */,
 				019E907726FB9D4E00C68B31 /* cmake */,
 				016C0ED127E6A28B008E755F /* CMakeLists.txt */,
 				019E907326FB9D4D00C68B31 /* JavaScriptCore */,

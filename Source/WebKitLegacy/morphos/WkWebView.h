@@ -1,6 +1,7 @@
 #import <mui/MUIArea.h>
 
 @class WkWebView;
+@class WkWebInspectorView;
 @class WkWebViewPrivate;
 @class WkMutableNetworkRequest;
 @class WkBackForwardList;
@@ -77,6 +78,8 @@
 - (void)webView:(WkWebView *)view issuedAuthenticationChallengeAtURL:(OBURL *)url withResponseDelegate:(id<WkAuthenticationChallengeResponseDelegate>)delegate;
 
 - (void)webViewRequestedPrinting:(WkWebView *)view;
+
+- (void)webView:(WkWebView *)view createdNewInspectorView:(WkWebInspectorView *)newInspector;
 
 @end
 
@@ -259,5 +262,8 @@ typedef enum {
 
 - (void)setQuiet:(BOOL)quiet;
 - (BOOL)quiet;
+
+- (BOOL)developerToolsEnabled;
+- (void)setDeveloperToolsEnabled:(BOOL)enabled;
 
 @end

@@ -30,19 +30,6 @@
 
 namespace JSC {
 
-#if OS(MORPHOS)
-
-class ScriptProfilingScope {
-public:
-    inline ScriptProfilingScope(JSGlobalObject*, ProfilingReason)
-    {
-    }
-
-    inline ~ScriptProfilingScope() = default;
-};
-
-#else
-
 class ScriptProfilingScope {
 public:
     ScriptProfilingScope(JSGlobalObject* globalObject, ProfilingReason reason)
@@ -98,7 +85,5 @@ private:
     std::optional<Seconds> m_startTime;
     ProfilingReason m_reason;
 };
-
-#endif
 
 } // namespace JSC

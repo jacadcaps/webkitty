@@ -81,6 +81,8 @@
 
 #include <proto/exec.h>
 
+#define D(x) 
+
 namespace WebKit {
 using namespace JSC;
 using namespace WebCore;
@@ -271,19 +273,9 @@ void WebFrame::startDownload(const WTF::URL &url, const String& suggestedName)
 		webpage->_fDownload(url, suggestedName.length() ? suggestedName : suggestedFilenameForResourceWithURL(url));
 }
 
-void WebFrame::startDownload(const WebCore::ResourceRequest& , const String&)
+void WebFrame::startDownload(const WebCore::ResourceRequest& resourceRequest, const String& suggestedName)
 {
-	notImplemented();
-#if 0
-    ASSERT(m_policyDownloadID.downloadID());
-
-    auto policyDownloadID = m_policyDownloadID;
-    m_policyDownloadID = { };
-
-    auto& webProcess = WebProcess::singleton();
-    PAL::SessionID sessionID = page() ? page()->sessionID() : PAL::SessionID::defaultSessionID();
-    webProcess.ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::StartDownload(sessionID, policyDownloadID, request, suggestedName), 0);
-#endif
+	startDownload(resourceRequest.url(), suggestedName);
 }
 
 void WebFrame::convertMainResourceLoadToDownload(DocumentLoader* documentLoader, const ResourceRequest& request, const ResourceResponse& response)

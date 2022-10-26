@@ -36,6 +36,7 @@
 namespace WebCore {
 class CertificateInfo;
 class Page;
+class PageOverlay;
 }
 
 namespace WebKit {
@@ -57,12 +58,20 @@ public:
     void highlight() override;
     void hideHighlight() override;
 
+	void inspectedPageWillBeDestroyed();
+	void releaseFrontend();
+	void closeInspector();
+
     // FrontendChannel API.
     ConnectionType connectionType() const override { return ConnectionType::Local; }
     void sendMessageToFrontend(const WTF::String&) override;
 
 private:
     virtual ~WebInspectorClient();
+    
+private:
+	WebPage *m_inspectedPage;
+    std::unique_ptr<WebInspectorFrontendClient> m_frontendClient;
 };
 }
 

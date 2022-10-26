@@ -99,6 +99,7 @@
 #include <WebCore/DataTransfer.h>
 #include <WebCore/Pasteboard.h>
 #include <WebCore/PermissionController.h>
+#include <WebCore/InspectorController.h>
 #include <JavaScriptCore/VM.h>
 #include <WebCore/CommonVM.h>
 #include <WebCore/GraphicsContextCairo.h>
@@ -556,7 +557,7 @@ public:
 		m_damage.invalidate();
 	}
 	
-	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation)
+	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
 	{
 		EP_SCOPE(repair);
 		
@@ -578,6 +579,13 @@ public:
 			EP_BEGIN(paint);
 			frameView->paint(*m_platformContext, ir);
 			EP_END(paint);
+			
+			if (highlight) {
+				m_platformContext->beginTransparencyLayer(1);
+				highlight->drawHighlight(*m_platformContext);
+				m_platformContext->endTransparencyLayer();
+			}
+			
 			m_platformContext->restore();
 		});
 	}
@@ -606,7 +614,7 @@ public:
 	}
 
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
-		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation)
+		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
 	{
 		if (!m_platformContext)
 			return;
@@ -659,7 +667,7 @@ public:
 
 // dprintf("paint %d @ %d %d %d %d\n", update, x, y, m_width, m_height);
 
-		repair(frameView, interpolation);
+		repair(frameView, interpolation, highlight);
 		if (update)
 			repaint(rp, x, y);
 		else
@@ -1200,8 +1208,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setShrinksStandaloneImagesToFit(true);
     settings.setSubpixelAntialiasedLayerTextEnabled(true);
     settings.setAuthorAndUserStylesEnabled(true);
-    settings.setStandardFontFamily("DejaVu Serif");
-    settings.setSansSerifFontFamily("DejaVu Serif");
+    //settings.setStandardFontFamily("DejaVu Serif");
+    //settings.setSansSerifFontFamily("DejaVu Serif");
     settings.setFixedFontFamily("Courier New");
     settings.setDefaultFixedFontSize(13);
     settings.setResizeObserverEnabled(true);
@@ -1210,6 +1218,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setTextAreasAreResizable(true);
 	settings.setIntersectionObserverEnabled(true);
 	settings.setDataTransferItemsEnabled(true);
+	settings.setDownloadAttributeEnabled(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1299,6 +1308,11 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     m_page->setIsVisible(true);
     m_page->setIsInWindow(true);
 	m_page->setActivityState(ActivityState::WindowIsActive);
+
+
+#if ENABLE(REMOTE_INSPECTOR)
+    m_page->setRemoteInspectionAllowed(true);
+#endif
 }
 
 WebPage::~WebPage()
@@ -1501,9 +1515,14 @@ void WebPage::willBeDisposed()
 {
 	m_orphaned = true;
 	auto *mainframe = mainFrame();
-	D(dprintf("%s: mf %p\n", __PRETTY_FUNCTION__, mainframe));
+	D(dprintf("%s: self %p mf %p\n", __PRETTY_FUNCTION__, this, mainframe));
 	exitFullscreen();
+
+	if (nullptr != m_page->inspectorController().inspectorClient())
+		static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorClient())->inspectedPageWillBeDestroyed();
+
 	clearDelegateCallbacks();
+	
 //	stop();
 	if (mainframe)
 		mainframe->loader().detachFromParent();
@@ -1668,6 +1687,24 @@ void WebPage::setLocalStorageEnabled(bool enabled)
 {
 	WebCore::Settings& settings = m_page->settings();
 	settings.setLocalStorageEnabled(enabled);
+}
+
+bool WebPage::developerToolsEnabled()
+{
+	WebCore::Settings& settings = m_page->settings();
+	return settings.developerExtrasEnabled();
+}
+
+void WebPage::setDeveloperToolsEnabled(bool enabled)
+{
+	WebCore::Settings& settings = m_page->settings();
+	settings.setDeveloperExtrasEnabled(enabled);
+
+	if (enabled)
+		m_page->inspectorController().show();
+	else
+		if (nullptr != m_page->inspectorController().inspectorClient())
+			static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorClient())->inspectedPageWillBeDestroyed();
 }
 
 bool WebPage::offlineCacheEnabled()
@@ -2350,7 +2387,7 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	if (frameView->frame().document()->isImageDocument())
 		interpolation = m_imageInterpolation;
 
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation);
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation, m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay() ? &m_page->inspectorController() : nullptr);
 }
 
 void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
@@ -3866,6 +3903,17 @@ void WebPage::drawDragImage(struct RastPort *rp, const int x, const int y, const
 		const unsigned int stride = cairo_image_surface_get_stride(imageRef.get());
 		unsigned char *src = cairo_image_surface_get_data(imageRef.get());
 		WritePixelArray(src, 0, 0, stride, rp, x, y, width, height, RECTFMT_ARGB);
+	}
+}
+
+void WebPage::inspectorHighlightUpdated()
+{
+	if (m_drawContext)
+		m_drawContext->invalidate();
+
+	if (_fInvalidate)
+	{
+		_fInvalidate(false);
 	}
 }
 

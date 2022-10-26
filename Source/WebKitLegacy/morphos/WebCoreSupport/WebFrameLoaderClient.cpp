@@ -206,6 +206,8 @@ void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader* loader, We
     if (!webPage)
         return;
 
+    D(dprintf("%s: url %s attach %d\n", __PRETTY_FUNCTION__, response.url().string().utf8().data(), response.isAttachment()));
+
 	bool hadAuth =loader->request().httpHeaderField(HTTPHeaderName::Authorization).length() > 0;
 
 	if (webPage->_fDidReceiveResponse)
@@ -223,6 +225,8 @@ void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::Re
     if (!webPage)
         return;
 
+    D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
     webPage->removeResourceRequest(identifier);
 }
 
@@ -232,6 +236,7 @@ void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, WebCore
     if (!webPage)
         return;
 
+    D(dprintf("%s: \n", __PRETTY_FUNCTION__));
     webPage->removeResourceRequest(identifier);
 }
 
@@ -263,6 +268,7 @@ void WebFrameLoaderClient::dispatchDidChangeProvisionalURL()
 
 void WebFrameLoaderClient::dispatchDidCancelClientRedirect()
 {
+    D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 }
 
 void WebFrameLoaderClient::dispatchWillPerformClientRedirect(const URL& url, double interval, WallTime fireDate, LockBackForwardList lockBackForwardList)
@@ -584,7 +590,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 {
     WebPage* webPage = m_frame->page();
 
-	D(dprintf("%s: '%s' isattach %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), response.isAttachment()));
+	D(dprintf("%s: '%s' isattach %d protocol %s\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), response.isAttachment(), request.url().protocol().toString().utf8().data()));
 
     if (!webPage) {
     	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
@@ -610,6 +616,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 		}
     	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
 		function(PolicyAction::Ignore, identifier);
+		return;
 	}
 
    	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
@@ -667,14 +674,18 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         return;
     }
 
-       if (webPage && webPage->_fShouldNavigateToURL)
-       {
-               if (!webPage->_fShouldNavigateToURL(request.url(), false))
-               {
-               function(PolicyAction::Ignore, requestIdentifier);
-                       return;
-               }
-       }
+	D(dprintf("%s: %s, is download? %s empty %d protocol %s attach %d canshowmime %d topsite %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), navigationAction.downloadAttribute().string().utf8().data(), request.isEmpty(), request.url().protocol().toString().utf8().data(),
+		redirectResponse.isAttachment(), canShowMIMEType(redirectResponse.mimeType()), request.isTopSite()));
+
+    if (webPage && webPage->_fShouldNavigateToURL)
+    {
+        if (!webPage->_fShouldNavigateToURL(request.url(), false))
+        {
+            D(dprintf("%s: cancelled by handler\n", __PRETTY_FUNCTION__));
+            function(PolicyAction::Ignore, requestIdentifier);
+            return;
+        }
+    }
 
     notImplemented();
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
@@ -684,6 +695,21 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         function(PolicyAction::Ignore, requestIdentifier);
         return;
     }
+
+	String protocol = request.url().protocol().toString();
+
+	if (redirectResponse.isAttachment() || navigationAction.downloadAttribute().length())
+	{
+		// should we download this??
+		if (webPage->_fDownloadAsk)
+		{
+			webPage->_fDownloadAsk(redirectResponse, request, requestIdentifier, navigationAction.downloadAttribute().string(), std::move(function));
+			return;
+		}
+    	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
+		function(PolicyAction::Ignore, requestIdentifier);
+		return;
+	}
 
 	function(PolicyAction::Use, requestIdentifier);
 
@@ -921,9 +947,8 @@ void WebFrameLoaderClient::setMainFrameDocumentReady(bool ready)
 
 void WebFrameLoaderClient::startDownload(const ResourceRequest& request, const String& suggestedName)
 {
-D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
-
-    m_frame->startDownload(request, suggestedName);
+	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, request.url().string().utf8().data()));
+	m_frame->startDownload(request, suggestedName);
 }
 
 void WebFrameLoaderClient::willChangeTitle(DocumentLoader*)
@@ -1148,7 +1173,8 @@ bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
     bool canShow = MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
         || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
         || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
-// dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow);
+
+    D(dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow));
 
     return canShow;
 }
@@ -1160,6 +1186,7 @@ bool WebFrameLoaderClient::canShowMIMETypeAsHTML(const String& mimeType) const
 
 bool WebFrameLoaderClient::representationExistsForURLScheme(const String& /*URLScheme*/) const
 {
+    D(dprintf("%s: \n", __PRETTY_FUNCTION__));
     notImplemented();
     return false;
 }

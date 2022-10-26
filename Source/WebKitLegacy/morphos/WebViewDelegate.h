@@ -61,6 +61,7 @@ struct WebViewDelegate
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)>      _fCanOpenWindow;
 	std::function<WebCore::Page*(void)>                                          _fDoOpenWindow;
 	std::function<void(const WTF::URL& url, WebViewDelegateOpenWindowMode mode)> _fNewTabWindow;
+	std::function<WebCore::Page*(void)>                                          _fOpenInspectorWindow;
 	
 	std::function<int(const WebCore::IntRect&, const WTF::Vector<WTF::String>&)> _fPopup;
 	std::function<bool(const WebCore::IntPoint&, const WTF::Vector<WebCore::ContextMenuItem> &items, const WebCore::HitTestResult &hitTest)> _fContextMenu;
@@ -115,6 +116,10 @@ struct WebViewDelegate
 	std::function<void(int atX, int atY, int w, int h)> _fOpenDragWindow;
 	std::function<void(int atX, int atY)> _fMoveDragWindow;
 	std::function<void(void)> _fCloseDragWindow;
+
+	std::function<void(void)> _fInspectorDestroyed;
+	std::function<void(const WTF::String& url, const WTF::String& data, bool dataBase64Encoded)> _fInspectorSave;
+	std::function<void(const WTF::String& url)> _fInspectorURLChanged;
 
 	enum class mediaType {
 		Media,
@@ -193,6 +198,10 @@ struct WebViewDelegate
 		_fOpenDragWindow = nullptr;
 		_fMoveDragWindow = nullptr;
 		_fCloseDragWindow = nullptr;
+		_fOpenInspectorWindow = nullptr;
+		_fInspectorDestroyed = nullptr;
+		_fInspectorSave = nullptr;
+		_fInspectorURLChanged = nullptr;
 #if ENABLE(NOTIFICATIONS)
 		_fRequestNotificationPermission = nullptr;
 		_fCheckNotificationPermission = nullptr;

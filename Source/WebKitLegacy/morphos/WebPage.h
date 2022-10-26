@@ -9,6 +9,7 @@
 #include <WebCore/LengthBox.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/DragImage.h>
+#include <WebCore/InspectorOverlay.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"
 #include <intuition/classusr.h>
@@ -197,6 +198,9 @@ public:
 	bool offlineCacheEnabled();
 	void setOfflineCacheEnabled(bool enabled);
 
+	bool developerToolsEnabled();
+	void setDeveloperToolsEnabled(bool enabled);
+
 	void startLiveResize();
 	void endLiveResize();
 	
@@ -281,6 +285,8 @@ public:
 	void startDrag(WebCore::DragItem&&, WebCore::DataTransfer&, WebCore::Frame&);
 	bool isDragging(void) const { return m_dragging; };
 	void drawDragImage(struct RastPort *rp, const int x, const int y, const int width, const int height);
+
+    void inspectorHighlightUpdated();
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
