@@ -1058,10 +1058,69 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	}
 }
 
+- (OBString *)_extensionFromFileName:(OBString *)name
+{
+	OBRange r = [name rangeOfString:@"." options:OBBackwardsSearch];
+
+	if (!OBEmptyRange(r))
+	{
+		OBString *s = [name substringFromIndex:r.location + 1];
+		if ([s length])
+			return s;
+	}
+
+	return nil;
+}
+
+- (OBString *)_shortenedFileName:(OBString *)path
+{
+    if (!path)
+        return nil;
+
+    OBString *name = [path filePart];
+    OBString *pathPart = [path pathPart];
+    LONG nameLength = [name length];
+
+    // dos calls don't like null input
+    if (!name || !pathPart)
+        return nil;
+
+    LONG maxlen = 107;
+    GetFileSysAttr([pathPart nativeCString], FQA_MaxFileNameLength, &maxlen, sizeof(maxlen));
+
+    OBString *extension = [self _extensionFromFileName:name];
+    LONG extensionLength = [extension length];
+
+    if (extensionLength)
+    {
+        if (extensionLength - 2 > maxlen)
+            return [pathPart stringByAddingPathComponent:[name substringToIndex:maxlen - 1]];
+
+        name = [name substringToIndex:std::min(maxlen - (extensionLength + 2), nameLength - (extensionLength + 2))];
+        name = [name stringByAppendingFormat:@".%@", extension];
+    }
+    else
+    {
+        name = [name substringToIndex:std::min(maxlen, LONG([name length]))];
+    }
+
+    name = [pathPart stringByAddingPathComponent:name];
+
+    return name;
+}
+
 - (void)threadMove:(OBArray *)srcDest
 {
 	OBString *src = [srcDest firstObject];
 	OBString *dest = [srcDest lastObject];
+
+    dest = [self _shortenedFileName:dest];
+    if (!dest || ![dest pathPart])
+    {
+        [[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:ERROR_LINE_TOO_LONG]];
+        return;
+    }
+
 	BPTR lSrc = Lock([src nativeCString], ACCESS_READ);
 
 	if (!lSrc)
@@ -1096,6 +1155,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:IoErr()]];
 			return;
 		}
+
 		lSrc = Open([src nativeCString], MODE_OLDFILE);
 		if (!lSrc)
 		{
@@ -1103,16 +1163,18 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_SourcePath code:IoErr()]];
 			return;
 		}
-		lDst = Open([dest nativeCString], MODE_NEWFILE);
 
-		if (!lDst)
-		{
-			OBFree(buffer);
-			Close(lSrc);
-			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_DestinationPath code:IoErr()]];
-			return;
-		}
-		
+        lDst = Open([dest nativeCString], MODE_NEWFILE);
+
+        if (!lDst)
+        {
+            ULONG err = IoErr();
+            OBFree(buffer);
+            Close(lSrc);
+            [[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_DestinationPath code:err]];
+            return;
+        }
+
 		WkError *error = nil;
 		for (;;)
 		{
@@ -1149,14 +1211,16 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 	}
 	else if (LOCK_SAME_VOLUME == sl)
 	{
-		if (!Rename([src nativeCString], [dest nativeCString]))
-		{
-			[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_Rename code:IoErr()]];
-			DeleteFile([src nativeCString]);
-			return;
-		}
+        if (!Rename([src nativeCString], [dest nativeCString]))
+        {
+            ULONG err = IoErr();
+            [[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:[WkError errorWithURL:[self url] errorType:WkErrorType_Rename code:err]];
+            DeleteFile([src nativeCString]);
+            return;
+        }
 	}
 
+	[[OBRunLoop mainRunLoop] performSelector:@selector(setFilename:) target:self withObject:dest];
 	[[OBRunLoop mainRunLoop] performSelector:@selector(moveCompletedWithError:) target:self withObject:nil];
 }
 
