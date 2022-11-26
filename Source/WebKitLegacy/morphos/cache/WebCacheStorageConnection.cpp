@@ -32,7 +32,7 @@
 #include "WebProcess.h"
 #include <wtf/MainThread.h>
 
-#define D(x) x
+#define D(x) 
 
 namespace WebKit {
 using namespace WebCore::DOMCacheEngine;
