@@ -405,6 +405,16 @@ public:
             m_info.enable_2pass_quant = FALSE;
             m_info.do_block_smoothing = TRUE;
 
+#if OS(MORPHOS)
+#define DECODING_PERFORMANCE_CUT_OFF 2000
+            if (m_info.image_width + m_info.image_height > DECODING_PERFORMANCE_CUT_OFF)
+            {
+                m_info.dct_method = JDCT_IFAST;
+                m_info.dither_mode = JDITHER_NONE;
+                m_info.do_fancy_upsampling = false;
+            }
+#endif
+
             // Start decompressor.
             if (!jpeg_start_decompress(&m_info))
                 return false; // I/O suspension.
