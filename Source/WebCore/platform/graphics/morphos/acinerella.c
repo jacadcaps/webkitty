@@ -28,6 +28,8 @@
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 
+#define FFMPEG_LOGS_ENABLED 0
+
 #include "acinerella.h"
 #if LIBAVCODEC_VERSION_MAJOR < 57
 #define codecpar codec
@@ -425,8 +427,12 @@ error:
 	return -1;
 }
 
+extern void vdprintf(const char *,va_list);
 void __av_log_default_callback(void *ig, int no, const char *re, va_list me)
 {
+#if FFMPEG_LOGS_ENABLED
+vdprintf(re, me);
+#endif
 }
 
 int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
@@ -439,7 +445,11 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 		return -1;
 	}
 
+#if FFMPEG_LOGS_ENABLED
+	av_log_set_level(AV_LOG_DEBUG);
+#else
 	av_log_set_level(AV_LOG_QUIET);
+#endif
 	av_log_set_callback(&__av_log_default_callback);
 
 	// Reference at the underlying lp_ac_data instance
@@ -675,7 +685,7 @@ void CALL_CONVT ac_free_package(lp_ac_package pPackage) {
 	if (pPackage && pPackage != ac_flush_packet()) {
 		lp_ac_package_data self = (lp_ac_package_data)pPackage;
 		av_packet_unref(self->pPack);
-		av_packet_free(self->pPack);
+		av_packet_free(&self->pPack);
 		av_free(self);
 	}
 }
@@ -808,8 +818,7 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 
 	// Manually create a codec context
 	AVFormatContext *pFormatCtx = self->pFormatCtx;
-	AVCodec *pCodec =
-	    avcodec_find_decoder(pFormatCtx->streams[nb]->codecpar->codec_id);
+	AVCodec *pCodec = avcodec_find_decoder(pFormatCtx->streams[nb]->codecpar->codec_id);
 	AVCodecContext *pCodecCtx;
 	ERR(pCodecCtx = avcodec_alloc_context3(pCodec));
 	AV_ERR(avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[nb]->codecpar));
@@ -826,8 +835,7 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 	pDecoder->decoder.stream_info = *info;
 	pDecoder->pCodecCtx = pCodecCtx;
 
-	// Find correspondenting codec
-	ERR(pDecoder->pCodec = avcodec_find_decoder(pCodecCtx->codec_id));
+	pDecoder->pCodec = pCodec;
 
 	// Open codec
 	AV_ERR(avcodec_open2(pCodecCtx, pDecoder->pCodec, NULL));
@@ -869,7 +877,7 @@ static void *ac_create_audio_decoder(lp_ac_instance pacInstance,
 		{
 			desiredFmt = AV_SAMPLE_FMT_FLT;
 		}
-	
+
 		ERR(pDecoder->pSwrCtx = swr_alloc_set_opts(NULL, desiredLayout, desiredFmt, pacInstance->audio_rate,
 			layout, fmt, rate, 0, NULL));
 
@@ -1089,8 +1097,11 @@ ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackag
 
 void ac_decoder_fake_seek(lp_ac_decoder pDecoder)
 {
-	lp_ac_decoder_data dec_dat = (lp_ac_decoder_data)pDecoder;
-	dec_dat->doseek = 0;
+	if (pDecoder)
+	{
+		lp_ac_decoder_data dec_dat = (lp_ac_decoder_data)pDecoder;
+		dec_dat->doseek = 0;
+	}
 }
 
 
