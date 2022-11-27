@@ -1096,7 +1096,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
         if (extensionLength - 2 > maxlen)
             return [pathPart stringByAddingPathComponent:[name substringToIndex:maxlen - 1]];
 
-        name = [name substringToIndex:std::min(maxlen - (extensionLength + 2), nameLength - (extensionLength + 2))];
+        name = [name substringToIndex:std::min(maxlen - (extensionLength + 2), nameLength - (extensionLength + 1))];
         name = [name stringByAppendingFormat:@".%@", extension];
     }
     else
