@@ -29,7 +29,6 @@
 #include "AuxiliaryProcess.h"
 #include "CacheModel.h"
 #include "IdentifierTypes.h"
-#include "SandboxExtension.h"
 #include "StorageAreaMapIdentifier.h"
 #include "TextCheckerState.h"
 #include "UserContentControllerIdentifier.h"
@@ -79,10 +78,6 @@ namespace API {
 class Object;
 }
 
-namespace IPC {
-class SharedBufferCopy;
-}
-
 namespace PAL {
 class SessionID;
 }
@@ -127,11 +122,9 @@ class ProcessAssertion;
 class RemoteCDMFactory;
 class RemoteLegacyCDMFactory;
 class RemoteMediaEngineConfigurationFactory;
-class RemoteWebLockRegistry;
 class StorageAreaMap;
 class UserData;
 class WaylandCompositorDisplay;
-class WebAuthnProcessConnection;
 class WebAutomationSessionProxy;
 class WebBroadcastChannelRegistry;
 class WebCacheStorageProvider;
@@ -145,8 +138,6 @@ class WebPage;
 class WebPageGroupProxy;
 class WebProcessSupplement;
 
-struct GPUProcessConnectionInfo;
-struct GPUProcessConnectionParameters;
 struct RemoteWorkerInitializationData;
 struct UserMessage;
 struct WebProcessCreationParameters;
@@ -157,6 +148,7 @@ struct WebPreferencesStore;
 struct WebsiteData;
 struct WebsiteDataStoreParameters;
 
+enum class RemoteWorkerType : bool;
 enum class WebsiteDataType : uint32_t;
 
 #if PLATFORM(IOS_FAMILY)
@@ -207,8 +199,6 @@ public:
 #if PLATFORM(COCOA)
     const WTF::MachSendRight& compositingRenderServerPort() const { return m_compositingRenderServerPort; }
 #endif
-
-    void refreshPlugins();
 
     bool fullKeyboardAccessEnabled() const { return m_fullKeyboardAccessEnabled; }
 
@@ -265,12 +255,6 @@ public:
     RemoteMediaEngineConfigurationFactory& mediaEngineConfigurationFactory();
 #endif // ENABLE(GPU_PROCESS)
 
-#if ENABLE(WEB_AUTHN)
-    WebAuthnProcessConnection& ensureWebAuthnProcessConnection();
-    void webAuthnProcessConnectionClosed(WebAuthnProcessConnection*);
-    WebAuthnProcessConnection* existingWebAuthnProcessConnection() { return m_webAuthnProcessConnection.get(); }
-#endif
-
     LibWebRTCNetwork& libWebRTCNetwork();
 
     void setCacheModel(CacheModel);
@@ -303,7 +287,7 @@ public:
 
     void setHiddenPageDOMTimerThrottlingIncreaseLimit(int milliseconds);
 
-    void prepareToSuspend(bool isSuspensionImminent, CompletionHandler<void()>&&);
+    void prepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime, CompletionHandler<void()>&&);
     void processDidResume();
 
     void sendPrewarmInformation(const URL&);
@@ -336,7 +320,6 @@ public:
 
     WebCacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
     WebBroadcastChannelRegistry& broadcastChannelRegistry() { return m_broadcastChannelRegistry.get(); }
-    RemoteWebLockRegistry& webLockRegistry() { return m_webLockRegistry.get(); }
     WebCookieJar& cookieJar() { return m_cookieJar.get(); }
     WebSocketChannelManager& webSocketChannelManager() { return m_webSocketChannelManager; }
 
@@ -352,9 +335,12 @@ public:
     void unblockServicesRequiredByAccessibility(const Vector<SandboxExtension::Handle>&);
 #if ENABLE(CFPREFS_DIRECT_MODE)
     void notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue);
-    void unblockPreferenceService(Vector<SandboxExtension::Handle>&&);
 #endif
     void powerSourceDidChange(bool);
+#endif
+
+#if PLATFORM(MAC)
+    void openDirectoryCacheInvalidated(SandboxExtension::Handle&&);
 #endif
 
     bool areAllPagesThrottleable() const;
@@ -369,6 +355,8 @@ public:
     void grantAccessToAssetServices(WebKit::SandboxExtension::Handle&& mobileAssetV2Handle);
     void revokeAccessToAssetServices();
     void switchFromStaticFontRegistryToUserFontRegistry(WebKit::SandboxExtension::Handle&& fontMachExtensionHandle);
+
+    void disableURLSchemeCheckInDataDetectors() const;
 
 #if PLATFORM(MAC)
     void updatePageScreenProperties();
@@ -410,7 +398,7 @@ private:
     void platformSetWebsiteDataStoreParameters(WebProcessDataStoreParameters&&);
 
     void prewarmGlobally();
-    void prewarmWithDomainInformation(const WebCore::PrewarmInformation&);
+    void prewarmWithDomainInformation(WebCore::PrewarmInformation&&);
 
 #if USE(OS_STATE)
     RetainPtr<NSDictionary> additionalStateForDiagnosticReport() const final;
@@ -470,10 +458,7 @@ private:
     void gamepadDisconnected(unsigned index);
 #endif
 
-    void establishSharedWorkerContextConnectionToNetworkProcess(PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::RegistrableDomain&&, RemoteWorkerInitializationData&&, CompletionHandler<void()>&&);
-#if ENABLE(SERVICE_WORKER)
-    void establishServiceWorkerContextConnectionToNetworkProcess(PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::RegistrableDomain&&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&&, CompletionHandler<void()>&&);
-#endif
+    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::RegistrableDomain&&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&&, CompletionHandler<void()>&&);
 
     void fetchWebsiteData(OptionSet<WebsiteDataType>, CompletionHandler<void(WebsiteData&&)>&&);
     void deleteWebsiteData(OptionSet<WebsiteDataType>, WallTime modifiedSince, CompletionHandler<void()>&&);
@@ -544,10 +529,6 @@ private:
     void systemDidWake();
 #endif
 
-#if PLATFORM(COCOA)
-    void consumeAudioComponentRegistrations(const IPC::SharedBufferCopy&);
-#endif
-    
     void platformInitializeProcess(const AuxiliaryProcessInitializationParameters&);
 
     // IPC::Connection::Client
@@ -588,11 +569,6 @@ private:
 
     bool shouldFreezeOnSuspension() const;
     void updateFreezerStatus();
-#endif
-
-#if ENABLE(GPU_PROCESS)
-    static GPUProcessConnectionInfo getGPUProcessConnection(IPC::Connection&);
-    static void platformInitializeGPUProcessConnectionParameters(GPUProcessConnectionParameters&);
 #endif
 
 #if ENABLE(VIDEO)
@@ -665,14 +641,8 @@ private:
     std::unique_ptr<AudioMediaStreamTrackRendererInternalUnitManager> m_audioMediaStreamTrackRendererInternalUnitManager;
 #endif
 #endif
-
-#if ENABLE(WEB_AUTHN)
-    RefPtr<WebAuthnProcessConnection> m_webAuthnProcessConnection;
-#endif
-
     Ref<WebCacheStorageProvider> m_cacheStorageProvider;
     Ref<WebBroadcastChannelRegistry> m_broadcastChannelRegistry;
-    Ref<RemoteWebLockRegistry> m_webLockRegistry;
     Ref<WebCookieJar> m_cookieJar;
     WebSocketChannelManager m_webSocketChannelManager;
 

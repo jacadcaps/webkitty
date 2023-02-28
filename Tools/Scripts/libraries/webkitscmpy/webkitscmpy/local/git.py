@@ -30,7 +30,6 @@ import subprocess
 import sys
 import time
 
-from datetime import datetime, timedelta
 from collections import defaultdict
 
 from webkitcorepy import run, decorators, NestedFuzzyDict
@@ -71,7 +70,7 @@ class Git(Scm):
 
         @property
         def path(self):
-            return os.path.join(self.repo.root_path, '.git', 'identifiers.json')
+            return os.path.join(self.repo.common_directory, 'identifiers.json')
 
         def _fill(self, branch):
             default_branch = self.repo.default_branch
@@ -97,7 +96,7 @@ class Git(Scm):
                     self._revisions_to_identifiers[self._ordered_revisions[branch][index]] = identifier
                 index -= 1
 
-        def populate(self, branch=None):
+        def populate(self, branch=None, remote=None):
             branch = branch or self.repo.branch
             if not branch:
                 return
@@ -112,6 +111,7 @@ class Git(Scm):
             # If we aren't on the default branch, we will need the default branch to determine when
             # our  branch  intersects with the default branch.
             if not is_default_branch:
+                self.populate(branch=self.repo.default_branch, remote=self.repo.default_remote)
                 self.populate(branch=self.repo.default_branch)
             hashes = []
             revisions = []
@@ -130,7 +130,7 @@ class Git(Scm):
                     kwargs = dict(encoding='utf-8')
                 self._last_populated[branch] = time.time()
                 log = subprocess.Popen(
-                    [self.repo.executable(), 'log', branch],
+                    [self.repo.executable(), 'log', '{}/{}'.format(remote, branch) if remote else branch, '--no-decorate', '--date=unix', '--'],
                     cwd=self.repo.root_path,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -301,12 +301,14 @@ class Git(Scm):
     SSH_REMOTE = re.compile('(ssh://)?git@(?P<host>[^:/]+)[:/](?P<path>.+).git')
     HTTP_REMOTE = re.compile(r'(?P<protocol>https?)://(?P<host>[^\/]+)/(?P<path>.+).git')
     REMOTE_BRANCH = re.compile(r'remotes\/(?P<remote>[^\/]+)\/(?P<branch>.+)')
-    USER_REMOTE = re.compile(r'(?P<username>[^:/]+):(?P<branch>.+)')
-    PROJECT_CONFIG_PATH = os.path.join(Scm.METADATA, 'project_config')
+    USER_REMOTE = re.compile(r'(?P<name>[^:]+):(?P<branch>.+)')
+    GIT_CONFIG_EXTENSION = 'git_config_extension'
     PROJECT_CONFIG_OPTIONS = {
         'pull.rebase': ['true', 'false'],
         'webkitscmpy.pull-request': ['overwrite', 'append'],
         'webkitscmpy.history': ['when-user-owned', 'disabled', 'always', 'never'],
+        'webkitscmpy.update-fork': ['true', 'false'],
+        'webkitscmpy.auto-check': ['true', 'false'],
     }
     CONFIG_LOCATIONS = ['global', 'repository', 'project']
 
@@ -336,9 +338,9 @@ class Git(Scm):
             kwargs['cwd'] = context.root_path
             if location == 'project':
                 # Without a project config, use the library defaults
-                if not os.path.isfile(os.path.join(context.root_path, context.PROJECT_CONFIG_PATH)):
+                if not context.metadata or not os.path.isfile(os.path.join(context.metadata, context.GIT_CONFIG_EXTENSION)):
                     return {key: values[0] for key, values in context.PROJECT_CONFIG_OPTIONS.items()}
-                args += ['--file', context.PROJECT_CONFIG_PATH]
+                args += ['--file', os.path.join(context.metadata, context.GIT_CONFIG_EXTENSION)]
 
         command = run(args, **kwargs)
         if command.returncode:
@@ -374,6 +376,7 @@ class Git(Scm):
         super(Git, self).__init__(path, dev_branches=dev_branches, prod_branches=prod_branches, contributors=contributors, id=id)
         self._branch = None
         self.cache = self.Cache(self) if self.root_path and cached else None
+        self.default_remote = 'origin'
         if not self.root_path:
             raise OSError('Provided path {} is not a git repository'.format(path))
 
@@ -395,7 +398,7 @@ class Git(Scm):
     @property
     @decorators.Memoize()
     def is_svn(self):
-        config = os.path.join(self.root_path, '.git/config')
+        config = os.path.join(self.common_directory, 'config')
         if not os.path.isfile(config):
             return False
 
@@ -419,16 +422,29 @@ class Git(Scm):
 
     @property
     @decorators.Memoize()
-    def default_branch(self):
-        result = run([self.executable(), 'rev-parse', '--abbrev-ref', 'origin/HEAD'], cwd=self.path, capture_output=True, encoding='utf-8')
+    def common_directory(self):
+        result = run([self.executable(), 'rev-parse', '--git-common-dir'], cwd=self.root_path, capture_output=True, encoding='utf-8')
         if result.returncode:
-            candidates = self.branches
-            if 'master' in candidates:
-                return 'master'
-            if 'main' in candidates:
-                return 'main'
-            return None
-        return '/'.join(result.stdout.rstrip().split('/')[1:])
+            return os.path.join(self.root_path, '.git')
+        return os.path.abspath(os.path.join(self.root_path, result.stdout.rstrip()))
+
+    @property
+    @decorators.Memoize()
+    def default_branch(self):
+        for name in ['HEAD', 'main', 'master']:
+            result = run([self.executable(), 'rev-parse', '--symbolic-full-name', 'refs/remotes/{}/{}'.format(self.default_remote, name)],
+                         cwd=self.path, capture_output=True, encoding='utf-8')
+            s = result.stdout.strip()
+            if result.returncode == 0 and s:
+                assert s.startswith('refs/remotes/{}/'.format(self.default_remote))
+                return s[len('refs/remotes/{}/'.format(self.default_remote)):]
+
+        candidates = self.branches
+        if 'main' in candidates:
+            return 'main'
+        if 'master' in candidates:
+            return 'master'
+        return None
 
     @property
     def branch(self):
@@ -451,15 +467,25 @@ class Git(Scm):
     def branches(self):
         return self.branches_for()
 
-    @property
-    def tags(self):
-        tags = run([self.executable(), 'tag'], cwd=self.root_path, capture_output=True, encoding='utf-8')
+    def tags(self, remote=None):
+        if not remote:
+            tags = run([self.executable(), 'tag'], cwd=self.root_path, capture_output=True, encoding='utf-8')
+            if tags.returncode:
+                raise self.Exception('Failed to retrieve tag list for {}'.format(self.root_path))
+            return tags.stdout.splitlines()
+
+        tags = run([self.executable(), 'ls-remote', '--tags', remote], cwd=self.root_path, capture_output=True, encoding='utf-8')
         if tags.returncode:
-            raise self.Exception('Failed to retrieve tag list for {}'.format(self.root_path))
-        return tags.stdout.splitlines()
+            raise self.Exception('Failed to retrieve tag list for {} in {}'.format(remote, self.root_path))
+        result = []
+        for line in tags.stdout.splitlines():
+            if line.endswith('^{}'):
+                continue
+            result.append('/'.join(line.split('/')[2:]))
+        return result
 
     def url(self, name=None, cached=None):
-        return self.config(cached=cached).get('remote.{}.url'.format(name or 'origin'))
+        return self.config(cached=cached).get('remote.{}.url'.format(name or self.default_remote))
 
     @decorators.Memoize()
     def remote(self, name=None):
@@ -471,19 +497,25 @@ class Git(Scm):
         elif http_match:
             url = '{}://{}/{}'.format(http_match.group('protocol'), http_match.group('host'), http_match.group('path'))
 
-        if remote.GitHub.is_webserver(url):
-            return remote.GitHub(url, contributors=self.contributors)
-        if 'bitbucket' in url or 'stash' in url:
-            match = re.match(r'(?P<protocol>https?)://(?P<host>.+)/(?P<project>.+)/(?P<repo>.+)', url)
-            return remote.BitBucket(
-                '{}://{}/projects/{}/repos/{}'.format(
-                    match.group('protocol'),
-                    match.group('host'),
-                    match.group('project').upper(),
-                    match.group('repo'),
-                ), contributors=self.contributors,
-            )
+        try:
+            return remote.Scm.from_url(url)
+        except OSError:
+            pass
+
         return None
+
+    def source_remotes(self, cached=None):
+        candidates = [self.default_remote]
+        config = self.config(cached=cached)
+        for candidate in config.keys():
+            if not candidate.startswith('webkitscmpy.remotes'):
+                continue
+            candidate = candidate.split('.')[-1]
+            if candidate in candidates:
+                continue
+            if config.get('remote.{}.url'.format(candidate)):
+                candidates.append(candidate)
+        return candidates
 
     def _commit_count(self, native_parameter):
         revision_count = run(
@@ -494,9 +526,10 @@ class Git(Scm):
             raise self.Exception('Failed to retrieve revision count for {}'.format(native_parameter))
         return int(revision_count.stdout)
 
+    @decorators.Memoize(cached=False)
     def branches_for(self, hash=None, remote=True):
         branch = run(
-            [self.executable(), 'branch'] + (['--contains', hash] if hash else ['-a']),
+            [self.executable(), 'branch'] + (['--contains', hash, '-a'] if hash else ['-a']),
             cwd=self.root_path,
             capture_output=True,
             encoding='utf-8',
@@ -549,7 +582,7 @@ class Git(Scm):
 
         default_branch = self.default_branch
         parsed_branch_point = None
-        log_format = ['-1'] if include_log else ['-1', '--format=short']
+        log_format = ['-1', '--no-decorate', '--date=unix'] if include_log else ['-1', '--no-decorate', '--date=unix', '--format=short']
 
         # Determine the `git log` output and branch for a given identifier
         if identifier is not None:
@@ -574,7 +607,7 @@ class Git(Scm):
             # If the cache managed to convert the identifier to a hash, we can skip some computation
             if hash:
                 log = run(
-                    [self.executable(), 'log', hash] + log_format,
+                    [self.executable(), 'log', hash] + log_format + ['--'],
                     cwd=self.root_path,
                     capture_output=True,
                     encoding='utf-8',
@@ -592,12 +625,18 @@ class Git(Scm):
                 if is_default and parsed_branch_point:
                     raise self.Exception('Cannot provide a branch point for a commit on the default branch')
 
-                base_count = self._commit_count(baseline if is_default else '{}..{}'.format(default_branch, baseline))
+                if is_default:
+                    base_count = self._commit_count(baseline)
+                else:
+                    base_count = min(
+                        self._commit_count('{}..{}'.format(default_branch, baseline)),
+                        self._commit_count('{}/{}..{}'.format(self.default_remote, default_branch, baseline)),
+                    )
 
                 if identifier > base_count:
                     raise self.Exception('Identifier {} cannot be found on the specified branch in the current checkout'.format(identifier))
                 log = run(
-                    [self.executable(), 'log', '{}~{}'.format(branch or 'HEAD', base_count - identifier)] + log_format,
+                    [self.executable(), 'log', '{}~{}'.format(branch or 'HEAD', base_count - identifier)] + log_format + ['--'],
                     cwd=self.root_path,
                     capture_output=True,
                     encoding='utf-8',
@@ -618,14 +657,14 @@ class Git(Scm):
             if branch and tag:
                 raise ValueError('Cannot define both tag and branch')
 
-            log = run([self.executable(), 'log', branch or tag] + log_format, cwd=self.root_path, capture_output=True, encoding='utf-8')
+            log = run([self.executable(), 'log', branch or tag] + log_format + ['--'], cwd=self.root_path, capture_output=True, encoding='utf-8')
             if log.returncode:
                 raise self.Exception("Failed to retrieve commit information for '{}'".format(branch or tag))
 
         # Determine the `git log` output for a given hash
         else:
             hash = Commit._parse_hash(hash, do_assert=True)
-            log = run([self.executable(), 'log', hash or 'HEAD'] + log_format, cwd=self.root_path, capture_output=True, encoding='utf-8')
+            log = run([self.executable(), 'log', hash or 'HEAD'] + log_format + ['--'], cwd=self.root_path, capture_output=True, encoding='utf-8')
             if log.returncode:
                 raise self.Exception("Failed to retrieve commit information for '{}'".format(hash or 'HEAD'))
 
@@ -647,7 +686,13 @@ class Git(Scm):
 
         # Compute the identifier if the function did not receive one and we were asked to
         if not identifier and include_identifier:
-            identifier = self._commit_count(hash if branch == default_branch else '{}..{}'.format(default_branch, hash))
+            if branch == default_branch:
+                identifier = self._commit_count(hash)
+            else:
+                identifier = min(
+                    self._commit_count('{}..{}'.format(default_branch, hash)),
+                    self._commit_count('{}/{}..{}'.format(self.default_remote, default_branch, hash)),
+                )
 
         # Only compute the branch point we're on something other than the default branch
         if not branch_point and include_identifier and branch != default_branch:
@@ -706,13 +751,7 @@ class Git(Scm):
             if split[0] == 'Author':
                 author = Contributor.from_scm_log(line.lstrip(), self.contributors)
             elif split[0] == 'CommitDate':
-                tz_diff = line.split(' ')[-1]
-                date = datetime.strptime(split[1].lstrip()[:-len(tz_diff)], '%a %b %d %H:%M:%S %Y ')
-                date += timedelta(
-                    hours=int(tz_diff[1:3]),
-                    minutes=int(tz_diff[3:5]),
-                ) * (1 if tz_diff[0] == '-' else -1)
-                timestamp = int(calendar.timegm(date.timetuple())) - time.timezone
+                timestamp = int(line.split(' ')[-1])
 
         message = ''
         for line in content.splitlines()[5:]:
@@ -732,7 +771,7 @@ class Git(Scm):
         try:
             log = None
             log = subprocess.Popen(
-                [self.executable(), 'log', '--format=fuller', '{}...{}'.format(end.hash, begin.hash)],
+                [self.executable(), 'log', '--format=fuller', '--no-decorate', '--date=unix', '{}..{}'.format(begin.hash, end.hash), '--'],
                 cwd=self.root_path,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -859,39 +898,46 @@ class Git(Scm):
         match = self.USER_REMOTE.match(argument)
         rmt = self.remote()
         if match and isinstance(rmt, remote.GitHub):
-            username = match.group('username')
-            if not self.url(match.group('username')):
+            name = match.group('name')
+            username = name.split('/')[0]
+            repo_name = rmt.name if '/' not in name else name.split('/', 1)[-1]
+            if username == rmt.credentials(required=False)[0]:
+                name = 'fork' + repo_name[len(rmt.name):]
+            else:
+                name = username + repo_name[len(rmt.name):]
+
+            if not self.url(name):
                 url = self.url()
                 if '://' in url:
-                    rmt = '{}://{}/{}/{}.git'.format(url.split(':')[0], url.split('/')[2], username, rmt.name)
+                    rmt = '{}://{}/{}/{}.git'.format(url.split(':')[0], url.split('/')[2], username, repo_name)
                 elif ':' in url:
-                    rmt = '{}:{}/{}.git'.format(url.split(':')[0], username, rmt.name)
+                    rmt = '{}:{}/{}.git'.format(url.split(':')[0], username, repo_name)
                 else:
                     sys.stderr.write("Failed to convert '{}' to '{}' remote\n".format(url, username))
                     return None
                 if run(
-                    [self.executable(), 'remote', 'add', username, rmt],
+                    [self.executable(), 'remote', 'add', name, rmt],
                     capture_output=True, cwd=self.root_path,
                 ).returncode:
-                    sys.stderr.write("Failed to add remote '{}' as '{}'\n".format(rmt, username))
+                    sys.stderr.write("Failed to add remote '{}' as '{}'\n".format(rmt, name))
                     return None
                 self.config.clear()
             branch = match.group('branch')
             rc = run(
-                [self.executable(), 'checkout'] + ['-B', branch, '{}/{}'.format(username, branch)] + log_arg,
+                [self.executable(), 'checkout'] + ['-B', branch, '{}/{}'.format(name, branch)] + log_arg,
                 cwd=self.root_path,
             ).returncode
             if not rc:
                 return self.commit()
             if rc == 128:
-                run([self.executable(), 'fetch', username], cwd=self.root_path)
+                run([self.executable(), 'fetch', name], cwd=self.root_path)
             return None if run(
-                [self.executable(), 'checkout'] + ['-B', branch, '{}/{}'.format(username, branch)] + log_arg,
+                [self.executable(), 'checkout'] + ['-B', branch, '{}/{}'.format(name, branch)] + log_arg,
                 cwd=self.root_path,
             ).returncode else self.commit()
 
         return None if run(
-            [self.executable(), 'checkout'] + [self._to_git_ref(argument)] + log_arg,
+            [self.executable(), 'checkout', self._to_git_ref(argument)] + log_arg + ['--'],
             cwd=self.root_path,
         ).returncode else self.commit()
 
@@ -915,13 +961,14 @@ class Git(Scm):
             ), 'refs/heads/{}...{}'.format(target, head),
         ], cwd=self.root_path, env={'FILTER_BRANCH_SQUELCH_WARNING': '1'}, capture_output=True).returncode
 
-    def fetch(self, branch, remote='origin'):
+    def fetch(self, branch, remote=None):
         return run(
-            [self.executable(), 'fetch', remote, '{}:{}'.format(branch, branch)],
+            [self.executable(), 'fetch', remote or self.default_remote, '{}:{}'.format(branch, branch)],
             cwd=self.root_path,
         ).returncode
 
-    def pull(self, rebase=None, branch=None, remote='origin'):
+    def pull(self, rebase=None, branch=None, remote=None):
+        remote = remote or self.default_remote
         commit = self.commit() if self.is_svn or branch else None
 
         code = 0
@@ -1011,3 +1058,18 @@ class Git(Scm):
         while line:
             yield line.rstrip()
             line = proc.stdout.readline()
+
+    def files_changed(self, argument=None):
+        if not argument:
+            return self.modified()
+        commit = self.find(argument, include_log=False, include_identifier=False)
+        if not commit:
+            raise ValueError("'{}' is not an argument recognized by git".format(argument))
+
+        output = run(
+            [self.executable(), 'show', commit.hash, '--pretty=', '--name-only'],
+            cwd=self.root_path, capture_output=True, encoding='utf-8',
+        )
+        if output.returncode:
+            raise ValueError("'{}' is not an argument recognized by git".format(argument))
+        return output.stdout.rstrip().splitlines()

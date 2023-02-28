@@ -185,20 +185,20 @@ WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
 void WKPageLoadURL(WKPageRef pageRef, WKURLRef URLRef)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->loadRequest(URL(URL(), toWTFString(URLRef)));
+    toImpl(pageRef)->loadRequest(URL { toWTFString(URLRef) });
 }
 
 void WKPageLoadURLWithShouldOpenExternalURLsPolicy(WKPageRef pageRef, WKURLRef URLRef, bool shouldOpenExternalURLs)
 {
     CRASH_IF_SUSPENDED;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy = shouldOpenExternalURLs ? WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow : WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow;
-    toImpl(pageRef)->loadRequest(URL(URL(), toWTFString(URLRef)), shouldOpenExternalURLsPolicy);
+    toImpl(pageRef)->loadRequest(URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy);
 }
 
 void WKPageLoadURLWithUserData(WKPageRef pageRef, WKURLRef URLRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->loadRequest(URL(URL(), toWTFString(URLRef)), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, toImpl(userDataRef));
+    toImpl(pageRef)->loadRequest(URL { toWTFString(URLRef) }, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, toImpl(userDataRef));
 }
 
 void WKPageLoadURLRequest(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
@@ -281,7 +281,7 @@ void WKPageLoadAlternateHTMLStringWithUserData(WKPageRef pageRef, WKStringRef ht
 {
     CRASH_IF_SUSPENDED;
     String string = toWTFString(htmlStringRef);
-    toImpl(pageRef)->loadAlternateHTML(dataFrom(string), encodingOf(string), URL(URL(), toWTFString(baseURLRef)), URL(URL(), toWTFString(unreachableURLRef)), toImpl(userDataRef));
+    toImpl(pageRef)->loadAlternateHTML(dataFrom(string), encodingOf(string), URL { toWTFString(baseURLRef) }, URL { toWTFString(unreachableURLRef) }, toImpl(userDataRef));
 }
 
 void WKPageLoadPlainTextString(WKPageRef pageRef, WKStringRef plainTextStringRef)
@@ -319,7 +319,7 @@ void WKPageReload(WKPageRef pageRef)
     CRASH_IF_SUSPENDED;
     OptionSet<WebCore::ReloadOption> reloadOptions;
 #if PLATFORM(COCOA)
-    if (linkedOnOrAfter(SDKVersion::FirstWithExpiredOnlyReloadBehavior))
+    if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ExpiredOnlyReloadBehavior))
         reloadOptions.add(WebCore::ReloadOption::ExpiredOnly);
 #endif
 
@@ -515,13 +515,13 @@ void WKPageTerminate(WKPageRef pageRef)
 
 WKStringRef WKPageGetSessionHistoryURLValueType()
 {
-    static API::String& sessionHistoryURLValueType = API::String::create("SessionHistoryURL").leakRef();
+    static auto& sessionHistoryURLValueType = API::String::create("SessionHistoryURL"_s).leakRef();
     return toAPI(&sessionHistoryURLValueType);
 }
 
 WKStringRef WKPageGetSessionBackForwardListItemValueType()
 {
-    static API::String& sessionBackForwardListValueType = API::String::create("SessionBackForwardListItem").leakRef();
+    static auto& sessionBackForwardListValueType = API::String::create("SessionBackForwardListItem"_s).leakRef();
     return toAPI(&sessionBackForwardListValueType);
 }
 
@@ -1582,21 +1582,21 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             if (m_client.createNewPage_deprecatedForUseWithV1 || m_client.createNewPage_deprecatedForUseWithV0) {
                 API::Dictionary::MapType map;
                 if (windowFeatures.x)
-                    map.set("x", API::Double::create(*windowFeatures.x));
+                    map.set("x"_s, API::Double::create(*windowFeatures.x));
                 if (windowFeatures.y)
-                    map.set("y", API::Double::create(*windowFeatures.y));
+                    map.set("y"_s, API::Double::create(*windowFeatures.y));
                 if (windowFeatures.width)
-                    map.set("width", API::Double::create(*windowFeatures.width));
+                    map.set("width"_s, API::Double::create(*windowFeatures.width));
                 if (windowFeatures.height)
-                    map.set("height", API::Double::create(*windowFeatures.height));
-                map.set("menuBarVisible", API::Boolean::create(windowFeatures.menuBarVisible));
-                map.set("statusBarVisible", API::Boolean::create(windowFeatures.statusBarVisible));
-                map.set("toolBarVisible", API::Boolean::create(windowFeatures.toolBarVisible));
-                map.set("locationBarVisible", API::Boolean::create(windowFeatures.locationBarVisible));
-                map.set("scrollbarsVisible", API::Boolean::create(windowFeatures.scrollbarsVisible));
-                map.set("resizable", API::Boolean::create(windowFeatures.resizable));
-                map.set("fullscreen", API::Boolean::create(windowFeatures.fullscreen));
-                map.set("dialog", API::Boolean::create(windowFeatures.dialog));
+                    map.set("height"_s, API::Double::create(*windowFeatures.height));
+                map.set("menuBarVisible"_s, API::Boolean::create(windowFeatures.menuBarVisible));
+                map.set("statusBarVisible"_s, API::Boolean::create(windowFeatures.statusBarVisible));
+                map.set("toolBarVisible"_s, API::Boolean::create(windowFeatures.toolBarVisible));
+                map.set("locationBarVisible"_s, API::Boolean::create(windowFeatures.locationBarVisible));
+                map.set("scrollbarsVisible"_s, API::Boolean::create(windowFeatures.scrollbarsVisible));
+                map.set("resizable"_s, API::Boolean::create(windowFeatures.resizable));
+                map.set("fullscreen"_s, API::Boolean::create(windowFeatures.fullscreen));
+                map.set("dialog"_s, API::Boolean::create(windowFeatures.dialog));
                 Ref<API::Dictionary> featuresMap = API::Dictionary::create(WTFMove(map));
 
                 if (m_client.createNewPage_deprecatedForUseWithV1) {
@@ -3079,7 +3079,7 @@ void WKPageSimulatePrivateClickMeasurementSessionRestart(WKPageRef pageRef, WKPa
 void WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTesting(WKPageRef pageRef, WKURLRef URLRef, WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementTokenPublicKeyURLForTesting(URL(URL(), toWTFString(URLRef)), [callbackContext, callback] () {
+    toImpl(pageRef)->setPrivateClickMeasurementTokenPublicKeyURLForTesting(URL { toWTFString(URLRef) }, [callbackContext, callback] () {
         callback(callbackContext);
     });
 }
@@ -3087,7 +3087,7 @@ void WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTesting(WKPageRef pageR
 void WKPageSetPrivateClickMeasurementTokenSignatureURLForTesting(WKPageRef pageRef, WKURLRef URLRef, WKPageSetPrivateClickMeasurementTokenSignatureURLForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementTokenSignatureURLForTesting(URL(URL(), toWTFString(URLRef)), [callbackContext, callback] () {
+    toImpl(pageRef)->setPrivateClickMeasurementTokenSignatureURLForTesting(URL { toWTFString(URLRef) }, [callbackContext, callback] () {
         callback(callbackContext);
     });
 }
@@ -3095,7 +3095,7 @@ void WKPageSetPrivateClickMeasurementTokenSignatureURLForTesting(WKPageRef pageR
 void WKPageSetPrivateClickMeasurementAttributionReportURLsForTesting(WKPageRef pageRef, WKURLRef sourceURL, WKURLRef destinationURL, WKPageSetPrivateClickMeasurementAttributionReportURLsForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementAttributionReportURLsForTesting(URL(URL(), toWTFString(sourceURL)), URL(URL(), toWTFString(destinationURL)), [callbackContext, callback] () {
+    toImpl(pageRef)->setPrivateClickMeasurementAttributionReportURLsForTesting(URL { toWTFString(sourceURL) }, URL { toWTFString(destinationURL) }, [callbackContext, callback] () {
         callback(callbackContext);
     });
 }
@@ -3187,4 +3187,11 @@ void WKPageDispatchActivityStateUpdateForTesting(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
     toImpl(pageRef)->dispatchActivityStateUpdateForTesting();
+}
+
+void WKPageClearNotificationPermissionState(WKPageRef pageRef)
+{
+#if ENABLE(NOTIFICATIONS)
+    toImpl(pageRef)->clearNotificationPermissionState();
+#endif
 }

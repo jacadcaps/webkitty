@@ -39,11 +39,21 @@
 #include "WebPageGroup.h"
 #include "WebProcessPool.h"
 #include <WebCore/CompositionUnderline.h>
+#if ENABLE(GAMEPAD)
+#include <WebCore/WPEGamepadProvider.h>
+#endif
 #include <wpe/wpe.h>
+#include <wtf/NeverDestroyed.h>
 
 using namespace WebKit;
 
 namespace WKWPE {
+
+static Vector<View*>& viewsVector()
+{
+    static NeverDestroyed<Vector<View*>> vector;
+    return vector;
+}
 
 View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseConfiguration)
     : m_client(makeUnique<API::ViewClient>())
@@ -121,13 +131,23 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
             auto& view = *reinterpret_cast<View*>(data);
             view.page().setIntrinsicDeviceScaleFactor(scale);
         },
+#if WPE_CHECK_VERSION(1, 13, 2)
+        // target_refresh_rate_changed
+        [](void* data, uint32_t rate)
+        {
+            auto& view = *reinterpret_cast<View*>(data);
+            if (view.page().drawingArea())
+                view.page().drawingArea()->targetRefreshRateDidChange(rate);
+        },
 #else
         // padding
         nullptr,
-        nullptr,
-#endif // WPE_CHECK_VERSION(1, 3, 0)
+#endif // WPE_CHECK_VERSION(1, 13, 0)
+#else
         // padding
+        nullptr,
         nullptr
+#endif // WPE_CHECK_VERSION(1, 3, 0)
     };
     wpe_view_backend_set_backend_client(m_backend, &s_backendClient, this);
 
@@ -293,10 +313,13 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
     wpe_view_backend_initialize(m_backend);
 
     m_pageProxy->initializeWebPage();
+
+    viewsVector().append(this);
 }
 
 View::~View()
 {
+    viewsVector().removeAll(this);
 #if ENABLE(ACCESSIBILITY)
     if (m_accessible)
         webkitWebViewAccessibleSetWebView(m_accessible.get(), nullptr);
@@ -382,6 +405,13 @@ void View::setViewState(OptionSet<WebCore::ActivityState::Flag> flags)
 
     if (changedFlags)
         m_pageProxy->activityStateDidChange(changedFlags);
+
+    if (!viewsVector().isEmpty() && viewState().contains(WebCore::ActivityState::IsVisible)) {
+        if (viewsVector().first() != this) {
+            viewsVector().removeAll(this);
+            viewsVector().insert(0, this);
+        }
+    }
 }
 
 void View::handleKeyboardEvent(struct wpe_input_keyboard_event* event)
@@ -426,6 +456,37 @@ WebKitWebViewAccessible* View::accessible() const
     if (!m_accessible)
         m_accessible = webkitWebViewAccessibleNew(const_cast<View*>(this));
     return m_accessible.get();
+}
+#endif
+
+#if ENABLE(GAMEPAD)
+WebKit::WebPageProxy* View::platformWebPageProxyForGamepadInput()
+{
+    const auto& views = viewsVector();
+    if (views.isEmpty())
+        return nullptr;
+
+    struct wpe_view_backend* viewBackend = WebCore::WPEGamepadProvider::singleton().inputView();
+
+    size_t index = notFound;
+
+    if (viewBackend) {
+        index = views.findIf([&](View* view) {
+            return view->backend() == viewBackend
+                && view->viewState().contains(WebCore::ActivityState::IsVisible)
+                && view->viewState().contains(WebCore::ActivityState::IsFocused);
+        });
+    } else {
+        index = views.findIf([](View* view) {
+            return view->viewState().contains(WebCore::ActivityState::IsVisible)
+                && view->viewState().contains(WebCore::ActivityState::IsFocused);
+        });
+    }
+
+    if (index != notFound)
+        return &(views[index]->page());
+
+    return nullptr;
 }
 #endif
 

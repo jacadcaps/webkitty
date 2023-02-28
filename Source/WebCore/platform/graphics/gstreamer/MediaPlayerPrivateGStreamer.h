@@ -26,6 +26,7 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
+#include "AbortableTaskQueue.h"
 #include "GStreamerCommon.h"
 #include "GStreamerEMEUtilities.h"
 #include "ImageOrientation.h"
@@ -105,6 +106,10 @@ class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
 
+#if USE(TEXTURE_MAPPER_DMABUF)
+class GBMBufferSwapchain;
+#endif
+
 void registerWebKitGStreamerElements();
 
 // Use eager initialization for the WeakPtrFactory since we construct WeakPtrs on another thread.
@@ -127,14 +132,13 @@ public:
     virtual ~MediaPlayerPrivateGStreamer();
 
     static void registerMediaEngine(MediaEngineRegistrar);
-    static MediaPlayer::SupportsType extendedSupportsType(const MediaEngineSupportParameters&, MediaPlayer::SupportsType);
     static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 
     bool hasVideo() const final { return m_hasVideo; }
     bool hasAudio() const final { return m_hasAudio; }
     void load(const String &url) override;
 #if ENABLE(MEDIA_SOURCE)
-    void load(const URL&, const ContentType&, MediaSourcePrivateClient*) override;
+    void load(const URL&, const ContentType&, MediaSourcePrivateClient&) override;
 #endif
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override;
@@ -243,6 +247,10 @@ public:
     const Logger& mediaPlayerLogger() { return logger(); }
 #endif
 
+    // This AbortableTaskQueue must be aborted everytime a flush is sent downstream from the main thread
+    // to avoid deadlocks from threads in the playback pipeline waiting for the main thread.
+    AbortableTaskQueue& sinkTaskQueue() { return m_sinkTaskQueue; }
+
 protected:
     enum MainThreadNotification {
         VideoChanged = 1 << 0,
@@ -267,6 +275,9 @@ protected:
     bool shouldIgnoreIntrinsicSize() final { return true; }
 #endif
 
+#if USE(TEXTURE_MAPPER_DMABUF)
+    GstElement* createVideoSinkDMABuf();
+#endif
 #if USE(GSTREAMER_GL)
     GstElement* createVideoSinkGL();
 #endif
@@ -279,6 +290,10 @@ protected:
     RefPtr<TextureMapperPlatformLayerProxy> proxy() const final;
     void swapBuffersIfNeeded() final;
 #endif
+#endif
+
+#if USE(TEXTURE_MAPPER_DMABUF)
+    void pushDMABufToCompositor();
 #endif
 
     GstElement* videoSink() const { return m_videoSink.get(); }
@@ -331,7 +346,7 @@ protected:
     bool m_didDownloadFinish { false };
     bool m_didErrorOccur { false };
     mutable bool m_isEndReached { false };
-    mutable bool m_isLiveStream { false };
+    mutable std::optional<bool> m_isLiveStream;
     bool m_isPaused { true };
     float m_playbackRate { 1 };
     GstState m_currentState { GST_STATE_NULL };
@@ -388,6 +403,13 @@ protected:
 
     std::optional<GstVideoDecoderPlatform> m_videoDecoderPlatform;
 
+    String errorMessage() const override { return m_errorMessage; }
+
+    void incrementDecodedVideoFramesCount() { m_decodedVideoFrames++; }
+    uint64_t decodedVideoFramesCount() const { return m_decodedVideoFrames; }
+
+    bool updateVideoSinkStatistics();
+
 private:
     class TaskAtMediaTimeScheduler {
     public:
@@ -418,7 +440,7 @@ private:
 
     bool isPlayerShuttingDown() const { return m_isPlayerShuttingDown.load(); }
     MediaTime maxTimeLoaded() const;
-    void setVideoSourceOrientation(ImageOrientation);
+    bool setVideoSourceOrientation(ImageOrientation);
     MediaTime platformDuration() const;
     bool isMuted() const;
     void commitLoad();
@@ -428,6 +450,8 @@ private:
     GstElement* createVideoSink();
     GstElement* createAudioSink();
     GstElement* audioSink() const;
+
+    bool isMediaStreamPlayer() const;
 
     friend class MediaPlayerFactoryGStreamer;
     static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
@@ -439,7 +463,8 @@ private:
     MediaTime playbackPosition() const;
 
     virtual void updateStates();
-    virtual void asyncStateChangeDone();
+    void finishSeek();
+    virtual void asyncStateChangeDone() { }
 
     void createGSTPlayBin(const URL&);
 
@@ -458,7 +483,7 @@ private:
     void processTableOfContents(GstMessage*);
     void processTableOfContentsEntry(GstTocEntry*);
 
-    String engineDescription() const override { return "GStreamer"; }
+    String engineDescription() const override { return "GStreamer"_s; }
     bool didPassCORSAccessCheck() const override;
     bool canSaveMediaData() const override;
 
@@ -466,11 +491,13 @@ private:
     void configureDownloadBuffer(GstElement*);
     static void downloadBufferFileCreatedCallback(MediaPlayerPrivateGStreamer*);
 
+    void configureDepayloader(GstElement*);
     void configureVideoDecoder(GstElement*);
+    void configureElement(GstElement*);
 
     void setPlaybinURL(const URL& urlString);
 
-    void updateTracks(const GRefPtr<GstStreamCollection>&);
+    void updateTracks(const GRefPtr<GstObject>& collectionOwner);
     void videoSinkCapsChanged(GstPad*);
     void updateVideoSizeAndOrientationFromCaps(const GstCaps*);
     bool hasFirstVideoSampleReachedSink() const;
@@ -508,7 +535,7 @@ private:
     RunLoop::Timer<MediaPlayerPrivateGStreamer> m_readyTimerHandler;
 #if USE(TEXTURE_MAPPER_GL)
 #if USE(NICOSIA)
-    Ref<Nicosia::ContentLayer> m_nicosiaLayer;
+    RefPtr<Nicosia::ContentLayer> m_nicosiaLayer;
 #else
     RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
 #endif
@@ -530,19 +557,23 @@ private:
     bool m_waitingForStreamsSelectedEvent { true };
     AtomString m_currentAudioStreamId; // Currently playing.
     AtomString m_currentVideoStreamId;
+    AtomString m_currentTextStreamId;
     AtomString m_wantedAudioStreamId; // Set in JavaScript.
     AtomString m_wantedVideoStreamId;
+    AtomString m_wantedTextStreamId;
     AtomString m_requestedAudioStreamId; // Expected in the next STREAMS_SELECTED message.
     AtomString m_requestedVideoStreamId;
+    AtomString m_requestedTextStreamId;
 
 #if ENABLE(WEB_AUDIO)
     std::unique_ptr<AudioSourceProviderGStreamer> m_audioSourceProvider;
 #endif
     GRefPtr<GstElement> m_downloadBuffer;
     Vector<RefPtr<MediaPlayerRequestInstallMissingPluginsCallback>> m_missingPluginCallbacks;
-    HashMap<AtomString, RefPtr<AudioTrackPrivateGStreamer>> m_audioTracks;
-    HashMap<AtomString, RefPtr<InbandTextTrackPrivateGStreamer>> m_textTracks;
-    HashMap<AtomString, RefPtr<VideoTrackPrivateGStreamer>> m_videoTracks;
+
+    HashMap<AtomString, Ref<AudioTrackPrivateGStreamer>> m_audioTracks;
+    HashMap<AtomString, Ref<VideoTrackPrivateGStreamer>> m_videoTracks;
+    HashMap<AtomString, Ref<InbandTextTrackPrivateGStreamer>> m_textTracks;
     RefPtr<InbandMetadataTextTrackPrivateGStreamer> m_chaptersTrack;
 #if USE(GSTREAMER_MPEGTS)
     HashMap<AtomString, RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
@@ -559,6 +590,7 @@ private:
     GRefPtr<GstElement> m_fpsSink { nullptr };
     uint64_t m_totalVideoFrames { 0 };
     uint64_t m_droppedVideoFrames { 0 };
+    uint64_t m_decodedVideoFrames { 0 };
 
     DataMutex<TaskAtMediaTimeScheduler> m_TaskAtMediaTimeSchedulerDataMutex;
 
@@ -573,6 +605,16 @@ private:
     Ref<const Logger> m_logger;
     const void* m_logIdentifier;
 #endif
+
+    String m_errorMessage;
+
+#if USE(TEXTURE_MAPPER_DMABUF)
+    RefPtr<GBMBufferSwapchain> m_swapchain;
+#endif
+
+    GRefPtr<GstStreamCollection> m_streamCollection;
+
+    AbortableTaskQueue m_sinkTaskQueue;
 };
 
 }

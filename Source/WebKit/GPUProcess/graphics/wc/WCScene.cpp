@@ -45,16 +45,23 @@ struct WCScene::Layer final : public WCContentBuffer::Client {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     Layer() = default;
+    ~Layer()
+    {
+        if (contentBuffer)
+            contentBuffer->setClient(nullptr);
+    }
 
     // WCContentBuffer::Client
     void platformLayerWillBeDestroyed() override
     {
+        contentBuffer = nullptr;
         texmapLayer.setContentsLayer(nullptr);
     }
 
     WebCore::TextureMapperLayer texmapLayer;
-    std::optional<WebCore::TextureMapperSparseBackingStore> backingStore;
+    std::unique_ptr<WebCore::TextureMapperSparseBackingStore> backingStore;
     std::unique_ptr<WebCore::TextureMapperLayer> backdropLayer;
+    WCContentBuffer* contentBuffer { nullptr };
 };
 
 void WCScene::initialize(WCSceneContext& context)
@@ -116,8 +123,10 @@ std::optional<UpdateInfo> WCScene::update(WCUpateInfo&& update)
             layer->texmapLayer.setPreserves3D(layerUpdate.preserves3D);
         if (layerUpdate.changes & WCLayerChange::ContentsRect)
             layer->texmapLayer.setContentsRect(layerUpdate.contentsRect);
-        if (layerUpdate.changes & WCLayerChange::ContentsClippingRect)
+        if (layerUpdate.changes & WCLayerChange::ContentsClippingRect) {
             layer->texmapLayer.setContentsClippingRect(layerUpdate.contentsClippingRect);
+            layer->texmapLayer.setContentsRectClipsDescendants(layerUpdate.contentsRectClipsDescendants);
+        }
         if (layerUpdate.changes & WCLayerChange::ContentsVisible)
             layer->texmapLayer.setContentsVisible(layerUpdate.contentsVisible);
         if (layerUpdate.changes & WCLayerChange::BackfaceVisibility)
@@ -127,24 +136,28 @@ std::optional<UpdateInfo> WCScene::update(WCUpateInfo&& update)
         if (layerUpdate.changes & WCLayerChange::Background) {
             if (layerUpdate.hasBackingStore) {
                 if (!layer->backingStore) {
-                    const int tileSize = 512;
-                    layer->backingStore.emplace<WebCore::TextureMapperSparseBackingStore>(tileSize);
+                    layer->backingStore = makeUnique<WebCore::TextureMapperSparseBackingStore>();
                     auto& backingStore = *layer->backingStore;
                     layer->texmapLayer.setBackgroundColor({ });
                     layer->texmapLayer.setBackingStore(&backingStore);
                 }
                 auto& backingStore = *layer->backingStore;
                 backingStore.setSize(WebCore::IntSize(layer->texmapLayer.size()));
-                backingStore.removeUncoveredTiles(layerUpdate.coverageRect);
-                auto bitmap = layerUpdate.backingStore.bitmap();
-                if (bitmap) {
-                    auto image = bitmap->createImage();
-                    backingStore.updateContents(*m_textureMapper, *image, layerUpdate.dirtyRect);
+                for (auto& tileUpdate : layerUpdate.tileUpdate) {
+                    if (tileUpdate.willRemove)
+                        backingStore.removeTile(tileUpdate.index);
+                    else {
+                        auto bitmap = tileUpdate.backingStore.bitmap();
+                        if (bitmap) {
+                            auto image = bitmap->createImage();
+                            backingStore.updateContents(*m_textureMapper, tileUpdate.index, *image, tileUpdate.dirtyRect);
+                        }
+                    }
                 }
             } else {
                 layer->texmapLayer.setBackgroundColor(layerUpdate.backgroundColor);
                 layer->texmapLayer.setBackingStore(nullptr);
-                layer->backingStore = std::nullopt;
+                layer->backingStore = nullptr;
             }
         }
         if (layerUpdate.changes & WCLayerChange::SolidColor)
@@ -179,14 +192,21 @@ std::optional<UpdateInfo> WCScene::update(WCUpateInfo&& update)
             layer->texmapLayer.setBackdropFiltersRect(layerUpdate.backdropFiltersRect);
         }
         if (layerUpdate.changes & WCLayerChange::PlatformLayer) {
-            if (!layerUpdate.hasPlatformLayer)
+            if (!layerUpdate.hasPlatformLayer) {
+                if (layer->contentBuffer) {
+                    layer->contentBuffer->setClient(nullptr);
+                    layer->contentBuffer = nullptr;
+                }
                 layer->texmapLayer.setContentsLayer(nullptr);
-            else {
+            } else {
                 WCContentBuffer* contentBuffer = nullptr;
                 for (auto identifier : layerUpdate.contentBufferIdentifiers)
                     contentBuffer = WCContentBufferManager::singleton().releaseContentBufferIdentifier(m_webProcessIdentifier, identifier);
                 if (contentBuffer) {
+                    if (layer->contentBuffer)
+                        layer->contentBuffer->setClient(nullptr);
                     contentBuffer->setClient(layer);
+                    layer->contentBuffer = contentBuffer;
                     layer->texmapLayer.setContentsLayer(contentBuffer->platformLayer());
                 }
             }
@@ -209,7 +229,7 @@ std::optional<UpdateInfo> WCScene::update(WCUpateInfo&& update)
 
     std::optional<UpdateInfo> result;
     if (m_usesOffscreenRendering) {
-        auto bitmap = ShareableBitmap::createShareable(windowSize, { });
+        auto bitmap = ShareableBitmap::create(windowSize, { });
         glReadPixels(0, 0, windowSize.width(), windowSize.height(), GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap->data());
         ShareableBitmap::Handle handle;
         if (bitmap->createHandle(handle)) {

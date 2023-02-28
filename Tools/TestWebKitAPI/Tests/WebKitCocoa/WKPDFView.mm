@@ -147,6 +147,31 @@ TEST(WebKit, WKPDFViewLosesApplicationForegroundNotification)
     TestWebKitAPI::Util::run(&finished);
 }
 
+#if HAVE(UIFINDINTERACTION)
+
+TEST(WebKit, WKPDFViewFindActions)
+{
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+
+    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"test" withExtension:@"pdf" subdirectory:@"TestWebKitAPI.resources"]];
+    [webView loadRequest:request];
+    [webView _test_waitForDidFinishNavigation];
+
+    EXPECT_FALSE([webView canPerformAction:@selector(find:) withSender:nil]);
+    EXPECT_FALSE([webView canPerformAction:@selector(findNext:) withSender:nil]);
+    EXPECT_FALSE([webView canPerformAction:@selector(findPrevious:) withSender:nil]);
+    EXPECT_FALSE([webView canPerformAction:@selector(findAndReplace:) withSender:nil]);
+
+    [webView setFindInteractionEnabled:YES];
+
+    EXPECT_TRUE([webView canPerformAction:@selector(find:) withSender:nil]);
+    EXPECT_TRUE([webView canPerformAction:@selector(findNext:) withSender:nil]);
+    EXPECT_TRUE([webView canPerformAction:@selector(findPrevious:) withSender:nil]);
+    EXPECT_FALSE([webView canPerformAction:@selector(findAndReplace:) withSender:nil]);
+}
+
+#endif
+
 #endif
 
 #if ENABLE(UI_PROCESS_PDF_HUD)
@@ -376,14 +401,14 @@ TEST(PDFHUD, LoadPDFTypeWithPluginsBlocked)
 
 #if PLATFORM(MAC)
 
-@interface PrintUIDelegate : NSObject <WKUIDelegate>
+@interface PDFPrintUIDelegate : NSObject <WKUIDelegate>
 
 - (NSSize)waitForPageSize;
 - (_WKFrameHandle *)lastPrintedFrame;
 
 @end
 
-@implementation PrintUIDelegate {
+@implementation PDFPrintUIDelegate {
     NSSize _pageSize;
     bool _receivedSize;
     RetainPtr<_WKFrameHandle> _lastPrintedFrame;
@@ -418,7 +443,7 @@ TEST(PDF, PrintSize)
     auto schemeHandler = adoptNS([TestURLSchemeHandler new]);
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"test"];
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    auto delegate = adoptNS([PrintUIDelegate new]);
+    auto delegate = adoptNS([PDFPrintUIDelegate new]);
     [webView setUIDelegate:delegate.get()];
 
     schemeHandler.get().startURLSchemeTaskHandler = ^(WKWebView *, id<WKURLSchemeTask> task) {

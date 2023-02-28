@@ -1,11 +1,11 @@
 kind: meson
 sources:
 - kind: tar
-  url: gst_downloads:gst-plugins-bad/gst-plugins-bad-1.20.0.tar.xz
-  ref: 015b8d4d9a395ebf444d40876867a2034dd3304b3ad48bc3a0dd0c1ee71dc11d
-# To be shipped in 1.20.1.
+  url: gst_downloads:gst-plugins-bad/gst-plugins-bad-1.20.3.tar.xz
+  ref: 7a11c13b55dd1d2386dd902219e41cbfcdda8e1e0aa3e738186c95074b35da4f
+# https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad/-/merge_requests/2341/
 - kind: patch
-  path: patches/gstreamer-0001-dtlstransport-Notify-ICE-transport-property-changes.patch
+  path: patches/gst-plugins-bad-mr-2341.patch
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
@@ -27,11 +27,12 @@ depends:
 - freedesktop-sdk.bst:components/libsrtp2.bst
 - freedesktop-sdk.bst:components/libwebp.bst
 - freedesktop-sdk.bst:components/libgudev.bst
+- freedesktop-sdk.bst:components/libva.bst
 - freedesktop-sdk.bst:components/openal.bst
 - freedesktop-sdk.bst:components/orc.bst
 - freedesktop-sdk.bst:components/sndfile.bst
 - freedesktop-sdk.bst:components/wayland.bst
-- freedesktop-sdk.bst:components/webrtc-audio-processing.bst
+- sdk/webrtc-audio-processing-1.bst
 - freedesktop-sdk.bst:bootstrap-import.bst
 
 variables:
@@ -45,7 +46,6 @@ variables:
     -Dbs2b=disabled
     -Dchromaprint=disabled
     -Dcolormanagement=disabled
-    -Dcuda=disabled
     -Dcurl-ssh2=disabled
     -Dcurl=disabled
     -Dd3dvideosink=disabled
@@ -65,11 +65,9 @@ variables:
     -Dgs=disabled
     -Dgsm=disabled
     -Diqa=disabled
-    -Disac=disabled
     -Dladspa=disabled
     -Dldac=disabled
     -Dlibde265=disabled
-    -Dlibmms=disabled
     -Dlv2=disabled
     -Dmagicleap=disabled
     -Dmicrodns=disabled
@@ -80,9 +78,6 @@ variables:
     -Dmusepack=disabled
     -Dneon=disabled
     -Dnvcodec=disabled
-    -Dnvdec=disabled
-    -Dnvenc=disabled
-    -Dofa=disabled
     -Donnx=disabled
     -Dopenal=disabled
     -Dopenaptx=disabled
@@ -105,9 +100,6 @@ variables:
     -Dteletext=disabled
     -Dtinyalsa=disabled
     -Dttml=disabled
-    -Dva=disabled
-    -Dvaacenc=disabled
-    -Dvdpau=disabled
     -Dvoaacenc=disabled
     -Dvoamrwbenc=disabled
     -Dvulkan=disabled

@@ -116,7 +116,7 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         const selectable = false;
         let backtraceTreeOutline = new WI.TreeOutline(selectable);
         backtraceTreeOutline.disclosureButtons = false;
-        this._backtraceTreeController = new WI.CallFrameTreeController(backtraceTreeOutline);
+        this._backtraceTreeController = new WI.StackTraceTreeController(backtraceTreeOutline);
 
         let backtraceRow = new WI.DetailsSectionRow;
         backtraceRow.element.appendChild(backtraceTreeOutline.element);
@@ -191,7 +191,6 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         this._codeMirrorSectionMap.clear();
 
         const precision = 0;
-        const readOnly = true;
 
         this._iterationCountRow.value = !isNaN(this._animation.iterationCount) ? this._animation.iterationCount.toLocaleString() : null;
         this._iterationStartRow.value = !isNaN(this._animation.iterationStart) ? this._animation.iterationStart.toLocaleString() : null;
@@ -232,7 +231,7 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
                     return {
                         allowedTokens: /\btag\b/,
                         callback(marker, valueObject, valueString) {
-                            let swatch = new WI.InlineSwatch(type, valueObject, readOnly);
+                            let swatch = new WI.InlineSwatch(type, valueObject, {readOnly: true});
                             codeMirror.setUniqueBookmark(marker.range.startPosition().toCodeMirror(), swatch.element);
                         }
                     };
@@ -268,9 +267,9 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
 
     _refreshBacktraceSection()
     {
-        let callFrames = this._animation.backtrace;
-        this._backtraceTreeController.callFrames = callFrames;
-        this._backtraceSection.element.hidden = !callFrames.length;
+        let stackTrace = this._animation.stackTrace;
+        this._backtraceTreeController.stackTrace = stackTrace;
+        this._backtraceSection.element.hidden = !stackTrace?.callFrames.length;
     }
 
     _handleAnimationNameChanged(event)

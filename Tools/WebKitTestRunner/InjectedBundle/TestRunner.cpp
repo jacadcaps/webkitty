@@ -374,7 +374,6 @@ void TestRunner::replaceFindMatchesAtIndices(JSValueRef matchIndicesAsValue, JSS
 
 void TestRunner::clearAllDatabases()
 {
-    WKBundleClearAllDatabases(InjectedBundle::singleton().bundle());
     postSynchronousMessage("DeleteAllIndexedDatabases", true);
 }
 
@@ -790,6 +789,11 @@ void TestRunner::setOnlyAcceptFirstPartyCookies(bool accept)
     postSynchronousMessage("SetOnlyAcceptFirstPartyCookies", accept);
 }
 
+void TestRunner::removeAllCookies()
+{
+    postSynchronousMessage("RemoveAllCookies");
+}
+
 void TestRunner::setEnterFullscreenForElementCallback(JSValueRef callback)
 {
     cacheTestRunnerCallback(EnterFullscreenForElementCallbackID, callback);
@@ -874,6 +878,11 @@ void TestRunner::denyWebNotificationPermission(JSStringRef origin)
 {
     WKBundleSetWebNotificationPermission(InjectedBundle::singleton().bundle(), page(), toWK(origin).get(), false);
     postSynchronousPageMessageWithReturnValue("DenyNotificationPermission", toWK(origin));
+}
+
+void TestRunner::denyWebNotificationPermissionOnPrompt(JSStringRef origin)
+{
+    postSynchronousPageMessageWithReturnValue("DenyNotificationPermissionOnPrompt", toWK(origin));
 }
 
 void TestRunner::removeAllWebNotificationPermissions()
@@ -1160,15 +1169,6 @@ void TestRunner::setAllowedMenuActions(JSValueRef actions)
     postPageMessage("SetAllowedMenuActions", messageBody);
 }
 
-void TestRunner::installCustomMenuAction(JSStringRef name, bool dismissesAutomatically, JSValueRef callback)
-{
-    cacheTestRunnerCallback(CustomMenuActionCallbackID, callback);
-    postPageMessage("InstallCustomMenuAction", createWKDictionary({
-        { "name", toWK(name) },
-        { "dismissesAutomatically", adoptWK(WKBooleanCreate(dismissesAutomatically)).get() },
-    }));
-}
-
 void TestRunner::installDidBeginSwipeCallback(JSValueRef callback)
 {
     cacheTestRunnerCallback(DidBeginSwipeCallbackID, callback);
@@ -1341,6 +1341,7 @@ void TestRunner::statisticsCallDidSetVeryPrevalentResourceCallback()
     
 void TestRunner::dumpResourceLoadStatistics()
 {
+    InjectedBundle::singleton().clearResourceLoadStatistics();
     postSynchronousPageMessage("dumpResourceLoadStatistics");
 }
 
@@ -2000,11 +2001,6 @@ void TestRunner::installFakeHelvetica(JSStringRef configuration)
     WTR::installFakeHelvetica(toWK(configuration).get());
 }
 
-void TestRunner::performCustomMenuAction()
-{
-    callTestRunnerCallback(CustomMenuActionCallbackID);
-}
-
 size_t TestRunner::userScriptInjectedCount() const
 {
     return InjectedBundle::singleton().userScriptInjectedCount();
@@ -2075,6 +2071,11 @@ void TestRunner::abortModal()
 void TestRunner::dumpPrivateClickMeasurement()
 {
     postSynchronousPageMessage("DumpPrivateClickMeasurement");
+}
+
+void TestRunner::clearMemoryCache()
+{
+    postSynchronousPageMessage("ClearMemoryCache");
 }
 
 void TestRunner::clearPrivateClickMeasurement()

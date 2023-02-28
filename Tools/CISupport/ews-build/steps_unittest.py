@@ -27,6 +27,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 from buildbot.process import remotetransfer
 from buildbot.process.results import Results, SUCCESS, FAILURE, WARNINGS, SKIPPED, EXCEPTION, RETRY
@@ -34,29 +35,30 @@ from buildbot.test.fake.remotecommand import Expect, ExpectRemoteRef, ExpectShel
 from buildbot.test.util.misc import TestReactorMixin
 from buildbot.test.util.steps import BuildStepMixin
 from buildbot.util import identifiers as buildbot_identifiers
+from datetime import date
 from mock import call, patch
 from twisted.internet import defer, error, reactor
 from twisted.python import failure, log
 from twisted.trial import unittest
 import send_email
 
-from steps import (AnalyzeAPITestsResults, AnalyzeCompileWebKitResults, AnalyzeJSCTestsResults,
-                   AnalyzeLayoutTestsResults, ApplyPatch, ApplyWatchList, ArchiveBuiltProduct, ArchiveTestResults, BugzillaMixin,
-                   CheckOutPullRequest, CheckOutSource, CheckOutSpecificRevision, CheckChangeRelevance, CheckPatchStatusOnEWSQueues, CheckStyle,
-                   CleanBuild, CleanUpGitIndexLock, CleanGitRepo, CleanWorkingDirectory, CompileJSC, CompileJSCWithoutChange,
-                   CompileWebKit, CompileWebKitWithoutChange, ConfigureBuild, ConfigureBuild, Contributors, CreateLocalGITCommit,
-                   DownloadBuiltProduct, DownloadBuiltProductFromMaster, EWS_BUILD_HOSTNAME, ExtractBuiltProduct, ExtractTestResults,
-                   FetchBranches, FindModifiedChangeLogs, FindModifiedLayoutTests, GitHub, GitResetHard,
+from steps import (AddReviewerToCommitMessage, AnalyzeAPITestsResults, AnalyzeCompileWebKitResults,
+                   AnalyzeJSCTestsResults, AnalyzeLayoutTestsResults, ApplyPatch, ApplyWatchList, ArchiveBuiltProduct, ArchiveTestResults, BugzillaMixin,
+                   Canonicalize, CheckOutPullRequest, CheckOutSource, CheckOutSpecificRevision, CheckChangeRelevance, CheckStatusOnEWSQueues, CheckStyle,
+                   CleanBuild, CleanUpGitIndexLock, CleanGitRepo, CleanWorkingDirectory, ClosePullRequest, CompileJSC, CommitPatch, CompileJSCWithoutChange,
+                   CompileWebKit, CompileWebKitWithoutChange, ConfigureBuild, ConfigureBuild, Contributors,
+                   DetermineLandedIdentifier, DownloadBuiltProduct, DownloadBuiltProductFromMaster, EWS_BUILD_HOSTNAME, ExtractBuiltProduct, ExtractTestResults,
+                   FetchBranches, FindModifiedLayoutTests, GitHub,
                    InstallBuiltProduct, InstallGtkDependencies, InstallWpeDependencies,
-                   KillOldProcesses, PrintConfiguration, PushCommitToWebKitRepo, ReRunAPITests, ReRunWebKitPerlTests,
+                   KillOldProcesses, PrintConfiguration, PushCommitToWebKitRepo, PushPullRequestBranch, ReRunAPITests, ReRunWebKitPerlTests,
                    ReRunWebKitTests, RevertPullRequestChanges, RunAPITests, RunAPITestsWithoutChange, RunBindingsTests, RunBuildWebKitOrgUnitTests,
                    RunBuildbotCheckConfigForBuildWebKit, RunBuildbotCheckConfigForEWS, RunEWSUnitTests, RunResultsdbpyTests,
                    RunJavaScriptCoreTests, RunJSCTestsWithoutChange, RunWebKit1Tests, RunWebKitPerlTests, RunWebKitPyPython2Tests,
                    RunWebKitPyPython3Tests, RunWebKitTests, RunWebKitTestsInStressMode, RunWebKitTestsInStressGuardmallocMode,
                    RunWebKitTestsWithoutChange, RunWebKitTestsRedTree, RunWebKitTestsRepeatFailuresRedTree, RunWebKitTestsRepeatFailuresWithoutChangeRedTree,
                    RunWebKitTestsWithoutChangeRedTree, AnalyzeLayoutTestsResultsRedTree, TestWithFailureCount, ShowIdentifier,
-                   Trigger, TransferToS3, UnApplyPatch, UpdateWorkingDirectory, UploadBuiltProduct,
-                   UploadTestResults, ValidateChangeLogAndReviewer, ValidateCommiterAndReviewer, ValidateChange, VerifyGitHubIntegrity)
+                   Trigger, TransferToS3, UnApplyPatch, UpdatePullRequest, UpdateWorkingDirectory, UploadBuiltProduct,
+                   UploadTestResults, ValidateCommitMessage, ValidateCommitterAndReviewer, ValidateChange, ValidateRemote, ValidateSquashed)
 
 # Workaround for https://github.com/buildbot/buildbot/issues/4669
 from buildbot.test.fake.fakebuild import FakeBuild
@@ -68,6 +70,18 @@ def mock_step(step, logs='', results=SUCCESS, stopped=False, properties=None):
     step.results = results
     step.stopped = stopped
     return step
+
+
+def mock_load_contributors(*args, **kwargs):
+    return {
+        'reviewer@apple.com': {'name': 'WebKit Reviewer', 'status': 'reviewer', 'email': 'reviewer@apple.com'},
+        'webkit-reviewer': {'name': 'WebKit Reviewer', 'status': 'reviewer', 'email': 'reviewer@apple.com'},
+        'WebKit Reviewer': {'status': 'reviewer'},
+        'committer@webkit.org': {'name': 'WebKit Committer', 'status': 'committer', 'email': 'committer@webkit.org'},
+        'webkit-commit-queue': {'name': 'WebKit Committer', 'status': 'committer', 'email': 'committer@webkit.org'},
+        'WebKit Committer': {'status': 'committer'},
+        'Myles C. Maxfield': {'status': 'reviewer'},
+    }, []
 
 
 class ExpectMasterShellCommand(object):
@@ -97,7 +111,7 @@ class ExpectMasterShellCommand(object):
         return self
 
     def __repr__(self):
-        return 'ExpectMasterShellCommand({0})'.format(repr(self.args))
+        return f'ExpectMasterShellCommand({repr(self.args)})'
 
 
 class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
@@ -165,7 +179,7 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
     def _checkSpawnProcess(self, processProtocol, executable, args, env, path, usePTY, **kwargs):
         got = (executable, args, env, path, usePTY)
         if not self._expected_local_commands:
-            self.fail('got local command {0} when no further commands were expected'.format(got))
+            self.fail(f'got local command {got} when no further commands were expected')
         local_command = self._expected_local_commands.pop(0)
         try:
             self.assertEqual(got, (local_command.args[0], local_command.args, local_command.env, local_command.path, local_command.usePTY))
@@ -200,7 +214,7 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
         if not subject or not text:
             self._emails_list.append('Error: skipping email since no subject or text is specified')
             return False
-        self._emails_list.append('Subject: {}\nTo: {}\nReference: {}\nBody:\n\n{}'.format(subject, to_emails, reference, text))
+        self._emails_list.append(f'Subject: {subject}\nTo: {to_emails}\nReference: {reference}\nBody:\n\n{text}')
         return True
 
     def runStep(self):
@@ -273,8 +287,8 @@ class TestStepNameShouldBeValidIdentifier(BuildStepMixinAdditions, unittest.Test
         for build_step in build_step_classes:
             if 'name' in vars(build_step[1]):
                 name = build_step[1].name
-                self.assertFalse(' ' in name, 'step name "{}" contain space.'.format(name))
-                self.assertTrue(buildbot_identifiers.ident_re.match(name), 'step name "{}" is not a valid buildbot identifier.'.format(name))
+                self.assertFalse(' ' in name, f'step name "{name}" contain space.')
+                self.assertTrue(buildbot_identifiers.ident_re.match(name), f'step name "{name}" is not a valid buildbot identifier.')
 
 
 class TestCheckStyle(BuildStepMixinAdditions, unittest.TestCase):
@@ -412,43 +426,6 @@ class TestApplyWatchList(BuildStepMixinAdditions, unittest.TestCase):
         return self.runStep()
 
 
-class TestValidateChangeLogAndReviewer(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def test_success(self):
-        self.setupStep(ValidateChangeLogAndReviewer())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=180,
-                        logEnviron=False,
-                        command=['python3', 'Tools/Scripts/webkit-patch', 'validate-changelog', '--check-oops', '--non-interactive'])
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Validated ChangeLog and Reviewer')
-        return self.runStep()
-
-    def test_failure(self):
-        self.setupStep(ValidateChangeLogAndReviewer())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=180,
-                        logEnviron=False,
-                        command=['python3', 'Tools/Scripts/webkit-patch', 'validate-changelog', '--check-oops', '--non-interactive'])
-            + ExpectShell.log('stdio', stdout='ChangeLog entry in LayoutTests/ChangeLog contains OOPS!.')
-            + 2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='ChangeLog validation failed')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'ChangeLog entry in LayoutTests/ChangeLog contains OOPS!.\n')
-        self.assertEqual(self.getProperty('build_finish_summary'), 'ChangeLog validation failed')
-        return rc
-
-
 class TestRunBindingsTests(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
@@ -464,7 +441,7 @@ class TestRunBindingsTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         timeout=300,
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-bindings-tests', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-bindings-tests', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + 0,
@@ -478,7 +455,7 @@ class TestRunBindingsTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         timeout=300,
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-bindings-tests', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-bindings-tests', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='FAIL: (JS) JSTestInterface.cpp')
@@ -547,7 +524,7 @@ class TestWebKitPyPython2Tests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         )
@@ -561,7 +538,7 @@ class TestWebKitPyPython2Tests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         )
@@ -577,7 +554,7 @@ FAILED (failures=1, errors=0)''')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -592,7 +569,7 @@ FAILED (failures=1, errors=0)''')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -604,12 +581,12 @@ FAILED (failures=1, errors=0)''')
 
     def test_lot_of_failures(self):
         self.setupStep(RunWebKitPyPython2Tests())
-        json_with_failures = json.dumps({"failures": [{"name": 'test{}'.format(i)} for i in range(1, 31)]})
+        json_with_failures = json.dumps({"failures": [{"name": f'test{i}'} for i in range(1, 31)]})
 
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -637,7 +614,7 @@ class TestWebKitPyPython3Tests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         )
@@ -651,7 +628,7 @@ class TestWebKitPyPython3Tests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         )
@@ -667,7 +644,7 @@ FAILED (failures=1, errors=0)''')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -682,7 +659,7 @@ FAILED (failures=1, errors=0)''')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -694,12 +671,12 @@ FAILED (failures=1, errors=0)''')
 
     def test_lot_of_failures(self):
         self.setupStep(RunWebKitPyPython3Tests())
-        json_with_failures = json.dumps({"failures": [{"name": 'test{}'.format(i)} for i in range(1, 31)]})
+        json_with_failures = json.dumps({'failures': [{f'name': f'test{i}'} for i in range(1, 31)]})
 
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/test-webkitpy', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         timeout=120,
                         ) +
@@ -930,40 +907,6 @@ class TestKillOldProcesses(BuildStepMixinAdditions, unittest.TestCase):
         return self.runStep()
 
 
-class TestGitResetHard(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def test_success(self):
-        self.setupStep(GitResetHard())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['git', 'reset', 'HEAD~10', '--hard'],
-                        logEnviron=False,
-                        )
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Performed git reset --hard')
-        return self.runStep()
-
-    def test_failure(self):
-        self.setupStep(GitResetHard())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['git', 'reset', 'HEAD~10', '--hard'],
-                        logEnviron=False,
-                        )
-            + ExpectShell.log('stdio', stdout='Unexpected error.')
-            + 2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Performed git reset --hard (failure)')
-        return self.runStep()
-
-
 class TestCleanBuild(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
@@ -1154,6 +1097,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--release'],
                         )
@@ -1169,6 +1113,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--release', '--prefix=/app/webkit/WebKitBuild/release/install', '--gtk'],
                         )
@@ -1184,6 +1129,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--release', '--wpe'],
                         )
@@ -1198,6 +1144,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'debug')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--debug'],
                         )
@@ -1230,6 +1177,7 @@ class TestCompileWebKitWithoutChange(BuildStepMixinAdditions, unittest.TestCase)
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--release'],
                         )
@@ -1244,6 +1192,7 @@ class TestCompileWebKitWithoutChange(BuildStepMixinAdditions, unittest.TestCase)
         self.setProperty('configuration', 'debug')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-webkit', '--debug'],
                         )
@@ -1271,7 +1220,7 @@ class TestAnalyzeCompileWebKitResults(BuildStepMixinAdditions, unittest.TestCase
         self.setProperty('patch_id', '1234')
         self.expectOutcome(result=FAILURE, state_string='Patch 1234 does not build (failure)')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
+        self.assertEqual(self.getProperty('comment_text'), None)
         self.assertEqual(self.getProperty('build_finish_summary'), 'Patch 1234 does not build')
         return rc
 
@@ -1298,7 +1247,7 @@ class TestAnalyzeCompileWebKitResults(BuildStepMixinAdditions, unittest.TestCase
         self.setProperty('buildername', 'commit-queue')
         self.expectOutcome(result=FAILURE, state_string='Patch 1234 does not build (failure)')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Patch 1234 does not build')
+        self.assertEqual(self.getProperty('comment_text'), 'Patch 1234 does not build')
         self.assertEqual(self.getProperty('build_finish_summary'), 'Patch 1234 does not build')
         return rc
 
@@ -1354,6 +1303,7 @@ class TestCompileJSC(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-jsc', '--release'],
                         )
@@ -1368,6 +1318,7 @@ class TestCompileJSC(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'debug')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-jsc', '--debug'],
                         )
@@ -1392,6 +1343,7 @@ class TestCompileJSCWithoutChange(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'release')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-jsc', '--release'],
                         )
@@ -1406,6 +1358,7 @@ class TestCompileJSCWithoutChange(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('configuration', 'debug')
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
+                        timeout=1800,
                         logEnviron=False,
                         command=['perl', 'Tools/Scripts/build-jsc', '--debug'],
                         )
@@ -1447,7 +1400,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release'] + self.command_extra,
                         logfiles={'json': self.jsonFileName},
                         )
             + 0,
@@ -1461,7 +1414,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release', '--remote-config-file=remote-machines.json', '--no-testmasm', '--no-testair', '--no-testb3', '--no-testdfg', '--no-testapi', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release', '--remote-config-file=remote-machines.json', '--no-testmasm', '--no-testair', '--no-testb3', '--no-testdfg', '--no-testapi', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
                         logfiles={'json': self.jsonFileName},
                         )
             + 0,
@@ -1474,7 +1427,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--debug'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--debug'] + self.command_extra,
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='9 failures found.')
@@ -1489,7 +1442,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--debug'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--debug'] + self.command_extra,
                         )
             + 2
             + ExpectShell.log('json', stdout=self.jsc_single_stress_test_failure),
@@ -1506,7 +1459,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--debug'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--debug'] + self.command_extra,
                         )
             + 2
             + ExpectShell.log('json', stdout=self.jsc_multiple_stress_test_failures),
@@ -1523,7 +1476,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--debug'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--debug'] + self.command_extra,
                         )
             + 2
             + ExpectShell.log('json', stdout=self.jsc_masm_failure),
@@ -1540,7 +1493,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release'] + self.command_extra,
                         )
             + 2
             + ExpectShell.log('json', stdout=self.jsc_b3_and_stress_test_failure),
@@ -1557,7 +1510,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
                         )
             + 2
             + ExpectShell.log('json', stdout=self.jsc_dfg_air_and_stress_test_failure),
@@ -1574,7 +1527,7 @@ class TestRunJavaScriptCoreTests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
                         logfiles={'json': self.jsonFileName},
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release', '--memory-limited', '--verbose', '--jsc-only'] + self.command_extra,
                         )
             + 0
             + ExpectShell.log('json', stdout=self.jsc_passed_with_flaky),
@@ -1604,7 +1557,7 @@ class TestRunJSCTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--release'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--release'] + self.command_extra,
                         logfiles={'json': self.jsonFileName},
                         )
             + 0,
@@ -1619,7 +1572,7 @@ class TestRunJSCTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', '--json-output={0}'.format(self.jsonFileName), '--debug'] + self.command_extra,
+                        command=['perl', 'Tools/Scripts/run-javascriptcore-tests', '--no-build', '--no-fail-fast', f'--json-output={self.jsonFileName}', '--debug'] + self.command_extra,
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='9 failures found.')
@@ -1660,7 +1613,7 @@ class TestAnalyzeJSCTestsResults(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_multiple_new_stress_failure(self):
         self.configureStep()
-        self.setProperty('jsc_stress_test_failures', ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('jsc_stress_test_failures', [f'test{i}' for i in range(0, 30)])
         self.expectOutcome(result=FAILURE, state_string='Found 30 new JSC stress test failures: test0, test1, test10, test11, test12, test13, test14, test15, test16, test17 ... (failure)')
         return self.runStep()
 
@@ -1772,7 +1725,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0,
         )
@@ -1787,7 +1740,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0
             + ExpectShell.log('stdio', stdout='''Unexpected flakiness: timeouts (2)
@@ -1806,10 +1759,20 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
         self.expectOutcome(result=SKIPPED, state_string='Skipped layout-tests in fast-cq mode')
         return self.runStep()
 
-    def test_skip_for_mac_wk2_passed_patch_on_commit_queue(self):
+    def test_skip_for_mac_wk2_passed_change_on_commit_queue(self):
         self.configureStep()
         self.setProperty('patch_id', '1234')
         self.setProperty('buildername', 'Commit-Queue')
+        self.setProperty('fullPlatform', 'mac')
+        self.setProperty('configuration', 'debug')
+        self.setProperty('passed_mac_wk2', True)
+        self.expectOutcome(result=SKIPPED, state_string='Skipped layout-tests')
+        return self.runStep()
+
+    def test_skip_for_mac_wk2_passed_change_on_merge_queue(self):
+        self.configureStep()
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88a')
+        self.setProperty('buildername', 'Merge-Queue')
         self.setProperty('fullPlatform', 'mac')
         self.setProperty('configuration', 'debug')
         self.setProperty('passed_mac_wk2', True)
@@ -1824,7 +1787,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 2
             + ExpectShell.log('json', stdout=self.results_json_regressions),
@@ -1853,7 +1816,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0
             + ExpectShell.log('json', stdout=self.results_json_flakes),
@@ -1872,7 +1835,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 2
             + ExpectShell.log('json', stdout=self.results_json_mix_flakes_and_regression),
@@ -1891,7 +1854,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 2
             + ExpectShell.log('json', stdout=self.results_json_with_newlines),
@@ -1910,7 +1873,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 2
             + ExpectShell.log('json', stdout=self.results_with_missing_results),
@@ -1931,7 +1894,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--debug', '--results-directory', 'layout-test-results', '--debug-rwt-logging',  '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--debug', '--results-directory', 'layout-test-results', '--debug-rwt-logging',  '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + ExpectShell.log('stdio', stdout='Unexpected error.')
             + 254,
@@ -1947,7 +1910,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',  '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',  '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + ExpectShell.log('stdio', stdout='9 failures found.')
             + 2,
@@ -1964,7 +1927,7 @@ ts","version":4,"num_passes":42158,"pixel_tests_enabled":false,"date":"11:28AM o
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', 'imported/w3c/web-platform-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', 'imported/w3c/web-platform-tests'],
                         )
             + 0,
         )
@@ -1987,7 +1950,7 @@ class TestReRunWebKitTests(TestRunWebKitTests):
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0,
         )
@@ -2005,7 +1968,7 @@ class TestReRunWebKitTests(TestRunWebKitTests):
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0,
         )
@@ -2038,7 +2001,7 @@ class TestRunWebKitTestsInStressMode(BuildStepMixinAdditions, unittest.TestCase)
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2059,7 +2022,7 @@ class TestRunWebKitTestsInStressMode(BuildStepMixinAdditions, unittest.TestCase)
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2098,7 +2061,7 @@ class TestRunWebKitTestsInStressGuardmallocMode(BuildStepMixinAdditions, unittes
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2119,7 +2082,7 @@ class TestRunWebKitTestsInStressGuardmallocMode(BuildStepMixinAdditions, unittes
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2160,7 +2123,7 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2187,7 +2150,7 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2216,7 +2179,7 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2245,7 +2208,7 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2271,12 +2234,12 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
         self.setProperty('configuration', 'release')
         self.setProperty('first_run_failures', ['test1.html', 'test2.html', 'test3.html'])
         self.setProperty('second_results_exceed_failure_limit', True)
-        self.setProperty('second_run_failures', ['test{}.html'.format(i) for i in range(0, 30)])
+        self.setProperty('second_run_failures', [f'test{i}.html' for i in range(0, 30)])
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2301,7 +2264,7 @@ class TestRunWebKitTestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build',
                                  '--no-show-results',
@@ -2337,7 +2300,7 @@ class TestRunWebKit1Tests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--debug', '--dump-render-tree', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--debug', '--dump-render-tree', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + 0,
         )
@@ -2352,7 +2315,7 @@ class TestRunWebKit1Tests(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--dump-render-tree', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
+                        command=['python3', 'Tools/Scripts/run-webkit-tests', '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results', '--release', '--dump-render-tree', '--results-directory', 'layout-test-results', '--debug-rwt-logging', '--exit-after-n-failures', '30', '--skip-failing-tests'],
                         )
             + ExpectShell.log('stdio', stdout='9 failures found.')
             + 2,
@@ -2409,7 +2372,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('second_run_failures', ['test1'])
         self.expectOutcome(result=FAILURE, state_string='Found 1 new test failure: test1 (failure)')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
+        self.assertEqual(self.getProperty('comment_text'), None)
         self.assertEqual(self.getProperty('build_finish_summary'), 'Found 1 new test failure: test1')
         return rc
 
@@ -2420,7 +2383,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('second_run_failures', ['test1'])
         self.expectOutcome(result=FAILURE, state_string='Found 1 new test failure: test1 (failure)')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Found 1 new test failure: test1')
+        self.assertEqual(self.getProperty('comment_text'), 'Found 1 new test failure: test1')
         self.assertEqual(self.getProperty('build_finish_summary'), 'Found 1 new test failure: test1')
         return rc
 
@@ -2471,7 +2434,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
     def test_first_run_exceed_failure_limit(self):
         self.configureStep()
         self.setProperty('first_results_exceed_failure_limit', True)
-        self.setProperty('first_run_failures',  ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('first_run_failures',  [f'test{i}' for i in range(0, 30)])
         self.setProperty('second_run_failures', [])
         self.expectOutcome(result=RETRY, state_string='Unable to confirm if test failures are introduced by change, retrying build (retry)')
         return self.runStep()
@@ -2480,7 +2443,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.configureStep()
         self.setProperty('first_run_failures', [])
         self.setProperty('second_results_exceed_failure_limit', True)
-        self.setProperty('second_run_failures',  ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('second_run_failures',  [f'test{i}' for i in range(0, 30)])
         self.expectOutcome(result=RETRY, state_string='Unable to confirm if test failures are introduced by change, retrying build (retry)')
         return self.runStep()
 
@@ -2489,7 +2452,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('first_run_failures', ['test1'])
         self.setProperty('second_run_failures', ['test1'])
         self.setProperty('clean_tree_results_exceed_failure_limit', True)
-        self.setProperty('clean_tree_run_failures',  ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('clean_tree_run_failures',  [f'test{i}' for i in range(0, 30)])
         self.expectOutcome(result=RETRY, state_string='Unable to confirm if test failures are introduced by change, retrying build (retry)')
         return self.runStep()
 
@@ -2500,7 +2463,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('first_run_failures', ['test1'])
         self.setProperty('second_run_failures', ['test1'])
         self.setProperty('clean_tree_results_exceed_failure_limit', True)
-        self.setProperty('clean_tree_run_failures',  ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('clean_tree_run_failures',  [f'test{i}' for i in range(0, 30)])
         message = 'Unable to confirm if test failures are introduced by change, retrying build'
         self.expectOutcome(result=SUCCESS, state_string=message)
         rc = self.runStep()
@@ -2510,20 +2473,20 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
     def test_clean_tree_has_lot_of_failures(self):
         self.configureStep()
         self.setProperty('first_results_exceed_failure_limit', True)
-        self.setProperty('first_run_failures', ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('first_run_failures', [f'test{i}' for i in range(0, 30)])
         self.setProperty('second_results_exceed_failure_limit', True)
-        self.setProperty('second_run_failures', ['test{}'.format(i) for i in range(0, 30)])
-        self.setProperty('clean_tree_run_failures', ['test{}'.format(i) for i in range(0, 27)])
+        self.setProperty('second_run_failures', [f'test{i}' for i in range(0, 30)])
+        self.setProperty('clean_tree_run_failures', [f'test{i}' for i in range(0, 27)])
         self.expectOutcome(result=RETRY, state_string='Unable to confirm if test failures are introduced by change, retrying build (retry)')
         return self.runStep()
 
     def test_clean_tree_has_some_failures(self):
         self.configureStep()
         self.setProperty('first_results_exceed_failure_limit', True)
-        self.setProperty('first_run_failures', ['test{}'.format(i) for i in range(0, 30)])
+        self.setProperty('first_run_failures', [f'test{i}' for i in range(0, 30)])
         self.setProperty('second_results_exceed_failure_limit', True)
-        self.setProperty('second_run_failures', ['test{}'.format(i) for i in range(0, 30)])
-        self.setProperty('clean_tree_run_failures', ['test{}'.format(i) for i in range(0, 10)])
+        self.setProperty('second_run_failures', [f'test{i}' for i in range(0, 30)])
+        self.setProperty('clean_tree_run_failures', [f'test{i}' for i in range(0, 10)])
         self.expectOutcome(result=FAILURE, state_string='Found 30 new test failures: test0, test1, test10, test11, test12, test13, test14, test15, test16, test17 ... (failure)')
         return self.runStep()
 
@@ -2531,7 +2494,7 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.configureStep()
         self.setProperty('first_run_failures', ['test1'])
         self.setProperty('second_run_failures', ['test1'])
-        self.setProperty('clean_tree_run_failures', ['test{}'.format(i) for i in range(0, 20)])
+        self.setProperty('clean_tree_run_failures', [f'test{i}' for i in range(0, 20)])
         self.expectOutcome(result=SUCCESS, state_string='Passed layout tests')
         rc = self.runStep()
         self.assertEqual(self.getProperty('build_summary'), 'Found 20 pre-existing test failures: test0, test1, test10, test11, test12, test13, test14, test15, test16, test17 ...')
@@ -2541,13 +2504,13 @@ class TestAnalyzeLayoutTestsResults(BuildStepMixinAdditions, unittest.TestCase):
         self.configureStep()
         self.setProperty('buildername', 'Commit-Queue')
         self.setProperty('first_results_exceed_failure_limit', True)
-        self.setProperty('first_run_failures', ['test{}'.format(i) for i in range(0, 300)])
+        self.setProperty('first_run_failures', [f'test{i}' for i in range(0, 300)])
         self.setProperty('second_results_exceed_failure_limit', True)
-        self.setProperty('second_run_failures', ['test{}'.format(i) for i in range(0, 300)])
+        self.setProperty('second_run_failures', [f'test{i}' for i in range(0, 300)])
         failure_message = 'Found 300 new test failures: test0, test1, test10, test100, test101, test102, test103, test104, test105, test106 ...'
         self.expectOutcome(result=FAILURE, state_string=failure_message + ' (failure)')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), failure_message)
+        self.assertEqual(self.getProperty('comment_text'), failure_message)
         self.assertEqual(self.getProperty('build_finish_summary'), failure_message)
         return rc
 
@@ -2598,7 +2561,7 @@ class TestRunWebKitTestsRedTree(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2635,7 +2598,7 @@ class TestRunWebKitTestsRepeatFailuresRedTree(BuildStepMixinAdditions, unittest.
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
                         maxTime=18000,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2676,7 +2639,7 @@ class TestRunWebKitTestsRepeatFailuresWithoutChangeRedTree(BuildStepMixinAdditio
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
                         maxTime=10800,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2705,7 +2668,7 @@ class TestRunWebKitTestsRepeatFailuresWithoutChangeRedTree(BuildStepMixinAdditio
                         logfiles={'json': self.jsonFileName},
                         logEnviron=False,
                         maxTime=10800,
-                        command=['python',
+                        command=['python3',
                                  'Tools/Scripts/run-webkit-tests',
                                  '--no-build', '--no-show-results', '--no-new-test-results', '--clobber-old-results',
                                  '--release', '--results-directory', 'layout-test-results', '--debug-rwt-logging',
@@ -2748,8 +2711,8 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.assertEqual(len(self._emails_list), 2)
         self.assertTrue('Subject: Info about 4 flaky failures' in self._emails_list[0])
         for flaky_test in ["test/flaky1.html", "test/flaky2.html", "test/failure2.html", "test/pre-existent/flaky.html"]:
-            self.assertTrue('Test name: {}'.format(flaky_test) in self._emails_list[0])
-        self.assertFalse('Test name: test/failure1.html' in self._emails_list[0])
+            self.assertTrue(f'Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/{flaky_test}">{flaky_test}</a>' in self._emails_list[0])
+        self.assertFalse('Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/test/failure1.html">test/failure1.html</a>' in self._emails_list[0])
         self.assertTrue('Subject: Layout test failure for Patch' in self._emails_list[1])
         self.assertTrue('test/failure1.html' in self._emails_list[1])
         return step_result
@@ -2768,8 +2731,8 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.assertEqual(len(self._emails_list), 3)
         self.assertTrue('Subject: Info about 4 flaky failures' in self._emails_list[0])
         for flaky_test in ["test/flaky1.html", "test/flaky2.html", "test/failure2.html", "test/pre-existent/flaky.html"]:
-            self.assertTrue('Test name: {}'.format(flaky_test) in self._emails_list[0])
-        self.assertFalse('Test name: preexisting-test/pre-existent/failure.html' in self._emails_list[0])
+            self.assertTrue(f'Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/{flaky_test}">{flaky_test}</a>' in self._emails_list[0])
+        self.assertFalse('Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/preexisting-test/pre-existent/failure.html">preexisting-test/pre-existent/failure.html</a>' in self._emails_list[0])
         self.assertTrue('Subject: Info about 1 pre-existent failure at' in self._emails_list[1])
         self.assertTrue('preexisting-test/pre-existent/failure.html' in self._emails_list[1])
         self.assertTrue('Subject: Layout test failure for Patch' in self._emails_list[2])
@@ -2791,8 +2754,8 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.assertEqual(len(self._emails_list), 2)
         self.assertTrue('Subject: Info about 3 flaky failures' in self._emails_list[0])
         for flaky_test in ["test/pre-existent/flaky.html", "test/pre-existent/flaky2.html", "test/pre-existent/flaky3.html"]:
-            self.assertTrue('Test name: {}'.format(flaky_test) in self._emails_list[0])
-        self.assertFalse('Test name: preexisting-test/pre-existent/failure.html' in self._emails_list[0])
+            self.assertTrue(f'Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/{flaky_test}">{flaky_test}</a>' in self._emails_list[0])
+        self.assertFalse('Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/preexisting-test/pre-existent/failure.html">preexisting-test/pre-existent/failure.html</a>' in self._emails_list[0])
         self.assertTrue('Subject: Info about 1 pre-existent failure at' in self._emails_list[1])
         self.assertTrue('preexisting-test/pre-existent/failure.html' in self._emails_list[1])
         return step_result
@@ -2812,7 +2775,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue('Subject: Info about 3 flaky failures' in self._emails_list[0])
         for flaky_test in ["test/pre-existent/flaky1.html", "test/pre-existent/flaky2.html", "test/pre-existent/flaky3.html"]:
-            self.assertTrue('Test name: {}'.format(flaky_test) in self._emails_list[0])
+            self.assertTrue(f'Test name: <a href="https://github.com/WebKit/WebKit/blob/main/LayoutTests/{flaky_test}">{flaky_test}</a>' in self._emails_list[0])
         return step_result
 
     def test_first_step_gives_unexpected_failure_and_clean_tree_pass_last_try(self):
@@ -2841,7 +2804,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         expected_infrastructure_error = 'The layout-test run with change generated no list of results and exited with error, and the clean_tree without change run did the same thing.'
         self.expectOutcome(
             result=WARNINGS,
-            state_string='{}\nReached the maximum number of retries (3). Unable to determine if change is bad or there is a pre-existent infrastructure issue. (warnings)'.format(expected_infrastructure_error))
+            state_string=f'{expected_infrastructure_error}\nReached the maximum number of retries (3). Unable to determine if change is bad or there is a pre-existent infrastructure issue. (warnings)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2857,7 +2820,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('clean_tree_run_flakies', ['test/pre-existent/flaky.html'])
         self.setProperty('clean_tree_run_status', WARNINGS)
         expected_infrastructure_error = 'The layout-test run with change generated no list of results and exited with error, retrying with the hope it was a random infrastructure error.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 2 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 2 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2874,7 +2837,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('without_change_repeat_failures_results_flakies', ["test/pre-existent/flaky.html"])
         self.setProperty('with_change_repeat_failures_results_exceed_failure_limit', True)
         expected_infrastructure_error = 'One of the steps for retrying the failed tests has exited early, but this steps should run without "--exit-after-n-failures" switch, so they should not exit early.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2891,7 +2854,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('without_change_repeat_failures_results_flakies', ["test/pre-existent/flaky.html"])
         self.setProperty('without_change_repeat_failures_results_exceed_failure_limit', True)
         expected_infrastructure_error = 'One of the steps for retrying the failed tests has exited early, but this steps should run without "--exit-after-n-failures" switch, so they should not exit early.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2924,7 +2887,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('with_change_repeat_failures_results_flakies', [])
         self.setProperty('with_change_repeat_failures_retcode', FAILURE)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures" failed to generate any list of failures or flakies and returned an error code.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2942,7 +2905,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('without_change_repeat_failures_results_flakies', [])
         self.setProperty('without_change_repeat_failures_retcode', FAILURE)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures-without-change" failed to generate any list of failures or flakies and returned an error code.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2956,7 +2919,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('with_change_repeat_failures_timedout', True)
         self.setProperty('without_change_repeat_failures_timedout', True)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures-without-change" was interrumped because it reached the timeout.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2971,7 +2934,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('with_change_repeat_failures_results_flakies', ["test/failure2.html"])
         self.setProperty('without_change_repeat_failures_timedout', True)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures-without-change" was interrumped because it reached the timeout.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 0 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 0 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -2987,7 +2950,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('without_change_repeat_failures_timedout', True)
         self.setProperty('retry_count', 2)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures-without-change" was interrumped because it reached the timeout.'
-        self.expectOutcome(result=RETRY, state_string='Unexpected infrastructure issue: {}\nRetrying build [retry count is 2 of 3] (retry)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=RETRY, state_string=f'Unexpected infrastructure issue: {expected_infrastructure_error}\nRetrying build [retry count is 2 of 3] (retry)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -3003,7 +2966,7 @@ class TestAnalyzeLayoutTestsResultsRedTree(BuildStepMixinAdditions, unittest.Tes
         self.setProperty('without_change_repeat_failures_timedout', True)
         self.setProperty('retry_count', 3)
         expected_infrastructure_error = 'The step "layout-tests-repeat-failures-without-change" was interrumped because it reached the timeout.'
-        self.expectOutcome(result=WARNINGS, state_string='{}\nReached the maximum number of retries (3). Unable to determine if change is bad or there is a pre-existent infrastructure issue. (warnings)'.format(expected_infrastructure_error))
+        self.expectOutcome(result=WARNINGS, state_string=f'{expected_infrastructure_error}\nReached the maximum number of retries (3). Unable to determine if change is bad or there is a pre-existent infrastructure issue. (warnings)')
         step_result = self.runStep()
         self.assertEqual(len(self._emails_list), 1)
         self.assertTrue(expected_infrastructure_error in self._emails_list[0])
@@ -3109,11 +3072,87 @@ class TestUpdateWorkingDirectory(BuildStepMixinAdditions, unittest.TestCase):
     def test_success(self):
         self.setupStep(UpdateWorkingDirectory())
         self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=False,
-                        command=['perl', 'Tools/Scripts/update-webkit'],
-                        )
-            + 0,
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', 'remotes/origin/main', '-f'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D main || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', '-b', 'main'],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Updated working directory')
+        return self.runStep()
+
+    def test_success_branch(self):
+        self.setupStep(UpdateWorkingDirectory())
+        self.setProperty('github.base.ref', 'safari-xxx-branch')
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', 'remotes/origin/safari-xxx-branch', '-f'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D safari-xxx-branch || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', '-b', 'safari-xxx-branch'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D main || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'branch', '--track', 'main', 'remotes/origin/main'],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Updated working directory')
+        return self.runStep()
+
+    def test_success_remote(self):
+        self.setupStep(UpdateWorkingDirectory())
+        self.setProperty('remote', 'security')
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', 'remotes/security/main', '-f'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D main || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', '-b', 'main'],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Updated working directory')
+        return self.runStep()
+
+    def test_success_remote_branch(self):
+        self.setupStep(UpdateWorkingDirectory())
+        self.setProperty('remote', 'security')
+        self.setProperty('github.base.ref', 'safari-xxx-branch')
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', 'remotes/security/safari-xxx-branch', '-f'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D safari-xxx-branch || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'checkout', '-b', 'safari-xxx-branch'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['/bin/sh', '-c', 'git branch -D main || true'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'branch', '--track', 'main', 'remotes/origin/main'],
+            ) + 0,
         )
         self.expectOutcome(result=SUCCESS, state_string='Updated working directory')
         return self.runStep()
@@ -3123,7 +3162,7 @@ class TestUpdateWorkingDirectory(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/update-webkit'],
+                        command=['git', 'checkout', 'remotes/origin/main', '-f'],
                         )
             + ExpectShell.log('stdio', stdout='Unexpected failure.')
             + 2,
@@ -3175,7 +3214,7 @@ class TestApplyPatch(BuildStepMixinAdditions, unittest.TestCase):
         )
         self.expectOutcome(result=FAILURE, state_string='svn-apply failed to apply patch to trunk')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
+        self.assertEqual(self.getProperty('comment_text'), None)
         self.assertEqual(self.getProperty('build_finish_summary'), None)
         return rc
 
@@ -3200,7 +3239,7 @@ class TestApplyPatch(BuildStepMixinAdditions, unittest.TestCase):
         )
         self.expectOutcome(result=FAILURE, state_string='svn-apply failed to apply patch to trunk')
         rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Tools/Scripts/svn-apply failed to apply attachment 1234 to trunk.\nPlease resolve the conflicts and upload a new patch.')
+        self.assertEqual(self.getProperty('comment_text'), 'Tools/Scripts/svn-apply failed to apply attachment 1234 to trunk.\nPlease resolve the conflicts and upload a new patch.')
         self.assertEqual(self.getProperty('build_finish_summary'), 'Tools/Scripts/svn-apply failed to apply patch 1234 to trunk')
         return rc
 
@@ -3209,6 +3248,8 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
     ENV = dict(
         GIT_COMMITTER_NAME='EWS',
         GIT_COMMITTER_EMAIL='ews@webkit.org',
+        GIT_USER=None,
+        GIT_PASSWORD=None,
     )
 
     def setUp(self):
@@ -3233,6 +3274,12 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
+                command=['git', 'config', 'credential.helper', '!echo_credentials() { sleep 1; echo "username=${GIT_USER}"; echo "password=${GIT_PASSWORD}"; }; echo_credentials'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=600,
+                logEnviron=False,
+                env=self.ENV,
                 command=['/bin/sh', '-c', 'git remote add Contributor https://github.com/Contributor/WebKit.git || true'],
             ) + 0, ExpectShell(
                 workdir='wkdir',
@@ -3245,7 +3292,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'fetch', 'Contributor'],
+                command=['git', 'fetch', 'Contributor', '--prune'],
             ) + 0, ExpectShell(
                 workdir='wkdir',
                 timeout=600,
@@ -3291,7 +3338,13 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['cmd', '/c', 'git remote add Contributor https://github.com/Contributor/WebKit.git || exit 0'],
+                command=['git', 'config', 'credential.helper', '!echo_credentials() { sleep 1; echo "username=${GIT_USER}"; echo "password=${GIT_PASSWORD}"; }; echo_credentials'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=600,
+                logEnviron=False,
+                env=self.ENV,
+                command=['sh', '-c', 'git remote add Contributor https://github.com/Contributor/WebKit.git || exit 0'],
             ) + 0, ExpectShell(
                 workdir='wkdir',
                 timeout=600,
@@ -3303,7 +3356,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'fetch', 'Contributor'],
+                command=['git', 'fetch', 'Contributor', '--prune'],
             ) + 0, ExpectShell(
                 workdir='wkdir',
                 timeout=600,
@@ -3348,6 +3401,12 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
+                command=['git', 'config', 'credential.helper', '!echo_credentials() { sleep 1; echo "username=${GIT_USER}"; echo "password=${GIT_PASSWORD}"; }; echo_credentials'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=600,
+                logEnviron=False,
+                env=self.ENV,
                 command=['/bin/sh', '-c', 'git remote add Contributor https://github.com/Contributor/WebKit.git || true'],
             ) + 0, ExpectShell(
                 workdir='wkdir',
@@ -3360,7 +3419,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'fetch', 'Contributor'],
+                command=['git', 'fetch', 'Contributor', '--prune'],
             ) + 1,
         )
         self.expectOutcome(result=FAILURE, state_string='Failed to checkout and rebase branch from PR 1234')
@@ -3495,7 +3554,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.assertEqual(CheckChangeRelevance.haltOnFailure, True)
         self.assertEqual(CheckChangeRelevance.flunkOnFailure, True)
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3507,7 +3566,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(CheckChangeRelevance())
         self.setProperty('buildername', 'macOS-Catalina-Release-WK1-Tests-EWS')
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3517,7 +3576,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(CheckChangeRelevance())
         self.setProperty('buildername', 'macOS-BigSur-Release-Build-EWS')
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3534,7 +3593,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(CheckChangeRelevance())
         self.setProperty('buildername', 'WebKitPy-Tests-EWS')
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3545,7 +3604,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(CheckChangeRelevance())
         self.setProperty('buildername', 'Services-EWS')
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3567,7 +3626,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(CheckChangeRelevance())
         self.setProperty('buildername', 'Bindings-Tests-EWS')
         for file_name in file_names:
-            CheckChangeRelevance._get_patch = lambda x: 'Sample patch; file: {}'.format(file_name)
+            CheckChangeRelevance._get_patch = lambda x: f'Sample patch; file: {file_name}'
             self.expectOutcome(result=SUCCESS, state_string='Patch contains relevant changes')
             rc = self.runStep()
         return rc
@@ -3642,7 +3701,7 @@ class TestFindModifiedLayoutTests(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(FindModifiedLayoutTests())
         dir_names = ['reference', 'reftest', 'resources', 'support', 'script-tests', 'tools']
         for dir_name in dir_names:
-            FindModifiedLayoutTests._get_patch = lambda x: '+++ LayoutTests/{}/test-name.html'.format(dir_name).encode('utf-8')
+            FindModifiedLayoutTests._get_patch = lambda x: f'+++ LayoutTests/{dir_name}/test-name.html'.encode('utf-8')
             self.expectOutcome(result=SKIPPED, state_string='Patch doesn\'t have relevant changes')
             rc = self.runStep()
             self.assertEqual(self.getProperty('modified_tests'), None)
@@ -3652,7 +3711,7 @@ class TestFindModifiedLayoutTests(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(FindModifiedLayoutTests())
         suffixes = ['-expected', '-expected-mismatch', '-ref', '-notref']
         for suffix in suffixes:
-            FindModifiedLayoutTests._get_patch = lambda x: '+++ LayoutTests/http/tests/events/device-motion-{}.html'.format(suffix).encode('utf-8')
+            FindModifiedLayoutTests._get_patch = lambda x: f'+++ LayoutTests/http/tests/events/device-motion-{suffix}.html'.encode('utf-8')
             self.expectOutcome(result=SKIPPED, state_string='Patch doesn\'t have relevant changes')
             rc = self.runStep()
             self.assertEqual(self.getProperty('modified_tests'), None)
@@ -4011,7 +4070,7 @@ class TestRunAPITests(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--release', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--release', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4039,7 +4098,7 @@ All tests successfully passed!
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', '--json-output={0}'.format(self.jsonFileName), '--ios-simulator'],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', f'--json-output={self.jsonFileName}', '--ios-simulator'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4067,7 +4126,7 @@ All tests successfully passed!
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-gtk-tests', '--release', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-gtk-tests', '--release', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4100,7 +4159,7 @@ Ran 1316 tests of 1318 with 1316 successful
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''
@@ -4142,7 +4201,7 @@ Testing completed, Exit status: 3
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4198,7 +4257,7 @@ Testing completed, Exit status: 3
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='Unexpected failure. Failed to run api tests.')
@@ -4216,7 +4275,7 @@ Testing completed, Exit status: 3
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', '--json-output={0}'.format(self.jsonFileName)],
+                        command=['python3', 'Tools/Scripts/run-api-tests', '--no-build', '--debug', '--verbose', f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4263,7 +4322,7 @@ class TestRunAPITestsWithoutChange(BuildStepMixinAdditions, unittest.TestCase):
                                  '--no-build',
                                  '--release',
                                  '--verbose',
-                                 '--json-output={0}'.format(self.jsonFileName)],
+                                 f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''...
@@ -4299,7 +4358,7 @@ All tests successfully passed!
                                  '--no-build',
                                  '--debug',
                                  '--verbose',
-                                 '--json-output={0}'.format(self.jsonFileName)],
+                                 f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''
@@ -4347,7 +4406,7 @@ Testing completed, Exit status: 3
                         command=['python3',
                                  'Tools/Scripts/run-gtk-tests',
                                  '--debug',
-                                 '--json-output={0}'.format(self.jsonFileName)],
+                                 f'--json-output={self.jsonFileName}'],
                         logfiles={'json': self.jsonFileName},
                         )
             + ExpectShell.log('stdio', stdout='''
@@ -4763,16 +4822,20 @@ class TestCleanGitRepo(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(command=['/bin/sh', '-c', 'git rebase --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['/bin/sh', '-c', 'git am --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'fetch', 'origin'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'checkout', 'origin/main', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='You are in detached HEAD state.'),
             ExpectShell(command=['git', 'branch', '-D', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='Deleted branch main (was 57015967fef9).'),
-            ExpectShell(command=['git', 'checkout', 'origin/main', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout="Switched to a new branch 'main'"),
+            ExpectShell(command=['/bin/sh', '-c', 'git branch | grep -v main | xargs git branch -D || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git remote | grep -v origin | xargs -L 1 git remote rm || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
         )
         self.expectOutcome(result=SUCCESS, state_string='Cleaned up git repository')
         return self.runStep()
@@ -4783,18 +4846,22 @@ class TestCleanGitRepo(BuildStepMixinAdditions, unittest.TestCase):
         self.setProperty('platform', 'wincairo')
 
         self.expectRemoteCommands(
-            ExpectShell(command=['cmd', '/c', 'git rebase --abort || exit 0'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['sh', '-c', 'git rebase --abort || exit 0'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['sh', '-c', 'git am --abort || exit 0'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
-            + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'fetch', 'origin'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'checkout', 'origin/main', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='You are in detached HEAD state.'),
             ExpectShell(command=['git', 'branch', '-D', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='Deleted branch main (was 57015967fef9).'),
-            ExpectShell(command=['git', 'checkout', 'origin/main', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout="Switched to a new branch 'main'"),
+            ExpectShell(command=['sh', '-c', 'git branch | grep -v main | xargs git branch -D || exit 0'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['sh', '-c', 'git remote | grep -v origin | xargs -L 1 git remote rm || exit 0'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
         )
         self.expectOutcome(result=SUCCESS, state_string='Cleaned up git repository')
         return self.runStep()
@@ -4806,16 +4873,20 @@ class TestCleanGitRepo(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(command=['/bin/sh', '-c', 'git rebase --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['/bin/sh', '-c', 'git am --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'fetch', 'origin'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'checkout', 'origin/master', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='You are in detached HEAD state.'),
             ExpectShell(command=['git', 'branch', '-D', 'master'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='Deleted branch master (was 57015967fef9).'),
-            ExpectShell(command=['git', 'checkout', 'origin/master', '-b', 'master'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', '-b', 'master'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout="Switched to a new branch 'master'"),
+            ExpectShell(command=['/bin/sh', '-c', 'git branch | grep -v master | xargs git branch -D || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git remote | grep -v origin | xargs -L 1 git remote rm || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
         )
         self.expectOutcome(result=SUCCESS, state_string='Cleaned up git repository')
         return self.runStep()
@@ -4827,16 +4898,20 @@ class TestCleanGitRepo(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(command=['/bin/sh', '-c', 'git rebase --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git am --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'fetch', 'origin'], workdir='wkdir', timeout=300, logEnviron=False) + 128
-            + ExpectShell.log('stdio', stdout='fatal: unable to access https://github.com/WebKit/WebKit.git/: Could not resolve host: github.com'),
-            ExpectShell(command=['git', 'checkout', 'origin/main', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', 'origin/main', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 128
             + ExpectShell.log('stdio', stdout='You are in detached HEAD state.'),
             ExpectShell(command=['git', 'branch', '-D', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='Deleted branch main (was 57015967fef9).'),
-            ExpectShell(command=['git', 'checkout', 'origin/main', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout="Switched to a new branch 'main'"),
+            ExpectShell(command=['/bin/sh', '-c', 'git branch | grep -v main | xargs git branch -D || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git remote | grep -v origin | xargs -L 1 git remote rm || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
         )
         self.expectOutcome(result=FAILURE, state_string='Encountered some issues during cleanup')
         return self.runStep()
@@ -4849,138 +4924,23 @@ class TestCleanGitRepo(BuildStepMixinAdditions, unittest.TestCase):
         self.expectRemoteCommands(
             ExpectShell(command=['/bin/sh', '-c', 'git rebase --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git am --abort || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
             ExpectShell(command=['git', 'clean', '-f', '-d'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'fetch', 'origin'], workdir='wkdir', timeout=300, logEnviron=False) + 0
-            + ExpectShell.log('stdio', stdout=''),
-            ExpectShell(command=['git', 'checkout', 'origin/safari-612-branch', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            ExpectShell(command=['git', 'checkout', 'origin/main', '-f'], workdir='wkdir', timeout=300, logEnviron=False) + 0
             + ExpectShell.log('stdio', stdout='You are in detached HEAD state.'),
-            ExpectShell(command=['git', 'branch', '-D', 'safari-612-branch'], workdir='wkdir', timeout=300, logEnviron=False) + 0
-            + ExpectShell.log('stdio', stdout='Deleted branch safari-612-branch (was 57015967fef9).'),
-            ExpectShell(command=['git', 'checkout', 'origin/safari-612-branch', '-b', 'safari-612-branch'], workdir='wkdir', timeout=300, logEnviron=False) + 0
-            + ExpectShell.log('stdio', stdout="Switched to a new branch 'safari-612-branch'"),
+            ExpectShell(command=['git', 'branch', '-D', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout='Deleted branch main (was 57015967fef9).'),
+            ExpectShell(command=['git', 'checkout', '-b', 'main'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout="Switched to a new branch 'main'"),
+            ExpectShell(command=['/bin/sh', '-c', 'git branch | grep -v main | xargs git branch -D || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
+            ExpectShell(command=['/bin/sh', '-c', 'git remote | grep -v origin | xargs -L 1 git remote rm || true'], workdir='wkdir', timeout=300, logEnviron=False) + 0
+            + ExpectShell.log('stdio', stdout=''),
         )
         self.expectOutcome(result=SUCCESS, state_string='Cleaned up git repository')
         return self.runStep()
-
-class TestFindModifiedChangeLogs(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def test_modified_changelogs(self):
-        self.setupStep(FindModifiedChangeLogs())
-        self.assertEqual(FindModifiedChangeLogs.haltOnFailure, False)
-        self.setProperty('buildername', 'Commit-Queue')
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=180,
-                        logEnviron=False,
-                        command=['git', 'diff', '-r', '--name-status', '--no-renames', '--no-ext-diff', '--full-index']) +
-            ExpectShell.log('stdio', stdout='''M	Source/WebCore/ChangeLog
-M	Source/WebCore/layout/blockformatting/BlockFormattingContext.h
-M	Source/WebCore/layout/blockformatting/BlockMarginCollapse.cpp
-M	Tools/ChangeLog
-M	Tools/TestWebKitAPI/CMakeLists.txt''') +
-            0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Found modified ChangeLogs')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('modified_changelogs'), ['Source/WebCore/ChangeLog', 'Tools/ChangeLog'])
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
-        self.assertEqual(self.getProperty('build_finish_summary'), None)
-        return rc
-
-    def test_success_added_changelog(self):
-        self.setupStep(FindModifiedChangeLogs())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=180,
-                        logEnviron=False,
-                        command=['git', 'diff', '-r', '--name-status', '--no-renames', '--no-ext-diff', '--full-index']) +
-            ExpectShell.log('stdio', stdout='''A	Tools/Scripts/ChangeLog
-M	Tools/Scripts/run-api-tests''') +
-            0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Found modified ChangeLogs')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('modified_changelogs'), ['Tools/Scripts/ChangeLog'])
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
-        self.assertEqual(self.getProperty('build_finish_summary'), None)
-        return rc
-
-    def test_failure(self):
-        self.setupStep(FindModifiedChangeLogs())
-        self.setProperty('patch_id', '1234')
-        self.setProperty('buildername', 'Commit-Queue')
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=180,
-                        logEnviron=False,
-                        command=['git', 'diff', '-r', '--name-status', '--no-renames', '--no-ext-diff', '--full-index']) +
-            ExpectShell.log('stdio', stdout='Unexpected failure') +
-            2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Failed to find any modified ChangeLog in Patch 1234')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Unable to find any modified ChangeLog in Attachment 1234')
-        self.assertEqual(self.getProperty('build_finish_summary'), 'Unable to find any modified ChangeLog in Patch 1234')
-        return rc
-
-
-class TestCreateLocalGITCommit(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def test_success(self):
-        self.setupStep(CreateLocalGITCommit())
-        self.assertEqual(CreateLocalGITCommit.haltOnFailure, False)
-        self.setProperty('buildername', 'Commit-Queue')
-        self.setProperty('modified_changelogs', ['Tools/Scripts/ChangeLog', 'Source/WebCore/ChangeLog'])
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=300,
-                        logEnviron=False,
-                        command='perl Tools/Scripts/commit-log-editor --print-log Tools/Scripts/ChangeLog Source/WebCore/ChangeLog | git commit --all -F -') +
-            0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Created local git commit')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
-        self.assertEqual(self.getProperty('build_finish_summary'), None)
-        return rc
-
-    def test_failure_no_changelog(self):
-        self.setupStep(CreateLocalGITCommit())
-        self.setProperty('patch_id', '1234')
-        self.expectOutcome(result=FAILURE, state_string='No modified ChangeLog file found for Patch 1234')
-        return self.runStep()
-
-    def test_failure(self):
-        self.setupStep(CreateLocalGITCommit())
-        self.setProperty('patch_id', '1234')
-        self.setProperty('buildername', 'Commit-Queue')
-        self.setProperty('modified_changelogs', ['Tools/Scripts/ChangeLog'])
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        timeout=300,
-                        logEnviron=False,
-                        command='perl Tools/Scripts/commit-log-editor --print-log Tools/Scripts/ChangeLog | git commit --all -F -') +
-            ExpectShell.log('stdio', stdout='Unexpected failure') +
-            2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Failed to create git commit')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Failed to create git commit for Attachment 1234')
-        self.assertEqual(self.getProperty('build_finish_summary'), 'Failed to create git commit for Patch 1234')
-        return rc
 
 
 class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
@@ -4992,7 +4952,7 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
 
     def get_patch(self, title='Patch', obsolete=0):
         return json.loads('''{{"bug_id": 224460,
-                     "creator":"aakash_jain@apple.com",
+                     "creator":"reviewer@apple.com",
                      "data": "patch-contents",
                      "file_name":"bug-224460-20210412192105.patch",
                      "flags": [{{"creation_date" : "2021-04-12T23:21:06Z", "id": 445872, "modification_date": "2021-04-12T23:55:36Z", "name": "review", "setter": "ap@webkit.org", "status": "+", "type_id": 1}}],
@@ -5001,12 +4961,13 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
                      "is_patch": 1,
                      "summary": "{}"}}'''.format(obsolete, title))
 
-    def get_pr(self, pr_number, title='Sample pull request', closed=False):
+    def get_pr(self, pr_number, title='Sample pull request', closed=False, labels=None, draft=False):
         return dict(
             number=pr_number,
             state='closed' if closed else 'open',
             title=title,
             user=dict(login='JonWBedard'),
+            draft=draft,
             head=dict(
                 sha='7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c',
                 ref='eng/pull-request',
@@ -5021,7 +4982,7 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
                     name='WebKit',
                     full_name='WebKit/WebKit',
                 ),
-            ),
+            ), labels=[dict(name=label) for label in labels or []],
         )
 
     def test_skipped_patch(self):
@@ -5051,7 +5012,18 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_success_pr(self):
         self.setupStep(ValidateChange(verifyBugClosed=False))
-        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None: self.get_pr(pr_number=pull_request)
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request)
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=SUCCESS, state_string='Validated change')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
+        return rc
+
+    def test_success_pr_blocked(self):
+        self.setupStep(ValidateChange(verifyBugClosed=False))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request, labels=['merging-blocked'])
         self.setProperty('github.number', '1234')
         self.setProperty('repository', 'https://github.com/WebKit/WebKit')
         self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
@@ -5071,7 +5043,7 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_obsolete_pr(self):
         self.setupStep(ValidateChange(verifyBugClosed=False))
-        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None: self.get_pr(pr_number=pull_request)
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request)
         self.setProperty('github.number', '1234')
         self.setProperty('repository', 'https://github.com/WebKit/WebKit')
         self.setProperty('github.head.sha', '1ad60d45a112301f7b9f93dac06134524dae8480')
@@ -5081,72 +5053,184 @@ class TestValidateChange(BuildStepMixinAdditions, unittest.TestCase):
         return rc
 
     def test_fast_cq_patches_trigger_fast_cq_mode(self):
-        fast_cq_patch_titles = ('REVERT OF r1234', 'revert of r1234', '[fast-cq]Patch', '[FAST-cq] patch', 'fast-cq-patch', 'FAST-CQ Patch')
+        fast_cq_patch_titles = ('REVERT OF r1234', 'revert of r1234', 'REVERT of 123456@main', '[fast-cq]Patch', '[FAST-cq] patch', 'fast-cq-patch', 'FAST-CQ Patch')
         for fast_cq_patch_title in fast_cq_patch_titles:
             self.setupStep(ValidateChange(verifyBugClosed=False))
             ValidateChange.get_patch_json = lambda x, patch_id: self.get_patch(title=fast_cq_patch_title)
             self.setProperty('patch_id', '425806')
             self.expectOutcome(result=SUCCESS, state_string='Validated change')
             rc = self.runStep()
-            self.assertEqual(self.getProperty('fast_commit_queue'), True, 'fast_commit_queue is not set, patch title: {}'.format(fast_cq_patch_title))
+            self.assertEqual(self.getProperty('fast_commit_queue'), True, f'fast_commit_queue is not set, patch title: {fast_cq_patch_title}')
+        return rc
+
+    def test_merge_queue(self):
+        self.setupStep(ValidateChange(verifyMergeQueue=True))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request, labels=['merge-queue'])
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=SUCCESS, state_string='Validated change')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
+        return rc
+
+    def test_merge_queue_blocked(self):
+        self.setupStep(ValidateChange(verifyMergeQueue=True))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request, labels=['merge-queue', 'merging-blocked'])
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=FAILURE, state_string="PR 1234 has been marked as 'merging-blocked'")
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
+        return rc
+
+    def test_no_merge_queue(self):
+        self.setupStep(ValidateChange(verifyMergeQueue=True))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request)
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=FAILURE, state_string='PR 1234 does not have a merge queue label')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
+        return rc
+
+    def test_draft(self):
+        self.setupStep(ValidateChange(verifyNoDraftForMergeQueue=True))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request, draft=True)
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=FAILURE, state_string='PR 1234 is a draft pull request')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
+        return rc
+
+    def test_no_draft(self):
+        self.setupStep(ValidateChange(verifyNoDraftForMergeQueue=True))
+        ValidateChange.get_pr_json = lambda x, pull_request, repository_url=None, retry=None: self.get_pr(pr_number=pull_request, draft=False)
+        self.setProperty('github.number', '1234')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7496f8ecc4cc8011f19c8cc1bc7b18fe4a88ad5c')
+        self.expectOutcome(result=SUCCESS, state_string='Validated change')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('fast_commit_queue'), None, 'fast_commit_queue is unexpectedly set')
         return rc
 
 
-class TestValidateCommiterAndReviewer(BuildStepMixinAdditions, unittest.TestCase):
+class TestValidateCommitterAndReviewer(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
-
-        def mock_load_contributors(*args, **kwargs):
-            return {'aakash_jain@apple.com': {'name': 'Aakash Jain', 'status': 'reviewer'},
-                    'committer@webkit.org': {'name': 'WebKit Committer', 'status': 'committer'}}, []
         Contributors.load = mock_load_contributors
         return self.setUpBuildStep()
 
     def tearDown(self):
         return self.tearDownBuildStep()
 
-    def test_success(self):
-        self.setupStep(ValidateCommiterAndReviewer())
+    def test_success_patch(self):
+        self.setupStep(ValidateCommitterAndReviewer())
         self.setProperty('patch_id', '1234')
         self.setProperty('patch_committer', 'committer@webkit.org')
-        self.setProperty('patch_reviewer', 'aakash_jain@apple.com')
+        self.setProperty('reviewer', 'reviewer@apple.com')
         self.expectHidden(False)
-        self.assertEqual(ValidateCommiterAndReviewer.haltOnFailure, False)
+        self.assertEqual(ValidateCommitterAndReviewer.haltOnFailure, False)
         self.expectOutcome(result=SUCCESS, state_string='Validated commiter and reviewer')
-        return self.runStep()
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('reviewers_full_names'), ['WebKit Reviewer'])
+        return rc
 
-    def test_success_no_reviewer(self):
-        self.setupStep(ValidateCommiterAndReviewer())
-        self.setProperty('patch_id', '1234')
-        self.setProperty('patch_committer', 'aakash_jain@apple.com')
+    def test_success_pr(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        ValidateCommitterAndReviewer.get_reviewers = lambda x, pull_request, repository_url=None: ['webkit-reviewer']
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['webkit-commit-queue'])
         self.expectHidden(False)
-        self.expectOutcome(result=SUCCESS, state_string='Validated committer')
+        self.assertEqual(ValidateCommitterAndReviewer.haltOnFailure, False)
+        self.expectOutcome(result=SUCCESS, state_string='Validated commiter and reviewer')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('reviewers_full_names'), ['WebKit Reviewer'])
+        return rc
+
+    def test_success_pr_duplicate(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        ValidateCommitterAndReviewer.get_reviewers = lambda x, pull_request, repository_url=None: ['webkit-reviewer', 'webkit-reviewer']
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.expectHidden(False)
+        self.assertEqual(ValidateCommitterAndReviewer.haltOnFailure, False)
+        self.expectOutcome(result=SUCCESS, state_string='Validated commiter and reviewer')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('reviewers_full_names'), ['WebKit Reviewer'])
+        return rc
+
+    def test_success_no_reviewer_patch(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        self.setProperty('patch_id', '1234')
+        self.setProperty('patch_committer', 'reviewer@apple.com')
+        self.expectHidden(False)
+        self.expectOutcome(result=SUCCESS, state_string='Validated committer, reviewer not found')
         return self.runStep()
 
-    def test_failure_load_contributors(self):
-        self.setupStep(ValidateCommiterAndReviewer())
+    def test_success_no_reviewer_pr(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        ValidateCommitterAndReviewer.get_reviewers = lambda x, pull_request, repository_url=None: []
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['webkit-reviewer'])
+        self.expectHidden(False)
+        self.expectOutcome(result=SUCCESS, state_string='Validated committer, reviewer not found')
+        return self.runStep()
+
+    def test_failure_load_contributors_patch(self):
+        self.setupStep(ValidateCommitterAndReviewer())
         self.setProperty('patch_id', '1234')
         self.setProperty('patch_committer', 'abc@webkit.org')
-        Contributors.load = lambda: ({}, [])
+        Contributors.load = lambda *args, **kwargs: ({}, [])
         self.expectHidden(False)
         self.expectOutcome(result=FAILURE, state_string='Failed to get contributors information')
         return self.runStep()
 
-    def test_failure_invalid_committer(self):
-        self.setupStep(ValidateCommiterAndReviewer())
+    def test_failure_load_contributors_pr(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['abc'])
+        Contributors.load = lambda *args, **kwargs: ({}, [])
+        self.expectHidden(False)
+        self.expectOutcome(result=FAILURE, state_string='Failed to get contributors information')
+        return self.runStep()
+
+    def test_failure_invalid_committer_patch(self):
+        self.setupStep(ValidateCommitterAndReviewer())
         self.setProperty('patch_id', '1234')
         self.setProperty('patch_committer', 'abc@webkit.org')
         self.expectHidden(False)
         self.expectOutcome(result=FAILURE, state_string='abc@webkit.org does not have committer permissions')
         return self.runStep()
 
-    def test_failure_invalid_reviewer(self):
-        self.setupStep(ValidateCommiterAndReviewer())
+    def test_failure_invalid_committer_pr(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['abc'])
+        self.expectHidden(False)
+        self.expectOutcome(result=FAILURE, state_string='abc does not have committer permissions')
+        return self.runStep()
+
+    def test_failure_invalid_reviewer_patch(self):
+        self.setupStep(ValidateCommitterAndReviewer())
         self.setProperty('patch_id', '1234')
-        self.setProperty('patch_committer', 'aakash_jain@apple.com')
-        self.setProperty('patch_reviewer', 'committer@webkit.org')
+        self.setProperty('patch_committer', 'reviewer@apple.com')
+        self.setProperty('reviewer', 'committer@webkit.org')
         self.expectHidden(False)
         self.expectOutcome(result=FAILURE, state_string='committer@webkit.org does not have reviewer permissions')
+        return self.runStep()
+
+    def test_failure_invalid_reviewer_pr(self):
+        self.setupStep(ValidateCommitterAndReviewer())
+        ValidateCommitterAndReviewer.get_reviewers = lambda x, pull_request, repository_url=None: ['webkit-commit-queue']
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['webkit-reviewer'])
+        self.expectHidden(False)
+        self.expectOutcome(result=FAILURE, state_string='webkit-commit-queue does not have reviewer permissions')
         return self.runStep()
 
     def test_load_contributors_from_disk(self):
@@ -5154,7 +5238,7 @@ class TestValidateCommiterAndReviewer(BuildStepMixinAdditions, unittest.TestCase
         self.assertEqual(list(contributors)[0]['emails'][0], 'aakash_jain@apple.com')
 
 
-class TestCheckPatchStatusOnEWSQueues(BuildStepMixinAdditions, unittest.TestCase):
+class TestCheckStatusOnEWSQueues(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
         return self.setUpBuildStep()
@@ -5163,25 +5247,126 @@ class TestCheckPatchStatusOnEWSQueues(BuildStepMixinAdditions, unittest.TestCase
         return self.tearDownBuildStep()
 
     def test_success(self):
-        CheckPatchStatusOnEWSQueues.get_patch_status = lambda cls, patch_id, queue: SUCCESS
-        self.setupStep(CheckPatchStatusOnEWSQueues())
+        CheckStatusOnEWSQueues.get_change_status = lambda cls, change_id, queue: SUCCESS
+        self.setupStep(CheckStatusOnEWSQueues())
         self.setProperty('patch_id', '1234')
-        self.expectOutcome(result=SUCCESS, state_string='Checked patch status on other queues')
+        self.expectOutcome(result=SUCCESS, state_string='Checked change status on other queues')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('passed_mac_wk2'), True)
+        return rc
+
+    def test_success_hash(self):
+        CheckStatusOnEWSQueues.get_change_status = lambda cls, change_id, queue: SUCCESS
+        self.setupStep(CheckStatusOnEWSQueues())
+        self.setProperty('github.head.sha', '0e5b5facb6445ca7a1feb46cee6322189df5282c')
+        self.expectOutcome(result=SUCCESS, state_string='Checked change status on other queues')
         rc = self.runStep()
         self.assertEqual(self.getProperty('passed_mac_wk2'), True)
         return rc
 
     def test_failure(self):
-        self.setupStep(CheckPatchStatusOnEWSQueues())
+        self.setupStep(CheckStatusOnEWSQueues())
         self.setProperty('patch_id', '1234')
-        CheckPatchStatusOnEWSQueues.get_patch_status = lambda cls, patch_id, queue: FAILURE
-        self.expectOutcome(result=SUCCESS, state_string='Checked patch status on other queues')
+        CheckStatusOnEWSQueues.get_change_status = lambda cls, change_id, queue: FAILURE
+        self.expectOutcome(result=SUCCESS, state_string='Checked change status on other queues')
         rc = self.runStep()
         self.assertEqual(self.getProperty('passed_mac_wk2'), None)
         return rc
 
 
 class TestPushCommitToWebKitRepo(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        GitHub.credentials = lambda user=None: ('webkit-commit-queue', 'password')
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_success(self):
+        self.setupStep(PushCommitToWebKitRepo())
+        self.setProperty('patch_id', '1234')
+        self.setProperty('remote', 'origin')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', 'origin', 'HEAD:main']) +
+            ExpectShell.log('stdio', stdout=' 4c3bac1de151...b94dc426b331 ') +
+            0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+        self.assertEqual(self.getProperty('landed_hash'), 'b94dc426b331')
+        return rc
+
+    def test_failure_retry(self):
+        self.setupStep(PushCommitToWebKitRepo())
+        self.setProperty('patch_id', '2345')
+        self.setProperty('remote', 'origin')
+
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', 'origin', 'HEAD:main']) +
+            ExpectShell.log('stdio', stdout='Unexpected failure') +
+            2,
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to push commit to Webkit repository')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+        self.assertEqual(self.getProperty('retry_count'), 1)
+        self.assertEqual(self.getProperty('landed_hash'), None)
+        return rc
+
+    def test_failure_patch(self):
+        self.setupStep(PushCommitToWebKitRepo())
+        self.setProperty('remote', 'origin')
+        self.setProperty('patch_id', '2345')
+        self.setProperty('retry_count', PushCommitToWebKitRepo.MAX_RETRY)
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', 'origin', 'HEAD:main']) +
+            ExpectShell.log('stdio', stdout='Unexpected failure') +
+            2,
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to push commit to Webkit repository')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+        self.assertEqual(self.getProperty('build_finish_summary'), 'Failed to commit to WebKit repository')
+        self.assertEqual(self.getProperty('comment_text'), 'commit-queue failed to commit attachment 2345 to WebKit repository. To retry, please set cq+ flag again.')
+        return rc
+
+    def test_failure_pr(self):
+        self.setupStep(PushCommitToWebKitRepo())
+        self.setProperty('github.number', '1234')
+        self.setProperty('remote', 'origin')
+        self.setProperty('retry_count', PushCommitToWebKitRepo.MAX_RETRY)
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', 'origin', 'HEAD:main']) +
+            ExpectShell.log('stdio', stdout='Unexpected failure') +
+            2,
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to push commit to Webkit repository')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+        self.assertEqual(self.getProperty('build_finish_summary'), 'Failed to commit to WebKit repository')
+        self.assertEqual(self.getProperty('comment_text'), 'merge-queue failed to commit PR to repository. To retry, remove any blocking labels and re-apply merge-queue label')
+        return rc
+
+
+class TestDetermineLandedIdentifier(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
         return self.setUpBuildStep()
@@ -5211,87 +5396,163 @@ class TestPushCommitToWebKitRepo(BuildStepMixinAdditions, unittest.TestCase):
     def mock_sleep(cls):
         return patch('time.sleep', lambda _: None)
 
-
-    def test_success(self):
-        with self.mock_commits_webkit_org(identifier='220797@main'), self.mock_sleep():
-            self.setupStep(PushCommitToWebKitRepo())
-            self.setProperty('patch_id', '1234')
-            self.expectRemoteCommands(
-                ExpectShell(workdir='wkdir',
-                            timeout=300,
-                            logEnviron=False,
-                            command=['git', 'svn', 'dcommit', '--rmdir']) +
-                ExpectShell.log('stdio', stdout='Committed r256729') +
-                0,
-            )
-            self.expectOutcome(result=SUCCESS, state_string='Committed 220797@main')
-            with current_hostname(EWS_BUILD_HOSTNAME):
-                rc = self.runStep()
-            self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Committed r256729 (220797@main): <https://commits.webkit.org/220797@main>\n\nAll reviewed patches have been landed. Closing bug and clearing flags on attachment 1234.')
-            self.assertEqual(self.getProperty('build_finish_summary'), None)
-            self.assertEqual(self.getProperty('build_summary'), 'Committed 220797@main')
-            return rc
-
-    def test_success_no_identifier(self):
+    def test_success_pr(self):
         with self.mock_commits_webkit_org(), self.mock_sleep():
-            self.setupStep(PushCommitToWebKitRepo())
-            self.setProperty('patch_id', '1234')
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '14dbf1155cf5')
+            self.setProperty('github.number', '1234')
             self.expectRemoteCommands(
-                ExpectShell(workdir='wkdir',
-                            timeout=300,
-                            logEnviron=False,
-                            command=['git', 'svn', 'dcommit', '--rmdir']) +
-                ExpectShell.log('stdio', stdout='Committed r256729') +
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout=''''commit 220797@main (14dbf1155cf56a1dd4d86a847e61af3c3e5d2ca5, r256729)
+Author: Aakash Jain <aakash_jain@apple.com>
+Date:   Mon Feb 17 15:09:42 2020 +0000
+
+    [ews] add SetBuildSummary step for Windows EWS
+    https://bugs.webkit.org/show_bug.cgi?id=207556
+    
+    Reviewed by Jonathan Bedard.
+    
+    * BuildSlaveSupport/ews-build/factories.py:
+    (WindowsFactory.__init__):
+    (GTKBuildAndTestFactory.__init__):
+    * BuildSlaveSupport/ews-build/factories_unittest.py:
+    (TestBuildAndTestsFactory.test_windows_factory): Added unit-test.
+    
+    
+    Canonical link: https://commits.webkit.org/220797@main
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@256729 268f45cc-cd09-0410-ab3c-d52691b4dbfc''') +
                 0,
             )
-            self.expectOutcome(result=SUCCESS, state_string='Committed r256729')
+            self.expectOutcome(result=SUCCESS, state_string='Identifier: 220797@main')
             with current_hostname(EWS_BUILD_HOSTNAME):
                 rc = self.runStep()
-            self.assertEqual(self.getProperty('bugzilla_comment_text'), 'Committed r256729 (?): <https://commits.webkit.org/r256729>\n\nAll reviewed patches have been landed. Closing bug and clearing flags on attachment 1234.')
-            self.assertEqual(self.getProperty('build_finish_summary'), None)
-            self.assertEqual(self.getProperty('build_summary'), 'Committed r256729')
-            return rc
 
-    def test_failure_retry(self):
-        with self.mock_sleep():
-            self.setupStep(PushCommitToWebKitRepo())
-            self.setProperty('patch_id', '2345')
+        self.assertEqual(self.getProperty('comment_text'), 'Committed 220797@main (14dbf1155cf5): <https://commits.webkit.org/220797@main>\n\nReviewed commits have been landed. Closing PR #1234 and removing active labels.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 220797@main')
+        return rc
+
+    def test_success_gardening_pr(self):
+        with self.mock_commits_webkit_org(), self.mock_sleep():
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '5dc27962b4c5')
+            self.setProperty('github.number', '1234')
+            self.setProperty('is_test_gardening', True)
             self.expectRemoteCommands(
-                ExpectShell(workdir='wkdir',
-                            timeout=300,
-                            logEnviron=False,
-                            command=['git', 'svn', 'dcommit', '--rmdir']) +
-                ExpectShell.log('stdio', stdout='Unexpected failure') +
-                2,
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout=''''commit 5dc27962b4c5bdfd17d17faa785f70abbb0550ed
+Author: Matteo Flores <matteo_flores@apple.com>
+Date:   Fri Apr 22 21:24:12 2022 +0000
+
+    REBASLINE: [ Monterey ] fast/text/khmer-lao-font.html is a constant text failure
+    
+    https://bugs.webkit.org/show_bug.cgi?id=238917
+    
+    Unreviewed test gardening.
+    
+    * platform/mac-bigsur/fast/text/khmer-lao-font-expected.txt: Copied from LayoutTests/platform/mac/fast/text/khmer-lao-font-expected.txt.
+    * platform/mac/fast/text/khmer-lao-font-expected.txt:
+    
+    Canonical link: https://commits.webkit.org/249903@main
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@293254 268f45cc-cd09-0410-ab3c-d52691b4dbfc''') +
+                0,
             )
-            self.expectOutcome(result=FAILURE, state_string='Failed to push commit to Webkit repository')
+            self.expectOutcome(result=SUCCESS, state_string='Identifier: 249903@main')
             with current_hostname(EWS_BUILD_HOSTNAME):
                 rc = self.runStep()
-            self.assertEqual(self.getProperty('retry_count'), 1)
-            self.assertEqual(self.getProperty('build_finish_summary'), None)
-            self.assertEqual(self.getProperty('bugzilla_comment_text'), None)
-            return rc
 
-    def test_failure(self):
-        with self.mock_sleep():
-            self.setupStep(PushCommitToWebKitRepo())
-            self.setProperty('retry_count', PushCommitToWebKitRepo.MAX_RETRY)
-            self.setProperty('patch_id', '2345')
+        self.assertEqual(self.getProperty('comment_text'), 'Test gardening commit 249903@main (5dc27962b4c5): <https://commits.webkit.org/249903@main>\n\nReviewed commits have been landed. Closing PR #1234 and removing active labels.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 249903@main')
+        return rc
+
+    def test_success_pr_fallback(self):
+        with self.mock_commits_webkit_org(identifier='220797@main'), self.mock_sleep():
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '5dc27962b4c5')
+            self.setProperty('github.number', '1234')
             self.expectRemoteCommands(
-                ExpectShell(workdir='wkdir',
-                            timeout=300,
-                            logEnviron=False,
-                            command=['git', 'svn', 'dcommit', '--rmdir']) +
-                ExpectShell.log('stdio', stdout='Unexpected failure') +
-                2,
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout='') +
+                0,
             )
-            self.expectOutcome(result=FAILURE, state_string='Failed to push commit to Webkit repository')
+            self.expectOutcome(result=SUCCESS, state_string='Identifier: 220797@main')
             with current_hostname(EWS_BUILD_HOSTNAME):
                 rc = self.runStep()
-            self.assertEqual(self.getProperty('build_finish_summary'), 'Failed to commit to WebKit repository')
-            self.assertEqual(self.getProperty('bugzilla_comment_text'), 'commit-queue failed to commit attachment 2345 to WebKit repository. To retry, please set cq+ flag again.')
-            return rc
 
+        self.assertEqual(self.getProperty('comment_text'), 'Committed 220797@main (5dc27962b4c5): <https://commits.webkit.org/220797@main>\n\nReviewed commits have been landed. Closing PR #1234 and removing active labels.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 220797@main')
+        return rc
+
+    def test_pr_no_identifier(self):
+        with self.mock_commits_webkit_org(), self.mock_sleep():
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '5dc27962b4c5')
+            self.setProperty('github.number', '1234')
+            self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout='') +
+                0,
+            )
+            self.expectOutcome(result=FAILURE, state_string='Failed to determine identifier')
+            with current_hostname(EWS_BUILD_HOSTNAME):
+                rc = self.runStep()
+
+        self.assertEqual(self.getProperty('comment_text'), 'Committed ? (5dc27962b4c5): <https://commits.webkit.org/5dc27962b4c5>\n\nReviewed commits have been landed. Closing PR #1234 and removing active labels.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 5dc27962b4c5')
+        return rc
+
+    def test_success_patch(self):
+        with self.mock_commits_webkit_org(identifier='220797@main'), self.mock_sleep():
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '5dc27962b4c5')
+            self.setProperty('patch_id', '1234')
+            self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout='') +
+                0,
+            )
+            self.expectOutcome(result=SUCCESS, state_string='Identifier: 220797@main')
+            with current_hostname(EWS_BUILD_HOSTNAME):
+                rc = self.runStep()
+
+        self.assertEqual(self.getProperty('comment_text'), 'Committed 220797@main (5dc27962b4c5): <https://commits.webkit.org/220797@main>\n\nAll reviewed patches have been landed. Closing bug and clearing flags on attachment 1234.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 220797@main')
+        return rc
+
+    def test_patch_no_identifier(self):
+        with self.mock_commits_webkit_org(), self.mock_sleep():
+            self.setupStep(DetermineLandedIdentifier())
+            self.setProperty('landed_hash', '5dc27962b4c5')
+            self.setProperty('patch_id', '1234')
+            self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        timeout=300,
+                        logEnviron=False,
+                        command=['git', 'log', '-1', '--no-decorate']) +
+                ExpectShell.log('stdio', stdout='') +
+                0,
+            )
+            self.expectOutcome(result=FAILURE, state_string='Failed to determine identifier')
+            with current_hostname(EWS_BUILD_HOSTNAME):
+                rc = self.runStep()
+
+        self.assertEqual(self.getProperty('comment_text'), 'Committed ? (5dc27962b4c5): <https://commits.webkit.org/5dc27962b4c5>\n\nAll reviewed patches have been landed. Closing bug and clearing flags on attachment 1234.')
+        self.assertEqual(self.getProperty('build_summary'), 'Committed 5dc27962b4c5')
+        return rc
 
 class TestShowIdentifier(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
@@ -5378,9 +5639,52 @@ class TestFetchBranches(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         timeout=300,
                         logEnviron=False,
-                        command=['git', 'fetch']) +
+                        command=['git', 'fetch', 'origin', '--prune']) +
             ExpectShell.log('stdio', stdout='   fb192c1de607..afb17ed1708b  main       -> origin/main\n') +
             0,
+        )
+        self.expectOutcome(result=SUCCESS)
+        return self.runStep()
+
+    def test_success_remote(self):
+        GitHub.credentials = lambda user=None: ('webkit-commit-queue', 'password')
+        self.setupStep(FetchBranches())
+        self.setProperty('project', 'WebKit/WebKit-security')
+        self.setProperty('remote', 'security')
+        env = dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password')
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=env,
+                command=['git', 'fetch', 'origin', '--prune'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=env,
+                command=['git', 'config', 'credential.helper', '!echo_credentials() { sleep 1; echo "username=${GIT_USER}"; echo "password=${GIT_PASSWORD}"; }; echo_credentials'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=env,
+                command=['/bin/sh', '-c', 'git remote add security https://github.com/WebKit/WebKit-security.git || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=env,
+                command=['git', 'remote', 'set-url', 'security', 'https://github.com/WebKit/WebKit-security.git'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=env,
+                command=['git', 'fetch', 'security', '--prune'],
+            ) + 0,
         )
         self.expectOutcome(result=SUCCESS)
         return self.runStep()
@@ -5391,7 +5695,7 @@ class TestFetchBranches(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         timeout=300,
                         logEnviron=False,
-                        command=['git', 'fetch']) +
+                        command=['git', 'fetch',  'origin', '--prune']) +
             ExpectShell.log('stdio', stdout="fatal: unable to access 'https://github.com/WebKit/WebKit/': Could not resolve host: github.com\n") +
             2,
         )
@@ -5439,7 +5743,888 @@ class TestInstallBuiltProduct(BuildStepMixinAdditions, unittest.TestCase):
         return self.runStep()
 
 
-class TestVerifyGitHubIntegrity(BuildStepMixinAdditions, unittest.TestCase):
+class TestValidateRemote(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_patch(self):
+        self.setupStep(ValidateRemote())
+        self.setProperty('patch_id', '1234')
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
+        return self.runStep()
+
+    def test_origin(self):
+        self.setupStep(ValidateRemote())
+        self.setProperty('remote', 'origin')
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
+        return self.runStep()
+
+    def test_success(self):
+        self.setupStep(ValidateRemote())
+        self.setProperty('remote', 'security')
+        self.setProperty('github.base.ref', 'safari-000-branch')
+        self.setProperty('github.number', '1234')
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'merge-base', '--is-ancestor', 'remotes/security/safari-000-branch', 'remotes/origin/safari-000-branch'],
+            ) + 1,
+        )
+        self.expectOutcome(result=SUCCESS, state_string="Verified 'WebKit/WebKit' does not own 'safari-000-branch'")
+        return self.runStep()
+
+    def test_failure(self):
+        self.setupStep(ValidateRemote())
+        self.setProperty('remote', 'security')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.number', '1234')
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                logEnviron=False,
+                command=['git', 'merge-base', '--is-ancestor', 'remotes/security/main', 'remotes/origin/main'],
+            ) + 0,
+        )
+        self.expectOutcome(result=FAILURE, state_string="Cannot land on 'main', it is owned by 'WebKit/WebKit'")
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), "Cannot land on 'main', it is owned by 'WebKit/WebKit', blocking PR #1234.\nMake a pull request against 'WebKit/WebKit' to land this change.")
+        self.assertEqual(self.getProperty('build_finish_summary'), "Cannot land on 'main', it is owned by 'WebKit/WebKit'")
+        return rc
+
+
+class TestValidateSquashed(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_patch(self):
+        self.setupStep(ValidateSquashed())
+        self.setProperty('patch_id', '1234')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        command=['git', 'log', '--oneline', 'HEAD', '^origin/main', '--max-count=2'],
+                        )
+            + 0
+            + ExpectShell.log('stdio', stdout='e1eb24603493 (HEAD -> eng/pull-request-branch) First line of commit\n'),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Verified commit is squashed')
+        return self.runStep()
+
+    def test_failure_patch(self):
+        self.setupStep(ValidateSquashed())
+        self.setProperty('patch_id', '1234')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        command=['git', 'log', '--oneline', 'HEAD', '^origin/main', '--max-count=2'],
+                        )
+            + 0
+            + ExpectShell.log('stdio', stdout='''e1eb24603493 (HEAD -> eng/pull-request-branch) Commit Series (3)
+08abb9ddcbb5 Commit Series (2)
+45cf3efe4dfb Commit Series (1)
+'''),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Can only land squashed commits')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), 'This change contains multiple commits which are not squashed together, rejecting attachment 1234 from commit queue. Please squash the commits to land.')
+        self.assertEqual(self.getProperty('build_finish_summary'), 'Can only land squashed commits')
+        return rc
+
+    def test_success(self):
+        self.setupStep(ValidateSquashed())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        command=['git', 'log', '--oneline', 'eng/pull-request-branch', '^main', '--max-count=2'],
+                        )
+            + 0
+            + ExpectShell.log('stdio', stdout='e1eb24603493 (HEAD -> eng/pull-request-branch) First line of commit\n'),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Verified commit is squashed')
+        return self.runStep()
+
+    def test_failure_multiple_commits(self):
+        self.setupStep(ValidateSquashed())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        command=['git', 'log', '--oneline', 'eng/pull-request-branch', '^main', '--max-count=2'],
+                        )
+            + 0
+            + ExpectShell.log('stdio', stdout='''e1eb24603493 (HEAD -> eng/pull-request-branch) Commit Series (3)
+08abb9ddcbb5 Commit Series (2)
+45cf3efe4dfb Commit Series (1)
+'''),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Can only land squashed commits')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), 'This change contains multiple commits which are not squashed together, blocking PR #1234. Please squash the commits to land.')
+        self.assertEqual(self.getProperty('build_finish_summary'), 'Can only land squashed commits')
+        return rc
+
+    def test_failure_merged(self):
+        self.setupStep(ValidateSquashed())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        command=['git', 'log', '--oneline', 'eng/pull-request-branch', '^main', '--max-count=2'],
+                        )
+            + 0
+            + ExpectShell.log('stdio', stdout=''),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Can only land squashed commits')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), 'This change contains multiple commits which are not squashed together, blocking PR #1234. Please squash the commits to land.')
+        self.assertEqual(self.getProperty('build_finish_summary'), 'Can only land squashed commits')
+        return rc
+
+
+class TestAddReviewerToCommitMessage(BuildStepMixinAdditions, unittest.TestCase):
+    ENV = dict(
+        GIT_COMMITTER_NAME='WebKit Committer',
+        GIT_COMMITTER_EMAIL='committer@webkit.org',
+        FILTER_BRANCH_SQUELCH_WARNING='1',
+    )
+
+    def setUp(self):
+        self.longMessage = True
+        Contributors.load = mock_load_contributors
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_skipped_patch(self):
+        self.setupStep(AddReviewerToCommitMessage())
+        self.setProperty('patch_id', '1234')
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
+        return self.runStep()
+
+    def test_success(self):
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.setupStep(AddReviewerToCommitMessage())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('reviewers_full_names', ['WebKit Reviewer', 'Other Reviewer'])
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        env=self.ENV,
+                        timeout=60,
+                        command=[
+                            'git', 'filter-branch', '-f',
+                            '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}'".format(date=date),
+                            '--msg-filter', 'sed "s/NOBODY (OO*PP*S!*)/WebKit Reviewer and Other Reviewer/g"',
+                            'eng/pull-request-branch...main',
+                        ])
+            + 0
+            + ExpectShell.log('stdio', stdout="Ref 'refs/heads/eng/pull-request-branch' was rewritten\n"),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Reviewed by WebKit Reviewer and Other Reviewer')
+        return self.runStep()
+
+    def test_failure(self):
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.setupStep(AddReviewerToCommitMessage())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('reviewers_full_names', ['WebKit Reviewer', 'Other Reviewer'])
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        env=self.ENV,
+                        timeout=60,
+                        command=[
+                            'git', 'filter-branch', '-f',
+                            '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}'".format(date=date),
+                            '--msg-filter', 'sed "s/NOBODY (OO*PP*S!*)/WebKit Reviewer and Other Reviewer/g"',
+                            'eng/pull-request-branch...main',
+                        ])
+            + 2
+            + ExpectShell.log('stdio', stdout="Failed to rewrite 'refs/heads/eng/pull-request-branch'\n"),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to apply reviewers')
+        return self.runStep()
+
+    def test_no_reviewers(self):
+        self.setupStep(AddReviewerToCommitMessage())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('reviewers_full_names', [])
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
+        return self.runStep()
+
+
+class TestValidateCommitMessage(BuildStepMixinAdditions, unittest.TestCase):
+    def expectCommonRemoteCommandsWithOutput(self, expected_remote_command_output):
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=60,
+                        command=['/bin/sh', '-c',
+                                 "git log eng/pull-request-branch ^main | grep -q 'OO*PP*S!' && echo 'Commit message contains (OOPS!) and no reviewer found' || test $? -eq 1"])
+            + 0, ExpectShell(workdir='wkdir',
+                             logEnviron=False,
+                             timeout=60,
+                             command=['/bin/sh', '-c',
+                                      "git log eng/pull-request-branch ^main | grep -q '\\(Reviewed by\\|Rubber-stamped by\\|Rubber stamped by\\|Unreviewed\\|Versioning.\\)' || echo 'No reviewer information in commit message'"])
+            + 0, ExpectShell(workdir='wkdir',
+                             logEnviron=False,
+                             timeout=60,
+                             command=['/bin/sh', '-c',
+                                      "git log eng/pull-request-branch ^main | grep '\\(Reviewed by\\|Rubber-stamped by\\|Rubber stamped by\\)' || true"])
+            + 0
+            + ExpectShell.log('stdio', stdout=expected_remote_command_output),
+        )
+
+    def setUp(self):
+        self.longMessage = True
+        Contributors.load = mock_load_contributors
+        return self.setUpBuildStep()
+
+    def setUpCommonProperties(self):
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_patch(self):
+        self.setupStep(ValidateCommitMessage())
+        self.setProperty('patch_id', '1234')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=60,
+                        command=['/bin/sh', '-c', "git log HEAD ^origin/main | grep -q 'OO*PP*S!' && echo 'Commit message contains (OOPS!) and no reviewer found' || test $? -eq 1"])
+            + 0, ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=60,
+                        command=['/bin/sh', '-c', "git log HEAD ^origin/main | grep -q '\\(Reviewed by\\|Rubber-stamped by\\|Rubber stamped by\\|Unreviewed\\|Versioning.\\)' || echo 'No reviewer information in commit message'"])
+            + 0, ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=60,
+                        command=['/bin/sh', '-c', "git log HEAD ^origin/main | grep '\\(Reviewed by\\|Rubber-stamped by\\|Rubber stamped by\\)' || true"])
+            + 0
+            + ExpectShell.log('stdio', stdout='    Reviewed by WebKit Reviewer.\n'),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Validated commit message')
+        return self.runStep()
+
+    def test_success(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        expected_remote_command_output = '    Reviewed by WebKit Reviewer.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=SUCCESS, state_string='Validated commit message')
+        return self.runStep()
+
+    def test_success_period(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        expected_remote_command_output = '    Reviewed by Myles C. Maxfield.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=SUCCESS, state_string='Validated commit message')
+        return self.runStep()
+
+    def test_failure_oops(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=60,
+                        command=['/bin/sh', '-c', "git log eng/pull-request-branch ^main | grep -q 'OO*PP*S!' && echo 'Commit message contains (OOPS!) and no reviewer found' || test $? -eq 1"])
+            + 1
+            + ExpectShell.log('stdio', stdout='Commit message contains (OOPS!) and no reviewer found\n'),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Commit message contains (OOPS!) and no reviewer found')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), 'Commit message contains (OOPS!) and no reviewer found, blocking PR #1234')
+        return rc
+
+    def test_failure_no_reviewer(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        self.expectCommonRemoteCommandsWithOutput('No reviewer information in commit message\n')
+        self.expectOutcome(result=FAILURE, state_string='No reviewer information in commit message')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('comment_text'), 'No reviewer information in commit message, blocking PR #1234')
+        return rc
+
+    def test_failure_no_changelog(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/ChangeLog', '+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        expected_remote_command_output = '    Reviewed by WebKit Reviewer.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=FAILURE, state_string='ChangeLog modified, WebKit only allows commit messages')
+        return self.runStep()
+
+    def test_success_with_changelog_tools(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: [
+            '+++ Tools/Scripts/prepare-ChangeLog',
+            '+++ Tools/Scripts/webkitperl/prepare-ChangeLog_unittest/resources/swift_unittests-expected.txt',
+            '+++ Tools/Scripts/webkitperl/prepare-ChangeLog_unittest/resources/swift_unittests.swift']
+        self.setUpCommonProperties()
+        expected_remote_command_output = '    Reviewed by WebKit Reviewer.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=SUCCESS, state_string='Validated commit message')
+        return self.runStep()
+
+    def test_invalid_reviewer(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        expected_remote_command_output = '    Reviewed by WebKit Contributor.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=FAILURE, state_string="'WebKit Contributor' is not a reviewer")
+        return self.runStep()
+
+    def test_self_reviewer(self):
+        self.setupStep(ValidateCommitMessage())
+        ValidateCommitMessage._files = lambda x: ['+++ Tools/CISupport/ews-build/steps.py']
+        self.setUpCommonProperties()
+        self.setProperty('author', 'WebKit Reviewer <reviewer@apple.com>')
+        expected_remote_command_output = '    Reviewed by WebKit Reviewer.\n'
+        self.expectCommonRemoteCommandsWithOutput(expected_remote_command_output)
+        self.expectOutcome(result=FAILURE, state_string="'WebKit Reviewer <reviewer@apple.com>' cannot review their own change")
+        return self.runStep()
+
+
+class TestCanonicalize(BuildStepMixinAdditions, unittest.TestCase):
+    ENV = dict(FILTER_BRANCH_SQUELCH_WARNING='1')
+
+    def setUp(self):
+        self.longMessage = True
+        Contributors.load = mock_load_contributors
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_patch(self):
+        self.setupStep(Canonicalize())
+        self.setProperty('patch_id', '1234')
+        self.setProperty('patch_committer', 'committer@webkit.org')
+        self.setProperty('remote', 'origin')
+
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['/bin/sh', '-c', 'rm .git/identifiers.json || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'pull', 'origin', 'main', '--rebase'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'checkout', 'main'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['python3', 'Tools/Scripts/git-webkit', 'canonicalize', '-n', '1'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                env=self.ENV,
+                timeout=300,
+                command=[
+                    'git', 'filter-branch', '-f',
+                    '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}';GIT_COMMITTER_NAME='WebKit Committer';GIT_COMMITTER_EMAIL='committer@webkit.org'".format(date=date),
+                    'HEAD...HEAD~1',
+                ],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Canonicalized commit')
+        return self.runStep()
+
+    def test_success(self):
+        self.setupStep(Canonicalize())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.setProperty('remote', 'origin')
+
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['/bin/sh', '-c', 'rm .git/identifiers.json || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'pull', 'origin', 'main', '--rebase'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'branch', '-f', 'main', 'eng/pull-request-branch'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'checkout', 'main'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['python3', 'Tools/Scripts/git-webkit', 'canonicalize', '-n', '1'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                env=self.ENV,
+                timeout=300,
+                command=[
+                    'git', 'filter-branch', '-f',
+                    '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}';GIT_COMMITTER_NAME='WebKit Committer';GIT_COMMITTER_EMAIL='committer@webkit.org'".format(date=date),
+                    'HEAD...HEAD~1',
+                ],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Canonicalized commit')
+        return self.runStep()
+
+    def test_success_branch(self):
+        self.setupStep(Canonicalize())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'safari-000-branch')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.setProperty('remote', 'security')
+
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['/bin/sh', '-c', 'rm .git/identifiers.json || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'pull', 'security', 'safari-000-branch', '--rebase'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'branch', '-f', 'safari-000-branch', 'eng/pull-request-branch'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'checkout', 'safari-000-branch'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['python3', 'Tools/Scripts/git-webkit', 'canonicalize', '-n', '1'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                env=self.ENV,
+                timeout=300,
+                command=[
+                    'git', 'filter-branch', '-f',
+                    '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}';GIT_COMMITTER_NAME='WebKit Committer';GIT_COMMITTER_EMAIL='committer@webkit.org'".format(date=date),
+                    'HEAD...HEAD~1',
+                ],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Canonicalized commit')
+        return self.runStep()
+
+    def test_success_no_rebase(self):
+        self.setupStep(Canonicalize(rebase_enabled=False))
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.setProperty('remote', 'origin')
+
+        gmtoffset = int(time.localtime().tm_gmtoff * 100 / (60 * 60))
+        fixed_time = int(time.time())
+        date = f'{int(time.time())} {gmtoffset}'
+        time.time = lambda: fixed_time
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['/bin/sh', '-c', 'rm .git/identifiers.json || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['python3', 'Tools/Scripts/git-webkit', 'canonicalize', '-n', '3'],
+            ) + 0, ExpectShell(workdir='wkdir',
+                logEnviron=False,
+                env=self.ENV,
+                timeout=300,
+                command=[
+                    'git', 'filter-branch', '-f',
+                    '--env-filter', "GIT_AUTHOR_DATE='{date}';GIT_COMMITTER_DATE='{date}';GIT_COMMITTER_NAME='WebKit Committer';GIT_COMMITTER_EMAIL='committer@webkit.org'".format(date=date),
+                    'HEAD...HEAD~1',
+                ],
+            ) + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Canonicalized commits')
+        return self.runStep()
+
+    def test_failure(self):
+        self.setupStep(Canonicalize())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.base.ref', 'main')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.setProperty('remote', 'origin')
+
+        self.expectRemoteCommands(
+            ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['/bin/sh', '-c', 'rm .git/identifiers.json || true'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'pull', 'origin', 'main', '--rebase'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'branch', '-f', 'main', 'eng/pull-request-branch'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['git', 'checkout', 'main'],
+            ) + 0, ExpectShell(
+                workdir='wkdir',
+                timeout=300,
+                logEnviron=False,
+                env=self.ENV,
+                command=['python3', 'Tools/Scripts/git-webkit', 'canonicalize', '-n', '1'],
+            ) + 1,
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to canonicalize commit')
+        return self.runStep()
+
+
+class TestPushPullRequestBranch(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_skipped_patch(self):
+        self.setupStep(PushPullRequestBranch())
+        self.setProperty('patch_id', '1234')
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
+        return self.runStep()
+
+    def test_success(self):
+        GitHub.credentials = lambda user=None: ('webkit-commit-queue', 'password')
+        self.setupStep(PushPullRequestBranch())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.head.repo.full_name', 'Contributor/WebKit')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=300,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', '-f', 'Contributor', 'HEAD:eng/pull-request-branch'])
+            + 0
+            + ExpectShell.log('stdio', stdout='To https://github.com/Contributor/WebKit.git\n37b7da95723b...9e2cb83b07b6 eng/pull-request-branch -> eng/pull-request-branch (forced update)\n'),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Pushed to pull request branch')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            return self.runStep()
+
+    def test_failure(self):
+        GitHub.credentials = lambda user=None: ('webkit-commit-queue', 'password')
+        self.setupStep(PushPullRequestBranch())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.head.repo.full_name', 'Contributor/WebKit')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=300,
+                        env=dict(GIT_USER='webkit-commit-queue', GIT_PASSWORD='password'),
+                        command=['git', 'push', '-f', 'Contributor', 'HEAD:eng/pull-request-branch'])
+            + 1
+            + ExpectShell.log('stdio', stdout="fatal: could not read Username for 'https://github.com': Device not configured\n"),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to push to pull request branch')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            return self.runStep()
+
+
+class TestUpdatePullRequest(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_skipped_patch(self):
+        self.setupStep(UpdatePullRequest())
+        self.setProperty('patch_id', '1234')
+        self.expectOutcome(result=SKIPPED, state_string="'git log ...' (skipped)")
+        return self.runStep()
+
+    def test_success(self):
+        def update_pr(x, pr_number, title, description, base=None, head=None, repository_url=None):
+            self.assertEqual(pr_number, '1234')
+            self.assertEqual(title, '[Merge-Queue] Add http credential helper')
+            self.assertEqual(base, 'main')
+            self.assertEqual(head, 'JonWBedard:eng/pull-request-branch')
+
+            self.assertEqual(
+                description,
+                '''#### 44a3b7100bd5dba51c57d874d3e89f89081e7886
+<pre>
+[Merge-Queue] Add http credential helper
+<a href="https://bugs.webkit.org/show_bug.cgi?id=238553">https://bugs.webkit.org/show_bug.cgi?id=238553</a>
+&lt;rdar://problem/91044821&gt;
+
+Reviewed by NOBODY (OOPS!).
+
+* Tools/CISupport/ews-build/steps.py:
+(CheckOutPullRequest.run): Add credential helper that pulls http credentials
+from environment variables.
+* Tools/CISupport/ews-build/steps_unittest.py:
+
+Canonical link: <a href="https://commits.webkit.org/249006@main">https://commits.webkit.org/249006@main</a>
+</pre>
+''',
+            )
+
+            return True
+
+        UpdatePullRequest.update_pr = update_pr
+        self.setupStep(UpdatePullRequest())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.head.user.login', 'JonWBedard')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('github.base.ref', 'main')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=300,
+                        command=['git', 'log', '-1', '--no-decorate'])
+            + 0
+            + ExpectShell.log('stdio', stdout='''commit 44a3b7100bd5dba51c57d874d3e89f89081e7886
+Author: Jonathan Bedard <jbedard@apple.com>
+Date:   Tue Mar 29 16:04:35 2022 -0700
+
+    [Merge-Queue] Add http credential helper
+    https://bugs.webkit.org/show_bug.cgi?id=238553
+    <rdar://problem/91044821>
+
+    Reviewed by NOBODY (OOPS!).
+
+    * Tools/CISupport/ews-build/steps.py:
+    (CheckOutPullRequest.run): Add credential helper that pulls http credentials
+    from environment variables.
+    * Tools/CISupport/ews-build/steps_unittest.py:
+    
+    Canonical link: https://commits.webkit.org/249006@main
+'''),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Updated pull request')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+            self.assertEqual(self.getProperty('bug_id'), '238553')
+            self.assertEqual(self.getProperty('is_test_gardening'), False)
+            return rc
+
+    def test_success_gardening(self):
+        def update_pr(x, pr_number, title, description, base=None, head=None, repository_url=None):
+            self.assertEqual(pr_number, '1234')
+            self.assertEqual(title, '[ macOS wk2 ] some/test/path.html a flaky failure')
+            self.assertEqual(base, 'main')
+            self.assertEqual(head, 'karlrackler:eng/pull-request-branch')
+
+            self.assertEqual(
+                description,
+                '''#### 6a50b47fd71d922f753c06f46917086c839520b
+<pre>
+[ macOS wk2 ] some/test/path.html a flaky failure
+<a href="https://bugs.webkit.org/show_bug.cgi?id=239577">https://bugs.webkit.org/show_bug.cgi?id=239577</a>
+
+Unreviewed test gardening.
+
+* LayoutTests/platform/mac-wk2/TestExpectations:
+
+Canonical link: <a href="https://commits.webkit.org/249833@main">https://commits.webkit.org/249833@main</a>
+</pre>
+''',
+            )
+
+            return True
+
+        UpdatePullRequest.update_pr = update_pr
+        self.setupStep(UpdatePullRequest())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.head.user.login', 'karlrackler')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('github.base.ref', 'main')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=300,
+                        command=['git', 'log', '-1', '--no-decorate'])
+            + 0
+            + ExpectShell.log('stdio', stdout='''commit 6a50b47fd71d922f753c06f46917086c839520b
+Author: Karl Rackler <rackler@apple.com>
+Date:   Thu Apr 21 00:25:03 2022 +0000
+
+    [ macOS wk2 ] some/test/path.html a flaky failure
+    https://bugs.webkit.org/show_bug.cgi?id=239577
+
+    Unreviewed test gardening.
+
+    * LayoutTests/platform/mac-wk2/TestExpectations:
+
+    Canonical link: https://commits.webkit.org/249833@main
+'''),
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Updated pull request')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+            self.assertEqual(self.getProperty('bug_id'), '239577')
+            self.assertEqual(self.getProperty('is_test_gardening'), True)
+            return rc
+
+    def test_failure(self):
+        def update_pr(x, pr_number, title, description, base=None, head=None, repository_url=None):
+            return False
+
+        UpdatePullRequest.update_pr = update_pr
+        self.setupStep(UpdatePullRequest())
+        self.setProperty('github.number', '1234')
+        self.setProperty('github.head.user.login', 'JonWBedard')
+        self.setProperty('github.head.ref', 'eng/pull-request-branch')
+        self.setProperty('github.base.ref', 'main')
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        timeout=300,
+                        command=['git', 'log', '-1', '--no-decorate'])
+            + 0
+            + ExpectShell.log('stdio', stdout='''commit 44a3b7100bd5dba51c57d874d3e89f89081e7886
+Author: Jonathan Bedard <jbedard@apple.com>
+Date:   Tue Mar 29 16:04:35 2022 -0700
+
+    [Merge-Queue] Add http credential helper
+    https://bugs.webkit.org/show_bug.cgi?id=238553
+    <rdar://problem/91044821>
+
+    Reviewed by NOBODY (OOPS!).
+
+    * Tools/CISupport/ews-build/steps.py:
+    (CheckOutPullRequest.run): Add credential helper that pulls http credentials
+    from environment variables.
+    * Tools/CISupport/ews-build/steps_unittest.py:
+    
+    Canonical link: https://commits.webkit.org/249006@main
+'''),
+        )
+        self.expectOutcome(result=FAILURE, state_string='Failed to update pull request')
+        with current_hostname(EWS_BUILD_HOSTNAME):
+            rc = self.runStep()
+            self.assertEqual(self.getProperty('bug_id'), '238553')
+            self.assertEqual(self.getProperty('is_test_gardening'), False)
+            return rc
+
+
+class TestClosePullRequest(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
         return self.setUpBuildStep()
@@ -5448,30 +6633,22 @@ class TestVerifyGitHubIntegrity(BuildStepMixinAdditions, unittest.TestCase):
         return self.tearDownBuildStep()
 
     def test_success(self):
-        self.setupStep(VerifyGitHubIntegrity())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['python3', 'Tools/Scripts/check-github-mirror-integrity'],
-                        logEnviron=False,
-                        timeout=1200,
-                        )
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Verified GitHub integrity')
+        ClosePullRequest.close_pr = lambda x, pr_number, repository_url=None: True
+        self.setupStep(ClosePullRequest())
+        self.setProperty('github.number', '1234')
+        self.expectOutcome(result=SUCCESS, state_string='Closed PR 1234')
         return self.runStep()
 
     def test_failure(self):
-        self.setupStep(VerifyGitHubIntegrity())
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['python3', 'Tools/Scripts/check-github-mirror-integrity'],
-                        logEnviron=False,
-                        timeout=1200,
-                        )
-            + ExpectShell.log('stdio', stdout='Unexpected error.')
-            + 2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='GitHub integrity check failed')
+        ClosePullRequest.close_pr = lambda x, pr_number, repository_url=None: False
+        self.setupStep(ClosePullRequest())
+        self.setProperty('github.number', '1234')
+        self.expectOutcome(result=FAILURE, state_string='Failed to close PR 1234')
+        return self.runStep()
+
+    def test_skip(self):
+        self.setupStep(ClosePullRequest())
+        self.expectOutcome(result=SKIPPED, state_string='finished (skipped)')
         return self.runStep()
 
 

@@ -140,6 +140,8 @@ std::optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScr
     [_safeBrowsingWarning setFrame:self.bounds];
     if (_impl)
         _impl->setFrameSize(NSSizeToCGSize(size));
+
+    [self _recalculateViewportSizesWithMinimumViewportInset:_minimumViewportInset maximumViewportInset:_maximumViewportInset throwOnInvalidInput:NO];
 }
 
 - (void)setUserInterfaceLayoutDirection:(NSUserInterfaceLayoutDirection)userInterfaceLayoutDirection
@@ -241,6 +243,8 @@ WEBCORE_COMMAND(pageUp)
 WEBCORE_COMMAND(pageUpAndModifySelection)
 WEBCORE_COMMAND(paste)
 WEBCORE_COMMAND(pasteAsPlainText)
+WEBCORE_COMMAND(scrollPageDown)
+WEBCORE_COMMAND(scrollPageUp)
 WEBCORE_COMMAND(pasteFont)
 WEBCORE_COMMAND(scrollLineDown)
 WEBCORE_COMMAND(scrollLineUp)
@@ -264,26 +268,6 @@ WEBCORE_COMMAND(yank)
 WEBCORE_COMMAND(yankAndSelect)
 
 #undef WEBCORE_COMMAND
-
-- (void)scrollPageDown:(id)sender
-{
-    if (_impl->page().preferences().eventHandlerDrivenSmoothKeyboardScrollingEnabled()) {
-        [self.nextResponder tryToPerform:_cmd with:sender];
-        return;
-    }
-
-    _impl->executeEditCommandForSelector(_cmd);
-}
-
-- (void)scrollPageUp:(id)sender
-{
-    if (_impl->page().preferences().eventHandlerDrivenSmoothKeyboardScrollingEnabled()) {
-        [self.nextResponder tryToPerform:_cmd with:sender];
-        return;
-    }
-
-    _impl->executeEditCommandForSelector(_cmd);
-}
 
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
 {
@@ -474,11 +458,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
     _impl->swipeWithEvent(event);
 }
 
-- (void)mouseMoved:(NSEvent *)event
-{
-    _impl->mouseMoved(event);
-}
-
 - (void)mouseDown:(NSEvent *)event
 {
     _impl->mouseDown(event);
@@ -492,16 +471,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)mouseDragged:(NSEvent *)event
 {
     _impl->mouseDragged(event);
-}
-
-- (void)mouseEntered:(NSEvent *)event
-{
-    _impl->mouseEntered(event);
-}
-
-- (void)mouseExited:(NSEvent *)event
-{
-    _impl->mouseExited(event);
 }
 
 - (void)otherMouseDown:(NSEvent *)event
@@ -1199,7 +1168,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if ([uiDelegate respondsToSelector:@selector(_webView:dragDestinationActionMaskForDraggingInfo:)])
         return [uiDelegate _webView:self dragDestinationActionMaskForDraggingInfo:draggingInfo];
 
-    if (!linkedOnOrAfter(SDKVersion::FirstWithDropToNavigateDisallowedByDefault))
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DropToNavigateDisallowedByDefault))
         return WKDragDestinationActionAny;
 
     return WKDragDestinationActionAny & ~WKDragDestinationActionLoad;
@@ -1318,6 +1287,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (void)_setIgnoresNonWheelEvents:(BOOL)ignoresNonWheelEvents
 {
     _impl->setIgnoresNonWheelEvents(ignoresNonWheelEvents);
+}
+
+- (BOOL)_ignoresMouseMoveEvents
+{
+    return _impl->ignoresMouseMoveEvents();
+}
+
+- (void)_setIgnoresMouseMoveEvents:(BOOL)ignoresMouseMoveEvents
+{
+    _impl->setIgnoresMouseMoveEvents(ignoresMouseMoveEvents);
 }
 
 - (NSView *)_safeBrowsingWarning
@@ -1701,6 +1680,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _impl->prepareForMoveToWindow(targetWindow, [completionHandlerCopy] {
         completionHandlerCopy();
     });
+}
+
+- (void)_simulateMouseMove:(NSEvent *)event
+{
+    return _impl->mouseMoved(event);
 }
 
 @end // WKWebView (WKPrivateMac)

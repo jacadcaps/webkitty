@@ -51,6 +51,12 @@ private:
     WebKitMediaCommonEncryptionDecrypt* m_decryptor;
 };
 
+enum DecryptionState {
+    Idle,
+    Decrypting,
+    FlushPending
+};
+
 #define WEBKIT_MEDIA_CENC_DECRYPT_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE((obj), WEBKIT_TYPE_MEDIA_CENC_DECRYPT, WebKitMediaCommonEncryptionDecryptPrivate))
 struct _WebKitMediaCommonEncryptionDecryptPrivate {
     RefPtr<CDMProxy> cdmProxy;
@@ -61,6 +67,7 @@ struct _WebKitMediaCommonEncryptionDecryptPrivate {
 
     bool isFlushing { false };
     std::unique_ptr<CDMProxyDecryptionClientImplementation> cdmProxyDecryptionClientImplementation;
+    enum DecryptionState decryptionState { DecryptionState::Idle };
 };
 
 static constexpr Seconds MaxSecondsToWaitForCDMProxy = 5_s;
@@ -68,6 +75,7 @@ static constexpr Seconds MaxSecondsToWaitForCDMProxy = 5_s;
 static void constructed(GObject*);
 static GstStateChangeReturn changeState(GstElement*, GstStateChange transition);
 static GstCaps* transformCaps(GstBaseTransform*, GstPadDirection, GstCaps*, GstCaps*);
+static gboolean acceptCaps(GstBaseTransform*, GstPadDirection, GstCaps*);
 static GstFlowReturn transformInPlace(GstBaseTransform*, GstBuffer*);
 static gboolean sinkEventHandler(GstBaseTransform*, GstEvent*);
 static void setContext(GstElement*, GstContext*);
@@ -93,7 +101,9 @@ static void webkit_media_common_encryption_decrypt_class_init(WebKitMediaCommonE
     GstBaseTransformClass* baseTransformClass = GST_BASE_TRANSFORM_CLASS(klass);
     baseTransformClass->transform_ip = GST_DEBUG_FUNCPTR(transformInPlace);
     baseTransformClass->transform_caps = GST_DEBUG_FUNCPTR(transformCaps);
+    baseTransformClass->accept_caps = GST_DEBUG_FUNCPTR(acceptCaps);
     baseTransformClass->transform_ip_on_passthrough = FALSE;
+    baseTransformClass->passthrough_on_same_caps = TRUE;
     baseTransformClass->sink_event = GST_DEBUG_FUNCPTR(sinkEventHandler);
 }
 
@@ -127,31 +137,44 @@ static GstCaps* transformCaps(GstBaseTransform* base, GstPadDirection direction,
         GUniquePtr<GstStructure> outgoingStructure = nullptr;
 
         if (direction == GST_PAD_SINK) {
-            if (!gst_structure_has_field(incomingStructure, "original-media-type"))
-                continue;
+            bool canDoPassthrough = false;
+            if (!gst_structure_has_field(incomingStructure, "original-media-type")) {
+                // Let's check compatibility with src pad caps to see if we can do passthrough.
+                GRefPtr<GstCaps> srcPadTemplateCaps = adoptGRef(gst_pad_get_pad_template_caps(GST_BASE_TRANSFORM_SRC_PAD(base)));
+                unsigned srcPadTemplateCapsSize = gst_caps_get_size(srcPadTemplateCaps.get());
+                for (unsigned j = 0; !canDoPassthrough && j < srcPadTemplateCapsSize; ++j)
+                    canDoPassthrough = gst_structure_can_intersect(incomingStructure, gst_caps_get_structure(srcPadTemplateCaps.get(), j));
+
+                if (!canDoPassthrough)
+                    continue;
+            }
 
             outgoingStructure = GUniquePtr<GstStructure>(gst_structure_copy(incomingStructure));
-            gst_structure_set_name(outgoingStructure.get(), gst_structure_get_string(outgoingStructure.get(), "original-media-type"));
+
+            if (!canDoPassthrough)
+                gst_structure_set_name(outgoingStructure.get(), gst_structure_get_string(outgoingStructure.get(), "original-media-type"));
 
             // Filter out the DRM related fields from the down-stream caps.
             gst_structure_remove_fields(outgoingStructure.get(), "protection-system", "original-media-type", "encryption-algorithm", "encoding-scope", "cipher-mode", nullptr);
         } else {
             outgoingStructure = GUniquePtr<GstStructure>(gst_structure_copy(incomingStructure));
-            // Filter out the video related fields from the up-stream caps,
-            // because they are not relevant to the input caps of this element and
-            // can cause caps negotiation failures with adaptive bitrate streams.
-            gst_structure_remove_fields(outgoingStructure.get(), "base-profile", "codec_data", "height", "framerate", "level", "pixel-aspect-ratio", "profile", "rate", "width", nullptr);
+            if (!gst_base_transform_is_passthrough(base)) {
+                // Filter out the video related fields from the up-stream caps,
+                // because they are not relevant to the input caps of this element and
+                // can cause caps negotiation failures with adaptive bitrate streams.
+                gst_structure_remove_fields(outgoingStructure.get(), "base-profile", "codec_data", "height", "framerate", "level", "pixel-aspect-ratio", "profile", "rate", "width", nullptr);
 
-            gst_structure_set(outgoingStructure.get(), "protection-system", G_TYPE_STRING, klass->protectionSystemId(self),
-                "original-media-type", G_TYPE_STRING, gst_structure_get_name(incomingStructure), nullptr);
+                gst_structure_set(outgoingStructure.get(), "protection-system", G_TYPE_STRING, klass->protectionSystemId(self),
+                    "original-media-type", G_TYPE_STRING, gst_structure_get_name(incomingStructure), nullptr);
 
-            // GST_PROTECTION_UNSPECIFIED_SYSTEM_ID was added in the GStreamer
-            // developement git master which will ship as version 1.16.0.
-            gst_structure_set_name(outgoingStructure.get(),
+                // GST_PROTECTION_UNSPECIFIED_SYSTEM_ID was added in the GStreamer
+                // developement git master which will ship as version 1.16.0.
+                gst_structure_set_name(outgoingStructure.get(),
 #if GST_CHECK_VERSION(1, 16, 0)
-                !g_strcmp0(klass->protectionSystemId(self), GST_PROTECTION_UNSPECIFIED_SYSTEM_ID) ? "application/x-webm-enc" :
+                    !g_strcmp0(klass->protectionSystemId(self), GST_PROTECTION_UNSPECIFIED_SYSTEM_ID) ? "application/x-webm-enc" :
 #endif
-                "application/x-cenc");
+                    "application/x-cenc");
+            }
         }
 
         bool duplicate = false;
@@ -178,6 +201,21 @@ static GstCaps* transformCaps(GstBaseTransform* base, GstPadDirection direction,
 
     GST_DEBUG_OBJECT(base, "returning %" GST_PTR_FORMAT, transformedCaps);
     return transformedCaps;
+}
+
+static gboolean acceptCaps(GstBaseTransform* trans, GstPadDirection direction, GstCaps* caps)
+{
+    gboolean result = GST_BASE_TRANSFORM_CLASS(parent_class)->accept_caps(trans, direction, caps);
+
+    if (result || direction == GST_PAD_SRC)
+        return result;
+
+    GRefPtr<GstCaps> srcPadTemplateCaps = adoptGRef(gst_pad_get_pad_template_caps(GST_BASE_TRANSFORM_SRC_PAD(trans)));
+    result = gst_caps_can_intersect(caps, srcPadTemplateCaps.get());
+    GST_TRACE_OBJECT(trans, "attempted to match %" GST_PTR_FORMAT " with the src pad template caps %" GST_PTR_FORMAT " to see if we can go passthrough mode, result %s",
+        caps, srcPadTemplateCaps.get(), boolForPrinting(result));
+
+    return result;
 }
 
 static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
@@ -210,32 +248,34 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
             return GST_FLOW_FLUSHING;
         }
         if (!priv->cdmProxy) {
-            GST_ERROR_OBJECT(self, "CDMProxy was not retrieved in time");
+            GST_ELEMENT_ERROR(self, STREAM, FAILED, ("CDMProxy was not retrieved in time"), (nullptr));
             return GST_FLOW_NOT_SUPPORTED;
         }
         GST_DEBUG_OBJECT(self, "CDM now available with address %p", priv->cdmProxy.get());
     }
 
-    auto removeProtectionMetaOnReturn = makeScopeExit([buffer, protectionMeta] {
+    // We are still going to be locked when running this, so no need to lock here.
+    auto scopeExit = makeScopeExit([buffer, protectionMeta, priv] {
         gst_buffer_remove_meta(buffer, reinterpret_cast<GstMeta*>(protectionMeta));
+        priv->decryptionState = DecryptionState::Idle;
     });
 
     bool isCbcs = !g_strcmp0(gst_structure_get_string(protectionMeta->info, "cipher-mode"), "cbcs");
 
     unsigned ivSize;
     if (!gst_structure_get_uint(protectionMeta->info, "iv_size", &ivSize)) {
-        GST_ERROR_OBJECT(self, "Failed to get iv_size");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get iv_size"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
     if (!ivSize && !gst_structure_get_uint(protectionMeta->info, "constant_iv_size", &ivSize)) {
-        GST_ERROR_OBJECT(self, "No iv_size and failed to get constant_iv_size");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("No iv_size and failed to get constant_iv_size"), (nullptr));
         ASSERT(isCbcs);
         return GST_FLOW_NOT_SUPPORTED;
     }
 
     gboolean encrypted;
     if (!gst_structure_get_boolean(protectionMeta->info, "encrypted", &encrypted)) {
-        GST_ERROR_OBJECT(self, "Failed to get encrypted flag");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get encrypted flag"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
 
@@ -249,7 +289,7 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
     unsigned subSampleCount = 0;
     // cbcs could not include the subsample_count.
     if (!gst_structure_get_uint(protectionMeta->info, "subsample_count", &subSampleCount) && !isCbcs) {
-        GST_ERROR_OBJECT(self, "Failed to get subsample_count");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get subsample_count"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
 
@@ -258,12 +298,12 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
     if (subSampleCount) {
         value = gst_structure_get_value(protectionMeta->info, "subsamples");
         if (!value) {
-            GST_ERROR_OBJECT(self, "Failed to get subsamples");
+            GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get subsamples"), (nullptr));
             return GST_FLOW_NOT_SUPPORTED;
         }
         subSamplesBuffer = gst_value_get_buffer(value);
         if (!subSamplesBuffer) {
-            GST_ERROR_OBJECT(self, "There is no subsamples buffer, but a positive subsample count");
+            GST_ELEMENT_ERROR(self, STREAM, FAILED, ("There is no subsamples buffer, but a positive subsample count"), (nullptr));
             return GST_FLOW_NOT_SUPPORTED;
         }
     }
@@ -271,24 +311,23 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
     value = gst_structure_get_value(protectionMeta->info, "kid");
 
     if (!value) {
-        GST_ERROR_OBJECT(self, "Failed to get key id for buffer");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get key id for buffer"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
     GstBuffer* keyIDBuffer = gst_value_get_buffer(value);
 
     value = gst_structure_get_value(protectionMeta->info, "iv");
     if (!value) {
-        GST_ERROR_OBJECT(self, "Failed to get IV for sample");
-        return GST_FLOW_NOT_SUPPORTED;
-    }
-
-    if (isCbcs && (gst_structure_has_field(protectionMeta->info, "crypt_byte_block") || gst_structure_has_field(protectionMeta->info, "skip_byte_block"))) {
-        GST_FIXME_OBJECT(self, "cbcs crypt/skip pattern is still unsupported");
+        GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Failed to get IV for sample"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
 
     GstBuffer* ivBuffer = gst_value_get_buffer(value);
     WebKitMediaCommonEncryptionDecryptClass* klass = WEBKIT_MEDIA_CENC_DECRYPT_GET_CLASS(self);
+
+    ASSERT(priv->decryptionState == DecryptionState::Idle);
+    // Value is set back to Idle in the scopeExit.
+    priv->decryptionState = DecryptionState::Decrypting;
 
     GST_TRACE_OBJECT(self, "decrypting");
 
@@ -302,12 +341,13 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
     }
 
     // Accessing priv members again.
+    if (priv->isFlushing || priv->decryptionState == DecryptionState::FlushPending) {
+        GST_DEBUG_OBJECT(self, "flushing, bailing out");
+        return GST_FLOW_FLUSHING;
+    }
+
     if (!didDecryptionSucceed) {
-        if (priv->isFlushing) {
-            GST_DEBUG_OBJECT(self, "Decryption aborted because of flush");
-            return GST_FLOW_FLUSHING;
-        }
-        GST_ERROR_OBJECT(self, "Decryption failed");
+        GST_ELEMENT_ERROR(self, STREAM, DECRYPT, ("Decryption failed"), (nullptr));
         return GST_FLOW_NOT_SUPPORTED;
     }
 
@@ -401,6 +441,9 @@ static gboolean sinkEventHandler(GstBaseTransform* trans, GstEvent* event)
             Locker locker { priv->lock };
             bool isCdmProxyAttached = priv->cdmProxy;
             priv->isFlushing = true;
+            ASSERT(priv->decryptionState == DecryptionState::Idle || priv->decryptionState == DecryptionState::Decrypting);
+            if (priv->decryptionState == DecryptionState::Decrypting)
+                priv->decryptionState = DecryptionState::FlushPending;
             if (isCdmProxyAttached) {
                 locker.unlockEarly();
                 priv->cdmProxy->abortWaitingForKey();

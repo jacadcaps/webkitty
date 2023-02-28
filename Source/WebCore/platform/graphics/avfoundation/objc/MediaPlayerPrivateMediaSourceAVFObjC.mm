@@ -32,7 +32,9 @@
 #import "AVAssetTrackUtilities.h"
 #import "AVStreamDataParserMIMETypeCache.h"
 #import "CDMSessionAVStreamSession.h"
+#import "ContentTypeUtilities.h"
 #import "GraphicsContext.h"
+#import "IOSurface.h"
 #import "Logging.h"
 #import "MediaSessionManagerCocoa.h"
 #import "MediaSourcePrivateAVFObjC.h"
@@ -81,6 +83,18 @@ String convertEnumerationToString(MediaPlayerPrivateMediaSourceAVFObjC::SeekStat
     ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
+
+#if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+
+static bool isCopyDisplayedPixelBufferAvailable()
+{
+    static auto result = [] {
+        return [PAL::getAVSampleBufferDisplayLayerClass() instancesRespondToSelector:@selector(copyDisplayedPixelBuffer)];
+    }();
+    return MediaSessionManagerCocoa::mediaSourceInlinePaintingEnabled() && result;
+}
+
+#endif // HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
     
 #pragma mark -
 #pragma mark MediaPlayerPrivateMediaSourceAVFObjC
@@ -157,7 +171,8 @@ MediaPlayerPrivateMediaSourceAVFObjC::MediaPlayerPrivateMediaSourceAVFObjC(Media
         if (!weakThis)
             return;
 
-        DEBUG_LOG(logSiteIdentifier, "synchronizer fired for ", PAL::toMediaTime(time), ", seeking = ", m_seeking, ", pending = ", !!m_pendingSeek);
+        auto clampedTime = CMTIME_IS_NUMERIC(time) ? clampTimeToLastSeekTime(PAL::toMediaTime(time)) : MediaTime::zeroTime();
+        ALWAYS_LOG(logSiteIdentifier, "synchronizer fired: time clamped = ", clampedTime, ", seeking = ", m_seeking, ", pending = ", !!m_pendingSeek);
 
         if (m_seeking && !m_pendingSeek) {
             m_seeking = false;
@@ -172,7 +187,7 @@ MediaPlayerPrivateMediaSourceAVFObjC::MediaPlayerPrivateMediaSourceAVFObjC(Media
             seekInternal();
 
         if (m_currentTimeDidChangeCallback)
-            m_currentTimeDidChangeCallback(CMTIME_IS_NUMERIC(time) ? PAL::toMediaTime(time) : MediaTime::zeroTime());
+            m_currentTimeDidChangeCallback(clampedTime);
     }];
 }
 
@@ -258,6 +273,9 @@ MediaPlayer::SupportsType MediaPlayerPrivateMediaSourceAVFObjC::supportsTypeAndC
     if (!parameters.isMediaSource)
         return MediaPlayer::SupportsType::IsNotSupported;
 
+    if (!contentTypeMeetsContainerAndCodecTypeRequirements(parameters.type, parameters.allowedMediaContainerTypes, parameters.allowedMediaCodecTypes))
+        return MediaPlayer::SupportsType::IsNotSupported;
+
     auto supported = SourceBufferParser::isContentTypeSupported(parameters.type);
 
     if (supported != MediaPlayer::SupportsType::IsSupported)
@@ -279,7 +297,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::load(const String&)
     m_player->networkStateChanged();
 }
 
-void MediaPlayerPrivateMediaSourceAVFObjC::load(const URL&, const ContentType&, MediaSourcePrivateClient* client)
+void MediaPlayerPrivateMediaSourceAVFObjC::load(const URL&, const ContentType&, MediaSourcePrivateClient& client)
 {
     ALWAYS_LOG(LOGIDENTIFIER);
 
@@ -313,11 +331,7 @@ PlatformLayer* MediaPlayerPrivateMediaSourceAVFObjC::platformLayer() const
 void MediaPlayerPrivateMediaSourceAVFObjC::play()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    callOnMainThread([weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-        weakThis.get()->playInternal();
-    });
+    playInternal();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::playInternal(std::optional<MonotonicTime>&& hostTime)
@@ -342,7 +356,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::playInternal(std::optional<MonotonicT
     ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     if (hostTime && [m_synchronizer respondsToSelector:@selector(setRate:time:atHostTime:)]) {
         auto cmHostTime = PAL::CMClockMakeHostTimeFromSystemUnits(hostTime->toMachAbsoluteTime());
-        INFO_LOG(LOGIDENTIFIER, "setting rate to ", m_rate, " at host time ", PAL::CMTimeGetSeconds(cmHostTime));
+        ALWAYS_LOG(LOGIDENTIFIER, "setting rate to ", m_rate, " at host time ", PAL::CMTimeGetSeconds(cmHostTime));
         [m_synchronizer setRate:m_rate time:PAL::kCMTimeInvalid atHostTime:cmHostTime];
     } else
         [m_synchronizer setRate:m_rate];
@@ -351,18 +365,12 @@ void MediaPlayerPrivateMediaSourceAVFObjC::playInternal(std::optional<MonotonicT
     UNUSED_PARAM(hostTime);
     [m_synchronizer setRate:m_rate];
 #endif
-
-    m_player->playbackStateChanged();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::pause()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    callOnMainThread([weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-        weakThis.get()->pauseInternal();
-    });
+    pauseInternal();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::pauseInternal(std::optional<MonotonicTime>&& hostTime)
@@ -374,7 +382,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::pauseInternal(std::optional<Monotonic
     ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     if (hostTime && [m_synchronizer respondsToSelector:@selector(setRate:time:atHostTime:)]) {
         auto cmHostTime = PAL::CMClockMakeHostTimeFromSystemUnits(hostTime->toMachAbsoluteTime());
-        INFO_LOG(LOGIDENTIFIER, "setting rate to 0 at host time ", PAL::CMTimeGetSeconds(cmHostTime));
+        ALWAYS_LOG(LOGIDENTIFIER, "setting rate to 0 at host time ", PAL::CMTimeGetSeconds(cmHostTime));
         [m_synchronizer setRate:0 time:PAL::kCMTimeInvalid atHostTime:cmHostTime];
     } else
         [m_synchronizer setRate:0];
@@ -383,8 +391,6 @@ void MediaPlayerPrivateMediaSourceAVFObjC::pauseInternal(std::optional<Monotonic
     UNUSED_PARAM(hostTime);
     [m_synchronizer setRate:0];
 #endif
-
-    m_player->playbackStateChanged();
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::paused() const
@@ -450,12 +456,20 @@ MediaTime MediaPlayerPrivateMediaSourceAVFObjC::durationMediaTime() const
 
 MediaTime MediaPlayerPrivateMediaSourceAVFObjC::currentMediaTime() const
 {
-    MediaTime synchronizerTime = PAL::toMediaTime(PAL::CMTimebaseGetTime([m_synchronizer timebase]));
+    MediaTime synchronizerTime = clampTimeToLastSeekTime(PAL::toMediaTime(PAL::CMTimebaseGetTime([m_synchronizer timebase])));
     if (synchronizerTime < MediaTime::zeroTime())
         return MediaTime::zeroTime();
     if (synchronizerTime < m_lastSeekTime)
         return m_lastSeekTime;
     return synchronizerTime;
+}
+
+MediaTime MediaPlayerPrivateMediaSourceAVFObjC::clampTimeToLastSeekTime(const MediaTime& time) const
+{
+    if (m_lastSeekTime.isFinite() && time < m_lastSeekTime)
+        return m_lastSeekTime;
+
+    return time;
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::setCurrentTimeDidChangeCallback(MediaPlayer::CurrentTimeDidChangeCallback&& callback)
@@ -464,8 +478,11 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::setCurrentTimeDidChangeCallback(Media
 
     if (m_currentTimeDidChangeCallback) {
         m_timeChangedObserver = [m_synchronizer addPeriodicTimeObserverForInterval:PAL::CMTimeMake(1, 10) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
-            if (m_currentTimeDidChangeCallback)
-                m_currentTimeDidChangeCallback(CMTIME_IS_NUMERIC(time) ? PAL::toMediaTime(time) : MediaTime::zeroTime());
+            if (!m_currentTimeDidChangeCallback)
+                return;
+
+            auto clampedTime = CMTIME_IS_NUMERIC(time) ? clampTimeToLastSeekTime(PAL::toMediaTime(time)) : MediaTime::zeroTime();
+            m_currentTimeDidChangeCallback(clampedTime);
         }];
 
     } else
@@ -478,22 +495,14 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::setCurrentTimeDidChangeCallback(Media
 bool MediaPlayerPrivateMediaSourceAVFObjC::playAtHostTime(const MonotonicTime& time)
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    callOnMainThread([weakThis = WeakPtr { *this }, time = time] {
-        if (!weakThis)
-            return;
-        weakThis.get()->playInternal(time);
-    });
+    playInternal(time);
     return true;
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::pauseAtHostTime(const MonotonicTime& time)
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    callOnMainThread([weakThis = WeakPtr { *this }, time = time] {
-        if (!weakThis)
-            return;
-        weakThis.get()->pauseInternal(time);
-    });
+    pauseInternal(time);
     return true;
 }
 #endif
@@ -510,7 +519,7 @@ MediaTime MediaPlayerPrivateMediaSourceAVFObjC::initialTime() const
 
 void MediaPlayerPrivateMediaSourceAVFObjC::seekWithTolerance(const MediaTime& time, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold)
 {
-    INFO_LOG(LOGIDENTIFIER, "time = ", time, ", negativeThreshold = ", negativeThreshold, ", positiveThreshold = ", positiveThreshold);
+    ALWAYS_LOG(LOGIDENTIFIER, "time = ", time, ", negativeThreshold = ", negativeThreshold, ", positiveThreshold = ", positiveThreshold);
 
     m_seeking = true;
     m_pendingSeek = makeUnique<PendingSeek>(time, negativeThreshold, positiveThreshold);
@@ -540,7 +549,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::seekInternal()
         m_lastSeekTime = MediaTime::createWithDouble(m_lastSeekTime.toDouble(), MediaTime::DefaultTimeScale);
 
     MediaTime synchronizerTime = PAL::toMediaTime(PAL::CMTimebaseGetTime([m_synchronizer timebase]));
-    INFO_LOG(LOGIDENTIFIER, "seekTime = ", m_lastSeekTime, ", synchronizerTime = ", synchronizerTime);
+    ALWAYS_LOG(LOGIDENTIFIER, "seekTime = ", m_lastSeekTime, ", synchronizerTime = ", synchronizerTime);
 
     bool doesNotRequireSeek = synchronizerTime == m_lastSeekTime;
 
@@ -662,11 +671,10 @@ RefPtr<NativeImage> MediaPlayerPrivateMediaSourceAVFObjC::nativeImageForCurrentT
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::updateLastPixelBuffer()
 {
-#if HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    if (m_videoOutput) {
-        CMTime outputTime;
-        if (auto pixelBuffer = adoptCF([m_videoOutput copyPixelBufferForSourceTime:PAL::toCMTime(currentMediaTime()) sourceTimeForDisplay:&outputTime])) {
-            INFO_LOG(LOGIDENTIFIER, "new pixelbuffer found for time ", PAL::toMediaTime(outputTime));
+#if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+    if (isCopyDisplayedPixelBufferAvailable()) {
+        if (auto pixelBuffer = adoptCF([m_sampleBufferDisplayLayer copyDisplayedPixelBuffer])) {
+            INFO_LOG(LOGIDENTIFIER, "displayed pixelbuffer copied for time ", currentMediaTime());
             m_lastPixelBuffer = WTFMove(pixelBuffer);
             return true;
         }
@@ -681,7 +689,13 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::updateLastPixelBuffer()
     if (!newPixelBuffer)
         return false;
 
-    m_lastPixelBuffer = newPixelBuffer;
+    m_lastPixelBuffer = WTFMove(newPixelBuffer);
+
+    if (m_resourceOwner) {
+        if (auto surface = CVPixelBufferGetIOSurface(m_lastPixelBuffer.get()))
+            IOSurface::setOwnershipIdentity(surface, m_resourceOwner);
+    }
+
     return true;
 }
 
@@ -726,21 +740,27 @@ void MediaPlayerPrivateMediaSourceAVFObjC::paintCurrentFrameInContext(GraphicsCo
     context.drawNativeImage(*image, imageRect.size(), outputRect, imageRect);
 }
 
-RefPtr<VideoFrame> MediaPlayerPrivateMediaSourceAVFObjC::videoFrameForCurrentTime()
+#if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+void MediaPlayerPrivateMediaSourceAVFObjC::willBeAskedToPaintGL()
 {
     // We have been asked to paint into a WebGL canvas, so take that as a signal to create
     // a decompression session, even if that means the native video can't also be displayed
     // in page.
-    if (!m_hasBeenAskedToPaintGL) {
-        m_hasBeenAskedToPaintGL = true;
-        acceleratedRenderingStateChanged();
-    }
+    if (m_hasBeenAskedToPaintGL)
+        return;
 
+    m_hasBeenAskedToPaintGL = true;
+    acceleratedRenderingStateChanged();
+}
+#endif
+
+RefPtr<VideoFrame> MediaPlayerPrivateMediaSourceAVFObjC::videoFrameForCurrentTime()
+{
     if (!m_isGatheringVideoFrameMetadata)
         updateLastPixelBuffer();
     if (!m_lastPixelBuffer)
         return nullptr;
-    return VideoFrameCV::create(currentMediaTime(), false, VideoFrameCV::VideoRotation::None, RetainPtr { m_lastPixelBuffer });
+    return VideoFrameCV::create(currentMediaTime(), false, VideoFrame::Rotation::None, RetainPtr { m_lastPixelBuffer });
 }
 
 DestinationColorSpace MediaPlayerPrivateMediaSourceAVFObjC::colorSpace()
@@ -759,15 +779,39 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsAcceleratedRendering() const
     return true;
 }
 
+bool MediaPlayerPrivateMediaSourceAVFObjC::shouldEnsureLayer() const
+{
+#if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+    return isCopyDisplayedPixelBufferAvailable() && [&] {
+        if (m_sampleBufferDisplayLayer)
+            return !CGRectIsEmpty([m_sampleBufferDisplayLayer bounds]);
+        return !m_player->playerContentBoxRect().isEmpty();
+    }();
+#else
+    return !m_hasBeenAskedToPaintGL && !m_isGatheringVideoFrameMetadata;
+#endif
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::playerContentBoxRectChanged(const LayoutRect& newRect)
+{
+    if (!m_sampleBufferDisplayLayer && !newRect.isEmpty())
+        updateDisplayLayerAndDecompressionSession();
+}
+
 void MediaPlayerPrivateMediaSourceAVFObjC::acceleratedRenderingStateChanged()
 {
-    if (!m_hasBeenAskedToPaintGL || isVideoOutputAvailable()) {
+    updateDisplayLayerAndDecompressionSession();
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::updateDisplayLayerAndDecompressionSession()
+{
+    if (shouldEnsureLayer()) {
         destroyDecompressionSession();
         ensureLayer();
-    } else {
-        destroyLayer();
-        ensureDecompressionSession();
+        return;
     }
+    destroyLayer();
+    ensureDecompressionSession();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::notifyActiveSourceBuffersChanged()
@@ -854,15 +898,6 @@ void MediaPlayerPrivateMediaSourceAVFObjC::ensureLayer()
         return;
     }
 
-#if HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    ASSERT(!m_videoOutput);
-    if (isVideoOutputAvailable()) {
-        m_videoOutput = adoptNS([PAL::allocAVSampleBufferVideoOutputInstance() init]);
-        ASSERT(m_videoOutput);
-        [m_sampleBufferDisplayLayer setOutput:m_videoOutput.get()];
-    }
-#endif
-
     if ([m_sampleBufferDisplayLayer respondsToSelector:@selector(setPreventsDisplaySleepDuringVideoPlayback:)])
         m_sampleBufferDisplayLayer.get().preventsDisplaySleepDuringVideoPlayback = NO;
 
@@ -932,21 +967,12 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::shouldBePlaying() const
     return m_playing && !seeking() && allRenderersHaveAvailableSamples() && m_readyState >= MediaPlayer::ReadyState::HaveFutureData;
 }
 
-bool MediaPlayerPrivateMediaSourceAVFObjC::isVideoOutputAvailable() const
-{
-#if HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    return MediaSessionManagerCocoa::mediaSourceInlinePaintingEnabled() && PAL::getAVSampleBufferVideoOutputClass();
-#else
-    return false;
-#endif
-}
-
 void MediaPlayerPrivateMediaSourceAVFObjC::setHasAvailableVideoFrame(bool flag)
 {
     if (m_hasAvailableVideoFrame == flag)
         return;
 
-    DEBUG_LOG(LOGIDENTIFIER, flag);
+    ALWAYS_LOG(LOGIDENTIFIER, flag);
     m_hasAvailableVideoFrame = flag;
     updateAllRenderersHaveAvailableSamples();
 
@@ -974,7 +1000,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     auto& properties = iter->value;
     if (properties.hasAudibleSample == flag)
         return;
-    DEBUG_LOG(LOGIDENTIFIER, flag);
+    ALWAYS_LOG(LOGIDENTIFIER, flag);
     properties.hasAudibleSample = flag;
     updateAllRenderersHaveAvailableSamples();
 }
@@ -1031,7 +1057,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::durationChanged()
             return;
 
         MediaTime now = weakThis->currentMediaTime();
-        DEBUG_LOG(logSiteIdentifier, "boundary time observer called, now = ", now);
+        ALWAYS_LOG(logSiteIdentifier, "boundary time observer called, now = ", now);
 
         weakThis->pauseInternal();
         if (now < duration) {
@@ -1109,7 +1135,7 @@ AVStreamSession* MediaPlayerPrivateMediaSourceAVFObjC::streamSession()
                 return nil;
         }
 
-        String storagePath = FileSystem::pathByAppendingComponent(storageDirectory, "SecureStop.plist");
+        String storagePath = FileSystem::pathByAppendingComponent(storageDirectory, "SecureStop.plist"_s);
         m_streamSession = adoptNS([PAL::allocAVStreamSessionInstance() initWithStorageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]]);
     }
     return m_streamSession.get();
@@ -1304,6 +1330,21 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     m_player->renderingModeChanged();
 }
 
+void MediaPlayerPrivateMediaSourceAVFObjC::removeAudioTrack(AudioTrackPrivate& track)
+{
+    m_player->removeAudioTrack(track);
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::removeVideoTrack(VideoTrackPrivate& track)
+{
+    m_player->removeVideoTrack(track);
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::removeTextTrack(InbandTextTrackPrivate& track)
+{
+    m_player->removeTextTrack(track);
+}
+
 void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsChanged()
 {
     updateAllRenderersHaveAvailableSamples();
@@ -1403,8 +1444,11 @@ void MediaPlayerPrivateMediaSourceAVFObjC::audioOutputDeviceChanged()
 
 void MediaPlayerPrivateMediaSourceAVFObjC::startVideoFrameMetadataGathering()
 {
-    ASSERT(!m_videoFrameMetadataGatheringObserver || m_synchronizer);
+    if (m_videoFrameMetadataGatheringObserver)
+        return;
+    ASSERT(m_synchronizer);
     m_isGatheringVideoFrameMetadata = true;
+    acceleratedRenderingStateChanged();
 
     // FIXME: We should use a CADisplayLink to get updates on rendering, for now we emulate with addPeriodicTimeObserverForInterval.
     m_videoFrameMetadataGatheringObserver = [m_synchronizer addPeriodicTimeObserverForInterval:PAL::CMTimeMake(1, 60) queue:dispatch_get_main_queue() usingBlock:[weakThis = WeakPtr { *this }](CMTime currentTime) {
@@ -1436,6 +1480,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::checkNewVideoFrameMetadata(CMTime cur
 void MediaPlayerPrivateMediaSourceAVFObjC::stopVideoFrameMetadataGathering()
 {
     m_isGatheringVideoFrameMetadata = false;
+    acceleratedRenderingStateChanged();
     m_videoFrameMetadata = { };
 
     ASSERT(m_videoFrameMetadataGatheringObserver);

@@ -33,6 +33,8 @@
 
 namespace WebCore {
 class ImageBuffer;
+class ThreadSafeImageBufferFlusher;
+enum class SetNonVolatileResult : uint8_t;
 }
 
 namespace WebKit {
@@ -40,6 +42,8 @@ namespace WebKit {
 class RemoteLayerBackingStore;
 class RemoteLayerTreeContext;
 class RemoteLayerTreeTransaction;
+
+enum class SwapBuffersDisplayRequirement : uint8_t;
 
 class RemoteLayerBackingStoreCollection : public CanMakeWeakPtr<RemoteLayerBackingStoreCollection> {
     WTF_MAKE_NONCOPYABLE(RemoteLayerBackingStoreCollection);
@@ -54,13 +58,15 @@ public:
     // Return value indicates whether the backing store needs to be included in the transaction.
     bool backingStoreWillBeDisplayed(RemoteLayerBackingStore&);
     void backingStoreBecameUnreachable(RemoteLayerBackingStore&);
-    
-    virtual void makeFrontBufferNonVolatile(RemoteLayerBackingStore&);
-    virtual void swapToValidFrontBuffer(RemoteLayerBackingStore&);
+
+    virtual bool backingStoreNeedsDisplay(const RemoteLayerBackingStore&);
+
+    virtual void prepareBackingStoresForDisplay(RemoteLayerTreeTransaction&);
+    void paintReachableBackingStoreContents();
 
     void willFlushLayers();
     void willCommitLayerTree(RemoteLayerTreeTransaction&);
-    void didFlushLayers();
+    Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>> didFlushLayers(RemoteLayerTreeTransaction&);
 
     virtual void tryMarkAllBackingStoreVolatile(CompletionHandler<void(bool)>&&);
 
@@ -83,6 +89,7 @@ private:
     bool markBackingStoreVolatile(RemoteLayerBackingStore&, OptionSet<VolatilityMarkingBehavior> = { }, MonotonicTime = { });
     bool markAllBackingStoreVolatile(OptionSet<VolatilityMarkingBehavior> liveBackingStoreMarkingBehavior, OptionSet<VolatilityMarkingBehavior> unparentedBackingStoreMarkingBehavior);
 
+    bool updateUnreachableBackingStores();
     void volatilityTimerFired();
 
 protected:
@@ -96,6 +103,7 @@ protected:
 
     // Only used during a single flush.
     HashSet<RemoteLayerBackingStore*> m_reachableBackingStoreInLatestFlush;
+    HashSet<RemoteLayerBackingStore*> m_backingStoresNeedingDisplay;
 
     WebCore::Timer m_volatilityTimer;
 

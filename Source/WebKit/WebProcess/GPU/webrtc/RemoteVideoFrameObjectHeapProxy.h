@@ -49,7 +49,8 @@ public:
     ~RemoteVideoFrameObjectHeapProxy() = default;
 
 #if PLATFORM(COCOA)
-    void getVideoFrameBuffer(const RemoteVideoFrameProxy& proxy, RemoteVideoFrameObjectHeapProxyProcessor::Callback&& callback) { m_processor->getVideoFrameBuffer(proxy, WTFMove(callback)); }
+    void getVideoFrameBuffer(const RemoteVideoFrameProxy& proxy, bool canUseIOSurface, RemoteVideoFrameObjectHeapProxyProcessor::Callback&& callback) { m_processor->getVideoFrameBuffer(proxy, canUseIOSurface, WTFMove(callback)); }
+    RefPtr<WebCore::NativeImage> getNativeImage(const WebCore::VideoFrame& frame)  { return m_processor->getNativeImage(frame); }
 #endif
 
 private:

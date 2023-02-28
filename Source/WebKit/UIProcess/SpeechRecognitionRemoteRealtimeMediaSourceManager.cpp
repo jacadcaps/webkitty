@@ -49,7 +49,7 @@ void SpeechRecognitionRemoteRealtimeMediaSourceManager::addSource(SpeechRecognit
         m_sourcesNeedingSandboxExtension.add(identifier);
         if (m_sourcesNeedingSandboxExtension.size() == 1) {
             SandboxExtension::Handle handleForTCCD;
-            if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.tccd"_s, m_connection->getAuditToken()))
+            if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.tccd"_s, m_connection->getAuditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap))
                 handleForTCCD = WTFMove(*handle);
             SandboxExtension::Handle handleForMicrophone;
             if (auto handle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.microphone"_s))
@@ -59,7 +59,7 @@ void SpeechRecognitionRemoteRealtimeMediaSourceManager::addSource(SpeechRecognit
     }
 #endif
 
-    send(Messages::SpeechRecognitionRealtimeMediaSourceManager::CreateSource(identifier, captureDevice));
+    send(Messages::SpeechRecognitionRealtimeMediaSourceManager::CreateSource(identifier, captureDevice, source.pageIdentifier()));
 }
 
 void SpeechRecognitionRemoteRealtimeMediaSourceManager::removeSource(SpeechRecognitionRemoteRealtimeMediaSource& source)
@@ -108,10 +108,10 @@ uint64_t SpeechRecognitionRemoteRealtimeMediaSourceManager::messageSenderDestina
 
 #if PLATFORM(COCOA)
 
-void SpeechRecognitionRemoteRealtimeMediaSourceManager::setStorage(WebCore::RealtimeMediaSourceIdentifier identifier, const SharedMemory::IPCHandle& ipcHandle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
+void SpeechRecognitionRemoteRealtimeMediaSourceManager::setStorage(WebCore::RealtimeMediaSourceIdentifier identifier, const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
 {
     if (auto source = m_sources.get(identifier))
-        source->setStorage(ipcHandle.handle, description, numberOfFrames);
+        source->setStorage(handle, description, numberOfFrames);
 }
 
 #endif

@@ -29,10 +29,10 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitEditorState
- * @Short_description: Web editor state
- * @Title: WebKitEditorState
+ * WebKitEditorState:
  * @See_also: #WebKitWebView
+ *
+ * Web editor state.
  *
  * WebKitEditorState represents the state of a #WebKitWebView editor.
  * Use webkit_web_view_get_editor_state() to get the WebKitEditorState
@@ -147,6 +147,7 @@ void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState&
  * @editor_state: a #WebKitEditorState
  *
  * Gets the typing attributes at the current cursor position.
+ *
  * If there is a selection, this returns the typing attributes
  * of the selected text. Note that in case of a selection,
  * typing attributes are considered active only when they are

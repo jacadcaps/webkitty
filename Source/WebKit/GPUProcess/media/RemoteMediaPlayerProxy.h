@@ -107,10 +107,10 @@ class RemoteMediaPlayerProxy final
     , public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    RemoteMediaPlayerProxy(RemoteMediaPlayerManagerProxy&, WebCore::MediaPlayerIdentifier, Ref<IPC::Connection>&&, WebCore::MediaPlayerEnums::MediaEngineIdentifier, RemoteMediaPlayerProxyConfiguration&&, RemoteVideoFrameObjectHeap&);
+    RemoteMediaPlayerProxy(RemoteMediaPlayerManagerProxy&, WebCore::MediaPlayerIdentifier, Ref<IPC::Connection>&&, WebCore::MediaPlayerEnums::MediaEngineIdentifier, RemoteMediaPlayerProxyConfiguration&&, RemoteVideoFrameObjectHeap&, const WebCore::ProcessIdentity&);
     ~RemoteMediaPlayerProxy();
 
-    WebCore::MediaPlayerIdentifier idendifier() const { return m_id; }
+    WebCore::MediaPlayerIdentifier identifier() const { return m_id; }
     void invalidate();
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
@@ -278,6 +278,7 @@ private:
     bool doesHaveAttribute(const AtomString&, AtomString* = nullptr) const final;
     bool mediaPlayerShouldUsePersistentCache() const final;
     const String& mediaPlayerMediaCacheDirectory() const final;
+    WebCore::LayoutRect mediaPlayerContentBoxRect() const final;
 
     void textTrackRepresentationBoundsChanged(const WebCore::IntRect&) final;
 
@@ -309,6 +310,8 @@ private:
     const std::optional<Vector<WebCore::FourCC>>& allowedMediaAudioCodecIDs() const final { return m_configuration.allowedMediaAudioCodecIDs; };
     const std::optional<Vector<WebCore::FourCC>>& allowedMediaCaptionFormatTypes() const final { return m_configuration.allowedMediaCaptionFormatTypes; };
 
+    bool mediaPlayerPrefersSandboxedParsing() const final { return m_configuration.prefersSandboxedParsing; }
+
     void startUpdateCachedStateMessageTimer();
     void updateCachedState(bool = false);
     void sendCachedState();
@@ -329,12 +332,18 @@ private:
     void mediaPlayerOnNewVideoFrameMetadata(WebCore::VideoFrameMetadata&&, RetainPtr<CVPixelBufferRef>&&);
 #endif
 
+    void playerContentBoxRectChanged(const WebCore::LayoutRect&);
+
     bool mediaPlayerPausedOrStalled() const;
     void currentTimeChanged(const MediaTime&);
 
 #if PLATFORM(COCOA)
+    void setVideoInlineSizeIfPossible(const WebCore::FloatSize&);
     void nativeImageForCurrentTime(CompletionHandler<void(std::optional<WTF::MachSendRight>&&, WebCore::DestinationColorSpace)>&&);
     void colorSpace(CompletionHandler<void(WebCore::DestinationColorSpace)>&&);
+#if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+    void willBeAskedToPaintGL();
+#endif
 #endif
     void videoFrameForCurrentTimeIfChanged(CompletionHandler<void(std::optional<RemoteVideoFrameProxy::Properties>&&, bool)>&&);
 
@@ -347,9 +356,9 @@ private:
     WTFLogChannel& logChannel() const;
 #endif
 
-    HashMap<WebCore::AudioTrackPrivate*, Ref<RemoteAudioTrackProxy>> m_audioTracks;
-    HashMap<WebCore::VideoTrackPrivate*, Ref<RemoteVideoTrackProxy>> m_videoTracks;
-    HashMap<WebCore::InbandTextTrackPrivate*, Ref<RemoteTextTrackProxy>> m_textTracks;
+    HashMap<Ref<WebCore::AudioTrackPrivate>, Ref<RemoteAudioTrackProxy>> m_audioTracks;
+    HashMap<Ref<WebCore::VideoTrackPrivate>, Ref<RemoteVideoTrackProxy>> m_videoTracks;
+    HashMap<Ref<WebCore::InbandTextTrackPrivate>, Ref<RemoteTextTrackProxy>> m_textTracks;
 
     WebCore::MediaPlayerIdentifier m_id;
     RefPtr<SandboxExtension> m_sandboxExtension;
@@ -375,6 +384,7 @@ private:
 
     WebCore::FloatSize m_videoInlineSize;
     float m_videoContentScale { 1.0 };
+    WebCore::LayoutRect m_playerContentBoxRect;
 
     bool m_bufferedChanged { true };
     bool m_renderingCanBeAccelerated { false };

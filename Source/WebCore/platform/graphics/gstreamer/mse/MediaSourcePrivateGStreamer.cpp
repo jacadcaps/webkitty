@@ -84,6 +84,9 @@ MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuf
     if (m_playerPrivate.hasAllTracks())
         return MediaSourcePrivateGStreamer::AddStatus::ReachedIdLimit;
 
+    if (!SourceBufferPrivateGStreamer::isContentTypeSupported(contentType))
+        return MediaSourcePrivateGStreamer::AddStatus::NotSupported;
+
     sourceBufferPrivate = SourceBufferPrivateGStreamer::create(this, contentType, m_playerPrivate);
     RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivateGStreamer = static_cast<SourceBufferPrivateGStreamer*>(sourceBufferPrivate.get());
     m_sourceBuffers.add(sourceBufferPrivateGStreamer);
@@ -104,7 +107,7 @@ void MediaSourcePrivateGStreamer::durationChanged(const MediaTime&)
 {
     ASSERT(isMainThread());
 
-    MediaTime duration = m_mediaSource->duration();
+    MediaTime duration = m_mediaSource ? m_mediaSource->duration() : MediaTime::invalidTime();
     GST_TRACE("duration: %f", duration.toFloat());
     if (!duration.isValid() || duration.isNegativeInfinite())
         return;
@@ -112,9 +115,11 @@ void MediaSourcePrivateGStreamer::durationChanged(const MediaTime&)
     m_playerPrivate.durationChanged();
 }
 
-void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus)
+void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus endOfStreamStatus)
 {
     ASSERT(isMainThread());
+    if (endOfStreamStatus == EosNoError)
+        m_playerPrivate.setNetworkState(MediaPlayer::NetworkState::Loaded);
     m_isEnded = true;
 }
 
@@ -144,7 +149,7 @@ void MediaSourcePrivateGStreamer::seekCompleted()
 
 MediaTime MediaSourcePrivateGStreamer::duration() const
 {
-    return m_mediaSource->duration();
+    return m_mediaSource ? m_mediaSource->duration() : MediaTime::invalidTime();
 }
 
 MediaTime MediaSourcePrivateGStreamer::currentMediaTime() const
@@ -185,7 +190,9 @@ void MediaSourcePrivateGStreamer::startPlaybackIfHasAllTracks()
 
 std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateGStreamer::buffered()
 {
-    return m_mediaSource->buffered();
+    if (m_mediaSource)
+        return m_mediaSource->buffered();
+    return nullptr;
 }
 
 #if !RELEASE_LOG_DISABLED

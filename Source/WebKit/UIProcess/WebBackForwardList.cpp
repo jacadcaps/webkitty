@@ -38,6 +38,10 @@
 #include <wtf/HexNumber.h>
 #include <wtf/text/StringBuilder.h>
 
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -340,16 +344,11 @@ void WebBackForwardList::removeAllItems()
 
     LOG(BackForward, "(Back/Forward) WebBackForwardList %p removeAllItems (has %zu of them)", this, m_entries.size());
 
-    Vector<Ref<WebBackForwardListItem>> removedItems;
-
-    for (auto& entry : m_entries) {
+    for (auto& entry : m_entries)
         didRemoveItem(entry);
-        removedItems.append(WTFMove(entry));
-    }
 
-    m_entries.clear();
     m_currentIndex = std::nullopt;
-    m_page->didChangeBackForwardList(nullptr, WTFMove(removedItems));
+    m_page->didChangeBackForwardList(nullptr, std::exchange(m_entries, { }));
 }
 
 void WebBackForwardList::clear()
@@ -363,21 +362,17 @@ void WebBackForwardList::clear()
         return;
 
     RefPtr<WebBackForwardListItem> currentItem = this->currentItem();
-    Vector<Ref<WebBackForwardListItem>> removedItems;
 
     if (!currentItem) {
         // We should only ever have no current item if we also have no current item index.
         ASSERT(!m_currentIndex);
 
         // But just in case it does happen in practice we should get back into a consistent state now.
-        for (size_t i = 0; i < size; ++i) {
-            didRemoveItem(m_entries[i]);
-            removedItems.append(WTFMove(m_entries[i]));
-        }
+        for (auto& entry : m_entries)
+            didRemoveItem(entry);
 
-        m_entries.clear();
         m_currentIndex = std::nullopt;
-        m_page->didChangeBackForwardList(nullptr, WTFMove(removedItems));
+        m_page->didChangeBackForwardList(nullptr, std::exchange(m_entries, { }));
 
         return;
     }
@@ -387,6 +382,7 @@ void WebBackForwardList::clear()
             didRemoveItem(m_entries[i]);
     }
 
+    Vector<Ref<WebBackForwardListItem>> removedItems;
     removedItems.reserveInitialCapacity(size - 1);
     for (size_t i = 0; i < size; ++i) {
         if (m_currentIndex && i != *m_currentIndex)
@@ -477,6 +473,74 @@ void WebBackForwardList::didRemoveItem(WebBackForwardListItem& backForwardListIt
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     backForwardListItem.setSnapshot(nullptr);
 #endif
+}
+
+enum class NavigationDirection { Backward, Forward };
+static WebBackForwardListItem* itemSkippingBackForwardItemsAddedByJSWithoutUserGesture(const WebBackForwardList& backForwardList, NavigationDirection direction)
+{
+    auto delta = direction == NavigationDirection::Backward ? -1 : 1;
+    int itemIndex = delta;
+    auto* item = backForwardList.itemAtIndex(itemIndex);
+    if (!item)
+        return nullptr;
+
+#if PLATFORM(COCOA)
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::UIBackForwardSkipsHistoryItemsWithoutUserGesture))
+        return item;
+#endif
+
+    // For example:
+    // Yahoo -> Yahoo#a (no userInteraction) -> Google -> Google#a (no user interaction) -> Google#b (no user interaction)
+    // If we're on Google and navigate back, we don't want to skip anything and load Yahoo#a.
+    // However, if we're on Yahoo and navigate forward, we do want to skip items and end up on Google#b.
+    if (direction == NavigationDirection::Backward && !backForwardList.currentItem()->wasCreatedByJSWithoutUserInteraction())
+        return item;
+
+    // For example:
+    // Yahoo -> Yahoo#a (no userInteraction) -> Google -> Google#a (no user interaction) -> Google#b (no user interaction)
+    // If we are on Google#b and navigate backwards, we want to skip over Google#a and Google, to end up on Yahoo#a.
+    // If we are on Yahoo#a and navigate forwards, we want to skip over Google and Google#a, to end up on Google#b.
+
+    auto* originalItem = item;
+    while (item->wasCreatedByJSWithoutUserInteraction()) {
+        itemIndex += delta;
+        item = backForwardList.itemAtIndex(itemIndex);
+        if (!item)
+            return originalItem;
+        RELEASE_LOG(Loading, "UI Navigation is skipping a WebBackForwardListItem because it was added by JavaScript without user interaction");
+    }
+
+    // We are now on the next item that has user interaction.
+    ASSERT(!item->wasCreatedByJSWithoutUserInteraction());
+
+    if (direction == NavigationDirection::Backward) {
+        // If going backwards, skip over next item with user iteraction since this is the one the user
+        // thinks they're on.
+        --itemIndex;
+        item = backForwardList.itemAtIndex(itemIndex);
+        if (!item)
+            return originalItem;
+        RELEASE_LOG(Loading, "UI Navigation is skipping a WebBackForwardListItem that has user interaction because we started on an item that didn't have interaction");
+    } else {
+        // If going forward and there are items that we created by JS without user interaction, move forward to the last
+        // one in the series.
+        auto* nextItem = backForwardList.itemAtIndex(itemIndex + 1);
+        while (nextItem && nextItem->wasCreatedByJSWithoutUserInteraction()) {
+            item = nextItem;
+            nextItem = backForwardList.itemAtIndex(++itemIndex);
+        }
+    }
+    return item;
+}
+
+WebBackForwardListItem* WebBackForwardList::goBackItemSkippingItemsWithoutUserGesture() const
+{
+    return itemSkippingBackForwardItemsAddedByJSWithoutUserGesture(*this, NavigationDirection::Backward);
+}
+
+WebBackForwardListItem* WebBackForwardList::goForwardItemSkippingItemsWithoutUserGesture() const
+{
+    return itemSkippingBackForwardItemsAddedByJSWithoutUserGesture(*this, NavigationDirection::Forward);
 }
 
 #if !LOG_DISABLED

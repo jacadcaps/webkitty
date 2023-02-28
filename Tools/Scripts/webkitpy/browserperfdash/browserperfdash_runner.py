@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-#
 # Copyright (C) 2018 Igalia S.L.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -24,7 +22,7 @@
 
 
 import argparse
-import ConfigParser
+import configparser
 import json
 import logging
 import os
@@ -83,7 +81,7 @@ class BrowserPerfDashRunner(object):
     def _parse_config_file(self, config_file):
         if not os.path.isfile(config_file):
             raise Exception('Can not open config file for uploading results at: {config_file}'.format(config_file=config_file))
-        self._config_parser = ConfigParser.RawConfigParser()
+        self._config_parser = configparser.RawConfigParser()
         self._config_parser.read(config_file)
 
     def _get_test_version_string(self, plan_name):
@@ -105,22 +103,31 @@ class BrowserPerfDashRunner(object):
             del temp_result_json['debugOutput']
         return json.dumps(temp_result_json)
 
+    # urllib.request.urlopen always raises an exception when the http return code is not 200
+    # so this wraps the call to return the HTTPError object instead of raising the exception.
+    # The HTTPError object can be treated later as a http.client.HTTPResponse object.
+    def _send_post_request_data(self, post_url, post_data):
+        try:
+            return urllib.request.urlopen(post_url, post_data)
+        except urllib.error.HTTPError as e:
+            return e
+
     def _upload_result(self):
         upload_failed = False
         for server in self._config_parser.sections():
             self._result_data['bot_id'] = self._config_parser.get(server, 'bot_id')
             self._result_data['bot_password'] = self._config_parser.get(server, 'bot_password')
-            post_data = urllib.urlencode(self._result_data)
+            post_data = urllib.parse.urlencode(self._result_data).encode('utf-8')
             post_url = self._config_parser.get(server, 'post_url')
             try:
-                post_request = urllib.urlopen(post_url, post_data)
+                post_request = self._send_post_request_data(post_url, post_data)
                 if post_request.getcode() == 200:
                     _log.info('Sucesfully uploaded results to server {server_name} for test {test_name} and browser {browser_name} version {browser_version}'.format(
                                server_name=server, test_name=self._result_data['test_id'], browser_name=self._result_data['browser_id'], browser_version=self._result_data['browser_version']))
                 else:
                     upload_failed = True
                     _log.error('The server {server_name} returned an error code: {http_error}'.format(server_name=server, http_error=post_request.getcode()))
-                    _log.error('The error text from the server {server_name} was: "{error_text}"'.format(server_name=server, error_text=post_request.read()))
+                    _log.error('The error text from the server {server_name} was: "{error_text}"'.format(server_name=server, error_text=post_request.read().decode('utf-8')))
             except Exception as e:
                 upload_failed = True
                 _log.error('Exception while trying to upload results to server {server_name}'.format(server_name=server))

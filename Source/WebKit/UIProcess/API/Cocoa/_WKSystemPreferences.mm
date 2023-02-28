@@ -35,22 +35,28 @@ constexpr auto CaptivePortalConfigurationIgnoreFileName = @"com.apple.WebKit.cpm
 
 + (BOOL)isCaptivePortalModeEnabled
 {
-    auto changedNotificationKey = adoptCF(CFStringCreateWithCString(kCFAllocatorDefault, WKCaptivePortalModeEnabledKey, kCFStringEncodingUTF8));
-    auto preferenceValue = adoptCF(CFPreferencesCopyValue(changedNotificationKey.get(), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost));
+    auto key = adoptCF(CFStringCreateWithCString(kCFAllocatorDefault, WKCaptivePortalModeEnabledKey.characters(), kCFStringEncodingUTF8));
+    auto preferenceValue = adoptCF(CFPreferencesCopyValue(key.get(), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
+    if (preferenceValue.get() == kCFBooleanTrue)
+        return true;
+
+    key = adoptCF(CFStringCreateWithCString(kCFAllocatorDefault, LDMEnabledKey, kCFStringEncodingUTF8));
+    preferenceValue = adoptCF(CFPreferencesCopyValue(key.get(), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
     return preferenceValue.get() == kCFBooleanTrue;
 }
 
 + (void)setCaptivePortalModeEnabled:(BOOL)enabled
 {
-    auto changedNotificationKey = adoptCF(CFStringCreateWithCString(kCFAllocatorDefault, WKCaptivePortalModeEnabledKey, kCFStringEncodingUTF8));
-    CFPreferencesSetValue(changedNotificationKey.get(), enabled ? kCFBooleanTrue : kCFBooleanFalse, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost);
-    CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesAnyUser, kCFPreferencesAnyHost);
+    auto key = adoptCF(CFStringCreateWithCString(kCFAllocatorDefault, WKCaptivePortalModeEnabledKey.characters(), kCFStringEncodingUTF8));
+    CFPreferencesSetValue(key.get(), enabled ? kCFBooleanTrue : kCFBooleanFalse, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)WKCaptivePortalModeContainerConfigurationChangedNotification, nullptr, nullptr, true);
 }
 
 + (BOOL)isCaptivePortalModeIgnored:(NSString *)containerPath
 {
 #if PLATFORM(IOS_FAMILY)
-    NSString *cpmconfigIgnoreFilePath = [NSString pathWithComponents:@[containerPath, @"Library/Preferences/", CaptivePortalConfigurationIgnoreFileName]];
+    NSString *cpmconfigIgnoreFilePath = [NSString pathWithComponents:@[containerPath, @"System/Preferences/", CaptivePortalConfigurationIgnoreFileName]];
     return [[NSFileManager defaultManager] fileExistsAtPath:cpmconfigIgnoreFilePath];
 #endif
     return false;
@@ -59,10 +65,20 @@ constexpr auto CaptivePortalConfigurationIgnoreFileName = @"com.apple.WebKit.cpm
 + (void)setCaptivePortalModeIgnored:(NSString *)containerPath ignore:(BOOL)ignore
 {
 #if PLATFORM(IOS_FAMILY)
-    NSString *cpmconfigIgnoreFilePath = [NSString pathWithComponents:@[containerPath, @"Library/Preferences/", CaptivePortalConfigurationIgnoreFileName]];
+    NSString *cpmconfigDirectoryPath = [NSString pathWithComponents:@[containerPath, @"System/Preferences/"]];
+    NSString *cpmconfigIgnoreFilePath = [NSString pathWithComponents:@[cpmconfigDirectoryPath, CaptivePortalConfigurationIgnoreFileName]];
     if ([[NSFileManager defaultManager] fileExistsAtPath:cpmconfigIgnoreFilePath] == ignore)
         return;
-    
+
+    BOOL cpmconfigDirectoryisDir;
+    BOOL cpmconfigDirectoryPathExists = [[NSFileManager defaultManager] fileExistsAtPath:cpmconfigDirectoryPath isDirectory:&cpmconfigDirectoryisDir];
+
+    if (!cpmconfigDirectoryisDir)
+        [[NSFileManager defaultManager] removeItemAtPath:cpmconfigDirectoryPath error:NULL];
+
+    if (!cpmconfigDirectoryPathExists || !cpmconfigDirectoryisDir)
+        [[NSFileManager defaultManager] createDirectoryAtPath:cpmconfigDirectoryPath withIntermediateDirectories:YES attributes:NULL error:NULL];
+
     if (ignore)
         [[NSFileManager defaultManager] createFileAtPath:cpmconfigIgnoreFilePath contents:NULL attributes:NULL];
     else

@@ -29,6 +29,8 @@
 #include "CacheModel.h"
 #include "SandboxExtension.h"
 #include <WebCore/Cookie.h>
+#include <WebCore/ProcessIdentifier.h>
+#include <WebCore/RegistrableDomain.h>
 #include <wtf/ProcessID.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -62,12 +64,6 @@ struct NetworkProcessCreationParameters {
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
     Vector<uint8_t> uiProcessCookieStorageIdentifier;
-#endif
-#if PLATFORM(IOS_FAMILY)
-    SandboxExtension::Handle cookieStorageDirectoryExtensionHandle;
-    SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
-    SandboxExtension::Handle parentBundleDirectoryExtensionHandle;
-    SandboxExtension::Handle tempDirectoryExtensionHandle;
 #endif
     bool shouldSuppressMemoryPressureHandler { false };
 

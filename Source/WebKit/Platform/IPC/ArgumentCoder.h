@@ -27,6 +27,7 @@
 
 #include "Decoder.h"
 #include "Encoder.h"
+#include <WebCore/NotificationData.h>
 #include <wtf/EnumTraits.h>
 #include <wtf/Span.h>
 
@@ -47,6 +48,12 @@ template<typename T, typename = void> struct ArgumentCoder {
     static void encode(Encoder& encoder, const T& t)
     {
         t.encode(encoder);
+    }
+
+    template<typename Encoder>
+    static void encode(Encoder& encoder, T&& t)
+    {
+        WTFMove(t).encode(encoder);
     }
 
     template<typename Decoder>
@@ -89,7 +96,7 @@ struct ArgumentCoder<bool> {
     static std::optional<bool> decode(Decoder& decoder)
     {
         uint8_t data;
-        if (decoder.decodeFixedLengthData(&data, sizeof(uint8_t), alignof(uint8_t)))
+        if (decoder.decodeFixedLengthData(&data, sizeof(uint8_t), alignof(uint8_t)) && data <= 1)
             return !!data; // This ensures that only the lower bit is set in a boolean for IPC messages
         return std::nullopt;
     }

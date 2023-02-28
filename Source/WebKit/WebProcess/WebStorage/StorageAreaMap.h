@@ -40,6 +40,7 @@
 namespace WebCore {
 class SecurityOrigin;
 class StorageMap;
+struct ClientOrigin;
 }
 
 namespace WebKit {
@@ -58,9 +59,9 @@ public:
     unsigned length();
     String key(unsigned index);
     String item(const String& key);
-    void setItem(WebCore::Frame* sourceFrame, StorageAreaImpl* sourceArea, const String& key, const String& value, bool& quotaException);
-    void removeItem(WebCore::Frame* sourceFrame, StorageAreaImpl* sourceArea, const String& key);
-    void clear(WebCore::Frame* sourceFrame, StorageAreaImpl* sourceArea);
+    void setItem(WebCore::Frame& sourceFrame, StorageAreaImpl* sourceArea, const String& key, const String& value, bool& quotaException);
+    void removeItem(WebCore::Frame& sourceFrame, StorageAreaImpl* sourceArea, const String& key);
+    void clear(WebCore::Frame& sourceFrame, StorageAreaImpl* sourceArea);
     bool contains(const String& key);
 
     // IPC::MessageReceiver
@@ -71,24 +72,25 @@ public:
 
     void connect();
     void disconnect();
-
     void incrementUseCount();
     void decrementUseCount();
 
 private:
-    void didSetItem(uint64_t mapSeed, const String& key, bool quotaError);
+    void didSetItem(uint64_t mapSeed, const String& key, bool hasError, HashMap<String, String>&&);
     void didRemoveItem(uint64_t mapSeed, const String& key);
     void didClear(uint64_t mapSeed);
 
+    // Message handlers.
     void dispatchStorageEvent(const std::optional<StorageAreaImplIdentifier>& sourceStorageAreaID, const String& key, const String& oldValue, const String& newValue, const String& urlString, uint64_t messageIdentifier);
     void clearCache(uint64_t messageIdentifier);
 
-    void resetValues();
+    void syncOneItem(const String& key, const String& value);
+    void syncItems(HashMap<String, String>&&);
     WebCore::StorageMap& ensureMap();
+    WebCore::StorageType computeStorageType() const;
+    WebCore::ClientOrigin clientOrigin() const;
 
-    bool shouldApplyChangeForKey(const String& key) const;
     void applyChange(const String& key, const String& newValue);
-
     void dispatchSessionStorageEvent(const std::optional<StorageAreaImplIdentifier>&, const String& key, const String& oldValue, const String& newValue, const String& urlString);
     void dispatchLocalStorageEvent(const std::optional<StorageAreaImplIdentifier>&, const String& key, const String& oldValue, const String& newValue, const String& urlString);
 
@@ -109,6 +111,7 @@ private:
     WebCore::StorageType m_type;
     uint64_t m_useCount { 0 };
     bool m_hasPendingClear { false };
+    bool m_isWaitingForConnectReply { false };
 };
 
 } // namespace WebKit

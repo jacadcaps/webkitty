@@ -56,7 +56,7 @@ using LockCount = uint64_t;
 
 class Engine : public RefCounted<Engine>, public CanMakeWeakPtr<Engine> {
 public:
-    static Ref<Engine> create(NetworkSession&, String&& rootPath);
+    static Ref<Engine> create(NetworkSession&, const String& rootPath);
     ~Engine();
 
     static void fetchEntries(NetworkSession&, bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>)>&&);
@@ -86,10 +86,10 @@ public:
 
     bool shouldPersist() const { return !!m_ioQueue;}
 
-    void writeFile(const String& filename, NetworkCache::Data&&, WebCore::DOMCacheEngine::CompletionCallback&&);
-    void readFile(const String& filename, CompletionHandler<void(const NetworkCache::Data&, int error)>&&);
-    void removeFile(const String& filename);
-    void writeSizeFile(const String&, uint64_t size, CompletionHandler<void()>&&);
+    void writeFile(String&& filename, NetworkCache::Data&&, WebCore::DOMCacheEngine::CompletionCallback&&);
+    void readFile(String&& filename, CompletionHandler<void(const NetworkCache::Data&, int error)>&&);
+    void removeFile(String&& filename);
+    void writeSizeFile(String&&, uint64_t size, CompletionHandler<void()>&&);
     static std::optional<uint64_t> readSizeFile(const String&);
 
     const String& rootPath() const { return m_rootPath; }
@@ -97,7 +97,7 @@ public:
     uint64_t nextCacheIdentifier() { return ++m_nextCacheIdentifier; }
 
 private:
-    Engine(NetworkSession&, String&& rootPath);
+    Engine(NetworkSession&, const String& rootPath);
 
     void open(const WebCore::ClientOrigin&, const String& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
     void remove(uint64_t cacheIdentifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
@@ -107,7 +107,7 @@ private:
     void clearAllCachesFromDisk(CompletionHandler<void()>&&);
     void clearCachesForOrigin(const WebCore::SecurityOriginData&, CompletionHandler<void()>&&);
     void clearCachesForOriginFromDisk(const WebCore::SecurityOriginData&, CompletionHandler<void()>&&);
-    void deleteNonEmptyDirectoryOnBackgroundThread(const String& path, CompletionHandler<void()>&&);
+    void deleteNonEmptyDirectoryOnBackgroundThread(String&& path, CompletionHandler<void()>&&);
 
     void clearMemoryRepresentation(const WebCore::ClientOrigin&, WebCore::DOMCacheEngine::CompletionCallback&&);
     String representation();

@@ -29,14 +29,15 @@
 #include "DrawingAreaProxyMessages.h"
 #include "GraphicsLayerWC.h"
 #include "PlatformImageBufferShareableBackend.h"
+#include "RemoteRenderingBackendProxy.h"
 #include "RemoteWCLayerTreeHostProxy.h"
 #include "UpdateInfo.h"
 #include "WebFrame.h"
 #include "WebPageCreationParameters.h"
 #include "WebProcess.h"
-#include <WebCore/ConcreteImageBuffer.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameView.h>
+#include <WebCore/ImageBuffer.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -121,14 +122,10 @@ void DrawingAreaWC::updateGeometry(uint64_t backingStoreStateID, IntSize viewSiz
 
 void DrawingAreaWC::setNeedsDisplay()
 {
-    if (isCompositingMode()) {
-        triggerRenderingUpdate();
-        return;
-    }
-    m_dirtyRegion = { };
+    m_dirtyRegion = m_webPage.bounds();
     m_scrollRect = { };
     m_scrollOffset = { };
-    setNeedsDisplayInRect(m_webPage.bounds());
+    triggerRenderingUpdate();
 }
 
 void DrawingAreaWC::setNeedsDisplayInRect(const IntRect& rect)
@@ -174,6 +171,7 @@ void DrawingAreaWC::scroll(const IntRect& scrollRect, const IntSize& scrollDelta
 void DrawingAreaWC::forceRepaintAsync(WebPage&, CompletionHandler<void()>&& completionHandler)
 {
     m_forceRepaintCompletionHandler = WTFMove(completionHandler);
+    m_isForceRepaintCompletionHandlerDeferred = m_waitDidUpdate;
     setNeedsDisplay();
 }
 
@@ -192,9 +190,11 @@ static void flushLayerImageBuffers(WCUpateInfo& info)
 {
     for (auto& layerInfo : info.changedLayers) {
         if (layerInfo.changes & WCLayerChange::Background) {
-            if (auto image = layerInfo.backingStore.imageBuffer()) {
-                if (auto flusher = image->createFlusher())
-                    flusher->flush();
+            for (auto& tileUpdate : layerInfo.tileUpdate) {
+                if (auto image = tileUpdate.backingStore.imageBuffer()) {
+                    if (auto flusher = image->createFlusher())
+                        flusher->flush();
+                }
             }
         }
     }
@@ -215,7 +215,7 @@ void DrawingAreaWC::updateRendering()
     // This function is not reentrant, e.g. a rAF callback may force repaint.
     if (m_inUpdateRendering)
         return;
-    SetForScope<bool> change(m_inUpdateRendering, true);
+    SetForScope change(m_inUpdateRendering, true);
 
     ASSERT(!m_waitDidUpdate);
     m_waitDidUpdate = true;
@@ -250,7 +250,9 @@ void DrawingAreaWC::sendUpdateAC()
         RunLoop::main().dispatch([this, weakThis = WTFMove(weakThis), stateID, updateInfo = WTFMove(updateInfo)]() mutable {
             if (!weakThis)
                 return;
-            m_remoteWCLayerTreeHostProxy->update(WTFMove(updateInfo), [this, stateID](std::optional<UpdateInfo> updateInfo) {
+            m_remoteWCLayerTreeHostProxy->update(WTFMove(updateInfo), [this, weakThis = WTFMove(weakThis), stateID](std::optional<UpdateInfo> updateInfo) {
+                if (!weakThis)
+                    return;
                 if (updateInfo && stateID == m_backingStoreStateID) {
                     send(Messages::DrawingAreaProxy::Update(m_backingStoreStateID, WTFMove(*updateInfo)));
                     return;
@@ -360,15 +362,19 @@ void DrawingAreaWC::commitLayerUpateInfo(WCLayerUpateInfo&& info)
 RefPtr<ImageBuffer> DrawingAreaWC::createImageBuffer(FloatSize size)
 {
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(RenderingPurpose::DOM))
-        return m_webPage.ensureRemoteRenderingBackendProxy().createImageBuffer(size, RenderingMode::Unaccelerated, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
-    return ConcreteImageBuffer<UnacceleratedImageBufferShareableBackend>::create(size, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8, nullptr);
+        return m_webPage.ensureRemoteRenderingBackendProxy().createImageBuffer(size, RenderingMode::Unaccelerated, RenderingPurpose::DOM, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    return ImageBuffer::create<UnacceleratedImageBufferShareableBackend>(size, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8, RenderingPurpose::DOM, nullptr);
 }
 
 void DrawingAreaWC::didUpdate()
 {
     m_waitDidUpdate = false;
-    if (m_forceRepaintCompletionHandler)
-        m_forceRepaintCompletionHandler();
+    if (m_forceRepaintCompletionHandler) {
+        if (m_isForceRepaintCompletionHandlerDeferred)
+            m_isForceRepaintCompletionHandlerDeferred = false;
+        else
+            m_forceRepaintCompletionHandler();
+    }
     if (m_hasDeferredRenderingUpdate) {
         m_hasDeferredRenderingUpdate = false;
         triggerRenderingUpdate();

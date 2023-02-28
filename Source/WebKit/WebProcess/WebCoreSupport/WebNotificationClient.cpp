@@ -48,11 +48,19 @@ WebNotificationClient::~WebNotificationClient()
     ASSERT(isMainRunLoop());
 }
 
-bool WebNotificationClient::show(Notification& notification)
+bool WebNotificationClient::show(Notification& notification, CompletionHandler<void()>&& callback)
 {
+    auto* context = notification.scriptExecutionContext();
+    ASSERT(context);
+
     bool result;
-    callOnMainRunLoopAndWait([&result, protectedNotification = Ref { notification }, page = m_page]() {
-        result = WebProcess::singleton().supplement<WebNotificationManager>()->show(protectedNotification.get(), page);
+    callOnMainRunLoopAndWait([&result, protectedNotification = Ref { notification }, page = m_page, contextIdentifier = context->identifier(), callbackIdentifier = context->addNotificationCallback(WTFMove(callback))]() {
+        result = WebProcess::singleton().supplement<WebNotificationManager>()->show(protectedNotification.get(), page, [contextIdentifier, callbackIdentifier] {
+            ScriptExecutionContext::postTaskTo(contextIdentifier, [callbackIdentifier](auto& context) {
+                if (auto callback = context.takeNotificationCallback(callbackIdentifier))
+                    callback();
+            });
+        });
     });
     return result;
 }
@@ -87,28 +95,48 @@ void WebNotificationClient::requestPermission(ScriptExecutionContext& context, P
     ASSERT(isMainRunLoop());
     ASSERT(m_page);
 
+    if (!context.isDocument() || WebProcess::singleton().sessionID().isEphemeral())
+        return permissionHandler(NotificationClient::Permission::Denied);
+
     auto* securityOrigin = context.securityOrigin();
     if (!securityOrigin)
         return permissionHandler(NotificationClient::Permission::Denied);
+
+    // Add origin to list of origins that have requested permission to use the Notifications API.
+    m_notificationPermissionRequesters.add(securityOrigin->data());
+
     m_page->notificationPermissionRequestManager()->startRequest(securityOrigin->data(), WTFMove(permissionHandler));
 }
 
 NotificationClient::Permission WebNotificationClient::checkPermission(ScriptExecutionContext* context)
 {
-    if (!context)
-        return NotificationClient::Permission::Denied;
-    if (!context->isDocument() && !context->isServiceWorkerGlobalScope())
+    if (!context || (!context->isDocument() && !context->isServiceWorkerGlobalScope()))
         return NotificationClient::Permission::Denied;
 
     auto* origin = context->securityOrigin();
     if (!origin)
         return NotificationClient::Permission::Denied;
 
+    bool hasRequestedPermission = m_notificationPermissionRequesters.contains(origin->data());
+    if (WebProcess::singleton().sessionID().isEphemeral())
+        return hasRequestedPermission ? NotificationClient::Permission::Denied : NotificationClient::Permission::Default;
+
     NotificationClient::Permission resultPermission;
     callOnMainRunLoopAndWait([&resultPermission, origin = origin->data().toString().isolatedCopy()] {
         resultPermission = WebProcess::singleton().supplement<WebNotificationManager>()->policyForOrigin(origin);
     });
+
+    // To reduce fingerprinting, if the origin has not requested permission to use the
+    // Notifications API, and the permission state is "denied", return "default" instead.
+    if (resultPermission == NotificationClient::Permission::Denied && !hasRequestedPermission)
+        return NotificationClient::Permission::Default;
+
     return resultPermission;
+}
+
+void WebNotificationClient::clearNotificationPermissionState()
+{
+    m_notificationPermissionRequesters.clear();
 }
 
 } // namespace WebKit

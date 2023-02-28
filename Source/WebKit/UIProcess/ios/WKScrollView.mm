@@ -34,6 +34,7 @@
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
 
 #if HAVE(PEPPER_UI_CORE)
 #import "PepperUICoreSPI.h"
@@ -129,6 +130,7 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
 
     BOOL _backgroundColorSetByClient;
     BOOL _indicatorStyleSetByClient;
+    BOOL _decelerationRateSetByClient;
 // FIXME: Likely we can remove this special case for watchOS and tvOS.
 #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
     BOOL _contentInsetAdjustmentBehaviorWasExternallyOverridden;
@@ -141,6 +143,9 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
     BOOL _zoomEnabledInternal;
     std::optional<UIEdgeInsets> _contentScrollInsetFromClient;
     std::optional<UIEdgeInsets> _contentScrollInsetInternal;
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    Vector<CGRect> _overlayRegions;
+#endif
 }
 
 - (id)initWithFrame:(CGRect)frame
@@ -258,6 +263,20 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
         return;
 
     super.indicatorStyle = indicatorStyle;
+}
+
+- (void)setDecelerationRate:(UIScrollViewDecelerationRate)rate
+{
+    _decelerationRateSetByClient = YES;
+    super.decelerationRate = rate;
+}
+
+- (void)_setDecelerationRateInternal:(UIScrollViewDecelerationRate)rate
+{
+    if (_decelerationRateSetByClient)
+        return;
+
+    super.decelerationRate = rate;
 }
 
 static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
@@ -422,7 +441,7 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
     // to include keyboard insets in the systemContentInset. We always want
     // keyboard insets applied, even when web content has chosen to disable automatic
     // safe area inset adjustment.
-    if (linkedOnOrAfter(SDKVersion::FirstWhereUIScrollViewDoesNotApplyKeyboardInsetsUnconditionally) && self.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentNever)
+    if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::UIScrollViewDoesNotApplyKeyboardInsetsUnconditionally) && self.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentNever)
         systemContentInset.bottom += _keyboardBottomInsetAdjustment;
 
     return systemContentInset;
@@ -532,6 +551,27 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 }
 
 #endif // HAVE(PEPPER_UI_CORE)
+
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+- (bool)_updateOverlayRegions:(const Vector<CGRect> &)overlayRegions
+{
+    if (_overlayRegions == overlayRegions)
+        return false;
+
+    [self willChangeValueForKey:@"overlayRegions"];
+    _overlayRegions = overlayRegions;
+    [self didChangeValueForKey:@"overlayRegions"];
+    return true;
+}
+
+- (NSArray<NSData *> *)overlayRegions
+{
+    return createNSArray(_overlayRegions, [] (auto& rect) {
+        return [NSData dataWithBytes:(void*)&rect length:sizeof(rect)];
+    }).autorelease();
+}
+
+#endif // ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
 
 @end
 

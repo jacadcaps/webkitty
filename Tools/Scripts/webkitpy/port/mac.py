@@ -40,6 +40,7 @@ from webkitpy.common.version_name_map import VersionNameMap
 from webkitpy.port.base import Port
 from webkitpy.port.config import apple_additions, Config
 from webkitpy.port.darwin import DarwinPort
+from webkitpy.port.driver import DriverInput
 
 _log = logging.getLogger(__name__)
 
@@ -185,8 +186,13 @@ class MacPort(DarwinPort):
             if self.get_option('guard_malloc'):
                 self._append_value_colon_separated(env, 'DYLD_INSERT_LIBRARIES', '/usr/lib/libgmalloc.dylib')
                 self._append_value_colon_separated(env, '__XPC_DYLD_INSERT_LIBRARIES', '/usr/lib/libgmalloc.dylib')
-            self._append_value_colon_separated(env, 'DYLD_INSERT_LIBRARIES', self._build_path("libWebCoreTestShim.dylib"))
         env['XML_CATALOG_FILES'] = ''  # work around missing /etc/catalog <rdar://problem/4292995>
+        return env
+
+    def port_adjust_environment_for_test_driver(self, env):
+        env = super(MacPort, self).port_adjust_environment_for_test_driver(env)
+        env['CA_DISABLE_GENERIC_SHADERS'] = '1'
+        env['__XPC_CA_DISABLE_GENERIC_SHADERS'] = '1'
         return env
 
     def _clear_global_caches_and_temporary_files(self):
@@ -323,6 +329,12 @@ class MacPort(DarwinPort):
                 configuration['model'] = match.group('model')
 
         return configuration
+
+    def setup_test_run(self, device_type=None):
+        super(MacPort, self).setup_test_run(device_type)
+        _log.debug('Warming up the runner ...')
+        warmup_driver = self.create_driver(0)
+        warmup_driver.run_test(DriverInput('file:///warmup-does-not-exist', 60000., None, should_run_pixel_test=False), stop_when_done=True)
 
 
 class MacCatalystPort(MacPort):

@@ -423,7 +423,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         }
 
         var callFrame;
-        let firstNonNativeNonAnonymousNotBlackboxedCallFrame = this._message.stackTrace.firstNonNativeNonAnonymousNotBlackboxedCallFrame;
+        let firstNonNativeNonAnonymousNotBlackboxedCallFrame = this._message.stackTrace?.firstNonNativeNonAnonymousNotBlackboxedCallFrame;
         if (firstNonNativeNonAnonymousNotBlackboxedCallFrame) {
             // JavaScript errors and console.* methods.
             callFrame = firstNonNativeNonAnonymousNotBlackboxedCallFrame;
@@ -507,7 +507,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         this._stackTraceElement = this._element.appendChild(document.createElement("div"));
         this._stackTraceElement.classList.add("console-message-body", "console-message-stack-trace-container");
 
-        var callFramesElement = new WI.StackTraceView(this._message.stackTrace).element;
+        let callFramesElement = new WI.StackTraceView(this._message.stackTrace);
         this._stackTraceElement.appendChild(callFramesElement);
     }
 
@@ -707,7 +707,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             let stackTrace = WI.StackTrace.fromString(this._message.target, object.description);
             if (stackTrace.callFrames.length) {
                 let stackView = new WI.StackTraceView(stackTrace);
-                fragment.appendChild(stackView.element);
+                fragment.appendChild(stackView);
                 return;
             }
         }
@@ -845,7 +845,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
     _shouldShowStackTrace()
     {
-        if (!this._message.stackTrace.callFrames.length)
+        if (!this._message.stackTrace?.callFrames.length)
             return false;
 
         return this._message.source === WI.ConsoleMessage.MessageSource.Network
@@ -1030,14 +1030,16 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
         let contextMenu = WI.ContextMenu.createFromEvent(event);
 
-        contextMenu.appendItem(WI.UIString("Save Image"), () => {
-            const forceSaveAs = true;
-            WI.FileUtilities.save({
-                content: parseDataURL(this._message.messageText).data,
-                base64Encoded: true,
-                suggestedName: image.getAttribute("filename"),
-            }, forceSaveAs);
-        });
+        if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile)) {
+            contextMenu.appendItem(WI.UIString("Save Image"), () => {
+                const forceSaveAs = true;
+                WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
+                    content: parseDataURL(this._message.messageText).data,
+                    base64Encoded: true,
+                    suggestedName: image.getAttribute("filename"),
+                }, forceSaveAs);
+            });
+        }
 
         contextMenu.appendSeparator();
     }

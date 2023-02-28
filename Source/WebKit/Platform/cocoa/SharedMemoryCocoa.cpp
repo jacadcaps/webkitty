@@ -28,7 +28,7 @@
 
 #include "ArgumentCoders.h"
 #include "Logging.h"
-#include "MachPort.h"
+#include <WebCore/ProcessIdentity.h>
 #include <WebCore/SharedBuffer.h>
 #include <mach/mach_error.h>
 #include <mach/mach_port.h>
@@ -103,10 +103,27 @@ void SharedMemory::Handle::takeOwnershipOfMemory(MemoryLedger memoryLedger) cons
         return;
 
     kern_return_t kr = mach_memory_entry_ownership(m_port, mach_task_self(), toVMMemoryLedger(memoryLedger), 0);
+
     if (kr != KERN_SUCCESS)
-        RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::Handle::setOwnership: Failed ownership of shared memory. Error: %{public}s (%x)", mach_error_string(kr), kr);
+        RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::Handle::takeOwnershipOfMemory: Failed ownership of shared memory. Error: %{public}s (%x)", mach_error_string(kr), kr);
 #else
     UNUSED_PARAM(memoryLedger);
+#endif
+}
+
+void SharedMemory::Handle::setOwnershipOfMemory(const ProcessIdentity& processIdentity, MemoryLedger memoryLedger) const
+{
+#if HAVE(TASK_IDENTITY_TOKEN) && HAVE(MACH_MEMORY_ENTRY_OWNERSHIP_IDENTITY_TOKEN_SUPPORT)
+    if (!m_port)
+        return;
+
+    kern_return_t kr = mach_memory_entry_ownership(m_port, processIdentity.taskIdToken(), toVMMemoryLedger(memoryLedger), 0);
+
+    if (kr != KERN_SUCCESS)
+        RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::Handle::setOwnershipOfMemory: Failed ownership of shared memory. Error: %{public}s (%x)", mach_error_string(kr), kr);
+#else
+    UNUSED_PARAM(memoryLedger);
+    UNUSED_PARAM(processIdentity);
 #endif
 }
 
@@ -124,41 +141,31 @@ void SharedMemory::Handle::clear()
     m_size = 0;
 }
 
-void SharedMemory::IPCHandle::encode(IPC::Encoder& encoder) const
+void SharedMemory::Handle::encode(IPC::Encoder& encoder) const
 {
-    encoder << static_cast<uint64_t>(handle.m_size);
-    encoder << dataSize;
-    encoder << IPC::MachPort(handle.m_port, MACH_MSG_TYPE_MOVE_SEND);
-    handle.m_port = MACH_PORT_NULL;
+    encoder << static_cast<uint64_t>(m_size);
+    encoder << MachSendRight::adopt(m_port);
+    m_port = MACH_PORT_NULL;
 }
 
-bool SharedMemory::IPCHandle::decode(IPC::Decoder& decoder, IPCHandle& ipcHandle)
+bool SharedMemory::Handle::decode(IPC::Decoder& decoder, Handle& handle)
 {
-    ASSERT(!ipcHandle.handle.m_port);
-    ASSERT(!ipcHandle.handle.m_size);
-
-    SharedMemory::Handle handle;
-
+    ASSERT(!handle.m_port);
+    ASSERT(!handle.m_size);
     uint64_t bufferSize;
     if (!decoder.decode(bufferSize))
         return false;
 
-    uint64_t dataLength;
-    if (!decoder.decode(dataLength))
+    auto roundedSize = safeRoundPage(bufferSize);
+    if (UNLIKELY(!roundedSize))
         return false;
 
-    // SharedMemory::Handle::size() is rounded up to the nearest page.
-    if (dataLength > bufferSize)
-        return false;
-
-    IPC::MachPort machPort;
-    if (!decoder.decode(machPort))
+    auto sendRight = decoder.decode<MachSendRight>();
+    if (UNLIKELY(!decoder.isValid()))
         return false;
     
     handle.m_size = bufferSize;
-    handle.m_port = machPort.port();
-    ipcHandle.handle = WTFMove(handle);
-    ipcHandle.dataSize = dataLength;
+    handle.m_port = sendRight->leakSendRight();
     return true;
 }
 
@@ -227,6 +234,17 @@ static WTF::MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, Share
     memory_object_size_t memoryObjectSize = *roundedSize;
     mach_port_t port = MACH_PORT_NULL;
 
+#if HAVE(MEMORY_ATTRIBUTION_VM_SHARE_SUPPORT)
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, parentEntry);
+    if (kr != KERN_SUCCESS) {
+#if RELEASE_LOG_DISABLED
+        LOG_ERROR("Failed to create a mach port for shared memory. %s (%x)", mach_error_string(kr), kr);
+#else
+        RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory. Error: %{public}s (%x)", mach_error_string(kr), kr);
+#endif
+        return { };
+    }
+#else
     // First try without MAP_MEM_VM_SHARE because it prevents memory ownership transfer. We only pass the MAP_MEM_VM_SHARE flag as a fallback.
     kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK, &port, parentEntry);
     if (kr != KERN_SUCCESS) {
@@ -241,6 +259,7 @@ static WTF::MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, Share
             return { };
         }
     }
+#endif // HAVE(MEMORY_ATTRIBUTION_VM_SHARE_SUPPORT)
 
     RELEASE_ASSERT(memoryObjectSize >= size);
 
@@ -268,10 +287,15 @@ RefPtr<SharedMemory> SharedMemory::map(const Handle& handle, Protection protecti
 {
     if (handle.isNull())
         return nullptr;
+    auto roundedSize = safeRoundPage(handle.m_size);
+    if (UNLIKELY(!roundedSize)) {
+        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::map: Failed to map %zu bytes due to overflow", nullptr, handle.m_size);
+        return nullptr;
+    }
 
     vm_prot_t vmProtection = machProtection(protection);
     mach_vm_address_t mappedAddress = 0;
-    kern_return_t kr = mach_vm_map(mach_task_self(), &mappedAddress, handle.m_size, 0, VM_FLAGS_ANYWHERE, handle.m_port, 0, false, vmProtection, vmProtection, VM_INHERIT_NONE);
+    kern_return_t kr = mach_vm_map(mach_task_self(), &mappedAddress, *roundedSize, 0, VM_FLAGS_ANYWHERE, handle.m_port, 0, false, vmProtection, vmProtection, VM_INHERIT_NONE);
 #if RELEASE_LOG_DISABLED
     if (kr != KERN_SUCCESS)
         return nullptr;
@@ -340,14 +364,9 @@ bool SharedMemory::createHandle(Handle& handle, Protection protection)
         return false;
 
     handle.m_port = sendRight.leakSendRight();
-    handle.m_size = *roundedSize;
+    handle.m_size = m_size;
 
     return true;
-}
-
-unsigned SharedMemory::systemPageSize()
-{
-    return vm_page_size;
 }
 
 WTF::MachSendRight SharedMemory::createSendRight(Protection protection) const

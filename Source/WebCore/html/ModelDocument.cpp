@@ -70,7 +70,7 @@ private:
     void appendBytes(DocumentWriter&, const uint8_t*, size_t) final;
     void finish() final;
 
-    WeakPtr<HTMLModelElement> m_modelElement;
+    HTMLModelElement* m_modelElement { nullptr };
     String m_outgoingReferrer;
 };
 
@@ -90,8 +90,8 @@ void ModelDocumentParser::createDocumentStructure()
     rootElement->appendChild(headElement);
 
     auto metaElement = HTMLMetaElement::create(document);
-    metaElement->setAttributeWithoutSynchronization(nameAttr, AtomString("viewport", AtomString::ConstructFromLiteral));
-    metaElement->setAttributeWithoutSynchronization(contentAttr, AtomString("width=device-width,initial-scale=1", AtomString::ConstructFromLiteral));
+    metaElement->setAttributeWithoutSynchronization(nameAttr, "viewport"_s);
+    metaElement->setAttributeWithoutSynchronization(contentAttr, "width=device-width,initial-scale=1"_s);
     headElement->appendChild(metaElement);
 
     auto styleElement = HTMLStyleElement::create(document);
@@ -105,13 +105,13 @@ void ModelDocumentParser::createDocumentStructure()
     rootElement->appendChild(body);
 
     auto modelElement = HTMLModelElement::create(HTMLNames::modelTag, document);
-    m_modelElement = modelElement.get();
+    m_modelElement = modelElement.ptr();
     modelElement->setAttributeWithoutSynchronization(interactiveAttr, emptyAtom());
 
     auto sourceElement = HTMLSourceElement::create(HTMLNames::sourceTag, document);
-    sourceElement->setAttributeWithoutSynchronization(srcAttr, document.url().string());
+    sourceElement->setAttributeWithoutSynchronization(srcAttr, AtomString { document.url().string() });
     if (RefPtr loader = document.loader())
-        sourceElement->setAttributeWithoutSynchronization(typeAttr, loader->responseMIMEType());
+        sourceElement->setAttributeWithoutSynchronization(typeAttr, AtomString { loader->responseMIMEType() });
 
     modelElement->appendChild(sourceElement);
 

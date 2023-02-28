@@ -5,6 +5,7 @@ include(platform/GStreamer.cmake)
 include(platform/ImageDecoders.cmake)
 include(platform/Soup.cmake)
 include(platform/TextureMapper.cmake)
+include(PlatformGLib.cmake)
 
 list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
     "SourcesGTK.txt"
@@ -13,9 +14,7 @@ list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
 )
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${WEBCORE_DIR}/accessibility/atk"
     "${WEBCORE_DIR}/accessibility/atspi"
-    "${WEBCORE_DIR}/editing/atk"
     "${WEBCORE_DIR}/page/gtk"
     "${WEBCORE_DIR}/platform/adwaita"
     "${WEBCORE_DIR}/platform/audio/glib"
@@ -75,18 +74,17 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 set(CSS_VALUE_PLATFORM_DEFINES "HAVE_OS_DARK_MODE_SUPPORT=1")
 
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
-    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.css
     ${WEBCORE_DIR}/css/themeAdwaita.css
+    ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.css
 )
 
 set(WebCore_USER_AGENT_SCRIPTS
-    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsAdwaita.js
+    ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js
 )
 
 set(WebCore_USER_AGENT_SCRIPTS_DEPENDENCIES ${WEBCORE_DIR}/rendering/RenderThemeAdwaita.cpp)
 
 list(APPEND WebCore_LIBRARIES
-    ${ATK_LIBRARIES}
     ${ENCHANT_LIBRARIES}
     ${GLIB_GIO_LIBRARIES}
     ${GLIB_GMODULE_LIBRARIES}
@@ -111,7 +109,6 @@ if (USE_WPE_RENDERER)
 endif ()
 
 list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
-    ${ATK_INCLUDE_DIRS}
     ${ENCHANT_INCLUDE_DIRS}
     ${GIO_UNIX_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
@@ -123,17 +120,6 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
 if (USE_OPENGL)
     list(APPEND WebCore_SOURCES
         platform/graphics/OpenGLShims.cpp
-    )
-endif ()
-
-if (USE_ANGLE_WEBGL)
-    list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
-        ${LIBDRM_INCLUDE_DIR}
-        ${GBM_INCLUDE_DIR}
-    )
-    list(APPEND WebCore_LIBRARIES
-        ${LIBDRM_LIBRARIES}
-        ${GBM_LIBRARIES}
     )
 endif ()
 
@@ -212,5 +198,16 @@ if (USE_ATSPI)
 
     list(APPEND WebCore_SOURCES
         ${WebCore_DERIVED_SOURCES_DIR}/AccessibilityAtspiInterfaces.c
+    )
+endif ()
+
+if (USE_LIBGBM)
+    list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
+        ${GBM_INCLUDE_DIR}
+        ${LIBDRM_INCLUDE_DIR}
+    )
+    list(APPEND WebCore_LIBRARIES
+        ${GBM_LIBRARIES}
+        ${LIBDRM_LIBRARIES}
     )
 endif ()

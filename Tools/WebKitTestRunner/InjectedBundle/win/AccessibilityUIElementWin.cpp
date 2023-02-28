@@ -298,6 +298,24 @@ JSRetainPtr<JSStringRef> AccessibilityUIElement::orientation() const
     return nullptr;
 }
 
+bool AccessibilityUIElement::isAtomicLiveRegion() const
+{
+    notImplemented();
+    return false;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElement::liveRegionRelevant() const
+{
+    notImplemented();
+    return nullptr;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElement::liveRegionStatus() const
+{
+    notImplemented();
+    return nullptr;
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElement::stringValue()
 {
     notImplemented();
@@ -395,6 +413,12 @@ bool AccessibilityUIElement::isIncrementActionSupported()
 }
 
 bool AccessibilityUIElement::isDecrementActionSupported()
+{
+    notImplemented();
+    return false;
+}
+
+bool AccessibilityUIElement::isBusy() const
 {
     notImplemented();
     return false;
@@ -1004,6 +1028,38 @@ bool AccessibilityUIElement::replaceTextInRange(JSStringRef, int, int)
 }
 
 bool AccessibilityUIElement::insertText(JSStringRef)
+{
+    notImplemented();
+    return false;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElement::domIdentifier() const
+{
+    notImplemented();
+    return nullptr;
+}
+
+bool AccessibilityUIElement::isInsertion() const
+{
+    notImplemented();
+    return false;
+}
+
+bool AccessibilityUIElement::isDeletion() const
+{
+    notImplemented();
+    return false;
+}
+
+
+bool AccessibilityUIElement::isFirstItemInSuggestion() const
+{
+    notImplemented();
+    return false;
+}
+
+
+bool AccessibilityUIElement::isLastItemInSuggestion() const
 {
     notImplemented();
     return false;

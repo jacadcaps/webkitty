@@ -137,7 +137,10 @@ void RemoteLayerTreeContext::buildTransaction(RemoteLayerTreeTransaction& transa
 
     m_currentTransaction = &transaction;
     rootLayerRemote.recursiveBuildTransaction(*this, transaction);
+    m_backingStoreCollection->prepareBackingStoresForDisplay(transaction);
     m_currentTransaction = nullptr;
+
+    m_backingStoreCollection->paintReachableBackingStoreContents();
 
     transaction.setCreatedLayers(copyToVector(m_createdLayers.values()));
     transaction.setDestroyedLayerIDs(WTFMove(m_destroyedLayers));

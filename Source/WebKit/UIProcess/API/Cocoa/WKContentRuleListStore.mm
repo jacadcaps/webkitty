@@ -79,7 +79,7 @@ static WKErrorCode toWKErrorCode(const std::error_code& error)
 + (instancetype)storeWithURL:(NSURL *)url
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    return wrapper(API::ContentRuleListStore::storeWithPath(url.absoluteURL.fileSystemRepresentation));
+    return wrapper(API::ContentRuleListStore::storeWithPath(url.absoluteURL.path));
 #else
     return nil;
 #endif
@@ -174,9 +174,14 @@ static WKErrorCode toWKErrorCode(const std::error_code& error)
     auto handler = adoptNS([completionHandler copy]);
     _contentRuleListStore->getContentRuleListSource(identifier, [handler](String source) {
         auto rawHandler = (void (^)(NSString *))handler.get();
-        if (source.isNull())
+        if (source.isNull()) {
+            // This should not be necessary since there are no nullability annotations
+            // in this file or any other unified source combined herein.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
             rawHandler(nil);
-        else
+#pragma clang diagnostic pop
+        } else
             rawHandler(source);
     });
 #endif
@@ -194,7 +199,7 @@ static WKErrorCode toWKErrorCode(const std::error_code& error)
 + (instancetype)storeWithURLAndLegacyFilename:(NSURL *)url
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    return wrapper(API::ContentRuleListStore::storeWithPath(url.absoluteURL.fileSystemRepresentation));
+    return wrapper(API::ContentRuleListStore::storeWithPath(url.absoluteURL.path));
 #else
     return nil;
 #endif

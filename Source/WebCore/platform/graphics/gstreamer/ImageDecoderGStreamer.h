@@ -21,7 +21,7 @@
 
 #if USE(GSTREAMER) && ENABLE(VIDEO)
 
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "ImageDecoder.h"
 #include "MIMETypeRegistry.h"
 #include "SampleMap.h"
@@ -96,10 +96,7 @@ private:
             m_memoryStream = adoptGRef(g_memory_input_stream_new_from_data(data, size, nullptr));
         }
 
-        ~InnerDecoder()
-        {
-            gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
-        }
+        ~InnerDecoder();
 
         void run();
         EncodedDataStatus encodedDataStatus() const;

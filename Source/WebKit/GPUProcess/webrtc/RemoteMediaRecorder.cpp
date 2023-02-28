@@ -33,9 +33,6 @@
 #include "RemoteVideoFrameObjectHeap.h"
 #include "SharedRingBufferStorage.h"
 #include <WebCore/CARingBuffer.h>
-#include <WebCore/ImageTransferSessionVT.h>
-#include <WebCore/MediaSampleAVFObjC.h>
-#include <WebCore/RemoteVideoSample.h>
 #include <WebCore/WebAudioBufferList.h>
 #include <wtf/CompletionHandler.h>
 
@@ -57,7 +54,7 @@ RemoteMediaRecorder::RemoteMediaRecorder(GPUConnectionToWebProcess& gpuConnectio
     : m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_identifier(identifier)
     , m_writer(WTFMove(writer))
-    , m_videoFrameObjectHeap(gpuConnectionToWebProcess.videoFrameObjectHeap())
+    , m_sharedVideoFrameReader(Ref { gpuConnectionToWebProcess.videoFrameObjectHeap() }, { gpuConnectionToWebProcess.webProcessIdentity() })
 {
     if (recordAudio)
         m_ringBuffer = makeUnique<CARingBuffer>();
@@ -67,13 +64,13 @@ RemoteMediaRecorder::~RemoteMediaRecorder()
 {
 }
 
-void RemoteMediaRecorder::audioSamplesStorageChanged(const SharedMemory::IPCHandle& ipcHandle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
+void RemoteMediaRecorder::audioSamplesStorageChanged(const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
 {
     MESSAGE_CHECK(m_ringBuffer);
 
     m_description = description;
 
-    m_ringBuffer = CARingBuffer::adoptStorage(makeUniqueRef<ReadOnlySharedRingBufferStorage>(ipcHandle.handle), description, numberOfFrames).moveToUniquePtr();
+    m_ringBuffer = CARingBuffer::adoptStorage(makeUniqueRef<ReadOnlySharedRingBufferStorage>(handle), description, numberOfFrames).moveToUniquePtr();
     m_audioBufferList = makeUnique<WebAudioBufferList>(m_description);
 }
 
@@ -89,37 +86,10 @@ void RemoteMediaRecorder::audioSamplesAvailable(MediaTime time, uint64_t numberO
     m_writer->appendAudioSampleBuffer(*m_audioBufferList, m_description, time, numberOfFrames);
 }
 
-void RemoteMediaRecorder::videoSampleAvailable(WebCore::RemoteVideoSample&& remoteSample, std::optional<RemoteVideoFrameReadReference> sampleReference)
+void RemoteMediaRecorder::videoFrameAvailable(SharedVideoFrame&& sharedVideoFrame)
 {
-    RefPtr<MediaSample> sample;
-    if (sampleReference) {
-        sample = m_videoFrameObjectHeap->retire(WTFMove(*sampleReference), mediaRecorderDefaultTimeout);
-        if (!sample) {
-            // In case of GPUProcess crash, we might enqueue previous GPUProcess samples, ignore them.
-            return;
-        }
-    } else if (!remoteSample.surface()) {
-        auto pixelBuffer = m_sharedVideoFrameReader.read();
-        if (!pixelBuffer)
-            return;
-
-        sample = MediaSampleAVFObjC::createImageSample(WTFMove(pixelBuffer), remoteSample.rotation(), remoteSample.mirrored(), remoteSample.time());
-    } else {
-        if (!m_imageTransferSession || m_imageTransferSession->pixelFormat() != remoteSample.videoFormat())
-            m_imageTransferSession = ImageTransferSessionVT::create(remoteSample.videoFormat());
-
-        if (!m_imageTransferSession) {
-            ASSERT_NOT_REACHED();
-            return;
-        }
-
-        sample = m_imageTransferSession->createMediaSample(remoteSample);
-        if (!sample) {
-            ASSERT_NOT_REACHED();
-            return;
-        }
-    }
-    m_writer->appendVideoSampleBuffer(*sample);
+    if (auto frame = m_sharedVideoFrameReader.read(WTFMove(sharedVideoFrame)))
+        m_writer->appendVideoFrame(*frame);
 }
 
 void RemoteMediaRecorder::fetchData(CompletionHandler<void(IPC::DataReference&&, double)>&& completionHandler)
@@ -154,9 +124,9 @@ void RemoteMediaRecorder::setSharedVideoFrameSemaphore(IPC::Semaphore&& semaphor
     m_sharedVideoFrameReader.setSemaphore(WTFMove(semaphore));
 }
 
-void RemoteMediaRecorder::setSharedVideoFrameMemory(const SharedMemory::IPCHandle& ipcHandle)
+void RemoteMediaRecorder::setSharedVideoFrameMemory(const SharedMemory::Handle& handle)
 {
-    m_sharedVideoFrameReader.setSharedMemory(ipcHandle);
+    m_sharedVideoFrameReader.setSharedMemory(handle);
 }
 
 }

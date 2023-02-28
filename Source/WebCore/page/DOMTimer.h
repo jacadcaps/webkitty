@@ -38,7 +38,6 @@ namespace WebCore {
 
 class DOMTimerFireState;
 class Document;
-class HTMLPlugInElement;
 class ScheduledAction;
 
 class DOMTimer final : public RefCounted<DOMTimer>, public SuspendableTimerBase, public CanMakeWeakPtr<DOMTimer> {
@@ -63,7 +62,7 @@ public:
     // setting for the context has changed).
     void updateTimerIntervalIfNecessary();
 
-    static void scriptDidInteractWithPlugin(HTMLPlugInElement&);
+    static void scriptDidInteractWithPlugin();
 
 private:
     DOMTimer(ScriptExecutionContext&, Function<void(ScriptExecutionContext&)>&&, Seconds interval, bool singleShot);
@@ -93,6 +92,7 @@ private:
     Function<void(ScriptExecutionContext&)> m_action;
     Seconds m_originalInterval;
     TimerThrottleState m_throttleState;
+    bool m_oneShot;
     Seconds m_currentTimerInterval;
     RefPtr<UserGestureToken> m_userGestureTokenToForward;
 };

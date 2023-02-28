@@ -34,6 +34,11 @@
 #include "WebProcessCreationParameters.h"
 #include <WebCore/PlatformDisplay.h>
 #include <wtf/FileSystem.h>
+#include <wtf/glib/Sandbox.h>
+
+#if ENABLE(REMOTE_INSPECTOR)
+#include <JavaScriptCore/RemoteInspector.h>
+#endif
 
 #if USE(GSTREAMER)
 #include <WebCore/GStreamerCommon.h>
@@ -77,8 +82,8 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.isServiceWorkerProcess = process.isRunningServiceWorkers();
 
     if (!parameters.isServiceWorkerProcess) {
-        parameters.hostClientFileDescriptor = wpe_renderer_host_create_client();
-        parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(wpe_loader_get_loaded_implementation_library_name());
+        parameters.hostClientFileDescriptor = IPC::Attachment(UnixFileDescriptor(wpe_renderer_host_create_client(), UnixFileDescriptor::Adopt));
+        parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(String::fromLatin1(wpe_loader_get_loaded_implementation_library_name()));
     }
 #endif
 
@@ -87,8 +92,8 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 #if USE(WPE_RENDERER)
         wpe_loader_init("libWPEBackend-fdo-1.0.so.1");
         if (AcceleratedBackingStoreWayland::checkRequirements()) {
-            parameters.hostClientFileDescriptor = wpe_renderer_host_create_client();
-            parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(wpe_loader_get_loaded_implementation_library_name());
+            parameters.hostClientFileDescriptor = IPC::Attachment(UnixFileDescriptor(wpe_renderer_host_create_client(), UnixFileDescriptor::Adopt));
+            parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(String::fromLatin1(wpe_loader_get_loaded_implementation_library_name()));
         }
 #elif USE(EGL)
         parameters.waylandCompositorDisplayName = WaylandCompositor::singleton().displayName();
@@ -115,12 +120,26 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 
     GApplication* app = g_application_get_default();
     if (app)
-        parameters.applicationID = g_application_get_application_id(app);
-    parameters.applicationName = g_get_application_name();
+        parameters.applicationID = String::fromLatin1(g_application_get_application_id(app));
+    parameters.applicationName = String::fromLatin1(g_get_application_name());
+
+#if ENABLE(REMOTE_INSPECTOR)
+    parameters.inspectorServerAddress = Inspector::RemoteInspector::inspectorServerAddress();
+#endif
 
 #if USE(ATSPI)
-    static const char* accessibilityBusAddress = getenv("WEBKIT_A11Y_BUS_ADDRESS");
-    parameters.accessibilityBusAddress = accessibilityBusAddress ? String::fromUTF8(accessibilityBusAddress) : WebCore::PlatformDisplay::sharedDisplay().accessibilityBusAddress();
+    parameters.accessibilityBusAddress = [this] {
+        if (auto* address = getenv("WEBKIT_A11Y_BUS_ADDRESS"))
+            return String::fromUTF8(address);
+
+        if (m_sandboxEnabled) {
+            String& address = sandboxedAccessibilityBusAddress();
+            if (!address.isNull())
+                return address;
+        }
+
+        return WebCore::PlatformDisplay::sharedDisplay().accessibilityBusAddress();
+    }();
 #endif
 
 #if PLATFORM(GTK)

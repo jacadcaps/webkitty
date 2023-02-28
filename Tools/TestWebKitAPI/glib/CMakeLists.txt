@@ -20,6 +20,14 @@ set(WebKitGLibAPITests_INCLUDE_DIRECTORIES
     ${WebCore_PRIVATE_FRAMEWORK_HEADERS}
 )
 
+if (USE_LIBWEBRTC)
+    list(APPEND WebKitGLibAPITests_INCLUDE_DIRECTORIES
+        "${THIRDPARTY_DIR}/libwebrtc/Source"
+        "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/abseil-cpp"
+        "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
+    )
+endif ()
+
 set(WebKitGLibAPITests_SYSTEM_INCLUDE_DIRECTORIES
     ${GIO_UNIX_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
@@ -119,13 +127,16 @@ if (COMPILER_IS_GCC_OR_CLANG)
 endif ()
 
 add_custom_command(
-    OUTPUT ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource
+    OUTPUT ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
     DEPENDS ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/webkitglib-tests.gresource.xml
             ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/link-title.js
+    DEPFILE ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
     COMMAND glib-compile-resources
             --target=${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource
             --sourcedir=${CMAKE_SOURCE_DIR}
+            --dependency-file=${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
             ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/webkitglib-tests.gresource.xml
+    VERBATIM
 )
 
 add_custom_target(test-gresource-bundle

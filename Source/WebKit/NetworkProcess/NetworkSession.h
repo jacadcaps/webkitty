@@ -27,6 +27,7 @@
 
 #include "AppPrivacyReport.h"
 #include "DataReference.h"
+#include "DataTaskIdentifier.h"
 #include "NavigatingToAppBoundDomain.h"
 #include "NetworkNotificationManager.h"
 #include "NetworkResourceLoadIdentifier.h"
@@ -76,7 +77,6 @@ class NetworkResourceLoader;
 class NetworkSocketChannel;
 class NetworkStorageManager;
 class ServiceWorkerFetchTask;
-class WebIDBServer;
 class WebPageNetworkParameters;
 class WebResourceLoadStatisticsStore;
 class WebSharedWorkerServer;
@@ -123,7 +123,7 @@ public:
     void setResourceLoadStatisticsEnabled(bool);
     bool isResourceLoadStatisticsEnabled() const;
     void notifyResourceLoadStatisticsProcessed();
-    void deleteAndRestrictWebsiteDataForRegistrableDomains(OptionSet<WebsiteDataType>, RegistrableDomainsToDeleteOrRestrictWebsiteDataFor&&, bool shouldNotifyPage, CompletionHandler<void(const HashSet<WebCore::RegistrableDomain>&)>&&);
+    void deleteAndRestrictWebsiteDataForRegistrableDomains(OptionSet<WebsiteDataType>, RegistrableDomainsToDeleteOrRestrictWebsiteDataFor&&, bool shouldNotifyPage, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
     void registrableDomainsWithWebsiteData(OptionSet<WebsiteDataType>, bool shouldNotifyPage, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
     void logDiagnosticMessageWithValue(const String& message, const String& description, unsigned value, unsigned significantFigures, WebCore::ShouldSample);
     bool enableResourceLoadStatisticsLogTestingEvent() const { return m_enableResourceLoadStatisticsLogTestingEvent; }
@@ -147,9 +147,8 @@ public:
     virtual void clearAppBoundSession() { }
 #endif
 
-    virtual bool webPushDaemonUsesMockBundlesForTesting() const { return false; }
-
     void storePrivateClickMeasurement(WebCore::PrivateClickMeasurement&&);
+    virtual void donateToSKAdNetwork(WebCore::PrivateClickMeasurement&&) { }
     void handlePrivateClickMeasurementConversion(WebCore::PrivateClickMeasurement::AttributionTriggerData&&, const URL& requestURL, const WebCore::ResourceRequest& redirectRequest, String&& attributedBundleIdentifier);
     void dumpPrivateClickMeasurement(CompletionHandler<void(String)>&&);
     void clearPrivateClickMeasurement(CompletionHandler<void()>&&);
@@ -178,7 +177,7 @@ public:
     PrefetchCache& prefetchCache() { return m_prefetchCache; }
     void clearPrefetchCache() { m_prefetchCache.clear(); }
 
-    virtual std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&);
+    virtual std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed);
     virtual void removeWebSocketTask(SessionSet&, WebSocketTask&) { }
     virtual void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) { }
 
@@ -188,7 +187,7 @@ public:
     unsigned testSpeedMultiplier() const { return m_testSpeedMultiplier; }
     bool allowsServerPreconnect() const { return m_allowsServerPreconnect; }
     bool shouldRunServiceWorkersOnMainThreadForTesting() const { return m_shouldRunServiceWorkersOnMainThreadForTesting; }
-
+    std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue() const { return m_overrideServiceWorkerRegistrationCountTestingValue; }
     bool isStaleWhileRevalidateEnabled() const { return m_isStaleWhileRevalidateEnabled; }
 
     void lowMemoryHandler(WTF::Critical);
@@ -207,18 +206,13 @@ public:
     void unregisterSWServerConnection(WebSWServerConnection&);
 
     bool hasServiceWorkerDatabasePath() const;
-
-    void addServiceWorkerSession(bool processTerminationDelayEnabled, String&& serviceWorkerRegistrationDirectory, const SandboxExtension::Handle&);
 #endif
 
     WebSharedWorkerServer* sharedWorkerServer() { return m_sharedWorkerServer.get(); }
     WebSharedWorkerServer& ensureSharedWorkerServer();
 
-    NetworkStorageManager* storageManager() { return m_storageManager.get(); }
-    void addStorageManagerSession(const String& generalStoragePath, SandboxExtension::Handle& generalStoragePathHandle, const String& localStoragePath, SandboxExtension::Handle& localStoragePathHandle, const String& idbStoragePath, SandboxExtension::Handle& idbStoragePathHandle, const String& cacheStoragePath, uint64_t defaultOriginQuota, uint64_t defaultThirdPartyQuota, bool shouldUseCustomStoragePaths);
-
-    CacheStorage::Engine* cacheEngine() { return m_cacheEngine.get(); }
-    void ensureCacheEngine(Function<void(CacheStorage::Engine&)>&&);
+    NetworkStorageManager& storageManager() { return m_storageManager.get(); }
+    CacheStorage::Engine& ensureCacheEngine();
     void clearCacheEngine();
 
     NetworkLoadScheduler& networkLoadScheduler();
@@ -232,7 +226,8 @@ public:
 
     virtual void removeNetworkWebsiteData(std::optional<WallTime>, std::optional<HashSet<WebCore::RegistrableDomain>>&&, CompletionHandler<void()>&& completionHandler) { completionHandler(); }
 
-    virtual void requestResource(WebPageProxyIdentifier, WebCore::ResourceRequest&&, CompletionHandler<void(const IPC::DataReference&, WebCore::ResourceResponse&&, WebCore::ResourceError&&)>&&) { }
+    virtual void dataTaskWithRequest(WebPageProxyIdentifier, WebCore::ResourceRequest&&, CompletionHandler<void(DataTaskIdentifier)>&&) { }
+    virtual void cancelDataTask(DataTaskIdentifier) { }
     virtual void addWebPageNetworkParameters(WebPageProxyIdentifier, WebPageNetworkParameters&&) { }
     virtual void removeWebPageNetworkParameters(WebPageProxyIdentifier) { }
     virtual size_t countNonDefaultSessionSets() const { return 0; }
@@ -245,6 +240,10 @@ public:
     
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     bool shouldAcceptInsecureCertificatesForWebSockets() const { return m_shouldAcceptInsecureCertificatesForWebSockets; }
+#endif
+
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    void setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit);
 #endif
 
 protected:
@@ -304,7 +303,7 @@ protected:
     unsigned m_testSpeedMultiplier { 1 };
     bool m_allowsServerPreconnect { true };
     bool m_shouldRunServiceWorkersOnMainThreadForTesting { false };
-
+    std::optional<unsigned> m_overrideServiceWorkerRegistrationCountTestingValue;
 #if ENABLE(SERVICE_WORKER)
     HashSet<std::unique_ptr<ServiceWorkerSoftUpdateLoader>> m_softUpdateLoaders;
     HashMap<WebCore::FetchIdentifier, WeakPtr<ServiceWorkerFetchTask>> m_navigationPreloaders;
@@ -318,7 +317,8 @@ protected:
 #endif
     std::unique_ptr<WebSharedWorkerServer> m_sharedWorkerServer;
 
-    RefPtr<NetworkStorageManager> m_storageManager;
+    Ref<NetworkStorageManager> m_storageManager;
+    String m_cacheStorageDirectory;
     RefPtr<CacheStorage::Engine> m_cacheEngine;
     Vector<Function<void(CacheStorage::Engine&)>> m_cacheStorageParametersCallbacks;
 
@@ -333,6 +333,9 @@ protected:
 #endif
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     bool m_shouldAcceptInsecureCertificatesForWebSockets { false };
+#endif
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    std::optional<int64_t> m_bytesPerSecondLimit;
 #endif
 };
 

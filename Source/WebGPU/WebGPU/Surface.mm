@@ -26,6 +26,7 @@
 #import "config.h"
 #import "Surface.h"
 
+#import "APIConversions.h"
 #import "Adapter.h"
 
 namespace WebGPU {
@@ -42,12 +43,14 @@ WGPUTextureFormat Surface::getPreferredFormat(const Adapter& adapter)
 
 } // namespace WebGPU
 
+#pragma mark WGPU Stubs
+
 void wgpuSurfaceRelease(WGPUSurface surface)
 {
-    delete surface;
+    WebGPU::fromAPI(surface).deref();
 }
 
 WGPUTextureFormat wgpuSurfaceGetPreferredFormat(WGPUSurface surface, WGPUAdapter adapter)
 {
-    return surface->surface->getPreferredFormat(adapter->adapter);
+    return WebGPU::fromAPI(surface).getPreferredFormat(WebGPU::fromAPI(adapter));
 }

@@ -34,6 +34,7 @@
 #include <WebCore/SharedBuffer.h>
 #include <gtk/gtk.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GUniquePtr.h>
 
 namespace WebKit {
 
@@ -186,7 +187,7 @@ void Clipboard::write(WebCore::SelectionData&& selectionData)
 
     if (selectionData.hasCustomData()) {
         GRefPtr<GBytes> bytes = selectionData.customData()->createGBytes();
-        providers.append(gdk_content_provider_new_for_bytes(WebCore::PasteboardCustomData::gtkType(), bytes.get()));
+        providers.append(gdk_content_provider_new_for_bytes(WebCore::PasteboardCustomData::gtkType().characters(), bytes.get()));
     }
 
     if (providers.isEmpty()) {

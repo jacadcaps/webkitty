@@ -49,6 +49,7 @@ public:
     static String idbStorageOriginDirectory(const String& rootDirectory, const WebCore::ClientOrigin&);
     static uint64_t idbStorageSize(const String& originDirectory);
     static HashSet<WebCore::ClientOrigin> originsOfIDBStorageData(const String& rootDirectory);
+    static bool migrateOriginData(const String& oldOriginDirectory, const String& newOriginDirectory);
 
     using QuotaCheckFunction = Function<void(uint64_t spaceRequested, CompletionHandler<void(bool)>&&)>;
     IDBStorageManager(const String& path, IDBStorageRegistry&, QuotaCheckFunction&&);
@@ -57,6 +58,7 @@ public:
     bool hasDataInMemory() const;
     void closeDatabasesForDeletion();
     void stopDatabaseActivitiesForSuspend();
+    void handleLowMemoryWarning();
 
     void openDatabase(WebCore::IDBServer::IDBConnectionToClient&, const WebCore::IDBRequestData&);
     void openDBRequestCancelled(const WebCore::IDBRequestData&);

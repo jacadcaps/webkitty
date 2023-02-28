@@ -37,10 +37,10 @@ enum {
 };
 
 /**
- * SECTION: WebKitUserMessage
- * @Short_description: A user message
- * @Title: WebKitUserMessage
+ * WebKitUserMessage:
  * @See_also: #WebKitWebContext, #WebKitWebView, #WebKitWebExtension, #WebKitWebPage
+ *
+ * Message that can be sent between the UI process and web extensions.
  *
  * A WebKitUserMessage is a message that can be used for the communication between the UI process
  * and web extensions. A WebKitUserMessage always has a name, and it can also include parameters and
@@ -58,6 +58,13 @@ struct _WebKitUserMessagePrivate {
 
 WEBKIT_DEFINE_TYPE(WebKitUserMessage, webkit_user_message, G_TYPE_INITIALLY_UNOWNED)
 
+/**
+ * webkit_user_message_error_quark:
+ *
+ * Gets the quark for the domain of user message errors.
+ *
+ * Returns: user message error domain.
+ */
 G_DEFINE_QUARK(WebKitUserMessageError, webkit_user_message_error)
 
 static void webkitUserMessageDispose(GObject* object)
@@ -232,7 +239,7 @@ WebKitUserMessage* webkit_user_message_new_with_fd_list(const char* name, GVaria
  * webkit_user_message_get_name:
  * @message: a #WebKitUserMessage
  *
- * Get the @message name
+ * Get the @message name.
  *
  * Returns: the message name
  *
@@ -249,7 +256,7 @@ const char* webkit_user_message_get_name(WebKitUserMessage* message)
  * webkit_user_message_get_parameters:
  * @message: a #WebKitUserMessage
  *
- * Get the @message parameters
+ * Get the @message parameters.
  *
  * Returns: (transfer none) (nullable): the message parameters
  *
@@ -266,7 +273,7 @@ GVariant* webkit_user_message_get_parameters(WebKitUserMessage* message)
  * webkit_user_message_get_fd_list:
  * @message: a #WebKitUserMessage
  *
- * Get the @message list of file descritpor
+ * Get the @message list of file descritpor.
  *
  * Returns: (transfer none) (nullable): the message list of file descriptors
  *
@@ -284,7 +291,9 @@ GUnixFDList* webkit_user_message_get_fd_list(WebKitUserMessage* message)
  * @message: a #WebKitUserMessage
  * @reply: a #WebKitUserMessage to send as reply
  *
- * Send a reply to @message. If @reply is floating, it's consumed.
+ * Send a reply to an user message.
+ *
+ * If @reply is floating, it's consumed.
  * You can only send a reply to a #WebKitUserMessage that has been
  * received.
  *

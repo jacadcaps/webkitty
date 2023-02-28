@@ -116,6 +116,8 @@ private:
         void showPage(WebPageProxy*) final;
         void focus(WebPageProxy*) final;
         void unfocus(WebPageProxy*) final;
+        bool focusFromServiceWorker(WebKit::WebPageProxy&) final;
+
         bool canRunModal() const final;
         void runModal(WebPageProxy&) final;
         void pageDidScroll(WebPageProxy*) final;
@@ -182,6 +184,7 @@ private:
 #if ENABLE(WEBXR)
         void requestPermissionOnXRSessionFeatures(WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& /* granted */, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&&) final;
         void startXRSession(WebPageProxy&, CompletionHandler<void(RetainPtr<id>)>&&) final;
+        void endXRSession(WebPageProxy&) final;
 #endif
 
         WeakPtr<UIDelegate> m_uiDelegate;
@@ -209,6 +212,7 @@ private:
 #if PLATFORM(MAC)
         bool showWebView : 1;
         bool focusWebView : 1;
+        bool focusWebViewFromServiceWorker : 1;
         bool unfocusWebView : 1;
         bool webViewRunModal : 1;
         bool webViewDidScroll : 1;
@@ -278,6 +282,7 @@ private:
 #if ENABLE(WEBXR)
         bool webViewRequestPermissionForXRSessionOriginModeAndFeaturesWithCompletionHandler: 1;
         bool webViewStartXRSessionWithCompletionHandler : 1;
+        bool webViewEndXRSession : 1;
 #endif
         bool webViewRequestNotificationPermissionForSecurityOriginDecisionHandler : 1;
         bool webViewRequestCookieConsentWithMoreInfoHandlerDecisionHandler : 1;

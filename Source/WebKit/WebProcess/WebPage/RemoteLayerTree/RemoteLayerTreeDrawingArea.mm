@@ -173,6 +173,7 @@ void RemoteLayerTreeDrawingArea::updatePreferences(const WebPreferencesStore& pr
     m_rootLayer->setShowDebugBorder(settings.showDebugBorders());
 
     m_remoteLayerTreeContext->setUseCGDisplayListsForDOMRendering(preferences.getBoolValueForKey(WebPreferencesKey::useCGDisplayListsForDOMRenderingKey()));
+    m_remoteLayerTreeContext->setUseCGDisplayListOutOfLineSurfaces(preferences.getBoolValueForKey(WebPreferencesKey::useCGDisplayListOutOfLineSurfacesKey()) && !preferences.getBoolValueForKey(WebPreferencesKey::replayCGDisplayListsIntoBackingStoreKey()));
 
     DebugPageOverlays::settingsChanged(*m_webPage.corePage());
 }
@@ -210,14 +211,7 @@ void RemoteLayerTreeDrawingArea::forceRepaint()
     if (m_isRenderingSuspended)
         return;
 
-    for (Frame* frame = &m_webPage.corePage()->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        FrameView* frameView = frame->view();
-        if (!frameView || !frameView->tiledBacking())
-            continue;
-
-        frameView->tiledBacking()->forceRepaint();
-    }
-
+    m_webPage.corePage()->forceRepaintAllFrames();
     updateRendering();
 }
 
@@ -322,7 +316,7 @@ void RemoteLayerTreeDrawingArea::updateRendering()
     if (m_inUpdateRendering)
         return;
 
-    SetForScope<bool> change(m_inUpdateRendering, true);
+    SetForScope change(m_inUpdateRendering, true);
     m_webPage.updateRendering();
 
     FloatRect visibleRect(FloatPoint(), m_viewSize);
@@ -379,28 +373,14 @@ void RemoteLayerTreeDrawingArea::updateRendering()
 
     Messages::RemoteLayerTreeDrawingAreaProxy::CommitLayerTree message(layerTransaction, scrollingTransaction);
     auto commitEncoder = makeUniqueRef<IPC::Encoder>(Messages::RemoteLayerTreeDrawingAreaProxy::CommitLayerTree::name(), m_identifier.toUInt64());
-    commitEncoder.get() << message.arguments();
+    commitEncoder.get() << WTFMove(message).arguments();
 
-    // FIXME: Move all backing store flushing management to RemoteLayerBackingStoreCollection.
-    bool hadAnyChangedBackingStore = false;
-    Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>> flushers;
-    for (auto& layer : layerTransaction.changedLayers()) {
-        if (layer->properties().changedProperties & RemoteLayerTreeTransaction::BackingStoreChanged) {
-            hadAnyChangedBackingStore = true;
-            if (layer->properties().backingStore)
-                flushers.appendVector(layer->properties().backingStore->takePendingFlushers());
-        }
-
-        layer->didCommit();
-    }
-
-    backingStoreCollection.didFlushLayers();
-
-    if (hadAnyChangedBackingStore)
-        backingStoreCollection.scheduleVolatilityTimer();
-
+    auto flushers = backingStoreCollection.didFlushLayers(layerTransaction);
     RefPtr<BackingStoreFlusher> backingStoreFlusher = BackingStoreFlusher::create(WebProcess::singleton().parentProcessConnection(), WTFMove(commitEncoder), WTFMove(flushers));
     m_pendingBackingStoreFlusher = backingStoreFlusher;
+
+    if (flushers.size())
+        m_webPage.didPaintLayers();
 
     auto pageID = m_webPage.identifier();
     dispatch_async(m_commitQueue.get(), [backingStoreFlusher = WTFMove(backingStoreFlusher), pageID] {

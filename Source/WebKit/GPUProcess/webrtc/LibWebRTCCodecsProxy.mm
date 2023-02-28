@@ -30,6 +30,7 @@
 
 #import "GPUConnectionToWebProcess.h"
 #import "GPUProcess.h"
+#import "IPCTester.h"
 #import "LibWebRTCCodecsMessages.h"
 #import "LibWebRTCCodecsProxyMessages.h"
 #import "RemoteVideoFrameIdentifier.h"
@@ -38,40 +39,42 @@
 #import "WebCoreArgumentCoders.h"
 #import <WebCore/CVUtilities.h>
 #import <WebCore/LibWebRTCProvider.h>
-#import <WebCore/MediaSampleAVFObjC.h>
-#import <WebCore/RemoteVideoSample.h>
+#import <WebCore/PixelBufferConformerCV.h>
+#import <WebCore/VideoFrameCV.h>
 #import <webrtc/sdk/WebKit/WebKitDecoder.h>
 #import <webrtc/sdk/WebKit/WebKitEncoder.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MediaTime.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
+#import <WebCore/CoreVideoSoftLink.h>
 
 namespace WebKit {
+using namespace WebCore;
 
-LibWebRTCCodecsProxy::LibWebRTCCodecsProxy(GPUConnectionToWebProcess& connection)
-    : m_gpuConnectionToWebProcess(connection)
-    , m_queue(connection.gpuProcess().libWebRTCCodecsQueue())
-    , m_videoFrameObjectHeap(connection.videoFrameObjectHeap())
+Ref<LibWebRTCCodecsProxy> LibWebRTCCodecsProxy::create(GPUConnectionToWebProcess& webProcessConnection)
 {
-    m_gpuConnectionToWebProcess.connection().addThreadMessageReceiver(Messages::LibWebRTCCodecsProxy::messageReceiverName(), this);
+    auto instance = adoptRef(*new LibWebRTCCodecsProxy(webProcessConnection));
+    instance->initialize();
+    return instance;
 }
 
-LibWebRTCCodecsProxy::~LibWebRTCCodecsProxy()
+LibWebRTCCodecsProxy::LibWebRTCCodecsProxy(GPUConnectionToWebProcess& webProcessConnection)
+    : m_connection(webProcessConnection.connection())
+    , m_queue(webProcessConnection.gpuProcess().libWebRTCCodecsQueue())
+    , m_videoFrameObjectHeap(webProcessConnection.videoFrameObjectHeap())
+    , m_resourceOwner(webProcessConnection.webProcessIdentity())
 {
 }
 
-void LibWebRTCCodecsProxy::dispatchToThread(Function<void()>&& function)
-{
-    m_queue->dispatch(WTFMove(function));
-}
+LibWebRTCCodecsProxy::~LibWebRTCCodecsProxy() = default;
 
-void LibWebRTCCodecsProxy::close()
+void LibWebRTCCodecsProxy::stopListeningForIPC(Ref<LibWebRTCCodecsProxy>&& refFromConnection)
 {
-    m_gpuConnectionToWebProcess.connection().removeThreadMessageReceiver(Messages::LibWebRTCCodecsProxy::messageReceiverName());
+    m_connection->removeWorkQueueMessageReceiver(Messages::LibWebRTCCodecsProxy::messageReceiverName());
 
-    dispatchToThread([this, protectedThis = Ref { *this }] {
-        Locker locker { m_lock };
+    m_queue->dispatch([this, protectedThis = WTFMove(refFromConnection)] {
+        assertIsCurrent(workQueue());
         auto decoders = WTFMove(m_decoders);
         for (auto decoder : decoders.values())
             webrtc::releaseLocalDecoder(decoder);
@@ -81,231 +84,221 @@ void LibWebRTCCodecsProxy::close()
     });
 }
 
-static Function<void(CVPixelBufferRef pixelBuffer, uint32_t timeStampNs, uint32_t timeStamp)> createDecoderCallback(RTCDecoderIdentifier identifier, GPUConnectionToWebProcess& gpuConnectionToWebProcess, bool useRemoteFrames)
+void LibWebRTCCodecsProxy::initialize()
 {
-    return [connection = Ref { gpuConnectionToWebProcess.connection() }, resourceOwner = gpuConnectionToWebProcess.webProcessIdentity(), videoFrameObjectHeap = Ref { gpuConnectionToWebProcess.videoFrameObjectHeap() }, identifier, useRemoteFrames] (CVPixelBufferRef pixelBuffer, uint32_t timeStampNs, uint32_t timeStamp)  mutable {
-        auto sample = WebCore::MediaSampleAVFObjC::createImageSample(pixelBuffer, WebCore::MediaSample::VideoRotation::None, false, MediaTime(timeStampNs, 1), { });
-        if (!sample)
-            return;
+    m_connection->addWorkQueueMessageReceiver(Messages::LibWebRTCCodecsProxy::messageReceiverName(), m_queue, *this);
+}
 
-        auto remoteSample = WebCore::RemoteVideoSample::create(*sample);
-        if (!remoteSample)
-            return;
-
+auto LibWebRTCCodecsProxy::createDecoderCallback(RTCDecoderIdentifier identifier, bool useRemoteFrames)
+{
+    RefPtr<RemoteVideoFrameObjectHeap> videoFrameObjectHeap;
+    if (useRemoteFrames)
+        videoFrameObjectHeap = m_videoFrameObjectHeap.ptr();
+    return [identifier, connection = m_connection, resourceOwner = m_resourceOwner, videoFrameObjectHeap = WTFMove(videoFrameObjectHeap)] (CVPixelBufferRef pixelBuffer, uint32_t timeStampNs, uint32_t timeStamp) mutable {
+        auto videoFrame = WebCore::VideoFrameCV::create(MediaTime(timeStampNs, 1), false, WebCore::VideoFrame::Rotation::None, pixelBuffer);
         if (resourceOwner)
-            remoteSample->setOwnershipIdentity(resourceOwner);
-
-        std::optional<RemoteVideoFrameIdentifier> remoteIdentifier;
-        if (useRemoteFrames) {
-            remoteIdentifier = videoFrameObjectHeap->createRemoteVideoFrame(sample.releaseNonNull());
-            remoteSample->clearIOSurface();
+            videoFrame->setOwnershipIdentity(resourceOwner);
+        if (videoFrameObjectHeap) {
+            auto properties = videoFrameObjectHeap->add(WTFMove(videoFrame));
+            connection->send(Messages::LibWebRTCCodecs::CompletedDecoding { identifier, timeStamp, timeStampNs, WTFMove(properties) }, 0);
+            return;
         }
-
-        connection->send(Messages::LibWebRTCCodecs::CompletedDecoding { identifier, timeStamp, *remoteSample, remoteIdentifier }, 0);
+        connection->send(Messages::LibWebRTCCodecs::CompletedDecodingCV { identifier, timeStamp, timeStampNs, pixelBuffer }, 0);
     };
 }
 
 void LibWebRTCCodecsProxy::createH264Decoder(RTCDecoderIdentifier identifier, bool useRemoteFrames)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(!m_decoders.contains(identifier));
-    m_decoders.add(identifier, webrtc::createLocalH264Decoder(makeBlockPtr(createDecoderCallback(identifier, m_gpuConnectionToWebProcess, useRemoteFrames)).get()));
+    assertIsCurrent(workQueue());
+    auto result = m_decoders.add(identifier, webrtc::createLocalH264Decoder(makeBlockPtr(createDecoderCallback(identifier, useRemoteFrames)).get()));
+    ASSERT_UNUSED(result, result.isNewEntry || isTestingIPC());
+    m_hasEncodersOrDecoders = true;
 }
 
 void LibWebRTCCodecsProxy::createH265Decoder(RTCDecoderIdentifier identifier, bool useRemoteFrames)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(!m_decoders.contains(identifier));
-    m_decoders.add(identifier, webrtc::createLocalH265Decoder(makeBlockPtr(createDecoderCallback(identifier, m_gpuConnectionToWebProcess, useRemoteFrames)).get()));
+    assertIsCurrent(workQueue());
+    auto result = m_decoders.add(identifier, webrtc::createLocalH265Decoder(makeBlockPtr(createDecoderCallback(identifier, useRemoteFrames)).get()));
+    ASSERT_UNUSED(result, result.isNewEntry || isTestingIPC());
+    m_hasEncodersOrDecoders = true;
 }
 
 void LibWebRTCCodecsProxy::createVP9Decoder(RTCDecoderIdentifier identifier, bool useRemoteFrames)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(!m_decoders.contains(identifier));
-    m_decoders.add(identifier, webrtc::createLocalVP9Decoder(makeBlockPtr(createDecoderCallback(identifier, m_gpuConnectionToWebProcess, useRemoteFrames)).get()));
+    assertIsCurrent(workQueue());
+    auto result = m_decoders.add(identifier, webrtc::createLocalVP9Decoder(makeBlockPtr(createDecoderCallback(identifier, useRemoteFrames)).get()));
+    ASSERT_UNUSED(result, result.isNewEntry || isTestingIPC());
+    m_hasEncodersOrDecoders = true;
 }
 
 void LibWebRTCCodecsProxy::releaseDecoder(RTCDecoderIdentifier identifier)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(m_decoders.contains(identifier));
-    if (auto decoder = m_decoders.take(identifier))
-        webrtc::releaseLocalDecoder(decoder);
+    assertIsCurrent(workQueue());
+    auto decoder = m_decoders.take(identifier);
+    if (!decoder) {
+        ASSERT_IS_TESTING_IPC();
+        return;
+    }
+    webrtc::releaseLocalDecoder(decoder);
+    m_hasEncodersOrDecoders = !m_encoders.isEmpty() || !m_decoders.isEmpty();
 }
 
-// For performance reasons, this function accesses m_decoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_decoders only get modified on this queue.
 void LibWebRTCCodecsProxy::decodeFrame(RTCDecoderIdentifier identifier, uint32_t timeStamp, const IPC::DataReference& data) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
-    ASSERT(!isMainRunLoop());
-    ASSERT(m_decoders.contains(identifier));
+    assertIsCurrent(workQueue());
     auto decoder = m_decoders.get(identifier);
-    if (!decoder)
+    if (!decoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
-
+    }
     if (webrtc::decodeFrame(decoder, timeStamp, data.data(), data.size()))
-        m_gpuConnectionToWebProcess.connection().send(Messages::LibWebRTCCodecs::FailedDecoding { identifier }, 0);
+        m_connection->send(Messages::LibWebRTCCodecs::FailedDecoding { identifier }, 0);
 }
 
-// For performance reasons, this function accesses m_decoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_decoders only get modified on this queue.
 void LibWebRTCCodecsProxy::setFrameSize(RTCDecoderIdentifier identifier, uint16_t width, uint16_t height) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
-    ASSERT(!isMainRunLoop());
-    ASSERT(m_decoders.contains(identifier));
+    assertIsCurrent(workQueue());
     auto decoder = m_decoders.get(identifier);
-    if (!decoder)
+    if (!decoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
-
+    }
     webrtc::setDecoderFrameSize(decoder, width, height);
 }
 
 void LibWebRTCCodecsProxy::createEncoder(RTCEncoderIdentifier identifier, const String& formatName, const Vector<std::pair<String, String>>& parameters, bool useLowLatency)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(!m_encoders.contains(identifier));
-
+    assertIsCurrent(workQueue());
     std::map<std::string, std::string> rtcParameters;
     for (auto& parameter : parameters)
         rtcParameters.emplace(parameter.first.utf8().data(), parameter.second.utf8().data());
 
-    auto* encoder = webrtc::createLocalEncoder(webrtc::SdpVideoFormat { formatName.utf8().data(), rtcParameters }, makeBlockPtr([connection = Ref { m_gpuConnectionToWebProcess.connection() }, identifier](const uint8_t* buffer, size_t size, const webrtc::WebKitEncodedFrameInfo& info) {
+    auto* encoder = webrtc::createLocalEncoder(webrtc::SdpVideoFormat { formatName.utf8().data(), rtcParameters }, makeBlockPtr([connection = m_connection, identifier](const uint8_t* buffer, size_t size, const webrtc::WebKitEncodedFrameInfo& info) {
         connection->send(Messages::LibWebRTCCodecs::CompletedEncoding { identifier, IPC::DataReference { buffer, size }, info }, 0);
     }).get());
     webrtc::setLocalEncoderLowLatency(encoder, useLowLatency);
-    m_encoders.add(identifier, Encoder { encoder, nullptr });
+    auto result = m_encoders.add(identifier, Encoder { encoder, makeUnique<SharedVideoFrameReader>(Ref { m_videoFrameObjectHeap }, m_resourceOwner) });
+    ASSERT_UNUSED(result, result.isNewEntry || isTestingIPC());
+    m_hasEncodersOrDecoders = true;
 }
 
 void LibWebRTCCodecsProxy::releaseEncoder(RTCEncoderIdentifier identifier)
 {
-    ASSERT(!isMainRunLoop());
-    Locker locker { m_lock };
-    ASSERT(m_encoders.contains(identifier));
+    assertIsCurrent(workQueue());
     auto encoder = m_encoders.take(identifier);
-    if (encoder.webrtcEncoder)
-        webrtc::releaseLocalEncoder(encoder.webrtcEncoder);
+    if (!encoder.webrtcEncoder) {
+        ASSERT_IS_TESTING_IPC();
+        return;
+    }
+    webrtc::releaseLocalEncoder(encoder.webrtcEncoder);
+    m_hasEncodersOrDecoders = !m_encoders.isEmpty() || !m_decoders.isEmpty();
 }
 
-// For performance reasons, this function accesses m_encoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_encoders only get modified on this queue.
 void LibWebRTCCodecsProxy::initializeEncoder(RTCEncoderIdentifier identifier, uint16_t width, uint16_t height, unsigned startBitrate, unsigned maxBitrate, unsigned minBitrate, uint32_t maxFramerate)
 {
-    auto* encoder = findEncoderWithoutLock(identifier);
-    if (!encoder)
+    assertIsCurrent(workQueue());
+    auto* encoder = findEncoder(identifier);
+    if (!encoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
-
+    }
     webrtc::initializeLocalEncoder(encoder->webrtcEncoder, width, height, startBitrate, maxBitrate, minBitrate, maxFramerate);
 }
 
-LibWebRTCCodecsProxy::Encoder* LibWebRTCCodecsProxy::findEncoderWithoutLock(RTCEncoderIdentifier identifier) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+LibWebRTCCodecsProxy::Encoder* LibWebRTCCodecsProxy::findEncoder(RTCEncoderIdentifier identifier)
 {
-    ASSERT(!isMainRunLoop());
     auto iterator = m_encoders.find(identifier);
     if (iterator == m_encoders.end())
         return nullptr;
     return &iterator->value;
 }
 
-static inline webrtc::VideoRotation toWebRTCVideoRotation(WebCore::MediaSample::VideoRotation rotation)
+static inline webrtc::VideoRotation toWebRTCVideoRotation(WebCore::VideoFrame::Rotation rotation)
 {
     switch (rotation) {
-    case WebCore::MediaSample::VideoRotation::None:
+    case WebCore::VideoFrame::Rotation::None:
         return webrtc::kVideoRotation_0;
-    case WebCore::MediaSample::VideoRotation::UpsideDown:
+    case WebCore::VideoFrame::Rotation::UpsideDown:
         return webrtc::kVideoRotation_180;
-    case WebCore::MediaSample::VideoRotation::Right:
+    case WebCore::VideoFrame::Rotation::Right:
         return webrtc::kVideoRotation_90;
-    case WebCore::MediaSample::VideoRotation::Left:
+    case WebCore::VideoFrame::Rotation::Left:
         return webrtc::kVideoRotation_270;
     }
     ASSERT_NOT_REACHED();
     return webrtc::kVideoRotation_0;
 }
 
-// For performance reasons, this function accesses m_encoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_encoders only get modified on this queue.
-void LibWebRTCCodecsProxy::encodeFrame(RTCEncoderIdentifier identifier, WebCore::RemoteVideoSample&& sample, uint32_t timeStamp, bool shouldEncodeAsKeyFrame, std::optional<RemoteVideoFrameReadReference> sampleReference)
+void LibWebRTCCodecsProxy::encodeFrame(RTCEncoderIdentifier identifier, SharedVideoFrame&& sharedVideoFrame, uint32_t timeStamp, bool shouldEncodeAsKeyFrame)
 {
-    RetainPtr<CVPixelBufferRef> pixelBuffer;
-    if (sampleReference) {
-        auto sample = m_videoFrameObjectHeap->retire(WTFMove(*sampleReference), 0_s);
-        if (!sample)
-            return;
-
-        auto platformSample = sample->platformSample();
-        ASSERT(platformSample.type == WebCore::PlatformSample::CMSampleBufferType);
-        pixelBuffer = static_cast<CVPixelBufferRef>(PAL::CMSampleBufferGetImageBuffer(platformSample.sample.cmSampleBuffer));
+    assertIsCurrent(workQueue());
+    auto* encoder = findEncoder(identifier);
+    if (!encoder) {
+        ASSERT_IS_TESTING_IPC();
+        // Make sure to read RemoteVideoFrameReadReference to prevent memory leaks.
+        if (std::holds_alternative<RemoteVideoFrameReadReference>(sharedVideoFrame.buffer))
+            m_videoFrameObjectHeap->get(WTFMove(std::get<RemoteVideoFrameReadReference>(sharedVideoFrame.buffer)));
+        return;
     }
 
-    ASSERT(findEncoderWithoutLock(identifier));
-    auto* encoder = findEncoderWithoutLock(identifier);
-    if (!encoder)
-        return;
-
-#if !PLATFORM(MACCATALYST)
-    if (sample.surface()) {
-        if (auto buffer = WebCore::createCVPixelBuffer(sample.surface()))
-            pixelBuffer = WTFMove(*buffer);
-    } else if (encoder->frameReader)
-        pixelBuffer = encoder->frameReader->read();
-
+    auto pixelBuffer = encoder->frameReader->readBuffer(WTFMove(sharedVideoFrame.buffer));
     if (!pixelBuffer)
         return;
 
-    webrtc::encodeLocalEncoderFrame(encoder->webrtcEncoder, pixelBuffer.get(), sample.time().toTimeScale(1000000).timeValue(), timeStamp, toWebRTCVideoRotation(sample.rotation()), shouldEncodeAsKeyFrame);
+    if (CVPixelBufferGetPixelFormatType(pixelBuffer.get()) == kCVPixelFormatType_32BGRA) {
+        if (!m_pixelBufferConformer) {
+            m_pixelBufferConformer = makeUnique<WebCore::PixelBufferConformerCV>((__bridge CFDictionaryRef)@{ (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) });
+        }
+        pixelBuffer = m_pixelBufferConformer->convert(pixelBuffer.get());
+        if (!pixelBuffer)
+            return;
+    }
+
+#if !PLATFORM(MACCATALYST)
+    webrtc::encodeLocalEncoderFrame(encoder->webrtcEncoder, pixelBuffer.get(), sharedVideoFrame.time.toTimeScale(1000000).timeValue(), timeStamp, toWebRTCVideoRotation(sharedVideoFrame.rotation), shouldEncodeAsKeyFrame);
 #endif
 }
 
-// For performance reasons, this function accesses m_encoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_encoders only get modified on this queue.
 void LibWebRTCCodecsProxy::setEncodeRates(RTCEncoderIdentifier identifier, uint32_t bitRate, uint32_t frameRate)
 {
-    auto* encoder = findEncoderWithoutLock(identifier);
-    if (!encoder)
+    assertIsCurrent(workQueue());
+    auto* encoder = findEncoder(identifier);
+    if (!encoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
+    }
 
     webrtc::setLocalEncoderRates(encoder->webrtcEncoder, bitRate, frameRate);
 }
 
-// For performance reasons, this function accesses m_encoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_encoders only get modified on this queue.
 void LibWebRTCCodecsProxy::setSharedVideoFrameSemaphore(RTCEncoderIdentifier identifier, IPC::Semaphore&& semaphore)
 {
-    ASSERT(findEncoderWithoutLock(identifier));
-    auto* encoder = findEncoderWithoutLock(identifier);
-    if (!encoder)
+    assertIsCurrent(workQueue());
+    auto* encoder = findEncoder(identifier);
+    if (!encoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
+    }
 
-    if (!encoder->frameReader)
-        encoder->frameReader = makeUnique<SharedVideoFrameReader>();
     encoder->frameReader->setSemaphore(WTFMove(semaphore));
 }
 
-// For performance reasons, this function accesses m_encoders without locking. This is safe because this function runs on the libWebRTCCodecsQueue
-// and m_encoders only get modified on this queue.
-void LibWebRTCCodecsProxy::setSharedVideoFrameMemory(RTCEncoderIdentifier identifier, const SharedMemory::IPCHandle& ipcHandle)
+void LibWebRTCCodecsProxy::setSharedVideoFrameMemory(RTCEncoderIdentifier identifier, const SharedMemory::Handle& handle)
 {
-    ASSERT(findEncoderWithoutLock(identifier));
-    auto* encoder = findEncoderWithoutLock(identifier);
-    if (!encoder)
+    assertIsCurrent(workQueue());
+    auto* encoder = findEncoder(identifier);
+    if (!encoder) {
+        ASSERT_IS_TESTING_IPC();
         return;
+    }
 
-    if (!encoder->frameReader)
-        encoder->frameReader = makeUnique<SharedVideoFrameReader>();
-    encoder->frameReader->setSharedMemory(ipcHandle);
+    encoder->frameReader->setSharedMemory(handle);
 }
 
 bool LibWebRTCCodecsProxy::allowsExitUnderMemoryPressure() const
 {
-    ASSERT(isMainRunLoop());
-    Locker locker { m_lock };
-    return m_encoders.isEmpty() && m_decoders.isEmpty();
+    assertIsMainRunLoop();
+    return !m_hasEncodersOrDecoders;
 }
 
 void LibWebRTCCodecsProxy::setRTCLoggingLevel(WTFLogLevel level)

@@ -23,6 +23,7 @@
 #include "FloatSize.h"
 #include "GRefPtrGStreamer.h"
 #include "GUniquePtrGStreamer.h"
+#include "PlatformVideoColorSpace.h"
 #include <gst/gst.h>
 #include <gst/video/video-format.h>
 #include <gst/video/video-info.h>
@@ -55,6 +56,15 @@ inline bool webkitGstCheckVersion(guint major, guint minor, guint micro)
     return true;
 }
 
+// gst_video_format_info_component() is GStreamer 1.18 API, so for older versions we use a local
+// vendored copy of the function.
+#if !GST_CHECK_VERSION(1, 18, 0)
+#define GST_VIDEO_MAX_COMPONENTS 4
+void webkitGstVideoFormatInfoComponent(const GstVideoFormatInfo*, guint, gint components[GST_VIDEO_MAX_COMPONENTS]);
+
+#define gst_video_format_info_component webkitGstVideoFormatInfoComponent
+#endif
+
 #define GST_VIDEO_CAPS_TYPE_PREFIX  "video/"
 #define GST_AUDIO_CAPS_TYPE_PREFIX  "audio/"
 #define GST_TEXT_CAPS_TYPE_PREFIX   "text/"
@@ -72,15 +82,21 @@ Vector<String> extractGStreamerOptionsFromCommandLine();
 void setGStreamerOptionsFromUIProcess(Vector<String>&&);
 bool ensureGStreamerInitialized();
 void registerWebKitGStreamerElements();
+void registerWebKitGStreamerVideoEncoder();
 unsigned getGstPlayFlag(const char* nick);
 uint64_t toGstUnsigned64Time(const MediaTime&);
 #if ENABLE(THUNDER)
 bool isThunderRanked();
 #endif
 
-inline GstClockTime toGstClockTime(const MediaTime &mediaTime)
+inline GstClockTime toGstClockTime(const MediaTime& mediaTime)
 {
     return static_cast<GstClockTime>(toGstUnsigned64Time(mediaTime));
+}
+
+inline GstClockTime toGstClockTime(const Seconds& seconds)
+{
+    return toGstClockTime(MediaTime::createWithDouble(seconds.seconds()));
 }
 
 inline MediaTime fromGstClockTime(GstClockTime time)
@@ -300,7 +316,7 @@ void disconnectSimpleBusMessageCallback(GstElement*);
 enum class GstVideoDecoderPlatform { ImxVPU, Video4Linux, OpenMAX };
 
 bool isGStreamerPluginAvailable(const char* name);
-bool gstElementFactoryEquals(GstElement*, const char* name);
+bool gstElementFactoryEquals(GstElement*, ASCIILiteral name);
 
 GstElement* createAutoAudioSink(const String& role);
 GstElement* createPlatformAudioSink(const String& role);
@@ -317,7 +333,18 @@ GstElement* makeGStreamerBin(const char* description, bool ghostUnlinkedPads);
 
 String gstStructureToJSONString(const GstStructure*);
 
-}
+// gst_element_get_current_running_time() is GStreamer 1.18 API, so for older versions we use a local
+// vendored copy of the function.
+#if !GST_CHECK_VERSION(1, 18, 0)
+GstClockTime webkitGstElementGetCurrentRunningTime(GstElement*);
+#define gst_element_get_current_running_time webkitGstElementGetCurrentRunningTime
+#endif
+
+PlatformVideoColorSpace videoColorSpaceFromCaps(const GstCaps*);
+PlatformVideoColorSpace videoColorSpaceFromInfo(const GstVideoInfo&);
+void fillVideoInfoColorimetryFromColorSpace(GstVideoInfo*, const PlatformVideoColorSpace&);
+
+} // namespace WebCore
 
 #ifndef GST_BUFFER_DTS_OR_PTS
 #define GST_BUFFER_DTS_OR_PTS(buffer) (GST_BUFFER_DTS_IS_VALID(buffer) ? GST_BUFFER_DTS(buffer) : GST_BUFFER_PTS(buffer))
@@ -342,9 +369,12 @@ inline void gstObjectLock(void* object) { GST_OBJECT_LOCK(object); }
 inline void gstObjectUnlock(void* object) { GST_OBJECT_UNLOCK(object); }
 inline void gstPadStreamLock(GstPad* pad) { GST_PAD_STREAM_LOCK(pad); }
 inline void gstPadStreamUnlock(GstPad* pad) { GST_PAD_STREAM_UNLOCK(pad); }
+inline void gstStateLock(void* object) { GST_STATE_LOCK(object); }
+inline void gstStateUnlock(void* object) { GST_STATE_UNLOCK(object); }
 
 using GstObjectLocker = ExternalLocker<void, gstObjectLock, gstObjectUnlock>;
 using GstPadStreamLocker = ExternalLocker<GstPad, gstPadStreamLock, gstPadStreamUnlock>;
+using GstStateLocker = ExternalLocker<void, gstStateLock, gstStateUnlock>;
 
 template <typename T>
 class GstIteratorAdaptor {

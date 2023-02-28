@@ -48,6 +48,7 @@
 #include "WebKitWebProcessEnumTypes.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
+#include <WebCore/ContextMenuContext.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/Frame.h>
@@ -62,6 +63,12 @@
 
 using namespace WebKit;
 using namespace WebCore;
+
+/**
+ * WebKitWebPage:
+ *
+ * A loaded web page.
+ */
 
 enum {
     DOCUMENT_LOADED,
@@ -127,15 +134,24 @@ static WebFrameMap& webFrameMap()
     return map;
 }
 
-static WebKitFrame* webkitFrameGetOrCreate(WebFrame* webFrame)
+static WebKitFrame* webkitFrameGet(WebFrame* webFrame)
 {
     auto wrapperPtr = webFrameMap().get(webFrame);
     if (wrapperPtr)
         return wrapperPtr->webkitFrame();
 
+    return nullptr;
+}
+
+static WebKitFrame* webkitFrameGetOrCreate(WebFrame* webFrame)
+{
+    if (auto* webKitFrame = webkitFrameGet(webFrame))
+        return webKitFrame;
+
     std::unique_ptr<WebKitFrameWrapper> wrapper = makeUnique<WebKitFrameWrapper>(*webFrame);
-    wrapperPtr = wrapper.get();
+    auto wrapperPtr = wrapper.get();
     webFrameMap().set(webFrame, WTFMove(wrapper));
+
     return wrapperPtr->webkitFrame();
 }
 
@@ -178,30 +194,62 @@ private:
 
     void didStartProvisionalLoadForFrame(WebPage&, WebFrame& frame, RefPtr<API::Object>&) override
     {
-        if (!frame.isMainFrame())
+        auto* webKitFrame = webkitFrameGet(&frame);
+        if (!webKitFrame && !frame.isMainFrame())
             return;
-        webkitWebPageSetURI(m_webPage, getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader()));
+
+        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader());
+
+        if (webKitFrame)
+            webkitFrameSetURI(webKitFrame, uri);
+
+        if (frame.isMainFrame())
+            webkitWebPageSetURI(m_webPage, uri);
     }
 
     void didReceiveServerRedirectForProvisionalLoadForFrame(WebPage&, WebFrame& frame, RefPtr<API::Object>&) override
     {
-        if (!frame.isMainFrame())
+        auto* webKitFrame = webkitFrameGet(&frame);
+        if (!webKitFrame && !frame.isMainFrame())
             return;
-        webkitWebPageSetURI(m_webPage, getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader()));
+
+        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader());
+
+        if (webKitFrame)
+            webkitFrameSetURI(webKitFrame, uri);
+
+        if (frame.isMainFrame())
+            webkitWebPageSetURI(m_webPage, uri);
     }
 
     void didSameDocumentNavigationForFrame(WebPage&, WebFrame& frame, SameDocumentNavigationType, RefPtr<API::Object>&) override
     {
-        if (!frame.isMainFrame())
+        auto* webKitFrame = webkitFrameGet(&frame);
+        if (!webKitFrame && !frame.isMainFrame())
             return;
-        webkitWebPageSetURI(m_webPage, frame.coreFrame()->document()->url().string().utf8());
+
+        const auto uri = frame.coreFrame()->document()->url().string().utf8();
+
+        if (webKitFrame)
+            webkitFrameSetURI(webKitFrame, uri);
+
+        if (frame.isMainFrame())
+            webkitWebPageSetURI(m_webPage, uri);
     }
 
     void didCommitLoadForFrame(WebPage&, WebFrame& frame, RefPtr<API::Object>&) override
     {
-        if (!frame.isMainFrame())
+        auto* webKitFrame = webkitFrameGet(&frame);
+        if (!webKitFrame && !frame.isMainFrame())
             return;
-        webkitWebPageSetURI(m_webPage, getDocumentLoaderURL(frame.coreFrame()->loader().documentLoader()));
+
+        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().documentLoader());
+
+        if (webKitFrame)
+            webkitFrameSetURI(webKitFrame, uri);
+
+        if (frame.isMainFrame())
+            webkitWebPageSetURI(m_webPage, uri);
     }
 
     void didFinishDocumentLoadForFrame(WebPage&, WebFrame& frame, RefPtr<API::Object>&) override
@@ -335,8 +383,11 @@ public:
     }
 
 private:
-    bool getCustomMenuFromDefaultItems(WebPage&, const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& defaultMenu, Vector<WebContextMenuItemData>& newMenu, RefPtr<API::Object>& userData) override
+    bool getCustomMenuFromDefaultItems(WebPage&, const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& defaultMenu, Vector<WebContextMenuItemData>& newMenu, const WebCore::ContextMenuContext& context, RefPtr<API::Object>& userData) override
     {
+        if (context.type() != ContextMenuContext::Type::ContextMenu)
+            return false;
+
         GRefPtr<WebKitContextMenu> contextMenu = adoptGRef(webkitContextMenuCreate(kitItems(defaultMenu)));
         GRefPtr<WebKitWebHitTestResult> webHitTestResult = adoptGRef(webkitWebHitTestResultCreate(hitTestResult));
         gboolean returnValue;
@@ -726,11 +777,11 @@ WebKitWebPage* webkitWebPageCreate(WebPage* webPage)
 void webkitWebPageDidReceiveMessage(WebKitWebPage* page, const String& messageName, API::Dictionary& message)
 {
 #if PLATFORM(GTK)
-    if (messageName == String("GetSnapshot")) {
-        SnapshotOptions snapshotOptions = static_cast<SnapshotOptions>(static_cast<API::UInt64*>(message.get("SnapshotOptions"))->value());
-        uint64_t callbackID = static_cast<API::UInt64*>(message.get("CallbackID"))->value();
-        SnapshotRegion region = static_cast<SnapshotRegion>(static_cast<API::UInt64*>(message.get("SnapshotRegion"))->value());
-        bool transparentBackground = static_cast<API::Boolean*>(message.get("TransparentBackground"))->value();
+    if (messageName == "GetSnapshot"_s) {
+        SnapshotOptions snapshotOptions = static_cast<SnapshotOptions>(static_cast<API::UInt64*>(message.get("SnapshotOptions"_s))->value());
+        uint64_t callbackID = static_cast<API::UInt64*>(message.get("CallbackID"_s))->value();
+        SnapshotRegion region = static_cast<SnapshotRegion>(static_cast<API::UInt64*>(message.get("SnapshotRegion"_s))->value());
+        bool transparentBackground = static_cast<API::Boolean*>(message.get("TransparentBackground"_s))->value();
 
         RefPtr<WebImage> snapshotImage;
         WebPage* webPage = page->priv->webPage;
@@ -759,10 +810,10 @@ void webkitWebPageDidReceiveMessage(WebKitWebPage* page, const String& messageNa
         }
 
         API::Dictionary::MapType messageReply;
-        messageReply.set("Page", webPage);
-        messageReply.set("CallbackID", API::UInt64::create(callbackID));
-        messageReply.set("Snapshot", snapshotImage);
-        WebProcess::singleton().injectedBundle()->postMessage("WebPage.DidGetSnapshot", API::Dictionary::create(WTFMove(messageReply)).ptr());
+        messageReply.set("Page"_s, webPage);
+        messageReply.set("CallbackID"_s, API::UInt64::create(callbackID));
+        messageReply.set("Snapshot"_s, snapshotImage);
+        WebProcess::singleton().injectedBundle()->postMessage("WebPage.DidGetSnapshot"_s, API::Dictionary::create(WTFMove(messageReply)).ptr());
     } else
 #endif
         ASSERT_NOT_REACHED();

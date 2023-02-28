@@ -347,6 +347,27 @@ class TestImporterTest(unittest.TestCase):
         self.assertFalse(fs.exists('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/new-manual.html'))
         self.assertEqual(tests_options, fs.read_text_file('/mock-checkout/LayoutTests/tests-options.json'))
 
+    def test_crash_test_with_resource_file(self):
+        FAKE_FILES = {
+            '/home/user/wpt/css/css-images/test-crash.html': '<!DOCTYPE html>',
+            '/home/user/wpt/css/css-images/some-file.html': '<!DOCTYPE html>',
+            '/home/user/wpt/css/css-images/resources/some-file.html': '<!DOCTYPE html>',
+            '/mock-checkout/LayoutTests/imported/w3c/resources/resource-files.json': '{"directories": [], "files": []}',
+        }
+        FAKE_FILES.update(FAKE_REPOSITORIES)
+
+        fs = self.import_directory(['-s', '/home/user/wpt', '-d', '/mock-checkout/LayoutTests/imported/w3c/web-platform-tests'], FAKE_FILES, 'css/css-images')
+        self.assertTrue(fs.exists('/mock-checkout/LayoutTests/imported/w3c/web-platform-tests/css/css-images/test-crash.html'))
+        self.assertTrue(fs.exists('/mock-checkout/LayoutTests/imported/w3c/web-platform-tests/css/css-images/some-file.html'))
+        self.assertTrue(fs.exists('/mock-checkout/LayoutTests/imported/w3c/web-platform-tests/css/css-images/resources/some-file.html'))
+
+        self.assertEqual(fs.read_text_file('/mock-checkout/LayoutTests/imported/w3c/resources/resource-files.json'), """{
+    "directories": [],
+    "files": [
+        "css/css-images/some-file.html"
+    ]
+}""")
+
     def test_webkit_test_runner_options(self):
         FAKE_FILES = {
             '/mock-checkout/WebKitBuild/w3c-tests/csswg-tests/t/test.html': '<!doctype html><script src="/resources/testharness.js"></script><script src="/resources/testharnessreport.js"></script>',
@@ -474,3 +495,15 @@ class TestImporterTest(unittest.TestCase):
         self.assertTrue(fs.exists('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/test5.any.worker.html'))
         self.assertTrue(fs.exists('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/test5.any.serviceworker.html'))
         self.assertTrue(fs.exists('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/test5.any.sharedworker.html'))
+
+    def test_template_test_variant(self):
+        FAKE_FILES = {
+            '/mock-checkout/WebKitBuild/w3c-tests/web-platform-tests/t/variant.any.js': '// META: variant=?1-10\n// META: variant=?11-20',
+        }
+        FAKE_FILES.update(FAKE_REPOSITORY)
+
+        fs = self.import_downloaded_tests(['--no-fetch', '--import-all', '-d', 'w3c'], FAKE_FILES)
+
+        self.assertTrue(fs.exists('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/variant.any.html'))
+        self.assertTrue('<!-- META: variant=?1-10 -->' in fs.read_text_file('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/variant.any.html'))
+        self.assertTrue('<!-- META: variant=?11-20 -->' in fs.read_text_file('/mock-checkout/LayoutTests/w3c/web-platform-tests/t/variant.any.html'))

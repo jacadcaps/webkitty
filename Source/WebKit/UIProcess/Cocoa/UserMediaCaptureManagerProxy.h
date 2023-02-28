@@ -84,21 +84,30 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     using CreateSourceCallback = CompletionHandler<void(bool succeeded, String invalidConstraints, WebCore::RealtimeMediaSourceSettings&&, WebCore::RealtimeMediaSourceCapabilities&&, Vector<WebCore::VideoPresetData>&&, WebCore::IntSize, double)>;
-    void createMediaSourceForCaptureDeviceWithConstraints(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice& deviceID, String&&, const WebCore::MediaConstraints&, bool shouldUseGPUProcessRemoteFrames, CreateSourceCallback&&);
+    void createMediaSourceForCaptureDeviceWithConstraints(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice& deviceID, String&&, const WebCore::MediaConstraints&, bool shouldUseGPUProcessRemoteFrames, WebCore::PageIdentifier, CreateSourceCallback&&);
     void startProducingData(WebCore::RealtimeMediaSourceIdentifier);
     void stopProducingData(WebCore::RealtimeMediaSourceIdentifier);
-    void end(WebCore::RealtimeMediaSourceIdentifier);
+    void removeSource(WebCore::RealtimeMediaSourceIdentifier);
     void capabilities(WebCore::RealtimeMediaSourceIdentifier, CompletionHandler<void(WebCore::RealtimeMediaSourceCapabilities&&)>&&);
     void applyConstraints(WebCore::RealtimeMediaSourceIdentifier, const WebCore::MediaConstraints&);
-    void clone(WebCore::RealtimeMediaSourceIdentifier clonedID, WebCore::RealtimeMediaSourceIdentifier cloneID);
-    void requestToEnd(WebCore::RealtimeMediaSourceIdentifier);
+    void clone(WebCore::RealtimeMediaSourceIdentifier clonedID, WebCore::RealtimeMediaSourceIdentifier cloneID, WebCore::PageIdentifier);
+    void endProducingData(WebCore::RealtimeMediaSourceIdentifier);
     void setShouldApplyRotation(WebCore::RealtimeMediaSourceIdentifier, bool shouldApplyRotation);
+
+    WebCore::CaptureSourceOrError createMicrophoneSource(const WebCore::CaptureDevice&, String&& hashSalt, const WebCore::MediaConstraints*, WebCore::PageIdentifier);
+    WebCore::CaptureSourceOrError createCameraSource(const WebCore::CaptureDevice&, String&& hashSalt, const WebCore::MediaConstraints*, WebCore::PageIdentifier);
 
     class SourceProxy;
     friend class SourceProxy;
     HashMap<WebCore::RealtimeMediaSourceIdentifier, std::unique_ptr<SourceProxy>> m_proxies;
     UniqueRef<ConnectionProxy> m_connectionProxy;
     WebCore::OrientationNotifier m_orientationNotifier { 0 };
+
+    struct PageSources {
+        WeakPtr<WebCore::RealtimeMediaSource> microphoneSource;
+        WeakHashSet<WebCore::RealtimeMediaSource> cameraSources;
+    };
+    HashMap<WebCore::PageIdentifier, PageSources> m_pageSources;
 };
 
 }

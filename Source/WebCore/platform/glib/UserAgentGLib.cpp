@@ -61,7 +61,7 @@ static const String platformVersionForUAString()
 {
 #if OS(UNIX)
     if (chassisType() == WTF::ChassisType::Mobile)
-        return "like Android 4.4";
+        return "like Android 4.4"_s;
 
     struct utsname name;
     uname(&name);
@@ -104,7 +104,7 @@ static String buildUserAgentString(const UserAgentQuirks& quirks)
     // Version/X is mandatory *before* Safari/X to be a valid Safari UA. See
     // https://bugs.webkit.org/show_bug.cgi?id=133403 for details.
     } else
-        uaString.append("Version/15.0 ");
+        uaString.append("Version/16.0 ");
 
     if (chassisType() == WTF::ChassisType::Mobile)
         uaString.append("Mobile ");
@@ -136,7 +136,7 @@ String standardUserAgent(const String& applicationName, const String& applicatio
     } else {
         String finalApplicationVersion = applicationVersion;
         if (finalApplicationVersion.isEmpty())
-            finalApplicationVersion = "605.1.15";
+            finalApplicationVersion = "605.1.15"_s;
         userAgent = standardUserAgentStatic() + ' ' + applicationName + '/' + finalApplicationVersion;
     }
 

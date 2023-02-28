@@ -26,6 +26,7 @@
 #include "CachedResourceLoader.h"
 #include "Document.h"
 #include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "TransformSource.h"
@@ -45,14 +46,15 @@
 
 namespace WebCore {
 
-XSLStyleSheet::XSLStyleSheet(XSLStyleSheet* parentSheet, const String& originalURL, const URL& finalURL)
+XSLStyleSheet::XSLStyleSheet(XSLImportRule* parentRule, const String& originalURL, const URL& finalURL)
     : m_ownerNode(nullptr)
     , m_originalURL(originalURL)
     , m_finalURL(finalURL)
     , m_embedded(false)
     , m_processed(false) // Child sheets get marked as processed when the libxslt engine has finally seen them.
-    , m_parentStyleSheet(parentSheet)
 {
+    if (parentRule)
+        m_parentStyleSheet = parentRule->parentStyleSheet();
 }
 
 XSLStyleSheet::XSLStyleSheet(Node* parentNode, const String& originalURL, const URL& finalURL,  bool embedded)
@@ -87,7 +89,7 @@ void XSLStyleSheet::checkLoaded()
 {
     if (isLoading())
         return;
-    if (RefPtr styleSheet = parentStyleSheet())
+    if (XSLStyleSheet* styleSheet = parentStyleSheet())
         styleSheet->checkLoaded();
     if (ownerNode())
         ownerNode()->sheetLoaded();
@@ -231,7 +233,7 @@ void XSLStyleSheet::loadChildSheets()
 
 void XSLStyleSheet::loadChildSheet(const String& href)
 {
-    auto childRule = makeUnique<XSLImportRule>(*this, href);
+    auto childRule = makeUnique<XSLImportRule>(this, href);
     m_children.append(childRule.release());
     m_children.last()->loadSheet();
 }
@@ -266,18 +268,19 @@ void XSLStyleSheet::setParentStyleSheet(XSLStyleSheet* parent)
 
 Document* XSLStyleSheet::ownerDocument()
 {
-    for (RefPtr styleSheet = this; styleSheet; styleSheet = styleSheet->parentStyleSheet()) {
-        if (auto* node = styleSheet->ownerNode())
+    for (XSLStyleSheet* styleSheet = this; styleSheet; styleSheet = styleSheet->parentStyleSheet()) {
+        Node* node = styleSheet->ownerNode();
+        if (node)
             return &node->document();
     }
-    return nullptr;
+    return 0;
 }
 
 xmlDocPtr XSLStyleSheet::locateStylesheetSubResource(xmlDocPtr parentDoc, const xmlChar* uri)
 {
     bool matchedParent = (parentDoc == document());
     for (auto& import : m_children) {
-        RefPtr child = import->styleSheet();
+        XSLStyleSheet* child = import->styleSheet();
         if (!child)
             continue;
         if (matchedParent) {
@@ -300,7 +303,7 @@ xmlDocPtr XSLStyleSheet::locateStylesheetSubResource(xmlDocPtr parentDoc, const 
             }
             continue;
         }
-        xmlDocPtr result = child->locateStylesheetSubResource(parentDoc, uri);
+        xmlDocPtr result = import->styleSheet()->locateStylesheetSubResource(parentDoc, uri);
         if (result)
             return result;
     }

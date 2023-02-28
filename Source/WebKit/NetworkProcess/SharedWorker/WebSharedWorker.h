@@ -30,7 +30,9 @@
 #include <WebCore/SharedWorkerObjectIdentifier.h>
 #include <WebCore/TransferredMessagePort.h>
 #include <WebCore/WorkerFetchResult.h>
+#include <WebCore/WorkerInitializationData.h>
 #include <WebCore/WorkerOptions.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -60,17 +62,35 @@ public:
 
     void addSharedWorkerObject(WebCore::SharedWorkerObjectIdentifier, const WebCore::TransferredMessagePort&);
     void removeSharedWorkerObject(WebCore::SharedWorkerObjectIdentifier);
+    void suspend(WebCore::SharedWorkerObjectIdentifier);
+    void resume(WebCore::SharedWorkerObjectIdentifier);
     unsigned sharedWorkerObjectsCount() const { return m_sharedWorkerObjects.size(); }
     void forEachSharedWorkerObject(const Function<void(WebCore::SharedWorkerObjectIdentifier, const WebCore::TransferredMessagePort&)>&) const;
+    std::optional<WebCore::ProcessIdentifier> firstSharedWorkerObjectProcess() const;
 
     void didCreateContextConnection(WebSharedWorkerServerToContextConnection&);
 
     bool isRunning() const { return m_isRunning; }
     void markAsRunning() { m_isRunning = true; }
 
+    const WebCore::WorkerInitializationData& initializationData() const { return m_initializationData; }
+    void setInitializationData(WebCore::WorkerInitializationData&& initializationData) { m_initializationData = WTFMove(initializationData); }
+
     const WebCore::WorkerFetchResult& fetchResult() const { return m_fetchResult; }
-    void setFetchResult(WebCore::WorkerFetchResult&& fetchResult) { m_fetchResult = WTFMove(fetchResult); }
+    void setFetchResult(WebCore::WorkerFetchResult&&);
     bool didFinishFetching() const { return !!m_fetchResult.script; }
+
+    void launch(WebSharedWorkerServerToContextConnection&);
+
+    struct SharedWorkerObjectState {
+        bool isSuspended { false };
+        WebCore::TransferredMessagePort port;
+    };
+
+    struct Object {
+        WebCore::SharedWorkerObjectIdentifier identifier;
+        SharedWorkerObjectState state;
+    };
 
 private:
     WebSharedWorker(WebSharedWorker&&) = delete;
@@ -78,13 +98,31 @@ private:
     WebSharedWorker(const WebSharedWorker&) = delete;
     WebSharedWorker& operator=(const WebSharedWorker&) = delete;
 
+    void suspendIfNeeded();
+    void resumeIfNeeded();
+
     WebSharedWorkerServer& m_server;
     WebCore::SharedWorkerIdentifier m_identifier;
     WebCore::SharedWorkerKey m_key;
     WebCore::WorkerOptions m_workerOptions;
-    HashMap<WebCore::SharedWorkerObjectIdentifier, WebCore::TransferredMessagePort> m_sharedWorkerObjects;
+    ListHashSet<Object> m_sharedWorkerObjects;
     WebCore::WorkerFetchResult m_fetchResult;
+    WebCore::WorkerInitializationData m_initializationData;
     bool m_isRunning { false };
+    bool m_isSuspended { false };
 };
 
 } // namespace WebKit
+
+namespace WTF {
+
+struct WebSharedWorkerObjectHash {
+    static unsigned hash(const WebKit::WebSharedWorker::Object& object) { return DefaultHash<WebCore::SharedWorkerObjectIdentifier>::hash(object.identifier); }
+    static bool equal(const WebKit::WebSharedWorker::Object& a, const WebKit::WebSharedWorker::Object& b) { return a.identifier == b.identifier; }
+    static constexpr bool safeToCompareToEmptyOrDeleted = true;
+};
+
+template<> struct HashTraits<WebKit::WebSharedWorker::Object> : SimpleClassHashTraits<WebSharedWorkerObjectHash> { };
+template<> struct DefaultHash<WebKit::WebSharedWorker::Object> : WebSharedWorkerObjectHash { };
+
+} // namespace WTF

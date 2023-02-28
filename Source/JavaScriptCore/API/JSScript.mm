@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,13 +24,16 @@
  */
 
 #import "config.h"
+#import "JSBase.h"
 #import "JSScriptInternal.h"
 
 #import "APICast.h"
 #import "BytecodeCacheError.h"
 #import "CachedTypes.h"
 #import "CodeCache.h"
+#import "Completion.h"
 #import "Identifier.h"
+#import "IntegrityInlines.h"
 #import "JSContextInternal.h"
 #import "JSScriptSourceProvider.h"
 #import "JSSourceCode.h"
@@ -154,8 +157,7 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
     if (!m_cachePath)
         return;
 
-    NSString *cachePathString = [m_cachePath path];
-    const char* cacheFilename = cachePathString.UTF8String;
+    String cacheFilename = [m_cachePath path];
 
     auto fd = FileSystem::openAndLockFile(cacheFilename, FileSystem::FileOpenMode::Read, {FileSystem::FileLockMode::Exclusive, FileSystem::FileLockMode::Nonblocking});
     if (!FileSystem::isHandleValid(fd))

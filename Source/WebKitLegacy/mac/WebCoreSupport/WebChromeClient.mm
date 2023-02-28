@@ -96,7 +96,7 @@
 #import <wtf/text/WTFString.h>
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
-#import <pal/graphics/WebGPU/Impl/WebGPUImpl.h>
+#import <pal/graphics/WebGPU/Impl/WebGPUCreateImpl.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(GEOLOCATION)
@@ -444,6 +444,7 @@ void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel lev
 
 #if PLATFORM(IOS_FAMILY)
     [[[m_webView _UIKitDelegateForwarder] asyncForwarder] webView:m_webView addMessageToConsole:dictionary withSource:messageSource];
+    UNUSED_VARIABLE(respondsToNewSelector);
 #else
     if (respondsToNewSelector)
         CallUIDelegate(m_webView, selector, dictionary, messageSource);
@@ -542,11 +543,6 @@ void WebChromeClient::setStatusbarText(const String& status)
     @autoreleasepool {
         CallUIDelegate(m_webView, @selector(webView:setStatusText:), (NSString *)status);
     }
-}
-
-bool WebChromeClient::supportsImmediateInvalidation()
-{
-    return true;
 }
 
 void WebChromeClient::invalidateRootView(const IntRect&)
@@ -849,7 +845,7 @@ void WebChromeClient::disableSuddenTermination()
 }
 
 #if !PLATFORM(IOS_FAMILY)
-void WebChromeClient::elementDidFocus(WebCore::Element& element)
+void WebChromeClient::elementDidFocus(WebCore::Element& element, const WebCore::FocusOptions&)
 {
     CallUIDelegate(m_webView, @selector(webView:formDidFocusNode:), kit(&element));
 }
@@ -942,6 +938,15 @@ void WebChromeClient::triggerRenderingUpdate()
 }
 
 #if ENABLE(VIDEO)
+
+bool WebChromeClient::canEnterVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) const
+{
+#if !PLATFORM(IOS_FAMILY) || HAVE(AVKIT)
+    return true;
+#else
+    return false;
+#endif
+}
 
 bool WebChromeClient::supportsVideoFullscreen(HTMLMediaElementEnums::VideoFullscreenMode)
 {
@@ -1163,7 +1168,9 @@ void WebChromeClient::changeUniversalAccessZoomFocus(const WebCore::IntRect& vie
 RefPtr<PAL::WebGPU::GPU> WebChromeClient::createGPUForWebGPU() const
 {
 #if HAVE(WEBGPU_IMPLEMENTATION)
-    return PAL::WebGPU::GPUImpl::create();
+    return PAL::WebGPU::create([](PAL::WebGPU::WorkItem&& workItem) {
+        callOnMainRunLoop(WTFMove(workItem));
+    });
 #else
     return nullptr;
 #endif

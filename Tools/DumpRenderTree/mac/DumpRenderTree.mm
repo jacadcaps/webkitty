@@ -939,6 +939,7 @@ static void setDefaultsToConsistentValuesForTesting()
 #if !PLATFORM(IOS_FAMILY)
         @"NSScrollAnimationEnabled": @NO,
 #endif
+        @"NSScrollViewUseLegacyScrolling": @YES,
         @"NSOverlayScrollersEnabled": @NO,
         @"AppleShowScrollBars": @"Always",
         @"NSButtonAnimationsEnabled": @NO, // Ideally, we should find a way to test animations, but for now, make sure that the dumped snapshot matches actual state.
@@ -1046,7 +1047,7 @@ static bool handleControlCommand(const char* command)
 {
     if (!strncmp("#CHECK FOR WORLD LEAKS", command, 22) || !strncmp("#LIST CHILD PROCESSES", command, 21)) {
         // DumpRenderTree does not support checking for world leaks or listing child processes.
-        WTF::String result("\n");
+        WTF::String result("\n"_s);
         unsigned resultLength = result.length();
         printf("Content-Type: text/plain\n");
         printf("Content-Length: %u\n", resultLength);
@@ -1499,12 +1500,12 @@ static void dumpBackForwardListForWebView(WebView *view)
 #if !PLATFORM(IOS_FAMILY)
 static void changeWindowScaleIfNeeded(const char* testPathOrURL)
 {
-    auto localPathOrURL = String(testPathOrURL);
+    auto localPathOrURL = String::fromUTF8(testPathOrURL);
     float currentScaleFactor = [[[mainFrame webView] window] backingScaleFactor];
     float requiredScaleFactor = 1;
-    if (localPathOrURL.containsIgnoringASCIICase("/hidpi-3x-"))
+    if (localPathOrURL.containsIgnoringASCIICase("/hidpi-3x-"_s))
         requiredScaleFactor = 3;
-    else if (localPathOrURL.containsIgnoringASCIICase("/hidpi-"))
+    else if (localPathOrURL.containsIgnoringASCIICase("/hidpi-"_s))
         requiredScaleFactor = 2;
     if (currentScaleFactor == requiredScaleFactor)
         return;
@@ -1732,6 +1733,7 @@ static void resetWebViewToConsistentState(const WTR::TestOptions& options, Reset
 #if PLATFORM(IOS_FAMILY)
     adjustWebDocumentForStandardViewport(gWebBrowserView.get(), gWebScrollView.get());
     [webView _setAllowsMessaging:YES];
+    [[UIScreen mainScreen] _setScale:2.0];
 #endif
     [webView setEditable:NO];
     [(EditingDelegate *)[webView editingDelegate] setAcceptsEditing:YES];
@@ -1803,7 +1805,7 @@ static void resetWebViewToConsistentState(const WTR::TestOptions& options, Reset
     [[NSPasteboard generalPasteboard] declareTypes:@[NSStringPboardType] owner:nil];
 #endif
 
-    WebCoreTestSupport::setAdditionalSupportedImageTypesForTesting(options.additionalSupportedImageTypes().c_str());
+    WebCoreTestSupport::setAdditionalSupportedImageTypesForTesting(String::fromLatin1(options.additionalSupportedImageTypes().c_str()));
 
     [mainFrame _clearOpener];
 
@@ -1921,6 +1923,7 @@ static void runTest(const std::string& inputLine)
     gTestRunner->clearAllApplicationCaches();
 
     gTestRunner->clearAllDatabases();
+    gTestRunner->clearNotificationPermissionState();
 
     if (disallowedURLs)
         CFSetRemoveAllValues(disallowedURLs.get());

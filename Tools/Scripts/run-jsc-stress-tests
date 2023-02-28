@@ -84,9 +84,16 @@ PARALLEL_REMOTE_WRAPPER_MARK_BEGIN = "5d65329bd1a3"
 PARALLEL_REMOTE_WRAPPER_MARK_END = "a9aea5c3b843"
 PARALLEL_REMOTE_STATE_LOST_MARKER = "709fb7a77c45231918eb118a"
 ITERATION_LIMITS = OpenStruct.new(:infraIterationsFloor => 3,
-                                  :iterationsCeiling => 10)
+                                  :iterationsCeiling => 50)
 
 REMOTE_TIMEOUT = 120
+SSH_OPTIONS_DEFAULT = [
+    "-o",
+    "NoHostAuthenticationForLocalhost=yes",
+    "-o",
+    "ServerAliveInterval=30",
+]
+
 begin
     require 'shellwords'
 rescue Exception => e
@@ -164,6 +171,7 @@ $ldd = nil
 $artifact_exec_wrapper = nil
 $numChildProcessesSetByUser = false
 $runUniqueId = Random.new.bytes(16).unpack("H*")[0]
+$gnuParallelChunkSize = 1
 $testsDebugStream = nil # set to $stderr for debugging
 
 def putd(s)
@@ -238,6 +246,7 @@ GetoptLong.new(['--help', '-h', GetoptLong::NO_ARGUMENT],
                ['--make-runner', GetoptLong::NO_ARGUMENT],
                ['--ruby-runner', GetoptLong::NO_ARGUMENT],
                ['--gnu-parallel-runner', GetoptLong::NO_ARGUMENT],
+               ['--gnu-parallel-chunk-size', GetoptLong::REQUIRED_ARGUMENT],
                ['--test-writer', GetoptLong::REQUIRED_ARGUMENT],
                ['--treat-failing-as-flaky', GetoptLong::REQUIRED_ARGUMENT],
                ['--remote', GetoptLong::REQUIRED_ARGUMENT],
@@ -286,6 +295,8 @@ GetoptLong.new(['--help', '-h', GetoptLong::NO_ARGUMENT],
         $testRunnerType = :ruby
     when '--gnu-parallel-runner'
         $testRunnerType = :gnuparallel
+    when '--gnu-parallel-chunk-size'
+        $gnuParallelChunkSize = arg.to_i
     when '--test-writer'
         $testWriter = arg
     when '--treat-failing-as-flaky'
@@ -574,6 +585,8 @@ end
 $hostOS = determineOS unless $hostOS
 $architecture = determineArchitecture unless $architecture
 $isFTLPlatform = !($architecture == "x86" || $architecture == "arm" || $architecture == "mips" || $architecture == "riscv64" || $hostOS == "windows" || $hostOS == "playstation")
+# Special case armv7, we want to run the wasm tests temporarily without B3/Air support
+$isWasmPlatform = $isFTLPlatform || $architecture == "arm"
 
 if $architecture == "x86"
     # The JIT is temporarily disabled on this platform since
@@ -612,7 +625,7 @@ BASE_OPTIONS = ["--useFTLJIT=false", "--useFunctionDotArguments=true", "--valida
 EAGER_OPTIONS = ["--thresholdForJITAfterWarmUp=10", "--thresholdForJITSoon=10", "--thresholdForOptimizeAfterWarmUp=20", "--thresholdForOptimizeAfterLongWarmUp=20", "--thresholdForOptimizeSoon=20", "--thresholdForFTLOptimizeAfterWarmUp=20", "--thresholdForFTLOptimizeSoon=20", "--thresholdForOMGOptimizeAfterWarmUp=20", "--thresholdForOMGOptimizeSoon=20", "--maximumEvalCacheableSourceLength=150000", "--useEagerCodeBlockJettisonTiming=true", "--repatchBufferingCountdown=0"]
 # NOTE: Tests rely on this using scribbleFreeCells.
 NO_CJIT_OPTIONS = ["--useConcurrentJIT=false", "--thresholdForJITAfterWarmUp=100", "--scribbleFreeCells=true"]
-B3O1_OPTIONS = ["--defaultB3OptLevel=1", "--useDataICInOptimizingJIT=1"]
+B3O1_OPTIONS = ["--defaultB3OptLevel=1", "--useDataICInFTL=1", "--forceUnlinkedDFG=1"]
 B3O0_OPTIONS = ["--maxDFGNodesInBasicBlockForPreciseAnalysis=100", "--defaultB3OptLevel=0"]
 FTL_OPTIONS = ["--useFTLJIT=true"]
 FORCE_LLINT_EXIT_OPTIONS = ["--forceOSRExitToLLInt=true"]
@@ -993,8 +1006,7 @@ end
 def bytecodeCacheTemplate
     if ($hostOS == "darwin")
         return "bytecode-cache"
-    elsif ($hostOS == "linux" && $architecture != "mips")
-        # FIXME: need to fix https://bugs.webkit.org/show_bug.cgi?id=218703 to enable this on Linux/MIPS.
+    elsif ($hostOS == "linux")
         return "bytecode-cacheXXXXXX"
     end
     nil
@@ -1080,7 +1092,7 @@ BASE_MODES = [
         "FTLNoCJIT",
         "misc-ftl-no-cjit",
         [
-            "--useDataIC=true",
+            "--useDataICInFTL=true",
         ] +
         FTL_OPTIONS +
         NO_CJIT_OPTIONS
@@ -1106,7 +1118,8 @@ BASE_MODES = [
             "--validateBCE=true",
             "--useSamplingProfiler=true",
             "--airForceIRCAllocator=true",
-            "--useDataIC=true",
+            "--useDataICInFTL=true",
+            "--forceUnlinkedDFG=true",
         ] +
         FTL_OPTIONS +
         NO_CJIT_OPTIONS
@@ -1167,7 +1180,7 @@ BASE_MODES = [
             "--airForceBriggsAllocator=true",
             "--useRandomizingExecutableIslandAllocation=true",
             "--forcePolyProto=true",
-            "--useDataIC=true",
+            "--useDataICInFTL=true",
         ] +
         FTL_OPTIONS +
         EAGER_OPTIONS +
@@ -1307,6 +1320,7 @@ BASE_MODES = [
             "--validateGraphAtEachPhase=true",
             "--useSourceProviderCache=false",
             "--useRandomizingExecutableIslandAllocation=true",
+            "--useLLIntICs=false",
         ] +
         NO_CJIT_OPTIONS
     ],
@@ -1717,7 +1731,7 @@ end
 
 def runWebAssembly
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
     run("default-wasm", "-m", *FTL_OPTIONS)
     if $mode != "quick"
         run("wasm-no-cjit-yes-tls-context", "-m", "--useFastTLSForWasmContext=true", *(FTL_OPTIONS + NO_CJIT_OPTIONS))
@@ -1725,15 +1739,17 @@ def runWebAssembly
         run("wasm-eager-jettison", "-m", "--forceCodeBlockToJettisonDueToOldAge=true", "--useRandomizingExecutableIslandAllocation=true", "--verifyGC=true", *FTL_OPTIONS)
         run("wasm-no-tls-context", "-m", "--useFastTLSForWasmContext=false", *FTL_OPTIONS)
         run("wasm-slow-memory", "-m", "--useWebAssemblyFastMemory=false", *FTL_OPTIONS)
-        run("wasm-b3", "-m", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
-        run("wasm-air", "-m", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
         run("wasm-collect-continuously", "-m", "--collectContinuously=true", "--verifyGC=true", *FTL_OPTIONS) if shouldCollectContinuously?
+        if $isFTLPlatform
+            run("wasm-b3", "-m", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
+            run("wasm-air", "-m", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
+        end
     end
 end
 
 def runWebAssemblyJetStream2
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
 
     if $memoryLimited
         skip
@@ -1752,15 +1768,17 @@ def runWebAssemblyJetStream2
         run("wasm-eager-jettison", "--forceCodeBlockToJettisonDueToOldAge=true", "--verifyGC=true", *FTL_OPTIONS)
         run("wasm-no-tls-context", "--useFastTLSForWasmContext=false", *FTL_OPTIONS)
         run("wasm-slow-memory", "--useWebAssemblyFastMemory=false", *FTL_OPTIONS)
-        run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
-        run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
         run("wasm-collect-continuously", "--collectContinuously=true", "--verifyGC=true", *FTL_OPTIONS) if shouldCollectContinuously?
+        if $isFTLPlatform
+            run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
+            run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
+        end
     end
 end
 
 def runWebAssemblySuite(*optionalTestSpecificOptions)
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
     modules = Dir[WASMTESTS_PATH + "*.js"].map { |f| File.basename(f) }
     prepareExtraAbsoluteFiles(WASMTESTS_PATH, ["wasm.json"])
     prepareExtraRelativeFiles(modules.map { |f| "../" + f }, $collection)
@@ -1776,9 +1794,12 @@ def runWebAssemblySuite(*optionalTestSpecificOptions)
         run("wasm-eager-jettison", "--forceCodeBlockToJettisonDueToOldAge=true", "--useRandomizingExecutableIslandAllocation=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         run("wasm-no-tls-context", "--useFastTLSForWasmContext=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         run("wasm-slow-memory", "--useWebAssemblyFastMemory=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-        run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-        run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         run("wasm-collect-continuously", "--collectContinuously=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions)) if shouldCollectContinuously?
+        if $isFTLPlatform
+            run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+            run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
+            run("wasm-bbqb3", "--useWasmLLInt=true", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+        end
     end
 end
 
@@ -1794,7 +1815,9 @@ end
 def runWebAssemblyWithHarness(*optionalTestSpecificOptions)
     raise unless $benchmark.to_s =~ /harness\.m?js/
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
+    # Skip this completely on armv7 for now, since most of the tests are related to OSR and it's a bit hairy to skip them manually
+    return if $architecture == "arm"
 
     wasmFiles = allWasmFiles($collection)
     prepareExtraRelativeFiles(wasmFiles.map { |f| f.basename }, $collection)
@@ -1806,9 +1829,12 @@ def runWebAssemblyWithHarness(*optionalTestSpecificOptions)
         runHarnessTest("wasm-eager-jettison", "--forceCodeBlockToJettisonDueToOldAge=true", "--useRandomizingExecutableIslandAllocation=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         runHarnessTest("wasm-no-tls-context", "--useFastTLSForWasmContext=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
         runHarnessTest("wasm-slow-memory", "--useWebAssemblyFastMemory=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-        runHarnessTest("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-        runHarnessTest("wasm-no-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
         runHarnessTest("wasm-collect-continuously", "--collectContinuously=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions)) if shouldCollectContinuously?
+        if $isFTLPlatform
+            runHarnessTest("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+            runHarnessTest("wasm-no-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
+            runHarnessTest("wasm-bbqb3", "--useWasmLLInt=true", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
+        end
     end
 end
 
@@ -1818,7 +1844,7 @@ def runWebAssemblyEmscripten(mode)
         return
     end
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
     wasm = $benchmark.to_s.sub! '.js', '.wasm'
     prepareExtraRelativeFiles([Pathname('..') + wasm], $collection)
     run("default-wasm", *FTL_OPTIONS)
@@ -1826,9 +1852,11 @@ def runWebAssemblyEmscripten(mode)
         run("wasm-no-cjit-yes-tls-context", "--useFastTLSForWasmContext=true", *(FTL_OPTIONS + NO_CJIT_OPTIONS))
         run("wasm-eager-jettison", "--forceCodeBlockToJettisonDueToOldAge=true", "--useRandomizingExecutableIslandAllocation=true", "--verifyGC=true", *FTL_OPTIONS)
         run("wasm-no-tls-context", "--useFastTLSForWasmContext=false", *FTL_OPTIONS)
-        run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
-        run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
         run("wasm-collect-continuously", "--collectContinuously=true", "--verifyGC=true", *FTL_OPTIONS) if shouldCollectContinuously?
+        if $isFTLPlatform
+            run("wasm-b3", "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *FTL_OPTIONS)
+            run("wasm-air", "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *FTL_OPTIONS)
+        end
     end
 end
 
@@ -1838,7 +1866,7 @@ def runWebAssemblySpecTestBase(mode, specHarnessPath, *optionalTestSpecificOptio
         return
     end
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
     prepareExtraAbsoluteFiles(WASMTESTS_PATH, ["wasm.json"])
 
     modules = Dir[WASMTESTS_PATH + "*.js"].map { |f| File.basename(f) }
@@ -1853,9 +1881,11 @@ def runWebAssemblySpecTestBase(mode, specHarnessPath, *optionalTestSpecificOptio
       runWithOutputHandler("wasm-no-cjit-yes-tls-context", noisyOutputHandler, specHarnessJsPath,  "--useFastTLSForWasmContext=true", *(FTL_OPTIONS + NO_CJIT_OPTIONS + optionalTestSpecificOptions))
       runWithOutputHandler("wasm-eager-jettison", noisyOutputHandler, specHarnessJsPath, "--forceCodeBlockToJettisonDueToOldAge=true", "--useRandomizingExecutableIslandAllocation=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
       runWithOutputHandler("wasm-no-tls-context", noisyOutputHandler, specHarnessJsPath, "--useFastTLSForWasmContext=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-      runWithOutputHandler("wasm-b3", noisyOutputHandler, specHarnessJsPath, "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
-      runWithOutputHandler("wasm-air", noisyOutputHandler, specHarnessJsPath, "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
       runWithOutputHandler("wasm-collect-continuously", noisyOutputHandler, specHarnessJsPath, "--collectContinuously=true", "--verifyGC=true", *(FTL_OPTIONS + optionalTestSpecificOptions)) if shouldCollectContinuously?
+      if $isFTLPlatform
+          runWithOutputHandler("wasm-b3", noisyOutputHandler, specHarnessJsPath, "--useWasmLLInt=false", "--wasmBBQUsesAir=false", *(FTL_OPTIONS + optionalTestSpecificOptions))
+          runWithOutputHandler("wasm-air", noisyOutputHandler, specHarnessJsPath, "--useWasmLLInt=false", "--useRandomizingExecutableIslandAllocation=true", *(FTL_OPTIONS + optionalTestSpecificOptions))
+      end
     end
 end
 
@@ -1873,7 +1903,7 @@ end
 
 def runWebAssemblyLowExecutableMemory(*optionalTestSpecificOptions)
     return if !$jitTests
-    return if !$isFTLPlatform
+    return if !$isWasmPlatform
     modules = Dir[WASMTESTS_PATH + "*.js"].map { |f| File.basename(f) }
     prepareExtraAbsoluteFiles(WASMTESTS_PATH, ["wasm.json"])
     prepareExtraRelativeFiles(modules.map { |f| "../" + f }, $collection)
@@ -2450,6 +2480,11 @@ def prepareBundle
         handleCollection(collection)
     }
 
+    if $runlist.size == 0
+        $stderr.puts("No tests selected for execution (overzealous --filter?)")
+        exit(2)
+    end
+
     puts
 end
 
@@ -2550,12 +2585,13 @@ def sshRead(cmd, remoteHost, options={})
     raise unless $remote
 
     result = ""
-    IO.popen("ssh -o NoHostAuthenticationForLocalhost=yes -p #{remoteHost.port}" + (remoteHost.identity_file_path ? " -i #{remoteHost.identity_file_path}" : "") + " #{remoteHost.user}@#{remoteHost.host} '#{cmd}'", "r") {
-      | inp |
-      inp.each_line {
-        | line |
-        result += line
-      }
+    ssh_cmd = ["ssh"] +
+              SSH_OPTIONS_DEFAULT +
+              ["-p", remoteHost.port.to_s] +
+              (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) +
+             ["#{remoteHost.user}@#{remoteHost.host}", cmd]
+    IO.popen(ssh_cmd, "r") { |inp|
+        result = inp.read
     }
     raise "#{$?}" unless $?.success? or options[:ignoreFailure]
     result
@@ -2563,32 +2599,37 @@ end
 
 def runCommandOnTester(cmd)
     if $remote
-        result = sshRead(cmd, $remoteHosts[0])
+        $remoteHosts.each { |remoteHost|
+            begin
+                # Return first successful value. Obviously, this
+                # assumes the remotes are homogeneous.
+                return sshRead(cmd, remoteHost)
+            rescue Exception => e
+                $stderr.puts("Error running `#{cmd}` on #{remoteHost.host}: #{e}")
+            end
+        }
+        return "0"
+    end
+    `#{cmd}`
+end
+
+def commandToGetNumberOfProcessors
+    if $hostOS == "windows"
+        "cmd /c echo %NUMBER_OF_PROCESSORS%"
     else
-        result = `#{cmd}`
+        "sysctl -n hw.activecpu 2>/dev/null || nproc --all 2>/dev/null || getconf _NPROCESSORS_ONLN"
     end
 end
 
 def numberOfProcessors
-    if $hostOS == "windows"
-        numProcessors = runCommandOnTester("cmd /c echo %NUMBER_OF_PROCESSORS%").to_i
-    else
-        begin
-            numProcessors = runCommandOnTester("sysctl -n hw.activecpu 2>/dev/null").to_i
-        rescue
-            numProcessors = 0
-        end
-
-        if numProcessors == 0
-            begin
-                numProcessors = runCommandOnTester("nproc --all 2>/dev/null").to_i
-            rescue
-                numProcessors == 0
-            end
-        end
+    begin
+        numProcessors = runCommandOnTester(commandToGetNumberOfProcessors).to_i
+    rescue
+        numProcessors = 0
     end
 
     if numProcessors == 0
+        $stderr.puts("Warning: could not determine the number of remote CPUs, defaulting to 1")
         numProcessors = 1
     end
     return numProcessors
@@ -2688,8 +2729,8 @@ def getRemoteDirectoryIfNeeded(remoteHost)
 end
 
 def copyBundleToRemote(remoteHost)
-    mysys(["ssh", "-o", "NoHostAuthenticationForLocalhost=yes"] + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-p", remoteHost.port.to_s, "#{remoteHost.user}@#{remoteHost.host}", "mkdir -p #{remoteHost.remoteDirectory}"])
-    mysys(["scp", "-o", "NoHostAuthenticationForLocalhost=yes"] + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-P", remoteHost.port.to_s, ($outputDir.dirname + $tarFileName).to_s, "#{remoteHost.user}@#{remoteHost.host}:#{remoteHost.remoteDirectory}"])
+    mysys(["ssh"] + SSH_OPTIONS_DEFAULT + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-p", remoteHost.port.to_s, "#{remoteHost.user}@#{remoteHost.host}", "mkdir -p #{remoteHost.remoteDirectory}"])
+    mysys(["scp"] + SSH_OPTIONS_DEFAULT + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-P", remoteHost.port.to_s, ($outputDir.dirname + $tarFileName).to_s, "#{remoteHost.user}@#{remoteHost.host}:#{remoteHost.remoteDirectory}"])
 end
 
 def exportBaseEnvironmentVariables(escape)
@@ -2714,16 +2755,12 @@ def runTestRunner(testRunner, remoteHosts, remoteIndex=0)
     if not remoteHosts.nil?
         remoteHost = remoteHosts[remoteIndex]
         getRemoteDirectoryIfNeeded(remoteHost)
-        copyBundleToRemote(remoteHost)
         remoteScript = "\""
-        remoteScript += "cd #{remoteHost.remoteDirectory} && "
-        remoteScript += "rm -rf #{$outputDir.basename} && "
-        remoteScript += "tar xzf #{$tarFileName} && "
-        remoteScript += "cd #{$outputDir.basename}/.runner && "
+        remoteScript += "cd #{remoteHost.remoteDirectory}/#{$outputDir.basename}/.runner && "
         remoteScript += exportBaseEnvironmentVariables(true)
         $envVars.each { |var| remoteScript += "export " << var << "\n" }
         remoteScript += "#{testRunner.command(remoteIndex)}\""
-        runAndMonitorTestRunnerCommand(["ssh", "-o", "NoHostAuthenticationForLocalhost=yes"] + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-p", remoteHost.port.to_s, "#{remoteHost.user}@#{remoteHost.host}", remoteScript])
+        runAndMonitorTestRunnerCommand(["ssh"] + SSH_OPTIONS_DEFAULT + (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + ["-p", remoteHost.port.to_s, "#{remoteHost.user}@#{remoteHost.host}", remoteScript])
     else
         Dir.chdir($runnerDir) {
             runAndMonitorTestRunnerCommand(Shellwords.shellsplit(testRunner.command))
@@ -2736,8 +2773,11 @@ STATUS_RE = /^[.]\/#{STATUS_FILE_PREFIX}(?<index>\d+)\s(?<runId>\h+)\s(?<exitCod
 def processStatusLine(map, line)
     md = STATUS_RE.match(line)
     if md.nil?
-        $stderr.puts("Could not parse line `#{line}`")
-        exit(1)
+        # Malfromed lines can legitimately occur when the remote fails at an
+        # inopportune moment. Ignore those lines but print them out, so that we
+        # can easily diagnose actual issues with the remote output.
+        $stderr.puts("Ignoring malformed status line `#{line}`")
+        return
     end
     index = md[:index].to_i
     runId = md[:runId]
@@ -2799,7 +2839,8 @@ def detectFailures(statusMap={})
     end
 
     evaluator = TestResultEvaluatorFinal.new($runlist, statusMap)
-    evaluator.visit!
+    evaluator.visit!({:treatIncompleteAsFailed => true})
+    evaluator.validate
 
     if evaluator.noresult > 0
         $stderr.puts("Could not get the exit status for #{evaluator.noresult} tests")
@@ -2973,6 +3014,20 @@ def forEachRemote(remoteHosts, options={}, &blk)
     liveRemotes
 end
 
+def each_chunk(e, chunkSize)
+    accumulator = []
+    e.each { |element|
+        accumulator << element
+        if accumulator.size == chunkSize
+            yield accumulator
+            accumulator = []
+        end
+    }
+    if accumulator.size > 0
+        yield accumulator
+    end
+end
+
 class TestRunnerGnuParallel < TestRunner
     def prepareGnuParallelRunnerJobs(name, runlist, completedPlans)
         path = @runnerDir + name
@@ -2980,12 +3035,14 @@ class TestRunnerGnuParallel < TestRunner
 
         File.open(path, "w") {
             | outp |
-            runlist.each {
-                | plan |
-                if completedPlans.include?(plan)
-                    next
-                end
-                outp.puts("./test_script_#{plan.index}")
+            runlist = runlist.select { |plan|
+                not completedPlans.include?(plan)
+            }
+            each_chunk(runlist, $gnuParallelChunkSize) { |plans|
+                job = plans.collect { |plan|
+                    "sh ./test_script_#{plan.index}"
+                }.join("; ")
+                outp.puts(job)
             }
         }
     end
@@ -3021,8 +3078,22 @@ if test "x$1" != "x--"; then
 fi
 shift
 EOF
+        extraOptions = [
+            # Many of our jobs are short, ensure GNU parallel won't need to set
+            # up an ssh connection from scratch.
+            "ControlPath=./%C",
+            "ControlMaster=auto",
+            "ControlPersist=10m",
+            # Treat remote boards as volatile. Don't check the host keys, don't
+            # save them locally.
+            "StrictHostKeyChecking=no",
+            "UserKnownHostsFile=/dev/null"
+        ].collect { |opt|
+            ["-o", opt]
+        }.flatten
+        sshOptions = (SSH_OPTIONS_DEFAULT + extraOptions).join(" ")
         wrapper.puts(head +
-                     "echo \"$@\" | ssh -o ControlPath=./%C -o ControlMaster=auto -o ControlPersist=10m -o NoHostAuthenticationForLocalhost=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p \"$remoteport\" -l \"$remoteuser\" -o RemoteCommand=\"if test -d '$remotedir'; then cd '$remotedir'; else echo '#{PARALLEL_REMOTE_WRAPPER_MARK_BEGIN}${remotehost}#{PARALLEL_REMOTE_WRAPPER_MARK_END}'; false; fi && sh -s\" \"$remotehost\""
+                     "echo \"$@\" | ssh #{sshOptions} -p \"$remoteport\" -l \"$remoteuser\" -o RemoteCommand=\"if test -d '$remotedir'; then cd '$remotedir'; else echo '#{PARALLEL_REMOTE_WRAPPER_MARK_BEGIN}${remotehost}#{PARALLEL_REMOTE_WRAPPER_MARK_END}'; false; fi && sh -s\" \"$remotehost\""
         )
         FileUtils.chmod("ugo=rx", wrapper.path)
         wrapper.close # Avoid ETXTBUSY
@@ -3045,15 +3116,28 @@ def withGnuParallelSshLoginFile(remoteHosts, &blk)
     }
 end
 
-def unpackBundleGnuParallel(remoteHosts)
+def unpackBundleOnRemoteHosts(remoteHosts)
     forEachRemote(remoteHosts, :dropOnFailure => true, :timeout => REMOTE_TIMEOUT) {
         | _, remoteHost |
-        mysys(["ssh", "-o", "NoHostAuthenticationForLocalhost=yes"] + 
-               (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) + 
+        mysys(["ssh"] + SSH_OPTIONS_DEFAULT +
+               (remoteHost.identity_file_path ? ["-i", remoteHost.identity_file_path] : []) +
                ["-p", remoteHost.port.to_s,
                "#{remoteHost.user}@#{remoteHost.host}",
                "cd #{Shellwords.shellescape(remoteHost.remoteDirectory)} && rm -rf #{$outputDir.basename} && tar xzf #{$tarFileName}"])
     }
+end
+
+def prepareRemotes(remoteHosts)
+    # If the preparatory steps fail, drop the remote host from our
+    # list. Otherwise, if it comes back online in the middle of an
+    # iteration, we'll try to run test jobs on it, possibly using
+    # an unrelated bundle from a previous run.
+    remoteHosts = forEachRemote(remoteHosts, {:dropOnFailure => true, :timeout => REMOTE_TIMEOUT}) {
+        | _, remoteHost |
+        getRemoteDirectoryIfNeeded(remoteHost)
+        copyBundleToRemote(remoteHost)
+    }
+    return unpackBundleOnRemoteHosts(remoteHosts)
 end
 
 def runGnuParallelRunner(remoteHosts, inputs, options={})
@@ -3089,7 +3173,7 @@ def runGnuParallelRunner(remoteHosts, inputs, options={})
             "if test -e #{$outputDir.basename}/.runner; then cd #{$outputDir.basename}/.runner; else echo #{PARALLEL_REMOTE_STATE_LOST_MARKER}; false; fi && " +
             exportBaseEnvironmentVariables(false) +
             $envVars.collect { |var | "export #{var} &&"}.join("") +
-            "sh "
+            "sh -c "
         ]
         runAndMonitorCommandOutput(cmd) {
             | pid, line |
@@ -3129,11 +3213,11 @@ class NonRemoteTestsExecutor < BaseTestsExecutor
     def prepareExecution(remoteHosts)
         remoteHosts
     end
-    def refreshExecution(runlist, serialPlans, completedTests)
+    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
         if not @remoteHosts.nil?
             raise "remoteHosts #{@remoteHosts}, expected nil"
         end
-        @testRunner.prepare(runlist, serialPlans, completedTests, @remoteHosts)
+        @testRunner.prepare(runlist, serialPlans, completedTests, remoteHosts)
     end
 end
 
@@ -3176,13 +3260,13 @@ class BaseRemoteTestsExecutor < BaseTestsExecutor
     def updateStatusMap(iteration, statusMap)
         return getStatusMap(statusMap)
     end
-    def refreshExecution(runlist, serialPlans, completedTests)
+    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
         # Note, when running tests remotely, we always prepare tests
         # for all the hosts when refreshing execution, as even hosts
         # that went away during testing may have come back online in
         # the meantime -- so we don't expect a list of live remote
         # hosts to be passed in.
-        @testRunner.prepare(runlist, serialPlans, completedTests, @remoteHosts)
+        @testRunner.prepare(runlist, serialPlans, completedTests, remoteHosts)
     end
 end
 
@@ -3190,16 +3274,42 @@ class RemoteTestsExecutor < BaseRemoteTestsExecutor
     def prepareArtifacts(remoteHosts)
         raise "remoteHosts nil" if remoteHosts.nil?
         prepareBundle
+
+        # The make runner statically shards the tests, so do a
+        # liveness check before @testRunner.prepare. Otherwise, we'd
+        # always end up scheduling tests on dead remotes and hamper
+        # our progress.
+        remoteHosts = getLiveRemoteHosts(remoteHosts)
         @testRunner.prepare(@runlist, @serialPlans, Set.new, remoteHosts)
         compressBundle
-    end
-    def prepareExecution(remoteHosts)
         remoteHosts
     end
+    def prepareExecution(remoteHosts)
+        return prepareRemotes(remoteHosts)
+    end
+    def refreshExecution(runlist, serialPlans, completedTests, remoteHosts)
+        # Don't assign tests to remotes that are down.
+        remoteHosts = getLiveRemoteHosts(remoteHosts)
+        super(runlist, serialPlans, completedTests, remoteHosts)
+    end
     def executeTests(remoteHosts)
-        forEachRemote(remoteHosts) {
+        forEachRemote(remoteHosts, :dropOnFailure => true) {
             | index |
             runTestRunner(@testRunner, remoteHosts, index)
+        }
+    end
+    private
+    def getLiveRemoteHosts(remoteHosts)
+        # This command is supposed to work on all remote hosts, so
+        # reuse it for the liveness check.
+        cmd = commandToGetNumberOfProcessors
+        forEachRemote(remoteHosts, :dropOnFailure => true, :timeout => REMOTE_TIMEOUT) { |_, remoteHost|
+            begin
+                sshRead(cmd, remoteHost)
+            rescue
+                # It's what forEachRemote considers an expected failure.
+                raise CommandExecutionFailed
+            end
         }
     end
 end
@@ -3211,16 +3321,7 @@ class GnuParallelTestsExecutor < BaseRemoteTestsExecutor
         compressBundle
     end
     def prepareExecution(remoteHosts)
-        # If the preparatory steps fail, drop the remote host from our
-        # list. Otherwise, if it comes back online in the middle of an
-        # iteration, we'll try to run test jobs on it, possibly using
-        # an unrelated bundle from a previous run.
-        remoteHosts = forEachRemote(remoteHosts, {:dropOnFailure => true, :timeout => REMOTE_TIMEOUT}) {
-            | _, remoteHost |
-            getRemoteDirectoryIfNeeded(remoteHost)
-            copyBundleToRemote(remoteHost)
-        }
-        return unpackBundleGnuParallel(remoteHosts)
+        return prepareRemotes(remoteHosts)
     end
     def executeTests(remoteHosts)
         runGnuParallelRunner(remoteHosts, $runnerDir + "serial-tests",

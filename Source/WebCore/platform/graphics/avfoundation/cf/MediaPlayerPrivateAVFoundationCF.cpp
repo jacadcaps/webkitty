@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -69,6 +69,7 @@
 #endif
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/Threading.h>
 #include <wtf/text/CString.h>
@@ -206,7 +207,7 @@ private:
     InbandTextTrackPrivateAVF* m_currentTextTrack;
 
 #if HAVE(AVFOUNDATION_LOADER_DELEGATE)
-    HashMap<String, Vector<RetainPtr<AVCFAssetResourceLoadingRequestRef>>> m_keyURIToRequestMap;
+    MemoryCompactRobinHoodHashMap<String, Vector<RetainPtr<AVCFAssetResourceLoadingRequestRef>>> m_keyURIToRequestMap;
     AVCFAssetResourceLoaderCallbacks m_resourceLoaderCallbacks;
 #endif
 };
@@ -507,10 +508,8 @@ void MediaPlayerPrivateAVFoundationCF::createAVAssetForURL(const URL& url)
 
     setDelayCallbacks(true);
 
-    bool inheritURI = player()->doesHaveAttribute("x-itunes-inherit-uri-query-component");
-
     m_avfWrapper = new AVFWrapper(this);
-    m_avfWrapper->createAssetForURL(url, inheritURI);
+    m_avfWrapper->createAssetForURL(url, shouldEnableInheritURIQueryComponent());
     setDelayCallbacks(false);
     m_avfWrapper->checkPlayability();
 }
@@ -912,8 +911,8 @@ DestinationColorSpace MediaPlayerPrivateAVFoundationCF::colorSpace()
 
 static bool keySystemIsSupported(const String& keySystem)
 {
-    return equalLettersIgnoringASCIICase(keySystem, "com.apple.fps")
-        || equalLettersIgnoringASCIICase(keySystem, "com.apple.fps.1_0");
+    return equalLettersIgnoringASCIICase(keySystem, "com.apple.fps"_s)
+        || equalLettersIgnoringASCIICase(keySystem, "com.apple.fps.1_0"_s);
 }
 
 #endif
@@ -1168,7 +1167,7 @@ RetainPtr<AVCFAssetResourceLoadingRequestRef> MediaPlayerPrivateAVFoundationCF::
     return m_avfWrapper->takeRequestForKeyURI(keyURI);
 }
 
-std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationCF::createSession(const String& keySystem, LegacyCDMSessionClient* client)
+std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationCF::createSession(const String& keySystem, LegacyCDMSessionClient& client)
 {
     if (!keySystemIsSupported(keySystem))
         return nullptr;
@@ -1178,7 +1177,7 @@ std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationCF::createSessio
 
 #elif ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationCF::createSession(const String& keySystem, LegacyCDMSessionClient*)
+std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationCF::createSession(const String& keySystem, LegacyCDMSessionClient&)
 {
     return nullptr;
 }
@@ -1912,7 +1911,7 @@ bool AVFWrapper::shouldWaitForLoadingOfResource(AVCFAssetResourceLoadingRequestR
     RetainPtr<CFStringRef> schemeRef = adoptCF(CFURLCopyScheme(requestURL.get()));
     String scheme = schemeRef.get();
 
-    if (scheme == "skd") {
+    if (scheme == "skd"_s) {
         RetainPtr<CFURLRef> absoluteURL = adoptCF(CFURLCopyAbsoluteURL(requestURL.get()));
         RetainPtr<CFStringRef> keyURIRef = CFURLGetString(absoluteURL.get());
         String keyURI = keyURIRef.get();

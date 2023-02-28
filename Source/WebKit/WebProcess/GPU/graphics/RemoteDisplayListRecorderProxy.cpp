@@ -44,19 +44,11 @@
 namespace WebKit {
 using namespace WebCore;
 
-RemoteDisplayListRecorderProxy::RemoteDisplayListRecorderProxy(ImageBuffer& imageBuffer, RemoteRenderingBackendProxy& renderingBackend, const FloatRect& initialClip, const AffineTransform& initialCTM, DrawGlyphsRecorder::DeconstructDrawGlyphs deconstructDrawGlyphs)
-    : DisplayList::Recorder({ }, initialClip, initialCTM, deconstructDrawGlyphs)
+RemoteDisplayListRecorderProxy::RemoteDisplayListRecorderProxy(ImageBuffer& imageBuffer, RemoteRenderingBackendProxy& renderingBackend, const FloatRect& initialClip, const AffineTransform& initialCTM)
+    : DisplayList::Recorder({ }, initialClip, initialCTM, DrawGlyphsMode::DeconstructUsingDrawGlyphsCommands)
     , m_destinationBufferIdentifier(imageBuffer.renderingResourceIdentifier())
     , m_imageBuffer(imageBuffer)
     , m_renderingBackend(renderingBackend)
-{
-}
-
-RemoteDisplayListRecorderProxy::RemoteDisplayListRecorderProxy(RemoteDisplayListRecorderProxy& parent, const FloatRect& initialClip, const AffineTransform& initialCTM)
-    : DisplayList::Recorder(parent, { }, initialClip, initialCTM)
-    , m_destinationBufferIdentifier(parent.m_destinationBufferIdentifier)
-    , m_imageBuffer(parent.m_imageBuffer)
-    , m_renderingBackend(parent.m_renderingBackend)
 {
 }
 
@@ -125,9 +117,9 @@ void RemoteDisplayListRecorderProxy::recordSetStrokeThickness(float thickness)
     send(Messages::RemoteDisplayListRecorder::SetStrokeThickness(thickness));
 }
 
-void RemoteDisplayListRecorderProxy::recordSetState(const GraphicsContextState& state, GraphicsContextState::StateChangeFlags flags)
+void RemoteDisplayListRecorderProxy::recordSetState(const GraphicsContextState& state)
 {
-    send(Messages::RemoteDisplayListRecorder::SetState(DisplayList::SetState { state, flags }));
+    send(Messages::RemoteDisplayListRecorder::SetState(DisplayList::SetState { state }));
 }
 
 void RemoteDisplayListRecorderProxy::recordSetLineCap(LineCap lineCap)
@@ -193,6 +185,11 @@ void RemoteDisplayListRecorderProxy::recordDrawGlyphs(const Font& font, const Gl
     send(Messages::RemoteDisplayListRecorder::DrawGlyphs(DisplayList::DrawGlyphs { font, glyphs, advances, count, localAnchor, mode }));
 }
 
+void RemoteDisplayListRecorderProxy::recordDrawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
+{
+    send(Messages::RemoteDisplayListRecorder::DrawDecomposedGlyphs(font.renderingResourceIdentifier(), decomposedGlyphs.renderingResourceIdentifier()));
+}
+
 void RemoteDisplayListRecorderProxy::recordDrawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
 {
     send(Messages::RemoteDisplayListRecorder::DrawImageBuffer(imageBuffer.renderingResourceIdentifier(), destRect, srcRect, options));
@@ -201,6 +198,11 @@ void RemoteDisplayListRecorderProxy::recordDrawImageBuffer(ImageBuffer& imageBuf
 void RemoteDisplayListRecorderProxy::recordDrawNativeImage(RenderingResourceIdentifier imageIdentifier, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
 {
     send(Messages::RemoteDisplayListRecorder::DrawNativeImage(imageIdentifier, imageSize, destRect, srcRect, options));
+}
+
+void RemoteDisplayListRecorderProxy::recordDrawSystemImage(SystemImage& systemImage, const FloatRect& destinationRect)
+{
+    send(Messages::RemoteDisplayListRecorder::DrawSystemImage(systemImage, destinationRect));
 }
 
 void RemoteDisplayListRecorderProxy::recordDrawPattern(RenderingResourceIdentifier imageIdentifier, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& transform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
@@ -228,9 +230,9 @@ void RemoteDisplayListRecorderProxy::recordDrawLine(const FloatPoint& point1, co
     send(Messages::RemoteDisplayListRecorder::DrawLine(point1, point2));
 }
 
-void RemoteDisplayListRecorderProxy::recordDrawLinesForText(const FloatPoint& blockLocation, const FloatSize& localAnchor, float thickness, const DashArray& widths, bool printing, bool doubleLines)
+void RemoteDisplayListRecorderProxy::recordDrawLinesForText(const FloatPoint& blockLocation, const FloatSize& localAnchor, float thickness, const DashArray& widths, bool printing, bool doubleLines, StrokeStyle style)
 {
-    send(Messages::RemoteDisplayListRecorder::DrawLinesForText(DisplayList::DrawLinesForText { blockLocation, localAnchor, thickness, widths, printing, doubleLines }));
+    send(Messages::RemoteDisplayListRecorder::DrawLinesForText(DisplayList::DrawLinesForText { blockLocation, localAnchor, thickness, widths, printing, doubleLines, style }));
 }
 
 void RemoteDisplayListRecorderProxy::recordDrawDotsForDocumentMarker(const FloatRect& rect, const DocumentMarkerLineStyle& style)
@@ -339,6 +341,11 @@ void RemoteDisplayListRecorderProxy::recordStrokeLine(const LineData& data)
     send(Messages::RemoteDisplayListRecorder::StrokeLine(data));
 }
 
+void RemoteDisplayListRecorderProxy::recordStrokeLineWithColorAndThickness(SRGBA<uint8_t> color, float thickness, const LineData& data)
+{
+    send(Messages::RemoteDisplayListRecorder::StrokeLineWithColorAndThickness(color, thickness, data));
+}
+
 void RemoteDisplayListRecorderProxy::recordStrokeArc(const ArcData& data)
 {
     send(Messages::RemoteDisplayListRecorder::StrokeArc(data));
@@ -437,34 +444,47 @@ bool RemoteDisplayListRecorderProxy::recordResourceUse(Font& font)
     return true;
 }
 
+bool RemoteDisplayListRecorderProxy::recordResourceUse(DecomposedGlyphs& decomposedGlyphs)
+{
+    if (UNLIKELY(!m_renderingBackend)) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    m_renderingBackend->remoteResourceCacheProxy().recordDecomposedGlyphsUse(decomposedGlyphs);
+    return true;
+}
+
 void RemoteDisplayListRecorderProxy::flushContext(GraphicsContextFlushIdentifier identifier)
 {
     send(Messages::RemoteDisplayListRecorder::FlushContext(identifier));
 }
 
-RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createImageBuffer(const FloatSize& size, const DestinationColorSpace& colorSpace, RenderingMode renderingMode, RenderingMethod renderingMethod) const
+RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createImageBuffer(const FloatSize& size, float resolutionScale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod) const
 {
     if (UNLIKELY(!m_renderingBackend)) {
         ASSERT_NOT_REACHED();
         return nullptr;
     }
 
-    if (renderingMethod != RenderingMethod::Default)
-        return Recorder::createImageBuffer(size, colorSpace, renderingMode, renderingMethod);
+    if (renderingMethod)
+        return Recorder::createImageBuffer(size, resolutionScale, colorSpace, renderingMode, renderingMethod);
 
-    return m_renderingBackend->createImageBuffer(size, renderingMode, 1, colorSpace, PixelFormat::BGRA8);
+    // FIXME: Ideally we'd plumb the purpose through for callers of GraphicsContext::createImageBuffer().
+    RenderingPurpose purpose = m_imageBuffer ? m_imageBuffer->renderingPurpose() : RenderingPurpose::Unspecified;
+    return m_renderingBackend->createImageBuffer(size, renderingMode.value_or(this->renderingMode()), purpose, resolutionScale, colorSpace, PixelFormat::BGRA8);
 }
 
-RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createCompatibleImageBuffer(const FloatSize& size, const DestinationColorSpace& colorSpace, RenderingMethod renderingMethod) const
+RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createAlignedImageBuffer(const FloatSize& size, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
-    auto renderingMode = renderingMethod == RenderingMethod::Default ? this->renderingMode() : RenderingMode::Unaccelerated;
-    return GraphicsContext::createImageBuffer(size, scaleFactor(), colorSpace, renderingMode, renderingMethod);
+    auto renderingMode = !renderingMethod ? this->renderingMode() : RenderingMode::Unaccelerated;
+    return GraphicsContext::createScaledImageBuffer(size, scaleFactor(), colorSpace, renderingMode, renderingMethod);
 }
 
-RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createCompatibleImageBuffer(const FloatRect& rect, const DestinationColorSpace& colorSpace, RenderingMethod renderingMethod) const
+RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createAlignedImageBuffer(const FloatRect& rect, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
-    auto renderingMode = renderingMethod == RenderingMethod::Default ? this->renderingMode() : RenderingMode::Unaccelerated;
-    return GraphicsContext::createImageBuffer(rect, scaleFactor(), colorSpace, renderingMode, renderingMethod);
+    auto renderingMode = !renderingMethod ? this->renderingMode() : RenderingMode::Unaccelerated;
+    return GraphicsContext::createScaledImageBuffer(rect, scaleFactor(), colorSpace, renderingMode, renderingMethod);
 }
 
 } // namespace WebCore

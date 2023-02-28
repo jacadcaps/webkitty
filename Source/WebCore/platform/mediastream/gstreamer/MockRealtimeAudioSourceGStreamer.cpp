@@ -50,7 +50,7 @@ const HashSet<MockRealtimeAudioSource*>& MockRealtimeAudioSourceGStreamer::allMo
     return allMockRealtimeAudioSourcesStorage();
 }
 
-CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
+CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, AtomString&& name, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier)
 {
 #ifndef NDEBUG
     auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(deviceID);
@@ -68,13 +68,13 @@ CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&&
     return CaptureSourceOrError(WTFMove(source));
 }
 
-Ref<MockRealtimeAudioSource> MockRealtimeAudioSourceGStreamer::createForMockAudioCapturer(String&& deviceID, String&& name, String&& hashSalt)
+Ref<MockRealtimeAudioSource> MockRealtimeAudioSourceGStreamer::createForMockAudioCapturer(String&& deviceID, AtomString&& name, String&& hashSalt)
 {
     return adoptRef(*new MockRealtimeAudioSourceGStreamer(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt)));
 }
 
-MockRealtimeAudioSourceGStreamer::MockRealtimeAudioSourceGStreamer(String&& deviceID, String&& name, String&& hashSalt)
-    : MockRealtimeAudioSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt))
+MockRealtimeAudioSourceGStreamer::MockRealtimeAudioSourceGStreamer(String&& deviceID, AtomString&& name, String&& hashSalt)
+    : MockRealtimeAudioSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt), { })
 {
     ensureGStreamerInitialized();
     allMockRealtimeAudioSourcesStorage().add(this);
@@ -116,11 +116,14 @@ void MockRealtimeAudioSourceGStreamer::render(Seconds delta)
         totalFrameCount -= bipBopCount;
         frameCount = std::min(totalFrameCount, m_maximiumFrameCount);
 
+        MediaTime presentationTime((m_samplesRendered * G_USEC_PER_SEC) / sampleRate(), G_USEC_PER_SEC);
+        GST_BUFFER_PTS(buffer.get()) = toGstClockTime(presentationTime);
+        GST_BUFFER_FLAG_SET(buffer.get(), GST_BUFFER_FLAG_LIVE);
+
         auto caps = adoptGRef(gst_audio_info_to_caps(&info));
         auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
         GStreamerAudioData data(WTFMove(sample), info);
-        MediaTime mediaTime((m_samplesRendered * G_USEC_PER_SEC) / sampleRate(), G_USEC_PER_SEC);
-        audioSamplesAvailable(mediaTime, data, *m_streamFormat, bipBopCount);
+        audioSamplesAvailable(presentationTime, data, *m_streamFormat, bipBopCount);
     }
 }
 

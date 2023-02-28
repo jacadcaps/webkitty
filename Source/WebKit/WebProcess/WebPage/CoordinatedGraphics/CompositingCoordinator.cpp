@@ -37,6 +37,7 @@
 #include <WebCore/InspectorController.h>
 #include <WebCore/NicosiaBackingStoreTextureMapperImpl.h>
 #include <WebCore/NicosiaContentLayerTextureMapperImpl.h>
+#include <WebCore/NicosiaImageBackingStore.h>
 #include <WebCore/NicosiaImageBackingTextureMapperImpl.h>
 #include <WebCore/NicosiaPaintingEngine.h>
 #include <WebCore/Page.h>
@@ -117,7 +118,7 @@ void CompositingCoordinator::sizeDidChange(const IntSize& newSize)
 
 bool CompositingCoordinator::flushPendingLayerChanges(OptionSet<FinalizeRenderingUpdateFlags> flags)
 {
-    SetForScope<bool> protector(m_isFlushingLayerChanges, true);
+    SetForScope protector(m_isFlushingLayerChanges, true);
 
     initializeRootCompositingLayerIfNeeded();
 
@@ -174,6 +175,12 @@ bool CompositingCoordinator::flushPendingLayerChanges(OptionSet<FinalizeRenderin
     }
 
     m_page.didUpdateRendering();
+
+    // Eject any backing stores whose only reference is held in the HashMap cache.
+    m_imageBackingStores.removeIf(
+        [](auto& it) {
+            return it.value->hasOneRef();
+        });
 
     return true;
 }
@@ -297,7 +304,7 @@ void CompositingCoordinator::renderNextFrame()
 
 void CompositingCoordinator::purgeBackingStores()
 {
-    SetForScope<bool> purgingToggle(m_isPurging, true);
+    SetForScope purgingToggle(m_isPurging, true);
 
     for (auto& registeredLayer : m_registeredLayers.values())
         registeredLayer->purgeBackingStores();
@@ -306,6 +313,17 @@ void CompositingCoordinator::purgeBackingStores()
 Nicosia::PaintingEngine& CompositingCoordinator::paintingEngine()
 {
     return *m_paintingEngine;
+}
+
+RefPtr<Nicosia::ImageBackingStore> CompositingCoordinator::imageBackingStore(uint64_t nativeImageID, Function<RefPtr<Nicosia::Buffer>()> createBuffer)
+{
+    auto addResult = m_imageBackingStores.ensure(nativeImageID,
+        [&] {
+            auto store = adoptRef(*new Nicosia::ImageBackingStore);
+            store->backingStoreState().buffer = createBuffer();
+            return store;
+        });
+    return addResult.iterator->value.copyRef();
 }
 
 void CompositingCoordinator::requestUpdate()

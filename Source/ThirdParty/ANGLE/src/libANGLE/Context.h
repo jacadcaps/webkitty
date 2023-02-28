@@ -488,10 +488,10 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
 
     rx::ContextImpl *getImplementation() const { return mImplementation.get(); }
 
-    ANGLE_NO_DISCARD bool getScratchBuffer(size_t requestedSizeBytes,
-                                           angle::MemoryBuffer **scratchBufferOut) const;
-    ANGLE_NO_DISCARD bool getZeroFilledBuffer(size_t requstedSizeBytes,
-                                              angle::MemoryBuffer **zeroBufferOut) const;
+    [[nodiscard]] bool getScratchBuffer(size_t requestedSizeBytes,
+                                        angle::MemoryBuffer **scratchBufferOut) const;
+    [[nodiscard]] bool getZeroFilledBuffer(size_t requstedSizeBytes,
+                                           angle::MemoryBuffer **zeroBufferOut) const;
     angle::ScratchBuffer *getScratchBuffer() const;
 
     angle::Result prepareForCopyImage();
@@ -631,6 +631,7 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
 
     bool noopDraw(PrimitiveMode mode, GLsizei count) const;
     bool noopDrawInstanced(PrimitiveMode mode, GLsizei count, GLsizei instanceCount) const;
+    bool noopMultiDraw(GLsizei drawcount) const;
 
     bool isClearBufferMaskedOut(GLenum buffer, GLint drawbuffer) const;
     bool noopClearBuffer(GLenum buffer, GLint drawbuffer) const;
@@ -832,7 +833,7 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
     bool mIsDestroyed;
 };
 
-class ScopedContextRef
+class [[nodiscard]] ScopedContextRef
 {
   public:
     ScopedContextRef(Context *context) : mContext(context)

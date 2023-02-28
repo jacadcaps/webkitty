@@ -1,129 +1,142 @@
 ================
-WebKitGTK 2.36.8
+WebKitGTK 2.38.5
 ================
 
-What's new in WebKitGTK 2.36.8?
+What's new in WebKitGTK 2.38.5?
 
-  - Fix jumpy elements when scrolling GitLab and other web sites.
-  - Fix WebKitWebView:web-process-terminated signal not being emitted
-    for the first web view when sandboxing is enabled.
-  - Fix hang when opening HTML <select> elements in GTK4 builds.
-  - Fix kinetic scrolling with elements that use overflow scrolling.
+  - Fix large memory allocation when uploading content.
+  - Fix scrolling after a history navigation with PSON enabled.
+  - Always update the active uri of WebKitFrame.
+  - Fix the build on Ubuntu 20.04.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.36.7
+WebKitGTK 2.38.4
 ================
 
-What's new in WebKitGTK 2.36.7?
+What's new in WebKitGTK 2.38.4?
 
+  - Improve GStreamer multimedia playback across the board with improved
+    codec selection logic, better handling of latency, and improving
+    frame discard to avoid audio/video desynchronizationg, among other
+    fixes.
+  - Disable HLS media playback by default, which makes web sites use MSE
+    instead. If needed WEBKIT_GST_ENABLE_HLS_SUPPORT=1 can be set in the
+    environment to enable it back.
+  - Disable threaded rendering in GTK4 builds by default, as it was
+    causing crashes.
+  - Fix MediaSession API not showing artwork images.
+  - Fix MediaSession MPRIS usage when running inside a Flatpak sandbox.
+  - Fix input element controls to correctly scale when applying a zoom
+    factor different than the default.
+  - Fix leakage of Web processes in certain situations.
+  - Fix the injected bundle not being found when running inside a sandbox.
+  - Fix the build with ENABLE_INTROSPECTION when cross-compiling.
+  - FIx the build with ENABLE_WEBGL disabled.
+  - Fix the build with GStreamer-based WebRTC enabled.
+  - Fix the build with USE_GTK4 enabled.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.36.6
+WebKitGTK 2.38.3
 ================
 
-What's new in WebKitGTK 2.36.6?
+What's new in WebKitGTK 2.38.3?
 
-  - Fix handling of touchpad scrolling on GTK4 builds.
-  - Fix WebKitGTK not allowing to be used from non-main threads.
-  - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.36.5
-================
-
-What's new in WebKitGTK 2.36.5?
-
-  - Add support for PAC proxy in the WebDriver implementation.
-  - Fix video playback when loaded through custom URIs, this fixes video
-    playback in the Yelp documentation browser.
-  - Fix WebKitWebView::context-menu when using GTK4.
-  - Fix LTO builds with GCC.
-  - Fix several crashes and rendering issues.
+ - Fix runtime critical warnings from media player.
+ - Fix network process crash when fetching website data on ephemeral session.
+ - Fix the build with Ruby 3.2.
+ - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.36.4
+WebKitGTK 2.38.2
 ================
 
-What's new in WebKitGTK 2.36.4?
+What's new in WebKitGTK 2.38.2?
 
-  - Fix the new ATSPI accessibility implementation to add the missing
-    Collection interface for the loaded document.
-  - Fix the MediaSession implementation to make the MPRIS object names more
-    sandbox friendly, which plays better with Flatpak and WebKit's own
-    Bubblwrap-based sandboxing.
-  - Fix leaked Web Processes in some particular situations.
-  - Fix the build with media capture support enabled.
-  - Fix cross-compilation when targeting 64-bit ARM.
-  - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.36.3
-================
-
-What's new in WebKitGTK 2.36.3?
-
-  - Support capturing already encoded video streams, which takes advantage
-    of encoding done in hardware by devices which support this feature.
-  - Avoid using experimental GStreamer elements for video demuxing.
-  - Avoid using the legacy GStreamer VA-API decoding plug-ins, which often
-    cause rendering issues and are not much maintained. Their usage can be
-    re-enabled setting WEBKIT_GST_ENABLE_LEGACY_VAAPI=1 in the environment.
-  - Fix playback of YouTube streams which use dynamic ad insertion.
-  - Fix display capture with Pipewire.
-  - Fix the build without the X11 target when X11 headers are not present.
-  - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.36.2
-================
-
-What's new in WebKitGTK 2.36.2?
-
-  - Fix some pages showing empty content boxes when using GTK4.
-  - Fix the build with accessibility disabled.
-  - Fix the build with newer Ruby versions.
-  - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.36.1
-================
-
-What's new in WebKitGTK 2.36.1?
-
+  - Fix scrolling issues in some sites having fixed background.
+  - Fix prolonged buffering during progressive live playback.
   - Fix the build with accessibility disabled.
   - Fix several crashes and rendering issues.
-  - Translation updates: Croatian.
 
 ================
-WebKitGTK 2.36.0
+WebKitGTK 2.38.1
 ================
 
-What's new in WebKitGTK 2.36.0?
+What's new in WebKitGTK 2.38.1?
 
-  - Fix selection foreground color on text with decorations.
-  - Fix seeking on YouTube videos.
-  - Fix list item marker not exposed to a11y when not a direct child of a list item.
-  - Fix a crash while closing a page.
-  - Fix the build to make it reproducible again.
+  - Make xdg-dbus-proxy work if host session bus address is an abstract socket.
+  - Use a single xdg-dbus-proxy process when sandbox is enabled.
+  - Fix high resolution video playback due to unimplemented changeType operation.
+  - Ensure GSubprocess uses posix_spawn() again and inherit file descriptors.
+  - Fix player stucking in buffering (paused) state for progressive streaming.
+  - Do not try to preconnect on link click when link preconnect setting is disabled.
+  - Fix close status code returned when the client closes a WebSocket in some cases.
+  - Fix media player duration calculation.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.38.0
+================
+
+What's new in WebKitGTK 2.38.0?
+
+  - Fix jumpy elements whewn scrolling gitlab with async scrolling.
+  - Fix web-process-terminated signal not being emitted for the first web view when sandbox is enabled.
+  - Fix build with CMake < 3.17.
+  - Fix the build with GStreamer < 1.18.
   - Fix several crashes and rendering issues.
 
 =================
-WebKitGTK 2.35.90
+WebKitGTK 2.37.91
 =================
 
-What's new in WebKitGTK 2.35.90?
+What's new in WebKitGTK 2.37.91?
 
-  - Fix scrolling with the mouse wheel on sites using overscroll-behavior.
-  - Suspend web processes after some time in the process cache.
-  - Fix renderning of horizontal scrollbars with themes enabling steppers.
-  - Ensure EGL displays are terminated before web process exits.
-  - Deinitialize gstreamer before web process exits.
-  - Make fonts under XDG_DATA_DIRS available in web process sanbox.
-  - Canonicalize paths passed to bubblewrap launcher.
+  - Cache and reuse image-based backing stores to improve memory consumption.
+  - Fix printing with bubblewrap sandbox enabled
+  - Deprecate enable-frame-flattening setting because the functionality will be removed for 2.40.
+  - Fix deadlock when disposing player while handling rotation tag.
   - Fix several crashes and rendering issues.
-  - Translation updates: Hebrew.
+  - Translation updates: Polish.
+
+=================
+WebKitGTK 2.37.90
+=================
+
+What's new in WebKitGTK 2.37.90?
+
+  - Remove libnotify dependency.
+  - Add support for service worker notifications.
+  - Add support for loading the notification icon.
+  - Add support for pac proxy type in WebDriver.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Swedish.
+
+================
+WebKitGTK 2.37.1
+================
+
+What's new in WebKitGTK 2.37.1?
+
+  - Add initial implementation of WebRTC using GstWebRTC if GStreamer 1.20 is available,
+    disabled by default via web view settings.
+  - Add new API to set WebView's Content-Security-Policy for web extensions support.
+  - Add new API to run async JavaScript functions.
+  - Expose typed arrays in JavaScriptCore GLib API.
+  - Add support for PDF documents using PDF.js.
+  - Show font name and font variant settings in the inspector.
+  - MediaSession is enabled by default, allowing remote media control using MPRIS.
+  - Modernized media controls UI.
+  - Add Support Google Dynamic Ad Insertion (DAI).
+  - Add support for capturing encoded video streams from a webcam.
+  - Make it possible to use the remote inspector from other browsers using WEBKIT_INSPECTOR_HTTP_SERVER env var.
+  - Add support for IPv6 in the remote inspector.
+  - Update form elements style to match libadwaita.
+  - Fix canvas animations and images with threaded rendering enabled.
+  - Switch to use gi-docgen for API documentation instead of gtk-doc.
+  - Remove the ATK a11y implementation that has been replaced by AT-SPI DBus interfaces.
+  - Fix several crashes and rendering issues.
 
 ================
 WebKitGTK 2.35.3

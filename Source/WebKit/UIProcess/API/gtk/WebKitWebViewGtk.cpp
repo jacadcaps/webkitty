@@ -318,6 +318,8 @@ void webkitWebViewRestoreWindow(WebKitWebView* view, CompletionHandler<void()>&&
 /**
  * webkit_web_view_new:
  *
+ * Creates a new #WebKitWebView with the default #WebKitWebContext.
+ *
  * Creates a new #WebKitWebView with the default #WebKitWebContext and
  * no #WebKitUserContentManager associated with it.
  * See also webkit_web_view_new_with_context(),
@@ -334,6 +336,8 @@ GtkWidget* webkit_web_view_new()
 /**
  * webkit_web_view_new_with_context:
  * @context: the #WebKitWebContext to be used by the #WebKitWebView
+ *
+ * Creates a new #WebKitWebView with the given #WebKitWebContext.
  *
  * Creates a new #WebKitWebView with the given #WebKitWebContext and
  * no #WebKitUserContentManager associated with it.
@@ -357,6 +361,7 @@ GtkWidget* webkit_web_view_new_with_context(WebKitWebContext* context)
  * @web_view: the related #WebKitWebView
  *
  * Creates a new #WebKitWebView sharing the same web process with @web_view.
+ *
  * This method doesn't have any effect when %WEBKIT_PROCESS_MODEL_SHARED_SECONDARY_PROCESS
  * process model is used, because a single web process is shared for all the web views in the
  * same #WebKitWebContext. When using %WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES process model,
@@ -388,6 +393,7 @@ GtkWidget* webkit_web_view_new_with_related_view(WebKitWebView* webView)
  * @settings: a #WebKitSettings
  *
  * Creates a new #WebKitWebView with the given #WebKitSettings.
+ *
  * See also webkit_web_view_new_with_context(), and
  * webkit_web_view_new_with_user_content_manager().
  *
@@ -406,6 +412,7 @@ GtkWidget* webkit_web_view_new_with_settings(WebKitSettings* settings)
  * @user_content_manager: a #WebKitUserContentManager.
  *
  * Creates a new #WebKitWebView with the given #WebKitUserContentManager.
+ *
  * The content loaded in the view may be affected by the content injected
  * in the view by the user content manager.
  *
@@ -425,6 +432,8 @@ GtkWidget* webkit_web_view_new_with_user_content_manager(WebKitUserContentManage
  * @web_view: a #WebKitWebView
  * @rgba: a #GdkRGBA
  *
+ * Sets the color that will be used to draw the @web_view background.
+ *
  * Sets the color that will be used to draw the @web_view background before
  * the actual contents are rendered. Note that if the web page loaded in @web_view
  * specifies a background color, it will take precedence over the @rgba color.
@@ -432,7 +441,7 @@ GtkWidget* webkit_web_view_new_with_user_content_manager(WebKitUserContentManage
  * Note that the parent window must have a RGBA visual and
  * #GtkWidget:app-paintable property set to %TRUE for backgrounds colors to work.
  *
- * <informalexample><programlisting>
+ * ```c
  * static void browser_window_set_background_color (BrowserWindow *window,
  *                                                  const GdkRGBA *rgba)
  * {
@@ -449,7 +458,7 @@ GtkWidget* webkit_web_view_new_with_user_content_manager(WebKitUserContentManage
  *     web_view = browser_window_get_web_view (window);
  *     webkit_web_view_set_background_color (web_view, rgba);
  * }
- * </programlisting></informalexample>
+ * ```
  *
  * Since: 2.8
  */
@@ -466,6 +475,8 @@ void webkit_web_view_set_background_color(WebKitWebView* webView, const GdkRGBA*
  * webkit_web_view_get_background_color:
  * @web_view: a #WebKitWebView
  * @rgba: (out): a #GdkRGBA to fill in with the background color
+ *
+ * Gets the color that is used to draw the @web_view background.
  *
  * Gets the color that is used to draw the @web_view background before
  * the actual contents are rendered.

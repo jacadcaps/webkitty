@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Apple Inc. All rights reserved.
+# Copyright (C) 2021-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -34,11 +34,20 @@ class Pull(Command):
 
     @classmethod
     def main(cls, args, repository, **kwargs):
+        if not repository:
+            sys.stderr.write('No repository provided\n')
+            return 1
         if not repository.path:
             sys.stderr.write('Cannot update remote repository\n')
             return 1
 
         if isinstance(repository, local.Git):
             branch_point = Branch.branch_point(repository)
-            return repository.pull(rebase=True, branch=branch_point.branch)
+            bp_remotes = set(repository.branches_for(hash=branch_point.hash, remote=None).keys())
+            remote = None
+            for rmt in repository.source_remotes():
+                if rmt in bp_remotes:
+                    remote = rmt
+                    break
+            return repository.pull(rebase=True, branch=branch_point.branch, remote=remote)
         return repository.pull()

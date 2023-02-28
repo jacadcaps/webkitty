@@ -37,7 +37,7 @@ public:
     using WeakValueType = CharacterData::WeakValueType;
     using CharacterData::weakPtrFactory;
 
-    static Ref<ProcessingInstruction> create(Document&, const String& target, const String& data);
+    static Ref<ProcessingInstruction> create(Document&, String&& target, String&& data);
     virtual ~ProcessingInstruction();
 
     const String& target() const { return m_target; }
@@ -56,7 +56,7 @@ public:
 
 private:
     friend class CharacterData;
-    ProcessingInstruction(Document&, const String& target, const String& data);
+    ProcessingInstruction(Document&, String&& target, String&& data);
 
     String nodeName() const override;
     NodeType nodeType() const override;

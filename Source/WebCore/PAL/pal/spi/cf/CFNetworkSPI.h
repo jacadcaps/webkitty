@@ -60,6 +60,12 @@
 
 #else // !USE(APPLE_INTERNAL_SDK)
 
+#if HAVE(NSURLSESSION_EFFECTIVE_CONFIGURATION_OBJECT) && defined(__OBJC__)
+@interface NSURLSessionEffectiveConfiguration : NSObject <NSCopying>
+- (instancetype)_initWithConfiguration:(NSURLSessionConfiguration *)config;
+@end
+#endif // HAVE(NSURLSESSION_EFFECTIVE_CONFIGURATION_OBJECT) && defined(__OBJC__)
+
 #if HAVE(PRECONNECT_PING) && defined(__OBJC__)
 
 @interface _NSHTTPConnectionInfo : NSObject
@@ -162,7 +168,6 @@ typedef enum {
 - (void)removeCookiesSinceDate:(NSDate *)date;
 - (id)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)cfStorage;
 - (CFHTTPCookieStorageRef)_cookieStorage;
-- (void)_saveCookies;
 - (void)_saveCookies:(dispatch_block_t) completionHandler;
 #if HAVE(CFNETWORK_OVERRIDE_SESSION_COOKIE_ACCEPT_POLICY)
 @property (nonatomic, readwrite) BOOL _overrideSessionCookieAcceptPolicy;
@@ -280,6 +285,11 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @end
 
 @interface NSURLSessionTask ()
+#if HAVE(NSURLSESSION_EFFECTIVE_CONFIGURATION_OBJECT)
+- (void)_adoptEffectiveConfiguration:(NSURLSessionEffectiveConfiguration *) newConfiguration;
+#else
+- (void)_adoptEffectiveConfiguration:(NSURLSessionConfiguration *) newConfiguration;
+#endif
 - (NSDictionary *)_timingData;
 @property (readwrite, copy) NSString *_pathToDownloadTaskFile;
 @property (copy) NSString *_storagePartitionIdentifier;
@@ -289,6 +299,9 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 #endif
 #if ENABLE(SERVER_PRECONNECT)
 @property (nonatomic, assign) BOOL _preconnect;
+#endif
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+@property (readwrite, assign) int64_t _bytesPerSecondLimit;
 #endif
 @end
 
@@ -474,18 +487,6 @@ WTF_EXTERN_C_END
 - (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray<NSHTTPCookie*>* __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;
 @end
 
-#if HAVE(BROKEN_DOWNLOAD_RESUME_UNLINK)
-@interface __NSCFLocalDownloadFile : NSObject
-@end
-@interface __NSCFLocalDownloadFile ()
-@property (readwrite, assign) BOOL skipUnlink;
-@end
-
-@interface NSURLSessionDownloadTask ()
-- (__NSCFLocalDownloadFile *)downloadFile;
-@end
-#endif
-
 @interface NSURLResponse ()
 - (void)_setMIMEType:(NSString *)type;
 @end
@@ -504,6 +505,10 @@ WTF_EXTERN_C_END
 
 @interface NSURLSessionWebSocketTask (SPI)
 - (void)_sendCloseCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason;
+@end
+
+@interface NSMutableURLRequest (Staging_88972294)
+@property (setter=_setPrivacyProxyFailClosedForUnreachableNonMainHosts:) BOOL _privacyProxyFailClosedForUnreachableNonMainHosts;
 @end
 
 #endif // defined(__OBJC__)

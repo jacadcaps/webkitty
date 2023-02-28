@@ -34,6 +34,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/PlatformScreen.h>
 #import <WebCore/ScreenProperties.h>
+#import <WebCore/WebMAudioUtilitiesCocoa.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <sysexits.h>
@@ -72,6 +73,11 @@ void GPUProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     // Need to overide the default, because service has a different bundle ID.
     NSBundle *webKit2Bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
 
+#if defined(USE_VORBIS_AUDIOCOMPONENT_WORKAROUND)
+    // We need to initialize the Vorbis decoder before the sandbox gets setup; this is a one off action.
+    WebCore::registerVorbisDecoderIfNeeded();
+#endif
+
     sandboxParameters.setOverrideSandboxProfilePath([webKit2Bundle pathForResource:@"com.apple.WebKit.GPUProcess" ofType:@"sb"]);
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
@@ -97,7 +103,20 @@ void GPUProcess::setScreenProperties(const ScreenProperties& screenProperties)
     setShouldOverrideScreenSupportsHighDynamicRange(true, allScreensAreHDR);
 #endif
 }
+
+void GPUProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle)
+{
+    AuxiliaryProcess::openDirectoryCacheInvalidated(WTFMove(handle));
+}
+
 #endif
+
+#if HAVE(POWERLOG_TASK_MODE_QUERY)
+void GPUProcess::enablePowerLogging(SandboxExtension::Handle&& handle)
+{
+    SandboxExtension::consumePermanently(WTFMove(handle));
+}
+#endif // HAVE(POWERLOG_TASK_MODE_QUERY)
 
 } // namespace WebKit
 

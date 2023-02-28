@@ -85,6 +85,10 @@
 #import <WebKit/WebDOMOperationsPrivate.h>
 #endif
 
+#if PLATFORM(MAC)
+#import "WebHTMLViewForTestingMac.h"
+#endif
+
 #if !PLATFORM(IOS_FAMILY)
 
 @interface CommandValidationTarget : NSObject <NSValidatedUserInterfaceItem>
@@ -192,6 +196,11 @@ void TestRunner::clearAllDatabases()
 {
     [[WebDatabaseManager sharedWebDatabaseManager] deleteAllDatabases];
     [[WebDatabaseManager sharedWebDatabaseManager] deleteAllIndexedDatabases];
+}
+
+void TestRunner::clearNotificationPermissionState()
+{
+    [[mainFrame webView] _clearNotificationPermissionState];
 }
 
 void TestRunner::setStorageDatabaseIdleInterval(double interval)
@@ -544,6 +553,11 @@ void TestRunner::setValueForUser(JSContextRef context, JSValueRef nodeObject, JS
 void TestRunner::dispatchPendingLoadRequests()
 {
     [[mainFrame webView] _dispatchPendingLoadRequests];
+}
+
+void TestRunner::removeAllCookies()
+{
+    [WebPreferences _clearNetworkLoaderSession];
 }
 
 void TestRunner::removeAllVisitedLinks()
@@ -1197,3 +1211,12 @@ unsigned TestRunner::imageCountInGeneralPasteboard() const
     
     return imagesArray.count;
 }
+
+#if PLATFORM(MAC)
+
+bool TestRunner::isSecureEventInputEnabled() const
+{
+    return dynamic_objc_cast<WebHTMLView>(mainFrame.frameView.documentView)._secureEventInputEnabledForTesting;
+}
+
+#endif // PLATFORM(MAC)

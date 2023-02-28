@@ -61,8 +61,7 @@ WebPaymentCoordinator::~WebPaymentCoordinator()
 void WebPaymentCoordinator::networkProcessConnectionClosed()
 {
 #if ENABLE(APPLE_PAY_REMOTE_UI)
-    if (remoteUIEnabled())
-        didCancelPaymentSession({ });
+    didCancelPaymentSession({ });
 #endif
 }
 
@@ -98,9 +97,9 @@ void WebPaymentCoordinator::openPaymentSetup(const String& merchantIdentifier, c
 
 bool WebPaymentCoordinator::showPaymentUI(const URL& originatingURL, const Vector<URL>& linkIconURLs, const WebCore::ApplePaySessionPaymentRequest& paymentRequest)
 {
-    Vector<String> linkIconURLStrings;
-    for (const auto& linkIconURL : linkIconURLs)
-        linkIconURLStrings.append(linkIconURL.string());
+    auto linkIconURLStrings = linkIconURLs.map([](auto& linkIconURL) {
+        return linkIconURL.string();
+    });
 
     bool result;
     if (!sendSync(Messages::WebPaymentCoordinatorProxy::ShowPaymentUI(m_webPage.identifier(), m_webPage.webPageProxyIdentifier(), originatingURL.string(), linkIconURLStrings, paymentRequest), Messages::WebPaymentCoordinatorProxy::ShowPaymentUI::Reply(result)))
@@ -161,10 +160,10 @@ void WebPaymentCoordinator::paymentCoordinatorDestroyed()
 IPC::Connection* WebPaymentCoordinator::messageSenderConnection() const
 {
 #if ENABLE(APPLE_PAY_REMOTE_UI)
-    if (remoteUIEnabled())
-        return &WebProcess::singleton().ensureNetworkProcessConnection().connection();
-#endif
+    return &WebProcess::singleton().ensureNetworkProcessConnection().connection();
+#else
     return WebProcess::singleton().parentProcessConnection();
+#endif
 }
 
 uint64_t WebPaymentCoordinator::messageSenderDestinationID() const
@@ -174,7 +173,7 @@ uint64_t WebPaymentCoordinator::messageSenderDestinationID() const
 
 void WebPaymentCoordinator::validateMerchant(const String& validationURLString)
 {
-    paymentCoordinator().validateMerchant(URL(URL(), validationURLString));
+    paymentCoordinator().validateMerchant(URL { validationURLString });
 }
 
 void WebPaymentCoordinator::didAuthorizePayment(const WebCore::Payment& payment)
@@ -215,15 +214,6 @@ WebCore::PaymentCoordinator& WebPaymentCoordinator::paymentCoordinator()
 {
     return m_webPage.corePage()->paymentCoordinator();
 }
-
-#if ENABLE(APPLE_PAY_REMOTE_UI)
-bool WebPaymentCoordinator::remoteUIEnabled() const
-{
-    if (auto page = m_webPage.corePage())
-        return page->settings().applePayRemoteUIEnabled();
-    return false;
-}
-#endif
 
 void WebPaymentCoordinator::getSetupFeatures(const WebCore::ApplePaySetupConfiguration& configuration, const URL& url, CompletionHandler<void(Vector<Ref<WebCore::ApplePaySetupFeature>>&&)>&& completionHandler)
 {

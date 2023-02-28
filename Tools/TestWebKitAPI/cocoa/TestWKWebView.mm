@@ -32,6 +32,7 @@
 #import "Utilities.h"
 
 #import <WebKit/WKContentWorld.h>
+#import <WebKit/WKUIDelegate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKitPrivate.h>
@@ -58,19 +59,7 @@ static NSString *overrideBundleIdentifier(id, SEL)
 {
     return @"com.apple.TestWebKitAPI";
 }
-
-@implementation WKWebView (WKWebViewTestingQuirks)
-
-// TestWebKitAPI is currently not a UIApplication so we are unable to track if it is in
-// the background or not (https://bugs.webkit.org/show_bug.cgi?id=175204). This can
-// cause our processes to get suspended on iOS. We work around this by having
-// WKWebView._isBackground always return NO in the context of API tests.
-- (BOOL)_isBackground
-{
-    return NO;
-}
-@end
-#endif
+#endif // PLATFORM(IOS_FAMILY)
 
 @implementation WKWebView (TestWebKitAPI)
 
@@ -181,6 +170,11 @@ static NSString *overrideBundleIdentifier(id, SEL)
 - (NSArray<NSString *> *)tagsInBody
 {
     return [self objectByEvaluatingJavaScript:@"Array.from(document.body.getElementsByTagName('*')).map(e => e.tagName)"];
+}
+
+- (NSString *)selectedText
+{
+    return [self stringByEvaluatingJavaScript:@"getSelection().toString()"];
 }
 
 - (void)expectElementTagsInOrder:(NSArray<NSString *> *)tagNames
@@ -533,6 +527,11 @@ static UICalloutBar *suppressUICalloutBar()
 
 - (void)addToTestWindow
 {
+    if (!_hostWindow) {
+        [self _setUpTestWindow:self.frame];
+        return;
+    }
+
 #if PLATFORM(MAC)
     [[_hostWindow contentView] addSubview:self];
 #else
@@ -832,7 +831,7 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 
 - (void)mouseMoveToPoint:(NSPoint)pointInWindow withFlags:(NSEventModifierFlags)flags
 {
-    [self mouseMoved:[self _mouseEventWithType:NSEventTypeMouseMoved atLocation:pointInWindow flags:flags timestamp:self.eventTimestamp clickCount:0]];
+    [self _simulateMouseMove:[self _mouseEventWithType:NSEventTypeMouseMoved atLocation:pointInWindow flags:flags timestamp:self.eventTimestamp clickCount:0]];
 }
 
 - (void)sendClicksAtPoint:(NSPoint)pointInWindow numberOfClicks:(NSUInteger)numberOfClicks

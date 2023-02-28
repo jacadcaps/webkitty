@@ -86,8 +86,9 @@ static void setSwizzledPopUpMenu(NSMenu *menu)
     });
 }
 
-static void swizzledPopUpContextMenu(Class, SEL, NSMenu *menu, NSEvent *, NSView *)
+static void swizzledPopUpContextMenu(Class, SEL, NSMenu *menu, NSEvent *event, NSView *)
 {
+    ASSERT(event);
     setSwizzledPopUpMenu(menu);
 }
 
@@ -178,7 +179,7 @@ TestFeatures TestController::platformSpecificFeatureDefaultsForTest(const TestCo
 #if ENABLE(CONTENT_EXTENSIONS)
 void TestController::configureContentExtensionForTest(const TestInvocation& test)
 {
-    if (!test.urlContains("contentextensions/"))
+    if (!test.urlContains("contentextensions/"_s))
         return;
 
     auto testURL = adoptCF(WKURLCopyCFURL(kCFAllocatorDefault, test.url()));

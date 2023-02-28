@@ -216,6 +216,8 @@ class BitBucket(Scm):
 
             response = requests.put(pr_url, json=data)
             if response.status_code // 100 != 2:
+                for error in response.json().get('errors', []):
+                    sys.stderr.write('{}: {}\n'.format(error.get('context'), error.get('message')))
                 return None
             data = response.json()
 
@@ -283,6 +285,9 @@ class BitBucket(Scm):
         )
 
         self.pull_requests = self.PRGenerator(self)
+
+    def credentials(self):
+        return None, None
 
     @property
     def is_git(self):
@@ -366,7 +371,6 @@ class BitBucket(Scm):
             return [self.default_branch]
         return sorted([details.get('displayId') for details in response if details.get('displayId')])
 
-    @property
     def tags(self):
         response = self.request('tags')
         if not response:
@@ -523,3 +527,16 @@ class BitBucket(Scm):
         if not commit_data:
             raise ValueError("'{}' is not an argument recognized by git".format(argument))
         return self.commit(hash=commit_data['id'], include_log=include_log, include_identifier=include_identifier)
+
+    def files_changed(self, argument=None):
+        if not argument:
+            return self.modified()
+        commit = self.find(argument, include_log=False, include_identifier=False)
+        if not commit:
+            raise ValueError("'{}' is not an argument recognized by git".format(argument))
+
+        return [
+            change.get('path', {}).get('toString')
+            for change in self.request('commits/{}/changes'.format(commit.hash))
+            if change.get('path', {}).get('toString')
+        ]

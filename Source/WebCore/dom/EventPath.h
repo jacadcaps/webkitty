@@ -24,7 +24,6 @@
 #include "PseudoElement.h"
 #include "SVGElement.h"
 #include "SVGUseElement.h"
-#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
 
@@ -32,7 +31,7 @@ namespace WebCore {
 
 class Touch;
 
-class EventPath : public CanMakeCheckedPtr {
+class EventPath {
 public:
     EventPath(Node& origin, Event&);
     explicit EventPath(const Vector<EventTarget*>&);
@@ -42,7 +41,7 @@ public:
     const EventContext& contextAt(size_t i) const { return m_path[i]; }
     EventContext& contextAt(size_t i) { return m_path[i]; }
 
-    Vector<Ref<EventTarget>> computePathUnclosedToTarget(const EventTarget&) const;
+    Vector<EventTarget*> computePathUnclosedToTarget(const EventTarget&) const;
 
     static Node* eventTargetRespectingTargetRules(Node&);
 

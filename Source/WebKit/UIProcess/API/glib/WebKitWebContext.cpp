@@ -60,11 +60,13 @@
 #include "WebsiteDataStore.h"
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/RemoteInspector.h>
+#include <WebCore/ContentSecurityPolicy.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <glib/gi18n-lib.h>
 #include <libintl.h>
 #include <memory>
 #include <pal/HysteresisActivity.h>
+#include <wtf/DateMath.h>
 #include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
@@ -84,9 +86,9 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebContext
- * @Short_description: Manages aspects common to all #WebKitWebView<!-- -->s
- * @Title: WebKitWebContext
+ * WebKitWebContext:
+ *
+ * Manages aspects common to all #WebKitWebView<!-- -->s
  *
  * The #WebKitWebContext manages all aspects common to all
  * #WebKitWebView<!-- -->s.
@@ -112,7 +114,6 @@ using namespace WebKit;
  * Alternatively, you can use webkit_web_context_set_tls_errors_policy()
  * to set the policy %WEBKIT_TLS_ERRORS_POLICY_IGNORE; however, this is
  * not appropriate for Internet applications.
- *
  */
 
 enum {
@@ -128,6 +129,7 @@ enum {
 #endif
 #endif
     PROP_MEMORY_PRESSURE_SETTINGS,
+    PROP_TIME_ZONE_OVERRIDE,
     N_PROPERTIES,
 };
 
@@ -246,9 +248,13 @@ struct _WebKitWebContextPrivate {
     PAL::HysteresisActivity dnsPrefetchHystereris;
 
     WebKitMemoryPressureSettings* memoryPressureSettings;
+
+    CString timeZoneOverride;
 };
 
 static guint signals[LAST_SIGNAL] = { 0, };
+
+std::unique_ptr<WebKitNotificationProvider> s_serviceWorkerNotificationProvider;
 
 #if ENABLE(REMOTE_INSPECTOR)
 class WebKitAutomationClient final : Inspector::RemoteInspector::Client {
@@ -351,6 +357,9 @@ static void webkitWebContextGetProperty(GObject* object, guint propID, GValue* v
         break;
 #endif
 #endif
+    case PROP_TIME_ZONE_OVERRIDE:
+        g_value_set_string(value, webkit_web_context_get_time_zone_override(context));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propID, paramSpec);
     }
@@ -386,6 +395,12 @@ static void webkitWebContextSetProperty(GObject* object, guint propID, const GVa
         context->priv->memoryPressureSettings = settings ? webkit_memory_pressure_settings_copy(static_cast<WebKitMemoryPressureSettings*>(settings)) : nullptr;
         break;
     }
+    case PROP_TIME_ZONE_OVERRIDE: {
+        const auto* timeZone = g_value_get_string(value);
+        if (isTimeZoneValid(StringView::fromLatin1(timeZone)))
+            context->priv->timeZoneOverride = timeZone;
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propID, paramSpec);
     }
@@ -414,6 +429,7 @@ static void webkitWebContextConstructed(GObject* object)
         // Once the settings have been passed to the ProcessPoolConfiguration, we don't need them anymore so we can free them.
         g_clear_pointer(&priv->memoryPressureSettings, webkit_memory_pressure_settings_free);
     }
+    configuration.setTimeZoneOverride(String::fromUTF8(priv->timeZoneOverride.data(), priv->timeZoneOverride.length()));
 
     if (!priv->websiteDataManager)
         priv->websiteDataManager = adoptGRef(webkit_website_data_manager_new("local-storage-directory", priv->localStorageDirectory.data(), nullptr));
@@ -427,6 +443,7 @@ static void webkitWebContextConstructed(GObject* object)
     });
 
     priv->processModel = WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES;
+    priv->processPool->addSandboxPath(injectedBundleDirectory(), SandboxPermission::ReadOnly);
 
 #if ENABLE(MEMORY_SAMPLER)
     if (getenv("WEBKIT_SAMPLE_MEMORY"))
@@ -474,6 +491,8 @@ static void webkit_web_context_class_init(WebKitWebContextClass* webContextClass
 
     bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR);
     bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8");
+
+    s_serviceWorkerNotificationProvider = makeUnique<WebKitNotificationProvider>(&WebNotificationManagerProxy::sharedServiceWorkerManager(), nullptr);
 
     gObjectClass->get_property = webkitWebContextGetProperty;
     gObjectClass->set_property = webkitWebContextSetProperty;
@@ -572,6 +591,28 @@ static void webkit_web_context_class_init(WebKitWebContextClass* webContextClass
             _("The WebKitMemoryPressureSettings applied to the web processes created by this context"),
             WEBKIT_TYPE_MEMORY_PRESSURE_SETTINGS,
             static_cast<GParamFlags>(WEBKIT_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY));
+
+    /**
+     * WebKitWebContext:time-zone-override:
+     *
+     * The timezone override for this web context. Setting this property provides a better
+     * alternative to configure the timezone information for all webviews managed by the WebContext.
+     * The other, less optimal, approach is to globally set the TZ environment variable in the
+     * process before creating the context. However this approach might not be very convenient and
+     * can have side-effects in your application.
+     *
+     * The expected values for this property are defined in the IANA timezone database. See this
+     * wikipedia page for instance, https://en.wikipedia.org/wiki/List_of_tz_database_time_zones.
+     *
+     * Since: 2.38
+     */
+    sObjProperties[PROP_TIME_ZONE_OVERRIDE] =
+        g_param_spec_string(
+            "time-zone-override",
+            _("Time Zone Override"),
+            _("The time zone to use instead of the system one"),
+            nullptr,
+            static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
 
     g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties);
 
@@ -693,7 +734,7 @@ static gpointer createDefaultWebContext(gpointer)
 /**
  * webkit_web_context_get_default:
  *
- * Gets the default web context
+ * Gets the default web context.
  *
  * Returns: (transfer none): a #WebKitWebContext
  */
@@ -706,7 +747,7 @@ WebKitWebContext* webkit_web_context_get_default(void)
 /**
  * webkit_web_context_new:
  *
- * Create a new #WebKitWebContext
+ * Create a new #WebKitWebContext.
  *
  * Returns: (transfer full): a newly created #WebKitWebContext
  *
@@ -720,7 +761,9 @@ WebKitWebContext* webkit_web_context_new(void)
 /**
  * webkit_web_context_new_ephemeral:
  *
- * Create a new ephemeral #WebKitWebContext. An ephemeral #WebKitWebContext is a context
+ * Create a new ephemeral #WebKitWebContext.
+ *
+ * An ephemeral #WebKitWebContext is a context
  * created with an ephemeral #WebKitWebsiteDataManager. This is just a convenient method
  * to create ephemeral contexts without having to create your own #WebKitWebsiteDataManager.
  * All #WebKitWebView<!-- -->s associated with this context will also be ephemeral. Websites will
@@ -793,6 +836,7 @@ gboolean webkit_web_context_is_ephemeral(WebKitWebContext* context)
  * @context: the #WebKitWebContext
  *
  * Get whether automation is allowed in @context.
+ *
  * See also webkit_web_context_set_automation_allowed().
  *
  * Returns: %TRUE if automation is allowed or %FALSE otherwise.
@@ -815,7 +859,9 @@ gboolean webkit_web_context_is_automation_allowed(WebKitWebContext* context)
  * @context: the #WebKitWebContext
  * @allowed: value to set
  *
- * Set whether automation is allowed in @context. When automation is enabled the browser could
+ * Set whether automation is allowed in @context.
+ *
+ * When automation is enabled the browser could
  * be controlled by another process by requesting an automation session. When a new automation
  * session is requested the signal #WebKitWebContext::automation-started is emitted.
  * Automation is disabled by default, so you need to explicitly call this method passing %TRUE
@@ -848,6 +894,8 @@ void webkit_web_context_set_automation_allowed(WebKitWebContext* context, gboole
  * webkit_web_context_set_cache_model:
  * @context: the #WebKitWebContext
  * @cache_model: a #WebKitCacheModel
+ *
+ * Specifies a usage model for WebViews.
  *
  * Specifies a usage model for WebViews, which WebKit will use to
  * determine its caching behavior. All web views follow the cache
@@ -894,7 +942,9 @@ void webkit_web_context_set_cache_model(WebKitWebContext*, WebKitCacheModel mode
  * webkit_web_context_get_cache_model:
  * @context: the #WebKitWebContext
  *
- * Returns the current cache model. For more information about this
+ * Returns the current cache model.
+ *
+ * For more information about this
  * value check the documentation of the function
  * webkit_web_context_set_cache_model().
  *
@@ -923,6 +973,7 @@ WebKitCacheModel webkit_web_context_get_cache_model(WebKitWebContext* context)
  * @context: a #WebKitWebContext
  *
  * Clears all resources currently cached.
+ *
  * See also webkit_web_context_set_cache_model().
  */
 void webkit_web_context_clear_cache(WebKitWebContext* context)
@@ -943,6 +994,7 @@ void webkit_web_context_clear_cache(WebKitWebContext* context)
  * @proxy_settings: (allow-none): a #WebKitNetworkProxySettings, or %NULL
  *
  * Set the network proxy settings to be used by connections started in @context.
+ *
  * By default %WEBKIT_NETWORK_PROXY_MODE_DEFAULT is used, which means that the
  * system settings will be used (g_proxy_resolver_get_default()).
  * If you want to override the system default settings, you can either use
@@ -975,9 +1027,10 @@ static DownloadsMap& downloadsMap()
  * @context: a #WebKitWebContext
  * @uri: the URI to download
  *
- * Requests downloading of the specified URI string. The download operation
- * will not be associated to any #WebKitWebView, if you are interested in
- * starting a download from a particular #WebKitWebView use
+ * Requests downloading of the specified URI string.
+ *
+ * The download operation will not be associated to any #WebKitWebView,
+ * if you are interested in starting a download from a particular #WebKitWebView use
  * webkit_web_view_download_uri() instead.
  *
  * Returns: (transfer full): a new #WebKitDownload representing
@@ -1039,6 +1092,8 @@ static void ensureFaviconDatabase(WebKitWebContext* context)
  * @path: (allow-none): an absolute path to the icon database
  * directory or %NULL to use the defaults
  *
+ * Set the directory path to store the favicons database.
+ *
  * Set the directory path to be used to store the favicons database
  * for @context on disk. Passing %NULL as @path means using the
  * default directory for the platform (see g_get_user_cache_dir()).
@@ -1079,6 +1134,8 @@ void webkit_web_context_set_favicon_database_directory(WebKitWebContext* context
 /**
  * webkit_web_context_get_favicon_database_directory:
  * @context: a #WebKitWebContext
+ *
+ * Get the directory path to store the favicons database.
  *
  * Get the directory path being used to store the favicons database
  * for @context, or %NULL if
@@ -1208,6 +1265,8 @@ GList* webkit_web_context_get_plugins_finish(WebKitWebContext* context, GAsyncRe
  * @user_data: data to pass to callback function
  * @user_data_destroy_func: destroy notify for @user_data
  *
+ * Register @scheme in @context.
+ *
  * Register @scheme in @context, so that when an URI request with @scheme is made in the
  * #WebKitWebContext, the #WebKitURISchemeRequestCallback registered will be called with a
  * #WebKitURISchemeRequest.
@@ -1216,30 +1275,25 @@ GList* webkit_web_context_get_plugins_finish(WebKitWebContext* context, GAsyncRe
  * when the data of the request is available or
  * webkit_uri_scheme_request_finish_error() in case of error.
  *
- * <informalexample><programlisting>
+ * ```c
  * static void
  * about_uri_scheme_request_cb (WebKitURISchemeRequest *request,
  *                              gpointer                user_data)
  * {
  *     GInputStream *stream;
  *     gsize         stream_length;
- *     const gchar  *path;
+ *     const gchar  *path = webkit_uri_scheme_request_get_path (request);
  *
- *     path = webkit_uri_scheme_request_get_path (request);
  *     if (!g_strcmp0 (path, "memory")) {
- *         /<!-- -->* Create a GInputStream with the contents of memory about page, and set its length to stream_length *<!-- -->/
+ *         // Create a GInputStream with the contents of memory about page, and set its length to stream_length
  *     } else if (!g_strcmp0 (path, "applications")) {
- *         /<!-- -->* Create a GInputStream with the contents of applications about page, and set its length to stream_length *<!-- -->/
+ *         // Create a GInputStream with the contents of applications about page, and set its length to stream_length
  *     } else if (!g_strcmp0 (path, "example")) {
- *         gchar *contents;
- *
- *         contents = g_strdup_printf ("&lt;html&gt;&lt;body&gt;&lt;p&gt;Example about page&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;");
+ *         gchar *contents = g_strdup_printf ("<html><body><p>Example about page</p></body></html>");
  *         stream_length = strlen (contents);
  *         stream = g_memory_input_stream_new_from_data (contents, stream_length, g_free);
  *     } else {
- *         GError *error;
- *
- *         error = g_error_new (ABOUT_HANDLER_ERROR, ABOUT_HANDLER_ERROR_INVALID, "Invalid about:%s page.", path);
+ *         GError *error = g_error_new (ABOUT_HANDLER_ERROR, ABOUT_HANDLER_ERROR_INVALID, "Invalid about:%s page.", path);
  *         webkit_uri_scheme_request_finish_error (request, error);
  *         g_error_free (error);
  *         return;
@@ -1247,7 +1301,7 @@ GList* webkit_web_context_get_plugins_finish(WebKitWebContext* context, GAsyncRe
  *     webkit_uri_scheme_request_finish (request, stream, stream_length, "text/html");
  *     g_object_unref (stream);
  * }
- * </programlisting></informalexample>
+ * ```
  */
 void webkit_web_context_register_uri_scheme(WebKitWebContext* context, const char* scheme, WebKitURISchemeRequestCallback callback, gpointer userData, GDestroyNotify destroyNotify)
 {
@@ -1255,7 +1309,7 @@ void webkit_web_context_register_uri_scheme(WebKitWebContext* context, const cha
     g_return_if_fail(scheme);
     g_return_if_fail(callback);
 
-    auto canonicalizedScheme = WTF::URLParser::maybeCanonicalizeScheme(scheme);
+    auto canonicalizedScheme = WTF::URLParser::maybeCanonicalizeScheme(StringView::fromLatin1(scheme));
     if (!canonicalizedScheme) {
         g_critical("Cannot register invalid URI scheme %s", scheme);
         return;
@@ -1280,8 +1334,9 @@ void webkit_web_context_register_uri_scheme(WebKitWebContext* context, const cha
  * @context: a #WebKitWebContext
  * @enabled: if %TRUE enable sandboxing
  *
- * Set whether WebKit subprocesses will be sandboxed, limiting access to the system.
+ * Set whether WebKit subprocesses will be sandboxed.
  *
+ * Set whether WebKit subprocesses will be sandboxed, limiting access to the system.
  * This method **must be called before any web process has been created**,
  * as early as possible in your application. Calling it later is a fatal error.
  *
@@ -1320,7 +1375,9 @@ static bool pathIsBlocked(const char* path)
  * @path: (type filename): an absolute path to mount in the sandbox
  * @read_only: if %TRUE the path will be read-only
  *
- * Adds a path to be mounted in the sandbox. @path must exist before any web process
+ * Adds a path to be mounted in the sandbox.
+ *
+ * @path must exist before any web process
  * has been created otherwise it will be silently ignored. It is a fatal error to
  * add paths after a web process has been spawned.
  *
@@ -1403,6 +1460,8 @@ void webkit_web_context_set_spell_checking_enabled(WebKitWebContext* context, gb
  * webkit_web_context_get_spell_checking_languages:
  * @context: a #WebKitWebContext
  *
+ * Get the the list of spell checking languages.
+ *
  * Get the the list of spell checking languages associated with
  * @context, or %NULL if no languages have been previously set.
  *
@@ -1468,10 +1527,16 @@ void webkit_web_context_set_spell_checking_languages(WebKitWebContext* context, 
  * @context: a #WebKitWebContext
  * @languages: (allow-none) (array zero-terminated=1) (element-type utf8) (transfer none): a %NULL-terminated list of language identifiers
  *
+ * Set the list of preferred languages.
+ *
  * Set the list of preferred languages, sorted from most desirable
- * to least desirable. The list will be used to build the "Accept-Language"
- * header that will be included in the network requests started by
- * the #WebKitWebContext.
+ * to least desirable. The list will be used in the following ways:
+ *
+ * - Determining how to build the `Accept-Language` HTTP header that will be
+ *   included in the network requests started by the #WebKitWebContext.
+ * - Setting the values of `navigator.language` and `navigator.languages`.
+ * - The first item in the list sets the default locale for JavaScript
+ *   `Intl` functions.
  */
 void webkit_web_context_set_preferred_languages(WebKitWebContext* context, const gchar* const* languageList)
 {
@@ -1486,7 +1551,7 @@ void webkit_web_context_set_preferred_languages(WebKitWebContext* context, const
         if (!g_ascii_strcasecmp(languageList[i], "C") || !g_ascii_strcasecmp(languageList[i], "POSIX"))
             languages.append("en-US"_s);
         else
-            languages.append(String::fromUTF8(languageList[i]).replace("_", "-"));
+            languages.append(makeStringByReplacingAll(String::fromUTF8(languageList[i]), '_', '-'));
     }
     context->priv->processPool->setOverrideLanguages(WTFMove(languages));
 }
@@ -1496,7 +1561,7 @@ void webkit_web_context_set_preferred_languages(WebKitWebContext* context, const
  * @context: a #WebKitWebContext
  * @policy: a #WebKitTLSErrorsPolicy
  *
- * Set the TLS errors policy of @context as @policy
+ * Set the TLS errors policy of @context as @policy.
  *
  * Deprecated: 2.32. Use webkit_website_data_manager_set_tls_errors_policy() instead.
  */
@@ -1511,7 +1576,7 @@ void webkit_web_context_set_tls_errors_policy(WebKitWebContext* context, WebKitT
  * webkit_web_context_get_tls_errors_policy:
  * @context: a #WebKitWebContext
  *
- * Get the TLS errors policy of @context
+ * Get the TLS errors policy of @context.
  *
  * Returns: a #WebKitTLSErrorsPolicy
  *
@@ -1530,6 +1595,7 @@ WebKitTLSErrorsPolicy webkit_web_context_get_tls_errors_policy(WebKitWebContext*
  * @directory: the directory to add
  *
  * Set the directory where WebKit will look for Web Extensions.
+ *
  * This method must be called before loading anything in this context,
  * otherwise it will not have any effect. You can connect to
  * #WebKitWebContext::initialize-web-extensions to call this method
@@ -1550,6 +1616,7 @@ void webkit_web_context_set_web_extensions_directory(WebKitWebContext* context, 
  * @user_data: a #GVariant
  *
  * Set user data to be passed to Web Extensions on initialization.
+ *
  * The data will be passed to the
  * #WebKitWebExtensionInitializeWithUserDataFunction.
  * This method must be called before loading anything in this context,
@@ -1573,7 +1640,8 @@ void webkit_web_context_set_web_extensions_initialization_user_data(WebKitWebCon
  * @context: a #WebKitWebContext
  * @directory: the directory to set
  *
- * Set the directory where disk cache files will be stored
+ * Set the directory where disk cache files will be stored.
+ *
  * This method must be called before loading anything in this context, otherwise
  * it will not have any effect.
  *
@@ -1593,6 +1661,8 @@ void webkit_web_context_set_disk_cache_directory(WebKitWebContext*, const char*)
  * webkit_web_context_prefetch_dns:
  * @context: a #WebKitWebContext
  * @hostname: a hostname to be resolved
+ *
+ * Resolve the domain name of the given @hostname in advance.
  *
  * Resolve the domain name of the given @hostname in advance, so that if a URI
  * of @hostname is requested the load will be performed more quickly.
@@ -1633,6 +1703,8 @@ void webkit_web_context_allow_tls_certificate_for_host(WebKitWebContext* context
  * @context: the #WebKitWebContext
  * @process_model: a #WebKitProcessModel
  *
+ * Specifies a process model for WebViews.
+ *
  * Specifies a process model for WebViews, which WebKit will use to
  * determine how auxiliary processes are handled.
  *
@@ -1672,7 +1744,9 @@ void webkit_web_context_set_process_model(WebKitWebContext* context, WebKitProce
  * webkit_web_context_get_process_model:
  * @context: the #WebKitWebContext
  *
- * Returns the current process model. For more information about this value
+ * Returns the current process model.
+ *
+ * For more information about this value
  * see webkit_web_context_set_process_model().
  *
  * Returns: the current #WebKitProcessModel
@@ -1690,6 +1764,8 @@ WebKitProcessModel webkit_web_context_get_process_model(WebKitWebContext* contex
  * webkit_web_context_set_web_process_count_limit:
  * @context: the #WebKitWebContext
  * @limit: the maximum number of web processes
+ *
+ * Sets the maximum number of web processes.
  *
  * Sets the maximum number of web processes that can be created at the same time for the @context.
  * The default value is 0 and means no limit.
@@ -1731,7 +1807,7 @@ guint webkit_web_context_get_web_process_count_limit(WebKitWebContext* context)
 static void addOriginToMap(WebKitSecurityOrigin* origin, HashMap<String, bool>* map, bool allowed)
 {
     String string = webkitSecurityOriginGetSecurityOriginData(origin).toString();
-    if (string != "null")
+    if (string != "null"_s)
         map->set(string, allowed);
 }
 
@@ -1742,6 +1818,7 @@ static void addOriginToMap(WebKitSecurityOrigin* origin, HashMap<String, bool>* 
  * @disallowed_origins: (element-type WebKitSecurityOrigin): a #GList of security origins
  *
  * Sets initial desktop notification permissions for the @context.
+ *
  * @allowed_origins and @disallowed_origins must each be #GList of
  * #WebKitSecurityOrigin objects representing origins that will,
  * respectively, either always or never have permission to show desktop
@@ -1777,6 +1854,7 @@ void webkit_web_context_initialize_notification_permissions(WebKitWebContext* co
  * @message: a #WebKitUserMessage
  *
  * Send @message to all #WebKitWebExtension<!-- -->s associated to @context.
+ *
  * If @message is floating, it's consumed.
  *
  * Since: 2.28
@@ -1837,6 +1915,21 @@ gboolean webkit_web_context_get_use_system_appearance_for_scrollbars(WebKitWebCo
 }
 #endif
 
+/**
+ * webkit_web_context_get_time_zone_override:
+ * @context: a #WebKitWebContext
+ *
+ * Get the #WebKitWebContext:time-zone-override property.
+ *
+ * Since: 2.38
+ */
+const gchar* webkit_web_context_get_time_zone_override(WebKitWebContext* context)
+{
+    g_return_val_if_fail(WEBKIT_IS_WEB_CONTEXT(context), nullptr);
+
+    return context->priv->timeZoneOverride.data();
+}
+
 void webkitWebContextInitializeNotificationPermissions(WebKitWebContext* context)
 {
     g_signal_emit(context, signals[INITIALIZE_NOTIFICATION_PERMISSIONS], 0);
@@ -1893,6 +1986,17 @@ void webkitWebContextCreatePageForWebView(WebKitWebContext* context, WebKitWebVi
     pageConfiguration->setRelatedPage(relatedView ? &webkitWebViewGetPage(relatedView) : nullptr);
     pageConfiguration->setUserContentController(userContentManager ? webkitUserContentManagerGetUserContentControllerProxy(userContentManager) : nullptr);
     pageConfiguration->setControlledByAutomation(webkit_web_view_is_controlled_by_automation(webView));
+
+    WebKitWebExtensionMode webExtensionMode = webkit_web_view_get_web_extension_mode(webView);
+    const char* defaultContentSecurityPolicy = webkit_web_view_get_default_content_security_policy(webView);
+
+    if (webExtensionMode == WEBKIT_WEB_EXTENSION_MODE_MANIFESTV3)
+        pageConfiguration->setContentSecurityPolicyModeForExtension(WebCore::ContentSecurityPolicyModeForExtension::ManifestV3);
+    else if (webExtensionMode == WEBKIT_WEB_EXTENSION_MODE_MANIFESTV2)
+        pageConfiguration->setContentSecurityPolicyModeForExtension(WebCore::ContentSecurityPolicyModeForExtension::ManifestV2);
+
+    if (defaultContentSecurityPolicy)
+        pageConfiguration->setOverrideContentSecurityPolicy(String::fromUTF8(defaultContentSecurityPolicy));
 
     WebKitWebsiteDataManager* manager = webkitWebViewGetWebsiteDataManager(webView);
     if (!manager)

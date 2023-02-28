@@ -263,7 +263,6 @@ IsAccessibilityIsolatedTreeEnabled:
   type: bool
   defaultValue:
     WebCore:
-      USE(ATSPI): true
       default: false
 
 IsPerActivityStateCPUUsageMeasurementEnabled:
@@ -617,4 +616,11 @@ WebkitImageReadyEventEnabled:
   type: bool
   defaultValue:
     WebCore:
+      default: false
+
+YouTubeFlashPluginReplacementEnabled:
+  type: bool
+  defaultValue:
+    WebCore:
+      PLATFORM(COCOA): true
       default: false

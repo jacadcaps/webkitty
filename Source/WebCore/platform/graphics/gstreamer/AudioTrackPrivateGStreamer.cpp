@@ -40,8 +40,8 @@ AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivat
 {
 }
 
-AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GRefPtr<GstStream>&& stream)
-    : TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Audio, this, index, WTFMove(stream))
+AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GstStream* stream)
+    : TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Audio, this, index, stream)
     , m_player(player)
 {
     int kind;
@@ -70,6 +70,9 @@ AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivat
 void AudioTrackPrivateGStreamer::updateConfigurationFromTags()
 {
     ASSERT(isMainThread());
+    if (!m_stream)
+        return;
+
     auto tags = adoptGRef(gst_stream_get_tags(m_stream.get()));
     unsigned bitrate;
     if (!tags || !gst_tag_list_get_uint(tags.get(), GST_TAG_BITRATE, &bitrate))
@@ -83,6 +86,9 @@ void AudioTrackPrivateGStreamer::updateConfigurationFromTags()
 void AudioTrackPrivateGStreamer::updateConfigurationFromCaps()
 {
     ASSERT(isMainThread());
+    if (!m_stream)
+        return;
+
     auto caps = adoptGRef(gst_stream_get_caps(m_stream.get()));
     if (!caps || !gst_caps_is_fixed(caps.get()))
         return;
@@ -96,7 +102,7 @@ void AudioTrackPrivateGStreamer::updateConfigurationFromCaps()
 
 #if GST_CHECK_VERSION(1, 20, 0)
     GUniquePtr<char> codec(gst_codec_utils_caps_get_mime_codec(caps.get()));
-    configuration.codec = codec.get();
+    configuration.codec = String::fromLatin1(codec.get());
 #endif
 
     setConfiguration(WTFMove(configuration));
@@ -104,7 +110,7 @@ void AudioTrackPrivateGStreamer::updateConfigurationFromCaps()
 
 AudioTrackPrivate::Kind AudioTrackPrivateGStreamer::kind() const
 {
-    if (m_stream.get() && gst_stream_get_stream_flags(m_stream.get()) & GST_STREAM_FLAG_SELECT)
+    if (m_stream && gst_stream_get_stream_flags(m_stream.get()) & GST_STREAM_FLAG_SELECT)
         return AudioTrackPrivate::Kind::Main;
 
     return AudioTrackPrivate::kind();

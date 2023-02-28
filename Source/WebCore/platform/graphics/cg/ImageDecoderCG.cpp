@@ -34,31 +34,39 @@
 #include "IntPoint.h"
 #include "IntSize.h"
 #include "Logging.h"
-#include "MediaAccessibilitySoftLink.h"
 #include "MIMETypeRegistry.h"
+#include "ProcessCapabilities.h"
 #include "SharedBuffer.h"
 #include "UTIRegistry.h"
 #include <pal/spi/cg/ImageIOSPI.h>
 #include <ImageIO/ImageIO.h>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 
+#include "MediaAccessibilitySoftLink.h"
+
 namespace WebCore {
 
+const CFStringRef WebCoreCGImagePropertyAVISDictionary = CFSTR("{AVIS}");
 const CFStringRef WebCoreCGImagePropertyHEICSDictionary = CFSTR("{HEICS}");
-const CFStringRef WebCoreCGImagePropertyHEICSFrameInfoArray = CFSTR("FrameInfo");
+const CFStringRef WebCoreCGImagePropertyFrameInfoArray = CFSTR("FrameInfo");
 
 const CFStringRef WebCoreCGImagePropertyUnclampedDelayTime = CFSTR("UnclampedDelayTime");
 const CFStringRef WebCoreCGImagePropertyDelayTime = CFSTR("DelayTime");
 const CFStringRef WebCoreCGImagePropertyLoopCount = CFSTR("LoopCount");
-    
+
 #if PLATFORM(WIN)
 const CFStringRef kCGImageSourceShouldPreferRGB32 = CFSTR("kCGImageSourceShouldPreferRGB32");
 const CFStringRef kCGImageSourceSkipMetadata = CFSTR("kCGImageSourceSkipMetadata");
 const CFStringRef kCGImageSourceSubsampleFactor = CFSTR("kCGImageSourceSubsampleFactor");
 const CFStringRef kCGImageSourceShouldCacheImmediately = CFSTR("kCGImageSourceShouldCacheImmediately");
+const CFStringRef kCGImageSourceUseHardwareAcceleration = CFSTR("kCGImageSourceUseHardwareAcceleration");
 #endif
 
 const CFStringRef kCGImageSourceEnableRestrictedDecoding = CFSTR("kCGImageSourceEnableRestrictedDecoding");
+
+#if HAVE(IMAGEIO_CREATE_UNPREMULTIPLIED_PNG)
+const CFStringRef kCGImageSourceCreateUnpremultipliedPNG = CFSTR("kCGImageSourceCreateUnpremultipliedPNG");
+#endif
 
 static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
 {
@@ -66,8 +74,17 @@ static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
     CFDictionarySetValue(options.get(), kCGImageSourceShouldCache, kCFBooleanTrue);
     CFDictionarySetValue(options.get(), kCGImageSourceShouldPreferRGB32, kCFBooleanTrue);
     CFDictionarySetValue(options.get(), kCGImageSourceSkipMetadata, kCFBooleanTrue);
+
+    if (ProcessCapabilities::isHardwareAcceleratedDecodingDisabled())
+        CFDictionarySetValue(options.get(), kCGImageSourceUseHardwareAcceleration, kCFBooleanFalse);
+
 #if HAVE(IMAGE_RESTRICTED_DECODING) && USE(APPLE_INTERNAL_SDK)
-    CFDictionarySetValue(options.get(), kCGImageSourceEnableRestrictedDecoding, kCFBooleanTrue);
+    if (ProcessCapabilities::isHEICDecodingEnabled() || ProcessCapabilities::isAVIFDecodingEnabled())
+        CFDictionarySetValue(options.get(), kCGImageSourceEnableRestrictedDecoding, kCFBooleanTrue);
+#endif
+
+#if HAVE(IMAGEIO_CREATE_UNPREMULTIPLIED_PNG)
+    CFDictionarySetValue(options.get(), kCGImageSourceCreateUnpremultipliedPNG, kCFBooleanTrue);
 #endif
     return options;
 }
@@ -141,27 +158,30 @@ static CFDictionaryRef animationPropertiesFromProperties(CFDictionaryRef propert
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyPNGDictionary))
         return animationProperties;
 
+    if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, WebCoreCGImagePropertyAVISDictionary))
+        return animationProperties;
+
     return (CFDictionaryRef)CFDictionaryGetValue(properties, WebCoreCGImagePropertyHEICSDictionary);
 }
 
-static CFDictionaryRef animationHEICSPropertiesFromProperties(CFDictionaryRef properties, size_t index)
+static CFDictionaryRef animationPropertiesFromProperties(CFDictionaryRef properties, const CFStringRef animationDictionaryName, size_t index)
 {
     if (!properties)
         return nullptr;
 
-    // For HEICS images, ImageIO does not create a properties dictionary for each HEICS frame. Instead it maintains
-    // all frames' information in the image properties dictionary. Here is how ImageIO structures the properties
-    // dictionary for HEICS image:
+    // For HEIF container images, ImageIO does not create a properties dictionary for each frame.
+    // Instead it maintains all frames' information in the image properties dictionary. Here is how
+    // ImageIO structures the properties dictionary for HEICS image:
     //  "{HEICS}" =  {
     //      FrameInfo = ( { DelayTime = "0.1"; }, { DelayTime = "0.1"; }, ... );
     //      LoopCount = 0;
     //      ...
     //  };
-    CFDictionaryRef heicsProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, WebCoreCGImagePropertyHEICSDictionary);
-    if (!heicsProperties)
+    auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, animationDictionaryName);
+    if (!animationProperties)
         return nullptr;
 
-    CFArrayRef frameInfoArray = (CFArrayRef)CFDictionaryGetValue(heicsProperties, WebCoreCGImagePropertyHEICSFrameInfoArray);
+    auto frameInfoArray = (CFArrayRef)CFDictionaryGetValue(animationProperties, WebCoreCGImagePropertyFrameInfoArray);
     if (!frameInfoArray)
         return nullptr;
 
@@ -470,7 +490,9 @@ Seconds ImageDecoderCG::frameDurationAtIndex(size_t index) const
 
     if (frameProperties && !animationProperties) {
         properties = adoptCF(CGImageSourceCopyProperties(m_nativeDecoder.get(), imageSourceOptions().get()));
-        animationProperties = animationHEICSPropertiesFromProperties(properties.get(), index);
+        animationProperties = animationPropertiesFromProperties(properties.get(), WebCoreCGImagePropertyAVISDictionary, index);
+        if (!animationProperties)
+            animationProperties = animationPropertiesFromProperties(properties.get(), WebCoreCGImagePropertyHEICSDictionary, index);
     }
 
     // Use the unclamped frame delay if it exists. Otherwise use the clamped frame delay.
@@ -507,7 +529,7 @@ bool ImageDecoderCG::frameHasAlphaAtIndex(size_t index) const
     
     // Return false if there is no image type or the image type is JPEG, because
     // JPEG does not support alpha transparency.
-    if (uti.isEmpty() || uti == "public.jpeg")
+    if (uti.isEmpty() || uti == "public.jpeg"_s)
         return false;
     
     // FIXME: Could return false for other non-transparent image formats.
@@ -558,7 +580,7 @@ PlatformImagePtr ImageDecoderCG::createFrameImageAtIndex(size_t index, Subsampli
 #endif // PLATFORM(IOS_FAMILY)
     
     String uti = this->uti();
-    if (uti.isEmpty() || uti != "public.xbitmap-image")
+    if (uti.isEmpty() || uti != "public.xbitmap-image"_s)
         return image;
     
     // If it is an xbm image, mask out all the white areas to render them transparent.

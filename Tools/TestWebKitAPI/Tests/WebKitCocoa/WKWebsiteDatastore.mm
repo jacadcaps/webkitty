@@ -268,6 +268,34 @@ TEST(WebKit, SettingNonPersistentDataStorePathsThrowsException)
     [configuration setSourceApplicationSecondaryIdentifier:@"com.apple.Safari"];
 }
 
+TEST(WKWebsiteDataStore, FetchPersistentWebStorage)
+{
+    auto dataTypes = [NSSet setWithObjects:WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeSessionStorage, nil];
+    auto localStorageType = [NSSet setWithObjects:WKWebsiteDataTypeLocalStorage, nil];
+
+    readyToContinue = false;
+    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^{
+        readyToContinue = true;
+    }];
+    TestWebKitAPI::Util::run(&readyToContinue);
+
+    @autoreleasepool {
+        auto webView = adoptNS([[WKWebView alloc] init]);
+        auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+        [webView setNavigationDelegate:navigationDelegate.get()];
+        [webView loadHTMLString:@"<script>sessionStorage.setItem('session', 'storage'); localStorage.setItem('local', 'storage');</script>" baseURL:[NSURL URLWithString:@"http://localhost"]];
+        [navigationDelegate waitForDidFinishNavigation];
+    }
+
+    readyToContinue = false;
+    [[WKWebsiteDataStore defaultDataStore] fetchDataRecordsOfTypes:dataTypes completionHandler:^(NSArray<WKWebsiteDataRecord *> * records) {
+        EXPECT_EQ([records count], 1u);
+        EXPECT_TRUE([[[records firstObject] dataTypes] isEqualToSet:localStorageType]);
+        readyToContinue = true;
+    }];
+    TestWebKitAPI::Util::run(&readyToContinue);
+}
+
 TEST(WKWebsiteDataStore, FetchNonPersistentWebStorage)
 {
     auto nonPersistentDataStore = [WKWebsiteDataStore nonPersistentDataStore];
@@ -367,7 +395,7 @@ TEST(WebKit, ClearCustomDataStoreNoWebViews)
                     "Set-Cookie: a=b\r\n"
                     "Connection: close\r\n"
                     "\r\n"
-                    "Hello");
+                    "Hello"_s);
                 break;
             case 2:
                 EXPECT_FALSE(strstr(request.data(), "Cookie: a=b\r\n"));
@@ -376,7 +404,7 @@ TEST(WebKit, ClearCustomDataStoreNoWebViews)
                     "Content-Length: 5\r\n"
                     "Connection: close\r\n"
                     "\r\n"
-                    "Hello");
+                    "Hello"_s);
                 break;
             default:
                 ASSERT_NOT_REACHED();
@@ -411,6 +439,13 @@ TEST(WebKit, ClearCustomDataStoreNoWebViews)
 
     webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get() addToWindow:YES]);
     [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:url]];
+}
+
+TEST(WKWebsiteDataStore, DoNotCreateDefaultDataStore)
+{
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration.get() copy];
+    EXPECT_FALSE([WKWebsiteDataStore _defaultDataStoreExists]);
 }
 
 } // namespace TestWebKitAPI

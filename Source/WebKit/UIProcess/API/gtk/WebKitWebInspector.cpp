@@ -31,9 +31,9 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebInspector
- * @Short_description: Access to the WebKit inspector
- * @Title: WebKitWebInspector
+ * WebKitWebInspector:
+ *
+ * Access to the WebKit inspector.
  *
  * The WebKit Inspector is a graphical tool to inspect and change the
  * content of a #WebKitWebView. It also includes an interactive
@@ -44,19 +44,18 @@ using namespace WebKit;
  * #WebKitWebView has set the #WebKitSettings:enable-developer-extras
  * to true, otherwise no inspector is available.
  *
- * <informalexample><programlisting>
- * /<!-- -->* Enable the developer extras *<!-- -->/
+ * ```c
+ * // Enable the developer extras
  * WebKitSettings *settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW(my_webview));
  * g_object_set (G_OBJECT(settings), "enable-developer-extras", TRUE, NULL);
  *
- * /<!-- -->* Load some data or reload to be able to inspect the page*<!-- -->/
+ * // Load some data or reload to be able to inspect the page
  * webkit_web_view_load_uri (WEBKIT_WEB_VIEW(my_webview), "http://www.gnome.org");
  *
- * /<!-- -->* Show the inspector *<!-- -->/
+ * // Show the inspector
  * WebKitWebInspector *inspector = webkit_web_view_get_inspector (WEBKIT_WEB_VIEW(my_webview));
  * webkit_web_inspector_show (WEBKIT_WEB_INSPECTOR(inspector));
- * </programlisting></informalexample>
- *
+ * ```
  */
 
 enum {
@@ -372,6 +371,7 @@ WebKitWebInspector* webkitWebInspectorCreate(WebInspectorUIProxy* webInspector)
  * @inspector: a #WebKitWebInspector
  *
  * Get the #WebKitWebViewBase used to display the inspector.
+ *
  * This might be %NULL if the inspector hasn't been loaded yet,
  * or it has been closed.
  *
@@ -388,7 +388,9 @@ WebKitWebViewBase* webkit_web_inspector_get_web_view(WebKitWebInspector* inspect
  * webkit_web_inspector_get_inspected_uri:
  * @inspector: a #WebKitWebInspector
  *
- * Get the URI that is currently being inspected. This can be %NULL if
+ * Get the URI that is currently being inspected.
+ *
+ * This can be %NULL if
  * nothing has been loaded yet in the inspected view, if the inspector
  * has been closed or when inspected view was loaded from a HTML string
  * instead of a URI.
@@ -441,7 +443,9 @@ gboolean webkit_web_inspector_is_attached(WebKitWebInspector* inspector)
  * webkit_web_inspector_attach:
  * @inspector: a #WebKitWebInspector
  *
- * Request @inspector to be attached. The signal #WebKitWebInspector::attach
+ * Request @inspector to be attached.
+ *
+ * The signal #WebKitWebInspector::attach
  * will be emitted. If the inspector is already attached it does nothing.
  */
 void webkit_web_inspector_attach(WebKitWebInspector* inspector)
@@ -457,7 +461,9 @@ void webkit_web_inspector_attach(WebKitWebInspector* inspector)
  * webkit_web_inspector_detach:
  * @inspector: a #WebKitWebInspector
  *
- * Request @inspector to be detached. The signal #WebKitWebInspector::detach
+ * Request @inspector to be detached.
+ *
+ * The signal #WebKitWebInspector::detach
  * will be emitted. If the inspector is already detached it does nothing.
  */
 void webkit_web_inspector_detach(WebKitWebInspector* inspector)
@@ -498,6 +504,8 @@ void webkit_web_inspector_close(WebKitWebInspector* inspector)
 /**
  * webkit_web_inspector_get_attached_height:
  * @inspector: a #WebKitWebInspector
+ *
+ * Get the height that the inspector view when attached.
  *
  * Get the height that the inspector view should have when
  * it's attached. If the inspector view is not attached this

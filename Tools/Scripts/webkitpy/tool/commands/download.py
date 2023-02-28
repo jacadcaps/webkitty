@@ -57,11 +57,11 @@ class Clean(AbstractSequencedCommand):
         options.force_clean = True
 
 
-class Land(AbstractSequencedCommand):
-    name = "land"
+class LandUnsafe(AbstractSequencedCommand):
+    name = "land-unsafe"
     help_text = "Land the current working directory diff and updates the associated bug if any"
     argument_names = "[BUGID]"
-    show_in_main_help = True
+    show_in_main_help = False
     steps = [
         steps.AddSvnMimetypeForPng,
         steps.UpdateChangeLogsWithReviewer,
@@ -308,21 +308,27 @@ class AbstractRevertPrepCommand(AbstractSequencedCommand):
         return commit_info
 
     def _prepare_state(self, options, args, tool):
-        revision_list = []
         description_list = []
         bug_id_list = []
+
+        revisions = []
+        commits = []
         for revision in str(args[0]).split():
             if revision.isdigit():
-                revision_list.append(int(revision))
+                revisions.append(int(revision))
+            elif revision.startswith('r') and revision[1:].isdigit():
+                revisions.append(int(revision[1:]))
             else:
-                raise ScriptError(message="Invalid svn revision number: " + revision)
-        revision_list.sort()
+                commits.append(revision)
+        revisions.sort()
+        commits.sort()
+        revision_list = ['r{}'.format(rev) for rev in revisions] + commits
 
         earliest_revision = revision_list[0]
         state = {
             "revision": earliest_revision,
             "revision_list": revision_list,
-            "reason": args[1],
+            "reason": ' '.join(args[1:]),
             "bug_id": None,
             "bug_id_list": bug_id_list,
             "description_list": description_list,
@@ -333,9 +339,9 @@ class AbstractRevertPrepCommand(AbstractSequencedCommand):
                 # We use the earliest revision for the bug info
                 if revision == earliest_revision:
                     state["bug_blocked"] = commit_info.bug_id()
-                    cc_list = sorted([party.bugzilla_email()
+                    cc_list = sorted([party.email
                             for party in commit_info.responsible_parties()
-                            if party.bugzilla_email()])
+                            if getattr(party, 'email', None)])
                     # FIXME: We should used the list as the canonical representation.
                     state["bug_cc"] = ",".join(cc_list)
                 description_list.append(commit_info.bug_description())
@@ -375,7 +381,7 @@ class CreateRevert(AbstractRevertPrepCommand):
 
     def _prepare_state(self, options, args, tool):
         state = AbstractRevertPrepCommand._prepare_state(self, options, args, tool)
-        state["bug_title"] = "REGRESSION(r%s): %s" % (state["revision"], state["reason"])
+        state["bug_title"] = "REGRESSION(%s): %s" % (state["revision"], state["reason"])
         state["bug_description"] = "%s introduced a regression:\n%s" % (urls.view_revision_url(state["revision"]), state["reason"])
         # FIXME: If we had more context here, we could link to other open bugs
         #        that mention the test that regressed.

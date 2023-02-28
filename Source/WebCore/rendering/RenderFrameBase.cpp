@@ -89,7 +89,7 @@ void RenderFrameBase::performLayoutWithFlattening(bool hasFixedWidth, bool hasFi
     // need to update to calculate min/max correctly
     if (updateWidgetPosition() == ChildWidgetState::Destroyed)
         return;
-    
+
     // if scrollbars are off, and the width or height are fixed
     // we obey them and do not expand. With frame flattening
     // no subframe much ever become scrollable.

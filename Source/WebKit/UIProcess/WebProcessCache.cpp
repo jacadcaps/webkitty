@@ -76,8 +76,7 @@ bool WebProcessCache::canCacheProcess(WebProcessProxy& process) const
         return false;
     }
 
-    auto sessionID = process.websiteDataStore().sessionID();
-    if (sessionID.isEphemeral() && !process.processPool().hasPagesUsingWebsiteDataStore(process.websiteDataStore())) {
+    if (!process.websiteDataStore()) {
         WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because this session has been destroyed", process.processIdentifier());
         return false;
     }
@@ -153,7 +152,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::RegistrableD
     if (it == m_processesPerRegistrableDomain.end())
         return nullptr;
 
-    if (&it->value->process().websiteDataStore() != &dataStore)
+    if (it->value->process().websiteDataStore() != &dataStore)
         return nullptr;
 
     if (it->value->process().captivePortalMode() != captivePortalMode)
@@ -161,11 +160,14 @@ RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::RegistrableD
 
     auto process = it->value->takeProcess();
     m_processesPerRegistrableDomain.remove(it);
-    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u)", process->processIdentifier(), size(), capacity());
+    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d)", process->processIdentifier(), size(), capacity(), process->wasTerminated());
 
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());
     ASSERT(!process->suspendedPageCount());
+
+    if (process->wasTerminated())
+        return nullptr;
 
     return process;
 }
@@ -212,7 +214,8 @@ void WebProcessCache::clearAllProcessesForSession(PAL::SessionID sessionID)
 {
     Vector<WebCore::RegistrableDomain> keysToRemove;
     for (auto& pair : m_processesPerRegistrableDomain) {
-        if (pair.value->process().websiteDataStore().sessionID() == sessionID) {
+        auto* dataStore = pair.value->process().websiteDataStore();
+        if (!dataStore || dataStore->sessionID() == sessionID) {
             WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processIdentifier());
             keysToRemove.append(pair.key);
         }
@@ -222,7 +225,8 @@ void WebProcessCache::clearAllProcessesForSession(PAL::SessionID sessionID)
 
     Vector<uint64_t> pendingRequestsToRemove;
     for (auto& pair : m_pendingAddRequests) {
-        if (pair.value->process().websiteDataStore().sessionID() == sessionID) {
+        auto* dataStore = pair.value->process().websiteDataStore();
+        if (!dataStore || dataStore->sessionID() == sessionID) {
             WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processIdentifier());
             pendingRequestsToRemove.append(pair.key);
         }
@@ -276,7 +280,8 @@ WebProcessCache::CachedProcess::CachedProcess(Ref<WebProcessProxy>&& process)
 #endif
 {
     RELEASE_ASSERT(!m_process->pageCount());
-    RELEASE_ASSERT_WITH_MESSAGE(!m_process->websiteDataStore().processes().contains(*m_process), "Only processes with pages should be registered with the data store");
+    auto* dataStore = m_process->websiteDataStore();
+    RELEASE_ASSERT_WITH_MESSAGE(dataStore && !dataStore->processes().contains(*m_process), "Only processes with pages should be registered with the data store");
     m_process->setIsInProcessCache(true);
     m_evictionTimer.startOneShot(cachedProcessLifetime);
 }

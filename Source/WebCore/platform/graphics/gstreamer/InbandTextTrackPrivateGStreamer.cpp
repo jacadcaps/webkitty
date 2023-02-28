@@ -43,11 +43,11 @@ InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index,
 {
 }
 
-InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstStream>&& stream)
+InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index, GstStream* stream)
     : InbandTextTrackPrivate(CueFormat::WebVTT)
-    , TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Text, this, index, WTFMove(stream))
+    , TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Text, this, index, stream)
 {
-    m_id = gst_stream_get_stream_id(m_stream.get());
+    m_id = AtomString::fromLatin1(gst_stream_get_stream_id(m_stream.get()));
     GST_INFO("Track %d got stream start for stream %s.", m_index, m_id.string().utf8().data());
 
     GST_DEBUG("Stream %" GST_PTR_FORMAT, m_stream.get());

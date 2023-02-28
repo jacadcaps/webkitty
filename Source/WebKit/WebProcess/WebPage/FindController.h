@@ -31,6 +31,7 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/PageOverlay.h>
 #include <WebCore/SimpleRange.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
@@ -48,9 +49,10 @@ enum class DidWrap : bool;
 namespace WebKit {
 
 class CallbackID;
+class PluginView;
 class WebPage;
 
-class FindController : private WebCore::PageOverlay::Client {
+class FindController final : private WebCore::PageOverlay::Client {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(FindController);
 
@@ -100,6 +102,10 @@ private:
     unsigned findIndicatorRadius() const;
     bool shouldHideFindIndicatorOnScroll() const;
     void didScrollAffectingFindIndicatorPosition();
+
+#if ENABLE(PDFKIT_PLUGIN)
+    PluginView* mainFramePlugIn();
+#endif
 
     WebPage* m_webPage;
     WebCore::PageOverlay* m_findPageOverlay { nullptr };

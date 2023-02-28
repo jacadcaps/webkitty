@@ -14,6 +14,7 @@ set(test_main_SOURCES generic/main.cpp)
 list(APPEND TestWTF_SOURCES
     ${test_main_SOURCES}
 
+    Tests/WTF/glib/GRefPtr.cpp
     Tests/WTF/glib/GUniquePtr.cpp
     Tests/WTF/glib/WorkQueueGLib.cpp
 
@@ -115,8 +116,11 @@ set(TestJSC_LIBRARIES
 set(TestJSC_FRAMEWORKS
     JavaScriptCore
     WTF
-    bmalloc
 )
+
+if (NOT USE_SYSTEM_MALLOC)
+    list(APPEND TestJSC_FRAMEWORKS bmalloc)
+endif ()
 
 set(TestJSC_DEFINITIONS
     WEBKIT_SRC_DIR="${CMAKE_SOURCE_DIR}"

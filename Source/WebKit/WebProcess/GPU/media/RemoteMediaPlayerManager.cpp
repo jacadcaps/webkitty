@@ -34,6 +34,7 @@
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxyConfiguration.h"
 #include "SampleBufferDisplayLayerManager.h"
+#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include "WebProcessCreationParameters.h"
 #include <WebCore/ContentTypeUtilities.h>
@@ -41,6 +42,10 @@
 #include <wtf/HashFunctions.h>
 #include <wtf/HashMap.h>
 #include <wtf/StdLibExtras.h>
+
+#if PLATFORM(COCOA)
+#include <WebCore/MediaPlayerPrivateMediaStreamAVFObjC.h>
+#endif
 
 namespace WebKit {
 
@@ -160,8 +165,9 @@ std::unique_ptr<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRem
     proxyConfiguration.isVideo = player->isVideoPlayer();
 
 #if ENABLE(AVF_CAPTIONS)
-    for (const auto& track : player->outOfBandTrackSources())
-        proxyConfiguration.outOfBandTrackData.append(track->data());
+    proxyConfiguration.outOfBandTrackData = player->outOfBandTrackSources().map([](auto& track) {
+        return track->data();
+    });
 #endif
 
     auto documentSecurityOrigin = player->documentSecurityOrigin();
@@ -172,6 +178,9 @@ std::unique_ptr<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRem
     proxyConfiguration.allowedMediaVideoCodecIDs = player->allowedMediaVideoCodecIDs();
     proxyConfiguration.allowedMediaAudioCodecIDs = player->allowedMediaAudioCodecIDs();
     proxyConfiguration.allowedMediaCaptionFormatTypes = player->allowedMediaCaptionFormatTypes();
+    proxyConfiguration.playerContentBoxRect = player->playerContentBoxRect();
+
+    proxyConfiguration.prefersSandboxedParsing = player->prefersSandboxedParsing();
 
     auto identifier = MediaPlayerIdentifier::generate();
     gpuProcessConnection().connection().send(Messages::RemoteMediaPlayerManagerProxy::CreateMediaPlayer(identifier, remoteEngineIdentifier, proxyConfiguration), 0);
@@ -257,6 +266,9 @@ void RemoteMediaPlayerManager::setUseGPUProcess(bool useGPUProcess)
     if (useGPUProcess) {
         WebCore::SampleBufferDisplayLayer::setCreator([](auto& client) {
             return WebProcess::singleton().ensureGPUProcessConnection().sampleBufferDisplayLayerManager().createLayer(client);
+        });
+        WebCore::MediaPlayerPrivateMediaStreamAVFObjC::setNativeImageCreator([](auto& videoFrame) {
+            return WebProcess::singleton().ensureGPUProcessConnection().videoFrameObjectHeapProxy().getNativeImage(videoFrame);
         });
     }
 #endif

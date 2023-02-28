@@ -39,9 +39,9 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitURISchemeResponse
- * @Short_description: Represents a URI scheme response
- * @Title: WebKitURISchemeResponse
+ * WebKitURISchemeResponse:
+ *
+ * Represents a URI scheme response.
  *
  * If you register a particular URI scheme in a #WebKitWebContext,
  * using webkit_web_context_register_uri_scheme(), you have to provide
@@ -50,10 +50,9 @@ using namespace WebCore;
  * called. There you will be able to provide more response parameters
  * when the methods and properties of a #WebKitURISchemeRequest is not
  * enough.
- * 
+ *
  * When you finished setting up your #WebKitURISchemeResponse, call
  * webkit_uri_request_finish_with_response() with it to return the response.
- *
  */
 
 struct _WebKitURISchemeResponsePrivate {
@@ -108,9 +107,9 @@ static void webkit_uri_scheme_response_class_init(WebKitURISchemeResponseClass* 
             static_cast<GParamFlags>(WEBKIT_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY));
 
     /**
-     * WebKitURISchemeResponse:stream_length:
+     * WebKitURISchemeResponse:stream-length:
      *
-     * The input stream length in bytes. -1 for unknown length.
+     * The input stream length in bytes, `-1` for unknown length.
      *
      * Since: 2.36
      */
@@ -191,12 +190,13 @@ void webkit_uri_scheme_response_set_content_type(WebKitURISchemeResponse* respon
     response->priv->contentType = contentType;
 }
 
-/*
+/**
  * webkit_uri_scheme_response_set_http_headers:
  * @response: a #WebKitURISchemeResponse
  * @headers: (transfer full): the HTTP headers to be set
  *
  * Assign the provided #SoupMessageHeaders to the response.
+ *
  * @headers need to be of the type %SOUP_MESSAGE_HEADERS_RESPONSE.
  * Any existing headers will be overwritten.
  *
@@ -217,6 +217,7 @@ void webkit_uri_scheme_response_set_http_headers(WebKitURISchemeResponse* respon
  * @reason_phrase: (allow-none): a reason phrase
  *
  * Sets the status code and reason phrase for the @response.
+ *
  * If @status_code is a known value and @reason_phrase is %NULL, the @reason_phrase will be set automatically.
  *
  * Since: 2.36

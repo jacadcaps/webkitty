@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,6 @@
 #include "ProcessThrottler.h"
 #include "ProcessThrottlerClient.h"
 #include "RemoteWorkerInitializationData.h"
-#include "RemoteWorkerType.h"
 #include "ResponsivenessTimer.h"
 #include "SpeechRecognitionServer.h"
 #include "UserContentControllerIdentifier.h"
@@ -75,6 +74,7 @@ class PageConfiguration;
 namespace WebCore {
 class DeferrableOneShotTimer;
 class ResourceRequest;
+struct NotificationData;
 struct PluginInfo;
 struct PrewarmInformation;
 struct SecurityOriginData;
@@ -100,7 +100,6 @@ class WebPageProxy;
 class WebProcessPool;
 class WebUserContentControllerProxy;
 class WebsiteDataStore;
-enum class WebsiteDataType : uint32_t;
 struct BackForwardListItemState;
 struct GPUProcessConnectionParameters;
 struct UserMessage;
@@ -108,6 +107,9 @@ struct WebNavigationDataStore;
 struct WebPageCreationParameters;
 struct WebPreferencesStore;
 struct WebsiteData;
+
+enum class RemoteWorkerType : bool;
+enum class WebsiteDataType : uint32_t;
 
 #if ENABLE(MEDIA_STREAM)
 class SpeechRecognitionRemoteRealtimeMediaSourceManager;
@@ -163,9 +165,9 @@ public:
     bool isInProcessCache() const { return m_isInProcessCache; }
 
     void enableRemoteWorkers(RemoteWorkerType, const UserContentControllerIdentifier&);
-    void disableRemoteWorkers(OptionSet<RemoteWorkerType>);
+    void disableRemoteWorkers(RemoteWorkerType);
 
-    WebsiteDataStore& websiteDataStore() const { ASSERT(m_websiteDataStore); return *m_websiteDataStore; }
+    WebsiteDataStore* websiteDataStore() const { ASSERT(m_websiteDataStore); return m_websiteDataStore.get(); }
     void setWebsiteDataStore(WebsiteDataStore&);
     
     PAL::SessionID sessionID() const;
@@ -325,8 +327,8 @@ public:
     void didStartProvisionalLoadForMainFrame(const URL&);
 
     // ProcessThrottlerClient
-    void sendPrepareToSuspend(IsSuspensionImminent, CompletionHandler<void()>&&) final;
-    void sendProcessDidResume() final;
+    void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
+    void sendProcessDidResume(ResumeReason) final;
     void didSetAssertionType(ProcessAssertionType) final;
     ASCIILiteral clientName() const final { return "WebProcess"_s; }
 
@@ -356,21 +358,17 @@ public:
     
 #if PLATFORM(COCOA)
     void unblockAccessibilityServerIfNeeded();
-#if ENABLE(CFPREFS_DIRECT_MODE)
-    void unblockPreferenceServiceIfNeeded();
-#endif
 #endif
 
     void updateAudibleMediaAssertions();
 
     void setRemoteWorkerUserAgent(const String&);
     void updateRemoteWorkerPreferencesStore(const WebPreferencesStore&);
-    void establishSharedWorkerContext(const WebPreferencesStore&, const WebCore::RegistrableDomain&, CompletionHandler<void()>&&);
+    void establishRemoteWorkerContext(RemoteWorkerType, const WebPreferencesStore&, const WebCore::RegistrableDomain&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&);
     void registerRemoteWorkerClientProcess(RemoteWorkerType, WebProcessProxy&);
     void unregisterRemoteWorkerClientProcess(RemoteWorkerType, WebProcessProxy&);
     void updateRemoteWorkerProcessAssertion(RemoteWorkerType);
 #if ENABLE(SERVICE_WORKER)
-    void establishServiceWorkerContext(const WebPreferencesStore&, const WebCore::RegistrableDomain&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&);
     bool hasServiceWorkerPageProxy(WebPageProxyIdentifier pageProxyID) { return m_serviceWorkerInformation && m_serviceWorkerInformation->remoteWorkerPageProxyID == pageProxyID; }
     bool hasServiceWorkerForegroundActivityForTesting() const;
     bool hasServiceWorkerBackgroundActivityForTesting() const;
@@ -384,7 +382,8 @@ public:
 #endif
 
 #if ENABLE(GPU_PROCESS)
-    void gpuProcessExited(GPUProcessTerminationReason);
+    void gpuProcessDidFinishLaunching();
+    void gpuProcessExited(ProcessTerminationReason);
 #endif
 
     bool hasSleepDisabler() const;
@@ -393,7 +392,7 @@ public:
     bool hasNetworkExtensionSandboxAccess() const { return m_hasNetworkExtensionSandboxAccess; }
     void markHasNetworkExtensionSandboxAccess() { m_hasNetworkExtensionSandboxAccess = true; }
 #endif
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) && !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
     bool hasManagedSessionSandboxAccess() const { return m_hasManagedSessionSandboxAccess; }
     void markHasManagedSessionSandboxAccess() { m_hasManagedSessionSandboxAccess = true; }
 #endif
@@ -429,9 +428,21 @@ public:
     void setCaptionDisplayMode(WebCore::CaptionUserPreferences::CaptionDisplayMode);
     void setCaptionLanguage(const String&);
 #endif
+    void getNotifications(const URL&, const String&, CompletionHandler<void(Vector<WebCore::NotificationData>&&)>&&);
 
     WebCore::CrossOriginMode crossOriginMode() const { return m_crossOriginMode; }
     CaptivePortalMode captivePortalMode() const { return m_captivePortalMode; }
+
+#if PLATFORM(COCOA)
+    std::optional<audit_token_t> auditToken() const;
+    SandboxExtension::Handle fontdMachExtensionHandle(SandboxExtension::MachBootstrapOptions) const;
+#endif
+
+    bool isConnectedToHardwareConsole() const { return m_isConnectedToHardwareConsole; }
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    void hardwareConsoleStateChanged();
+#endif
 
 protected:
     WebProcessProxy(WebProcessPool&, WebsiteDataStore*, IsPrewarmed, WebCore::CrossOriginMode, CaptivePortalMode);
@@ -478,11 +489,7 @@ private:
     void getNetworkProcessConnection(Messages::WebProcessProxy::GetNetworkProcessConnectionDelayedReply&&);
 
 #if ENABLE(GPU_PROCESS)
-    void getGPUProcessConnection(GPUProcessConnectionParameters&&, Messages::WebProcessProxy::GetGPUProcessConnectionDelayedReply&&);
-#endif
-
-#if ENABLE(WEB_AUTHN)
-    void getWebAuthnProcessConnection(Messages::WebProcessProxy::GetWebAuthnProcessConnectionDelayedReply&&);
+    void createGPUProcessConnection(IPC::Attachment&& connectionIdentifier, WebKit::GPUProcessConnectionParameters&&);
 #endif
 
     bool shouldAllowNonValidInjectedCode() const;
@@ -517,7 +524,6 @@ private:
     void logDiagnosticMessageForResourceLimitTermination(const String& limitKey);
     
     void updateRegistrationWithDataStore();
-    Vector<String> platformOverrideLanguages() const;
 
     void maybeShutDown();
 
@@ -602,7 +608,6 @@ private:
 
 #if PLATFORM(COCOA)
     bool m_hasSentMessageToUnblockAccessibilityServer { false };
-    bool m_hasSentMessageToUnblockPreferenceService { false };
 #endif
 
     HashMap<String, uint64_t> m_pageURLRetainCountMap;
@@ -614,7 +619,6 @@ private:
     Vector<CompletionHandler<void(bool webProcessIsResponsive)>> m_isResponsiveCallbacks;
 
     VisibleWebPageCounter m_visiblePageCounter;
-
     RefPtr<WebsiteDataStore> m_websiteDataStore;
 
     bool m_isUnderMemoryPressure { false };
@@ -632,7 +636,7 @@ private:
 #if PLATFORM(COCOA)
     bool m_hasNetworkExtensionSandboxAccess { false };
 #endif
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) && !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
     bool m_hasManagedSessionSandboxAccess { false };
 #endif
 
@@ -676,6 +680,7 @@ private:
     std::unique_ptr<SpeechRecognitionRemoteRealtimeMediaSourceManager> m_speechRecognitionRemoteRealtimeMediaSourceManager;
 #endif
     std::unique_ptr<WebLockRegistryProxy> m_webLockRegistry;
+    bool m_isConnectedToHardwareConsole { true };
 };
 
 } // namespace WebKit

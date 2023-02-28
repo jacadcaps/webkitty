@@ -29,10 +29,10 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebsitePolicies
- * @Short_description: View specific website policies
- * @Title: WebKitWebsitePolicies
+ * WebKitWebsitePolicies:
  * @See_also: #WebKitWebView
+ *
+ * View specific website policies.
  *
  * WebKitWebsitePolicies allows you to configure per-page policies,
  * currently only autoplay policies are supported.
@@ -156,7 +156,7 @@ static void webkit_website_policies_class_init(WebKitWebsitePoliciesClass* findC
 /**
  * webkit_website_policies_new:
  *
- * Create a new #WebKitWebsitePolicies
+ * Create a new #WebKitWebsitePolicies.
  *
  * Returns: (transfer full): the newly created #WebKitWebsitePolicies
  *
@@ -172,24 +172,29 @@ WebKitWebsitePolicies* webkit_website_policies_new(void)
  * @first_policy_name: name of the first policy to set
  * @...: value of first policy, followed by more policies, %NULL-terminated
  *
+ * Create a new #WebKitWebsitePolicies with given policies.
+ *
  * Create a new #WebKitWebsitePolicies with policies given as variadic
  * arguments.
  *
  * Returns: (transfer full): the newly created #WebKitWebsitePolicies
  *
- * <informalexample><programlisting>
+ * ```c
  * WebKitWebsitePolicies *default_website_policies = webkit_website_policies_new_with_policies(
  *     "autoplay", WEBKIT_AUTOPLAY_DENY,
  *     NULL);
- * ...
+ *
+ * // ...
+ *
  * WebKitWebView *view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
  *     "web-context", ctx,
  *     "settings", settings,
  *     "user-content-manager", content_manager,
  *     "website-policies", default_website_policies,
  *     NULL));
- * ...
- * </programlisting></informalexample>
+ *
+ * // ...
+ * ```
  *
  * Since: 2.30
  */

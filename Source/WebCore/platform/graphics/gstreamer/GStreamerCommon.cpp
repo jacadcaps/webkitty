@@ -23,9 +23,12 @@
 
 #if USE(GSTREAMER)
 
+#include "AppSinkWorkaround.h"
 #include "ApplicationGLib.h"
+#include "DMABufVideoSinkGStreamer.h"
 #include "GLVideoSinkGStreamer.h"
 #include "GStreamerAudioMixer.h"
+#include "GStreamerRegistryScanner.h"
 #include "GUniquePtrGStreamer.h"
 #include "GstAllocatorFastMalloc.h"
 #include "IntSize.h"
@@ -36,13 +39,10 @@
 #include <gst/gst.h>
 #include <mutex>
 #include <wtf/FileSystem.h>
+#include <wtf/PrintStream.h>
 #include <wtf/Scope.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
-
-#if USE(GSTREAMER_FULL)
-#include <gst/gstinitstaticplugins.h>
-#endif
 
 #if USE(GSTREAMER_MPEGTS)
 #define GST_USE_UNSTABLE_API
@@ -68,6 +68,10 @@
 #include "WebKitWebSourceGStreamer.h"
 #endif
 
+#if USE(GSTREAMER_WEBRTC)
+#include <gst/webrtc/webrtc-enumtypes.h>
+#endif
+
 GST_DEBUG_CATEGORY(webkit_gst_common_debug);
 #define GST_CAT_DEFAULT webkit_gst_common_debug
 
@@ -88,6 +92,24 @@ GstPad* webkitGstGhostPadFromStaticTemplate(GstStaticPadTemplate* staticPadTempl
     return pad;
 }
 
+#if !GST_CHECK_VERSION(1, 18, 0)
+void webkitGstVideoFormatInfoComponent(const GstVideoFormatInfo* info, guint plane, gint components[GST_VIDEO_MAX_COMPONENTS])
+{
+    guint c, i = 0;
+
+    /* Reverse mapping of info->plane. */
+    for (c = 0; c < GST_VIDEO_FORMAT_INFO_N_COMPONENTS(info); c++) {
+        if (GST_VIDEO_FORMAT_INFO_PLANE(info, c) == plane) {
+            components[i] = c;
+            i++;
+        }
+    }
+
+    for (c = i; c < GST_VIDEO_MAX_COMPONENTS; c++)
+        components[c] = -1;
+}
+#endif
+
 #if ENABLE(VIDEO)
 bool getVideoSizeAndFormatFromCaps(const GstCaps* caps, WebCore::IntSize& size, GstVideoFormat& format, int& pixelAspectRatioNumerator, int& pixelAspectRatioDenominator, int& stride)
 {
@@ -96,21 +118,8 @@ bool getVideoSizeAndFormatFromCaps(const GstCaps* caps, WebCore::IntSize& size, 
         return false;
     }
 
-    if (areEncryptedCaps(caps)) {
-        GstStructure* structure = gst_caps_get_structure(caps, 0);
-        format = GST_VIDEO_FORMAT_ENCODED;
-        stride = 0;
-        int width = 0, height = 0;
-        gst_structure_get_int(structure, "width", &width);
-        gst_structure_get_int(structure, "height", &height);
-        if (!gst_structure_get_fraction(structure, "pixel-aspect-ratio", &pixelAspectRatioNumerator, &pixelAspectRatioDenominator)) {
-            pixelAspectRatioNumerator = 1;
-            pixelAspectRatioDenominator = 1;
-        }
-
-        size.setWidth(width);
-        size.setHeight(height);
-    } else {
+    GstStructure* structure = gst_caps_get_structure(caps, 0);
+    if (!areEncryptedCaps(caps) && (!gst_structure_has_name(structure, "video/x-raw") || gst_structure_has_field(structure, "format"))) {
         GstVideoInfo info;
         gst_video_info_init(&info);
         if (!gst_video_info_from_caps(&info, caps))
@@ -122,6 +131,22 @@ bool getVideoSizeAndFormatFromCaps(const GstCaps* caps, WebCore::IntSize& size, 
         pixelAspectRatioNumerator = GST_VIDEO_INFO_PAR_N(&info);
         pixelAspectRatioDenominator = GST_VIDEO_INFO_PAR_D(&info);
         stride = GST_VIDEO_INFO_PLANE_STRIDE(&info, 0);
+    } else {
+        if (areEncryptedCaps(caps))
+            format = GST_VIDEO_FORMAT_ENCODED;
+        else
+            format = GST_VIDEO_FORMAT_UNKNOWN;
+        stride = 0;
+        int width = 0, height = 0;
+        gst_structure_get_int(structure, "width", &width);
+        gst_structure_get_int(structure, "height", &height);
+        if (!gst_structure_get_fraction(structure, "pixel-aspect-ratio", &pixelAspectRatioNumerator, &pixelAspectRatioDenominator)) {
+            pixelAspectRatioNumerator = 1;
+            pixelAspectRatioDenominator = 1;
+        }
+
+        size.setWidth(width);
+        size.setHeight(height);
     }
 
     return true;
@@ -137,12 +162,8 @@ std::optional<FloatSize> getVideoResolutionFromCaps(const GstCaps* caps)
     int width = 0, height = 0;
     int pixelAspectRatioNumerator = 1, pixelAspectRatioDenominator = 1;
 
-    if (areEncryptedCaps(caps)) {
-        GstStructure* structure = gst_caps_get_structure(caps, 0);
-        gst_structure_get_int(structure, "width", &width);
-        gst_structure_get_int(structure, "height", &height);
-        gst_structure_get_fraction(structure, "pixel-aspect-ratio", &pixelAspectRatioNumerator, &pixelAspectRatioDenominator);
-    } else {
+    GstStructure* structure = gst_caps_get_structure(caps, 0);
+    if (!areEncryptedCaps(caps) && (!gst_structure_has_name(structure, "video/x-raw") || gst_structure_has_field(structure, "format"))) {
         GstVideoInfo info;
         gst_video_info_init(&info);
         if (!gst_video_info_from_caps(&info, caps))
@@ -152,6 +173,10 @@ std::optional<FloatSize> getVideoResolutionFromCaps(const GstCaps* caps)
         height = GST_VIDEO_INFO_HEIGHT(&info);
         pixelAspectRatioNumerator = GST_VIDEO_INFO_PAR_N(&info);
         pixelAspectRatioDenominator = GST_VIDEO_INFO_PAR_D(&info);
+    } else {
+        gst_structure_get_int(structure, "width", &width);
+        gst_structure_get_int(structure, "height", &height);
+        gst_structure_get_fraction(structure, "pixel-aspect-ratio", &pixelAspectRatioNumerator, &pixelAspectRatioDenominator);
     }
 
     return std::make_optional(FloatSize(width, height * (static_cast<float>(pixelAspectRatioDenominator) / static_cast<float>(pixelAspectRatioNumerator))));
@@ -187,6 +212,9 @@ const char* capsMediaType(const GstCaps* caps)
     if (gst_structure_has_name(structure, "application/x-cenc") || gst_structure_has_name(structure, "application/x-cbcs") || gst_structure_has_name(structure, "application/x-webm-enc"))
         return gst_structure_get_string(structure, "original-media-type");
 #endif
+    if (gst_structure_has_name(structure, "application/x-rtp"))
+        return gst_structure_get_string(structure, "media");
+
     return gst_structure_get_name(structure);
 }
 
@@ -232,7 +260,7 @@ Vector<String> extractGStreamerOptionsFromCommandLine()
     Vector<String> options;
     auto optionsString = String::fromUTF8(contents.get(), length);
     optionsString.split('\0', [&options](StringView item) {
-        if (item.startsWith("--gst"))
+        if (item.startsWith("--gst"_s))
             options.append(item.toString());
     });
     return options;
@@ -278,6 +306,9 @@ bool ensureGStreamerInitialized()
         if (isGStreamerInitialized)
             gst_mpegts_initialize();
 #endif
+
+        // Workaround for https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/2413
+        registerAppsinkWorkaroundIfNeeded();
 #endif
     });
     return isGStreamerInitialized;
@@ -298,17 +329,24 @@ bool ensureGStreamerInitialized()
 bool isThunderRanked()
 {
     const char* value = g_getenv("WEBKIT_GST_EME_RANK_PRIORITY");
-    return value && equalIgnoringASCIICase(value, "Thunder");
+    return value && equalIgnoringASCIICase(value, "Thunder"_s);
 }
 #endif
+
+static void registerInternalVideoEncoder()
+{
+    // TODO: Remove this ifdef, this element doesn't explicitly use MediaStream APIs and can
+    // also be used for WebCodec video encoding.
+#if ENABLE(MEDIA_STREAM)
+    gst_element_register(nullptr, "webrtcvideoencoder", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEBRTC_VIDEO_ENCODER);
+#endif
+}
 
 void registerWebKitGStreamerElements()
 {
     static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-#if USE(GSTREAMER_FULL)
-        gst_init_static_plugins();
-#endif
+    bool registryWasUpdated = false;
+    std::call_once(onceFlag, [&registryWasUpdated] {
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
         if (!CDMFactoryThunder::singleton().supportedKeySystems().isEmpty()) {
@@ -326,8 +364,8 @@ void registerWebKitGStreamerElements()
 
 #if ENABLE(MEDIA_STREAM)
         gst_element_register(nullptr, "mediastreamsrc", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_STREAM_SRC);
-        gst_element_register(nullptr, "webrtcvideoencoder", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEBRTC_VIDEO_ENCODER);
 #endif
+        registerInternalVideoEncoder();
 
 #if ENABLE(MEDIA_SOURCE)
         gst_element_register(nullptr, "webkitmediasrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_MEDIA_SRC);
@@ -335,6 +373,7 @@ void registerWebKitGStreamerElements()
 
 #if ENABLE(VIDEO)
         gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
+        gst_element_register(0, "webkitdmabufvideosink", GST_RANK_NONE, WEBKIT_TYPE_DMABUF_VIDEO_SINK);
 #if USE(GSTREAMER_GL)
         gst_element_register(0, "webkitglvideosink", GST_RANK_NONE, WEBKIT_TYPE_GL_VIDEO_SINK);
 #endif
@@ -377,7 +416,28 @@ void registerWebKitGStreamerElements()
             if (auto vaapiPlugin = adoptGRef(gst_registry_find_plugin(registry, "vaapi")))
                 gst_registry_remove_plugin(registry, vaapiPlugin.get());
         }
+        registryWasUpdated = true;
     });
+
+    // The GStreamer registry might be updated after the scanner was initialized, so in this situation
+    // we need to reset the internal state of the registry scanner.
+    if (registryWasUpdated && !GStreamerRegistryScanner::singletonNeedsInitialization())
+        GStreamerRegistryScanner::singleton().refresh();
+}
+
+void registerWebKitGStreamerVideoEncoder()
+{
+    static std::once_flag onceFlag;
+    bool registryWasUpdated = false;
+    std::call_once(onceFlag, [&registryWasUpdated] {
+        registerInternalVideoEncoder();
+        registryWasUpdated = true;
+    });
+
+    // The video encoder might be registered after the scanner was initialized, so in this situation
+    // we need to reset the internal state of the registry scanner.
+    if (registryWasUpdated && !GStreamerRegistryScanner::singletonNeedsInitialization())
+        GStreamerRegistryScanner::singleton().refresh();
 }
 
 unsigned getGstPlayFlag(const char* nick)
@@ -453,6 +513,9 @@ void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMess
             GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN_CAST(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
             break;
         }
+        case GST_MESSAGE_LATENCY:
+            gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
+            break;
         default:
             break;
         }
@@ -484,9 +547,9 @@ bool isGStreamerPluginAvailable(const char* name)
     return plugin;
 }
 
-bool gstElementFactoryEquals(GstElement* element, const char* name)
+bool gstElementFactoryEquals(GstElement* element, ASCIILiteral name)
 {
-    return equal(GST_OBJECT_NAME(gst_element_get_factory(element)), name);
+    return name == GST_OBJECT_NAME(gst_element_get_factory(element));
 }
 
 GstElement* createAutoAudioSink(const String& role)
@@ -500,8 +563,10 @@ GstElement* createAutoAudioSink(const String& role)
             g_object_set(object, "stream-properties", properties.get(), nullptr);
             GST_DEBUG("Set media.role as %s on %" GST_PTR_FORMAT, role->utf8().data(), GST_ELEMENT_CAST(object));
         }
-        if (g_object_class_find_property(objectClass, "client-name"))
-            g_object_set(object, "client-name", getApplicationName(), nullptr);
+        if (g_object_class_find_property(objectClass, "client-name")) {
+            auto& clientName = getApplicationName();
+            g_object_set(object, "client-name", clientName.ascii().data(), nullptr);
+        }
     }), role.isolatedCopy().releaseImpl().leakRef(), static_cast<GClosureNotify>([](gpointer userData, GClosure*) {
         reinterpret_cast<StringImpl*>(userData)->deref();
     }), static_cast<GConnectFlags>(0));
@@ -626,6 +691,13 @@ static std::optional<RefPtr<JSON::Value>> gstStructureValueToJSON(const GValue* 
     if (valueType == G_TYPE_STRING)
         return JSON::Value::create(makeString(g_value_get_string(value)))->asValue();
 
+#if USE(GSTREAMER_WEBRTC)
+    if (valueType == GST_TYPE_WEBRTC_STATS_TYPE) {
+        GUniquePtr<char> statsType(g_enum_to_string(GST_TYPE_WEBRTC_STATS_TYPE, g_value_get_enum(value)));
+        return JSON::Value::create(makeString(statsType.get()))->asValue();
+    }
+#endif
+
     GST_WARNING("Unhandled GValue type: %s", G_VALUE_TYPE_NAME(value));
     return { };
 }
@@ -634,7 +706,7 @@ static gboolean parseGstStructureValue(GQuark fieldId, const GValue* value, gpoi
 {
     if (auto jsonValue = gstStructureValueToJSON(value)) {
         auto* object = reinterpret_cast<JSON::Object*>(userData);
-        object->setValue(g_quark_to_string(fieldId), jsonValue->releaseNonNull());
+        object->setValue(String::fromLatin1(g_quark_to_string(fieldId)), jsonValue->releaseNonNull());
     }
     return TRUE;
 }
@@ -658,6 +730,159 @@ String gstStructureToJSONString(const GstStructure* structure)
     return value->toJSONString();
 }
 
+#if !GST_CHECK_VERSION(1, 18, 0)
+GstClockTime webkitGstElementGetCurrentRunningTime(GstElement* element)
+{
+    g_return_val_if_fail(GST_IS_ELEMENT(element), GST_CLOCK_TIME_NONE);
+
+    auto baseTime = gst_element_get_base_time(element);
+    if (!GST_CLOCK_TIME_IS_VALID(baseTime)) {
+        GST_DEBUG_OBJECT(element, "Could not determine base time");
+        return GST_CLOCK_TIME_NONE;
+    }
+
+    auto clock = adoptGRef(gst_element_get_clock(element));
+    if (!clock) {
+        GST_DEBUG_OBJECT(element, "Element has no clock");
+        return GST_CLOCK_TIME_NONE;
+    }
+
+    auto clockTime = gst_clock_get_time(clock.get());
+    if (!GST_CLOCK_TIME_IS_VALID(clockTime))
+        return GST_CLOCK_TIME_NONE;
+
+    if (clockTime < baseTime) {
+        GST_DEBUG_OBJECT(element, "Got negative current running time");
+        return GST_CLOCK_TIME_NONE;
+    }
+
+    return clockTime - baseTime;
 }
+#endif
+
+PlatformVideoColorSpace videoColorSpaceFromCaps(const GstCaps* caps)
+{
+    GstVideoInfo info;
+    if (!gst_video_info_from_caps(&info, caps))
+        return { };
+
+    return videoColorSpaceFromInfo(info);
+}
+
+PlatformVideoColorSpace videoColorSpaceFromInfo(const GstVideoInfo& info)
+{
+#ifndef GST_DISABLE_GST_DEBUG
+    GUniquePtr<char> colorimetry(gst_video_colorimetry_to_string(&GST_VIDEO_INFO_COLORIMETRY(&info)));
+#endif
+    PlatformVideoColorSpace colorSpace;
+    switch (GST_VIDEO_INFO_COLORIMETRY(&info).matrix) {
+    case GST_VIDEO_COLOR_MATRIX_RGB:
+        colorSpace.matrix = PlatformVideoMatrixCoefficients::Rgb;
+        break;
+    case GST_VIDEO_COLOR_MATRIX_BT709:
+        colorSpace.matrix = PlatformVideoMatrixCoefficients::Bt709;
+        break;
+    case GST_VIDEO_COLOR_MATRIX_BT601:
+        colorSpace.matrix = PlatformVideoMatrixCoefficients::Bt470bg;
+        break;
+    default:
+#ifndef GST_DISABLE_GST_DEBUG
+        GST_WARNING("Unhandled colorspace matrix from %s", colorimetry.get());
+#endif
+        break;
+    }
+
+    switch (GST_VIDEO_INFO_COLORIMETRY(&info).transfer) {
+    case GST_VIDEO_TRANSFER_SRGB:
+        colorSpace.transfer = PlatformVideoTransferCharacteristics::Iec6196621;
+        break;
+    case GST_VIDEO_TRANSFER_BT709:
+        colorSpace.transfer = PlatformVideoTransferCharacteristics::Bt709;
+        break;
+#if GST_CHECK_VERSION(1, 18, 0)
+    case GST_VIDEO_TRANSFER_BT601:
+        colorSpace.transfer = PlatformVideoTransferCharacteristics::Smpte170m;
+        break;
+#endif
+    default:
+#ifndef GST_DISABLE_GST_DEBUG
+        GST_WARNING("Unhandled colorspace transfer from %s", colorimetry.get());
+#endif
+        break;
+    }
+
+    switch (GST_VIDEO_INFO_COLORIMETRY(&info).primaries) {
+    case GST_VIDEO_COLOR_PRIMARIES_BT709:
+        colorSpace.primaries = PlatformVideoColorPrimaries::Bt709;
+        break;
+    case GST_VIDEO_COLOR_PRIMARIES_BT470BG:
+        colorSpace.primaries = PlatformVideoColorPrimaries::Bt470bg;
+        break;
+    case GST_VIDEO_COLOR_PRIMARIES_SMPTE170M:
+        colorSpace.primaries = PlatformVideoColorPrimaries::Smpte170m;
+        break;
+    default:
+#ifndef GST_DISABLE_GST_DEBUG
+        GST_WARNING("Unhandled colorspace primaries from %s", colorimetry.get());
+#endif
+        break;
+    }
+    return colorSpace;
+}
+
+void fillVideoInfoColorimetryFromColorSpace(GstVideoInfo* info, const PlatformVideoColorSpace& colorSpace)
+{
+    if (colorSpace.matrix) {
+        switch (*colorSpace.matrix) {
+        case PlatformVideoMatrixCoefficients::Rgb:
+            GST_VIDEO_INFO_COLORIMETRY(info).matrix = GST_VIDEO_COLOR_MATRIX_RGB;
+            break;
+        case PlatformVideoMatrixCoefficients::Bt709:
+            GST_VIDEO_INFO_COLORIMETRY(info).matrix = GST_VIDEO_COLOR_MATRIX_BT709;
+            break;
+        case PlatformVideoMatrixCoefficients::Bt470bg:
+            GST_VIDEO_INFO_COLORIMETRY(info).matrix = GST_VIDEO_COLOR_MATRIX_BT601;
+            break;
+        default:
+            break;
+        };
+    }
+
+    if (colorSpace.transfer) {
+        switch (*colorSpace.transfer) {
+        case PlatformVideoTransferCharacteristics::Iec6196621:
+            GST_VIDEO_INFO_COLORIMETRY(info).transfer = GST_VIDEO_TRANSFER_SRGB;
+            break;
+        case PlatformVideoTransferCharacteristics::Bt709:
+            GST_VIDEO_INFO_COLORIMETRY(info).transfer = GST_VIDEO_TRANSFER_BT709;
+            break;
+#if GST_CHECK_VERSION(1, 18, 0)
+        case PlatformVideoTransferCharacteristics::Smpte170m:
+            GST_VIDEO_INFO_COLORIMETRY(info).transfer = GST_VIDEO_TRANSFER_BT601;
+            break;
+#endif
+        default:
+            break;
+        }
+    }
+
+    if (colorSpace.primaries) {
+        switch (*colorSpace.primaries) {
+        case PlatformVideoColorPrimaries::Bt709:
+            GST_VIDEO_INFO_COLORIMETRY(info).primaries = GST_VIDEO_COLOR_PRIMARIES_BT709;
+            break;
+        case PlatformVideoColorPrimaries::Bt470bg:
+            GST_VIDEO_INFO_COLORIMETRY(info).primaries = GST_VIDEO_COLOR_PRIMARIES_BT470BG;
+            break;
+        case PlatformVideoColorPrimaries::Smpte170m:
+            GST_VIDEO_INFO_COLORIMETRY(info).primaries = GST_VIDEO_COLOR_PRIMARIES_SMPTE170M;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+} // namespace WebCore
 
 #endif // USE(GSTREAMER)

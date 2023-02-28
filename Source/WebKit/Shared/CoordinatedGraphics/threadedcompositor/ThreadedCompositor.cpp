@@ -299,15 +299,21 @@ void ThreadedCompositor::updateSceneWithoutRendering()
     m_scene->updateSceneState();
 }
 
-RefPtr<WebCore::DisplayRefreshMonitor> ThreadedCompositor::displayRefreshMonitor(PlatformDisplayID)
+WebCore::DisplayRefreshMonitor& ThreadedCompositor::displayRefreshMonitor() const
 {
-    return m_displayRefreshMonitor.copyRef();
+    return m_displayRefreshMonitor.get();
 }
 
 void ThreadedCompositor::frameComplete()
 {
     ASSERT(!RunLoop::isMain());
     sceneUpdateFinished();
+}
+
+void ThreadedCompositor::targetRefreshRateDidChange(unsigned rate)
+{
+    ASSERT(RunLoop::isMain());
+    m_displayRefreshMonitor->setTargetRefreshRate(rate);
 }
 
 }

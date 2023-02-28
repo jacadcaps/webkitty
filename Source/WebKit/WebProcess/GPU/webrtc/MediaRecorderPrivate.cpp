@@ -39,7 +39,6 @@
 #include <WebCore/MediaStreamPrivate.h>
 #include <WebCore/MediaStreamTrackPrivate.h>
 #include <WebCore/RealtimeIncomingVideoSourceCocoa.h>
-#include <WebCore/RemoteVideoSample.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/WebAudioBufferList.h>
 
@@ -93,47 +92,25 @@ MediaRecorderPrivate::~MediaRecorderPrivate()
     WebProcess::singleton().ensureGPUProcessConnection().removeClient(*this);
 }
 
-void MediaRecorderPrivate::videoSampleAvailable(MediaSample& sample, VideoSampleMetadata)
+void MediaRecorderPrivate::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata)
 {
-    std::optional<RemoteVideoFrameReadReference> remoteVideoFrameReadReference;
-    std::unique_ptr<RemoteVideoSample> remoteSample;
     if (shouldMuteVideo()) {
-        // FIXME: We could optimize sending black frames by only sending width/height.
-        if (!m_blackFrame) {
-            auto size = sample.presentationSize();
-            m_blackFrame = createBlackPixelBuffer(static_cast<size_t>(size.width()), static_cast<size_t>(size.height()));
+        if (!m_blackFrameSize) {
+            auto size = videoFrame.presentationSize();
+            m_blackFrameSize = WebCore::IntSize { static_cast<int>(size.width()), static_cast<int>(size.height()) };
         }
-        remoteSample = RemoteVideoSample::create(m_blackFrame.get(), sample.presentationTime(), sample.videoRotation(), RemoteVideoSample::ShouldCheckForIOSurface::No);
-    } else {
-        m_blackFrame = nullptr;
-
-        if (is<RemoteVideoFrameProxy>(sample)) {
-            remoteVideoFrameReadReference = downcast<RemoteVideoFrameProxy>(sample).read();
-            remoteSample = RemoteVideoSample::create(nullptr, sample.presentationTime(), sample.videoRotation(), RemoteVideoSample::ShouldCheckForIOSurface::No);
-        } else
-            remoteSample = RemoteVideoSample::create(sample, RemoteVideoSample::ShouldCheckForIOSurface::No);
+        SharedVideoFrame sharedVideoFrame { videoFrame.presentationTime(), videoFrame.isMirrored(), videoFrame.rotation(), *m_blackFrameSize };
+        m_connection->send(Messages::RemoteMediaRecorder::VideoFrameAvailable { sharedVideoFrame }, m_identifier);
+        return;
     }
 
-    if (is<RemoteVideoFrameProxy>(sample))
-        remoteVideoFrameReadReference = downcast<RemoteVideoFrameProxy>(sample).read();
-    else if (!remoteSample->surface()) {
-        // buffer is not IOSurface, we need to copy to shared video frame.
-        if (!copySharedVideoFrame(remoteSample->imageBuffer()))
-            return;
-    }
-
-    m_connection->send(Messages::RemoteMediaRecorder::VideoSampleAvailable { WTFMove(*remoteSample), remoteVideoFrameReadReference }, m_identifier);
-}
-
-
-bool MediaRecorderPrivate::copySharedVideoFrame(CVPixelBufferRef pixelBuffer)
-{
-    if (!pixelBuffer)
-        return false;
-    return m_sharedVideoFrameWriter.write(pixelBuffer,
+    m_blackFrameSize = { };
+    auto sharedVideoFrame = m_sharedVideoFrameWriter.write(videoFrame,
         [this](auto& semaphore) { m_connection->send(Messages::RemoteMediaRecorder::SetSharedVideoFrameSemaphore { semaphore }, m_identifier); },
         [this](auto& handle) { m_connection->send(Messages::RemoteMediaRecorder::SetSharedVideoFrameMemory { handle }, m_identifier); }
     );
+    if (sharedVideoFrame)
+        m_connection->send(Messages::RemoteMediaRecorder::VideoFrameAvailable { WTFMove(*sharedVideoFrame) }, m_identifier);
 }
 
 void MediaRecorderPrivate::audioSamplesAvailable(const MediaTime& time, const PlatformAudioData& audioData, const AudioStreamDescription& description, size_t numberOfFrames)
@@ -175,14 +152,7 @@ void MediaRecorderPrivate::storageChanged(SharedMemory* storage, const WebCore::
     SharedMemory::Handle handle;
     if (storage)
         storage->createHandle(handle, SharedMemory::Protection::ReadOnly);
-
-    // FIXME: Send the actual data size with IPCHandle.
-#if OS(DARWIN) || OS(WINDOWS)
-    uint64_t dataSize = handle.size();
-#else
-    uint64_t dataSize = 0;
-#endif
-    m_connection->send(Messages::RemoteMediaRecorder::AudioSamplesStorageChanged { SharedMemory::IPCHandle { WTFMove(handle), dataSize }, format, frameCount }, m_identifier);
+    m_connection->send(Messages::RemoteMediaRecorder::AudioSamplesStorageChanged { WTFMove(handle), format, frameCount }, m_identifier);
 }
 
 void MediaRecorderPrivate::fetchData(CompletionHandler<void(RefPtr<WebCore::FragmentedSharedBuffer>&&, const String& mimeType, double)>&& completionHandler)

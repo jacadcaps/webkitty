@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2013 Adobe Systems Incorporated. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -123,7 +121,8 @@ class TestParser(object):
                 if len(reference_support_files) > 0:
                     reference_relpath = self.filesystem.relpath(self.filesystem.dirname(self.filename), self.filesystem.dirname(ref_file)) + self.filesystem.sep
                     test_info['reference_support_info'] = {'reference_relpath': reference_relpath, 'files': reference_support_files}
-
+        elif self.is_wpt_crashtest():
+            test_info = {'test': self.filename, 'crashtest': True}
         elif self.is_jstest():
             test_info = {'test': self.filename, 'jstest': True}
         elif self.is_reference_filename():
@@ -164,6 +163,9 @@ class TestParser(object):
                 return True
 
         return False
+
+    def is_wpt_crashtest(self):
+        return self.filename.find('-crash.') != -1
 
     def is_reference_filename(self):
         # From tools/manifest/sourcefile.py in WPT repository

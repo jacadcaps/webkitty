@@ -69,7 +69,7 @@ const SecAsn1Template signedPublicKeyAndChallengeTemplate[] {
     { 0, 0, 0, 0 }
 };
 
-const URL url = URL(URL(), "http://www.webkit.org/");
+const URL url { "http://www.webkit.org/"_str };
 
 class SSLKeyGeneratorTest : public testing::Test {
 public:
@@ -95,7 +95,7 @@ public:
 
 TEST_F(SSLKeyGeneratorTest, DefaultTest)
 {
-    char challenge[] = "0123456789";
+    constexpr auto challenge = "0123456789"_s;
     auto rawResult = WebCore::signedPublicKeyAndChallengeString(0, challenge, url);
     ASSERT_FALSE(rawResult.isEmpty());
     auto derResult = base64Decode(rawResult);

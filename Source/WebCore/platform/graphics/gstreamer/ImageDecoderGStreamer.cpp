@@ -23,7 +23,6 @@
 #if USE(GSTREAMER) && ENABLE(VIDEO)
 
 #include "FloatSize.h"
-#include "GStreamerCommon.h"
 #include "GStreamerRegistryScanner.h"
 #include "ImageGStreamer.h"
 #include "MediaSampleGStreamer.h"
@@ -229,6 +228,16 @@ const ImageDecoderGStreamerSample* ImageDecoderGStreamer::sampleAtIndex(size_t i
     return toSample(iter);
 }
 
+ImageDecoderGStreamer::InnerDecoder::~InnerDecoder()
+{
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Destructing decoder");
+    g_signal_handlers_disconnect_by_func(m_decodebin.get(), reinterpret_cast<gpointer>(decodebinPadAddedCallback), this);
+    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+    gst_bus_set_sync_handler(bus.get(), nullptr, nullptr, nullptr);
+    disconnectSimpleBusMessageCallback(m_pipeline.get());
+    gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
+}
+
 void ImageDecoderGStreamer::InnerDecoder::decodebinPadAddedCallback(ImageDecoderGStreamer::InnerDecoder* decoder, GstPad* pad)
 {
     decoder->connectDecoderPad(pad);
@@ -367,6 +376,8 @@ void ImageDecoderGStreamer::InnerDecoder::preparePipeline()
 {
     static Atomic<uint32_t> pipelineId;
     m_pipeline = gst_pipeline_new(makeString("image-decoder-", pipelineId.exchangeAdd(1)).utf8().data());
+
+    connectSimpleBusMessageCallback(m_pipeline.get());
 
     GRefPtr<GstBus> bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
     ASSERT(bus);

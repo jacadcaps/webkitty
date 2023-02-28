@@ -56,7 +56,7 @@ static void initializeDebugCategory()
 
 class GStreamerAudioCaptureSourceFactory : public AudioCaptureFactory {
 public:
-    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* constraints) final
+    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier) final
     {
         return GStreamerAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalt), constraints);
     }
@@ -96,15 +96,8 @@ AudioCaptureFactory& GStreamerAudioCaptureSource::factory()
 }
 
 GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice device, String&& hashSalt)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, String { device.persistentId() }, String { device.label() }, WTFMove(hashSalt))
+    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, AtomString { device.persistentId() }, String { device.label() }, WTFMove(hashSalt))
     , m_capturer(makeUnique<GStreamerAudioCapturer>(device))
-{
-    initializeDebugCategory();
-}
-
-GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(String&& deviceID, String&& name, String&& hashSalt)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt))
-    , m_capturer(makeUnique<GStreamerAudioCapturer>())
 {
     initializeDebugCategory();
 }
@@ -125,15 +118,13 @@ GstFlowReturn GStreamerAudioCaptureSource::newSampleCallback(GstElement* sink, G
 {
     auto sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
 
-    // FIXME - figure out a way to avoid copying (on write) the data.
     auto* buffer = gst_sample_get_buffer(sample.get());
+    auto bufferSize = gst_buffer_get_size(buffer);
+    MediaTime presentationTime(GST_TIME_AS_USECONDS(GST_BUFFER_PTS(buffer)), G_USEC_PER_SEC);
+
     GStreamerAudioData frames(WTFMove(sample));
     GStreamerAudioStreamDescription description(frames.getAudioInfo());
-
-    source->audioSamplesAvailable(
-        MediaTime(GST_TIME_AS_USECONDS(GST_BUFFER_PTS(buffer)), G_USEC_PER_SEC),
-        frames, description, gst_buffer_get_size(buffer) / description.getInfo().bpf);
-
+    source->audioSamplesAvailable(presentationTime, frames, description, bufferSize / description.getInfo().bpf);
     return GST_FLOW_OK;
 }
 

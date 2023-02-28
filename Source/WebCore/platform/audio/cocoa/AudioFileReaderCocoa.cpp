@@ -189,6 +189,7 @@ std::unique_ptr<AudioFileReaderWebMData> AudioFileReader::demuxWebMData(const ui
     MediaTime duration;
     RefPtr<AudioTrackPrivateWebM> track;
     Vector<Ref<MediaSampleAVFObjC>> samples;
+    parser->setLogger(m_logger, m_logIdentifier);
     parser->setDidEncounterErrorDuringParsingCallback([&](uint64_t) {
         error = true;
     });
@@ -219,7 +220,7 @@ std::unique_ptr<AudioFileReaderWebMData> AudioFileReader::demuxWebMData(const ui
     parser->appendData(WTFMove(segment));
     if (!track)
         return nullptr;
-    parser->flushPendingAudioBuffers();
+    parser->flushPendingAudioSamples();
     return makeUnique<AudioFileReaderWebMData>(AudioFileReaderWebMData { WTFMove(buffer), track.releaseNonNull(), WTFMove(duration), WTFMove(samples) });
 }
 

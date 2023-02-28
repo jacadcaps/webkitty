@@ -193,6 +193,7 @@ interface TestRunner {
     // Cookies testing
     undefined setAlwaysAcceptCookies(boolean accept);
     undefined setOnlyAcceptFirstPartyCookies(boolean accept);
+    undefined removeAllCookies();
 
     // Page Visibility API
     undefined setPageVisibility(DOMString state);
@@ -206,6 +207,7 @@ interface TestRunner {
     // Web notifications support
     undefined grantWebNotificationPermission(DOMString origin);
     undefined denyWebNotificationPermission(DOMString origin);
+    undefined denyWebNotificationPermissionOnPrompt(DOMString origin);
     undefined removeAllWebNotificationPermissions();
     undefined simulateWebNotificationClick(object notification);
     undefined simulateWebNotificationClickForServiceWorkerNotifications();
@@ -280,7 +282,6 @@ interface TestRunner {
 
     // Contextual menu actions
     undefined setAllowedMenuActions(object actions);
-    undefined installCustomMenuAction(DOMString name, boolean dismissesAutomatically, object callback);
 
     // Gamepad
     undefined setMockGamepadDetails(unsigned long index, DOMString id, DOMString mapping, unsigned long axisCount, unsigned long buttonCount);
@@ -406,6 +407,8 @@ interface TestRunner {
     undefined addTestKeyToKeychain(DOMString privateKeyBase64, DOMString attrLabel, DOMString applicationTagBase64);
     undefined cleanUpKeychain(DOMString attrLabel, optional DOMString applicationLabelBase64);
     boolean keyExistsInKeychain(DOMString attrLabel, DOMString applicationLabelBase64);
+
+    undefined clearMemoryCache();
 
     // Private Click Measurement
     undefined clearPrivateClickMeasurement();

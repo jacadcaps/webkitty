@@ -41,14 +41,11 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitFaviconDatabase
- * @Short_description: A WebKit favicon database
- * @Title: WebKitFaviconDatabase
+ * WebKitFaviconDatabase:
  *
- * #WebKitFaviconDatabase provides access to the icons associated with
- * web sites.
+ * Provides access to the icons associated with web sites.
  *
- * WebKit will automatically look for available icons in &lt;link&gt;
+ * WebKit will automatically look for available icons in <link>
  * elements on opened pages as well as an existing favicon.ico and
  * load the images found into a memory cache if possible. That cache
  * is frozen to an on-disk database for persistence.
@@ -57,7 +54,6 @@ using namespace WebCore;
  * won't be added to the on-disk database and no existing icons will
  * be deleted from it. Nevertheless, WebKit will still store them in
  * the in-memory cache during the current execution.
- *
  */
 
 enum {
@@ -159,6 +155,13 @@ void webkitFaviconDatabaseSetIconForPageURL(WebKitFaviconDatabase* database, con
 }
 #endif
 
+/**
+ * webkit_favicon_database_error_quark:
+ *
+ * Gets the quark for the domain of favicon database errors.
+ *
+ * Returns: favicon database error domain.
+ */
 GQuark webkit_favicon_database_error_quark(void)
 {
     return g_quark_from_static_string("WebKitFaviconDatabaseError");
@@ -200,6 +203,8 @@ void webkitFaviconDatabaseGetFaviconInternal(WebKitFaviconDatabase* database, co
  * @callback: (scope async): A #GAsyncReadyCallback to call when the request is
  *            satisfied or %NULL if you don't care about the result.
  * @user_data: (closure): The data to pass to @callback.
+ *
+ * Asynchronously obtains a #cairo_surface_t of the favicon.
  *
  * Asynchronously obtains a #cairo_surface_t of the favicon for the
  * given page URI. It returns the cached icon if it's in the database

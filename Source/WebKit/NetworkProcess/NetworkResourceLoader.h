@@ -35,13 +35,16 @@
 #include "NetworkResourceLoadParameters.h"
 #include "PrivateRelayed.h"
 #include <WebCore/ContentFilterClient.h>
+#include <WebCore/ContentFilterUnblockHandler.h>
 #include <WebCore/ContentSecurityPolicyClient.h>
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SWServerRegistration.h>
 #include <WebCore/SecurityPolicyViolationEvent.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/Timer.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -92,7 +95,7 @@ public:
     void start();
     void abort();
 
-    void transferToNewWebProcess(NetworkConnectionToWebProcess&, WebCore::ResourceLoaderIdentifier);
+    void transferToNewWebProcess(NetworkConnectionToWebProcess&, const NetworkResourceLoadParameters&);
 
     // Message handlers.
     void didReceiveNetworkResourceLoaderMessage(IPC::Connection&, IPC::Decoder&);
@@ -139,7 +142,7 @@ public:
 
 #if ENABLE(INTELLIGENT_TRACKING_PREVENTION) && !RELEASE_LOG_DISABLED
     static bool shouldLogCookieInformation(NetworkConnectionToWebProcess&, PAL::SessionID);
-    static void logCookieInformation(NetworkConnectionToWebProcess&, const String& label, const void* loggedObject, const WebCore::NetworkStorageSession&, const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, const String& referrer, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebCore::ResourceLoaderIdentifier>);
+    static void logCookieInformation(NetworkConnectionToWebProcess&, ASCIILiteral label, const void* loggedObject, const WebCore::NetworkStorageSession&, const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, const String& referrer, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebCore::ResourceLoaderIdentifier>);
 #endif
 
     void disableExtraNetworkLoadMetricsCapture() { m_shouldCaptureExtraNetworkLoadMetrics = false; }
@@ -153,6 +156,9 @@ public:
     void serviceWorkerDidNotHandle(ServiceWorkerFetchTask*);
     void setResultingClientIdentifier(String&& identifier) { m_resultingClientIdentifier = WTFMove(identifier); }
     const String& resultingClientIdentifier() const { return m_resultingClientIdentifier; }
+    void setServiceWorkerRegistration(WebCore::SWServerRegistration& serviceWorkerRegistration) { m_serviceWorkerRegistration = serviceWorkerRegistration; }
+    void setWorkerStart(MonotonicTime);
+    MonotonicTime workerStart() const { return m_workerStart; }
 #endif
 
     std::optional<WebCore::ResourceError> doCrossOriginOpenerHandlingOfResponse(const WebCore::ResourceResponse&);
@@ -164,6 +170,8 @@ public:
     void ref() const final { RefCounted<NetworkResourceLoader>::ref(); }
     void deref() const final { RefCounted<NetworkResourceLoader>::deref(); }
 #endif
+
+    void willSendServiceWorkerRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&&);
 
 private:
     NetworkResourceLoader(NetworkResourceLoadParameters&&, NetworkConnectionToWebProcess&, Messages::NetworkConnectionToWebProcess::PerformSynchronousLoadDelayedReply&&);
@@ -239,10 +247,14 @@ private:
     ResourceLoadInfo resourceLoadInfo();
 
 #if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
-    void startContentFiltering(WebCore::ResourceRequest&);
+    bool startContentFiltering(WebCore::ResourceRequest&);
 #endif
 
-    const NetworkResourceLoadParameters m_parameters;
+    enum class IsFromServiceWorker : bool { No, Yes };
+    void willSendRedirectedRequestInternal(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&&, IsFromServiceWorker);
+    std::optional<WebCore::NetworkLoadMetrics> computeResponseMetrics(const WebCore::ResourceResponse&) const;
+
+    NetworkResourceLoadParameters m_parameters;
 
     Ref<NetworkConnectionToWebProcess> m_connection;
 
@@ -281,6 +293,8 @@ private:
 #if ENABLE(SERVICE_WORKER)
     std::unique_ptr<ServiceWorkerFetchTask> m_serviceWorkerFetchTask;
     String m_resultingClientIdentifier;
+    WeakPtr<WebCore::SWServerRegistration> m_serviceWorkerRegistration;
+    MonotonicTime m_workerStart;
 #endif
     NetworkResourceLoadIdentifier m_resourceLoadID;
     WebCore::ResourceResponse m_redirectResponse;
@@ -289,6 +303,8 @@ private:
 
 #if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
     std::unique_ptr<WebCore::ContentFilter> m_contentFilter;
+    WebCore::ContentFilterUnblockHandler m_unblockHandler;
+    String m_unblockRequestDeniedScript;
 #endif
 
     PrivateRelayed m_privateRelayed { PrivateRelayed::No };

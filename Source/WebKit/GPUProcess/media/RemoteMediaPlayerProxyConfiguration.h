@@ -29,6 +29,7 @@
 
 #include <WebCore/ContentType.h>
 #include <WebCore/FourCC.h>
+#include <WebCore/LayoutRect.h>
 #include <WebCore/PlatformTextTrack.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/WTFString.h>
@@ -46,7 +47,7 @@ struct RemoteMediaPlayerProxyConfiguration {
     std::optional<Vector<WebCore::FourCC>> allowedMediaVideoCodecIDs;
     std::optional<Vector<WebCore::FourCC>> allowedMediaAudioCodecIDs;
     std::optional<Vector<WebCore::FourCC>> allowedMediaCaptionFormatTypes;
-
+    WebCore::LayoutRect playerContentBoxRect;
     Vector<String> preferredAudioCharacteristics;
 #if ENABLE(AVF_CAPTIONS)
     Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
@@ -56,6 +57,7 @@ struct RemoteMediaPlayerProxyConfiguration {
     bool shouldUsePersistentCache { false };
     bool isVideo { false };
     bool renderingCanBeAccelerated { false };
+    bool prefersSandboxedParsing { false };
 
     template<class Encoder>
     void encode(Encoder& encoder) const
@@ -70,6 +72,7 @@ struct RemoteMediaPlayerProxyConfiguration {
         encoder << allowedMediaVideoCodecIDs;
         encoder << allowedMediaAudioCodecIDs;
         encoder << allowedMediaCaptionFormatTypes;
+        encoder << playerContentBoxRect;
         encoder << preferredAudioCharacteristics;
 #if ENABLE(AVF_CAPTIONS)
         encoder << outOfBandTrackData;
@@ -79,6 +82,7 @@ struct RemoteMediaPlayerProxyConfiguration {
         encoder << shouldUsePersistentCache;
         encoder << isVideo;
         encoder << renderingCanBeAccelerated;
+        encoder << prefersSandboxedParsing;
     }
 
     template <class Decoder>
@@ -94,6 +98,7 @@ struct RemoteMediaPlayerProxyConfiguration {
             && decoder.decode(configuration.allowedMediaVideoCodecIDs)
             && decoder.decode(configuration.allowedMediaAudioCodecIDs)
             && decoder.decode(configuration.allowedMediaCaptionFormatTypes)
+            && decoder.decode(configuration.playerContentBoxRect)
             && decoder.decode(configuration.preferredAudioCharacteristics)
 #if ENABLE(AVF_CAPTIONS)
             && decoder.decode(configuration.outOfBandTrackData)
@@ -102,7 +107,8 @@ struct RemoteMediaPlayerProxyConfiguration {
             && decoder.decode(configuration.logIdentifier)
             && decoder.decode(configuration.shouldUsePersistentCache)
             && decoder.decode(configuration.isVideo)
-            && decoder.decode(configuration.renderingCanBeAccelerated);
+            && decoder.decode(configuration.renderingCanBeAccelerated)
+            && decoder.decode(configuration.prefersSandboxedParsing);
     }
 };
 

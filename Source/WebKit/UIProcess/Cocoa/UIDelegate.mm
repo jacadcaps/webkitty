@@ -125,6 +125,7 @@ void UIDelegate::setDelegate(id <WKUIDelegate> delegate)
 #if PLATFORM(MAC)
     m_delegateMethods.showWebView = [delegate respondsToSelector:@selector(_showWebView:)];
     m_delegateMethods.focusWebView = [delegate respondsToSelector:@selector(_focusWebView:)];
+    m_delegateMethods.focusWebViewFromServiceWorker = [delegate respondsToSelector:@selector(_focusWebViewFromServiceWorker:)];
     m_delegateMethods.unfocusWebView = [delegate respondsToSelector:@selector(_unfocusWebView:)];
     m_delegateMethods.webViewRunModal = [delegate respondsToSelector:@selector(_webViewRunModal:)];
     m_delegateMethods.webViewDidScroll = [delegate respondsToSelector:@selector(_webViewDidScroll:)];
@@ -200,6 +201,7 @@ void UIDelegate::setDelegate(id <WKUIDelegate> delegate)
 #if ENABLE(WEBXR)
     m_delegateMethods.webViewRequestPermissionForXRSessionOriginModeAndFeaturesWithCompletionHandler = [delegate respondsToSelector:@selector(_webView:requestPermissionForXRSessionOrigin:mode:grantedFeatures:consentRequiredFeatures:consentOptionalFeatures:completionHandler:)];
     m_delegateMethods.webViewStartXRSessionWithCompletionHandler = [delegate respondsToSelector:@selector(_webView:startXRSessionWithCompletionHandler:)];
+    m_delegateMethods.webViewEndXRSession = [delegate respondsToSelector:@selector(_webViewEndXRSession:)];
 #endif
     m_delegateMethods.webViewRequestNotificationPermissionForSecurityOriginDecisionHandler = [delegate respondsToSelector:@selector(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)];
     m_delegateMethods.webViewRequestCookieConsentWithMoreInfoHandlerDecisionHandler = [delegate respondsToSelector:@selector(_webView:requestCookieConsentWithMoreInfoHandler:decisionHandler:)];
@@ -831,6 +833,26 @@ void UIDelegate::UIClient::pageDidScroll(WebPageProxy*)
     [(id <WKUIDelegatePrivate>)delegate _webViewDidScroll:m_uiDelegate->m_webView.get().get()];
 }
 
+bool UIDelegate::UIClient::focusFromServiceWorker(WebKit::WebPageProxy& proxy)
+{
+    bool hasImplementation = m_uiDelegate && m_uiDelegate->m_delegateMethods.focusWebViewFromServiceWorker && m_uiDelegate->m_delegate.get();
+    if (!hasImplementation) {
+        auto* webView = m_uiDelegate ? m_uiDelegate->m_webView.get().get() : nullptr;
+        if (!webView || !webView.window)
+            return false;
+
+#if PLATFORM(MAC)
+        [webView.window makeKeyAndOrderFront:nil];
+#else
+        [webView.window makeKeyAndVisible];
+#endif
+        [[webView window] makeFirstResponder:webView];
+        return true;
+    }
+
+    return [(id <WKUIDelegatePrivate>)m_uiDelegate->m_delegate.get() _focusWebViewFromServiceWorker:m_uiDelegate->m_webView.get().get()];
+}
+
 void UIDelegate::UIClient::focus(WebPageProxy*)
 {
     if (!m_uiDelegate)
@@ -842,7 +864,7 @@ void UIDelegate::UIClient::focus(WebPageProxy*)
     auto delegate = m_uiDelegate->m_delegate.get();
     if (!delegate)
         return;
-    
+
     [(id <WKUIDelegatePrivate>)delegate _focusWebView:m_uiDelegate->m_webView.get().get()];
 }
 
@@ -1155,23 +1177,25 @@ void UIDelegate::UIClient::promptForDisplayCapturePermission(WebPageProxy& page,
     ASSERT(request.canPromptForGetDisplayMedia());
 
     auto checker = CompletionHandlerCallChecker::create(delegate, @selector(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:));
-    auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTFMove(checker)](WKDisplayCapturePermissionDecision decision) {
+    auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTFMove(checker)](WKDisplayCapturePermissionDecision decision) mutable {
         if (checker->completionHandlerHasBeenCalled())
             return;
         checker->didCallCompletionHandler();
 
-        switch (decision) {
-        case WKDisplayCapturePermissionDecisionScreenPrompt:
-            protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Screen);
-            break;
-        case WKDisplayCapturePermissionDecisionWindowPrompt: {
-            protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Window);
-            break;
-        }
-        case WKDisplayCapturePermissionDecisionDeny:
-            protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
-            break;
-        }
+        ensureOnMainRunLoop([protectedRequest = WTFMove(protectedRequest), decision]() {
+            switch (decision) {
+            case WKDisplayCapturePermissionDecisionScreenPrompt:
+                protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Screen);
+                break;
+            case WKDisplayCapturePermissionDecisionWindowPrompt: {
+                protectedRequest->promptForGetDisplayMedia(UserMediaPermissionRequestProxy::UserMediaDisplayCapturePromptType::Window);
+                break;
+            }
+            case WKDisplayCapturePermissionDecisionDeny:
+                protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
+                break;
+            }
+        });
     });
 
     std::optional<WebCore::FrameIdentifier> mainFrameID;
@@ -1208,25 +1232,27 @@ void UIDelegate::UIClient::decidePolicyForUserMediaPermissionRequest(WebPageProx
     // FIXME: Provide a specific delegate for display capture.
     if (!request.requiresDisplayCapture() && respondsToRequestMediaCapturePermission) {
         auto checker = CompletionHandlerCallChecker::create(delegate, @selector(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:));
-        auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTFMove(checker)](WKPermissionDecision decision) {
+        auto decisionHandler = makeBlockPtr([protectedRequest = Ref { request }, checker = WTFMove(checker)](WKPermissionDecision decision) mutable {
             if (checker->completionHandlerHasBeenCalled())
                 return;
             checker->didCallCompletionHandler();
 
-            switch (decision) {
-            case WKPermissionDecisionPrompt:
-                protectedRequest->promptForGetUserMedia();
-                break;
-            case WKPermissionDecisionGrant: {
-                const String& videoDeviceUID = protectedRequest->requiresVideoCapture() ? protectedRequest->videoDeviceUIDs().first() : String();
-                const String& audioDeviceUID = protectedRequest->requiresAudioCapture() ? protectedRequest->audioDeviceUIDs().first() : String();
-                protectedRequest->allow(audioDeviceUID, videoDeviceUID);
-                break;
-            }
-            case WKPermissionDecisionDeny:
-                protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
-                break;
-            }
+            ensureOnMainRunLoop([protectedRequest = WTFMove(protectedRequest), decision] {
+                switch (decision) {
+                case WKPermissionDecisionPrompt:
+                    protectedRequest->promptForGetUserMedia();
+                    break;
+                case WKPermissionDecisionGrant: {
+                    const String& videoDeviceUID = protectedRequest->requiresVideoCapture() ? protectedRequest->videoDeviceUIDs().first() : String();
+                    const String& audioDeviceUID = protectedRequest->requiresAudioCapture() ? protectedRequest->audioDeviceUIDs().first() : String();
+                    protectedRequest->allow(audioDeviceUID, videoDeviceUID);
+                    break;
+                }
+                case WKPermissionDecisionDeny:
+                    protectedRequest->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
+                    break;
+                }
+            });
         });
 
         std::optional<WebCore::FrameIdentifier> mainFrameID;
@@ -1243,12 +1269,15 @@ void UIDelegate::UIClient::decidePolicyForUserMediaPermissionRequest(WebPageProx
     }
 
     if (request.requiresDisplayCapture() && request.canPromptForGetDisplayMedia()) {
-        if (respondsToRequestDisplayCapturePermissionForOrigin)
+        if (respondsToRequestDisplayCapturePermissionForOrigin) {
             promptForDisplayCapturePermission(page, frame, userMediaOrigin, topLevelOrigin, request);
-        else
-            request.promptForGetDisplayMedia();
+            return;
+        }
 
-        return;
+        if (!respondsToRequestUserMediaAuthorizationForDevices) {
+            request.promptForGetDisplayMedia();
+            return;
+        }
     }
 
     if (!respondsToRequestUserMediaAuthorizationForDevices) {
@@ -1833,19 +1862,23 @@ static _WKXRSessionMode toWKXRSessionMode(PlatformXR::SessionMode mode)
     }
 }
 
-static _WKXRSessionFeatureFlags toWKXRSessionFeatureFlags(PlatformXR::ReferenceSpaceType feature)
+static _WKXRSessionFeatureFlags toWKXRSessionFeatureFlags(PlatformXR::SessionFeature feature)
 {
     switch (feature) {
-    case PlatformXR::ReferenceSpaceType::Viewer:
+    case PlatformXR::SessionFeature::ReferenceSpaceTypeViewer:
         return _WKXRSessionFeatureFlagsReferenceSpaceTypeViewer;
-    case PlatformXR::ReferenceSpaceType::Local:
+    case PlatformXR::SessionFeature::ReferenceSpaceTypeLocal:
         return _WKXRSessionFeatureFlagsReferenceSpaceTypeLocal;
-    case PlatformXR::ReferenceSpaceType::LocalFloor:
+    case PlatformXR::SessionFeature::ReferenceSpaceTypeLocalFloor:
         return _WKXRSessionFeatureFlagsReferenceSpaceTypeLocalFloor;
-    case PlatformXR::ReferenceSpaceType::BoundedFloor:
+    case PlatformXR::SessionFeature::ReferenceSpaceTypeBoundedFloor:
         return _WKXRSessionFeatureFlagsReferenceSpaceTypeBoundedFloor;
-    case PlatformXR::ReferenceSpaceType::Unbounded:
+    case PlatformXR::SessionFeature::ReferenceSpaceTypeUnbounded:
         return _WKXRSessionFeatureFlagsReferenceSpaceTypeUnbounded;
+#if ENABLE(WEBXR_HANDS)
+    case PlatformXR::SessionFeature::HandTracking:
+        return _WKXRSessionFeatureFlagsHandTracking;
+#endif
     }
 }
 
@@ -1864,15 +1897,19 @@ static std::optional<PlatformXR::Device::FeatureList> toPlatformXRFeatures(_WKXR
 
     PlatformXR::Device::FeatureList features;
     if (featureFlags & _WKXRSessionFeatureFlagsReferenceSpaceTypeViewer)
-        features.append(PlatformXR::ReferenceSpaceType::Viewer);
+        features.append(PlatformXR::SessionFeature::ReferenceSpaceTypeViewer);
     if (featureFlags & _WKXRSessionFeatureFlagsReferenceSpaceTypeLocal)
-        features.append(PlatformXR::ReferenceSpaceType::Local);
+        features.append(PlatformXR::SessionFeature::ReferenceSpaceTypeLocal);
     if (featureFlags & _WKXRSessionFeatureFlagsReferenceSpaceTypeLocalFloor)
-        features.append(PlatformXR::ReferenceSpaceType::LocalFloor);
+        features.append(PlatformXR::SessionFeature::ReferenceSpaceTypeLocalFloor);
     if (featureFlags & _WKXRSessionFeatureFlagsReferenceSpaceTypeBoundedFloor)
-        features.append(PlatformXR::ReferenceSpaceType::BoundedFloor);
+        features.append(PlatformXR::SessionFeature::ReferenceSpaceTypeBoundedFloor);
     if (featureFlags & _WKXRSessionFeatureFlagsReferenceSpaceTypeUnbounded)
-        features.append(PlatformXR::ReferenceSpaceType::Unbounded);
+        features.append(PlatformXR::SessionFeature::ReferenceSpaceTypeUnbounded);
+#if ENABLE(WEBXR_HANDS)
+    if (featureFlags & _WKXRSessionFeatureFlagsHandTracking)
+        features.append(PlatformXR::SessionFeature::HandTracking);
+#endif
     return features;
 }
 
@@ -1919,6 +1956,18 @@ void UIDelegate::UIClient::startXRSession(WebPageProxy&, CompletionHandler<void(
         completionHandler(result);
     }).get()];
 }
-#endif
+
+void UIDelegate::UIClient::endXRSession(WebPageProxy&)
+{
+    if (!m_uiDelegate || !m_uiDelegate->m_delegateMethods.webViewEndXRSession)
+        return;
+
+    auto delegate = (id<WKUIDelegatePrivate>)m_uiDelegate->m_delegate.get();
+    if (!delegate)
+        return;
+
+    [delegate _webViewEndXRSession:m_uiDelegate->m_webView.get().get()];
+}
+#endif // ENABLE(WEBXR)
 
 } // namespace WebKit

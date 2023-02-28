@@ -57,14 +57,28 @@ public:
     PushServiceConnection& connection() { return m_connection; }
     WebCore::PushDatabase& database() { return m_database; }
 
+    Vector<String> enabledTopics() { return m_connection->enabledTopics(); }
+    Vector<String> ignoredTopics() { return m_connection->ignoredTopics(); }
+
     void getSubscription(const String& bundleIdentifier, const String& scope, CompletionHandler<void(const Expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&)>&&);
     void subscribe(const String& bundleIdentifier, const String& scope, const Vector<uint8_t>& vapidPublicKey, CompletionHandler<void(const Expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&)>&&);
-    void unsubscribe(const String& bundleIdentifier, const String& scope, WebCore::PushSubscriptionIdentifier, CompletionHandler<void(const Expected<bool, WebCore::ExceptionData>&)>&&);
+    void unsubscribe(const String& bundleIdentifier, const String& scope, std::optional<WebCore::PushSubscriptionIdentifier>, CompletionHandler<void(const Expected<bool, WebCore::ExceptionData>&)>&&);
+
+    void getOriginsWithPushSubscriptions(const String& bundleIdentifier, CompletionHandler<void(Vector<String>&&)>&&);
+
+    void setPushesEnabledForBundleIdentifierAndOrigin(const String& bundleIdentifier, const String& securityOrigin, bool, CompletionHandler<void()>&&);
+
+    void removeRecordsForBundleIdentifier(const String& bundleIdentifier, CompletionHandler<void(unsigned)>&&);
+    void removeRecordsForBundleIdentifierAndOrigin(const String& bundleIdentifier, const String& securityOrigin, CompletionHandler<void(unsigned)>&&);
+
+    void incrementSilentPushCount(const String& bundleIdentifier, const String& securityOrigin, CompletionHandler<void(unsigned)>&&);
 
     void didCompleteGetSubscriptionRequest(GetSubscriptionRequest&);
     void didCompleteSubscribeRequest(SubscribeRequest&);
     void didCompleteUnsubscribeRequest(UnsubscribeRequest&);
 
+    void setPublicTokenForTesting(Vector<uint8_t>&&);
+    void didReceivePublicToken(Vector<uint8_t>&&);
     void didReceivePushMessage(NSString *topic, NSDictionary *userInfo, CompletionHandler<void()>&& = [] { });
 
 private:
@@ -73,6 +87,8 @@ private:
     using PushServiceRequestMap = HashMap<std::tuple<String, String>, Deque<std::unique_ptr<PushServiceRequest>>>;
     void enqueuePushServiceRequest(PushServiceRequestMap&, std::unique_ptr<PushServiceRequest>&&);
     void finishedPushServiceRequest(PushServiceRequestMap&, PushServiceRequest&);
+    
+    void removeRecordsImpl(const String& bundleIdentifier, const std::optional<String>& securityOrigin, CompletionHandler<void(unsigned)>&&);
 
     UniqueRef<PushServiceConnection> m_connection;
     UniqueRef<WebCore::PushDatabase> m_database;

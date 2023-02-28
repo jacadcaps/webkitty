@@ -13,6 +13,8 @@ list(APPEND WTF_PUBLIC_HEADERS
     glib/WTFGType.h
 
     linux/RealTimeThreads.h
+
+    unix/UnixFileDescriptor.h
 )
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -22,6 +24,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     list(APPEND WTF_PUBLIC_HEADERS
+        spi/darwin/OSVariantSPI.h
         spi/darwin/ProcessMemoryFootprint.h
     )
 endif ()

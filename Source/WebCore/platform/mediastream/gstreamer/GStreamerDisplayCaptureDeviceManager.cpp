@@ -94,8 +94,9 @@ CaptureSourceOrError GStreamerDisplayCaptureDeviceManager::createDisplayCaptureS
     g_variant_get(result.get(), "(o)", &objectPath.outPtr());
     waitResponseSignal(objectPath.get());
 
-    String requestPath(objectPath.get());
-    auto sessionPath = requestPath.replace("/request/", "/session/").replace(token, sessionToken);
+    auto requestPath = String::fromLatin1(objectPath.get());
+    auto sessionPath = makeStringByReplacingAll(requestPath, "/request/"_s, "/session/"_s);
+    sessionPath = makeStringByReplacingAll(sessionPath, token, sessionToken);
 
     // FIXME: Maybe check this depending on device.type().
     auto outputType = GStreamerDisplayCaptureDeviceManager::PipeWireOutputType::Monitor | GStreamerDisplayCaptureDeviceManager::PipeWireOutputType::Window;

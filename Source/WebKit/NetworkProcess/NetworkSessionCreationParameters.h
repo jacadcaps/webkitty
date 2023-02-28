@@ -69,7 +69,6 @@ struct NetworkSessionCreationParameters {
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
     String alternativeServiceDirectory;
     SandboxExtension::Handle alternativeServiceDirectoryExtensionHandle;
-    bool http3Enabled { false };
 #endif
     String hstsStorageDirectory;
     SandboxExtension::Handle hstsStorageDirectoryExtensionHandle;
@@ -101,6 +100,7 @@ struct NetworkSessionCreationParameters {
     bool allowsServerPreconnect { true };
     bool requiresSecureHTTPSProxyConnection { false };
     bool shouldRunServiceWorkersOnMainThreadForTesting { false };
+    std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue;
     bool preventsSystemHTTPProxyAuthentication { false };
     bool appHasRequestedCrossWebsiteTrackingPermission { false };
     bool useNetworkLoader { false };
@@ -110,6 +110,23 @@ struct NetworkSessionCreationParameters {
     bool enablePrivateClickMeasurementDebugMode { false };
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     bool shouldAcceptInsecureCertificatesForWebSockets { false };
+#endif
+
+    bool shouldUseCustomStoragePaths { false };
+    uint64_t perOriginStorageQuota;
+    uint64_t perThirdPartyOriginStorageQuota;
+    String localStorageDirectory;
+    SandboxExtension::Handle localStorageDirectoryExtensionHandle;
+    String indexedDBDirectory;
+    SandboxExtension::Handle indexedDBDirectoryExtensionHandle;
+    String cacheStorageDirectory;
+    SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
+    String generalStorageDirectory;
+    SandboxExtension::Handle generalStorageDirectoryHandle;
+#if ENABLE(SERVICE_WORKER)
+    String serviceWorkerRegistrationDirectory;
+    SandboxExtension::Handle serviceWorkerRegistrationDirectoryExtensionHandle;
+    bool serviceWorkerProcessTerminationDelayEnabled { true };
 #endif
 
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;

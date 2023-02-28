@@ -94,8 +94,8 @@ WebKitProtocolHandler::WebKitProtocolHandler(WebKitWebContext* context)
 
 void WebKitProtocolHandler::handleRequest(WebKitURISchemeRequest* request)
 {
-    URL requestURL = URL({ }, webkit_uri_scheme_request_get_uri(request));
-    if (requestURL.host() == "gpu") {
+    URL requestURL = URL(String::fromLatin1(webkit_uri_scheme_request_get_uri(request)));
+    if (requestURL.host() == "gpu"_s) {
         handleGPU(request);
         return;
     }
@@ -134,12 +134,14 @@ static const char* hardwareAccelerationPolicy(WebKitURISchemeRequest* request)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
+#if ENABLE(WEBGL)
 static bool webGLEnabled(WebKitURISchemeRequest* request)
 {
     auto* webView = webkit_uri_scheme_request_get_web_view(request);
     ASSERT(webView);
     return webkit_settings_get_enable_webgl(webkit_web_view_get_settings(webView));
 }
+#endif
 
 static const char* openGLAPI()
 {

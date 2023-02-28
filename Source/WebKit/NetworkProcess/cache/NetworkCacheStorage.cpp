@@ -42,18 +42,14 @@
 #include <wtf/text/StringConcatenateNumbers.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
-#if USE(GLIB)
-#include <wtf/glib/Sandbox.h>
-#endif
-
 namespace WebKit {
 namespace NetworkCache {
 
-static const char saltFileName[] = "salt";
-static const char versionDirectoryPrefix[] = "Version ";
-static const char recordsDirectoryName[] = "Records";
-static const char blobsDirectoryName[] = "Blobs";
-static const char blobSuffix[] = "-blob";
+static constexpr auto saltFileName = "salt"_s;
+static constexpr auto versionDirectoryPrefix = "Version "_s;
+static constexpr auto recordsDirectoryName = "Records"_s;
+static constexpr auto blobsDirectoryName = "Blobs"_s;
+static constexpr auto blobSuffix = "-blob"_s;
 
 static inline size_t maximumInlineBodySize()
 {
@@ -235,7 +231,7 @@ static void traverseRecordsFiles(const String& recordsPath, const String& expect
                 if (entryType != DirectoryEntryType::File || fileName.length() < Key::hashStringLength())
                     return;
 
-                String hashString = fileName.substring(0, Key::hashStringLength());
+                String hashString = fileName.left(Key::hashStringLength());
                 auto isBlob = fileName.length() > Key::hashStringLength() && fileName.endsWith(blobSuffix);
                 function(fileName, hashString, actualType, isBlob, recordDirectoryPath);
             });
@@ -265,17 +261,6 @@ static void deleteEmptyRecordsDirectories(const String& recordsPath)
     });
 }
 
-static WorkQueue::QOS qosForBackgroundIOQueue()
-{
-#if USE(GLIB)
-    // FIXME: for some reason there's a runtime critical warning coming from GLib under flatpak when trying to
-    // inherit the current thread scheduler settings in newly created ones. See https://bugs.webkit.org/show_bug.cgi?id=232629.
-    if (isInsideFlatpak())
-        return WorkQueue::QOS::Default;
-#endif
-    return WorkQueue::QOS::Background;
-}
-
 Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t capacity)
     : m_basePath(baseDirectoryPath)
     , m_recordsPath(makeRecordsDirectoryPath(baseDirectoryPath))
@@ -285,7 +270,7 @@ Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t c
     , m_readOperationTimeoutTimer(*this, &Storage::cancelAllReadOperations)
     , m_writeOperationDispatchTimer(*this, &Storage::dispatchPendingWriteOperations)
     , m_ioQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage"))
-    , m_backgroundIOQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage.background", qosForBackgroundIOQueue()))
+    , m_backgroundIOQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage.background", WorkQueue::QOS::Background))
     , m_serialBackgroundIOQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage.serialBackground", WorkQueue::QOS::Background))
     , m_blobStorage(makeBlobDirectoryPath(baseDirectoryPath), m_salt)
 {
@@ -724,9 +709,9 @@ void Storage::deleteFiles(const Key& key)
     m_blobStorage.remove(blobPathForKey(key));
 }
 
-void Storage::updateFileModificationTime(const String& path)
+void Storage::updateFileModificationTime(String&& path)
 {
-    serialBackgroundIOQueue().dispatch([path = path.isolatedCopy()] {
+    serialBackgroundIOQueue().dispatch([path = WTFMove(path).isolatedCopy()] {
         updateFileModificationTimeIfNeeded(path);
     });
 }
@@ -763,7 +748,7 @@ void Storage::dispatchReadOperation(std::unique_ptr<ReadOperation> readOperation
 
         readOperation.timings.recordIOStartTime = MonotonicTime::now();
 
-        auto channel = IOChannel::open(recordPath, IOChannel::Type::Read);
+        auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Read);
         channel->read(0, std::numeric_limits<size_t>::max(), ioQueue(), [this, &readOperation](const Data& fileData, int error) {
             readOperation.timings.recordIOEndTime = MonotonicTime::now();
             if (!error)
@@ -901,7 +886,7 @@ void Storage::dispatchWriteOperation(std::unique_ptr<WriteOperation> writeOperat
 
         auto recordData = encodeRecord(writeOperation.record, blob);
 
-        auto channel = IOChannel::open(recordPath, IOChannel::Type::Create);
+        auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Create);
         size_t recordSize = recordData.size();
         channel->write(0, recordData, WorkQueue::main(), [this, &writeOperation, recordSize](int error) {
             // On error the entry still stays in the contents filter until next synchronization.
@@ -1011,7 +996,7 @@ void Storage::traverse(const String& type, OptionSet<TraverseFlag> flags, Traver
             Locker lock { traverseOperation.activeLock };
             ++traverseOperation.activeCount;
 
-            auto channel = IOChannel::open(recordPath, IOChannel::Type::Read);
+            auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Read);
             channel->read(0, std::numeric_limits<size_t>::max(), WorkQueue::main(), [this, &traverseOperation, worth, bodyShareCount](Data& fileData, int) {
                 RecordMetaData metaData;
                 Data headerData;
@@ -1081,7 +1066,7 @@ void Storage::setCapacity(size_t capacity)
     shrinkIfNeeded();
 }
 
-void Storage::clear(const String& type, WallTime modifiedSinceTime, CompletionHandler<void()>&& completionHandler)
+void Storage::clear(String&& type, WallTime modifiedSinceTime, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
     LOG(NetworkCacheStorage, "(NetworkProcess) clearing cache");
@@ -1092,7 +1077,7 @@ void Storage::clear(const String& type, WallTime modifiedSinceTime, CompletionHa
         m_blobFilter->clear();
     m_approximateRecordsSize = 0;
 
-    ioQueue().dispatch([this, protectedThis = Ref { *this }, modifiedSinceTime, completionHandler = WTFMove(completionHandler), type = type.isolatedCopy()] () mutable {
+    ioQueue().dispatch([this, protectedThis = Ref { *this }, modifiedSinceTime, completionHandler = WTFMove(completionHandler), type = WTFMove(type).isolatedCopy()] () mutable {
         auto recordsPath = this->recordsPathIsolatedCopy();
         traverseRecordsFiles(recordsPath, type, [modifiedSinceTime](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
             auto filePath = FileSystem::pathByAppendingComponent(recordDirectoryPath, fileName);

@@ -32,7 +32,8 @@
 
 #import "CVUtilities.h"
 #import "Logging.h"
-#import "MediaSampleAVFObjC.h"
+#import "VideoFrameCV.h"
+#import "VideoFrameLibWebRTC.h"
 #import <wtf/cf/TypeCastsCF.h>
 
 ALLOW_UNUSED_PARAMETERS_BEGIN
@@ -61,7 +62,7 @@ RealtimeIncomingVideoSourceCocoa::RealtimeIncomingVideoSourceCocoa(rtc::scoped_r
 {
 }
 
-CVPixelBufferPoolRef RealtimeIncomingVideoSourceCocoa::pixelBufferPool(size_t width, size_t height, webrtc::BufferType bufferType)
+CVPixelBufferPoolRef RealtimeIncomingVideoSourceCocoa::pixelBufferPool(size_t width, size_t height, webrtc::BufferType bufferType) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     if (!m_pixelBufferPool || m_pixelBufferPoolWidth != width || m_pixelBufferPoolHeight != height || m_pixelBufferPoolBufferType != bufferType) {
         OSType poolBufferType;
@@ -90,33 +91,12 @@ CVPixelBufferPoolRef RealtimeIncomingVideoSourceCocoa::pixelBufferPool(size_t wi
     return m_pixelBufferPool.get();
 }
 
-RefPtr<MediaSample> RealtimeIncomingVideoSourceCocoa::createMediaSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, MediaSample::VideoRotation rotation, int64_t timeStamp)
+Ref<VideoFrame> RealtimeIncomingVideoSourceCocoa::createVideoSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, VideoFrame::Rotation rotation, int64_t timeStamp)
 {
-    CMSampleTimingInfo timingInfo;
-    timingInfo.presentationTimeStamp = PAL::CMTimeMake(timeStamp, 1000000);
-    timingInfo.decodeTimeStamp = PAL::kCMTimeInvalid;
-    timingInfo.duration = PAL::kCMTimeInvalid;
-
-    CMVideoFormatDescriptionRef formatDescription;
-    OSStatus ostatus = PAL::CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, &formatDescription);
-    if (ostatus != noErr) {
-        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to initialize CMVideoFormatDescription with error ", static_cast<int>(ostatus));
-        return nullptr;
-    }
-
-    CMSampleBufferRef sampleBuffer;
-    ostatus = PAL::CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, formatDescription, &timingInfo, &sampleBuffer);
-    CFRelease(formatDescription);
-    if (ostatus != noErr) {
-        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed to create the sample buffer with error ", static_cast<int>(ostatus));
-        return nullptr;
-    }
-
-    auto sample = adoptCF(sampleBuffer);
-    return MediaSampleAVFObjC::create(sample.get(), rotation);
+    return VideoFrameCV::create(MediaTime(timeStamp, 1000000), false, rotation, pixelBuffer);
 }
 
-RefPtr<MediaSample> RealtimeIncomingVideoSourceCocoa::toVideoFrame(const webrtc::VideoFrame& frame, MediaSample::VideoRotation rotation)
+RefPtr<VideoFrame> RealtimeIncomingVideoSourceCocoa::toVideoFrame(const webrtc::VideoFrame& frame, VideoFrame::Rotation rotation)
 {
     if (muted()) {
         if (!m_blackFrame || m_blackFrameWidth != frame.width() || m_blackFrameHeight != frame.height()) {
@@ -124,27 +104,36 @@ RefPtr<MediaSample> RealtimeIncomingVideoSourceCocoa::toVideoFrame(const webrtc:
             m_blackFrameHeight = frame.height();
             m_blackFrame = createBlackPixelBuffer(m_blackFrameWidth, m_blackFrameHeight);
         }
-        return createMediaSampleFromCVPixelBuffer(m_blackFrame.get(), rotation, frame.timestamp_us());
+        return createVideoSampleFromCVPixelBuffer(m_blackFrame.get(), rotation, frame.timestamp_us());
     }
 
-    // FIXME: Detect the case of frame having a FrameBufferProvider.
-    // In case of in memory samples, we have non interleaved YUV data while CVPixelBuffers prefer interleaved YUV data.
-    // Maybe we should introduce a MediaSample that would represent non interleaved YUV data as an optimization.
-    auto pixelBuffer = adoptCF(webrtc::createPixelBufferFromFrame(frame, [this](size_t width, size_t height, webrtc::BufferType bufferType) -> CVPixelBufferRef {
-        auto pixelBufferPool = this->pixelBufferPool(width, height, bufferType);
-        if (!pixelBufferPool)
-            return nullptr;
+    if (auto* provider = videoFrameBufferProvider(frame)) {
+        // The only supported provider is VideoFrame.
+        auto* videoFrame = static_cast<VideoFrame*>(provider);
+        videoFrame->initializeCharacteristics(MediaTime { frame.timestamp_us(), 1000000 }, false, rotation);
+        return videoFrame;
+    }
 
-        CVPixelBufferRef pixelBuffer = nullptr;
-        auto status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, m_pixelBufferPool.get(), &pixelBuffer);
+    // If we already have a CVPixelBufferRef, use it directly.
+    if (auto pixelBuffer = webrtc::pixelBufferFromFrame(frame))
+        return createVideoSampleFromCVPixelBuffer(pixelBuffer, rotation, frame.timestamp_us());
 
-        if (status != kCVReturnSuccess) {
-            ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed creating a pixel buffer with error ", status);
-            return nullptr;
-        }
-        return pixelBuffer;
-    }));
-    return createMediaSampleFromCVPixelBuffer(pixelBuffer.get(), rotation, frame.timestamp_us());
+    // In case of in memory libwebrtc samples, we have non interleaved YUV data, let's lazily create CVPixelBuffers if needed.
+    return VideoFrameLibWebRTC::create(MediaTime(frame.timestamp_us(), 1000000), false, rotation, frame.video_frame_buffer(), [protectedThis = Ref { *this }, this](auto& buffer) {
+        return adoptCF(webrtc::createPixelBufferFromFrameBuffer(buffer, [this](size_t width, size_t height, webrtc::BufferType bufferType) -> CVPixelBufferRef {
+            Locker lock(m_pixelBufferPoolLock);
+            auto pixelBufferPool = this->pixelBufferPool(width, height, bufferType);
+            if (!pixelBufferPool)
+                return nullptr;
+            CVPixelBufferRef pixelBuffer = nullptr;
+            auto status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, m_pixelBufferPool.get(), &pixelBuffer);
+            if (status != kCVReturnSuccess) {
+                ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "Failed creating a pixel buffer with error ", status);
+                return nullptr;
+            }
+            return pixelBuffer;
+        }));
+    });
 }
 
 void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& webrtcVideoFrame)
@@ -155,20 +144,20 @@ void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& webrtcV
     unsigned width = webrtcVideoFrame.width();
     unsigned height = webrtcVideoFrame.height();
 
-    MediaSample::VideoRotation rotation;
+    VideoFrame::Rotation rotation;
     switch (webrtcVideoFrame.rotation()) {
     case webrtc::kVideoRotation_0:
-        rotation = MediaSample::VideoRotation::None;
+        rotation = VideoFrame::Rotation::None;
         break;
     case webrtc::kVideoRotation_180:
-        rotation = MediaSample::VideoRotation::UpsideDown;
+        rotation = VideoFrame::Rotation::UpsideDown;
         break;
     case webrtc::kVideoRotation_90:
-        rotation = MediaSample::VideoRotation::Right;
+        rotation = VideoFrame::Rotation::Right;
         std::swap(width, height);
         break;
     case webrtc::kVideoRotation_270:
-        rotation = MediaSample::VideoRotation::Left;
+        rotation = VideoFrame::Rotation::Left;
         std::swap(width, height);
         break;
     }
@@ -182,7 +171,7 @@ void RealtimeIncomingVideoSourceCocoa::OnFrame(const webrtc::VideoFrame& webrtcV
         return;
 
     setIntrinsicSize(IntSize(width, height));
-    videoSampleAvailable(*videoFrame, metadataFromVideoFrame(webrtcVideoFrame));
+    videoFrameAvailable(*videoFrame, metadataFromVideoFrame(webrtcVideoFrame));
 }
 
 } // namespace WebCore

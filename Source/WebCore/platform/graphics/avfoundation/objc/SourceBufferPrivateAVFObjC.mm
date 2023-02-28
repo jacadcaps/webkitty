@@ -41,6 +41,7 @@
 #import "MediaPlayerPrivateMediaSourceAVFObjC.h"
 #import "MediaSample.h"
 #import "MediaSampleAVFObjC.h"
+#import "MediaSessionManagerCocoa.h"
 #import "MediaSourcePrivateAVFObjC.h"
 #import "SharedBuffer.h"
 #import "SourceBufferParserAVFObjC.h"
@@ -209,13 +210,13 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
                 return;
 
             callOnMainThread([parent = _parent, layer = WTFMove(layer), error = WTFMove(error)] {
-                if (parent)
-                    parent->layerDidReceiveError(layer.get(), error.get());
+                if (auto strongParent = RefPtr { parent.get() })
+                    strongParent->layerDidReceiveError(layer.get(), error.get());
             });
         } else if ([keyPath isEqualToString:@"outputObscuredDueToInsufficientExternalProtection"]) {
             callOnMainThread([parent = _parent, obscured = [[change valueForKey:NSKeyValueChangeNewKey] boolValue]] {
-                if (parent)
-                    parent->outputObscuredDueToInsufficientExternalProtectionChanged(obscured);
+                if (auto strongParent = RefPtr { parent.get() })
+                    strongParent->outputObscuredDueToInsufficientExternalProtectionChanged(obscured);
             });
         } else
             ASSERT_NOT_REACHED();
@@ -232,8 +233,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         ASSERT([keyPath isEqualToString:@"error"]);
 
         callOnMainThread([parent = _parent, renderer = WTFMove(renderer), error = WTFMove(error)] {
-            if (parent)
-                parent->rendererDidReceiveError(renderer.get(), error.get());
+            if (auto strongParent = RefPtr { parent.get() })
+                strongParent->rendererDidReceiveError(renderer.get(), error.get());
         });
     } else
         ASSERT_NOT_REACHED();
@@ -246,8 +247,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         return;
 
     callOnMainThread([parent = _parent, layer = WTFMove(layer), error = retainPtr([[note userInfo] valueForKey:AVSampleBufferDisplayLayerFailedToDecodeNotificationErrorKey])] {
-        if (parent)
-            parent->layerDidReceiveError(layer.get(), error.get());
+        if (auto strongParent = RefPtr { parent.get() })
+            strongParent->layerDidReceiveError(layer.get(), error.get());
     });
 }
 
@@ -258,8 +259,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         return;
 
     callOnMainThread([parent = _parent, renderer = WTFMove(renderer), flushTime = [[[note userInfo] valueForKey:AVSampleBufferAudioRendererFlushTimeKey] CMTimeValue]] {
-        if (parent)
-            parent->rendererWasAutomaticallyFlushed(renderer.get(), flushTime);
+        if (auto strongParent = RefPtr { parent.get() })
+            strongParent->rendererWasAutomaticallyFlushed(renderer.get(), flushTime);
     });
 }
 @end
@@ -284,15 +285,19 @@ static uint64_t nextMapID()
 static bool sampleBufferRenderersSupportKeySession()
 {
     static bool supports = false;
+#if HAVE(AVCONTENTKEYSPECIFIER)
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, [&] {
-        supports = [PAL::getAVSampleBufferAudioRendererClass() conformsToProtocol:@protocol(AVContentKeyRecipient)]
-            && [PAL::getAVSampleBufferDisplayLayerClass() conformsToProtocol:@protocol(AVContentKeyRecipient)];
+    dispatch_once(&onceToken, ^{
+        supports =
+        [PAL::getAVSampleBufferAudioRendererClass() conformsToProtocol:@protocol(AVContentKeyRecipient)]
+            && [PAL::getAVSampleBufferDisplayLayerClass() conformsToProtocol:@protocol(AVContentKeyRecipient)]
+            && MediaSessionManagerCocoa::sampleBufferContentKeySessionSupportEnabled();
     });
+#endif
     return supports;
 }
 
-static Vector<Ref<FragmentedSharedBuffer>> copyKeyIDs(const Vector<Ref<FragmentedSharedBuffer>> keyIDs)
+static Vector<Ref<SharedBuffer>> copyKeyIDs(const Vector<Ref<SharedBuffer>> keyIDs)
 {
     return keyIDs.map([] (auto& keyID) {
         return keyID.copyRef();
@@ -356,7 +361,6 @@ SourceBufferPrivateAVFObjC::~SourceBufferPrivateAVFObjC()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    ASSERT(!m_client);
     sourceBufferMap().remove(m_mapID);
     destroyStreamDataParser();
     destroyRenderers();
@@ -389,8 +393,6 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
         }
     }
 
-    clearTracks();
-
     m_protectedTrackInitDataMap.swap(m_pendingProtectedTrackInitDataMap);
     m_pendingProtectedTrackInitDataMap.clear();
 
@@ -413,7 +415,7 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
             m_pendingTrackChangeCallbacks.append(WTFMove(videoTrackSelectedChanged));
         });
 
-        m_videoTracks.append(videoTrackInfo.track);
+        m_videoTracks.set(videoTrackInfo.track->id(), videoTrackInfo.track);
     }
 
     for (auto audioTrackInfo : segment.audioTracks) {
@@ -436,17 +438,19 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
             m_pendingTrackChangeCallbacks.append(WTFMove(audioTrackEnabledChanged));
         });
 
-        m_audioTracks.append(audioTrackInfo.track);
+        m_audioTracks.set(audioTrackInfo.track->id(), audioTrackInfo.track);
     }
 
     m_processingInitializationSegment = true;
-    didReceiveInitializationSegment(WTFMove(segment), [this, weakThis = WeakPtr { *this }, abortCalled = m_abortCalled]() {
+    didReceiveInitializationSegment(WTFMove(segment), [this, weakThis = WeakPtr { *this }, abortCalled = m_abortCalled] (SourceBufferPrivateClient::ReceiveResult result) {
         ASSERT(isMainThread());
         if (!weakThis)
             return;
 
         m_processingInitializationSegment = false;
-        if (abortCalled != weakThis->m_abortCalled) {
+        auto didAbort = abortCalled != weakThis->m_abortCalled;
+        if (didAbort || result != SourceBufferPrivateClient::ReceiveResult::RecieveSucceeded) {
+            ERROR_LOG(LOGIDENTIFIER, "failed to process initialization segment: didAbort = ", didAbort, " recieveResult = ", result);
             m_pendingTrackChangeCallbacks.clear();
             m_mediaSamples.clear();
             return;
@@ -595,7 +599,7 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
     }
 
     m_keyIDs = WTFMove(keyIDs.value());
-    player->initializationDataEncountered("sinf", m_initData->tryCreateArrayBuffer());
+    player->initializationDataEncountered("sinf"_s, m_initData->tryCreateArrayBuffer());
 
     m_waitingForKey = true;
     player->waitingForKeyChanged();
@@ -801,12 +805,18 @@ void SourceBufferPrivateAVFObjC::destroyRenderers()
 
 void SourceBufferPrivateAVFObjC::clearTracks()
 {
-    for (auto& track : m_videoTracks)
+    for (auto& track : m_videoTracks.values()) {
         track->setSelectedChangedCallback(nullptr);
+        if (auto player = this->player())
+            player->removeVideoTrack(*track);
+    }
     m_videoTracks.clear();
 
-    for (auto& track : m_audioTracks)
+    for (auto& track : m_audioTracks.values()) {
         track->setEnabledChangedCallback(nullptr);
+        if (auto player = this->player())
+            player->removeAudioTrack(*track);
+    }
     m_audioTracks.clear();
 }
 
@@ -859,8 +869,9 @@ void SourceBufferPrivateAVFObjC::trackDidChangeSelected(VideoTrackPrivate& track
         m_parser->setShouldProvideMediaDataForTrackID(true, trackID);
 
         if (m_decompressionSession) {
-            m_decompressionSession->requestMediaDataWhenReady([this, trackID] {
-                didBecomeReadyForMoreSamples(trackID);
+            m_decompressionSession->requestMediaDataWhenReady([weakThis = WeakPtr { *this }, trackID] {
+                if (weakThis)
+                    weakThis->didBecomeReadyForMoreSamples(trackID);
             });
         }
     }
@@ -1094,7 +1105,7 @@ void SourceBufferPrivateAVFObjC::rendererWasAutomaticallyFlushed(AVSampleBufferA
     AtomString trackId;
     for (auto& pair : m_audioRenderers) {
         if (pair.value.get() == renderer) {
-            trackId = String::number(pair.key);
+            trackId = AtomString::number(pair.key);
             break;
         }
     }
@@ -1323,17 +1334,14 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
 
                 [m_displayLayer enqueueSampleBuffer:platformSample.sample.cmSampleBuffer];
                 [m_displayLayer prerollDecodeWithCompletionHandler:[this, logSiteIdentifier, weakThis = WeakPtr { *this }] (BOOL success) mutable {
-                    if (!weakThis)
-                        return;
-
-                    if (!success) {
-                        ERROR_LOG(logSiteIdentifier, "prerollDecodeWithCompletionHandler failed");
-                        return;
-                    }
-
-                    callOnMainThread([weakThis = WTFMove(weakThis)] () {
+                    callOnMainThread([this, logSiteIdentifier, weakThis = WTFMove(weakThis), success] () {
                         if (!weakThis)
                             return;
+                        
+                        if (!success) {
+                            ERROR_LOG(logSiteIdentifier, "prerollDecodeWithCompletionHandler failed");
+                            return;
+                        }
 
                         weakThis->bufferWasConsumed();
                     });
@@ -1412,9 +1420,19 @@ bool SourceBufferPrivateAVFObjC::isActive() const
 void SourceBufferPrivateAVFObjC::willSeek()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
+    // Set seeking to true so that no samples will be re-enqueued between
+    // now and when seekToTime() is called. Without this, the AVSBDL may
+    // request new samples mid seek, causing incorrect samples to be displayed
+    // during a seek operation.
+    m_seeking = true;
     flush();
 }
 
+void SourceBufferPrivateAVFObjC::seekToTime(const MediaTime& time)
+{
+    m_seeking = false;
+    SourceBufferPrivate::seekToTime(time);
+}
 FloatSize SourceBufferPrivateAVFObjC::naturalSize()
 {
     return valueOrDefault(m_cachedSize);
@@ -1444,8 +1462,9 @@ void SourceBufferPrivateAVFObjC::notifyClientWhenReadyForMoreSamples(const AtomS
     auto trackID = parseIntegerAllowingTrailingJunk<uint64_t>(trackIDString).value_or(0);
     if (trackID == m_enabledVideoTrackID) {
         if (m_decompressionSession) {
-            m_decompressionSession->requestMediaDataWhenReady([this, trackID] {
-                didBecomeReadyForMoreSamples(trackID);
+            m_decompressionSession->requestMediaDataWhenReady([weakThis = WeakPtr { *this }, trackID] {
+                if (weakThis)
+                    weakThis->didBecomeReadyForMoreSamples(trackID);
             });
         }
         if (m_displayLayer) {
@@ -1496,7 +1515,7 @@ bool SourceBufferPrivateAVFObjC::canSwitchToType(const ContentType& contentType)
 
 bool SourceBufferPrivateAVFObjC::isSeeking() const
 {
-    return m_mediaSource && m_mediaSource->isSeeking();
+    return m_seeking;
 }
 
 MediaTime SourceBufferPrivateAVFObjC::currentMediaTime() const

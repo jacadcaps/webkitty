@@ -8,9 +8,10 @@ depends:
 - filtered-openh264.bst
 
 # replaced (patched) elements:
+- sdk/abseil-cpp.bst
 - sdk/adwaita-icon-theme.bst
 - sdk/apitrace.bst
-- sdk/bubblewrap.bst
+- sdk/breakpad.bst
 - sdk/capnp.bst
 - sdk/cargo-c.bst
 - sdk/ccls.bst
@@ -19,6 +20,7 @@ depends:
 - sdk/eigen.bst
 - sdk/enchant-2.bst
 - sdk/ffmpeg.bst
+- sdk/gi-docgen.bst
 - sdk/glib-networking.bst
 - sdk/glib.bst
 - sdk/graphviz.bst
@@ -51,21 +53,14 @@ depends:
 - sdk/openxr.bst
 - sdk/os-release.bst
 - sdk/patchelf.bst
-- sdk/perl-term-readkey.bst
 - sdk/psmisc.bst
 - sdk/pygls.bst
-- sdk/python2-pycairo.bst
-- sdk/python2-pygobject.bst
-- sdk/python2-six.bst
-- sdk/python2-subprocess32.bst
-- sdk/python2.bst
-- sdk/ruby-highline.bst
 - sdk/ruby-json.bst
+- sdk/ruby-highline.bst
 - sdk/ruby-webrick.bst
 - sdk/sccache.bst
-- sdk/shared-mime-info.bst
 - sdk/sparkle-cdm.bst
-- sdk/subversion.bst
+- sdk/webrtc-audio-processing-1.bst
 - sdk/woff2.bst
 - sdk/wpebackend-fdo.bst
 - sdk/x264.bst
@@ -80,6 +75,7 @@ depends:
 - freedesktop-sdk.bst:components/at-spi2-core.bst
 - freedesktop-sdk.bst:components/atk.bst
 - freedesktop-sdk.bst:components/brotli.bst
+- freedesktop-sdk.bst:components/bubblewrap.bst
 - freedesktop-sdk.bst:components/ca-certificates.bst
 - freedesktop-sdk.bst:components/cairo.bst
 - freedesktop-sdk.bst:components/ccache.bst
@@ -208,6 +204,7 @@ depends:
 - freedesktop-sdk.bst:components/sdl2-net.bst
 - freedesktop-sdk.bst:components/sdl2-ttf.bst
 - freedesktop-sdk.bst:components/sdl2.bst
+- freedesktop-sdk.bst:components/shared-mime-info.bst
 - freedesktop-sdk.bst:components/sndfile.bst
 - freedesktop-sdk.bst:components/speex.bst
 - freedesktop-sdk.bst:components/speexdsp.bst
@@ -220,7 +217,6 @@ depends:
 - freedesktop-sdk.bst:components/v4l-utils.bst
 - freedesktop-sdk.bst:components/vulkan-headers.bst
 - freedesktop-sdk.bst:components/wayland.bst
-- freedesktop-sdk.bst:components/webrtc-audio-processing.bst
 - freedesktop-sdk.bst:components/weston.bst
 - freedesktop-sdk.bst:components/which.bst
 - freedesktop-sdk.bst:components/xcb-util-cursor.bst

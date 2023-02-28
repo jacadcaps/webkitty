@@ -183,9 +183,9 @@
     return _menuProxy->window();
 }
 
-- (void)markupImage
+- (void)removeBackground
 {
-    _menuProxy->applyMarkupToControlledImage();
+    _menuProxy->removeBackgroundFromControlledImage();
 }
 
 @end

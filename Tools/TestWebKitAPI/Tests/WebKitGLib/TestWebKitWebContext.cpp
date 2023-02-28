@@ -196,7 +196,7 @@ public:
 
 String generateHTMLContent(unsigned contentLength)
 {
-    String baseString("abcdefghijklmnopqrstuvwxyz0123457890");
+    String baseString("abcdefghijklmnopqrstuvwxyz0123457890"_s);
     unsigned baseLength = baseString.length();
 
     StringBuilder builder;
@@ -992,6 +992,58 @@ static void testMemoryPressureSettings(MemoryPressureTest* test, gconstpointer)
     g_assert_cmpuint(test->m_terminationReason, ==, WEBKIT_WEB_PROCESS_EXCEEDED_MEMORY_LIMIT);
 }
 
+static void testWebContextTimeZoneOverride(WebViewTest* test, gconstpointer)
+{
+    GUniqueOutPtr<GError> error;
+    WebKitJavascriptResult* javascriptResult = test->runJavaScriptAndWaitUntilFinished("const date = new Date(1651511226050); date.getTimezoneOffset()", &error.outPtr());
+    g_assert_nonnull(javascriptResult);
+    g_assert_no_error(error.get());
+    // By default the test harness uses the Pacific/Los_Angeles timezone which is 7 hours (420 minutes) compared to GMT.
+    g_assert_cmpint(WebViewTest::javascriptResultToNumber(javascriptResult), ==, 420);
+
+    // Create a new context configured with time zone overide set to Berlin which is 120 minutes ahead of the GMT offset.
+    auto webContext = adoptGRef(WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT,
+        "time-zone-override", "Europe/Berlin", nullptr)));
+    g_assert_cmpstr(webkit_web_context_get_time_zone_override(webContext.get()), ==, "Europe/Berlin");
+    auto webView = Test::adoptView(Test::createWebView(webContext.get()));
+    javascriptResult = test->runJavaScriptAndWaitUntilFinished("const date = new Date(1651511226050); date.getTimezoneOffset()", &error.outPtr(), webView.get());
+    g_assert_nonnull(javascriptResult);
+    g_assert_no_error(error.get());
+    g_assert_cmpint(WebViewTest::javascriptResultToNumber(javascriptResult), ==, -120);
+}
+
+static void testWebContextTimeZoneOverrideInWorker(WebViewTest* test, gconstpointer)
+{
+    GUniqueOutPtr<GError> error;
+    WebKitJavascriptResult* javascriptResult = test->runJavaScriptAndWaitUntilFinished("Intl.DateTimeFormat().resolvedOptions().timeZone", &error.outPtr());
+    g_assert_nonnull(javascriptResult);
+    g_assert_no_error(error.get());
+    // By default the test harness uses the Pacific/Los_Angeles.
+    g_assert_cmpstr(WebViewTest::javascriptResultToCString(javascriptResult), ==, "America/Los_Angeles");
+    // Create a new context configured with time zone overide set to Berlin which is 120 minutes ahead of the GMT offset.
+    auto webContext = adoptGRef(WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT,
+        "time-zone-override", "Europe/Berlin", nullptr)));
+    g_assert_cmpstr(webkit_web_context_get_time_zone_override(webContext.get()), ==, "Europe/Berlin");
+    auto webView = Test::adoptView(Test::createWebView(webContext.get()));
+
+    test->runJavaScriptAndWaitUntilFinished(
+        "window.results = [Intl.DateTimeFormat().resolvedOptions().timeZone];"
+        "for (let i = 0; i < 3; i++) {"
+        "  const worker = new Worker('data:text/javascript,self.postMessage(Intl.DateTimeFormat().resolvedOptions().timeZone)');"
+        "  worker.onmessage = message => results.push(message.data);"
+        "}", &error.outPtr(), webView.get());
+    do {
+        javascriptResult = test->runJavaScriptAndWaitUntilFinished("results.length", &error.outPtr(), webView.get());
+        g_assert_nonnull(javascriptResult);
+        g_assert_no_error(error.get());
+    } while (WebViewTest::javascriptResultToNumber(javascriptResult) < 4);
+
+    javascriptResult = test->runJavaScriptAndWaitUntilFinished("results.join(', ')", &error.outPtr(), webView.get());
+    g_assert_nonnull(javascriptResult);
+    g_assert_no_error(error.get());
+    g_assert_cmpstr(WebViewTest::javascriptResultToCString(javascriptResult), ==, "Europe/Berlin, Europe/Berlin, Europe/Berlin, Europe/Berlin");
+}
+
 static void testNoWebProcessLeakAfterWebKitWebContextDestroy(WebViewTest* test, gconstpointer)
 {
     webkitSetCachedProcessSuspensionDelayForTesting(0);
@@ -1035,6 +1087,8 @@ void beforeAll()
     WebViewTest::add("WebKitSecurityManager", "file-xhr", testWebContextSecurityFileXHR);
     ProxyTest::add("WebKitWebContext", "proxy", testWebContextProxySettings);
     MemoryPressureTest::add("WebKitWebContext", "memory-pressure", testMemoryPressureSettings);
+    WebViewTest::add("WebKitWebContext", "timezone", testWebContextTimeZoneOverride);
+    WebViewTest::add("WebKitWebContext", "timezone-worker", testWebContextTimeZoneOverrideInWorker);
     WebViewTest::add("WebKitWebContext", "no-web-process-leak", testNoWebProcessLeakAfterWebKitWebContextDestroy);
 }
 

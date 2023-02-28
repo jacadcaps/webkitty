@@ -38,7 +38,6 @@
 #include "SampleBufferDisplayLayerManager.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
-#include <WebCore/RemoteVideoSample.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -101,7 +100,7 @@ void SampleBufferDisplayLayer::updateAffineTransform(CGAffineTransform transform
     m_connection->send(Messages::RemoteSampleBufferDisplayLayer::UpdateAffineTransform { transform }, m_identifier);
 }
 
-void SampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, MediaSample::VideoRotation rotation)
+void SampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, VideoFrame::Rotation rotation)
 {
     m_connection->send(Messages::RemoteSampleBufferDisplayLayer::UpdateBoundsAndPosition { bounds, rotation }, m_identifier);
 }
@@ -128,40 +127,24 @@ void SampleBufferDisplayLayer::pause()
     m_connection->send(Messages::RemoteSampleBufferDisplayLayer::Pause { }, m_identifier);
 }
 
-bool SampleBufferDisplayLayer::copySharedVideoFrame(CVPixelBufferRef pixelBuffer)
-{
-    if (!pixelBuffer)
-        return false;
-    return m_sharedVideoFrameWriter.write(pixelBuffer,
-        [this](auto& semaphore) { m_connection->send(Messages::RemoteSampleBufferDisplayLayer::SetSharedVideoFrameSemaphore { semaphore }, m_identifier); },
-        [this](auto& handle) { m_connection->send(Messages::RemoteSampleBufferDisplayLayer::SetSharedVideoFrameMemory { handle }, m_identifier); }
-    );
-}
-
-void SampleBufferDisplayLayer::enqueueSample(MediaSample& sample)
+void SampleBufferDisplayLayer::enqueueVideoFrame(VideoFrame& videoFrame)
 {
     if (m_paused)
         return;
 
-    if (is<RemoteVideoFrameProxy>(sample)) {
-        auto& remoteSample = downcast<RemoteVideoFrameProxy>(sample);
-        m_connection->send(Messages::RemoteSampleBufferDisplayLayer::EnqueueSample { remoteSample.read() }, m_identifier);
+    auto sharedVideoFrame = m_sharedVideoFrameWriter.write(videoFrame,
+        [this](auto& semaphore) { m_connection->send(Messages::RemoteSampleBufferDisplayLayer::SetSharedVideoFrameSemaphore { semaphore }, m_identifier); },
+        [this](auto& handle) { m_connection->send(Messages::RemoteSampleBufferDisplayLayer::SetSharedVideoFrameMemory { handle }, m_identifier); }
+    );
+    if (!sharedVideoFrame)
         return;
-    }
 
-    auto remoteSample = RemoteVideoSample::create(sample, RemoteVideoSample::ShouldCheckForIOSurface::No);
-    if (!remoteSample->surface()) {
-        // buffer is not IOSurface, we need to copy to shared video frame.
-        if (!copySharedVideoFrame(remoteSample->imageBuffer()))
-            return;
-    }
-
-    m_connection->send(Messages::RemoteSampleBufferDisplayLayer::EnqueueSampleCV { *remoteSample }, m_identifier);
+    m_connection->send(Messages::RemoteSampleBufferDisplayLayer::EnqueueVideoFrame { *sharedVideoFrame }, m_identifier);
 }
 
-void SampleBufferDisplayLayer::clearEnqueuedSamples()
+void SampleBufferDisplayLayer::clearVideoFrames()
 {
-    m_connection->send(Messages::RemoteSampleBufferDisplayLayer::ClearEnqueuedSamples { }, m_identifier);
+    m_connection->send(Messages::RemoteSampleBufferDisplayLayer::ClearVideoFrames { }, m_identifier);
 }
 
 PlatformLayer* SampleBufferDisplayLayer::rootLayer()

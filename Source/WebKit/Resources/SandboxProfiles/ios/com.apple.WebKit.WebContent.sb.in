@@ -216,78 +216,12 @@
     (allow iokit-open
         (require-all
             (extension "com.apple.webkit.extension.iokit")
-            (iokit-connection "IOGPU")
-        )
-        (when (defined? 'iokit-external-method)
-            (apply-message-filter
-                (deny (with telemetry)
-                    iokit-external-trap)
-                (allow (with telemetry) (with message "IOGPU")
-                    iokit-async-external-method
-                    iokit-external-method)
-            )
-        )
-    )
+            (iokit-connection "IOGPU")))
 
     (allow iokit-open
         (require-all
             (extension "com.apple.webkit.extension.iokit")
-            (iokit-user-client-class "AGXDeviceUserClient") ;; Used by WebGL
-        )
-        (when (defined? 'iokit-external-method)
-            (apply-message-filter
-                (deny (with telemetry)
-                    iokit-external-trap)
-                (deny (with telemetry) (with message "AGXDeviceUserClient")
-                    iokit-async-external-method
-                    iokit-external-method
-                )
-                (allow iokit-async-external-method
-#if PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 160000
-                    (iokit-method-number
-                        43
-                        44
-                    )
-#endif
-                )
-                (allow iokit-external-method
-#if PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 160000
-                    (iokit-method-number
-                        0
-                        2
-                        4
-                        5
-                        6
-                        7
-                        8
-                        9
-                        10
-                        11
-                        12
-                        13
-                        14
-                        15
-                        16
-                        25
-                        26
-                        27
-                        36
-                        37
-                        38
-                        39
-                        40
-                        41
-                        42
-                        43
-                        44
-                        45
-                    )
-#endif
-                )
-
-            )
-        )
-    )
+            (iokit-user-client-class "AGXDeviceUserClient"))) ;; Used by WebGL
 
     (allow iokit-get-properties
         (iokit-property "IOGLBundleName")
@@ -308,9 +242,8 @@
             (xpc-service-name "com.apple.MTLCompilerService")
         )
     )
-    ;; This is just for logging. Remove when GPU process is enabled by default.
+    ;; Remove when GPU process is enabled by default.
     (allow mach-lookup
-        (with telemetry)
         (require-all
             (require-not (extension "com.apple.webkit.extension.mach"))
             (xpc-service-name "com.apple.MTLCompilerService")
@@ -377,7 +310,7 @@
           (literal "/dev/random")
           (literal "/dev/urandom"))
 
-    (allow file-read* file-write-data
+    (allow file-read* file-write-data (with telemetry)
            (literal "/dev/aes_0")))
 
 (define required-etc-files
@@ -404,52 +337,6 @@
         (home-subpath "/Library/Assets/com_apple_MobileAsset_VoiceServicesVocalizerVoice"))
 )
 
-(define (IOSurfaceRootUserClientMethodFilter)
-    (when (defined? 'iokit-external-method)
-        (apply-message-filter
-            (deny (with telemetry)
-                iokit-async-external-method
-                iokit-external-trap)
-            (allow iokit-async-external-method
-                    (iokit-method-number
-                        40
-                    )
-            )
-            (deny (with telemetry) (with message "IOSurfaceRootUserClient")
-                iokit-external-method)
-            (allow iokit-external-method
-                (iokit-method-number
-                    0
-                    1
-                    2
-                    3
-                    5
-                    9
-                    10
-                    11
-                    12
-                    13
-                    14
-                    15
-                    20
-                    21
-                    23
-                    27
-                    31
-                    32
-                    34
-                    35
-                    36
-                    38
-                    39
-                    40
-                    41
-                )
-            )
-        )
-    )
-)
-
 ;; Things required by UIKit
 (define-once (uikit-requirements)
     (mobile-preferences-read
@@ -461,7 +348,7 @@
         "com.apple.mt"
         "com.apple.preferences.sounds")
 
-    (deny mach-lookup (with telemetry)
+    (deny mach-lookup
         (global-name "com.apple.frontboard.systemappservices")                 ; -[UIViewServiceInterface _createProcessAssertion] -> SBSProcessIDForDisplayIdentifier()
     )
 
@@ -498,10 +385,7 @@
     (allow iokit-open
         (require-all
             (extension "com.apple.webkit.extension.iokit")
-            (iokit-user-client-class "IOSurfaceRootUserClient") ;; Needed by Tiled Grid code.
-        )
-        (IOSurfaceRootUserClientMethodFilter)
-    )
+            (iokit-user-client-class "IOSurfaceRootUserClient"))) ;; Needed by Tiled Grid code.
 
     ;; Silence sandbox violations from apps trying to create the empty plist if it doesn't exist.
     ;; <rdar://problem/13796537>
@@ -629,7 +513,7 @@
     (global-name "com.apple.logd.events")
 )
 
-(deny mach-lookup (with telemetry)
+(deny mach-lookup (with no-report)
     (global-name "com.apple.distributed_notifications@1v3"))
 
 (deny mach-lookup (with no-report)
@@ -673,30 +557,11 @@
 (allow mach-lookup
     (global-name "com.apple.system.notification_center")
     (apply-message-filter
-        (deny mach-message-send (with telemetry))
+        (deny mach-message-send)
         (deny mach-message-send (with no-report) (message-number 1023))
         (allow mach-message-send (message-number
-            1002
-            1009
-            1010
-            1011
-            1012
-            1016
-            1017
-            1018
-            1019
-            1021
-            1022
-            1025
-            1026
-            1028
-            1029
-            1030
-            1031
-            1032
-        ))
-    )
-)
+            1002 1011 1012 1016 1017 1018 1021 1025 1026 1028 1029 1030 1031 1032))))
+
 (allow ipc-posix-shm-read*
        (ipc-posix-name "apple.shm.notification_center"))
 
@@ -920,7 +785,6 @@
     (iokit-property "IOGVAEncoderRestricted")
     (iokit-property "IOGVAScaler")
     (iokit-property "IOClassNameOverride")
-    (iokit-property "IOPlatformUUID")
     (iokit-property "IOSurfaceAcceleratorCapabilitiesDict")
     (iokit-property "LGHSupported")
     (iokit-property "Protocol Characteristics")
@@ -1017,8 +881,10 @@
 ;; Allow loading injected bundles.
 (allow file-map-executable)
 
+#if !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
 ;; Allow ManagedPreference access
 (allow file-read* (literal "/private/var/Managed Preferences/mobile/com.apple.webcontentfilter.plist"))
+#endif
 
 (allow file-read-data
     (literal "/usr/local/lib/log") ; <rdar://problem/36629495>
@@ -1029,36 +895,27 @@
     (home-subpath "/Library/Preferences/")
     (with no-log))
 
-(deny mach-lookup (with telemetry)
+(deny mach-lookup (with no-log)
     (global-name "com.apple.containermanagerd")
 )
 
-(deny mach-lookup (with telemetry)
-    (global-name "com.apple.mobilegestalt.xpc")
-)
+(deny mach-lookup
+    (global-name "com.apple.mobilegestalt.xpc"))
 
 (deny mach-lookup (with no-log)
     (xpc-service-name "com.apple.audio.toolbox.reporting.service")
 )
 
-(allow iokit-open (with telemetry)
+(allow iokit-open
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
-        (iokit-user-client-class
-            "IOSurfaceRootUserClient"
-        )
-    )
-    (IOSurfaceRootUserClientMethodFilter)
-)
+        (iokit-user-client-class "IOSurfaceRootUserClient")))
 
-(deny iokit-open (with telemetry)
+(deny iokit-open
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
         (iokit-user-client-class
-            "IOSurfaceAcceleratorClient"
-        )
-    )
-)
+            "IOSurfaceAcceleratorClient")))
 
 (deny iokit-open (with no-log)
     (iokit-user-client-class
@@ -1066,12 +923,34 @@
     )
 )
 
-(allow iokit-open (with report) (with telemetry)
+(allow iokit-open (with report) (with telemetry-backtrace)
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
         (iokit-connection "IOGPU")
     )
 )
+
+#if HAVE(SANDBOX_STATE_FLAGS)
+;; This rule enables the WebContent process to enable the "BlockIOKitInWebContentSandbox" sandbox variable
+;; by reading a preference from the domain "com.apple.WebKit.WebContent.BlockIOKitInWebContentSandbox".
+(deny user-preference-read (with enable-state-flag "BlockIOKitInWebContentSandbox")
+    (preference-domain "com.apple.WebKit.WebContent.BlockIOKitInWebContentSandbox"))
+
+(with-filter (state-flag "BlockIOKitInWebContentSandbox")
+    (deny iokit-open-service)
+    (deny iokit-open (with telemetry-backtrace)
+        (require-all
+            (require-not (extension "com.apple.webkit.extension.iokit"))
+            (iokit-user-client-class "IOSurfaceRootUserClient")))
+    (deny iokit-open (with telemetry-backtrace)
+        (require-all
+            (require-not (extension "com.apple.webkit.extension.iokit"))
+            (iokit-connection "IOGPU")))
+    (deny mach-lookup (with telemetry-backtrace)
+        (require-all
+            (require-not (extension "com.apple.webkit.extension.mach"))
+            (xpc-service-name "com.apple.MTLCompilerService"))))
+#endif
 
 (with-filter (system-attribute apple-internal)
     (allow mach-lookup
@@ -1086,10 +965,12 @@
             "com.apple.iphone.axserver-systemwide"
             "com.apple.mobileassetd.v2"
             "com.apple.mobilegestalt.xpc"
+#if !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
             "com.apple.nehelper"
             "com.apple.nesessionmanager.content-filter"
-            "com.apple.tccd"
             "com.apple.uikit.viewservice.com.apple.WebContentFilter.remoteUI"
+#endif
+            "com.apple.tccd"
             "com.apple.webinspector"
 )))
 
@@ -1107,11 +988,9 @@
     (require-all
         (extension "com.apple.webkit.extension.mach")
         (global-name
-            "com.apple.iconservices"
-        )
-    )
-)
+            "com.apple.iconservices")))
 
+#if HAVE(AGX_COMPILER_SERVICE)
 (allow iokit-open
     (require-all
         (extension "com.apple.webkit.extension.iokit")
@@ -1134,6 +1013,7 @@
     (require-all
         (extension "com.apple.webkit.extension.mach")
         (xpc-service-name-prefix "com.apple.AGXCompilerService")))
+#endif // HAVE(AGX_COMPILER_SERVICE)
 
 (media-capture-support)
 
@@ -1156,7 +1036,6 @@
     (syscall-number
         SYS_bsdthread_register
         SYS_chdir
-        SYS_connect
         SYS_dup2
         SYS_fsgetpath
         SYS_getpid
@@ -1181,6 +1060,7 @@
         SYS_close_nocancel
         SYS_csops ;; used by Corefoundation initialization
         SYS_csops_audittoken ;; used by WK to get entitlments
+        SYS_dup
         SYS_exit
         SYS_faccessat ;; <rdar://problem/56998930>
         SYS_fcntl
@@ -1192,6 +1072,7 @@
         SYS_fsetxattr ;; <rdar://problem/49795964>
         SYS_fstat64
         SYS_fstat64_extended ;; <rdar://problem/61310019>
+        SYS_fstatat64
         SYS_fstatfs64
         SYS_ftruncate
         SYS_getattrlist ;; xpc_realpath and directory enumeration
@@ -1263,24 +1144,29 @@
 
 (define (syscall-unix-rarely-in-use)
     (syscall-number
-        SYS_dup
+        SYS___pthread_sigmask
+        SYS___semwait_signal
         SYS_fgetxattr
-        SYS_fstatat64
         SYS_fsync
+        SYS_getattrlistbulk ;; xpc_realpath and directory enumeration
         SYS_getgid
         SYS_getxattr
+        SYS_iopolicysys
         SYS_mkdirat
-        SYS_necp_client_action
-        SYS_necp_open
+        SYS_open_dprotected_np
         SYS_openat_nocancel
         SYS_pread_nocancel
+        SYS_psynch_rw_wrlock
         SYS_rmdir
         SYS_sendto
         SYS_setrlimit
         SYS_sigaltstack
         SYS_sigprocmask
-        SYS_socket
+#if PLATFORM(WATCHOS)
+        SYS_sigreturn
+#endif
         SYS_thread_selfusage
+        SYS_umask
         SYS_unlink
         SYS_write
         SYS_writev))
@@ -1288,14 +1174,11 @@
 (define (syscall-unix-rarely-in-use-need-backtrace)
     (syscall-number
         SYS___pthread_kill
-        SYS___pthread_sigmask
-        SYS___semwait_signal
-        SYS_getattrlistbulk ;; xpc_realpath and directory enumeration
-        SYS_iopolicysys
-        SYS_open_dprotected_np
-        SYS_psynch_rw_wrlock
-        SYS_umask
-        SYS_work_interval_ctl))
+#if !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+        SYS_necp_client_action
+        SYS_necp_open
+#endif
+        ))
 
 (when (defined? 'syscall-unix)
     (deny syscall-unix (with telemetry) (with send-signal SIGKILL))
@@ -1314,15 +1197,19 @@
             (syscall-unix-only-in-use-during-launch)))
 #endif
 
-    (allow syscall-unix (with telemetry)
+    (allow syscall-unix
         (syscall-unix-rarely-in-use))
 
-    (allow syscall-unix (with report) (with telemetry-backtrace)
+    (allow syscall-unix (with report)
         (syscall-unix-rarely-in-use-need-backtrace))
 )
 
-(when (defined? 'SYS__map_with_linking_np)
-    (allow syscall-unix (syscall-number SYS__map_with_linking_np)))
+(deny syscall-unix (syscall-number
+    SYS_connect
+    SYS_socket))
+
+(when (defined? 'SYS_map_with_linking_np)
+    (allow syscall-unix (syscall-number SYS_map_with_linking_np)))
 
 (with-filter (system-attribute apple-internal)
     (when (defined? 'syscall-unix)
@@ -1331,14 +1218,8 @@
 
 (deny file-ioctl (with telemetry))
 
-;; restrict to the two ioctl's /dev/aes_0 needs
-(allow file-ioctl (with telemetry)
-    (require-all
-        (literal "/dev/aes_0")
-        (require-any
-            (ioctl-command (_IO "T" 101)) ;; IOAES_GET_INFO
-            (ioctl-command (_IO "T" 102)) ;; IOAES_ENCRYPT_DECRYPT
-)))
+(deny file-ioctl (with telemetry)
+    (literal "/dev/aes_0"))
 
 (deny socket-ioctl (with telemetry))
 
@@ -1360,7 +1241,7 @@
             F_SETFL ;; CMCapture uses when camera is enabled
             F_SETNOSIGPIPE)) ;; CMCapture uses when camera is enabled
 
-    (allow system-fcntl (with telemetry-backtrace)
+    (allow system-fcntl
         (fcntl-command
             F_GETLK
             F_OFD_SETLK))
@@ -1410,10 +1291,6 @@
 (when (defined? 'socket-option-get)
     ;; getsockopt
     (deny socket-option-get (with telemetry))
-    (allow socket-option-get
-        (require-all
-            (socket-option-level SOL_SOCKET)
-            (socket-option-name SO_ERROR))) ;; libwebrtc; physical_socket_server.cc, ProcessEvents.  Called with fd=-1, so it fails.  Not technically needed, but the code needs changing
 )
 
 (when (defined? 'socket-option-set)
@@ -1422,39 +1299,36 @@
 )
 
 (define-once (mach-bootstrap-message-numbers)
-    (message-number
-        206
-        207
-        711
-        712
-        718
-        800
-        802
-        803
-        804
-        805
-    )
-)
+    (message-number 206 207 711 712 718 800 802 803 804 805 904))
 
-(if (defined? '*sbpl-version*)
+(define-once (mach-bootstrap-message-numbers-post-launch)
+    (message-number 206 207 711 712 800 804 904))
+
+(define (allow-mach-bootstrap-with-filter)
     (allow mach-bootstrap
         (apply-message-filter
             (deny mach-message-send (with telemetry))
             (allow mach-message-send
-                (mach-bootstrap-message-numbers)
-            )
-        )
-    )
-;; else
+                (mach-bootstrap-message-numbers)))))
+
+#if HAVE(SANDBOX_STATE_FLAGS)
+(if (require-ancestor-with-entitlement "com.apple.private.security.enable-state-flags")
     (allow mach-bootstrap
         (apply-message-filter
-            (deny xpc-message-send (with telemetry))
-            (allow xpc-message-send
-                (mach-bootstrap-message-numbers)
-            )
-        )
-    )
-)
+            (deny mach-message-send (with telemetry-backtrace))
+            (allow mach-message-send (with telemetry-backtrace)
+                (mach-bootstrap-message-numbers-post-launch))))
+;; else
+    (allow-mach-bootstrap-with-filter))
+
+(with-filter
+    (require-any
+        (require-not (state-flag "WebContentProcessLaunched"))
+        (state-flag "EnableMachBootstrap"))
+    (allow-mach-bootstrap-with-filter))
+#else
+(allow-mach-bootstrap-with-filter)
+#endif
 
 (define (syscall-mach-only-in-use-during-launch)
     (machtrap-number
@@ -1560,6 +1434,9 @@
         io_service_get_matching_service_bin
         io_service_get_matching_services_bin
         io_service_open_extended
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 160000)
+        mach_port_get_refs
+#endif
         mach_port_set_attributes
         mach_vm_copy
         mach_vm_map_external
@@ -1618,8 +1495,7 @@
                 (allow mach-message-send
                     (kernel-mig-routine-only-in-use-during-launch)))
             (with-filter (state-flag "WebContentProcessLaunched")
-                (allow mach-message-send
-                    (with report)
+                (deny mach-message-send
                     (with telemetry)
                     (with message "kernel mig routine used after launch")
                     (kernel-mig-routine-only-in-use-during-launch)))
@@ -1632,7 +1508,7 @@
     )
 )
 
-(deny darwin-notification-post (with telemetry))
+(deny darwin-notification-post (with no-log))
 (allow darwin-notification-post
     (notification-name
         "_AXNotification_AXSClassicInvertColorsPreference"
@@ -1651,3 +1527,23 @@
         "com.apple.accessibility.wob.status"
         "com.apple.automation.stringlookupinfoenabled"
         "com.apple.webinspectord.availability_check"))
+
+#if ENABLE(SYSTEM_CONTENT_PATH_SANDBOX_RULES)
+#include <WebKitAdditions/SystemContentSandbox-ios.defs>
+
+(allow file-read* file-test-existence
+    (apply subpath file-read-existence-secondary-paths))
+
+(allow file-map-executable
+    (apply subpath secondary-framework-and-dylib-paths))
+
+(allow-read-and-issue-generic-extensions
+    (apply subpath issue-extension-secondary-paths))
+    
+(allow file-issue-extension
+    (require-all
+        (extension-class "com.apple.mediaserverd.read")
+        (require-any
+            (apply subpath issue-extension-secondary-paths)
+        )))
+#endif

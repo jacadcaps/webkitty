@@ -74,6 +74,10 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (NSUInteger)accessibilityARIAColumnCount;
 - (NSUInteger)accessibilityARIARowIndex;
 - (NSUInteger)accessibilityARIAColumnIndex;
+- (BOOL)accessibilityARIAIsBusy;
+- (BOOL)accessibilityARIALiveRegionIsAtomic;
+- (NSString *)accessibilityARIALiveRegionStatus;
+- (NSString *)accessibilityARIARelevantStatus;
 - (UIAccessibilityTraits)_axContainedByFieldsetTrait;
 - (id)_accessibilityFieldsetAncestor;
 - (BOOL)_accessibilityHasTouchEventListener;
@@ -92,10 +96,16 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (BOOL)accessibilityIsInDescriptionListDefinition;
 - (BOOL)accessibilityIsInDescriptionListTerm;
 - (BOOL)_accessibilityIsInTableCell;
+- (BOOL)accessibilityIsAttributeSettable:(NSString *)attributeName;
+- (BOOL)accessibilityIsRequired;
 - (NSString *)_accessibilityPhotoDescription;
 - (BOOL)accessibilityPerformEscape;
 - (NSString *)accessibilityDOMIdentifier;
 - (NSString *)_accessibilityWebRoleAsString;
+- (BOOL)accessibilityIsInsertion;
+- (BOOL)accessibilityIsDeletion;
+- (BOOL)accessibilityIsFirstItemInSuggestion;
+- (BOOL)accessibilityIsLastItemInSuggestion;
 
 // TextMarker related
 - (NSArray *)textMarkerRange;
@@ -747,7 +757,7 @@ bool AccessibilityUIElement::boolAttributeValue(JSStringRef attribute)
 
 bool AccessibilityUIElement::isAttributeSettable(JSStringRef attribute)
 {
-    return false;
+    return [m_element accessibilityIsAttributeSettable:[NSString stringWithJSStringRef:attribute]];
 }
 
 bool AccessibilityUIElement::isAttributeSupported(JSStringRef attribute)
@@ -809,6 +819,16 @@ JSRetainPtr<JSStringRef> AccessibilityUIElement::description()
     return concatenateAttributeAndValue(@"AXLabel", [m_element accessibilityLabel]);
 }
 
+JSRetainPtr<JSStringRef> AccessibilityUIElement::liveRegionRelevant() const
+{
+    return [[m_element accessibilityARIARelevantStatus] createJSStringRef];
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElement::liveRegionStatus() const
+{
+    return [[m_element accessibilityARIALiveRegionStatus] createJSStringRef];
+}
+
 JSRetainPtr<JSStringRef> AccessibilityUIElement::orientation() const
 {
     return WTR::createJSString();
@@ -831,7 +851,7 @@ JSRetainPtr<JSStringRef> AccessibilityUIElement::helpText() const
 
 double AccessibilityUIElement::intValue() const
 {
-    return 0.0f;
+    return [[m_element accessibilityValue] integerValue];
 }
 
 double AccessibilityUIElement::minValue()
@@ -859,6 +879,16 @@ int AccessibilityUIElement::insertionPointLineNumber()
     return -1;
 }
 
+bool AccessibilityUIElement::isAtomicLiveRegion() const
+{
+    return [m_element accessibilityARIALiveRegionIsAtomic];
+}
+
+bool AccessibilityUIElement::isBusy() const
+{
+    return [m_element accessibilityARIAIsBusy];
+}
+
 bool AccessibilityUIElement::isEnabled()
 {
     return false;
@@ -866,7 +896,7 @@ bool AccessibilityUIElement::isEnabled()
 
 bool AccessibilityUIElement::isRequired() const
 {
-    return false;
+    return [m_element accessibilityIsRequired];
 }
 
 bool AccessibilityUIElement::isFocused() const
@@ -1253,4 +1283,24 @@ unsigned AccessibilityUIElement::selectedChildrenCount() const
 AccessibilityUIElement AccessibilityUIElement::selectedChildAtIndex(unsigned) const
 {
     return 0;
+}
+
+bool AccessibilityUIElement::isInsertion()
+{
+    return [m_element accessibilityIsInsertion];
+}
+
+bool AccessibilityUIElement::isDeletion()
+{
+    return [m_element accessibilityIsDeletion];
+}
+
+bool AccessibilityUIElement::isFirstItemInSuggestion()
+{
+    return [m_element accessibilityIsFirstItemInSuggestion];
+}
+
+bool AccessibilityUIElement::isLastItemInSuggestion()
+{
+    return [m_element accessibilityIsLastItemInSuggestion];
 }

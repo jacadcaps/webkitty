@@ -38,8 +38,10 @@
 #import <WebKit/WKString.h>
 #import <WebKit/WKPagePrivate.h>
 #import <WebKit/WKWebView.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <pal/spi/cocoa/IOKitSPI.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 @interface NSApplication (Details)
 - (void)_setCurrentEvent:(NSEvent *)event;
@@ -599,7 +601,7 @@ void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType)
 
     CGEventRef cgEvent = event.CGEvent;
     CGEventSetIntegerValueField(cgEvent, kCGMouseEventDeltaX, newMousePosition.x - m_position.x);
-    CGEventSetIntegerValueField(cgEvent, kCGMouseEventDeltaY, newMousePosition.y - m_position.y);
+    CGEventSetIntegerValueField(cgEvent, kCGMouseEventDeltaY, -1 * (newMousePosition.y - m_position.y));
     event = [NSEvent eventWithCGEvent:cgEvent];
     m_position.x = newMousePosition.x;
     m_position.y = newMousePosition.y;
@@ -613,7 +615,7 @@ void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType)
         if (isDrag)
             [targetView mouseDragged:event];
         else
-            [targetView mouseMoved:event];
+            [checked_objc_cast<WKWebView>(targetView) _simulateMouseMove:event];
         [NSApp _setCurrentEvent:nil];
     } else
         WTFLogAlways("mouseMoveTo failed to find a target view at %f,%f\n", windowLocation.x, windowLocation.y);

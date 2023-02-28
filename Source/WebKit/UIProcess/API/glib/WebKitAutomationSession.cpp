@@ -34,9 +34,9 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitAutomationSession
- * @Short_description: Automation Session
- * @Title: WebKitAutomationSession
+ * WebKitAutomationSession:
+ *
+ * Automation Session.
  *
  * WebKitAutomationSession represents an automation session of a WebKitWebContext.
  * When a new session is requested, a WebKitAutomationSession is created and the signal
@@ -320,10 +320,10 @@ static void webkit_automation_session_class_init(WebKitAutomationSessionClass* s
 #if ENABLE(REMOTE_INSPECTOR)
 static WebKitNetworkProxyMode parseProxyCapabilities(const Inspector::RemoteInspector::Client::SessionCapabilities::Proxy& proxy, WebKitNetworkProxySettings** settings)
 {
-    if (proxy.type == "system" || proxy.type == "autodetect")
+    if (proxy.type == "system"_s || proxy.type == "autodetect"_s)
         return WEBKIT_NETWORK_PROXY_MODE_DEFAULT;
 
-    if (proxy.type == "direct")
+    if (proxy.type == "direct"_s)
         return WEBKIT_NETWORK_PROXY_MODE_NO_PROXY;
 
     if (!proxy.ignoreAddressList.isEmpty()) {
@@ -391,7 +391,7 @@ String webkitAutomationSessionGetBrowserName(WebKitAutomationSession* session)
     if (session->priv->applicationInfo)
         return String::fromUTF8(webkit_application_info_get_name(session->priv->applicationInfo));
 
-    return g_get_prgname();
+    return String::fromUTF8(g_get_prgname());
 }
 
 String webkitAutomationSessionGetBrowserVersion(WebKitAutomationSession* session)
@@ -432,7 +432,9 @@ const char* webkit_automation_session_get_id(WebKitAutomationSession* session)
  * @session: a #WebKitAutomationSession
  * @info: a #WebKitApplicationInfo
  *
- * Set the application information to @session. This information will be used by the driver service
+ * Set the application information to @session.
+ *
+ * This information will be used by the driver service
  * to match the requested capabilities with the actual application information. If this information
  * is not provided to the session when a new automation session is requested, the creation might fail
  * if the client requested a specific browser name or version. This will not have any effect when called
@@ -457,6 +459,8 @@ void webkit_automation_session_set_application_info(WebKitAutomationSession* ses
 /**
  * webkit_automation_session_get_application_info:
  * @session: a #WebKitAutomationSession
+ *
+ * Get the the previously set #WebKitAutomationSession.
  *
  * Get the #WebKitAutomationSession previously set with webkit_automation_session_set_application_info().
  *

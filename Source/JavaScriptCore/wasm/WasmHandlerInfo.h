@@ -80,7 +80,7 @@ struct UnlinkedHandlerInfo : public HandlerInfoBase {
             ASSERT_NOT_REACHED();
             break;
         }
-        return ASCIILiteral::null();
+        return { };
     }
 };
 

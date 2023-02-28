@@ -26,18 +26,25 @@
 #import "config.h"
 #import "QuerySet.h"
 
+#import "APIConversions.h"
 #import "Device.h"
 
 namespace WebGPU {
 
-RefPtr<QuerySet> Device::createQuerySet(const WGPUQuerySetDescriptor* descriptor)
+Ref<QuerySet> Device::createQuerySet(const WGPUQuerySetDescriptor& descriptor)
 {
     UNUSED_PARAM(descriptor);
-    return QuerySet::create(nil);
+    return QuerySet::createInvalid(*this);
 }
 
-QuerySet::QuerySet(id <MTLCounterSampleBuffer> counterSampleBuffer)
+QuerySet::QuerySet(id<MTLCounterSampleBuffer> counterSampleBuffer, Device& device)
     : m_counterSampleBuffer(counterSampleBuffer)
+    , m_device(device)
+{
+}
+
+QuerySet::QuerySet(Device& device)
+    : m_device(device)
 {
 }
 
@@ -45,26 +52,31 @@ QuerySet::~QuerySet() = default;
 
 void QuerySet::destroy()
 {
+    // https://gpuweb.github.io/gpuweb/#dom-gpuqueryset-destroy
+
+    m_counterSampleBuffer = nil;
 }
 
-void QuerySet::setLabel(const char*)
+void QuerySet::setLabel(String&&)
 {
     // MTLCounterSampleBuffer's labels are read-only.
 }
 
 } // namespace WebGPU
 
+#pragma mark WGPU Stubs
+
 void wgpuQuerySetRelease(WGPUQuerySet querySet)
 {
-    delete querySet;
+    WebGPU::fromAPI(querySet).deref();
 }
 
 void wgpuQuerySetDestroy(WGPUQuerySet querySet)
 {
-    querySet->querySet->destroy();
+    WebGPU::fromAPI(querySet).destroy();
 }
 
 void wgpuQuerySetSetLabel(WGPUQuerySet querySet, const char* label)
 {
-    querySet->querySet->setLabel(label);
+    WebGPU::fromAPI(querySet).setLabel(WebGPU::fromAPI(label));
 }

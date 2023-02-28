@@ -110,8 +110,10 @@ void TestController::platformInitialize(const Options& options)
     auto center = CFNotificationCenterGetLocalCenter();
     CFNotificationCenterAddObserver(center, this, handleKeyboardWillHideNotification, (CFStringRef)UIKeyboardWillHideNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
     CFNotificationCenterAddObserver(center, this, handleKeyboardDidHideNotification, (CFStringRef)UIKeyboardDidHideNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CFNotificationCenterAddObserver(center, this, handleMenuWillHideNotification, (CFStringRef)UIMenuControllerWillHideMenuNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
     CFNotificationCenterAddObserver(center, this, handleMenuDidHideNotification, (CFStringRef)UIMenuControllerDidHideMenuNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 void TestController::platformDestroy()
@@ -121,8 +123,10 @@ void TestController::platformDestroy()
     auto center = CFNotificationCenterGetLocalCenter();
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIKeyboardWillHideNotification, nullptr);
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIKeyboardDidHideNotification, nullptr);
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerWillHideMenuNotification, nullptr);
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerDidHideMenuNotification, nullptr);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 void TestController::initializeInjectedBundlePath()
@@ -150,6 +154,46 @@ static _WKDragInteractionPolicy dragInteractionPolicy(const TestOptions& options
     return _WKDragInteractionPolicyDefault;
 }
 
+static _WKFocusStartsInputSessionPolicy focusStartsInputSessionPolicy(const TestOptions& options)
+{
+    auto policy = options.focusStartsInputSessionPolicy();
+    if (policy == "allow")
+        return _WKFocusStartsInputSessionPolicyAllow;
+    if (policy == "disallow")
+        return _WKFocusStartsInputSessionPolicyDisallow;
+    return _WKFocusStartsInputSessionPolicyAuto;
+}
+
+static void restorePortraitOrientationIfNeeded(PlatformWebView* platformWebView, Seconds timeoutDuration)
+{
+#if HAVE(UI_WINDOW_SCENE_GEOMETRY_PREFERENCES)
+    if (!platformWebView)
+        return;
+
+    auto *scene = platformWebView->platformView().window.windowScene;
+    if (scene.effectiveGeometry.interfaceOrientation == UIInterfaceOrientationPortrait)
+        return;
+
+    auto geometryPreferences = adoptNS([[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskPortrait]);
+    [scene requestGeometryUpdateWithPreferences:geometryPreferences.get() errorHandler:^(NSError *error) {
+        NSLog(@"Failed to restore portrait orientation with error: %@.", error);
+    }];
+
+    auto startTime = MonotonicTime::now();
+    while ([NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantPast]) {
+        if (scene.effectiveGeometry.interfaceOrientation == UIInterfaceOrientationPortrait)
+            break;
+
+        if (MonotonicTime::now() - startTime >= timeoutDuration)
+            break;
+    }
+#else
+    UNUSED_PARAM(platformWebView);
+    UNUSED_PARAM(timeoutDuration);
+    [[UIDevice currentDevice] setOrientation:UIDeviceOrientationPortrait animated:NO];
+#endif
+}
+
 bool TestController::platformResetStateToConsistentValues(const TestOptions& options)
 {
     cocoaResetStateToConsistentValues(options);
@@ -157,7 +201,10 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
     [UIKeyboardImpl.activeInstance setCorrectionLearningAllowed:NO];
     [pasteboardConsistencyEnforcer() clearPasteboard];
     [[UIApplication sharedApplication] _cancelAllTouches];
-    [[UIDevice currentDevice] setOrientation:UIDeviceOrientationPortrait animated:NO];
+    [[UIScreen mainScreen] _setScale:2.0];
+    [[HIDEventGenerator sharedHIDEventGenerator] resetActiveModifiers];
+
+    restorePortraitOrientationIfNeeded(mainWebView(), m_currentInvocation->shortTimeout());
 
     // Ensures that only the UCB is on-screen when showing the keyboard, if the hardware keyboard is attached.
     TIPreferencesController *textInputPreferences = [getTIPreferencesControllerClass() sharedPreferencesController];
@@ -221,9 +268,9 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         webView.overrideSafeAreaInsets = UIEdgeInsetsZero;
         [webView _clearOverrideLayoutParameters];
         [webView _clearInterfaceOrientationOverride];
-        [webView resetCustomMenuAction];
         [webView setAllowedMenuActions:nil];
         webView._dragInteractionPolicy = dragInteractionPolicy(options);
+        webView.focusStartsInputSessionPolicy = focusStartsInputSessionPolicy(options);
 
         UIScrollView *scrollView = webView.scrollView;
         [scrollView _removeAllAnimations:YES];
@@ -242,6 +289,10 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
             shouldRestoreFirstResponder = [webView resignFirstResponder];
 
         [webView immediatelyDismissContextMenuIfNeeded];
+
+#if HAVE(UI_EDIT_MENU_INTERACTION)
+        [webView immediatelyDismissEditMenuInteractionIfNeeded];
+#endif
     }
 
     UIMenuController.sharedMenuController.menuVisible = NO;
@@ -254,7 +305,7 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         UIViewController *webViewController = [[webView window] rootViewController];
 
         MonotonicTime waitEndTime = MonotonicTime::now() + m_currentInvocation->shortTimeout();
-        
+
         bool hasPresentedViewController = !![webViewController presentedViewController];
         while (hasPresentedViewController && MonotonicTime::now() < waitEndTime) {
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]];

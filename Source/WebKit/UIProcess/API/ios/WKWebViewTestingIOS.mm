@@ -481,6 +481,27 @@ static void dumpUIView(TextStream& ts, UIView *view)
     return serializationForCSS(WebCore::colorFromCocoaColor(backgroundColor));
 }
 
+- (BOOL)_hasResizeAssertion
+{
+#if HAVE(UIKIT_RESIZABLE_WINDOWS)
+    if (!_resizeAssertions.isEmpty())
+        return YES;
+#endif
+    return NO;
+}
+
+- (void)_simulateSelectionStart
+{
+    [_contentView _simulateSelectionStart];
+}
+
++ (void)_resetPresentLockdownModeMessage
+{
+#if ENABLE(LOCKDOWN_MODE_API)
+    [self _clearLockdownModeWarningNeeded];
+#endif
+}
+
 @end
 
 #endif // PLATFORM(IOS_FAMILY)

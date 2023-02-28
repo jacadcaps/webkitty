@@ -51,6 +51,7 @@ public:
     void connectionClosed(IPC::Connection::UniqueID);
     bool persisted() const { return m_persisted; }
     void setPersisted(bool value);
+    const String& path() const { return m_path; }
     QuotaManager& quotaManager();
     FileSystemStorageManager& fileSystemStorageManager(FileSystemStorageHandleRegistry&);
     LocalStorageManager& localStorageManager(StorageAreaRegistry&);
@@ -59,13 +60,19 @@ public:
     SessionStorageManager* existingSessionStorageManager();
     IDBStorageManager& idbStorageManager(IDBStorageRegistry&);
     IDBStorageManager* existingIDBStorageManager();
-    String resolvedLocalStoragePath();
-    String resolvedIDBStoragePath();
+    String resolvedPath(WebsiteDataType);
     bool isActive();
     bool isEmpty();
     OptionSet<WebsiteDataType> fetchDataTypesInList(OptionSet<WebsiteDataType>);
     void deleteData(OptionSet<WebsiteDataType>, WallTime);
     void moveData(OptionSet<WebsiteDataType>, const String& localStoragePath, const String& idbStoragePath);
+    void deleteEmptyDirectory();
+    std::optional<WallTime> originFileCreationTimestamp() const { return m_originFileCreationTimestamp; }
+    void setOriginFileCreationTimestamp(std::optional<WallTime> timestamp) { m_originFileCreationTimestamp = timestamp; }
+#if PLATFORM(IOS_FAMILY)
+    bool includedInBackup() const { return m_includedInBackup; }
+    void markIncludedInBackup() { m_includedInBackup = true; }
+#endif
 
 private:
     enum class StorageBucketMode : bool;
@@ -82,6 +89,10 @@ private:
     RefPtr<QuotaManager> m_quotaManager;
     bool m_persisted { false };
     bool m_shouldUseCustomPaths;
+    std::optional<WallTime> m_originFileCreationTimestamp;
+#if PLATFORM(IOS_FAMILY)
+    bool m_includedInBackup { false };
+#endif
 };
 
 } // namespace WebKit

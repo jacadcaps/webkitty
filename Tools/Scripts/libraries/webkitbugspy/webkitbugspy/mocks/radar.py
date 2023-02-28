@@ -22,11 +22,12 @@
 
 import calendar
 import os
+import re
 import time
 
 from .base import Base
 
-from webkitbugspy import User, Issue
+from webkitbugspy import User, Issue, radar
 from webkitcorepy import string_utils
 from webkitcorepy.mocks import ContextStack
 
@@ -138,6 +139,16 @@ class RadarModel(object):
         self.cc_memberships = self.CollectionProperty(self, *[
             self.CCMembership(Radar.transform_user(watcher)) for watcher in issue.get('watchers', [])
         ])
+        components = []
+        if issue.get('project') and issue.get('component') and issue.get('version'):
+            components = self.client.find_components(dict(
+                name=dict(eq='{} {}'.format(issue['project'], issue['component'])),
+                version=dict(eq=issue['version']),
+            ))
+        if components:
+            self.component = components[0]
+        else:
+            self.component = None
 
     def related_radars(self):
         for reference in self._issue.get('references', []):
@@ -156,6 +167,18 @@ class RadarModel(object):
         self.client.parent.issues[self.id]['assignee'] = self.client.parent.users[self.assignee.dsid]
         self.client.parent.issues[self.id]['opened'] = self.state not in ('Verify', 'Closed')
 
+        if self.component:
+            project = ''
+            component = self.component.name
+            for candidate in self.client.parent.projects.keys():
+                if component.startswith(candidate):
+                    project = candidate
+                    component = component[len(project):].lstrip()
+
+            self.client.parent.issues[self.id]['project'] = project
+            self.client.parent.issues[self.id]['component'] = component
+            self.client.parent.issues[self.id]['version'] = self.component.version
+
 
 class RadarClient(object):
     def __init__(self, parent, authentication_strategy):
@@ -168,6 +191,75 @@ class RadarClient(object):
             return None
         return RadarModel(self, found)
 
+    def find_components(self, request_data):
+        filters = []
+        for key in ('name', 'version'):
+            if key in request_data:
+                key_data = request_data[key]
+                action = list(key_data.keys())[0] if isinstance(key_data, dict) else 'eq'
+                key_value = key_data[action] if isinstance(key_data, dict) else key_data
+                filter = dict(
+                    eq=lambda key=key, key_value=key_value, **kwargs: not kwargs.get(key) or kwargs[key] == key_value,
+                    like=lambda key=key, key_value=key_value, **kwargs: not kwargs.get(key) or re.match(key_value.replace('%', '.*'), kwargs[key]),
+                ).get(action)
+                if not filter:
+                    raise ValueError('{} is not a valid Radar filter'.format(action))
+                filters.append(filter)
+
+        result = []
+        for project, project_details in self.parent.projects.items():
+            for component, component_details in project_details.get('components', {}).items():
+                component_name = '{} {}'.format(project, component)
+                if any(not filter(name=component_name) for filter in filters):
+                    continue
+                for version in project_details.get('versions', ['All']):
+                    if any(not filter(version=version) for filter in filters):
+                        continue
+                    result.append(Radar.Component(component_name, component_details['description'], version))
+        return result
+
+    def create_radar(self, request_data):
+        if not all((
+            request_data.get('title'), request_data.get('description'), request_data.get('component'),
+            request_data.get('classification'), request_data.get('reproducible'),
+        )):
+            raise Radar.exceptions.UnsuccessfulResponseException('Not enough parameters defined to create a radar')
+
+        components = self.find_components(request_data['component'])
+        if len(components) != 1:
+            raise Radar.exceptions.UnsuccessfulResponseException('Provided component is not valid')
+        if request_data['classification'] not in radar.Tracker.CLASSIFICATIONS:
+            raise Radar.exceptions.UnsuccessfulResponseException("'{}' is not a valid classification".format(request_data['classification']))
+        if request_data['reproducible'] not in radar.Tracker.REPRODUCIBILITY:
+            raise Radar.exceptions.UnsuccessfulResponseException("'{}' is not a valid reproducibility value".format(request_data['reproducible']))
+
+        project = ''
+        component = components[0].name
+        for candidate in self.parent.projects.keys():
+            if component.startswith(candidate):
+                project = candidate
+                component = component[len(project):].lstrip()
+
+        id = 1
+        while id in self.parent.issues.keys():
+            id += 1
+        user = self.parent.users['{}@APPLECONNECT.APPLE.COM'.format(self.authentication_strategy.username())]
+        issue = dict(
+            id=id,
+            title=request_data['title'],
+            timestamp=int(time.time()),
+            opened=True,
+            creator=user,
+            assignee=user,
+            description=request_data['description'],
+            project=project,
+            component=component,
+            version=components[0].version,
+            comments=[], watchers=[user],
+        )
+        self.parent.issues[id] = issue
+
+        return self.radar_for_id(id)
 
 class Radar(Base, ContextStack):
     top = None
@@ -189,11 +281,27 @@ class Radar(Base, ContextStack):
         def __init__(self, name, version):
             pass
 
+    class Component(object):
+        def __init__(self, name, description, version):
+            self.name = name
+            self.description = description
+            self.version = version
+
+        def get(self, item, default=None):
+            return getattr(self, item, default)
+
+        def __getitem__(self, item):
+            return getattr(self, item)
+
     class DiagnosisEntry(object):
         def __init__(self, text=None, addedAt=None, addedBy=None):
             self.text = text
             self.addedAt = addedAt
             self.addedBy = addedBy
+
+    class exceptions(object):
+        class UnsuccessfulResponseException(Exception):
+            pass
 
     @classmethod
     def transform_user(cls, user):
@@ -203,8 +311,8 @@ class Radar(Base, ContextStack):
             emails=user.emails + [user.email.split('@')[0] + '@APPLECONNECT.APPLE.COM'],
         )
 
-    def __init__(self, users=None, issues=None):
-        Base.__init__(self, users=users, issues=issues)
+    def __init__(self, users=None, issues=None, projects=None):
+        Base.__init__(self, users=users, issues=issues, projects=projects)
         ContextStack.__init__(self, Radar)
 
         self.users = User.Mapping()

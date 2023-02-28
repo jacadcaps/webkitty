@@ -29,7 +29,6 @@
 #include "EventOptions.h"
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
-#include <wtf/CheckedPtr.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/AtomString.h>
@@ -89,8 +88,8 @@ public:
     DOMHighResTimeStamp timeStampForBindings(ScriptExecutionContext&) const;
     MonotonicTime timeStamp() const { return m_createTime; }
 
-    void setEventPath(const EventPath&);
-    Vector<Ref<EventTarget>> composedPath() const;
+    void setEventPath(const EventPath& path) { m_eventPath = &path; }
+    Vector<EventTarget*> composedPath() const;
 
     void stopPropagation() { m_propagationStopped = true; }
     void stopImmediatePropagation() { m_immediatePropagationStopped = true; }
@@ -183,7 +182,7 @@ private:
     AtomString m_type;
 
     RefPtr<EventTarget> m_currentTarget;
-    CheckedPtr<const EventPath> m_eventPath;
+    const EventPath* m_eventPath { nullptr };
     RefPtr<EventTarget> m_target;
     MonotonicTime m_createTime;
 

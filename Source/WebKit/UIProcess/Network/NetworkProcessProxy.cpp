@@ -28,16 +28,15 @@
 
 #include "APIContentRuleList.h"
 #include "APICustomProtocolManagerClient.h"
+#include "APIDataTask.h"
+#include "APIDataTaskClient.h"
+#include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationManager.h"
 #include "DownloadProxyMap.h"
 #include "DownloadProxyMessages.h"
 #include "FrameInfoData.h"
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-#include "LegacyCustomProtocolManagerMessages.h"
-#include "LegacyCustomProtocolManagerProxyMessages.h"
-#endif
 #include "LegacyGlobalSettings.h"
 #include "Logging.h"
 #include "NetworkContentRuleListManagerMessages.h"
@@ -46,14 +45,12 @@
 #include "NetworkProcessMessages.h"
 #include "NetworkProcessProxyMessages.h"
 #include "PageClient.h"
+#include "RemoteWorkerType.h"
 #include "SandboxExtension.h"
-#if HAVE(SEC_KEY_PROXY)
-#include "SecKeyProxyStore.h"
-#endif
 #include "ShouldGrandfatherStatistics.h"
 #include "StorageAccessStatus.h"
 #include "WebCompiledContentRuleList.h"
-#include "WebCookieManagerProxy.h"
+#include "WebNotificationManagerProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessMessages.h"
@@ -66,7 +63,9 @@
 #include "WebsiteDataStoreClient.h"
 #include "WebsiteDataStoreParameters.h"
 #include <WebCore/ClientOrigin.h>
+#include <WebCore/PushPermissionState.h>
 #include <WebCore/RegistrableDomain.h>
+#include <WebCore/ResourceError.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CompletionHandler.h>
 
@@ -74,8 +73,17 @@
 #include "SecItemShimProxy.h"
 #endif
 
+#if HAVE(SEC_KEY_PROXY)
+#include "SecKeyProxyStore.h"
+#endif
+
 #if PLATFORM(IOS_FAMILY)
 #include <wtf/spi/darwin/XPCSPI.h>
+#endif
+
+#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
+#include "LegacyCustomProtocolManagerMessages.h"
+#include "LegacyCustomProtocolManagerProxyMessages.h"
 #endif
 
 #if PLATFORM(COCOA)
@@ -124,17 +132,21 @@ Vector<Ref<NetworkProcessProxy>> NetworkProcessProxy::allNetworkProcesses()
     });
 }
 
-RefPtr<NetworkProcessProxy>& NetworkProcessProxy::defaultNetworkProcess()
+WeakPtr<NetworkProcessProxy>& NetworkProcessProxy::defaultNetworkProcess()
 {
-    static NeverDestroyed<RefPtr<NetworkProcessProxy>> process;
-    return process.get();
+    static NeverDestroyed<WeakPtr<NetworkProcessProxy>> networkProcess;
+    return networkProcess.get();
 }
 
 Ref<NetworkProcessProxy> NetworkProcessProxy::ensureDefaultNetworkProcess()
 {
-    if (!defaultNetworkProcess())
-        defaultNetworkProcess() = NetworkProcessProxy::create();
-    return *defaultNetworkProcess();
+    auto& networkProcess = defaultNetworkProcess();
+    if (networkProcess)
+        return Ref { *networkProcess };
+
+    auto newNetworkProcess = NetworkProcessProxy::create();
+    networkProcess = newNetworkProcess.get();
+    return newNetworkProcess;
 }
 
 void NetworkProcessProxy::terminate()
@@ -142,7 +154,12 @@ void NetworkProcessProxy::terminate()
     AuxiliaryProcessProxy::terminate();
     if (auto* connection = this->connection())
         connection->invalidate();
-    networkProcessDidTerminate(TerminationReason::RequestedByClient);
+}
+
+void NetworkProcessProxy::requestTermination()
+{
+    terminate();
+    networkProcessDidTerminate(ProcessTerminationReason::RequestedByClient);
 }
 
 void NetworkProcessProxy::didBecomeUnresponsive()
@@ -155,13 +172,17 @@ void NetworkProcessProxy::didBecomeUnresponsive()
     if (shouldTerminateNetworkProcessBySendingMessage()) {
         sendMessage(makeUniqueRef<IPC::Encoder>(IPC::MessageName::Terminate, 0), { });
         RunLoop::main().dispatchAfter(1_s, [weakThis = WeakPtr { *this }] () mutable {
-            if (weakThis)
+            if (weakThis) {
                 weakThis->terminate();
+                weakThis->networkProcessDidTerminate(ProcessTerminationReason::Unresponsive);
+            }
+
         });
         return;
     }
 
     terminate();
+    networkProcessDidTerminate(ProcessTerminationReason::Unresponsive);
 }
 
 void NetworkProcessProxy::sendCreationParametersToNewProcess()
@@ -184,28 +205,11 @@ void NetworkProcessProxy::sendCreationParametersToNewProcess()
     parameters.urlSchemesRegisteredAsLocal = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsLocal());
     parameters.urlSchemesRegisteredAsNoAccess = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsNoAccess());
     parameters.cacheModel = LegacyGlobalSettings::singleton().cacheModel();
-    for (auto& scheme : WebProcessPool::urlSchemesWithCustomProtocolHandlers())
-        parameters.urlSchemesRegisteredForCustomProtocols.append(scheme);
-#if PLATFORM(IOS_FAMILY)
-    if (String cookieStorageDirectory = WebProcessPool::cookieStorageDirectory(); !cookieStorageDirectory.isEmpty()) {
-        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(cookieStorageDirectory))
-            parameters.cookieStorageDirectoryExtensionHandle = WTFMove(*handle);
-    }
-    if (String containerCachesDirectory = WebProcessPool::networkingCachesDirectory(); !containerCachesDirectory.isEmpty()) {
-        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(containerCachesDirectory))
-            parameters.containerCachesDirectoryExtensionHandle = WTFMove(*handle);
-    }
-    if (String parentBundleDirectory = WebProcessPool::parentBundleDirectory(); !parentBundleDirectory.isEmpty()) {
-        if (auto handle = SandboxExtension::createHandle(parentBundleDirectory, SandboxExtension::Type::ReadOnly))
-            parameters.parentBundleDirectoryExtensionHandle = WTFMove(*handle);
-    }
-    if (auto handleAndFilePath = SandboxExtension::createHandleForTemporaryFile(emptyString(), SandboxExtension::Type::ReadWrite))
-        parameters.tempDirectoryExtensionHandle = WTFMove(handleAndFilePath->first);
-#endif
+    parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
 
 #if !PLATFORM(GTK) && !PLATFORM(WPE) // GTK and WPE don't use defaultNetworkProcess
     parameters.websiteDataStoreParameters = WebsiteDataStore::parametersFromEachWebsiteDataStore();
-    WebsiteDataStore::forEachWebsiteDataStore([this](auto& websiteDataStore) {
+    WebsiteDataStore::forEachWebsiteDataStore([&](auto& websiteDataStore) {
         addSession(websiteDataStore, SendParametersToNetworkProcess::No);
     });
 #endif
@@ -215,22 +219,16 @@ void NetworkProcessProxy::sendCreationParametersToNewProcess()
 #endif
 
     WebProcessPool::platformInitializeNetworkProcess(parameters);
-    send(Messages::NetworkProcess::InitializeNetworkProcess(parameters), 0);
+    sendWithAsyncReply(Messages::NetworkProcess::InitializeNetworkProcess(parameters), [weakThis = WeakPtr { *this }] {
+        if (weakThis)
+            weakThis->beginResponsivenessChecks();
+    });
 }
 
 static bool anyProcessPoolAlwaysRunsAtBackgroundPriority()
 {
     for (auto& processPool : WebProcessPool::allProcessPools()) {
         if (processPool->alwaysRunsAtBackgroundPriority())
-            return true;
-    }
-    return false;
-}
-
-static bool anyProcessPoolShouldTakeUIBackgroundAssertion()
-{
-    for (auto& processPool : WebProcessPool::allProcessPools()) {
-        if (processPool->shouldTakeUIBackgroundAssertion())
             return true;
     }
     return false;
@@ -244,13 +242,17 @@ NetworkProcessProxy::NetworkProcessProxy()
 #else
     , m_customProtocolManagerClient(makeUniqueRef<API::CustomProtocolManagerClient>())
 #endif
-    , m_throttler(*this, anyProcessPoolShouldTakeUIBackgroundAssertion())
-    , m_cookieManager(makeUniqueRef<WebCookieManagerProxy>(*this))
+    , m_throttler(*this, WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion())
 {
+    RELEASE_LOG(Process, "%p - NetworkProcessProxy::NetworkProcessProxy", this);
+
     connect();
     sendCreationParametersToNewProcess();
     updateProcessAssertion();
     networkProcessesSet().add(this);
+#if PLATFORM(IOS_FAMILY)
+    addBackgroundStateObservers();
+#endif
 }
 
 NetworkProcessProxy::~NetworkProcessProxy()
@@ -263,6 +265,9 @@ NetworkProcessProxy::~NetworkProcessProxy()
     if (m_downloadProxyMap)
         m_downloadProxyMap->invalidate();
     networkProcessesSet().remove(this);
+#if PLATFORM(IOS_FAMILY)
+    removeBackgroundStateObservers();
+#endif
 }
 
 void NetworkProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& launchOptions)
@@ -308,8 +313,8 @@ void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProces
         reply(NetworkProcessConnectionInfo { WTFMove(*identifier), cookieAcceptPolicy });
         UNUSED_VARIABLE(this);
 #elif OS(DARWIN)
-        MESSAGE_CHECK(MACH_PORT_VALID(identifier->port()));
-        reply(NetworkProcessConnectionInfo { IPC::Attachment { identifier->port(), MACH_MSG_TYPE_MOVE_SEND }, cookieAcceptPolicy, connection()->getAuditToken() });
+        MESSAGE_CHECK(MACH_PORT_VALID(identifier->sendRight()));
+        reply(NetworkProcessConnectionInfo { WTFMove(*identifier) , cookieAcceptPolicy, connection()->getAuditToken() });
 #else
         notImplemented();
 #endif
@@ -318,12 +323,10 @@ void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProces
 
 void NetworkProcessProxy::synthesizeAppIsBackground(bool background)
 {
-    if (m_downloadProxyMap) {
-        if (background)
-            m_downloadProxyMap->applicationDidEnterBackground();
-        else
-            m_downloadProxyMap->applicationWillEnterForeground();
-    }
+    if (background)
+        applicationDidEnterBackground();
+    else
+        applicationWillEnterForeground();
 }
 
 DownloadProxy& NetworkProcessProxy::createDownloadProxy(WebsiteDataStore& dataStore, WebProcessPool& processPool, const ResourceRequest& resourceRequest, const FrameInfoData& frameInfo, WebPageProxy* originatingPage)
@@ -334,12 +337,59 @@ DownloadProxy& NetworkProcessProxy::createDownloadProxy(WebsiteDataStore& dataSt
     return m_downloadProxyMap->createDownloadProxy(dataStore, processPool, resourceRequest, frameInfo, originatingPage);
 }
 
-void NetworkProcessProxy::requestResource(WebPageProxyIdentifier pageID, PAL::SessionID sessionID, WebCore::ResourceRequest&& request, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&, WebCore::ResourceResponse&&, WebCore::ResourceError&&)>&& completionHandler)
+void NetworkProcessProxy::dataTaskWithRequest(WebPageProxy& page, PAL::SessionID sessionID, WebCore::ResourceRequest&& request, CompletionHandler<void(API::DataTask&)>&& completionHandler)
 {
-    sendWithAsyncReply(Messages::NetworkProcess::RequestResource(pageID, sessionID, request, IPC::FormDataReference(request.httpBody())), [completionHandler = WTFMove(completionHandler)] (IPC::DataReference&& data, WebCore::ResourceResponse&& response, WebCore::ResourceError&& error) mutable {
-        auto buffer = SharedBuffer::create(data.data(), data.size());
-        completionHandler(WTFMove(buffer), WTFMove(response), WTFMove(error));
+    sendWithAsyncReply(Messages::NetworkProcess::DataTaskWithRequest(page.identifier(), sessionID, request, IPC::FormDataReference(request.httpBody())), [this, protectedThis = Ref { *this }, weakPage = WeakPtr { page }, completionHandler = WTFMove(completionHandler), originalURL = request.url()] (DataTaskIdentifier identifier) mutable {
+        MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+        auto dataTask = API::DataTask::create(identifier, WTFMove(weakPage), WTFMove(originalURL));
+        completionHandler(dataTask);
+        m_dataTasks.add(identifier, WTFMove(dataTask));
     });
+}
+
+void NetworkProcessProxy::dataTaskReceivedChallenge(DataTaskIdentifier identifier, WebCore::AuthenticationChallenge&& challenge, CompletionHandler<void(AuthenticationChallengeDisposition, WebCore::Credential&&)>&& completionHandler)
+{
+    MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+    if (auto task = m_dataTasks.get(identifier))
+        task->client().didReceiveChallenge(*task, WTFMove(challenge), WTFMove(completionHandler));
+    else
+        completionHandler(AuthenticationChallengeDisposition::RejectProtectionSpaceAndContinue, { });
+}
+
+void NetworkProcessProxy::dataTaskWillPerformHTTPRedirection(DataTaskIdentifier identifier, WebCore::ResourceResponse&& response, WebCore::ResourceRequest&& request, CompletionHandler<void(bool)>&& completionHandler)
+{
+    MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+    if (auto task = m_dataTasks.get(identifier))
+        task->client().willPerformHTTPRedirection(*task, WTFMove(response), WTFMove(request), WTFMove(completionHandler));
+}
+
+void NetworkProcessProxy::dataTaskDidReceiveResponse(DataTaskIdentifier identifier, WebCore::ResourceResponse&& response, CompletionHandler<void(bool)>&& completionHandler)
+{
+    MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+    if (auto task = m_dataTasks.get(identifier))
+        task->client().didReceiveResponse(*task, WTFMove(response), WTFMove(completionHandler));
+    else
+        completionHandler(false);
+}
+
+void NetworkProcessProxy::dataTaskDidReceiveData(DataTaskIdentifier identifier, const IPC::DataReference& data)
+{
+    MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+    if (auto task = m_dataTasks.get(identifier))
+        task->client().didReceiveData(*task, data);
+}
+
+void NetworkProcessProxy::dataTaskDidCompleteWithError(DataTaskIdentifier identifier, WebCore::ResourceError&& error)
+{
+    MESSAGE_CHECK(decltype(m_dataTasks)::isValidKey(identifier));
+    if (auto task = m_dataTasks.take(identifier))
+        task->client().didCompleteWithError(*task, WTFMove(error));
+}
+
+void NetworkProcessProxy::cancelDataTask(DataTaskIdentifier identifier, PAL::SessionID sessionID)
+{
+    m_dataTasks.remove(identifier);
+    send(Messages::NetworkProcess::CancelDataTask(identifier, sessionID), 0);
 }
 
 void NetworkProcessProxy::fetchWebsiteData(PAL::SessionID sessionID, OptionSet<WebsiteDataType> dataTypes, OptionSet<WebsiteDataFetchOption> fetchOptions, CompletionHandler<void(WebsiteData)>&& completionHandler)
@@ -362,7 +412,12 @@ void NetworkProcessProxy::renameOriginInWebsiteData(PAL::SessionID sessionID, co
     sendWithAsyncReply(Messages::NetworkProcess::RenameOriginInWebsiteData(sessionID, oldName, newName, dataTypes), WTFMove(completionHandler));
 }
 
-void NetworkProcessProxy::networkProcessDidTerminate(TerminationReason reason)
+void NetworkProcessProxy::websiteDataOriginDirectoryForTesting(PAL::SessionID sessionID, URL&& origin, URL&& topOrigin, WebsiteDataType type, CompletionHandler<void(const String&)>&& completionHandler)
+{
+    sendWithAsyncReply(Messages::NetworkProcess::WebsiteDataOriginDirectoryForTesting(sessionID, WTFMove(origin), WTFMove(topOrigin), type), WTFMove(completionHandler));
+}
+
+void NetworkProcessProxy::networkProcessDidTerminate(ProcessTerminationReason reason)
 {
     Ref protectedThis { *this };
 
@@ -381,6 +436,9 @@ void NetworkProcessProxy::networkProcessDidTerminate(TerminationReason reason)
         processPool->networkProcessDidTerminate(*this, reason);
     for (auto& websiteDataStore : copyToVectorOf<Ref<WebsiteDataStore>>(m_websiteDataStores))
         websiteDataStore->networkProcessDidTerminate(*this);
+    for (auto& task : m_dataTasks.values())
+        task->client().didCompleteWithError(task, WebCore::internalError(task->originalURL()));
+    m_dataTasks.clear();
 }
 
 void NetworkProcessProxy::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
@@ -408,13 +466,14 @@ void NetworkProcessProxy::didClose(IPC::Connection& connection)
 #endif
 
     // This will cause us to be deleted.
-    networkProcessDidTerminate(TerminationReason::Crash);
+    networkProcessDidTerminate(ProcessTerminationReason::Crash);
 }
 
 void NetworkProcessProxy::didReceiveInvalidMessage(IPC::Connection& connection, IPC::MessageName messageName)
 {
     logInvalidMessage(connection, messageName);
     terminate();
+    networkProcessDidTerminate(ProcessTerminationReason::Crash);
 }
 
 void NetworkProcessProxy::processAuthenticationChallenge(PAL::SessionID sessionID, Ref<AuthenticationChallengeProxy>&& authenticationChallenge)
@@ -495,10 +554,12 @@ void NetworkProcessProxy::triggerBrowsingContextGroupSwitchForNavigation(WebPage
 
 void NetworkProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connection::Identifier connectionIdentifier)
 {
+    RELEASE_LOG(Process, "%p - NetworkProcessProxy::didFinishLaunching", this);
+
     AuxiliaryProcessProxy::didFinishLaunching(launcher, connectionIdentifier);
 
     if (!IPC::Connection::identifierIsValid(connectionIdentifier)) {
-        networkProcessDidTerminate(TerminationReason::Crash);
+        networkProcessDidTerminate(ProcessTerminationReason::Crash);
         return;
     }
     
@@ -604,14 +665,6 @@ void NetworkProcessProxy::resourceLoadDidCompleteWithError(WebPageProxyIdentifie
 
     page->resourceLoadDidCompleteWithError(WTFMove(loadInfo), WTFMove(response), WTFMove(error));
 }
-
-#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
-void NetworkProcessProxy::reloadAfterUnblockedContentFilter(WebPageProxyIdentifier pageID)
-{
-    if (auto* page = WebProcessProxy::webPage(pageID))
-        page->reload({ });
-}
-#endif
 
 #if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
 void NetworkProcessProxy::dumpResourceLoadStatistics(PAL::SessionID sessionID, CompletionHandler<void(String)>&& completionHandler)
@@ -808,16 +861,6 @@ void NetworkProcessProxy::hasLocalStorage(PAL::SessionID sessionID, const Regist
     sendWithAsyncReply(Messages::NetworkProcess::HasLocalStorage(sessionID, resourceDomain), WTFMove(completionHandler));
 }
 
-void NetworkProcessProxy::setAgeCapForClientSideCookies(PAL::SessionID sessionID, std::optional<Seconds> seconds, CompletionHandler<void()>&& completionHandler)
-{
-    if (!canSendMessage()) {
-        completionHandler();
-        return;
-    }
-    
-    sendWithAsyncReply(Messages::NetworkProcess::SetAgeCapForClientSideCookies(sessionID, seconds), WTFMove(completionHandler));
-}
-
 void NetworkProcessProxy::setTimeToLiveUserInteraction(PAL::SessionID sessionID, Seconds seconds, CompletionHandler<void()>&& completionHandler)
 {
     if (!canSendMessage()) {
@@ -836,6 +879,16 @@ void NetworkProcessProxy::setNotifyPagesWhenDataRecordsWereScanned(PAL::SessionI
     }
     
     sendWithAsyncReply(Messages::NetworkProcess::SetNotifyPagesWhenDataRecordsWereScanned(sessionID, value), WTFMove(completionHandler));
+}
+
+void NetworkProcessProxy::setResourceLoadStatisticsTimeAdvanceForTesting(PAL::SessionID sessionID, Seconds time, CompletionHandler<void()>&& completionHandler)
+{
+    if (!canSendMessage()) {
+        completionHandler();
+        return;
+    }
+
+    sendWithAsyncReply(Messages::NetworkProcess::SetResourceLoadStatisticsTimeAdvanceForTesting(sessionID, time), WTFMove(completionHandler));
 }
 
 void NetworkProcessProxy::setIsRunningResourceLoadStatisticsTest(PAL::SessionID sessionID, bool value, CompletionHandler<void()>&& completionHandler)
@@ -1324,22 +1377,19 @@ void NetworkProcessProxy::setSuspensionAllowedForTesting(bool allowed)
     s_suspensionAllowedForTesting = allowed;
 }
 
-void NetworkProcessProxy::sendPrepareToSuspend(IsSuspensionImminent isSuspensionImminent, CompletionHandler<void()>&& completionHandler)
+void NetworkProcessProxy::sendPrepareToSuspend(IsSuspensionImminent isSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&& completionHandler)
 {
     if (!s_suspensionAllowedForTesting)
         return completionHandler();
-    sendWithAsyncReply(Messages::NetworkProcess::PrepareToSuspend(isSuspensionImminent == IsSuspensionImminent::Yes), WTFMove(completionHandler), 0, { }, ShouldStartProcessThrottlerActivity::No);
+    
+    auto estimatedSuspendTime = MonotonicTime::now() + Seconds(remainingRunTime);
+    sendWithAsyncReply(Messages::NetworkProcess::PrepareToSuspend(isSuspensionImminent == IsSuspensionImminent::Yes, estimatedSuspendTime), WTFMove(completionHandler), 0, { }, ShouldStartProcessThrottlerActivity::No);
 }
 
-void NetworkProcessProxy::sendProcessDidResume()
+void NetworkProcessProxy::sendProcessDidResume(ResumeReason reason)
 {
     if (canSendMessage())
-        send(Messages::NetworkProcess::ProcessDidResume(), 0);
-}
-
-void NetworkProcessProxy::flushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
-{
-    sendWithAsyncReply(Messages::NetworkProcess::FlushCookies(sessionID), WTFMove(completionHandler));
+        send(Messages::NetworkProcess::ProcessDidResume(reason == ResumeReason::ForegroundActivity), 0);
 }
 
 void NetworkProcessProxy::addSession(WebsiteDataStore& store, SendParametersToNetworkProcess sendParametersToNetworkProcess)
@@ -1355,7 +1405,7 @@ void NetworkProcessProxy::addSession(WebsiteDataStore& store, SendParametersToNe
         send(Messages::NetworkProcess::AddWebsiteDataStore { store.parameters() }, 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
     auto sessionID = store.sessionID();
     if (!sessionID.isEphemeral())
-        createSymLinkForFileUpgrade(store.resolvedIndexedDatabaseDirectory());
+        createSymLinkForFileUpgrade(store.resolvedIndexedDBDatabaseDirectory());
 }
 
 void NetworkProcessProxy::removeSession(WebsiteDataStore& websiteDataStore)
@@ -1372,25 +1422,6 @@ void NetworkProcessProxy::removeSession(WebsiteDataStore& websiteDataStore)
 WebsiteDataStore* NetworkProcessProxy::websiteDataStoreFromSessionID(PAL::SessionID sessionID)
 {
     return WebsiteDataStore::existingDataStoreForSessionID(sessionID);
-}
-
-void NetworkProcessProxy::retrieveCacheStorageParameters(PAL::SessionID sessionID, CompletionHandler<void(const String& cacheStorageDirectory, const WebKit::SandboxExtension::Handle& handle)>&& completionHandler)
-{
-    auto* store = websiteDataStoreFromSessionID(sessionID);
-    if (!store) {
-        RELEASE_LOG_ERROR(CacheStorage, "%p - NetworkProcessProxy is unable to retrieve CacheStorage parameters from the given session ID %" PRIu64, this, sessionID.toUInt64());
-        completionHandler({ }, { });
-        return;
-    }
-
-    auto& cacheStorageDirectory = store->configuration().cacheStorageDirectory();
-    SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
-    if (!cacheStorageDirectory.isEmpty()) {
-        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(cacheStorageDirectory))
-            cacheStorageDirectoryExtensionHandle = WTFMove(*handle);
-    }
-
-    completionHandler(cacheStorageDirectory, cacheStorageDirectoryExtensionHandle);
 }
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -1416,29 +1447,30 @@ void NetworkProcessProxy::didDestroyWebUserContentControllerProxy(WebUserContent
 }
 #endif
 
-void NetworkProcessProxy::establishSharedWorkerContextConnectionToNetworkProcess(WebCore::RegistrableDomain&& registrableDomain, PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
+void NetworkProcessProxy::registerRemoteWorkerClientProcess(RemoteWorkerType workerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier)
 {
-    WebProcessPool::establishSharedWorkerContextConnectionToNetworkProcess(WTFMove(registrableDomain), sessionID, WTFMove(completionHandler));
+    RELEASE_LOG(Worker, "NetworkProcessProxy::registerRemoteWorkerClientProcess: workerType=%{public}s, clientProcessIdentifier=%" PRIu64 ", remoteWorkerProcessIdentifier=%" PRIu64, workerType == RemoteWorkerType::ServiceWorker ? "service" : "shared", clientProcessIdentifier.toUInt64(), remoteWorkerProcessIdentifier.toUInt64());
+    auto* clientWebProcess = WebProcessProxy::processForIdentifier(clientProcessIdentifier);
+    auto* remoteWorkerProcess = WebProcessProxy::processForIdentifier(remoteWorkerProcessIdentifier);
+    if (!clientWebProcess || !remoteWorkerProcess) {
+        RELEASE_LOG_ERROR(Worker, "NetworkProcessProxy::registerRemoteWorkerClientProcess: Could not look up one of the processes (clientWebProcess=%p, remoteWorkerProcess=%p)", clientWebProcess, remoteWorkerProcess);
+        return;
+    }
+
+    remoteWorkerProcess->registerRemoteWorkerClientProcess(workerType, *clientWebProcess);
 }
 
-void NetworkProcessProxy::registerRemoteWorkerClientProcess(RemoteWorkerType workerType, WebCore::ProcessIdentifier webProcessIdentifier, WebCore::ProcessIdentifier sharedWorkerProcessIdentifier)
+void NetworkProcessProxy::unregisterRemoteWorkerClientProcess(RemoteWorkerType workerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier)
 {
-    auto* webProcess = WebProcessProxy::processForIdentifier(webProcessIdentifier);
-    auto* sharedWorkerProcess = WebProcessProxy::processForIdentifier(sharedWorkerProcessIdentifier);
-    if (!webProcess || !sharedWorkerProcess)
+    RELEASE_LOG(Worker, "NetworkProcessProxy::unregisterRemoteWorkerClientProcess: workerType=%{public}s, clientProcessIdentifier=%" PRIu64 ", remoteWorkerProcessIdentifier=%" PRIu64, workerType == RemoteWorkerType::ServiceWorker ? "service" : "shared", clientProcessIdentifier.toUInt64(), remoteWorkerProcessIdentifier.toUInt64());
+    auto* clientWebProcess = WebProcessProxy::processForIdentifier(clientProcessIdentifier);
+    auto* remoteWorkerProcess = WebProcessProxy::processForIdentifier(remoteWorkerProcessIdentifier);
+    if (!clientWebProcess || !remoteWorkerProcess) {
+        RELEASE_LOG_ERROR(Worker, "NetworkProcessProxy::unregisterRemoteWorkerClientProcess: Could not look up one of the processes (clientWebProcess=%p, remoteWorkerProcess=%p)", clientWebProcess, remoteWorkerProcess);
         return;
+    }
 
-    sharedWorkerProcess->registerRemoteWorkerClientProcess(workerType, *webProcess);
-}
-
-void NetworkProcessProxy::unregisterRemoteWorkerClientProcess(RemoteWorkerType workerType, WebCore::ProcessIdentifier webProcessIdentifier, WebCore::ProcessIdentifier sharedWorkerProcessIdentifier)
-{
-    auto* webProcess = WebProcessProxy::processForIdentifier(webProcessIdentifier);
-    auto* sharedWorkerProcess = WebProcessProxy::processForIdentifier(sharedWorkerProcessIdentifier);
-    if (!webProcess || !sharedWorkerProcess)
-        return;
-
-    sharedWorkerProcess->unregisterRemoteWorkerClientProcess(workerType, *webProcess);
+    remoteWorkerProcess->unregisterRemoteWorkerClientProcess(workerType, *clientWebProcess);
 }
 
 void NetworkProcessProxy::remoteWorkerContextConnectionNoLongerNeeded(RemoteWorkerType workerType, WebCore::ProcessIdentifier identifier)
@@ -1447,11 +1479,12 @@ void NetworkProcessProxy::remoteWorkerContextConnectionNoLongerNeeded(RemoteWork
         process->disableRemoteWorkers(workerType);
 }
 
-#if ENABLE(SERVICE_WORKER)
-void NetworkProcessProxy::establishServiceWorkerContextConnectionToNetworkProcess(RegistrableDomain&& registrableDomain, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
+void NetworkProcessProxy::establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType workerType, RegistrableDomain&& registrableDomain, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    WebProcessPool::establishServiceWorkerContextConnectionToNetworkProcess(WTFMove(registrableDomain), serviceWorkerPageIdentifier, sessionID, WTFMove(completionHandler));
+    WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess(workerType, WTFMove(registrableDomain), requestingProcessIdentifier, serviceWorkerPageIdentifier, sessionID, WTFMove(completionHandler));
 }
+
+#if ENABLE(SERVICE_WORKER)
 
 void NetworkProcessProxy::startServiceWorkerBackgroundProcessing(WebCore::ProcessIdentifier serviceWorkerProcessIdentifier)
 {
@@ -1584,7 +1617,7 @@ void NetworkProcessProxy::createSymLinkForFileUpgrade(const String& indexedDatab
     if (indexedDatabaseDirectory.isEmpty())
         return;
 
-    String oldVersionDirectory = FileSystem::pathByAppendingComponent(indexedDatabaseDirectory, "v0");
+    String oldVersionDirectory = FileSystem::pathByAppendingComponent(indexedDatabaseDirectory, "v0"_s);
     FileSystem::deleteEmptyDirectory(oldVersionDirectory);
     if (!FileSystem::fileExists(oldVersionDirectory))
         FileSystem::createSymbolicLink(indexedDatabaseDirectory, oldVersionDirectory);
@@ -1695,7 +1728,7 @@ void NetworkProcessProxy::didExceedMemoryLimit()
     AuxiliaryProcessProxy::terminate();
     if (auto* connection = this->connection())
         connection->invalidate();
-    networkProcessDidTerminate(TerminationReason::ExceededMemoryLimit);
+    networkProcessDidTerminate(ProcessTerminationReason::ExceededMemoryLimit);
 }
 #endif
 
@@ -1707,9 +1740,27 @@ void NetworkProcessProxy::getPendingPushMessages(PAL::SessionID sessionID, Compl
 
 void NetworkProcessProxy::processPushMessage(PAL::SessionID sessionID, const WebPushMessage& pushMessage, CompletionHandler<void(bool wasProcessed)>&& callback)
 {
-    sendWithAsyncReply(Messages::NetworkProcess::ProcessPushMessage { sessionID, pushMessage }, WTFMove(callback));
+    auto permission = PushPermissionState::Prompt;
+    auto permissions = WebNotificationManagerProxy::sharedServiceWorkerManager().notificationPermissions();
+    auto origin = SecurityOriginData::fromURL(pushMessage.registrationURL).toString();
+
+    if (auto it = permissions.find(origin); it != permissions.end())
+        permission = it->value ? PushPermissionState::Granted : PushPermissionState::Denied;
+
+    sendWithAsyncReply(Messages::NetworkProcess::ProcessPushMessage { sessionID, pushMessage, permission }, WTFMove(callback));
+}
+
+void NetworkProcessProxy::processNotificationEvent(const NotificationData& data, NotificationEventType eventType, CompletionHandler<void(bool wasProcessed)>&& callback)
+{
+    RELEASE_ASSERT(!!callback);
+    sendWithAsyncReply(Messages::NetworkProcess::ProcessNotificationEvent { data, eventType }, WTFMove(callback));
 }
 #endif // ENABLE(SERVICE_WORKER)
+
+void NetworkProcessProxy::setPushAndNotificationsEnabledForOrigin(PAL::SessionID sessionID, const SecurityOriginData& origin, bool enabled, CompletionHandler<void()>&& callback)
+{
+    sendWithAsyncReply(Messages::NetworkProcess::SetPushAndNotificationsEnabledForOrigin { sessionID, origin, enabled }, WTFMove(callback));
+}
 
 void NetworkProcessProxy::deletePushAndNotificationRegistration(PAL::SessionID sessionID, const SecurityOriginData& origin, CompletionHandler<void(const String&)>&& callback)
 {
@@ -1720,6 +1771,70 @@ void NetworkProcessProxy::getOriginsWithPushAndNotificationPermissions(PAL::Sess
 {
     sendWithAsyncReply(Messages::NetworkProcess::GetOriginsWithPushAndNotificationPermissions { sessionID }, WTFMove(callback));
 }
+
+void NetworkProcessProxy::getOriginsWithPushSubscriptions(PAL::SessionID sessionID, CompletionHandler<void(const Vector<SecurityOriginData>&)>&& callback)
+{
+    sendWithAsyncReply(Messages::NetworkProcess::GetOriginsWithPushSubscriptions { sessionID }, WTFMove(callback));
+}
+
+void NetworkProcessProxy::hasPushSubscriptionForTesting(PAL::SessionID sessionID, const URL& scopeURL, CompletionHandler<void(bool)>&& callback)
+{
+    sendWithAsyncReply(Messages::NetworkProcess::HasPushSubscriptionForTesting { sessionID, scopeURL }, WTFMove(callback));
+}
+
+void NetworkProcessProxy::terminateRemoteWorkerContextConnectionWhenPossible(RemoteWorkerType workerType, PAL::SessionID sessionID, const WebCore::RegistrableDomain& registrableDomain, WebCore::ProcessIdentifier processIdentifier)
+{
+    send(Messages::NetworkProcess::TerminateRemoteWorkerContextConnectionWhenPossible(workerType, sessionID, registrableDomain, processIdentifier), 0);
+}
+
+void NetworkProcessProxy::openWindowFromServiceWorker(PAL::SessionID sessionID, const String& urlString, const WebCore::SecurityOriginData& serviceWorkerOrigin, CompletionHandler<void(std::optional<WebCore::PageIdentifier>&&)>&& callback)
+{
+    if (auto* store = websiteDataStoreFromSessionID(sessionID)) {
+        store->openWindowFromServiceWorker(urlString, serviceWorkerOrigin, WTFMove(callback));
+        return;
+    }
+
+    callback(std::nullopt);
+}
+
+void NetworkProcessProxy::navigateServiceWorkerClient(WebCore::FrameIdentifier frameIdentifier, WebCore::ScriptExecutionContextIdentifier documentIdentifier, const URL& url, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&& callback)
+{
+    auto* process = WebProcessProxy::processForIdentifier(documentIdentifier.processIdentifier());
+    auto* frame = process ? process->webFrame(frameIdentifier) : nullptr;
+    if (!frame) {
+        callback({ });
+        return;
+    }
+    frame->navigateServiceWorkerClient(documentIdentifier, url, WTFMove(callback));
+}
+
+void NetworkProcessProxy::applicationDidEnterBackground()
+{
+    send(Messages::NetworkProcess::ApplicationDidEnterBackground(), 0);
+}
+
+void NetworkProcessProxy::applicationWillEnterForeground()
+{
+    send(Messages::NetworkProcess::ApplicationWillEnterForeground(), 0);
+}
+
+void NetworkProcessProxy::cookiesDidChange(PAL::SessionID sessionID)
+{
+    if (auto* websiteDataStore = websiteDataStoreFromSessionID(sessionID))
+        websiteDataStore->cookieStore().cookiesDidChange();
+}
+
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+void NetworkProcessProxy::setEmulatedConditions(PAL::SessionID sessionID, std::optional<int64_t>&& bytesPerSecondLimit)
+{
+    if (!canSendMessage())
+        return;
+
+    send(Messages::NetworkProcess::SetEmulatedConditions(sessionID, WTFMove(bytesPerSecondLimit)), 0);
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
 } // namespace WebKit
 

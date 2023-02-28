@@ -26,6 +26,7 @@
 #import "config.h"
 #import "BindGroup.h"
 
+#import "APIConversions.h"
 #import "BindGroupLayout.h"
 #import "Buffer.h"
 #import "Device.h"
@@ -49,94 +50,104 @@ static bool textureViewIsPresent(const WGPUBindGroupEntry& entry)
     return entry.textureView;
 }
 
-RefPtr<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor* descriptor)
+Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor)
 {
-    if (descriptor->nextInChain)
-        return nullptr;
+    if (descriptor.nextInChain)
+        return BindGroup::createInvalid(*this);
 
-    const BindGroupLayout& bindGroupLayout = descriptor->layout->bindGroupLayout;
+    // FIXME: Validate this according to the spec.
 
-    // FIXME: Don't allocate 3 new buffers for every bind group.
+    const BindGroupLayout& bindGroupLayout = WebGPU::fromAPI(descriptor.layout);
+
+    // FIXME(PERFORMANCE): Don't allocate 3 new buffers for every bind group.
     // In fact, don't even allocate a single new buffer for every bind group.
-    id <MTLBuffer> vertexArgumentBuffer = [m_device newBufferWithLength:bindGroupLayout.encodedLength() options:MTLResourceStorageModeShared];
-    id <MTLBuffer> fragmentArgumentBuffer = [m_device newBufferWithLength:bindGroupLayout.encodedLength() options:MTLResourceStorageModeShared];
-    id <MTLBuffer> computeArgumentBuffer = [m_device newBufferWithLength:bindGroupLayout.encodedLength() options:MTLResourceStorageModeShared];
+    id<MTLBuffer> vertexArgumentBuffer = safeCreateBuffer(bindGroupLayout.encodedLength(), MTLStorageModeShared);
+    id<MTLBuffer> fragmentArgumentBuffer = safeCreateBuffer(bindGroupLayout.encodedLength(), MTLStorageModeShared);
+    id<MTLBuffer> computeArgumentBuffer = safeCreateBuffer(bindGroupLayout.encodedLength(), MTLStorageModeShared);
     if (!vertexArgumentBuffer || !fragmentArgumentBuffer || !computeArgumentBuffer)
-        return nullptr;
+        return BindGroup::createInvalid(*this);
 
-    auto label = [NSString stringWithCString:descriptor->label encoding:NSUTF8StringEncoding];
+    auto label = fromAPI(descriptor.label);
     vertexArgumentBuffer.label = label;
     fragmentArgumentBuffer.label = label;
     computeArgumentBuffer.label = label;
 
-    id <MTLArgumentEncoder> vertexArgumentEncoder = bindGroupLayout.vertexArgumentEncoder();
-    id <MTLArgumentEncoder> fragmentArgumentEncoder = bindGroupLayout.fragmentArgumentEncoder();
-    id <MTLArgumentEncoder> computeArgumentEncoder = bindGroupLayout.computeArgumentEncoder();
+    id<MTLArgumentEncoder> vertexArgumentEncoder = bindGroupLayout.vertexArgumentEncoder();
+    id<MTLArgumentEncoder> fragmentArgumentEncoder = bindGroupLayout.fragmentArgumentEncoder();
+    id<MTLArgumentEncoder> computeArgumentEncoder = bindGroupLayout.computeArgumentEncoder();
     [vertexArgumentEncoder setArgumentBuffer:vertexArgumentBuffer offset:0];
     [fragmentArgumentEncoder setArgumentBuffer:fragmentArgumentBuffer offset:0];
     [computeArgumentEncoder setArgumentBuffer:computeArgumentBuffer offset:0];
 
-    for (uint32_t i = 0; i < descriptor->entryCount; ++i) {
-        const WGPUBindGroupEntry& entry = descriptor->entries[i];
+    for (uint32_t i = 0; i < descriptor.entryCount; ++i) {
+        const WGPUBindGroupEntry& entry = descriptor.entries[i];
 
         if (entry.nextInChain)
-            return nullptr;
+            return BindGroup::createInvalid(*this);
 
         bool bufferIsPresent = WebGPU::bufferIsPresent(entry);
         bool samplerIsPresent = WebGPU::samplerIsPresent(entry);
         bool textureViewIsPresent = WebGPU::textureViewIsPresent(entry);
         if (static_cast<int>(bufferIsPresent) + static_cast<int>(samplerIsPresent) + static_cast<int>(textureViewIsPresent) != 1)
-            return nullptr;
+            return BindGroup::createInvalid(*this);
 
         if (bufferIsPresent) {
-            id <MTLBuffer> buffer = entry.buffer->buffer->buffer();
-            [vertexArgumentEncoder setBuffer:buffer offset:entry.offset atIndex:entry.binding];
-            [fragmentArgumentEncoder setBuffer:buffer offset:entry.offset atIndex:entry.binding];
-            [computeArgumentEncoder setBuffer:buffer offset:entry.offset atIndex:entry.binding];
+            id<MTLBuffer> buffer = WebGPU::fromAPI(entry.buffer).buffer();
+            [vertexArgumentEncoder setBuffer:buffer offset:static_cast<NSUInteger>(entry.offset) atIndex:entry.binding];
+            [fragmentArgumentEncoder setBuffer:buffer offset:static_cast<NSUInteger>(entry.offset) atIndex:entry.binding];
+            [computeArgumentEncoder setBuffer:buffer offset:static_cast<NSUInteger>(entry.offset) atIndex:entry.binding];
         } else if (samplerIsPresent) {
-            id <MTLSamplerState> sampler = entry.sampler->sampler->samplerState();
+            id<MTLSamplerState> sampler = WebGPU::fromAPI(entry.sampler).samplerState();
             [vertexArgumentEncoder setSamplerState:sampler atIndex:entry.binding];
             [fragmentArgumentEncoder setSamplerState:sampler atIndex:entry.binding];
             [computeArgumentEncoder setSamplerState:sampler atIndex:entry.binding];
         } else if (textureViewIsPresent) {
-            id <MTLTexture> texture = entry.textureView->textureView->texture();
+            id<MTLTexture> texture = WebGPU::fromAPI(entry.textureView).texture();
             [vertexArgumentEncoder setTexture:texture atIndex:entry.binding];
             [fragmentArgumentEncoder setTexture:texture atIndex:entry.binding];
             [computeArgumentEncoder setTexture:texture atIndex:entry.binding];
         } else {
             ASSERT_NOT_REACHED();
-            return nullptr;
+            return BindGroup::createInvalid(*this);
         }
     }
 
-    return BindGroup::create(vertexArgumentBuffer, fragmentArgumentBuffer, computeArgumentBuffer);
+    return BindGroup::create(vertexArgumentBuffer, fragmentArgumentBuffer, computeArgumentBuffer, *this);
 }
 
-BindGroup::BindGroup(id <MTLBuffer> vertexArgumentBuffer, id <MTLBuffer> fragmentArgumentBuffer, id <MTLBuffer> computeArgumentBuffer)
+BindGroup::BindGroup(id<MTLBuffer> vertexArgumentBuffer, id<MTLBuffer> fragmentArgumentBuffer, id<MTLBuffer> computeArgumentBuffer, Device& device)
     : m_vertexArgumentBuffer(vertexArgumentBuffer)
     , m_fragmentArgumentBuffer(fragmentArgumentBuffer)
     , m_computeArgumentBuffer(computeArgumentBuffer)
+    , m_device(device)
+{
+}
+
+BindGroup::BindGroup(Device& device)
+    : m_device(device)
 {
 }
 
 BindGroup::~BindGroup() = default;
 
-void BindGroup::setLabel(const char* label)
+void BindGroup::setLabel(String&& label)
 {
-    auto labelString = [NSString stringWithCString:label encoding:NSUTF8StringEncoding];
+    auto labelString = label;
     m_vertexArgumentBuffer.label = labelString;
     m_fragmentArgumentBuffer.label = labelString;
     m_computeArgumentBuffer.label = labelString;
 }
 
-}
+} // namespace WebGPU
+
+#pragma mark WGPU Stubs
 
 void wgpuBindGroupRelease(WGPUBindGroup bindGroup)
 {
-    delete bindGroup;
+    WebGPU::fromAPI(bindGroup).deref();
 }
 
 void wgpuBindGroupSetLabel(WGPUBindGroup bindGroup, const char* label)
 {
-    bindGroup->bindGroup->setLabel(label);
+    WebGPU::fromAPI(bindGroup).setLabel(WebGPU::fromAPI(label));
 }

@@ -60,6 +60,7 @@ exclude Source/WebInspectorUI/Tools
 exclude Source/ThirdParty
 directory Source/ThirdParty/ANGLE
 directory Source/ThirdParty/gtest
+directory Source/ThirdParty/pdfjs
 directory Source/ThirdParty/xdgmime
 
 exclude Source/WebKit/Resources
@@ -86,8 +87,9 @@ exclude Tools/wpe/jhbuildrc
 
 file Tools/glib/common.py
 file Tools/glib/generate-inspector-gresource-manifest.py
+file Tools/glib/generate-modern-media-controls-gresource-manifest.py
+file Tools/glib/generate-pdfjs-resource-manifest.py
 
-directory Tools/gtkdoc
 directory Tools/MiniBrowser
 directory Tools/TestWebKitAPI
 
@@ -95,5 +97,6 @@ file CMakeLists.txt
 file Tools/CMakeLists.txt
 file Tools/PlatformWPE.cmake
 
-directory ${CMAKE_BINARY_DIR}/Documentation/wpe-${WPE_API_DOC_VERSION}/html/wpe-${WPE_API_DOC_VERSION} Documentation/wpe-${WPE_API_DOC_VERSION}/html
-directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webextensions-${WPE_API_DOC_VERSION}/html/wpe-webextensions-${WPE_API_DOC_VERSION} Documentation/wpe-webextensions-${WPE_API_DOC_VERSION}/html
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-javascriptcore-${WPE_API_VERSION} Documentation/wpe-javascriptcore-${WPE_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webkit-${WPE_API_VERSION} Documentation/wpe-webkit-${WPE_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-web-extension-${WPE_API_VERSION} Documentation/wpe-web-extension-${WPE_API_VERSION}

@@ -54,7 +54,6 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
     encoder << alternativeServiceDirectory;
     encoder << alternativeServiceDirectoryExtensionHandle;
-    encoder << http3Enabled;
 #endif
     encoder << hstsStorageDirectory;
     encoder << hstsStorageDirectoryExtensionHandle;
@@ -85,6 +84,7 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << allowsServerPreconnect;
     encoder << requiresSecureHTTPSProxyConnection;
     encoder << shouldRunServiceWorkersOnMainThreadForTesting;
+    encoder << overrideServiceWorkerRegistrationCountTestingValue;
     encoder << preventsSystemHTTPProxyAuthentication;
     encoder << appHasRequestedCrossWebsiteTrackingPermission;
     encoder << useNetworkLoader;
@@ -94,6 +94,16 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << enablePrivateClickMeasurementDebugMode;
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     encoder << shouldAcceptInsecureCertificatesForWebSockets;
+#endif
+
+    encoder << shouldUseCustomStoragePaths;
+    encoder << perOriginStorageQuota << perThirdPartyOriginStorageQuota;
+    encoder << localStorageDirectory << localStorageDirectoryExtensionHandle;
+    encoder << indexedDBDirectory << indexedDBDirectoryExtensionHandle;
+    encoder << cacheStorageDirectory << cacheStorageDirectoryExtensionHandle;
+    encoder << generalStorageDirectory << generalStorageDirectoryHandle;
+#if ENABLE(SERVICE_WORKER)
+    encoder << serviceWorkerRegistrationDirectory << serviceWorkerRegistrationDirectoryExtensionHandle << serviceWorkerProcessTerminationDelayEnabled;
 #endif
     encoder << resourceLoadStatisticsParameters;
 }
@@ -155,11 +165,6 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
     std::optional<SandboxExtension::Handle> alternativeServiceDirectoryExtensionHandle;
     decoder >> alternativeServiceDirectoryExtensionHandle;
     if (!alternativeServiceDirectoryExtensionHandle)
-        return std::nullopt;
-    
-    std::optional<bool> http3Enabled;
-    decoder >> http3Enabled;
-    if (!http3Enabled)
         return std::nullopt;
 #endif
 
@@ -292,6 +297,11 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
     if (!shouldRunServiceWorkersOnMainThreadForTesting)
         return std::nullopt;
     
+    std::optional<std::optional<unsigned>> overrideServiceWorkerRegistrationCountTestingValue;
+    decoder >> overrideServiceWorkerRegistrationCountTestingValue;
+    if (!overrideServiceWorkerRegistrationCountTestingValue)
+        return std::nullopt;
+
     std::optional<bool> preventsSystemHTTPProxyAuthentication;
     decoder >> preventsSystemHTTPProxyAuthentication;
     if (!preventsSystemHTTPProxyAuthentication)
@@ -334,6 +344,78 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         return std::nullopt;
 #endif
 
+    std::optional<bool> shouldUseCustomStoragePaths;
+    decoder >> shouldUseCustomStoragePaths;
+    if (!shouldUseCustomStoragePaths)
+        return std::nullopt;
+
+    std::optional<uint64_t> perOriginStorageQuota;
+    decoder >> perOriginStorageQuota;
+    if (!perOriginStorageQuota)
+        return std::nullopt;
+
+    std::optional<uint64_t> perThirdPartyOriginStorageQuota;
+    decoder >> perThirdPartyOriginStorageQuota;
+    if (!perThirdPartyOriginStorageQuota)
+        return std::nullopt;
+
+    std::optional<String> localStorageDirectory;
+    decoder >> localStorageDirectory;
+    if (!localStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> localStorageDirectoryExtensionHandle;
+    decoder >> localStorageDirectoryExtensionHandle;
+    if (!localStorageDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> indexedDBDirectory;
+    decoder >> indexedDBDirectory;
+    if (!indexedDBDirectory)
+        return std::nullopt;
+    
+    std::optional<SandboxExtension::Handle> indexedDBDirectoryExtensionHandle;
+    decoder >> indexedDBDirectoryExtensionHandle;
+    if (!indexedDBDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> cacheStorageDirectory;
+    decoder >> cacheStorageDirectory;
+    if (!cacheStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> cacheStorageDirectoryExtensionHandle;
+    decoder >> cacheStorageDirectoryExtensionHandle;
+    if (!cacheStorageDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> generalStorageDirectory;
+    decoder >> generalStorageDirectory;
+    if (!generalStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> generalStorageDirectoryHandle;
+    decoder >> generalStorageDirectoryHandle;
+    if (!generalStorageDirectoryHandle)
+        return std::nullopt;
+
+#if ENABLE(SERVICE_WORKER)
+    std::optional<String> serviceWorkerRegistrationDirectory;
+    decoder >> serviceWorkerRegistrationDirectory;
+    if (!serviceWorkerRegistrationDirectory)
+        return std::nullopt;
+    
+    std::optional<SandboxExtension::Handle> serviceWorkerRegistrationDirectoryExtensionHandle;
+    decoder >> serviceWorkerRegistrationDirectoryExtensionHandle;
+    if (!serviceWorkerRegistrationDirectoryExtensionHandle)
+        return std::nullopt;
+    
+    std::optional<bool> serviceWorkerProcessTerminationDelayEnabled;
+    decoder >> serviceWorkerProcessTerminationDelayEnabled;
+    if (!serviceWorkerProcessTerminationDelayEnabled)
+        return std::nullopt;
+#endif
+
     std::optional<ResourceLoadStatisticsParameters> resourceLoadStatisticsParameters;
     decoder >> resourceLoadStatisticsParameters;
     if (!resourceLoadStatisticsParameters)
@@ -354,7 +436,6 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
         , WTFMove(*alternativeServiceDirectory)
         , WTFMove(*alternativeServiceDirectoryExtensionHandle)
-        , WTFMove(*http3Enabled)
 #endif
         , WTFMove(*hstsStorageDirectory)
         , WTFMove(*hstsStorageDirectoryExtensionHandle)
@@ -385,6 +466,7 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         , WTFMove(*allowsServerPreconnect)
         , WTFMove(*requiresSecureHTTPSProxyConnection)
         , *shouldRunServiceWorkersOnMainThreadForTesting
+        , WTFMove(*overrideServiceWorkerRegistrationCountTestingValue)
         , WTFMove(*preventsSystemHTTPProxyAuthentication)
         , WTFMove(*appHasRequestedCrossWebsiteTrackingPermission)
         , WTFMove(*useNetworkLoader)
@@ -394,6 +476,22 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         , WTFMove(*enablePrivateClickMeasurementDebugMode)
 #if !HAVE(NSURLSESSION_WEBSOCKET)
         , WTFMove(*shouldAcceptInsecureCertificatesForWebSockets)
+#endif
+        , *shouldUseCustomStoragePaths
+        , WTFMove(*perOriginStorageQuota)
+        , WTFMove(*perThirdPartyOriginStorageQuota)
+        , WTFMove(*localStorageDirectory)
+        , WTFMove(*localStorageDirectoryExtensionHandle)
+        , WTFMove(*indexedDBDirectory)
+        , WTFMove(*indexedDBDirectoryExtensionHandle)
+        , WTFMove(*cacheStorageDirectory)
+        , WTFMove(*cacheStorageDirectoryExtensionHandle)
+        , WTFMove(*generalStorageDirectory)
+        , WTFMove(*generalStorageDirectoryHandle)
+#if ENABLE(SERVICE_WORKER)
+        , WTFMove(*serviceWorkerRegistrationDirectory)
+        , WTFMove(*serviceWorkerRegistrationDirectoryExtensionHandle)
+        , *serviceWorkerProcessTerminationDelayEnabled
 #endif
         , WTFMove(*resourceLoadStatisticsParameters)
     }};

@@ -85,9 +85,9 @@ void WebInspector::setFrontendConnection(IPC::Attachment encodedConnectionIdenti
     }
 
 #if USE(UNIX_DOMAIN_SOCKETS)
-    IPC::Connection::Identifier connectionIdentifier(encodedConnectionIdentifier.releaseFileDescriptor());
+    IPC::Connection::Identifier connectionIdentifier(encodedConnectionIdentifier.release().release());
 #elif OS(DARWIN)
-    IPC::Connection::Identifier connectionIdentifier(encodedConnectionIdentifier.port());
+    IPC::Connection::Identifier connectionIdentifier(encodedConnectionIdentifier.leakSendRight());
 #elif OS(WINDOWS)
     IPC::Connection::Identifier connectionIdentifier(encodedConnectionIdentifier.handle());
 #else
@@ -266,6 +266,15 @@ void WebInspector::setDeveloperPreferenceOverride(InspectorClient::DeveloperPref
 {
     WebProcess::singleton().parentProcessConnection()->send(Messages::WebInspectorUIProxy::SetDeveloperPreferenceOverride(developerPreference, overrideValue), m_page->identifier());
 }
+
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+void WebInspector::setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit)
+{
+    WebProcess::singleton().parentProcessConnection()->send(Messages::WebInspectorUIProxy::SetEmulatedConditions(WTFMove(bytesPerSecondLimit)), m_page->identifier());
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
 bool WebInspector::canAttachWindow()
 {

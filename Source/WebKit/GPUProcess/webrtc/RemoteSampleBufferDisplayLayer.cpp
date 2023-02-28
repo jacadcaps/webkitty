@@ -28,16 +28,14 @@
 
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
+#include "GPUConnectionToWebProcess.h"
 #include "IPCTester.h"
 #include "RemoteVideoFrameObjectHeap.h"
 #include "SampleBufferDisplayLayerMessages.h"
 #include <WebCore/ImageTransferSessionVT.h>
 #include <WebCore/LocalSampleBufferDisplayLayer.h>
-#include <WebCore/MediaSampleAVFObjC.h>
-#include <WebCore/RemoteVideoSample.h>
 
 namespace WebKit {
-static constexpr Seconds defaultTimeout { 1_s };
 
 using namespace WebCore;
 
@@ -52,7 +50,7 @@ RemoteSampleBufferDisplayLayer::RemoteSampleBufferDisplayLayer(GPUConnectionToWe
     , m_identifier(identifier)
     , m_connection(WTFMove(connection))
     , m_sampleBufferDisplayLayer(LocalSampleBufferDisplayLayer::create(*this))
-    , m_videoFrameObjectHeap(m_gpuConnection.videoFrameObjectHeap())
+    , m_sharedVideoFrameReader(Ref { m_gpuConnection.videoFrameObjectHeap() }, m_gpuConnection.webProcessIdentity())
 {
     ASSERT(m_sampleBufferDisplayLayer);
 }
@@ -94,7 +92,7 @@ void RemoteSampleBufferDisplayLayer::updateAffineTransform(CGAffineTransform tra
     m_sampleBufferDisplayLayer->updateRootLayerAffineTransform(transform);
 }
 
-void RemoteSampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, WebCore::MediaSample::VideoRotation rotation)
+void RemoteSampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, WebCore::VideoFrame::Rotation rotation)
 {
     m_sampleBufferDisplayLayer->updateRootLayerBoundsAndPosition(bounds, rotation, LocalSampleBufferDisplayLayer::ShouldUpdateRootLayer::Yes);
 }
@@ -119,53 +117,15 @@ void RemoteSampleBufferDisplayLayer::pause()
     m_sampleBufferDisplayLayer->pause();
 }
 
-void RemoteSampleBufferDisplayLayer::enqueueSample(RemoteVideoFrameReadReference&& sample)
+void RemoteSampleBufferDisplayLayer::enqueueVideoFrame(SharedVideoFrame&& frame)
 {
-    auto mediaSample = m_videoFrameObjectHeap->retire(WTFMove(sample), defaultTimeout);
-    if (!mediaSample) {
-        // In case of GPUProcess crash, we might enqueue previous GPUProcess samples, ignore them.
-        return;
-    }
-    ASSERT(is<MediaSampleAVFObjC>(mediaSample));
-    if (!is<MediaSampleAVFObjC>(mediaSample))
-        return;
-
-    auto& avfMediaSample = downcast<MediaSampleAVFObjC>(*mediaSample);
-    MediaSampleAVFObjC::setAsDisplayImmediately(avfMediaSample);
-    m_sampleBufferDisplayLayer->enqueueSample(avfMediaSample);
+    if (auto videoFrame = m_sharedVideoFrameReader.read(WTFMove(frame)))
+        m_sampleBufferDisplayLayer->enqueueBuffer(videoFrame->pixelBuffer(), videoFrame->presentationTime());
 }
 
-void RemoteSampleBufferDisplayLayer::enqueueSampleCV(WebCore::RemoteVideoSample&& remoteSample)
+void RemoteSampleBufferDisplayLayer::clearVideoFrames()
 {
-    RefPtr<MediaSample> sample;
-    if (!remoteSample.surface()) {
-        auto pixelBuffer = m_sharedVideoFrameReader.read();
-        if (!pixelBuffer)
-            return;
-
-        sample = MediaSampleAVFObjC::createImageSample(WTFMove(pixelBuffer), remoteSample.rotation(), remoteSample.mirrored(), remoteSample.time());
-    } else {
-        if (!m_imageTransferSession || m_imageTransferSession->pixelFormat() != remoteSample.videoFormat())
-            m_imageTransferSession = ImageTransferSessionVT::create(remoteSample.videoFormat());
-
-        ASSERT(m_imageTransferSession);
-        if (!m_imageTransferSession)
-            return;
-
-        sample = m_imageTransferSession->createMediaSample(remoteSample);
-    }
-
-    ASSERT(sample);
-    if (!sample)
-        return;
-
-    MediaSampleAVFObjC::setAsDisplayImmediately(*sample);
-    m_sampleBufferDisplayLayer->enqueueSample(*sample);
-}
-
-void RemoteSampleBufferDisplayLayer::clearEnqueuedSamples()
-{
-    m_sampleBufferDisplayLayer->clearEnqueuedSamples();
+    m_sampleBufferDisplayLayer->clearVideoFrames();
 }
 
 IPC::Connection* RemoteSampleBufferDisplayLayer::messageSenderConnection() const
@@ -183,9 +143,9 @@ void RemoteSampleBufferDisplayLayer::setSharedVideoFrameSemaphore(IPC::Semaphore
     m_sharedVideoFrameReader.setSemaphore(WTFMove(semaphore));
 }
 
-void RemoteSampleBufferDisplayLayer::setSharedVideoFrameMemory(const SharedMemory::IPCHandle& ipcHandle)
+void RemoteSampleBufferDisplayLayer::setSharedVideoFrameMemory(const SharedMemory::Handle& handle)
 {
-    m_sharedVideoFrameReader.setSharedMemory(ipcHandle);
+    m_sharedVideoFrameReader.setSharedMemory(handle);
 }
 
 }

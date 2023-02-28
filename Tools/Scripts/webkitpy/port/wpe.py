@@ -88,11 +88,13 @@ class WPEPort(Port):
         self._copy_value_from_environ_if_set(environment, 'WEBKIT_JHBUILD')
         self._copy_value_from_environ_if_set(environment, 'WEBKIT_TOP_LEVEL')
         self._copy_value_from_environ_if_set(environment, 'WEBKIT_DEBUG')
+        self._copy_value_from_environ_if_set(environment, 'AT_SPI_BUS_ADDRESS')
         self._copy_value_from_environ_if_set(environment, 'LIBGL_ALWAYS_SOFTWARE')
         self._copy_value_from_environ_if_set(environment, 'PULSE_SERVER')
         self._copy_value_from_environ_if_set(environment, 'PULSE_CLIENTCONFIG')
         self._copy_value_from_environ_if_set(environment, 'XR_RUNTIME_JSON')
         self._copy_value_from_environ_if_set(environment, 'WEBKIT_GST_USE_PLAYBIN3')
+        self._copy_value_from_environ_if_set(environment, 'BREAKPAD_MINIDUMP_DIR')
         for gst_variable in ('DEBUG', 'DEBUG_DUMP_DOT_DIR', 'DEBUG_FILE', 'DEBUG_NO_COLOR',
                              'PLUGIN_SCANNER', 'PLUGIN_PATH', 'PLUGIN_SYSTEM_PATH', 'REGISTRY',
                              'PLUGIN_PATH_1_0'):
@@ -149,8 +151,8 @@ class WPEPort(Port):
         configuration['platform'] = 'WPE'
         return configuration
 
-    def cog_path_to(self, file_or_directory):
-        return self._build_path('Tools', 'cog-prefix', 'src', 'cog-build', file_or_directory)
+    def cog_path_to(self, *components):
+        return self._build_path('Tools', 'cog-prefix', 'src', 'cog-build', *components)
 
     def browser_name(self):
         """Returns the lower case name of the browser to be used (Cog or MiniBrowser)
@@ -164,7 +166,7 @@ class WPEPort(Port):
         if browser:
             print("Unknown browser {}. Defaulting to Cog and MiniBrowser selection".format(browser))
 
-        if self._filesystem.isfile(self.cog_path_to('cog')):
+        if self._filesystem.isfile(self.cog_path_to('launcher', 'cog')):
             return "cog"
         return "minibrowser"
 
@@ -173,7 +175,7 @@ class WPEPort(Port):
 
         if self.browser_name() == "cog":
             env.update({'WEBKIT_EXEC_PATH': self._build_path('bin'),
-                        'COG_MODULEDIR': self.cog_path_to('modules'),
+                        'COG_MODULEDIR': self.cog_path_to('platform'),
                         'WEBKIT_INJECTED_BUNDLE_PATH': self._build_path('lib')})
 
         return env
@@ -183,7 +185,7 @@ class WPEPort(Port):
         miniBrowser = None
 
         if self.browser_name() == "cog":
-            miniBrowser = self.cog_path_to('cog')
+            miniBrowser = self.cog_path_to('launcher', 'cog')
             if not self._filesystem.isfile(miniBrowser):
                 print("Cog not found 😢. If you wish to enable it, rebuild with `-DENABLE_COG=ON`. Falling back to good old MiniBrowser")
                 miniBrowser = None

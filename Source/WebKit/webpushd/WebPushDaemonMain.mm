@@ -36,8 +36,10 @@
 #import <Foundation/Foundation.h>
 #import <WebCore/LogInitialization.h>
 #import <getopt.h>
+#import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <wtf/LogInitialization.h>
 #import <wtf/MainThread.h>
+#import <wtf/OSObjectPtr.h>
 #import <wtf/spi/darwin/XPCSPI.h>
 
 using WebKit::Daemon::EncodedMessage;
@@ -85,7 +87,12 @@ int WebPushDaemonMain(int argc, char** argv)
 {
     @autoreleasepool {
         WTF::initializeMainThread();
+        
+        auto transaction = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-service-main"));
 
+#if ENABLE(CFPREFS_DIRECT_MODE)
+        _CFPrefsSetDirectModeEnabled(YES);
+#endif
         applySandbox();
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
@@ -129,8 +136,8 @@ int WebPushDaemonMain(int argc, char** argv)
             ::WebPushD::Daemon::singleton().startMockPushService();
         else {
             String libraryPath = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES)[0];
-            String pushDatabasePath = FileSystem::pathByAppendingComponents(libraryPath, { "WebKit", "WebPush", "PushDatabase.db" });
-            ::WebPushD::Daemon::singleton().startPushService(incomingPushServiceName, pushDatabasePath);
+            String pushDatabasePath = FileSystem::pathByAppendingComponents(libraryPath, { "WebKit"_s, "WebPush"_s, "PushDatabase.db"_s });
+            ::WebPushD::Daemon::singleton().startPushService(String::fromLatin1(incomingPushServiceName), pushDatabasePath);
         }
     }
     CFRunLoopRun();

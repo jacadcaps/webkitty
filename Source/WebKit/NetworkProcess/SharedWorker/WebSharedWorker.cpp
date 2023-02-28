@@ -54,8 +54,8 @@ WebSharedWorker::WebSharedWorker(WebSharedWorkerServer& server, const WebCore::S
 WebSharedWorker::~WebSharedWorker()
 {
     if (auto* connection = contextConnection()) {
-        for (auto& sharedWorkerObjectIdentifier : m_sharedWorkerObjects.keys())
-            connection->removeSharedWorkerObject(sharedWorkerObjectIdentifier);
+        for (auto& sharedWorkerObject : m_sharedWorkerObjects)
+            connection->removeSharedWorkerObject(sharedWorkerObject.identifier);
     }
 
     ASSERT(allWorkers().get(m_identifier) == this);
@@ -72,30 +72,102 @@ WebCore::RegistrableDomain WebSharedWorker::registrableDomain() const
     return WebCore::RegistrableDomain { url() };
 }
 
+void WebSharedWorker::setFetchResult(WebCore::WorkerFetchResult&& fetchResult)
+{
+    m_fetchResult = WTFMove(fetchResult);
+}
+
 void WebSharedWorker::didCreateContextConnection(WebSharedWorkerServerToContextConnection& contextConnection)
 {
-    for (auto& sharedWorkerObjectIdentifier : m_sharedWorkerObjects.keys())
-        contextConnection.addSharedWorkerObject(sharedWorkerObjectIdentifier);
+    for (auto& sharedWorkerObject : m_sharedWorkerObjects)
+        contextConnection.addSharedWorkerObject(sharedWorkerObject.identifier);
+    if (didFinishFetching())
+        launch(contextConnection);
+}
+
+void WebSharedWorker::launch(WebSharedWorkerServerToContextConnection& connection)
+{
+    connection.launchSharedWorker(*this);
+    if (m_isSuspended)
+        connection.suspendSharedWorker(identifier());
 }
 
 void WebSharedWorker::addSharedWorkerObject(WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier, const WebCore::TransferredMessagePort& port)
 {
-    m_sharedWorkerObjects.add(sharedWorkerObjectIdentifier, port);
+    ASSERT(!m_sharedWorkerObjects.contains({ sharedWorkerObjectIdentifier, { false, port } }));
+    m_sharedWorkerObjects.add({ sharedWorkerObjectIdentifier, { false, port } });
     if (auto* connection = contextConnection())
         connection->addSharedWorkerObject(sharedWorkerObjectIdentifier);
+
+    resumeIfNeeded();
 }
 
 void WebSharedWorker::removeSharedWorkerObject(WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
 {
-    m_sharedWorkerObjects.remove(sharedWorkerObjectIdentifier);
+    m_sharedWorkerObjects.remove({ sharedWorkerObjectIdentifier, { } });
     if (auto* connection = contextConnection())
         connection->removeSharedWorkerObject(sharedWorkerObjectIdentifier);
+
+    suspendIfNeeded();
+}
+
+void WebSharedWorker::suspend(WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
+{
+    auto iterator = m_sharedWorkerObjects.find({ sharedWorkerObjectIdentifier, { } });
+    if (iterator == m_sharedWorkerObjects.end())
+        return;
+
+    iterator->state.isSuspended = true;
+    ASSERT(!m_isSuspended);
+    suspendIfNeeded();
+}
+
+void WebSharedWorker::suspendIfNeeded()
+{
+    if (m_isSuspended)
+        return;
+
+    for (auto& object : m_sharedWorkerObjects) {
+        if (!object.state.isSuspended)
+            return;
+    }
+
+    m_isSuspended = true;
+    if (auto* connection = contextConnection())
+        connection->suspendSharedWorker(identifier());
+}
+
+void WebSharedWorker::resume(WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
+{
+    auto iterator = m_sharedWorkerObjects.find({ sharedWorkerObjectIdentifier, { } });
+    if (iterator == m_sharedWorkerObjects.end())
+        return;
+
+    iterator->state.isSuspended = false;
+    resumeIfNeeded();
+}
+
+void WebSharedWorker::resumeIfNeeded()
+{
+    if (!m_isSuspended)
+        return;
+
+    m_isSuspended = false;
+    if (auto* connection = contextConnection())
+        connection->resumeSharedWorker(identifier());
 }
 
 void WebSharedWorker::forEachSharedWorkerObject(const Function<void(WebCore::SharedWorkerObjectIdentifier, const WebCore::TransferredMessagePort&)>& apply) const
 {
-    for (auto& [sharedWorkerObjectIdentifier, port] : m_sharedWorkerObjects)
-        apply(sharedWorkerObjectIdentifier, port);
+    for (auto& object : m_sharedWorkerObjects)
+        apply(object.identifier, object.state.port);
+}
+
+std::optional<WebCore::ProcessIdentifier> WebSharedWorker::firstSharedWorkerObjectProcess() const
+{
+    if (m_sharedWorkerObjects.isEmpty())
+        return std::nullopt;
+    return m_sharedWorkerObjects.first().identifier.processIdentifier();
 }
 
 WebSharedWorkerServerToContextConnection* WebSharedWorker::contextConnection() const

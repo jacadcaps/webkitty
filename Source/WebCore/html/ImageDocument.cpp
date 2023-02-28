@@ -116,22 +116,23 @@ private:
 
 inline Ref<ImageDocumentElement> ImageDocumentElement::create(ImageDocument& document)
 {
-    return adoptRef(*new ImageDocumentElement(document));
+    auto image = adoptRef(*new ImageDocumentElement(document));
+    image->suspendIfNeeded();
+    return image;
 }
 
 // --------
 
 HTMLImageElement* ImageDocument::imageElement() const
 {
-    return m_imageElement.get();
+    return m_imageElement;
 }
 
 LayoutSize ImageDocument::imageSize()
 {
-    RefPtr imageElement = m_imageElement.get();
-    ASSERT(imageElement);
+    ASSERT(m_imageElement);
     updateStyleIfNeeded();
-    return imageElement->cachedImage()->imageSizeForRenderer(imageElement->renderer(), frame() ? frame()->pageZoomFactor() : 1);
+    return m_imageElement->cachedImage()->imageSizeForRenderer(m_imageElement->renderer(), frame() ? frame()->pageZoomFactor() : 1);
 }
 
 void ImageDocument::updateDuringParsing()
@@ -229,18 +230,18 @@ void ImageDocument::createDocumentStructure()
     rootElement->appendChild(head);
 
     auto body = HTMLBodyElement::create(*this);
-    body->setAttribute(styleAttr, "margin: 0px");
+    body->setAttribute(styleAttr, "margin: 0px"_s);
     if (MIMETypeRegistry::isPDFMIMEType(document().loader()->responseMIMEType()))
-        body->setInlineStyleProperty(CSSPropertyBackgroundColor, "white");
+        body->setInlineStyleProperty(CSSPropertyBackgroundColor, "white"_s);
     rootElement->appendChild(body);
     
     auto imageElement = ImageDocumentElement::create(*this);
     if (m_shouldShrinkImage)
-        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; display:block; margin:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);");
+        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; display:block; margin:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);"_s);
     else
-        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);");
+        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);"_s);
     imageElement->setLoadManually(true);
-    imageElement->setSrc(url().string());
+    imageElement->setSrc(AtomString { url().string() });
     imageElement->cachedImage()->setResponse(loader()->response());
     body->appendChild(imageElement);
     imageElement->setLoadManually(false);
@@ -252,12 +253,12 @@ void ImageDocument::createDocumentStructure()
 #else
         auto listener = ImageEventListener::create(*this);
         if (RefPtr<DOMWindow> window = this->domWindow())
-            window->addEventListener("resize", listener.copyRef(), false);
-        imageElement->addEventListener("click", WTFMove(listener), false);
+            window->addEventListener(eventNames().resizeEvent, listener.copyRef(), false);
+        imageElement->addEventListener(eventNames().clickEvent, WTFMove(listener), false);
 #endif
     }
 
-    m_imageElement = imageElement.get();
+    m_imageElement = imageElement.ptr();
 }
 
 void ImageDocument::imageUpdated()

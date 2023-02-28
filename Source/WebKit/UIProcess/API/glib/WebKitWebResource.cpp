@@ -33,9 +33,9 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebResource
- * @Short_description: Represents a resource at the end of a URI
- * @Title: WebKitWebResource
+ * WebKitWebResource:
+ *
+ * Represents a resource at the end of a URI.
  *
  * A #WebKitWebResource encapsulates content for each resource at the
  * end of a particular URI. For example, one #WebKitWebResource will
@@ -46,7 +46,6 @@ using namespace WebKit;
  * #WebKitWebResource, using webkit_web_resource_get_uri() and
  * webkit_web_resource_get_response(), as well as the raw data, using
  * webkit_web_resource_get_data().
- *
  */
 
 enum {
@@ -286,7 +285,9 @@ WebFrameProxy* webkitWebResourceGetFrame(WebKitWebResource* resource)
  * webkit_web_resource_get_uri:
  * @resource: a #WebKitWebResource
  *
- * Returns the current active URI of @resource. The active URI might change during
+ * Returns the current active URI of @resource.
+ *
+ * The active URI might change during
  * a load operation:
  *
  * <orderedlist>
@@ -326,6 +327,7 @@ const char* webkit_web_resource_get_uri(WebKitWebResource* resource)
  * @resource: a #WebKitWebResource
  *
  * Retrieves the #WebKitURIResponse of the resource load operation.
+ *
  * This method returns %NULL if called before the response
  * is received from the server. You can connect to notify::response
  * signal to be notified when the response is received.

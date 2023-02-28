@@ -46,7 +46,7 @@ static RetainPtr<NSString> promptResult;
 @interface IPCTestingAPIDelegate : NSObject <WKUIDelegate, WKNavigationDelegate>
 - (BOOL)sayHelloWasCalled;
 @end
-    
+
 @implementation IPCTestingAPIDelegate {
     BOOL _didCallSayHello;
 }
@@ -95,6 +95,8 @@ TEST(IPCTestingAPI, IsDisabledByDefault)
     TestWebKitAPI::Util::run(&done);
     EXPECT_STREQ([alertMessage UTF8String], "undefined");
 }
+
+// Note: There are more IPC tests using IPC testing API in `LayoutTests/ipc`.
 
 #if ENABLE(IPC_TESTING_API)
 
@@ -175,7 +177,7 @@ TEST(IPCTestingAPI, CanSendAlert)
 
     done = false;
     [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html><script>IPC.sendSyncMessage('UI', IPC.webPageProxyID, IPC.messages.WebPageProxy_RunJavaScriptAlert.name, 100,"
-        "[{type: 'uint64_t', value: IPC.frameID}, {type: 'FrameInfoData'}, {'type': 'String', 'value': 'hi'}]);</script>"];
+        "[{type: 'uint64_t', value: IPC.frameID}, {type: 'FrameInfoData', value: IPC}, {'type': 'String', 'value': 'hi'}]);</script>"];
     TestWebKitAPI::Util::run(&done);
 
     EXPECT_STREQ([alertMessage UTF8String], "hi");
@@ -284,77 +286,7 @@ TEST(IPCTestingAPI, CanSendInvalidAsyncMessageToGPUProcessWithoutTermination)
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"result.arguments[0].value"].boolValue);
 }
 
-TEST(IPCTestingAPI, CanReceiveIPCSemaphore)
-{
-    auto webView = createWebViewWithIPCTestingAPI();
-
-    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-
-    done = false;
-    auto html = @"<!DOCTYPE html>"
-        "<script>"
-        "const bufferSize = 1 << 16;"
-        "const streamConnection = IPC.createStreamClientConnection('GPU', bufferSize);"
-        "IPC.sendMessage('GPU', 0, IPC.messages.GPUConnectionToWebProcess_CreateRenderingBackend.name, ["
-        "    { type: 'RemoteRenderingBackendCreationParameters', 'identifier': 123, 'pageProxyID': IPC.webPageProxyID, 'pageID': IPC.pageID },"
-        "    { type: 'StreamConnectionBuffer', value: streamConnection.streamBuffer() },"
-        "]);"
-        "const arguments = IPC.waitForMessage('GPU', 123, IPC.messages.RemoteRenderingBackendProxy_DidCreateWakeUpSemaphoreForDisplayListStream.name, 100);"
-        "alert(arguments.length + ':' + arguments[0].type + ':' + arguments[0].value.waitFor(100));"
-        "</script>";
-    [webView synchronouslyLoadHTMLString:html];
-    TestWebKitAPI::Util::run(&done);
-
-    EXPECT_STREQ([alertMessage UTF8String], "1:Semaphore:false");
-}
-
-TEST(IPCTestingAPI, CanReceiveSharedMemory)
-{
-    auto webView = createWebViewWithIPCTestingAPI();
-
-    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-
-    auto html = @"<!DOCTYPE html>"
-        "<script>"
-        "const bufferSize = 1 << 16;"
-        "const streamConnection = IPC.createStreamClientConnection('GPU', bufferSize);"
-        "IPC.sendMessage('GPU', 0, IPC.messages.GPUConnectionToWebProcess_CreateRenderingBackend.name, ["
-        "    { type: 'RemoteRenderingBackendCreationParameters', 'identifier': 123, 'pageProxyID': IPC.webPageProxyID, 'pageID': IPC.pageID },"
-        "    { type: 'StreamConnectionBuffer', value: streamConnection.streamBuffer() },"
-        "]);"
-        "const arguments = IPC.waitForMessage('GPU', 123, IPC.messages.RemoteRenderingBackendProxy_DidCreateWakeUpSemaphoreForDisplayListStream.name, 100);"
-        "streamConnection.setWakeUpSemaphore(arguments[0].value);"
-        "const result = streamConnection.sendSyncMessage(123, IPC.messages.RemoteRenderingBackend_UpdateSharedMemoryForGetPixelBuffer.name, 100, [{type: 'uint32_t', value: 8}]);"
-        "alert(result.arguments.length);"
-        "</script>";
-
-    done = false;
-    [webView synchronouslyLoadHTMLString:html];
-    TestWebKitAPI::Util::run(&done);
-
-    EXPECT_EQ([alertMessage intValue], 1);
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"firstReply = result.arguments[0]; firstReply.type"].UTF8String, "SharedMemory");
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"firstReply.protection"].UTF8String, "ReadOnly");
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"Array.from(new Uint8Array(firstReply.value.readBytes(0, 8))).toString()"].UTF8String, "0,0,0,0,0,0,0,0");
-}
-
 #endif // ENABLE(GPU_PROCESS)
-
-TEST(IPCTestingAPI, CanCreateIPCSemaphore)
-{
-    auto webView = createWebViewWithIPCTestingAPI();
-
-    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-
-    done = false;
-    [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html><script>alert(IPC.createSemaphore().waitFor(100));</script>"];
-    TestWebKitAPI::Util::run(&done);
-
-    EXPECT_FALSE([alertMessage boolValue]);
-}
 
 TEST(IPCTestingAPI, CanCreateSharedMemory)
 {
@@ -375,36 +307,6 @@ TEST(IPCTestingAPI, CanCreateSharedMemory)
     EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"Array.from(new Int8Array(sharedMemory.readBytes())).toString()"].UTF8String, "1,2,101,102,103,32,0,0");
 }
 
-TEST(IPCTestingAPI, CanSendSemaphore)
-{
-    auto webView = createWebViewWithIPCTestingAPI();
-
-    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-
-    auto* html = @R"HTML(<!DOCTYPE html>
-<body>
-<script>
-const audioContext = new AudioContext;
-const destination = audioContext.createMediaStreamDestination();
-const semaphore = IPC.createSemaphore();
-const result = IPC.sendSyncMessage('GPU', 0, IPC.messages.RemoteAudioDestinationManager_CreateAudioDestination.name, 100,
-    [{type: 'String', value: 'some device'},
-    {type: 'uint32_t', value: destination.numberOfInputs},
-    {type: 'uint32_t', value: destination.channelCount},
-    {type: 'float', value: audioContext.sampleRate}, {type: 'float', value: audioContext.sampleRate},
-    {type: 'Semaphore', value: semaphore}]);
-alert(result.arguments[0].type);
-</script>
-</body>)HTML";
-
-    done = false;
-    [webView synchronouslyLoadHTMLString:html];
-    TestWebKitAPI::Util::run(&done);
-
-    EXPECT_STREQ([alertMessage UTF8String], "uint64_t");
-}
-
 #if PLATFORM(COCOA)
 TEST(IPCTestingAPI, CanSendSharedMemory)
 {
@@ -418,10 +320,12 @@ TEST(IPCTestingAPI, CanSendSharedMemory)
 <script>
 const sharedMemory = IPC.createSharedMemory(8);
 sharedMemory.writeBytes(new Uint8Array(Array.from('hello').map((char) => char.charCodeAt(0))));
-const result = IPC.sendSyncMessage('UI', 0, IPC.messages.WebPasteboardProxy_SetPasteboardBufferForType.name, 100, [
-    {type: 'String', value: 'Apple CFPasteboard general'}, {type: 'String', value: 'text/plain'},
-    {type: 'SharedMemory', value: sharedMemory, protection: 'ReadOnly'}, {type: 'bool', value: 1}, {type: 'uint64_t', value: IPC.pageID}]);
-alert(result.arguments.length + ':' + JSON.stringify(result.arguments[0]));
+const result = IPC.sendSyncMessage('UI', 0, IPC.messages.WebPasteboardProxy_TestIPCSharedMemory.name, 100, [
+    {type: 'String', value: 'Apple CFPasteboard general'},
+    {type: 'String', value: 'text/plain'},
+    {type: 'SharedMemory', value: sharedMemory, protection: 'ReadOnly'},
+    {type: 'bool', value: 1}, {type: 'uint64_t', value: IPC.pageID}]);
+alert(result.arguments.length + ':' + JSON.stringify(result.arguments[0]) + ',' + JSON.stringify(result.arguments[1]));
 </script>
 </body>)HTML";
 
@@ -429,7 +333,7 @@ alert(result.arguments.length + ':' + JSON.stringify(result.arguments[0]));
     [webView synchronouslyLoadHTMLString:html];
     TestWebKitAPI::Util::run(&done);
 
-    EXPECT_STREQ([alertMessage UTF8String], "1:{\"type\":\"int64_t\",\"value\":0}");
+    EXPECT_STREQ([alertMessage UTF8String], "2:{\"type\":\"int64_t\",\"value\":8},{\"type\":\"String\",\"value\":\"hello\\u0000\\u0000\\u0000\"}");
 }
 #endif
 
@@ -443,7 +347,7 @@ TEST(IPCTestingAPI, DecodesReplyArgumentsForPrompt)
     done = false;
     promptResult = @"foo";
     [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html><script>result = IPC.sendSyncMessage('UI', IPC.webPageProxyID, IPC.messages.WebPageProxy_RunJavaScriptPrompt.name, 100,"
-        "[{type: 'uint64_t', value: IPC.frameID}, {type: 'FrameInfoData'}, {'type': 'String', 'value': 'hi'}, {'type': 'String', 'value': 'bar'}]);</script>"];
+        "[{type: 'uint64_t', value: IPC.frameID}, {type: 'FrameInfoData', value: IPC}, {'type': 'String', 'value': 'hi'}, {'type': 'String', 'value': 'bar'}]);</script>"];
     TestWebKitAPI::Util::run(&done);
 
     EXPECT_STREQ([promptDefault UTF8String], "bar");
@@ -578,3 +482,45 @@ TEST(IPCTestingAPI, CanInterceptFindString)
 }
 
 #endif
+
+TEST(IPCTestingAPI, CGColorInNSSecureCoding)
+{
+    auto archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
+
+    RetainPtr<id<NSKeyedArchiverDelegate, NSKeyedUnarchiverDelegate>> delegate = adoptNS([[NSClassFromString(@"WKSecureCodingArchivingDelegate") alloc] init]);
+    archiver.get().delegate = delegate.get();
+
+    NSString *key = @"SomeString";
+    auto value = adoptCF(CGColorCreateSRGB(0.2, 0.3, 0.4, 0.5));
+    auto payload = @{ key : static_cast<id>(value.get()) };
+    [archiver encodeObject:payload forKey:NSKeyedArchiveRootObjectKey];
+    [archiver finishEncoding];
+    [archiver setDelegate:nil];
+
+    auto data = [archiver encodedData];
+
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:data error:nullptr]);
+    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
+    unarchiver.get().delegate = delegate.get();
+
+    auto allowedClassSet = adoptNS([NSMutableSet new]);
+    [allowedClassSet addObject:NSDictionary.class];
+    [allowedClassSet addObject:NSString.class];
+    [allowedClassSet addObject:NSClassFromString(@"WKSecureCodingCGColorWrapper")];
+
+    NSDictionary *result = [unarchiver decodeObjectOfClasses:allowedClassSet.get() forKey:NSKeyedArchiveRootObjectKey];
+    // Round-tripping the color can slightly change the representation, causing [payload isEqual:result] to report NO.
+    EXPECT_EQ(result.count, static_cast<NSUInteger>(1));
+    NSString *resultKey = result.allKeys[0];
+    EXPECT_TRUE([key isEqual:resultKey]);
+    CGColorRef resultValue = static_cast<CGColorRef>(result.allValues[0]);
+    ASSERT_EQ(CFGetTypeID(resultValue), CGColorGetTypeID());
+    auto resultValueColorSpace = adoptCF(CGColorGetColorSpace(resultValue));
+    auto resultValueColorSpaceName = adoptCF(CGColorSpaceCopyName(resultValueColorSpace.get()));
+    EXPECT_NE(CFStringFind(resultValueColorSpaceName.get(), CFSTR("SRGB"), 0).location, kCFNotFound);
+    ASSERT_EQ(CGColorGetNumberOfComponents(resultValue), CGColorGetNumberOfComponents(value.get()));
+    for (size_t i = 0; i < CGColorGetNumberOfComponents(resultValue); ++i)
+        EXPECT_EQ(CGColorGetComponents(resultValue)[i], CGColorGetComponents(value.get())[i]);
+    [unarchiver finishDecoding];
+    unarchiver.get().delegate = nil;
+}

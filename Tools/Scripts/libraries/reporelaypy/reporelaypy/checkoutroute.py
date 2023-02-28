@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Apple Inc. All rights reserved.
+# Copyright (C) 2021-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@ from flask import abort, current_app, json as fjson, redirect, Flask, Response
 from reporelaypy import Database
 from webkitflaskpy import AuthedBlueprint
 from webkitscmpy import Commit, remote
+from webkitcorepy import run
 
 
 class Redirector(object):
@@ -39,10 +40,13 @@ class Redirector(object):
             if not isinstance(obj, Redirector):
                 return super(Checkout.Encoder, self).default(obj)
 
-            return dict(
+            result = dict(
                 name=obj.name,
                 url=obj.url,
             )
+            if obj.fallback:
+                result['fallback'] = self.default(obj.fallback)
+            return result
 
     @classmethod
     def bitbucket_generator(cls, base):
@@ -50,6 +54,15 @@ class Redirector(object):
             if commit and commit.hash:
                 return redirect('{}/commits/{}'.format(base, commit.hash))
             return redirect('{}/commits'.format(base))
+
+        return redirector
+
+    @classmethod
+    def bitbucket_compare(cls, url):
+        def redirector(head, base):
+            if head and head.hash and base and base.hash:
+                return redirect('{}/compare/diff?targetBranch={}&sourceBranch={}'.format(url, base.hash, head.hash))
+            return redirect('{}/compare'.format(url))
 
         return redirector
 
@@ -63,11 +76,29 @@ class Redirector(object):
         return redirector
 
     @classmethod
+    def trac_compare(cls, url):
+        def redirector(head, base):
+            if head and head.revision and base and base.revision:
+                return redirect('{}/log/webkit/trunk?verbose=on&rev={}&stop_rev={}'.format(url, head.revision, base.revision))
+            return redirect('{}/log/webkit/trunk'.format(url))
+
+        return redirector
+
+    @classmethod
     def github_generator(cls, base):
         def redirector(commit):
             if commit and commit.hash:
                 return redirect('{}/commit/{}'.format(base, commit.hash))
             return redirect('{}/commits'.format(base))
+
+        return redirector
+
+    @classmethod
+    def github_compare(cls, url):
+        def redirector(head, base):
+            if head and head.hash and base and base.hash:
+                return redirect('{}/compare/{}...{}'.format(url, base.hash, head.hash))
+            return redirect('{}/compare'.format(url))
 
         return redirector
 
@@ -78,20 +109,39 @@ class Redirector(object):
             return [cls(**node) for node in data]
         return cls(**data)
 
-    def __init__(self, url, name=None):
+    def __init__(self, url, name=None, fallback=None):
         self.url = url
         self.type = None
+        self.fallback = self.from_json(fallback) if isinstance(fallback, dict) else fallback
         self._redirect = None
 
         for key, params in dict(
-            bitbucket=(remote.BitBucket.URL_RE, self.bitbucket_generator),
-            trac=(re.compile(r'\Ahttps?://trac.(?P<domain>\S+)\Z'), self.trac_generator),
-            github=(remote.GitHub.URL_RE, self.github_generator),
+            bitbucket=(remote.BitBucket.URL_RE, self.bitbucket_generator, self.bitbucket_compare),
+            trac=(re.compile(r'\Ahttps?://trac.(?P<domain>\S+)\Z'), self.trac_generator, self.trac_compare),
+            github=(remote.GitHub.URL_RE, self.github_generator, self.github_compare),
         ).items():
-            regex, generator = params
+            regex, generator, compare = params
             if regex.match(url):
                 self.type = key
-                self._redirect = generator(url)
+                if self.fallback:
+                    redirect = generator(url)
+                    compare = compare(url)
+
+                    def fallback_generator(commit):
+                        if not commit or commit.message:
+                            return redirect(commit)
+                        return self.fallback(commit)
+
+                    def fallback_compare(head, base):
+                        if not head or not base or (head.message and base.message):
+                            return compare(head, base)
+                        return self.fallback.compare(head, base)
+
+                    self._redirect = fallback_generator
+                    self.compare = fallback_compare
+                else:
+                    self._redirect = generator(url)
+                    self.compare = compare(url)
                 break
         if not self.type:
             raise TypeError("'{}' is not a recognized redirect base")
@@ -104,6 +154,14 @@ class Redirector(object):
 
 
 class CheckoutRoute(AuthedBlueprint):
+    @classmethod
+    def find_newer(cls, a, b):
+        if not a or not b:
+            return a, b
+        if a.uuid < b.uuid:
+            return b, a
+        return a, b
+
     def __init__(self, checkout, redirectors=None, import_name=__name__, auth_decorator=None, database=None):
         super(CheckoutRoute, self).__init__('checkout', import_name, url_prefix=None, auth_decorator=auth_decorator)
 
@@ -120,6 +178,11 @@ class CheckoutRoute(AuthedBlueprint):
             lambda ref: self.redirectors[0](self.commit(ref)),
             methods=('GET',),
         )
+        self.add_url_rule(
+            '/compare/<path:head>...<path:base>', 'compare',
+            lambda head, base: self.redirectors[0].compare(*self.find_newer(self.commit(head), self.commit(base))), methods=('GET',),
+        )
+
         for redirector in self.redirectors:
             self.add_url_rule(
                 '/{}'.format(redirector.name), 'landing-{}'.format(redirector.name),
@@ -129,6 +192,10 @@ class CheckoutRoute(AuthedBlueprint):
             self.add_url_rule(
                 '/<path:ref>/{}'.format(redirector.name), 'redirect-{}'.format(redirector.name),
                 lambda ref, redirector=redirector: redirector(self.commit(ref)), methods=('GET',),
+            )
+            self.add_url_rule(
+                '/compare/<path:head>...<path:base>/{}'.format(redirector.name), 'compare-{}'.format(redirector.name),
+                lambda head, base, redirector=redirector: redirector.compare(*self.find_newer(self.commit(head), self.commit(base))), methods=('GET',),
             )
 
         self.add_url_rule('/<path:ref>/json', 'api', self.api, methods=('GET',))
@@ -159,9 +226,17 @@ class CheckoutRoute(AuthedBlueprint):
                 pass
             return None
 
+        if run([
+            self.checkout.repository.executable(), 'merge-base', '--is-ancestor',
+            commit.hash, 'remotes/origin/{}'.format(commit.branch),
+        ], capture_output=True, cwd=self.checkout.repository.root_path).returncode:
+            commit.message = None
+            commit.author = None
+
         encoded = json.dumps(commit, cls=Commit.Encoder)
         self.database.set(commit.hash, encoded)
-        self.database.set('r{}'.format(commit.revision), encoded)
+        if commit.revision:
+            self.database.set('r{}'.format(commit.revision), encoded)
         self.database.set(str(commit), encoded)
 
         return commit

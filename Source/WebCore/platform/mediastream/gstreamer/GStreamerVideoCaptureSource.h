@@ -26,6 +26,7 @@
 #include "CaptureDevice.h"
 #include "GStreamerVideoCapturer.h"
 #include "RealtimeVideoCaptureSource.h"
+#include "VideoFrameGStreamer.h"
 
 namespace WebCore {
 
@@ -44,13 +45,13 @@ public:
     const RealtimeMediaSourceSettings& settings() override;
     GstElement* pipeline() { return m_capturer->pipeline(); }
     GStreamerCapturer* capturer() { return m_capturer.get(); }
-    void processNewFrame(Ref<MediaSample>&&);
+    void processNewFrame(Ref<VideoFrameGStreamer>&&);
 
     // GStreamerCapturer::Observer
     void sourceCapsChanged(const GstCaps*) final;
 
 protected:
-    GStreamerVideoCaptureSource(String&& deviceID, String&& name, String&& hashSalt, const gchar* source_factory, CaptureDevice::DeviceType, const NodeAndFD&);
+    GStreamerVideoCaptureSource(String&& deviceID, AtomString&& name, String&& hashSalt, const gchar* source_factory, CaptureDevice::DeviceType, const NodeAndFD&);
     GStreamerVideoCaptureSource(GStreamerCaptureDevice, String&& hashSalt);
     virtual ~GStreamerVideoCaptureSource();
     void startProducingData() override;

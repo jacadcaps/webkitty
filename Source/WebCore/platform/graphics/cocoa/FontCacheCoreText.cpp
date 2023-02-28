@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,17 +30,19 @@
 #include "Font.h"
 #include "FontCascadeDescription.h"
 #include "FontCreationContext.h"
+#include "FontDatabase.h"
 #include "FontFamilySpecificationCoreText.h"
 #include "FontPaletteValues.h"
-#include "RenderThemeCocoa.h"
 #include "SystemFontDatabaseCoreText.h"
 #include <CoreText/SFNTLayoutTypes.h>
 #include <pal/spi/cf/CoreTextSPI.h>
+#include <pal/spi/cocoa/AccessibilitySupportSPI.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
@@ -350,7 +352,6 @@ VariationDefaultsMap defaultVariationValues(CTFontRef font, ShouldLocalizeAxisNa
     return result;
 }
 
-#if USE(NON_VARIABLE_SYSTEM_FONT)
 static inline bool fontIsSystemFont(CTFontRef font)
 {
     if (isSystemFont(font))
@@ -359,13 +360,43 @@ static inline bool fontIsSystemFont(CTFontRef font)
     auto name = adoptCF(CTFontCopyPostScriptName(font));
     return fontNameIsSystemFont(name.get());
 }
-#endif
 
 // These values were calculated by performing a linear regression on the CSS weights/widths/slopes and Core Text weights/widths/slopes of San Francisco.
 // FIXME: <rdar://problem/31312602> Get the real values from Core Text.
-static inline float normalizeWeight(float value)
+static inline float normalizeGXWeight(float value)
 {
     return 523.7 * value - 109.3;
+}
+
+// These values were experimentally gathered from the various named weights of San Francisco.
+static struct {
+    float ctWeight;
+    float cssWeight;
+} keyframes[] = {
+    { -0.8, 30 },
+    { -0.4, 274 },
+    { 0, 400 },
+    { 0.23, 510 },
+    { 0.3, 590 },
+    { 0.4, 700 },
+    { 0.56, 860 },
+    { 0.62, 1000 },
+};
+static_assert(WTF_ARRAY_LENGTH(keyframes) > 0);
+
+float normalizeCTWeight(float value)
+{
+    if (value < keyframes[0].ctWeight)
+        return keyframes[0].cssWeight;
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyframes) - 1; ++i) {
+        auto& before = keyframes[i];
+        auto& after = keyframes[i + 1];
+        if (value >= before.ctWeight && value <= after.ctWeight) {
+            float ratio = (value - before.ctWeight) / (after.ctWeight - before.ctWeight);
+            return ratio * (after.cssWeight - before.cssWeight) + before.cssWeight;
+        }
+    }
+    return keyframes[WTF_ARRAY_LENGTH(keyframes) - 1].cssWeight;
 }
 
 static inline float normalizeSlope(float value)
@@ -373,9 +404,24 @@ static inline float normalizeSlope(float value)
     return value * 300;
 }
 
-static inline float denormalizeWeight(float value)
+static inline float denormalizeGXWeight(float value)
 {
     return (value + 109.3) / 523.7;
+}
+
+float denormalizeCTWeight(float value)
+{
+    if (value < keyframes[0].cssWeight)
+        return keyframes[0].ctWeight;
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyframes) - 1; ++i) {
+        auto& before = keyframes[i];
+        auto& after = keyframes[i + 1];
+        if (value >= before.cssWeight && value <= after.cssWeight) {
+            float ratio = (value - before.cssWeight) / (after.cssWeight - before.cssWeight);
+            return ratio * (after.ctWeight - before.ctWeight) + before.ctWeight;
+        }
+    }
+    return keyframes[WTF_ARRAY_LENGTH(keyframes) - 1].ctWeight;
 }
 
 static inline float denormalizeSlope(float value)
@@ -521,6 +567,28 @@ static void addAttributesForFontPalettes(CFMutableDictionaryRef attributes, cons
     }
 }
 
+static std::optional<bool>& overrideEnhanceTextLegibility()
+{
+    static NeverDestroyed<std::optional<bool>> overrideEnhanceTextLegibility;
+    return overrideEnhanceTextLegibility.get();
+}
+
+void setOverrideEnhanceTextLegibility(bool override)
+{
+    overrideEnhanceTextLegibility() = override;
+}
+
+static bool& platformShouldEnhanceTextLegibility()
+{
+    static NeverDestroyed<bool> shouldEnhanceTextLegibility = _AXSEnhanceTextLegibilityEnabled();
+    return shouldEnhanceTextLegibility.get();
+}
+
+static inline bool shouldEnhanceTextLegibility()
+{
+    return overrideEnhanceTextLegibility().value_or(platformShouldEnhanceTextLegibility());
+}
+
 RetainPtr<CTFontRef> preparePlatformFont(CTFontRef originalFont, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, bool applyWeightWidthSlopeVariations)
 {
     if (!originalFont)
@@ -603,8 +671,13 @@ RetainPtr<CTFontRef> preparePlatformFont(CTFontRef originalFont, const FontDescr
             width = std::max(std::min(width, static_cast<float>(widthValue->maximum)), static_cast<float>(widthValue->minimum));
         if (auto slopeValue = fontCreationContext.fontFaceCapabilities().weight)
             slope = std::max(std::min(slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
+        if (shouldEnhanceTextLegibility() && fontIsSystemFont(originalFont)) {
+            auto ctWeight = denormalizeCTWeight(weight);
+            ctWeight = CTFontGetAccessibilityBoldWeightOfWeight(ctWeight);
+            weight = normalizeCTWeight(ctWeight);
+        }
         if (needsConversion) {
-            weight = denormalizeWeight(weight);
+            weight = denormalizeGXWeight(weight);
             width = denormalizeVariationWidth(width);
             slope = denormalizeSlope(slope);
         }
@@ -719,18 +792,18 @@ RefPtr<Font> FontCache::similarFont(const FontDescription& description, const St
 
 #if PLATFORM(IOS_FAMILY)
     // Substitute the default monospace font for well-known monospace fonts.
-    if (equalLettersIgnoringASCIICase(family, "monaco") || equalLettersIgnoringASCIICase(family, "menlo"))
+    if (equalLettersIgnoringASCIICase(family, "monaco"_s) || equalLettersIgnoringASCIICase(family, "menlo"_s))
         return fontForFamily(description, "courier"_s);
 
     // Substitute Verdana for Lucida Grande.
-    if (equalLettersIgnoringASCIICase(family, "lucida grande"))
+    if (equalLettersIgnoringASCIICase(family, "lucida grande"_s))
         return fontForFamily(description, "verdana"_s);
 #endif
 
     static constexpr ASCIILiteral matchWords[] = { "Arabic"_s, "Pashto"_s, "Urdu"_s };
     auto familyMatcher = StringView(family);
     for (auto matchWord : matchWords) {
-        if (equalIgnoringASCIICase(familyMatcher, StringView(matchWord)))
+        if (equalIgnoringASCIICase(familyMatcher, matchWord))
             return fontForFamily(description, isFontWeightBold(description.weight()) ? "GeezaPro-Bold"_s : "GeezaPro"_s);
     }
     return nullptr;
@@ -750,18 +823,24 @@ static float stretchFromCoreTextTraits(CFDictionaryRef traits)
 }
 #endif
 
-static void invalidateFontCache();
-
 static void fontCacheRegisteredFontsChangedNotificationCallback(CFNotificationCenterRef, void* observer, CFStringRef, const void *, CFDictionaryRef)
 {
     ASSERT_UNUSED(observer, isMainThread() && observer == &FontCache::forCurrentThread());
 
-    invalidateFontCache();
+    ensureOnMainThread([] {
+        FontCache::invalidateAllFontCaches();
+    });
 }
 
 void FontCache::platformInit()
 {
     CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kCTFontManagerRegisteredFontsChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+
+#if PLATFORM(IOS_FAMILY)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, getUIContentSizeCategoryDidChangeNotificationName(), 0, CFNotificationSuspensionBehaviorDeliverImmediately);
+#endif
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kAXSEnhanceTextLegibilityChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 
 #if PLATFORM(MAC)
     CFNotificationCenterRef center = CFNotificationCenterGetLocalCenter();
@@ -840,164 +919,39 @@ SynthesisPair computeNecessarySynthesis(CTFontRef font, const FontDescription& f
     return SynthesisPair(needsSyntheticBold, needsSyntheticOblique);
 }
 
-typedef HashSet<String, ASCIICaseInsensitiveHash> Allowlist;
-static Allowlist& fontAllowlist()
-{
-    static NeverDestroyed<Allowlist> allowlist;
-    return allowlist;
-}
+class Allowlist {
+public:
+    static Allowlist& singleton() WTF_REQUIRES_LOCK(lock)
+    {
+        static NeverDestroyed<Allowlist> allowlist;
+        return allowlist;
+    }
+
+    void set(const Vector<String>& inputAllowlist) WTF_REQUIRES_LOCK(lock)
+    {
+        m_families.clear();
+        for (auto& item : inputAllowlist)
+            m_families.add(item);
+    }
+
+    bool allows(const AtomString& family) const WTF_REQUIRES_LOCK(lock)
+    {
+        return m_families.isEmpty() || m_families.contains(family);
+    }
+
+    static Lock lock;
+
+private:
+    HashSet<String, ASCIICaseInsensitiveHash> m_families;
+};
+
+Lock Allowlist::lock;
 
 void FontCache::setFontAllowlist(const Vector<String>& inputAllowlist)
 {
-    Allowlist& allowlist = fontAllowlist();
-    allowlist.clear();
-    for (auto& item : inputAllowlist)
-        allowlist.add(item);
+    Locker locker { Allowlist::lock };
+    Allowlist::singleton().set(inputAllowlist);
 }
-
-class FontDatabase {
-public:
-    static FontDatabase& singletonAllowingUserInstalledFonts()
-    {
-        static NeverDestroyed<FontDatabase> database(AllowUserInstalledFonts::Yes);
-        return database;
-    }
-
-    static FontDatabase& singletonDisallowingUserInstalledFonts()
-    {
-        static NeverDestroyed<FontDatabase> database(AllowUserInstalledFonts::No);
-        return database;
-    }
-
-    FontDatabase(const FontDatabase&) = delete;
-    FontDatabase& operator=(const FontDatabase&) = delete;
-
-    struct InstalledFont {
-        InstalledFont() = default;
-
-        InstalledFont(CTFontDescriptorRef fontDescriptor, AllowUserInstalledFonts allowUserInstalledFonts)
-            : fontDescriptor(fontDescriptor)
-            , capabilities(capabilitiesForFontDescriptor(fontDescriptor))
-        {
-#if HAVE(CTFONTCREATEFORCHARACTERSWITHLANGUAGEANDOPTION)
-            UNUSED_PARAM(allowUserInstalledFonts);
-#else
-            if (allowUserInstalledFonts != AllowUserInstalledFonts::No)
-                return;
-            auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-            addAttributesForInstalledFonts(attributes.get(), allowUserInstalledFonts);
-            this->fontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor, attributes.get()));
-#endif
-        }
-
-        RetainPtr<CTFontDescriptorRef> fontDescriptor;
-        FontSelectionCapabilities capabilities;
-    };
-
-    struct InstalledFontFamily {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
-
-        InstalledFontFamily() = default;
-
-        explicit InstalledFontFamily(Vector<InstalledFont>&& installedFonts)
-            : installedFonts(WTFMove(installedFonts))
-        {
-            for (auto& font : this->installedFonts)
-                expand(font);
-        }
-
-        void expand(const InstalledFont& installedFont)
-        {
-            capabilities.expand(installedFont.capabilities);
-        }
-
-        bool isEmpty() const
-        {
-            return installedFonts.isEmpty();
-        }
-
-        size_t size() const
-        {
-            return installedFonts.size();
-        }
-
-        Vector<InstalledFont> installedFonts;
-        FontSelectionCapabilities capabilities;
-    };
-
-    const InstalledFontFamily& collectionForFamily(const String& familyName)
-    {
-        auto folded = FontCascadeDescription::foldedFamilyName(familyName);
-        {
-            Locker locker { m_familyNameToFontDescriptorsLock };
-            auto it = m_familyNameToFontDescriptors.find(folded);
-            if (it != m_familyNameToFontDescriptors.end())
-                return *it->value;
-        }
-
-        auto installedFontFamily = [&] {
-            auto familyNameString = folded.createCFString();
-            auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-            CFDictionaryAddValue(attributes.get(), kCTFontFamilyNameAttribute, familyNameString.get());
-            addAttributesForInstalledFonts(attributes.get(), m_allowUserInstalledFonts);
-            auto fontDescriptorToMatch = adoptCF(CTFontDescriptorCreateWithAttributes(attributes.get()));
-            auto mandatoryAttributes = installedFontMandatoryAttributes(m_allowUserInstalledFonts);
-            if (auto matches = adoptCF(CTFontDescriptorCreateMatchingFontDescriptors(fontDescriptorToMatch.get(), mandatoryAttributes.get()))) {
-                auto count = CFArrayGetCount(matches.get());
-                Vector<InstalledFont> result;
-                result.reserveInitialCapacity(count);
-                for (CFIndex i = 0; i < count; ++i) {
-                    InstalledFont installedFont(static_cast<CTFontDescriptorRef>(CFArrayGetValueAtIndex(matches.get(), i)), m_allowUserInstalledFonts);
-                    result.uncheckedAppend(WTFMove(installedFont));
-                }
-                return makeUnique<InstalledFontFamily>(WTFMove(result));
-            }
-            return makeUnique<InstalledFontFamily>();
-        }();
-
-        Locker locker { m_familyNameToFontDescriptorsLock };
-        return *m_familyNameToFontDescriptors.add(folded.isolatedCopy(), WTFMove(installedFontFamily)).iterator->value;
-    }
-
-    const InstalledFont& fontForPostScriptName(const AtomString& postScriptName)
-    {
-        const auto& folded = FontCascadeDescription::foldedFamilyName(postScriptName);
-        return m_postScriptNameToFontDescriptors.ensure(folded, [&] {
-            auto postScriptNameString = folded.createCFString();
-            CFStringRef nameAttribute = kCTFontPostScriptNameAttribute;
-            auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-            CFDictionaryAddValue(attributes.get(), kCTFontEnabledAttribute, kCFBooleanTrue);
-            CFDictionaryAddValue(attributes.get(), nameAttribute, postScriptNameString.get());
-            addAttributesForInstalledFonts(attributes.get(), m_allowUserInstalledFonts);
-            auto fontDescriptorToMatch = adoptCF(CTFontDescriptorCreateWithAttributes(attributes.get()));
-            auto mandatoryAttributes = installedFontMandatoryAttributes(m_allowUserInstalledFonts);
-            auto match = adoptCF(CTFontDescriptorCreateMatchingFontDescriptor(fontDescriptorToMatch.get(), mandatoryAttributes.get()));
-            return InstalledFont(match.get(), m_allowUserInstalledFonts);
-        }).iterator->value;
-    }
-
-    void clear()
-    {
-        {
-            Locker locker { m_familyNameToFontDescriptorsLock };
-            m_familyNameToFontDescriptors.clear();
-        }
-        m_postScriptNameToFontDescriptors.clear();
-    }
-
-private:
-    friend class NeverDestroyed<FontDatabase>;
-
-    FontDatabase(AllowUserInstalledFonts allowUserInstalledFonts)
-        : m_allowUserInstalledFonts(allowUserInstalledFonts)
-    {
-    }
-
-    Lock m_familyNameToFontDescriptorsLock;
-    HashMap<String, std::unique_ptr<InstalledFontFamily>> m_familyNameToFontDescriptors WTF_GUARDED_BY_LOCK(m_familyNameToFontDescriptorsLock);
-    HashMap<String, InstalledFont> m_postScriptNameToFontDescriptors;
-    AllowUserInstalledFonts m_allowUserInstalledFonts;
-};
 
 // Because this struct holds intermediate values which may be in the compressed -1 - 1 GX range, we don't want to use the relatively large
 // quantization of FontSelectionValue. Instead, do this logic with floats.
@@ -1063,11 +1017,11 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
 
     if (FontType(font.get()).variationType == FontType::VariationType::TrueTypeGX && !optOutFromGXNormalization) {
         if (result.weight)
-            result.weight = {{ normalizeWeight(result.weight.value().minimum), normalizeWeight(result.weight.value().maximum) }};
+            result.weight = { { normalizeGXWeight(result.weight.value().minimum), normalizeGXWeight(result.weight.value().maximum) } };
         if (result.width)
-            result.width = {{ normalizeVariationWidth(result.width.value().minimum), normalizeVariationWidth(result.width.value().maximum) }};
+            result.width = { { normalizeVariationWidth(result.width.value().minimum), normalizeVariationWidth(result.width.value().maximum) } };
         if (result.slope)
-            result.slope = {{ normalizeSlope(result.slope.value().minimum), normalizeSlope(result.slope.value().maximum) }};
+            result.slope = { { normalizeSlope(result.slope.value().minimum), normalizeSlope(result.slope.value().maximum) } };
     }
 
     auto minimum = static_cast<float>(FontSelectionValue::minimumValue());
@@ -1164,9 +1118,14 @@ static const FontDatabase::InstalledFont* findClosestFont(const FontDatabase::In
     return &familyFonts.installedFonts[index];
 }
 
+FontDatabase& FontCache::database(AllowUserInstalledFonts allowUserInstalledFonts)
+{
+    return allowUserInstalledFonts == AllowUserInstalledFonts::Yes ? m_databaseAllowingUserInstalledFonts : m_databaseDisallowingUserInstalledFonts;
+}
+
 Vector<FontSelectionCapabilities> FontCache::getFontSelectionCapabilitiesInFamily(const AtomString& familyName, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    auto& fontDatabase = allowUserInstalledFonts == AllowUserInstalledFonts::Yes ? FontDatabase::singletonAllowingUserInstalledFonts() : FontDatabase::singletonDisallowingUserInstalledFonts();
+    auto& fontDatabase = database(allowUserInstalledFonts);
     const auto& fonts = fontDatabase.collectionForFamily(familyName.string());
     return fonts.installedFonts.map([](auto& font) {
         return font.capabilities;
@@ -1180,19 +1139,27 @@ struct FontLookup {
 
 static bool isDotPrefixedForbiddenFont(const AtomString& family)
 {
-    if (linkedOnOrAfter(SDKVersion::FirstForbiddingDotPrefixedFonts))
+    if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ForbidsDotPrefixedFonts))
         return family.startsWith('.');
-    return equalLettersIgnoringASCIICase(family, ".applesystemuifontserif")
-        || equalLettersIgnoringASCIICase(family, ".sf ns mono")
-        || equalLettersIgnoringASCIICase(family, ".sf ui mono")
-        || equalLettersIgnoringASCIICase(family, ".sf arabic")
-        || equalLettersIgnoringASCIICase(family, ".applesystemuifontrounded");
+    return equalLettersIgnoringASCIICase(family, ".applesystemuifontserif"_s)
+        || equalLettersIgnoringASCIICase(family, ".sf ns mono"_s)
+        || equalLettersIgnoringASCIICase(family, ".sf ui mono"_s)
+        || equalLettersIgnoringASCIICase(family, ".sf arabic"_s)
+        || equalLettersIgnoringASCIICase(family, ".applesystemuifontrounded"_s);
 }
 
-static FontLookup platformFontLookupWithFamily(const AtomString& family, FontSelectionRequest request, float size, AllowUserInstalledFonts allowUserInstalledFonts)
+static bool isAllowlistedFamily(const AtomString& family)
 {
-    const auto& allowlist = fontAllowlist();
-    if (!isSystemFont(family.string()) && allowlist.size() && !allowlist.contains(family))
+    if (isSystemFont(family.string()))
+        return true;
+
+    Locker locker { Allowlist::lock };
+    return Allowlist::singleton().allows(family);
+}
+
+static FontLookup platformFontLookupWithFamily(FontDatabase& fontDatabase, const AtomString& family, FontSelectionRequest request, float size)
+{
+    if (!isAllowlistedFamily(family))
         return { nullptr };
 
     if (isDotPrefixedForbiddenFont(family)) {
@@ -1200,7 +1167,6 @@ static FontLookup platformFontLookupWithFamily(const AtomString& family, FontSel
         return { nullptr };
     }
 
-    auto& fontDatabase = allowUserInstalledFonts == AllowUserInstalledFonts::Yes ? FontDatabase::singletonAllowingUserInstalledFonts() : FontDatabase::singletonDisallowingUserInstalledFonts();
     const auto& familyFonts = fontDatabase.collectionForFamily(family.string());
     if (familyFonts.isEmpty()) {
         // The CSS spec states that font-family only accepts a name of an actual font family. However, in WebKit, we claim to also
@@ -1237,20 +1203,13 @@ static FontLookup platformFontLookupWithFamily(const AtomString& family, FontSel
     return { nullptr };
 }
 
-static void invalidateFontCache()
+void FontCache::platformInvalidate()
 {
-    ensureOnMainThread([] {
-        // FIXME: Workers need to access SystemFontDatabaseCoreText.
-        SystemFontDatabaseCoreText::singleton().clear();
-        // FIXME: Workers need to access FontFamilySpecificationCoreTextCache.
-        clearFontFamilySpecificationCoreTextCache();
+    // FIXME: Workers need to access SystemFontDatabaseCoreText.
+    m_fontFamilySpecificationCoreTextCache.clear();
+    m_systemFontDatabaseCoreText.clear();
 
-        // FIXME: Workers need to access FontDatabase.
-        FontDatabase::singletonAllowingUserInstalledFonts().clear();
-        FontDatabase::singletonDisallowingUserInstalledFonts().clear();
-
-        FontCache::invalidateAllFontCaches();
-    });
+    platformShouldEnhanceTextLegibility() = _AXSEnhanceTextLegibilityEnabled();
 }
 
 static RetainPtr<CTFontRef> fontWithFamilySpecialCase(const AtomString& family, const FontDescription& fontDescription, float size, AllowUserInstalledFonts allowUserInstalledFonts)
@@ -1259,51 +1218,51 @@ static RetainPtr<CTFontRef> fontWithFamilySpecialCase(const AtomString& family, 
     std::optional<SystemFontKind> systemDesign;
 
 #if HAVE(DESIGN_SYSTEM_UI_FONTS)
-    if (equalLettersIgnoringASCIICase(family, "ui-serif"))
+    if (equalLettersIgnoringASCIICase(family, "ui-serif"_s))
         systemDesign = SystemFontKind::UISerif;
-    else if (equalLettersIgnoringASCIICase(family, "ui-monospace"))
+    else if (equalLettersIgnoringASCIICase(family, "ui-monospace"_s))
         systemDesign = SystemFontKind::UIMonospace;
-    else if (equalLettersIgnoringASCIICase(family, "ui-rounded"))
+    else if (equalLettersIgnoringASCIICase(family, "ui-rounded"_s))
         systemDesign = SystemFontKind::UIRounded;
 #endif
 
-    if (equalLettersIgnoringASCIICase(family, "-webkit-system-font") || equalLettersIgnoringASCIICase(family, "-apple-system") || equalLettersIgnoringASCIICase(family, "-apple-system-font") || equalLettersIgnoringASCIICase(family, "system-ui") || equalLettersIgnoringASCIICase(family, "ui-sans-serif")) {
+    if (equalLettersIgnoringASCIICase(family, "-webkit-system-font"_s) || equalLettersIgnoringASCIICase(family, "-apple-system"_s) || equalLettersIgnoringASCIICase(family, "-apple-system-font"_s) || equalLettersIgnoringASCIICase(family, "system-ui"_s) || equalLettersIgnoringASCIICase(family, "ui-sans-serif"_s)) {
         ASSERT(!systemDesign);
         systemDesign = SystemFontKind::SystemUI;
     }
 
     if (systemDesign) {
-        auto cascadeList = SystemFontDatabaseCoreText::singleton().cascadeList(fontDescription, family, *systemDesign, allowUserInstalledFonts);
+        auto cascadeList = SystemFontDatabaseCoreText::forCurrentThread().cascadeList(fontDescription, family, *systemDesign, allowUserInstalledFonts);
         if (cascadeList.isEmpty())
             return nullptr;
         return createFontForInstalledFonts(cascadeList[0].get(), size, allowUserInstalledFonts);
     }
 
-    if (family.startsWith("UICTFontTextStyle")) {
+    if (family.startsWith("UICTFontTextStyle"_s)) {
         const auto& request = fontDescription.fontSelectionRequest();
-        CTFontSymbolicTraits traits = (isFontWeightBold(request.weight) || FontCache::forCurrentThread().shouldMockBoldSystemFontForAccessibility() ? kCTFontTraitBold : 0) | (isItalic(request.slope) ? kCTFontTraitItalic : 0);
-        auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(family.string().createCFString().get(), RenderThemeCocoa::singleton().contentSizeCategory(), fontDescription.computedLocale().string().createCFString().get()));
+        CTFontSymbolicTraits traits = (isFontWeightBold(request.weight) ? kCTFontTraitBold : 0) | (isItalic(request.slope) ? kCTFontTraitItalic : 0);
+        auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(family.string().createCFString().get(), contentSizeCategory(), fontDescription.computedLocale().string().createCFString().get()));
         if (traits)
             descriptor = adoptCF(CTFontDescriptorCreateCopyWithSymbolicTraits(descriptor.get(), traits, traits));
         return createFontForInstalledFonts(descriptor.get(), size, allowUserInstalledFonts);
     }
 
-    if (equalLettersIgnoringASCIICase(family, "-apple-menu")) {
+    if (equalLettersIgnoringASCIICase(family, "-apple-menu"_s)) {
         auto result = adoptCF(CTFontCreateUIFontForLanguage(kCTFontUIFontMenuItem, size, fontDescription.computedLocale().string().createCFString().get()));
         return createFontForInstalledFonts(result.get(), allowUserInstalledFonts);
     }
 
-    if (equalLettersIgnoringASCIICase(family, "-apple-status-bar")) {
+    if (equalLettersIgnoringASCIICase(family, "-apple-status-bar"_s)) {
         auto result = adoptCF(CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size, fontDescription.computedLocale().string().createCFString().get()));
         return createFontForInstalledFonts(result.get(), allowUserInstalledFonts);
     }
 
-    if (equalLettersIgnoringASCIICase(family, "lastresort")) {
-        static const CTFontDescriptorRef lastResort = CTFontDescriptorCreateLastResort();
-        return adoptCF(CTFontCreateWithFontDescriptor(lastResort, size, nullptr));
+    if (equalLettersIgnoringASCIICase(family, "lastresort"_s)) {
+        auto lastResort = adoptCF(CTFontDescriptorCreateLastResort());
+        return adoptCF(CTFontCreateWithFontDescriptor(lastResort.get(), size, nullptr));
     }
 
-    if (equalLettersIgnoringASCIICase(family, "-apple-system-monospaced-numbers")) {
+    if (equalLettersIgnoringASCIICase(family, "-apple-system-monospaced-numbers"_s)) {
         int numberSpacingType = kNumberSpacingType;
         int monospacedNumbersSelector = kMonospacedNumbersSelector;
         auto numberSpacingNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &numberSpacingType));
@@ -1316,21 +1275,26 @@ static RetainPtr<CTFontRef> fontWithFamilySpecialCase(const AtomString& family, 
     return nullptr;
 }
 
-static RetainPtr<CTFontRef> fontWithFamily(const AtomString& family, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, float size)
+static RetainPtr<CTFontRef> fontWithFamily(FontDatabase& fontDatabase, const AtomString& family, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, float size)
 {
+    ASSERT(fontDatabase.allowUserInstalledFonts() == fontDescription.shouldAllowUserInstalledFonts());
+
     if (family.isEmpty())
         return nullptr;
 
     FontLookup fontLookup;
     fontLookup.result = fontWithFamilySpecialCase(family, fontDescription, size, fontDescription.shouldAllowUserInstalledFonts());
     if (!fontLookup.result)
-        fontLookup = platformFontLookupWithFamily(family, fontDescription.fontSelectionRequest(), size, fontDescription.shouldAllowUserInstalledFonts());
+        fontLookup = platformFontLookupWithFamily(fontDatabase, family, fontDescription.fontSelectionRequest(), size);
     return preparePlatformFont(fontLookup.result.get(), fontDescription, fontCreationContext, !fontLookup.createdFromPostScriptName);
 }
 
 #if PLATFORM(MAC)
 bool FontCache::shouldAutoActivateFontIfNeeded(const AtomString& family)
 {
+    if (family.isEmpty())
+        return false;
+
     static const unsigned maxCacheSize = 128;
     ASSERT(m_knownFamilies.size() <= maxCacheSize);
     if (m_knownFamilies.size() == maxCacheSize)
@@ -1355,7 +1319,8 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 {
     float size = fontDescription.computedPixelSize();
 
-    auto font = fontWithFamily(family, fontDescription, fontCreationContext, size);
+    auto& fontDatabase = database(fontDescription.shouldAllowUserInstalledFonts());
+    auto font = fontWithFamily(fontDatabase, family, fontDescription, fontCreationContext, size);
 
 #if PLATFORM(MAC)
     if (!font) {
@@ -1366,7 +1331,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
         // Ignore the result because we want to use our own algorithm to actually find the font.
         autoActivateFont(family.string(), size);
 
-        font = fontWithFamily(family, fontDescription, fontCreationContext, size);
+        font = fontWithFamily(fontDatabase, family, fontDescription, fontCreationContext, size);
     }
 #endif
 
@@ -1381,25 +1346,18 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     return makeUnique<FontPlatformData>(font.get(), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
 }
 
-typedef HashSet<RetainPtr<CTFontRef>, WTF::RetainPtrObjectHash<CTFontRef>, WTF::RetainPtrObjectHashTraits<CTFontRef>> FallbackDedupSet;
-static FallbackDedupSet& fallbackDedupSet()
-{
-    static NeverDestroyed<FallbackDedupSet> dedupSet;
-    return dedupSet.get();
-}
-
 void FontCache::platformPurgeInactiveFontData()
 {
     Vector<CTFontRef> toRemove;
-    for (auto& font : fallbackDedupSet()) {
+    for (auto& font : m_fallbackFonts) {
         if (CFGetRetainCount(font.get()) == 1)
             toRemove.append(font.get());
     }
     for (auto& font : toRemove)
-        fallbackDedupSet().remove(font);
+        m_fallbackFonts.remove(font);
 
-    FontDatabase::singletonAllowingUserInstalledFonts().clear();
-    FontDatabase::singletonDisallowingUserInstalledFonts().clear();
+    m_databaseAllowingUserInstalledFonts.clear();
+    m_databaseDisallowingUserInstalledFonts.clear();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -1469,9 +1427,9 @@ static RetainPtr<CTFontRef> lookupFallbackFont(CTFontRef font, FontSelectionValu
     return result;
 }
 
-RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& description, const Font* originalFontData, IsForPlatformFont isForPlatformFont, PreferColoredFont, const UChar* characters, unsigned length)
+RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& description, const Font& originalFontData, IsForPlatformFont isForPlatformFont, PreferColoredFont, const UChar* characters, unsigned length)
 {
-    const FontPlatformData& platformData = originalFontData->platformData();
+    const FontPlatformData& platformData = originalFontData.platformData();
 
     auto fullName = String(adoptCF(CTFontCopyFullName(platformData.font())).get());
     if (!fullName.isEmpty())
@@ -1486,11 +1444,14 @@ RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& descr
     // FontCascade::drawGlyphBuffer() requires that there are no duplicate Font objects which refer to the same thing. This is enforced in
     // FontCache::fontForPlatformData(), where our equality check is based on hashing the FontPlatformData, whose hash includes the raw CoreText
     // font pointer.
-    CTFontRef substituteFont = fallbackDedupSet().add(result).iterator->get();
+    CTFontRef substituteFont = m_fallbackFonts.add(result).iterator->get();
 
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont, description, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
 
-    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode());
+    const FontPlatformData::CreationData* creationData = nullptr;
+    if (safeCFEqual(platformData.font(), substituteFont))
+        creationData = platformData.creationData();
+    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), creationData);
 
     return fontForPlatformData(alternateFont);
 }
@@ -1524,19 +1485,19 @@ std::optional<ASCIILiteral> FontCache::platformAlternateFamilyName(const String&
             return heitiTCReplacement;
         break;
     case 6:
-        if (equalLettersIgnoringASCIICase(familyName, "simsun"))
+        if (equalLettersIgnoringASCIICase(familyName, "simsun"_s))
             return songtiSC;
         if (equal(familyName, weiruanXinXiMingTi))
             return songtiTC;
         break;
     case 10:
-        if (equalLettersIgnoringASCIICase(familyName, "ms mingliu"))
+        if (equalLettersIgnoringASCIICase(familyName, "ms mingliu"_s))
             return songtiTC;
-        if (equalIgnoringASCIICase(familyName, "\\5b8b\\4f53"))
+        if (equalIgnoringASCIICase(familyName, "\\5b8b\\4f53"_s))
             return songtiSC;
         break;
     case 18:
-        if (equalLettersIgnoringASCIICase(familyName, "microsoft jhenghei"))
+        if (equalLettersIgnoringASCIICase(familyName, "microsoft jhenghei"_s))
             return heitiTCReplacement;
         break;
     }
@@ -1614,7 +1575,7 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
 {
     // FIXME: Would be even better to somehow get the user's default font here.  For now we'll pick
     // the default that the user would get without changing any prefs.
-    if (auto result = fontForFamily(fontDescription, AtomString("Times", AtomString::ConstructFromLiteral)))
+    if (auto result = fontForFamily(fontDescription, AtomString("Times"_s)))
         return *result;
 
     // LastResort is guaranteed to be non-null.
@@ -1630,7 +1591,7 @@ FontCache::PrewarmInformation FontCache::collectPrewarmInformation() const
     return { copyToVector(m_seenFamiliesForPrewarming), copyToVector(m_fontNamesRequiringSystemFallbackForPrewarming) };
 }
 
-void FontCache::prewarm(const PrewarmInformation& prewarmInformation)
+void FontCache::prewarm(PrewarmInformation&& prewarmInformation)
 {
     if (prewarmInformation.isEmpty())
         return;
@@ -1638,9 +1599,7 @@ void FontCache::prewarm(const PrewarmInformation& prewarmInformation)
     if (!m_prewarmQueue)
         m_prewarmQueue = WorkQueue::create("WebKit font prewarm queue");
 
-    auto& database = FontDatabase::singletonDisallowingUserInstalledFonts();
-
-    m_prewarmQueue->dispatch([&database, prewarmInformation = prewarmInformation.isolatedCopy()] {
+    m_prewarmQueue->dispatch([&database = m_databaseDisallowingUserInstalledFonts, prewarmInformation = WTFMove(prewarmInformation).isolatedCopy()] {
         for (auto& family : prewarmInformation.seenFamilies)
             database.collectionForFamily(family);
 
@@ -1682,8 +1641,14 @@ void FontCache::prewarmGlobally()
 
     FontCache::PrewarmInformation prewarmInfo;
     prewarmInfo.seenFamilies = WTFMove(families);
-    FontCache::forCurrentThread().prewarm(prewarmInfo);
+    FontCache::forCurrentThread().prewarm(WTFMove(prewarmInfo));
 #endif
+}
+
+void FontCache::platformReleaseNoncriticalMemory()
+{
+    m_systemFontDatabaseCoreText.clear();
+    m_fontFamilySpecificationCoreTextCache.clear();
 }
 
 }

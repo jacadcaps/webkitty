@@ -31,17 +31,16 @@
 #import "APIAttachment.h"
 #import "APIContextMenuClient.h"
 #import "CocoaImage.h"
+#import "ImageAnalysisUtilities.h"
 #import "MenuUtilities.h"
 #import "PageClientImplMac.h"
 #import "ServicesController.h"
 #import "ShareableBitmap.h"
-#import "TextRecognitionUtilities.h"
 #import "WKMenuItemIdentifiersPrivate.h"
 #import "WKSharingServicePickerDelegate.h"
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
 #import "WebPageProxy.h"
-#import "WebPreferences.h"
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
@@ -186,11 +185,6 @@
     _menuProxy->page()->didDismissContextMenu();
 }
 
-- (void)menu:(NSMenu *)menu willHighlightItem:(NSMenuItem *)item
-{
-    _menuProxy->page()->willHighlightContextMenuItem(static_cast<WebCore::ContextMenuAction>(item.tag));
-}
-
 @end
 
 namespace WebKit {
@@ -221,10 +215,18 @@ void WebContextMenuProxyMac::setupServicesMenu()
 {
     bool includeEditorServices = m_context.controlledDataIsEditable();
     bool hasControlledImage = m_context.controlledImage();
+    bool isPDFAttachment = false;
+    auto attachment = page()->attachmentForIdentifier(m_context.controlledImageAttachmentID());
+    if (attachment) {
+#if HAVE(UNIFORM_TYPE_IDENTIFIERS_FRAMEWORK)
+        isPDFAttachment = attachment->utiType() == String(UTTypePDF.identifier);
+#else
+        isPDFAttachment = attachment->utiType() == String(kUTTypePDF);
+#endif
+    }
     NSArray *items = nil;
+    RetainPtr<NSItemProvider> itemProvider;
     if (hasControlledImage) {
-        auto attachment = page()->attachmentForIdentifier(m_context.controlledImageAttachmentID());
-        RetainPtr<NSItemProvider> itemProvider;
         if (attachment)
             itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:attachment->enclosingImageNSData() typeIdentifier:attachment->utiType()]);
         else {
@@ -245,13 +247,16 @@ void WebContextMenuProxyMac::setupServicesMenu()
         auto selection = adoptNS([[NSAttributedString alloc] initWithRTFD:selectionData.get() documentAttributes:nil]);
 
         items = @[ selection.get() ];
+    } else if (isPDFAttachment) {
+        itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:attachment->enclosingImageNSData() typeIdentifier:attachment->utiType()]);
+        items = @[ itemProvider.get() ];
     } else {
         LOG_ERROR("No service controlled item represented in the context");
         return;
     }
 
     RetainPtr<NSSharingServicePicker> picker = adoptNS([[NSSharingServicePicker alloc] initWithItems:items]);
-    [picker setStyle:hasControlledImage ? NSSharingServicePickerStyleRollover : NSSharingServicePickerStyleTextSelection];
+    [picker setStyle:hasControlledImage || isPDFAttachment ? NSSharingServicePickerStyleRollover : NSSharingServicePickerStyleTextSelection];
     [picker setDelegate:[WKSharingServicePickerDelegate sharedSharingServicePickerDelegate]];
     [[WKSharingServicePickerDelegate sharedSharingServicePickerDelegate] setPicker:picker.get()];
     [[WKSharingServicePickerDelegate sharedSharingServicePickerDelegate] setFiltersEditingServices:!includeEditorServices];
@@ -263,28 +268,12 @@ void WebContextMenuProxyMac::setupServicesMenu()
     [[WKSharingServicePickerDelegate sharedSharingServicePickerDelegate] setSourceFrame:imageRect];
     [[WKSharingServicePickerDelegate sharedSharingServicePickerDelegate] setAttachmentID:m_context.controlledImageAttachmentID()];
 
-    if ([picker respondsToSelector:@selector(standardShareMenuItem)])
-        m_menu = adoptNS([[[picker standardShareMenuItem] menu] copy]);
-    else
-        m_menu = adoptNS([[picker menu] copy]);
+    m_menu = adoptNS([[picker menu] copy]);
 
     if (!hasControlledImage)
         [m_menu setShowsStateColumn:YES];
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
-    else if (page()->preferences().imageAnalysisMarkupEnabled()) {
-        auto markupImageItem = adoptNS([[NSMenuItem alloc] initWithTitle:contextMenuItemTitleMarkupImage() action:@selector(markupImage) keyEquivalent:@""]);
-        [markupImageItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleMarkupImage()]];
-        [markupImageItem setTarget:WKSharingServicePickerDelegate.sharedSharingServicePickerDelegate];
-        [markupImageItem setAction:@selector(markupImage)];
-        auto numberOfItems = [m_menu numberOfItems];
-        if (numberOfItems)
-            [markupImageItem setIndentationLevel:[m_menu itemAtIndex:numberOfItems - 1].indentationLevel];
-        if (numberOfItems >= 1)
-            [m_menu insertItem:markupImageItem.get() atIndex:numberOfItems - 1];
-        else
-            [m_menu addItem:markupImageItem.get()];
-    }
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+
+    appendRemoveBackgroundItemToControlledImageMenuIfNeeded();
 
     // Explicitly add a menu item for each telephone number that is in the selection.
     Vector<RetainPtr<NSMenuItem>> telephoneNumberMenuItems;
@@ -315,6 +304,50 @@ void WebContextMenuProxyMac::setupServicesMenu()
         ServicesController::singleton().refreshExistingServices();
 }
 
+void WebContextMenuProxyMac::appendRemoveBackgroundItemToControlledImageMenuIfNeeded()
+{
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    auto* page = this->page();
+    if (!page || !page->preferences().removeBackgroundEnabled())
+        return;
+
+    auto context = m_context.controlledImageElementContext();
+    if (!context)
+        return;
+
+    page->shouldAllowRemoveBackground(*context, [protectedThis = Ref { *this }, weakMenu = WeakObjCPtr<NSMenu> { m_menu.get() }](bool shouldAllow) mutable {
+        if (!shouldAllow)
+            return;
+
+        auto* imageBitmap = protectedThis->m_context.controlledImage();
+        if (!imageBitmap)
+            return;
+
+        auto image = imageBitmap->makeCGImage();
+        if (!image)
+            return;
+
+        requestBackgroundRemoval(image.get(), [protectedThis = WTFMove(protectedThis), weakMenu = WTFMove(weakMenu)](CGImageRef result) {
+            if (!result)
+                return;
+
+            auto strongMenu = weakMenu.get();
+            if (!strongMenu)
+                return;
+
+            auto removeBackgroundItem = adoptNS([[NSMenuItem alloc] initWithTitle:contextMenuItemTitleRemoveBackground() action:@selector(removeBackground) keyEquivalent:@""]);
+            [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground()]];
+            [removeBackgroundItem setTarget:WKSharingServicePickerDelegate.sharedSharingServicePickerDelegate];
+            [removeBackgroundItem setAction:@selector(removeBackground)];
+            [removeBackgroundItem setIndentationLevel:[strongMenu itemArray].lastObject.indentationLevel];
+            [strongMenu addItem:removeBackgroundItem.get()];
+
+            protectedThis->m_copySubjectResult = result;
+        });
+    });
+#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+}
+
 void WebContextMenuProxyMac::showServicesMenu()
 {
     setupServicesMenu();
@@ -330,7 +363,7 @@ void WebContextMenuProxyMac::clearServicesMenu()
     m_menu = nullptr;
 }
 
-void WebContextMenuProxyMac::applyMarkupToControlledImage()
+void WebContextMenuProxyMac::removeBackgroundFromControlledImage()
 {
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     if (!page())
@@ -340,25 +373,11 @@ void WebContextMenuProxyMac::applyMarkupToControlledImage()
     if (!elementContext)
         return;
 
-    auto* imageBitmap = m_context.controlledImage();
-    if (!imageBitmap)
+    auto [data, type] = imageDataForRemoveBackground(m_copySubjectResult.get(), m_context.controlledImageMIMEType().createCFString().get());
+    if (!data)
         return;
 
-    auto image = imageBitmap->makeCGImage();
-    if (!image)
-        return;
-
-    requestImageAnalysisMarkup(image.get(), [weakPage = WeakPtr { page() }, preferredMIMEType = m_context.controlledImageMIMEType(), elementContext = WTFMove(*elementContext)](CGImageRef result, CGRect) {
-        RefPtr protectedPage = weakPage.get();
-        if (!protectedPage || !result)
-            return;
-
-        auto [data, type] = transcodeWithPreferredMIMEType(result, preferredMIMEType.createCFString().get(), (__bridge CFStringRef)UTTypeTIFF.identifier);
-        if (!data)
-            return;
-
-        protectedPage->replaceWithPasteboardData(elementContext, { String(type.get()) }, IPC::DataReference(static_cast<const uint8_t*>([data bytes]), [data length]));
-    });
+    page()->replaceImageForRemoveBackground(*elementContext, { String(type.get()) }, IPC::DataReference(static_cast<const uint8_t*>([data bytes]), [data length]));
 #endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
 }
 
@@ -400,8 +419,8 @@ void WebContextMenuProxyMac::getShareMenuItem(CompletionHandler<void(NSMenuItem 
             [items addObject:(NSURL *)downloadableMediaURL];
     }
 
-    if (hitTestData.imageSharedMemory && hitTestData.imageSize) {
-        if (auto image = adoptNS([[NSImage alloc] initWithData:[NSData dataWithBytes:(unsigned char*)hitTestData.imageSharedMemory->data() length:hitTestData.imageSize]]))
+    if (hitTestData.imageSharedMemory) {
+        if (auto image = adoptNS([[NSImage alloc] initWithData:[NSData dataWithBytes:(unsigned char*)hitTestData.imageSharedMemory->data() length:hitTestData.imageSharedMemory->size()]]))
             [items addObject:image.get()];
     }
 
@@ -521,7 +540,7 @@ static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
     case ContextMenuItemTagReload:
         return _WKMenuItemIdentifierReload;
 
-    case ContextMenuItemTagQuickLookImage:
+    case ContextMenuItemTagLookUpImage:
         return _WKMenuItemIdentifierRevealImage;
 
     case ContextMenuItemTagSearchWeb:
@@ -539,14 +558,29 @@ static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
     case ContextMenuItemTagTranslate:
         return _WKMenuItemIdentifierTranslate;
 
-    case ContextMenuItemTagCopyCroppedImage:
-        return _WKMenuItemIdentifierCopyCroppedImage;
+    case ContextMenuItemTagCopySubject:
+        return _WKMenuItemIdentifierCopySubject;
 
     case ContextMenuItemTagShareMenu:
         return _WKMenuItemIdentifierShareMenu;
 
     case ContextMenuItemTagSpeechMenu:
         return _WKMenuItemIdentifierSpeechMenu;
+
+    case ContextMenuItemTagSpellingMenu:
+        return _WKMenuItemIdentifierSpellingMenu;
+
+    case ContextMenuItemTagShowSpellingPanel:
+        return _WKMenuItemIdentifierShowSpellingPanel;
+
+    case ContextMenuItemTagCheckSpelling:
+        return _WKMenuItemIdentifierCheckSpelling;
+
+    case ContextMenuItemTagCheckSpellingWhileTyping:
+        return _WKMenuItemIdentifierCheckSpellingWhileTyping;
+
+    case ContextMenuItemTagCheckGrammarWithSpelling:
+        return _WKMenuItemIdentifierCheckGrammarWithSpelling;
 
     default:
         return nil;
@@ -595,21 +629,25 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         });
     }
 
-    bool shouldUpdateQuickLookItemTitle = false;
-    std::optional<WebContextMenuItemData> quickLookItemToInsertIfNeeded;
+    std::optional<WebContextMenuItemData> copySubjectItem;
+    std::optional<WebContextMenuItemData> lookUpImageItem;
 
 #if ENABLE(IMAGE_ANALYSIS)
-    auto indexOfQuickLookItem = filteredItems.findIf([&] (auto& item) {
-        return item.action() == WebCore::ContextMenuItemTagQuickLookImage;
+    filteredItems.removeAllMatching([&] (auto& item) {
+        switch (item.action()) {
+        case ContextMenuItemTagLookUpImage:
+            ASSERT(!lookUpImageItem);
+            lookUpImageItem = { item };
+            return true;
+        case ContextMenuItemTagCopySubject:
+            ASSERT(!copySubjectItem);
+            copySubjectItem = { item };
+            return true;
+        default:
+            break;
+        }
+        return false;
     });
-
-    if (indexOfQuickLookItem != notFound) {
-        if (auto page = this->page(); page && page->preferences().preferInlineTextSelectionInImages()) {
-            quickLookItemToInsertIfNeeded = filteredItems[indexOfQuickLookItem];
-            filteredItems.remove(indexOfQuickLookItem);
-        } else
-            shouldUpdateQuickLookItemTitle = true;
-    }
 #endif // ENABLE(IMAGE_ANALYSIS)
 
 #if HAVE(TRANSLATION_UI_SERVICES)
@@ -623,11 +661,11 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
     ASSERT(m_context.webHitTestResultData());
     auto hitTestData = m_context.webHitTestResultData().value();
     
-    auto imageURL = URL { URL { }, hitTestData.absoluteImageURL };
+    auto imageURL = URL { hitTestData.absoluteImageURL };
     auto imageBitmap = hitTestData.imageBitmap;
 
-    auto sparseMenuItems = retainPtr([NSPointerArray strongObjectsPointerArray]);
-    auto insertMenuItem = makeBlockPtr([protectedThis = Ref { *this }, weakPage = WeakPtr { page() }, imageURL = WTFMove(imageURL), imageBitmap = WTFMove(imageBitmap), shouldUpdateQuickLookItemTitle, quickLookItemToInsertIfNeeded = WTFMove(quickLookItemToInsertIfNeeded), completionHandler = WTFMove(completionHandler), itemsRemaining = filteredItems.size(), menu = WTFMove(menu), sparseMenuItems](NSMenuItem *item, NSUInteger index) mutable {
+    RetainPtr sparseMenuItems = [NSPointerArray strongObjectsPointerArray];
+    auto insertMenuItem = makeBlockPtr([protectedThis = Ref { *this }, weakPage = WeakPtr { page() }, imageURL = WTFMove(imageURL), imageBitmap = WTFMove(imageBitmap), lookUpImageItem = WTFMove(lookUpImageItem), copySubjectItem = WTFMove(copySubjectItem), completionHandler = WTFMove(completionHandler), itemsRemaining = filteredItems.size(), menu = WTFMove(menu), sparseMenuItems](NSMenuItem *item, NSUInteger index) mutable {
         ASSERT(index < [sparseMenuItems count]);
         ASSERT(![sparseMenuItems pointerAtIndex:index]);
         [sparseMenuItems replacePointerAtIndex:index withPointer:item];
@@ -636,14 +674,37 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
 
         [menu setItemArray:[sparseMenuItems allObjects]];
 
-        RefPtr page { weakPage.get() };
+        RefPtr page = weakPage.get();
         if (page && imageBitmap) {
 #if ENABLE(IMAGE_ANALYSIS)
-            protectedThis->insertOrUpdateQuickLookImageItem(imageURL, imageBitmap.releaseNonNull(), WTFMove(quickLookItemToInsertIfNeeded), shouldUpdateQuickLookItemTitle);
+            if (lookUpImageItem) {
+                page->computeHasVisualSearchResults(imageURL, *imageBitmap, [protectedThis, lookUpImageItem = WTFMove(*lookUpImageItem)] (bool hasVisualSearchResults) mutable {
+                    if (hasVisualSearchResults)
+                        [protectedThis->m_menu addItem:createMenuActionItem(lookUpImageItem).get()];
+                });
+            }
 #else
-            UNUSED_PARAM(quickLookItemToInsertIfNeeded);
-            UNUSED_PARAM(shouldUpdateQuickLookItemTitle);
             UNUSED_PARAM(imageURL);
+#endif
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+            if (copySubjectItem) {
+                if (auto image = imageBitmap->makeCGImageCopy()) {
+                    protectedThis->m_copySubjectResult = nullptr;
+                    requestBackgroundRemoval(image.get(), [weakPage, protectedThis, copySubjectItem = WTFMove(*copySubjectItem)](auto result) {
+                        if (!result)
+                            return;
+
+                        RefPtr page = weakPage.get();
+                        if (!page)
+                            return;
+
+                        protectedThis->m_copySubjectResult = result;
+                        [protectedThis->m_menu addItem:createMenuActionItem(copySubjectItem).get()];
+                    });
+                }
+            }
+#else
+            UNUSED_PARAM(copySubjectItem);
 #endif
         }
 
@@ -657,63 +718,6 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         });
     }
 }
-
-#if ENABLE(IMAGE_ANALYSIS)
-
-void WebContextMenuProxyMac::insertOrUpdateQuickLookImageItem(const URL& imageURL, Ref<ShareableBitmap>&& imageBitmap, std::optional<WebContextMenuItemData>&& quickLookItemToInsertIfNeeded, bool shouldUpdateQuickLookItemTitle)
-{
-    Ref page = *this->page();
-    if (quickLookItemToInsertIfNeeded) {
-        page->computeHasImageAnalysisResults(imageURL, imageBitmap.get(), ImageAnalysisType::VisualSearch, [weakThis = WeakPtr { *this }, quickLookItemToInsertIfNeeded = WTFMove(*quickLookItemToInsertIfNeeded)] (bool hasVisualSearchResults) mutable {
-            if (RefPtr protectedThis = weakThis.get(); protectedThis && hasVisualSearchResults) {
-                protectedThis->m_quickLookPreviewActivity = QuickLookPreviewActivity::VisualSearch;
-                [protectedThis->m_menu addItem:NSMenuItem.separatorItem];
-                [protectedThis->m_menu addItem:createMenuActionItem(quickLookItemToInsertIfNeeded).get()];
-            }
-        });
-        return;
-    }
-
-    if (shouldUpdateQuickLookItemTitle) {
-        page->computeHasImageAnalysisResults(imageURL, imageBitmap.get(), ImageAnalysisType::VisualSearch, [weakThis = WeakPtr { *this }, weakPage = WeakPtr { page }, imageURL, imageBitmap = WTFMove(imageBitmap)] (bool hasVisualSearchResults) mutable {
-            RefPtr protectedThis { weakThis.get() };
-            if (!protectedThis)
-                return;
-
-            RefPtr page { weakPage.get() };
-            if (!page)
-                return;
-
-            if (hasVisualSearchResults) {
-                protectedThis->m_quickLookPreviewActivity = QuickLookPreviewActivity::VisualSearch;
-                protectedThis->updateQuickLookContextMenuItemTitle(contextMenuItemTagQuickLookImageForVisualSearch());
-                return;
-            }
-
-            page->computeHasImageAnalysisResults(imageURL, imageBitmap.get(), ImageAnalysisType::Text, [weakThis = WTFMove(weakThis), weakPage] (bool hasText) mutable {
-                RefPtr protectedThis { weakThis.get() };
-                if (!protectedThis)
-                    return;
-
-                if (RefPtr page = weakPage.get(); page && hasText)
-                    protectedThis->updateQuickLookContextMenuItemTitle(contextMenuItemTagQuickLookImageForTextSelection());
-            });
-        });
-    }
-}
-
-void WebContextMenuProxyMac::updateQuickLookContextMenuItemTitle(const String& newTitle)
-{
-    for (NSInteger itemIndex = 0; itemIndex < [m_menu numberOfItems]; ++itemIndex) {
-        auto item = [m_menu itemAtIndex:itemIndex];
-        if (static_cast<ContextMenuAction>(item.tag) == ContextMenuItemTagQuickLookImage) {
-            item.title = newTitle;
-            break;
-        }
-    }
-}
-
-#endif // ENABLE(IMAGE_ANALYSIS)
 
 void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& item, CompletionHandler<void(NSMenuItem *)>&& completionHandler)
 {
@@ -769,8 +773,8 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 
     auto webView = m_webView.get();
     NSPoint menuLocation = [webView convertPoint:m_context.menuLocation() toView:nil];
-    NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeRightMouseUp location:menuLocation modifierFlags:0 timestamp:0 windowNumber:[webView window].windowNumber context:nil eventNumber:0 clickCount:0 pressure:0];
-    [NSMenu popUpContextMenu:m_menu.get() withEvent:event forView:webView.get()];
+    auto event = page()->createSyntheticEventForContextMenu(menuLocation);
+    [NSMenu popUpContextMenu:m_menu.get() withEvent:event.get() forView:webView.get()];
 }
 
 void WebContextMenuProxyMac::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)

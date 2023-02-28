@@ -34,6 +34,7 @@
 #include "MessagePortChannelProvider.h"
 #include "MessageWithMessagePorts.h"
 #include "StructuredSerializeOptions.h"
+#include "WebCoreOpaqueRoot.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
 #include <wtf/CompletionHandler.h>
@@ -307,7 +308,7 @@ void MessagePort::dispatchMessages()
                 return;
             auto ports = MessagePort::entanglePorts(*context, WTFMove(message.transferredPorts));
             // Per specification, each MessagePort object has a task source called the port message queue.
-            queueTaskToDispatchEvent(*this, TaskSource::PostedMessageQueue, MessageEvent::create(WTFMove(ports), message.message.releaseNonNull()));
+            queueTaskToDispatchEvent(*this, TaskSource::PostedMessageQueue, MessageEvent::create(message.message.releaseNonNull(), { }, { }, { }, WTFMove(ports)));
         }
     };
 
@@ -458,6 +459,11 @@ bool MessagePort::removeEventListener(const AtomString& eventType, EventListener
 const char* MessagePort::activeDOMObjectName() const
 {
     return "MessagePort";
+}
+
+WebCoreOpaqueRoot root(MessagePort* port)
+{
+    return WebCoreOpaqueRoot { port };
 }
 
 } // namespace WebCore

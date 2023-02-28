@@ -237,6 +237,21 @@ static const char* streamTypeToString(TrackPrivateBaseGStreamer::TrackType type)
 }
 #endif // GST_DISABLE_GST_DEBUG
 
+static gboolean webKitMediaSrcQuery(GstElement* element, GstQuery* query)
+{
+    gboolean result = GST_ELEMENT_CLASS(parent_class)->query(element, query);
+
+    if (GST_QUERY_TYPE(query) != GST_QUERY_SCHEDULING)
+        return result;
+
+    GstSchedulingFlags flags;
+    int minSize, maxSize, align;
+
+    gst_query_parse_scheduling(query, &flags, &minSize, &maxSize, &align);
+    gst_query_set_scheduling(query, static_cast<GstSchedulingFlags>(flags | GST_SCHEDULING_FLAG_BANDWIDTH_LIMITED), minSize, maxSize, align);
+    return TRUE;
+}
+
 static void webkit_media_src_class_init(WebKitMediaSrcClass* klass)
 {
     GObjectClass* oklass = G_OBJECT_CLASS(klass);
@@ -249,8 +264,10 @@ static void webkit_media_src_class_init(WebKitMediaSrcClass* klass)
 
     gst_element_class_set_static_metadata(eklass, "WebKit MediaSource source element", "Source/Network", "Feeds samples coming from WebKit MediaSource object", "Igalia <aboya@igalia.com>");
 
-    eklass->change_state = webKitMediaSrcChangeState;
-    eklass->send_event = webKitMediaSrcSendEvent;
+    eklass->change_state = GST_DEBUG_FUNCPTR(webKitMediaSrcChangeState);
+    eklass->send_event = GST_DEBUG_FUNCPTR(webKitMediaSrcSendEvent);
+    eklass->query = GST_DEBUG_FUNCPTR(webKitMediaSrcQuery);
+
     g_object_class_install_property(oklass,
         PROP_N_AUDIO,
         g_param_spec_int("n-audio", "Number Audio", "Total number of audio streams",
@@ -545,6 +562,8 @@ static void webKitMediaSrcStreamFlush(Stream* stream, bool isSeekingFlush)
 {
     ASSERT(isMainThread());
     bool skipFlush = false;
+    GST_DEBUG_OBJECT(stream->source, "Flush requested for stream '%s'. isSeekingFlush = %s",
+        stream->track->trackId().string().utf8().data(), boolForPrinting(isSeekingFlush));
 
     {
         DataMutexLocker streamingMembers { stream->streamingMembersDataMutex };
@@ -635,6 +654,9 @@ static void webKitMediaSrcStreamFlush(Stream* stream, bool isSeekingFlush)
         GST_DEBUG_OBJECT(stream->pad.get(), "Starting webKitMediaSrcLoop task and releasing the STREAM_LOCK.");
         gst_pad_start_task(stream->pad.get(), webKitMediaSrcLoop, stream->pad.get(), nullptr);
     }
+
+    GST_DEBUG_OBJECT(stream->source, "Flush request for stream '%s' (isSeekingFlush = %s) satisfied.",
+        stream->track->trackId().string().utf8().data(), boolForPrinting(isSeekingFlush));
 }
 
 void webKitMediaSrcFlush(WebKitMediaSrc* source, const AtomString& streamName)

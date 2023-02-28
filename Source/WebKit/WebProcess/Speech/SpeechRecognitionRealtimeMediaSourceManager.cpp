@@ -135,12 +135,7 @@ private:
         SharedMemory::Handle handle;
         if (storage)
             storage->createHandle(handle, SharedMemory::Protection::ReadOnly);
-#if OS(DARWIN) || OS(WINDOWS)
-        uint64_t dataSize = handle.size();
-#else
-        uint64_t dataSize = 0;
-#endif
-        m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::SetStorage(m_identifier, SharedMemory::IPCHandle { WTFMove(handle),  dataSize }, description, numberOfFrames), 0);
+        m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::SetStorage(m_identifier, WTFMove(handle), description, numberOfFrames), 0);
     }
 
 #endif
@@ -208,9 +203,9 @@ void SpeechRecognitionRealtimeMediaSourceManager::revokeSandboxExtensions()
 
 #endif
 
-void SpeechRecognitionRealtimeMediaSourceManager::createSource(RealtimeMediaSourceIdentifier identifier, const CaptureDevice& device)
+void SpeechRecognitionRealtimeMediaSourceManager::createSource(RealtimeMediaSourceIdentifier identifier, const CaptureDevice& device, PageIdentifier pageIdentifier)
 {
-    auto result = SpeechRecognitionCaptureSource::createRealtimeMediaSource(device);
+    auto result = SpeechRecognitionCaptureSource::createRealtimeMediaSource(device, pageIdentifier);
     if (!result) {
         RELEASE_LOG_ERROR(Media, "Failed to create realtime source");
         send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::RemoteCaptureFailed(identifier), 0);

@@ -74,7 +74,7 @@ static FrameState toFrameState(const HistoryItem& historyItem)
 
     frameState.setDocumentState(historyItem.documentState());
     if (RefPtr<SerializedScriptValue> stateObject = historyItem.stateObject())
-        frameState.stateObjectData = stateObject->data();
+        frameState.stateObjectData = stateObject->wireBytes();
 
     frameState.documentSequenceNumber = historyItem.documentSequenceNumber();
     frameState.itemSequenceNumber = historyItem.itemSequenceNumber();
@@ -99,22 +99,24 @@ static FrameState toFrameState(const HistoryItem& historyItem)
     frameState.obscuredInsets = historyItem.obscuredInsets();
 #endif
 
-    for (auto& childHistoryItem : historyItem.children()) {
-        FrameState childFrameState = toFrameState(childHistoryItem);
-        frameState.children.append(WTFMove(childFrameState));
-    }
+    frameState.children = historyItem.children().map([](auto& childHistoryItem) {
+        return toFrameState(childHistoryItem);
+    });
 
     return frameState;
 }
 
 BackForwardListItemState toBackForwardListItemState(const WebCore::HistoryItem& historyItem)
 {
+    static constexpr unsigned maxTitleLength = 1000; // Closest power of 10 above the W3C recommendation for Title length.
+
     BackForwardListItemState state;
     state.identifier = historyItem.identifier();
-    state.pageState.title = historyItem.title();
+    state.pageState.title = historyItem.title().left(maxTitleLength);
     state.pageState.mainFrameState = toFrameState(historyItem);
     state.pageState.shouldOpenExternalURLsPolicy = historyItem.shouldOpenExternalURLsPolicy();
     state.pageState.sessionStateObject = historyItem.stateObject();
+    state.pageState.wasCreatedByJSWithoutUserInteraction = historyItem.wasCreatedByJSWithoutUserInteraction();
     state.hasCachedPage = historyItem.isInBackForwardCache();
     return state;
 }
@@ -134,7 +136,7 @@ static Ref<FormData> toFormData(const HTTPBody& httpBody)
             break;
 
         case HTTPBody::Element::Type::Blob:
-            formData->appendBlob(URL(URL(), element.blobURLString));
+            formData->appendBlob(URL { element.blobURLString });
             break;
         }
     }
@@ -152,7 +154,7 @@ static void applyFrameState(HistoryItem& historyItem, const FrameState& frameSta
 
     if (frameState.stateObjectData) {
         Vector<uint8_t> stateObjectData = frameState.stateObjectData.value();
-        historyItem.setStateObject(SerializedScriptValue::adopt(WTFMove(stateObjectData)));
+        historyItem.setStateObject(SerializedScriptValue::createFromWireBytes(WTFMove(stateObjectData)));
     }
 
     historyItem.setDocumentSequenceNumber(frameState.documentSequenceNumber);

@@ -29,11 +29,44 @@
 #include "WCContentBufferIdentifier.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/GraphicsLayer.h>
+#include <WebCore/TextureMapperSparseBackingStore.h>
 #include <optional>
 #include <wtf/EnumTraits.h>
 #include <wtf/OptionSet.h>
 
 namespace WebKit {
+
+struct WCTileUpdate {
+    WebCore::TextureMapperSparseBackingStore::TileIndex index;
+    bool willRemove { false };
+    WCBackingStore backingStore;
+    WebCore::IntRect dirtyRect;
+
+    template<class Encoder>
+    void encode(Encoder& encoder) const
+    {
+        encoder << index << willRemove;
+        if (!willRemove)
+            encoder << backingStore << dirtyRect;
+    }
+
+    template <class Decoder>
+    static std::optional<WCTileUpdate> decode(Decoder& decoder)
+    {
+        WCTileUpdate result;
+        if (!decoder.decode(result.index))
+            return std::nullopt;
+        if (!decoder.decode(result.willRemove))
+            return std::nullopt;
+        if (!result.willRemove) {
+            if (!decoder.decode(result.backingStore))
+                return std::nullopt;
+            if (!decoder.decode(result.dirtyRect))
+                return std::nullopt;
+        }
+        return result;
+    }
+};
 
 enum class WCLayerChange : uint32_t {
     Children                = 1 <<  0,
@@ -69,6 +102,7 @@ struct WCLayerUpateInfo {
     WebCore::FloatSize size;
     WebCore::FloatPoint boundsOrigin;
     bool masksToBounds;
+    bool contentsRectClipsDescendants;
     bool showDebugBorder;
     bool showRepaintCounter;
     bool contentsVisible;
@@ -83,15 +117,13 @@ struct WCLayerUpateInfo {
     float debugBorderWidth;
     int repaintCount;
     WebCore::FloatRect contentsRect;
-    WCBackingStore backingStore;
-    WebCore::IntRect dirtyRect;
-    WebCore::IntRect coverageRect;
     WebCore::TransformationMatrix transform;
     WebCore::TransformationMatrix childrenTransform;
     WebCore::FilterOperations filters;
     WebCore::FilterOperations backdropFilters;
     WebCore::FloatRoundedRect backdropFiltersRect;
     WebCore::FloatRoundedRect contentsClippingRect;
+    Vector<WCTileUpdate> tileUpdate;
     Vector<WCContentBufferIdentifier> contentBufferIdentifiers;
 
     template<class Encoder>
@@ -123,12 +155,14 @@ struct WCLayerUpateInfo {
             encoder << showRepaintCounter << repaintCount;
         if (changes & WCLayerChange::ContentsRect)
             encoder << contentsRect;
-        if (changes & WCLayerChange::ContentsClippingRect)
+        if (changes & WCLayerChange::ContentsClippingRect) {
             encoder << contentsClippingRect;
+            encoder << contentsRectClipsDescendants;
+        }
         if (changes & WCLayerChange::Opacity)
             encoder << opacity;
         if (changes & WCLayerChange::Background)
-            encoder << backgroundColor << hasBackingStore << backingStore << dirtyRect << coverageRect;
+            encoder << backgroundColor << hasBackingStore << tileUpdate;
         if (changes & WCLayerChange::Transform)
             encoder << transform;
         if (changes & WCLayerChange::ChildrenTransform)
@@ -211,6 +245,8 @@ struct WCLayerUpateInfo {
         if (result.changes & WCLayerChange::ContentsClippingRect) {
             if (!decoder.decode(result.contentsClippingRect))
                 return false;
+            if (!decoder.decode(result.contentsRectClipsDescendants))
+                return false;
         }
         if (result.changes & WCLayerChange::Opacity) {
             if (!decoder.decode(result.opacity))
@@ -221,11 +257,7 @@ struct WCLayerUpateInfo {
                 return false;
             if (!decoder.decode(result.hasBackingStore))
                 return false;
-            if (!decoder.decode(result.backingStore))
-                return false;
-            if (!decoder.decode(result.dirtyRect))
-                return false;
-            if (!decoder.decode(result.coverageRect))
+            if (!decoder.decode(result.tileUpdate))
                 return false;
         }
         if (result.changes & WCLayerChange::Transform) {

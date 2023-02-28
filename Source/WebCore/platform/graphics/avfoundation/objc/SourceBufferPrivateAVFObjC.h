@@ -74,7 +74,7 @@ class VideoTrackPrivate;
 class AudioTrackPrivateMediaSourceAVFObjC;
 class VideoTrackPrivateMediaSourceAVFObjC;
 class WebCoreDecompressionSession;
-class FragmentedSharedBuffer;
+class SharedBuffer;
 
 class SourceBufferPrivateAVFObjCErrorClient {
 public:
@@ -106,6 +106,7 @@ public:
     void trackDidChangeEnabled(AudioTrackPrivate&, bool enabled);
 
     void willSeek();
+    void seekToTime(const MediaTime&) final;
     FloatSize naturalSize();
 
     uint64_t protectedTrackID() const { return m_protectedTrackID; }
@@ -197,8 +198,8 @@ private:
     void keyStatusesChanged();
 #endif
 
-    Vector<RefPtr<VideoTrackPrivate>> m_videoTracks;
-    Vector<RefPtr<AudioTrackPrivate>> m_audioTracks;
+    HashMap<AtomString, RefPtr<VideoTrackPrivate>> m_videoTracks;
+    HashMap<AtomString, RefPtr<AudioTrackPrivate>> m_audioTracks;
     Vector<SourceBufferPrivateAVFObjCErrorClient*> m_errorClients;
 
     WeakPtrFactory<SourceBufferPrivateAVFObjC> m_appendWeakFactory;
@@ -232,7 +233,7 @@ private:
     WeakPtr<CDMSessionMediaSourceAVFObjC> m_session { nullptr };
 #endif
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
-    using KeyIDs = Vector<Ref<FragmentedSharedBuffer>>;
+    using KeyIDs = Vector<Ref<SharedBuffer>>;
     struct TrackInitData {
         RefPtr<SharedBuffer> initData;
         KeyIDs keyIDs;
@@ -253,6 +254,7 @@ private:
     FloatSize m_currentSize;
     bool m_parsingSucceeded { true };
     bool m_waitingForKey { true };
+    bool m_seeking { false };
     uint64_t m_enabledVideoTrackID { notFound };
     uint64_t m_protectedTrackID { notFound };
     uint64_t m_mapID;

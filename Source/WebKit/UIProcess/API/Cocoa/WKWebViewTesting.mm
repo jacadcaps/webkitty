@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #import "GPUProcessProxy.h"
 #import "MediaSessionCoordinatorProxyPrivate.h"
 #import "PlaybackSessionManagerProxy.h"
+#import "PrintInfo.h"
 #import "UserMediaProcessManager.h"
 #import "ViewGestureController.h"
 #import "WebPageProxy.h"
@@ -44,6 +45,10 @@
 
 #if PLATFORM(MAC)
 #import "WKWebViewMac.h"
+#endif
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+#import "WindowServerConnection.h"
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -198,7 +203,7 @@
         completionHandler();
         return;
     }
-    _page->process().sendPrepareToSuspend(WebKit::IsSuspensionImminent::No, [completionHandler = makeBlockPtr(completionHandler)] {
+    _page->process().sendPrepareToSuspend(WebKit::IsSuspensionImminent::No, 0.0, [completionHandler = makeBlockPtr(completionHandler)] {
         completionHandler();
     });
 }
@@ -206,13 +211,13 @@
 - (void)_processWillSuspendImminentlyForTesting
 {
     if (_page)
-        _page->process().sendPrepareToSuspend(WebKit::IsSuspensionImminent::Yes, [] { });
+        _page->process().sendPrepareToSuspend(WebKit::IsSuspensionImminent::Yes, 0.0, [] { });
 }
 
 - (void)_processDidResumeForTesting
 {
     if (_page)
-        _page->process().sendProcessDidResume();
+        _page->process().sendProcessDidResume(WebKit::ProcessThrottlerClient::ResumeReason::ForegroundActivity);
 }
 
 - (void)_setAssertionTypeForTesting:(int)value
@@ -433,6 +438,14 @@
     });
 }
 
+- (void)_computePagesForPrinting:(_WKFrameHandle *)handle completionHandler:(void(^)(void))completionHandler
+{
+    WebKit::PrintInfo printInfo;
+    _page->computePagesForPrinting(handle->_frameHandle->frameID(), printInfo, [completionHandler = makeBlockPtr(completionHandler)] (const Vector<WebCore::IntRect>&, double, const WebCore::FloatBoxExtent&) {
+        completionHandler();
+    });
+}
+
 - (void)_gpuToWebProcessConnectionCountForTesting:(void(^)(NSUInteger))completionHandler
 {
     RefPtr gpuProcess = _page->process().processPool().gpuProcess();
@@ -444,6 +457,13 @@
     gpuProcess->webProcessConnectionCountForTesting([completionHandler = makeBlockPtr(completionHandler)](uint64_t count) {
         completionHandler(count);
     });
+}
+
+- (void)_setConnectedToHardwareConsoleForTesting:(BOOL)connected
+{
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    WebKit::WindowServerConnection::singleton().hardwareConsoleStateChanged(connected ? WebKit::WindowServerConnection::HardwareConsoleState::Connected : WebKit::WindowServerConnection::HardwareConsoleState::Disconnected);
+#endif
 }
 
 - (void)_createMediaSessionCoordinatorForTesting:(id <_WKMediaSessionCoordinator>)privateCoordinator completionHandler:(void(^)(BOOL))completionHandler

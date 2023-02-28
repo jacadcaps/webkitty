@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,8 @@
 
 #import "APICast.h"
 #import "Completion.h"
+#import "IntegrityInlines.h"
+#import "JSAPIGlobalObject.h"
 #import "JSBaseInternal.h"
 #import "JSCInlines.h"
 #import "JSContextInternal.h"
@@ -35,6 +37,7 @@
 #import "JSGlobalObject.h"
 #import "JSInternalPromise.h"
 #import "JSModuleLoader.h"
+#import "JSScriptInternal.h"
 #import "JSValueInternal.h"
 #import "JSVirtualMachineInternal.h"
 #import "JSWrapperMap.h"
@@ -131,7 +134,7 @@
         return [JSValue valueWithJSValueRef:result inContext:self];
     }
 
-    auto* apiGlobalObject = JSC::jsDynamicCast<JSC::JSAPIGlobalObject*>(vm, globalObject);
+    auto* apiGlobalObject = JSC::jsDynamicCast<JSC::JSAPIGlobalObject*>(globalObject);
     if (!apiGlobalObject)
         return [JSValue valueWithNewPromiseRejectedWithReason:[JSValue valueWithNewErrorFromMessage:@"Context does not support module loading" inContext:self] inContext:self];
 
@@ -159,7 +162,7 @@
     }
 
     auto scope = DECLARE_CATCH_SCOPE(vm);
-    JSC::JSArray* result = globalObject->moduleLoader()->dependencyKeysIfEvaluated(globalObject, JSC::jsString(vm, [[script sourceURL] absoluteString]));
+    JSC::JSArray* result = globalObject->moduleLoader()->dependencyKeysIfEvaluated(globalObject, JSC::jsString(vm, String([[script sourceURL] absoluteString])));
     if (scope.exception()) {
         JSValueRef exceptionValue = toRef(globalObject, scope.exception()->value());
         scope.clearException();

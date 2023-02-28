@@ -34,6 +34,7 @@ namespace WebPushD {
 
 MockPushServiceConnection::MockPushServiceConnection()
 {
+    didReceivePublicToken(Vector<uint8_t> { 'a', 'b', 'c' });
 }
 
 MockPushServiceConnection::~MockPushServiceConnection() = default;
@@ -64,44 +65,17 @@ void MockPushServiceConnection::unsubscribe(const String&, const Vector<uint8_t>
     handler(true, nil);
 }
 
-Vector<String> MockPushServiceConnection::enabledTopics()
+void MockPushServiceConnection::setTopicLists(TopicLists&& topics)
 {
-    return { };
+    setEnabledTopics(WTFMove(topics.enabledTopics));
+    setIgnoredTopics(WTFMove(topics.ignoredTopics));
+    setOpportunisticTopics(WTFMove(topics.opportunisticTopics));
+    setNonWakingTopics(WTFMove(topics.nonWakingTopics));
 }
 
-Vector<String> MockPushServiceConnection::ignoredTopics()
+void MockPushServiceConnection::setPublicTokenForTesting(Vector<uint8_t>&& token)
 {
-    return { };
-}
-
-Vector<String> MockPushServiceConnection::opportunisticTopics()
-{
-    return { };
-}
-
-Vector<String> MockPushServiceConnection::nonWakingTopics()
-{
-    return { };
-}
-
-void MockPushServiceConnection::setEnabledTopics(Vector<String>&& topics)
-{
-}
-
-void MockPushServiceConnection::setIgnoredTopics(Vector<String>&& topics)
-{
-}
-
-void MockPushServiceConnection::setOpportunisticTopics(Vector<String>&& topics)
-{
-}
-
-void MockPushServiceConnection::setNonWakingTopics(Vector<String>&& topics)
-{
-}
-
-void MockPushServiceConnection::setTopicLists(TopicLists&& topicLists)
-{
+    didReceivePublicToken(WTFMove(token));
 }
 
 } // namespace WebPushD

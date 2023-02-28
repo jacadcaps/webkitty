@@ -38,13 +38,14 @@ namespace WebKit {
 
 class WebCacheStorageProvider;
 
-class WebCacheStorageConnection final : public WebCore::CacheStorageConnection {
+class WebCacheStorageConnection final : public CanMakeWeakPtr<WebCacheStorageConnection>, public WebCore::CacheStorageConnection {
 public:
     static Ref<WebCacheStorageConnection> create(WebCacheStorageProvider& provider) { return adoptRef(*new WebCacheStorageConnection(provider)); }
 
     ~WebCacheStorageConnection();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
+    void networkProcessConnectionClosed();
 
 private:
     WebCacheStorageConnection(WebCacheStorageProvider&);
@@ -56,7 +57,7 @@ private:
     void remove(uint64_t cacheIdentifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&&) final;
     void retrieveCaches(const WebCore::ClientOrigin&, uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&&) final;
 
-    void retrieveRecords(uint64_t cacheIdentifier, const WebCore::RetrieveRecordsOptions&, WebCore::DOMCacheEngine::RecordsCallback&&) final;
+    void retrieveRecords(uint64_t cacheIdentifier, WebCore::RetrieveRecordsOptions&&, WebCore::DOMCacheEngine::RecordsCallback&&) final;
     void batchDeleteOperation(uint64_t cacheIdentifier, const WebCore::ResourceRequest&, WebCore::CacheQueryOptions&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&) final;
     void batchPutOperation(uint64_t cacheIdentifier, Vector<WebCore::DOMCacheEngine::Record>&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&) final;
 
@@ -68,6 +69,7 @@ private:
     void updateQuotaBasedOnSpaceUsage(const WebCore::ClientOrigin&) final;
 
     WebCacheStorageProvider& m_provider;
+    HashSet<uint64_t> m_connectedIdentifiers;
 };
 
 }

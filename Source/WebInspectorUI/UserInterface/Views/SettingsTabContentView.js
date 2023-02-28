@@ -386,18 +386,20 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
 
         let initialValues = new Map;
 
-        let canShowPreviewFeatures = WI.canShowPreviewFeatures();
-        if (canShowPreviewFeatures) {
-            experimentalSettingsView.addSetting(WI.UIString("Staging:"), WI.settings.experimentalEnablePreviewFeatures, WI.UIString("Enable Preview Features"));
-            experimentalSettingsView.addSeparator();
-        }
-
         let hasCSSDomain = InspectorBackend.hasDomain("CSS");
         if (hasCSSDomain) {
             let stylesGroup = experimentalSettingsView.addGroup(WI.UIString("Styles:"));
             stylesGroup.addSetting(WI.settings.experimentalEnableStylesJumpToEffective, WI.UIString("Show jump to effective property button"));
             stylesGroup.addSetting(WI.settings.experimentalEnableStylesJumpToVariableDeclaration, WI.UIString("Show jump to variable declaration button"));
-            stylesGroup.addSetting(WI.settings.experimentalCSSCompletionFuzzyMatching, WI.UIString("Use fuzzy matching for completion suggestions"));
+            stylesGroup.addSetting(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage, WI.UIString("Suggest property names based on usage"));
+
+            experimentalSettingsView.addSeparator();
+        }
+
+        let hasNetworkEmulatedCondition = InspectorBackend.hasCommand("Network.setEmulatedConditions");
+        if (hasNetworkEmulatedCondition) {
+            let networkGroup = experimentalSettingsView.addGroup(WI.UIString("Network:"));
+            networkGroup.addSetting(WI.settings.experimentalEnableNetworkEmulatedCondition, WI.UIString("Allow throttling", "Label for checkbox that controls whether network throttling functionality is enabled."));
 
             experimentalSettingsView.addSeparator();
         }
@@ -422,13 +424,13 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             }, reloadInspectorContainerElement);
         }
 
-        if (canShowPreviewFeatures)
-            listenForChange(WI.settings.experimentalEnablePreviewFeatures);
-
         if (hasCSSDomain) {
             listenForChange(WI.settings.experimentalEnableStylesJumpToEffective);
             listenForChange(WI.settings.experimentalEnableStylesJumpToVariableDeclaration);
         }
+
+        if (hasNetworkEmulatedCondition)
+            listenForChange(WI.settings.experimentalEnableNetworkEmulatedCondition);
 
         this._createReferenceLink(experimentalSettingsView);
 

@@ -56,9 +56,9 @@ namespace WebCore {
 
 class AudioSampleBufferCompressor;
 class AudioStreamDescription;
-class MediaSample;
 class MediaStreamTrackPrivate;
 class PlatformAudioData;
+class VideoFrame;
 class VideoSampleBufferCompressor;
 struct MediaRecorderPrivateOptions;
 
@@ -67,7 +67,7 @@ public:
     static RefPtr<MediaRecorderPrivateWriter> create(bool hasAudio, bool hasVideo, const MediaRecorderPrivateOptions&);
     ~MediaRecorderPrivateWriter();
 
-    void appendVideoSampleBuffer(MediaSample&);
+    void appendVideoFrame(VideoFrame&);
     void appendAudioSampleBuffer(const PlatformAudioData&, const AudioStreamDescription&, const WTF::MediaTime&, size_t);
     void stopRecording();
     void fetchData(CompletionHandler<void(RefPtr<FragmentedSharedBuffer>&&, double)>&&);
@@ -132,7 +132,7 @@ private:
     bool m_hasEncodedVideoSamples { false };
 
     RetainPtr<WebAVAssetWriterDelegate> m_writerDelegate;
-    Deque<RetainPtr<CMSampleBufferRef>> m_pendingVideoSampleQueue;
+    Deque<RetainPtr<CMSampleBufferRef>> m_pendingVideoFrameQueue;
     Deque<RetainPtr<CMSampleBufferRef>> m_pendingAudioSampleQueue;
 
     bool m_isFlushingSamples { false };

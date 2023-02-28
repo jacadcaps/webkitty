@@ -66,6 +66,7 @@ my @supportedGlobalContexts = (
     "Window",
     "DedicatedWorker",
     "ServiceWorker",
+    "SharedWorker",
     "PaintWorklet",
     "AudioWorklet",
     "ShadowRealm",
@@ -500,10 +501,19 @@ sub GenerateConstructorAttributes
       $extendedAttributes->{"Conditional"} = $existingConditional;
     }
 
+    if ($globalContext eq "ShadowRealm" && $extendedAttributes->{"Exposed"} eq "*") {
+        my $enabledBySetting = "WebAPIsInShadowRealmEnabled";
+        my $existingEnabledBySetting = $extendedAttributes->{"EnabledBySetting"};
+        if ($existingEnabledBySetting) {
+            $enabledBySetting .= "&" . $existingEnabledBySetting;
+        }
+        $extendedAttributes->{"EnabledBySetting"} = $enabledBySetting;
+    }
+
     my $code = "    ";
     my @extendedAttributesList;
     foreach my $attributeName (sort keys %{$extendedAttributes}) {
-      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledAtRuntime" || $attributeName eq "EnabledForWorld"
+      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledByDeprecatedGlobalSetting" || $attributeName eq "EnabledForWorld"
         || $attributeName eq "EnabledBySetting" || $attributeName eq "SecureContext" || $attributeName eq "PrivateIdentifier"
         || $attributeName eq "PublicIdentifier" || $attributeName eq "DisabledByQuirk" || $attributeName eq "EnabledByQuirk"
         || $attributeName eq "EnabledForContext") || $attributeName eq "LegacyFactoryFunctionEnabledBySetting";

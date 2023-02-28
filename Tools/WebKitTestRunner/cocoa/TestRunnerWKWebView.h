@@ -24,6 +24,10 @@
  */
 
 #import <WebKit/WebKit.h>
+#import <WebKit/_WKInputDelegate.h>
+
+@class UIEditMenuInteraction;
+@class UITextEffectsWindow;
 
 @interface WKWebView(SpellChecking)
 - (IBAction)toggleContinuousSpellChecking:(id)sender;
@@ -46,12 +50,11 @@
 @property (nonatomic, copy) void (^rotationDidEndCallback)(void);
 @property (nonatomic, copy) void (^windowTapRecognizedCallback)(void);
 @property (nonatomic, copy) NSString *accessibilitySpeakSelectionContent;
+@property (nonatomic, readonly) UITextEffectsWindow *textEffectsWindow;
 
 - (void)setAllowedMenuActions:(NSArray<NSString *> *)actions;
 
-- (void)resetCustomMenuAction;
 - (void)immediatelyDismissContextMenuIfNeeded;
-- (void)installCustomMenuAction:(NSString *)name dismissesAutomatically:(BOOL)dismissesAutomatically callback:(dispatch_block_t)callback;
 
 - (void)_didPresentViewController:(UIViewController *)viewController;
 - (void)zoomToScale:(double)scale animated:(BOOL)animated completionHandler:(void (^)(void))completionHandler;
@@ -66,6 +69,7 @@
 @property (nonatomic, readonly, getter=isShowingPopover) BOOL showingPopover;
 @property (nonatomic, assign) BOOL usesSafariLikeRotation;
 @property (nonatomic, readonly, getter=isInteractingWithFormControl) BOOL interactingWithFormControl;
+@property (nonatomic) _WKFocusStartsInputSessionPolicy focusStartsInputSessionPolicy;
 
 #endif
 
@@ -85,5 +89,9 @@
 - (void)resetInteractionCallbacks;
 - (void)_didLoadAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
 - (void)_didLoadNonAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
+
+#if HAVE(UI_EDIT_MENU_INTERACTION)
+- (void)immediatelyDismissEditMenuInteractionIfNeeded;
+#endif
 
 @end

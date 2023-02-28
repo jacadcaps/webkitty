@@ -78,7 +78,12 @@ WI.TreeElement = class TreeElement extends WI.Object
 
     set selectable(x)
     {
+        if (x === this._selectable)
+            return;
+
         this._selectable = x;
+
+        this._listItemNode?.classList.toggle("non-selectable", !this._selectable);
     }
 
     get expandable()
@@ -269,6 +274,8 @@ WI.TreeElement = class TreeElement extends WI.Object
                 this._listItemNode.classList.add("expanded");
             if (this.selected)
                 this._listItemNode.classList.add("selected");
+            if (!this.selectable)
+                this._listItemNode.classList.add("non-selectable");
 
             this._listItemNode.addEventListener("click", WI.TreeElement.treeElementToggled);
             this._listItemNode.addEventListener("dblclick", WI.TreeElement.treeElementDoubleClicked);
@@ -660,9 +667,9 @@ WI.TreeElement = class TreeElement extends WI.Object
         let computedStyle = window.getComputedStyle(this._listItemNode);
         let start = 0;
         if (computedStyle.direction === WI.LayoutDirection.RTL)
-            start += this._listItemNode.totalOffsetRight - computedStyle.getPropertyCSSValue("padding-right").getFloatValue(CSSPrimitiveValue.CSS_PX) - this.arrowToggleWidth;
+            start += this._listItemNode.totalOffsetRight - this._listItemNode.getComputedCSSPropertyNumberValue("padding-right") - this.arrowToggleWidth;
         else
-            start += this._listItemNode.totalOffsetLeft + computedStyle.getPropertyCSSValue("padding-left").getFloatValue(CSSPrimitiveValue.CSS_PX);
+            start += this._listItemNode.totalOffsetLeft + this._listItemNode.getComputedCSSPropertyNumberValue("padding-left");
 
         return event.pageX >= start && event.pageX <= start + this.arrowToggleWidth && this.hasChildren;
     }

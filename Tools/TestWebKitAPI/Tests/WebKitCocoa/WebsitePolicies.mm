@@ -638,7 +638,7 @@ struct ParsedRange {
         size_t min = 0;
         size_t max = 0;
         ASSERT(string.length() > 6);
-        ASSERT(string.startsWith("bytes="));
+        ASSERT(string.startsWith("bytes="_s));
         for (size_t i = 6; i < string.length(); ++i) {
             if (isASCIIDigit(string[i])) {
                 if (parsingMin)
@@ -772,39 +772,6 @@ TEST(WebpagePreferences, WebsitePoliciesUpdates)
 }
 
 #if PLATFORM(MAC)
-TEST(WebpagePreferences, WebsitePoliciesArbitraryUserGestureQuirk)
-{
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-
-    auto delegate = adoptNS([[AutoplayPoliciesDelegate alloc] init]);
-    [webView setNavigationDelegate:delegate.get()];
-
-    WKRetainPtr<WKPreferencesRef> preferences = adoptWK(WKPreferencesCreate());
-    WKPreferencesSetNeedsSiteSpecificQuirks(preferences.get(), true);
-    WKPageGroupSetPreferences(WKPageGetPageGroup([webView _pageForTesting]), preferences.get());
-
-    [delegate setAllowedAutoplayQuirksForURL:^_WKWebsiteAutoplayQuirk(NSURL *url)
-    {
-        return _WKWebsiteAutoplayQuirkArbitraryUserGestures;
-    }];
-    [delegate setAutoplayPolicyForURL:^(NSURL *)
-    {
-        return _WKWebsiteAutoplayPolicyDeny;
-    }];
-
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"autoplay-check" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
-    [webView loadRequest:request];
-    [webView waitForMessage:@"did-not-play"];
-
-    const NSPoint clickPoint = NSMakePoint(760, 560);
-    [webView mouseDownAtPoint:clickPoint simulatePressure:NO];
-    [webView mouseUpAtPoint:clickPoint];
-
-    [webView stringByEvaluatingJavaScript:@"playVideo()"];
-    [webView waitForMessage:@"autoplayed"];
-}
-
 TEST(WebpagePreferences, WebsitePoliciesAutoplayQuirks)
 {
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -927,7 +894,8 @@ TEST(WebpagePreferences, WebsitePoliciesPerDocumentAutoplayBehaviorQuirks)
 }
 #endif
 
-TEST(WebpagePreferences, WebsitePoliciesAutoplayQuirksAsyncPolicyDelegate)
+// FIXME: Re-enable this test once webkit.org/b/230494 is resolved.
+TEST(WebpagePreferences, DISABLED_WebsitePoliciesAutoplayQuirksAsyncPolicyDelegate)
 {
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 #if PLATFORM(IOS_FAMILY)

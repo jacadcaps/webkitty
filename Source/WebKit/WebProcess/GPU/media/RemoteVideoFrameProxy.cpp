@@ -32,23 +32,25 @@
 #include "RemoteVideoFrameObjectHeapProxy.h"
 
 #if PLATFORM(COCOA)
+#include "WebProcess.h"
 #include <WebCore/CVUtilities.h>
 #include <WebCore/RealtimeIncomingVideoSourceCocoa.h>
 #include <WebCore/VideoFrameCV.h>
+#include <wtf/MainThread.h>
 #include <wtf/threads/BinarySemaphore.h>
 #endif
 
 namespace WebKit {
 
-RemoteVideoFrameProxy::Properties RemoteVideoFrameProxy::properties(WebKit::RemoteVideoFrameReference&& reference, const WebCore::MediaSample& mediaSample)
+RemoteVideoFrameProxy::Properties RemoteVideoFrameProxy::properties(WebKit::RemoteVideoFrameReference&& reference, const WebCore::VideoFrame& videoFrame)
 {
     return {
         WTFMove(reference),
-        mediaSample.presentationTime(),
-        mediaSample.videoMirrored(),
-        mediaSample.videoRotation(),
-        expandedIntSize(mediaSample.presentationSize()),
-        mediaSample.videoPixelFormat()
+        videoFrame.presentationTime(),
+        videoFrame.isMirrored(),
+        videoFrame.rotation(),
+        expandedIntSize(videoFrame.presentationSize()),
+        videoFrame.pixelFormat()
     };
 }
 
@@ -79,7 +81,7 @@ RemoteVideoFrameProxy::RemoteVideoFrameProxy(IPC::Connection& connection, Remote
 
 RemoteVideoFrameProxy::~RemoteVideoFrameProxy()
 {
-    releaseRemoteVideoFrameProxy(m_connection, write());
+    releaseRemoteVideoFrameProxy(m_connection, m_referenceTracker.write());
 }
 
 RemoteVideoFrameIdentifier RemoteVideoFrameProxy::identifier() const
@@ -87,17 +89,12 @@ RemoteVideoFrameIdentifier RemoteVideoFrameProxy::identifier() const
     return m_referenceTracker.identifier();
 }
 
-RemoteVideoFrameWriteReference RemoteVideoFrameProxy::write() const
-{
-    return m_referenceTracker.write();
-}
-
-RemoteVideoFrameReadReference RemoteVideoFrameProxy::read() const
+RemoteVideoFrameReadReference RemoteVideoFrameProxy::newReadReference() const
 {
     return m_referenceTracker.read();
 }
 
-uint32_t RemoteVideoFrameProxy::videoPixelFormat() const
+uint32_t RemoteVideoFrameProxy::pixelFormat() const
 {
     return m_pixelFormat;
 }
@@ -107,29 +104,29 @@ CVPixelBufferRef RemoteVideoFrameProxy::pixelBuffer() const
 {
     Locker lock(m_pixelBufferLock);
     if (!m_pixelBuffer && m_videoFrameObjectHeapProxy) {
-        BinarySemaphore semaphore;
-        m_videoFrameObjectHeapProxy->getVideoFrameBuffer(*this, [this, &semaphore](auto pixelBuffer) {
-            m_pixelBuffer = WTFMove(pixelBuffer);
-            if (!m_pixelBuffer) {
-                // Some code paths do not like empty pixel buffers.
-                m_pixelBuffer = WebCore::createBlackPixelBuffer(static_cast<size_t>(m_size.width()), static_cast<size_t>(m_size.height()));
-            }
-            semaphore.signal();
-        });
-        semaphore.wait();
-        m_videoFrameObjectHeapProxy = nullptr;
+        auto videoFrameObjectHeapProxy = std::exchange(m_videoFrameObjectHeapProxy, nullptr);
+
+        bool canSendSync = isMainRunLoop(); // FIXME: we should be able to sendSync from other threads too.
+        bool canUseIOSurface = !WebProcess::singleton().shouldUseRemoteRenderingForWebGL();
+        if (!canUseIOSurface || !canSendSync) {
+            BinarySemaphore semaphore;
+            videoFrameObjectHeapProxy->getVideoFrameBuffer(*this, canUseIOSurface, [this, &semaphore](auto pixelBuffer) {
+                m_pixelBuffer = WTFMove(pixelBuffer);
+                semaphore.signal();
+            });
+            semaphore.wait();
+        } else {
+            RetainPtr<CVPixelBufferRef> pixelBuffer;
+            auto result = m_connection->sendSync(Messages::RemoteVideoFrameObjectHeap::PixelBuffer(newReadReference()), Messages::RemoteVideoFrameObjectHeap::PixelBuffer::Reply(pixelBuffer), 0, defaultTimeout);
+            if (result)
+                m_pixelBuffer = WTFMove(pixelBuffer);
+        }
     }
+    // FIXME: Some code paths do not like empty pixel buffers.
+    if (!m_pixelBuffer)
+        m_pixelBuffer = WebCore::createBlackPixelBuffer(static_cast<size_t>(m_size.width()), static_cast<size_t>(m_size.height()));
     return m_pixelBuffer.get();
 }
-
-RefPtr<WebCore::VideoFrameCV> RemoteVideoFrameProxy::asVideoFrameCV()
-{
-    auto buffer = pixelBuffer();
-    if (!buffer)
-        return nullptr;
-    return VideoFrameCV::create(m_presentationTime, m_isMirrored, m_rotation, RetainPtr { buffer });
-}
-
 #endif
 
 TextStream& operator<<(TextStream& ts, const RemoteVideoFrameProxy::Properties& properties)

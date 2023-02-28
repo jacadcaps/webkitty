@@ -24,9 +24,11 @@ import re
 import sys
 
 from .command import Command
+from .commit import Commit
 
+from webkitbugspy import Tracker
 from webkitcorepy import run, string_utils, Terminal
-from webkitscmpy import local, log
+from webkitscmpy import local, log, remote
 
 
 class Branch(Command):
@@ -53,14 +55,28 @@ class Branch(Command):
     def editable(cls, branch, repository=None):
         if (repository or local.Scm).DEV_BRANCHES.match(branch):
             return True
-        return False
+        if branch in (repository or local.Scm).DEFAULT_BRANCHES:
+            return False
+        if (repository or local.Scm).PROD_BRANCHES.match(branch):
+            return False
+        if not repository or not isinstance(repository, local.Git):
+            return False
+
+        remote_repo = repository.remote(name=repository.default_remote)
+        if remote_repo and isinstance(remote_repo, remote.GitHub):
+            for name in repository.source_remotes():
+                if branch in repository.branches_for(remote=name, cached=True):
+                    return False
+        return True
 
     @classmethod
-    def branch_point(cls, repository):
+    def branch_point(cls, repository, limit=None):
         cnt = 0
-        commit = None
-        while not commit or cls.editable(commit.branch, repository=repository):
+        commit = repository.commit(include_log=False, include_identifier=False)
+        while cls.editable(commit.branch, repository=repository):
             cnt += 1
+            if limit and cnt > limit:
+                return None
             commit = repository.find(argument='HEAD~{}'.format(cnt), include_log=False, include_identifier=False)
             if cnt > 1 or commit.branch != repository.branch or cls.editable(commit.branch, repository=repository):
                 log.info('    Found {}...'.format(string_utils.pluralize(cnt, 'commit')))
@@ -70,13 +86,62 @@ class Branch(Command):
         return commit
 
     @classmethod
-    def main(cls, args, repository, why=None, **kwargs):
+    def to_branch_name(cls, value):
+        result = ''
+        for c in string_utils.decode(value):
+            if c in [u'-', u' ', u'\n', u'\t', u'.']:
+                result += u'-'
+            elif c.isalnum() or c == u'_':
+                result += c
+        return string_utils.encode(result, target_type=str)
+
+    @classmethod
+    def main(cls, args, repository, why=None, redact=False, **kwargs):
         if not isinstance(repository, local.Git):
             sys.stderr.write("Can only 'branch' on a native Git repository\n")
             return 1
 
         if not args.issue:
-            args.issue = Terminal.input('{}nter name of new branch: '.format('{}, e'.format(why) if why else 'E'))
+            if Tracker.instance():
+                prompt = '{}nter issue URL or title of new issue: '.format('{}, e'.format(why) if why else 'E')
+            else:
+                prompt = '{}nter name of new branch (or issue URL): '.format('{}, e'.format(why) if why else 'E')
+            args.issue = Terminal.input(prompt)
+
+        if string_utils.decode(args.issue).isnumeric() and Tracker.instance() and not redact:
+            issue = Tracker.instance().issue(int(args.issue))
+            if issue and issue.title and not issue.redacted:
+                args.issue = cls.to_branch_name(issue.title)
+        else:
+            issue = Tracker.from_string(args.issue)
+            if issue and issue.title and not redact and not issue.redacted:
+                args.issue = cls.to_branch_name(issue.title)
+            elif issue:
+                args.issue = str(issue.id)
+
+        if not issue and Tracker.instance():
+            if ' ' in args.issue:
+                if getattr(Tracker.instance(), 'credentials', None):
+                    Tracker.instance().credentials(required=True, validate=True)
+                issue = Tracker.instance().create(
+                    title=args.issue,
+                    description=Terminal.input('Issue description: '),
+                )
+                if not issue:
+                    sys.stderr.write('Failed to create new issue\n')
+                    return 1
+                print("Created '{}'".format(issue))
+                if issue and issue.title and not redact and not issue.redacted:
+                    args.issue = cls.to_branch_name(issue.title)
+                elif issue:
+                    args.issue = str(issue.id)
+            else:
+                log.warning("'{}' has no spaces, assuming user intends it to be a branch name".format(args.issue))
+
+        if issue:
+            args._title = issue.title
+            args._bug_urls = Commit.bug_urls(issue)
+
         args.issue = cls.normalize_branch_name(args.issue)
 
         if run([repository.executable(), 'check-ref-format', args.issue], capture_output=True).returncode:

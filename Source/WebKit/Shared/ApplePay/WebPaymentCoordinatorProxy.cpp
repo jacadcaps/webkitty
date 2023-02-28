@@ -91,11 +91,11 @@ void WebPaymentCoordinatorProxy::showPaymentUI(WebCore::PageIdentifier destinati
     m_destinationID = destinationID;
     m_state = State::Activating;
 
-    URL originatingURL(URL(), originatingURLString);
+    URL originatingURL { originatingURLString };
 
-    Vector<URL> linkIconURLs;
-    for (const auto& linkIconURLString : linkIconURLStrings)
-        linkIconURLs.append(URL(URL(), linkIconURLString));
+    auto linkIconURLs = linkIconURLStrings.map([](auto& linkIconURLString) {
+        return URL { linkIconURLString };
+    });
 
     platformShowPaymentUI(webPageProxyID, originatingURL, linkIconURLs, paymentRequest, [this, weakThis = WeakPtr { *this }](bool result) {
         if (!weakThis)

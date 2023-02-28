@@ -28,10 +28,10 @@
 #include <wtf/text/CString.h>
 
 /**
- * SECTION: WebKitPrintCustomWidget
- * @Short_description: Allows to embed a custom widget in print dialog
- * @Title: WebKitPrintCustomWidget
+ * WebKitPrintCustomWidget:
  * @See_also: #WebKitPrintOperation
+ *
+ * Allows to embed a custom widget in print dialog.
  *
  * A WebKitPrintCustomWidget allows to embed a custom widget in the print
  * dialog by connecting to the #WebKitPrintOperation::create-custom-widget
@@ -186,7 +186,9 @@ static void webkit_print_custom_widget_class_init(WebKitPrintCustomWidgetClass* 
  * @widget: a #GtkWidget
  * @title: a @widget's title
  *
- * Create a new #WebKitPrintCustomWidget with given @widget and @title. The @widget
+ * Create a new #WebKitPrintCustomWidget with given @widget and @title.
+ *
+ * The @widget
  * ownership is taken and it is destroyed together with the dialog even if this
  * object could still be alive at that point. You typically want to pass a container
  * widget with multiple widgets in it.
@@ -206,6 +208,8 @@ WebKitPrintCustomWidget* webkit_print_custom_widget_new(GtkWidget* widget, const
 /**
  * webkit_print_custom_widget_get_widget:
  * @print_custom_widget: a #WebKitPrintCustomWidget
+ *
+ * Return the value of #WebKitPrintCustomWidget:widget property.
  *
  * Return the value of #WebKitPrintCustomWidget:widget property for the given
  * @print_custom_widget object. The returned value will always be valid if called
@@ -227,6 +231,8 @@ GtkWidget* webkit_print_custom_widget_get_widget(WebKitPrintCustomWidget* printC
 /**
  * webkit_print_custom_widget_get_title:
  * @print_custom_widget: a #WebKitPrintCustomWidget
+ *
+ * Return the value of #WebKitPrintCustomWidget:title property.
  *
  * Return the value of #WebKitPrintCustomWidget:title property for the given
  * @print_custom_widget object.

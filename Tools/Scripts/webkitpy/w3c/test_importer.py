@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2013 Adobe Systems Incorporated. All rights reserved.
 # Copyright (C) 2015 Canon Inc. All rights reserved.
 #
@@ -79,7 +77,7 @@ import mimetypes
 from webkitpy.common.host import Host
 from webkitpy.common.system.filesystem import FileSystem
 from webkitpy.common.webkit_finder import WebKitFinder
-from webkitpy.w3c.common import WPT_GH_URL, WPTPaths
+from webkitpy.w3c.common import TEMPLATED_TEST_HEADER, WPT_GH_URL, WPTPaths
 from webkitpy.w3c.test_parser import TestParser
 from webkitpy.w3c.test_converter import convert_for_webkit
 from webkitpy.w3c.test_downloader import TestDownloader
@@ -302,6 +300,7 @@ class TestImporter(object):
             total_tests = 0
             reftests = 0
             jstests = 0
+            crashtests = 0
 
             copy_list = []
 
@@ -363,6 +362,10 @@ class TestImporter(object):
                     jstests += 1
                     total_tests += 1
                     copy_list.append({'src': fullpath, 'dest': filename})
+                elif 'crashtest' in test_info.keys():
+                    crashtests += 1
+                    total_tests += 1
+                    copy_list.append({'src': fullpath, 'dest': filename})
                 else:
                     total_tests += 1
                     copy_list.append({'src': fullpath, 'dest': filename})
@@ -370,7 +373,7 @@ class TestImporter(object):
             if copy_list:
                 # Only add this directory to the list if there's something to import
                 self.import_list.append({'dirname': root, 'copy_list': copy_list,
-                    'reftests': reftests, 'jstests': jstests, 'total_tests': total_tests})
+                    'reftests': reftests, 'jstests': jstests, 'crashtests': crashtests, 'total_tests': total_tests})
 
     def should_convert_test_harness_links(self, test):
         if self._importing_downloaded_tests:
@@ -413,15 +416,26 @@ class TestImporter(object):
         source_content = self.filesystem.read_text_file(source_filepath)
         self.filesystem.write_text_file(new_filepath, self._add_webkit_test_runner_options_to_content(source_content, webkit_test_runner_options))
 
-    def _write_html_template(self, new_filepath):
-        webkit_test_runner_options = self._webkit_test_runner_options(new_filepath)
-        content = '<!-- This file is required for WebKit test infrastructure to run the templated test -->'
-        self.filesystem.write_text_file(new_filepath, content + webkit_test_runner_options)
+    def _variant_lines(self, variants):
+        if not variants:
+            return ''
+        result = '\n'
+        result += '\n'.join(['<!-- META: variant=' + variant + ' -->' for variant in variants])
+        return result
 
-    def readEnvironmentsForTemplateTest(self, filepath):
+    def _write_html_template(self, new_filepath, variants=None):
+        webkit_test_runner_options = self._webkit_test_runner_options(new_filepath)
+
+        self.filesystem.write_text_file(new_filepath, TEMPLATED_TEST_HEADER + webkit_test_runner_options + self._variant_lines(variants))
+
+    def _read_environments_and_variants_for_template_test(self, filepath):
         environments = []
+        variants = []
         lines = self.filesystem.read_text_file(filepath).split('\n')
         for line in lines:
+            if line.startswith('//') and 'META: variant=' in line:
+                variant = line.split('META: variant=', 1)[1].strip()
+                variants.append(variant)
             if line.startswith('//') and 'META: global=' in line:
                 items = line.split('META: global=', 1)[1].split(',')
                 suffixes = set()
@@ -432,7 +446,7 @@ class TestImporter(object):
                     else:
                         suffixes.update(suffixes_for_item)
                 environments = list(filter(None, suffixes))
-        return set(environments) if len(environments) else ['html', 'worker.html']
+        return set(environments) if len(environments) else ['html', 'worker.html'], variants
 
     def write_html_files_for_templated_js_tests(self, orig_filepath, new_filepath):
         if (orig_filepath.endswith('.window.js')):
@@ -442,14 +456,16 @@ class TestImporter(object):
             self._write_html_template(new_filepath.replace('.worker.js', '.worker.html'))
             return
         if (orig_filepath.endswith('.any.js')):
-            for suffix in self.readEnvironmentsForTemplateTest(orig_filepath):
-                self._write_html_template(new_filepath.replace('.any.js', '.any.' + suffix))
+            environments, variants = self._read_environments_and_variants_for_template_test(orig_filepath)
+            for suffix in environments:
+                self._write_html_template(new_filepath.replace('.any.js', '.any.' + suffix), variants)
             return
 
     def import_tests(self):
         total_imported_tests = 0
         total_imported_reftests = 0
         total_imported_jstests = 0
+        total_imported_crashtests = 0
         total_prefixed_properties = {}
         total_prefixed_property_values = {}
 
@@ -463,6 +479,7 @@ class TestImporter(object):
             total_imported_tests += dir_to_copy['total_tests']
             total_imported_reftests += dir_to_copy['reftests']
             total_imported_jstests += dir_to_copy['jstests']
+            total_imported_crashtests += dir_to_copy['crashtests']
 
             prefixed_properties = []
             prefixed_property_values = []
@@ -566,6 +583,7 @@ class TestImporter(object):
         _log.info('IMPORTED %d TOTAL TESTS', total_imported_tests)
         _log.info('Imported %d reftests', total_imported_reftests)
         _log.info('Imported %d JS tests', total_imported_jstests)
+        _log.info('Imported %d Crash tests', total_imported_crashtests)
         _log.info('Imported %d pixel/manual tests', total_imported_tests - total_imported_jstests - total_imported_reftests)
         if len(failed_conversion_files):
             _log.warn('Failed converting %d files (files copied without being converted)', len(failed_conversion_files))

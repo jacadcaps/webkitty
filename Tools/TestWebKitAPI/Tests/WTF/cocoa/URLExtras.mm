@@ -118,8 +118,11 @@ TEST(WTF_URLExtras, URLExtras_Spoof)
         "xn--2-zic"_s, // U+0032 U+05E1
         "xn--uoa"_s, // U+027E
         "xn--fja"_s, // U+01C0
+        "xn--jna"_s, // U+0250
         "xn--koa"_s, // U+0274
+        "xn--spa"_s, // U+029F
         "xn--tma"_s, // U+0237
+        "xn--8pa"_s, // U+02AF
         "xn--o-pdc"_s, // U+0585 'o'
         "xn--o-qdc"_s, // 'o' U+0585
         "xn--g-hdc"_s, // U+0581 'g'
@@ -156,8 +159,12 @@ TEST(WTF_URLExtras, URLExtras_Spoof)
         "xn--a-y7i"_s, // 'a' U+15F1
         "xn--a-37i"_s, // U+15F4 'a'
         "xn--a-47i"_s, // 'a' U+15F4
+        "xn--n-twf"_s, // U+0E01 'n'
+        "xn--n-uwf"_s, // 'n' U+0E01
+        "xn--3hb112n"_s, // U+065B
+        "xn--a-ypc062v"_s, // 'a' U+065B
     };
-    for (const String& host : punycodedSpoofHosts) {
+    for (auto& host : punycodedSpoofHosts) {
         auto url = makeString("http://", host, "/").utf8();
         EXPECT_STREQ(url.data(), userVisibleString(literalURL(url.data())));
     }
@@ -199,6 +206,15 @@ TEST(WTF_URLExtras, URLExtras_NotSpoofed)
     EXPECT_STREQ("https://\u15F4\u1401abc/", userVisibleString(literalURL("https://\u15F4\u1401abc/")));
     EXPECT_STREQ("https://\u166D\u1401abc/", userVisibleString(literalURL("https://\u166D\u1401abc/")));
     EXPECT_STREQ("https://\u166E\u1401abc/", userVisibleString(literalURL("https://\u166E\u1401abc/")));
+
+    // Thai
+    EXPECT_STREQ("https://\u0E01\u0E02abc/", userVisibleString(literalURL("https://\u0E01\u0E02abc/")));
+
+    // Arabic
+    EXPECT_STREQ("https://\u0620\u065Babc/", userVisibleString(literalURL("https://\u0620\u065Babc/")));
+
+    // Latin
+    EXPECT_STREQ("https://\u00ED\u00CDabc/", userVisibleString(literalURL("https://\u00ED\u00CDabc/")));
 }
 
 TEST(WTF_URLExtras, URLExtras_DivisionSign)
@@ -272,24 +288,24 @@ TEST(WTF_URLExtras, URLExtras_ParsingError)
     NSString *encodedHostName = WTF::encodeHostName(@"http://.com");
     EXPECT_TRUE(encodedHostName == nil);
 
-    WTF::URL url2(URL(), utf16String(u"http://\u2267\u222E\uFE63\u0661\u06F1"));
+    WTF::URL url2 { utf16String(u"http://\u2267\u222E\uFE63\u0661\u06F1") };
     EXPECT_STREQ([[url2 absoluteString] UTF8String], "http://%E2%89%A7%E2%88%AE%EF%B9%A3%D9%A1%DB%B1");
 
-    std::array<UChar, 3> utf16 { 0xC2, 0xB6, 0x00 };
-    WTF::URL url3(URL(), String(utf16.data()));
+    std::array<UChar, 2> utf16 { 0xC2, 0xB6 };
+    WTF::URL url3 { String(utf16.data(), utf16.size()) };
     EXPECT_FALSE(url3.string().is8Bit());
     EXPECT_FALSE(url3.isValid());
     EXPECT_STREQ([[url3 absoluteString] UTF8String], "%C3%82%C2%B6");
     
-    std::array<LChar, 3> latin1 { 0xC2, 0xB6, 0x00 };
-    WTF::URL url4(URL(), String(latin1.data()));
+    std::array<LChar, 2> latin1 { 0xC2, 0xB6 };
+    WTF::URL url4 { String(latin1.data(), 2) };
     EXPECT_FALSE(url4.isValid());
     EXPECT_TRUE(url4.string().is8Bit());
     EXPECT_STREQ([[url4 absoluteString] UTF8String], "%C3%82%C2%B6");
 
     char buffer[100];
     memset(buffer, 0, sizeof(buffer));
-    WTF::URL url5(URL(), "file:///A%C3%A7%C3%A3o.html"_s);
+    WTF::URL url5 { "file:///A%C3%A7%C3%A3o.html"_str };
     CFURLGetFileSystemRepresentation(url5.createCFURL().get(), false, reinterpret_cast<UInt8*>(buffer), sizeof(buffer));
     EXPECT_STREQ(buffer, "/Ação.html");
 }
@@ -305,7 +321,7 @@ TEST(WTF_URLExtras, URLExtras_Nil)
 
 TEST(WTF_URLExtras, CreateNSArray)
 {
-    Vector<URL> urls { URL(URL(), "https://webkit.org/") };
+    Vector<URL> urls { URL { "https://webkit.org/"_str } };
     auto array = createNSArray(urls);
     EXPECT_TRUE([array.get()[0] isKindOfClass:NSURL.class]);
 }

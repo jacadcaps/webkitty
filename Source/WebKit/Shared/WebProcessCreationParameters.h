@@ -85,11 +85,6 @@ struct WebProcessCreationParameters {
 
     UserData initializationUserData;
 
-#if PLATFORM(IOS_FAMILY)
-    SandboxExtension::Handle cookieStorageDirectoryExtensionHandle;
-    SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
-    SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
-#endif
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     SandboxExtension::Handle enableRemoteWebInspectorExtensionHandle;
 #endif
@@ -149,6 +144,7 @@ struct WebProcessCreationParameters {
     String uiProcessBundleIdentifier;
     int latencyQOS { 0 };
     int throughputQOS { 0 };
+    String presentingApplicationBundleIdentifier;
 #endif
 
     ProcessID presentingApplicationPID { 0 };
@@ -207,9 +203,10 @@ struct WebProcessCreationParameters {
     std::optional<SandboxExtension::Handle> launchServicesExtensionHandle;
 #if HAVE(VIDEO_RESTRICTED_DECODING)
 #if PLATFORM(MAC)
-    Vector<SandboxExtension::Handle> videoDecoderExtensionHandles;
+    SandboxExtension::Handle trustdExtensionHandle;
 #endif
-    bool restrictImageAndVideoDecoders { false };
+    bool enableDecodingHEIC { false };
+    bool enableDecodingAVIF { false };
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -245,6 +242,9 @@ struct WebProcessCreationParameters {
 #endif
     
     AccessibilityPreferences accessibilityPreferences;
+#if PLATFORM(IOS_FAMILY)
+    bool applicationAccessibilityEnabled { false };
+#endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
@@ -253,11 +253,16 @@ struct WebProcessCreationParameters {
 #if USE(GLIB)
     String applicationID;
     String applicationName;
+#if ENABLE(REMOTE_INSPECTOR)
+    CString inspectorServerAddress;
+#endif
 #endif
 
 #if USE(ATSPI)
     String accessibilityBusAddress;
 #endif
+
+    String timeZoneOverride;
 };
 
 } // namespace WebKit

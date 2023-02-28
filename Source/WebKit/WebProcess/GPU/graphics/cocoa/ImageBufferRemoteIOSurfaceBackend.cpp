@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -64,8 +64,13 @@ std::unique_ptr<ImageBufferRemoteIOSurfaceBackend> ImageBufferRemoteIOSurfaceBac
     return makeUnique<ImageBufferRemoteIOSurfaceBackend>(parameters, WTFMove(handle));
 }
 
-ImageBufferBackendHandle ImageBufferRemoteIOSurfaceBackend::createBackendHandle() const
+ImageBufferBackendHandle ImageBufferRemoteIOSurfaceBackend::createBackendHandle(SharedMemory::Protection) const
 {
+    if (!std::holds_alternative<MachSendRight>(m_handle)) {
+        RELEASE_ASSERT_NOT_REACHED();
+        return { };
+    }
+
     return std::get<MachSendRight>(m_handle).copySendRight();
 }
 
@@ -77,6 +82,11 @@ void ImageBufferRemoteIOSurfaceBackend::setBackendHandle(ImageBufferBackendHandl
 void ImageBufferRemoteIOSurfaceBackend::clearBackendHandle()
 {
     m_handle = { };
+}
+
+bool ImageBufferRemoteIOSurfaceBackend::hasBackendHandle() const
+{
+    return std::holds_alternative<MachSendRight>(m_handle);
 }
 
 GraphicsContext& ImageBufferRemoteIOSurfaceBackend::context() const
@@ -102,38 +112,10 @@ RefPtr<NativeImage> ImageBufferRemoteIOSurfaceBackend::copyNativeImage(BackingSt
     return { };
 }
 
-RefPtr<Image> ImageBufferRemoteIOSurfaceBackend::copyImage(BackingStoreCopy, PreserveResolution) const
+RefPtr<PixelBuffer> ImageBufferRemoteIOSurfaceBackend::getPixelBuffer(const PixelBufferFormat&, const IntRect&, const ImageBufferAllocator&) const
 {
     RELEASE_ASSERT_NOT_REACHED();
-    return { };
-}
-
-void ImageBufferRemoteIOSurfaceBackend::draw(GraphicsContext&, const FloatRect&, const FloatRect&, const ImagePaintingOptions&)
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-void ImageBufferRemoteIOSurfaceBackend::drawPattern(GraphicsContext&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, const ImagePaintingOptions&)
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-String ImageBufferRemoteIOSurfaceBackend::toDataURL(const String&, std::optional<double>, PreserveResolution) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-    return { };
-}
-
-Vector<uint8_t> ImageBufferRemoteIOSurfaceBackend::toData(const String&, std::optional<double>) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-    return { };
-}
-
-std::optional<PixelBuffer> ImageBufferRemoteIOSurfaceBackend::getPixelBuffer(const PixelBufferFormat&, const IntRect&) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-    return { };
+    return nullptr;
 }
 
 void ImageBufferRemoteIOSurfaceBackend::putPixelBuffer(const PixelBuffer&, const IntRect&, const IntPoint&, AlphaPremultiplication)

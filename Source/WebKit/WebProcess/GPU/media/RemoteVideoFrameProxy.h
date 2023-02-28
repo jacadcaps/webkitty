@@ -59,7 +59,7 @@ public:
         WebKit::RemoteVideoFrameReference reference;
         MediaTime presentationTime;
         bool isMirrored { false };
-        VideoRotation rotation { VideoRotation::None };
+        Rotation rotation { Rotation::None };
         WebCore::IntSize size;
         uint32_t pixelFormat { 0 };
 
@@ -67,7 +67,7 @@ public:
         template<typename Decoder> static std::optional<Properties> decode(Decoder&);
     };
 
-    static Properties properties(WebKit::RemoteVideoFrameReference&&, const WebCore::MediaSample&);
+    static Properties properties(WebKit::RemoteVideoFrameReference&&, const WebCore::VideoFrame&);
 
     static Ref<RemoteVideoFrameProxy> create(IPC::Connection&, RemoteVideoFrameObjectHeapProxy&, Properties&&);
 
@@ -78,22 +78,21 @@ public:
     ~RemoteVideoFrameProxy() final;
 
     RemoteVideoFrameIdentifier identifier() const;
-    RemoteVideoFrameWriteReference write() const;
-    RemoteVideoFrameReadReference read() const;
+    RemoteVideoFrameReadReference newReadReference() const;
 
-    WebCore::IntSize size() const;
+    WebCore::IntSize size() const { return m_size; }
 
     // WebCore::VideoFrame overrides.
     WebCore::FloatSize presentationSize() const final { return m_size; }
-    uint32_t videoPixelFormat() const final;
+    uint32_t pixelFormat() const final;
     bool isRemoteProxy() const final { return true; }
 #if PLATFORM(COCOA)
     CVPixelBufferRef pixelBuffer() const final;
-    RefPtr<WebCore::VideoFrameCV> asVideoFrameCV() final;
 #endif
 
 private:
     RemoteVideoFrameProxy(IPC::Connection&, RemoteVideoFrameObjectHeapProxy&, Properties&&);
+    static inline Seconds defaultTimeout = 10_s;
 
     const Ref<IPC::Connection> m_connection;
     RemoteVideoFrameReferenceTracker m_referenceTracker;
@@ -117,12 +116,12 @@ template<typename Decoder> std::optional<RemoteVideoFrameProxy::Properties> Remo
     auto reference = decoder.template decode<RemoteVideoFrameReference>();
     auto presentationTime = decoder.template decode<MediaTime>();
     auto isMirrored = decoder.template decode<bool>();
-    auto videoRotation = decoder.template decode<VideoRotation>();
+    auto rotation = decoder.template decode<Rotation>();
     auto size = decoder.template decode<WebCore::IntSize>();
     auto pixelFormat = decoder.template decode<uint32_t>();
     if (!decoder.isValid())
         return std::nullopt;
-    return Properties { WTFMove(*reference), WTFMove(*presentationTime), *isMirrored, *videoRotation, *size, *pixelFormat };
+    return Properties { WTFMove(*reference), WTFMove(*presentationTime), *isMirrored, *rotation, *size, *pixelFormat };
 }
 
 TextStream& operator<<(TextStream&, const RemoteVideoFrameProxy::Properties&);
@@ -130,7 +129,7 @@ TextStream& operator<<(TextStream&, const RemoteVideoFrameProxy::Properties&);
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::RemoteVideoFrameProxy)
-    static bool isType(const WebCore::MediaSample& mediaSample) { return is<WebCore::VideoFrame>(mediaSample) && downcast<WebCore::VideoFrame>(mediaSample).isRemoteProxy(); }
+    static bool isType(const WebCore::VideoFrame& videoFrame) { return videoFrame.isRemoteProxy(); }
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

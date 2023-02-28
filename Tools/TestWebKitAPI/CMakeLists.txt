@@ -20,7 +20,6 @@ endmacro()
 set(TestWTF_SOURCES
     Counters.cpp
     TestsController.cpp
-    WTFStringUtilities.cpp
 
     Tests/WTF/AtomString.cpp
     Tests/WTF/Bitmap.cpp
@@ -29,6 +28,8 @@ set(TestWTF_SOURCES
     Tests/WTF/BumpPointerAllocator.cpp
     Tests/WTF/CString.cpp
     Tests/WTF/CheckedArithmeticOperations.cpp
+    Tests/WTF/CompactPtr.cpp
+    Tests/WTF/CompactRefPtr.cpp
     Tests/WTF/CompactRefPtrTuple.cpp
     Tests/WTF/CompactUniquePtrTuple.cpp
     Tests/WTF/ConcurrentPtrHashSet.cpp
@@ -92,6 +93,7 @@ set(TestWTF_SOURCES
     Tests/WTF/Span.cpp
     Tests/WTF/StdLibExtras.cpp
     Tests/WTF/StringBuilder.cpp
+    Tests/WTF/StringCommon.cpp
     Tests/WTF/StringConcatenate.cpp
     Tests/WTF/StringHasher.cpp
     Tests/WTF/StringImpl.cpp
@@ -138,7 +140,6 @@ WEBKIT_EXECUTABLE_DECLARE(TestWTF)
 if (ENABLE_JAVASCRIPTCORE)
     set(TestJavaScriptCore_SOURCES
         TestsController.cpp
-        WTFStringUtilities.cpp
 
         Tests/JavaScriptCore/DisallowVMEntry.cpp
         Tests/JavaScriptCore/InspectorConsoleMessage.cpp
@@ -168,7 +169,6 @@ endif ()
 if (ENABLE_WEBCORE)
     set(TestWebCore_SOURCES
         TestsController.cpp
-        WTFStringUtilities.cpp
 
         Tests/WebCore/AffineTransform.cpp
         Tests/WebCore/CSSParser.cpp
@@ -198,6 +198,7 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/TimeRanges.cpp
         Tests/WebCore/TransformationMatrix.cpp
         Tests/WebCore/URLParserTextEncoding.cpp
+        Tests/WebCore/WritingModeTests.cpp
     )
 
     set(TestWebCore_LIBRARIES
@@ -225,7 +226,6 @@ endif ()
 if (ENABLE_WEBKIT_LEGACY)
     set(TestWebKitLegacy_SOURCES
         TestsController.cpp
-        WTFStringUtilities.cpp
     )
 
     set(TestWebKitLegacy_LIBRARIES
@@ -331,7 +331,6 @@ if (ENABLE_WEBKIT)
         JavaScriptTest.cpp
         PlatformUtilities.cpp
         TestsController.cpp
-        WTFStringUtilities.cpp
     )
     target_compile_definitions(TestWebKitAPIBase PRIVATE BUILDING_TestWebKit)
     target_include_directories(TestWebKitAPIBase PRIVATE ${TestWebKit_PRIVATE_INCLUDE_DIRECTORIES})

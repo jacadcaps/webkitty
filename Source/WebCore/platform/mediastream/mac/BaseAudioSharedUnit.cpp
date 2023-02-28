@@ -77,6 +77,8 @@ void BaseAudioSharedUnit::forEachClient(const Function<void(CoreAudioCaptureSour
     }
 }
 
+const static OSStatus lowPriorityError1 = 560557684;
+const static OSStatus lowPriorityError2 = 561017449;
 void BaseAudioSharedUnit::startProducingData()
 {
     ASSERT(isMainThread());
@@ -96,7 +98,14 @@ void BaseAudioSharedUnit::startProducingData()
         cleanupAudioUnit();
         ASSERT(!hasAudioUnit());
     }
-    startUnit();
+    auto error = startUnit();
+    if (error) {
+        if (error == lowPriorityError1 || error == lowPriorityError2) {
+            RELEASE_LOG_ERROR(WebRTC, "BaseAudioSharedUnit::startProducingData failed due to not high enough priority, suspending unit");
+            suspend();
+        } else
+            captureFailed();
+    }
 }
 
 OSStatus BaseAudioSharedUnit::startUnit()
@@ -106,16 +115,14 @@ OSStatus BaseAudioSharedUnit::startUnit()
     });
     ASSERT(!DeprecatedGlobalSettings::shouldManageAudioSessionCategory() || AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord);
 
-    if (auto error = startInternal()) {
-        captureFailed();
-        return error;
+#if PLATFORM(IOS_FAMILY)
+    if (AudioSession::sharedSession().category() != AudioSession::CategoryType::PlayAndRecord) {
+        RELEASE_LOG_ERROR(WebRTC, "BaseAudioSharedUnit::startUnit cannot call startInternal if category is not set to PlayAndRecord");
+        return lowPriorityError2;
     }
-    return 0;
-}
+#endif
 
-void BaseAudioSharedUnit::resetSampleRate()
-{
-    m_sampleRate = AudioSession::sharedSession().sampleRate();
+    return startInternal();
 }
 
 void BaseAudioSharedUnit::prepareForNewCapture()
@@ -244,7 +251,8 @@ OSStatus BaseAudioSharedUnit::resume()
             return;
 
         weakThis->forEachClient([](auto& client) {
-            client.setMuted(false);
+            if (client.canResumeAfterInterruption())
+                client.setMuted(false);
         });
     });
 
@@ -261,6 +269,7 @@ OSStatus BaseAudioSharedUnit::suspend()
     stopInternal();
 
     forEachClient([](auto& client) {
+        client.setCanResumeAfterInterruption(client.isProducingData());
         client.setMuted(true);
     });
 

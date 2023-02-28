@@ -42,6 +42,7 @@ namespace WebCore {
 
 struct ClientOrigin;
 struct WorkerFetchResult;
+struct WorkerInitializationData;
 struct WorkerOptions;
 }
 
@@ -63,18 +64,21 @@ public:
 
     void requestSharedWorker(WebCore::SharedWorkerKey&&, WebCore::SharedWorkerObjectIdentifier, WebCore::TransferredMessagePort&&, WebCore::WorkerOptions&&);
     void sharedWorkerObjectIsGoingAway(const WebCore::SharedWorkerKey&, WebCore::SharedWorkerObjectIdentifier);
+    void suspendForBackForwardCache(const WebCore::SharedWorkerKey&, WebCore::SharedWorkerObjectIdentifier);
+    void resumeForBackForwardCache(const WebCore::SharedWorkerKey&, WebCore::SharedWorkerObjectIdentifier);
     void postExceptionToWorkerObject(WebCore::SharedWorkerIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL);
 
+    void terminateContextConnectionWhenPossible(const WebCore::RegistrableDomain&, WebCore::ProcessIdentifier);
     void addContextConnection(WebSharedWorkerServerToContextConnection&);
     void removeContextConnection(WebSharedWorkerServerToContextConnection&);
     void addConnection(std::unique_ptr<WebSharedWorkerServerConnection>&&);
     void removeConnection(WebCore::ProcessIdentifier);
 
 private:
-    void createContextConnection(const WebCore::RegistrableDomain&);
+    void createContextConnection(const WebCore::RegistrableDomain&, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier);
     bool needsContextConnectionForRegistrableDomain(const WebCore::RegistrableDomain&) const;
     void contextConnectionCreated(WebSharedWorkerServerToContextConnection&);
-    void didFinishFetchingSharedWorkerScript(WebSharedWorker&, WebCore::WorkerFetchResult&&);
+    void didFinishFetchingSharedWorkerScript(WebSharedWorker&, WebCore::WorkerFetchResult&&, WebCore::WorkerInitializationData&&);
     void shutDownSharedWorker(const WebCore::SharedWorkerKey&);
 
     NetworkSession& m_session;

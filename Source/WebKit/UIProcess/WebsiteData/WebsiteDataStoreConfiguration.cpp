@@ -33,6 +33,7 @@ namespace WebKit {
 
 WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPersistent, WillCopyPathsFromExistingConfiguration willCopyPaths)
     : m_isPersistent(isPersistent)
+    , m_shouldUseCustomStoragePaths(WebsiteDataStore::defaultShouldUseCustomStoragePaths())
     , m_perOriginStorageQuota(WebsiteDataStore::defaultPerOriginQuota())
 {
     if (isPersistent == IsPersistent::Yes && willCopyPaths == WillCopyPathsFromExistingConfiguration::No) {
@@ -54,7 +55,7 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPers
         setModelElementCacheDirectory(WebsiteDataStore::defaultModelElementCacheDirectory());
 #endif
 #if PLATFORM(IOS)
-        setPCMMachServiceName("com.apple.webkit.adattributiond.service");
+        setPCMMachServiceName("com.apple.webkit.adattributiond.service"_s);
 #endif
     }
 }
@@ -104,6 +105,7 @@ Ref<WebsiteDataStoreConfiguration> WebsiteDataStoreConfiguration::copy() const
     copy->m_allowsServerPreconnect = this->m_allowsServerPreconnect;
     copy->m_requiresSecureHTTPSProxyConnection = this->m_requiresSecureHTTPSProxyConnection;
     copy->m_shouldRunServiceWorkersOnMainThreadForTesting = this->m_shouldRunServiceWorkersOnMainThreadForTesting;
+    copy->m_overrideServiceWorkerRegistrationCountTestingValue = this->m_overrideServiceWorkerRegistrationCountTestingValue;
     copy->m_preventsSystemHTTPProxyAuthentication = this->m_preventsSystemHTTPProxyAuthentication;
     copy->m_standaloneApplicationURL = this->m_standaloneApplicationURL;
     copy->m_enableInAppBrowserPrivacyForTesting = this->m_enableInAppBrowserPrivacyForTesting;
