@@ -38,6 +38,7 @@
 #include <WebCore/ResourceLoadInfo.h>
 #include <WebCore/CurlContext.h>
 #include <WebCore/HTMLMediaElement.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/Page.h>
 #include <WebCore/WebLockRegistry.h>
 #include "NetworkStorageSessionMap.h"

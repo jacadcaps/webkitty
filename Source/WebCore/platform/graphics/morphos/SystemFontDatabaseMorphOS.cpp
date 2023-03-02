@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Sony Interactive Entertainment Inc.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,35 +24,29 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebKit.h"
-#include "WebDocumentLoader.h"
-#include <WebCore/FrameDestructionObserverInlines.h>
-#include "WebFrame.h"
+#include "config.h"
+#include "SystemFontDatabase.h"
 
-namespace WebKit {
-using namespace WebCore;
+#include "NotImplemented.h"
+#include "WebKitFontFamilyNames.h"
+#include <wtf/NeverDestroyed.h>
 
-WebDocumentLoader::WebDocumentLoader(const ResourceRequest& request, const SubstituteData& substituteData)
-    : DocumentLoader(request, substituteData)
-    , m_navigationID(0)
+namespace WebCore {
+
+SystemFontDatabase& SystemFontDatabase::singleton()
+{
+    static NeverDestroyed<SystemFontDatabase> database = SystemFontDatabase();
+    return database.get();
+}
+
+auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
+{
+    notImplemented();
+    return { WebKitFontFamilyNames::standardFamily, 16, normalWeightValue() };
+}
+
+void SystemFontDatabase::platformInvalidate()
 {
 }
 
-void WebDocumentLoader::detachFromFrame()
-{
-    if (m_navigationID)
-        WebFrame::fromCoreFrame(*frame())->documentLoaderDetached(m_navigationID);
-
-    m_navigationID = 0;
-
-    DocumentLoader::detachFromFrame();
-}
-
-void WebDocumentLoader::setNavigationID(uint64_t navigationID)
-{
-    ASSERT(navigationID);
-
-    m_navigationID = navigationID;
-}
-
-} // namespace WebKit
+} // namespace WebCore

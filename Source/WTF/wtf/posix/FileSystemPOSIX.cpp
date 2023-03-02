@@ -244,15 +244,15 @@ CString fileSystemRepresentation(const String& path)
 #endif
 
 #if !PLATFORM(COCOA)
-String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle& handle, const String& suffix)
+String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHandle& handle, StringView suffix)
 {
     // FIXME: Suffix is not supported, but OK for now since the code using it is macOS-port-only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
     char buffer[PATH_MAX];
 #if OS(MORPHOS)
-	stccpy(buffer, fileSystemRepresentation(tmpPath).data(), sizeof(buffer));
-	auto prefixadd = fileSystemRepresentation(prefix);
+	stccpy(buffer, fileSystemRepresentation(tmpPath.toString()).data(), sizeof(buffer));
+	auto prefixadd = fileSystemRepresentation(prefix.toString());
 	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
 		goto end;
     if (strlen(buffer) >= PATH_MAX - 7)
@@ -297,13 +297,14 @@ void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
 #endif
 }
 
-String openTemporaryFile(const String& prefix, PlatformFileHandle& handle, const String& suffix)
+String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
 {
 #if OS(MORPHOS)
 	const char* tmpDir = "PROGDIR:Tmp";
-	if (tmpPathPrefixes.contains(prefix))
+    auto prefixStr = prefix.toString();
+	if (tmpPathPrefixes.contains(prefixStr))
 	{
-		return openTemporaryFile(tmpPathPrefixes.get(prefix), prefix, handle, suffix);
+		return openTemporaryFile(tmpPathPrefixes.get(prefixStr), prefix, handle, suffix);
 	}
 	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle, suffix);
 #else

@@ -38,7 +38,8 @@ bool WebNotificationClient::show(Notification& notification, WTF::CompletionHand
 	}
 	
 	m_webPage->_fShowNotification(&notification);
-// TODO: needs to handle onCompleted
+
+    onCompleted();
     return true;
 }
 
