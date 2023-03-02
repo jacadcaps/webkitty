@@ -36,7 +36,9 @@
 #include <libgen.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#if !OS(MORPHOS)
 #include <sys/statvfs.h>
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #include <wtf/EnumTraits.h>
@@ -44,6 +46,13 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/text/StringHash.h>
+#include <wtf/HashMap.h>
+
+#if OS(MORPHOS)
+#include <libraries/charsets.h>
+#include <proto/dos.h>
+#endif
 
 namespace WTF {
 
@@ -121,7 +130,11 @@ bool truncateFile(PlatformFileHandle handle, long long offset)
 
 bool flushFile(PlatformFileHandle handle)
 {
+#if OS(MORPHOS)
+    return true;
+#else
     return !fsync(handle);
+#endif
 }
 
 int writeToFile(PlatformFileHandle handle, const void* data, int length)
@@ -192,10 +205,11 @@ std::optional<WallTime> fileCreationTime(const String& path)
 
 std::optional<uint32_t> volumeFileBlockSize(const String& path)
 {
+#if !OS(MORPHOS)
     struct statvfs fileStat;
     if (!statvfs(fileSystemRepresentation(path).data(), &fileStat))
         return fileStat.f_frsize;
-
+#endif
     return std::nullopt;
 }
 
@@ -205,22 +219,46 @@ String stringFromFileSystemRepresentation(const char* path)
     if (!path)
         return String();
 
-    return String::fromUTF8(path);
+#if OS(MORPHOS)
+	return String(path, strlen(path), MIBENUM_SYSTEM);
+#else
+     return String::fromUTF8(path);
+#endif
 }
 
 CString fileSystemRepresentation(const String& path)
 {
-    return path.utf8();
+#if OS(MORPHOS)
+	// some fixes for unix style path fuckups here...
+	// file:///progdir:foo will give us /progdir:foo, so let's account for that
+	if (path.contains(':') && path.startsWith('/'))
+	{
+		String sub = path.substring(1);
+		return sub.native();
+	}
+	return path.native();
+#else
+     return path.utf8();
+#endif
 }
 #endif
 
 #if !PLATFORM(COCOA)
-String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
+String openTemporaryFile(const String& tmpPath, const String& prefix, PlatformFileHandle& handle, const String& suffix)
 {
     // FIXME: Suffix is not supported, but OK for now since the code using it is macOS-port-only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
     char buffer[PATH_MAX];
+#if OS(MORPHOS)
+	stccpy(buffer, fileSystemRepresentation(tmpPath).data(), sizeof(buffer));
+	auto prefixadd = fileSystemRepresentation(prefix);
+	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+#else
     const char* tmpDir = getenv("TMPDIR");
 
     if (!tmpDir)
@@ -228,17 +266,56 @@ String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringVi
 
     if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", tmpDir, prefix.utf8().data()) >= PATH_MAX)
         goto end;
-
+#endif
     handle = mkstemp(buffer);
     if (handle < 0)
         goto end;
 
+#if OS(MORPHOS)
+	return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(buffer);
-
+#endif
 end:
     handle = invalidPlatformFileHandle;
     return String();
 }
+
+HashMap<String, String> tmpPathPrefixes;
+
+String temporaryFilePathForPrefix(const String& prefix)
+{
+	if (tmpPathPrefixes.contains(prefix))
+		return tmpPathPrefixes.get(prefix);
+	return { };
+}
+
+void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
+{
+#if OS(MORPHOS)
+	tmpPathPrefixes.set(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
+#endif
+}
+
+String openTemporaryFile(const String& prefix, PlatformFileHandle& handle, const String& suffix)
+{
+#if OS(MORPHOS)
+	const char* tmpDir = "PROGDIR:Tmp";
+	if (tmpPathPrefixes.contains(prefix))
+	{
+		return openTemporaryFile(tmpPathPrefixes.get(prefix), prefix, handle, suffix);
+	}
+	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle, suffix);
+#else
+    const char* tmpDir = getenv("TMPDIR");
+
+    if (!tmpDir)
+        tmpDir = "/tmp";
+
+	return openTemporaryFile(String::fromUTF8(tmpDir), prefix, handle);
+#endif
+}
+
 #endif // !PLATFORM(COCOA)
 
 std::optional<int32_t> getFileDeviceId(const String& path)
@@ -304,7 +381,11 @@ bool makeAllDirectories(const String& path)
 
 String pathByAppendingComponent(StringView path, StringView component)
 {
+#if OS(MORPHOS)
+    if (path.endsWith('/') || path.endsWith(':'))
+#else
     if (path.endsWith('/'))
+#endif
         return makeString(path, component);
     return makeString(path, '/', component);
 }

@@ -40,6 +40,9 @@ namespace WebCore {
 
 static String defaultCookieJarPath()
 {
+#if OS(MORPHOS)
+	return "PROGDIR:Cache/cookie.jar.db"_s;
+#else
     static constexpr auto defaultFileName = "cookie.jar.db"_s;
     char* cookieJarPath = getenv("CURL_COOKIE_JAR_PATH");
     if (cookieJarPath)
@@ -50,6 +53,7 @@ static String defaultCookieJarPath()
 #else
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=192417
     return defaultFileName;
+#endif
 #endif
 }
 

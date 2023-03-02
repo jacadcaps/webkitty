@@ -46,6 +46,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         PlayStation
         WPE
         WinCairo
+        MorphOS
     )
     set(PORT "NOPORT" CACHE STRING "choose which WebKit port to build (one of ${ALL_PORTS})")
 
@@ -140,6 +141,8 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         set(WTF_OS_WINDOWS 1)
     elseif (CMAKE_SYSTEM_NAME MATCHES "Fuchsia")
         set(WTF_OS_FUCHSIA 1)
+    elseif (CMAKE_SYSTEM_NAME MATCHES "Generic")
+        set(WTF_OS_LINUX 1)
     else ()
         message(FATAL_ERROR "Unknown OS '${CMAKE_SYSTEM_NAME}'")
     endif ()

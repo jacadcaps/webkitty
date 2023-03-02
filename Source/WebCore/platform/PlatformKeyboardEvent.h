@@ -41,6 +41,10 @@ OBJC_CLASS NSEvent;
 OBJC_CLASS WebEvent;
 #endif
 
+#if OS(MORPHOS)
+struct IntuiMessage;
+#endif
+
 namespace WebCore {
 
     class PlatformKeyboardEvent : public PlatformEvent {
@@ -128,6 +132,10 @@ namespace WebCore {
         PlatformKeyboardEvent(HWND, WPARAM, LPARAM, Type, bool);
 #endif
 
+#if OS(MORPHOS)
+		PlatformKeyboardEvent(struct IntuiMessage *imsg);
+#endif
+
 #if PLATFORM(GTK)
         // Used by WebKit2
         static String keyValueForGdkKeyCode(unsigned);
@@ -171,6 +179,10 @@ namespace WebCore {
         Vector<KeypressCommand> m_commands;
 #elif PLATFORM(GTK)
         Vector<String> m_commands;
+#endif
+
+#if OS(MORPHOS)
+	struct IntuiMessage *m_intuiMessage;
 #endif
 
 #if PLATFORM(COCOA)

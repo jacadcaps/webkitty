@@ -34,6 +34,7 @@
 #include "Document.h"
 #include "HTMLCanvasElement.h"
 #include "ImageBitmap.h"
+#include "ImageBitmapRenderingContext.h"
 #include "ImageData.h"
 #include "JSBlob.h"
 #include "JSDOMPromiseDeferred.h"
@@ -79,6 +80,8 @@ bool OffscreenCanvas::enabledForContext(ScriptExecutionContext& context)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     if (context.isWorkerGlobalScope())
         return DeprecatedGlobalSettings::offscreenCanvasInWorkersEnabled();
+#else
+    UNUSED_PARAM(context);
 #endif
 
     ASSERT(context.isDocument());
@@ -271,23 +274,37 @@ ExceptionOr<RefPtr<ImageBitmap>> OffscreenCanvas::transferToImageBitmap()
     if (m_detached || !m_context)
         return Exception { InvalidStateError };
 
-    if (is<OffscreenCanvasRenderingContext2D>(*m_context)) {
+    if (is<OffscreenCanvasRenderingContext2D>(*m_context) || is<ImageBitmapRenderingContext>(*m_context)) {
         if (!width() || !height())
             return { RefPtr<ImageBitmap> { nullptr } };
 
         if (!m_hasCreatedImageBuffer) {
             auto buffer = ImageBitmap::createImageBuffer(*canvasBaseScriptExecutionContext(), size(), RenderingMode::Unaccelerated, m_context->colorSpace());
+            if (!buffer)
+                return { RefPtr<ImageBitmap> { nullptr } };
             return { ImageBitmap::create(ImageBitmapBacking(WTFMove(buffer))) };
         }
 
-        // As the canvas context state is stored in GraphicsContext, which is owned
-        // by buffer(), to avoid resetting the context state, we have to make a copy and
-        // clear the original buffer rather than returning the original buffer.
-        auto bufferCopy = buffer()->clone();
-        downcast<OffscreenCanvasRenderingContext2D>(*m_context).clearCanvas();
+        if (!buffer())
+            return { RefPtr<ImageBitmap> { nullptr } };
+
+        RefPtr<ImageBuffer> bitmap;
+        if (is<OffscreenCanvasRenderingContext2D>(*m_context)) {
+            // As the canvas context state is stored in GraphicsContext, which is owned
+            // by buffer(), to avoid resetting the context state, we have to make a copy and
+            // clear the original buffer rather than returning the original buffer.
+            bitmap = buffer()->clone();
+            downcast<OffscreenCanvasRenderingContext2D>(*m_context).clearCanvas();
+        } else {
+            // ImageBitmapRenderingContext doesn't use the context state, so we can just take its
+            // buffer, and then call transferFromImageBitmap(nullptr) which will trigger it to allocate
+            // a new blank bitmap.
+            bitmap = buffer();
+            downcast<ImageBitmapRenderingContext>(*m_context).transferFromImageBitmap(nullptr);
+        }
         clearCopiedImage();
 
-        return { ImageBitmap::create(ImageBitmapBacking(WTFMove(bufferCopy), originClean() ? SerializationState::OriginClean : SerializationState())) };
+        return { ImageBitmap::create(ImageBitmapBacking(WTFMove(bitmap), originClean() ? SerializationState::OriginClean : SerializationState())) };
     }
 
 #if ENABLE(WEBGL)
@@ -432,7 +449,8 @@ void OffscreenCanvas::setPlaceholderCanvas(HTMLCanvasElement& canvas)
 
 void OffscreenCanvas::pushBufferToPlaceholder()
 {
-    callOnMainThread([placeholderData = Ref { *m_placeholderData }] () mutable {
+    // canvas is a weakptr, would often go away while being proceessed on main thread
+    callOnMainThread([placeholderData = Ref { *m_placeholderData }, canvas = RefPtr { m_placeholderData->canvas.get() }] () mutable {
         Locker locker { placeholderData->bufferLock };
         if (placeholderData->canvas && placeholderData->pendingCommitBuffer)
             placeholderData->canvas->setImageBufferAndMarkDirty(WTFMove(placeholderData->pendingCommitBuffer));

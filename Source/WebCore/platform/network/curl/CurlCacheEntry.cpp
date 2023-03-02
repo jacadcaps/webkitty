@@ -41,6 +41,7 @@
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
 #include "SharedBuffer.h"
+#include "MIMETypeRegistry.h"
 #include <wtf/DateMath.h>
 #include <wtf/HexNumber.h>
 #include <wtf/SHA1.h>
@@ -62,6 +63,20 @@ CurlCacheEntry::CurlCacheEntry(const String& url, ResourceHandle* job, const Str
     m_contentFilename = makeString(cacheDir, m_basename, ".content"_s);
 }
 
+CurlCacheEntry::CurlCacheEntry(const String& url, uint64_t entrySize, double expireDate, const String& cacheDir)
+    : m_contentFile(FileSystem::invalidPlatformFileHandle)
+    , m_entrySize(entrySize)
+    , m_expireDate(WallTime::fromRawSeconds(expireDate))
+    , m_headerParsed(false)
+    , m_isLoading(false)
+    , m_job(nullptr)
+{
+    generateBaseFilename(url.latin1());
+
+    m_headerFilename = makeString(cacheDir, m_basename, ".header"_s);
+    m_contentFilename = makeString(cacheDir, m_basename, ".content"_s);
+}
+
 CurlCacheEntry::~CurlCacheEntry()
 {
     closeContentFile();
@@ -75,7 +90,7 @@ bool CurlCacheEntry::isLoading() const
 // Cache manager should invalidate the entry on false
 bool CurlCacheEntry::isCached()
 {
-    if (!FileSystem::fileExists(m_contentFilename) || !FileSystem::fileExists(m_headerFilename))
+    if (0 == entrySize())
         return false;
 
     if (!m_headerParsed) {
@@ -94,7 +109,20 @@ bool CurlCacheEntry::isCached()
     return true;
 }
 
-bool CurlCacheEntry::saveCachedData(const uint8_t* data, size_t size)
+bool CurlCacheEntry::isValid()
+{
+	if (0 == entrySize())
+		return false;
+
+    if (m_expireDate < WallTime::now()) {
+        m_headerParsed = false;
+        return false;
+    }
+
+    return true;
+}
+
+bool CurlCacheEntry::saveCachedData(const uint8_t* data, uint64_t size)
 {
     if (!openContentFile())
         return false;
@@ -189,7 +217,11 @@ void CurlCacheEntry::setResponseFromCachedHeaders(ResourceResponse& response)
     }
     response.setExpectedContentLength(contentLength); // -1 on parse error or null
 
-    response.setMimeType(AtomString { extractMIMETypeFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)) });
+	String mimeType = extractMIMETypeFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType));
+	if (mimeType.isEmpty()) {
+	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url().path().toString());
+	}
+    response.setMimeType(mimeType.toExistingAtomString());
     response.setTextEncodingName(extractCharsetFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
 }
 
@@ -285,7 +317,7 @@ void CurlCacheEntry::setIsLoading(bool isLoading)
         closeContentFile();
 }
 
-size_t CurlCacheEntry::entrySize()
+uint64_t CurlCacheEntry::entrySize()
 {
     if (!m_entrySize) {
         auto headerFileSize = FileSystem::fileSize(m_headerFilename);

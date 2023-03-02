@@ -128,6 +128,9 @@ public:
 
     WTF_EXPORT_PRIVATE CString ascii() const;
     WTF_EXPORT_PRIVATE CString latin1() const;
+#if OS(MORPHOS)
+    CString native() const;
+#endif
 
     WTF_EXPORT_PRIVATE CString utf8(ConversionMode) const;
     WTF_EXPORT_PRIVATE CString utf8() const;
@@ -276,6 +279,10 @@ public:
         : String(characters, characters ? wcslen(characters) : 0) { }
 
     WTF_EXPORT_PRIVATE Vector<wchar_t> wideCharacters() const;
+#endif
+
+#if OS(MORPHOS)
+       String(const char * characters, unsigned length, unsigned mib);
 #endif
 
     WTF_EXPORT_PRIVATE static String make8BitFrom16BitSource(const UChar*, size_t);

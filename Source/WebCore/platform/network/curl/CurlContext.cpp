@@ -47,6 +47,16 @@
 #include <shlwapi.h>
 #endif
 
+#if OS(MORPHOS)
+#include <exec/libraries.h>
+#include <proto/exec.h>
+#include <ppcinline/macros.h>
+extern "C" {
+void dprintf(const char *fmt, ... );
+};
+#define CURL_TRACES 0
+#endif
+
 namespace WebCore {
 
 class EnvironmentVariableReader {
@@ -141,6 +151,13 @@ CurlContext::~CurlContext()
         fclose(m_logFile);
 #endif
 }
+
+#if OS(MORPHOS)
+void CurlContext::stopThread()
+{
+	m_scheduler->stopCurlThread();
+}
+#endif
 
 void CurlContext::initShareHandle()
 {
@@ -280,6 +297,11 @@ CURLMcode CurlMultiHandle::wakeUp()
     return curl_multi_wakeup(m_multiHandle);
 }
 
+CURLMcode CurlMultiHandle::getTimeout(long &timeout)
+{
+	return curl_multi_timeout(m_multiHandle, &timeout);
+}
+
 CURLMcode CurlMultiHandle::perform(int& runningHandles)
 {
     return curl_multi_perform(m_multiHandle, &runningHandles);
@@ -291,6 +313,76 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 }
 
 // CurlHandle -------------------------------------------------
+
+#if CURL_TRACES
+static void dump(const char *text, unsigned char *ptr, size_t size)
+{
+  size_t i;
+  size_t c;
+  unsigned int width=0x10;
+	
+  dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
+          text, (long)size, (long)size);
+	
+  for(i=0; i<size; i+= width) {
+    dprintf( "%4.4lx: ", (long)i);
+ 
+    /* show hex to the left */
+    for(c = 0; c < width; c++) {
+      if(i+c < size)
+        dprintf("%02x ", ptr[i+c]);
+      else
+        dprintf("   ");
+    }
+ 
+    /* show data on the right */
+    for(c = 0; (c < width) && (i+c < size); c++) {
+      char x = (ptr[i+c] >= 0x20 && ptr[i+c] < 0x80) ? ptr[i+c] : '.';
+      dprintf("%c", x);
+    }
+ 
+    dprintf("\n"); /* newline */
+  }
+}
+	
+static int my_trace(CURL *handle, curl_infotype type,
+             char *data, size_t size,
+             void *userp)
+{
+  const char *text;
+  (void)handle; /* prevent compiler warning */
+  (void)userp;
+	
+  switch (type) {
+  case CURLINFO_TEXT:
+    dprintf("== Info: %s", data);
+  default: /* in case a new one is introduced to shock us */
+    return 0;
+ 
+  case CURLINFO_HEADER_OUT:
+    text = "=> Send header";
+    break;
+  case CURLINFO_DATA_OUT:
+    text = "=> Send data";
+    break;
+  case CURLINFO_SSL_DATA_OUT:
+    text = "=> Send SSL data";
+    break;
+  case CURLINFO_HEADER_IN:
+    text = "<= Recv header";
+    break;
+  case CURLINFO_DATA_IN:
+    text = "<= Recv data";
+    break;
+  case CURLINFO_SSL_DATA_IN:
+    text = "<= Recv SSL data";
+    break;
+  }
+	
+  dump(text, (unsigned char *)data, size);
+  return 0;
+}
+#endif
 
 CurlHandle::CurlHandle()
 {
@@ -312,6 +404,15 @@ CurlHandle::CurlHandle()
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
+
+#if OS(MORPHOS)
+    curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
+#endif
+
+#if CURL_TRACES
+	curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
+#endif
 }
 
 CurlHandle::~CurlHandle()
@@ -327,11 +428,19 @@ const String CurlHandle::errorDescription(CURLcode errorCode)
 
 void CurlHandle::enableSSLForHost(const String& host)
 {
+#if OS(MORPHOS)
+	bool caCertOverride = false;
+#endif
     auto& sslHandle = CurlContext::singleton().sslHandle();
     if (auto sslClientCertificate = sslHandle.getSSLClientCertificate(host)) {
+#if OS(MORPHOS)
+        setCACertPath(sslClientCertificate->first.utf8().data());
+        caCertOverride = true;
+#else
         setSslCert(sslClientCertificate->first.utf8().data());
         setSslCertType("P12");
         setSslKeyPassword(sslClientCertificate->second.utf8().data());
+#endif
     }
 
     if (sslHandle.canIgnoreAnyHTTPSCertificatesForHost(host) || sslHandle.shouldIgnoreSSLErrors()) {
@@ -348,7 +457,15 @@ void CurlHandle::enableSSLForHost(const String& host)
 
     setSslCtxCallbackFunction(willSetupSslCtxCallback, this);
 
-#if OS(WINDOWS)
+#if OS(MORPHOS)
+	if (caCertOverride)
+		setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
+	else
+	{
+		if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
+			setCACertPath(path->utf8().data());
+	}
+#elif OS(WINDOWS)
     curl_easy_setopt(m_handle, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
 #else
     if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
@@ -419,6 +536,10 @@ void CurlHandle::setUrl(const URL& url)
 
     if (url.protocolIs("https"_s))
         enableSSLForHost(m_url.host().toString());
+#if OS(MORPHOS)
+    else
+        curl_easy_setopt(m_handle, CURLOPT_HTTP09_ALLOWED, 1L);  // HTTP only
+#endif
 }
 
 void CurlHandle::appendRequestHeaders(const HTTPHeaderMap& headers)
@@ -480,6 +601,11 @@ void CurlHandle::enableHttp()
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 }
 
+void CurlHandle::disableAcceptEncoding()
+{
+    curl_easy_setopt(m_handle, CURLOPT_ENCODING, NULL);
+}
+
 void CurlHandle::enableHttpGetRequest()
 {
     enableHttp();
@@ -532,6 +658,11 @@ void CurlHandle::setHttpCustomRequest(const String& method)
 {
     enableHttp();
     curl_easy_setopt(m_handle, CURLOPT_CUSTOMREQUEST, method.ascii().data());
+}
+
+void CurlHandle::setResumeOffset(long long offset)
+{
+	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
 }
 
 void CurlHandle::enableAcceptEncoding()

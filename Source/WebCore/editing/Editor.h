@@ -361,6 +361,11 @@ public:
 #if !PLATFORM(IOS_FAMILY)
     WEBCORE_EXPORT void advanceToNextMisspelling(bool startBeforeSelection = false);
 #endif
+
+#if OS(MORPHOS)
+	void checkEntireDocument();
+#endif
+
     void showSpellingGuessPanel();
     bool spellingPanelIsShowing();
 

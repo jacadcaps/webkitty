@@ -612,6 +612,10 @@ public:
     void updateMediaPlayer(IntSize, bool);
     WEBCORE_EXPORT bool elementIsHidden() const;
 
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
+#endif
+
 protected:
     HTMLMediaElement(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLMediaElement();

@@ -191,7 +191,7 @@ WI.settings = {
     consoleSavedResultAlias: new WI.Setting("console-saved-result-alias", ""),
     cssChangesPerNode: new WI.Setting("css-changes-per-node", false),
     clearLogOnNavigate: new WI.Setting("clear-log-on-navigate", true),
-    clearNetworkOnNavigate: new WI.Setting("clear-network-on-navigate", true),
+    clearNetworkOnNavigate: new WI.Setting("clear-network-on-navigate", false),
     cpuTimelineThreadDetailsExpanded: new WI.Setting("cpu-timeline-thread-details-expanded", false),
     emulateInUserGesture: new WI.Setting("emulate-in-user-gesture", false),
     enableControlFlowProfiler: new WI.Setting("enable-control-flow-profiler", false),

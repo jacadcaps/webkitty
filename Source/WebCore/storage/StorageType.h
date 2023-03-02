@@ -40,11 +40,18 @@ inline bool isLocalStorage(StorageType storageType)
     return storageType == StorageType::Local || storageType == StorageType::TransientLocal;
 }
 
+#if OS(MORPHOS) && MORPHOS_MINIMAL
+inline bool isPersistentLocalStorage(StorageType storageType)
+{
+	(void)storageType;
+	return false;
+}
+#else
 inline bool isPersistentLocalStorage(StorageType storageType)
 {
     return storageType == StorageType::Local || storageType == StorageType::TransientLocal;
 }
-
+#endif
 } // namespace WebCore
 
 namespace WTF {

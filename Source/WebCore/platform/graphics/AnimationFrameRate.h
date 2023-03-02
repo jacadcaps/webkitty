@@ -43,6 +43,14 @@ enum class ThrottlingReason : uint8_t {
     NonInteractedCrossOriginFrame   = 1 << 3,
 };
 
+#if OS(MORPHOS)
+constexpr const Seconds FullSpeedAnimationInterval { 30_ms };
+constexpr const Seconds HalfSpeedThrottlingAnimationInterval { 60_ms };
+constexpr const Seconds AggressiveThrottlingAnimationInterval { 10_s };
+constexpr const int IntervalThrottlingFactor { 2 };
+constexpr const FramesPerSecond FullSpeedFramesPerSecond = 30;
+constexpr const FramesPerSecond HalfSpeedThrottlingFramesPerSecond = 15;
+#else
 // Allow a little more than 60fps to make sure we can at least hit that frame rate.
 constexpr const Seconds FullSpeedAnimationInterval { 15_ms };
 // Allow a little more than 30fps to make sure we can at least hit that frame rate.
@@ -52,6 +60,7 @@ constexpr const int IntervalThrottlingFactor { 2 };
 
 constexpr const FramesPerSecond FullSpeedFramesPerSecond = 60;
 constexpr const FramesPerSecond HalfSpeedThrottlingFramesPerSecond = 30;
+#endif
 
 WEBCORE_EXPORT FramesPerSecond framesPerSecondNearestFullSpeed(FramesPerSecond);
 

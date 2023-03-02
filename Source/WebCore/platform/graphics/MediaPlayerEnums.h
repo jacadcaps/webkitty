@@ -98,7 +98,8 @@ public:
         HolePunch,
         MediaFoundation,
         MockMSE,
-        CocoaWebM
+        CocoaWebM,
+        MorphOS
     };
 
     enum class WirelessPlaybackTargetType : uint8_t {
@@ -234,7 +235,8 @@ template<> struct EnumTraits<WebCore::MediaPlayerEnums::MediaEngineIdentifier> {
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::HolePunch,
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::MediaFoundation,
         WebCore::MediaPlayerEnums::MediaEngineIdentifier::MockMSE,
-        WebCore::MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM
+        WebCore::MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM,
+        WebCore::MediaPlayerEnums::MediaEngineIdentifier::MorphOS
     >;
 };
 

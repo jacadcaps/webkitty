@@ -44,7 +44,7 @@ OBJC_CLASS NSString;
 OBJC_CLASS NSArray;
 #endif
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(MORPHOS)
 #include "SelectionData.h"
 #endif
 
@@ -99,6 +99,10 @@ struct PasteboardWebContent {
     String markup;
 #endif
 #if USE(LIBWPE)
+    String text;
+    String markup;
+#endif
+#if OS(MORPHOS)
     String text;
     String markup;
 #endif
@@ -192,7 +196,7 @@ public:
     Pasteboard(std::unique_ptr<PasteboardContext>&&);
     virtual ~Pasteboard();
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(MORPHOS)
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, const String& name);
     explicit Pasteboard(std::unique_ptr<PasteboardContext>&&, SelectionData&);
 #if ENABLE(DRAG_SUPPORT)
@@ -264,6 +268,10 @@ public:
 #if PLATFORM(GTK)
     const SelectionData& selectionData() const;
     static std::unique_ptr<Pasteboard> createForGlobalSelection(std::unique_ptr<PasteboardContext>&&);
+#endif
+
+#if OS(MORPHOS)
+    const SelectionData& selectionData() const { return *m_selectionData; }
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -347,6 +355,13 @@ private:
     std::unique_ptr<PasteboardContext> m_context;
 
 #if PLATFORM(GTK)
+    std::optional<SelectionData> m_selectionData;
+    String m_name;
+#endif
+
+#if OS(MORPHOS)
+    void writeToClipboard();
+    void readFromClipboard();
     std::optional<SelectionData> m_selectionData;
     String m_name;
 #endif

@@ -69,9 +69,10 @@ static ExceptionOr<Ref<SerializedScriptValue>> createSerializedScriptValue(Scrip
 
 ExceptionOr<Ref<Notification>> Notification::create(ScriptExecutionContext& context, String&& title, Options&& options)
 {
+#if ENABLE(SERVICE_WORKER)
     if (context.isServiceWorkerGlobalScope())
         return Exception { TypeError, "Notification cannot be directly created in a ServiceWorkerGlobalScope"_s };
-
+#endif
     auto dataResult = createSerializedScriptValue(context, options.data);
     if (dataResult.hasException())
         return dataResult.releaseException();
@@ -118,8 +119,10 @@ Notification::Notification(ScriptExecutionContext& context, UUID identifier, Str
 {
     if (context.isDocument())
         m_notificationSource = NotificationSource::Document;
+#if ENABLE(SERVICE_WORKER)
     else if (context.isServiceWorkerGlobalScope())
         m_notificationSource = NotificationSource::ServiceWorker;
+#endif
     else
         RELEASE_ASSERT_NOT_REACHED();
 

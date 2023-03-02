@@ -435,6 +435,12 @@ bool Heap::isPagedOut()
     return m_objectSpace.isPagedOut();
 }
 
+void Heap::forceSweep()
+{
+    m_objectSpace.stopAllocatingForGood();
+    m_objectSpace.lastChanceToFinalize();
+}
+
 void Heap::dumpHeapStatisticsAtVMDestruction()
 {
     unsigned counter = 0;
