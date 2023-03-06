@@ -107,7 +107,7 @@ ResourceResponse::ResourceResponse(const CurlResponse& response)
 	if (mimeType.isEmpty()) {
 	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url.path().toString());
 	}
-    setMimeType(mimeType.toExistingAtomString());
+    setMimeType(AtomString(mimeType));
     setTextEncodingName(extractCharsetFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
     setSource(ResourceResponse::Source::Network);
 }

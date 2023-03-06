@@ -221,7 +221,7 @@ void CurlCacheEntry::setResponseFromCachedHeaders(ResourceResponse& response)
 	if (mimeType.isEmpty()) {
 	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url().path().toString());
 	}
-    response.setMimeType(mimeType.toExistingAtomString());
+    response.setMimeType(AtomString(mimeType));
     response.setTextEncodingName(extractCharsetFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
 }
 

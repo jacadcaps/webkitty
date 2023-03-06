@@ -253,6 +253,8 @@ String URL::fileSystemPath() const
     auto result = decodeEscapeSequencesFromParsedURL(path());
 #if PLATFORM(WIN)
     result = FileSystem::fileSystemRepresentation(result);
+#elif OS(MORPHOS)
+    result = FileSystem::stringFromFileSystemRepresentation(FileSystem::fileSystemRepresentation(result).data());
 #endif
     return result;
 }

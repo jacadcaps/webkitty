@@ -157,7 +157,7 @@ public:
 	}
     
     void save(Vector<InspectorFrontendClient::SaveData>&& saveData, bool forceSaveAs) override {
-		D(dprintf("%s: b64 %d %p %p\n", __PRETTY_FUNCTION__, base64Encoded, m_inspectedWebView, m_inspectedWebView->_fInspectorSave));
+		D(dprintf("%s: %p %p\n", __PRETTY_FUNCTION__, m_inspectedWebView, m_inspectedWebView->_fInspectorSave));
         for (auto save : saveData)
             m_frontendView->_fInspectorSave(save.url, save.content, save.base64Encoded);
 	}
@@ -277,7 +277,7 @@ void WebInspectorClient::releaseFrontend()
 
 void WebInspectorClient::sendMessageToFrontend(const WTF::String& message)
 {
-//	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	if (m_frontendClient)
 		m_frontendClient->frontendAPIDispatcher().dispatchMessageAsync(message);
 }
