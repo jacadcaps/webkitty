@@ -235,7 +235,7 @@ bool SQLiteDatabase::useWALJournalMode()
 	auto walStatement = prepareStatement("PRAGMA journal_mode=off;"_s);
 	if (walStatement)
 		walStatement->step();
-    return false;
+    return true;
 #else
     m_useWAL = true;
     {
