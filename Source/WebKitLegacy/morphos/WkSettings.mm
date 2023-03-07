@@ -719,4 +719,10 @@ static cairo_antialias_t defaultAA;
 	NetworkStorageSessionMap::defaultStorageSession().setProxySettings(std::move(settings));
 }
 
++ (void)setCookieJarPath:(OBString *)path
+{
+    if ([path length])
+        WebKit::WebProcess::singleton().setCookieJarPath(String::fromUTF8([path cString]));
+}
+
 @end

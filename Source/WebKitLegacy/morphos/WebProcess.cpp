@@ -94,6 +94,10 @@ using namespace WebCore;
 using namespace WTF;
 using namespace JSC;
 
+namespace WebCore {
+    void setCookieJarPath(const String& path);
+}
+
 namespace WTF {
 	void scheduleDispatchFunctionsOnMainThread()
 	{
@@ -818,6 +822,11 @@ void WebProcess::setDiskCacheSize(QUAD sizeMax)
 	{
     	CurlCacheManager::singleton().setCacheDirectory("PROGDIR:Cache/Curl"_s);
 	}
+}
+
+void WebProcess::setCookieJarPath(const String& path)
+{
+    WebCore::setCookieJarPath(path);
 }
 
 void WebProcess::signalMainThread()

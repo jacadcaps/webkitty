@@ -77,6 +77,8 @@ public:
 	void setDiskCacheSize(QUAD sizeMax);
 	QUAD diskCacheSize() const { return m_diskCacheSize; }
 	QUAD maxDiskCacheSize() const;
+ 
+    void setCookieJarPath(const String& path);
 
 	void dumpWebCoreStatistics();
 	

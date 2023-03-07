@@ -177,4 +177,7 @@ typedef enum
 // Clear/disable proxy settings
 + (void)setProxyNone;
 
+// Must be set before 1st browser is created and cannot be changed afterwards
++ (void)setCookieJarPath:(OBString *)path;
+
 @end

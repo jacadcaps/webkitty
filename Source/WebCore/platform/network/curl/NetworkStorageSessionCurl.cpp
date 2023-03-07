@@ -38,10 +38,20 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static String _cookieJarPath = "PROGDIR:Cache/cookie.jar.db"_s;
+
+void setCookieJarPath(const String& path)
+{
+    _cookieJarPath = path;
+}
+
+#endif
+
 static String defaultCookieJarPath()
 {
 #if OS(MORPHOS)
-	return "PROGDIR:Cache/cookie.jar.db"_s;
+	return _cookieJarPath;
 #else
     static constexpr auto defaultFileName = "cookie.jar.db"_s;
     char* cookieJarPath = getenv("CURL_COOKIE_JAR_PATH");
