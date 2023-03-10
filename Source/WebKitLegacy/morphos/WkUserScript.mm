@@ -30,8 +30,8 @@
 		_path = [path copy];
 		_injectPosition = position;
 		_injectInFrames = inFrames;
-		_whiteList = white;
-		_blackList = blacklist;
+		_whiteList = [white retain];
+		_blackList = [blacklist retain];
 	}
 	
 	return self;
@@ -179,10 +179,12 @@ OBMutableArray *_scripts;
 
 + (void)removeUserScript:(WkUserScript *)script
 {
+    [script retain];
 	[_scripts removeObject:script];
 	auto group = WebKit::WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/Storage"_s);
 	group->userContentController().removeUserScript(*group->wrapperWorldForUserScripts(),
 		WTF::URL(WTF::URL(), WTF::String::fromUTF8([[OBString stringWithFormat:@"file:///script_%08lx", script] cString])));
+    [script release];
 }
 
 + (OBArray *)userScripts
