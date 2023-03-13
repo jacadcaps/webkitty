@@ -2875,7 +2875,7 @@ static const KeyDownEntry keyDownEntries[] = {
     { VK_END,    ControlKey | ShiftKey, "MoveToEndOfDocumentAndModifySelection"       },
 
     { VK_BACK,   0,                  "DeleteBackward"                              },
-    { VK_BACK,   ShiftKey,           "DeleteBackward"                              },
+    { VK_BACK,   ShiftKey,           "DeleteToBeginningOfLine"                     },
     { VK_DELETE, 0,                  "DeleteForward"                               },
     { VK_BACK,   ControlKey,            "DeleteWordBackward"                          },
     { VK_DELETE, ControlKey,            "DeleteWordForward"                           },
