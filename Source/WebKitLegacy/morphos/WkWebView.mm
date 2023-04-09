@@ -1138,14 +1138,21 @@ namespace  {
 	return _documentHeight;
 }
 
-- (void)setScrollX:(int)sx y:(int)sy
+- (BOOL)updateScrollX:(int)sx y:(int)sy
 {
-	_scrollX = sx;
-	_scrollY = sy;
+    if (_scrollX != sx || _scrollY != sy)
+    {
+        _scrollX = sx;
+        _scrollY = sy;
 
 #if ENABLE(VIDEO)
-	[self callOverlayCallback];
+        [self callOverlayCallback];
 #endif
+
+        return YES;
+    }
+    
+    return NO;
 }
 
 - (int)scrollX
@@ -3121,7 +3128,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)goToItem:(WkBackForwardListItem *)item
 {
 	auto webPage = [_private page];
-	return webPage->goToItem([(WkBackForwardListItemPrivate *)item item]);
+    webPage->goToItem([(WkBackForwardListItemPrivate *)item item]);
 }
 
 - (WkBackForwardList *)backForwardList
@@ -3856,15 +3863,17 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)scrollToX:(int)sx y:(int)sy
 {
-	[_private setScrollX:sx y:sy];
-	[[_private scrollingDelegate] webView:self scrolledToLeft:sx top:sy];
+	if ([_private updateScrollX:sx y:sy])
+    {
+        [[_private scrollingDelegate] webView:self scrolledToLeft:sx top:sy];
 
-	// don't use draw scheduling - we want to have scrolling as fast as possible
-	if (![_private drawPending] || [_private drawPendingWithSchedule])
-	{
-		[_private setDrawPendingWithSchedule:NO];
-		[[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
-	}
+        // don't use draw scheduling - we want to have scrolling as fast as possible
+        if (![_private drawPending] || [_private drawPendingWithSchedule])
+        {
+            [_private setDrawPendingWithSchedule:NO];
+            [[OBRunLoop mainRunLoop] performSelector:@selector(lateDraw) target:self];
+        }
+    }
 }
 
 - (void)setDocumentWidth:(int)width height:(int)height
