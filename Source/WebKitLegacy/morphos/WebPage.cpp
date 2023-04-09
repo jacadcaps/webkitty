@@ -3397,6 +3397,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				break;
 				
 			case RAWKEY_TAB:
+// dprintf("tab: isactive %d justactive %d\n", m_isActive, m_justWentActive);
 				if (!m_isActive)
 					return false;
 				if (!up)
@@ -3557,11 +3558,19 @@ bool WebPage::handleMUIKey(int muikey, bool isDefaultHandler)
 	switch (muikey)
 	{
 	case MUIKEY_GADGET_NEXT:
-		focusController.advanceFocus(FocusDirection::Forward, nullptr);
-		return true;
+        if (m_isActive)
+        {
+            focusController.advanceFocus(FocusDirection::Forward, nullptr);
+            return true;
+        }
+        break;
 	case MUIKEY_GADGET_PREV:
-		focusController.advanceFocus(FocusDirection::Backward, nullptr);
-		return true;
+        if (m_isActive)
+        {
+            focusController.advanceFocus(FocusDirection::Backward, nullptr);
+            return true;
+        }
+        break;
 	case MUIKEY_GADGET_OFF:
 		return true;
 	case MUIKEY_CUT:
