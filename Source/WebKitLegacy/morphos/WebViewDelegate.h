@@ -99,6 +99,7 @@ struct WebViewDelegate
 	std::function<void(void)> _fPrint;
 	
 	std::function<void(void)> _fUndoRedoChanged;
+    std::function<void(void)> _fTextChanged;
 
 	std::function<void(void *player, const String &url, WebCore::MediaPlayerMorphOSInfo& info, WebCore::MediaPlayerMorphOSStreamSettings& settings,
 		WTF::Function<void()> &&yieldFunc)> _fMediaAdded;
@@ -183,6 +184,7 @@ struct WebViewDelegate
 		_fFavIconLoad = nullptr;
 		_fPrint = nullptr;
 		_fUndoRedoChanged = nullptr;
+        _fTextChanged = nullptr;
 		_fShouldNavigateToURL = nullptr;
 		_fMediaAdded = nullptr;
 		_fMediaUpdated = nullptr;

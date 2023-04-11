@@ -341,7 +341,8 @@ void WebEditorClient::didBeginEditing()
 
 void WebEditorClient::respondToChangedContents()
 {
-    notImplemented();
+	if (m_webPage && m_webPage->_fTextChanged)
+		m_webPage->_fTextChanged();
 }
 
 void WebEditorClient::respondToChangedSelection(Frame*)

@@ -150,6 +150,7 @@ typedef enum {
 @protocol WkWebViewEditorDelegate <OBObject>
 
 - (void)webViewUpdatedUndoRedoList:(WkWebView *)view;
+- (void)webViewDidEditText:(WkWebView *)view;
 
 @end
 

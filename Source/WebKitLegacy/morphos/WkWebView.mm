@@ -2215,7 +2215,21 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkWebViewClientDelegate> clientDelegate = [privateObject clientDelegate];
 			[clientDelegate webViewRequestedPrinting:self];
 		};
-		
+
+        webPage->_fUndoRedoChanged = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewEditorDelegate> editorDelegate = [privateObject editorDelegate];
+            [editorDelegate webViewUpdatedUndoRedoList:self];
+		};
+
+        webPage->_fTextChanged = [self]() {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+			id<WkWebViewEditorDelegate> editorDelegate = [privateObject editorDelegate];
+            [editorDelegate webViewDidEditText:self];
+		};
+  
 		webPage->_fDidStopLoading = [self]() {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
