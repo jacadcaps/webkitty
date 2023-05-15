@@ -1218,6 +1218,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setIntersectionObserverEnabled(true);
 	settings.setDataTransferItemsEnabled(true);
 	settings.setDownloadAttributeEnabled(true);
+    settings.setAsyncClipboardAPIEnabled(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
