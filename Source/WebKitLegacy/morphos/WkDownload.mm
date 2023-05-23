@@ -17,6 +17,7 @@
 #include <WebCore/DataURLDecoder.h>
 #include <WebCore/PlatformStrategies.h>
 #include <WebCore/BlobRegistry.h>
+#include <WebCore/ResourceHandle.h>
 #include <WebCore/BlobRegistryImpl.h>
 #include <WebCore/BlobDataFileReference.h>
 #include <pal/text/TextEncoding.h>
@@ -99,7 +100,7 @@ void WebDownload::initialize(_WkDownload *outer, OBURL *url)
 	}
 }
 
-void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle, const WebCore::ResourceRequest&request, const WebCore::ResourceResponse& response)
+void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle, const WebCore::ResourceRequest &request, const WebCore::ResourceResponse& response)
 {
 	m_outerObject = outer;
 	m_download = adoptRef(new WebCore::CurlDownload());
@@ -121,6 +122,10 @@ void WebDownload::initialize(_WkDownload *outer, WebCore::ResourceHandle*handle,
             m_size = 0;
 
 		m_download->init(*this, handle, request, response);
+
+        // would leak a connection otherwise
+        if (handle)
+            handle->cancel();
 	}
 }
 
