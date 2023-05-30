@@ -125,7 +125,9 @@ public:
     CurlSSLHandle& sslHandle() { return m_sslHandle; }
 
     // HTTP/2
-    bool isHttp2Enabled() const;
+    bool isHttp2Enabled(bool forPost = false) const;
+
+    void setIsHttp2Enabled(bool enabled, bool enabledForPost) { m_http2Enabled = enabled; m_http2POSTEnabled = enabledForPost; }
 
     // Timeout
     Seconds dnsCacheTimeout() const { return m_dnsCacheTimeout; }
@@ -154,6 +156,9 @@ private:
     Seconds m_dnsCacheTimeout { Seconds::fromMinutes(5) };
     Seconds m_connectTimeout { 30.0 };
     Seconds m_defaultTimeoutInterval { 60.0 };
+
+    bool m_http2Enabled { true };
+    bool m_http2POSTEnabled { true };
 
 #ifndef NDEBUG
     FILE* m_logFile { nullptr };
@@ -262,7 +267,7 @@ public:
     void appendRequestHeader(const String& name);
     void removeRequestHeader(const String& name);
 
-    void enableHttp();
+    void enableHttp(bool post = false);
     void enableHttpGetRequest();
     void enableHttpHeadRequest();
     void enableHttpPostRequest();

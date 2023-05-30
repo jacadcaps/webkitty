@@ -55,6 +55,7 @@ extern "C" {
 void dprintf(const char *fmt, ... );
 };
 #define CURL_TRACES 0
+#define CURL_DUMPDATA 0
 #endif
 
 namespace WebCore {
@@ -177,8 +178,12 @@ CurlStreamScheduler& CurlContext::streamScheduler()
     return sharedInstance;
 }
 
-bool CurlContext::isHttp2Enabled() const
+bool CurlContext::isHttp2Enabled(bool forPost) const
 {
+    if (!m_http2Enabled)
+        return false;
+    if (forPost && !m_http2POSTEnabled)
+        return false;
     curl_version_info_data* data = curl_version_info(CURLVERSION_NOW);
     return data->features & CURL_VERSION_HTTP2;
 }
@@ -319,7 +324,7 @@ static void dump(const char *text, unsigned char *ptr, size_t size)
 {
   size_t i;
   size_t c;
-  unsigned int width=0x10;
+  unsigned int width=0x20;
 	
   dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
           text, (long)size, (long)size);
@@ -361,25 +366,38 @@ static int my_trace(CURL *handle, curl_infotype type,
  
   case CURLINFO_HEADER_OUT:
     text = "=> Send header";
+    dump(text, (unsigned char *)data, size);
     break;
   case CURLINFO_DATA_OUT:
     text = "=> Send data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
     break;
   case CURLINFO_SSL_DATA_OUT:
     text = "=> Send SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
     break;
   case CURLINFO_HEADER_IN:
     text = "<= Recv header";
+    dump(text, (unsigned char *)data, size);
     break;
   case CURLINFO_DATA_IN:
     text = "<= Recv data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
     break;
   case CURLINFO_SSL_DATA_IN:
     text = "<= Recv SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
     break;
   }
-	
-  dump(text, (unsigned char *)data, size);
+
   return 0;
 }
 #endif
@@ -590,9 +608,9 @@ void CurlHandle::enableRequestHeaders()
     curl_easy_setopt(m_handle, CURLOPT_HTTPHEADER, headers);
 }
 
-void CurlHandle::enableHttp()
+void CurlHandle::enableHttp(bool post)
 {
-    if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled()) {
+    if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled(post)) {
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
         curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
@@ -620,7 +638,7 @@ void CurlHandle::enableHttpHeadRequest()
 
 void CurlHandle::enableHttpPostRequest()
 {
-    enableHttp();
+    enableHttp(true);
     curl_easy_setopt(m_handle, CURLOPT_POST, 1L);
     curl_easy_setopt(m_handle, CURLOPT_POSTFIELDSIZE, 0L);
 }

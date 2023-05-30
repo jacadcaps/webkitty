@@ -725,4 +725,9 @@ static cairo_antialias_t defaultAA;
         WebKit::WebProcess::singleton().setCookieJarPath(String::fromUTF8([path cString]));
 }
 
++ (void)setHTTP2Mode:(WkGlobalSettings_HTTP2)http2
+{
+    NetworkStorageSessionMap::defaultStorageSession().setHTTP2Mode(WebCore::NetworkStorageSession::CurlHTTP2Mode(http2));
+}
+
 @end

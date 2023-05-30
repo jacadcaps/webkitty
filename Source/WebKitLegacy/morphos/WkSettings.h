@@ -136,6 +136,15 @@ typedef enum
 	WkGlobalSettings_Caching_Balanced,
 } WkGlobalSettings_Caching;
 
+typedef enum
+{
+    WkGlobalSettings_HTTP2_Disabled,
+    // Enabled is the default. Should not normally be changed unless to workaround server-side
+    // or cURL issues with HTTP/2
+    WkGlobalSettings_HTTP2_Enabled,
+    WkGlobalSettings_HTTP2_ExceptPOST
+} WkGlobalSettings_HTTP2;
+
 @interface WkGlobalSettings : OBObject
 
 // Set the default download path for all new downloads, they'll be downloaded with a tmp name
@@ -179,5 +188,7 @@ typedef enum
 
 // Must be set before 1st browser is created and cannot be changed afterwards
 + (void)setCookieJarPath:(OBString *)path;
+
++ (void)setHTTP2Mode:(WkGlobalSettings_HTTP2)http2;
 
 @end

@@ -132,6 +132,12 @@ void NetworkStorageSession::setCookieAcceptPolicy(CookieAcceptPolicy policy) con
     cookieDatabase().setAcceptPolicy(policy);
 }
 
+void NetworkStorageSession::setHTTP2Mode(NetworkStorageSession::CurlHTTP2Mode mode)
+{
+    CurlContext::singleton().setIsHttp2Enabled(mode != NetworkStorageSession::CurlHTTP2Mode::Disabled,
+        mode != NetworkStorageSession::CurlHTTP2Mode::EnabledExceptPost && mode != NetworkStorageSession::CurlHTTP2Mode::Disabled);
+}
+
 HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const
 {
     switch (cookieDatabase().acceptPolicy()) {
