@@ -12,7 +12,7 @@
 #include <proto/exec.h>
 #include <exec/system.h>
 
-#define D(x) 
+#define D(x)
 #define DNP(x)
 #define DIO(x) 
 #define DINIT(x)
@@ -569,14 +569,14 @@ bool Acinerella::initialize()
 				switch (info.stream_type)
 				{
 				case AC_STREAM_TYPE_VIDEO:
-					DINIT(dprintf("video stream: %dx%d index %d ev %d\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height, i, streamSettings().m_decodeVideo));
+					DINIT(dprintf("video stream: %dx%d index %d ev %d codec %s\n", info.additional_info.video_info.frame_width, info.additional_info.video_info.frame_height, i, streamSettings().m_decodeVideo, ac_codec_name(acinerella->instance(), i)));
 					if (-1 == videoIndex && streamSettings().m_decodeVideo)
 						videoIndex = i;
 					break;
 
 				case AC_STREAM_TYPE_AUDIO:
-					DINIT(dprintf("audio stream: %d %d %d\n", info.additional_info.audio_info.samples_per_second,
-						info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth));
+					DINIT(dprintf("audio stream: %d %d %d codec %s\n", info.additional_info.audio_info.samples_per_second,
+						info.additional_info.audio_info.channel_count, info.additional_info.audio_info.bit_depth, ac_codec_name(acinerella->instance(), i)));
 					if (-1 == audioIndex)
 						audioIndex = i;
 					break;

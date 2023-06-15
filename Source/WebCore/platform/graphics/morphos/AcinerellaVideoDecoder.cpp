@@ -30,7 +30,7 @@
 
 #define D(x)
 #define DSYNC(x)
-#define DOVL(x) 
+#define DOVL(x)
 #define DFRAME(x) 
 
 // #pragma GCC optimize ("O0")
@@ -48,6 +48,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	m_frameDuration = 1.f / m_fps;
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
+    m_ismjpeg = 0 == strcmp(ac_codec_name(acinerella->instance(), index), "mjpeg");
 	D(dprintf("\033[35m[VD]%s: %p fps %f %dx%d\033[0m\n", __func__, this, float(m_fps), m_frameWidth, m_frameHeight));
 	
 	auto decoder = acinerella->decoder(index);
@@ -94,12 +95,12 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
 {
-	return isWarmedUp() && m_didShowFirstFrame;
+	return isWarmedUp() && (m_didShowFirstFrame || m_ismjpeg);
 }
 
 bool AcinerellaVideoDecoder::isWarmedUp() const
 {
-	return (bufferSize() >= readAheadTime()) || m_decoderEOF;
+	return (bufferSize() >= readAheadTime()) || m_decoderEOF || m_ismjpeg;
 }
 
 bool AcinerellaVideoDecoder::isPlaying() const
@@ -187,6 +188,12 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	// caled under locks!
 		showFirstFrame(false);
 	}
+ 
+    if (m_ismjpeg)
+    {
+        m_decoderEOF = true;
+        m_bufferedSeconds = 30;
+    }
 }
 
 void AcinerellaVideoDecoder::flush()
@@ -339,6 +346,8 @@ void AcinerellaVideoDecoder::showFirstFrame(bool locks)
 			didShowFrame = true;
 		}
 	}
+
+    DFRAME(dprintf("\033[35m[VD]%s: dishow %d\033[0m\n", __func__, didShowFrame));
 
 	if (didShowFrame)
 	{

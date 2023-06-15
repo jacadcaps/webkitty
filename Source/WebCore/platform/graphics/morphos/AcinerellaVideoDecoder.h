@@ -103,6 +103,7 @@ protected:
 	bool            m_canDropKeyFrames = false;
 	bool            m_didShowFirstFrame = false;
 	bool            m_frameSizeTransition = false;
+    bool            m_ismjpeg = false;
 	
 	int             m_paintX, m_paintY, m_paintX2 = 0, m_paintY2;
 	int             m_outerX, m_outerY, m_outerX2 = 0, m_outerY2;
