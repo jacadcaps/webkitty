@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "WebProcessProxy.h"
 #include <WebCore/RegistrableDomain.h>
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
@@ -35,7 +36,6 @@
 namespace WebKit {
 
 class WebProcessPool;
-class WebProcessProxy;
 class WebsiteDataStore;
 
 class WebProcessCache {
@@ -44,7 +44,7 @@ public:
     explicit WebProcessCache(WebProcessPool&);
 
     bool addProcessIfPossible(Ref<WebProcessProxy>&&);
-    RefPtr<WebProcessProxy> takeProcess(const WebCore::RegistrableDomain&, WebsiteDataStore&);
+    RefPtr<WebProcessProxy> takeProcess(const WebCore::RegistrableDomain&, WebsiteDataStore&, WebProcessProxy::LockdownMode);
 
     void updateCapacity(WebProcessPool&);
     unsigned capacity() const { return m_capacity; }
@@ -58,6 +58,7 @@ public:
 
     enum class ShouldShutDownProcess { No, Yes };
     void removeProcess(WebProcessProxy&, ShouldShutDownProcess);
+    static void setCachedProcessSuspensionDelayForTesting(Seconds);
 
 private:
     static Seconds cachedProcessLifetime;
@@ -71,12 +72,23 @@ private:
 
         Ref<WebProcessProxy> takeProcess();
         WebProcessProxy& process() { ASSERT(m_process); return *m_process; }
+        void startSuspensionTimer();
+
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+        bool isSuspended() const { return !m_suspensionTimer.isActive(); }
+#endif
 
     private:
         void evictionTimerFired();
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+        void suspensionTimerFired();
+#endif
 
         RefPtr<WebProcessProxy> m_process;
-        RunLoop::Timer<CachedProcess> m_evictionTimer;
+        RunLoop::Timer m_evictionTimer;
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+        RunLoop::Timer m_suspensionTimer;
+#endif
     };
 
     bool canCacheProcess(WebProcessProxy&) const;
@@ -87,7 +99,7 @@ private:
 
     HashMap<uint64_t, std::unique_ptr<CachedProcess>> m_pendingAddRequests;
     HashMap<WebCore::RegistrableDomain, std::unique_ptr<CachedProcess>> m_processesPerRegistrableDomain;
-    RunLoop::Timer<WebProcessCache> m_evictionTimer;
+    RunLoop::Timer m_evictionTimer;
 };
 
 } // namespace WebKit

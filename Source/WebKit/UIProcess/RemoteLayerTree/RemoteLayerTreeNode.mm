@@ -26,6 +26,7 @@
 #import "config.h"
 #import "RemoteLayerTreeNode.h"
 
+#import "RemoteLayerTreeLayers.h"
 #import <QuartzCore/CALayer.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
 
@@ -33,22 +34,13 @@
 #import <UIKit/UIView.h>
 #endif
 
-@interface WKPlainRemoteLayer : CALayer
-@end
-
-@implementation WKPlainRemoteLayer
-- (NSString *)description
-{
-    return WebKit::RemoteLayerTreeNode::appendLayerDescription(super.description, self);
-}
-@end
-
 namespace WebKit {
 
 static NSString *const WKRemoteLayerTreeNodePropertyKey = @"WKRemoteLayerTreeNode";
 
-RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, RetainPtr<CALayer> layer)
+RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<CALayer> layer)
     : m_layerID(layerID)
+    , m_remoteContextHostingIdentifier(hostIdentifier)
     , m_layer(WTFMove(layer))
 {
     initializeLayer();
@@ -56,8 +48,9 @@ RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID
 }
 
 #if PLATFORM(IOS_FAMILY)
-RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, RetainPtr<UIView> uiView)
+RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<UIView> uiView)
     : m_layerID(layerID)
+    , m_remoteContextHostingIdentifier(hostIdentifier)
     , m_layer([uiView.get() layer])
     , m_uiView(WTFMove(uiView))
 {
@@ -72,8 +65,8 @@ RemoteLayerTreeNode::~RemoteLayerTreeNode()
 
 std::unique_ptr<RemoteLayerTreeNode> RemoteLayerTreeNode::createWithPlainLayer(WebCore::GraphicsLayer::PlatformLayerID layerID)
 {
-    RetainPtr<CALayer> layer = adoptNS([[WKPlainRemoteLayer alloc] init]);
-    return makeUnique<RemoteLayerTreeNode>(layerID, WTFMove(layer));
+    RetainPtr<CALayer> layer = adoptNS([[WKCompositingLayer alloc] init]);
+    return makeUnique<RemoteLayerTreeNode>(layerID, std::nullopt, WTFMove(layer));
 }
 
 void RemoteLayerTreeNode::detachFromParent()
@@ -83,6 +76,9 @@ void RemoteLayerTreeNode::detachFromParent()
         [view removeFromSuperview];
         return;
     }
+#endif
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    [interactionRegionsLayer() removeFromSuperlayer];
 #endif
     [layer() removeFromSuperlayer];
 }
@@ -95,12 +91,16 @@ void RemoteLayerTreeNode::setEventRegion(const WebCore::EventRegion& eventRegion
 void RemoteLayerTreeNode::initializeLayer()
 {
     [layer() setValue:[NSValue valueWithPointer:this] forKey:WKRemoteLayerTreeNodePropertyKey];
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    m_interactionRegionsLayer = adoptNS([[CALayer alloc] init]);
+    [m_interactionRegionsLayer setName:@"InteractionRegions Container"];
+#endif
 }
 
 WebCore::GraphicsLayer::PlatformLayerID RemoteLayerTreeNode::layerID(CALayer *layer)
 {
     auto* node = forCALayer(layer);
-    return node ? node->layerID() : 0;
+    return node ? node->layerID() : WebCore::GraphicsLayer::PlatformLayerID { };
 }
 
 RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
@@ -110,7 +110,7 @@ RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
 
 NSString *RemoteLayerTreeNode::appendLayerDescription(NSString *description, CALayer *layer)
 {
-    NSString *layerDescription = [NSString stringWithFormat:@" layerID = %llu \"%@\"", WebKit::RemoteLayerTreeNode::layerID(layer), layer.name ? layer.name : @""];
+    NSString *layerDescription = [NSString stringWithFormat:@" layerID = %llu \"%@\"", WebKit::RemoteLayerTreeNode::layerID(layer).object().toUInt64(), layer.name ? layer.name : @""];
     return [description stringByAppendingString:layerDescription];
 }
 

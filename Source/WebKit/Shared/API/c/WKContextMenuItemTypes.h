@@ -117,12 +117,21 @@ enum {
     kWKContextMenuItemTagMediaPlayPause,
     kWKContextMenuItemTagMediaMute,
     kWKContextMenuItemTagDictationAlternative,
+    kWKContextMenuItemTagPlayAllAnimations,
+    kWKContextMenuItemTagPauseAllAnimations,
+    kWKContextMenuItemTagPlayAnimation,
+    kWKContextMenuItemTagPauseAnimation,
     kWKContextMenuItemTagCopyImageUrlToClipboard,
     kWKContextMenuItemTagSelectAll,
     kWKContextMenuItemTagOpenLinkInThisWindow,
     kWKContextMenuItemTagToggleVideoFullscreen,
     kWKContextMenuItemTagShareMenu,
     kWKContextMenuItemTagToggleVideoEnhancedFullscreen,
+    kWKContextMenuItemTagAddHighlightToCurrentQuickNote,
+    kWKContextMenuItemTagAddHighlightToNewQuickNote,
+    kWKContextMenuItemTagRevealImage,
+    kWKContextMenuItemTagTranslate,
+    kWKContextMenuItemTagCopyCroppedImage,
     kWKContextMenuItemBaseApplicationTag = 10000
 };
 typedef uint32_t WKContextMenuItemTag;

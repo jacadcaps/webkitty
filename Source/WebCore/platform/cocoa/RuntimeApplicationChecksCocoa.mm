@@ -65,6 +65,7 @@ String applicationBundleIdentifier()
     ASSERT(identifier.isNull() || RunLoop::isMain());
     if (identifier.isNull())
         identifier = bundleIdentifier();
+    ASSERT_WITH_MESSAGE(!isInAuxiliaryProcess() || !!identifier, "applicationBundleIsEqualTo() and applicationBundleStartsWith() must not be called before setApplicationBundleIdentifier() in auxiliary processes");
     return identifier.isNull() ? String([[NSBundle mainBundle] bundleIdentifier]) : identifier;
 }
 
@@ -77,7 +78,7 @@ void setApplicationBundleIdentifier(const String& identifier)
 void setApplicationBundleIdentifierOverride(const String& identifier)
 {
     ASSERT(RunLoop::isMain());
-    ASSERT_WITH_MESSAGE(!applicationBundleIdentifierOverrideWasQueried, "applicationBundleIsEqualTo() and applicationBundleStartsWith() should not be called before setApplicationBundleIdentifier()");
+    ASSERT_WITH_MESSAGE(!applicationBundleIdentifierOverrideWasQueried, "applicationBundleIsEqualTo() and applicationBundleStartsWith() must not be called before setApplicationBundleIdentifierOverride()");
     bundleIdentifierOverride() = identifier;
 }
 
@@ -90,21 +91,37 @@ void clearApplicationBundleIdentifierTestingOverride()
 #endif
 }
 
-bool isInWebProcess()
+static String& presentingApplicationBundleIdentifierStorage()
 {
-    static bool mainBundleIsWebProcess = [[[NSBundle mainBundle] bundleIdentifier] hasPrefix:@"com.apple.WebKit.WebContent"];
-    return mainBundleIsWebProcess;
+    static MainThreadNeverDestroyed<String> identifier;
+    return identifier;
 }
 
-bool isInNetworkProcess()
+void setPresentingApplicationBundleIdentifier(const String& identifier)
 {
-    static bool mainBundleIsNetworkProcess = [[[NSBundle mainBundle] bundleIdentifier] hasPrefix:@"com.apple.WebKit.Networking"];
-    return mainBundleIsNetworkProcess;
+    presentingApplicationBundleIdentifierStorage() = identifier;
+}
+
+const String& presentingApplicationBundleIdentifier()
+{
+    return presentingApplicationBundleIdentifierStorage();
 }
 
 static bool applicationBundleIsEqualTo(const String& bundleIdentifierString)
 {
     return applicationBundleIdentifier() == bundleIdentifierString;
+}
+
+bool CocoaApplication::isIBooks()
+{
+    static bool isIBooks = applicationBundleIsEqualTo("com.apple.iBooksX"_s) || applicationBundleIsEqualTo("com.apple.iBooks"_s);
+    return isIBooks;
+}
+
+bool CocoaApplication::isWebkitTestRunner()
+{
+    static bool isWebkitTestRunner = applicationBundleIsEqualTo("com.apple.WebKit.WebKitTestRunner"_s);
+    return isWebkitTestRunner;
 }
 
 #if PLATFORM(MAC)
@@ -113,7 +130,7 @@ bool MacApplication::isSafari()
 {
     static bool isSafari = applicationBundleIsEqualTo("com.apple.Safari"_s)
         || applicationBundleIsEqualTo("com.apple.SafariTechnologyPreview"_s)
-        || applicationBundleIdentifier().startsWith("com.apple.Safari.");
+        || applicationBundleIdentifier().startsWith("com.apple.Safari."_s);
     return isSafari;
 }
 
@@ -121,18 +138,6 @@ bool MacApplication::isAppleMail()
 {
     static bool isAppleMail = applicationBundleIsEqualTo("com.apple.mail"_s);
     return isAppleMail;
-}
-
-bool MacApplication::isIBooks()
-{
-    static bool isIBooks = applicationBundleIsEqualTo("com.apple.iBooksX"_s);
-    return isIBooks;
-}
-
-bool MacApplication::isITunes()
-{
-    static bool isITunes = applicationBundleIsEqualTo("com.apple.iTunes"_s);
-    return isITunes;
 }
 
 bool MacApplication::isMicrosoftMessenger()
@@ -145,12 +150,6 @@ bool MacApplication::isAdobeInstaller()
 {
     static bool isAdobeInstaller = applicationBundleIsEqualTo("com.adobe.Installers.Setup"_s);
     return isAdobeInstaller;
-}
-
-bool MacApplication::isAOLInstantMessenger()
-{
-    static bool isAOLInstantMessenger = applicationBundleIsEqualTo("com.aol.aim.desktop"_s);
-    return isAOLInstantMessenger;
 }
 
 bool MacApplication::isMicrosoftMyDay()
@@ -175,12 +174,6 @@ bool MacApplication::isQuickenEssentials()
 {
     static bool isQuickenEssentials = applicationBundleIsEqualTo("com.intuit.QuickenEssentials"_s);
     return isQuickenEssentials;
-}
-
-bool MacApplication::isAperture()
-{
-    static bool isAperture = applicationBundleIsEqualTo("com.apple.Aperture"_s);
-    return isAperture;
 }
 
 bool MacApplication::isVersions()
@@ -284,10 +277,10 @@ bool IOSApplication::isWebProcess()
     return isInWebProcess();
 }
 
-bool IOSApplication::isIBooks()
+bool IOSApplication::isBackboneApp()
 {
-    static bool isIBooks = applicationBundleIsEqualTo("com.apple.iBooks"_s);
-    return isIBooks;
+    static bool isBackboneApp = applicationBundleIsEqualTo("com.backbonelabs.backboneapp"_s);
+    return isBackboneApp;
 }
 
 bool IOSApplication::isIBooksStorytime()
@@ -402,6 +395,60 @@ bool IOSApplication::isDoubleDown()
 {
     static bool isDoubleDown = applicationBundleIsEqualTo("com.doubledowninteractive.DDCasino"_s);
     return isDoubleDown;
+}
+
+bool IOSApplication::isFIFACompanion()
+{
+    static bool isFIFACompanion = applicationBundleIsEqualTo("com.ea.ios.fifaultimate"_s);
+    return isFIFACompanion;
+}
+
+bool IOSApplication::isNoggin()
+{
+    static bool isNoggin = applicationBundleIsEqualTo("com.mtvn.noggin"_s);
+    return isNoggin;
+}
+
+bool IOSApplication::isOKCupid()
+{
+    static bool isOKCupid = applicationBundleIsEqualTo("com.okcupid.app"_s);
+    return isOKCupid;
+}
+
+bool IOSApplication::isJWLibrary()
+{
+    static bool isJWLibrary = applicationBundleIsEqualTo("org.jw.jwlibrary"_s);
+    return isJWLibrary;
+}
+
+bool IOSApplication::isPaperIO()
+{
+    static bool isPaperIO = applicationBundleIsEqualTo("io.voodoo.paperio"_s);
+    return isPaperIO;
+}
+
+bool IOSApplication::isCrunchyroll()
+{
+    static bool isCrunchyroll = applicationBundleIsEqualTo("com.crunchyroll.iphone"_s);
+    return isCrunchyroll;
+}
+
+bool IOSApplication::isWechat()
+{
+    static bool isWechat = applicationBundleIsEqualTo("com.tencent.xin"_s);
+    return isWechat;
+}
+
+bool IOSApplication::isUNIQLOApp()
+{
+    static bool isUNIQLO = applicationBundleIdentifier().startsWith("com.uniqlo"_s);
+    return isUNIQLO;
+}
+
+bool IOSApplication::isLutron()
+{
+    static bool isLutronApp = applicationBundleIsEqualTo("com.lutron.lsb"_s);
+    return isLutronApp;
 }
 
 #endif

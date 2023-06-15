@@ -30,10 +30,9 @@
 
 #import "WebKitLogging.h"
 #import "WebKitNSStringExtras.h"
-#import "WebNetscapePluginPackage.h"
 #import "WebPluginPackage.h"
-#import "WebTypesInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <algorithm>
 #import <mach-o/arch.h>
 #import <mach-o/fat.h>
@@ -44,11 +43,10 @@
 #import <wtf/Vector.h>
 #import <wtf/text/CString.h>
 
-#define JavaCocoaPluginIdentifier   "com.apple.JavaPluginCocoa"
-#define JavaCarbonPluginIdentifier  "com.apple.JavaAppletPlugin"
+static constexpr auto JavaCocoaPluginIdentifier ="com.apple.JavaPluginCocoa"_s;
+static constexpr auto JavaCarbonPluginIdentifier = "com.apple.JavaAppletPlugin"_s;
 
-#define QuickTimeCarbonPluginIdentifier       "com.apple.QuickTime Plugin.plugin"
-#define QuickTimeCocoaPluginIdentifier        "com.apple.quicktime.webplugin"
+static constexpr auto QuickTimeCocoaPluginIdentifier = "com.apple.quicktime.webplugin"_s;
 
 @interface NSArray (WebPluginExtensions)
 - (NSArray *)_web_lowercaseStrings;
@@ -61,23 +59,13 @@
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
 + (WebBasePluginPackage *)pluginWithPath:(NSString *)pluginPath
 {
-    
-    WebBasePluginPackage *pluginPackage = [[WebPluginPackage alloc] initWithPath:pluginPath];
-
-    if (!pluginPackage) {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        pluginPackage = [[WebNetscapePluginPackage alloc] initWithPath:pluginPath];
-#else
-        return nil;
-#endif
-    }
-
-    return [pluginPackage autorelease];
+    return adoptNS([[WebPluginPackage alloc] initWithPath:pluginPath]).autorelease();
 }
 
 - (id)initWithPath:(NSString *)pluginPath
@@ -162,7 +150,7 @@
                 mimeClassInfo.extensions.append(component);
         }
 
-        mimeClassInfo.type = String(MIME).convertToASCIILowercase();
+        mimeClassInfo.type = AtomString { String(MIME).convertToASCIILowercase() };
         mimeClassInfo.desc = [MIMEDictionary objectForKey:WebPluginTypeDescriptionKey];
 
         pluginInfo.mimes.append(mimeClassInfo);
@@ -256,7 +244,7 @@
 - (BOOL)isQuickTimePlugIn
 {
     const String& bundleIdentifier = [self bundleIdentifier];
-    return bundleIdentifier == QuickTimeCocoaPluginIdentifier || bundleIdentifier == QuickTimeCocoaPluginIdentifier;
+    return bundleIdentifier == QuickTimeCocoaPluginIdentifier;
 }
 
 - (BOOL)isJavaPlugIn
@@ -317,7 +305,7 @@ static inline void swapIntsInHeader(uint32_t* rawData, size_t length)
             if (magic == FAT_CIGAM)
                 swapIntsInHeader(rawData.data(), rawData.size());
             
-            COMPILE_ASSERT(sizeof(struct fat_header) % sizeof(uint32_t) == 0, struct_fat_header_must_be_integral_size_of_uint32_t);
+            static_assert(sizeof(struct fat_header) % sizeof(uint32_t) == 0, "struct fat header must be integral size of uint32_t");
             archs = reinterpret_cast<struct fat_arch*>(rawData.data() + sizeof(struct fat_header) / sizeof(uint32_t));
             numArchs = reinterpret_cast<struct fat_header*>(rawData.data())->nfat_arch;
             
@@ -330,7 +318,9 @@ static inline void swapIntsInHeader(uint32_t* rawData, size_t length)
     if (!archs || !numArchs)
         return NO;
     
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     const NXArchInfo* localArch = NXGetLocalArchInfo();
+ALLOW_DEPRECATED_DECLARATIONS_END
     if (!localArch)
         return NO;
     
@@ -343,7 +333,9 @@ static inline void swapIntsInHeader(uint32_t* rawData, size_t length)
     cputype = CPU_TYPE_X86_64;
 #endif
     
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     return NXFindBestFatArch(cputype, cpusubtype, archs, numArchs) != 0;
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 - (UInt32)versionNumber
@@ -376,15 +368,11 @@ static inline void swapIntsInHeader(uint32_t* rawData, size_t length)
 
 - (String)bundleVersion
 {
-    CFDictionaryRef infoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
+    auto infoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
     if (!infoDictionary)
         return String();
 
-    CFTypeRef bundleVersionString = CFDictionaryGetValue(infoDictionary, kCFBundleVersionKey);
-    if (!bundleVersionString || CFGetTypeID(bundleVersionString) != CFStringGetTypeID())
-        return String();
-
-    return reinterpret_cast<CFStringRef>(bundleVersionString);
+    return dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(infoDictionary, kCFBundleVersionKey));
 }
 
 @end

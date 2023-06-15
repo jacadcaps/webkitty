@@ -25,27 +25,34 @@
 
 #pragma once
 
-#include "AccessibilityUIElement.h"
 #include "JSWrappable.h"
 #include <JavaScriptCore/JSObjectRef.h>
+#include <JavaScriptCore/JSRetainPtr.h>
 #include <wtf/Condition.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Platform.h>
-#include <wtf/Threading.h>
-#include <wtf/threads/BinarySemaphore.h>
-
-#if USE(ATK)
-#include "AccessibilityNotificationHandlerAtk.h"
+#if PLATFORM(COCOA)
+#include <wtf/RetainPtr.h>
 #endif
+#include <wtf/RunLoop.h>
+#include <wtf/Threading.h>
 
 namespace WTR {
-    
+
+class AccessibilityUIElement;
+#if USE(ATSPI)
+class AccessibilityNotificationHandler;
+#endif
+
 class AccessibilityController : public JSWrappable {
 public:
     static Ref<AccessibilityController> create();
     ~AccessibilityController();
 
-    void makeWindowObject(JSContextRef, JSObjectRef windowObject, JSValueRef* exception);
+    void setRetainedElement(AccessibilityUIElement*);
+    AccessibilityUIElement* retainedElement() { return m_retainedElement.get(); }
+
+    void makeWindowObject(JSContextRef);
     virtual JSClassRef wrapperClass();
     
     // Enhanced accessibility.
@@ -57,9 +64,9 @@ public:
     JSRetainPtr<JSStringRef> platformName();
 
     // Controller Methods - platform-independent implementations.
-#if HAVE(ACCESSIBILITY)
+#if ENABLE(ACCESSIBILITY)
     Ref<AccessibilityUIElement> rootElement();
-    Ref<AccessibilityUIElement> focusedElement();
+    RefPtr<AccessibilityUIElement> focusedElement();
 #endif
     RefPtr<AccessibilityUIElement> elementAtPoint(int x, int y);
     RefPtr<AccessibilityUIElement> accessibleElementById(JSStringRef idAttribute);
@@ -72,6 +79,7 @@ public:
 
     bool addNotificationListener(JSValueRef functionCallback);
     bool removeNotificationListener();
+    void injectAccessibilityPreference(JSStringRef domain, JSStringRef key, JSStringRef value);
 
     // Here for consistency with DRT. Not implemented because they don't do anything on the Mac.
     void logFocusEvents() { }
@@ -81,7 +89,7 @@ public:
 
     void resetToConsistentState();
 
-#if !HAVE(ACCESSIBILITY) && (PLATFORM(GTK) || PLATFORM(WPE))
+#if !ENABLE(ACCESSIBILITY) && (PLATFORM(GTK) || PLATFORM(WPE))
     RefPtr<AccessibilityUIElement> rootElement() { return nullptr; }
     RefPtr<AccessibilityUIElement> focusedElement() { return nullptr; }
 #endif
@@ -91,20 +99,24 @@ private:
 
 #if PLATFORM(COCOA)
     RetainPtr<id> m_globalNotificationHandler;
-#elif USE(ATK)
-    RefPtr<AccessibilityNotificationHandler> m_globalNotificationHandler;
+#elif USE(ATSPI)
+    std::unique_ptr<AccessibilityNotificationHandler> m_globalNotificationHandler;
 #endif
+
+    RefPtr<AccessibilityUIElement> m_retainedElement;
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     void updateIsolatedTreeMode();
-    
+
+#if PLATFORM(COCOA)
+    void spinMainRunLoop() const;
     // _AXUIElementUseSecondaryAXThread and _AXUIElementRequestServicedBySecondaryAXThread
     // do not work for WebKitTestRunner since this is calling directly into
     // WebCore/accessibility via JavaScript without going through HIServices.
     // Thus to simulate the behavior of HIServices, AccessibilityController is spawning a secondary thread to service the JavaScript requests.
     bool m_useMockAXThread { false };
+#endif
     bool m_accessibilityIsolatedTreeMode { false };
-    BinarySemaphore m_semaphore;
 #endif
 };
 

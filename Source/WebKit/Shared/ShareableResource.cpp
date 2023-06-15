@@ -30,13 +30,12 @@
 
 #include "ArgumentCoders.h"
 #include <WebCore/SharedBuffer.h>
+#include <wtf/CheckedArithmetic.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-ShareableResource::Handle::Handle()
-{
-}
+ShareableResource::Handle::Handle() = default;
 
 void ShareableResource::Handle::encode(IPC::Encoder& encoder) const
 {
@@ -47,52 +46,28 @@ void ShareableResource::Handle::encode(IPC::Encoder& encoder) const
 
 bool ShareableResource::Handle::decode(IPC::Decoder& decoder, Handle& handle)
 {
-    if (!decoder.decode(handle.m_handle))
+    SharedMemory::Handle memoryHandle;
+    if (UNLIKELY(!decoder.decode(memoryHandle)))
         return false;
-    if (!decoder.decode(handle.m_offset))
+    if (UNLIKELY(!decoder.decode(handle.m_offset)))
         return false;
-    if (!decoder.decode(handle.m_size))
+    if (UNLIKELY(!decoder.decode(handle.m_size)))
         return false;
+    auto neededSize = Checked<unsigned> { handle.m_offset } + handle.m_size;
+    if (UNLIKELY(neededSize.hasOverflowed()))
+        return false;
+    if (memoryHandle.size() < neededSize)
+        return false;
+    handle.m_handle = WTFMove(memoryHandle);
     return true;
 }
 
-#if USE(CF)
-static void shareableResourceDeallocate(void *ptr, void *info)
-{
-    static_cast<ShareableResource*>(info)->deref(); // Balanced by ref() in createShareableResourceDeallocator()
-}
-    
-static CFAllocatorRef createShareableResourceDeallocator(ShareableResource* resource)
-{
-    CFAllocatorContext context = { 0,
-        resource,
-        NULL, // retain
-        NULL, // release
-        NULL, // copyDescription
-        NULL, // allocate
-        NULL, // reallocate
-        shareableResourceDeallocate,
-        NULL, // preferredSize
-    };
-
-    return CFAllocatorCreate(kCFAllocatorDefault, &context);
-}
-#endif
-
 RefPtr<SharedBuffer> ShareableResource::wrapInSharedBuffer()
 {
-    ref(); // Balanced by deref when SharedBuffer is deallocated.
-
-#if USE(CF)
-    RetainPtr<CFAllocatorRef> deallocator = adoptCF(createShareableResourceDeallocator(this));
-    RetainPtr<CFDataRef> cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(data()), static_cast<CFIndex>(size()), deallocator.get()));
-    return SharedBuffer::create(cfData.get());
-#elif USE(SOUP)
-    return SharedBuffer::wrapSoupBuffer(soup_buffer_new_with_owner(data(), size(), this, [](void* data) { static_cast<ShareableResource*>(data)->deref(); }));
-#else
-    ASSERT_NOT_REACHED();
-    return nullptr;
-#endif
+    return SharedBuffer::create(DataSegment::Provider {
+        [self = Ref { *this }]() { return self->data(); },
+        [self = Ref { *this }]() { return self->size(); }
+    });
 }
 
 RefPtr<SharedBuffer> ShareableResource::Handle::tryWrapInSharedBuffer() const
@@ -113,7 +88,7 @@ RefPtr<ShareableResource> ShareableResource::create(Ref<SharedMemory>&& sharedMe
         LOG_ERROR("Failed to create ShareableResource from SharedMemory due to overflow.");
         return nullptr;
     }
-    if (totalSize.unsafeGet() > sharedMemory->size()) {
+    if (totalSize > sharedMemory->size()) {
         LOG_ERROR("Failed to create ShareableResource from SharedMemory due to mismatched buffer size.");
         return nullptr;
     }
@@ -136,31 +111,31 @@ ShareableResource::ShareableResource(Ref<SharedMemory>&& sharedMemory, unsigned 
 {
 }
 
-ShareableResource::~ShareableResource()
-{
-}
+ShareableResource::~ShareableResource() = default;
 
-bool ShareableResource::createHandle(Handle& handle)
+auto ShareableResource::createHandle() -> std::optional<Handle>
 {
-    if (!m_sharedMemory->createHandle(handle.m_handle, SharedMemory::Protection::ReadOnly))
-        return false;
+    auto memoryHandle = m_sharedMemory->createHandle(SharedMemory::Protection::ReadOnly);
+    if (!memoryHandle)
+        return std::nullopt;
 
+    Handle handle;
+    handle.m_handle = WTFMove(*memoryHandle);
     handle.m_offset = m_offset;
     handle.m_size = m_size;
-
-    return true;
+    return { WTFMove(handle) };
 }
 
-const char* ShareableResource::data() const
+const uint8_t* ShareableResource::data() const
 {
-    return static_cast<const char*>(m_sharedMemory->data()) + m_offset;
+    return static_cast<const uint8_t*>(m_sharedMemory->data()) + m_offset;
 }
 
 unsigned ShareableResource::size() const
 {
     return m_size;
 }
-    
+
 } // namespace WebKit
 
 #endif // ENABLE(SHAREABLE_RESOURCE)

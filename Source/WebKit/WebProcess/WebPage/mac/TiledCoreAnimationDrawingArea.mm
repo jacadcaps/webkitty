@@ -28,8 +28,9 @@
 
 #if PLATFORM(MAC)
 
-#import "ColorSpaceData.h"
+#import "DisplayRefreshMonitorMac.h"
 #import "DrawingAreaProxyMessages.h"
+#import "EventDispatcher.h"
 #import "LayerHostingContext.h"
 #import "LayerTreeContext.h"
 #import "Logging.h"
@@ -38,19 +39,19 @@
 #import "WebPage.h"
 #import "WebPageCreationParameters.h"
 #import "WebPageProxyMessages.h"
+#import "WebPreferencesKeys.h"
+#import "WebPreferencesStore.h"
 #import "WebProcess.h"
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/DebugPageOverlays.h>
+#import <WebCore/DestinationColorSpace.h>
 #import <WebCore/Frame.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/GraphicsLayerCA.h>
-#import <WebCore/InspectorController.h>
 #import <WebCore/Page.h>
 #import <WebCore/PlatformCAAnimationCocoa.h>
-#import <WebCore/RenderLayerBacking.h>
-#import <WebCore/RenderLayerCompositor.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/RunLoopObserver.h>
 #import <WebCore/ScrollbarTheme.h>
@@ -72,8 +73,7 @@ namespace WebKit {
 using namespace WebCore;
 
 TiledCoreAnimationDrawingArea::TiledCoreAnimationDrawingArea(WebPage& webPage, const WebPageCreationParameters& parameters)
-    : DrawingArea(DrawingAreaTypeTiledCoreAnimation, parameters.drawingAreaIdentifier, webPage)
-    , m_sendDidUpdateActivityStateTimer(RunLoop::main(), this, &TiledCoreAnimationDrawingArea::didUpdateActivityStateTimerFired)
+    : DrawingArea(DrawingAreaType::TiledCoreAnimation, parameters.drawingAreaIdentifier, webPage)
     , m_isPaintingSuspended(!(parameters.activityState & ActivityState::IsVisible))
 {
     m_webPage.corePage()->settings().setForceCompositingMode(true);
@@ -84,11 +84,16 @@ TiledCoreAnimationDrawingArea::TiledCoreAnimationDrawingArea(WebPage& webPage, c
     [m_hostingLayer setOpaque:YES];
     [m_hostingLayer setGeometryFlipped:YES];
 
-    m_renderUpdateRunLoopObserver = makeUnique<RunLoopObserver>(static_cast<CFIndex>(RunLoopObserver::WellKnownRunLoopOrders::LayerFlush), [this]() {
-        this->updateRenderingRunLoopCallback();
+    m_renderingUpdateRunLoopObserver = makeUnique<RunLoopObserver>(static_cast<CFIndex>(RunLoopObserver::WellKnownRunLoopOrders::RenderingUpdate), [this]() {
+        this->renderingUpdateRunLoopCallback();
+    });
+
+    m_postRenderingUpdateRunLoopObserver = makeUnique<RunLoopObserver>(static_cast<CFIndex>(RunLoopObserver::WellKnownRunLoopOrders::PostRenderingUpdate), [this]() {
+        this->postRenderingUpdateRunLoopCallback();
     });
 
     updateLayerHostingContext();
+    
     setColorSpace(parameters.colorSpace);
 
     if (auto viewExposedRect = parameters.viewExposedRect)
@@ -101,6 +106,9 @@ TiledCoreAnimationDrawingArea::TiledCoreAnimationDrawingArea(WebPage& webPage, c
 TiledCoreAnimationDrawingArea::~TiledCoreAnimationDrawingArea()
 {
     invalidateRenderingUpdateRunLoopObserver();
+    invalidatePostRenderingUpdateRunLoopObserver();
+    for (auto& callback : m_nextActivityStateChangeCallbacks)
+        callback();
 }
 
 void TiledCoreAnimationDrawingArea::sendDidFirstLayerFlushIfNeeded()
@@ -113,8 +121,8 @@ void TiledCoreAnimationDrawingArea::sendDidFirstLayerFlushIfNeeded()
     m_needsSendDidFirstLayerFlush = false;
 
     // Let the first commit complete before sending.
-    [CATransaction addCommitHandler:[this, weakThis = makeWeakPtr(*this)] {
-        if (!weakThis)
+    [CATransaction addCommitHandler:[this, weakThis = WeakPtr { *this }] {
+        if (!weakThis || !m_layerHostingContext)
             return;
         LayerTreeContext layerTreeContext;
         layerTreeContext.contextID = m_layerHostingContext->contextID();
@@ -131,6 +139,16 @@ void TiledCoreAnimationDrawingArea::sendEnterAcceleratedCompositingModeIfNeeded(
     LayerTreeContext layerTreeContext;
     layerTreeContext.contextID = m_layerHostingContext->contextID();
     send(Messages::DrawingAreaProxy::EnterAcceleratedCompositingMode(0, layerTreeContext));
+}
+
+void TiledCoreAnimationDrawingArea::registerScrollingTree()
+{
+    WebProcess::singleton().eventDispatcher().addScrollingTreeForPage(m_webPage);
+}
+
+void TiledCoreAnimationDrawingArea::unregisterScrollingTree()
+{
+    WebProcess::singleton().eventDispatcher().removeScrollingTreeForPage(m_webPage);
 }
 
 void TiledCoreAnimationDrawingArea::setNeedsDisplay()
@@ -159,29 +177,25 @@ void TiledCoreAnimationDrawingArea::forceRepaint()
     if (m_layerTreeStateIsFrozen)
         return;
 
-    for (Frame* frame = &m_webPage.corePage()->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        FrameView* frameView = frame->view();
-        if (!frameView || !frameView->tiledBacking())
-            continue;
-
-        frameView->tiledBacking()->forceRepaint();
-    }
-
+    m_webPage.corePage()->forceRepaintAllFrames();
     updateRendering();
     [CATransaction flush];
     [CATransaction synchronize];
 }
 
-bool TiledCoreAnimationDrawingArea::forceRepaintAsync(CallbackID callbackID)
+void TiledCoreAnimationDrawingArea::forceRepaintAsync(WebPage& page, CompletionHandler<void()>&& completionHandler)
 {
-    if (m_layerTreeStateIsFrozen)
-        return false;
+    if (m_layerTreeStateIsFrozen) {
+        page.forceRepaintWithoutCallback();
+        return completionHandler();
+    }
 
-    dispatchAfterEnsuringUpdatedScrollPosition([this, callbackID] {
+    dispatchAfterEnsuringUpdatedScrollPosition([this, weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)] () mutable {
+        if (!weakThis)
+            return completionHandler();
         m_webPage.drawingArea()->forceRepaint();
-        m_webPage.send(Messages::WebPageProxy::VoidCallback(callbackID));
+        completionHandler();
     });
-    return true;
 }
 
 void TiledCoreAnimationDrawingArea::setLayerTreeStateIsFrozen(bool layerTreeStateIsFrozen)
@@ -195,6 +209,7 @@ void TiledCoreAnimationDrawingArea::setLayerTreeStateIsFrozen(bool layerTreeStat
 
     if (m_layerTreeStateIsFrozen) {
         invalidateRenderingUpdateRunLoopObserver();
+        invalidatePostRenderingUpdateRunLoopObserver();
     } else {
         // Immediate flush as any delay in unfreezing can result in flashes.
         scheduleRenderingUpdateRunLoopObserver();
@@ -206,32 +221,17 @@ bool TiledCoreAnimationDrawingArea::layerTreeStateIsFrozen() const
     return m_layerTreeStateIsFrozen;
 }
 
-void TiledCoreAnimationDrawingArea::scheduleRenderingUpdate()
+void TiledCoreAnimationDrawingArea::triggerRenderingUpdate()
 {
     if (m_layerTreeStateIsFrozen)
         return;
+
     scheduleRenderingUpdateRunLoopObserver();
 }
 
-void TiledCoreAnimationDrawingArea::scheduleImmediateRenderingUpdate()
-{
-    scheduleRenderingUpdateRunLoopObserver();
-}
-
-void TiledCoreAnimationDrawingArea::updatePreferences(const WebPreferencesStore&)
+void TiledCoreAnimationDrawingArea::updatePreferences(const WebPreferencesStore& store)
 {
     Settings& settings = m_webPage.corePage()->settings();
-
-#if ENABLE(ASYNC_SCROLLING)
-    if (AsyncScrollingCoordinator* scrollingCoordinator = downcast<AsyncScrollingCoordinator>(m_webPage.corePage()->scrollingCoordinator())) {
-        bool scrollingPerformanceLoggingEnabled = m_webPage.scrollingPerformanceLoggingEnabled();
-        
-        RefPtr<ScrollingTree> scrollingTree = scrollingCoordinator->scrollingTree();
-        ScrollingThread::dispatch([scrollingTree, scrollingPerformanceLoggingEnabled] {
-            scrollingTree->setScrollingPerformanceLoggingEnabled(scrollingPerformanceLoggingEnabled);
-        });
-    }
-#endif
 
     // Fixed position elements need to be composited and create stacking contexts
     // in order to be scrolled by the ScrollingCoordinator.
@@ -263,113 +263,11 @@ void TiledCoreAnimationDrawingArea::attachViewOverlayGraphicsLayer(GraphicsLayer
 {
     m_viewOverlayRootLayer = viewOverlayRootLayer;
     updateRootLayers();
-    scheduleRenderingUpdate();
+    triggerRenderingUpdate();
 }
 
 void TiledCoreAnimationDrawingArea::mainFrameContentSizeChanged(const IntSize& size)
 {
-}
-
-void TiledCoreAnimationDrawingArea::setShouldScaleViewToFitDocument(bool shouldScaleView)
-{
-    if (m_shouldScaleViewToFitDocument == shouldScaleView)
-        return;
-
-    m_shouldScaleViewToFitDocument = shouldScaleView;
-    scheduleRenderingUpdate();
-}
-
-void TiledCoreAnimationDrawingArea::scaleViewToFitDocumentIfNeeded()
-{
-    const int maximumDocumentWidthForScaling = 1440;
-    const float minimumViewScale = 0.1;
-
-    if (!m_shouldScaleViewToFitDocument)
-        return;
-
-    LOG(Resize, "TiledCoreAnimationDrawingArea %p scaleViewToFitDocumentIfNeeded", this);
-    m_webPage.layoutIfNeeded();
-
-    if (!m_webPage.mainFrameView() || !m_webPage.mainFrameView()->renderView())
-        return;
-
-    int viewWidth = m_webPage.size().width();
-    int documentWidth = m_webPage.mainFrameView()->renderView()->unscaledDocumentRect().width();
-
-    bool documentWidthChanged = m_lastDocumentSizeForScaleToFit.width() != documentWidth;
-    bool viewWidthChanged = m_lastViewSizeForScaleToFit.width() != viewWidth;
-
-    LOG(Resize, "  documentWidthChanged=%d, viewWidthChanged=%d", documentWidthChanged, viewWidthChanged);
-
-    if (!documentWidthChanged && !viewWidthChanged)
-        return;
-
-    // The view is now bigger than the document, so we'll re-evaluate whether we have to scale.
-    if (m_isScalingViewToFitDocument && viewWidth >= m_lastDocumentSizeForScaleToFit.width())
-        m_isScalingViewToFitDocument = false;
-
-    // Our current understanding of the document width is still up to date, and we're in scaling mode.
-    // Update the viewScale without doing an extra layout to re-determine the document width.
-    if (m_isScalingViewToFitDocument) {
-        if (!documentWidthChanged) {
-            m_lastViewSizeForScaleToFit = m_webPage.size();
-            float viewScale = (float)viewWidth / (float)m_lastDocumentSizeForScaleToFit.width();
-            if (viewScale < minimumViewScale) {
-                viewScale = minimumViewScale;
-                documentWidth = std::ceil(viewWidth / viewScale);
-            }
-            IntSize fixedLayoutSize(documentWidth, std::ceil((m_webPage.size().height() - m_webPage.corePage()->topContentInset()) / viewScale));
-            m_webPage.setFixedLayoutSize(fixedLayoutSize);
-            m_webPage.scaleView(viewScale);
-
-            LOG(Resize, "  using fixed layout at %dx%d. document width %d unchanged, scaled to %.4f to fit view width %d", fixedLayoutSize.width(), fixedLayoutSize.height(), documentWidth, viewScale, viewWidth);
-            return;
-        }
-    
-        IntSize fixedLayoutSize = m_webPage.fixedLayoutSize();
-        if (documentWidth > fixedLayoutSize.width()) {
-            LOG(Resize, "  page laid out wider than fixed layout width. Not attempting to re-scale");
-            return;
-        }
-    }
-
-    LOG(Resize, "  doing unconstrained layout");
-
-    // Lay out at the view size.
-    m_webPage.setUseFixedLayout(false);
-    m_webPage.layoutIfNeeded();
-
-    if (!m_webPage.mainFrameView() || !m_webPage.mainFrameView()->renderView())
-        return;
-
-    IntSize documentSize = m_webPage.mainFrameView()->renderView()->unscaledDocumentRect().size();
-    m_lastViewSizeForScaleToFit = m_webPage.size();
-    m_lastDocumentSizeForScaleToFit = documentSize;
-
-    documentWidth = documentSize.width();
-
-    float viewScale = 1;
-
-    LOG(Resize, "  unscaled document size %dx%d. need to scale down: %d", documentSize.width(), documentSize.height(), documentWidth && documentWidth < maximumDocumentWidthForScaling && viewWidth < documentWidth);
-
-    // Avoid scaling down documents that don't fit in a certain width, to allow
-    // sites that want horizontal scrollbars to continue to have them.
-    if (documentWidth && documentWidth < maximumDocumentWidthForScaling && viewWidth < documentWidth) {
-        // If the document doesn't fit in the view, scale it down but lay out at the view size.
-        m_isScalingViewToFitDocument = true;
-        m_webPage.setUseFixedLayout(true);
-        viewScale = (float)viewWidth / (float)documentWidth;
-        if (viewScale < minimumViewScale) {
-            viewScale = minimumViewScale;
-            documentWidth = std::ceil(viewWidth / viewScale);
-        }
-        IntSize fixedLayoutSize(documentWidth, std::ceil((m_webPage.size().height() - m_webPage.corePage()->topContentInset()) / viewScale));
-        m_webPage.setFixedLayoutSize(fixedLayoutSize);
-
-        LOG(Resize, "  using fixed layout at %dx%d. document width %d, scaled to %.4f to fit view width %d", fixedLayoutSize.width(), fixedLayoutSize.height(), documentWidth, viewScale, viewWidth);
-    }
-
-    m_webPage.scaleView(viewScale);
 }
 
 void TiledCoreAnimationDrawingArea::dispatchAfterEnsuringUpdatedScrollPosition(WTF::Function<void ()>&& function)
@@ -380,28 +278,22 @@ void TiledCoreAnimationDrawingArea::dispatchAfterEnsuringUpdatedScrollPosition(W
         return;
     }
 
-    m_webPage.ref();
     m_webPage.corePage()->scrollingCoordinator()->commitTreeStateIfNeeded();
 
-    if (!m_layerTreeStateIsFrozen)
+    if (!m_layerTreeStateIsFrozen) {
         invalidateRenderingUpdateRunLoopObserver();
+        invalidatePostRenderingUpdateRunLoopObserver();
+    }
 
-    // It is possible for the drawing area to be destroyed before the bound block
-    // is invoked, so grab a reference to the web page here so we can access the drawing area through it.
-    // (The web page is already kept alive by dispatchAfterEnsuringUpdatedScrollPosition).
-    WebPage* webPage = &m_webPage;
-
-    ScrollingThread::dispatchBarrier([this, webPage, function = WTFMove(function)] {
-        DrawingArea* drawingArea = webPage->drawingArea();
-        if (!drawingArea)
+    ScrollingThread::dispatchBarrier([this, retainedPage = Ref { m_webPage }, function = WTFMove(function)] {
+        // It is possible for the drawing area to be destroyed before the bound block is invoked.
+        if (!retainedPage->drawingArea())
             return;
 
         function();
 
         if (!m_layerTreeStateIsFrozen)
             scheduleRenderingUpdateRunLoopObserver();
-
-        webPage->deref();
     });
 #else
     function();
@@ -413,39 +305,41 @@ void TiledCoreAnimationDrawingArea::sendPendingNewlyReachedPaintingMilestones()
     if (!m_pendingNewlyReachedPaintingMilestones)
         return;
 
-    m_webPage.send(Messages::WebPageProxy::DidReachLayoutMilestone(m_pendingNewlyReachedPaintingMilestones));
-    m_pendingNewlyReachedPaintingMilestones = { };
+    m_webPage.send(Messages::WebPageProxy::DidReachLayoutMilestone(std::exchange(m_pendingNewlyReachedPaintingMilestones, { })));
 }
 
-void TiledCoreAnimationDrawingArea::addTransactionCallbackID(CallbackID callbackID)
+void TiledCoreAnimationDrawingArea::dispatchAfterEnsuringDrawing(IPC::AsyncReplyID callbackID)
 {
     m_pendingCallbackIDs.append(callbackID);
-    scheduleRenderingUpdate();
+    triggerRenderingUpdate();
+}
+
+void TiledCoreAnimationDrawingArea::didCompleteRenderingUpdateDisplay()
+{
+    m_haveRegisteredHandlersForNextCommit = false;
+
+    sendPendingNewlyReachedPaintingMilestones();
+    DrawingArea::didCompleteRenderingUpdateDisplay();
+    
+    schedulePostRenderingUpdateRunLoopObserver();
 }
 
 void TiledCoreAnimationDrawingArea::addCommitHandlers()
 {
-    if (m_webPage.firstFlushAfterCommit())
+    if (m_haveRegisteredHandlersForNextCommit)
         return;
 
-    [CATransaction addCommitHandler:[retainedPage = makeRefPtr(&m_webPage)] {
-        if (Page* corePage = retainedPage->corePage()) {
-            if (Frame* coreFrame = retainedPage->mainFrame())
-                corePage->inspectorController().willComposite(*coreFrame);
-        }
-    } forPhase:kCATransactionPhasePreCommit];
+    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage }] {
+        if (auto* drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
+            drawingArea->willStartRenderingUpdateDisplay();
+    } forPhase:kCATransactionPhasePreLayout];
 
-    [CATransaction addCommitHandler:[retainedPage = makeRefPtr(&m_webPage)] {
-        if (Page* corePage = retainedPage->corePage()) {
-            if (Frame* coreFrame = retainedPage->mainFrame())
-                corePage->inspectorController().didComposite(*coreFrame);
-        }
-        if (auto drawingArea = static_cast<TiledCoreAnimationDrawingArea*>(retainedPage->drawingArea()))
-            drawingArea->sendPendingNewlyReachedPaintingMilestones();
-        retainedPage->setFirstFlushAfterCommit(false);
+    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage }] {
+        if (auto* drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
+            drawingArea->didCompleteRenderingUpdateDisplay();
     } forPhase:kCATransactionPhasePostCommit];
     
-    m_webPage.setFirstFlushAfterCommit(true);
+    m_haveRegisteredHandlersForNextCommit = true;
 }
 
 void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushType)
@@ -457,6 +351,9 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         scaleViewToFitDocumentIfNeeded();
 
         m_webPage.updateRendering();
+        m_webPage.flushPendingThemeColorChange();
+        m_webPage.flushPendingPageExtendedBackgroundColorChange();
+        m_webPage.flushPendingSampledPageTopColorChange();
         m_webPage.flushPendingEditorStateUpdate();
         m_webPage.flushPendingIntrinsicContentSizeUpdate();
 
@@ -492,13 +389,56 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         }
 
         sendDidFirstLayerFlushIfNeeded();
+        m_webPage.didUpdateRendering();
+        handleActivityStateChangeCallbacksIfNeeded();
         invalidateRenderingUpdateRunLoopObserver();
     }
 }
 
-void TiledCoreAnimationDrawingArea::activityStateDidChange(OptionSet<ActivityState::Flag> changed, ActivityStateChangeID activityStateChangeID, const Vector<CallbackID>& nextActivityStateChangeCallbackIDs)
+void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacks()
 {
-    m_nextActivityStateChangeCallbackIDs.appendVector(nextActivityStateChangeCallbackIDs);
+    if (!m_shouldHandleActivityStateChangeCallbacks)
+        return;
+    m_shouldHandleActivityStateChangeCallbacks = false;
+
+    if (m_activityStateChangeID != ActivityStateChangeAsynchronous)
+        m_webPage.send(Messages::WebPageProxy::DidUpdateActivityState());
+
+    for (auto& callback : std::exchange(m_nextActivityStateChangeCallbacks, { }))
+        callback();
+
+    m_activityStateChangeID = ActivityStateChangeAsynchronous;
+}
+
+void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacksIfNeeded()
+{
+    if (!m_shouldHandleActivityStateChangeCallbacks)
+        return;
+
+    // If there is no active transaction, likely there is no layer change or change is committed,
+    // perform the callbacks immediately, which may unblock UI process.
+    if (![CATransaction currentState]) {
+        handleActivityStateChangeCallbacks();
+        return;
+    }
+
+    [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+
+        Ref protectedPage = weakThis->m_webPage;
+        auto* drawingArea = static_cast<TiledCoreAnimationDrawingArea*>(protectedPage->drawingArea());
+        ASSERT(weakThis.get() == drawingArea);
+        if (drawingArea != weakThis.get())
+            return;
+
+        drawingArea->handleActivityStateChangeCallbacks();
+    } forPhase:kCATransactionPhasePostCommit];
+}
+
+void TiledCoreAnimationDrawingArea::activityStateDidChange(OptionSet<ActivityState::Flag> changed, ActivityStateChangeID activityStateChangeID, CompletionHandler<void()>&& nextActivityStateChangeCallback)
+{
+    m_nextActivityStateChangeCallbacks.append(WTFMove(nextActivityStateChangeCallback));
     m_activityStateChangeID = std::max(m_activityStateChangeID, activityStateChangeID);
 
     if (changed & ActivityState::IsVisible) {
@@ -508,22 +448,10 @@ void TiledCoreAnimationDrawingArea::activityStateDidChange(OptionSet<ActivitySta
             suspendPainting();
     }
 
-    if (m_activityStateChangeID != ActivityStateChangeAsynchronous || !m_nextActivityStateChangeCallbackIDs.isEmpty())
-        m_sendDidUpdateActivityStateTimer.startOneShot(0_s);
-}
-
-void TiledCoreAnimationDrawingArea::didUpdateActivityStateTimerFired()
-{
-    [CATransaction flush];
-
-    if (m_activityStateChangeID != ActivityStateChangeAsynchronous)
-        m_webPage.send(Messages::WebPageProxy::DidUpdateActivityState());
-
-    for (const auto& callbackID : m_nextActivityStateChangeCallbackIDs)
-        m_webPage.send(Messages::WebPageProxy::VoidCallback(callbackID));
-
-    m_nextActivityStateChangeCallbackIDs.clear();
-    m_activityStateChangeID = ActivityStateChangeAsynchronous;
+    if (m_activityStateChangeID != ActivityStateChangeAsynchronous || !m_nextActivityStateChangeCallbacks.isEmpty()) {
+        m_shouldHandleActivityStateChangeCallbacks = true;
+        triggerRenderingUpdate();
+    }
 }
 
 void TiledCoreAnimationDrawingArea::suspendPainting()
@@ -549,7 +477,7 @@ void TiledCoreAnimationDrawingArea::resumePainting()
     [[NSNotificationCenter defaultCenter] postNotificationName:@"NSCAViewRenderDidResumeNotification" object:nil userInfo:@{ @"layer": m_hostingLayer.get() }];
 }
 
-void TiledCoreAnimationDrawingArea::setViewExposedRect(Optional<FloatRect> viewExposedRect)
+void TiledCoreAnimationDrawingArea::setViewExposedRect(std::optional<FloatRect> viewExposedRect)
 {
     m_viewExposedRect = viewExposedRect;
 
@@ -568,7 +496,7 @@ void TiledCoreAnimationDrawingArea::setExposedContentRect(const FloatRect&)
     ASSERT_NOT_REACHED();
 }
 
-void TiledCoreAnimationDrawingArea::updateGeometry(const IntSize& viewSize, bool flushSynchronously, const WTF::MachSendRight& fencePort)
+void TiledCoreAnimationDrawingArea::updateGeometry(const IntSize& viewSize, bool flushSynchronously, const WTF::MachSendRight& fencePort, CompletionHandler<void()>&& completionHandler)
 {
     m_inUpdateGeometry = true;
 
@@ -602,7 +530,7 @@ void TiledCoreAnimationDrawingArea::updateGeometry(const IntSize& viewSize, bool
     if (flushSynchronously)
         [CATransaction flush];
 
-    send(Messages::DrawingAreaProxy::DidUpdateGeometry());
+    completionHandler();
 
     m_inUpdateGeometry = false;
 
@@ -624,9 +552,19 @@ void TiledCoreAnimationDrawingArea::setLayerHostingMode(LayerHostingMode)
     send(Messages::DrawingAreaProxy::UpdateAcceleratedCompositingMode(0, layerTreeContext));
 }
 
-void TiledCoreAnimationDrawingArea::setColorSpace(const ColorSpaceData& colorSpace)
+void TiledCoreAnimationDrawingArea::setColorSpace(std::optional<WebCore::DestinationColorSpace> colorSpace)
 {
-    m_layerHostingContext->setColorSpace(colorSpace.cgColorSpace.get());
+    m_layerHostingContext->setColorSpace(colorSpace ? colorSpace->platformColorSpace() : nullptr);
+}
+
+std::optional<WebCore::DestinationColorSpace> TiledCoreAnimationDrawingArea::displayColorSpace() const
+{
+    return DestinationColorSpace { m_layerHostingContext->colorSpace() };
+}
+
+RefPtr<WebCore::DisplayRefreshMonitor> TiledCoreAnimationDrawingArea::createDisplayRefreshMonitor(PlatformDisplayID displayID)
+{
+    return DisplayRefreshMonitorMac::create(displayID);
 }
 
 void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
@@ -679,12 +617,6 @@ void TiledCoreAnimationDrawingArea::setRootCompositingLayer(CALayer *layer)
     [CATransaction commit];
 }
 
-TiledBacking* TiledCoreAnimationDrawingArea::mainFrameTiledBacking() const
-{
-    FrameView* frameView = m_webPage.mainFrameView();
-    return frameView ? frameView->tiledBacking() : nullptr;
-}
-
 void TiledCoreAnimationDrawingArea::updateDebugInfoLayer(bool showLayer)
 {
     if (m_debugInfoLayer) {
@@ -693,7 +625,7 @@ void TiledCoreAnimationDrawingArea::updateDebugInfoLayer(bool showLayer)
     }
     
     if (showLayer) {
-        if (TiledBacking* tiledBacking = mainFrameTiledBacking()) {
+        if (auto* tiledBacking = mainFrameTiledBacking()) {
             if (PlatformCALayer* indicatorLayer = tiledBacking->tiledScrollingIndicatorLayer())
                 m_debugInfoLayer = indicatorLayer->platformLayer();
         }
@@ -707,27 +639,27 @@ void TiledCoreAnimationDrawingArea::updateDebugInfoLayer(bool showLayer)
 
 bool TiledCoreAnimationDrawingArea::shouldUseTiledBackingForFrameView(const FrameView& frameView) const
 {
-    return frameView.frame().isMainFrame() || m_webPage.corePage()->settings().asyncFrameScrollingEnabled();
+    auto* localFrame = dynamicDowncast<LocalFrame>(frameView.frame());
+    return (localFrame && localFrame->isMainFrame())
+        || m_webPage.corePage()->settings().asyncFrameScrollingEnabled();
 }
 
 PlatformCALayer* TiledCoreAnimationDrawingArea::layerForTransientZoom() const
 {
-    RenderLayerBacking* renderViewBacking = m_webPage.mainFrameView()->renderView()->layer()->backing();
+    auto* scaledLayer = dynamicDowncast<GraphicsLayerCA>(m_webPage.mainFrameView()->graphicsLayerForPageScale());
+    if (!scaledLayer)
+        return nullptr;
 
-    if (GraphicsLayer* contentsContainmentLayer = renderViewBacking->contentsContainmentLayer())
-        return downcast<GraphicsLayerCA>(*contentsContainmentLayer).platformCALayer();
-
-    return downcast<GraphicsLayerCA>(*renderViewBacking->graphicsLayer()).platformCALayer();
+    return scaledLayer->platformCALayer();
 }
 
 PlatformCALayer* TiledCoreAnimationDrawingArea::shadowLayerForTransientZoom() const
 {
-    RenderLayerCompositor& renderLayerCompositor = m_webPage.mainFrameView()->renderView()->compositor();
+    auto* shadowLayer = dynamicDowncast<GraphicsLayerCA>(m_webPage.mainFrameView()->graphicsLayerForTransientZoomShadow());
+    if (!shadowLayer)
+        return nullptr;
 
-    if (GraphicsLayer* shadowGraphicsLayer = renderLayerCompositor.layerForContentShadow())
-        return downcast<GraphicsLayerCA>(*shadowGraphicsLayer).platformCALayer();
-
-    return nullptr;
+    return shadowLayer->platformCALayer();
 }
     
 static FloatPoint shadowLayerPositionForFrame(FrameView& frameView, FloatPoint origin)
@@ -783,25 +715,7 @@ void TiledCoreAnimationDrawingArea::adjustTransientZoom(double scale, FloatPoint
     double currentPageScale = m_webPage.totalScaleFactor();
     if (scale > currentPageScale)
         return;
-
-    FrameView* frameView = m_webPage.mainFrameView();
-    FloatRect tileCoverageRect = frameView->visibleContentRectIncludingScrollbars();
-    tileCoverageRect.moveBy(-origin);
-    tileCoverageRect.scale(currentPageScale / scale);
-    frameView->renderView()->layer()->backing()->tiledBacking()->prepopulateRect(tileCoverageRect);
-}
-
-static RetainPtr<CABasicAnimation> transientZoomSnapAnimationForKeyPath(String keyPath)
-{
-    const float transientZoomSnapBackDuration = 0.25;
-
-    RetainPtr<CABasicAnimation> animation = [CABasicAnimation animationWithKeyPath:keyPath];
-    [animation setDuration:transientZoomSnapBackDuration];
-    [animation setFillMode:kCAFillModeForwards];
-    [animation setRemovedOnCompletion:false];
-    [animation setTimingFunction:[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut]];
-
-    return animation;
+    prepopulateRectForZoom(scale, origin);
 }
 
 void TiledCoreAnimationDrawingArea::commitTransientZoom(double scale, FloatPoint origin)
@@ -824,6 +738,7 @@ void TiledCoreAnimationDrawingArea::commitTransientZoom(double scale, FloatPoint
     constrainedOrigin.moveBy(-visibleContentRect.location());
     constrainedOrigin = -constrainedOrigin;
 
+    LOG_WITH_STREAM(Scrolling, stream << "TiledCoreAnimationDrawingArea::commitTransientZoom m_transientZoomScale" << m_transientZoomScale << " scale: " << scale << " m_transientZoomOrigin " << m_transientZoomOrigin << " constrainedOrigin " << constrainedOrigin);
     if (m_transientZoomScale == scale && roundedIntPoint(m_transientZoomOrigin) == roundedIntPoint(constrainedOrigin)) {
         // We're already at the right scale and position, so we don't need to animate.
         applyTransientZoomToPage(scale, origin);
@@ -834,7 +749,7 @@ void TiledCoreAnimationDrawingArea::commitTransientZoom(double scale, FloatPoint
     transform.translate(constrainedOrigin.x(), constrainedOrigin.y());
     transform.scale(scale);
 
-    RetainPtr<CABasicAnimation> renderViewAnimationCA = transientZoomSnapAnimationForKeyPath("transform");
+    RetainPtr<CABasicAnimation> renderViewAnimationCA = DrawingArea::transientZoomSnapAnimationForKeyPath("transform"_s);
     auto renderViewAnimation = PlatformCAAnimationCocoa::create(renderViewAnimationCA.get());
     renderViewAnimation->setToValue(transform);
 
@@ -847,7 +762,7 @@ void TiledCoreAnimationDrawingArea::commitTransientZoom(double scale, FloatPoint
 
     [CATransaction begin];
     [CATransaction setCompletionBlock:[zoomLayer, shadowCALayer, page, scale, origin] () {
-        zoomLayer->removeAnimationForKey("transientZoomCommit");
+        zoomLayer->removeAnimationForKey("transientZoomCommit"_s);
         if (shadowCALayer)
             [shadowCALayer removeAllAnimations];
 
@@ -855,17 +770,17 @@ void TiledCoreAnimationDrawingArea::commitTransientZoom(double scale, FloatPoint
             drawingArea->applyTransientZoomToPage(scale, origin);
     }];
 
-    zoomLayer->addAnimationForKey("transientZoomCommit", renderViewAnimation.get());
+    zoomLayer->addAnimationForKey("transientZoomCommit"_s, renderViewAnimation.get());
 
     if (shadowCALayer) {
         FloatRect shadowBounds = shadowLayerBoundsForFrame(frameView, scale);
         RetainPtr<CGPathRef> shadowPath = adoptCF(CGPathCreateWithRect(shadowBounds, NULL));
 
-        RetainPtr<CABasicAnimation> shadowBoundsAnimation = transientZoomSnapAnimationForKeyPath("bounds");
+        RetainPtr<CABasicAnimation> shadowBoundsAnimation = DrawingArea::transientZoomSnapAnimationForKeyPath("bounds"_s);
         [shadowBoundsAnimation setToValue:[NSValue valueWithRect:shadowBounds]];
-        RetainPtr<CABasicAnimation> shadowPositionAnimation = transientZoomSnapAnimationForKeyPath("position");
+        RetainPtr<CABasicAnimation> shadowPositionAnimation = DrawingArea::transientZoomSnapAnimationForKeyPath("position"_s);
         [shadowPositionAnimation setToValue:[NSValue valueWithPoint:shadowLayerPositionForFrame(frameView, constrainedOrigin)]];
-        RetainPtr<CABasicAnimation> shadowPathAnimation = transientZoomSnapAnimationForKeyPath("shadowPath");
+        RetainPtr<CABasicAnimation> shadowPathAnimation = DrawingArea::transientZoomSnapAnimationForKeyPath("shadowPath"_s);
         [shadowPathAnimation setToValue:(__bridge id)shadowPath.get()];
 
         [shadowCALayer addAnimation:shadowBoundsAnimation.get() forKey:@"transientZoomCommitShadowBounds"];
@@ -904,34 +819,56 @@ void TiledCoreAnimationDrawingArea::addFence(const MachSendRight& fencePort)
     m_layerHostingContext->setFencePort(fencePort.sendRight());
 }
 
-void TiledCoreAnimationDrawingArea::updateRenderingRunLoopCallback()
+void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
+{
+    if (m_renderingUpdateRunLoopObserver->isScheduled())
+        return;
+
+    tracePoint(RenderingUpdateRunLoopObserverStart);
+    
+    m_renderingUpdateRunLoopObserver->schedule();
+
+    // Avoid running any more tasks before the runloop observer fires.
+    WebCore::WindowEventLoop::breakToAllowRenderingUpdate();
+}
+
+void TiledCoreAnimationDrawingArea::invalidateRenderingUpdateRunLoopObserver()
+{
+    if (!m_renderingUpdateRunLoopObserver->isScheduled())
+        return;
+
+    tracePoint(RenderingUpdateRunLoopObserverEnd, 1);
+
+    m_renderingUpdateRunLoopObserver->invalidate();
+}
+
+void TiledCoreAnimationDrawingArea::renderingUpdateRunLoopCallback()
 {
     tracePoint(RenderingUpdateRunLoopObserverEnd, 0);
 
     updateRendering();
 }
 
-void TiledCoreAnimationDrawingArea::invalidateRenderingUpdateRunLoopObserver()
+void TiledCoreAnimationDrawingArea::schedulePostRenderingUpdateRunLoopObserver()
 {
-    if (!m_renderUpdateRunLoopObserver->isScheduled())
+    if (m_postRenderingUpdateRunLoopObserver->isScheduled())
         return;
 
-    tracePoint(RenderingUpdateRunLoopObserverEnd, 1);
-
-    m_renderUpdateRunLoopObserver->invalidate();
+    m_postRenderingUpdateRunLoopObserver->schedule();
 }
 
-void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
+void TiledCoreAnimationDrawingArea::invalidatePostRenderingUpdateRunLoopObserver()
 {
-    if (m_renderUpdateRunLoopObserver->isScheduled())
+    if (!m_postRenderingUpdateRunLoopObserver->isScheduled())
         return;
 
-    tracePoint(RenderingUpdateRunLoopObserverStart);
-    
-    m_renderUpdateRunLoopObserver->schedule(CFRunLoopGetCurrent());
+    m_postRenderingUpdateRunLoopObserver->invalidate();
+}
 
-    // Avoid running any more tasks before the runloop observer fires.
-    WebCore::WindowEventLoop::breakToAllowRenderingUpdate();
+void TiledCoreAnimationDrawingArea::postRenderingUpdateRunLoopCallback()
+{
+    didCompleteRenderingFrame();
+    invalidatePostRenderingUpdateRunLoopObserver();
 }
 
 } // namespace WebKit

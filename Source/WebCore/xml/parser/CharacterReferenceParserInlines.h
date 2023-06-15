@@ -35,12 +35,16 @@ inline void unconsumeCharacters(SegmentedString& source, StringBuilder& consumed
     source.pushBack(consumedCharacters.toString());
 }
 
-template <typename ParserFunctions>
-bool consumeCharacterReference(SegmentedString& source, StringBuilder& decodedCharacter, bool& notEnoughCharacters, UChar additionalAllowedCharacter)
+template<typename T> void appendCharacterTo(T& output, UChar32 c)
+{
+    output.appendCharacter(c);
+}
+
+template <typename ParserFunctions, typename DecodedIdentityType>
+bool consumeCharacterReference(SegmentedString& source, DecodedIdentityType& decodedCharacter, bool& notEnoughCharacters, UChar additionalAllowedCharacter)
 {
     ASSERT(!additionalAllowedCharacter || additionalAllowedCharacter == '"' || additionalAllowedCharacter == '\'' || additionalAllowedCharacter == '>');
     ASSERT(!notEnoughCharacters);
-    ASSERT(decodedCharacter.isEmpty());
     
     enum {
         Initial,
@@ -51,8 +55,7 @@ bool consumeCharacterReference(SegmentedString& source, StringBuilder& decodedCh
         Decimal,
         Named
     } state = Initial;
-    UChar32 result = 0;
-    bool overflow = false;
+    Checked<UChar32, RecordOverflow> result = 0;
     StringBuilder consumedCharacters;
     
     while (!source.isEmpty()) {
@@ -104,18 +107,17 @@ bool consumeCharacterReference(SegmentedString& source, StringBuilder& decodedCh
         case Hex:
         Hex:
             if (isASCIIHexDigit(character)) {
-                result = result * 16 + toASCIIHexValue(character);
-                if (result > UCHAR_MAX_VALUE)
-                    overflow = true;
+                result *= 16;
+                result += static_cast<UChar32>(toASCIIHexValue(character));
                 break;
             }
             if (character == ';') {
                 source.advancePastNonNewline();
-                decodedCharacter.appendCharacter(ParserFunctions::legalEntityFor(overflow ? 0 : result));
+                appendCharacterTo(decodedCharacter, ParserFunctions::legalEntityFor(result.hasOverflowed() ? 0 : result.value()));
                 return true;
             }
             if (ParserFunctions::acceptMalformed()) {
-                decodedCharacter.appendCharacter(ParserFunctions::legalEntityFor(overflow ? 0 : result));
+                appendCharacterTo(decodedCharacter, ParserFunctions::legalEntityFor(result.hasOverflowed() ? 0 : result.value()));
                 return true;
             }
             unconsumeCharacters(source, consumedCharacters);
@@ -123,18 +125,17 @@ bool consumeCharacterReference(SegmentedString& source, StringBuilder& decodedCh
         case Decimal:
         Decimal:
             if (isASCIIDigit(character)) {
-                result = result * 10 + character - '0';
-                if (result > UCHAR_MAX_VALUE)
-                    overflow = true;
+                result *= 10;
+                result += (character - '0');
                 break;
             }
             if (character == ';') {
                 source.advancePastNonNewline();
-                decodedCharacter.appendCharacter(ParserFunctions::legalEntityFor(overflow ? 0 : result));
+                appendCharacterTo(decodedCharacter, ParserFunctions::legalEntityFor(result.hasOverflowed() ? 0 : result.value()));
                 return true;
             }
             if (ParserFunctions::acceptMalformed()) {
-                decodedCharacter.appendCharacter(ParserFunctions::legalEntityFor(overflow ? 0 : result));
+                appendCharacterTo(decodedCharacter, ParserFunctions::legalEntityFor(result.hasOverflowed() ? 0 : result.value()));
                 return true;
             }
             unconsumeCharacters(source, consumedCharacters);

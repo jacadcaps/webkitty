@@ -29,6 +29,7 @@
 #if PLATFORM(MAC)
 
 #import "AudioSessionRoutingArbitratorProxy.h"
+#import "WKNSData.h"
 #import "WKWebViewMac.h"
 #import "_WKFrameHandleInternal.h"
 #import "WebPageProxy.h"
@@ -80,7 +81,9 @@
 
 - (NSRect)_candidateRect
 {
-    return _page->editorState().postLayoutData().focusedElementRect;
+    if (!_page->editorState().postLayoutData)
+        return NSZeroRect;
+    return _page->editorState().postLayoutData->selectionBoundingRect;
 }
 
 - (void)viewDidChangeEffectiveAppearance
@@ -103,11 +106,34 @@
     _page->setFooterBannerHeightForTesting(height);
 }
 
+- (NSSet<NSView *> *)_pdfHUDs
+{
+#if ENABLE(UI_PROCESS_PDF_HUD)
+    return _impl->pdfHUDs();
+#else
+    return nil;
+#endif
+}
+
 - (NSMenu *)_activeMenu
 {
-    // FIXME: Only the DOM paste access menu is supported for now. In the future, it could be
-    // extended to recognize the regular context menu as well.
-    return _impl->domPasteMenu();
+    if (NSMenu *contextMenu = _page->activeContextMenu())
+        return contextMenu;
+    if (NSMenu *domPasteMenu = _impl->domPasteMenu())
+        return domPasteMenu;
+    return nil;
+}
+
+- (void)_retrieveAccessibilityTreeData:(void (^)(NSData *, NSError *))completionHandler
+{
+    _page->getAccessibilityTreeData([completionHandler = makeBlockPtr(completionHandler)] (API::Data* data) {
+        completionHandler(wrapper(data), nil);
+    });
+}
+
+- (BOOL)_secureEventInputEnabledForTesting
+{
+    return _impl->inSecureInputState();
 }
 
 @end

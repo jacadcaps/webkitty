@@ -28,34 +28,52 @@
 
 #if HAVE(NSURLSESSION_WEBSOCKET)
 
-#import "DataReference.h"
 #import "NetworkSessionCocoa.h"
 #import "NetworkSocketChannel.h"
 #import <Foundation/NSURLSession.h>
+#import <WebCore/ClientOrigin.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/WebSocketChannel.h>
 #import <wtf/BlockPtr.h>
 
-using namespace WebCore;
-
 namespace WebKit {
 
-WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, RetainPtr<NSURLSessionWebSocketTask>&& task)
-    : m_channel(channel)
+using namespace WebCore;
+
+WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+    : NetworkTaskCocoa(*channel.session(), shouldRelaxThirdPartyCookieBlocking)
+    , m_channel(channel)
     , m_task(WTFMove(task))
+    , m_webProxyPageID(webProxyPageID)
+    , m_frameID(frameID)
+    , m_pageID(pageID)
+    , m_sessionSet(WTFMove(sessionSet))
+    , m_partition(request.cachePartition())
+    , m_storedCredentialsPolicy(storedCredentialsPolicy)
 {
+    // We use topOrigin in case of service worker websocket connections, for which pageID does not link to a real page.
+    // In that case, let's only call the callback for same origin loads.
+    if (clientOrigin.topOrigin == clientOrigin.clientOrigin)
+        m_topOrigin = clientOrigin.topOrigin;
+
+#if ENABLE(TRACKING_PREVENTION)
+    bool shouldBlockCookies = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
+    if (auto* networkStorageSession = networkSession() ? networkSession()->networkStorageSession() : nullptr) {
+        if (!shouldBlockCookies)
+            shouldBlockCookies = networkStorageSession->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking);
+    }
+    if (shouldBlockCookies)
+        blockCookies();
+#endif
+
     readNextMessage();
     m_channel.didSendHandshakeRequest(ResourceRequest { [m_task currentRequest] });
 }
 
-WebSocketTask::~WebSocketTask()
-{
-}
-
 void WebSocketTask::readNextMessage()
 {
-    [m_task receiveMessageWithCompletionHandler: makeBlockPtr([this, weakThis = makeWeakPtr(this)](NSURLSessionWebSocketMessage* _Nullable message, NSError * _Nullable error) {
+    [m_task receiveMessageWithCompletionHandler: makeBlockPtr([this, weakThis = WeakPtr { *this }](NSURLSessionWebSocketMessage* _Nullable message, NSError * _Nullable error) {
         if (!weakThis)
             return;
 
@@ -72,11 +90,6 @@ void WebSocketTask::readNextMessage()
 
             m_channel.didReceiveMessageError([error localizedDescription]);
             didClose(WebCore::WebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
-            return;
-        }
-        if (!message) {
-            // FIXME: this is a workaround and we should probably never get there.
-            didClose(1000, "Unknown error");
             return;
         }
         if (message.type == NSURLSessionWebSocketMessageTypeString)
@@ -100,9 +113,13 @@ void WebSocketTask::resume()
 
 void WebSocketTask::didConnect(const String& protocol)
 {
-    // FIXME: support extensions.
+    String extensionsValue;
+    auto response = [m_task response];
+    if ([response isKindOfClass:[NSHTTPURLResponse class]])
+        extensionsValue = [(NSHTTPURLResponse *)response valueForHTTPHeaderField:@"Sec-WebSocket-Extensions"];
+
     m_receivedDidConnect = true;
-    m_channel.didConnect(protocol, { });
+    m_channel.didConnect(protocol, extensionsValue);
     m_channel.didReceiveHandshakeResponse(ResourceResponse { [m_task response] });
 }
 
@@ -124,8 +141,7 @@ void WebSocketTask::sendString(const IPC::DataReference& utf8String, CompletionH
     }
     auto message = adoptNS([[NSURLSessionWebSocketMessage alloc] initWithString:text.get()]);
     [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTFMove(callback)](NSError * _Nullable) mutable {
-        // Workaround rdar://problem/55324926 until it gets fixed.
-        callOnMainRunLoop(WTFMove(callback));
+        callback();
     }).get()];
 }
 
@@ -134,17 +150,20 @@ void WebSocketTask::sendData(const IPC::DataReference& data, CompletionHandler<v
     auto nsData = adoptNS([[NSData alloc] initWithBytes:data.data() length:data.size()]);
     auto message = adoptNS([[NSURLSessionWebSocketMessage alloc] initWithData:nsData.get()]);
     [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTFMove(callback)](NSError * _Nullable) mutable {
-        // Workaround rdar://problem/55324926 until it gets fixed.
-        callOnMainRunLoop(WTFMove(callback));
+        callback();
     }).get()];
 }
 
 void WebSocketTask::close(int32_t code, const String& reason)
 {
-    // FIXME: Should NSURLSession provide a way to call cancelWithCloseCode without any specific code.
     if (code == WebCore::WebSocketChannel::CloseEventCodeNotSpecified)
-        code = 1005;
-    auto nsData = adoptNS([[NSData alloc] initWithBytes:reason.utf8().data() length:reason.sizeInBytes()]);
+        code = NSURLSessionWebSocketCloseCodeInvalid;
+    auto utf8 = reason.utf8();
+    auto nsData = adoptNS([[NSData alloc] initWithBytes:utf8.data() length:utf8.length()]);
+    if ([m_task respondsToSelector:@selector(_sendCloseCode:reason:)]) {
+        [m_task _sendCloseCode:(NSURLSessionWebSocketCloseCode)code reason:nsData.get()];
+        return;
+    }
     [m_task cancelWithCloseCode:(NSURLSessionWebSocketCloseCode)code reason:nsData.get()];
 }
 
@@ -158,6 +177,10 @@ NetworkSessionCocoa* WebSocketTask::networkSession()
     return static_cast<NetworkSessionCocoa*>(m_channel.session());
 }
 
+NSURLSessionTask* WebSocketTask::task() const
+{
+    return m_task.get();
 }
 
+}
 #endif

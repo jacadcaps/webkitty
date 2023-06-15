@@ -114,15 +114,12 @@ void UIGamepadProvider::platformGamepadDisconnected(PlatformGamepad& gamepad)
 void UIGamepadProvider::platformGamepadInputActivity(EventMakesGamepadsVisible eventVisibility)
 {
     auto platformGamepads = GamepadProvider::singleton().platformGamepads();
-    ASSERT(platformGamepads.size() == m_gamepads.size());
 
-    for (size_t i = 0; i < platformGamepads.size(); ++i) {
-        if (!platformGamepads[i]) {
-            ASSERT(!m_gamepads[i]);
+    auto end = std::min(m_gamepads.size(), platformGamepads.size());
+    for (size_t i = 0; i < end; ++i) {
+        if (!m_gamepads[i] || !platformGamepads[i])
             continue;
-        }
 
-        ASSERT(m_gamepads[i]);
         m_gamepads[i]->updateFromPlatformGamepad(*platformGamepads[i]);
     }
 
@@ -194,20 +191,12 @@ void UIGamepadProvider::stopMonitoringGamepads()
 
 Vector<GamepadData> UIGamepadProvider::snapshotGamepads()
 {
-    Vector<GamepadData> gamepadDatas;
-    gamepadDatas.reserveInitialCapacity(m_gamepads.size());
-
-    for (auto& gamepad : m_gamepads) {
-        if (gamepad)
-            gamepadDatas.uncheckedAppend(gamepad->condensedGamepadData());
-        else
-            gamepadDatas.uncheckedAppend({ });
-    }
-
-    return gamepadDatas;
+    return m_gamepads.map([](auto& gamepad) {
+        return gamepad ? gamepad->gamepadData() : GamepadData { };
+    });
 }
 
-#if !PLATFORM(COCOA) && !(USE(MANETTE) && OS(LINUX))
+#if !PLATFORM(COCOA) && !(USE(MANETTE) && OS(LINUX)) && !USE(LIBWPE)
 
 void UIGamepadProvider::platformSetDefaultGamepadProvider()
 {

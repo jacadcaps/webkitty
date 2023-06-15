@@ -33,9 +33,11 @@
 #import "UIKitSPI.h"
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
+#import <WebKit/_WKProcessPoolConfiguration.h>
 
 @interface TestWKWebView (AutocorrectionTests)
 - (UIWKAutocorrectionRects *)autocorrectionRectsForString:(NSString *)string;
+- (UIWKAutocorrectionContext *)synchronouslyRequestAutocorrectionContext;
 @end
 
 @implementation TestWKWebView (AutocorrectionTests)
@@ -46,6 +48,18 @@
     bool done = false;
     [self.textInputContentView requestAutocorrectionRectsForString:string withCompletionHandler:[&] (UIWKAutocorrectionRects *rects) {
         result = rects;
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    return result.autorelease();
+}
+
+- (UIWKAutocorrectionContext *)synchronouslyRequestAutocorrectionContext
+{
+    RetainPtr<UIWKAutocorrectionContext> result;
+    bool done = false;
+    [self.textInputContentView requestAutocorrectionContextWithCompletionHandler:[&] (UIWKAutocorrectionContext *context) {
+        result = context;
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
@@ -64,7 +78,7 @@ static void checkCGRectIsEqualToCGRectWithLogging(CGRect expected, CGRect observ
 
 TEST(AutocorrectionTests, FontAtCaretWhenUsingUICTFontTextStyle)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 568)]);
     auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
     [inputDelegate setFocusStartsInputSessionPolicyHandler:[] (WKWebView *, id <_WKFocusedElementInfo>) -> _WKFocusStartsInputSessionPolicy {
         return _WKFocusStartsInputSessionPolicyAllow;
@@ -97,18 +111,81 @@ TEST(AutocorrectionTests, FontAtCaretWhenUsingUICTFontTextStyle)
 
 TEST(AutocorrectionTests, RequestAutocorrectionContextAfterClosingPage)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 568)]);
     [webView synchronouslyLoadTestPageNamed:@"autofocused-text-input"];
 
     auto contentView = [webView textInputContentView];
     [contentView resignFirstResponder];
     [webView _close];
 
-    bool done = false;
-    [contentView requestAutocorrectionContextWithCompletionHandler:[&] (UIWKAutocorrectionContext *) {
-        done = true;
+    // This test just verifies that attempting to request an autocorrection context in this state
+    // does not trigger a crash or hang, and also still invokes the given completion handler.
+    [webView synchronouslyRequestAutocorrectionContext];
+}
+
+TEST(AutocorrectionTests, AutocorrectionContextDoesNotIncludeNewlineInTextField)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 568)]);
+    [webView synchronouslyLoadTestPageNamed:@"autofocused-text-input"];
+
+    RetainPtr contextBeforeTyping = [webView synchronouslyRequestAutocorrectionContext];
+    EXPECT_EQ(0U, [contextBeforeTyping contextBeforeSelection].length);
+    EXPECT_EQ(0U, [contextBeforeTyping selectedText].length);
+    EXPECT_EQ(0U, [contextBeforeTyping contextAfterSelection].length);
+
+    [[webView textInputContentView] insertText:@"a"];
+    [webView waitForNextPresentationUpdate];
+
+    RetainPtr contextAfterTyping = [webView synchronouslyRequestAutocorrectionContext];
+    EXPECT_WK_STREQ(@"a", [contextAfterTyping contextBeforeSelection]);
+    EXPECT_EQ(0U, [contextAfterTyping selectedText].length);
+    EXPECT_EQ(0U, [contextAfterTyping contextAfterSelection].length);
+}
+
+TEST(AutocorrectionTests, AutocorrectionContextBeforeAndAfterEditing)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 568)]);
+    auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[] (WKWebView *, id <_WKFocusedElementInfo>) -> _WKFocusStartsInputSessionPolicy {
+        return _WKFocusStartsInputSessionPolicyAllow;
     }];
-    TestWebKitAPI::Util::run(&done);
+
+    [webView _setInputDelegate:inputDelegate.get()];
+    [webView synchronouslyLoadTestPageNamed:@"autofocused-text-input"];
+
+    auto *contentView = [webView textInputContentView];
+    RetainPtr contextBeforeInsertingText = [webView synchronouslyRequestAutocorrectionContext];
+    EXPECT_EQ(0U, [contextBeforeInsertingText contextBeforeSelection].length);
+    EXPECT_EQ(0U, [contextBeforeInsertingText selectedText].length);
+    EXPECT_EQ(0U, [contextBeforeInsertingText contextAfterSelection].length);
+
+    [contentView insertText:@"hello"];
+    RetainPtr contextAfterInsertingText = [webView synchronouslyRequestAutocorrectionContext];
+    EXPECT_WK_STREQ("hello", [contextAfterInsertingText contextBeforeSelection]);
+    EXPECT_EQ(0U, [contextAfterInsertingText selectedText].length);
+    EXPECT_EQ(0U, [contextAfterInsertingText contextAfterSelection].length);
+
+    [contentView selectAll:nil];
+    RetainPtr contextAfterSelecting = [webView synchronouslyRequestAutocorrectionContext];
+    EXPECT_EQ(0U, [contextAfterSelecting contextBeforeSelection].length);
+    EXPECT_WK_STREQ("hello", [contextAfterSelecting selectedText]);
+    EXPECT_EQ(0U, [contextAfterSelecting contextAfterSelection].length);
+}
+
+TEST(AutocorrectionTests, AvoidDeadlockWithGPUProcessCreationInEmptyView)
+{
+    auto poolConfiguration = adoptNS([_WKProcessPoolConfiguration new]);
+    [poolConfiguration setIgnoreSynchronousMessagingTimeoutsForTesting:YES];
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get() processPoolConfiguration:poolConfiguration.get()]);
+    auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[] (WKWebView *, id<_WKFocusedElementInfo>) -> _WKFocusStartsInputSessionPolicy {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    [webView _setInputDelegate:inputDelegate.get()];
+    [webView synchronouslyLoadTestPageNamed:@"autofocused-text-input"];
+    [webView synchronouslyRequestAutocorrectionContext];
 }
 
 #endif // PLATFORM(IOS_FAMILY)

@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2019 Apple Inc. All rights reserved.
+* Copyright (C) 2019-2021 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -30,46 +30,44 @@
 
 #import "UIKitSPI.h"
 #import <WebCore/Device.h>
+#import <wtf/TriState.h>
 
 namespace WebKit {
 
-enum class UserInterfaceIdiomState : uint8_t {
-    IsPad,
-    IsNotPad,
-    Unknown,
-};
+static TriState idiomIsSmallScreen = TriState::Indeterminate;
 
-static UserInterfaceIdiomState userInterfaceIdiomIsPadState = UserInterfaceIdiomState::Unknown;
-
-static inline bool userInterfaceIdiomIsPad()
+bool currentUserInterfaceIdiomIsSmallScreen()
 {
+    if (idiomIsSmallScreen == TriState::Indeterminate)
+        updateCurrentUserInterfaceIdiom();
+    return idiomIsSmallScreen == TriState::True;
+}
+
+void setCurrentUserInterfaceIdiomIsSmallScreen(bool isSmallScreen)
+{
+    idiomIsSmallScreen = TriState(isSmallScreen);
+}
+
+bool updateCurrentUserInterfaceIdiom()
+{
+    bool wasSmallScreen = idiomIsSmallScreen == TriState::True;
+
     // If we are in a daemon, we cannot use UIDevice. Fall back to checking the hardware itself.
     // Since daemons don't ever run in an iPhone-app-on-iPad jail, this will be accurate in the daemon case,
     // but is not sufficient in the application case.
+    bool isSmallScreen;
     if (![UIApplication sharedApplication])
-        return WebCore::deviceClass() == MGDeviceClassiPad;
+        isSmallScreen = WebCore::deviceClassIsSmallScreen();
+    else {
+        auto idiom = [[UIDevice currentDevice] userInterfaceIdiom];
+        isSmallScreen = idiom == UIUserInterfaceIdiomPhone || idiom == UIUserInterfaceIdiomWatch;
+    }
 
-    // This inline function exists to thwart unreachable code
-    // detection on platforms where UICurrentUserInterfaceIdiomIsPad
-    // is defined directly to false.
-#if USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST)
-    return UICurrentUserInterfaceIdiomIsPad();
-#else
-    return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad;
-#endif
-}
+    if (wasSmallScreen == isSmallScreen)
+        return false;
 
-bool currentUserInterfaceIdiomIsPad()
-{
-    if (userInterfaceIdiomIsPadState == UserInterfaceIdiomState::Unknown)
-        setCurrentUserInterfaceIdiomIsPad(userInterfaceIdiomIsPad());
-
-    return userInterfaceIdiomIsPadState == UserInterfaceIdiomState::IsPad;
-}
-
-void setCurrentUserInterfaceIdiomIsPad(bool isPad)
-{
-    userInterfaceIdiomIsPadState = isPad ? UserInterfaceIdiomState::IsPad : UserInterfaceIdiomState::IsNotPad;
+    setCurrentUserInterfaceIdiomIsSmallScreen(isSmallScreen);
+    return true;
 }
 
 }

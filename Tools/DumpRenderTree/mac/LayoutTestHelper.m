@@ -61,7 +61,7 @@ static int preferIntegratedGPU = false;
 static uint32_t assertionIDForDisplaySleep = 0;
 static uint32_t assertionIDForSystemSleep = 0;
 
-static NSMutableDictionary *originalColorProfileURLs()
+static NSMutableDictionary *originalColorProfileURLs(void)
 {
     static NSMutableDictionary *sharedInstance;
     if (!sharedInstance)
@@ -79,15 +79,20 @@ static NSURL *colorProfileURLForDisplay(NSString *displayUUIDString)
         return nil;
     }
 
+    CFStringRef profileID = CFSTR("1");
     CFURLRef profileURL = nil;
-    CFDictionaryRef profileInfo = (CFDictionaryRef)CFDictionaryGetValue(deviceInfo, kColorSyncCustomProfiles);
-    if (profileInfo)
-        profileURL = (CFURLRef)CFDictionaryGetValue(profileInfo, CFSTR("1"));
-    else {
-        profileInfo = (CFDictionaryRef)CFDictionaryGetValue(deviceInfo, kColorSyncFactoryProfiles);
-        CFDictionaryRef factoryProfile = (CFDictionaryRef)CFDictionaryGetValue(profileInfo, CFSTR("1"));
-        if (factoryProfile)
-            profileURL = (CFURLRef)CFDictionaryGetValue(factoryProfile, kColorSyncDeviceProfileURL);
+
+    CFDictionaryRef factoryProfiles = (CFDictionaryRef)CFDictionaryGetValue(deviceInfo, kColorSyncFactoryProfiles);
+    if (factoryProfiles)
+        profileID = (CFStringRef)CFDictionaryGetValue(factoryProfiles, kColorSyncDeviceDefaultProfileID);
+
+    CFDictionaryRef customProfiles = (CFDictionaryRef)CFDictionaryGetValue(deviceInfo, kColorSyncCustomProfiles);
+    if (customProfiles)
+        profileURL = (CFURLRef)CFDictionaryGetValue(customProfiles, profileID);
+    if (!profileURL && factoryProfiles) {
+        CFDictionaryRef profile = (CFDictionaryRef)CFDictionaryGetValue(factoryProfiles, profileID);
+        if (profile)
+            profileURL = (CFURLRef)CFDictionaryGetValue(profile, kColorSyncDeviceProfileURL);
     }
     
     if (!profileURL) {
@@ -101,11 +106,11 @@ static NSURL *colorProfileURLForDisplay(NSString *displayUUIDString)
     return url;
 }
 
-static NSArray *displayUUIDStrings()
+static NSArray *displayUUIDStrings(void)
 {
     NSMutableArray *result = [NSMutableArray array];
 
-    static const uint32_t maxDisplayCount = 10;
+    enum { maxDisplayCount = 10 };
     CGDirectDisplayID displayIDs[maxDisplayCount] = { 0 };
     uint32_t displayCount = 0;
     
@@ -171,7 +176,7 @@ static void restoreDisplayColorProfiles(NSArray *displayUUIDStrings)
     }
 }
 
-static void installLayoutTestColorProfile()
+static void installLayoutTestColorProfile(void)
 {
     if (!installColorProfile)
         return;
@@ -202,7 +207,7 @@ static void restoreUserColorProfile(void)
     restoreDisplayColorProfiles(displays);
 }
 
-static void releaseSleepAssertions()
+static void releaseSleepAssertions(void)
 {
     IOPMAssertionRelease(assertionIDForDisplaySleep);
     IOPMAssertionRelease(assertionIDForSystemSleep);
@@ -216,17 +221,25 @@ static void simpleSignalHandler(int sig)
     exit(128 + sig);
 }
 
-void lockDownDiscreteGraphics()
+static void lockDownDiscreteGraphics(void)
 {
-    mach_port_t masterPort;
-    kern_return_t kernResult = IOMasterPort(bootstrap_port, &masterPort);
-    if (kernResult != KERN_SUCCESS)
+    mach_port_t mainPort;
+
+#if HAVE(IOKIT_MAIN_PORT)
+    if (IOMainPort(bootstrap_port, &mainPort) != KERN_SUCCESS)
         return;
+#else
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    if (IOMasterPort(bootstrap_port, &mainPort) != KERN_SUCCESS)
+        return;
+    ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+
     CFDictionaryRef classToMatch = IOServiceMatching("AppleGraphicsControl");
     if (!classToMatch)
         return;
 
-    io_service_t serviceObject = IOServiceGetMatchingService(masterPort, classToMatch);
+    io_service_t serviceObject = IOServiceGetMatchingService(mainPort, classToMatch);
     if (!serviceObject) {
         // The machine does not allow control over the choice of graphics device.
         return;
@@ -237,7 +250,7 @@ void lockDownDiscreteGraphics()
     static io_connect_t permanentLockDownService = 0;
 
     // This call stalls until the graphics device lock is granted.
-    kernResult = IOServiceOpen(serviceObject, mach_task_self(), 1, &permanentLockDownService);
+    kern_return_t kernResult = IOServiceOpen(serviceObject, mach_task_self(), 1, &permanentLockDownService);
     if (kernResult != KERN_SUCCESS) {
         NSLog(@"IOServiceOpen() failed in %s with kernResult = %d", __FUNCTION__, kernResult);
         return;
@@ -248,7 +261,7 @@ void lockDownDiscreteGraphics()
         NSLog(@"IOObjectRelease() failed in %s with kernResult = %d", __FUNCTION__, kernResult);
 }
 
-void addSleepAssertions()
+static void addSleepAssertions(void)
 {
     CFStringRef assertionName = CFSTR("WebKit LayoutTestHelper");
     CFStringRef assertionDetails = CFSTR("WebKit layout-test helper tool is preventing sleep.");

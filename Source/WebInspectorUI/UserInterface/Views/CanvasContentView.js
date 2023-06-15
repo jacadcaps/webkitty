@@ -47,7 +47,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
         this._refreshButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
         this._refreshButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this.handleRefreshButtonClicked, this);
 
-        this._showGridButtonNavigationItem = new WI.ActivateButtonNavigationItem("show-grid", WI.UIString("Show transparency grid", "Show transparency grid (tooltip)"), WI.UIString("Hide transparency grid"), "Images/NavigationItemCheckers.svg", 13, 13);
+        this._showGridButtonNavigationItem = new WI.ActivateButtonNavigationItem("show-grid", WI.repeatedUIString.showTransparencyGridTooltip(), WI.UIString("Hide transparency grid"), "Images/NavigationItemCheckers.svg", 13, 13);
         this._showGridButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._showGridButtonClicked, this);
         this._showGridButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
         this._showGridButtonNavigationItem.activated = !!WI.settings.showImageGrid.value;
@@ -82,24 +82,6 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
         this.refreshPreview();
     }
 
-    // DropZoneView delegate
-
-    dropZoneShouldAppearForDragEvent(dropZone, event)
-    {
-        return event.dataTransfer.types.includes("Files");
-    }
-
-    dropZoneHandleDrop(dropZone, event)
-    {
-        let files = event.dataTransfer.files;
-        if (files.length !== 1) {
-            InspectorFrontendHost.beep();
-            return;
-        }
-
-        WI.FileUtilities.readJSON(files, (result) => WI.canvasManager.processJSON(result));
-    }
-
     // Protected
 
     initialLayout()
@@ -122,6 +104,12 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
             let subtitle = titles.appendChild(document.createElement("span"));
             subtitle.className = "subtitle";
             subtitle.textContent = WI.Canvas.displayNameForContextType(this.representedObject.contextType);
+
+            if (this.representedObject.contextAttributes.colorSpace) {
+                let subtitle = titles.appendChild(document.createElement("span"));
+                subtitle.className = "color-space";
+                subtitle.textContent = "(" + WI.Canvas.displayNameForColorSpace(this.representedObject.contextAttributes.colorSpace) + ")";
+            }
 
             let navigationBar = new WI.NavigationBar;
 
@@ -183,13 +171,6 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
 
         if (isCard)
             this._refreshPixelSize();
-
-        if (!isCard) {
-            let dropZoneView = new WI.DropZoneView(this);
-            dropZoneView.text = WI.UIString("Import Recording");
-            dropZoneView.targetElement = this.element;
-            this.addSubview(dropZoneView);
-        }
     }
 
     layout()
@@ -252,15 +233,20 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
 
     detached()
     {
-        this.representedObject.removeEventListener(null, null, this);
-        this.representedObject.shaderProgramCollection.removeEventListener(null, null, this);
+        this.representedObject.removeEventListener(WI.Canvas.Event.MemoryChanged, this._updateMemoryCost, this);
+        this.representedObject.removeEventListener(WI.Canvas.Event.RecordingStarted, this.needsLayout, this);
+        this.representedObject.removeEventListener(WI.Canvas.Event.RecordingProgress, this.needsLayout, this);
+        this.representedObject.removeEventListener(WI.Canvas.Event.RecordingStopped, this.needsLayout, this);
+        this.representedObject.shaderProgramCollection.removeEventListener(WI.Collection.Event.ItemAdded, this.needsLayout, this);
+        this.representedObject.shaderProgramCollection.removeEventListener(WI.Collection.Event.ItemRemoved, this.needsLayout, this);
 
         if (this._canvasNode) {
-            this._canvasNode.removeEventListener(null, null, this);
+            this._canvasNode.removeEventListener(WI.DOMNode.Event.AttributeModified, this._refreshPixelSize, this);
+            this._canvasNode.removeEventListener(WI.DOMNode.Event.AttributeRemoved, this._refreshPixelSize, this);
             this._canvasNode = null;
         }
 
-        WI.settings.showImageGrid.removeEventListener(null, null, this);
+        WI.settings.showImageGrid.removeEventListener(WI.Setting.Event.Changed, this._updateImageGrid, this);
 
         super.detached();
     }
@@ -322,8 +308,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
                     return;
 
                 const text = WI.UIString("Selected Canvas Context");
-                const addSpecialUserLogClass = true;
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass);
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
             });
         });
 

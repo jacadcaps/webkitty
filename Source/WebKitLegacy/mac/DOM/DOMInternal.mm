@@ -28,6 +28,7 @@
 #import "DOMNodeInternal.h"
 #import <WebCore/Document.h>
 #import <WebCore/Frame.h>
+#import <WebCore/FrameDestructionObserverInlines.h>
 #import <WebCore/JSNode.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/WebScriptObjectPrivate.h>
@@ -45,9 +46,10 @@
 
 #ifdef NEEDS_WRAPPER_CACHE_LOCK
 static Lock wrapperCacheLock;
-#endif
-
+static HashMap<DOMObjectInternal*, NSObject *>& wrapperCache() WTF_REQUIRES_LOCK(wrapperCacheLock)
+#else
 static HashMap<DOMObjectInternal*, NSObject *>& wrapperCache()
+#endif
 {
     static NeverDestroyed<HashMap<DOMObjectInternal*, NSObject *>> map;
     return map;
@@ -56,7 +58,7 @@ static HashMap<DOMObjectInternal*, NSObject *>& wrapperCache()
 NSObject* getDOMWrapper(DOMObjectInternal* impl)
 {
 #ifdef NEEDS_WRAPPER_CACHE_LOCK
-    auto locker = holdLock(wrapperCacheLock);
+    Locker stateLocker { wrapperCacheLock };
 #endif
     return wrapperCache().get(impl);
 }
@@ -64,7 +66,7 @@ NSObject* getDOMWrapper(DOMObjectInternal* impl)
 void addDOMWrapper(NSObject* wrapper, DOMObjectInternal* impl)
 {
 #ifdef NEEDS_WRAPPER_CACHE_LOCK
-    auto locker = holdLock(wrapperCacheLock);
+    Locker stateLocker { wrapperCacheLock };
 #endif
     wrapperCache().set(impl, wrapper);
 }
@@ -72,7 +74,7 @@ void addDOMWrapper(NSObject* wrapper, DOMObjectInternal* impl)
 void removeDOMWrapper(DOMObjectInternal* impl)
 {
 #ifdef NEEDS_WRAPPER_CACHE_LOCK
-    auto locker = holdLock(wrapperCacheLock);
+    Locker stateLocker { wrapperCacheLock };
 #endif
     wrapperCache().remove(impl);
 }

@@ -36,7 +36,6 @@
 #include <WebCore/Exception.h>
 #include <WebCore/ExceptionCode.h>
 #include <WebCore/LegacySchemeRegistry.h>
-#include <WebCore/RuntimeEnabledFeatures.h>
 #include <WebCore/ServiceWorkerJob.h>
 #include <wtf/text/WTFString.h>
 
@@ -56,8 +55,16 @@ WebServiceWorkerProvider::WebServiceWorkerProvider()
 
 WebCore::SWClientConnection& WebServiceWorkerProvider::serviceWorkerConnection()
 {
-    ASSERT(RuntimeEnabledFeatures::sharedFeatures().serviceWorkerEnabled());
     return WebProcess::singleton().ensureNetworkProcessConnection().serviceWorkerConnection();
+}
+
+WebCore::SWClientConnection* WebServiceWorkerProvider::existingServiceWorkerConnection()
+{
+    auto* networkProcessConnection = WebProcess::singleton().existingNetworkProcessConnection();
+    if (!networkProcessConnection)
+        return nullptr;
+
+    return &networkProcessConnection->serviceWorkerConnection();
 }
 
 void WebServiceWorkerProvider::updateThrottleState(bool isThrottleable)

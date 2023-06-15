@@ -26,11 +26,13 @@
 #import "config.h"
 #import "RemoteLayerTreeContext.h"
 
-#import "GenericCallback.h"
+#import "DrawingArea.h"
 #import "GraphicsLayerCARemote.h"
 #import "PlatformCALayerRemote.h"
-#import "RemoteLayerBackingStoreCollection.h"
+#import "RemoteLayerTreeDrawingArea.h"
 #import "RemoteLayerTreeTransaction.h"
+#import "RemoteLayerWithRemoteRenderingBackingStoreCollection.h"
+#import "WebFrame.h"
 #import "WebPage.h"
 #import <WebCore/Frame.h>
 #import <WebCore/FrameView.h>
@@ -43,8 +45,11 @@ using namespace WebCore;
 
 RemoteLayerTreeContext::RemoteLayerTreeContext(WebPage& webPage)
     : m_webPage(webPage)
-    , m_currentTransaction(nullptr)
 {
+    if (WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM))
+        m_backingStoreCollection = makeUnique<RemoteLayerWithRemoteRenderingBackingStoreCollection>(*this);
+    else
+        m_backingStoreCollection = makeUnique<RemoteLayerBackingStoreCollection>(*this);
 }
 
 RemoteLayerTreeContext::~RemoteLayerTreeContext()
@@ -78,6 +83,21 @@ LayerHostingMode RemoteLayerTreeContext::layerHostingMode() const
     return m_webPage.layerHostingMode();
 }
 
+DrawingAreaIdentifier RemoteLayerTreeContext::drawingAreaIdentifier() const
+{
+    if (!m_webPage.drawingArea())
+        return DrawingAreaIdentifier();
+    return m_webPage.drawingArea()->identifier();
+}
+
+std::optional<WebCore::DestinationColorSpace> RemoteLayerTreeContext::displayColorSpace() const
+{
+    if (auto* drawingArea = m_webPage.drawingArea())
+        return drawingArea->displayColorSpace();
+    
+    return { };
+}
+
 #if PLATFORM(IOS_FAMILY)
 bool RemoteLayerTreeContext::canShowWhileLocked() const
 {
@@ -90,14 +110,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     GraphicsLayer::PlatformLayerID layerID = layer.layerID();
 
     RemoteLayerTreeTransaction::LayerCreationProperties creationProperties;
-    creationProperties.layerID = layerID;
-    creationProperties.type = type;
-    creationProperties.embeddedViewID = layer.embeddedViewID();
-
-    if (layer.isPlatformCALayerRemoteCustom()) {
-        creationProperties.hostingContextID = layer.hostingContextID();
-        creationProperties.hostingDeviceScaleFactor = deviceScaleFactor();
-    }
+    layer.populateCreationProperties(creationProperties, *this, type);
 
     m_createdLayers.add(layerID, WTFMove(creationProperties));
     m_livePlatformLayers.add(layerID, &layer);
@@ -127,21 +140,6 @@ void RemoteLayerTreeContext::graphicsLayerWillLeaveContext(GraphicsLayerCARemote
     m_liveGraphicsLayers.remove(&layer);
 }
 
-void RemoteLayerTreeContext::backingStoreWasCreated(RemoteLayerBackingStore& backingStore)
-{
-    m_backingStoreCollection.backingStoreWasCreated(backingStore);
-}
-
-void RemoteLayerTreeContext::backingStoreWillBeDestroyed(RemoteLayerBackingStore& backingStore)
-{
-    m_backingStoreCollection.backingStoreWillBeDestroyed(backingStore);
-}
-
-bool RemoteLayerTreeContext::backingStoreWillBeDisplayed(RemoteLayerBackingStore& backingStore)
-{
-    return m_backingStoreCollection.backingStoreWillBeDisplayed(backingStore);
-}
-
 Ref<GraphicsLayer> RemoteLayerTreeContext::createGraphicsLayer(WebCore::GraphicsLayer::Type layerType, GraphicsLayerClient& client)
 {
     return adoptRef(*new GraphicsLayerCARemote(layerType, client, *this));
@@ -153,10 +151,14 @@ void RemoteLayerTreeContext::buildTransaction(RemoteLayerTreeTransaction& transa
 
     PlatformCALayerRemote& rootLayerRemote = downcast<PlatformCALayerRemote>(rootLayer);
     transaction.setRootLayerID(rootLayerRemote.layerID());
+    transaction.setRemoteContextHostedIdentifier(m_webPage.layerHostingContextIdentifier());
 
     m_currentTransaction = &transaction;
     rootLayerRemote.recursiveBuildTransaction(*this, transaction);
+    m_backingStoreCollection->prepareBackingStoresForDisplay(transaction);
     m_currentTransaction = nullptr;
+
+    m_backingStoreCollection->paintReachableBackingStoreContents();
 
     transaction.setCreatedLayers(copyToVector(m_createdLayers.values()));
     transaction.setDestroyedLayerIDs(WTFMove(m_destroyedLayers));
@@ -187,6 +189,11 @@ void RemoteLayerTreeContext::animationDidEnd(WebCore::GraphicsLayer::PlatformLay
     auto it = m_layersWithAnimations.find(layerID);
     if (it != m_layersWithAnimations.end())
         it->value->animationEnded(key);
+}
+
+RemoteRenderingBackendProxy& RemoteLayerTreeContext::ensureRemoteRenderingBackendProxy()
+{
+    return m_webPage.ensureRemoteRenderingBackendProxy();
 }
 
 } // namespace WebKit

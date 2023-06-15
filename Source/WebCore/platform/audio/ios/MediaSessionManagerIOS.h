@@ -54,13 +54,17 @@ public:
     static WEBCORE_EXPORT void providePresentingApplicationPID();
 
     using MediaSessionHelperClient::weakPtrFactory;
+    using MediaSessionHelperClient::WeakValueType;
+    using MediaSessionHelperClient::WeakPtrImplType;
 
 private:
     friend class PlatformMediaSessionManager;
 
     MediaSessionManageriOS();
 
+#if !PLATFORM(MACCATALYST)
     void resetRestrictions() final;
+#endif
 
     void configureWireLessTargetMonitoring() final;
     void providePresentingApplicationPIDIfNecessary() final;
@@ -76,7 +80,6 @@ private:
     void applicationDidEnterBackground(SuspendedUnderLock) final;
     void applicationWillBecomeInactive() final;
     void applicationDidBecomeActive() final;
-    void mediaServerConnectionDied() final;
     void externalOutputDeviceAvailableDidChange(HasAvailableTargets) final;
     void activeAudioRouteDidChange(ShouldPause) final;
     void activeVideoRouteDidChange(SupportsAirPlayVideo, Ref<MediaPlaybackTarget>&&) final;

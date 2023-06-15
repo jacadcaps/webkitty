@@ -44,7 +44,7 @@ public:
     GeoclueGeolocationProvider();
     ~GeoclueGeolocationProvider();
 
-    using UpdateNotifyFunction = Function<void(WebCore::GeolocationPositionData&&, Optional<CString> error)>;
+    using UpdateNotifyFunction = Function<void(WebCore::GeolocationPositionData&&, std::optional<CString> error)>;
     void start(UpdateNotifyFunction&&);
     void stop();
     void setEnableHighAccuracy(bool);
@@ -72,7 +72,7 @@ private:
     GRefPtr<GDBusProxy> m_client;
     GRefPtr<GCancellable> m_cancellable;
     UpdateNotifyFunction m_updateNotifyFunction;
-    RunLoop::Timer<GeoclueGeolocationProvider> m_destroyManagerLaterTimer;
+    RunLoop::Timer m_destroyManagerLaterTimer;
 };
 
 } // namespace WebKit

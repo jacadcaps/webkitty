@@ -51,14 +51,14 @@ private:
     void setNeedsDisplayInRect(const WebCore::IntRect&) override;
     void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollDelta) override;
     void forceRepaint() override;
-    bool forceRepaintAsync(CallbackID) override;
+    void forceRepaintAsync(WebPage&, CompletionHandler<void()>&&) override;
 
     void setLayerTreeStateIsFrozen(bool) override;
     bool layerTreeStateIsFrozen() const override { return m_layerTreeStateIsFrozen; }
 
     void updatePreferences(const WebPreferencesStore&) override;
-    void enablePainting() override;
     void mainFrameContentSizeChanged(const WebCore::IntSize&) override;
+    void sendEnterAcceleratedCompositingModeIfNeeded() override;
 
 #if USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
     void deviceOrPageScaleFactorChanged() override;
@@ -66,24 +66,31 @@ private:
 #endif
 
     bool supportsAsyncScrolling() const override;
+    void registerScrollingTree() override;
+    void unregisterScrollingTree() override;
 
     WebCore::GraphicsLayerFactory* graphicsLayerFactory() override;
     void setRootCompositingLayer(WebCore::GraphicsLayer*) override;
-    void scheduleRenderingUpdate() override;
-    void scheduleImmediateRenderingUpdate() override { scheduleRenderingUpdate(); };
+    void triggerRenderingUpdate() override;
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(COORDINATED_GRAPHICS) || USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
     void layerHostDidFlushLayers() override;
 #endif
     
     RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID) override;
 
-    void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, const Vector<CallbackID>& /* callbackIDs */) override;
+    void activityStateDidChange(OptionSet<WebCore::ActivityState::Flag>, ActivityStateChangeID, CompletionHandler<void()>&&) override;
     void attachViewOverlayGraphicsLayer(WebCore::GraphicsLayer*) override;
 
     // IPC message handlers.
     void updateBackingStoreState(uint64_t backingStoreStateID, bool respondImmediately, float deviceScaleFactor, const WebCore::IntSize&, const WebCore::IntSize& scrollOffset) override;
-    void didUpdate() override;
+    void targetRefreshRateDidChange(unsigned rate) override;
+    void displayDidRefresh() override;
+
+#if PLATFORM(GTK)
+    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
+    void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
+#endif
 
     void sendDidUpdateBackingStoreState();
 
@@ -103,9 +110,6 @@ private:
     void display(UpdateInfo&);
 
     uint64_t m_backingStoreStateID { 0 };
-
-    // Whether painting is enabled. If painting is disabled, any calls to setNeedsDisplay and scroll are ignored.
-    bool m_isPaintingEnabled { false };
 
     // Whether we're currently processing an UpdateBackingStoreState message.
     bool m_inUpdateBackingStoreState { false };
@@ -129,13 +133,13 @@ private:
     // won't paint until painting has resumed again.
     bool m_isPaintingSuspended { false };
 
-    RunLoop::Timer<DrawingAreaCoordinatedGraphics> m_exitCompositingTimer;
+    RunLoop::Timer m_exitCompositingTimer;
 
     // The layer tree host that handles accelerated compositing.
     std::unique_ptr<LayerTreeHost> m_layerTreeHost;
 
     std::unique_ptr<LayerTreeHost> m_previousLayerTreeHost;
-    RunLoop::Timer<DrawingAreaCoordinatedGraphics> m_discardPreviousLayerTreeHostTimer;
+    RunLoop::Timer m_discardPreviousLayerTreeHostTimer;
 
     WebCore::Region m_dirtyRegion;
     WebCore::IntRect m_scrollRect;
@@ -144,12 +148,19 @@ private:
     // Whether we're waiting for a DidUpdate message. Used for throttling paints so that the 
     // web process won't paint more frequent than the UI process can handle.
     bool m_isWaitingForDidUpdate { false };
+    bool m_scheduledWhileWaitingForDidUpdate { false };
 
     bool m_alwaysUseCompositing { false };
     bool m_supportsAsyncScrolling { true };
     bool m_forceRepaintAfterBackingStoreStateUpdate { false };
+    bool m_shouldSendEnterAcceleratedCompositingMode { false };
 
-    RunLoop::Timer<DrawingAreaCoordinatedGraphics> m_displayTimer;
+    RunLoop::Timer m_displayTimer;
+
+#if PLATFORM(GTK)
+    bool m_transientZoom { false };
+    WebCore::FloatPoint m_transientZoomInitialOrigin;
+#endif
 };
 
 } // namespace WebKit

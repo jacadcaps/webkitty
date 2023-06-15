@@ -47,17 +47,15 @@ CoordinatedGraphicsScene::CoordinatedGraphicsScene(CoordinatedGraphicsSceneClien
 
 CoordinatedGraphicsScene::~CoordinatedGraphicsScene() = default;
 
-void CoordinatedGraphicsScene::applyStateChanges(const Vector<CoordinatedGraphicsState>& states)
+void CoordinatedGraphicsScene::applyStateChanges(const Vector<RefPtr<Nicosia::Scene>>& states)
 {
-    if (!m_textureMapper) {
+    if (!m_textureMapper)
         m_textureMapper = TextureMapper::create();
-        static_cast<TextureMapperGL*>(m_textureMapper.get())->setEnableEdgeDistanceAntialiasing(true);
-    }
 
     ensureRootLayer();
 
-    for (auto& state : states)
-        commitSceneState(state.nicosia);
+    for (auto& scene : states)
+        commitSceneState(scene);
 }
 
 void CoordinatedGraphicsScene::paintToCurrentGLContext(const TransformationMatrix& matrix, const FloatRect& clipRect, TextureMapper::PaintFlags PaintFlags)
@@ -68,15 +66,14 @@ void CoordinatedGraphicsScene::paintToCurrentGLContext(const TransformationMatri
     if (!currentRootLayer)
         return;
 
-    currentRootLayer->setTextureMapper(m_textureMapper.get());
-    bool sceneHasRunningAnimations = currentRootLayer->applyAnimationsRecursively(MonotonicTime::now());
-    m_textureMapper->beginPainting(PaintFlags);
-    m_textureMapper->beginClip(TransformationMatrix(), clipRect);
-
     if (currentRootLayer->transform() != matrix)
         currentRootLayer->setTransform(matrix);
 
-    currentRootLayer->paint();
+    bool sceneHasRunningAnimations = currentRootLayer->applyAnimationsRecursively(MonotonicTime::now());
+    m_textureMapper->beginPainting(PaintFlags);
+    m_textureMapper->beginClip(TransformationMatrix(), FloatRoundedRect(clipRect));
+
+    currentRootLayer->paint(*m_textureMapper);
     m_fpsCounter.updateFPSAndDisplay(*m_textureMapper, clipRect.location(), matrix);
     m_textureMapper->endClip();
     m_textureMapper->endPainting();
@@ -156,19 +153,27 @@ void updateImageBacking(TextureMapperLayer& layer,
         return;
     }
 
-    if (!compositionState.backingStore)
-        compositionState.backingStore = CoordinatedBackingStore::create();
-    auto& backingStore = *compositionState.backingStore;
-    layer.setContentsLayer(&backingStore);
-
-    if (!update.buffer)
+    if (!update.imageBackingStore)
         return;
 
-    backingStore.createTile(1, 1.0);
-    WebCore::IntRect rect { { }, update.buffer->size() };
-    ASSERT(2000 >= std::max(rect.width(), rect.height()));
-    backingStore.setSize(rect.size());
-    backingStore.updateTile(1, rect, rect, WTFMove(update.buffer), rect.location());
+    compositionState.imageBackingStore = update.imageBackingStore;
+
+    auto& imageBackingStore = *compositionState.imageBackingStore;
+    auto& backingStore = imageBackingStore.compositionState().backingStoreContainer->backingStore;
+    if (!backingStore) {
+        backingStore = CoordinatedBackingStore::create();
+
+        auto buffer = WTFMove(imageBackingStore.backingStoreState().buffer);
+        if (buffer) {
+            backingStore->createTile(1, 1.0);
+            WebCore::IntRect rect { { }, buffer->size() };
+            ASSERT(2000 >= std::max(rect.width(), rect.height()));
+            backingStore->setSize(rect.size());
+            backingStore->updateTile(1, rect, rect, WTFMove(buffer), rect.location());
+        }
+    }
+
+    layer.setContentsLayer(backingStore.get());
 }
 
 void removeLayer(Nicosia::CompositionLayer& layer)
@@ -183,23 +188,18 @@ void removeLayer(Nicosia::CompositionLayer& layer)
 
             if (committed.contentLayer)
                 contentLayerImpl(*committed.contentLayer).proxy().invalidate();
-
-            if (committed.imageBacking) {
-                auto& compositionState = imageBackingImpl(*committed.imageBacking).compositionState();
-                compositionState.backingStore = nullptr;
-            }
         });
 
     auto& compositionState = compositionLayerImpl(layer).compositionState();
     compositionState.layer = nullptr;
 }
 
-void CoordinatedGraphicsScene::commitSceneState(const CoordinatedGraphicsState::NicosiaState& state)
+void CoordinatedGraphicsScene::commitSceneState(const RefPtr<Nicosia::Scene>& scene)
 {
     if (!m_client)
         return;
 
-    m_nicosia.scene = state.scene;
+    m_nicosia.scene = scene;
 }
 
 void CoordinatedGraphicsScene::updateSceneState()
@@ -231,10 +231,11 @@ void CoordinatedGraphicsScene::updateSceneState()
         };
         Vector<ImageBacking> imageBacking;
     } layersByBacking;
+    HashSet<Ref<WebCore::TextureMapperPlatformLayerProxy>> replacedProxiesToInvalidate;
 
     // Access the scene state and perform state update for each layer.
     m_nicosia.scene->accessState(
-        [this, &layersByBacking](Nicosia::Scene::State& state)
+        [this, &layersByBacking, &replacedProxiesToInvalidate](Nicosia::Scene::State& state)
         {
             // FIXME: try to minimize the amount of work in case the Scene::State object
             // didn't change (i.e. no layer flush was done), but don't forget to properly
@@ -251,12 +252,24 @@ void CoordinatedGraphicsScene::updateSceneState()
                 }
             }
 
-            // Gather all the to-be-removed layers so that composition-side state
-            // can be properly purged after the current state's set of layers is adopted.
             HashSet<RefPtr<Nicosia::CompositionLayer>> removedLayers;
             for (auto& layer : m_nicosia.state.layers) {
+                // Gather all the to-be-removed layers so that composition-side state
+                // can be properly purged after the current state's set of layers is adopted.
                 if (!state.layers.contains(layer))
                     removedLayers.add(layer);
+                else {
+                    // Store references to all the proxies that are being used by the layers that are kept in the tree.
+                    // When adopting the new state, the existent proxies may be replaced or detached from their layers, causing the
+                    // reference to be lost without having a chance to invalidate them. After the call to commitState, we will
+                    // invalidate all the proxies that are not being used anymore.
+                    layer->accessCommitted(
+                        [&replacedProxiesToInvalidate](const Nicosia::CompositionLayer::LayerState& committed)
+                        {
+                            if (committed.contentLayer)
+                                replacedProxiesToInvalidate.add(Ref { contentLayerImpl(*committed.contentLayer).proxy() });
+                        });
+                }
             }
 
             m_nicosia.state = state;
@@ -271,7 +284,7 @@ void CoordinatedGraphicsScene::updateSceneState()
             for (auto& compositionLayer : m_nicosia.state.layers) {
                 auto& layer = texmapLayer(*compositionLayer);
                 compositionLayer->commitState(
-                    [&layer, &layersByBacking]
+                    [&layer, &layersByBacking, &replacedProxiesToInvalidate]
                     (const Nicosia::CompositionLayer::LayerState& layerState)
                     {
                         if (layerState.delta.positionChanged)
@@ -306,6 +319,8 @@ void CoordinatedGraphicsScene::updateSceneState()
                             layer.setFilters(layerState.filters);
                         if (layerState.delta.backdropFiltersChanged)
                             layer.setBackdropLayer(layerState.backdropLayer ? &texmapLayer(*layerState.backdropLayer) : nullptr);
+                        if (layerState.delta.backdropFiltersRectChanged)
+                            layer.setBackdropFiltersRect(layerState.backdropFiltersRect);
                         if (layerState.delta.animationsChanged)
                             layer.setAnimations(layerState.animations);
 
@@ -325,6 +340,7 @@ void CoordinatedGraphicsScene::updateSceneState()
                             layer.setContentsVisible(layerState.flags.contentsVisible);
                             layer.setBackfaceVisibility(layerState.flags.backfaceVisible);
                             layer.setMasksToBounds(layerState.flags.masksToBounds);
+                            layer.setContentsRectClipsDescendants(layerState.flags.contentsRectClipsDescendants);
                             layer.setPreserves3D(layerState.flags.preserves3D);
                         }
 
@@ -345,6 +361,7 @@ void CoordinatedGraphicsScene::updateSceneState()
                             auto& impl = contentLayerImpl(*layerState.contentLayer);
                             layersByBacking.contentLayer.append(
                                 { std::ref(layer), std::ref(impl.proxy()), layerState.delta.contentLayerChanged });
+                            replacedProxiesToInvalidate.remove(Ref { impl.proxy() });
                         } else if (layerState.imageBacking) {
                             auto& impl = imageBackingImpl(*layerState.imageBacking);
                             layersByBacking.imageBacking.append(
@@ -372,18 +389,26 @@ void CoordinatedGraphicsScene::updateSceneState()
             updateBackingStore(entry.layer.get(), compositionState, entry.update);
 
             if (compositionState.backingStore)
-                backingStoresWithPendingBuffers.add(makeRef(*compositionState.backingStore));
+                backingStoresWithPendingBuffers.add(*compositionState.backingStore);
         }
 
         layersByBacking.backingStore = { };
     }
+
+    // Invalidate the proxies that are not used anymore before activating the new ones:
+    // a layer's proxy can be replaced with a new one. If we don't invalidate the old proxy
+    // before activating the new one, the contentLayer set to the layer by the activation of
+    // the new proxy will be removed by the invalidation of the old one.
+    for (auto& proxy : replacedProxiesToInvalidate)
+        proxy->invalidate();
+    replacedProxiesToInvalidate = { };
 
     {
         for (auto& entry : layersByBacking.contentLayer) {
             auto& proxy = entry.proxy.get();
             if (entry.needsActivation)
                 proxy.activateOnCompositingThread(this, &entry.layer.get());
-            proxiesForSwapping.add(makeRef(proxy));
+            proxiesForSwapping.add(proxy);
         }
 
         layersByBacking.contentLayer = { };
@@ -394,8 +419,14 @@ void CoordinatedGraphicsScene::updateSceneState()
             auto& compositionState = entry.imageBacking.get().compositionState();
             updateImageBacking(entry.layer.get(), compositionState, entry.update);
 
-            if (compositionState.backingStore)
-                backingStoresWithPendingBuffers.add(makeRef(*compositionState.backingStore));
+            if (compositionState.imageBackingStore) {
+                auto& container = compositionState.imageBackingStore->compositionState().backingStoreContainer;
+                m_imageBackingStoreContainers.add(container);
+
+                auto& backingStore = container->backingStore;
+                if (backingStore)
+                    backingStoresWithPendingBuffers.add(*backingStore);
+            }
         }
 
         layersByBacking.imageBacking = { };
@@ -406,6 +437,12 @@ void CoordinatedGraphicsScene::updateSceneState()
 
     for (auto& proxy : proxiesForSwapping)
         proxy->swapBuffer();
+
+    // Eject any backing store container whose only reference is held in this scene's HashSet cache.
+    m_imageBackingStoreContainers.removeIf(
+        [](auto& container) {
+            return container->hasOneRef();
+        });
 }
 
 void CoordinatedGraphicsScene::ensureRootLayer()
@@ -420,9 +457,6 @@ void CoordinatedGraphicsScene::ensureRootLayer()
 
     // The root layer should not have zero size, or it would be optimized out.
     m_rootLayer->setSize(FloatSize(1.0, 1.0));
-
-    ASSERT(m_textureMapper);
-    m_rootLayer->setTextureMapper(m_textureMapper.get());
 }
 
 void CoordinatedGraphicsScene::purgeGLResources()
@@ -440,6 +474,8 @@ void CoordinatedGraphicsScene::purgeGLResources()
             });
         m_nicosia.scene = nullptr;
     }
+
+    m_imageBackingStoreContainers = { };
 
     m_rootLayer = nullptr;
     m_rootLayerID = 0;

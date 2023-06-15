@@ -26,33 +26,37 @@
 #include "config.h"
 #include "RemoteMediaResource.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaPlayerProxy.h"
 #include "RemoteMediaResourceManager.h"
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-Ref<RemoteMediaResource> RemoteMediaResource::create(RemoteMediaResourceManager& remoteMediaResourceManager, RemoteMediaPlayerProxy& remoteMediaPlayerProxy, RemoteMediaResourceIdentifier id)
+Ref<RemoteMediaResource> RemoteMediaResource::create(RemoteMediaResourceManager& remoteMediaResourceManager, RemoteMediaPlayerProxy& remoteMediaPlayerProxy, RemoteMediaResourceIdentifier identifier)
 {
-    return adoptRef(*new RemoteMediaResource(remoteMediaResourceManager, remoteMediaPlayerProxy, id));
+    return adoptRef(*new RemoteMediaResource(remoteMediaResourceManager, remoteMediaPlayerProxy, identifier));
 }
 
-RemoteMediaResource::RemoteMediaResource(RemoteMediaResourceManager& remoteMediaResourceManager, RemoteMediaPlayerProxy& remoteMediaPlayerProxy, RemoteMediaResourceIdentifier id)
+RemoteMediaResource::RemoteMediaResource(RemoteMediaResourceManager& remoteMediaResourceManager, RemoteMediaPlayerProxy& remoteMediaPlayerProxy, RemoteMediaResourceIdentifier identifier)
     : m_remoteMediaResourceManager(remoteMediaResourceManager)
-    , m_remoteMediaPlayerProxy(makeWeakPtr(remoteMediaPlayerProxy))
-    , m_id(id)
+    , m_remoteMediaPlayerProxy(remoteMediaPlayerProxy)
+    , m_id(identifier)
 {
 }
 
 RemoteMediaResource::~RemoteMediaResource()
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
     stop();
-    m_remoteMediaResourceManager.removeMediaResource(m_id);
+    if (!m_remoteMediaResourceManager)
+        return;
+
+    m_remoteMediaResourceManager->removeMediaResource(m_id);
 }
 
 void RemoteMediaResource::stop()
@@ -72,8 +76,8 @@ void RemoteMediaResource::responseReceived(const ResourceResponse& response, boo
         return;
 
     m_didPassAccessControlCheck = didPassAccessControlCheck;
-    m_client->responseReceived(*this, response, [protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](auto shouldContinue) mutable {
-        ASSERT(isMainThread());
+    m_client->responseReceived(*this, response, [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](auto shouldContinue) mutable {
+        ASSERT(isMainRunLoop());
         if (shouldContinue == ShouldContinuePolicyCheck::No)
             protectedThis->stop();
 
@@ -93,10 +97,10 @@ void RemoteMediaResource::dataSent(uint64_t bytesSent, uint64_t totalBytesToBeSe
         m_client->dataSent(*this, bytesSent, totalBytesToBeSent);
 }
 
-void RemoteMediaResource::dataReceived(const char* data, int64_t length)
+void RemoteMediaResource::dataReceived(const SharedBuffer& data)
 {
     if (m_client)
-        m_client->dataReceived(*this, data, length);
+        m_client->dataReceived(*this, data);
 }
 
 void RemoteMediaResource::accessControlCheckFailed(const ResourceError& error)
@@ -120,4 +124,4 @@ void RemoteMediaResource::loadFinished(const NetworkLoadMetrics& metrics)
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

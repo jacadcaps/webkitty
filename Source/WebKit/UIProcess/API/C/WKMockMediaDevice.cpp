@@ -38,15 +38,17 @@ void WKAddMockMediaDevice(WKContextRef context, WKStringRef persistentId, WKStri
 {
 #if ENABLE(MEDIA_STREAM)
     String typeString = WebKit::toImpl(type)->string();
-    Variant<WebCore::MockMicrophoneProperties, WebCore::MockCameraProperties, WebCore::MockDisplayProperties> properties;
-    if (typeString == "camera")
+    std::variant<WebCore::MockMicrophoneProperties, WebCore::MockSpeakerProperties, WebCore::MockCameraProperties, WebCore::MockDisplayProperties> properties;
+    if (typeString == "camera"_s)
         properties = WebCore::MockCameraProperties { };
-    else if (typeString == "screen")
+    else if (typeString == "screen"_s)
         properties = WebCore::MockDisplayProperties { };
-    else if (typeString != "microphone")
+    else if (typeString == "speaker"_s)
+        properties = WebCore::MockSpeakerProperties { };
+    else if (typeString != "microphone"_s)
         return;
 
-    toImpl(context)->addMockMediaDevice({ WebKit::toImpl(persistentId)->string(), WebKit::toImpl(label)->string(), WTFMove(properties) });
+    toImpl(context)->addMockMediaDevice({ WebKit::toImpl(persistentId)->string(), WebKit::toImpl(label)->string(), false, WTFMove(properties) });
 #endif
 }
 
@@ -63,4 +65,9 @@ void WKRemoveMockMediaDevice(WKContextRef context, WKStringRef persistentId)
 void WKResetMockMediaDevices(WKContextRef context)
 {
     toImpl(context)->resetMockMediaDevices();
+}
+
+void WKSetMockMediaDeviceIsEphemeral(WKContextRef context, WKStringRef persistentId, bool isEphemeral)
+{
+    toImpl(context)->setMockMediaDeviceIsEphemeral(WebKit::toImpl(persistentId)->string(), isEphemeral);
 }

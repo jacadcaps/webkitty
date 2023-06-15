@@ -28,10 +28,10 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitWebEditor
- * @Short_description: Access to editing capabilities of a #WebKitWebPage
- * @Title: WebKitWebEditor
+ * WebKitWebEditor:
  * @See_also: #WebKitWebPage
+ *
+ * Access to editing capabilities of a #WebKitWebPage.
  *
  * The WebKitWebEditor provides access to various editing capabilities of
  * a #WebKitWebPage such as a possibility to react to the current selection in
@@ -51,7 +51,7 @@ struct _WebKitWebEditorPrivate {
 
 static guint signals[LAST_SIGNAL] = { 0, };
 
-WEBKIT_DEFINE_TYPE(WebKitWebEditor, webkit_web_editor, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitWebEditor, webkit_web_editor, G_TYPE_OBJECT, GObject)
 
 static void webkit_web_editor_class_init(WebKitWebEditorClass* klass)
 {
@@ -102,8 +102,7 @@ WebKitWebEditor* webkitWebEditorCreate(WebKitWebPage* webPage)
  * webkit_web_editor_get_page:
  * @editor: a #WebKitWebEditor
  *
- * Gets the #WebKitWebPage that is associated with the #WebKitWebEditor that can
- * be used to access the #WebKitDOMDocument currently loaded into it.
+ * Gets the #WebKitWebPage that is associated with the #WebKitWebEditor.
  *
  * Returns: (transfer none): the associated #WebKitWebPage
  *

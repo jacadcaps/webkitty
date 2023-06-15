@@ -31,6 +31,8 @@
 #import <Carbon/Carbon.h>
 #import <pal/spi/mac/HIToolboxSPI.h>
 #import <pal/system/mac/WebPanel.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/RetainPtr.h>
 
 @interface WKTextInputView : NSTextView
 @end
@@ -46,7 +48,7 @@
 @end
 
 @interface WKTextInputPanel : WebPanel {
-    NSTextView *_inputTextView;
+    RetainPtr<NSTextView> _inputTextView;
 }
 
 - (NSTextInputContext *)_inputContext;
@@ -65,8 +67,6 @@
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     
-    [_inputTextView release];
-    
     [super dealloc];
 }
 
@@ -82,13 +82,12 @@
      
     [self setFrame:frame display:NO];
         
-    _inputTextView = [[WKTextInputView alloc] initWithFrame:[(NSView *)self.contentView frame]];
-    _inputTextView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable | NSViewMaxXMargin | NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin;
+    _inputTextView = adoptNS([[WKTextInputView alloc] initWithFrame:[(NSView *)self.contentView frame]]);
+    [_inputTextView setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable | NSViewMaxXMargin | NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin];
         
-    NSScrollView* scrollView = [[NSScrollView alloc] initWithFrame:[(NSView *)self.contentView frame]];
-    scrollView.documentView = _inputTextView;
-    self.contentView = scrollView;
-    [scrollView release];
+    auto scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[(NSView *)self.contentView frame]]);
+    [scrollView setDocumentView: _inputTextView.get()];
+    self.contentView = scrollView.get();
         
     [self setFloatingPanel:YES];
 
@@ -142,7 +141,7 @@
 
         NSString *text = [[_inputTextView textStorage] string];
         if ([text length] > 0)
-            *string = [[text copy] autorelease];
+            *string = adoptNS([text copy]).autorelease();
     }
             
     [_inputTextView setString:@""];
@@ -167,11 +166,8 @@
 
 + (WKTextInputWindowController *)sharedTextInputWindowController
 {
-    static WKTextInputWindowController *textInputWindowController;
-    if (!textInputWindowController)
-        textInputWindowController = [[WKTextInputWindowController alloc] init];
-    
-    return textInputWindowController;
+    static NeverDestroyed<RetainPtr<WKTextInputWindowController>> textInputWindowController = adoptNS([[WKTextInputWindowController alloc] init]);
+    return textInputWindowController.get().get();
 }
 
 - (id)init

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,14 +28,27 @@
 
 #include "AuxiliaryProcessMessages.h"
 #include "Logging.h"
+#include "OverrideLanguages.h"
+#include "UIProcessLogInitialization.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include <wtf/RunLoop.h>
 
+#if PLATFORM(COCOA)
+#include "SandboxUtilities.h"
+#include <sys/sysctl.h>
+#include <wtf/spi/darwin/SandboxSPI.h>
+#endif
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
+#import <pal/spi/ios/MobileGestaltSPI.h>
+#endif
+
 namespace WebKit {
 
-AuxiliaryProcessProxy::AuxiliaryProcessProxy(bool alwaysRunsAtBackgroundPriority)
-    : m_alwaysRunsAtBackgroundPriority(alwaysRunsAtBackgroundPriority)
+AuxiliaryProcessProxy::AuxiliaryProcessProxy(bool alwaysRunsAtBackgroundPriority, Seconds responsivenessTimeout)
+    : m_responsivenessTimer(*this, responsivenessTimeout)
+    , m_alwaysRunsAtBackgroundPriority(alwaysRunsAtBackgroundPriority)
 {
 }
 
@@ -48,22 +61,42 @@ AuxiliaryProcessProxy::~AuxiliaryProcessProxy()
         m_processLauncher->invalidate();
         m_processLauncher = nullptr;
     }
-    auto pendingMessages = WTFMove(m_pendingMessages);
-    for (auto& pendingMessage : pendingMessages) {
-        if (pendingMessage.asyncReplyInfo)
-            pendingMessage.asyncReplyInfo->first(nullptr);
+
+    replyToPendingMessages();
+}
+
+void AuxiliaryProcessProxy::populateOverrideLanguagesLaunchOptions(ProcessLauncher::LaunchOptions& launchOptions) const
+{
+    LOG(Language, "WebProcessProxy is getting launch options.");
+    auto overrideLanguages = WebKit::overrideLanguages();
+    if (overrideLanguages.isEmpty()) {
+        LOG(Language, "overrideLanguages() reports empty. Calling platformOverrideLanguages()");
+        overrideLanguages = platformOverrideLanguages();
     }
+    if (!overrideLanguages.isEmpty()) {
+        StringBuilder languageString;
+        for (size_t i = 0; i < overrideLanguages.size(); ++i) {
+            if (i)
+                languageString.append(',');
+            languageString.append(overrideLanguages[i]);
+        }
+        LOG_WITH_STREAM(Language, stream << "Setting WebProcess's launch OverrideLanguages to " << languageString);
+        launchOptions.extraInitializationData.add<HashTranslatorASCIILiteral>("OverrideLanguages"_s, languageString.toString());
+    } else
+        LOG(Language, "overrideLanguages is still empty. Not setting WebProcess's launch OverrideLanguages.");
 }
 
 void AuxiliaryProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& launchOptions)
 {
     launchOptions.processIdentifier = m_processIdentifier;
 
-    if (const char* userDirectorySuffix = getenv("DIRHELPER_USER_DIR_SUFFIX"))
-        launchOptions.extraInitializationData.add("user-directory-suffix"_s, userDirectorySuffix);
+    if (const char* userDirectorySuffix = getenv("DIRHELPER_USER_DIR_SUFFIX")) {
+        if (auto userDirectorySuffixString = String::fromUTF8(userDirectorySuffix); !userDirectorySuffixString.isNull())
+            launchOptions.extraInitializationData.add<HashTranslatorASCIILiteral>("user-directory-suffix"_s, userDirectorySuffixString);
+    }
 
     if (m_alwaysRunsAtBackgroundPriority)
-        launchOptions.extraInitializationData.add("always-runs-at-background-priority"_s, "true");
+        launchOptions.extraInitializationData.add<HashTranslatorASCIILiteral>("always-runs-at-background-priority"_s, "true"_s);
 
 #if ENABLE(DEVELOPER_MODE) && (PLATFORM(GTK) || PLATFORM(WPE))
     const char* varname;
@@ -71,11 +104,6 @@ void AuxiliaryProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& lau
     case ProcessLauncher::ProcessType::Web:
         varname = "WEB_PROCESS_CMD_PREFIX";
         break;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    case ProcessLauncher::ProcessType::Plugin:
-        varname = "PLUGIN_PROCESS_CMD_PREFIX";
-        break;
-#endif
     case ProcessLauncher::ProcessType::Network:
         varname = "NETWORK_PROCESS_CMD_PREFIX";
         break;
@@ -84,11 +112,18 @@ void AuxiliaryProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& lau
         varname = "GPU_PROCESS_CMD_PREFIX";
         break;
 #endif
+#if ENABLE(BUBBLEWRAP_SANDBOX)
+    case ProcessLauncher::ProcessType::DBusProxy:
+        ASSERT_NOT_REACHED();
+        break;
+#endif
     }
     const char* processCmdPrefix = getenv(varname);
     if (processCmdPrefix && *processCmdPrefix)
         launchOptions.processCmdPrefix = String::fromUTF8(processCmdPrefix);
 #endif // ENABLE(DEVELOPER_MODE) && (PLATFORM(GTK) || PLATFORM(WPE))
+
+    populateOverrideLanguagesLaunchOptions(launchOptions);
 
     platformGetLaunchOptions(launchOptions);
 }
@@ -96,6 +131,7 @@ void AuxiliaryProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& lau
 void AuxiliaryProcessProxy::connect()
 {
     ASSERT(!m_processLauncher);
+    m_processStart = MonotonicTime::now();
     ProcessLauncher::LaunchOptions launchOptions;
     getLaunchOptions(launchOptions);
     m_processLauncher = ProcessLauncher::create(this, WTFMove(launchOptions));
@@ -103,6 +139,8 @@ void AuxiliaryProcessProxy::connect()
 
 void AuxiliaryProcessProxy::terminate()
 {
+    RELEASE_LOG(Process, "AuxiliaryProcessProxy::terminate: PID=%d", processIdentifier());
+
 #if PLATFORM(COCOA)
     if (m_connection && m_connection->kill())
         return;
@@ -122,6 +160,21 @@ AuxiliaryProcessProxy::State AuxiliaryProcessProxy::state() const
         return AuxiliaryProcessProxy::State::Terminated;
 
     return AuxiliaryProcessProxy::State::Running;
+}
+
+String AuxiliaryProcessProxy::stateString() const
+{
+    auto currentState = state();
+    switch (currentState) {
+    case AuxiliaryProcessProxy::State::Launching:
+        return "Launching"_s;
+    case AuxiliaryProcessProxy::State::Running:
+        return "Running"_s;
+    case AuxiliaryProcessProxy::State::Terminated:
+        return "Terminated"_s;
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 }
 
 bool AuxiliaryProcessProxy::wasTerminated() const
@@ -149,11 +202,20 @@ bool AuxiliaryProcessProxy::wasTerminated() const
 #endif
 }
 
-bool AuxiliaryProcessProxy::sendMessage(std::unique_ptr<IPC::Encoder> encoder, OptionSet<IPC::SendOption> sendOptions, Optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo, ShouldStartProcessThrottlerActivity shouldStartProcessThrottlerActivity)
+bool AuxiliaryProcessProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions, std::optional<IPC::Connection::AsyncReplyHandler> asyncReplyHandler, ShouldStartProcessThrottlerActivity shouldStartProcessThrottlerActivity)
 {
-    if (asyncReplyInfo && canSendMessage() && shouldStartProcessThrottlerActivity == ShouldStartProcessThrottlerActivity::Yes) {
-        auto completionHandler = std::exchange(asyncReplyInfo->first, nullptr);
-        asyncReplyInfo->first = [activity = throttler().backgroundActivity(ASCIILiteral::null()), completionHandler = WTFMove(completionHandler)](IPC::Decoder* decoder) mutable {
+    // FIXME: We should turn this into a RELEASE_ASSERT().
+    ASSERT(isMainRunLoop());
+    if (!isMainRunLoop()) {
+        callOnMainRunLoop([protectedThis = Ref { *this }, encoder = WTFMove(encoder), sendOptions, asyncReplyHandler = WTFMove(asyncReplyHandler), shouldStartProcessThrottlerActivity]() mutable {
+            protectedThis->sendMessage(WTFMove(encoder), sendOptions, WTFMove(asyncReplyHandler), shouldStartProcessThrottlerActivity);
+        });
+        return true;
+    }
+
+    if (asyncReplyHandler && canSendMessage() && shouldStartProcessThrottlerActivity == ShouldStartProcessThrottlerActivity::Yes) {
+        auto completionHandler = WTFMove(asyncReplyHandler->completionHandler);
+        asyncReplyHandler->completionHandler = [activity = throttler().backgroundActivity({ }), completionHandler = WTFMove(completionHandler)](IPC::Decoder* decoder) mutable {
             completionHandler(decoder);
         };
     }
@@ -161,22 +223,25 @@ bool AuxiliaryProcessProxy::sendMessage(std::unique_ptr<IPC::Encoder> encoder, O
     switch (state()) {
     case State::Launching:
         // If we're waiting for the child process to launch, we need to stash away the messages so we can send them once we have a connection.
-        m_pendingMessages.append({ WTFMove(encoder), sendOptions, WTFMove(asyncReplyInfo) });
+        m_pendingMessages.append({ WTFMove(encoder), sendOptions, WTFMove(asyncReplyHandler) });
         return true;
 
     case State::Running:
-        if (asyncReplyInfo)
-            IPC::addAsyncReplyHandler(*connection(), asyncReplyInfo->second, std::exchange(asyncReplyInfo->first, nullptr));
-        if (connection()->sendMessage(WTFMove(encoder), sendOptions))
-            return true;
+        if (asyncReplyHandler) {
+            if (connection()->sendMessageWithAsyncReply(WTFMove(encoder), WTFMove(*asyncReplyHandler), sendOptions))
+                return true;
+        } else {
+            if (connection()->sendMessage(WTFMove(encoder), sendOptions))
+                return true;
+        }
         break;
 
     case State::Terminated:
         break;
     }
 
-    if (asyncReplyInfo && asyncReplyInfo->first) {
-        RunLoop::current().dispatch([completionHandler = WTFMove(asyncReplyInfo->first)]() mutable {
+    if (asyncReplyHandler && asyncReplyHandler->completionHandler) {
+        RunLoop::current().dispatch([completionHandler = WTFMove(asyncReplyHandler->completionHandler)]() mutable {
             completionHandler(nullptr);
         });
     }
@@ -209,7 +274,7 @@ bool AuxiliaryProcessProxy::dispatchMessage(IPC::Connection& connection, IPC::De
     return m_messageReceiverMap.dispatchMessage(connection, decoder);
 }
 
-bool AuxiliaryProcessProxy::dispatchSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, std::unique_ptr<IPC::Encoder>& replyEncoder)
+bool AuxiliaryProcessProxy::dispatchSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& replyEncoder)
 {
     return m_messageReceiverMap.dispatchSyncMessage(connection, decoder, replyEncoder);
 }
@@ -217,23 +282,40 @@ bool AuxiliaryProcessProxy::dispatchSyncMessage(IPC::Connection& connection, IPC
 void AuxiliaryProcessProxy::didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier connectionIdentifier)
 {
     ASSERT(!m_connection);
+    ASSERT(isMainRunLoop());
 
-    if (!IPC::Connection::identifierIsValid(connectionIdentifier))
+    auto launchTime = MonotonicTime::now() - m_processStart;
+    if (launchTime > 1_s)
+        RELEASE_LOG_FAULT(Process, "%s process (%p) took %f seconds to launch", processName().characters(), this, launchTime.value());
+    
+    if (!connectionIdentifier)
         return;
 
-    m_connection = IPC::Connection::createServerConnection(connectionIdentifier, *this);
+#if PLATFORM(MAC) && USE(RUNNINGBOARD)
+    m_lifetimeActivity = throttler().foregroundActivity("Lifetime Activity"_s).moveToUniquePtr();
+#endif
+
+    m_connection = IPC::Connection::createServerConnection(connectionIdentifier);
 
     connectionWillOpen(*m_connection);
-    m_connection->open();
+    m_connection->open(*this);
 
     for (auto&& pendingMessage : std::exchange(m_pendingMessages, { })) {
         if (!shouldSendPendingMessage(pendingMessage))
             continue;
-        auto encoder = WTFMove(pendingMessage.encoder);
-        auto sendOptions = pendingMessage.sendOptions;
-        if (pendingMessage.asyncReplyInfo)
-            IPC::addAsyncReplyHandler(*connection(), pendingMessage.asyncReplyInfo->second, WTFMove(pendingMessage.asyncReplyInfo->first));
-        m_connection->sendMessage(WTFMove(encoder), sendOptions);
+        if (pendingMessage.asyncReplyHandler)
+            m_connection->sendMessageWithAsyncReply(WTFMove(pendingMessage.encoder), WTFMove(*pendingMessage.asyncReplyHandler), pendingMessage.sendOptions);
+        else
+            m_connection->sendMessage(WTFMove(pendingMessage.encoder), pendingMessage.sendOptions);
+    }
+}
+
+void AuxiliaryProcessProxy::replyToPendingMessages()
+{
+    ASSERT(isMainRunLoop());
+    for (auto& pendingMessage : std::exchange(m_pendingMessages, { })) {
+        if (pendingMessage.asyncReplyHandler)
+            pendingMessage.asyncReplyHandler->completionHandler(nullptr);
     }
 }
 
@@ -245,12 +327,7 @@ void AuxiliaryProcessProxy::shutDownProcess()
         m_processLauncher = nullptr;
         break;
     case State::Running:
-#if PLATFORM(IOS_FAMILY)
-        // On iOS deploy a watchdog in the UI process, since the child process may be suspended.
-        // If 30s is insufficient for any outstanding activity to complete cleanly, then it will be killed.
-        ASSERT(m_connection);
-        m_connection->terminateSoon(30_s);
-#endif
+        platformStartConnectionTerminationWatchdog();
         break;
     case State::Terminated:
         return;
@@ -266,6 +343,7 @@ void AuxiliaryProcessProxy::shutDownProcess()
 
     m_connection->invalidate();
     m_connection = nullptr;
+    m_responsivenessTimer.invalidate();
 }
 
 void AuxiliaryProcessProxy::setProcessSuppressionEnabled(bool processSuppressionEnabled)
@@ -288,5 +366,120 @@ void AuxiliaryProcessProxy::logInvalidMessage(IPC::Connection& connection, IPC::
 {
     RELEASE_LOG_FAULT(IPC, "Received an invalid message '%" PUBLIC_LOG_STRING "' from the %" PUBLIC_LOG_STRING " process.", description(messageName), processName().characters());
 }
+
+bool AuxiliaryProcessProxy::platformIsBeingDebugged() const
+{
+#if PLATFORM(COCOA)
+    // If the UI process is sandboxed and lacks 'process-info-pidinfo', it cannot find out whether other processes are being debugged.
+    if (currentProcessIsSandboxed() && !!sandbox_check(getpid(), "process-info-pidinfo", SANDBOX_CHECK_NO_REPORT))
+        return false;
+
+    struct kinfo_proc info;
+    int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, processIdentifier() };
+    size_t size = sizeof(info);
+    if (sysctl(mib, std::size(mib), &info, &size, nullptr, 0) == -1)
+        return false;
+
+    return info.kp_proc.p_flag & P_TRACED;
+#else
+    return false;
+#endif
+}
+
+void AuxiliaryProcessProxy::stopResponsivenessTimer()
+{
+    responsivenessTimer().stop();
+}
+
+void AuxiliaryProcessProxy::beginResponsivenessChecks()
+{
+    m_didBeginResponsivenessChecks = true;
+    if (m_delayedResponsivenessCheck)
+        startResponsivenessTimer(*std::exchange(m_delayedResponsivenessCheck, std::nullopt));
+}
+
+void AuxiliaryProcessProxy::startResponsivenessTimer(UseLazyStop useLazyStop)
+{
+    if (!m_didBeginResponsivenessChecks) {
+        if (!m_delayedResponsivenessCheck)
+            m_delayedResponsivenessCheck = useLazyStop;
+        return;
+    }
+
+    if (useLazyStop == UseLazyStop::Yes)
+        responsivenessTimer().startWithLazyStop();
+    else
+        responsivenessTimer().start();
+}
+
+bool AuxiliaryProcessProxy::mayBecomeUnresponsive()
+{
+    return !platformIsBeingDebugged();
+}
+
+void AuxiliaryProcessProxy::didBecomeUnresponsive()
+{
+    RELEASE_LOG_ERROR(Process, "AuxiliaryProcessProxy::didBecomeUnresponsive: %" PUBLIC_LOG_STRING " process with PID %d became unresponsive", processName().characters(), processIdentifier());
+}
+
+void AuxiliaryProcessProxy::checkForResponsiveness(CompletionHandler<void()>&& responsivenessHandler, UseLazyStop useLazyStop)
+{
+    startResponsivenessTimer(useLazyStop);
+    sendWithAsyncReply(Messages::AuxiliaryProcess::MainThreadPing(), [weakThis = WeakPtr { *this }, responsivenessHandler = WTFMove(responsivenessHandler)]() mutable {
+        // Schedule an asynchronous task because our completion handler may have been called as a result of the AuxiliaryProcessProxy
+        // being in the middle of destruction.
+        RunLoop::main().dispatch([weakThis = WTFMove(weakThis), responsivenessHandler = WTFMove(responsivenessHandler)]() mutable {
+            if (weakThis)
+                weakThis->stopResponsivenessTimer();
+
+            if (responsivenessHandler)
+                responsivenessHandler();
+        });
+    });
+}
+
+AuxiliaryProcessCreationParameters AuxiliaryProcessProxy::auxiliaryProcessParameters()
+{
+    AuxiliaryProcessCreationParameters parameters;
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    parameters.wtfLoggingChannels = UIProcess::wtfLogLevelString();
+    parameters.webCoreLoggingChannels = UIProcess::webCoreLogLevelString();
+    parameters.webKitLoggingChannels = UIProcess::webKitLogLevelString();
+#endif
+    return parameters;
+}
+
+std::optional<SandboxExtension::Handle> AuxiliaryProcessProxy::createMobileGestaltSandboxExtensionIfNeeded() const
+{
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
+    if (_MGCacheValid())
+        return std::nullopt;
+    
+    RELEASE_LOG_FAULT(Sandbox, "MobileGestalt cache is invalid! Creating a sandbox extension to repopulate cache in memory.");
+
+    return SandboxExtension::createHandleForMachLookup("com.apple.mobilegestalt.xpc"_s, std::nullopt);
+#else
+    return std::nullopt;
+#endif
+}
+
+#if !PLATFORM(COCOA)
+Vector<String> AuxiliaryProcessProxy::platformOverrideLanguages() const
+{
+    return { };
+}
+
+void AuxiliaryProcessProxy::platformStartConnectionTerminationWatchdog()
+{
+}
+
+#endif
+
+#if PLATFORM(MAC) && USE(RUNNINGBOARD)
+void AuxiliaryProcessProxy::setRunningBoardThrottlingEnabled()
+{
+    m_lifetimeActivity = nullptr;
+}
+#endif
 
 } // namespace WebKit

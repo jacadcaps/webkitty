@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,19 +28,24 @@
 
 #if USE(CG)
 
-#include "ImageSourceCG.h"
 #include "MIMETypeRegistry.h"
-
+#include "UTIUtilities.h"
+#include <ImageIO/ImageIO.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
-#include <ImageIO/ImageIO.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/RobinHoodHashSet.h>
+
+#if PLATFORM(IOS_FAMILY)
+#import <MobileCoreServices/MobileCoreServices.h>
+#endif
 
 namespace WebCore {
 
-const HashSet<String>& defaultSupportedImageTypes()
+const MemoryCompactLookupOnlyRobinHoodHashSet<String>& defaultSupportedImageTypes()
 {
-    static const auto defaultSupportedImageTypes = makeNeverDestroyed([] {
-        HashSet<String> defaultSupportedImageTypes = {
+    static NeverDestroyed defaultSupportedImageTypes = [] {
+        static constexpr std::array defaultSupportedImageTypes = {
             "com.compuserve.gif"_s,
             "com.microsoft.bmp"_s,
             "com.microsoft.cur"_s,
@@ -48,14 +53,16 @@ const HashSet<String>& defaultSupportedImageTypes()
             "public.jpeg"_s,
             "public.png"_s,
             "public.tiff"_s,
-#if !PLATFORM(WIN)
             "public.jpeg-2000"_s,
             "public.mpo-image"_s,
-#endif
 #if HAVE(WEBP)
             "public.webp"_s,
             "com.google.webp"_s,
             "org.webmproject.webp"_s,
+#endif
+#if HAVE(AVIF)
+            "public.avif"_s,
+            "public.avis"_s,
 #endif
         };
 
@@ -68,19 +75,25 @@ const HashSet<String>& defaultSupportedImageTypes()
             static_cast<HashSet<String>*>(context)->add(imageType);
         }, &systemSupportedImageTypes);
 
-        defaultSupportedImageTypes.removeIf([&systemSupportedImageTypes](const String& imageType) {
-            return !systemSupportedImageTypes.contains(imageType);
-        });
-
-        return defaultSupportedImageTypes;
-    }());
+        MemoryCompactLookupOnlyRobinHoodHashSet<String> filtered;
+        for (auto& imageType : defaultSupportedImageTypes) {
+            if (systemSupportedImageTypes.contains(imageType))
+                filtered.add(imageType);
+        }
+        // rdar://104940377 Workaround for CGImageSourceCopyTypeIdentifiers not returning AVIF for iOS simulator
+#if HAVE(CG_IMAGE_SOURCE_AVIF_IMAGE_TYPES_BUG)
+        filtered.add("public.avif"_s);
+        filtered.add("public.avis"_s);
+#endif
+        return filtered;
+    }();
 
     return defaultSupportedImageTypes;
 }
 
-HashSet<String>& additionalSupportedImageTypes()
+MemoryCompactRobinHoodHashSet<String>& additionalSupportedImageTypes()
 {
-    static NeverDestroyed<HashSet<String>> additionalSupportedImageTypes;
+    static NeverDestroyed<MemoryCompactRobinHoodHashSet<String>> additionalSupportedImageTypes;
     return additionalSupportedImageTypes;
 }
 
@@ -109,7 +122,19 @@ bool isSupportedImageType(const String& imageType)
 
 bool isGIFImageType(StringView imageType)
 {
-    return imageType == "com.compuserve.gif";
+    return imageType == "com.compuserve.gif"_s;
+}
+
+String MIMETypeForImageType(const String& uti)
+{
+    return MIMETypeFromUTI(uti);
+}
+
+String preferredExtensionForImageType(const String& uti)
+{
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassFilenameExtension)).get();
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 }

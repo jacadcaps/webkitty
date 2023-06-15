@@ -38,12 +38,7 @@ class ProgramPipelineState final : angle::NonCopyable
 
     const std::string &getLabel() const;
 
-    const ProgramExecutable &getProgramExecutable() const
-    {
-        ASSERT(mExecutable);
-        return *mExecutable;
-    }
-    ProgramExecutable &getProgramExecutable()
+    ProgramExecutable &getExecutable() const
     {
         ASSERT(mExecutable);
         return *mExecutable;
@@ -51,7 +46,7 @@ class ProgramPipelineState final : angle::NonCopyable
 
     void activeShaderProgram(Program *shaderProgram);
     void useProgramStages(const Context *context,
-                          GLbitfield stages,
+                          const gl::ShaderBitSet &shaderTypes,
                           Program *shaderProgram,
                           std::vector<angle::ObserverBinding> *programObserverBindings);
 
@@ -64,6 +59,8 @@ class ProgramPipelineState final : angle::NonCopyable
     bool usesShaderProgram(ShaderProgramID program) const;
 
     void updateExecutableTextures();
+
+    rx::SpecConstUsageBits getSpecConstUsageBits() const;
 
   private:
     void useProgramStage(const Context *context,
@@ -83,6 +80,8 @@ class ProgramPipelineState final : angle::NonCopyable
     GLboolean mValid;
 
     ProgramExecutable *mExecutable;
+
+    bool mIsLinked;
 };
 
 class ProgramPipeline final : public RefCountObject<ProgramPipelineID>,
@@ -96,13 +95,13 @@ class ProgramPipeline final : public RefCountObject<ProgramPipelineID>,
 
     void onDestroy(const Context *context) override;
 
-    void setLabel(const Context *context, const std::string &label) override;
+    angle::Result setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
     const ProgramPipelineState &getState() const { return mState; }
+    ProgramPipelineState &getState() { return mState; }
 
-    const ProgramExecutable &getExecutable() const { return mState.getProgramExecutable(); }
-    ProgramExecutable &getExecutable() { return mState.getProgramExecutable(); }
+    ProgramExecutable &getExecutable() const { return mState.getExecutable(); }
 
     rx::ProgramPipelineImpl *getImplementation() const;
 
@@ -118,57 +117,56 @@ class ProgramPipeline final : public RefCountObject<ProgramPipelineID>,
         return program;
     }
 
-    void useProgramStages(const Context *context, GLbitfield stages, Program *shaderProgram);
+    angle::Result useProgramStages(const Context *context,
+                                   GLbitfield stages,
+                                   Program *shaderProgram);
 
     Program *getShaderProgram(ShaderType shaderType) const { return mState.mPrograms[shaderType]; }
 
-    ProgramMergedVaryings getMergedVaryings() const;
+    void resetIsLinked() { mState.mIsLinked = false; }
     angle::Result link(const gl::Context *context);
-    bool linkVaryings(InfoLog &infoLog) const;
-    void validate(const gl::Context *context);
-    bool validateSamplers(InfoLog *infoLog, const Caps &caps);
 
-    bool usesShaderProgram(ShaderProgramID program) const
+    // Ensure program pipeline is linked. Inlined to make sure its overhead is as low as possible.
+    void resolveLink(const Context *context)
     {
-        return mState.usesShaderProgram(program);
+        if (mState.mIsLinked)
+        {
+            // Already linked, nothing to do.
+            return;
+        }
+
+        angle::Result linkResult = link(context);
+        if (linkResult != angle::Result::Continue)
+        {
+            // If the link failed then log a warning, swallow the error and move on.
+            WARN() << "ProgramPipeline link failed" << std::endl;
+        }
+        return;
     }
 
-    bool hasAnyDirtyBit() const { return mDirtyBits.any(); }
-
+    void validate(const gl::Context *context);
     GLboolean isValid() const { return mState.isValid(); }
-
-    // Program pipeline dirty bits.
-    enum DirtyBitType
-    {
-        // One of the program stages in the PPO changed.
-        DIRTY_BIT_PROGRAM_STAGE,
-        DIRTY_BIT_DRAW_DISPATCH_CHANGE,
-
-        DIRTY_BIT_COUNT = DIRTY_BIT_DRAW_DISPATCH_CHANGE + 1,
-    };
-
-    using DirtyBits = angle::BitSet<DIRTY_BIT_COUNT>;
-
-    angle::Result syncState(const Context *context);
-    void setDirtyBit(DirtyBitType dirtyBitType) { mDirtyBits.set(dirtyBitType); }
+    bool isLinked() const { return mState.mIsLinked; }
 
     // ObserverInterface implementation.
     void onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message) override;
 
-    void fillProgramStateMap(gl::ShaderMap<const gl::ProgramState *> *programStatesOut);
-
   private:
+    bool linkVaryings(InfoLog &infoLog) const;
     void updateLinkedShaderStages();
     void updateExecutableAttributes();
     void updateTransformFeedbackMembers();
-    void updateHasBooleans();
+    void updateShaderStorageBlocks();
+    void updateImageBindings();
+    void updateExecutableGeometryProperties();
+    void updateExecutableTessellationProperties();
+    void updateFragmentInoutRangeAndEnablesPerSampleShading();
+    void updateLinkedVaryings();
     void updateExecutable();
 
     std::unique_ptr<rx::ProgramPipelineImpl> mProgramPipelineImpl;
 
     ProgramPipelineState mState;
-
-    DirtyBits mDirtyBits;
 
     std::vector<angle::ObserverBinding> mProgramObserverBindings;
     angle::ObserverBinding mExecutableObserverBinding;

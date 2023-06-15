@@ -46,7 +46,7 @@ public:
 
     const String& path();
     unsigned long long size();
-    Optional<WallTime> expectedModificationTime();
+    std::optional<WallTime> expectedModificationTime();
 
     virtual void prepareForFileAccess();
     virtual void revokeFileAccess();
@@ -65,7 +65,7 @@ private:
     bool m_replacementShouldBeGenerated { false };
 #endif
     unsigned long long m_size { 0 };
-    Markable<WallTime, WallTime::MarkableTraits> m_expectedModificationTime;
+    Markable<WallTime> m_expectedModificationTime;
 };
 
 }

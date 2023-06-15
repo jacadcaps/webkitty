@@ -26,14 +26,18 @@
 #include "config.h"
 
 #if ENABLE(WEBGL)
-
 #include "OESElementIndexUint.h"
 
+#include <wtf/IsoMallocInlines.h>
+
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(OESElementIndexUint);
 
 OESElementIndexUint::OESElementIndexUint(WebGLRenderingContextBase& context)
     : WebGLExtension(context)
 {
+    context.graphicsContextGL()->ensureExtensionEnabled("GL_OES_element_index_uint"_s);
 }
 
 OESElementIndexUint::~OESElementIndexUint() = default;
@@ -41,6 +45,11 @@ OESElementIndexUint::~OESElementIndexUint() = default;
 WebGLExtension::ExtensionName OESElementIndexUint::getName() const
 {
     return OESElementIndexUintName;
+}
+
+bool OESElementIndexUint::supported(GraphicsContextGL& context)
+{
+    return context.supportsExtension("GL_OES_element_index_uint"_s);
 }
 
 } // namespace WebCore

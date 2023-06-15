@@ -15,13 +15,13 @@
 #include <memory>
 
 #include "absl/types/optional.h"
+#include "api/field_trials_view.h"
+#include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/video/video_stream_encoder_observer.h"
-#include "modules/video_coding/utility/quality_scaler.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/numerics/exp_filter.h"
-#include "rtc_base/synchronization/sequence_checker.h"
+#include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
 
@@ -30,7 +30,7 @@ namespace webrtc {
 class VideoFrame;
 
 struct CpuOveruseOptions {
-  CpuOveruseOptions();
+  explicit CpuOveruseOptions(const FieldTrialsView& field_trials);
 
   int low_encode_usage_threshold_percent;  // Threshold for triggering underuse.
   int high_encode_usage_threshold_percent;  // Threshold for triggering overuse.
@@ -47,6 +47,17 @@ struct CpuOveruseOptions {
   int filter_time_ms;  // Time constant for averaging
 };
 
+class OveruseFrameDetectorObserverInterface {
+ public:
+  // Called to signal that we can handle larger or more frequent frames.
+  virtual void AdaptUp() = 0;
+  // Called to signal that the source should reduce the resolution or framerate.
+  virtual void AdaptDown() = 0;
+
+ protected:
+  virtual ~OveruseFrameDetectorObserverInterface() {}
+};
+
 // Use to detect system overuse based on the send-side processing time of
 // incoming frames. All methods must be called on a single task queue but it can
 // be created and destroyed on an arbitrary thread.
@@ -54,13 +65,18 @@ struct CpuOveruseOptions {
 // check for overuse.
 class OveruseFrameDetector {
  public:
-  explicit OveruseFrameDetector(CpuOveruseMetricsObserver* metrics_observer);
+  explicit OveruseFrameDetector(CpuOveruseMetricsObserver* metrics_observer,
+                                const FieldTrialsView& field_trials);
   virtual ~OveruseFrameDetector();
 
+  OveruseFrameDetector(const OveruseFrameDetector&) = delete;
+  OveruseFrameDetector& operator=(const OveruseFrameDetector&) = delete;
+
   // Start to periodically check for overuse.
-  void StartCheckForOveruse(TaskQueueBase* task_queue_base,
-                            const CpuOveruseOptions& options,
-                            AdaptationObserverInterface* overuse_observer);
+  void StartCheckForOveruse(
+      TaskQueueBase* task_queue_base,
+      const CpuOveruseOptions& options,
+      OveruseFrameDetectorObserverInterface* overuse_observer);
 
   // StopCheckForOveruse must be called before destruction if
   // StartCheckForOveruse has been called.
@@ -105,7 +121,7 @@ class OveruseFrameDetector {
 
  protected:
   // Protected for test purposes.
-  void CheckForOveruse(AdaptationObserverInterface* overuse_observer);
+  void CheckForOveruse(OveruseFrameDetectorObserverInterface* overuse_observer);
   void SetOptions(const CpuOveruseOptions& options);
 
   CpuOveruseOptions options_;
@@ -123,7 +139,7 @@ class OveruseFrameDetector {
   static std::unique_ptr<ProcessingUsage> CreateProcessingUsage(
       const CpuOveruseOptions& options);
 
-  SequenceChecker task_checker_;
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker task_checker_;
   // Owned by the task queue from where StartCheckForOveruse is called.
   RepeatingTaskHandle check_overuse_task_ RTC_GUARDED_BY(task_checker_);
 
@@ -149,8 +165,6 @@ class OveruseFrameDetector {
 
   // If set by field trial, overrides CpuOveruseOptions::filter_time_ms.
   FieldTrialOptional<TimeDelta> filter_time_constant_{"tau"};
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(OveruseFrameDetector);
 };
 
 }  // namespace webrtc

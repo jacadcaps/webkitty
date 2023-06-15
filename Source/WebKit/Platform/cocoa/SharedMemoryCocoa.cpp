@@ -26,90 +26,101 @@
 #include "config.h"
 #include "SharedMemory.h"
 
-#include "Decoder.h"
-#include "Encoder.h"
+#include "ArgumentCoders.h"
 #include "Logging.h"
-#include "MachPort.h"
+#include "WebCoreArgumentCoders.h"
+#include <WebCore/ProcessIdentity.h>
 #include <WebCore/SharedBuffer.h>
 #include <mach/mach_error.h>
 #include <mach/mach_port.h>
 #include <mach/vm_map.h>
 #include <wtf/MachSendRight.h>
-#include <wtf/Optional.h>
 #include <wtf/RefPtr.h>
 #include <wtf/spi/cocoa/MachVMSPI.h>
 
+#if HAVE(MACH_MEMORY_ENTRY)
+#include <mach/memory_entry.h>
+#endif
+
 namespace WebKit {
 
-static inline Optional<size_t> safeRoundPage(size_t size)
+#if HAVE(MACH_MEMORY_ENTRY)
+static int toVMMemoryLedger(MemoryLedger memoryLedger)
 {
-    size_t roundedSize;
-    if (__builtin_add_overflow(size, static_cast<size_t>(PAGE_MASK), &roundedSize))
-        return WTF::nullopt;
-    roundedSize &= ~static_cast<size_t>(PAGE_MASK);
-    return roundedSize;
+    switch (memoryLedger) {
+    case MemoryLedger::None:
+        return VM_LEDGER_TAG_NONE;
+    case MemoryLedger::Default:
+        return VM_LEDGER_TAG_DEFAULT;
+    case MemoryLedger::Network:
+        return VM_LEDGER_TAG_NETWORK;
+    case MemoryLedger::Media:
+        return VM_LEDGER_TAG_MEDIA;
+    case MemoryLedger::Graphics:
+        return VM_LEDGER_TAG_GRAPHICS;
+    case MemoryLedger::Neural:
+        return VM_LEDGER_TAG_NEURAL;
+    }
+}
+#endif
+
+void SharedMemory::Handle::takeOwnershipOfMemory(MemoryLedger memoryLedger) const
+{
+#if HAVE(MACH_MEMORY_ENTRY)
+    if (!m_handle)
+        return;
+
+    kern_return_t kr = mach_memory_entry_ownership(m_handle.sendRight(), mach_task_self(), toVMMemoryLedger(memoryLedger), 0);
+    RELEASE_LOG_ERROR_IF(kr != KERN_SUCCESS, VirtualMemory, "SharedMemory::Handle::takeOwnershipOfMemory: Failed ownership of shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
+#else
+    UNUSED_PARAM(memoryLedger);
+#endif
 }
 
-SharedMemory::Handle::Handle()
-    : m_port(MACH_PORT_NULL)
-    , m_size(0)
+void SharedMemory::Handle::setOwnershipOfMemory(const WebCore::ProcessIdentity& processIdentity, MemoryLedger memoryLedger) const
 {
-}
+#if HAVE(TASK_IDENTITY_TOKEN) && HAVE(MACH_MEMORY_ENTRY_OWNERSHIP_IDENTITY_TOKEN_SUPPORT)
+    if (!m_handle)
+        return;
 
-SharedMemory::Handle::Handle(Handle&& other)
-{
-    m_port = std::exchange(other.m_port, MACH_PORT_NULL);
-    m_size = std::exchange(other.m_size, 0);
-}
-
-auto SharedMemory::Handle::operator=(Handle&& other) -> Handle&
-{
-    m_port = std::exchange(other.m_port, MACH_PORT_NULL);
-    m_size = std::exchange(other.m_size, 0);
-    return *this;
-}
-
-SharedMemory::Handle::~Handle()
-{
-    clear();
+    kern_return_t kr = mach_memory_entry_ownership(m_handle.sendRight(), processIdentity.taskIdToken(), toVMMemoryLedger(memoryLedger), 0);
+    RELEASE_LOG_ERROR_IF(kr != KERN_SUCCESS, VirtualMemory, "SharedMemory::Handle::setOwnershipOfMemory: Failed ownership of shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
+#else
+    UNUSED_PARAM(memoryLedger);
+    UNUSED_PARAM(processIdentity);
+#endif
 }
 
 bool SharedMemory::Handle::isNull() const
 {
-    return !m_port;
+    return !m_handle;
 }
 
 void SharedMemory::Handle::clear()
 {
-    if (m_port)
-        deallocateSendRightSafely(m_port);
-
-    m_port = MACH_PORT_NULL;
-    m_size = 0;
+    *this = { };
 }
 
 void SharedMemory::Handle::encode(IPC::Encoder& encoder) const
 {
     encoder << static_cast<uint64_t>(m_size);
-    encoder << IPC::MachPort(m_port, MACH_MSG_TYPE_MOVE_SEND);
-    m_port = MACH_PORT_NULL;
+    encoder << WTFMove(m_handle); // FIXME: add rvalue encode.
 }
 
 bool SharedMemory::Handle::decode(IPC::Decoder& decoder, Handle& handle)
 {
-    ASSERT(!handle.m_port);
+    ASSERT(!handle.m_handle);
     ASSERT(!handle.m_size);
-
-    uint64_t size;
-    if (!decoder.decode(size))
+    uint64_t bufferSize;
+    if (!decoder.decode(bufferSize))
         return false;
 
-    IPC::MachPort machPort;
-    if (!decoder.decode(machPort))
+    auto sendRight = decoder.decode<MachSendRight>();
+    if (UNLIKELY(!decoder.isValid()))
         return false;
     
-    handle.m_size = size;
-    handle.m_port = machPort.port();
+    handle.m_size = bufferSize;
+    handle.m_handle = WTFMove(*sendRight);
     return true;
 }
 
@@ -127,29 +138,18 @@ RefPtr<SharedMemory> SharedMemory::allocate(size_t size)
 {
     ASSERT(size);
 
-    auto roundedSize = safeRoundPage(size);
-    if (!roundedSize) {
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::allocate: Failed to allocate shared memory (%zu bytes) due to overflow", nullptr, size);
-        return nullptr;
-    }
-
     mach_vm_address_t address = 0;
-    kern_return_t kr = mach_vm_allocate(mach_task_self(), &address, *roundedSize, VM_FLAGS_ANYWHERE);
+    // Using VM_FLAGS_PURGABLE so that we can later transfer ownership of the memory via mach_memory_entry_ownership().
+    kern_return_t kr = mach_vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE | VM_FLAGS_PURGABLE);
     if (kr != KERN_SUCCESS) {
-#if RELEASE_LOG_DISABLED
-        LOG_ERROR("Failed to allocate mach_vm_allocate shared memory (%zu bytes). %s (%x)", size, mach_error_string(kr), kr);
-#else
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::allocate: Failed to allocate mach_vm_allocate shared memory (%zu bytes). %{public}s (%x)", nullptr, size, mach_error_string(kr), kr);
-#endif
+        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::allocate: Failed to allocate mach_vm_allocate shared memory (%zu bytes). %" PUBLIC_LOG_STRING " (%x)", nullptr, size, mach_error_string(kr), kr);
         return nullptr;
     }
 
     auto sharedMemory = adoptRef(*new SharedMemory);
     sharedMemory->m_size = size;
     sharedMemory->m_data = toPointer(address);
-    sharedMemory->m_port = MACH_PORT_NULL;
     sharedMemory->m_protection = Protection::ReadWrite;
-
     return WTFMove(sharedMemory);
 }
 
@@ -168,24 +168,27 @@ static inline vm_prot_t machProtection(SharedMemory::Protection protection)
 
 static WTF::MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, SharedMemory::Protection protection, mach_port_t parentEntry)
 {
-    auto roundedSize = safeRoundPage(size);
-    if (!roundedSize) {
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory (%zu bytes) due to overflow", nullptr, size);
-        return { };
-    }
-
-    memory_object_size_t memoryObjectSize = *roundedSize;
-
+    memory_object_size_t memoryObjectSize = size;
     mach_port_t port = MACH_PORT_NULL;
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, parentEntry);
+
+#if HAVE(MEMORY_ATTRIBUTION_VM_SHARE_SUPPORT)
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, parentEntry);
     if (kr != KERN_SUCCESS) {
-#if RELEASE_LOG_DISABLED
-        LOG_ERROR("Failed to create a mach port for shared memory. %s (%x)", mach_error_string(kr), kr);
-#else
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory. %{public}s (%x)", nullptr, mach_error_string(kr), kr);
-#endif
+        RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
         return { };
     }
+#else
+    // First try without MAP_MEM_VM_SHARE because it prevents memory ownership transfer. We only pass the MAP_MEM_VM_SHARE flag as a fallback.
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_USE_DATA_ADDR, &port, parentEntry);
+    if (kr != KERN_SUCCESS) {
+        RELEASE_LOG(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory, will try again with MAP_MEM_VM_SHARE flag. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
+        kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, parentEntry);
+        if (kr != KERN_SUCCESS) {
+            RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory with MAP_MEM_VM_SHARE flag. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
+            return { };
+        }
+    }
+#endif // HAVE(MEMORY_ATTRIBUTION_VM_SHARE_SUPPORT)
 
     RELEASE_ASSERT(memoryObjectSize >= size);
 
@@ -203,7 +206,7 @@ RefPtr<SharedMemory> SharedMemory::wrapMap(void* data, size_t size, Protection p
     auto sharedMemory(adoptRef(*new SharedMemory));
     sharedMemory->m_size = size;
     sharedMemory->m_data = nullptr;
-    sharedMemory->m_port = sendRight.leakSendRight();
+    sharedMemory->m_sendRight = WTFMove(sendRight);
     sharedMemory->m_protection = protection;
 
     return WTFMove(sharedMemory);
@@ -216,21 +219,16 @@ RefPtr<SharedMemory> SharedMemory::map(const Handle& handle, Protection protecti
 
     vm_prot_t vmProtection = machProtection(protection);
     mach_vm_address_t mappedAddress = 0;
-    kern_return_t kr = mach_vm_map(mach_task_self(), &mappedAddress, handle.m_size, 0, VM_FLAGS_ANYWHERE, handle.m_port, 0, false, vmProtection, vmProtection, VM_INHERIT_NONE);
-#if RELEASE_LOG_DISABLED
-    if (kr != KERN_SUCCESS)
-        return nullptr;
-#else
+
+    kern_return_t kr = mach_vm_map(mach_task_self(), &mappedAddress, handle.m_size, 0, VM_FLAGS_ANYWHERE | VM_FLAGS_RETURN_DATA_ADDR, handle.m_handle.sendRight(), 0, false, vmProtection, vmProtection, VM_INHERIT_NONE);
     if (kr != KERN_SUCCESS) {
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::map: Failed to map shared memory. %{public}s (%x)", nullptr, mach_error_string(kr), kr);
+        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::map: Failed to map shared memory. %" PUBLIC_LOG_STRING " (%x)", nullptr, mach_error_string(kr), kr);
         return nullptr;
     }
-#endif
 
     auto sharedMemory(adoptRef(*new SharedMemory));
     sharedMemory->m_size = handle.m_size;
     sharedMemory->m_data = toPointer(mappedAddress);
-    sharedMemory->m_port = MACH_PORT_NULL;
     sharedMemory->m_protection = protection;
 
     return WTFMove(sharedMemory);
@@ -239,69 +237,37 @@ RefPtr<SharedMemory> SharedMemory::map(const Handle& handle, Protection protecti
 SharedMemory::~SharedMemory()
 {
     if (m_data) {
-        auto roundedSize = safeRoundPage(m_size);
-        if (!roundedSize) {
-            RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::~SharedMemory: Failed to deallocate memory (%zu bytes) due to overflow", this, m_size);
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-
-        kern_return_t kr = mach_vm_deallocate(mach_task_self(), toVMAddress(m_data), *roundedSize);
-#if RELEASE_LOG_DISABLED
-        ASSERT_UNUSED(kr, kr == KERN_SUCCESS);
-#else
+        kern_return_t kr = mach_vm_deallocate(mach_task_self(), toVMAddress(m_data), m_size);
         if (kr != KERN_SUCCESS) {
-            RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::~SharedMemory: Failed to deallocate shared memory. %{public}s (%x)", this, mach_error_string(kr), kr);
+            RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::~SharedMemory: Failed to deallocate shared memory. %" PUBLIC_LOG_STRING " (%x)", this, mach_error_string(kr), kr);
             ASSERT_NOT_REACHED();
         }
-#endif
     }
-
-    if (m_port) {
-        kern_return_t kr = mach_port_deallocate(mach_task_self(), m_port);
-#if RELEASE_LOG_DISABLED
-        ASSERT_UNUSED(kr, kr == KERN_SUCCESS);
-#else
-        if (kr != KERN_SUCCESS) {
-            RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::~SharedMemory: Failed to deallocate port. %{public}s (%x)", this, mach_error_string(kr), kr);
-            ASSERT_NOT_REACHED();
-        }
-#endif
-    }        
 }
     
-bool SharedMemory::createHandle(Handle& handle, Protection protection)
+auto SharedMemory::createHandle(Protection protection) -> std::optional<Handle>
 {
-    ASSERT(!handle.m_port);
+    Handle handle;
+    ASSERT(!handle.m_handle);
     ASSERT(!handle.m_size);
-
-    auto roundedSize = safeRoundPage(m_size);
-    if (!roundedSize) {
-        RELEASE_LOG_ERROR(VirtualMemory, "%p - SharedMemory::createHandle: Failed to create handle (%zu bytes) due to overflow", this, m_size);
-        return false;
-    }
 
     auto sendRight = createSendRight(protection);
     if (!sendRight)
-        return false;
+        return std::nullopt;
 
-    handle.m_port = sendRight.leakSendRight();
-    handle.m_size = *roundedSize;
+    handle.m_handle = WTFMove(sendRight);
+    handle.m_size = m_size;
 
-    return true;
-}
-
-unsigned SharedMemory::systemPageSize()
-{
-    return vm_page_size;
+    return WTFMove(handle);
 }
 
 WTF::MachSendRight SharedMemory::createSendRight(Protection protection) const
 {
     ASSERT(m_protection == protection || m_protection == Protection::ReadWrite && protection == Protection::ReadOnly);
-    ASSERT(!!m_data ^ !!m_port);
+    ASSERT(!!m_data ^ !!m_sendRight);
 
-    if (m_port && m_protection == protection)
-        return WTF::MachSendRight::create(m_port);
+    if (m_sendRight && m_protection == protection)
+        return m_sendRight;
 
     ASSERT(m_data);
     return makeMemoryEntry(m_size, toVMAddress(m_data), protection, MACH_PORT_NULL);

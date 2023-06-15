@@ -22,12 +22,16 @@
 #pragma once
 
 #include "ChildNodeList.h"
+#include "CommonAtomStrings.h"
 #include "HTMLCollection.h"
+#include "HTMLSlotElement.h"
 #include "MutationObserverRegistration.h"
 #include "QualifiedName.h"
 #include "TagCollection.h"
+#include <new>
 #include <wtf/HashSet.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
@@ -198,7 +202,7 @@ public:
             cache->invalidateCacheForDocument(oldDocument);
 
         for (auto& list : m_tagCollectionNSCache.values()) {
-            ASSERT(!list->isRootedAtDocument());
+            ASSERT(!list->isRootedAtTreeScope());
             list->invalidateCacheForDocument(oldDocument);
         }
 
@@ -233,7 +237,7 @@ class NodeMutationObserverData {
     WTF_MAKE_NONCOPYABLE(NodeMutationObserverData); WTF_MAKE_FAST_ALLOCATED;
 public:
     Vector<std::unique_ptr<MutationObserverRegistration>> registry;
-    HashSet<MutationObserverRegistration*> transientRegistry;
+    WeakHashSet<MutationObserverRegistration> transientRegistry;
 
     NodeMutationObserverData() { }
 };
@@ -244,30 +248,41 @@ class NodeRareData {
     WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(NodeRareData);
 public:
 #if defined(DUMP_NODE_STATISTICS) && DUMP_NODE_STATISTICS
-    enum class UseType : uint16_t {
-        ConnectedFrameCount = 1 << 0,
-        NodeList = 1 << 1,
-        MutationObserver = 1 << 2,
-        TabIndex = 1 << 3,
-        MinimumSize = 1 << 4,
+    enum class UseType : uint32_t {
+        TabIndex = 1 << 0,
+        ChildIndex = 1 << 1,
+        NodeList = 1 << 2,
+        MutationObserver = 1 << 3,
+        ManuallyAssignedSlot = 1 << 4,
         ScrollingPosition = 1 << 5,
         ComputedStyle = 1 << 6,
-        Dataset = 1 << 7,
-        ClassList = 1 << 8,
-        ShadowRoot = 1 << 9,
-        CustomElementQueue = 1 << 10,
-        AttributeMap = 1 << 11,
-        InteractionObserver = 1 << 12,
-        PseudoElements = 1 << 13,
-        Animations = 1 << 14,
+        EffectiveLang = 1 << 7,
+        Dataset = 1 << 8,
+        ClassList = 1 << 9,
+        ShadowRoot = 1 << 10,
+        CustomElementReactionQueue = 1 << 11,
+        CustomElementDefaultARIA = 1 << 12,
+        FormAssociatedCustomElement = 1 << 13,
+        AttributeMap = 1 << 14,
+        InteractionObserver = 1 << 15,
+        ResizeObserver = 1 << 16,
+        Animations = 1 << 17,
+        PseudoElements = 1 << 18,
+        AttributeStyleMap = 1 << 19,
+        ComputedStyleMap = 1 << 20,
+        PartList = 1 << 21,
+        PartNames = 1 << 22,
+        Nonce = 1 << 23,
+        ExplicitlySetAttrElementsMap = 1 << 24,
+        Popover = 1 << 25,
+        DisplayContentsStyle = 1 << 26,
     };
 #endif
 
     enum class Type { Element, Node };
 
     NodeRareData(Type type = Type::Node)
-        : m_connectedFrameCount(0)
-        , m_isElementRareData(type == Type::Element)
+        : m_isElementRareData(type == Type::Element)
     {
     }
 
@@ -282,46 +297,49 @@ public:
         return *m_nodeLists;
     }
 
-    NodeMutationObserverData* mutationObserverData() { return m_mutationObserverData.get(); }
-    NodeMutationObserverData& ensureMutationObserverData()
+    NodeMutationObserverData* mutationObserverDataIfExists() { return m_mutationObserverData.get(); }
+    NodeMutationObserverData& mutationObserverData()
     {
         if (!m_mutationObserverData)
             m_mutationObserverData = makeUnique<NodeMutationObserverData>();
         return *m_mutationObserverData;
     }
 
-    unsigned connectedSubframeCount() const { return m_connectedFrameCount; }
-    void incrementConnectedSubframeCount(unsigned amount)
-    {
-        m_connectedFrameCount += amount;
-    }
-    void decrementConnectedSubframeCount(unsigned amount)
-    {
-        ASSERT(m_connectedFrameCount);
-        ASSERT(amount <= m_connectedFrameCount);
-        m_connectedFrameCount -= amount;
-    }
+    // https://html.spec.whatwg.org/multipage/scripting.html#manually-assigned-nodes
+    HTMLSlotElement* manuallyAssignedSlot() { return m_manuallyAssignedSlot.get(); }
+    void setManuallyAssignedSlot(HTMLSlotElement* slot) { m_manuallyAssignedSlot = slot; }
 
 #if DUMP_NODE_STATISTICS
     OptionSet<UseType> useTypes() const
     {
         OptionSet<UseType> result;
-        if (m_connectedFrameCount)
-            result.add(UseType::ConnectedFrameCount);
+        if (m_unusualTabIndex)
+            result.add(UseType::TabIndex);
+        if (m_childIndex)
+            result.add(UseType::ChildIndex);
         if (m_nodeLists)
             result.add(UseType::NodeList);
         if (m_mutationObserverData)
             result.add(UseType::MutationObserver);
+        if (m_manuallyAssignedSlot)
+            result.add(UseType::ManuallyAssignedSlot);
         return result;
     }
 #endif
 
+    void operator delete(NodeRareData*, std::destroying_delete_t);
+
+protected:
+    // Used by ElementRareData. Defined here for better packing in 64-bit.
+    int m_unusualTabIndex { 0 };
+    unsigned short m_childIndex { 0 };
+
 private:
-    unsigned m_connectedFrameCount : 31; // Must fit Page::maxNumberOfFrames.
-    unsigned m_isElementRareData : 1;
+    bool m_isElementRareData;
 
     std::unique_ptr<NodeListsNodeData> m_nodeLists;
     std::unique_ptr<NodeMutationObserverData> m_mutationObserverData;
+    WeakPtr<HTMLSlotElement, WeakPtrImplWithEventTargetData> m_manuallyAssignedSlot;
 };
 
 template<> struct NodeListTypeIdentifier<NameNodeList> {

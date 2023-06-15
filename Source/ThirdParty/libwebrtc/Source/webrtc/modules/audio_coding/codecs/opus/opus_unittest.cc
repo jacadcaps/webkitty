@@ -115,10 +115,10 @@ class OpusTest
 
   void TestCbrEffect(bool dtx, int block_length_ms);
 
-  // Prepare |speech_data_| for encoding, read from a hard-coded file.
-  // After preparation, |speech_data_.GetNextBlock()| returns a pointer to a
-  // block of |block_length_ms| milliseconds. The data is looped every
-  // |loop_length_ms| milliseconds.
+  // Prepare `speech_data_` for encoding, read from a hard-coded file.
+  // After preparation, `speech_data_.GetNextBlock()` returns a pointer to a
+  // block of `block_length_ms` milliseconds. The data is looped every
+  // `loop_length_ms` milliseconds.
   void PrepareSpeechData(int block_length_ms, int loop_length_ms);
 
   int EncodeDecode(WebRtcOpusEncInst* encoder,
@@ -310,24 +310,24 @@ void OpusTest::TestDtxEffect(bool dtx, int block_length_ms) {
   // one with an arbitrary size and the other of 1-byte, then stops sending for
   // a certain number of frames.
 
-  // |max_dtx_frames| is the maximum number of frames Opus can stay in DTX.
+  // `max_dtx_frames` is the maximum number of frames Opus can stay in DTX.
   // TODO(kwiberg): Why does this number depend on the encoding sample rate?
   const int max_dtx_frames =
       (encoder_sample_rate_hz_ == 16000 ? 800 : 400) / block_length_ms + 1;
 
-  // We run |kRunTimeMs| milliseconds of pure silence.
+  // We run `kRunTimeMs` milliseconds of pure silence.
   const int kRunTimeMs = 4500;
 
-  // We check that, after a |kCheckTimeMs| milliseconds (given that the CNG in
+  // We check that, after a `kCheckTimeMs` milliseconds (given that the CNG in
   // Opus needs time to adapt), the absolute values of DTX decoded signal are
-  // bounded by |kOutputValueBound|.
+  // bounded by `kOutputValueBound`.
   const int kCheckTimeMs = 4000;
 
 #if defined(OPUS_FIXED_POINT)
   // Fixed-point Opus generates a random (comfort) noise, which has a less
   // predictable value bound than its floating-point Opus. This value depends on
   // input signal, and the time window for checking the output values (between
-  // |kCheckTimeMs| and |kRunTimeMs|).
+  // `kCheckTimeMs` and `kRunTimeMs`).
   const uint16_t kOutputValueBound = 30;
 
 #else
@@ -336,7 +336,7 @@ void OpusTest::TestDtxEffect(bool dtx, int block_length_ms) {
 
   int time = 0;
   while (time < kRunTimeMs) {
-    // DTX mode is maintained for maximum |max_dtx_frames| frames.
+    // DTX mode is maintained for maximum `max_dtx_frames` frames.
     int i = 0;
     for (; i < max_dtx_frames; ++i) {
       time += block_length_ms;
@@ -947,6 +947,32 @@ TEST_P(OpusTest, OpusDecodeRepacketized) {
   opus_repacketizer_destroy(rp);
   EXPECT_EQ(0, WebRtcOpus_EncoderFree(opus_encoder_));
   EXPECT_EQ(0, WebRtcOpus_DecoderFree(opus_decoder_));
+}
+
+TEST(OpusVadTest, CeltUnknownStatus) {
+  const uint8_t celt[] = {0x80};
+  EXPECT_EQ(WebRtcOpus_PacketHasVoiceActivity(celt, 1), -1);
+}
+
+TEST(OpusVadTest, Mono20msVadSet) {
+  uint8_t silk20msMonoVad[] = {0x78, 0x80};
+  EXPECT_TRUE(WebRtcOpus_PacketHasVoiceActivity(silk20msMonoVad, 2));
+}
+
+TEST(OpusVadTest, Mono20MsVadUnset) {
+  uint8_t silk20msMonoSilence[] = {0x78, 0x00};
+  EXPECT_FALSE(WebRtcOpus_PacketHasVoiceActivity(silk20msMonoSilence, 2));
+}
+
+TEST(OpusVadTest, Stereo20MsVadOnSideChannel) {
+  uint8_t silk20msStereoVadSideChannel[] = {0x78 | 0x04, 0x20};
+  EXPECT_TRUE(
+      WebRtcOpus_PacketHasVoiceActivity(silk20msStereoVadSideChannel, 2));
+}
+
+TEST(OpusVadTest, TwoOpusMonoFramesVadOnSecond) {
+  uint8_t twoMonoFrames[] = {0x78 | 0x1, 0x00, 0x80};
+  EXPECT_TRUE(WebRtcOpus_PacketHasVoiceActivity(twoMonoFrames, 3));
 }
 
 }  // namespace webrtc

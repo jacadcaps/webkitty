@@ -35,6 +35,7 @@
 #import "WKContentRuleListStoreInternal.h"
 #import "WKContentWorldInternal.h"
 #import "WKContextMenuElementInfoInternal.h"
+#import "WKDownloadInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHTTPCookieStoreInternal.h"
 #import "WKNSArray.h"
@@ -58,11 +59,11 @@
 #import "WKUserContentControllerInternal.h"
 #import "WKUserScriptInternal.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+#import "WKWebProcessPlugInCSSStyleDeclarationHandleInternal.h"
 #import "WKWebProcessPlugInFrameInternal.h"
 #import "WKWebProcessPlugInHitTestResultInternal.h"
 #import "WKWebProcessPlugInInternal.h"
 #import "WKWebProcessPlugInNodeHandleInternal.h"
-#import "WKWebProcessPlugInPageGroupInternal.h"
 #import "WKWebProcessPlugInRangeHandleInternal.h"
 #import "WKWebProcessPlugInScriptWorldInternal.h"
 #import "WKWebpagePreferencesInternal.h"
@@ -72,16 +73,17 @@
 #import "_WKAttachmentInternal.h"
 #import "_WKAutomationSessionInternal.h"
 #import "_WKContentRuleListActionInternal.h"
+#import "_WKContextMenuElementInfoInternal.h"
 #import "_WKCustomHeaderFieldsInternal.h"
-#import "_WKDownloadInternal.h"
-#import "_WKExperimentalFeatureInternal.h"
+#import "_WKDataTaskInternal.h"
+#import "_WKFeatureInternal.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
 #import "_WKGeolocationPositionInternal.h"
 #import "_WKHitTestResultInternal.h"
+#import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
-#import "_WKInternalDebugFeatureInternal.h"
 #import "_WKProcessPoolConfigurationInternal.h"
 #import "_WKResourceLoadInfoInternal.h"
 #import "_WKResourceLoadStatisticsFirstPartyInternal.h"
@@ -98,6 +100,18 @@
 #import "_WKApplicationManifestInternal.h"
 #endif
 
+#if ENABLE(INSPECTOR_EXTENSIONS)
+#import "_WKInspectorExtensionInternal.h"
+#endif
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+#import "_WKWebExtensionContextInternal.h"
+#import "_WKWebExtensionControllerConfigurationInternal.h"
+#import "_WKWebExtensionControllerInternal.h"
+#import "_WKWebExtensionInternal.h"
+#import "_WKWebExtensionMatchPatternInternal.h"
+#endif
+
 static const size_t minimumObjectAlignment = alignof(std::aligned_storage<std::numeric_limits<size_t>::max()>::type);
 static_assert(minimumObjectAlignment >= alignof(void*), "Objects should always be at least pointer-aligned.");
 static const size_t maximumExtraSpaceForAlignment = minimumObjectAlignment - alignof(void*);
@@ -106,12 +120,12 @@ namespace API {
 
 void Object::ref() const
 {
-    CFRetain((__bridge CFTypeRef)wrapper());
+    CFRetain(m_wrapper);
 }
 
 void Object::deref() const
 {
-    CFRelease((__bridge CFTypeRef)wrapper());
+    CFRelease(m_wrapper);
 }
 
 static id <WKObject> allocateWKObject(Class cls, size_t size)
@@ -214,8 +228,8 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [WKNSData alloc];
         break;
 
-    case Type::InternalDebugFeature:
-        wrapper = [_WKInternalDebugFeature alloc];
+    case Type::DataTask:
+        wrapper = [_WKDataTask alloc];
         break;
 
     case Type::Dictionary:
@@ -223,17 +237,17 @@ void* Object::newObject(size_t size, Type type)
         break;
 
     case Type::Download:
-        wrapper = [_WKDownload alloc];
-        break;
-
-    case Type::ExperimentalFeature:
-        wrapper = [_WKExperimentalFeature alloc];
+        wrapper = [WKDownload alloc];
         break;
 
     case Type::Error:
         wrapper = allocateWKObject([WKNSError class], size);
         break;
 
+    case Type::Feature:
+        wrapper = [_WKFeature alloc];
+        break;
+        
     case Type::FrameHandle:
         wrapper = [_WKFrameHandle alloc];
         break;
@@ -255,7 +269,7 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [WKHTTPCookieStore alloc];
         break;
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     case Type::HitTestResult:
         wrapper = [_WKHitTestResult alloc];
         break;
@@ -264,7 +278,17 @@ void* Object::newObject(size_t size, Type type)
     case Type::Inspector:
         wrapper = [_WKInspector alloc];
         break;
-        
+
+    case Type::InspectorConfiguration:
+        wrapper = [_WKInspectorConfiguration alloc];
+        break;
+
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    case Type::InspectorExtension:
+        wrapper = [_WKInspectorExtension alloc];
+        break;
+#endif
+
     case Type::Navigation:
         wrapper = [WKNavigation alloc];
         break;
@@ -335,6 +359,12 @@ void* Object::newObject(size_t size, Type type)
         break;
 #endif
 
+#if PLATFORM(MAC)
+    case Type::ContextMenuElementInfoMac:
+        wrapper = [_WKContextMenuElementInfo alloc];
+        break;
+#endif
+
     case Type::CustomHeaderFields:
         wrapper = [_WKCustomHeaderFields alloc];
         break;
@@ -370,6 +400,28 @@ void* Object::newObject(size_t size, Type type)
     case Type::VisitedLinkStore:
         wrapper = [_WKVisitedLinkStore alloc];
         break;
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+    case Type::WebExtension:
+        wrapper = [_WKWebExtension alloc];
+        break;
+
+    case Type::WebExtensionContext:
+        wrapper = [_WKWebExtensionContext alloc];
+        break;
+
+    case Type::WebExtensionController:
+        wrapper = [_WKWebExtensionController alloc];
+        break;
+
+    case Type::WebExtensionControllerConfiguration:
+        wrapper = [_WKWebExtensionControllerConfiguration alloc];
+        break;
+
+    case Type::WebExtensionMatchPattern:
+        wrapper = [_WKWebExtensionMatchPattern alloc];
+        break;
+#endif
 
     case Type::WebsiteDataRecord:
         wrapper = [WKWebsiteDataRecord alloc];
@@ -408,12 +460,12 @@ void* Object::newObject(size_t size, Type type)
         wrapper = [WKWebProcessPlugInHitTestResult alloc];
         break;
 
-    case Type::BundleNodeHandle:
-        wrapper = [WKWebProcessPlugInNodeHandle alloc];
+    case Type::BundleCSSStyleDeclarationHandle:
+        wrapper = [WKWebProcessPlugInCSSStyleDeclarationHandle alloc];
         break;
 
-    case Type::BundlePageGroup:
-        wrapper = [WKWebProcessPlugInPageGroup alloc];
+    case Type::BundleNodeHandle:
+        wrapper = [WKWebProcessPlugInNodeHandle alloc];
         break;
 
     case Type::BundleRangeHandle:
@@ -430,7 +482,7 @@ void* Object::newObject(size_t size, Type type)
     }
 
     Object& object = wrapper._apiObject;
-    object.m_wrapper = wrapper;
+    object.m_wrapper = (__bridge CFTypeRef)wrapper;
 
     return &object;
 }

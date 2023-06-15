@@ -52,7 +52,7 @@ public:
 
     // The size of the web view.
     WebCore::IntSize viewSize;
-    float deviceScaleFactor;
+    float deviceScaleFactor { 0 };
 
     // The rect and delta to be scrolled.
     WebCore::IntRect scrollRect;
@@ -65,10 +65,10 @@ public:
     Vector<WebCore::IntRect> updateRects;
 
     // The page scale factor used to render this update.
-    float updateScaleFactor;
+    float updateScaleFactor { 0 };
 
     // The handle of the shareable bitmap containing the updates. Will be null if there are no updates.
-    ShareableBitmap::Handle bitmapHandle;
+    ShareableBitmapHandle bitmapHandle;
 
     // The offset in the bitmap where the rendered contents are.
     WebCore::IntPoint bitmapOffset;

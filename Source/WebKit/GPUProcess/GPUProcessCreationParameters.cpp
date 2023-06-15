@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,33 +41,87 @@ GPUProcessCreationParameters::GPUProcessCreationParameters() = default;
 
 void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
 {
+    encoder << auxiliaryProcessParameters;
 #if ENABLE(MEDIA_STREAM)
     encoder << useMockCaptureDevices;
-    encoder << cameraSandboxExtensionHandle;
+#if PLATFORM(MAC)
     encoder << microphoneSandboxExtensionHandle;
-#if PLATFORM(IOS)
-    encoder << tccSandboxExtensionHandle;
 #endif
+#endif
+#if HAVE(AVCONTENTKEYSPECIFIER)
+    encoder << sampleBufferContentKeySessionSupportEnabled;
 #endif
     encoder << parentPID;
+
+#if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
+    encoder << containerCachesDirectoryExtensionHandle;
+    encoder << containerTemporaryDirectoryExtensionHandle;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    encoder << compilerServiceExtensionHandles;
+    encoder << dynamicIOKitExtensionHandles;
+#endif
+    encoder << mobileGestaltExtensionHandle;
+
+    encoder << applicationVisibleName;
 }
 
 bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreationParameters& result)
 {
+    if (!decoder.decode(result.auxiliaryProcessParameters))
+        return false;
 #if ENABLE(MEDIA_STREAM)
     if (!decoder.decode(result.useMockCaptureDevices))
         return false;
-    if (!decoder.decode(result.cameraSandboxExtensionHandle))
-        return false;
+#if PLATFORM(MAC)
     if (!decoder.decode(result.microphoneSandboxExtensionHandle))
         return false;
-#if PLATFORM(IOS)
-    if (!decoder.decode(result.tccSandboxExtensionHandle))
+#endif
+#endif
+#if HAVE(AVCONTENTKEYSPECIFIER)
+    if (!decoder.decode(result.sampleBufferContentKeySessionSupportEnabled))
         return false;
 #endif
-#endif
+
     if (!decoder.decode(result.parentPID))
         return false;
+
+#if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
+    std::optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
+    decoder >> containerCachesDirectoryExtensionHandle;
+    if (!containerCachesDirectoryExtensionHandle)
+        return false;
+    result.containerCachesDirectoryExtensionHandle = WTFMove(*containerCachesDirectoryExtensionHandle);
+
+    std::optional<SandboxExtension::Handle> containerTemporaryDirectoryExtensionHandle;
+    decoder >> containerTemporaryDirectoryExtensionHandle;
+    if (!containerTemporaryDirectoryExtensionHandle)
+        return false;
+    result.containerTemporaryDirectoryExtensionHandle = WTFMove(*containerTemporaryDirectoryExtensionHandle);
+#endif
+#if PLATFORM(IOS_FAMILY)
+    std::optional<Vector<SandboxExtension::Handle>> compilerServiceExtensionHandles;
+    decoder >> compilerServiceExtensionHandles;
+    if (!compilerServiceExtensionHandles)
+        return false;
+    result.compilerServiceExtensionHandles = WTFMove(*compilerServiceExtensionHandles);
+
+    std::optional<Vector<SandboxExtension::Handle>> dynamicIOKitExtensionHandles;
+    decoder >> dynamicIOKitExtensionHandles;
+    if (!dynamicIOKitExtensionHandles)
+        return false;
+    result.dynamicIOKitExtensionHandles = WTFMove(*dynamicIOKitExtensionHandles);
+#endif
+
+    std::optional<std::optional<SandboxExtension::Handle>> mobileGestaltExtensionHandle;
+    decoder >> mobileGestaltExtensionHandle;
+    if (!mobileGestaltExtensionHandle)
+        return false;
+    result.mobileGestaltExtensionHandle = WTFMove(*mobileGestaltExtensionHandle);
+
+    if (!decoder.decode(result.applicationVisibleName))
+        return false;
+
     return true;
 }
 

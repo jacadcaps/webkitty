@@ -25,19 +25,18 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import <WebCore/SQLiteFileSystem.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserStyleSheet.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static RetainPtr<WKScriptMessage> lastScriptMessage;
 
 @interface IDBIndexUpgradeToV2MessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -58,13 +57,13 @@ TEST(IndexedDB, IndexUpgradeToV2)
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
 
-    [configuration.get().processPool _terminateNetworkProcess];
+    [configuration.get().websiteDataStore _terminateNetworkProcess];
 
     // Copy the inconsistent database files to the database directory
     NSURL *url1 = [[NSBundle mainBundle] URLForResource:@"IndexUpgrade" withExtension:@"sqlite3" subdirectory:@"TestWebKitAPI.resources"];
     NSURL *url2 = [[NSBundle mainBundle] URLForResource:@"IndexUpgrade" withExtension:@"blob" subdirectory:@"TestWebKitAPI.resources"];
 
-    NSString *hash = WebCore::SQLiteFileSystem::computeHashForFileName("index-upgrade-test");
+    NSString *hash = WebCore::SQLiteFileSystem::computeHashForFileName("index-upgrade-test"_s);
     NSString *originDirectory = @"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/WebsiteData/IndexedDB/v1/file__0/";
     NSString *databaseDirectory = [[originDirectory stringByAppendingString:hash] stringByExpandingTildeInPath];
     NSURL *targetURL = [NSURL fileURLWithPath:databaseDirectory];
@@ -82,4 +81,43 @@ TEST(IndexedDB, IndexUpgradeToV2)
     TestWebKitAPI::Util::run(&receivedScriptMessage);
 
     EXPECT_WK_STREQ(@"Object expected to be a blob: [object Blob]", [lastScriptMessage body]);
+}
+
+static void runMultipleIndicesTestWithDatabase(NSString* databaseName)
+{
+    auto handler = adoptNS([[IDBIndexUpgradeToV2MessageHandler alloc] init]);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
+    [configuration.get().websiteDataStore _terminateNetworkProcess];
+
+    NSURL *url = [[NSBundle mainBundle] URLForResource:databaseName withExtension:@"sqlite3" subdirectory:@"TestWebKitAPI.resources"];
+    NSString *hash = WebCore::SQLiteFileSystem::computeHashForFileName("index-upgrade-test"_s);
+    NSURL *originURL = [NSURL URLWithString:@"file://"];
+    __block NSString *originDirectoryString = nil;
+    [configuration.get().websiteDataStore _originDirectoryForTesting:originURL topOrigin:originURL type:WKWebsiteDataTypeIndexedDBDatabases completionHandler:^(NSString *result) {
+        originDirectoryString = result;
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    NSURL *databaseDirectory = [[NSURL fileURLWithPath:originDirectoryString isDirectory:YES] URLByAppendingPathComponent:hash];
+    [[NSFileManager defaultManager] removeItemAtURL:databaseDirectory error:nil];
+    [[NSFileManager defaultManager] createDirectoryAtURL:databaseDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    [[NSFileManager defaultManager] copyItemAtURL:url toURL:[databaseDirectory URLByAppendingPathComponent:@"IndexedDB.sqlite3"] error:nil];
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IDBIndexUpgradeToV2WithMultipleIndices" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    [webView loadRequest:request];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+
+    EXPECT_WK_STREQ(@"Get object: {\"name\":\"apple\",\"color\":\"red\"}", [lastScriptMessage body]);
+}
+
+TEST(IndexedDB, IndexUpgradeToV2WithMultipleIndices)
+{
+    runMultipleIndicesTestWithDatabase(@"IndexUpgradeWithMultipleIndices");
+}
+
+TEST(IndexedDB, IndexUpgradeToV2WithMultipleIndicesHaveSameID)
+{
+    runMultipleIndicesTestWithDatabase(@"IndexUpgradeWithMultipleIndicesHaveSameID");
 }

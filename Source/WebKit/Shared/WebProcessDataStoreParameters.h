@@ -33,27 +33,37 @@
 namespace WebKit {
 
 struct WebProcessDataStoreParameters {
+    using TopFrameDomain = WebCore::RegistrableDomain;
+    using SubResourceDomain = WebCore::RegistrableDomain;
+
     PAL::SessionID sessionID;
     String applicationCacheDirectory;
     SandboxExtension::Handle applicationCacheDirectoryExtensionHandle;
     String applicationCacheFlatFileSubdirectoryName;
-    String webSQLDatabaseDirectory;
-    SandboxExtension::Handle webSQLDatabaseDirectoryExtensionHandle;
     String mediaCacheDirectory;
     SandboxExtension::Handle mediaCacheDirectoryExtensionHandle;
     String mediaKeyStorageDirectory;
     SandboxExtension::Handle mediaKeyStorageDirectoryExtensionHandle;
     String javaScriptConfigurationDirectory;
     SandboxExtension::Handle javaScriptConfigurationDirectoryExtensionHandle;
-    HashMap<unsigned, WallTime> plugInAutoStartOriginHashes;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     HashSet<WebCore::RegistrableDomain> domainsWithUserInteraction;
+    HashMap<TopFrameDomain, SubResourceDomain> domainsWithStorageAccessQuirk;
 #endif
-    bool resourceLoadStatisticsEnabled { false };
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+    String modelElementCacheDirectory;
+    SandboxExtension::Handle modelElementCacheDirectoryExtensionHandle;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    std::optional<SandboxExtension::Handle> cookieStorageDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> containerTemporaryDirectoryExtensionHandle;
+#endif
+    bool trackingPreventionEnabled { false };
 
     template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<WebProcessDataStoreParameters> decode(Decoder&);
+    template<class Decoder> static std::optional<WebProcessDataStoreParameters> decode(Decoder&);
 };
 
 template<class Encoder>
@@ -63,119 +73,150 @@ void WebProcessDataStoreParameters::encode(Encoder& encoder) const
     encoder << applicationCacheDirectory;
     encoder << applicationCacheDirectoryExtensionHandle;
     encoder << applicationCacheFlatFileSubdirectoryName;
-    encoder << webSQLDatabaseDirectory;
-    encoder << webSQLDatabaseDirectoryExtensionHandle;
     encoder << mediaCacheDirectory;
     encoder << mediaCacheDirectoryExtensionHandle;
     encoder << mediaKeyStorageDirectory;
     encoder << mediaKeyStorageDirectoryExtensionHandle;
     encoder << javaScriptConfigurationDirectory;
     encoder << javaScriptConfigurationDirectoryExtensionHandle;
-    encoder << plugInAutoStartOriginHashes;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
     encoder << thirdPartyCookieBlockingMode;
     encoder << domainsWithUserInteraction;
+    encoder << domainsWithStorageAccessQuirk;
 #endif
-    encoder << resourceLoadStatisticsEnabled;
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+    encoder << modelElementCacheDirectory;
+    encoder << modelElementCacheDirectoryExtensionHandle;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    encoder << cookieStorageDirectoryExtensionHandle;
+    encoder << containerCachesDirectoryExtensionHandle;
+    encoder << containerTemporaryDirectoryExtensionHandle;
+#endif
+    encoder << trackingPreventionEnabled;
 }
 
 template<class Decoder>
-Optional<WebProcessDataStoreParameters> WebProcessDataStoreParameters::decode(Decoder& decoder)
+std::optional<WebProcessDataStoreParameters> WebProcessDataStoreParameters::decode(Decoder& decoder)
 {
-    Optional<PAL::SessionID> sessionID;
+    std::optional<PAL::SessionID> sessionID;
     decoder >> sessionID;
     if (!sessionID)
-        return WTF::nullopt;
+        return std::nullopt;
 
     String applicationCacheDirectory;
     if (!decoder.decode(applicationCacheDirectory))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SandboxExtension::Handle> applicationCacheDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> applicationCacheDirectoryExtensionHandle;
     decoder >> applicationCacheDirectoryExtensionHandle;
     if (!applicationCacheDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
 
     String applicationCacheFlatFileSubdirectoryName;
     if (!decoder.decode(applicationCacheFlatFileSubdirectoryName))
-        return WTF::nullopt;
-
-    String webSQLDatabaseDirectory;
-    if (!decoder.decode(webSQLDatabaseDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> webSQLDatabaseDirectoryExtensionHandle;
-    decoder >> webSQLDatabaseDirectoryExtensionHandle;
-    if (!webSQLDatabaseDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
 
     String mediaCacheDirectory;
     if (!decoder.decode(mediaCacheDirectory))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SandboxExtension::Handle> mediaCacheDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> mediaCacheDirectoryExtensionHandle;
     decoder >> mediaCacheDirectoryExtensionHandle;
     if (!mediaCacheDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
 
     String mediaKeyStorageDirectory;
     if (!decoder.decode(mediaKeyStorageDirectory))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SandboxExtension::Handle> mediaKeyStorageDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> mediaKeyStorageDirectoryExtensionHandle;
     decoder >> mediaKeyStorageDirectoryExtensionHandle;
     if (!mediaKeyStorageDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
 
     String javaScriptConfigurationDirectory;
     if (!decoder.decode(javaScriptConfigurationDirectory))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SandboxExtension::Handle> javaScriptConfigurationDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> javaScriptConfigurationDirectoryExtensionHandle;
     decoder >> javaScriptConfigurationDirectoryExtensionHandle;
     if (!javaScriptConfigurationDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
         
-    Optional<HashMap<unsigned, WallTime>> plugInAutoStartOriginHashes;
-    decoder >> plugInAutoStartOriginHashes;
-    if (!plugInAutoStartOriginHashes)
-        return WTF::nullopt;
-
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    Optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
+#if ENABLE(TRACKING_PREVENTION)
+    std::optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
     decoder >> thirdPartyCookieBlockingMode;
     if (!thirdPartyCookieBlockingMode)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<HashSet<WebCore::RegistrableDomain>> domainsWithUserInteraction;
+    std::optional<HashSet<WebCore::RegistrableDomain>> domainsWithUserInteraction;
     decoder >> domainsWithUserInteraction;
     if (!domainsWithUserInteraction)
-        return WTF::nullopt;
+        return std::nullopt;
+    
+    std::optional<HashMap<TopFrameDomain, SubResourceDomain>> domainsWithStorageAccessQuirk;
+    decoder >> domainsWithStorageAccessQuirk;
+    if (!domainsWithStorageAccessQuirk)
+        return std::nullopt;
+#endif
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+    String modelElementCacheDirectory;
+    if (!decoder.decode(modelElementCacheDirectory))
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> modelElementCacheDirectoryExtensionHandle;
+    decoder >> modelElementCacheDirectoryExtensionHandle;
+    if (!modelElementCacheDirectoryExtensionHandle)
+        return std::nullopt;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    std::optional<std::optional<SandboxExtension::Handle>> cookieStorageDirectoryExtensionHandle;
+    decoder >> cookieStorageDirectoryExtensionHandle;
+    if (!cookieStorageDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<std::optional<SandboxExtension::Handle>> containerCachesDirectoryExtensionHandle;
+    decoder >> containerCachesDirectoryExtensionHandle;
+    if (!containerCachesDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<std::optional<SandboxExtension::Handle>> containerTemporaryDirectoryExtensionHandle;
+    decoder >> containerTemporaryDirectoryExtensionHandle;
+    if (!containerTemporaryDirectoryExtensionHandle)
+        return std::nullopt;
 #endif
 
-    bool resourceLoadStatisticsEnabled = false;
-    if (!decoder.decode(resourceLoadStatisticsEnabled))
-        return WTF::nullopt;
+    bool trackingPreventionEnabled = false;
+    if (!decoder.decode(trackingPreventionEnabled))
+        return std::nullopt;
 
     return WebProcessDataStoreParameters {
         WTFMove(*sessionID),
         WTFMove(applicationCacheDirectory),
         WTFMove(*applicationCacheDirectoryExtensionHandle),
         WTFMove(applicationCacheFlatFileSubdirectoryName),
-        WTFMove(webSQLDatabaseDirectory),
-        WTFMove(*webSQLDatabaseDirectoryExtensionHandle),
         WTFMove(mediaCacheDirectory),
         WTFMove(*mediaCacheDirectoryExtensionHandle),
         WTFMove(mediaKeyStorageDirectory),
         WTFMove(*mediaKeyStorageDirectoryExtensionHandle),
         WTFMove(javaScriptConfigurationDirectory),
         WTFMove(*javaScriptConfigurationDirectoryExtensionHandle),
-        WTFMove(*plugInAutoStartOriginHashes),
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
         *thirdPartyCookieBlockingMode,
         WTFMove(*domainsWithUserInteraction),
+        WTFMove(*domainsWithStorageAccessQuirk),
 #endif
-        resourceLoadStatisticsEnabled
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+        WTFMove(modelElementCacheDirectory),
+        WTFMove(*modelElementCacheDirectoryExtensionHandle),
+#endif
+#if PLATFORM(IOS_FAMILY)
+        WTFMove(*cookieStorageDirectoryExtensionHandle),
+        WTFMove(*containerCachesDirectoryExtensionHandle),
+        WTFMove(*containerTemporaryDirectoryExtensionHandle),
+#endif
+        trackingPreventionEnabled
     };
 }
 

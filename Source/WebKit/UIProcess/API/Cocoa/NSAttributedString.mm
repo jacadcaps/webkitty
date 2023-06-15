@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,28 +28,30 @@
 #import "NSAttributedStringPrivate.h"
 
 #import "WKErrorInternal.h"
-#import "WKNavigationActionPrivate.h"
-#import "WKNavigationDelegate.h"
-#import "WKPreferences.h"
-#import "WKProcessPoolPrivate.h"
-#import "WKWebViewConfigurationPrivate.h"
-#import "WKWebViewPrivate.h"
-#import "WKWebsiteDataStore.h"
-#import "_WKProcessPoolConfiguration.h"
+#import <WebKit/WKNavigationActionPrivate.h>
+#import <WebKit/WKNavigationDelegate.h>
+#import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebsiteDataStore.h>
+#import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/Deque.h>
 #import <wtf/MemoryPressureHandler.h>
-#import <wtf/RetainPtr.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <UIKitSPI.h>
 #endif
 
 NSString * const NSReadAccessURLDocumentOption = @"ReadAccessURL";
+NSString * const _WKReadAccessFileURLsOption = @"_WKReadAccessFileURLsOption";
 
-constexpr NSRect webViewRect = {{0, 0}, {800, 600}};
+constexpr CGRect webViewRect = { { 0, 0 }, { 800, 600 } };
 constexpr NSTimeInterval defaultTimeoutInterval = 60;
 constexpr NSTimeInterval purgeWebViewCacheDelay = 15;
 constexpr NSUInteger maximumWebViewCacheSize = 3;
+constexpr NSUInteger maximumReadOnlyAccessPaths = 2;
 
 @interface _WKAttributedStringNavigationDelegate : NSObject <WKNavigationDelegate>
 
@@ -116,6 +118,8 @@ constexpr NSUInteger maximumWebViewCacheSize = 3;
 
 + (RetainPtr<WKWebView>)retrieveOrCreateWebView;
 + (void)cacheWebView:(WKWebView *)webView;
++ (void)maybeConsumeBundlePaths:(NSDictionary<NSAttributedStringDocumentReadingOptionKey, id> *)options;
++ (void)validateEntry:(id)maybeFileURL;
 
 @end
 
@@ -127,34 +131,109 @@ constexpr NSUInteger maximumWebViewCacheSize = 3;
     return cache;
 }
 
-static WKWebViewConfiguration *configuration;
+static RetainPtr<WKWebViewConfiguration>& globalConfiguration()
+{
+    static NeverDestroyed<RetainPtr<WKWebViewConfiguration>> configuration;
+    return configuration;
+}
+
+static NSMutableArray<NSURL *> *readOnlyAccessPaths()
+{
+    static NeverDestroyed<RetainPtr<NSMutableArray>> readOnlyAccessPaths = adoptNS([[NSMutableArray alloc] initWithCapacity:maximumReadOnlyAccessPaths]);
+    return readOnlyAccessPaths.get().get();
+}
 
 + (WKWebViewConfiguration *)configuration
 {
+    auto& configuration = globalConfiguration();
     if (!configuration) {
-        configuration = [[WKWebViewConfiguration alloc] init];
-        configuration.processPool = [[[WKProcessPool alloc] init] autorelease];
-        configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
-        configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeAll;
-        configuration._allowsJavaScriptMarkup = NO;
-        configuration._allowsMetaRefresh = NO;
-        configuration._attachmentElementEnabled = YES;
-        configuration._invisibleAutoplayNotPermitted = YES;
-        configuration._mediaDataLoadsAutomatically = NO;
-        configuration._needsStorageAccessFromFileURLsQuirk = NO;
+        configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+
+        RetainPtr<WKProcessPool> processPool;
+        if (readOnlyAccessPaths().count) {
+            RELEASE_ASSERT(readOnlyAccessPaths().count <= 2);
+            auto processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+            [processPoolConfiguration setAdditionalReadAccessAllowedURLs:readOnlyAccessPaths()];
+            processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
+        } else
+            processPool = adoptNS([[WKProcessPool alloc] init]).get();
+
+        [configuration setProcessPool:processPool.get()];
+        [configuration setWebsiteDataStore:[WKWebsiteDataStore nonPersistentDataStore]];
+        [configuration setMediaTypesRequiringUserActionForPlayback:WKAudiovisualMediaTypeAll];
+        [configuration _setAllowsJavaScriptMarkup:NO];
+        [configuration _setAllowsMetaRefresh:NO];
+        [configuration _setAttachmentElementEnabled:YES];
+        [configuration preferences]._extensibleSSOEnabled = NO;
+        [configuration _setInvisibleAutoplayNotPermitted:YES];
+        [configuration _setMediaDataLoadsAutomatically:NO];
+        [configuration _setNeedsStorageAccessFromFileURLsQuirk:NO];
 #if PLATFORM(IOS_FAMILY)
-        configuration.allowsInlineMediaPlayback = NO;
-        configuration._clientNavigationsRunAtForegroundPriority = YES;
+        [configuration setAllowsInlineMediaPlayback:NO];
+        [configuration _setClientNavigationsRunAtForegroundPriority:YES];
 #endif
+
+        [configuration preferences]._defaultFontSize = 12;
     }
 
-    return configuration;
+    return configuration.get();
 }
 
 + (void)clearConfiguration
 {
-    [configuration release];
-    configuration = nil;
+    globalConfiguration() = nil;
+}
+
++ (void)clearConfigurationAndRaiseExceptionIfNecessary:(NSString *)errorMessage
+{
+    if (!errorMessage)
+        return;
+
+    if (readOnlyAccessPaths().count) {
+        [readOnlyAccessPaths() removeAllObjects];
+        [self clearConfiguration];
+    }
+    [NSException raise:NSInvalidArgumentException format:@"%@", errorMessage];
+}
+
++ (void)validateEntry:(id)maybeFileURL
+{
+    NSString *errorMessage = nil;
+    auto* url = dynamic_objc_cast<NSURL>(maybeFileURL);
+    if (!url)
+        errorMessage = @"The NSArray associated with _WKReadAccessFileURLsOption may only contain NSURL objects.";
+    else if (!url.isFileURL)
+        errorMessage = @"_WKReadAccessFileURLsOption requires its NSURL objects to be file URLs.";
+
+    [self clearConfigurationAndRaiseExceptionIfNecessary:errorMessage];
+}
+
++ (void)maybeConsumeBundlePaths:(NSDictionary<NSAttributedStringDocumentReadingOptionKey, id> *)options
+{
+    id maybeReadAccessFileURLs = options[_WKReadAccessFileURLsOption];
+    if (!maybeReadAccessFileURLs)
+        return;
+
+    NSString *errorMessage = nil;
+    auto* readAccessFileURLs = dynamic_objc_cast<NSArray<NSURL *>>(maybeReadAccessFileURLs);
+    if (!readAccessFileURLs)
+        errorMessage = @"The value associated with _WKReadAccessFileURLsOption must be an NSArray of NSURL objects.";
+    else if (readAccessFileURLs.count > maximumReadOnlyAccessPaths)
+        errorMessage = @"_WKReadAccessFileURLsOption may have at most two additional directories.";
+
+    [self clearConfigurationAndRaiseExceptionIfNecessary:errorMessage];
+
+    for (id fileURL in readAccessFileURLs)
+        [self validateEntry:fileURL];
+
+    if ([readAccessFileURLs isEqualToArray:readOnlyAccessPaths()])
+        return;
+
+    if (readAccessFileURLs)
+        [readOnlyAccessPaths() setArray:readAccessFileURLs];
+    else
+        [readOnlyAccessPaths() removeAllObjects];
+    [self clearConfiguration];
 }
 
 + (RetainPtr<WKWebView>)retrieveOrCreateWebView
@@ -242,6 +321,8 @@ static WKWebViewConfiguration *configuration;
 
     auto runConversion = ^{
         __block auto finished = NO;
+
+        [_WKAttributedStringWebViewCache maybeConsumeBundlePaths:options];
         __block auto webView = [_WKAttributedStringWebViewCache retrieveOrCreateWebView];
         __block auto navigationDelegate = adoptNS([[_WKAttributedStringNavigationDelegate alloc] init]);
 
@@ -269,12 +350,18 @@ static WKWebViewConfiguration *configuration;
             webView = nil;
 
             // Make the string be an instance of the receiver class.
-            if (attributedString && self != attributedString.class)
-                attributedString = [[[self alloc] initWithAttributedString:attributedString] autorelease];
+            RetainPtr<NSAttributedString> newAttributedString;
+            if (attributedString && self != attributedString.class) {
+                newAttributedString = adoptNS([[self alloc] initWithAttributedString:attributedString]);
+                attributedString = newAttributedString.get();
+            }
 
             // Make the document attributes immutable.
-            if ([attributes isKindOfClass:NSMutableDictionary.class])
-                attributes = [[[NSDictionary alloc] initWithDictionary:attributes] autorelease];
+            RetainPtr<NSDictionary<NSAttributedStringDocumentAttributeKey, id>> newAttributes;
+            if ([attributes isKindOfClass:NSMutableDictionary.class]) {
+                newAttributes = adoptNS([[NSDictionary alloc] initWithDictionary:attributes]);
+                attributes = newAttributes.get();
+            }
 
             completionHandler(attributedString, attributes, error);
         };
@@ -310,7 +397,7 @@ static WKWebViewConfiguration *configuration;
             [webView _getContentsAsAttributedStringWithCompletionHandler:^(NSAttributedString *attributedString, NSDictionary<NSAttributedStringDocumentAttributeKey, id> *documentAttributes, NSError *error) {
                 if (error)
                     return cancel(WKErrorUnknown, error);
-                finish([[attributedString retain] autorelease], [[documentAttributes retain] autorelease], nil);
+                finish(attributedString, documentAttributes, nil);
             }];
         };
 

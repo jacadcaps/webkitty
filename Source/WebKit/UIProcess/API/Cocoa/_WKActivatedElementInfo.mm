@@ -43,26 +43,32 @@
     WebCore::IntPoint _interactionLocation;
     RetainPtr<NSString> _ID;
     RefPtr<WebKit::ShareableBitmap> _image;
+    RetainPtr<NSString> _imageMIMEType;
     RetainPtr<CocoaImage> _cocoaImage;
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<NSDictionary> _userInfo;
+    BOOL _isAnimating;
+    BOOL _canShowAnimationControls;
 #endif
     BOOL _animatedImage;
+    BOOL _isImage;
+    BOOL _isUsingAlternateURLForImage;
 }
 
 #if PLATFORM(IOS_FAMILY)
 + (instancetype)activatedElementInfoWithInteractionInformationAtPosition:(const WebKit::InteractionInformationAtPosition&)information userInfo:(NSDictionary *)userInfo
 {
-    return [[[self alloc] _initWithInteractionInformationAtPosition:information userInfo:userInfo] autorelease];
+    return adoptNS([[self alloc] _initWithInteractionInformationAtPosition:information isUsingAlternateURLForImage:NO userInfo:userInfo]).autorelease();
 }
 
-- (instancetype)_initWithInteractionInformationAtPosition:(const WebKit::InteractionInformationAtPosition&)information userInfo:(NSDictionary *)userInfo
+- (instancetype)_initWithInteractionInformationAtPosition:(const WebKit::InteractionInformationAtPosition&)information isUsingAlternateURLForImage:(BOOL)isUsingAlternateURLForImage userInfo:(NSDictionary *)userInfo
 {
     if (!(self = [super init]))
         return nil;
     
     _URL = information.url;
     _imageURL = information.imageURL;
+    _imageMIMEType = information.imageMIMEType;
     _interactionLocation = information.request.point;
     _title = information.title;
     _boundingRect = information.bounds;
@@ -79,25 +85,29 @@
     _image = information.image;
     _ID = information.idAttribute;
     _animatedImage = information.isAnimatedImage;
-
+    _isAnimating = information.isAnimating;
+    _canShowAnimationControls = information.canShowAnimationControls;
+    _isImage = information.isImage;
+    _isUsingAlternateURLForImage = isUsingAlternateURLForImage;
     _userInfo = userInfo;
     
     return self;
 }
 #endif
 
-- (instancetype)_initWithType:(_WKActivatedElementType)type URL:(NSURL *)url imageURL:(NSURL *)imageURL location:(const WebCore::IntPoint&)location title:(NSString *)title ID:(NSString *)ID rect:(CGRect)rect image:(WebKit::ShareableBitmap*)image
+- (instancetype)_initWithType:(_WKActivatedElementType)type URL:(NSURL *)url imageURL:(NSURL *)imageURL location:(const WebCore::IntPoint&)location title:(NSString *)title ID:(NSString *)ID rect:(CGRect)rect image:(WebKit::ShareableBitmap*)image imageMIMEType:(NSString *)imageMIMEType
 {
-    return [self _initWithType:type URL:url imageURL:imageURL location:location title:title ID:ID rect:rect image:image userInfo:nil];
+    return [self _initWithType:type URL:url imageURL:imageURL location:location title:title ID:ID rect:rect image:image imageMIMEType:imageMIMEType userInfo:nil];
 }
 
-- (instancetype)_initWithType:(_WKActivatedElementType)type URL:(NSURL *)url imageURL:(NSURL *)imageURL location:(const WebCore::IntPoint&)location title:(NSString *)title ID:(NSString *)ID rect:(CGRect)rect image:(WebKit::ShareableBitmap*)image userInfo:(NSDictionary *)userInfo
+- (instancetype)_initWithType:(_WKActivatedElementType)type URL:(NSURL *)url imageURL:(NSURL *)imageURL location:(const WebCore::IntPoint&)location title:(NSString *)title ID:(NSString *)ID rect:(CGRect)rect image:(WebKit::ShareableBitmap*)image imageMIMEType:(NSString *)imageMIMEType userInfo:(NSDictionary *)userInfo
 {
     if (!(self = [super init]))
         return nil;
 
     _URL = adoptNS([url copy]);
     _imageURL = adoptNS([imageURL copy]);
+    _imageMIMEType = adoptNS(imageMIMEType.copy);
     _interactionLocation = location;
     _title = adoptNS([title copy]);
     _boundingRect = rect;
@@ -126,6 +136,11 @@
     return _title.get();
 }
 
+- (NSString *)imageMIMEType
+{
+    return _imageMIMEType.get();
+}
+
 - (NSString *)ID
 {
     return _ID.get();
@@ -141,17 +156,37 @@
     return _animatedImage;
 }
 
+- (BOOL)_isUsingAlternateURLForImage
+{
+    return _isUsingAlternateURLForImage;
+}
+
 #if PLATFORM(IOS_FAMILY)
+- (BOOL)isAnimating
+{
+    return _isAnimating;
+}
+
+- (BOOL)canShowAnimationControls
+{
+    return _canShowAnimationControls;
+}
+
 - (NSDictionary *)userInfo
 {
     return _userInfo.get();
 }
 #endif
 
+- (BOOL)_isImage
+{
+    return _isImage;
+}
+
 - (CocoaImage *)image
 {
     if (_cocoaImage)
-        return [[_cocoaImage copy] autorelease];
+        return adoptNS([_cocoaImage copy]).autorelease();
 
     if (!_image)
         return nil;
@@ -163,7 +198,7 @@
 #endif
     _image = nullptr;
 
-    return [[_cocoaImage copy] autorelease];
+    return adoptNS([_cocoaImage copy]).autorelease();
 }
 
 @end

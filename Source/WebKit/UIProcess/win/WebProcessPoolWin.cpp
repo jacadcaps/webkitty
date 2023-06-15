@@ -33,24 +33,12 @@
 #if ENABLE(REMOTE_INSPECTOR)
 #include <JavaScriptCore/RemoteInspectorServer.h>
 #include <WebCore/WebCoreBundleWin.h>
+#include <wtf/text/StringToIntegerConversion.h>
 #endif
 
 namespace WebKit {
 
 #if ENABLE(REMOTE_INSPECTOR)
-static String backendCommandsPath()
-{
-    RetainPtr<CFURLRef> urlRef = adoptCF(CFBundleCopyResourceURL(WebCore::webKitBundle(), CFSTR("InspectorBackendCommands"), CFSTR("js"), CFSTR("WebInspectorUI\\Protocol")));
-    if (!urlRef)
-        return { };
-
-    char path[MAX_PATH];
-    if (!CFURLGetFileSystemRepresentation(urlRef.get(), false, reinterpret_cast<UInt8*>(path), MAX_PATH))
-        return { };
-
-    return path;
-}
-
 static void initializeRemoteInspectorServer(StringView address)
 {
     if (Inspector::RemoteInspectorServer::singleton().isRunning())
@@ -60,12 +48,13 @@ static void initializeRemoteInspectorServer(StringView address)
     if (pos == notFound)
         return;
 
-    auto host = address.substring(0, pos);
-    auto port = address.substring(pos + 1).toUInt64Strict();
+    auto host = address.left(pos);
+    auto port = parseInteger<uint16_t>(address.substring(pos + 1));
     if (!port)
         return;
 
-    Inspector::RemoteInspector::singleton().setBackendCommandsPath(backendCommandsPath());
+    auto backendCommands = WebCore::webKitBundlePath({ "WebKit.Resources"_s, "WebInspectorUI"_s, "Protocol"_s, "InspectorBackendCommands.js"_s });
+    Inspector::RemoteInspector::singleton().setBackendCommandsPath(backendCommands);
     Inspector::RemoteInspectorServer::singleton().start(host.utf8().data(), port.value());
 }
 #endif
@@ -74,7 +63,7 @@ void WebProcessPool::platformInitialize()
 {
 #if ENABLE(REMOTE_INSPECTOR)
     if (const char* address = getenv("WEBKIT_INSPECTOR_SERVER"))
-        initializeRemoteInspectorServer(address);
+        initializeRemoteInspectorServer(StringView::fromLatin1(address));
 #endif
 }
 

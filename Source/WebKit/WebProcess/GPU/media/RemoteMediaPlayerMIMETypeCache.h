@@ -25,11 +25,12 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include "RemoteMediaPlayerManager.h"
-#include <WebCore/MIMETypeCache.h>
-#include <WebCore/MediaPlayerPrivate.h>
+#include <WebCore/MediaPlayerEnums.h>
+#include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
+#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 struct MediaEngineSupportParameters;
@@ -37,25 +38,29 @@ struct MediaEngineSupportParameters;
 
 namespace WebKit {
 
-class RemoteMediaPlayerMIMETypeCache final : public WebCore::MIMETypeCache {
+class RemoteMediaPlayerManager;
+
+class RemoteMediaPlayerMIMETypeCache {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     RemoteMediaPlayerMIMETypeCache(RemoteMediaPlayerManager&, WebCore::MediaPlayerEnums::MediaEngineIdentifier);
+    ~RemoteMediaPlayerMIMETypeCache() = default;
 
+    HashSet<String, ASCIICaseInsensitiveHash>& supportedTypes();
     WebCore::MediaPlayerEnums::SupportsType supportsTypeAndCodecs(const WebCore::MediaEngineSupportParameters&);
+    void addSupportedTypes(const Vector<String>&);
+    bool isEmpty() const;
 
 private:
-    const HashSet<String, ASCIICaseInsensitiveHash>& staticContainerTypeList() final;
-    bool isUnsupportedContainerType(const String&) final;
-    void initializeCache(HashSet<String, ASCIICaseInsensitiveHash>&) final;
-    bool canDecodeExtendedType(const WebCore::ContentType&) final;
-
-    MIMETypeCache* mimeCache() const;
-
     RemoteMediaPlayerManager& m_manager;
     WebCore::MediaPlayerEnums::MediaEngineIdentifier m_engineIdentifier;
-    Optional<HashMap<String, WebCore::MediaPlayerEnums::SupportsType, ASCIICaseInsensitiveHash>> m_supportsTypeAndCodecsCache;
+
+    using SupportedTypesAndCodecsKey = std::tuple<String, bool, bool, bool>;
+    std::optional<HashMap<SupportedTypesAndCodecsKey, WebCore::MediaPlayerEnums::SupportsType>> m_supportsTypeAndCodecsCache;
+    HashSet<String, ASCIICaseInsensitiveHash> m_supportedTypesCache;
+    bool m_hasPopulatedSupportedTypesCacheFromGPUProcess { false };
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

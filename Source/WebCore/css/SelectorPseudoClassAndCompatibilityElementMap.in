@@ -2,23 +2,23 @@
 -webkit-any
 -webkit-any-link, PseudoClassAnyLinkDeprecated, PseudoElementUnknown
 -webkit-autofill
+-webkit-autofill-and-obscured
 -webkit-autofill-strong-password
 -webkit-autofill-strong-password-viewable
--webkit-direct-focus
 -webkit-drag
 -webkit-full-page-media
 active
 after, PseudoClassUnknown, PseudoElementAfter
 any-link
+autofill
 before, PseudoClassUnknown, PseudoElementBefore
 checked
+closed
 corner-present
 decrement
 default
 defined
-#if ENABLE(CSS_SELECTORS_LEVEL4)
 dir
-#endif
 disabled
 double-button
 empty
@@ -29,7 +29,9 @@ first-letter, PseudoClassUnknown, PseudoElementFirstLetter
 first-line, PseudoClassUnknown, PseudoElementFirstLine
 first-of-type
 focus
+focus-visible
 focus-within
+has
 #if ENABLE(ATTACHMENT_ELEMENT)
 has-attachment
 #endif
@@ -46,6 +48,7 @@ last-child
 last-of-type
 link
 matches
+modal
 no-button
 not
 nth-child
@@ -54,20 +57,20 @@ nth-last-of-type
 nth-of-type
 only-child
 only-of-type
+open
 optional
 out-of-range
 placeholder-shown
 read-only
 read-write
 required
-#if ENABLE(CSS_SELECTORS_LEVEL4)
-role
-#endif
 root
 scope
 single-button
 start
 target
+user-invalid
+user-valid
 valid
 vertical
 visited
@@ -75,8 +78,9 @@ where
 window-inactive
 
 #if ENABLE(FULLSCREEN_API)
+fullscreen
 -webkit-animating-full-screen-transition
--webkit-full-screen
+-webkit-full-screen, PseudoClassWebkitFullScreen, PseudoElementUnknown
 -webkit-full-screen-ancestor
 -webkit-full-screen-document
 -webkit-full-screen-controls-hidden
@@ -89,5 +93,12 @@ picture-in-picture
 #if ENABLE(VIDEO)
 future
 past
+playing
+paused
+seeking
+buffering
+stalled
+muted
+volume-locked
 #endif
 

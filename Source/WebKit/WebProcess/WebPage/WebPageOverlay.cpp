@@ -28,6 +28,7 @@
 
 #include "WebFrame.h"
 #include "WebPage.h"
+#include <WebCore/Frame.h>
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/PageOverlay.h>
 #include <wtf/NeverDestroyed.h>
@@ -85,12 +86,12 @@ void WebPageOverlay::clear()
 
 void WebPageOverlay::willMoveToPage(PageOverlay&, Page* page)
 {
-    m_client->willMoveToPage(*this, page ? &WebPage::fromCorePage(*page) : nullptr);
+    m_client->willMoveToPage(*this, page ? WebPage::fromCorePage(*page) : nullptr);
 }
 
 void WebPageOverlay::didMoveToPage(PageOverlay&, Page* page)
 {
-    m_client->didMoveToPage(*this, page ? &WebPage::fromCorePage(*page) : nullptr);
+    m_client->didMoveToPage(*this, page ? WebPage::fromCorePage(*page) : nullptr);
 }
 
 void WebPageOverlay::drawRect(PageOverlay&, GraphicsContext& context, const IntRect& dirtyRect)
@@ -109,7 +110,7 @@ void WebPageOverlay::didScrollFrame(PageOverlay&, Frame& frame)
 }
 
 #if PLATFORM(MAC)
-auto WebPageOverlay::actionContextForResultAtPoint(FloatPoint location) -> Optional<ActionContext>
+auto WebPageOverlay::actionContextForResultAtPoint(FloatPoint location) -> std::optional<ActionContext>
 {
     return m_client->actionContextForResultAtPoint(*this, location);
 }

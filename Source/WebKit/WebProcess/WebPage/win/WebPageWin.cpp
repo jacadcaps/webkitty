@@ -28,8 +28,8 @@
 #include "WebPage.h"
 
 #include "EditorState.h"
-#include "WebEvent.h"
 #include "WebFrame.h"
+#include "WebKeyboardEvent.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/BackForwardController.h>
@@ -43,6 +43,7 @@
 #include <WebCore/NotImplemented.h>
 #include <WebCore/Page.h>
 #include <WebCore/PlatformKeyboardEvent.h>
+#include <WebCore/PointerCharacteristics.h>
 #include <WebCore/Settings.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/UserAgent.h>
@@ -51,7 +52,7 @@
 namespace WebKit {
 using namespace WebCore;
 
-void WebPage::platformInitialize()
+void WebPage::platformInitialize(const WebPageCreationParameters&)
 {
 }
 
@@ -67,43 +68,6 @@ void WebPage::getPlatformEditorState(Frame&, EditorState&) const
 {
 }
 
-bool WebPage::performDefaultBehaviorForKeyEvent(const WebKeyboardEvent& keyboardEvent)
-{
-    if (keyboardEvent.type() != WebEvent::KeyDown && keyboardEvent.type() != WebEvent::RawKeyDown)
-        return false;
-
-    switch (keyboardEvent.windowsVirtualKeyCode()) {
-    case VK_LEFT:
-        scroll(m_page.get(), ScrollLeft, ScrollByLine);
-        break;
-    case VK_RIGHT:
-        scroll(m_page.get(), ScrollRight, ScrollByLine);
-        break;
-    case VK_UP:
-        scroll(m_page.get(), ScrollUp, ScrollByLine);
-        break;
-    case VK_DOWN:
-        scroll(m_page.get(), ScrollDown, ScrollByLine);
-        break;
-    case VK_HOME:
-        scroll(m_page.get(), ScrollUp, ScrollByDocument);
-        break;
-    case VK_END:
-        scroll(m_page.get(), ScrollDown, ScrollByDocument);
-        break;
-    case VK_PRIOR:
-        scroll(m_page.get(), ScrollUp, ScrollByPage);
-        break;
-    case VK_NEXT:
-        scroll(m_page.get(), ScrollDown, ScrollByPage);
-        break;
-    default:
-        return false;
-    }
-
-    return true;
-}
-
 bool WebPage::platformCanHandleRequest(const ResourceRequest&)
 {
     notImplemented();
@@ -113,6 +77,26 @@ bool WebPage::platformCanHandleRequest(const ResourceRequest&)
 String WebPage::platformUserAgent(const URL&) const
 {
     return { };
+}
+
+bool WebPage::hoverSupportedByPrimaryPointingDevice() const
+{
+    return true;
+}
+
+bool WebPage::hoverSupportedByAnyAvailablePointingDevice() const
+{
+    return true;
+}
+
+std::optional<PointerCharacteristics> WebPage::pointerCharacteristicsOfPrimaryPointingDevice() const
+{
+    return PointerCharacteristics::Fine;
+}
+
+OptionSet<PointerCharacteristics> WebPage::pointerCharacteristicsOfAllAvailablePointingDevices() const
+{
+    return PointerCharacteristics::Fine;
 }
 
 static const unsigned CtrlKey = 1 << 0;
@@ -211,10 +195,10 @@ const char* WebPage::interpretKeyEvent(const WebCore::KeyboardEvent* evt)
         keyDownCommandsMap = new HashMap<int, const char*>;
         keyPressCommandsMap = new HashMap<int, const char*>;
 
-        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyDownEntries); ++i)
+        for (size_t i = 0; i < std::size(keyDownEntries); ++i)
             keyDownCommandsMap->set(keyDownEntries[i].modifiers << 16 | keyDownEntries[i].virtualKey, keyDownEntries[i].name);
 
-        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyPressEntries); ++i)
+        for (size_t i = 0; i < std::size(keyPressEntries); ++i)
             keyPressCommandsMap->set(keyPressEntries[i].modifiers << 16 | keyPressEntries[i].charCode, keyPressEntries[i].name);
     }
 
@@ -244,9 +228,12 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     if (!keyEvent || keyEvent->isSystemKey()) // Do not treat this as text input if it's a system key event.
         return false;
 
-    auto command = frame->editor().command(interpretKeyEvent(&event));
+    if (event.type() != eventNames().keydownEvent && event.type() != eventNames().keypressEvent)
+        return false;
 
-    if (keyEvent->type() == PlatformEvent::RawKeyDown) {
+    auto command = frame->editor().command(String::fromLatin1(interpretKeyEvent(&event)));
+
+    if (keyEvent->type() == PlatformEvent::Type::RawKeyDown) {
         // WebKit doesn't have enough information about mode to decide
         // how commands that just insert text if executed via Editor
         // should be treated, so we leave it upon WebCore to either

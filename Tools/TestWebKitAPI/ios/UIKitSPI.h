@@ -29,6 +29,10 @@
 
 #if USE(APPLE_INTERNAL_SDK)
 
+#import <UIKit/NSParagraphStyle_Private.h>
+#import <UIKit/NSTextAlternatives.h>
+#import <UIKit/NSTextList.h>
+#import <UIKit/UIAction_Private.h>
 #import <UIKit/UIApplication_Private.h>
 #import <UIKit/UIBarButtonItemGroup_Private.h>
 #import <UIKit/UICalloutBar.h>
@@ -36,6 +40,8 @@
 #import <UIKit/UIKeyboard_Private.h>
 #import <UIKit/UIResponder_Private.h>
 #import <UIKit/UIScreen_Private.h>
+#import <UIKit/UIScrollEvent_Private.h>
+#import <UIKit/UIScrollView_ForWebKitOnly.h>
 #import <UIKit/UIScrollView_Private.h>
 #import <UIKit/UITextAutofillSuggestion.h>
 #import <UIKit/UITextInputMultiDocument.h>
@@ -44,6 +50,7 @@
 #import <UIKit/UIViewController_Private.h>
 #import <UIKit/UIWKTextInteractionAssistant.h>
 #import <UIKit/UIWebFormAccessory.h>
+#import <UIKit/UIWebTouchEventsGestureRecognizer.h>
 #import <UIKit/_UINavigationInteractiveTransition.h>
 
 IGNORE_WARNINGS_BEGIN("deprecated-implementations")
@@ -60,6 +67,24 @@ IGNORE_WARNINGS_END
 #endif // PLATFORM(IOS)
 
 #else // USE(APPLE_INTERNAL_SDK)
+
+@interface NSTextAlternatives : NSObject
+- (id)initWithPrimaryString:(NSString *)primaryString alternativeStrings:(NSArray<NSString *> *)alternativeStrings;
+@property (readonly) NSString *primaryString;
+@property (readonly) NSArray<NSString *> *alternativeStrings;
+@property (readonly) BOOL isLowConfidence;
+@end
+
+#if !HAVE(NSTEXTLIST_MARKER_FORMATS)
+@interface NSParagraphStyle ()
+- (NSArray *)textLists;
+@end
+
+@interface NSTextList : NSObject
+@property NSInteger startingItemNumber;
+@property (readonly, copy) NSString *markerFormat;
+@end
+#endif
 
 WTF_EXTERN_C_BEGIN
 
@@ -105,9 +130,11 @@ WTF_EXTERN_C_END
 - (void)setNextPreviousItemsVisible:(BOOL)visible;
 @end
 
+#if !HAVE(UIKIT_BAR_BUTTON_LAYOUT_CUSTOMIZATION)
 @interface UIBarButtonItemGroup ()
 @property (nonatomic, readwrite, assign, getter=_isHidden, setter=_setHidden:) BOOL hidden;
 @end
+#endif
 
 @protocol UITextInputMultiDocument <NSObject>
 @optional
@@ -130,6 +157,7 @@ WTF_EXTERN_C_END
 
 @interface UICalloutBar : UIView
 + (UICalloutBar *)sharedCalloutBar;
++ (UICalloutBar *)activeCalloutBar;
 @end
 
 @interface _UINavigationInteractiveTransitionBase : UIPercentDrivenInteractiveTransition
@@ -157,6 +185,8 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
     UIWKDocumentRequestRects = 1 << 2,
     UIWKDocumentRequestSpatial = 1 << 3,
     UIWKDocumentRequestAnnotation = 1 << 4,
+    UIWKDocumentRequestMarkedTextRects = 1 << 5,
+    UIWKDocumentRequestSpatialAndCurrentSelection = 1 << 6,
 };
 
 @interface UIWKDocumentRequest : NSObject
@@ -173,12 +203,20 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
 @end
 
 @interface UIWKAutocorrectionContext : NSObject
+@property (nonatomic, copy) NSString *contextBeforeSelection;
+@property (nonatomic, copy) NSString *selectedText;
+@property (nonatomic, copy) NSString *contextAfterSelection;
 @end
 
 @protocol UIWebFormAccessoryDelegate
 - (void)accessoryDone;
 @end
 
+typedef NS_ENUM(NSInteger, UIWKGestureType) {
+    UIWKGestureLoupe
+};
+
+@class RVItem;
 @protocol UIWKInteractionViewProtocol
 - (void)pasteWithCompletionHandler:(void (^)(void))completionHandler;
 - (void)requestAutocorrectionRectsForString:(NSString *)input withCompletionHandler:(void (^)(UIWKAutocorrectionRects *rectsForInput))completionHandler;
@@ -189,10 +227,14 @@ typedef NS_OPTIONS(NSInteger, UIWKDocumentRequestFlags) {
 - (void)updateSelectionWithExtentPoint:(CGPoint)point completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)updateSelectionWithExtentPoint:(CGPoint)point withBoundary:(UITextGranularity)granularity completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)selectWordForReplacement;
+- (BOOL)textInteractionGesture:(UIWKGestureType)gesture shouldBeginAtPoint:(CGPoint)point;
+- (void)replaceDictatedText:(NSString *)oldText withText:(NSString *)newText;
+- (NSArray<NSTextAlternatives *> *)alternativesForSelectedText;
 @property (nonatomic, readonly) NSString *selectedText;
 
 @optional
 - (void)insertTextPlaceholderWithSize:(CGSize)size completionHandler:(void (^)(UITextPlaceholder *))completionHandler;
+- (void)prepareSelectionForContextMenuWithLocationInView:(CGPoint)locationInView completionHandler:(void(^)(BOOL shouldPresentMenu, RVItem * rvItem))completionHandler;
 - (void)removeTextPlaceholder:(UITextPlaceholder *)placeholder willInsertText:(BOOL)willInsertText completionHandler:(void (^)(void))completionHandler;
 @end
 
@@ -215,10 +257,19 @@ IGNORE_WARNINGS_END
 @property (nonatomic, readonly) CGRect _referenceBounds;
 @end
 
+typedef NS_ENUM(NSInteger, _UIDataOwner) {
+    _UIDataOwnerUndefined,
+    _UIDataOwnerUser,
+    _UIDataOwnerEnterprise,
+    _UIDataOwnerShared,
+};
+
 @interface UIResponder (UIKitSPI)
 - (UIResponder *)firstResponder;
 - (void)makeTextWritingDirectionNatural:(id)sender;
 @property (nonatomic, setter=_setSuppressSoftwareKeyboard:) BOOL _suppressSoftwareKeyboard;
+@property (nonatomic, setter=_setDataOwnerForCopy:) _UIDataOwner _dataOwnerForCopy;
+@property (nonatomic, setter=_setDataOwnerForPaste:) _UIDataOwner _dataOwnerForPaste;
 @end
 
 @interface UIKeyboardImpl : UIView
@@ -233,10 +284,40 @@ IGNORE_WARNINGS_END
 @property (nonatomic, getter=_isAutomaticContentOffsetAdjustmentEnabled, setter=_setAutomaticContentOffsetAdjustmentEnabled:) BOOL isAutomaticContentOffsetAdjustmentEnabled;
 @end
 
-#endif // USE(APPLE_INTERNAL_SDK)
+@interface UIScrollEvent : UIEvent
+@end
 
-#define UIWKDocumentRequestMarkedTextRects (1 << 5)
-#define UIWKDocumentRequestSpatialAndCurrentSelection (1 << 6)
+@interface NSObject (UIScrollViewDelegate_ForWebKitOnly)
+- (void)_scrollView:(UIScrollView *)scrollView asynchronouslyHandleScrollEvent:(UIScrollEvent *)scrollEvent completion:(void (^)(BOOL handled))completion;
+@end
+
+@interface UITextInteractionAssistant : NSObject <UIResponderStandardEditActions>
+@end
+
+@interface UIWKTextInteractionAssistant : UITextInteractionAssistant
+- (void)lookup:(NSString *)textWithContext withRange:(NSRange)range fromRect:(CGRect)presentationRect;
+- (void)selectionChanged;
+@end
+
+typedef NS_ENUM(NSInteger, _UITextSearchMatchMethod) {
+    _UITextSearchMatchMethodContains,
+    _UITextSearchMatchMethodStartsWith,
+    _UITextSearchMatchMethodFullWord,
+};
+
+@protocol _UITextSearching <NSObject>
+
+@optional
+- (void)didBeginTextSearchOperation;
+- (void)didEndTextSearchOperation;
+@end
+
+
+@interface _UIFindInteraction : NSObject <UIInteraction>
+@property (nonatomic, strong) id<_UITextSearching> searchableObject;
+@end
+
+#endif // USE(APPLE_INTERNAL_SDK)
 
 @interface UITextAutofillSuggestion ()
 + (instancetype)autofillSuggestionWithUsername:(NSString *)username password:(NSString *)password;
@@ -260,6 +341,8 @@ IGNORE_WARNINGS_END
 - (void)_dropInteraction:(UIDropInteraction *)interaction delayedPreviewProviderForDroppingItem:(UIDragItem *)item previewProvider:(void(^)(UITargetedDragPreview *preview))previewProvider;
 @end
 
+#endif // PLATFORM(IOS)
+
 typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
     _UIClickInteractionEventBegan = 0,
     _UIClickInteractionEventClickedDown,
@@ -277,14 +360,44 @@ typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
 - (BOOL)clickDriver:(id<_UIClickInteractionDriving>)driver shouldDelayGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
 @end
 
-#endif // PLATFORM(IOS)
-
 @protocol UITextInputInternal
 - (CGRect)_selectionClipRect;
+- (void)moveByOffset:(NSInteger)offset;
+@optional
+- (void)addTextAlternatives:(NSTextAlternatives *)alternatives;
+- (void)removeEmojiAlternatives;
 @end
 
 @interface UIResponder (Internal)
 - (void)_share:(id)sender;
+@property (nonatomic, readonly) BOOL _requiresKeyboardWhenFirstResponder;
 @end
+
+@interface UIWebGeolocationPolicyDecider : NSObject
+@end
+
+@interface UIWebGeolocationPolicyDecider ()
++ (instancetype)sharedPolicyDecider;
+@end
+
+@protocol UIWKInteractionViewProtocol_Staging_91919121 <UIWKInteractionViewProtocol>
+@optional
+- (void)willInsertFinalDictationResult;
+- (void)didInsertFinalDictationResult;
+@end
+
+@protocol UIWKInteractionViewProtocol_Staging_95652872 <UIWKInteractionViewProtocol_Staging_91919121>
+#if HAVE(UI_EDIT_MENU_INTERACTION)
+- (void)requestPreferredArrowDirectionForEditMenuWithCompletionHandler:(void (^)(UIEditMenuArrowDirection))completionHandler;
+#endif
+@end
+
+#if HAVE(UIFINDINTERACTION)
+@interface UITextSearchOptions ()
+@property (nonatomic, readwrite) UITextSearchMatchMethod wordMatchMethod;
+@property (nonatomic, readwrite) NSStringCompareOptions stringCompareOptions;
+@end
+
+#endif
 
 #endif // PLATFORM(IOS_FAMILY)

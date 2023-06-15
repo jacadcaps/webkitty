@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2018 Apple Inc. All rights reserved.
@@ -29,7 +29,7 @@ import subprocess
 import sys
 
 from webkitpy.common.system.systemhost import SystemHost
-sys.path.append(SystemHost().path_to_lldb_python_directory())
+sys.path.append(SystemHost.get_default().path_to_lldb_python_directory())
 import lldb
 
 # lldb Python reference:
@@ -131,7 +131,7 @@ class ClassLayoutBase(object):
         return '\n'.join(self.as_string_list(colorize))
 
     def dump(self, colorize=True):
-        print self.as_string(colorize)
+        print(self.as_string(colorize))
 
 
 class ClassLayout(ClassLayoutBase):
@@ -381,35 +381,17 @@ class LLDBDebuggerInstance:
 
         self.debugger = lldb.SBDebugger.Create()
         self.debugger.SetAsync(False)
-        architecture = self.architecture
-        if not architecture:
-            architecture = self._get_first_file_architecture()
-
-        self.target = self.debugger.CreateTargetWithFileAndArch(str(self.binary_path), architecture)
+        self.target = self.debugger.CreateTargetWithFileAndArch(str(self.binary_path), self.architecture)
         if not self.target:
-            print "Failed to make target for " + self.binary_path
+            print("Failed to make target for " + self.binary_path)
 
         self.module = self.target.GetModuleAtIndex(0)
         if not self.module:
-            print "Failed to get first module in " + self.binary_path
+            print("Failed to get first module in " + self.binary_path)
 
     def __del__(self):
         if lldb:
             lldb.SBDebugger.Destroy(self.debugger)
-
-    def _get_first_file_architecture(self):
-        p = re.compile('shared library +(\w+)$')
-        file_result = subprocess.check_output(["file", self.binary_path]).split('\n')
-        arches = []
-        for line in file_result:
-            match = p.search(line)
-            if match:
-                arches.append(match.group(1))
-
-        if len(arches) > 0:
-            return arches[0]
-
-        return lldb.LLDB_ARCH_DEFAULT
 
     def layout_for_classname(self, classname):
         types = self.module.FindTypes(classname)
@@ -417,5 +399,5 @@ class LLDBDebuggerInstance:
             # There can be more that one type with a given name, but for now just return the first one.
             return ClassLayout(self.target, types.GetTypeAtIndex(0))
 
-        print 'error: no type matches "%s" in "%s"' % (classname, self.module.file)
+        print('error: no type matches "%s" in "%s"' % (classname, self.module.file))
         return None

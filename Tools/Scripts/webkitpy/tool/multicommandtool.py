@@ -36,7 +36,7 @@ import sys
 
 from optparse import OptionParser, IndentedHelpFormatter, SUPPRESS_USAGE, make_option
 
-from webkitpy.tool.grammar import pluralize
+from webkitcorepy.string_utils import pluralize
 
 _log = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ class MultiCommandTool(object):
             try:
                 result = command.check_arguments_and_execute(options, args, self)
                 break
-            except TryAgain as e:
+            except TryAgain:
                 pass
 
         self.command_completed()

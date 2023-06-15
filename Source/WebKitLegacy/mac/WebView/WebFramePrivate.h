@@ -29,12 +29,6 @@
 #import <WebKitLegacy/WebFrame.h>
 #import <JavaScriptCore/JSBase.h>
 
-#if !TARGET_OS_IPHONE
-#if !defined(ENABLE_NETSCAPE_PLUGIN_API)
-#define ENABLE_NETSCAPE_PLUGIN_API 1
-#endif
-#endif
-
 #if TARGET_OS_IPHONE
 #import <CoreText/CoreText.h>
 #import <WebKitLegacy/WAKAppKitStubs.h>
@@ -95,13 +89,12 @@ typedef enum {
 - (BOOL)needsLayout; // Needed for Mail <rdar://problem/6228038>
 - (void)_setLoadsSynchronously:(BOOL)flag;
 - (BOOL)_loadsSynchronously;
-- (unsigned)formElementsCharacterCount;
 - (void)setTimeoutsPaused:(BOOL)flag;
 
 /*!
-    @method setPluginsPaused
-    @abstract Stop/start all plugins based on the flag passed if we have a WebHTMLView
-    @param flag YES to stop plugins on the html view, NO to start them
+ @method setPluginsPaused
+ @abstract Stop/start all plugins based on the flag passed if we have a WebHTMLView
+ @param flag YES to stop plugins on the html view, NO to start them
  */
 - (void)setPluginsPaused:(BOOL)flag;
 - (void)prepareForPause;
@@ -141,7 +134,11 @@ typedef enum {
 - (NSRect)caretRect;
 - (NSRect)rectForScrollToVisible; // return caretRect if selection is caret, selectionRect otherwise
 @property (nonatomic, readwrite) CGColorRef caretColor;
+#if TARGET_OS_IPHONE
+- (WAKView *)documentView;
+#else
 - (NSView *)documentView;
+#endif
 - (int)layoutCount;
 - (BOOL)isTelephoneNumberParsingAllowed;
 - (BOOL)isTelephoneNumberParsingEnabled;
@@ -211,13 +208,6 @@ typedef enum {
 - (BOOL)_isDisplayingStandaloneImage;
 
 - (unsigned)_pendingFrameUnloadEventCount;
-
-#if !TARGET_OS_IPHONE
-#if ENABLE_NETSCAPE_PLUGIN_API
-- (void)_recursive_resumeNullEventsForAllNetscapePlugins;
-- (void)_recursive_pauseNullEventsForAllNetscapePlugins;
-#endif
-#endif
 
 - (NSString *)_stringByEvaluatingJavaScriptFromString:(NSString *)string withGlobalObject:(JSObjectRef)globalObject inScriptWorld:(WebScriptWorld *)world;
 - (JSGlobalContextRef)_globalContextForScriptWorld:(WebScriptWorld *)world;
@@ -297,4 +287,7 @@ typedef enum {
 - (NSDictionary *)elementAtPoint:(NSPoint)point;
 
 - (NSURL *)_unreachableURL;
+
+- (void)_generateTestReport:(NSString *) message withGroup:(NSString *)group;
+
 @end

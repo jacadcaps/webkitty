@@ -14,7 +14,7 @@
 
 using namespace angle;
 
-class EGLSyncTest : public ANGLETest
+class EGLSyncTest : public ANGLETest<>
 {
   protected:
     bool hasFenceSyncExtension() const
@@ -214,17 +214,13 @@ TEST_P(EGLSyncTest, BasicOperations)
 
     glFlush();
 
-    EGLint value           = 0;
-    unsigned int loopCount = 0;
+    glClear(GL_COLOR_BUFFER_BIT);
 
-    // Use 'loopCount' to make sure the test doesn't get stuck in an infinite loop
-    while (value != EGL_SIGNALED_KHR && loopCount <= 1000000)
-    {
-        loopCount++;
-        EXPECT_EGL_TRUE(eglGetSyncAttribKHR(display, sync, EGL_SYNC_STATUS_KHR, &value));
-    }
-
-    ASSERT_EQ(value, EGL_SIGNALED_KHR);
+    // Don't wait forever to make sure the test terminates
+    constexpr GLuint64 kTimeout = 1'000'000'000;  // 1 second
+    EGLint value                = 0;
+    ASSERT_EQ(EGL_CONDITION_SATISFIED_KHR,
+              eglClientWaitSyncKHR(display, sync, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, kTimeout));
 
     for (size_t i = 0; i < 20; i++)
     {
@@ -239,6 +235,42 @@ TEST_P(EGLSyncTest, BasicOperations)
     EXPECT_EGL_TRUE(eglDestroySyncKHR(display, sync));
 }
 
+// Test eglWaitClient api
+TEST_P(EGLSyncTest, WaitClient)
+{
+    // Clear to red color
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_EGL_TRUE(eglWaitClient());
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+    EGLContext context = getEGLWindow()->getContext();
+    EGLSurface surface = getEGLWindow()->getSurface();
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    EXPECT_EGL_TRUE(eglWaitClient());
+    eglMakeCurrent(display, surface, surface, context);
+}
+
+// Test eglWaitGL api
+TEST_P(EGLSyncTest, WaitGL)
+{
+    // Clear to red color
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_EGL_TRUE(eglWaitGL());
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+    EGLContext context = getEGLWindow()->getContext();
+    EGLSurface surface = getEGLWindow()->getSurface();
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    EXPECT_EGL_TRUE(eglWaitGL());
+    eglMakeCurrent(display, surface, surface, context);
+}
+
 // Test eglWaitNative api
 TEST_P(EGLSyncTest, WaitNative)
 {
@@ -248,6 +280,13 @@ TEST_P(EGLSyncTest, WaitNative)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_EGL_TRUE(eglWaitNative(EGL_CORE_NATIVE_ENGINE));
     EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+    EGLContext context = getEGLWindow()->getContext();
+    EGLSurface surface = getEGLWindow()->getSurface();
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    EXPECT_EGL_TRUE(eglWaitNative(EGL_CORE_NATIVE_ENGINE));
+    eglMakeCurrent(display, surface, surface, context);
 }
 
 // Verify eglDupNativeFence for EGL_ANDROID_native_fence_sync
@@ -299,7 +338,7 @@ TEST_P(EGLSyncTest, AndroidNativeFence_ClientWait)
     // Wait for draw to complete
     EXPECT_EQ(EGL_CONDITION_SATISFIED,
               eglClientWaitSyncKHR(display, syncWithGeneratedFD, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR,
-                                   1000000000));
+                                   1'000'000'000));
     EXPECT_EGL_TRUE(eglGetSyncAttribKHR(display, syncWithGeneratedFD, EGL_SYNC_STATUS_KHR, &value));
     EXPECT_EQ(value, EGL_SIGNALED_KHR);
 
@@ -339,7 +378,7 @@ TEST_P(EGLSyncTest, AndroidNativeFence_WaitSync)
     {
         EXPECT_EGL_TRUE(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
 
-        EGLContext context2 = getEGLWindow()->createContext(EGL_NO_CONTEXT);
+        EGLContext context2 = getEGLWindow()->createContext(EGL_NO_CONTEXT, nullptr);
         EXPECT_EGL_TRUE(eglMakeCurrent(display, surface, surface, context2));
 
         // We can eglWaitSync on this - import FD from first sync.
@@ -423,7 +462,7 @@ TEST_P(EGLSyncTest, AndroidNativeFence_withFences)
     {
         EXPECT_EGL_TRUE(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
 
-        EGLContext context2 = getEGLWindow()->createContext(EGL_NO_CONTEXT);
+        EGLContext context2 = getEGLWindow()->createContext(EGL_NO_CONTEXT, nullptr);
         EXPECT_EGL_TRUE(eglMakeCurrent(display, surface, surface, context2));
 
         // check that Fence and Android fences work together
@@ -479,13 +518,29 @@ TEST_P(EGLSyncTest, AndroidNativeFence_withFences)
     EXPECT_EGL_TRUE(eglDestroySyncKHR(display, syncWithGeneratedFD));
 }
 
-ANGLE_INSTANTIATE_TEST(EGLSyncTest,
-                       ES2_D3D9(),
-                       ES2_D3D11(),
-                       ES3_D3D11(),
-                       ES2_OPENGL(),
-                       ES3_OPENGL(),
-                       ES2_OPENGLES(),
-                       ES3_OPENGLES(),
-                       ES2_VULKAN(),
-                       ES3_VULKAN());
+// Verify that VkSemaphore is not destroyed before used for waiting
+TEST_P(EGLSyncTest, AndroidNativeFence_VkSemaphoreDestroyBug)
+{
+    ANGLE_SKIP_TEST_IF(!IsVulkan());
+    ANGLE_SKIP_TEST_IF(!hasFenceSyncExtension());
+    ANGLE_SKIP_TEST_IF(!hasFenceSyncExtension() || !hasGLSyncExtension());
+    ANGLE_SKIP_TEST_IF(!hasAndroidNativeFenceSyncExtension());
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+
+    glFinish();  // Ensure no pending commands
+
+    EGLSyncKHR syncWithGeneratedFD =
+        eglCreateSyncKHR(display, EGL_SYNC_NATIVE_FENCE_ANDROID, nullptr);
+    EXPECT_NE(syncWithGeneratedFD, EGL_NO_SYNC_KHR);
+    EXPECT_EGL_TRUE(eglWaitSyncKHR(display, syncWithGeneratedFD, 0));
+    EXPECT_EGL_TRUE(eglDestroySyncKHR(display, syncWithGeneratedFD));
+    glFinish();  // May destroy VkSemaphore if bug is present.
+
+    // Create work to do
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glFinish();  // Will submit destroyed Semaphores.
+}
+
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(EGLSyncTest);

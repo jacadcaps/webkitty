@@ -37,6 +37,7 @@
 #import <WebCore/FrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/TextIndicator.h>
+#import <WebCore/TranslationContextMenuInfo.h>
 #import <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -64,9 +65,7 @@ void WebContextMenuClient::stopSpeaking()
 
 void WebContextMenuClient::searchWithGoogle(const Frame* frame)
 {
-    String searchString = frame->editor().selectedText();
-    searchString.stripWhiteSpace();
-
+    String searchString = frame->editor().selectedText().stripWhiteSpace();
     m_page->send(Messages::WebPageProxy::SearchTheWeb(searchString));
 }
 
@@ -78,11 +77,16 @@ void WebContextMenuClient::searchWithSpotlight()
 
     Frame& mainFrame = m_page->corePage()->mainFrame();
 
-    Frame* selectionFrame = &mainFrame;
-    for (; selectionFrame; selectionFrame = selectionFrame->tree().traverseNext()) {
-        if (selectionFrame->selection().isRange())
-            break;
-    }
+    LocalFrame* selectionFrame = [&] () -> LocalFrame* {
+        for (AbstractFrame* selectionFrame = &mainFrame; selectionFrame; selectionFrame = selectionFrame->tree().traverseNext()) {
+            auto* localFrame = dynamicDowncast<LocalFrame>(selectionFrame);
+            if (!localFrame)
+                continue;
+            if (localFrame->selection().isRange())
+                return localFrame;
+        }
+        return nullptr;
+    }();
     if (!selectionFrame)
         selectionFrame = &mainFrame;
 
@@ -93,6 +97,15 @@ void WebContextMenuClient::searchWithSpotlight()
 
     m_page->send(Messages::WebPageProxy::SearchWithSpotlight(selectedString));
 }
+
+#if HAVE(TRANSLATION_UI_SERVICES)
+
+void WebContextMenuClient::handleTranslation(const WebCore::TranslationContextMenuInfo& info)
+{
+    m_page->send(Messages::WebPageProxy::HandleContextMenuTranslation(info));
+}
+
+#endif // HAVE(TRANSLATION_UI_SERVICES)
 
 } // namespace WebKit
 

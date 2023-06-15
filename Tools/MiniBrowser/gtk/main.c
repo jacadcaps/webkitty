@@ -28,10 +28,20 @@
 #include "cmakeconfig.h"
 
 #include "BrowserWindow.h"
+#include "BuildRevision.h"
 #include <errno.h>
 #include <gtk/gtk.h>
 #include <string.h>
+
+#if GTK_CHECK_VERSION(3, 98, 0)
+#include <webkit/webkit.h>
+#else
 #include <webkit2/webkit2.h>
+#endif
+
+#if !USE_GSTREAMER_FULL && (ENABLE_WEB_AUDIO || ENABLE_VIDEO)
+#include <gst/gst.h>
+#endif
 
 #define MINI_BROWSER_ERROR (miniBrowserErrorQuark())
 
@@ -51,8 +61,15 @@ static const char *cookiesFile;
 static const char *cookiesPolicy;
 static const char *proxy;
 static gboolean darkMode;
+static char* timeZone;
 static gboolean enableITP;
+static gboolean exitAfterLoad;
+static gboolean webProcessCrashed;
 static gboolean printVersion;
+
+#if !GTK_CHECK_VERSION(3, 98, 0)
+static gboolean enableSandbox;
+#endif
 
 typedef enum {
     MINI_BROWSER_ERROR_INVALID_ABOUT_PATH
@@ -79,6 +96,9 @@ static WebKitWebView *createBrowserTab(BrowserWindow *window, WebKitSettings *we
 {
     WebKitWebView *webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", browser_window_get_web_context(window),
+#if GTK_CHECK_VERSION(3, 98, 0)
+        "network-session", browser_window_get_network_session(window),
+#endif
         "settings", webkitSettings,
         "user-content-manager", userContentManager,
         "is-controlled-by-automation", automationMode,
@@ -143,6 +163,11 @@ static const GOptionEntry commandLineOptions[] =
     { "ignore-tls-errors", 0, 0, G_OPTION_ARG_NONE, &ignoreTLSErrors, "Ignore TLS errors", NULL },
     { "content-filter", 0, 0, G_OPTION_ARG_FILENAME, &contentFilter, "JSON with content filtering rules", "FILE" },
     { "enable-itp", 0, 0, G_OPTION_ARG_NONE, &enableITP, "Enable Intelligent Tracking Prevention (ITP)", NULL },
+#if !GTK_CHECK_VERSION(3, 98, 0)
+    { "enable-sandbox", 0, 0, G_OPTION_ARG_NONE, &enableSandbox, "Enable web process sandbox support", NULL },
+#endif
+    { "exit-after-load", 0, 0, G_OPTION_ARG_NONE, &exitAfterLoad, "Quit the browser after the load finishes", NULL },
+    { "time-zone", 't', 0, G_OPTION_ARG_STRING, &timeZone, "Set time zone", "TIMEZONE" },
     { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Print the WebKitGTK version", NULL },
     { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &uriArguments, 0, "[URL…]" },
     { 0, 0, 0, 0, 0, 0, 0 }
@@ -332,9 +357,13 @@ static void websiteDataClearedCallback(WebKitWebsiteDataManager *manager, GAsync
         webkit_web_view_reload(webkit_uri_scheme_request_get_web_view(dataRequest->request));
 }
 
-static void aboutDataScriptMessageReceivedCallback(WebKitUserContentManager *userContentManager, WebKitJavascriptResult *message, WebKitWebContext *webContext)
+static void aboutDataScriptMessageReceivedCallback(WebKitUserContentManager *userContentManager, gpointer message, WebKitWebsiteDataManager *manager)
 {
+#if GTK_CHECK_VERSION(3, 98, 0)
+    char *messageString = jsc_value_to_string(message);
+#else
     char *messageString = jsc_value_to_string(webkit_javascript_result_get_js_value(message));
+#endif
     char **tokens = g_strsplit(messageString, ":", 3);
     g_free(messageString);
 
@@ -351,7 +380,6 @@ static void aboutDataScriptMessageReceivedCallback(WebKitUserContentManager *use
         return;
     }
 
-    WebKitWebsiteDataManager *manager = webkit_web_context_get_website_data_manager(webContext);
     guint64 types = g_ascii_strtoull(tokens[1], NULL, 10);
     if (tokenCount == 2)
         webkit_website_data_manager_clear(manager, types, 0, NULL, (GAsyncReadyCallback)websiteDataClearedCallback, dataRequest);
@@ -372,7 +400,7 @@ static void domainListFree(GList *domains)
     g_list_free_full(domains, (GDestroyNotify)webkit_website_data_unref);
 }
 
-static void aboutDataFillTable(GString *result, AboutDataRequest *dataRequest, GList* dataList, const char *title, WebKitWebsiteDataTypes types, const char *dataPath, guint64 pageID)
+static void aboutDataFillTable(GString *result, AboutDataRequest *dataRequest, GList* dataList, const char *title, WebKitWebsiteDataTypes types, guint64 pageID)
 {
     guint64 totalDataSize = 0;
     GList *domains = NULL;
@@ -398,8 +426,6 @@ static void aboutDataFillTable(GString *result, AboutDataRequest *dataRequest, G
         g_free(totalDataSizeStr);
     } else
         g_string_append_printf(result, "<h1>%s</h1>\n<table>\n", title);
-    if (dataPath)
-        g_string_append_printf(result, "<tr><td colspan=\"2\">Path: %s</td></tr>\n", dataPath);
 
     unsigned index;
     for (l = domains, index = 0; l; l = g_list_next(l), index++) {
@@ -435,20 +461,18 @@ static void gotWebsiteDataCallback(WebKitWebsiteDataManager *manager, GAsyncResu
         "</script></head><body>\n");
 
     guint64 pageID = webkit_web_view_get_page_id(webkit_uri_scheme_request_get_web_view(dataRequest->request));
-    aboutDataFillTable(result, dataRequest, dataList, "Cookies", WEBKIT_WEBSITE_DATA_COOKIES, NULL, pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Device Id Hash Salt", WEBKIT_WEBSITE_DATA_DEVICE_ID_HASH_SALT, NULL, pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Memory Cache", WEBKIT_WEBSITE_DATA_MEMORY_CACHE, NULL, pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Disk Cache", WEBKIT_WEBSITE_DATA_DISK_CACHE, webkit_website_data_manager_get_disk_cache_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Session Storage", WEBKIT_WEBSITE_DATA_SESSION_STORAGE, NULL, pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Local Storage", WEBKIT_WEBSITE_DATA_LOCAL_STORAGE, webkit_website_data_manager_get_local_storage_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "IndexedDB Databases", WEBKIT_WEBSITE_DATA_INDEXEDDB_DATABASES, webkit_website_data_manager_get_indexeddb_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Plugins Data", WEBKIT_WEBSITE_DATA_PLUGIN_DATA, NULL, pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Offline Web Applications Cache", WEBKIT_WEBSITE_DATA_OFFLINE_APPLICATION_CACHE, webkit_website_data_manager_get_offline_application_cache_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "HSTS Cache", WEBKIT_WEBSITE_DATA_HSTS_CACHE, webkit_website_data_manager_get_hsts_cache_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "ITP data", WEBKIT_WEBSITE_DATA_ITP, webkit_website_data_manager_get_itp_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "Service Worker Registratations", WEBKIT_WEBSITE_DATA_SERVICE_WORKER_REGISTRATIONS,
-        webkit_website_data_manager_get_service_worker_registrations_directory(manager), pageID);
-    aboutDataFillTable(result, dataRequest, dataList, "DOM Cache", WEBKIT_WEBSITE_DATA_DOM_CACHE, webkit_website_data_manager_get_dom_cache_directory(manager), pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Cookies", WEBKIT_WEBSITE_DATA_COOKIES, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Device Id Hash Salt", WEBKIT_WEBSITE_DATA_DEVICE_ID_HASH_SALT, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Memory Cache", WEBKIT_WEBSITE_DATA_MEMORY_CACHE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Disk Cache", WEBKIT_WEBSITE_DATA_DISK_CACHE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Session Storage", WEBKIT_WEBSITE_DATA_SESSION_STORAGE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Local Storage", WEBKIT_WEBSITE_DATA_LOCAL_STORAGE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "IndexedDB Databases", WEBKIT_WEBSITE_DATA_INDEXEDDB_DATABASES, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Offline Web Applications Cache", WEBKIT_WEBSITE_DATA_OFFLINE_APPLICATION_CACHE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "HSTS Cache", WEBKIT_WEBSITE_DATA_HSTS_CACHE, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "ITP data", WEBKIT_WEBSITE_DATA_ITP, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "Service Worker Registratations", WEBKIT_WEBSITE_DATA_SERVICE_WORKER_REGISTRATIONS, pageID);
+    aboutDataFillTable(result, dataRequest, dataList, "DOM Cache", WEBKIT_WEBSITE_DATA_DOM_CACHE, pageID);
 
     result = g_string_append(result, "</body></html>");
     gsize streamLength = result->len;
@@ -457,10 +481,15 @@ static void gotWebsiteDataCallback(WebKitWebsiteDataManager *manager, GAsyncResu
     g_list_free_full(dataList, (GDestroyNotify)webkit_website_data_unref);
 }
 
-static void aboutDataHandleRequest(WebKitURISchemeRequest *request, WebKitWebContext *webContext)
+static void aboutDataHandleRequest(WebKitURISchemeRequest *request)
 {
     AboutDataRequest *dataRequest = aboutDataRequestNew(request);
-    WebKitWebsiteDataManager *manager = webkit_web_context_get_website_data_manager(webContext);
+    WebKitWebView *webView = webkit_uri_scheme_request_get_web_view(request);
+#if GTK_CHECK_VERSION(3, 98, 0)
+    WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(webkit_web_view_get_network_session(webView));
+#else
+    WebKitWebsiteDataManager *manager = webkit_web_view_get_website_data_manager(webView);
+#endif
     webkit_website_data_manager_fetch(manager, WEBKIT_WEBSITE_DATA_ALL, NULL, (GAsyncReadyCallback)gotWebsiteDataCallback, dataRequest);
 }
 
@@ -512,14 +541,19 @@ static void gotITPSummaryCallback(WebKitWebsiteDataManager *manager, GAsyncResul
     aboutITPRequestFree(itpRequest);
 }
 
-static void aboutITPHandleRequest(WebKitURISchemeRequest *request, WebKitWebContext *webContext)
+static void aboutITPHandleRequest(WebKitURISchemeRequest *request)
 {
     AboutITPRequest *itpRequest = aboutITPRequestNew(request);
-    WebKitWebsiteDataManager *manager = webkit_web_context_get_website_data_manager(webContext);
+    WebKitWebView *webView = webkit_uri_scheme_request_get_web_view(request);
+#if GTK_CHECK_VERSION(3, 98, 0)
+    WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(webkit_web_view_get_network_session(webView));
+#else
+    WebKitWebsiteDataManager *manager = webkit_web_view_get_website_data_manager(webView);
+#endif
     webkit_website_data_manager_get_itp_summary(manager, NULL, (GAsyncReadyCallback)gotITPSummaryCallback, itpRequest);
 }
 
-static void aboutURISchemeRequestCallback(WebKitURISchemeRequest *request, WebKitWebContext *webContext)
+static void aboutURISchemeRequestCallback(WebKitURISchemeRequest *request, gpointer userData)
 {
     GInputStream *stream;
     gsize streamLength;
@@ -539,9 +573,9 @@ static void aboutURISchemeRequestCallback(WebKitURISchemeRequest *request, WebKi
         webkit_uri_scheme_request_finish(request, stream, streamLength, "text/html");
         g_object_unref(stream);
     } else if (!g_strcmp0(path, "data"))
-        aboutDataHandleRequest(request, webContext);
+        aboutDataHandleRequest(request);
     else if (!g_strcmp0(path, "itp"))
-        aboutITPHandleRequest(request, webContext);
+        aboutITPHandleRequest(request);
     else {
         error = g_error_new(MINI_BROWSER_ERROR, MINI_BROWSER_ERROR_INVALID_ABOUT_PATH, "Invalid about:%s page.", path);
         webkit_uri_scheme_request_finish_error(request, error);
@@ -570,6 +604,34 @@ static void automationStartedCallback(WebKitWebContext *webContext, WebKitAutoma
 
     g_signal_connect(session, "create-web-view::window", G_CALLBACK(createWebViewForAutomationInWindowCallback), application);
     g_signal_connect(session, "create-web-view::tab", G_CALLBACK(createWebViewForAutomationInTabCallback), application);
+}
+
+static gboolean quitApplication(GApplication *application)
+{
+    g_application_quit(application);
+    return FALSE;
+}
+
+static void exitAfterWebViewLoadFinishesCallback(WebKitWebView *webView, WebKitLoadEvent loadEvent, GApplication *application)
+{
+    if (loadEvent != WEBKIT_LOAD_FINISHED)
+        return;
+
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)quitApplication, g_object_ref(application), g_object_unref);
+}
+
+static void exitAfterWebProcessCrashed(WebKitWebView *webView, WebKitWebProcessTerminationReason reason, GApplication *application)
+{
+    if (reason == WEBKIT_WEB_PROCESS_CRASHED) {
+        webProcessCrashed = TRUE;
+        exitAfterWebViewLoadFinishesCallback(webView, WEBKIT_LOAD_FINISHED, application);
+    }
+}
+
+static void exitAfterWebViewLoadFinishes(WebKitWebView *webView, GApplication *application)
+{
+    g_signal_connect_object(webView, "load-changed", G_CALLBACK(exitAfterWebViewLoadFinishesCallback), application, G_CONNECT_AFTER);
+    g_signal_connect_object(webView, "web-process-terminated", G_CALLBACK(exitAfterWebProcessCrashed), application, G_CONNECT_AFTER);
 }
 
 typedef struct {
@@ -614,24 +676,92 @@ static void startup(GApplication *application)
 
 static void activate(GApplication *application, WebKitSettings *webkitSettings)
 {
+#if GTK_CHECK_VERSION(3, 98, 0)
+    WebKitWebContext *webContext = g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "time-zone-override", timeZone, NULL);
+    webkit_web_context_set_automation_allowed(webContext, automationMode);
+    g_signal_connect(webContext, "automation-started", G_CALLBACK(automationStartedCallback), application);
+
+    WebKitNetworkSession *networkSession;
+    if (automationMode)
+        networkSession = g_object_ref(webkit_web_context_get_network_session_for_automation(webContext));
+    else if (privateMode)
+        networkSession = webkit_network_session_new_ephemeral();
+    else {
+        char *dataDirectory = g_build_filename(g_get_user_data_dir(), "webkitgtk-" WEBKITGTK_API_VERSION, "MiniBrowser", NULL);
+        char *cacheDirectory = g_build_filename(g_get_user_cache_dir(), "webkitgtk-" WEBKITGTK_API_VERSION, "MiniBrowser", NULL);
+        networkSession = webkit_network_session_new(dataDirectory, cacheDirectory);
+        g_free(dataDirectory);
+        g_free(cacheDirectory);
+    }
+
+    webkit_network_session_set_itp_enabled(networkSession, enableITP);
+
+    if (!automationMode) {
+        WebKitWebsiteDataManager *manager;
+
+        manager = webkit_network_session_get_website_data_manager(networkSession);
+        webkit_website_data_manager_set_favicons_enabled(manager, TRUE);
+
+        if (proxy) {
+            WebKitNetworkProxySettings *webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
+            webkit_network_session_set_proxy_settings(networkSession, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
+            webkit_network_proxy_settings_free(webkitProxySettings);
+        }
+
+        if (ignoreTLSErrors)
+            webkit_network_session_set_tls_errors_policy(networkSession, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+    }
+
+    if (cookiesPolicy) {
+        WebKitCookieManager *cookieManager = webkit_network_session_get_cookie_manager(networkSession);
+        GEnumClass *enumClass = g_type_class_ref(WEBKIT_TYPE_COOKIE_ACCEPT_POLICY);
+        GEnumValue *enumValue = g_enum_get_value_by_nick(enumClass, cookiesPolicy);
+        if (enumValue)
+            webkit_cookie_manager_set_accept_policy(cookieManager, enumValue->value);
+        g_type_class_unref(enumClass);
+    }
+
+    if (cookiesFile && !webkit_network_session_is_ephemeral(networkSession)) {
+        WebKitCookieManager *cookieManager = webkit_network_session_get_cookie_manager(networkSession);
+        WebKitCookiePersistentStorage storageType = g_str_has_suffix(cookiesFile, ".txt") ? WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT : WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE;
+        webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesFile, storageType);
+    }
+#else
     WebKitWebsiteDataManager *manager;
     if (privateMode || automationMode)
         manager = webkit_website_data_manager_new_ephemeral();
     else {
-        char *dataDirectory = g_build_filename(g_get_user_data_dir(), "webkitgtk-" WEBKITGTK_API_VERSION_STRING, "MiniBrowser", NULL);
-        char *cacheDirectory = g_build_filename(g_get_user_cache_dir(), "webkitgtk-" WEBKITGTK_API_VERSION_STRING, "MiniBrowser", NULL);
+        char *dataDirectory = g_build_filename(g_get_user_data_dir(), "webkitgtk-" WEBKITGTK_API_VERSION, "MiniBrowser", NULL);
+        char *cacheDirectory = g_build_filename(g_get_user_cache_dir(), "webkitgtk-" WEBKITGTK_API_VERSION, "MiniBrowser", NULL);
         manager = webkit_website_data_manager_new("base-data-directory", dataDirectory, "base-cache-directory", cacheDirectory, NULL);
         g_free(dataDirectory);
         g_free(cacheDirectory);
     }
 
     webkit_website_data_manager_set_itp_enabled(manager, enableITP);
-    WebKitWebContext *webContext = g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "website-data-manager", manager, "process-swap-on-cross-site-navigation-enabled", TRUE,
-#if !GTK_CHECK_VERSION(3, 98, 0)
+
+    if (proxy) {
+        WebKitNetworkProxySettings *webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
+        webkit_website_data_manager_set_network_proxy_settings(manager, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
+        webkit_network_proxy_settings_free(webkitProxySettings);
+    }
+
+    if (ignoreTLSErrors)
+        webkit_website_data_manager_set_tls_errors_policy(manager, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
+    WebKitWebContext *webContext = g_object_new(WEBKIT_TYPE_WEB_CONTEXT,
+        "website-data-manager", manager,
+        "process-swap-on-cross-site-navigation-enabled", TRUE,
         "use-system-appearance-for-scrollbars", FALSE,
-#endif
+        "time-zone-override", timeZone,
         NULL);
     g_object_unref(manager);
+
+    webkit_web_context_set_automation_allowed(webContext, automationMode);
+    g_signal_connect(webContext, "automation-started", G_CALLBACK(automationStartedCallback), application);
+
+    if (enableSandbox)
+        webkit_web_context_set_sandbox_enabled(webContext, TRUE);
 
     if (cookiesPolicy) {
         WebKitCookieManager *cookieManager = webkit_web_context_get_cookie_manager(webContext);
@@ -648,20 +778,25 @@ static void activate(GApplication *application, WebKitSettings *webkitSettings)
         webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesFile, storageType);
     }
 
-    if (proxy) {
-        WebKitNetworkProxySettings *webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
-        webkit_web_context_set_network_proxy_settings(webContext, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
-        webkit_network_proxy_settings_free(webkitProxySettings);
-    }
-
-    // Enable the favicon database, by specifying the default directory.
+    // Enable the favicon database.
     webkit_web_context_set_favicon_database_directory(webContext, NULL);
+#endif
 
-    webkit_web_context_register_uri_scheme(webContext, BROWSER_ABOUT_SCHEME, (WebKitURISchemeRequestCallback)aboutURISchemeRequestCallback, webContext, NULL);
+    webkit_web_context_register_uri_scheme(webContext, BROWSER_ABOUT_SCHEME, (WebKitURISchemeRequestCallback)aboutURISchemeRequestCallback, NULL, NULL);
 
     WebKitUserContentManager *userContentManager = webkit_user_content_manager_new();
+#if GTK_CHECK_VERSION(3, 98, 0)
+    webkit_user_content_manager_register_script_message_handler(userContentManager, "aboutData", NULL);
+#else
     webkit_user_content_manager_register_script_message_handler(userContentManager, "aboutData");
-    g_signal_connect(userContentManager, "script-message-received::aboutData", G_CALLBACK(aboutDataScriptMessageReceivedCallback), webContext);
+#endif
+    WebKitWebsiteDataManager *dataManager;
+#if GTK_CHECK_VERSION(3, 98, 0)
+    dataManager = webkit_network_session_get_website_data_manager(networkSession);
+#else
+    dataManager = webkit_web_context_get_website_data_manager(webContext);
+#endif
+    g_signal_connect(userContentManager, "script-message-received::aboutData", G_CALLBACK(aboutDataScriptMessageReceivedCallback), dataManager);
 
     WebKitWebsitePolicies *defaultWebsitePolicies = webkit_website_policies_new_with_policies(
         "autoplay", autoplayPolicy,
@@ -691,13 +826,11 @@ static void activate(GApplication *application, WebKitSettings *webkitSettings)
         g_object_unref(contentFilterFile);
     }
 
-    webkit_web_context_set_automation_allowed(webContext, automationMode);
-    g_signal_connect(webContext, "automation-started", G_CALLBACK(automationStartedCallback), application);
-
-    if (ignoreTLSErrors)
-        webkit_web_context_set_tls_errors_policy(webContext, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
-
+#if GTK_CHECK_VERSION(3, 98, 0)
+    BrowserWindow *mainWindow = BROWSER_WINDOW(browser_window_new(NULL, webContext, networkSession));
+#else
     BrowserWindow *mainWindow = BROWSER_WINDOW(browser_window_new(NULL, webContext));
+#endif
     gtk_application_add_window(GTK_APPLICATION(application), GTK_WINDOW(mainWindow));
     if (darkMode)
         g_object_set(gtk_widget_get_settings(GTK_WIDGET(mainWindow)), "gtk-application-prefer-dark-theme", TRUE, NULL);
@@ -713,8 +846,11 @@ static void activate(GApplication *application, WebKitSettings *webkitSettings)
 
         for (i = 0; uriArguments[i]; i++) {
             WebKitWebView *webView = createBrowserTab(mainWindow, webkitSettings, userContentManager, defaultWebsitePolicies);
-            if (!i)
+            if (!i) {
                 firstTab = GTK_WIDGET(webView);
+                if (exitAfterLoad)
+                    exitAfterWebViewLoadFinishes(webView, application);
+            }
             gchar *url = argumentToURL(uriArguments[i]);
             webkit_web_view_load_uri(webView, url);
             g_free(url);
@@ -726,8 +862,11 @@ static void activate(GApplication *application, WebKitSettings *webkitSettings)
         if (!editorMode) {
             if (sessionFile)
                 browser_window_load_session(mainWindow, sessionFile);
-            else if (!automationMode)
+            else if (!automationMode) {
                 webkit_web_view_load_uri(webView, BROWSER_DEFAULT_URL);
+                if (exitAfterLoad)
+                    exitAfterWebViewLoadFinishes(webView, application);
+            }
         }
     }
 
@@ -735,6 +874,9 @@ static void activate(GApplication *application, WebKitSettings *webkitSettings)
     g_object_unref(webContext);
     g_object_unref(userContentManager);
     g_object_unref(defaultWebsitePolicies);
+#if GTK_CHECK_VERSION(3, 98, 0)
+    g_clear_object(&networkSession);
+#endif
 
     gtk_widget_grab_focus(firstTab);
     gtk_widget_show(GTK_WIDGET(mainWindow));
@@ -756,6 +898,9 @@ int main(int argc, char *argv[])
     g_option_context_add_main_entries(context, commandLineOptions, 0);
 #if !GTK_CHECK_VERSION(3, 98, 0)
     g_option_context_add_group(context, gtk_get_option_group(TRUE));
+#endif
+#if !USE_GSTREAMER_FULL && (ENABLE_WEB_AUDIO || ENABLE_VIDEO)
+    g_option_context_add_group(context, gst_init_get_option_group());
 #endif
 
     WebKitSettings *webkitSettings = webkit_settings_new();
@@ -781,19 +926,19 @@ int main(int argc, char *argv[])
             webkit_get_major_version(),
             webkit_get_minor_version(),
             webkit_get_micro_version());
-        if (g_strcmp0(SVN_REVISION, "tarball"))
-            g_print(" (%s)", SVN_REVISION);
+        if (g_strcmp0(BUILD_REVISION, "tarball"))
+            g_print(" (%s)", BUILD_REVISION);
         g_print("\n");
         g_clear_object(&webkitSettings);
 
         return 0;
     }
 
-    GtkApplication *application = gtk_application_new(NULL, G_APPLICATION_FLAGS_NONE);
+    GtkApplication *application = gtk_application_new("org.webkitgtk.MiniBrowser", G_APPLICATION_NON_UNIQUE);
     g_signal_connect(application, "startup", G_CALLBACK(startup), NULL);
     g_signal_connect(application, "activate", G_CALLBACK(activate), webkitSettings);
     g_application_run(G_APPLICATION(application), 0, NULL);
     g_object_unref(application);
 
-    return 0;
+    return exitAfterLoad && webProcessCrashed ? 1 : 0;
 }

@@ -36,12 +36,14 @@
 #import "UIKitSPI.h"
 #import "UserInterfaceSwizzler.h"
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKitLegacy/WebEvent.h>
 #import <cmath>
 
 @interface WKContentView ()
+@property (nonatomic, readonly) NSUndoManager *undoManagerForWebView;
 - (BOOL)_shouldSimulateKeyboardInputOnTextInsertion;
 @end
 
@@ -71,23 +73,23 @@
 + (UIBarButtonItemGroup *)leadingItemsForWebView:(WKWebView *)webView
 {
     static dispatch_once_t onceToken;
-    static UIBarButtonItemGroup *sharedItems;
+    static RetainPtr<UIBarButtonItemGroup> sharedItems;
     dispatch_once(&onceToken, ^{
         auto leadingItem = adoptNS([[UIBarButtonItem alloc] initWithImage:self.barButtonIcon style:UIBarButtonItemStylePlain target:webView action:@selector(fakeLeadingBarButtonItemAction)]);
-        sharedItems = [[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ leadingItem.get() ] representativeItem:nil];
+        sharedItems = adoptNS([[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ leadingItem.get() ] representativeItem:nil]);
     });
-    return sharedItems;
+    return sharedItems.get();
 }
 
 + (UIBarButtonItemGroup *)trailingItemsForWebView:(WKWebView *)webView
 {
     static dispatch_once_t onceToken;
-    static UIBarButtonItemGroup *sharedItems;
+    static RetainPtr<UIBarButtonItemGroup> sharedItems;
     dispatch_once(&onceToken, ^{
         auto trailingItem = adoptNS([[UIBarButtonItem alloc] initWithImage:self.barButtonIcon style:UIBarButtonItemStylePlain target:webView action:@selector(fakeTrailingBarButtonItemAction)]);
-        sharedItems = [[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ trailingItem.get() ] representativeItem:nil];
+        sharedItems = adoptNS([[UIBarButtonItemGroup alloc] initWithBarButtonItems:@[ trailingItem.get() ] representativeItem:nil]);
     });
-    return sharedItems;
+    return sharedItems.get();
 }
 
 - (UITextInputAssistantItem *)inputAssistantItem
@@ -183,6 +185,44 @@ static CGRect rounded(CGRect rect)
 - (UIView *)inputAccessoryView
 {
     return _customInputAccessoryView.get();
+}
+
+@end
+
+@interface CustomTextInputTraitsWebView : TestWKWebView
+- (instancetype)initWithFrame:(CGRect)frame keyboardType:(UIKeyboardType)keyboardType;
+@end
+
+@implementation CustomTextInputTraitsWebView {
+    UIKeyboardType _keyboardType;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame keyboardType:(UIKeyboardType)keyboardType
+{
+    if (self = [super initWithFrame:frame])
+        _keyboardType = keyboardType;
+
+    return self;
+}
+
+- (UITextInputTraits *)_textInputTraits
+{
+    UITextInputTraits *traits = [super _textInputTraits];
+    traits.keyboardType = _keyboardType;
+    return traits;
+}
+
+@end
+
+@interface CustomUndoManagerWebView : TestWKWebView
+@property (nonatomic, strong) NSUndoManager *customUndoManager;
+@end
+
+@implementation CustomUndoManagerWebView
+
+- (NSUndoManager *)undoManager
+{
+    return _customUndoManager ?: super.undoManager;
 }
 
 @end
@@ -438,7 +478,7 @@ TEST(KeyboardInputTests, HandleKeyEventsWhileSwappingWebProcess)
 TEST(KeyboardInputTests, CaretSelectionRectAfterRestoringFirstResponderWithRetainActiveFocusedState)
 {
     // This difference in caret width is due to the fact that we don't zoom in to the input field on iPad, but do on iPhone.
-    auto expectedCaretRect = CGRectMake(16, 13, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
+    auto expectedCaretRect = CGRectMake(14, 11, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
     auto [webView, inputDelegate] = webViewAndInputDelegateWithAutofocusedInput();
     EXPECT_WK_STREQ("INPUT", [webView stringByEvaluatingJavaScript:@"document.activeElement.tagName"]);
     [webView waitForCaretViewFrameToBecome:expectedCaretRect];
@@ -474,7 +514,7 @@ TEST(KeyboardInputTests, RangedSelectionRectAfterRestoringFirstResponderWithReta
 TEST(KeyboardInputTests, CaretSelectionRectAfterRestoringFirstResponder)
 {
     // This difference in caret width is due to the fact that we don't zoom in to the input field on iPad, but do on iPhone.
-    auto expectedCaretRect = CGRectMake(16, 13, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
+    auto expectedCaretRect = CGRectMake(14, 11, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
     auto [webView, inputDelegate] = webViewAndInputDelegateWithAutofocusedInput();
     EXPECT_WK_STREQ("INPUT", [webView stringByEvaluatingJavaScript:@"document.activeElement.tagName"]);
     [webView waitForCaretViewFrameToBecome:expectedCaretRect];
@@ -609,7 +649,24 @@ TEST(KeyboardInputTests, OverrideInputViewAndInputAccessoryView)
     EXPECT_EQ(inputView.get(), [contentView inputView]);
 }
 
-TEST(KeyboardInputTests, DisableSmartQuotesAndDashes)
+TEST(KeyboardInputTests, OverrideTextInputTraits)
+{
+    UIKeyboardType keyboardType = UIKeyboardTypeNumberPad;
+
+    auto webView = adoptNS([[CustomTextInputTraitsWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) keyboardType:keyboardType]);
+    auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[&] (WKWebView *, id<_WKFocusedElementInfo>) -> _WKFocusStartsInputSessionPolicy {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+    [webView _setInputDelegate:inputDelegate.get()];
+
+    [webView synchronouslyLoadHTMLString:@"<body><div id='editor' contenteditable='true'></div></body>"];
+
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.getElementById('editor').focus()"];
+    EXPECT_EQ(keyboardType, [webView textInputContentView].textInputTraits.keyboardType);
+}
+
+TEST(KeyboardInputTests, DisableSpellChecking)
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
@@ -618,27 +675,28 @@ TEST(KeyboardInputTests, DisableSmartQuotesAndDashes)
     }];
     [webView _setInputDelegate:inputDelegate.get()];
 
-    auto checkSmartQuotesAndDashesType = [&] (UITextSmartDashesType dashesType, UITextSmartQuotesType quotesType) {
+    auto checkSmartQuotesAndDashesType = [&] (UITextSmartDashesType dashesType, UITextSmartQuotesType quotesType, UITextSpellCheckingType spellCheckingType) {
         UITextInputTraits *traits = [[webView textInputContentView] textInputTraits];
         EXPECT_EQ(dashesType, traits.smartDashesType);
         EXPECT_EQ(quotesType, traits.smartQuotesType);
+        EXPECT_EQ(spellCheckingType, traits.spellCheckingType);
     };
 
     [webView synchronouslyLoadHTMLString:@"<div id='foo' contenteditable spellcheck='false'></div><textarea id='bar' spellcheck='false'></textarea><input id='baz' spellcheck='false'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"foo.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo, UITextSpellCheckingTypeNo);
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"bar.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo, UITextSpellCheckingTypeNo);
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"baz.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeNo, UITextSmartQuotesTypeNo, UITextSpellCheckingTypeNo);
 
     [webView synchronouslyLoadHTMLString:@"<div id='foo' contenteditable></div><textarea id='bar' spellcheck='true'></textarea><input id='baz'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"foo.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault, UITextSpellCheckingTypeDefault);
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"bar.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault, UITextSpellCheckingTypeDefault);
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"baz.focus()"];
-    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault);
+    checkSmartQuotesAndDashesType(UITextSmartDashesTypeDefault, UITextSmartQuotesTypeDefault, UITextSpellCheckingTypeDefault);
 }
 
 TEST(KeyboardInputTests, SelectionClipRectsWhenPresentingInputView)
@@ -657,9 +715,9 @@ TEST(KeyboardInputTests, SelectionClipRectsWhenPresentingInputView)
     [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><input>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.querySelector('input').focus()"];
 
-    EXPECT_EQ(11, selectionClipRect.origin.x);
-    EXPECT_EQ(11, selectionClipRect.origin.y);
-    EXPECT_EQ(136, selectionClipRect.size.width);
+    EXPECT_EQ(9, selectionClipRect.origin.x);
+    EXPECT_EQ(9, selectionClipRect.origin.y);
+    EXPECT_EQ(153, selectionClipRect.size.width);
     EXPECT_EQ(20, selectionClipRect.size.height);
 }
 
@@ -689,6 +747,31 @@ TEST(KeyboardInputTests, TestWebViewAdditionalContextForStrongPasswordAssistance
 
     NSDictionary *actual = [[webView textInputContentView] _autofillContext];
     EXPECT_TRUE([[actual allValues] containsObject:expected]);
+    EXPECT_TRUE([actual[@"_automaticPasswordKeyboard"] boolValue]);
+}
+
+TEST(KeyboardInputTests, TestWebViewAdditionalContextForNonAutofillCredentialType)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[&] (WKWebView *, id<_WKFocusedElementInfo>) -> _WKFocusStartsInputSessionPolicy {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    [inputDelegate setFocusRequiresStrongPasswordAssistanceHandler:[&] (WKWebView *, id<_WKFocusedElementInfo>) {
+        return YES;
+    }];
+
+    [webView _setInputDelegate:inputDelegate.get()];
+
+    [webView synchronouslyLoadHTMLString:@"<input type='text' id='input' autocomplete='username webauthn'>"];
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.getElementById('input').focus()"];
+
+    NSDictionary *actual = [[webView textInputContentView] _autofillContext];
+    EXPECT_TRUE([actual[@"_page_id"] boolValue]);
+    EXPECT_TRUE([actual[@"_frame_id"] boolValue]);
+    EXPECT_WK_STREQ("webauthn", actual[@"_credential_type"]);
 }
 
 TEST(KeyboardInputTests, TestWebViewAccessoryDoneDuringStrongPasswordAssistance)
@@ -798,6 +881,138 @@ TEST(KeyboardInputTests, InsertDictationAlternativesSimulatingKeyboardInput)
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.body.focus()"];
     [[webView textInputContentView] insertText:@"hello" alternatives:@[ @"helo" ] style:UITextAlternativeStyleNone];
     EXPECT_NS_EQUAL((@[@"keydown", @"beforeinput", @"input", @"keyup", @"change"]), [webView objectByEvaluatingJavaScript:@"firedEvents"]);
+}
+
+TEST(KeyboardInputTests, OverrideUndoManager)
+{
+    auto webView = adoptNS([[CustomUndoManagerWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto contentView = [webView wkContentView];
+    EXPECT_EQ(contentView.undoManager, contentView.undoManagerForWebView);
+
+    auto undoManager = adoptNS([[NSUndoManager alloc] init]);
+    [webView setCustomUndoManager:undoManager.get()];
+    EXPECT_EQ(contentView.undoManager, undoManager);
+}
+
+TEST(KeyboardInputTests, DoNotRegisterActionsInOverriddenUndoManager)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration _setUndoManagerAPIEnabled:YES];
+
+    auto webView = adoptNS([[CustomUndoManagerWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    auto contentView = [webView wkContentView];
+    EXPECT_FALSE([contentView.undoManagerForWebView canUndo]);
+
+    auto overrideUndoManager = adoptNS([[NSUndoManager alloc] init]);
+    [webView setCustomUndoManager:overrideUndoManager.get()];
+
+    __block bool doneWaiting = false;
+    [webView synchronouslyLoadHTMLString:@"<body></body>"];
+    [webView evaluateJavaScript:@"document.undoManager.addItem(new UndoItem({ label: '', undo: () => debug(\"Performed undo.\"), redo: () => debug(\"Performed redo.\") }))" completionHandler:^(id, NSError *) {
+        doneWaiting = true;
+    }];
+
+    TestWebKitAPI::Util::run(&doneWaiting);
+    EXPECT_TRUE([contentView.undoManagerForWebView canUndo]);
+    EXPECT_FALSE([overrideUndoManager canUndo]);
+}
+
+static UIView * nilResizableSnapshotViewFromRect(id, SEL, CGRect, BOOL, UIEdgeInsets)
+{
+    return nil;
+}
+
+TEST(KeyboardInputTests, DoNotCrashWhenFocusingSelectWithoutViewSnapshot)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto delegate = adoptNS([TestInputDelegate new]);
+    [webView _setInputDelegate:delegate.get()];
+    [delegate setFocusStartsInputSessionPolicyHandler:[](WKWebView *, id <_WKFocusedElementInfo>) {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    [webView synchronouslyLoadHTMLString:@"<select id='select'><option>foo</option><option>bar</option></select>"];
+
+    InstanceMethodSwizzler swizzler { UIView.class, @selector(resizableSnapshotViewFromRect:afterScreenUpdates:withCapInsets:), reinterpret_cast<IMP>(nilResizableSnapshotViewFromRect) };
+    [webView stringByEvaluatingJavaScript:@"select.focus()"];
+    [webView waitForNextPresentationUpdate];
+}
+
+TEST(KeyboardInputTests, EditableWebViewRequiresKeyboardWhenFirstResponder)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto delegate = adoptNS([TestInputDelegate new]);
+    [webView _setInputDelegate:delegate.get()];
+    [delegate setFocusStartsInputSessionPolicyHandler:[](WKWebView *, id <_WKFocusedElementInfo>) {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    auto contentView = [webView textInputContentView];
+    [webView synchronouslyLoadHTMLString:@"<input value='foo' readonly>"];
+    EXPECT_FALSE([contentView _requiresKeyboardWhenFirstResponder]);
+
+    [webView _setEditable:YES];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([contentView _requiresKeyboardWhenFirstResponder]);
+
+    [webView stringByEvaluatingJavaScript:@"document.querySelector('input').focus()"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_FALSE([contentView _requiresKeyboardWhenFirstResponder]);
+}
+
+TEST(KeyboardInputTests, InputSessionWhenEvaluatingJavaScript)
+{
+    __block bool done = false;
+    auto inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+    bool willStartInputSession = false;
+    [inputDelegate setWillStartInputSessionHandler:[&] (WKWebView *, id<_WKFormInputSession>) {
+        willStartInputSession = true;
+    }];
+    bool didStartInputSession = false;
+    [inputDelegate setDidStartInputSessionHandler:[&] (WKWebView *, id<_WKFormInputSession>) {
+        didStartInputSession = true;
+    }];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    [webView _setInputDelegate:inputDelegate.get()];
+    [webView synchronouslyLoadHTMLString:@"<input value='foo'>"];
+
+    NSString *focusInputScript = @"document.querySelector('input').focus()";
+
+    done = false;
+    [webView _evaluateJavaScriptWithoutUserGesture:focusInputScript completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    [webView waitForNextPresentationUpdate];
+    EXPECT_FALSE(willStartInputSession);
+    EXPECT_FALSE(didStartInputSession);
+
+    done = false;
+    [webView callAsyncJavaScript:focusInputScript arguments:nil inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE(willStartInputSession);
+    EXPECT_TRUE(didStartInputSession);
+
+    [webView objectByEvaluatingJavaScript:@"document.activeElement.blur()"];
+    [webView waitForNextPresentationUpdate];
+
+    willStartInputSession = false;
+    didStartInputSession = false;
+    done = false;
+    [webView evaluateJavaScript:focusInputScript completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE(willStartInputSession);
+    EXPECT_TRUE(didStartInputSession);
 }
 
 } // namespace TestWebKitAPI

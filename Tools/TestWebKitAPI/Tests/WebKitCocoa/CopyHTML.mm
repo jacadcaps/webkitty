@@ -28,9 +28,10 @@
 
 #if PLATFORM(COCOA)
 
-#import "CocoaColor.h"
+#import "PasteboardUtilities.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
+#import <WebCore/ColorCocoa.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/text/WTFString.h>
@@ -45,6 +46,9 @@
 @end
 
 #if PLATFORM(MAC)
+
+@interface WKWebView () <NSServicesMenuRequestor>
+@end
 
 NSData *readHTMLDataFromPasteboard()
 {
@@ -65,23 +69,14 @@ NSData *readHTMLDataFromPasteboard()
 
 NSString *readHTMLStringFromPasteboard()
 {
-    id value = [[UIPasteboard generalPasteboard] valueForPasteboardType:(__bridge NSString *)kUTTypeHTML];
+    RetainPtr<id> value = [[UIPasteboard generalPasteboard] valueForPasteboardType:(__bridge NSString *)kUTTypeHTML];
     if ([value isKindOfClass:[NSData class]])
-        value = [[[NSString alloc] initWithData:(NSData *)value encoding:NSUTF8StringEncoding] autorelease];
+        value = adoptNS([[NSString alloc] initWithData:(NSData *)value encoding:NSUTF8StringEncoding]);
     ASSERT([value isKindOfClass:[NSString class]]);
-    return (NSString *)value;
+    return (NSString *)value.autorelease();
 }
 
 #endif
-
-static RetainPtr<TestWKWebView> createWebViewWithCustomPasteboardDataEnabled()
-{
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400)]);
-    auto preferences = (__bridge WKPreferencesRef)[[webView configuration] preferences];
-    WKPreferencesSetDataTransferItemsEnabled(preferences, true);
-    WKPreferencesSetCustomPasteboardDataEnabled(preferences, true);
-    return webView;
-}
 
 TEST(CopyHTML, Sanitizes)
 {
@@ -96,10 +91,10 @@ TEST(CopyHTML, Sanitizes)
     EXPECT_WK_STREQ("<meta content=\"secret\"><b onmouseover=\"dangerousCode()\">hello</b><!-- secret-->, world<script>dangerousCode()</script>",
         [webView stringByEvaluatingJavaScript:@"pastedHTML"]);
     String htmlInNativePasteboard = readHTMLStringFromPasteboard();
-    EXPECT_TRUE(htmlInNativePasteboard.contains("hello"));
-    EXPECT_TRUE(htmlInNativePasteboard.contains(", world"));
-    EXPECT_FALSE(htmlInNativePasteboard.contains("secret"));
-    EXPECT_FALSE(htmlInNativePasteboard.contains("dangerousCode"));
+    EXPECT_TRUE(htmlInNativePasteboard.contains("hello"_s));
+    EXPECT_TRUE(htmlInNativePasteboard.contains(", world"_s));
+    EXPECT_FALSE(htmlInNativePasteboard.contains("secret"_s));
+    EXPECT_FALSE(htmlInNativePasteboard.contains("dangerousCode"_s));
 }
 
 TEST(CopyHTML, SanitizationPreservesCharacterSetInSelectedText)
@@ -158,7 +153,7 @@ TEST(CopyHTML, SanitizationPreservesCharacterSet)
         EXPECT_WK_STREQ("我叫謝文昇", [attributedString string]);
 
         __block BOOL foundColorAttribute = NO;
-        [attributedString enumerateAttribute:NSForegroundColorAttributeName inRange:NSMakeRange(0, 5) options:0 usingBlock:^(CocoaColor *color, NSRange range, BOOL*) {
+        [attributedString enumerateAttribute:NSForegroundColorAttributeName inRange:NSMakeRange(0, 5) options:0 usingBlock:^(WebCore::CocoaColor *color, NSRange range, BOOL*) {
             CGFloat redComponent = 0;
             CGFloat greenComponent = 0;
             CGFloat blueComponent = 0;
@@ -191,6 +186,18 @@ TEST(CopyHTML, ItemTypesWhenCopyingWebContent)
     EXPECT_TRUE([types containsObject:(__bridge NSString *)NSPasteboardTypeRTF]);
     EXPECT_TRUE([types containsObject:(__bridge NSString *)NSPasteboardTypeString]);
     EXPECT_TRUE([types containsObject:(__bridge NSString *)NSPasteboardTypeHTML]);
+}
+
+TEST(CopyHTML, WriteRichTextSelectionToPasteboard)
+{
+    auto webView = createWebViewWithCustomPasteboardDataEnabled();
+    [webView synchronouslyLoadHTMLString:@"<strong style='color: rgb(255, 0, 0);'>This is some text to copy.</strong>"];
+    [webView stringByEvaluatingJavaScript:@"getSelection().selectAllChildren(document.body)"];
+
+    auto pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    [webView writeSelectionToPasteboard:pasteboard types:@[ (__bridge NSString *)kUTTypeWebArchive ]];
+
+    EXPECT_GT([pasteboard dataForType:(__bridge NSString *)kUTTypeWebArchive].length, 0U);
 }
 
 #endif // PLATFORM(MAC)

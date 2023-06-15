@@ -31,20 +31,20 @@
 #include <wtf/text/StringHasher.h>
 #include <wtf/unicode/CharacterNames.h>
 
-namespace WTF {
-namespace Unicode {
+namespace WTF::Unicode {
 
 bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char** targetStart, char* targetEnd)
 {
     const LChar* source;
     char* target = *targetStart;
-    int i = 0;
+    int32_t i = 0;
     for (source = *sourceStart; source < sourceEnd; ++source) {
         UBool sawError = false;
         // Work around bug in either Windows compiler or old version of ICU, where passing a uint8_t to
         // U8_APPEND warns, by converting from uint8_t to a wider type.
         UChar32 character = *source;
         U8_APPEND(reinterpret_cast<uint8_t*>(target), i, targetEnd - *targetStart, character, sawError);
+        ASSERT_WITH_MESSAGE(!sawError, "UTF8 destination buffer was not big enough");
         if (sawError)
             return false;
     }
@@ -55,29 +55,29 @@ bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char
 
 ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sourceEnd, char** targetStart, char* targetEnd, bool strict)
 {
-    ConversionResult result = ConversionOK;
+    auto result = ConversionResult::Success;
     const UChar* source = *sourceStart;
     char* target = *targetStart;
     UBool sawError = false;
-    int i = 0;
+    int32_t i = 0;
     while (source < sourceEnd) {
         UChar32 ch;
         int j = 0;
         U16_NEXT(source, j, sourceEnd - source, ch);
         if (U_IS_SURROGATE(ch)) {
             if (source + j == sourceEnd && U_IS_SURROGATE_LEAD(ch)) {
-                result = SourceExhausted;
+                result = ConversionResult::SourceExhausted;
                 break;
             }
             if (strict) {
-                result = SourceIllegal;
+                result = ConversionResult::SourceIllegal;
                 break;
             }
             ch = replacementCharacter;
         }
         U8_APPEND(reinterpret_cast<uint8_t*>(target), i, targetEnd - target, ch, sawError);
         if (sawError) {
-            result = TargetExhausted;
+            result = ConversionResult::TargetExhausted;
             break;
         }
         source += j;
@@ -87,7 +87,8 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sour
     return result;
 }
 
-bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+template<bool replaceInvalidSequences>
+bool convertUTF8ToUTF16Impl(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
 {
     RELEASE_ASSERT(sourceEnd - source <= std::numeric_limits<int>::max());
     UBool error = false;
@@ -97,7 +98,11 @@ bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targe
     int targetOffset = 0;
     for (int sourceOffset = 0; sourceOffset < sourceEnd - source; ) {
         UChar32 character;
-        U8_NEXT(reinterpret_cast<const uint8_t*>(source), sourceOffset, sourceEnd - source, character);
+        if constexpr (replaceInvalidSequences) {
+            U8_NEXT_OR_FFFD(reinterpret_cast<const uint8_t*>(source), sourceOffset, sourceEnd - source, character);
+        } else {
+            U8_NEXT(reinterpret_cast<const uint8_t*>(source), sourceOffset, sourceEnd - source, character);
+        }
         if (character < 0)
             return false;
         U16_APPEND(target, targetOffset, targetEnd - target, character, error);
@@ -110,6 +115,16 @@ bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targe
     if (sourceAllASCII)
         *sourceAllASCII = isASCII(orAllData);
     return true;
+}
+
+bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+{
+    return convertUTF8ToUTF16Impl<false>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
+}
+
+bool convertUTF8ToUTF16ReplacingInvalidSequences(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+{
+    return convertUTF8ToUTF16Impl<true>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
 }
 
 unsigned calculateStringHashAndLengthFromUTF8MaskingTop8Bits(const char* data, const char* dataEnd, unsigned& dataLength, unsigned& utf16Length)
@@ -192,5 +207,4 @@ bool equalLatin1WithUTF8(const LChar* a, const char* b, const char* bEnd)
     return true;
 }
 
-} // namespace Unicode
-} // namespace WTF
+} // namespace WTF::Unicode

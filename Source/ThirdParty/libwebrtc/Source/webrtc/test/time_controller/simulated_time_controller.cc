@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "test/time_controller/simulated_process_thread.h"
 #include "test/time_controller/simulated_task_queue.h"
 #include "test/time_controller/simulated_thread.h"
 
@@ -50,18 +49,8 @@ SimulatedTimeControllerImpl::CreateTaskQueue(
   auto mutable_this = const_cast<SimulatedTimeControllerImpl*>(this);
   auto task_queue = std::unique_ptr<SimulatedTaskQueue, TaskQueueDeleter>(
       new SimulatedTaskQueue(mutable_this, name));
-  ;
   mutable_this->Register(task_queue.get());
   return task_queue;
-}
-
-std::unique_ptr<ProcessThread> SimulatedTimeControllerImpl::CreateProcessThread(
-    const char* thread_name) {
-  rtc::CritScope lock(&lock_);
-  auto process_thread =
-      std::make_unique<SimulatedProcessThread>(this, thread_name);
-  Register(process_thread.get());
-  return process_thread;
 }
 
 std::unique_ptr<rtc::Thread> SimulatedTimeControllerImpl::CreateThread(
@@ -96,7 +85,7 @@ void SimulatedTimeControllerImpl::RunReadyRunners() {
   // Using a dummy thread rather than nullptr to avoid implicit thread creation
   // by Thread::Current().
   SimulatedThread::CurrentThreadSetter set_current(dummy_thread_.get());
-  rtc::CritScope lock(&lock_);
+  MutexLock lock(&lock_);
   RTC_DCHECK_EQ(rtc::CurrentThreadId(), thread_id_);
   Timestamp current_time = CurrentTime();
   // Clearing |ready_runners_| in case this is a recursive call:
@@ -117,23 +106,25 @@ void SimulatedTimeControllerImpl::RunReadyRunners() {
     while (!ready_runners_.empty()) {
       auto* runner = ready_runners_.front();
       ready_runners_.pop_front();
+      lock_.Unlock();
       // Note that the RunReady function might indirectly cause a call to
-      // Unregister() which will recursively grab |lock_| again to remove items
-      // from |ready_runners_|.
+      // Unregister() which will grab |lock_| again to remove items from
+      // |ready_runners_|.
       runner->RunReady(current_time);
+      lock_.Lock();
     }
   }
 }
 
 Timestamp SimulatedTimeControllerImpl::CurrentTime() const {
-  rtc::CritScope lock(&time_lock_);
+  MutexLock lock(&time_lock_);
   return current_time_;
 }
 
 Timestamp SimulatedTimeControllerImpl::NextRunTime() const {
   Timestamp current_time = CurrentTime();
   Timestamp next_time = Timestamp::PlusInfinity();
-  rtc::CritScope lock(&lock_);
+  MutexLock lock(&lock_);
   for (auto* runner : runners_) {
     Timestamp next_run_time = runner->GetNextRunTime();
     if (next_run_time <= current_time)
@@ -144,18 +135,18 @@ Timestamp SimulatedTimeControllerImpl::NextRunTime() const {
 }
 
 void SimulatedTimeControllerImpl::AdvanceTime(Timestamp target_time) {
-  rtc::CritScope time_lock(&time_lock_);
+  MutexLock time_lock(&time_lock_);
   RTC_DCHECK_GE(target_time, current_time_);
   current_time_ = target_time;
 }
 
 void SimulatedTimeControllerImpl::Register(SimulatedSequenceRunner* runner) {
-  rtc::CritScope lock(&lock_);
+  MutexLock lock(&lock_);
   runners_.push_back(runner);
 }
 
 void SimulatedTimeControllerImpl::Unregister(SimulatedSequenceRunner* runner) {
-  rtc::CritScope lock(&lock_);
+  MutexLock lock(&lock_);
   bool removed = RemoveByValue(&runners_, runner);
   RTC_CHECK(removed);
   RemoveByValue(&ready_runners_, runner);
@@ -169,6 +160,7 @@ void SimulatedTimeControllerImpl::StartYield(TaskQueueBase* yielding_from) {
 void SimulatedTimeControllerImpl::StopYield(TaskQueueBase* yielding_from) {
   yielded_.erase(yielding_from);
 }
+
 }  // namespace sim_time_impl
 
 GlobalSimulatedTimeController::GlobalSimulatedTimeController(
@@ -188,11 +180,6 @@ Clock* GlobalSimulatedTimeController::GetClock() {
 
 TaskQueueFactory* GlobalSimulatedTimeController::GetTaskQueueFactory() {
   return &impl_;
-}
-
-std::unique_ptr<ProcessThread>
-GlobalSimulatedTimeController::CreateProcessThread(const char* thread_name) {
-  return impl_.CreateProcessThread(thread_name);
 }
 
 std::unique_ptr<rtc::Thread> GlobalSimulatedTimeController::CreateThread(

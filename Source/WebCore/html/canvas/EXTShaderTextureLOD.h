@@ -30,11 +30,14 @@
 namespace WebCore {
 
 class EXTShaderTextureLOD final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(EXTShaderTextureLOD);
 public:
     explicit EXTShaderTextureLOD(WebGLRenderingContextBase&);
     virtual ~EXTShaderTextureLOD();
 
     ExtensionName getName() const override;
+
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

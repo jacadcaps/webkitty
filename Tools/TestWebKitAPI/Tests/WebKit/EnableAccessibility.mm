@@ -71,11 +71,16 @@ TEST(WebKit, AccessibilityHasPreferencesServiceAccess)
 
     [webView synchronouslyLoadTestPageNamed:@"simple"];
 
+#if ENABLE(CFPREFS_DIRECT_MODE)
+    ASSERT_FALSE(sandboxAccess());
+#else
     ASSERT_TRUE(sandboxAccess());
+#endif
 
     [NSApp accessibilitySetEnhancedUserInterfaceAttribute:@(NO)];
 }
 
+#if ENABLE(CFPREFS_DIRECT_MODE)
 TEST(WebKit, AccessibilityHasNoPreferencesServiceAccessWhenPostingNotification)
 {
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -95,6 +100,7 @@ TEST(WebKit, AccessibilityHasNoPreferencesServiceAccessWhenPostingNotification)
 
     ASSERT_TRUE(!sandboxAccess());
 }
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 TEST(WebKit, AccessibilityHasFrontboardServiceAccess)

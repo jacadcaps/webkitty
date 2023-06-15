@@ -46,7 +46,7 @@ namespace WebKit {
 
 class Authenticator : public RefCounted<Authenticator>, public CanMakeWeakPtr<Authenticator> {
 public:
-    using Respond = Variant<Ref<WebCore::AuthenticatorResponse>, WebCore::ExceptionData>;
+    using Respond = std::variant<Ref<WebCore::AuthenticatorResponse>, WebCore::ExceptionData>;
 
     class Observer : public CanMakeWeakPtr<Observer> {
     public:
@@ -57,12 +57,13 @@ public:
         virtual void requestPin(uint64_t retries, CompletionHandler<void(const WTF::String&)>&&) = 0;
         virtual void selectAssertionResponse(Vector<Ref<WebCore::AuthenticatorAssertionResponse>>&&, WebAuthenticationSource, CompletionHandler<void(WebCore::AuthenticatorAssertionResponse*)>&&) = 0;
         virtual void decidePolicyForLocalAuthenticator(CompletionHandler<void(LocalAuthenticatorPolicy)>&&) = 0;
+        virtual void requestLAContextForUserVerification(CompletionHandler<void(LAContext *)>&&) = 0;
         virtual void cancelRequest() = 0;
     };
 
     virtual ~Authenticator() = default;
 
-    void setObserver(Observer& observer) { m_observer = makeWeakPtr(observer); }
+    void setObserver(Observer& observer) { m_observer = observer; }
 
     // This operation is guaranteed to execute asynchronously.
     void handleRequest(const WebAuthenticationRequestData&);

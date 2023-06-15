@@ -40,7 +40,7 @@
 namespace WebKit {
 using namespace WebCore;
 
-WebContextMenu::WebContextMenu(WebPage* page)
+WebContextMenu::WebContextMenu(WebPage& page)
     : m_page(page)
 {
 }
@@ -68,7 +68,7 @@ void WebContextMenu::show()
     ContextMenuContextData contextMenuContextData(menuLocation, menuItems, controller.context());
 
     // Mark the WebPage has having a shown context menu then notify the UIProcess.
-    m_page->contextMenuShowing();
+    m_page->startWaitingForContextMenuToShow();
     m_page->flushPendingEditorStateUpdate();
     m_page->send(Messages::WebPageProxy::ShowContextMenu(contextMenuContextData, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
 }
@@ -89,7 +89,7 @@ void WebContextMenu::menuItemsWithUserData(Vector<WebContextMenuItemData> &menuI
     // Give the bundle client a chance to process the menu.
     const Vector<ContextMenuItem>& coreItems = menu->items();
 
-    if (m_page->injectedBundleContextMenuClient().getCustomMenuFromDefaultItems(*m_page, controller.hitTestResult(), coreItems, menuItems, userData))
+    if (m_page->injectedBundleContextMenuClient().getCustomMenuFromDefaultItems(*m_page, controller.hitTestResult(), coreItems, menuItems, controller.context(), userData))
         return;
     menuItems = kitItems(coreItems);
 }

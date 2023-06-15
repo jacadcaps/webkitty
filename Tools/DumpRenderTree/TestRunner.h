@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,12 +29,14 @@
 #pragma once
 
 #include "UIScriptContext.h"
+#include "UIScriptController.h"
 #include <JavaScriptCore/JSObjectRef.h>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 #include <wtf/RefCounted.h>
+#include <wtf/text/WTFString.h>
 
 extern FILE* testResult;
 
@@ -53,15 +55,20 @@ public:
     
     void cleanup();
 
-    void makeWindowObject(JSContextRef, JSObjectRef windowObject, JSValueRef* exception);
+    void makeWindowObject(JSContextRef);
 
     void addDisallowedURL(JSStringRef url);
     const std::set<std::string>& allowedHosts() const { return m_allowedHosts; }
     void setAllowedHosts(std::set<std::string> hosts) { m_allowedHosts = WTFMove(hosts); }
+    bool allowAnyHTTPSCertificateForAllowedHosts() const { return m_allowAnyHTTPSCertificateForAllowedHosts; }
+    void setAllowAnyHTTPSCertificateForAllowedHosts(bool allow) { m_allowAnyHTTPSCertificateForAllowedHosts = allow; }
+    const std::set<std::string>& localhostAliases() const { return m_localhostAliases; }
+    void setLocalhostAliases(std::set<std::string> hosts) { m_localhostAliases = WTFMove(hosts); }
     void addURLToRedirect(std::string origin, std::string destination);
     const char* redirectionDestinationForURL(const char*);
     void clearAllApplicationCaches();
     void clearAllDatabases();
+    void clearNotificationPermissionState();
     void clearApplicationCacheForOrigin(JSStringRef name);
     void clearBackForwardList();
     void clearPersistentUserStyleSheet();
@@ -74,6 +81,7 @@ public:
     void execCommand(JSStringRef name, JSStringRef value);
     bool findString(JSContextRef, JSStringRef, JSObjectRef optionsArray);
     void forceImmediateCompletion();
+    void stopLoading();
     void goBack();
     JSValueRef originsWithApplicationCache(JSContextRef);
     long long applicationCacheDiskUsageForOrigin(JSStringRef name);
@@ -92,29 +100,22 @@ public:
     void queueLoadingScript(JSStringRef script);
     void queueNonLoadingScript(JSStringRef script);
     void queueReload();
+    void removeAllCookies(JSValueRef callback);
     void removeAllVisitedLinks();
     void setAcceptsEditing(bool);
-    void setFetchAPIEnabled(bool);
-    void setAllowUniversalAccessFromFileURLs(bool);
-    void setAllowFileAccessFromFileURLs(bool);
-    void setNeedsStorageAccessFromFileURLsQuirk(bool);
     void setAppCacheMaximumSize(unsigned long long quota);
-    void setAuthorAndUserStylesEnabled(bool);
     void setCacheModel(int);
     void setCustomPolicyDelegate(bool setDelegate, bool permissive);
     void setDatabaseQuota(unsigned long long quota);
     void setDomainRelaxationForbiddenForURLScheme(bool forbidden, JSStringRef scheme);
     void setDefersLoading(bool);
     void setIconDatabaseEnabled(bool);
-    void setJavaScriptCanAccessClipboard(bool flag);
     void setAutomaticLinkDetectionEnabled(bool flag);
     void setMainFrameIsFirstResponder(bool flag);
     void setMockDeviceOrientation(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma);
     void setMockGeolocationPosition(double latitude, double longitude, double accuracy, bool providesAltitude, double altitude, bool providesAltitudeAccuracy, double altitudeAccuracy, bool providesHeading, double heading, bool providesSpeed, double speed, bool providesFloorLevel, double floorLevel);
     void setMockGeolocationPositionUnavailableError(JSStringRef message);
     void setPersistentUserStyleSheetLocation(JSStringRef path);
-    void setPluginsEnabled(bool);
-    void setPopupBlockingEnabled(bool);
     void setPrivateBrowsingEnabled(bool);
 
     void willNavigate();
@@ -125,26 +126,23 @@ public:
     void setUserStyleSheetEnabled(bool flag);
     void setUserStyleSheetLocation(JSStringRef path);
     void setValueForUser(JSContextRef, JSValueRef nodeObject, JSStringRef value);
-    void setXSSAuditorEnabled(bool flag);
-    void setSpatialNavigationEnabled(bool);
     void setScrollbarPolicy(JSStringRef orientation, JSStringRef policy);
 #if PLATFORM(IOS_FAMILY)
-    void setTelephoneNumberParsingEnabled(bool enable);
     void setPagePaused(bool paused);
+#endif
+#if PLATFORM(WIN)
+    void setShouldInvertColors(bool);
 #endif
 
     void setPageVisibility(const char*);
     void resetPageVisibility();
 
     static void setAllowsAnySSLCertificate(bool);
+    static bool allowsAnySSLCertificate();
 
     void waitForPolicyDelegate();
     size_t webHistoryItemCount();
     int windowCount();
-
-#if ENABLE(TEXT_AUTOSIZING)
-    void setTextAutosizingEnabled(bool);
-#endif
 
     void setAccummulateLogsForChannel(JSStringRef);
 
@@ -239,9 +237,6 @@ public:
 
     bool canOpenWindows() const { return m_canOpenWindows; }
     void setCanOpenWindows(bool canOpenWindows) { m_canOpenWindows = canOpenWindows; }
-
-    bool closeRemainingWindowsWhenComplete() const { return m_closeRemainingWindowsWhenComplete; }
-    void setCloseRemainingWindowsWhenComplete(bool closeRemainingWindowsWhenComplete) { m_closeRemainingWindowsWhenComplete = closeRemainingWindowsWhenComplete; }
     
     bool newWindowsCopyBackForwardList() const { return m_newWindowsCopyBackForwardList; }
     void setNewWindowsCopyBackForwardList(bool newWindowsCopyBackForwardList) { m_newWindowsCopyBackForwardList = newWindowsCopyBackForwardList; }
@@ -310,8 +305,8 @@ public:
     const std::string& testURL() const { return m_testURL; }
     const std::string& expectedPixelHash() const { return m_expectedPixelHash; }
 
-    const std::vector<char>& audioResult() const { return m_audioResult; }
-    void setAudioResult(const std::vector<char>& audioData) { m_audioResult = audioData; }
+    const std::vector<uint8_t>& audioResult() const { return m_audioResult; }
+    void setAudioResult(const std::vector<uint8_t>& audioData) { m_audioResult = audioData; }
 
     void addOriginAccessAllowListEntry(JSStringRef sourceOrigin, JSStringRef destinationProtocol, JSStringRef destinationHost, bool allowDestinationSubdomains);
     void removeOriginAccessAllowListEntry(JSStringRef sourceOrigin, JSStringRef destinationProtocol, JSStringRef destinationHost, bool allowDestinationSubdomains);
@@ -323,7 +318,6 @@ public:
     bool isGeolocationPermissionSet() const { return m_isGeolocationPermissionSet; }
     bool geolocationPermission() const { return m_geolocationPermission; }
 
-    void setDeveloperExtrasEnabled(bool);
     void showWebInspector();
     void closeWebInspector();
     void evaluateInWebInspector(JSStringRef script);
@@ -339,11 +333,13 @@ public:
     void removeChromeInputField();
     void focusWebView();
 
+    void setTextInChromeInputField(const String&);
+    void selectChromeInputField();
+    String getSelectedTextInChromeInputField();
+
     void setBackingScaleFactor(double);
 
     void setPOSIXLocale(JSStringRef);
-
-    void setWebViewEditable(bool);
 
     void abortModal();
 
@@ -389,12 +385,16 @@ public:
     void setOpenPanelFiles(JSContextRef, JSValueRef);
 
 #if PLATFORM(IOS_FAMILY)
-    const std::vector<char>& openPanelFilesMediaIcon() const { return m_openPanelFilesMediaIcon; }
+    const std::vector<uint8_t>& openPanelFilesMediaIcon() const { return m_openPanelFilesMediaIcon; }
     void setOpenPanelFilesMediaIcon(JSContextRef, JSValueRef);
 #endif
 
     bool didCancelClientRedirect() const { return m_didCancelClientRedirect; }
     void setDidCancelClientRedirect(bool value) { m_didCancelClientRedirect = value; }
+
+    bool isSecureEventInputEnabled() const;
+
+    void generateTestReport(JSStringRef message, JSStringRef group);
 
 private:
     TestRunner(const std::string& testURL, const std::string& expectedPixelHash);
@@ -410,6 +410,7 @@ private:
 
     void setGeolocationPermissionCommon(bool allow);
 
+    bool m_allowAnyHTTPSCertificateForAllowedHosts { false };
     bool m_disallowIncreaseForApplicationCacheQuota { false };
     bool m_dumpApplicationCacheDelegateCallbacks { false };
     bool m_dumpAsAudio { false };
@@ -435,8 +436,7 @@ private:
     bool m_dumpWillCacheResponse { false };
     bool m_generatePixelResults { true };
     bool m_callCloseOnWebViews { true };
-    bool m_canOpenWindows { false };
-    bool m_closeRemainingWindowsWhenComplete { true };
+    bool m_canOpenWindows { true };
     bool m_newWindowsCopyBackForwardList { false };
     bool m_stopProvisionalFrameLoads { false };
     bool m_testOnscreen { false };
@@ -479,8 +479,9 @@ private:
 
     std::set<std::string> m_willSendRequestClearHeaders;
     std::set<std::string> m_allowedHosts;
+    std::set<std::string> m_localhostAliases;
 
-    std::vector<char> m_audioResult;
+    std::vector<uint8_t> m_audioResult;
 
     std::map<std::string, std::string> m_URLsToRedirect;
 
@@ -494,10 +495,10 @@ private:
 
     std::vector<std::string> m_openPanelFiles;
 #if PLATFORM(IOS_FAMILY)
-    std::vector<char> m_openPanelFilesMediaIcon;
+    std::vector<uint8_t> m_openPanelFilesMediaIcon;
 #endif
 
-    static JSClassRef getJSClass();
-    static JSStaticValue* staticValues();
-    static JSStaticFunction* staticFunctions();
+    static JSRetainPtr<JSClassRef> createJSClass();
+    static const JSStaticValue* staticValues();
+    static const JSStaticFunction* staticFunctions();
 };

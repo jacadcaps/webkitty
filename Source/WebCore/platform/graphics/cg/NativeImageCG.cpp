@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,89 +28,104 @@
 
 #if USE(CG)
 
-#include "Color.h"
-#include "FloatRect.h"
+#include "CGSubimageCacheWithTimer.h"
 #include "GeometryUtilities.h"
 #include "GraphicsContextCG.h"
-#include "IntSize.h"
-#include "SubimageCacheWithTimer.h"
-#include <pal/spi/cg/CoreGraphicsSPI.h>
 
 namespace WebCore {
 
-IntSize nativeImageSize(const NativeImagePtr& image)
+IntSize NativeImage::size() const
 {
-    return image ? IntSize(CGImageGetWidth(image.get()), CGImageGetHeight(image.get())) : IntSize();
+    return IntSize(CGImageGetWidth(m_platformImage.get()), CGImageGetHeight(m_platformImage.get()));
 }
 
-bool nativeImageHasAlpha(const NativeImagePtr& image)
+bool NativeImage::hasAlpha() const
 {
-    CGImageAlphaInfo info = CGImageGetAlphaInfo(image.get());
+    CGImageAlphaInfo info = CGImageGetAlphaInfo(m_platformImage.get());
     return (info >= kCGImageAlphaPremultipliedLast) && (info <= kCGImageAlphaFirst);
 }
 
-Color nativeImageSinglePixelSolidColor(const NativeImagePtr& image)
+Color NativeImage::singlePixelSolidColor() const
 {
-    if (!image || nativeImageSize(image) != IntSize(1, 1))
+    if (size() != IntSize(1, 1))
         return Color();
 
     unsigned char pixel[4]; // RGBA
-    auto bitmapContext = adoptCF(CGBitmapContextCreate(pixel, 1, 1, 8, sizeof(pixel), sRGBColorSpaceRef(), kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big));
+    auto bitmapContext = adoptCF(CGBitmapContextCreate(pixel, 1, 1, 8, sizeof(pixel), sRGBColorSpaceRef(), static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Big)));
 
     if (!bitmapContext)
         return Color();
 
     CGContextSetBlendMode(bitmapContext.get(), kCGBlendModeCopy);
-    CGContextDrawImage(bitmapContext.get(), CGRectMake(0, 0, 1, 1), image.get());
+    CGContextDrawImage(bitmapContext.get(), CGRectMake(0, 0, 1, 1), m_platformImage.get());
 
     if (!pixel[3])
         return Color::transparentBlack;
 
-    return clampToComponentBytes<SRGBA>(pixel[0] * 255 / pixel[3], pixel[1] * 255 / pixel[3], pixel[2] * 255 / pixel[3], pixel[3]);
+    return makeFromComponentsClampingExceptAlpha<SRGBA<uint8_t>>(pixel[0] * 255 / pixel[3], pixel[1] * 255 / pixel[3], pixel[2] * 255 / pixel[3], pixel[3]);
 }
 
-void drawNativeImage(const NativeImagePtr& image, GraphicsContext& context, const FloatRect& destRect, const FloatRect& srcRect, const IntSize& srcSize, const ImagePaintingOptions& options)
+DestinationColorSpace NativeImage::colorSpace() const
 {
-    // Subsampling may have given us an image that is smaller than size().
-    IntSize subsampledImageSize = nativeImageSize(image);
-    if (options.orientation().usesWidthAsHeight())
-        subsampledImageSize = subsampledImageSize.transposedSize();
-
-    // srcRect is in the coordinates of the unsubsampled image, so we have to map it to the subsampled image.
-    FloatRect adjustedSrcRect = srcRect;
-    if (subsampledImageSize != srcSize)
-        adjustedSrcRect = mapRect(srcRect, FloatRect({ }, srcSize), FloatRect({ }, subsampledImageSize));
-
-    context.drawNativeImage(image, subsampledImageSize, destRect, adjustedSrcRect, options);
+    return DestinationColorSpace(CGImageGetColorSpace(m_platformImage.get()));
 }
 
-void drawNativeImage(const NativeImagePtr& image, GraphicsContext& context, float scaleFactor, const IntPoint& destination, const IntRect& source)
+void NativeImage::draw(GraphicsContext& context, const FloatSize& imageSize, const FloatRect& destinationRect, const FloatRect& sourceRect, const ImagePaintingOptions& options)
 {
-    CGContextRef cgContext = context.platformContext();
-    CGContextSaveGState(cgContext);
+    auto isHDRNativeImage = [](const NativeImage& image) -> bool {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        return CGColorSpaceIsHDR(CGImageGetColorSpace(image.platformImage().get()));
+#pragma clang diagnostic pop
+    };
 
-    CGContextClipToRect(cgContext, CGRectMake(destination.x(), destination.y(), source.width(), source.height()));
-    CGContextScaleCTM(cgContext, 1, -1);
+    auto colorSpaceForHDRImageBuffer = [](GraphicsContext& context) -> const DestinationColorSpace& {
+#if PLATFORM(IOS_FAMILY)
+        // iOS typically renders into extended range sRGB to preserve wide gamut colors, but we want
+        // a non-extended range colorspace here so that the contents are tone mapped to SDR range.
+        UNUSED_PARAM(context);
+        return DestinationColorSpace::DisplayP3();
+#else
+        // Otherwise, match the colorSpace of the GraphicsContext.
+        return context.colorSpace();
+#endif
+    };
 
-    CGFloat imageHeight = CGImageGetHeight(image.get()) / scaleFactor;
-    CGFloat imageWidth = CGImageGetWidth(image.get()) / scaleFactor;
+    auto drawHDRNativeImage = [&](GraphicsContext& context, const FloatSize& imageSize, const FloatRect& destinationRect, const FloatRect& sourceRect, const ImagePaintingOptions& options) -> bool {
+        if (sourceRect.isEmpty() || !isHDRNativeImage(*this))
+            return false;
 
-    CGFloat destX = destination.x() - source.x();
-    CGFloat destY = -imageHeight - destination.y() + source.y();
+        // Create a temporary ImageBuffer for destinationRect with the current scaleFator.
+        auto imageBuffer = context.createScaledImageBuffer(destinationRect, context.scaleFactor(), colorSpaceForHDRImageBuffer(context), RenderingMode::Unaccelerated, RenderingMethod::Local);
+        if (!imageBuffer)
+            return false;
 
-    CGContextDrawImage(cgContext, CGRectMake(destX, destY, imageWidth, imageHeight), image.get());
+        // Draw sourceRect from the image into the temporary ImageBuffer.
+        imageBuffer->context().drawNativeImageInternal(*this, imageSize, destinationRect, sourceRect, options);
 
-    CGContextRestoreGState(cgContext);
+        auto sourceRectScaled = FloatRect { { }, sourceRect.size() };
+        auto scaleFactor = destinationRect.size() / sourceRect.size();
+        sourceRectScaled.scale(scaleFactor * context.scaleFactor());
+
+        // Draw the ImageBuffer to destinationRect in the destination context.
+        imageBuffer->draw(context, destinationRect, sourceRectScaled, { });
+        return true;
+    };
+
+    // FIXME: rdar://105525195 -- Remove this HDR workaround once the system libraries can render images without clipping HDR data.
+    if (drawHDRNativeImage(context, imageSize, destinationRect, sourceRect, options))
+        return;
+
+    context.drawNativeImageInternal(*this, imageSize, destinationRect, sourceRect, options);
 }
 
-void clearNativeImageSubimages(const NativeImagePtr& image)
+void NativeImage::clearSubimages()
 {
 #if CACHE_SUBIMAGES
-    if (image)
-        SubimageCacheWithTimer::clearImage(image.get());
+    CGSubimageCacheWithTimer::clearImage(m_platformImage.get());
 #endif
 }
 
-}
+} // namespace WebCore
 
 #endif // USE(CG)

@@ -28,11 +28,13 @@
 #if ENABLE(WEBGL)
 
 #include "GraphicsTypesGL.h"
+#include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class GraphicsContextGLOpenGL;
+class GraphicsContextGL;
+class WebCoreOpaqueRoot;
 class WebGLContextGroup;
 class WebGLRenderingContextBase;
 
@@ -45,10 +47,13 @@ public:
     // deleteObject may not always delete the OpenGL resource.  For programs and
     // shaders, deletion is delayed until they are no longer attached.
     // FIXME: revisit this when resource sharing between contexts are implemented.
-    void deleteObject(GraphicsContextGLOpenGL*);
+    // The AbstractLocker argument enforces at compile time that the objectGraphLock
+    // is held. This isn't necessary for all object types, but enough of them that
+    // it's done for all of them.
+    void deleteObject(const AbstractLocker&, GraphicsContextGL*);
 
     void onAttached() { ++m_attachmentCount; }
-    void onDetached(GraphicsContextGLOpenGL*);
+    void onDetached(const AbstractLocker&, GraphicsContextGL*);
 
     // This indicates whether the client side issue a delete call already, not
     // whether the OpenGL resource is deleted.
@@ -58,34 +63,42 @@ public:
     // True if this object belongs to the group or context.
     virtual bool validate(const WebGLContextGroup*, const WebGLRenderingContextBase&) const = 0;
 
+    // Returns the object graph lock associated with the context most
+    // closely associated with this object. Since the
+    // WEBGL_shared_objects extension specification never shipped (and
+    // is unlikely to), this basically returns the same result for
+    // both context objects and shared objects.
+    virtual Lock& objectGraphLockForContext() = 0;
+
 protected:
     WebGLObject() = default;
 
     // setObject should be only called once right after creating a WebGLObject.
     void setObject(PlatformGLObject);
 
+    void runDestructor();
+
     // deleteObjectImpl should be only called once to delete the OpenGL resource.
-    virtual void deleteObjectImpl(GraphicsContextGLOpenGL*, PlatformGLObject) = 0;
+    virtual void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) = 0;
 
     virtual bool hasGroupOrContext() const = 0;
 
     virtual void detach();
 
-    virtual GraphicsContextGLOpenGL* getAGraphicsContextGL() const = 0;
+    virtual GraphicsContextGL* getAGraphicsContextGL() const = 0;
 
 private:
     PlatformGLObject m_object { 0 };
     unsigned m_attachmentCount { 0 };
     bool m_deleted { false };
-#if USE(ANGLE)
-    bool m_calledDelete { false };
-#endif
 };
 
 inline PlatformGLObject objectOrZero(WebGLObject* object)
 {
     return object ? object->object() : 0;
 }
+
+WebCoreOpaqueRoot root(WebGLObject*);
 
 } // namespace WebCore
 

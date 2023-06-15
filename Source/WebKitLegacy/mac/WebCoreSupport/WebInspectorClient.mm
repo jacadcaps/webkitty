@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2022 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -68,7 +68,7 @@ static const CGFloat initialWindowHeight = 650;
 @interface WebInspectorWindowController : NSWindowController <NSWindowDelegate, WebPolicyDelegate, WebUIDelegate> {
 @private
     RetainPtr<WebView> _inspectedWebView;
-    WebView* _frontendWebView;
+    RetainPtr<WebView> _frontendWebView;
     NakedPtr<WebInspectorFrontendClient> _frontendClient;
     WebInspectorClient* _inspectorClient;
     BOOL _attachedToInspectedWebView;
@@ -349,11 +349,7 @@ void WebInspectorFrontendClient::showCertificate(const CertificateInfo& certific
     if (!window)
         window = [NSApp keyWindow];
 
-#if HAVE(SEC_TRUST_SERIALIZATION)
-    [certificatePanel beginSheetForWindow:window modalDelegate:nil didEndSelector:NULL contextInfo:nullptr trust:certificateInfo.trust() showGroup:YES];
-#else
-    [certificatePanel beginSheetForWindow:window modalDelegate:nil didEndSelector:NULL contextInfo:nullptr certificates:(NSArray *)certificateInfo.certificateChain() showGroup:YES];
-#endif
+    [certificatePanel beginSheetForWindow:window modalDelegate:nil didEndSelector:NULL contextInfo:nullptr trust:certificateInfo.trust().get() showGroup:YES];
 
     // This must be called after the trust panel has been displayed, because the certificateView doesn't exist beforehand.
     SFCertificateView *certificateView = [certificatePanel certificateView];
@@ -383,15 +379,34 @@ void WebInspectorFrontendClient::updateWindowTitle() const
     [[m_frontendWindowController.get() window] setTitle:title];
 }
 
-void WebInspectorFrontendClient::save(const String& suggestedURL, const String& content, bool base64Encoded, bool forceSaveDialog)
+bool WebInspectorFrontendClient::canSave(InspectorFrontendClient::SaveMode saveMode)
 {
+    switch (saveMode) {
+    case InspectorFrontendClient::SaveMode::SingleFile:
+        return true;
+
+    case InspectorFrontendClient::SaveMode::FileVariants:
+        return false;
+    }
+
+    ASSERT_NOT_REACHED();
+    return false;
+}
+
+void WebInspectorFrontendClient::save(Vector<InspectorFrontendClient::SaveData>&& saveDatas, bool forceSaveAs)
+{
+    // FIXME: Share with WebInspectorUIProxyMac.
+
+    ASSERT(saveDatas.size() == 1);
+
+    auto suggestedURL = saveDatas[0].url;
     ASSERT(!suggestedURL.isEmpty());
 
     NSURL *platformURL = m_suggestedToActualURLMap.get(suggestedURL).get();
     if (!platformURL) {
         platformURL = [NSURL URLWithString:suggestedURL];
         // The user must confirm new filenames before we can save to them.
-        forceSaveDialog = true;
+        forceSaveAs = true;
     }
 
     ASSERT(platformURL);
@@ -400,7 +415,8 @@ void WebInspectorFrontendClient::save(const String& suggestedURL, const String& 
 
     // Necessary for the block below.
     String suggestedURLCopy = suggestedURL;
-    String contentCopy = content;
+    String contentCopy = saveDatas[0].content;
+    bool base64Encoded = saveDatas[0].base64Encoded;
 
     auto saveToURL = ^(NSURL *actualURL) {
         ASSERT(actualURL);
@@ -408,18 +424,16 @@ void WebInspectorFrontendClient::save(const String& suggestedURL, const String& 
         m_suggestedToActualURLMap.set(suggestedURLCopy, actualURL);
 
         if (base64Encoded) {
-            Vector<char> out;
-            if (!base64Decode(contentCopy, out, Base64ValidatePadding))
+            auto decodedData = base64Decode(contentCopy, Base64DecodeOptions::ValidatePadding);
+            if (!decodedData)
                 return;
-            RetainPtr<NSData> dataContent = adoptNS([[NSData alloc] initWithBytes:out.data() length:out.size()]);
+            RetainPtr<NSData> dataContent = adoptNS([[NSData alloc] initWithBytes:decodedData->data() length:decodedData->size()]);
             [dataContent writeToURL:actualURL atomically:YES];
         } else
             [contentCopy writeToURL:actualURL atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-
-        core([m_frontendWindowController frontendWebView])->mainFrame().script().executeScriptIgnoringException([NSString stringWithFormat:@"InspectorFrontendAPI.savedURL(\"%@\")", actualURL.absoluteString]);
     };
 
-    if (!forceSaveDialog) {
+    if (!forceSaveAs) {
         saveToURL(platformURL);
         return;
     }
@@ -448,23 +462,6 @@ void WebInspectorFrontendClient::save(const String& suggestedURL, const String& 
         completionHandler([panel runModal]);
 }
 
-void WebInspectorFrontendClient::append(const String& suggestedURL, const String& content)
-{
-    ASSERT(!suggestedURL.isEmpty());
-
-    RetainPtr<NSURL> actualURL = m_suggestedToActualURLMap.get(suggestedURL);
-    // do not append unless the user has already confirmed this filename in save().
-    if (!actualURL)
-        return;
-
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingToURL:actualURL.get() error:NULL];
-    [handle seekToEndOfFile];
-    [handle writeData:[content dataUsingEncoding:NSUTF8StringEncoding]];
-    [handle closeFile];
-
-    core([m_frontendWindowController frontendWebView])->mainFrame().script().executeScriptIgnoringException([NSString stringWithFormat:@"InspectorFrontendAPI.appendedToURL(\"%@\")", [actualURL absoluteString]]);
-}
-
 // MARK: -
 
 @implementation WebInspectorWindowController
@@ -475,13 +472,12 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
 
     // Keep preferences separate from the rest of the client, making sure we are using expected preference values.
 
-    WebPreferences *preferences = [[WebPreferences alloc] init];
+    auto preferences = adoptNS([[WebPreferences alloc] init]);
     [preferences setAllowsAnimatedImages:YES];
     [preferences setAuthorAndUserStylesEnabled:YES];
     [preferences setAutosaves:NO];
     [preferences setDefaultFixedFontSize:11];
     [preferences setFixedFontFamily:@"Menlo"];
-    [preferences setJavaEnabled:NO];
     [preferences setJavaScriptEnabled:YES];
     [preferences setLoadsImagesAutomatically:YES];
     [preferences setMinimumFontSize:0];
@@ -494,13 +490,11 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
     [preferences setAllowTopNavigationToDataURLs:YES];
     [preferences setStorageBlockingPolicy:WebAllowAllStorage];
 
-    _frontendWebView = [[WebView alloc] init];
-    [_frontendWebView setPreferences:preferences];
+    _frontendWebView = adoptNS([[WebView alloc] init]);
+    [_frontendWebView setPreferences:preferences.get()];
     [_frontendWebView setProhibitsMainFrameScrolling:YES];
     [_frontendWebView setUIDelegate:self];
     [_frontendWebView setPolicyDelegate:self];
-
-    [preferences release];
 
     [self setWindowFrameAutosaveName:@"Web Inspector 2"];
     return self;
@@ -514,17 +508,10 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
     _inspectedWebView = webView;
 
     NSString *pagePath = isUnderTest ? [self inspectorTestPagePath] : [self inspectorPagePath];
-    NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath: pagePath]];
-    [[_frontendWebView mainFrame] loadRequest:request];
-    [request release];
+    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:pagePath]]);
+    [[_frontendWebView mainFrame] loadRequest:request.get()];
 
     return self;
-}
-
-- (void)dealloc
-{
-    [_frontendWebView release];
-    [super dealloc];
 }
 
 // MARK: -
@@ -552,32 +539,33 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
 
 - (WebView *)frontendWebView
 {
-    return _frontendWebView;
+    return _frontendWebView.get();
 }
 
 - (NSWindow *)window
 {
-    NSWindow *window = [super window];
-    if (window)
+    if (auto *window = [super window])
         return window;
 
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
-    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO];
+    auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
 
-    CGFloat approximatelyHalfScreenSize = (window.screen.frame.size.width / 2) - 4;
+    CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
     CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
     [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling)];
 
-    window.titlebarAppearsTransparent = YES;
+#if HAVE(STAGE_MANAGER_NS_WINDOW_COLLECTION_BEHAVIORS)
+    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorAuxiliary)];
+#endif
+    
+    [window setTitlebarAppearsTransparent:YES];
 
-    [self setWindow:window];
-    [window release];
-
-    return window;
+    [self setWindow:window.get()];
+    return window.get();
 }
 
 // MARK: -
@@ -659,8 +647,8 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
         WebFrameView *frameView = [[_inspectedWebView.get() mainFrame] frameView];
 
         [_frontendWebView removeFromSuperview];
-        [_inspectedWebView.get() addSubview:_frontendWebView positioned:NSWindowBelow relativeTo:(NSView *)frameView];
-        [[_inspectedWebView.get() window] makeFirstResponder:_frontendWebView];
+        [_inspectedWebView.get() addSubview:_frontendWebView.get() positioned:NSWindowBelow relativeTo:(NSView *)frameView];
+        [[_inspectedWebView.get() window] makeFirstResponder:_frontendWebView.get()];
 
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMaxYMargin)];
         [frameView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMinYMargin)];
@@ -673,7 +661,7 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
         [_frontendWebView setFrame:[contentView frame]];
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
         [_frontendWebView removeFromSuperview];
-        [contentView addSubview:_frontendWebView];
+        [contentView addSubview:_frontendWebView.get()];
 
         [super showWindow:nil];
     }
@@ -796,8 +784,8 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
         [resultListener chooseFilenames:filenames];
     };
 
-    if (_frontendWebView.window)
-        [panel beginSheetModalForWindow:_frontendWebView.window completionHandler:completionHandler];
+    if ([_frontendWebView window])
+        [panel beginSheetModalForWindow:[_frontendWebView window] completionHandler:completionHandler];
     else
         completionHandler([panel runModal]);
 }
@@ -810,7 +798,7 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
 
 - (NSArray *)webView:(WebView *)sender contextMenuItemsForElement:(NSDictionary *)element defaultMenuItems:(NSArray *)defaultMenuItems
 {
-    NSMutableArray *menuItems = [[NSMutableArray alloc] init];
+    auto menuItems = adoptNS([[NSMutableArray alloc] init]);
 
     for (NSMenuItem *item in defaultMenuItems) {
         switch (item.tag) {
@@ -827,7 +815,7 @@ void WebInspectorFrontendClient::append(const String& suggestedURL, const String
         }
     }
 
-    return [menuItems autorelease];
+    return menuItems.autorelease();
 }
 
 // MARK: -

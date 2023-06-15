@@ -70,6 +70,14 @@
 
 @end
 
+#if PLATFORM(IOS_FAMILY)
+
+@interface WKWebView (InternalIOS)
+- (void)_translate:(id)sender;
+@end
+
+#endif // PLATFORM(IOS_FAMILY)
+
 namespace TestWebKitAPI {
 
 static RetainPtr<TestWKWebView> webViewForEditActionTesting(NSString *markup)
@@ -326,21 +334,36 @@ TEST(WKWebViewEditActions, SetFontFamily)
     [webView _setFont:[UIFont fontWithDescriptor:fontDescriptor size:24] sender:nil];
     EXPECT_WK_STREQ("Helvetica", [webView stylePropertyAtSelectionStart:@"font-family"]);
     EXPECT_WK_STREQ("24px", [webView stylePropertyAtSelectionStart:@"font-size"]);
-    EXPECT_WK_STREQ("normal", [webView stylePropertyAtSelectionStart:@"font-weight"]);
+    EXPECT_WK_STREQ("400", [webView stylePropertyAtSelectionStart:@"font-weight"]);
     EXPECT_WK_STREQ("normal", [webView stylePropertyAtSelectionStart:@"font-style"]);
 
     [webView _setFont:[UIFont fontWithName:@"TimesNewRomanPS-BoldMT" size:12] sender:nil];
     EXPECT_WK_STREQ("\"Times New Roman\"", [webView stylePropertyAtSelectionStart:@"font-family"]);
     EXPECT_WK_STREQ("12px", [webView stylePropertyAtSelectionStart:@"font-size"]);
-    EXPECT_WK_STREQ("bold", [webView stylePropertyAtSelectionStart:@"font-weight"]);
+    EXPECT_WK_STREQ("700", [webView stylePropertyAtSelectionStart:@"font-weight"]);
     EXPECT_WK_STREQ("normal", [webView stylePropertyAtSelectionStart:@"font-style"]);
 
     fontDescriptor = [fontDescriptor fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitItalic | UIFontDescriptorTraitBold];
     [webView _setFont:[UIFont fontWithDescriptor:fontDescriptor size:20] sender:nil];
     EXPECT_WK_STREQ("Helvetica", [webView stylePropertyAtSelectionStart:@"font-family"]);
     EXPECT_WK_STREQ("20px", [webView stylePropertyAtSelectionStart:@"font-size"]);
-    EXPECT_WK_STREQ("bold", [webView stylePropertyAtSelectionStart:@"font-weight"]);
+    EXPECT_WK_STREQ("700", [webView stylePropertyAtSelectionStart:@"font-weight"]);
     EXPECT_WK_STREQ("italic", [webView stylePropertyAtSelectionStart:@"font-style"]);
+}
+
+TEST(WebKit, CanInvokeTranslateWithTextSelection)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 568)]);
+    [webView synchronouslyLoadTestPageNamed:@"simple"];
+    EXPECT_FALSE([webView canPerformAction:@selector(_translate:) withSender:nil]);
+
+    [webView selectAll:nil];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([webView canPerformAction:@selector(_translate:) withSender:nil]);
+
+    [webView collapseToEnd];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_FALSE([webView canPerformAction:@selector(_translate:) withSender:nil]);
 }
 
 #else
@@ -351,6 +374,36 @@ TEST(WKWebViewEditActions, ModifyTextWritingDirection)
     [webView selectAll:nil];
     [webView makeTextWritingDirectionNatural:nil];
     EXPECT_WK_STREQ("normal", [webView stringByEvaluatingJavaScript:@"getComputedStyle(text).unicodeBidi"]);
+}
+
+TEST(WKWebViewEditActions, CopyFontAtCaretSelection)
+{
+    auto webView = webViewForEditActionTesting(@"<p id='source' style='color: rgb(255, 0, 0);'>Source</p><p id='target'>Target</p>");
+    [webView objectByEvaluatingJavaScript:@"getSelection().setPosition(source.childNodes[0], 3)"];
+
+    auto validateAndPerformAction = [](TestWKWebView *webView, SEL action) {
+        auto menu = adoptNS([NSMenu new]);
+        auto item = adoptNS([NSMenuItem new]);
+        [item setTarget:webView];
+        [item setAction:action];
+        [menu addItem:item.get()];
+        [webView validateUserInterfaceItem:item.get()];
+        [webView waitForNextPresentationUpdate];
+        EXPECT_TRUE([item isEnabled]);
+
+        [menu performActionForItemAtIndex:0];
+        [webView waitForNextPresentationUpdate];
+    };
+
+    validateAndPerformAction(webView.get(), @selector(copyFont:));
+    [webView objectByEvaluatingJavaScript:@"getSelection().selectAllChildren(target)"];
+    validateAndPerformAction(webView.get(), @selector(pasteFont:));
+
+    auto getComputedColor = @"let deepestChild = target;"
+        "while (deepestChild.children[0])"
+        "  deepestChild = deepestChild.children[0];"
+        "getComputedStyle(deepestChild).color";
+    EXPECT_WK_STREQ("rgb(255, 0, 0)", [webView stringByEvaluatingJavaScript:getComputedColor]);
 }
 
 #endif

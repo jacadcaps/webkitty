@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,11 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
+#import "TestNavigationDelegate.h"
+#import "TestURLSchemeHandler.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
@@ -34,6 +38,7 @@
 #import <WebKit/WKGeolocationManager.h>
 #import <WebKit/WKGeolocationPosition.h>
 #import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKRetainPtr.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
@@ -45,7 +50,12 @@
 #import <Carbon/Carbon.h>
 #endif
 
-static bool done;
+#if PLATFORM(IOS)
+#import "ClassMethodSwizzler.h"
+#import "UIKitSPI.h"
+#endif
+
+static bool didReceiveMessage;
 
 @interface AudioObserver : NSObject
 @end
@@ -66,7 +76,7 @@ static bool done;
 
 TEST(WebKit, WKWebViewIsPlayingAudio)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:[[[WKWebViewConfiguration alloc] init] autorelease]]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get()]);
     auto observer = adoptNS([[AudioObserver alloc] init]);
     [webView addObserver:observer.get() forKeyPath:@"_isPlayingAudio" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:nil];
     [webView synchronouslyLoadTestPageNamed:@"file-with-video"];
@@ -100,10 +110,11 @@ TEST(WebKit, WindowOpenWithoutUIDelegate)
 
 @interface GeolocationDelegate : NSObject <WKUIDelegatePrivate> {
     bool _allowGeolocation;
+    Function<void(WKFrameInfo*)> _validationHandler;
 }
 
 - (id)initWithAllowGeolocation:(bool)allowGeolocation;
-
+- (void)setValidationHandler:(Function<void(WKFrameInfo*)>&&)validationHandler;
 @end
 
 @implementation GeolocationDelegate
@@ -116,13 +127,14 @@ TEST(WebKit, WindowOpenWithoutUIDelegate)
     return self;
 }
 
+- (void)setValidationHandler:(Function<void(WKFrameInfo*)>&&)validationHandler {
+    _validationHandler = WTFMove(validationHandler);
+}
+
 - (void)_webView:(WKWebView *)webView requestGeolocationPermissionForFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(BOOL allowed))decisionHandler
 {
-    EXPECT_TRUE(frame.isMainFrame);
-    EXPECT_STREQ(frame.request.URL.absoluteString.UTF8String, _allowGeolocation ? "https://example.org/" : "https://example.com/");
-    EXPECT_EQ(frame.securityOrigin.port, 0);
-    EXPECT_STREQ(frame.securityOrigin.protocol.UTF8String, "https");
-    EXPECT_STREQ(frame.securityOrigin.host.UTF8String, _allowGeolocation ? "example.org" : "example.com");
+    if (_validationHandler)
+        _validationHandler(frame);
     decisionHandler(_allowGeolocation);
 }
 
@@ -157,17 +169,205 @@ TEST(WebKit, GeolocationPermission)
 
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     configuration.get().processPool = pool.get();
+
+    auto schemeHandler = adoptNS([[TestURLSchemeHandler alloc] init]);
+    [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSURL *requestURL = [task request].URL;
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:requestURL MIMEType:@"text/html" expectedContentLength:[html length] textEncodingName:nil]);
+        [task didReceiveResponse:response.get()];
+        [task didReceiveData:[html dataUsingEncoding:NSUTF8StringEncoding]];
+        [task didFinish];
+    }];
+    [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"custom"];
+
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+
     auto delegate1 = adoptNS([[GeolocationDelegate alloc] initWithAllowGeolocation:false]);
     [webView setUIDelegate:delegate1.get()];
+
+    done = false;
+    [delegate1 setValidationHandler:[](WKFrameInfo *frame) {
+        EXPECT_TRUE(frame.isMainFrame);
+        EXPECT_STREQ(frame.request.URL.absoluteString.UTF8String, "https://example.com/");
+        EXPECT_EQ(frame.securityOrigin.port, 0);
+        EXPECT_STREQ(frame.securityOrigin.protocol.UTF8String, "https");
+        EXPECT_STREQ(frame.securityOrigin.host.UTF8String, "example.com");
+    }];
     [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.com/"]];
     TestWebKitAPI::Util::run(&done);
 
     done = false;
     auto delegate2 = adoptNS([[GeolocationDelegate alloc] initWithAllowGeolocation:true]);
+    [delegate2 setValidationHandler:[](WKFrameInfo *frame) {
+        EXPECT_TRUE(frame.isMainFrame);
+        EXPECT_STREQ(frame.request.URL.absoluteString.UTF8String, "https://example.org/");
+        EXPECT_EQ(frame.securityOrigin.port, 0);
+        EXPECT_STREQ(frame.securityOrigin.protocol.UTF8String, "https");
+        EXPECT_STREQ(frame.securityOrigin.host.UTF8String, "example.org");
+    }];
     [webView setUIDelegate:delegate2.get()];
     [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.org/"]];
     TestWebKitAPI::Util::run(&done);
+
+    done = false;
+    [delegate2 setValidationHandler:[](WKFrameInfo *frame) {
+        EXPECT_TRUE(frame.isMainFrame);
+        EXPECT_STREQ(frame.request.URL.absoluteString.UTF8String, "custom://localhost/mainframe.html");
+        EXPECT_EQ(frame.securityOrigin.port, 0);
+        EXPECT_STREQ(frame.securityOrigin.protocol.UTF8String, "custom");
+        EXPECT_STREQ(frame.securityOrigin.host.UTF8String, "localhost");
+    }];
+    [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"custom://localhost/mainframe.html"]];
+    TestWebKitAPI::Util::run(&done);
+}
+
+@interface GeolocationDelegateNew : NSObject <WKUIDelegatePrivate>
+- (void)setValidationHandler:(Function<void(WKSecurityOrigin*, WKFrameInfo*)>&&)validationHandler;
+@end
+
+@implementation GeolocationDelegateNew {
+    Function<void(WKSecurityOrigin*, WKFrameInfo*)> _validationHandler;
+}
+- (void)setValidationHandler:(Function<void(WKSecurityOrigin*, WKFrameInfo*)>&&)validationHandler {
+    _validationHandler = WTFMove(validationHandler);
+}
+
+- (void)_webView:(WKWebView *)webView requestGeolocationPermissionForOrigin:(WKSecurityOrigin*)origin initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler {
+    if (_validationHandler)
+        _validationHandler(origin, frame);
+
+    done  = true;
+    decisionHandler(WKPermissionDecisionGrant);
+}
+@end
+ 
+@interface GeolocationPermissionMessageHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation GeolocationPermissionMessageHandler
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    didReceiveMessage = true;
+}
+@end
+
+static constexpr auto mainFrameText = R"DOCDOCDOC(
+<html><body>
+<iframe src='https://127.0.0.1:9091/frame' allow='geolocation:https://127.0.0.1:9091'></iframe>
+</body></html>
+)DOCDOCDOC"_s;
+static constexpr auto frameText = R"DOCDOCDOC(
+<html><body><script>
+navigator.geolocation.getCurrentPosition(() => { webkit.messageHandlers.testHandler.postMessage("ok") }, () => { webkit.messageHandlers.testHandler.postMessage("ko") });
+</script></body></html>
+)DOCDOCDOC"_s;
+
+TEST(WebKit, GeolocationPermissionInIFrame)
+{
+    TestWebKitAPI::HTTPServer server1({
+        { "/"_s, { mainFrameText } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Https, nullptr, nullptr, 9090);
+
+    TestWebKitAPI::HTTPServer server2({
+        { "/frame"_s, { frameText } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Https, nullptr, nullptr, 9091);
+
+    auto pool = adoptNS([[WKProcessPool alloc] init]);
+
+    WKGeolocationProviderV1 providerCallback;
+    memset(&providerCallback, 0, sizeof(WKGeolocationProviderV1));
+    providerCallback.base.version = 1;
+    providerCallback.startUpdating = [] (WKGeolocationManagerRef manager, const void*) {
+        WKGeolocationManagerProviderDidChangePosition(manager, adoptWK(WKGeolocationPositionCreate(0, 50.644358, 3.345453, 2.53)).get());
+    };
+    WKGeolocationManagerSetProvider(WKContextGetGeolocationManager((WKContextRef)pool.get()), &providerCallback.base);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().processPool = pool.get();
+
+    auto messageHandler = adoptNS([[GeolocationPermissionMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+
+    auto permissionDelegate = adoptNS([[GeolocationDelegateNew alloc] init]);
+    [webView setUIDelegate:permissionDelegate.get()];
+
+    auto navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate setDidReceiveAuthenticationChallenge:^(WKWebView *, NSURLAuthenticationChallenge *challenge, void (^callback)(NSURLSessionAuthChallengeDisposition, NSURLCredential *)) {
+        EXPECT_WK_STREQ(challenge.protectionSpace.authenticationMethod, NSURLAuthenticationMethodServerTrust);
+        callback(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    }];
+    webView.get().navigationDelegate = navigationDelegate.get();
+
+    [permissionDelegate setValidationHandler:[&webView](WKSecurityOrigin *origin, WKFrameInfo *frame) {
+        EXPECT_WK_STREQ(origin.protocol, @"https");
+        EXPECT_WK_STREQ(origin.host, @"127.0.0.1");
+        EXPECT_EQ(origin.port, 9090);
+
+        EXPECT_WK_STREQ(frame.securityOrigin.protocol, @"https");
+        EXPECT_WK_STREQ(frame.securityOrigin.host, @"127.0.0.1");
+        EXPECT_EQ(frame.securityOrigin.port, 9091);
+        EXPECT_FALSE(frame.isMainFrame);
+        EXPECT_TRUE(frame.webView == webView);
+    }];
+
+    done = false;
+    didReceiveMessage = false;
+    [webView loadRequest:server1.request()];
+    TestWebKitAPI::Util::run(&didReceiveMessage);
+    EXPECT_TRUE(done);
+}
+
+static constexpr auto notAllowingMainFrameText = R"DOCDOCDOC(
+<html><body>
+<iframe src='https://127.0.0.1:9091/frame' allow='geolocation:https://127.0.0.1:9092'></iframe>
+</body></html>
+)DOCDOCDOC"_s;
+
+TEST(WebKit, GeolocationPermissionInDisallowedIFrame)
+{
+    TestWebKitAPI::HTTPServer server1({
+        { "/"_s, { notAllowingMainFrameText } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Https, nullptr, nullptr, 9090);
+
+    TestWebKitAPI::HTTPServer server2({
+        { "/frame"_s, { frameText } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Https, nullptr, nullptr, 9091);
+
+    auto pool = adoptNS([[WKProcessPool alloc] init]);
+
+    WKGeolocationProviderV1 providerCallback;
+    memset(&providerCallback, 0, sizeof(WKGeolocationProviderV1));
+    providerCallback.base.version = 1;
+    providerCallback.startUpdating = [] (WKGeolocationManagerRef manager, const void*) {
+        WKGeolocationManagerProviderDidChangePosition(manager, adoptWK(WKGeolocationPositionCreate(0, 50.644358, 3.345453, 2.53)).get());
+    };
+    WKGeolocationManagerSetProvider(WKContextGetGeolocationManager((WKContextRef)pool.get()), &providerCallback.base);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().processPool = pool.get();
+
+    auto messageHandler = adoptNS([[GeolocationPermissionMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+
+    auto permissionDelegate = adoptNS([[GeolocationDelegateNew alloc] init]);
+    [webView setUIDelegate:permissionDelegate.get()];
+
+    auto navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate setDidReceiveAuthenticationChallenge:^(WKWebView *, NSURLAuthenticationChallenge *challenge, void (^callback)(NSURLSessionAuthChallengeDisposition, NSURLCredential *)) {
+        EXPECT_WK_STREQ(challenge.protectionSpace.authenticationMethod, NSURLAuthenticationMethodServerTrust);
+        callback(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    }];
+    webView.get().navigationDelegate = navigationDelegate.get();
+
+    done = false;
+    didReceiveMessage = false;
+    [webView loadRequest:server1.request()];
+    TestWebKitAPI::Util::run(&didReceiveMessage);
+    EXPECT_FALSE(done);
 }
 
 @interface InjectedBundleNodeHandleIsSelectElementDelegate : NSObject <WKUIDelegatePrivate>
@@ -195,6 +395,163 @@ TEST(WebKit, InjectedBundleNodeHandleIsSelectElement)
     TestWebKitAPI::Util::run(&done);
 }
 
+#if PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000
+
+static int presentViewControllerCallCount = 0;
+
+static UIViewController *overrideViewControllerForFullscreenPresentation()
+{
+    ++presentViewControllerCallCount;
+    return nil;
+}
+
+// Note: Use the legacy 'CaptivePortal' string to avoid losing users choice from earlier releases.
+constexpr auto WebKitLockdownModeAlertShownKey = @"WebKitCaptivePortalModeAlertShown";
+
+TEST(WebKit, LockdownModeDefaultFirstUseMessage)
+{
+    ClassMethodSwizzler swizzler(UIViewController.class, @selector(_viewControllerForFullScreenPresentationFromView:), reinterpret_cast<IMP>(overrideViewControllerForFullscreenPresentation));
+
+    auto webViewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    EXPECT_FALSE(webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled);
+    webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled = YES;
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:webViewConfiguration.get() addToWindow:NO]);
+
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:YES];
+    [WKWebView _resetPresentLockdownModeMessage];
+
+    presentViewControllerCallCount = 0;
+
+    [webView addToTestWindow];
+
+    EXPECT_EQ(presentViewControllerCallCount, 0);
+    [webView waitForNextPresentationUpdate];
+    EXPECT_EQ(presentViewControllerCallCount, 1);
+
+    EXPECT_TRUE([[NSUserDefaults standardUserDefaults] boolForKey:WebKitLockdownModeAlertShownKey]);
+    
+    [WKProcessPool _clearCaptivePortalModeEnabledGloballyForTesting];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+}
+
+static bool showedNoFirstUseMessage;
+
+@interface NoLockdownFirstUseMessage : NSObject <WKUIDelegatePrivate>
+@end
+
+@implementation NoLockdownFirstUseMessage
+- (void)webView:(WKWebView *)webView showLockdownModeFirstUseMessage:(NSString *)message completionHandler:(void (^)(WKDialogResult))completionHandler
+{
+    showedNoFirstUseMessage = true;
+    completionHandler(WKDialogResultHandled);
+}
+@end
+
+TEST(WebKit, LockdownModeNoFirstUseMessage)
+{
+    ClassMethodSwizzler swizzler(UIViewController.class, @selector(_viewControllerForFullScreenPresentationFromView:), reinterpret_cast<IMP>(overrideViewControllerForFullscreenPresentation));
+
+    auto webViewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    EXPECT_FALSE(webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled);
+    webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled = YES;
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:webViewConfiguration.get() addToWindow:NO]);
+
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:YES];
+    [WKWebView _resetPresentLockdownModeMessage];
+
+    presentViewControllerCallCount = 0;
+    showedNoFirstUseMessage = false;
+
+    auto delegate = adoptNS([[NoLockdownFirstUseMessage alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+    [webView addToTestWindow];
+
+    EXPECT_TRUE(showedNoFirstUseMessage);
+    EXPECT_EQ(presentViewControllerCallCount, 0);
+    [webView waitForNextPresentationUpdate];
+    EXPECT_EQ(presentViewControllerCallCount, 0);
+
+    EXPECT_TRUE([[NSUserDefaults standardUserDefaults] boolForKey:WebKitLockdownModeAlertShownKey]);
+    
+    [WKProcessPool _clearCaptivePortalModeEnabledGloballyForTesting];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+}
+
+static bool showedCustomFirstUseMessage;
+static bool requestFutureFirstUseMessage;
+
+@interface AskAgainFirstUseMessage : NSObject <WKUIDelegatePrivate>
+@end
+
+@implementation AskAgainFirstUseMessage
+- (void)webView:(WKWebView *)webView showLockdownModeFirstUseMessage:(NSString *)message completionHandler:(void (^)(WKDialogResult))completionHandler
+{
+    if (requestFutureFirstUseMessage) {
+        requestFutureFirstUseMessage = false;
+        showedCustomFirstUseMessage = false;
+        completionHandler(WKDialogResultShowDefault);
+        return;
+    }
+        
+    requestFutureFirstUseMessage = true;
+    showedCustomFirstUseMessage = true;
+    completionHandler(WKDialogResultAskAgain);
+}
+@end
+
+TEST(WebKit, LockdownModeAskAgainFirstUseMessage)
+{
+    ClassMethodSwizzler swizzler(UIViewController.class, @selector(_viewControllerForFullScreenPresentationFromView:), reinterpret_cast<IMP>(overrideViewControllerForFullscreenPresentation));
+
+    auto webViewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    EXPECT_FALSE(webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled);
+    webViewConfiguration.get().defaultWebpagePreferences.lockdownModeEnabled = YES;
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:webViewConfiguration.get() addToWindow:NO]);
+
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:YES];
+    [WKWebView _resetPresentLockdownModeMessage];
+
+    presentViewControllerCallCount = 0;
+    showedCustomFirstUseMessage = false;
+    requestFutureFirstUseMessage = false;
+
+    auto delegate = adoptNS([[AskAgainFirstUseMessage alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+    [webView addToTestWindow];
+
+    EXPECT_EQ(presentViewControllerCallCount, 0);
+    EXPECT_TRUE(showedCustomFirstUseMessage);
+    EXPECT_TRUE(requestFutureFirstUseMessage);
+
+    EXPECT_FALSE([[NSUserDefaults standardUserDefaults] boolForKey:WebKitLockdownModeAlertShownKey]);
+
+    // Load a new view and ask again:
+    auto secondWebView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:webViewConfiguration.get() addToWindow:NO]);
+
+    [secondWebView setUIDelegate:delegate.get()];
+    [secondWebView addToTestWindow];
+
+    EXPECT_EQ(presentViewControllerCallCount, 0);
+    [secondWebView waitForNextPresentationUpdate];
+    EXPECT_EQ(presentViewControllerCallCount, 1);
+
+    EXPECT_FALSE(showedCustomFirstUseMessage);
+    EXPECT_FALSE(requestFutureFirstUseMessage);
+
+    EXPECT_TRUE([[NSUserDefaults standardUserDefaults] boolForKey:WebKitLockdownModeAlertShownKey]);
+
+    [WKProcessPool _clearCaptivePortalModeEnabledGloballyForTesting];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
+}
+
+#endif // PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000
+
 #if PLATFORM(MAC)
 
 @class UITestDelegate;
@@ -208,7 +565,7 @@ static RetainPtr<UITestDelegate> delegate;
 
 @implementation UITestDelegate
 
-- (nullable WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
 {
     createdWebView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
     [createdWebView setUIDelegate:delegate.get()];
@@ -224,7 +581,7 @@ static RetainPtr<UITestDelegate> delegate;
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id <WKURLSchemeTask>)urlSchemeTask
 {
     NSString *data = @"<script>window.open('other.html');</script>";
-    [urlSchemeTask didReceiveResponse:[[[NSURLResponse alloc] initWithURL:urlSchemeTask.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+    [urlSchemeTask didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:urlSchemeTask.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
     [urlSchemeTask didReceiveData:[data dataUsingEncoding:NSUTF8StringEncoding]];
     [urlSchemeTask didFinish];
 }
@@ -273,47 +630,6 @@ TEST(WebKit, PointerLock)
         @"</script>"
     ];
     [webView sendClicksAtPoint:NSMakePoint(200, 200) numberOfClicks:1];
-    TestWebKitAPI::Util::run(&done);
-}
-
-static bool resizableSet;
-
-@interface ModalDelegate : NSObject <WKUIDelegatePrivate>
-@end
-
-@implementation ModalDelegate
-
-- (void)_webViewRunModal:(WKWebView *)webView
-{
-    EXPECT_TRUE(resizableSet);
-    EXPECT_EQ(webView, createdWebView.get());
-    done = true;
-}
-
-- (void)_webView:(WKWebView *)webView setResizable:(BOOL)isResizable
-{
-    EXPECT_FALSE(isResizable);
-    resizableSet = true;
-}
-
-- (nullable WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
-{
-    createdWebView = [[[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration] autorelease];
-    [createdWebView setUIDelegate:self];
-    return createdWebView.get();
-}
-
-@end
-
-TEST(WebKit, RunModal)
-{
-    auto delegate = adoptNS([[ModalDelegate alloc] init]);
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
-    [webView setUIDelegate:delegate.get()];
-    NSURL *url = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
-    NSString *html = [NSString stringWithFormat:@"%@%@%@", @"<script> function openModal() { window.showModalDialog('", url, @"'); } </script> <input type='button' value='Click to open modal' onclick='openModal();'>"];
-    [webView synchronouslyLoadHTMLString:html];
-    [webView sendClicksAtPoint:NSMakePoint(20, 600 - 20) numberOfClicks:1];
     TestWebKitAPI::Util::run(&done);
 }
 
@@ -412,7 +728,7 @@ TEST(WebKit, PrintFrame)
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
     auto delegate = adoptNS([[PrintDelegate alloc] init]);
     [webView setUIDelegate:delegate.get()];
-    [webView loadHTMLString:@"<head><title>test_title</title></head><body onload='print()'>hello world!</body>" baseURL:[NSURL URLWithString:@"http://example.com/"]];
+    [webView loadHTMLString:@"<head><title>test_title</title></head><body onload='setTimeout(function() { print() });'>hello world!</body>" baseURL:[NSURL URLWithString:@"http://example.com/"]];
     TestWebKitAPI::Util::run(&done);
 
     NSPrintOperation *operation = [webView _printOperationWithPrintInfo:[NSPrintInfo sharedPrintInfo]];
@@ -449,7 +765,7 @@ TEST(WebKit, PrintPreview)
     bool _done;
 }
 
-- (void)_webView:(WKWebView *)webView printFrame:(_WKFrameHandle *)frame completionHandler:(void (^)(void))completionHandler
+- (void)_webView:(WKWebView *)webView printFrame:(_WKFrameHandle *)frame pdfFirstPageSize:(CGSize)size completionHandler:(void (^)(void))completionHandler
 {
     completionHandler();
     _done = true;
@@ -511,40 +827,18 @@ TEST(WebKit, PrintWithCompletionHandler)
 
 TEST(WebKit, NotificationPermission)
 {
-    NSString *html = @"<script>Notification.requestPermission(function(p){alert('permission '+p)})</script>";
-    auto webView = adoptNS([[WKWebView alloc] init]);
-    [webView setUIDelegate:[[[NotificationDelegate alloc] initWithAllowNotifications:YES] autorelease]];
-    [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.org"]];
+    NSString *html = @"<script>function requestPermission() { Notification.requestPermission(function(p){alert('permission '+p)}); }</script>";
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get()]);
+    auto uiDelegate = adoptNS([[NotificationDelegate alloc] initWithAllowNotifications:YES]);
+    [webView setUIDelegate:uiDelegate.get()];
+    [webView synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.org"]];
+    [webView evaluateJavaScript:@"requestPermission()" completionHandler:nil];
     TestWebKitAPI::Util::run(&done);
     done = false;
-    [webView setUIDelegate:[[[NotificationDelegate alloc] initWithAllowNotifications:NO] autorelease]];
-    [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.com"]];
-    TestWebKitAPI::Util::run(&done);
-}
-
-@interface PlugInDelegate : NSObject <WKUIDelegatePrivate>
-@end
-
-@implementation PlugInDelegate
-
-- (void)_webView:(WKWebView *)webView unavailablePlugInButtonClickedWithReason:(_WKPlugInUnavailabilityReason)reason plugInInfo:(NSDictionary *)plugInInfo
-{
-    ASSERT_EQ(_WKPlugInUnavailabilityReasonPluginMissing, reason);
-    ASSERT_TRUE([@"application/x-shockwave-flash" isEqualToString:[plugInInfo objectForKey:@"PluginInformationMIMEType"]]);
-    done = true;
-}
-
-@end
-
-TEST(WebKit, UnavailablePlugIn)
-{
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [[configuration preferences] setPlugInsEnabled:YES];
-    auto delegate = adoptNS([[PlugInDelegate alloc] init]);
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
-    [webView setUIDelegate:delegate.get()];
-    [webView synchronouslyLoadHTMLString:@"<object type='application/x-shockwave-flash'/>"];
-    [webView sendClicksAtPoint:NSMakePoint(210, 600 - 80) numberOfClicks:1];
+    uiDelegate = adoptNS([[NotificationDelegate alloc] initWithAllowNotifications:NO]);
+    [webView setUIDelegate:uiDelegate.get()];
+    [webView synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.com"]];
+    [webView evaluateJavaScript:@"requestPermission()" completionHandler:nil];
     TestWebKitAPI::Util::run(&done);
 }
 
@@ -576,7 +870,7 @@ bool firstToolbarDone;
 
 TEST(WebKit, ToolbarVisible)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:[[[WKWebViewConfiguration alloc] init] autorelease]]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get()]);
     auto delegate = adoptNS([[ToolbarDelegate alloc] init]);
     [webView setUIDelegate:delegate.get()];
     [webView synchronouslyLoadHTMLString:@"<script>alert('visible:' + window.toolbar.visible);alert('visible:' + window.toolbar.visible)</script>"];
@@ -604,7 +898,8 @@ TEST(WebKit, MouseMoveOverElement)
 {
     WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"FrameHandleSerialization"];
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-    [webView setUIDelegate:[[[MouseMoveOverElementDelegate alloc] init] autorelease]];
+    auto uiDelegate = adoptNS([[MouseMoveOverElementDelegate alloc] init]);
+    [webView setUIDelegate:uiDelegate.get()];
     [webView synchronouslyLoadHTMLString:@"<a href='http://example.com/path' title='link title'>link label</a>"];
     [webView mouseMoveToPoint:NSMakePoint(20, 600 - 20) withFlags:NSEventModifierFlagShift];
     TestWebKitAPI::Util::run(&done);
@@ -642,7 +937,7 @@ TEST(WebKit, ClickAutoFillButton)
     [webView setUIDelegate:delegate.get()];
     [webView evaluateJavaScript:@"" completionHandler: nil]; // Ensure the WebProcess and injected bundle are running.
     TestWebKitAPI::Util::run(&readyForClick);
-    NSPoint buttonLocation = NSMakePoint(130, 575);
+    NSPoint buttonLocation = NSMakePoint(130, 577);
     [webView mouseDownAtPoint:buttonLocation simulatePressure:NO];
     [webView mouseUpAtPoint:buttonLocation];
     TestWebKitAPI::Util::run(&done);

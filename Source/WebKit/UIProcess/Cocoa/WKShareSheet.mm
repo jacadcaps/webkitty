@@ -24,26 +24,112 @@
  */
 
 #import "config.h"
-#import "WKShareSheet.h"
+#import <WebKit/WKShareSheet.h>
 
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 
-#import "QuarantineSPI.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
 #import <WebCore/RuntimeApplicationChecks.h>
 #import <WebCore/ShareData.h>
+#import <pal/spi/mac/QuarantineSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Scope.h>
+#import <wtf/SoftLinking.h>
 #import <wtf/UUID.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/WorkQueue.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "UIKitSPI.h"
 #import "WKContentViewInteraction.h"
+#import <LinkPresentation/LPLinkMetadata.h>
 #else
 #import <pal/spi/mac/NSSharingServicePickerSPI.h>
 #endif
+
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+#include <WebKitAdditions/WKShareSheetAdditions.h>
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+
+SOFT_LINK_FRAMEWORK(LinkPresentation)
+SOFT_LINK_CLASS(LinkPresentation, LPLinkMetadata)
+
+@interface LPLinkMetadata (Staging_102382126)
+- (void)_setIncomplete:(BOOL)incomplete;
+@end
+
+@interface WKShareSheetFileItemProvider : UIActivityItemProvider
+- (instancetype)initWithURL:(NSURL *)url;
+@end
+
+@implementation WKShareSheetFileItemProvider {
+    RetainPtr<NSURL> _url;
+}
+
+- (instancetype)initWithURL:(NSURL *)url
+{
+    NSURL *placeholderURL = [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
+    placeholderURL = [placeholderURL URLByAppendingPathComponent:[NSUUID UUID].UUIDString isDirectory:YES];
+    placeholderURL = [placeholderURL URLByAppendingPathComponent:url.lastPathComponent isDirectory:NO];
+
+    if (!(self = [super initWithPlaceholderItem:placeholderURL]))
+        return nil;
+
+    _url = url;
+
+    return self;
+}
+
+- (id)item
+{
+    return _url.get();
+}
+
+@end
+
+@interface WKShareSheetURLItemProvider : UIActivityItemProvider
+- (instancetype)initWithURL:(NSURL *)url;
+@end
+
+@implementation WKShareSheetURLItemProvider {
+    RetainPtr<NSURL> _url;
+    RetainPtr<LPLinkMetadata> _metadata;
+}
+
+- (instancetype)initWithURL:(NSURL *)url
+{
+    if (!(self = [super initWithPlaceholderItem:url]))
+        return nil;
+
+    _metadata = adoptNS([allocLPLinkMetadataInstance() init]);
+    [_metadata setOriginalURL:url];
+    [_metadata setURL:url];
+    [_metadata setTitle:url._title];
+
+    if ([_metadata respondsToSelector:@selector(_setIncomplete:)])
+        [_metadata _setIncomplete:YES];
+
+    _url = url;
+
+    return self;
+}
+
+- (id)item
+{
+    return _url.get();
+}
+
+- (LPLinkMetadata *)activityViewControllerLinkMetadata:(UIActivityViewController *)activityViewController
+{
+    return _metadata.get();
+}
+
+@end
+
+#endif // PLATFORM(IOS_FAMILY)
 
 #if PLATFORM(MAC)
 @interface WKShareSheet () <NSSharingServiceDelegate, NSSharingServicePickerDelegate>
@@ -89,7 +175,46 @@
     return self;
 }
 
-- (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL &)data inRect:(WTF::Optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler
+static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArray, const Vector<WebCore::RawFile>& files, NSURL* temporaryDirectory, bool usePlaceholderFiles, CompletionHandler<void(RetainPtr<NSMutableArray>&&)>&& completionHandler)
+{
+    struct FileWriteTask {
+        String fileName;
+        RetainPtr<NSData> fileData;
+    };
+    auto fileWriteTasks = files.map([](auto& file) {
+        return FileWriteTask { file.fileName.isolatedCopy(), file.fileData->createNSData() };
+    });
+
+    auto queue = WorkQueue::create("com.apple.WebKit.WKShareSheet.ShareableFileWriter");
+    queue->dispatch([shareDataArray = WTFMove(shareDataArray), fileWriteTasks = WTFMove(fileWriteTasks), temporaryDirectory = retainPtr(temporaryDirectory), usePlaceholderFiles, completionHandler = WTFMove(completionHandler)]() mutable {
+        for (auto& fileWriteTask : fileWriteTasks) {
+            NSURL *fileURL = [WKShareSheet writeFileToShareableURL:WebCore::ResourceResponseBase::sanitizeSuggestedFilename(fileWriteTask.fileName) data:fileWriteTask.fileData.get() temporaryDirectory:temporaryDirectory.get()];
+            if (!fileURL) {
+                shareDataArray = nil;
+                break;
+            }
+
+            if (usePlaceholderFiles) {
+#if PLATFORM(IOS_FAMILY)
+                RetainPtr itemProvider = adoptNS([[WKShareSheetFileItemProvider alloc] initWithURL:fileURL]);
+                if (!itemProvider) {
+                    shareDataArray = nil;
+                    break;
+                }
+                [shareDataArray addObject:itemProvider.get()];
+#else
+                RELEASE_ASSERT_NOT_REACHED();
+#endif
+            } else
+                [shareDataArray addObject:fileURL];
+        }
+        RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), shareDataArray = WTFMove(shareDataArray)]() mutable {
+            completionHandler(WTFMove(shareDataArray));
+        });
+    });
+}
+
+- (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL &)data inRect:(std::optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler
 {
     auto shareDataArray = adoptNS([[NSMutableArray alloc] init]);
     
@@ -101,8 +226,16 @@
 #if PLATFORM(IOS_FAMILY)
         if (!data.shareData.title.isEmpty())
             url._title = data.shareData.title;
-#endif
+
+        if (data.originator == WebCore::ShareDataOriginator::Web) {
+            auto itemProvider = adoptNS([[WKShareSheetURLItemProvider alloc] initWithURL:url]);
+            if (itemProvider)
+                [shareDataArray addObject:itemProvider.get()];
+        } else
+            [shareDataArray addObject:url];
+#else
         [shareDataArray addObject:url];
+#endif
     }
     
     if (!data.shareData.title.isEmpty() && ![shareDataArray count])
@@ -116,35 +249,19 @@
         return;
     }
     
-    if (data.files.size()) {
+    if (!data.files.isEmpty()) {
+        bool usePlaceholderFiles = false;
+#if PLATFORM(IOS_FAMILY)
+        usePlaceholderFiles = data.originator == WebCore::ShareDataOriginator::Web;
+#endif
+
         _temporaryFileShareDirectory = [WKShareSheet createTemporarySharingDirectory];
-        
-        auto fileWriteGroup = adoptOSObject(dispatch_group_create());
-        auto queue = adoptOSObject(dispatch_queue_create("com.apple.WebKit.WKShareSheet.ShareableFileWriter", DISPATCH_QUEUE_SERIAL));
-        
-        __block bool successful = true;
-        
-        int index = 0;
-        for (auto file : data.files) {
-            dispatch_group_async(fileWriteGroup.get(), queue.get(), ^{
-                if (!successful)
-                    return;
-                NSURL *fileURL = [WKShareSheet writeFileToShareableURL:WebCore::ResourceResponseBase::sanitizeSuggestedFilename(file.fileName) data:file.fileData->createNSData().get() temporaryDirectory:_temporaryFileShareDirectory.get()];
-                if (!fileURL) {
-                    successful = false;
-                    return;
-                }
-                [shareDataArray addObject:fileURL];
-            });
-            index++;
-        }
-        
-        dispatch_group_notify(fileWriteGroup.get(), dispatch_get_main_queue(), ^{
-            if (!successful) {
-                [self dismiss];
+        appendFilesAsShareableURLs(WTFMove(shareDataArray), data.files, _temporaryFileShareDirectory.get(), usePlaceholderFiles, [retainedSelf = retainPtr(self), rect = WTFMove(rect)](RetainPtr<NSMutableArray>&& shareDataArray) mutable {
+            if (!shareDataArray) {
+                [retainedSelf dismiss];
                 return;
             }
-            [self presentWithShareDataArray:shareDataArray.get() inRect:rect];
+            [retainedSelf presentWithShareDataArray:shareDataArray.get() inRect:rect];
         });
         return;
     }
@@ -152,7 +269,7 @@
     [self presentWithShareDataArray:shareDataArray.get() inRect:rect];
 }
 
-- (void)presentWithShareDataArray:(NSArray *)sharingItems inRect:(WTF::Optional<WebCore::FloatRect>)rect
+- (void)presentWithShareDataArray:(NSArray *)sharingItems inRect:(std::optional<WebCore::FloatRect>)rect
 {
     WKWebView *webView = _webView.getAutoreleased();
 
@@ -172,21 +289,42 @@
         NSRect mouseLocationInWindow = [webView.window convertRectFromScreen:mouseLocationRect];
         presentationRect = [webView convertRect:mouseLocationInWindow fromView:nil];
     }
+
+#if HAVE(SHARING_SERVICE_PICKER_POPOVER_SPI)
+    [_sharingServicePicker.get() showPopoverRelativeToRect:presentationRect ofView:webView preferredEdge:NSMinYEdge completion:^(NSSharingService *sharingService) { }];
+#else
     [_sharingServicePicker showRelativeToRect:presentationRect ofView:webView preferredEdge:NSMinYEdge];
+#endif
 #else
     _shareSheetViewController = adoptNS([[UIActivityViewController alloc] initWithActivityItems:sharingItems applicationActivities:nil]);
+
+#if HAVE(UIACTIVITYTYPE_SHAREPLAY)
+    [_shareSheetViewController setExcludedActivityTypes:@[ UIActivityTypeSharePlay ]];
+#endif
+
     [_shareSheetViewController setCompletionWithItemsHandler:^(NSString *, BOOL completed, NSArray *, NSError *) {
         _didShareSuccessfully |= completed;
+
+        // Make sure that we're actually not presented anymore (-completionWithItemsHandler can be called multiple times
+        // before the share sheet is actually dismissed), and if so, clean up.
+        if (![_shareSheetViewController presentingViewController] || [_shareSheetViewController isBeingDismissed])
+            [self dismiss];
     }];
 
-    UIPopoverPresentationController *popoverController = [_shareSheetViewController popoverPresentationController];
-    if (rect) {
-        popoverController.sourceView = webView;
-        popoverController.sourceRect = *rect;
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+    if (shareSheetUsesModalPresentationForWebView(webView)) {
+        [_shareSheetViewController setAllowsCustomPresentationStyle:YES];
+        [_shareSheetViewController setModalPresentationStyle:UIModalPresentationFormSheet];
     } else
-        popoverController._centersPopoverIfSourceViewNotSet = YES;
-
-    [_shareSheetViewController presentationController].delegate = self;
+#endif // HAVE(UIKIT_WEBKIT_INTERNALS)
+    {
+        UIPopoverPresentationController *popoverController = [_shareSheetViewController popoverPresentationController];
+        if (rect) {
+            popoverController.sourceView = webView;
+            popoverController.sourceRect = *rect;
+        } else
+            popoverController._centersPopoverIfSourceViewNotSet = YES;
+    }
 
     if ([_delegate respondsToSelector:@selector(shareSheet:willShowActivityItems:)])
         [_delegate shareSheet:self willShowActivityItems:sharingItems];
@@ -225,13 +363,6 @@
 }
 #endif
 
-#if PLATFORM(IOS_FAMILY)
-- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
-{
-    [self dismiss];
-}
-#endif
-
 - (void)dismiss
 {
     auto completionHandler = WTFMove(_completionHandler);
@@ -263,8 +394,10 @@
         return;
 
     UIViewController *currentPresentedViewController = [_presentationViewController presentedViewController];
-    if (currentPresentedViewController != _shareSheetViewController)
+    if (currentPresentedViewController != _shareSheetViewController) {
+        dispatchDidDismiss();
         return;
+    }
 
     [currentPresentedViewController dismissViewControllerAnimated:YES completion:^{
         dispatchDidDismiss();
@@ -322,10 +455,10 @@
 
 + (NSURL *)createRandomSharingDirectoryForFile:(NSURL *)temporaryDirectory
 {
-    NSString *randomDirectory = createCanonicalUUIDString();
+    NSString *randomDirectory = createVersion4UUIDString();
     if (![randomDirectory length] || !temporaryDirectory)
         return nil;
-    NSURL *dataPath = [temporaryDirectory URLByAppendingPathComponent:randomDirectory];
+    NSURL *dataPath = [temporaryDirectory URLByAppendingPathComponent:randomDirectory isDirectory:YES];
     
     if (![[NSFileManager defaultManager] createDirectoryAtURL:dataPath withIntermediateDirectories:NO attributes:nil error:nil])
         return nil;
@@ -342,7 +475,7 @@
     if (!temporaryDirectoryForFile)
         return nil;
     
-    NSURL *fileURL = [temporaryDirectoryForFile URLByAppendingPathComponent:fileName];
+    NSURL *fileURL = [temporaryDirectoryForFile URLByAppendingPathComponent:fileName isDirectory:NO];
 
     if (![fileData writeToURL:fileURL options:NSDataWritingAtomic error:nil])
         return nil;

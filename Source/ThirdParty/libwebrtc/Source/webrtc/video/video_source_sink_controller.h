@@ -11,12 +11,16 @@
 #ifndef VIDEO_VIDEO_SOURCE_SINK_CONTROLLER_H_
 #define VIDEO_VIDEO_SOURCE_SINK_CONTROLLER_H_
 
+#include <string>
+#include <vector>
+
 #include "absl/types/optional.h"
+#include "api/sequence_checker.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_sink_interface.h"
 #include "api/video/video_source_interface.h"
 #include "call/adaptation/video_source_restrictions.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/system/no_unique_address.h"
 
 namespace webrtc {
 
@@ -29,7 +33,14 @@ class VideoSourceSinkController {
   VideoSourceSinkController(rtc::VideoSinkInterface<VideoFrame>* sink,
                             rtc::VideoSourceInterface<VideoFrame>* source);
 
+  ~VideoSourceSinkController();
+
   void SetSource(rtc::VideoSourceInterface<VideoFrame>* source);
+  bool HasSource() const;
+
+  // Requests a refresh frame from the current source, if set.
+  void RequestRefreshFrame();
+
   // Must be called in order for changes to settings to have an effect. This
   // allows you to modify multiple properties in a single push to the sink.
   void PushSourceSinkSettings();
@@ -39,6 +50,7 @@ class VideoSourceSinkController {
   absl::optional<double> frame_rate_upper_limit() const;
   bool rotation_applied() const;
   int resolution_alignment() const;
+  const std::vector<rtc::VideoSinkWants::FrameSize>& resolutions() const;
 
   // Updates the settings stored internally. In order for these settings to be
   // applied to the sink, PushSourceSinkSettings() must subsequently be called.
@@ -48,26 +60,33 @@ class VideoSourceSinkController {
   void SetFrameRateUpperLimit(absl::optional<double> frame_rate_upper_limit);
   void SetRotationApplied(bool rotation_applied);
   void SetResolutionAlignment(int resolution_alignment);
+  void SetResolutions(std::vector<rtc::VideoSinkWants::FrameSize> resolutions);
 
  private:
   rtc::VideoSinkWants CurrentSettingsToSinkWants() const
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(sequence_checker_);
 
-  // TODO(hbos): If everything is handled on the same sequence (i.e.
-  // VideoStreamEncoder's encoder queue) then |crit_| can be replaced by
-  // sequence checker. Investigate if we want to do this.
-  mutable rtc::CriticalSection crit_;
+  // Used to ensure that this class is called on threads/sequences that it and
+  // downstream implementations were designed for.
+  // In practice, this represent's libjingle's worker thread.
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker sequence_checker_;
+
   rtc::VideoSinkInterface<VideoFrame>* const sink_;
-  rtc::VideoSourceInterface<VideoFrame>* source_ RTC_GUARDED_BY(&crit_);
+  rtc::VideoSourceInterface<VideoFrame>* source_
+      RTC_GUARDED_BY(&sequence_checker_);
   // Pixel and frame rate restrictions.
-  VideoSourceRestrictions restrictions_ RTC_GUARDED_BY(&crit_);
+  VideoSourceRestrictions restrictions_ RTC_GUARDED_BY(&sequence_checker_);
   // Ensures that even if we are not restricted, the sink is never configured
-  // above this limit. Example: We are not CPU limited (no |restrictions_|) but
-  // our encoder is capped at 30 fps (= |frame_rate_upper_limit_|).
-  absl::optional<size_t> pixels_per_frame_upper_limit_ RTC_GUARDED_BY(&crit_);
-  absl::optional<double> frame_rate_upper_limit_ RTC_GUARDED_BY(&crit_);
-  bool rotation_applied_ RTC_GUARDED_BY(&crit_) = false;
-  int resolution_alignment_ RTC_GUARDED_BY(&crit_) = 1;
+  // above this limit. Example: We are not CPU limited (no `restrictions_`) but
+  // our encoder is capped at 30 fps (= `frame_rate_upper_limit_`).
+  absl::optional<size_t> pixels_per_frame_upper_limit_
+      RTC_GUARDED_BY(&sequence_checker_);
+  absl::optional<double> frame_rate_upper_limit_
+      RTC_GUARDED_BY(&sequence_checker_);
+  bool rotation_applied_ RTC_GUARDED_BY(&sequence_checker_) = false;
+  int resolution_alignment_ RTC_GUARDED_BY(&sequence_checker_) = 1;
+  std::vector<rtc::VideoSinkWants::FrameSize> resolutions_
+      RTC_GUARDED_BY(&sequence_checker_);
 };
 
 }  // namespace webrtc

@@ -19,11 +19,13 @@
 
 #pragma once
 
-#include "WebProcessPool.h"
+#include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteDataStore.h"
+#include <wtf/glib/GUniquePtr.h>
+#include <wtf/text/CString.h>
 
+#if ENABLE(2022_GLIB_API)
+WebKitWebsiteDataManager* webkitWebsiteDataManagerCreate(CString&&, CString&&);
+#endif
 WebKit::WebsiteDataStore& webkitWebsiteDataManagerGetDataStore(WebKitWebsiteDataManager*);
-void webkitWebsiteDataManagerAddProcessPool(WebKitWebsiteDataManager*, WebKit::WebProcessPool&);
-void webkitWebsiteDataManagerRemoveProcessPool(WebKitWebsiteDataManager*, WebKit::WebProcessPool&);
-const Vector<WebKit::WebProcessPool*>& webkitWebsiteDataManagerGetProcessPools(WebKitWebsiteDataManager*);
-
+WebKitITPThirdParty* webkitITPThirdPartyCreate(WebKit::WebResourceLoadStatisticsStore::ThirdPartyData&&);

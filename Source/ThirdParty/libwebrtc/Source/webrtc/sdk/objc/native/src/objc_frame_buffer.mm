@@ -11,7 +11,9 @@
 #include "sdk/objc/native/src/objc_frame_buffer.h"
 
 #import "base/RTCVideoFrameBuffer.h"
+#import "api/make_ref_counted.h"
 #import "sdk/objc/api/video_frame_buffer/RTCNativeI420Buffer+Private.h"
+#import "sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.h"
 
 namespace webrtc {
 
@@ -22,7 +24,11 @@ class ObjCI420FrameBuffer : public I420BufferInterface {
  public:
   explicit ObjCI420FrameBuffer(id<RTCI420Buffer> frame_buffer)
       : frame_buffer_(frame_buffer), width_(frame_buffer.width), height_(frame_buffer.height) {}
-  ~ObjCI420FrameBuffer() override {}
+  ~ObjCI420FrameBuffer() override {
+#if defined(WEBRTC_WEBKIT_BUILD)
+    [frame_buffer_ close];
+#endif
+  }
 
   int width() const override { return width_; }
 
@@ -51,7 +57,16 @@ class ObjCI420FrameBuffer : public I420BufferInterface {
 ObjCFrameBuffer::ObjCFrameBuffer(id<RTCVideoFrameBuffer> frame_buffer)
     : frame_buffer_(frame_buffer), width_(frame_buffer.width), height_(frame_buffer.height) {}
 
-ObjCFrameBuffer::~ObjCFrameBuffer() {}
+ObjCFrameBuffer::ObjCFrameBuffer(BufferProvider provider, int width, int height)
+    : frame_buffer_provider_(provider), width_(width), height_(height) { }
+
+ObjCFrameBuffer::~ObjCFrameBuffer() {
+#if defined(WEBRTC_WEBKIT_BUILD)
+  [frame_buffer_ close];
+#endif
+  if (frame_buffer_provider_.releaseBuffer)
+    frame_buffer_provider_.releaseBuffer(frame_buffer_provider_.pointer);
+}
 
 VideoFrameBuffer::Type ObjCFrameBuffer::type() const {
   return Type::kNative;
@@ -67,12 +82,21 @@ int ObjCFrameBuffer::height() const {
 
 rtc::scoped_refptr<I420BufferInterface> ObjCFrameBuffer::ToI420() {
   rtc::scoped_refptr<I420BufferInterface> buffer =
-      new rtc::RefCountedObject<ObjCI420FrameBuffer>([frame_buffer_ toI420]);
+    rtc::make_ref_counted<ObjCI420FrameBuffer>([wrapped_frame_buffer() toI420]);
 
   return buffer;
 }
 
 id<RTCVideoFrameBuffer> ObjCFrameBuffer::wrapped_frame_buffer() const {
+  if (frame_buffer_)
+    return frame_buffer_;
+
+  {
+    webrtc::MutexLock lock(&mutex_);
+    if (!frame_buffer_ && frame_buffer_provider_.getBuffer)
+      const_cast<ObjCFrameBuffer*>(this)->frame_buffer_ = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:frame_buffer_provider_.getBuffer(frame_buffer_provider_.pointer)];
+  }
+
   return frame_buffer_;
 }
 

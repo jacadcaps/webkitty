@@ -15,6 +15,14 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/types/optional.h"
+#include "rtc_base/ignore_wundef.h"
+
+RTC_PUSH_IGNORING_WUNDEF()
+#include "rtc_tools/rtc_event_log_visualizer/proto/chart.pb.h"
+RTC_POP_IGNORING_WUNDEF()
+
 namespace webrtc {
 
 enum class LineStyle {
@@ -94,8 +102,8 @@ class Plot {
  public:
   virtual ~Plot() {}
 
-  // Overloaded to draw the plot.
-  virtual void Draw() = 0;
+  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
+  virtual void Draw() {}
 
   // Sets the lower x-axis limit to min_value (if left_margin == 0).
   // Sets the upper x-axis limit to max_value (if right_margin == 0).
@@ -158,6 +166,12 @@ class Plot {
   // Otherwise, the call has no effect and the timeseries is destroyed.
   void AppendTimeSeriesIfNotEmpty(TimeSeries&& time_series);
 
+  // Replaces PythonPlot::Draw()
+  void PrintPythonCode() const;
+
+  // Replaces ProtobufPlot::Draw()
+  void ExportProtobuf(webrtc::analytics::Chart* chart) const;
+
  protected:
   float xaxis_min_;
   float xaxis_max_;
@@ -175,11 +189,25 @@ class Plot {
 class PlotCollection {
  public:
   virtual ~PlotCollection() {}
-  virtual void Draw() = 0;
-  virtual Plot* AppendNewPlot() = 0;
+
+  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
+  virtual void Draw() {}
+
+  virtual Plot* AppendNewPlot();
+
+  void SetCallTimeToUtcOffsetMs(int64_t calltime_to_utc_ms) {
+    calltime_to_utc_ms_ = calltime_to_utc_ms;
+  }
+
+  // Replaces PythonPlotCollection::Draw()
+  void PrintPythonCode(bool shared_xaxis) const;
+
+  // Replaces ProtobufPlotCollections::Draw()
+  void ExportProtobuf(webrtc::analytics::ChartCollection* collection) const;
 
  protected:
   std::vector<std::unique_ptr<Plot>> plots_;
+  absl::optional<int64_t> calltime_to_utc_ms_;
 };
 
 }  // namespace webrtc

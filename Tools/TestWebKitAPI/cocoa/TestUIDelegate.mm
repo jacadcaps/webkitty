@@ -30,7 +30,16 @@
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 
-@implementation TestUIDelegate
+@implementation TestUIDelegate {
+    BOOL _showedInspector;
+}
+
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
+{
+    if (_createWebViewWithConfiguration)
+        return _createWebViewWithConfiguration(configuration, navigationAction, windowFeatures);
+    return nil;
+}
 
 - (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler
 {
@@ -48,7 +57,27 @@
     else
         completionHandler(menu);
 }
+
+- (void)_webView:(WKWebView *)webView getWindowFrameWithCompletionHandler:(void (^)(CGRect))completionHandler
+{
+    if (_getWindowFrameWithCompletionHandler)
+        _getWindowFrameWithCompletionHandler(webView, completionHandler);
+    else
+        completionHandler(CGRectZero);
+}
+
+- (void)_focusWebView:(WKWebView *)webView
+{
+    if (_focusWebView)
+        _focusWebView(webView);
+}
 #endif // PLATFORM(MAC)
+
+- (void)_webView:(WKWebView *)webView saveDataToFile:(NSData *)data suggestedFilename:(NSString *)suggestedFilename mimeType:(NSString *)mimeType originatingURL:(NSURL *)url
+{
+    if (_saveDataToFile)
+        _saveDataToFile(webView, data, suggestedFilename, mimeType, url);
+}
 
 - (NSString *)waitForAlert
 {
@@ -68,6 +97,17 @@
     return result.autorelease();
 }
 
+- (void)_webView:(WKWebView *)webView didAttachLocalInspector:(_WKInspector *)inspector
+{
+    _showedInspector = YES;
+}
+
+- (void)waitForInspectorToShow
+{
+    while (!_showedInspector)
+        TestWebKitAPI::Util::spinRunLoop();
+}
+
 @end
 
 @implementation WKWebView (TestUIDelegateExtras)
@@ -80,6 +120,15 @@
     NSString *alert = [uiDelegate waitForAlert];
     self.UIDelegate = nil;
     return alert;
+}
+
+- (void)_test_waitForInspectorToShow
+{
+    EXPECT_FALSE(self.UIDelegate);
+    auto uiDelegate = adoptNS([TestUIDelegate new]);
+    self.UIDelegate = uiDelegate.get();
+    [uiDelegate waitForInspectorToShow];
+    self.UIDelegate = nil;
 }
 
 @end

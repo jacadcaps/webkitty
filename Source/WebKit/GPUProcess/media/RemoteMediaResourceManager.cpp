@@ -26,14 +26,15 @@
 #include "config.h"
 #include "RemoteMediaResourceManager.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "Connection.h"
-#include "DataReference.h"
 #include "RemoteMediaResource.h"
 #include "RemoteMediaResourceIdentifier.h"
+#include "SharedBufferReference.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/ResourceRequest.h>
+#include <wtf/Scope.h>
 
 namespace WebKit {
 
@@ -59,10 +60,10 @@ void RemoteMediaResourceManager::removeMediaResource(RemoteMediaResourceIdentifi
     m_remoteMediaResources.remove(remoteMediaResourceIdentifier);
 }
 
-void RemoteMediaResourceManager::responseReceived(RemoteMediaResourceIdentifier id, const ResourceResponse& response, bool didPassAccessControlCheck, CompletionHandler<void(ShouldContinuePolicyCheck)>&& completionHandler)
+void RemoteMediaResourceManager::responseReceived(RemoteMediaResourceIdentifier identifier, const ResourceResponse& response, bool didPassAccessControlCheck, CompletionHandler<void(ShouldContinuePolicyCheck)>&& completionHandler)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready()) {
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource) {
         completionHandler(ShouldContinuePolicyCheck::No);
         return;
     }
@@ -70,10 +71,10 @@ void RemoteMediaResourceManager::responseReceived(RemoteMediaResourceIdentifier 
     resource->responseReceived(response, didPassAccessControlCheck, WTFMove(completionHandler));
 }
 
-void RemoteMediaResourceManager::redirectReceived(RemoteMediaResourceIdentifier id, ResourceRequest&& request, const ResourceResponse& response, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
+void RemoteMediaResourceManager::redirectReceived(RemoteMediaResourceIdentifier identifier, ResourceRequest&& request, const ResourceResponse& response, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready()) {
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource) {
         completionHandler({ });
         return;
     }
@@ -81,46 +82,55 @@ void RemoteMediaResourceManager::redirectReceived(RemoteMediaResourceIdentifier 
     resource->redirectReceived(WTFMove(request), response, WTFMove(completionHandler));
 }
 
-void RemoteMediaResourceManager::dataSent(RemoteMediaResourceIdentifier id, uint64_t bytesSent, uint64_t totalBytesToBeSent)
+void RemoteMediaResourceManager::dataSent(RemoteMediaResourceIdentifier identifier, uint64_t bytesSent, uint64_t totalBytesToBeSent)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready())
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource)
         return;
 
     resource->dataSent(bytesSent, totalBytesToBeSent);
 }
 
-void RemoteMediaResourceManager::dataReceived(RemoteMediaResourceIdentifier id, const IPC::DataReference& data)
+void RemoteMediaResourceManager::dataReceived(RemoteMediaResourceIdentifier identifier, IPC::SharedBufferReference&& buffer, CompletionHandler<void(std::optional<SharedMemory::Handle>&&)>&& completionHandler)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready())
-        return;
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource)
+        return completionHandler(std::nullopt);
 
-    resource->dataReceived(reinterpret_cast<const char*>(data.data()), data.size());
+    auto sharedMemory = buffer.sharedCopy();
+    if (!sharedMemory)
+        return completionHandler(std::nullopt);
+
+    auto handle = sharedMemory->createHandle(SharedMemory::Protection::ReadOnly);
+    if (!handle)
+        return completionHandler(std::nullopt);
+
+    resource->dataReceived(sharedMemory->createSharedBuffer(buffer.size()));
+    completionHandler(WTFMove(handle));
 }
 
-void RemoteMediaResourceManager::accessControlCheckFailed(RemoteMediaResourceIdentifier id, const ResourceError& error)
+void RemoteMediaResourceManager::accessControlCheckFailed(RemoteMediaResourceIdentifier identifier, const ResourceError& error)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready())
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource)
         return;
 
     resource->accessControlCheckFailed(error);
 }
 
-void RemoteMediaResourceManager::loadFailed(RemoteMediaResourceIdentifier id, const ResourceError& error)
+void RemoteMediaResourceManager::loadFailed(RemoteMediaResourceIdentifier identifier, const ResourceError& error)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready())
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource)
         return;
 
     resource->loadFailed(error);
 }
 
-void RemoteMediaResourceManager::loadFinished(RemoteMediaResourceIdentifier id, const NetworkLoadMetrics& metrics)
+void RemoteMediaResourceManager::loadFinished(RemoteMediaResourceIdentifier identifier, const NetworkLoadMetrics& metrics)
 {
-    auto* resource = m_remoteMediaResources.get(id);
-    if (!resource || !resource->ready())
+    auto* resource = m_remoteMediaResources.get(identifier);
+    if (!resource)
         return;
 
     resource->loadFinished(metrics);
@@ -128,4 +138,4 @@ void RemoteMediaResourceManager::loadFinished(RemoteMediaResourceIdentifier id, 
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

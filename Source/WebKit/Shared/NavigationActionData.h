@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "WebEvent.h"
-#include <WebCore/AdClickAttribution.h>
+#include "WebHitTestResultData.h"
+#include "WebMouseEvent.h"
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/SecurityOriginData.h>
 
 namespace IPC {
@@ -37,17 +38,21 @@ class Decoder;
 class Encoder;
 }
 
+namespace WebCore {
+typedef int SandboxFlags;
+}
+
 namespace WebKit {
 
 struct NavigationActionData {
     void encode(IPC::Encoder&) const;
-    static Optional<NavigationActionData> decode(IPC::Decoder&);
+    static std::optional<NavigationActionData> decode(IPC::Decoder&);
 
     WebCore::NavigationType navigationType { WebCore::NavigationType::Other };
-    OptionSet<WebEvent::Modifier> modifiers;
-    WebMouseEvent::Button mouseButton { WebMouseEvent::NoButton };
-    WebMouseEvent::SyntheticClickType syntheticClickType { WebMouseEvent::NoTap };
-    uint64_t userGestureTokenIdentifier;
+    OptionSet<WebEventModifier> modifiers;
+    WebMouseEventButton mouseButton { WebMouseEventButton::NoButton };
+    WebMouseEventSyntheticClickType syntheticClickType { WebMouseEventSyntheticClickType::NoTap };
+    uint64_t userGestureTokenIdentifier { 0 };
     bool canHandleRequest { false };
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
     WTF::String downloadAttribute;
@@ -56,13 +61,18 @@ struct NavigationActionData {
     bool treatAsSameOriginNavigation { false };
     bool hasOpenedFrames { false };
     bool openedByDOMWithOpener { false };
+    bool hasOpener { false };
     WebCore::SecurityOriginData requesterOrigin;
-    Optional<WebCore::BackForwardItemIdentifier> targetBackForwardItemIdentifier;
-    Optional<WebCore::BackForwardItemIdentifier> sourceBackForwardItemIdentifier;
-    WebCore::LockHistory lockHistory;
-    WebCore::LockBackForwardList lockBackForwardList;
+    std::optional<WebCore::BackForwardItemIdentifier> targetBackForwardItemIdentifier;
+    std::optional<WebCore::BackForwardItemIdentifier> sourceBackForwardItemIdentifier;
+    WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
+    WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
     WTF::String clientRedirectSourceForHistory;
-    Optional<WebCore::AdClickAttribution> adClickAttribution;
+    WebCore::SandboxFlags effectiveSandboxFlags { 0 };
+    std::optional<WebCore::PrivateClickMeasurement> privateClickMeasurement;
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
+    std::optional<WebKit::WebHitTestResultData> webHitTestResultData;
+#endif
 };
 
 }

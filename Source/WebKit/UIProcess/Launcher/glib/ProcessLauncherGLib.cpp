@@ -30,6 +30,7 @@
 #include "BubblewrapLauncher.h"
 #include "Connection.h"
 #include "FlatpakLauncher.h"
+#include "IPCUtilities.h"
 #include "ProcessExecutablePath.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -37,23 +38,25 @@
 #include <wtf/FileSystem.h>
 #include <wtf/RunLoop.h>
 #include <wtf/UniStdExtras.h>
-#include <wtf/glib/GLibUtilities.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/glib/Sandbox.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
+#if USE(LIBWPE)
+#include "ProcessProviderLibWPE.h"
+#endif
 
-static void childSetupFunction(gpointer userData)
-{
-    int socket = GPOINTER_TO_INT(userData);
-    close(socket);
-}
+#if !USE(SYSTEM_MALLOC) && OS(LINUX)
+#include <bmalloc/valgrind.h>
+#endif
+
+namespace WebKit {
 
 #if OS(LINUX)
 static bool isFlatpakSpawnUsable()
 {
-    static Optional<bool> ret;
+    static std::optional<bool> ret;
     if (ret)
         return *ret;
 
@@ -70,62 +73,85 @@ static bool isFlatpakSpawnUsable()
 }
 #endif
 
-#if ENABLE(BUBBLEWRAP_SANDBOX)
-static bool isInsideDocker()
+static int connectionOptions()
 {
-    static Optional<bool> ret;
-    if (ret)
-        return *ret;
-
-    ret = g_file_test("/.dockerenv", G_FILE_TEST_EXISTS);
-    return *ret;
-}
-
-static bool isInsideFlatpak()
-{
-    static Optional<bool> ret;
-    if (ret)
-        return *ret;
-
-    ret = g_file_test("/.flatpak-info", G_FILE_TEST_EXISTS);
-    return *ret;
-}
-
-static bool isInsideSnap()
-{
-    static Optional<bool> ret;
-    if (ret)
-        return *ret;
-
-    // The "SNAP" environment variable is not unlikely to be set for/by something other
-    // than Snap, so check a couple of additional variables to avoid false positives.
-    // See: https://snapcraft.io/docs/environment-variables
-    ret = g_getenv("SNAP") && g_getenv("SNAP_NAME") && g_getenv("SNAP_REVISION");
-    return *ret;
-}
+#if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
+    // When using the WPE process launcher API, we cannot use CLOEXEC for the client socket because
+    // we need to leak it to the child process.
+    if (ProcessProviderLibWPE::singleton().isEnabled())
+        return IPC::PlatformConnectionOptions::SetCloexecOnServer;
 #endif
+
+    // We use CLOEXEC for the client socket here even though we need to leak it to the child,
+    // because we don't want it leaking to xdg-dbus-proxy. If the IPC socket is unexpectedly open in
+    // an extra subprocess, WebKit won't notice when its child process crashes. We can ensure it
+    // gets leaked into only the correct subprocess by using g_subprocess_launcher_take_fd() later.
+    return IPC::PlatformConnectionOptions::SetCloexecOnClient | IPC::PlatformConnectionOptions::SetCloexecOnServer;
+}
+
+static bool isSandboxEnabled(const ProcessLauncher::LaunchOptions& launchOptions)
+{
+#if !USE(SYSTEM_MALLOC)
+    if (RUNNING_ON_VALGRIND)
+        return false;
+#endif
+
+    if (const char* sandboxEnv = g_getenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS")) {
+        if (!strcmp(sandboxEnv, "1"))
+            return false;
+    }
+
+#if !ENABLE(2022_GLIB_API)
+    if (const char* sandboxEnv = g_getenv("WEBKIT_FORCE_SANDBOX")) {
+        if (!strcmp(sandboxEnv, "1"))
+            return true;
+
+        static bool once = false;
+        if (!once) {
+            g_warning("WEBKIT_FORCE_SANDBOX no longer allows disabling the sandbox. Use WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 instead.");
+            once = true;
+        }
+    }
+#endif
+
+    return launchOptions.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-sandbox"_s) == "true"_s;
+}
 
 void ProcessLauncher::launchProcess()
 {
-    IPC::Connection::SocketPair socketPair = IPC::Connection::createPlatformConnection(IPC::Connection::ConnectionOptions::SetCloexecOnServer);
+    IPC::SocketPair socketPair = IPC::createPlatformConnection(connectionOptions());
+
+    GUniquePtr<gchar> processIdentifier(g_strdup_printf("%" PRIu64, m_launchOptions.processIdentifier.toUInt64()));
+    GUniquePtr<gchar> webkitSocket(g_strdup_printf("%d", socketPair.client));
+
+#if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
+    if (ProcessProviderLibWPE::singleton().isEnabled()) {
+        unsigned nargs = 3;
+        char** argv = g_newa(char*, nargs);
+        unsigned i = 0;
+        argv[i++] = processIdentifier.get();
+        argv[i++] = webkitSocket.get();
+        argv[i++] = nullptr;
+
+        m_processIdentifier = ProcessProviderLibWPE::singleton().launchProcess(m_launchOptions, argv, socketPair.client);
+        if (m_processIdentifier <= -1)
+            g_error("Unable to spawn a new child process");
+
+        // We've finished launching the process, message back to the main run loop.
+        RunLoop::main().dispatch([protectedThis = Ref { *this }, this, serverSocket = socketPair.server] {
+            didFinishLaunchingProcess(m_processIdentifier, IPC::Connection::Identifier { serverSocket });
+        });
+
+        return;
+    }
+#endif
 
     String executablePath;
     CString realExecutablePath;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    String pluginPath;
-    CString realPluginPath;
-#endif
     switch (m_launchOptions.processType) {
     case ProcessLauncher::ProcessType::Web:
         executablePath = executablePathOfWebProcess();
         break;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    case ProcessLauncher::ProcessType::Plugin:
-        executablePath = executablePathOfPluginProcess();
-        pluginPath = m_launchOptions.extraInitializationData.get("plugin-path");
-        realPluginPath = FileSystem::fileSystemRepresentation(pluginPath);
-        break;
-#endif
     case ProcessLauncher::ProcessType::Network:
         executablePath = executablePathOfNetworkProcess();
         break;
@@ -140,9 +166,7 @@ void ProcessLauncher::launchProcess()
     }
 
     realExecutablePath = FileSystem::fileSystemRepresentation(executablePath);
-    GUniquePtr<gchar> processIdentifier(g_strdup_printf("%" PRIu64, m_launchOptions.processIdentifier.toUInt64()));
-    GUniquePtr<gchar> webkitSocket(g_strdup_printf("%d", socketPair.client));
-    unsigned nargs = 5; // size of the argv array for g_spawn_async()
+    unsigned nargs = 4; // size of the argv array for g_spawn_async()
 
 #if ENABLE(DEVELOPER_MODE)
     Vector<CString> prefixArgs;
@@ -173,33 +197,32 @@ void ProcessLauncher::launchProcess()
     if (configureJSCForTesting)
         argv[i++] = const_cast<char*>("--configure-jsc-for-testing");
 #endif
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    argv[i++] = const_cast<char*>(realPluginPath.data());
-#else
-    argv[i++] = nullptr;
-#endif
     argv[i++] = nullptr;
 
+    // Warning: we want GIO to be able to spawn with posix_spawn() rather than fork()/exec(), in
+    // order to better accommodate applications that use a huge amount of memory or address space
+    // in the UI process, like Eclipse. This means we must use GSubprocess in a manner that follows
+    // the rules documented in g_spawn_async_with_pipes_and_fds() for choosing between posix_spawn()
+    // (optimized/ideal codepath) vs. fork()/exec() (fallback codepath). As of GLib 2.74, the rules
+    // relevant to GSubprocess are (a) must inherit fds, (b) must not search path from envp, and (c)
+    // must not use a child setup fuction.
+    //
+    // Please keep this comment in sync with the duplicate comment in XDGDBusProxy::launch.
     GRefPtr<GSubprocessLauncher> launcher = adoptGRef(g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_INHERIT_FDS));
-    g_subprocess_launcher_set_child_setup(launcher.get(), childSetupFunction, GINT_TO_POINTER(socketPair.server), nullptr);
     g_subprocess_launcher_take_fd(launcher.get(), socketPair.client, socketPair.client);
 
     GUniqueOutPtr<GError> error;
     GRefPtr<GSubprocess> process;
 
 #if OS(LINUX)
-    const char* sandboxEnv = g_getenv("WEBKIT_FORCE_SANDBOX");
-    bool sandboxEnabled = m_launchOptions.extraInitializationData.get("enable-sandbox") == "true";
-
-    if (sandboxEnv)
-        sandboxEnabled = !strcmp(sandboxEnv, "1");
+    bool sandboxEnabled = isSandboxEnabled(m_launchOptions);
 
     if (sandboxEnabled && isFlatpakSpawnUsable())
         process = flatpakSpawn(launcher.get(), m_launchOptions, argv, socketPair.client, &error.outPtr());
 #if ENABLE(BUBBLEWRAP_SANDBOX)
-    // You cannot use bubblewrap within Flatpak or Docker so lets ensure it never happens.
+    // You cannot use bubblewrap within Flatpak or some containers so lets ensure it never happens.
     // Snap can allow it but has its own limitations that require workarounds.
-    else if (sandboxEnabled && !isInsideFlatpak() && !isInsideSnap() && !isInsideDocker())
+    else if (sandboxEnabled && !isInsideFlatpak() && !isInsideSnap() && !isInsideUnsupportedContainer())
         process = bubblewrapSpawn(launcher.get(), m_launchOptions, argv, &error.outPtr());
 #endif // ENABLE(BUBBLEWRAP_SANDBOX)
     else
@@ -207,19 +230,18 @@ void ProcessLauncher::launchProcess()
         process = adoptGRef(g_subprocess_launcher_spawnv(launcher.get(), argv, &error.outPtr()));
 
     if (!process.get())
-        g_error("Unable to fork a new child process: %s", error->message);
+        g_error("Unable to spawn a new child process: %s", error->message);
 
     const char* processIdStr = g_subprocess_get_identifier(process.get());
+    if (!processIdStr)
+        g_error("Spawned process died immediately. This should not happen.");
+
     m_processIdentifier = g_ascii_strtoll(processIdStr, nullptr, 0);
     RELEASE_ASSERT(m_processIdentifier);
 
-    // Don't expose the parent socket to potential future children.
-    if (!setCloseOnExec(socketPair.client))
-        RELEASE_ASSERT_NOT_REACHED();
-
     // We've finished launching the process, message back to the main run loop.
-    RunLoop::main().dispatch([protectedThis = makeRef(*this), this, serverSocket = socketPair.server] {
-        didFinishLaunchingProcess(m_processIdentifier, serverSocket);
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this, serverSocket = socketPair.server] {
+        didFinishLaunchingProcess(m_processIdentifier, IPC::Connection::Identifier { serverSocket });
     });
 }
 
@@ -233,7 +255,15 @@ void ProcessLauncher::terminateProcess()
     if (!m_processIdentifier)
         return;
 
+#if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
+    if (ProcessProviderLibWPE::singleton().isEnabled())
+        ProcessProviderLibWPE::singleton().kill(m_processIdentifier);
+    else
+        kill(m_processIdentifier, SIGKILL);
+#else
     kill(m_processIdentifier, SIGKILL);
+#endif
+
     m_processIdentifier = 0;
 }
 

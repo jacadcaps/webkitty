@@ -50,9 +50,6 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/mac/NSEventSPI.h>
 
-static const double minMagnification = 1;
-static const double maxMagnification = 3;
-
 static const double minElasticMagnification = 0.75;
 static const double maxElasticMagnification = 4;
 
@@ -76,7 +73,7 @@ static const CGFloat swipeOverlayShadowWidth = 81;
 @end
 
 @implementation WKSwipeCancellationTracker
-@synthesize isCancelled=_isCancelled;
+@synthesize isCancelled = _isCancelled;
 @end
 
 namespace WebKit {
@@ -91,7 +88,7 @@ void ViewGestureController::platformTeardown()
         removeSwipeSnapshot();
 }
 
-static double resistanceForDelta(double deltaScale, double currentScale)
+double ViewGestureController::resistanceForDelta(double deltaScale, double currentScale)
 {
     // Zoom out with slight acceleration, until we reach minimum scale.
     if (deltaScale < 0 && currentScale > minMagnification)
@@ -110,23 +107,6 @@ static double resistanceForDelta(double deltaScale, double currentScale)
     return resistance;
 }
 
-FloatPoint ViewGestureController::scaledMagnificationOrigin(FloatPoint origin, double scale)
-{
-    FloatPoint scaledMagnificationOrigin(origin);
-    scaledMagnificationOrigin.moveBy(m_visibleContentRect.location());
-    float magnificationOriginScale = 1 - (scale / m_webPageProxy.pageScaleFactor());
-    scaledMagnificationOrigin.scale(magnificationOriginScale);
-    return scaledMagnificationOrigin;
-}
-
-void ViewGestureController::didCollectGeometryForMagnificationGesture(FloatRect visibleContentRect, bool frameHandlesMagnificationGesture)
-{
-    willBeginGesture(ViewGestureType::Magnification);
-    m_visibleContentRect = visibleContentRect;
-    m_visibleContentRectIsValid = true;
-    m_frameHandlesMagnificationGesture = frameHandlesMagnificationGesture;
-}
-
 void ViewGestureController::gestureEventWasNotHandledByWebCore(NSEvent *event, FloatPoint origin)
 {
     if (event.type == NSEventTypeMagnify)
@@ -139,14 +119,18 @@ void ViewGestureController::handleMagnificationGestureEvent(NSEvent *event, Floa
 
     ASSERT(m_activeGestureType == ViewGestureType::None || m_activeGestureType == ViewGestureType::Magnification);
 
+    if (event.phase == NSEventPhaseBegan)
+        m_webPageProxy.setCaretDecorationVisibility(false);
+
+    if (event.phase == NSEventPhaseEnded || event.phase == NSEventPhaseCancelled)
+        m_webPageProxy.setCaretDecorationVisibility(true);
+
     if (m_activeGestureType == ViewGestureType::None) {
         if (event.phase != NSEventPhaseBegan)
             return;
 
         // FIXME: We drop the first frame of the gesture on the floor, because we don't have the visible content bounds yet.
-        m_magnification = m_webPageProxy.pageScaleFactor();
-        m_webPageProxy.send(Messages::ViewGestureGeometryCollector::CollectGeometryForMagnificationGesture());
-        m_lastMagnificationGestureWasSmartMagnification = false;
+        prepareMagnificationGesture(origin);
 
         return;
     }
@@ -165,33 +149,10 @@ void ViewGestureController::handleMagnificationGestureEvent(NSEvent *event, Floa
 
     m_magnificationOrigin = origin;
 
-    if (m_frameHandlesMagnificationGesture)
-        m_webPageProxy.scalePage(m_magnification, roundedIntPoint(origin));
-    else
-        m_webPageProxy.drawingArea()->adjustTransientZoom(m_magnification, scaledMagnificationOrigin(origin, m_magnification));
+    applyMagnification();
 
     if (event.phase == NSEventPhaseEnded || event.phase == NSEventPhaseCancelled)
         endMagnificationGesture();
-}
-
-void ViewGestureController::endMagnificationGesture()
-{
-    if (m_activeGestureType != ViewGestureType::Magnification)
-        return;
-
-    double newMagnification = std::min(std::max(m_magnification, minMagnification), maxMagnification);
-
-    if (m_frameHandlesMagnificationGesture)
-        m_webPageProxy.scalePage(newMagnification, roundedIntPoint(m_magnificationOrigin));
-    else {
-        if (auto drawingArea = m_webPageProxy.drawingArea())
-            drawingArea->commitTransientZoom(newMagnification, scaledMagnificationOrigin(m_magnificationOrigin, newMagnification));
-    }
-
-    m_webPageProxy.didEndMagnificationGesture();
-
-    didEndGesture();
-    m_visibleContentRectIsValid = false;
 }
 
 void ViewGestureController::handleSmartMagnificationGesture(FloatPoint origin)
@@ -254,6 +215,9 @@ void ViewGestureController::didCollectGeometryForSmartMagnificationGesture(Float
     targetRect.scale(targetMagnification);
     FloatPoint targetOrigin(visibleContentRect.center());
     targetOrigin.moveBy(-targetRect.center());
+
+    m_initialMagnification = m_webPageProxy.pageScaleFactor();
+    m_initialMagnificationOrigin = FloatPoint();
 
     m_webPageProxy.drawingArea()->adjustTransientZoom(m_webPageProxy.pageScaleFactor(), scaledMagnificationOrigin(FloatPoint(), m_webPageProxy.pageScaleFactor()));
     m_webPageProxy.drawingArea()->commitTransientZoom(targetMagnification, targetOrigin);
@@ -653,14 +617,6 @@ void ViewGestureController::reset()
 {
     removeSwipeSnapshot();
     resetState();
-}
-
-double ViewGestureController::magnification() const
-{
-    if (m_activeGestureType == ViewGestureType::Magnification)
-        return m_magnification;
-
-    return m_webPageProxy.pageScaleFactor();
 }
 
 bool ViewGestureController::beginSimulatedSwipeInDirectionForTesting(SwipeDirection)

@@ -33,14 +33,15 @@
 #import "FrameView.h"
 #import "Logging.h"
 #import "Page.h"
+#import "PlatformCALayerContentsDelayedReleaser.h"
 #import "PlatformWheelEvent.h"
 #import "Region.h"
 #import "ScrollingStateTree.h"
 #import "ScrollingThread.h"
-#import "ScrollingTreeFixedNode.h"
+#import "ScrollingTreeFixedNodeCocoa.h"
 #import "ScrollingTreeFrameScrollingNodeMac.h"
 #import "ScrollingTreeMac.h"
-#import "ScrollingTreeStickyNode.h"
+#import "ScrollingTreeStickyNodeCocoa.h"
 #import "TiledBacking.h"
 #import <wtf/MainThread.h>
 
@@ -52,7 +53,7 @@ Ref<ScrollingCoordinator> ScrollingCoordinator::create(Page* page)
 }
 
 ScrollingCoordinatorMac::ScrollingCoordinatorMac(Page* page)
-    : AsyncScrollingCoordinator(page)
+    : ThreadedScrollingCoordinator(page)
 {
     setScrollingTree(ScrollingTreeMac::create(*this));
 }
@@ -62,65 +63,21 @@ ScrollingCoordinatorMac::~ScrollingCoordinatorMac()
     ASSERT(!scrollingTree());
 }
 
-void ScrollingCoordinatorMac::pageDestroyed()
-{
-    AsyncScrollingCoordinator::pageDestroyed();
-
-    // Invalidating the scrolling tree will break the reference cycle between the ScrollingCoordinator and ScrollingTree objects.
-    RefPtr<ThreadedScrollingTree> scrollingTree = static_pointer_cast<ThreadedScrollingTree>(releaseScrollingTree());
-    ScrollingThread::dispatch([scrollingTree] {
-        scrollingTree->invalidate();
-    });
-}
-
-bool ScrollingCoordinatorMac::handleWheelEvent(FrameView&, const PlatformWheelEvent& wheelEvent)
-{
-    ASSERT(isMainThread());
-    ASSERT(m_page);
-
-    if (scrollingTree()->willWheelEventStartSwipeGesture(wheelEvent))
-        return false;
-
-    RefPtr<ThreadedScrollingTree> threadedScrollingTree = downcast<ThreadedScrollingTree>(scrollingTree());
-    ScrollingThread::dispatch([threadedScrollingTree, wheelEvent] {
-        threadedScrollingTree->handleWheelEventAfterMainThread(wheelEvent);
-    });
-    return true;
-}
-
-void ScrollingCoordinatorMac::scheduleTreeStateCommit()
-{
-    m_page->scheduleRenderingUpdate();
-}
-
 void ScrollingCoordinatorMac::commitTreeStateIfNeeded()
 {
-    willCommitTree();
-
-    LOG_WITH_STREAM(Scrolling, stream << "ScrollingCoordinatorMac::commitTreeState, has changes " << scrollingStateTree()->hasChangedProperties());
-
-    if (!scrollingStateTree()->hasChangedProperties())
-        return;
-
-    LOG_WITH_STREAM(ScrollingTree, stream << scrollingStateTreeAsText(ScrollingStateTreeAsTextBehaviorDebug));
-
-    auto stateTree = scrollingStateTree()->commit(LayerRepresentation::PlatformLayerRepresentation);
-    scrollingTree()->commitTreeState(WTFMove(stateTree));
-
+    ThreadedScrollingCoordinator::commitTreeStateIfNeeded();
     updateTiledScrollingIndicator();
 }
 
-void ScrollingCoordinatorMac::willStartRenderingUpdate()
+void ScrollingCoordinatorMac::willStartPlatformRenderingUpdate()
 {
-    RefPtr<ThreadedScrollingTree> threadedScrollingTree = downcast<ThreadedScrollingTree>(scrollingTree());
-    threadedScrollingTree->willStartRenderingUpdate();
-    commitTreeStateIfNeeded();
-    synchronizeStateFromScrollingTree();
+    PlatformCALayerContentsDelayedReleaser::singleton().mainThreadCommitWillStart();
 }
 
-void ScrollingCoordinatorMac::didCompleteRenderingUpdate()
+void ScrollingCoordinatorMac::didCompletePlatformRenderingUpdate()
 {
-    downcast<ThreadedScrollingTree>(scrollingTree())->didCompleteRenderingUpdate();
+    downcast<ScrollingTreeMac>(scrollingTree())->didCompletePlatformRenderingUpdate();
+    PlatformCALayerContentsDelayedReleaser::singleton().mainThreadCommitDidEnd();
 }
 
 void ScrollingCoordinatorMac::updateTiledScrollingIndicator()
@@ -140,19 +97,6 @@ void ScrollingCoordinatorMac::updateTiledScrollingIndicator()
         indicatorMode = AsyncScrollingIndication;
     
     tiledBacking->setScrollingModeIndication(indicatorMode);
-}
-
-void ScrollingCoordinatorMac::startMonitoringWheelEvents(bool clearLatchingState)
-{
-    if (clearLatchingState)
-        scrollingTree()->clearLatchedNode();
-    auto monitor = m_page->wheelEventTestMonitor();
-    scrollingTree()->setWheelEventTestMonitor(WTFMove(monitor));
-}
-
-void ScrollingCoordinatorMac::stopMonitoringWheelEvents()
-{
-    scrollingTree()->setWheelEventTestMonitor(nullptr);
 }
 
 } // namespace WebCore

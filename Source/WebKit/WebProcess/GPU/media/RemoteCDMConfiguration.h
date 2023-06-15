@@ -27,7 +27,6 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
-#include <WebCore/ContentType.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -37,6 +36,7 @@ struct RemoteCDMConfiguration {
     Vector<AtomString> supportedRobustnesses;
     bool supportsServerCertificates;
     bool supportsSessions;
+    uint64_t logIdentifier { 0 };
 
     template<class Encoder>
     void encode(Encoder& encoder) const
@@ -45,30 +45,36 @@ struct RemoteCDMConfiguration {
         encoder << supportedRobustnesses;
         encoder << supportsServerCertificates;
         encoder << supportsSessions;
+        encoder << logIdentifier;
     }
 
     template <class Decoder>
-    static Optional<RemoteCDMConfiguration> decode(Decoder& decoder)
+    static std::optional<RemoteCDMConfiguration> decode(Decoder& decoder)
     {
-        Optional<Vector<AtomString>> supportedInitDataTypes;
+        std::optional<Vector<AtomString>> supportedInitDataTypes;
         decoder >> supportedInitDataTypes;
         if (!supportedInitDataTypes)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<Vector<AtomString>> supportedRobustnesses;
+        std::optional<Vector<AtomString>> supportedRobustnesses;
         decoder >> supportedRobustnesses;
         if (!supportedRobustnesses)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> supportsServerCertificates;
+        std::optional<bool> supportsServerCertificates;
         decoder >> supportsServerCertificates;
         if (!supportsServerCertificates)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> supportsSessions;
+        std::optional<bool> supportsSessions;
         decoder >> supportsSessions;
         if (!supportsSessions)
-            return WTF::nullopt;
+            return std::nullopt;
+
+        std::optional<uint64_t> logIdentifier;
+        decoder >> logIdentifier;
+        if (!logIdentifier)
+            return std::nullopt;
 
         return {{
             WTFMove(*supportedInitDataTypes),

@@ -25,8 +25,10 @@
 
 #import "config.h"
 
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
+#import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKNavigationActionPrivate.h>
 #import <wtf/RetainPtr.h>
@@ -174,4 +176,70 @@ TEST(WKNavigationAction, ShouldPerformDownload_DownloadAttribute_CrossOrigin)
 
     EXPECT_NOT_NULL(navigationDelegate.get().navigationAction);
     EXPECT_FALSE(navigationDelegate.get().navigationAction._shouldPerformDownload);
+}
+
+TEST(WKNavigationAction, BlobRequestBody)
+{
+    NSString *html = @""
+        "<script>"
+            "function bodyLoaded() {"
+                "const form = Object.assign(document.createElement('form'), {"
+                    "action: '/formAction', method: 'POST', enctype: 'multipart/form-data',"
+                "});"
+                "document.body.append(form);"
+                "const fileInput = Object.assign(document.createElement('input'), {"
+                    "type: 'file', name: 'file',"
+                "});"
+                "form.append(fileInput);"
+                "const dataTransfer = new DataTransfer;"
+                "dataTransfer.items.add(new File(['a'], 'filename'));"
+                "fileInput.files = dataTransfer.files;"
+                "form.submit();"
+            "}"
+        "</script>"
+        "<body onload='bodyLoaded()'>";
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    auto webView = adoptNS([WKWebView new]);
+    [webView setNavigationDelegate:delegate.get()];
+    __block bool done = false;
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        EXPECT_NULL(action.request.HTTPBody);
+        if ([action.request.URL.absoluteString isEqualToString:@"about:blank"])
+            completionHandler(WKNavigationActionPolicyAllow);
+        else {
+            EXPECT_WK_STREQ(action.request.URL.absoluteString, "/formAction");
+            completionHandler(WKNavigationActionPolicyCancel);
+            done = true;
+        }
+    };
+    [webView loadHTMLString:html baseURL:nil];
+    TestWebKitAPI::Util::run(&done);
+}
+
+TEST(WKNavigationAction, NonMainThread)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { "hi"_s } },
+    });
+
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    auto webView = adoptNS([WKWebView new]);
+    [webView setNavigationDelegate:delegate.get()];
+    __block bool done = false;
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            completionHandler(WKNavigationActionPolicyAllow);
+        });
+    };
+    delegate.get().decidePolicyForNavigationResponse = ^(WKNavigationResponse *action, void (^completionHandler)(WKNavigationResponsePolicy)) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            completionHandler(WKNavigationResponsePolicyAllow);
+        });
+    };
+    delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
+        done = true;
+    };
+
+    [webView loadRequest:server.request()];
+    TestWebKitAPI::Util::run(&done);
 }

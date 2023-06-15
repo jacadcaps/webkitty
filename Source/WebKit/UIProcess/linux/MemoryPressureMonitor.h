@@ -31,10 +31,6 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/text/CString.h>
 
-namespace IPC {
-class Attachment;
-}
-
 namespace WebKit {
 
 class MemoryPressureMonitor {
@@ -43,12 +39,14 @@ class MemoryPressureMonitor {
 public:
     static MemoryPressureMonitor& singleton();
     void start();
+    static bool disabled();
 
     ~MemoryPressureMonitor();
 
 private:
     MemoryPressureMonitor() = default;
     bool m_started { false };
+    static bool s_disabled;
 };
 
 class CGroupMemoryController {

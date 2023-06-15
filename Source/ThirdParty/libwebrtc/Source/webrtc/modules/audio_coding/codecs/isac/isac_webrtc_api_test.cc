@@ -9,6 +9,7 @@
  */
 
 #include <array>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -50,8 +51,8 @@ std::unique_ptr<PCMFile> GetPcmTestFileReader(int sample_rate_hz) {
       filename = test::ResourcePath("audio_coding/testfile32kHz", "pcm");
       break;
     default:
-      RTC_NOTREACHED() << "No test file available for " << sample_rate_hz
-                       << " Hz.";
+      RTC_DCHECK_NOTREACHED()
+          << "No test file available for " << sample_rate_hz << " Hz.";
   }
   auto pcm_file = std::make_unique<PCMFile>();
   pcm_file->ReadStereo(false);
@@ -159,6 +160,33 @@ TEST_P(EncoderTest, TestDifferentBitrates) {
   EXPECT_LT(num_bytes_low, num_bytes_high);
 }
 
+// Encodes an input audio sequence first with a low, then with a high target
+// bitrate *using the same encoder* and checks that the number of emitted bytes
+// in the first case is less than in the second case.
+TEST_P(EncoderTest, TestDynamicBitrateChange) {
+  constexpr int kLowBps = 20000;
+  constexpr int kHighBps = 25000;
+  constexpr int kStartBps = 30000;
+  auto encoder = CreateEncoder(GetIsacImpl(), GetSampleRateHz(),
+                               GetFrameSizeMs(), kStartBps);
+  std::map<int, int> num_bytes;
+  constexpr int kNumFrames = 200;  // 2 seconds.
+  for (int bitrate_bps : {kLowBps, kHighBps}) {
+    auto pcm_file = GetPcmTestFileReader(GetSampleRateHz());
+    encoder->OnReceivedTargetAudioBitrate(bitrate_bps);
+    for (int i = 0; i < kNumFrames; ++i) {
+      AudioFrame in;
+      pcm_file->Read10MsData(in);
+      rtc::Buffer buf;
+      encoder->Encode(/*rtp_timestamp=*/0, AudioFrameToView(in), &buf);
+      num_bytes[bitrate_bps] += buf.size();
+    }
+  }
+  // kHighBps / kLowBps == 1.25, so require the high-bitrate run to produce at
+  // least 1.195 times the number of bytes.
+  EXPECT_LT(1.195 * num_bytes[kLowBps], num_bytes[kHighBps]);
+}
+
 // Checks that, given a target bitrate, the encoder does not overshoot too much.
 TEST_P(EncoderTest, DoNotOvershootTargetBitrate) {
   for (int bitrate_bps : {10000, 15000, 20000, 26000, 32000}) {
@@ -175,10 +203,10 @@ TEST_P(EncoderTest, DoNotOvershootTargetBitrate) {
       e->Encode(/*rtp_timestamp=*/0, AudioFrameToView(in), &encoded);
       num_bytes += encoded.size();
     }
-    // Inverse of the duration of |kNumFrames| 10 ms frames (unit: seconds^-1).
+    // Inverse of the duration of `kNumFrames` 10 ms frames (unit: seconds^-1).
     constexpr float kAudioDurationInv = 100.f / kNumFrames;
     const int measured_bitrate_bps = 8 * num_bytes * kAudioDurationInv;
-    EXPECT_LT(measured_bitrate_bps, bitrate_bps + 2000);  // Max 2 kbps extra.
+    EXPECT_LT(measured_bitrate_bps, bitrate_bps + 2250);  // Max 2250 bps extra.
   }
 }
 

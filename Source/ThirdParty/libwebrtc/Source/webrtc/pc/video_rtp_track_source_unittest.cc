@@ -10,7 +10,12 @@
 
 #include "pc/video_rtp_track_source.h"
 
-#include "rtc_base/ref_counted_object.h"
+#include "absl/types/optional.h"
+#include "api/scoped_refptr.h"
+#include "api/units/timestamp.h"
+#include "api/video/color_space.h"
+#include "api/video/encoded_image.h"
+#include "api/video/video_codec_type.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
@@ -19,20 +24,18 @@ namespace {
 
 class MockCallback : public VideoRtpTrackSource::Callback {
  public:
-  MOCK_METHOD0(OnGenerateKeyFrame, void());
-  MOCK_METHOD1(OnEncodedSinkEnabled, void(bool));
+  MOCK_METHOD(void, OnGenerateKeyFrame, (), (override));
+  MOCK_METHOD(void, OnEncodedSinkEnabled, (bool), (override));
 };
 
 class MockSink : public rtc::VideoSinkInterface<RecordableEncodedFrame> {
  public:
-  MOCK_METHOD1(OnFrame, void(const RecordableEncodedFrame&));
+  MOCK_METHOD(void, OnFrame, (const RecordableEncodedFrame&), (override));
 };
 
 rtc::scoped_refptr<VideoRtpTrackSource> MakeSource(
     VideoRtpTrackSource::Callback* callback) {
-  rtc::scoped_refptr<VideoRtpTrackSource> source(
-      new rtc::RefCountedObject<VideoRtpTrackSource>(callback));
-  return source;
+  return rtc::make_ref_counted<VideoRtpTrackSource>(callback);
 }
 
 TEST(VideoRtpTrackSourceTest, CreatesWithRemoteAtttributeSet) {
@@ -118,7 +121,7 @@ class TestFrame : public RecordableEncodedFrame {
   EncodedResolution resolution() const override {
     return EncodedResolution{0, 0};
   }
-  Timestamp render_time() const override { return Timestamp::Millis(0); }
+  Timestamp render_time() const override { return Timestamp::Zero(); }
 };
 
 TEST(VideoRtpTrackSourceTest, BroadcastsFrames) {

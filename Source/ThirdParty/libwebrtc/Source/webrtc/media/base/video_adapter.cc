@@ -36,14 +36,14 @@ struct Fraction {
   }
 
   // Determines number of output pixels if both width and height of an input of
-  // |input_pixels| pixels is scaled with the fraction numerator / denominator.
+  // `input_pixels` pixels is scaled with the fraction numerator / denominator.
   int scale_pixel_count(int input_pixels) {
     return (numerator * numerator * input_pixels) / (denominator * denominator);
   }
 };
 
-// Round |value_to_round| to a multiple of |multiple|. Prefer rounding upwards,
-// but never more than |max_value|.
+// Round `value_to_round` to a multiple of `multiple`. Prefer rounding upwards,
+// but never more than `max_value`.
 int roundUp(int value_to_round, int multiple, int max_value) {
   const int rounded_value =
       (value_to_round + multiple - 1) / multiple * multiple;
@@ -51,8 +51,8 @@ int roundUp(int value_to_round, int multiple, int max_value) {
                                     : (max_value / multiple * multiple);
 }
 
-// Generates a scale factor that makes |input_pixels| close to |target_pixels|,
-// but no higher than |max_pixels|.
+// Generates a scale factor that makes `input_pixels` close to `target_pixels`,
+// but no higher than `max_pixels`.
 Fraction FindScale(int input_width,
                    int input_height,
                    int target_pixels,
@@ -73,7 +73,7 @@ Fraction FindScale(int input_width,
   Fraction best_scale = Fraction{1, 1};
 
   if (variable_start_scale_factor) {
-    // Start scaling down by 2/3 depending on |input_width| and |input_height|.
+    // Start scaling down by 2/3 depending on `input_width` and `input_height`.
     if (input_width % 3 == 0 && input_height % 3 == 0) {
       // 2/3 (then alternates 3/4, 2/3, 3/4,...).
       current_scale = Fraction{6, 6};
@@ -132,7 +132,7 @@ VideoAdapter::VideoAdapter(int source_resolution_alignment)
       adaption_changes_(0),
       previous_width_(0),
       previous_height_(0),
-      variable_start_scale_factor_(webrtc::field_trial::IsEnabled(
+      variable_start_scale_factor_(!webrtc::field_trial::IsDisabled(
           "WebRTC-Video-VariableStartScaleFactor")),
       source_resolution_alignment_(source_resolution_alignment),
       resolution_alignment_(source_resolution_alignment),
@@ -144,45 +144,13 @@ VideoAdapter::VideoAdapter() : VideoAdapter(1) {}
 
 VideoAdapter::~VideoAdapter() {}
 
-bool VideoAdapter::KeepFrame(int64_t in_timestamp_ns) {
-  rtc::CritScope cs(&critical_section_);
-
+bool VideoAdapter::DropFrame(int64_t in_timestamp_ns) {
   int max_fps = max_framerate_request_;
   if (max_fps_)
     max_fps = std::min(max_fps, *max_fps_);
 
-  if (max_fps <= 0)
-    return false;
-
-  // If |max_framerate_request_| is not set, it will default to maxint, which
-  // will lead to a frame_interval_ns rounded to 0.
-  int64_t frame_interval_ns = rtc::kNumNanosecsPerSec / max_fps;
-  if (frame_interval_ns <= 0) {
-    // Frame rate throttling not enabled.
-    return true;
-  }
-
-  if (next_frame_timestamp_ns_) {
-    // Time until next frame should be outputted.
-    const int64_t time_until_next_frame_ns =
-        (*next_frame_timestamp_ns_ - in_timestamp_ns);
-
-    // Continue if timestamp is within expected range.
-    if (std::abs(time_until_next_frame_ns) < 2 * frame_interval_ns) {
-      // Drop if a frame shouldn't be outputted yet.
-      if (time_until_next_frame_ns > 0)
-        return false;
-      // Time to output new frame.
-      *next_frame_timestamp_ns_ += frame_interval_ns;
-      return true;
-    }
-  }
-
-  // First timestamp received or timestamp is way outside expected range, so
-  // reset. Set first timestamp target to just half the interval to prefer
-  // keeping frames in case of jitter.
-  next_frame_timestamp_ns_ = in_timestamp_ns + frame_interval_ns / 2;
-  return true;
+  framerate_controller_.SetMaxFramerate(max_fps);
+  return framerate_controller_.ShouldDropFrame(in_timestamp_ns);
 }
 
 bool VideoAdapter::AdaptFrameResolution(int in_width,
@@ -192,7 +160,7 @@ bool VideoAdapter::AdaptFrameResolution(int in_width,
                                         int* cropped_height,
                                         int* out_width,
                                         int* out_height) {
-  rtc::CritScope cs(&critical_section_);
+  webrtc::MutexLock lock(&mutex_);
   ++frames_in_;
 
   // The max output pixel count is the minimum of the requests from
@@ -216,7 +184,7 @@ bool VideoAdapter::AdaptFrameResolution(int in_width,
       std::min(resolution_request_target_pixel_count_, max_pixel_count);
 
   // Drop the input frame if necessary.
-  if (max_pixel_count <= 0 || !KeepFrame(in_timestamp_ns)) {
+  if (max_pixel_count <= 0 || DropFrame(in_timestamp_ns)) {
     // Show VAdapt log every 90 frames dropped. (3 seconds)
     if ((frames_in_ - frames_out_) % 90 == 0) {
       // TODO(fbarchard): Reduce to LS_VERBOSE when adapter info is not needed
@@ -331,17 +299,17 @@ void VideoAdapter::OnOutputFormatRequest(
     const absl::optional<std::pair<int, int>>& target_portrait_aspect_ratio,
     const absl::optional<int>& max_portrait_pixel_count,
     const absl::optional<int>& max_fps) {
-  rtc::CritScope cs(&critical_section_);
+  webrtc::MutexLock lock(&mutex_);
   target_landscape_aspect_ratio_ = target_landscape_aspect_ratio;
   max_landscape_pixel_count_ = max_landscape_pixel_count;
   target_portrait_aspect_ratio_ = target_portrait_aspect_ratio;
   max_portrait_pixel_count_ = max_portrait_pixel_count;
   max_fps_ = max_fps;
-  next_frame_timestamp_ns_ = absl::nullopt;
+  framerate_controller_.Reset();
 }
 
 void VideoAdapter::OnSinkWants(const rtc::VideoSinkWants& sink_wants) {
-  rtc::CritScope cs(&critical_section_);
+  webrtc::MutexLock lock(&mutex_);
   resolution_request_max_pixel_count_ = sink_wants.max_pixel_count;
   resolution_request_target_pixel_count_ =
       sink_wants.target_pixel_count.value_or(
@@ -349,6 +317,24 @@ void VideoAdapter::OnSinkWants(const rtc::VideoSinkWants& sink_wants) {
   max_framerate_request_ = sink_wants.max_framerate_fps;
   resolution_alignment_ = cricket::LeastCommonMultiple(
       source_resolution_alignment_, sink_wants.resolution_alignment);
+}
+
+int VideoAdapter::GetTargetPixels() const {
+  webrtc::MutexLock lock(&mutex_);
+  return resolution_request_target_pixel_count_;
+}
+
+float VideoAdapter::GetMaxFramerate() const {
+  webrtc::MutexLock lock(&mutex_);
+  // Minimum of `max_fps_` and `max_framerate_request_` is used to throttle
+  // frame-rate.
+  int framerate = std::min(max_framerate_request_,
+                           max_fps_.value_or(max_framerate_request_));
+  if (framerate == std::numeric_limits<int>::max()) {
+    return std::numeric_limits<float>::infinity();
+  } else {
+    return max_framerate_request_;
+  }
 }
 
 }  // namespace cricket

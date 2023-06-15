@@ -34,7 +34,7 @@
 #include <WebCore/ElementContext.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/ScrollTypes.h>
-#include <WebCore/SelectionRect.h>
+#include <WebCore/SelectionGeometry.h>
 #include <WebCore/TextIndicator.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
@@ -52,8 +52,19 @@ struct InteractionInformationAtPosition {
     InteractionInformationRequest request;
 
     bool canBeValid { true };
-    Optional<bool> nodeAtPositionHasDoubleClickHandler;
-    bool isSelectable { false };
+    std::optional<bool> nodeAtPositionHasDoubleClickHandler;
+
+    enum class Selectability : uint8_t {
+        Selectable,
+        UnselectableDueToFocusableElement,
+        UnselectableDueToLargeElementBounds,
+        UnselectableDueToUserSelectNone,
+        UnselectableDueToMediaControls,
+    };
+
+    Selectability selectability { Selectability::Selectable };
+
+    bool isSelected { false };
     bool prefersDraggingOverTextSelection { false };
     bool isNearMarkedText { false };
     bool touchCalloutEnabled { true };
@@ -61,7 +72,11 @@ struct InteractionInformationAtPosition {
     bool isImage { false };
     bool isAttachment { false };
     bool isAnimatedImage { false };
+    bool isAnimating { false };
+    bool canShowAnimationControls { false };
+    bool isPausedVideo { false };
     bool isElement { false };
+    bool isContentEditable { false };
     WebCore::ScrollingNodeID containerScrollingNodeID { 0 };
 #if ENABLE(DATA_DETECTION)
     bool isDataDetectorLink { false };
@@ -69,10 +84,14 @@ struct InteractionInformationAtPosition {
 #if ENABLE(DATALIST_ELEMENT)
     bool preventTextInteraction { false };
 #endif
+    bool elementContainsImageOverlay { false };
     bool shouldNotUseIBeamInEditableContent { false };
+    bool isImageOverlayText { false };
+    bool isVerticalWritingMode { false };
     WebCore::FloatPoint adjustedPointForNodeRespondingToClickEvents;
     URL url;
     URL imageURL;
+    String imageMIMEType;
     String title;
     String idAttribute;
     WebCore::IntRect bounds;
@@ -83,28 +102,29 @@ struct InteractionInformationAtPosition {
     String textBefore;
     String textAfter;
 
-    float caretHeight { 0 };
+    float caretLength { 0 };
     WebCore::FloatRect lineCaretExtent;
 
-    Optional<WebCore::Cursor> cursor;
+    std::optional<WebCore::Cursor> cursor;
 
     WebCore::TextIndicatorData linkIndicator;
 #if ENABLE(DATA_DETECTION)
     String dataDetectorIdentifier;
     RetainPtr<NSArray> dataDetectorResults;
+    WebCore::IntRect dataDetectorBounds;
 #endif
 
-    Optional<WebCore::ElementContext> elementContext;
+    std::optional<WebCore::ElementContext> elementContext;
+    std::optional<WebCore::ElementContext> hostImageOrVideoElementContext;
 
     // Copy compatible optional bits forward (for example, if we have a InteractionInformationAtPosition
     // with snapshots in it, and perform another request for the same point without requesting the snapshots,
     // we can fetch the cheap information and copy the snapshots into the new response).
     void mergeCompatibleOptionalInformation(const InteractionInformationAtPosition& oldInformation);
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, InteractionInformationAtPosition&);
+    bool isSelectable() const { return selectability == Selectability::Selectable; }
 };
 
-}
+} // namespace WebKit
 
 #endif // PLATFORM(IOS_FAMILY)

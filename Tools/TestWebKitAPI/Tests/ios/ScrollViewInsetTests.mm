@@ -58,7 +58,7 @@
 
 @implementation AsyncPolicyDelegateForInsetTest
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     _navigationComplete = true;
 }
@@ -97,7 +97,7 @@ static void waitUntilInnerHeightIs(TestWKWebView *webView, CGFloat expectedValue
 {
     int tries = 0;
     do {
-        Util::sleep(0.1);
+        Util::runFor(0.1_s);
     } while ([[webView objectByEvaluatingJavaScript:@"innerHeight"] floatValue] != expectedValue && ++tries <= 100);
 }
 
@@ -257,6 +257,94 @@ TEST(ScrollViewInsetTests, ChangeInsetWithoutAutomaticAdjustmentWhileWebProcessI
     EXPECT_EQ(-100, scrollViewDelegate->_contentOffsetHistory.first().y);
     EXPECT_EQ(-70, scrollViewDelegate->_contentOffsetHistory.last().y);
     EXPECT_EQ(0, [[webView stringByEvaluatingJavaScript:@"document.scrollingElement.scrollTop"] intValue]);
+}
+
+TEST(ScrollViewInsetTests, PreserveContentOffsetForRefreshControl)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, viewHeight)]);
+    [webView scrollView].refreshControl = adoptNS([[UIRefreshControl alloc] init]).get();
+    [webView synchronouslyLoadHTMLString:@""];
+
+    [webView scrollView].contentOffset = CGPointMake(0, -100);
+
+    [webView synchronouslyLoadHTMLString:@"<body bgcolor='red'>"];
+    [webView waitForNextPresentationUpdate];
+
+    CGPoint contentOffsetAfterNavigation = [webView scrollView].contentOffset;
+    EXPECT_EQ(0, contentOffsetAfterNavigation.x);
+    EXPECT_EQ(-100, contentOffsetAfterNavigation.y);
+}
+
+TEST(ScrollViewInsetTests, ScrollabilityWithInsets)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 320, 500)]);
+    [webView scrollView].contentInset = UIEdgeInsetsMake(50, 0, 50, 0);
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: hidden; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    // Insets result in the visual viewport being smaller than the layout viewport, making the main frame scrollable.
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: visible; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
+}
+
+TEST(ScrollViewInsetTests, ScrollabilityWithObscuredInsets)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 390, 844)]);
+    auto insets = UIEdgeInsetsMake(47, 0, 133, 0);
+    [webView scrollView].contentInset = insets;
+    [webView _setObscuredInsets:insets];
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: hidden; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    // Insets result in the visual viewport being smaller than the layout viewport, making the main frame scrollable.
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: visible; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
+}
+
+TEST(ScrollViewInsetTests, ScrollabilityWithObscuredInsetsAndOverrideSizes)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 390, 844)]);
+    auto insets = UIEdgeInsetsMake(47, 0, 133, 0);
+    [webView scrollView].contentInset = insets;
+    [webView _setObscuredInsets:insets];
+
+    auto minimumLayoutSize = CGSizeMake(390, 664);
+    auto maxUnobscuredLayoutSize = CGSizeMake(390, 745);
+    [webView _overrideLayoutParametersWithMinimumLayoutSize:minimumLayoutSize maximumUnobscuredSizeOverride:maxUnobscuredLayoutSize];
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: hidden; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_FALSE([webView scrollView].scrollEnabled);
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: visible; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
+}
+
+TEST(ScrollViewInsetTests, ScrollabilityWithMaxOverrideSize)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 390, 844)]);
+
+    auto insets = UIEdgeInsetsMake(47, 0, 0, 0);
+    [webView scrollView].contentInset = insets;
+    [webView _setObscuredInsets:insets];
+
+    auto unobscuredLayoutSize = CGSizeMake(390, 797);
+    [webView _overrideLayoutParametersWithMinimumLayoutSize:unobscuredLayoutSize maximumUnobscuredSizeOverride:unobscuredLayoutSize];
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: hidden; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_FALSE([webView scrollView].scrollEnabled);
+
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width, initial-scale=1'><style> body { overflow: visible; height: 2000px; } </style>"];
+    [webView waitForNextPresentationUpdate];
+    EXPECT_TRUE([webView scrollView].scrollEnabled);
 }
 
 } // namespace TestWebKitAPI

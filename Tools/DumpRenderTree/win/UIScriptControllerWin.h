@@ -27,8 +27,6 @@
 
 #include "UIScriptController.h"
 
-namespace WTR {
-
 class UIScriptControllerWin : public UIScriptController {
 public:
     explicit UIScriptControllerWin(UIScriptContext& context)
@@ -39,6 +37,7 @@ public:
     void doAsyncTask(JSValueRef) override;
     void zoomToScale(double, JSValueRef) override;
     double zoomScale() const override;
+    void setWebViewEditable(bool) override;
 };
 
 }

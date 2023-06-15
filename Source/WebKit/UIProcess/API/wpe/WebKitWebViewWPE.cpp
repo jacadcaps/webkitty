@@ -62,15 +62,19 @@ void webkitWebViewRestoreWindow(WebKitWebView*, CompletionHandler<void()>&& comp
 
 /**
  * webkit_web_view_new:
- * @backend: (transfer full): a #WebKitWebViewBackend
+ * @backend: (transfer full) (not nullable): wrapped WPE view backend which
+ *    will determine the behaviour of the new [class@WebView].
  *
- * Creates a new #WebKitWebView with the default #WebKitWebContext and
- * no #WebKitUserContentManager associated with it.
- * See also webkit_web_view_new_with_context(),
- * webkit_web_view_new_with_user_content_manager(), and
- * webkit_web_view_new_with_settings().
+ * Creates a new web view with a default configuration.
  *
- * Returns: The newly created #WebKitWebView
+ * The new view will use the default [class@WebContext] and will not
+ * have an associated [class@UserContentManager].
+ *
+ * See also [id@webkit_web_view_new_with_context],
+ * [id@webkit_web_view_new_with_user_content_manager]), and
+ * [id@webkit_web_view_new_with_settings].
+ *
+ * Returns: The newly created web view.
  */
 WebKitWebView* webkit_web_view_new(WebKitWebViewBackend* backend)
 {
@@ -82,17 +86,22 @@ WebKitWebView* webkit_web_view_new(WebKitWebViewBackend* backend)
         nullptr));
 }
 
+#if !ENABLE(2022_GLIB_API)
 /**
  * webkit_web_view_new_with_context:
- * @backend: (transfer full): a #WebKitWebViewBackend
- * @context: the #WebKitWebContext to be used by the #WebKitWebView
+ * @backend: (transfer full) (not nullable): wrapped WPE view backend which
+ *    will determine the behaviour of the new [class@WebView].
+ * @context: the web context the new [class@WebView] will use.
  *
- * Creates a new #WebKitWebView with the given #WebKitWebContext and
- * no #WebKitUserContentManager associated with it.
- * See also webkit_web_view_new_with_user_content_manager() and
- * webkit_web_view_new_with_settings().
+ * Creates a new web view with a given context.
  *
- * Returns: The newly created #WebKitWebView
+ * The new web view will use the given [class@WebContext] and will not have
+ * an associated [class@UserContentManager].
+ *
+ * See also [id@webkit_web_view_new_with_user_content_manager] and
+ * [id@webkit_web_view_new_with_settings].
+ *
+ * Returns: The newly created web view.
  */
 WebKitWebView* webkit_web_view_new_with_context(WebKitWebViewBackend* backend, WebKitWebContext* context)
 {
@@ -101,28 +110,30 @@ WebKitWebView* webkit_web_view_new_with_context(WebKitWebViewBackend* backend, W
 
     return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "backend", backend,
+#if !ENABLE(2022_GLIB_API)
         "is-ephemeral", webkit_web_context_is_ephemeral(context),
+#endif
         "web-context", context,
         nullptr));
 }
+#endif
 
+#if !ENABLE(2022_GLIB_API)
 /**
  * webkit_web_view_new_with_related_view: (constructor)
- * @backend: (transfer full): a #WebKitWebViewBackend
- * @web_view: the related #WebKitWebView
+ * @backend: (transfer full) (not nullable): wrapped WPE view backend which
+ *    will determine the behaviour of the new [class@WebView].
+ * @web_view: the related web view.
  *
- * Creates a new #WebKitWebView sharing the same web process with @web_view.
- * This method doesn't have any effect when %WEBKIT_PROCESS_MODEL_SHARED_SECONDARY_PROCESS
- * process model is used, because a single web process is shared for all the web views in the
- * same #WebKitWebContext. When using %WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES process model,
- * this method should always be used when creating the #WebKitWebView in the #WebKitWebView::create signal.
- * You can also use this method to implement other process models based on %WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES,
- * like for example, sharing the same web process for all the views in the same security domain.
+ * Creates a new web view sharing the same configuration and web process as another.
  *
- * The newly created #WebKitWebView will also have the same #WebKitUserContentManager
- * and #WebKitSettings as @web_view.
+ * A related view should always be set when creating a [class@WebView] in a handler
+ * for the [signal@WebView::create] signal.
  *
- * Returns: (transfer full): The newly created #WebKitWebView
+ * The new view will also have the same [class@UserContentManager] and
+ * [class@Settings] as the related @web_view.
+ *
+ * Returns: (transfer full): The newly created web view.
  *
  * Since: 2.4
  */
@@ -141,14 +152,16 @@ WebKitWebView* webkit_web_view_new_with_related_view(WebKitWebViewBackend* backe
 
 /**
  * webkit_web_view_new_with_settings:
- * @backend: (nullable) (transfer full): a #WebKitWebViewBackend, or %NULL to use the default
- * @settings: a #WebKitSettings
+ * @backend: (transfer full) (not nullable): wrapped WPE view backend which
+ *    will determine the behaviour of the new [class@WebView].
+ * @settings: settings for the new view.
  *
- * Creates a new #WebKitWebView with the given #WebKitSettings.
- * See also webkit_web_view_new_with_context(), and
- * webkit_web_view_new_with_user_content_manager().
+ * Creates a new web view with the given settings.
  *
- * Returns: The newly created #WebKitWebView
+ * See also [id@webkit_web_view_new_with_context], and
+ * [id@webkit_web_view_new_with_user_content_manager].
+ *
+ * Returns: (transfer full): The newly created web view.
  *
  * Since: 2.6
  */
@@ -165,14 +178,16 @@ WebKitWebView* webkit_web_view_new_with_settings(WebKitWebViewBackend* backend, 
 
 /**
  * webkit_web_view_new_with_user_content_manager:
- * @backend: (transfer full): a #WebKitWebViewBackend
- * @user_content_manager: a #WebKitUserContentManager.
+ * @backend: (transfer full) (not nullable): wrapped WPE view backend which
+ *    will determine the behaviour of the new [class@WebView].
+ * @user_content_manager: the user content manager for the new view.
  *
- * Creates a new #WebKitWebView with the given #WebKitUserContentManager.
- * The content loaded in the view may be affected by the content injected
- * in the view by the user content manager.
+ * Creates a new web view with the given user content manager.
  *
- * Returns: The newly created #WebKitWebView
+ * The content loaded in the new [class@WebView] may be affected by the
+ * configuration of the given [class@UserContentManager].
+ *
+ * Returns: (transfer full): The newly created web view.
  *
  * Since: 2.6
  */
@@ -186,11 +201,12 @@ WebKitWebView* webkit_web_view_new_with_user_content_manager(WebKitWebViewBacken
         "user-content-manager", userContentManager,
         nullptr));
 }
+#endif
 
 /**
  * webkit_web_view_set_background_color:
  * @web_view: a #WebKitWebView
- * @backgroundColor: a #WebKitColor
+ * @color: a #WebKitColor
  *
  * Sets the color that will be used to draw the @web_view background before
  * the actual contents are rendered. Note that if the web page loaded in @web_view
@@ -211,7 +227,7 @@ void webkit_web_view_set_background_color(WebKitWebView* webView, WebKitColor* b
 /**
  * webkit_web_view_get_background_color:
  * @web_view: a #WebKitWebView
- * @rgba: (out): a #WebKitColor to fill in with the background color
+ * @color: (out): a #WebKitColor to fill in with the background color
  *
  * Gets the color that is used to draw the @web_view background before the
  * actual contents are rendered. For more information see also
@@ -225,5 +241,37 @@ void webkit_web_view_get_background_color(WebKitWebView* webView, WebKitColor* c
     auto& page = webkitWebViewGetPage(webView);
 
     auto& webCoreColor = page.backgroundColor();
-    webkitColorFillFromWebCoreColor(webCoreColor.valueOr(WebCore::Color::white), color);
+    webkitColorFillFromWebCoreColor(webCoreColor.value_or(WebCore::Color::white), color);
+}
+
+guint createShowOptionMenuSignal(WebKitWebViewClass* webViewClass)
+{
+    /**
+     * WebKitWebView::show-option-menu:
+     * @web_view: the #WebKitWebView on which the signal is emitted
+     * @menu: the #WebKitOptionMenu
+     * @rectangle: the option element area
+     *
+     * This signal is emitted when a select element in @web_view needs to display a
+     * dropdown menu. This signal can be used to show a custom menu, using @menu to get
+     * the details of all items that should be displayed. The area of the element in the
+     * #WebKitWebView is given as @rectangle parameter, it can be used to position the
+     * menu.
+     * To handle this signal asynchronously you should keep a ref of the @menu.
+     *
+     * Returns: %TRUE to stop other handlers from being invoked for the event.
+     *   %FALSE to propagate the event further.
+     *
+     * Since: 2.28
+     */
+    return g_signal_new(
+        "show-option-menu",
+        G_TYPE_FROM_CLASS(webViewClass),
+        G_SIGNAL_RUN_LAST,
+        G_STRUCT_OFFSET(WebKitWebViewClass, show_option_menu),
+        g_signal_accumulator_true_handled, nullptr,
+        g_cclosure_marshal_generic,
+        G_TYPE_BOOLEAN, 2,
+        WEBKIT_TYPE_OPTION_MENU,
+        WEBKIT_TYPE_RECTANGLE | G_SIGNAL_TYPE_STATIC_SCOPE);
 }

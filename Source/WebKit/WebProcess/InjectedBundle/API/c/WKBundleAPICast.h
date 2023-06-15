@@ -40,7 +40,6 @@ class InjectedBundleBackForwardListItem;
 class InjectedBundleCSSStyleDeclarationHandle;
 class InjectedBundleDOMWindowExtension;
 class InjectedBundleHitTestResult;
-class InjectedBundleNavigationAction;
 class InjectedBundleNodeHandle;
 class InjectedBundleRangeHandle;
 class InjectedBundleScriptWorld;
@@ -58,10 +57,8 @@ WK_ADD_API_MAPPING(WKBundleDOMWindowExtensionRef, InjectedBundleDOMWindowExtensi
 WK_ADD_API_MAPPING(WKBundleFrameRef, WebFrame)
 WK_ADD_API_MAPPING(WKBundleHitTestResultRef, InjectedBundleHitTestResult)
 WK_ADD_API_MAPPING(WKBundleInspectorRef, WebInspector)
-WK_ADD_API_MAPPING(WKBundleNavigationActionRef, InjectedBundleNavigationAction)
 WK_ADD_API_MAPPING(WKBundleNodeHandleRef, InjectedBundleNodeHandle)
 WK_ADD_API_MAPPING(WKBundlePageBannerRef, PageBanner)
-WK_ADD_API_MAPPING(WKBundlePageGroupRef, WebPageGroupProxy)
 WK_ADD_API_MAPPING(WKBundlePageOverlayRef, WebPageOverlay)
 WK_ADD_API_MAPPING(WKBundlePageRef, WebPage)
 WK_ADD_API_MAPPING(WKBundleRangeHandleRef, InjectedBundleRangeHandle)
@@ -82,12 +79,12 @@ inline WKInsertActionType toAPI(WebCore::EditorInsertAction action)
     return kWKInsertActionTyped;
 }
 
-inline WKAffinityType toAPI(WebCore::EAffinity affinity)
+inline WKAffinityType toAPI(WebCore::Affinity affinity)
 {
     switch (affinity) {
-    case WebCore::UPSTREAM:
+    case WebCore::Affinity::Upstream:
         return kWKAffinityUpstream;
-    case WebCore::DOWNSTREAM:
+    case WebCore::Affinity::Downstream:
         return kWKAffinityDownstream;
     }
     ASSERT_NOT_REACHED();

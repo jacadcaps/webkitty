@@ -10,6 +10,10 @@
 
 #include "modules/audio_processing/test/debug_dump_replayer.h"
 
+#include <string>
+
+#include "absl/strings/string_view.h"
+#include "modules/audio_processing/test/audio_processing_builder_for_testing.h"
 #include "modules/audio_processing/test/protobuf_utils.h"
 #include "modules/audio_processing/test/runtime_setting_util.h"
 #include "rtc_base/checks.h"
@@ -43,8 +47,8 @@ DebugDumpReplayer::~DebugDumpReplayer() {
     fclose(debug_file_);
 }
 
-bool DebugDumpReplayer::SetDumpFile(const std::string& filename) {
-  debug_file_ = fopen(filename.c_str(), "rb");
+bool DebugDumpReplayer::SetDumpFile(absl::string_view filename) {
+  debug_file_ = fopen(std::string(filename).c_str(), "rb");
   LoadNextMessage();
   return debug_file_;
 }
@@ -79,8 +83,7 @@ bool DebugDumpReplayer::RunNextEvent() {
       break;
     case audioproc::Event::UNKNOWN_EVENT:
       // We do not expect to receive UNKNOWN event.
-      RTC_CHECK(false);
-      return false;
+      RTC_CHECK_NOTREACHED();
   }
   LoadNextMessage();
   return true;
@@ -178,14 +181,13 @@ void DebugDumpReplayer::OnRuntimeSettingEvent(
 
 void DebugDumpReplayer::MaybeRecreateApm(const audioproc::Config& msg) {
   // These configurations cannot be changed on the fly.
-  Config config;
   RTC_CHECK(msg.has_aec_delay_agnostic_enabled());
   RTC_CHECK(msg.has_aec_extended_filter_enabled());
 
   // We only create APM once, since changes on these fields should not
   // happen in current implementation.
   if (!apm_.get()) {
-    apm_.reset(AudioProcessingBuilder().Create(config));
+    apm_ = AudioProcessingBuilderForTesting().Create();
   }
 }
 

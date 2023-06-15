@@ -132,7 +132,7 @@ void WebInspectorClient::highlight()
         m_highlightOverlay->setNeedsDisplay();
     }
 #else
-    Highlight highlight;
+    InspectorOverlay::Highlight highlight;
     m_page->corePage()->inspectorController().getHighlight(highlight, InspectorOverlay::CoordinateSystem::Document);
     m_page->showInspectorHighlight(highlight);
 #endif
@@ -173,13 +173,13 @@ void WebInspectorClient::showPaintRect(const FloatRect& rect)
 
     auto paintLayer = GraphicsLayer::create(m_page->drawingArea()->graphicsLayerFactory(), *m_paintIndicatorLayerClient);
     
-    paintLayer->setName("paint rect");
+    paintLayer->setName(MAKE_STATIC_STRING_IMPL("paint rect"));
     paintLayer->setAnchorPoint(FloatPoint3D());
     paintLayer->setPosition(rect.location());
     paintLayer->setSize(rect.size());
     paintLayer->setBackgroundColor(Color::red.colorWithAlphaByte(51));
 
-    KeyframeValueList fadeKeyframes(AnimatedPropertyOpacity);
+    KeyframeValueList fadeKeyframes(AnimatedProperty::Opacity);
     fadeKeyframes.insert(makeUnique<FloatAnimationValue>(0, 1));
 
     fadeKeyframes.insert(makeUnique<FloatAnimationValue>(0.25, 0));
@@ -235,11 +235,25 @@ void WebInspectorClient::timelineRecordingChanged(bool active)
         m_page->inspector()->timelineRecordingChanged(active);
 }
 
-void WebInspectorClient::setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference developerPreference, Optional<bool> overrideValue)
+void WebInspectorClient::setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference developerPreference, std::optional<bool> overrideValue)
 {
     if (m_page->inspector())
         m_page->inspector()->setDeveloperPreferenceOverride(developerPreference, overrideValue);
 }
+
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+bool WebInspectorClient::setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit)
+{
+    if (m_page->inspector()) {
+        m_page->inspector()->setEmulatedConditions(WTFMove(bytesPerSecondLimit));
+        return true;
+    }
+
+    return false;
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
 void WebInspectorClient::willMoveToPage(PageOverlay&, Page* page)
 {

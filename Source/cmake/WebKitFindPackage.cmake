@@ -6,7 +6,7 @@
 # nicer to work with.
 #
 # The purpose of this file is to make the behavior of find_package consistent
-# across ports and CMake versions. 
+# across ports and CMake versions.
 
 # CMake provided targets. Remove wrappers whenever the minimum version is bumped.
 #
@@ -24,80 +24,20 @@
 macro(find_package package)
     set(_found_package OFF)
 
-    # Apple internal builds for Windows need to use _DEBUG_SUFFIX so manually
-    # find all third party libraries that have a corresponding Find module within
-    # CMake's distribution.
-    if (WTF_PLATFORM_APPLE_WIN)
-        set(_found_package ON)
-
-        if ("${package}" STREQUAL "ICU")
-            find_path(ICU_INCLUDE_DIR NAMES unicode/utypes.h)
-
-            find_library(ICU_I18N_LIBRARY NAMES libicuin${DEBUG_SUFFIX})
-            find_library(ICU_UC_LIBRARY NAMES libicuuc${DEBUG_SUFFIX})
-            # AppleWin does not provide a separate data library
-            find_library(ICU_DATA_LIBRARY NAMES libicuuc${DEBUG_SUFFIX})
-
-            if (NOT ICU_INCLUDE_DIR OR NOT ICU_I18N_LIBRARY OR NOT ICU_UC_LIBRARY)
-                message(FATAL_ERROR "Could not find ICU")
-            endif ()
-
-            set(ICU_INCLUDE_DIRS ${ICU_INCLUDE_DIR})
-            set(ICU_LIBRARIES ${ICU_I18N_LIBRARY} ${ICU_UC_LIBRARY})
-            set(ICU_FOUND ON)
-        elseif ("${package}" STREQUAL "LibXml2")
-            find_path(LIBXML2_INCLUDE_DIR NAMES libxml/xpath.h)
-            find_library(LIBXML2_LIBRARY NAMES libxml2${DEBUG_SUFFIX})
-
-            if (NOT LIBXML2_INCLUDE_DIR OR NOT LIBXML2_LIBRARY)
-                message(FATAL_ERROR "Could not find LibXml2")
-            endif ()
-
-            set(LIBXML2_INCLUDE_DIRS ${LIBXML2_INCLUDE_DIR})
-            set(LIBXML2_LIBRARIES ${LIBXML2_LIBRARY})
-            set(LIBXML2_FOUND ON)
-        elseif ("${package}" STREQUAL "LibXslt")
-            find_path(LIBXSLT_INCLUDE_DIR NAMES libxslt/xslt.h)
-            find_library(LIBXSLT_LIBRARY NAMES libxslt${DEBUG_SUFFIX})
-
-            if (NOT LIBXSLT_INCLUDE_DIR OR NOT LIBXSLT_LIBRARY)
-                message(FATAL_ERROR "Could not find LibXslt")
-            endif ()
-
-            find_library(LIBXSLT_EXSLT_LIBRARY NAMES libexslt${DEBUG_SUFFIX})
-
-            set(LIBXSLT_INCLUDE_DIRS ${LIBXSLT_INCLUDE_DIR})
-            set(LIBXSLT_LIBRARIES ${LIBXSLT_LIBRARY})
-            set(LIBXSLT_FOUND ON)
-        elseif ("${package}" STREQUAL "ZLIB")
-            find_path(ZLIB_INCLUDE_DIR NAMES zlib.h PATH_SUFFIXES zlib)
-            find_library(ZLIB_LIBRARY NAMES zdll${DEBUG_SUFFIX})
-
-            if (NOT ZLIB_INCLUDE_DIR OR NOT ZLIB_LIBRARY)
-                message(FATAL_ERROR "Could not find ZLIB")
-            endif ()
-
-            set(ZLIB_INCLUDE_DIRS ${ZLIB_INCLUDE_DIR})
-            set(ZLIB_LIBRARIES ${ZLIB_LIBRARY})
-            set(ZLIB_FOUND ON)
-        else ()
-           set(_found_package OFF)
-        endif ()
-    endif ()
-
     # Apple builds have a unique location for ICU
-    if (APPLE AND "${package}" STREQUAL "ICU")
+    if (USE_APPLE_ICU AND "${package}" STREQUAL "ICU")
         set(_found_package ON)
 
         set(ICU_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/ICU/Headers)
 
-        # Apple just has a single dylib for ICU
-        set(ICU_I18N_LIBRARY /usr/lib/libicucore.dylib)
-        set(ICU_UC_LIBRARY /usr/lib/libicucore.dylib)
-        set(ICU_DATA_LIBRARY /usr/lib/libicucore.dylib)
+        # Apple just has a single tbd/dylib for ICU.
+        find_library(ICU_I18N_LIBRARY icucore)
+        find_library(ICU_UC_LIBRARY icucore)
+        find_library(ICU_DATA_LIBRARY icucore)
 
         set(ICU_LIBRARIES ${ICU_UC_LIBRARY})
         set(ICU_FOUND ON)
+        message(STATUS "Found ICU: ${ICU_LIBRARIES}")
     endif ()
 
     if (NOT _found_package)

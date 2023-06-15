@@ -28,29 +28,11 @@
 #import "DragAndDropSimulator.h"
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
+#import <WebCore/PasteboardCustomData.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 
 #if ENABLE(DRAG_SUPPORT) && PLATFORM(MAC)
-
-static void waitForConditionWithLogging(BOOL(^condition)(), NSTimeInterval loggingTimeout, NSString *message, ...)
-{
-    NSDate *startTime = [NSDate date];
-    BOOL exceededLoggingTimeout = NO;
-    while ([[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]]) {
-        if (condition())
-            break;
-
-        if (exceededLoggingTimeout || [[NSDate date] timeIntervalSinceDate:startTime] < loggingTimeout)
-            continue;
-
-        va_list args;
-        va_start(args, message);
-        NSLogv(message, args);
-        va_end(args);
-        exceededLoggingTimeout = YES;
-    }
-}
 
 TEST(DragAndDropTests, NumberOfValidItemsForDrop)
 {
@@ -74,6 +56,18 @@ TEST(DragAndDropTests, NumberOfValidItemsForDrop)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"observedDragOver"].boolValue);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"observedDrop"].boolValue);
     EXPECT_EQ(1U, numberOfValidItemsForDrop);
+}
+
+TEST(DragAndDropTests, DropUserSelectAllUserDragElementDiv)
+{
+    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 320, 500)]);
+
+    TestWKWebView *webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"contenteditable-user-select-user-drag"];
+
+    [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
+
+    EXPECT_WK_STREQ(@"Text", [webView stringByEvaluatingJavaScript:@"document.getElementById(\"editor\").textContent"]);
 }
 
 #if ENABLE(INPUT_TYPE_COLOR)
@@ -100,7 +94,7 @@ TEST(DragAndDropTests, DragImageElementIntoFileUpload)
     [webView synchronouslyLoadTestPageNamed:@"image-and-file-upload"];
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
 
-    waitForConditionWithLogging([&] () -> BOOL {
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] () -> bool {
         return [webView stringByEvaluatingJavaScript:@"imageload.textContent"].boolValue;
     }, 2, @"Expected image to finish loading.");
     EXPECT_EQ(1, [webView stringByEvaluatingJavaScript:@"filecount.textContent"].integerValue);
@@ -116,10 +110,33 @@ TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
     [simulator writePromisedFiles:@[ imageURL ]];
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
 
-    waitForConditionWithLogging([&] () -> BOOL {
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] () -> bool {
         return [webView stringByEvaluatingJavaScript:@"imageload.textContent"].boolValue;
     }, 2, @"Expected image to finish loading.");
     EXPECT_EQ(1, [webView stringByEvaluatingJavaScript:@"filecount.textContent"].integerValue);
+}
+
+TEST(DragAndDropTests, ReadURLWhenDroppingPromisedWebLoc)
+{
+    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    auto *webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"dump-datatransfer-types"];
+
+    [simulator writePromisedWebLoc:[NSURL URLWithString:@"https://webkit.org/"]];
+    [simulator runFrom:CGPointMake(0, 0) to:CGPointMake(375, 375)];
+
+    NSString *s = [webView stringByEvaluatingJavaScript:@"output.value"];
+    BOOL success = TestWebKitAPI::Util::jsonMatchesExpectedValues(s, @{
+        @"dragover" : @{
+            @"Files": @"",
+            @"text/uri-list": @""
+        },
+        @"drop": @{
+            @"Files": @"",
+            @"text/uri-list": @"https://webkit.org/"
+        }
+    });
+    EXPECT_TRUE(success);
 }
 
 TEST(DragAndDropTests, DragImageFileIntoFileUpload)
@@ -132,7 +149,7 @@ TEST(DragAndDropTests, DragImageFileIntoFileUpload)
     [simulator writeFiles:@[ imageURL ]];
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
 
-    waitForConditionWithLogging([&] () -> BOOL {
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] () -> bool {
         return [webView stringByEvaluatingJavaScript:@"imageload.textContent"].boolValue;
     }, 2, @"Expected image to finish loading.");
     EXPECT_EQ(1, [webView stringByEvaluatingJavaScript:@"filecount.textContent"].integerValue);
@@ -166,7 +183,6 @@ TEST(DragAndDropTests, DragImageWithOptionKeyDown)
     EXPECT_EQ(pid, [webView _webProcessIdentifier]);
 }
 
-
 TEST(DragAndDropTests, ProvideImageDataForMultiplePasteboards)
 {
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
@@ -188,6 +204,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     EXPECT_EQ(imageFromUniquePasteboard.TIFFRepresentation.length, imageFromDragPasteboard.TIFFRepresentation.length);
     EXPECT_TRUE(NSEqualSizes(imageFromDragPasteboard.size, imageFromUniquePasteboard.size));
     EXPECT_FALSE(NSEqualSizes(NSZeroSize, imageFromUniquePasteboard.size));
+    EXPECT_GT([dragPasteboard dataForType:@(WebCore::PasteboardCustomData::cocoaType().characters())].length, 0u);
 }
 
 TEST(DragAndDropTests, ProvideImageDataAsTypeIdentifiers)

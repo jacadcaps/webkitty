@@ -25,9 +25,9 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
-
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
@@ -37,8 +37,8 @@
 #import <wtf/Deque.h>
 #import <wtf/RetainPtr.h>
 
-static bool receivedScriptMessage;
-static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
+// FIXME: Re-enable this test once rdar://57029120 is resolved.
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 110000) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 140000)
 
 @interface IndexedDBStructuredCloneBackwardCompatibilityMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -65,16 +65,6 @@ static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @end
 
-static WKScriptMessage *getNextMessage()
-{
-    if (scriptMessages.isEmpty()) {
-        receivedScriptMessage = false;
-        TestWebKitAPI::Util::run(&receivedScriptMessage);
-    }
-
-    return [[scriptMessages.takeFirst() retain] autorelease];
-}
-
 TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 {
     RetainPtr<IndexedDBStructuredCloneBackwardCompatibilityMessageHandler> handler
@@ -93,7 +83,7 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 
     RetainPtr<_WKWebsiteDataStoreConfiguration> websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     websiteDataStoreConfiguration.get()._indexedDBDatabaseDirectory = idbPath;
-    configuration.get().websiteDataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()] autorelease];
+    configuration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]).get();
 
     idbPath = [idbPath URLByAppendingPathComponent:@"file__0"];
     idbPath = [idbPath URLByAppendingPathComponent:@"backward_compatibility"];
@@ -111,3 +101,4 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 
     EXPECT_STREQ([getNextMessage().body UTF8String], "Pass");
 }
+#endif

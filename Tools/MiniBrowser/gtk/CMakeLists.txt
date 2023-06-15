@@ -22,10 +22,9 @@ set(MiniBrowser_SOURCES
 set(MiniBrowser_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${MiniBrowser_DERIVED_SOURCES_DIR}
-    ${DERIVED_SOURCES_WEBKIT2GTK_DIR}
-    ${FORWARDING_HEADERS_WEBKIT2GTK_DIR}
-    ${FORWARDING_HEADERS_WEBKIT2GTK_VERSIONED_DIR}
-    ${FORWARDING_HEADERS_DIR}
+    ${WebKitGtk_DERIVED_SOURCES_DIR}
+    ${WebKitGtk_FRAMEWORK_HEADERS_DIR}
+    ${WebKitGtk_FRAMEWORK_HEADERS_DIR}/webkitgtk-${WEBKITGTK_API_VERSION}
     ${CMAKE_SOURCE_DIR}/Source
 )
 
@@ -47,16 +46,21 @@ set(MiniBrowser_DEPENDENCIES
     WebProcess
 )
 
+if (NOT USE_GSTREAMER_FULL)
+  list(APPEND MiniBrowser_PRIVATE_INCLUDE_DIRECTORIES ${GSTREAMER_INCLUDE_DIRS})
+  list(APPEND MiniBrowser_PRIVATE_LIBRARIES ${GSTREAMER_LIBRARIES})
+endif ()
+
 add_custom_command(
     OUTPUT ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.c
            ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.h
     MAIN_DEPENDENCY ${MiniBrowser_DIR}/browser-marshal.list
-    COMMAND glib-genmarshal --prefix=browser_marshal ${MiniBrowser_DIR}/browser-marshal.list --body > ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.c
-    COMMAND glib-genmarshal --prefix=browser_marshal ${MiniBrowser_DIR}/browser-marshal.list --header > ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.h
+    COMMAND glib-genmarshal --prefix=browser_marshal ${MiniBrowser_DIR}/browser-marshal.list --body --skip-source > ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.c
+    COMMAND glib-genmarshal --prefix=browser_marshal ${MiniBrowser_DIR}/browser-marshal.list --header --skip-source > ${MiniBrowser_DERIVED_SOURCES_DIR}/BrowserMarshal.h
     VERBATIM)
 
 if (USE_GTK4)
-    set(MiniBrowser_PRIVATE_DEFINITIONS GDK_VERSION_MIN_REQUIRED=GDK_VERSION_3_92)
+    set(MiniBrowser_PRIVATE_DEFINITIONS GDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_0)
 else ()
     set(MiniBrowser_PRIVATE_DEFINITIONS GDK_VERSION_MIN_REQUIRED=GDK_VERSION_3_22)
 endif ()

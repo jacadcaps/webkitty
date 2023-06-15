@@ -17,6 +17,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/variant.h"
@@ -32,6 +33,7 @@
 
 namespace webrtc {
 class RtpPacket;
+class RtpPacketToSend;
 namespace rtcp {
 class TransportFeedback;
 }
@@ -55,6 +57,7 @@ enum RTPExtensionType : int {
   kRtpExtensionNone,
   kRtpExtensionTransmissionTimeOffset,
   kRtpExtensionAudioLevel,
+  kRtpExtensionCsrcAudioLevel,
   kRtpExtensionInbandComfortNoise,
   kRtpExtensionAbsoluteSendTime,
   kRtpExtensionAbsoluteCaptureTime,
@@ -63,16 +66,16 @@ enum RTPExtensionType : int {
   kRtpExtensionTransportSequenceNumber02,
   kRtpExtensionPlayoutDelay,
   kRtpExtensionVideoContentType,
+  kRtpExtensionVideoLayersAllocation,
   kRtpExtensionVideoTiming,
-  kRtpExtensionFrameMarking,
   kRtpExtensionRtpStreamId,
   kRtpExtensionRepairedRtpStreamId,
   kRtpExtensionMid,
   kRtpExtensionGenericFrameDescriptor00,
   kRtpExtensionGenericFrameDescriptor = kRtpExtensionGenericFrameDescriptor00,
-  kRtpExtensionGenericFrameDescriptor01,
   kRtpExtensionGenericFrameDescriptor02,
   kRtpExtensionColorSpace,
+  kRtpExtensionVideoFrameTrackingId,
   kRtpExtensionNumberOfExtensions  // Must be the last entity in the enum.
 };
 
@@ -91,7 +94,6 @@ enum RTCPPacketType : uint32_t {
   kRtcpTmmbr = 0x0100,
   kRtcpTmmbn = 0x0200,
   kRtcpSrReq = 0x0400,
-  kRtcpApp = 0x1000,
   kRtcpLossNotification = 0x2000,
   kRtcpRemb = 0x10000,
   kRtcpTransmissionTimeOffset = 0x20000,
@@ -99,6 +101,12 @@ enum RTCPPacketType : uint32_t {
   kRtcpXrDlrrReportBlock = 0x80000,
   kRtcpTransportFeedback = 0x100000,
   kRtcpXrTargetBitrate = 0x200000
+};
+
+enum class KeyFrameReqMethod : uint8_t {
+  kNone,     // Don't request keyframes.
+  kPliRtcp,  // Request keyframes through Picture Loss Indication.
+  kFirRtcp   // Request keyframes through Full Intra-frame Request.
 };
 
 enum RtxMode {
@@ -158,14 +166,12 @@ struct RtpState {
         timestamp(0),
         capture_time_ms(-1),
         last_timestamp_time_ms(-1),
-        media_has_been_sent(false),
         ssrc_has_acked(false) {}
   uint16_t sequence_number;
   uint32_t start_timestamp;
   uint32_t timestamp;
   int64_t capture_time_ms;
   int64_t last_timestamp_time_ms;
-  bool media_has_been_sent;
   bool ssrc_has_acked;
 };
 
@@ -212,12 +218,15 @@ class RtcpBandwidthObserver {
   virtual ~RtcpBandwidthObserver() {}
 };
 
-enum class RtpPacketMediaType {
-  kAudio,                   // Audio media packets.
-  kVideo,                   // Video media packets.
-  kRetransmission,          // RTX (usually) packets send as response to NACK.
-  kForwardErrorCorrection,  // FEC packets.
-  kPadding                  // RTX or plain padding sent to maintain BWE.
+// NOTE! `kNumMediaTypes` must be kept in sync with RtpPacketMediaType!
+static constexpr size_t kNumMediaTypes = 5;
+enum class RtpPacketMediaType : size_t {
+  kAudio,                         // Audio media packets.
+  kVideo,                         // Video media packets.
+  kRetransmission,                // Retransmisions, sent as response to NACK.
+  kForwardErrorCorrection,        // FEC packets.
+  kPadding = kNumMediaTypes - 1,  // RTX or plain padding sent to maintain BWE.
+  // Again, don't forget to udate `kNumMediaTypes` if you add another value!
 };
 
 struct RtpPacketSendInfo {
@@ -225,10 +234,9 @@ struct RtpPacketSendInfo {
   RtpPacketSendInfo() = default;
 
   uint16_t transport_sequence_number = 0;
-  uint32_t ssrc = 0;
-  uint16_t rtp_sequence_number = 0;
-  // Get rid of this flag when all code paths populate |rtp_sequence_number|.
-  bool has_rtp_sequence_number = false;
+  absl::optional<uint32_t> media_ssrc;
+  uint16_t rtp_sequence_number = 0;  // Only valid if `media_ssrc` is set.
+  uint32_t rtp_timestamp = 0;
   size_t length = 0;
   absl::optional<RtpPacketMediaType> packet_type;
   PacedPacketInfo pacing_info;
@@ -265,9 +273,13 @@ class RtcpFeedbackSenderInterface {
 class StreamFeedbackObserver {
  public:
   struct StreamPacketInfo {
-    uint32_t ssrc;
-    uint16_t rtp_sequence_number;
     bool received;
+
+    // `rtp_sequence_number` and `is_retransmission` are only valid if `ssrc`
+    // is populated.
+    absl::optional<uint32_t> ssrc;
+    uint16_t rtp_sequence_number;
+    bool is_retransmission;
   };
   virtual ~StreamFeedbackObserver() = default;
 
@@ -298,6 +310,8 @@ struct RtpPacketCounter {
   RtpPacketCounter()
       : header_bytes(0), payload_bytes(0), padding_bytes(0), packets(0) {}
 
+  explicit RtpPacketCounter(const RtpPacket& packet);
+
   void Add(const RtpPacketCounter& other) {
     header_bytes += other.header_bytes;
     payload_bytes += other.payload_bytes;
@@ -314,6 +328,12 @@ struct RtpPacketCounter {
     padding_bytes -= other.padding_bytes;
     RTC_DCHECK_GE(packets, other.packets);
     packets -= other.packets;
+  }
+
+  bool operator==(const RtpPacketCounter& other) const {
+    return header_bytes == other.header_bytes &&
+           payload_bytes == other.payload_bytes &&
+           padding_bytes == other.padding_bytes && packets == other.packets;
   }
 
   // Not inlined, since use of RtpPacket would result in circular includes.
@@ -379,6 +399,34 @@ struct StreamDataCounters {
   RtpPacketCounter fec;            // Number of redundancy packets/bytes.
 };
 
+class RtpSendRates {
+  template <std::size_t... Is>
+  constexpr std::array<DataRate, sizeof...(Is)> make_zero_array(
+      std::index_sequence<Is...>) {
+    return {{(static_cast<void>(Is), DataRate::Zero())...}};
+  }
+
+ public:
+  RtpSendRates()
+      : send_rates_(
+            make_zero_array(std::make_index_sequence<kNumMediaTypes>())) {}
+  RtpSendRates(const RtpSendRates& rhs) = default;
+  RtpSendRates& operator=(const RtpSendRates&) = default;
+
+  DataRate& operator[](RtpPacketMediaType type) {
+    return send_rates_[static_cast<size_t>(type)];
+  }
+  const DataRate& operator[](RtpPacketMediaType type) const {
+    return send_rates_[static_cast<size_t>(type)];
+  }
+  DataRate Sum() const {
+    return absl::c_accumulate(send_rates_, DataRate::Zero());
+  }
+
+ private:
+  std::array<DataRate, kNumMediaTypes> send_rates_;
+};
+
 // Callback, called whenever byte/packet counts have been updated.
 class StreamDataCountersCallback {
  public:
@@ -390,7 +438,7 @@ class StreamDataCountersCallback {
 
 // Information exposed through the GetStats api.
 struct RtpReceiveStats {
-  // |packets_lost| and |jitter| are defined by RFC 3550, and exposed in the
+  // `packets_lost` and `jitter` are defined by RFC 3550, and exposed in the
   // RTCReceivedRtpStreamStats dictionary, see
   // https://w3c.github.io/webrtc-stats/#receivedrtpstats-dict*
   int32_t packets_lost = 0;
@@ -433,5 +481,6 @@ class SendPacketObserver {
                             int64_t capture_time_ms,
                             uint32_t ssrc) = 0;
 };
+
 }  // namespace webrtc
 #endif  // MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_DEFINES_H_

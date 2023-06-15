@@ -35,20 +35,30 @@
 
 namespace WebCore {
 
+CSSGridIntegerRepeatValue::CSSGridIntegerRepeatValue(size_t repetitions)
+    : CSSValueContainingVector(GridIntegerRepeatClass, SpaceSeparator)
+    , m_repetitions(repetitions)
+{
+    ASSERT(repetitions);
+}
+
+Ref<CSSGridIntegerRepeatValue> CSSGridIntegerRepeatValue::create(size_t repetitions)
+{
+    return adoptRef(*new CSSGridIntegerRepeatValue(repetitions));
+}
+
 String CSSGridIntegerRepeatValue::customCSSText() const
 {
     StringBuilder result;
-    result.append("repeat(");
-    result.append(String::number(repetitions()));
-    result.append(", ");
-    result.append(CSSValueList::customCSSText());
+    result.append("repeat("_s, repetitions(), ", "_s);
+    serializeItems(result);
     result.append(')');
     return result.toString();
 }
 
 bool CSSGridIntegerRepeatValue::equals(const CSSGridIntegerRepeatValue& other) const
 {
-    return m_repetitions == other.m_repetitions && CSSValueList::equals(other);
+    return m_repetitions == other.m_repetitions && itemsEqual(other);
 }
 
 } // namespace WebCore

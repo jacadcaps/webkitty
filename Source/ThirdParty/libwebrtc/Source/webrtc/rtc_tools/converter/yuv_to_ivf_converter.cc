@@ -30,9 +30,9 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "modules/video_coding/utility/ivf_file_writer.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/file_wrapper.h"
 #include "rtc_base/task_queue.h"
 #include "test/testsupport/frame_reader.h"
@@ -74,16 +74,15 @@ class IvfFileWriterEncodedCallback : public EncodedImageCallback {
   ~IvfFileWriterEncodedCallback() { RTC_CHECK(file_writer_->Close()); }
 
   Result OnEncodedImage(const EncodedImage& encoded_image,
-                        const CodecSpecificInfo* codec_specific_info,
-                        const RTPFragmentationHeader* fragmentation) override {
+                        const CodecSpecificInfo* codec_specific_info) override {
     RTC_CHECK(file_writer_->WriteFrame(encoded_image, video_codec_type_));
 
-    rtc::CritScope crit(&lock_);
+    MutexLock lock(&lock_);
     received_frames_count_++;
     RTC_CHECK_LE(received_frames_count_, expected_frames_count_);
     if (received_frames_count_ % kFrameLogInterval == 0) {
-      RTC_LOG(INFO) << received_frames_count_ << " out of "
-                    << expected_frames_count_ << " frames written";
+      RTC_LOG(LS_INFO) << received_frames_count_ << " out of "
+                       << expected_frames_count_ << " frames written";
     }
     next_frame_written_.Set();
     return Result(Result::Error::OK);
@@ -99,7 +98,7 @@ class IvfFileWriterEncodedCallback : public EncodedImageCallback {
   const VideoCodecType video_codec_type_;
   const int expected_frames_count_;
 
-  rtc::CriticalSection lock_;
+  Mutex lock_;
   int received_frames_count_ RTC_GUARDED_BY(lock_) = 0;
   rtc::Event next_frame_written_;
 };
@@ -128,23 +127,21 @@ class Encoder {
       codec_settings.startBitrate = kBitrateBps;
       codec_settings.minBitrate = kBitrateBps;
       codec_settings.maxBitrate = kBitrateBps;
+      codec_settings.SetFrameDropEnabled(false);
       switch (video_codec_type) {
         case VideoCodecType::kVideoCodecVP8: {
           VideoCodecVP8* vp8_settings = codec_settings.VP8();
-          vp8_settings->frameDroppingOn = false;
           vp8_settings->keyFrameInterval = kKeyFrameIntervalMs;
           vp8_settings->denoisingOn = false;
         } break;
         case VideoCodecType::kVideoCodecVP9: {
           VideoCodecVP9* vp9_settings = codec_settings.VP9();
           vp9_settings->denoisingOn = false;
-          vp9_settings->frameDroppingOn = false;
           vp9_settings->keyFrameInterval = kKeyFrameIntervalMs;
           vp9_settings->automaticResizeOn = false;
         } break;
         case VideoCodecType::kVideoCodecH264: {
           VideoCodecH264* h264_settings = codec_settings.H264();
-          h264_settings->frameDroppingOn = false;
           h264_settings->keyFrameInterval = kKeyFrameIntervalMs;
         } break;
         default:
@@ -232,11 +229,11 @@ void WriteVideoFile(std::string input_file_name,
     encoder.WaitNextFrameWritten(kMaxFrameEncodeWaitTimeoutMs);
 
     if ((i + 1) % kFrameLogInterval == 0) {
-      RTC_LOG(INFO) << i + 1 << " out of " << frames_count
-                    << " frames are sent for encoding";
+      RTC_LOG(LS_INFO) << i + 1 << " out of " << frames_count
+                       << " frames are sent for encoding";
     }
   }
-  RTC_LOG(INFO) << "All " << frames_count << " frame are sent for encoding";
+  RTC_LOG(LS_INFO) << "All " << frames_count << " frame are sent for encoding";
 }
 
 }  // namespace

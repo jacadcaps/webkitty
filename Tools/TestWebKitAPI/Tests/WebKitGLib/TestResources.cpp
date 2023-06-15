@@ -21,6 +21,7 @@
 
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/SoupVersioning.h>
 #include <wtf/Vector.h>
 #include <wtf/glib/GMutexLocker.h>
 #include <wtf/glib/GRefPtr.h>
@@ -62,11 +63,6 @@ public:
         test->resourceReceivedResponse(resource);
     }
 
-    static void resourceReceivedDataCallback(WebKitWebResource* resource, guint64 bytesReceived, ResourcesTest* test)
-    {
-        test->resourceReceivedData(resource, bytesReceived);
-    }
-
     static void resourceFinishedCallback(WebKitWebResource* resource, ResourcesTest* test)
     {
         test->resourceFinished(resource);
@@ -90,7 +86,6 @@ public:
         test->resourceLoadStarted(resource, request);
         g_signal_connect(resource, "sent-request", G_CALLBACK(resourceSentRequestCallback), test);
         g_signal_connect(resource, "notify::response", G_CALLBACK(resourceReceivedResponseCallback), test);
-        g_signal_connect(resource, "received-data", G_CALLBACK(resourceReceivedDataCallback), test);
         g_signal_connect(resource, "finished", G_CALLBACK(resourceFinishedCallback), test);
         g_signal_connect(resource, "failed", G_CALLBACK(resourceFailedCallback), test);
     }
@@ -125,10 +120,6 @@ public:
     }
 
     virtual void resourceReceivedResponse(WebKitWebResource* resource)
-    {
-    }
-
-    virtual void resourceReceivedData(WebKitWebResource* resource, guint64 bytesReceived)
     {
     }
 
@@ -255,14 +246,12 @@ public:
         SentRequest,
         Redirected,
         ReceivedResponse,
-        ReceivedData,
         Finished,
         Failed
     };
 
     SingleResourceLoadTest()
         : ResourcesTest()
-        , m_resourceDataReceived(0)
     {
         m_resourcesToLoad = 2;
     }
@@ -272,7 +261,6 @@ public:
         if (resource == webkit_web_view_get_main_resource(m_webView))
             return;
 
-        m_resourceDataReceived = 0;
         m_resource = resource;
         m_loadEvents.append(Started);
     }
@@ -296,16 +284,6 @@ public:
         m_loadEvents.append(ReceivedResponse);
     }
 
-    void resourceReceivedData(WebKitWebResource* resource, guint64 bytesReceived)
-    {
-        if (resource != m_resource)
-            return;
-
-        m_resourceDataReceived += bytesReceived;
-        if (!m_loadEvents.contains(ReceivedData))
-            m_loadEvents.append(ReceivedData);
-    }
-
     void resourceFinished(WebKitWebResource* resource)
     {
         if (resource != m_resource) {
@@ -313,11 +291,6 @@ public:
             return;
         }
 
-        if (!m_loadEvents.contains(Failed)) {
-            WebKitURIResponse* response = webkit_web_resource_get_response(m_resource.get());
-            g_assert_nonnull(response);
-            g_assert_cmpint(webkit_uri_response_get_content_length(response), ==, m_resourceDataReceived);
-        }
         m_loadEvents.append(Finished);
         ResourcesTest::resourceFinished(resource);
     }
@@ -344,7 +317,6 @@ public:
 
     GRefPtr<WebKitWebResource> m_resource;
     Vector<LoadEvents> m_loadEvents;
-    guint64 m_resourceDataReceived;
 };
 
 static void testWebResourceLoading(SingleResourceLoadTest* test, gconstpointer)
@@ -353,24 +325,22 @@ static void testWebResourceLoading(SingleResourceLoadTest* test, gconstpointer)
     test->waitUntilResourceLoadFinished();
     g_assert_nonnull(test->m_resource);
     Vector<SingleResourceLoadTest::LoadEvents>& events = test->m_loadEvents;
-    g_assert_cmpint(events.size(), ==, 5);
+    g_assert_cmpint(events.size(), ==, 4);
     g_assert_cmpint(events[0], ==, SingleResourceLoadTest::Started);
     g_assert_cmpint(events[1], ==, SingleResourceLoadTest::SentRequest);
     g_assert_cmpint(events[2], ==, SingleResourceLoadTest::ReceivedResponse);
-    g_assert_cmpint(events[3], ==, SingleResourceLoadTest::ReceivedData);
-    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::Finished);
+    g_assert_cmpint(events[3], ==, SingleResourceLoadTest::Finished);
     events.clear();
 
     test->loadURI(kServer->getURIForPath("/redirected-css.html").data());
     test->waitUntilResourceLoadFinished();
     g_assert_nonnull(test->m_resource);
-    g_assert_cmpint(events.size(), ==, 6);
+    g_assert_cmpint(events.size(), ==, 5);
     g_assert_cmpint(events[0], ==, SingleResourceLoadTest::Started);
     g_assert_cmpint(events[1], ==, SingleResourceLoadTest::SentRequest);
     g_assert_cmpint(events[2], ==, SingleResourceLoadTest::Redirected);
     g_assert_cmpint(events[3], ==, SingleResourceLoadTest::ReceivedResponse);
-    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::ReceivedData);
-    g_assert_cmpint(events[5], ==, SingleResourceLoadTest::Finished);
+    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::Finished);
     events.clear();
 
     test->loadURI(kServer->getURIForPath("/invalid-css.html").data());
@@ -430,6 +400,10 @@ static void testWebResourceMimeType(SingleResourceLoadTest* test, gconstpointer)
     test->loadURI(kServer->getURIForPath("/redirected-css.html").data());
     response = test->waitUntilResourceLoadFinishedAndReturnURIResponse();
     g_assert_cmpstr(webkit_uri_response_get_mime_type(response), ==, "text/css");
+
+    test->loadURI(kServer->getURIForPath("/iframe-no-content.html").data());
+    response = test->waitUntilResourceLoadFinishedAndReturnURIResponse();
+    g_assert_cmpstr(webkit_uri_response_get_mime_type(response), ==, "text/plain");
 }
 
 static void testWebResourceSuggestedFilename(SingleResourceLoadTest* test, gconstpointer)
@@ -489,10 +463,6 @@ public:
             return;
 
         checkActiveURI("/simple-style.css");
-    }
-
-    void resourceReceivedData(WebKitWebResource* resource, guint64 bytesReceived)
-    {
     }
 
     void resourceFinished(WebKitWebResource* resource)
@@ -675,12 +645,11 @@ static void testWebResourceSendRequest(SendRequestTest* test, gconstpointer)
     g_assert_nonnull(test->m_resource);
 
     Vector<SingleResourceLoadTest::LoadEvents>& events = test->m_loadEvents;
-    g_assert_cmpint(events.size(), ==, 5);
+    g_assert_cmpint(events.size(), ==, 4);
     g_assert_cmpint(events[0], ==, SingleResourceLoadTest::Started);
     g_assert_cmpint(events[1], ==, SingleResourceLoadTest::SentRequest);
     g_assert_cmpint(events[2], ==, SingleResourceLoadTest::ReceivedResponse);
-    g_assert_cmpint(events[3], ==, SingleResourceLoadTest::ReceivedData);
-    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::Finished);
+    g_assert_cmpint(events[3], ==, SingleResourceLoadTest::Finished);
     events.clear();
 
     // Cancel request.
@@ -702,13 +671,12 @@ static void testWebResourceSendRequest(SendRequestTest* test, gconstpointer)
     test->waitUntilResourceLoadFinished();
     g_assert_nonnull(test->m_resource);
 
-    g_assert_cmpint(events.size(), ==, 6);
+    g_assert_cmpint(events.size(), ==, 5);
     g_assert_cmpint(events[0], ==, SingleResourceLoadTest::Started);
     g_assert_cmpint(events[1], ==, SingleResourceLoadTest::SentRequest);
     g_assert_cmpint(events[2], ==, SingleResourceLoadTest::Redirected);
     g_assert_cmpint(events[3], ==, SingleResourceLoadTest::ReceivedResponse);
-    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::ReceivedData);
-    g_assert_cmpint(events[5], ==, SingleResourceLoadTest::Finished);
+    g_assert_cmpint(events[4], ==, SingleResourceLoadTest::Finished);
     events.clear();
 
     // Cancel after a redirect.
@@ -759,7 +727,7 @@ static void testWebViewSyncRequestOnMaxConns(SyncRequestOnMaxConnsTest* test, gc
 
     for (unsigned i = 0; i < 2; ++i) {
         GUniquePtr<char> xhr(g_strdup_printf("xhr = new XMLHttpRequest; xhr.open('GET', '/sync-request-on-max-conns-xhr%u', false); xhr.send();", i));
-        webkit_web_view_run_javascript(test->m_webView, xhr.get(), nullptr, nullptr, nullptr);
+        webkit_web_view_evaluate_javascript(test->m_webView, xhr.get(), -1, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
     // By default sync XHRs have a 10 seconds timeout, we don't want to wait all that so use our own timeout.
@@ -786,6 +754,7 @@ static void testWebViewSyncRequestOnMaxConns(SyncRequestOnMaxConnsTest* test, gc
         g_source_remove(context.unlockServerSourceID);
 }
 
+#if USE(SOUP2)
 static void addCacheHTTPHeadersToResponse(SoupMessage* message)
 {
     // The actual date doesn't really matter.
@@ -799,87 +768,111 @@ static void addCacheHTTPHeadersToResponse(SoupMessage* message)
     soup_message_headers_append(message->response_headers, "Expires", date.get());
     soup_date_free(soupDate);
 }
-
-static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void addCacheHTTPHeadersToResponse(SoupServerMessage* message)
 {
-    if (message->method != SOUP_METHOD_GET) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED);
+    // The actual date doesn't really matter.
+    GRefPtr<GDateTime> dateTime = adoptGRef(g_date_time_new_now_local());
+    GUniquePtr<char> date(soup_date_time_to_string(dateTime.get(), SOUP_DATE_HTTP));
+    auto* responseHeaders = soup_server_message_get_response_headers(message);
+    soup_message_headers_append(responseHeaders, "Last-Modified", date.get());
+    soup_message_headers_append(responseHeaders, "Cache-control", "public, max-age=31536000");
+    dateTime = adoptGRef(g_date_time_add_seconds(dateTime.get(), 3600));
+    date.reset(soup_date_time_to_string(dateTime.get(), SOUP_DATE_HTTP));
+    soup_message_headers_append(responseHeaders, "Expires", date.get());
+}
+#endif
+
+#if USE(SOUP2)
+static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
+#endif
+{
+    if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
-    soup_message_set_status(message, SOUP_STATUS_OK);
+    auto* responseBody = soup_server_message_get_response_body(message);
+    soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
 
-    if (soup_message_headers_get_one(message->request_headers, "If-Modified-Since")) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_MODIFIED);
-        soup_message_body_complete(message->response_body);
+    if (soup_message_headers_get_one(soup_server_message_get_request_headers(message), "If-Modified-Since")) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_MODIFIED, nullptr);
+        soup_message_body_complete(responseBody);
         return;
     }
+
+    auto* responseHeaders = soup_server_message_get_response_headers(message);
 
     if (g_str_equal(path, "/")) {
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, kIndexHtml, strlen(kIndexHtml));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, kIndexHtml, strlen(kIndexHtml));
     } else if (g_str_equal(path, "/javascript.html")) {
         static const char* javascriptHtml = "<html><head><script language='javascript' src='/javascript.js'></script></head><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, javascriptHtml, strlen(javascriptHtml));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, javascriptHtml, strlen(javascriptHtml));
     } else if (g_str_equal(path, "/image.html")) {
         static const char* imageHTML = "<html><body><img src='/blank.ico'></img></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, imageHTML, strlen(imageHTML));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, imageHTML, strlen(imageHTML));
     } else if (g_str_equal(path, "/redirected-css.html")) {
         static const char* redirectedCSSHtml = "<html><head><link rel='stylesheet' href='/redirected.css' type='text/css'></head><body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, redirectedCSSHtml, strlen(redirectedCSSHtml));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, redirectedCSSHtml, strlen(redirectedCSSHtml));
     } else if (g_str_equal(path, "/invalid-css.html")) {
-        static const char* invalidCSSHtml = "<html><head><link rel='stylesheet' href='/invalid.css' type='text/css'></head><body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, invalidCSSHtml, strlen(invalidCSSHtml));
+        static const char* invalidCSSHtml = "<html><head><link rel='stylesheet' href='http://127.0.0.1:1234/invalid.css' type='text/css'></head><body></html>";
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, invalidCSSHtml, strlen(invalidCSSHtml));
     } else if (g_str_equal(path, "/simple-style-css.html")) {
         static const char* simpleStyleCSSHtml = "<html><head><link rel='stylesheet' href='/simple-style.css' type='text/css'></head><body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, simpleStyleCSSHtml, strlen(simpleStyleCSSHtml));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, simpleStyleCSSHtml, strlen(simpleStyleCSSHtml));
     } else if (g_str_equal(path, "/style.css")) {
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, kStyleCSS, strlen(kStyleCSS));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, kStyleCSS, strlen(kStyleCSS));
         addCacheHTTPHeadersToResponse(message);
-        soup_message_headers_append(message->response_headers, "Content-Type", "text/css");
+        soup_message_headers_append(responseHeaders, "Content-Type", "text/css");
     } else if (g_str_equal(path, "/javascript.js") || g_str_equal(path, "/javascript-after-redirection.js")) {
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, kJavascript, strlen(kJavascript));
-        soup_message_headers_append(message->response_headers, "Content-Type", "text/javascript");
-        soup_message_headers_append(message->response_headers, "Content-Disposition", "attachment; filename=JavaScript.js");
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, kJavascript, strlen(kJavascript));
+        soup_message_headers_append(responseHeaders, "Content-Type", "text/javascript");
+        soup_message_headers_append(responseHeaders, "Content-Disposition", "attachment; filename=JavaScript.js");
     } else if (g_str_equal(path, "/relative-javascript.html")) {
         static const char* javascriptRelativeHTML = "<html><head><script language='javascript' src='remove-this/javascript.js'></script></head><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
     } else if (g_str_equal(path, "/resource-to-cancel.html")) {
         static const char* resourceToCancelHTML = "<html><head><script language='javascript' src='cancel-this.js'></script></head><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, resourceToCancelHTML, strlen(resourceToCancelHTML));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, resourceToCancelHTML, strlen(resourceToCancelHTML));
     } else if (g_str_equal(path, "/redirected-javascript.html")) {
         static const char* javascriptRelativeHTML = "<html><head><script language='javascript' src='/redirected.js'></script></head><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
     } else if (g_str_equal(path, "/redirected-to-cancel.html")) {
         static const char* javascriptRelativeHTML = "<html><head><script language='javascript' src='/redirected-to-cancel.js'></script></head><body></body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, javascriptRelativeHTML, strlen(javascriptRelativeHTML));
     } else if (g_str_equal(path, "/blank.ico")) {
         GUniquePtr<char> filePath(g_build_filename(Test::getResourcesDir().data(), path, nullptr));
         char* contents;
         gsize contentsLength;
         g_file_get_contents(filePath.get(), &contents, &contentsLength, 0);
-        soup_message_body_append(message->response_body, SOUP_MEMORY_TAKE, contents, contentsLength);
+        soup_message_body_append(responseBody, SOUP_MEMORY_TAKE, contents, contentsLength);
         addCacheHTTPHeadersToResponse(message);
-        soup_message_headers_append(message->response_headers, "Content-Type", "image/vnd.microsoft.icon");
+        soup_message_headers_append(responseHeaders, "Content-Type", "image/vnd.microsoft.icon");
     } else if (g_str_equal(path, "/simple-style.css")) {
         static const char* simpleCSS =
             "body {"
             "    margin: 0px;"
             "    padding: 0px;"
             "}";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, simpleCSS, strlen(simpleCSS));
-        soup_message_headers_append(message->response_headers, "Content-Type", "text/css");
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, simpleCSS, strlen(simpleCSS));
+        soup_message_headers_append(responseHeaders, "Content-Type", "text/css");
     } else if (g_str_equal(path, "/redirected.css")) {
-        soup_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY);
-        soup_message_headers_append(message->response_headers, "Location", "/simple-style.css");
+        soup_server_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY, nullptr);
+        soup_message_headers_append(responseHeaders, "Location", "/simple-style.css");
     } else if (g_str_equal(path, "/redirected.js")) {
-        soup_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY);
-        soup_message_headers_append(message->response_headers, "Location", "/remove-this/javascript-after-redirection.js");
+        soup_server_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY, nullptr);
+        soup_message_headers_append(responseHeaders, "Location", "/remove-this/javascript-after-redirection.js");
     } else if (g_str_equal(path, "/redirected-to-cancel.js")) {
-        soup_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY);
-        soup_message_headers_append(message->response_headers, "Location", "/cancel-this.js");
-    } else if (g_str_equal(path, "/invalid.css"))
-        soup_message_set_status(message, SOUP_STATUS_CANT_CONNECT);
-    else if (g_str_has_prefix(path, "/sync-request-on-max-conns-")) {
+        soup_server_message_set_status(message, SOUP_STATUS_MOVED_PERMANENTLY, nullptr);
+        soup_message_headers_append(responseHeaders, "Location", "/cancel-this.js");
+    } else if (g_str_equal(path, "/iframe-no-content.html")) {
+        static const char* iframeNoContentHTML = "<html><body><iframe src='/no-content'/></body></html>";
+        soup_message_body_append(responseBody, SOUP_MEMORY_STATIC, iframeNoContentHTML, strlen(iframeNoContentHTML));
+    } else if (g_str_equal(path, "/no-content")) {
+        soup_server_message_set_status(message, SOUP_STATUS_NO_CONTENT, nullptr);
+    } else if (g_str_has_prefix(path, "/sync-request-on-max-conns-")) {
         char* contents;
         gsize contentsLength;
         if (g_str_equal(path, "/sync-request-on-max-conns-0")) {
@@ -899,10 +892,10 @@ static void serverCallback(SoupServer* server, SoupMessage* message, const char*
             GUniquePtr<char> filePath(g_build_filename(Test::getResourcesDir().data(), "blank.ico", nullptr));
             g_file_get_contents(filePath.get(), &contents, &contentsLength, 0);
         }
-        soup_message_body_append(message->response_body, SOUP_MEMORY_TAKE, contents, contentsLength);
+        soup_message_body_append(responseBody, SOUP_MEMORY_TAKE, contents, contentsLength);
     } else
-        soup_message_set_status(message, SOUP_STATUS_NOT_FOUND);
-    soup_message_body_complete(message->response_body);
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_FOUND, nullptr);
+    soup_message_body_complete(responseBody);
 }
 
 void beforeAll()

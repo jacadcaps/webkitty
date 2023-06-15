@@ -35,10 +35,11 @@ class AlternativeTextUIController {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT DictationContext addAlternatives(NSTextAlternatives *);
+    WEBCORE_EXPORT void replaceAlternatives(NSTextAlternatives *, DictationContext);
     WEBCORE_EXPORT void removeAlternatives(DictationContext);
     WEBCORE_EXPORT void clear();
 
-    WEBCORE_EXPORT Vector<String> alternativesForContext(DictationContext);
+    WEBCORE_EXPORT NSTextAlternatives *alternativesForContext(DictationContext);
 
 #if USE(APPKIT)
     using AcceptanceHandler = void (^)(NSString *);

@@ -24,6 +24,15 @@ namespace rx
 
 class DisplayMtl;
 
+#define ANGLE_TO_EGL_TRY(EXPR)                                 \
+    do                                                         \
+    {                                                          \
+        if (ANGLE_UNLIKELY((EXPR) != angle::Result::Continue)) \
+        {                                                      \
+            return egl::EglBadSurface();                       \
+        }                                                      \
+    } while (0)
+
 class SurfaceMtl : public SurfaceImpl
 {
   public:
@@ -35,8 +44,6 @@ class SurfaceMtl : public SurfaceImpl
     void destroy(const egl::Display *display) override;
 
     egl::Error initialize(const egl::Display *display) override;
-    FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
-                                              const gl::FramebufferState &state) override;
 
     egl::Error makeCurrent(const gl::Context *context) override;
     egl::Error unMakeCurrent(const gl::Context *context) override;
@@ -64,15 +71,26 @@ class SurfaceMtl : public SurfaceImpl
     EGLint isPostSubBufferSupported() const override;
     EGLint getSwapBehavior() const override;
 
+    angle::Result initializeContents(const gl::Context *context,
+                                     GLenum binding,
+                                     const gl::ImageIndex &imageIndex) override;
+
     const mtl::TextureRef &getColorTexture() { return mColorTexture; }
     const mtl::Format &getColorFormat() const { return mColorFormat; }
     int getSamples() const { return mSamples; }
+    bool hasDepthStencil() const { return mDepthTexture || mStencilTexture; }
+
+    bool hasRobustResourceInit() const { return mRobustResourceInit; }
 
     angle::Result getAttachmentRenderTarget(const gl::Context *context,
                                             GLenum binding,
                                             const gl::ImageIndex &imageIndex,
                                             GLsizei samples,
                                             FramebufferAttachmentRenderTarget **rtOut) override;
+    egl::Error attachToFramebuffer(const gl::Context *context,
+                                   gl::Framebuffer *framebuffer) override;
+    egl::Error detachFromFramebuffer(const gl::Context *context,
+                                     gl::Framebuffer *framebuffer) override;
 
   protected:
     // Ensure companion (MS, depth, stencil) textures' size is correct w.r.t color texture.
@@ -92,6 +110,9 @@ class SurfaceMtl : public SurfaceImpl
     // Auto resolve MS texture at the end of render pass or requires a separate blitting pass?
     bool mAutoResolveMSColorTexture = false;
 
+    bool mRobustResourceInit = false;
+    bool mContentInitialized = false;
+
     mtl::Format mColorFormat;
     mtl::Format mDepthFormat;
     mtl::Format mStencilFormat;
@@ -99,6 +120,7 @@ class SurfaceMtl : public SurfaceImpl
     int mSamples = 0;
 
     RenderTargetMtl mColorRenderTarget;
+    RenderTargetMtl mColorManualResolveRenderTarget;
     RenderTargetMtl mDepthRenderTarget;
     RenderTargetMtl mStencilRenderTarget;
 };
@@ -115,29 +137,35 @@ class WindowSurfaceMtl : public SurfaceMtl
     void destroy(const egl::Display *display) override;
 
     egl::Error initialize(const egl::Display *display) override;
-    FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
-                                              const gl::FramebufferState &state) override;
 
     egl::Error swap(const gl::Context *context) override;
 
     void setSwapInterval(EGLint interval) override;
     EGLint getSwapBehavior() const override;
 
+    angle::Result initializeContents(const gl::Context *context,
+                                     GLenum binding,
+                                     const gl::ImageIndex &imageIndex) override;
+
     // width and height can change with client window resizing
     EGLint getWidth() const override;
     EGLint getHeight() const override;
-
     angle::Result getAttachmentRenderTarget(const gl::Context *context,
                                             GLenum binding,
                                             const gl::ImageIndex &imageIndex,
                                             GLsizei samples,
                                             FramebufferAttachmentRenderTarget **rtOut) override;
+    egl::Error attachToFramebuffer(const gl::Context *context,
+                                   gl::Framebuffer *framebuffer) override;
+    egl::Error detachFromFramebuffer(const gl::Context *context,
+                                     gl::Framebuffer *framebuffer) override;
 
     angle::Result ensureCurrentDrawableObtained(const gl::Context *context);
 
     // Ensure the the texture returned from getColorTexture() is ready for glReadPixels(). This
     // implicitly calls ensureCurrentDrawableObtained().
     angle::Result ensureColorTextureReadyForReadPixels(const gl::Context *context);
+    bool preserveBuffer() const { return mRetainBuffer; }
 
   private:
     angle::Result swapImpl(const gl::Context *context);
@@ -156,8 +184,54 @@ class WindowSurfaceMtl : public SurfaceMtl
     // event. We don't use mMetalLayer.drawableSize directly since it might be changed internally by
     // metal runtime.
     CGSize mCurrentKnownDrawableSize;
+
+    bool mRetainBuffer = false;
+};
+
+// Offscreen surface, base class of PBuffer.
+class OffscreenSurfaceMtl : public SurfaceMtl
+{
+  public:
+    OffscreenSurfaceMtl(DisplayMtl *display,
+                        const egl::SurfaceState &state,
+                        const egl::AttributeMap &attribs);
+    ~OffscreenSurfaceMtl() override;
+
+    void destroy(const egl::Display *display) override;
+
+    EGLint getWidth() const override;
+    EGLint getHeight() const override;
+
+    egl::Error swap(const gl::Context *context) override;
+
+    egl::Error bindTexImage(const gl::Context *context,
+                            gl::Texture *texture,
+                            EGLint buffer) override;
+    egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
+
+    angle::Result getAttachmentRenderTarget(const gl::Context *context,
+                                            GLenum binding,
+                                            const gl::ImageIndex &imageIndex,
+                                            GLsizei samples,
+                                            FramebufferAttachmentRenderTarget **rtOut) override;
+
+  protected:
+    angle::Result ensureTexturesSizeCorrect(const gl::Context *context);
+
+    gl::Extents mSize;
+};
+
+// PBuffer surface
+class PBufferSurfaceMtl : public OffscreenSurfaceMtl
+{
+  public:
+    PBufferSurfaceMtl(DisplayMtl *display,
+                      const egl::SurfaceState &state,
+                      const egl::AttributeMap &attribs);
+
+    void setFixedWidth(EGLint width) override;
+    void setFixedHeight(EGLint height) override;
 };
 
 }  // namespace rx
-
 #endif /* LIBANGLE_RENDERER_METAL_SURFACEMTL_H_ */

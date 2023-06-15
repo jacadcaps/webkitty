@@ -34,9 +34,7 @@ static vector<DWORD> freeTlsIndices;
 
 #endif
 
-bool gUseAndroidOpenGLTlsSlot = false;
-
-TLSIndex CreateTLSIndex()
+TLSIndex CreateTLSIndex(PthreadKeyDestructor destructor)
 {
     TLSIndex index;
 
@@ -57,15 +55,14 @@ TLSIndex CreateTLSIndex()
 #    endif
 
 #elif defined(ANGLE_PLATFORM_POSIX)
-    // Create global pool key
-    if ((pthread_key_create(&index, nullptr)) != 0)
+    // Create pthread key
+    if ((pthread_key_create(&index, destructor)) != 0)
     {
         index = TLS_INVALID_INDEX;
     }
 #endif
 
-    ASSERT(index != TLS_INVALID_INDEX &&
-           "CreateTLSIndex(): Unable to allocate Thread Local Storage");
+    ASSERT(index != TLS_INVALID_INDEX && "CreateTLSIndex: Unable to allocate Thread Local Storage");
     return index;
 }
 
@@ -155,12 +152,5 @@ void *GetTLSValue(TLSIndex index)
 #    endif
 #elif defined(ANGLE_PLATFORM_POSIX)
     return pthread_getspecific(index);
-#endif
-}
-
-void SetUseAndroidOpenGLTlsSlot(bool platformTypeVulkan)
-{
-#if defined(ANGLE_PLATFORM_ANDROID)
-    gUseAndroidOpenGLTlsSlot = platformTypeVulkan;
 #endif
 }

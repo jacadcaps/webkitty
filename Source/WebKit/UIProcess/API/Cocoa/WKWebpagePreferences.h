@@ -69,6 +69,12 @@ WK_CLASS_AVAILABLE(macos(10.15), ios(13.0))
 
  The default value is YES.
 */
-@property (nonatomic) BOOL allowsContentJavaScript WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic) BOOL allowsContentJavaScript WK_API_AVAILABLE(macos(11.0), ios(14.0));
+
+/*! @abstract A boolean indicating whether lockdown mode is enabled.
+ @discussion This mode trades off performance and compatibility in favor of security.
+ The default value depends on the system setting.
+ */
+@property (nonatomic, getter=isLockdownModeEnabled) BOOL lockdownModeEnabled WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 @end

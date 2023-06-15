@@ -16,7 +16,7 @@
 #include "api/task_queue/task_queue_factory.h"
 #include "api/test/frame_generator_interface.h"
 #include "api/video/video_frame.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "system_wrappers/include/clock.h"
@@ -66,10 +66,10 @@ struct FrameGeneratorCapturerConfig {
     int framerate = 30;
     TimeDelta change_interval = TimeDelta::Seconds(10);
     struct Crop {
-      TimeDelta scroll_duration;
+      TimeDelta scroll_duration = TimeDelta::Seconds(0);
       absl::optional<int> width;
       absl::optional<int> height;
-    } crop = { TimeDelta::Seconds(0), { }, { } };
+    } crop;
     int width = 1850;
     int height = 1110;
     std::vector<std::string> paths = {
@@ -132,6 +132,16 @@ class FrameGeneratorCapturer : public TestVideoCapturer {
   void ChangeResolution(size_t width, size_t height);
   void ChangeFramerate(int target_framerate);
 
+  struct Resolution {
+    int width;
+    int height;
+  };
+  absl::optional<Resolution> GetResolution();
+
+  void OnOutputFormatRequest(int width,
+                             int height,
+                             const absl::optional<int>& max_fps);
+
   void SetSinkWantsObserver(SinkWantsObserver* observer);
 
   void AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
@@ -157,7 +167,7 @@ class FrameGeneratorCapturer : public TestVideoCapturer {
   bool sending_;
   SinkWantsObserver* sink_wants_observer_ RTC_GUARDED_BY(&lock_);
 
-  rtc::CriticalSection lock_;
+  Mutex lock_;
   std::unique_ptr<FrameGeneratorInterface> frame_generator_;
 
   int source_fps_ RTC_GUARDED_BY(&lock_);
@@ -167,6 +177,10 @@ class FrameGeneratorCapturer : public TestVideoCapturer {
   absl::optional<ColorSpace> fake_color_space_ RTC_GUARDED_BY(&lock_);
 
   int64_t first_frame_capture_time_;
+
+  Mutex stats_lock_;
+  absl::optional<Resolution> source_resolution_ RTC_GUARDED_BY(&stats_lock_);
+
   // Must be the last field, so it will be deconstructed first as tasks
   // in the TaskQueue access other fields of the instance of this class.
   rtc::TaskQueue task_queue_;

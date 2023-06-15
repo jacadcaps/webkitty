@@ -15,9 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "api/audio/audio_frame.h"
 #include "modules/audio_processing/aec_dump/capture_stream_info.h"
-#include "modules/audio_processing/aec_dump/write_to_file_task.h"
 #include "modules/audio_processing/include/aec_dump.h"
 #include "rtc_base/ignore_wundef.h"
 #include "rtc_base/race_checker.h"
@@ -34,33 +32,37 @@ RTC_PUSH_IGNORING_WUNDEF()
 #endif
 RTC_POP_IGNORING_WUNDEF()
 
-namespace rtc {
-class TaskQueue;
-}  // namespace rtc
-
 namespace webrtc {
 
 // Task-queue based implementation of AecDump. It is thread safe by
 // relying on locks in TaskQueue.
 class AecDumpImpl : public AecDump {
  public:
-  // Does member variables initialization shared across all c-tors.
+  // `max_log_size_bytes` - maximum number of bytes to write to the debug file,
+  // `max_log_size_bytes == -1` means the log size will be unlimited.
   AecDumpImpl(FileWrapper debug_file,
               int64_t max_log_size_bytes,
               rtc::TaskQueue* worker_queue);
-
+  AecDumpImpl(const AecDumpImpl&) = delete;
+  AecDumpImpl& operator=(const AecDumpImpl&) = delete;
   ~AecDumpImpl() override;
 
   void WriteInitMessage(const ProcessingConfig& api_format,
                         int64_t time_now_ms) override;
   void AddCaptureStreamInput(const AudioFrameView<const float>& src) override;
   void AddCaptureStreamOutput(const AudioFrameView<const float>& src) override;
-  void AddCaptureStreamInput(const AudioFrame& frame) override;
-  void AddCaptureStreamOutput(const AudioFrame& frame) override;
+  void AddCaptureStreamInput(const int16_t* const data,
+                             int num_channels,
+                             int samples_per_channel) override;
+  void AddCaptureStreamOutput(const int16_t* const data,
+                              int num_channels,
+                              int samples_per_channel) override;
   void AddAudioProcessingState(const AudioProcessingState& state) override;
   void WriteCaptureStreamMessage() override;
 
-  void WriteRenderStreamMessage(const AudioFrame& frame) override;
+  void WriteRenderStreamMessage(const int16_t* const data,
+                                int num_channels,
+                                int samples_per_channel) override;
   void WriteRenderStreamMessage(
       const AudioFrameView<const float>& src) override;
 
@@ -70,7 +72,7 @@ class AecDumpImpl : public AecDump {
       const AudioProcessing::RuntimeSetting& runtime_setting) override;
 
  private:
-  std::unique_ptr<WriteToFileTask> CreateWriteToFileTask();
+  void PostWriteToFileTask(std::unique_ptr<audioproc::Event> event);
 
   FileWrapper debug_file_;
   int64_t num_bytes_left_for_log_ = 0;

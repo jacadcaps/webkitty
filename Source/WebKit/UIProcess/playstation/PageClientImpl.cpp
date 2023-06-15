@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Sony Interactive Entertainment Inc.
+ * Copyright (C) 2021 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,10 @@
 #include "PlayStationWebView.h"
 #include "WebPageProxy.h"
 
+#if USE(GRAPHICS_LAYER_WC)
+#include "DrawingAreaProxyWC.h"
+#endif
+
 namespace WebKit {
 
 PageClientImpl::PageClientImpl(PlayStationWebView& view)
@@ -38,16 +42,23 @@ PageClientImpl::PageClientImpl(PlayStationWebView& view)
 }
 
 // PageClient's pure virtual functions
-std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& processProxy)
+std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy&)
 {
-    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*m_view.page(), processProxy);
+#if USE(GRAPHICS_LAYER_WC)
+    if (m_view.page()->preferences().useGPUProcessForDOMRenderingEnabled()
+        || m_view.page()->preferences().useGPUProcessForCanvasRenderingEnabled()
+        || m_view.page()->preferences().useGPUProcessForWebGLEnabled())
+        return makeUnique<DrawingAreaProxyWC>(*m_view.page());
+#endif
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*m_view.page());
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
 {
+    m_view.setViewNeedsDisplay(region);
 }
 
-void PageClientImpl::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin)
+void PageClientImpl::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated)
 {
 }
 
@@ -58,28 +69,27 @@ WebCore::FloatPoint PageClientImpl::viewScrollPosition()
 
 WebCore::IntSize PageClientImpl::viewSize()
 {
-    return WebCore::IntSize { };
+    return m_view.viewSize();
 }
 
 bool PageClientImpl::isViewWindowActive()
 {
-    return m_view.isActive();
+    return m_view.viewState().contains(WebCore::ActivityState::WindowIsActive);
 }
 
 bool PageClientImpl::isViewFocused()
 {
-    return m_view.isFocused();
+    return m_view.viewState().contains(WebCore::ActivityState::IsFocused);
 }
 
 bool PageClientImpl::isViewVisible()
 {
-    return m_view.isVisible();
+    return m_view.viewState().contains(WebCore::ActivityState::IsVisible);
 }
 
 bool PageClientImpl::isViewInWindow()
 {
-    notImplemented();
-    return true;
+    return m_view.viewState().contains(WebCore::ActivityState::IsInWindow);
 }
 
 void PageClientImpl::processDidExit()
@@ -89,6 +99,7 @@ void PageClientImpl::processDidExit()
 void PageClientImpl::didRelaunchProcess()
 {
 }
+
 void PageClientImpl::pageClosed()
 {
 }
@@ -106,10 +117,6 @@ void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useC
     notImplemented();
 }
 
-void PageClientImpl::handleDownloadRequest(DownloadProxy&)
-{
-}
-
 void PageClientImpl::didChangeContentSize(const WebCore::IntSize& size)
 {
     notImplemented();
@@ -117,7 +124,7 @@ void PageClientImpl::didChangeContentSize(const WebCore::IntSize& size)
 
 void PageClientImpl::setCursor(const WebCore::Cursor& cursor)
 {
-    notImplemented();
+    m_view.setCursor(cursor);
 }
 
 void PageClientImpl::setCursorHiddenUntilMouseMoves(bool)
@@ -190,6 +197,13 @@ RefPtr<WebPopupMenuProxy> PageClientImpl::createPopupMenuProxy(WebPageProxy&  pa
     return { };
 }
 
+#if USE(GRAPHICS_LAYER_WC)
+bool PageClientImpl::usesOffscreenRendering() const
+{
+    return false;
+}
+#endif
+
 void PageClientImpl::enterAcceleratedCompositingMode(const LayerTreeContext& context)
 {
     notImplemented();
@@ -209,6 +223,36 @@ void PageClientImpl::updateAcceleratedCompositingMode(const LayerTreeContext&)
 WebFullScreenManagerProxyClient& PageClientImpl::fullScreenManagerProxyClient()
 {
     return *(WebFullScreenManagerProxyClient*)this;
+}
+
+void PageClientImpl::closeFullScreenManager()
+{
+    m_view.closeFullScreenManager();
+}
+
+bool PageClientImpl::isFullScreen()
+{
+    return m_view.isFullScreen();
+}
+
+void PageClientImpl::enterFullScreen()
+{
+    m_view.enterFullScreen();
+}
+
+void PageClientImpl::exitFullScreen()
+{
+    m_view.exitFullScreen();
+}
+
+void PageClientImpl::beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame)
+{
+    m_view.beganEnterFullScreen(initialFrame, finalFrame);
+}
+
+void PageClientImpl::beganExitFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame)
+{
+    m_view.beganExitFullScreen(initialFrame, finalFrame);
 }
 #endif
 
@@ -286,7 +330,7 @@ WebCore::UserInterfaceLayoutDirection PageClientImpl::userInterfaceLayoutDirecti
     return WebCore::UserInterfaceLayoutDirection::LTR;
 }
 
-void PageClientImpl::requestDOMPasteAccess(const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
     completionHandler(WebCore::DOMPasteAccessResponse::DeniedForGesture);
 }

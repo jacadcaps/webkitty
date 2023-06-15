@@ -21,7 +21,7 @@
 #include "config.h"
 #include "RenderDetailsMarker.h"
 
-#include "Element.h"
+#include "ElementInlines.h"
 #include "GraphicsContext.h"
 #include "HTMLDetailsElement.h"
 #include "HTMLInputElement.h"
@@ -76,19 +76,19 @@ static Path createRightArrowPath()
 RenderDetailsMarker::Orientation RenderDetailsMarker::orientation() const
 {
     switch (style().writingMode()) {
-    case TopToBottomWritingMode:
+    case WritingMode::TopToBottom:
         if (style().isLeftToRightDirection())
             return isOpen() ? Down : Right;
         return isOpen() ? Down : Left;
-    case RightToLeftWritingMode:
+    case WritingMode::RightToLeft:
         if (style().isLeftToRightDirection())
             return isOpen() ? Left : Down;
         return isOpen() ? Left : Up;
-    case LeftToRightWritingMode:
+    case WritingMode::LeftToRight:
         if (style().isLeftToRightDirection())
             return isOpen() ? Right : Down;
         return isOpen() ? Right : Up;
-    case BottomToTopWritingMode:
+    case WritingMode::BottomToTop:
         if (style().isLeftToRightDirection())
             return isOpen() ? Up : Right;
         return isOpen() ? Up : Left;
@@ -132,7 +132,7 @@ void RenderDetailsMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOf
 
     const Color color(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     paintInfo.context().setStrokeColor(color);
-    paintInfo.context().setStrokeStyle(SolidStroke);
+    paintInfo.context().setStrokeStyle(StrokeStyle::SolidStroke);
     paintInfo.context().setStrokeThickness(1.0f);
     paintInfo.context().setFillColor(color);
 

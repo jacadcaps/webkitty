@@ -28,6 +28,7 @@
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 
@@ -49,6 +50,11 @@
 
 - (void)expectControlsManager:(BOOL)expectControlsManager afterReceivingMessage:(NSString *)message
 {
+    [self expectControlsManager:expectControlsManager afterReceivingMessage:message withSetup:^{ }];
+}
+
+- (void)expectControlsManager:(BOOL)expectControlsManager afterReceivingMessage:(NSString *)message withSetup:(dispatch_block_t)setupAction
+{
     __block bool doneWaiting = false;
     [self performAfterReceivingMessage:message action:^ {
         BOOL hasVideoForControlsManager = [self _hasActiveVideoForControlsManager];
@@ -59,6 +65,7 @@
         doneWaiting = true;
     }];
 
+    setupAction();
     TestWebKitAPI::Util::run(&doneWaiting);
 }
 
@@ -172,8 +179,9 @@ TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollPausedVideoOu
     [webView loadTestPageNamed:@"large-videos-paused-video-hides-controls"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
 
-    [webView stringByEvaluatingJavaScript:@"pauseFirstVideoAndScrollToSecondVideo()"];
-    [webView expectControlsManager:NO afterReceivingMessage:@"paused"];
+    [webView expectControlsManager:NO afterReceivingMessage:@"paused" withSetup:^{
+        [webView stringByEvaluatingJavaScript:@"pauseFirstVideoAndScrollToSecondVideo()"];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollPlayingVideoWithSoundOutOfView)
@@ -183,8 +191,9 @@ TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollPlayingVideoW
     [webView loadTestPageNamed:@"large-videos-playing-video-keeps-controls"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
 
-    [webView stringByEvaluatingJavaScript:@"scrollToSecondVideo()"];
-    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled"];
+    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled" withSetup:^{
+        [webView stringByEvaluatingJavaScript:@"scrollToSecondVideo()"];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollPlayingMutedVideoOutOfView)
@@ -194,8 +203,9 @@ TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollPlayingMutedV
     [webView loadTestPageNamed:@"large-videos-playing-muted-video-hides-controls"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
 
-    [webView stringByEvaluatingJavaScript:@"muteFirstVideoAndScrollToSecondVideo()"];
-    [webView expectControlsManager:NO afterReceivingMessage:@"playing"];
+    [webView expectControlsManager:NO afterReceivingMessage:@"playing" withSetup:^{
+        [webView stringByEvaluatingJavaScript:@"muteFirstVideoAndScrollToSecondVideo()"];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerMultipleVideosShowControlsForLastInteractedVideo)
@@ -224,16 +234,17 @@ TEST(VideoControlsManager, VideoControlsManagerMultipleVideosShowControlsForLast
 
     TestWebKitAPI::Util::run(&secondVideoPaused);
 }
-// FIXME: Re-enable this test once <webkit.org/b/175909> is resolved.
-TEST(VideoControlsManager, DISABLED_VideoControlsManagerMultipleVideosSwitchControlledVideoWhenScrolling)
+
+TEST(VideoControlsManager, VideoControlsManagerMultipleVideosSwitchControlledVideoWhenScrolling)
 {
     RetainPtr<VideoControlsManagerTestWebView> webView = setUpWebViewForTestingVideoControlsManager(NSMakeRect(0, 0, 800, 600));
 
     [webView loadTestPageNamed:@"large-videos-autoplaying-scroll-to-video"];
-    [webView waitForPageToLoadWithAutoplayingVideos:2];
 
-    [webView stringByEvaluatingJavaScript:@"scrollToSecondView()"];
-    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled"];
+    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled" withSetup:^{
+        [webView waitForPageToLoadWithAutoplayingVideos:2];
+        [webView stringByEvaluatingJavaScript:@"scrollToSecondView()"];
+    }];
 
     EXPECT_TRUE([[webView controlledElementID] isEqualToString:@"second"]);
 }
@@ -244,8 +255,10 @@ TEST(VideoControlsManager, VideoControlsManagerMultipleVideosScrollOnlyLargeVide
 
     [webView loadTestPageNamed:@"large-video-playing-scroll-away"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
-    [webView stringByEvaluatingJavaScript:@"scrollVideoOutOfView()"];
-    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled"];
+
+    [webView expectControlsManager:YES afterReceivingMessage:@"scrolled" withSetup:^{
+        [webView stringByEvaluatingJavaScript:@"scrollVideoOutOfView()"];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerSingleSmallAutoplayingVideo)
@@ -255,8 +268,9 @@ TEST(VideoControlsManager, VideoControlsManagerSingleSmallAutoplayingVideo)
     [webView loadTestPageNamed:@"autoplaying-video-with-audio"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
 
-    [webView mouseDownAtPoint:NSMakePoint(50, 50) simulatePressure:YES];
-    [webView expectControlsManager:YES afterReceivingMessage:@"paused"];
+    [webView expectControlsManager:YES afterReceivingMessage:@"paused" withSetup:^{
+        [webView mouseDownAtPoint:NSMakePoint(50, 50) simulatePressure:YES];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerLargeAutoplayingVideoSeeksAfterEnding)
@@ -319,14 +333,16 @@ TEST(VideoControlsManager, VideoControlsManagerAudioElementStartedByInteraction)
 
     [webView loadTestPageNamed:@"play-audio-on-click"];
     [webView waitForPageToLoadWithAutoplayingVideos:0];
-    [webView mouseDownAtPoint:NSMakePoint(200, 200) simulatePressure:YES];
 
     // An audio element MUST be started with a user gesture in order to have a controls manager, so the expectation is YES.
-    [webView expectControlsManager:YES afterReceivingMessage:@"playing-first"];
+    [webView expectControlsManager:YES afterReceivingMessage:@"playing-first" withSetup:^{
+        [webView mouseDownAtPoint:NSMakePoint(200, 200) simulatePressure:YES];
+    }];
+
     EXPECT_TRUE([[webView controlledElementID] isEqualToString:@"first"]);
 }
 
-TEST(VideoControlsManager, DISABLED_VideoControlsManagerAudioElementFollowingUserInteraction)
+TEST(VideoControlsManager, VideoControlsManagerAudioElementFollowingUserInteraction)
 {
     RetainPtr<VideoControlsManagerTestWebView> webView = setUpWebViewForTestingVideoControlsManager(NSMakeRect(0, 0, 400, 400));
 
@@ -364,7 +380,6 @@ TEST(VideoControlsManager, VideoControlsManagerTearsDownMediaControlsOnDealloc)
         if ([webView respondsToSelector:@selector(_interactWithMediaControlsForTesting)])
             [webView _interactWithMediaControlsForTesting];
 
-        [webView release];
         finishedTest = true;
     }];
 
@@ -385,9 +400,10 @@ TEST(VideoControlsManager, VideoControlsManagerKeepsControlsStableDuringSrcChang
 
     [webView loadTestPageNamed:@"change-video-source-on-click"];
     [webView waitForPageToLoadWithAutoplayingVideos:1];
-    [webView mouseDownAtPoint:NSMakePoint(400, 300) simulatePressure:YES];
 
-    [webView expectControlsManager:YES afterReceivingMessage:@"changed"];
+    [webView expectControlsManager:YES afterReceivingMessage:@"changed" withSetup:^{
+        [webView mouseDownAtPoint:NSMakePoint(400, 300) simulatePressure:YES];
+    }];
 }
 
 TEST(VideoControlsManager, VideoControlsManagerKeepsControlsStableDuringSrcChangeOnEnd)
@@ -463,6 +479,25 @@ TEST(VideoControlsManager, VideoControlsManagerPageWithEnormousVideo)
 
     [webView loadTestPageNamed:@"enormous-video-with-sound"];
     [webView expectControlsManager:NO afterReceivingMessage:@"playing"];
+}
+
+TEST(VideoControlsManager, VideoControlsManagerDoesNotChangeValuesExposedToJavaScript)
+{
+    RetainPtr<VideoControlsManagerTestWebView> webView = setUpWebViewForTestingVideoControlsManager(NSMakeRect(0, 0, 500, 500));
+
+    // A large video with audio should have a controls manager even if it is played via script like this video.
+    // So the expectation is YES.
+    [webView loadTestPageNamed:@"large-video-with-audio"];
+    [webView waitForMediaControlsToShow];
+    [webView _updateMediaPlaybackControlsManager];
+
+    EXPECT_EQ(1.0, [[webView objectByEvaluatingJavaScript:@"document.getElementsByTagName('video')[0].playbackRate"] doubleValue]);
+    EXPECT_EQ(1.0, [[webView objectByEvaluatingJavaScript:@"document.getElementsByTagName('video')[0].defaultPlaybackRate"] doubleValue]);
+
+    [webView objectByEvaluatingJavaScript:@"document.getElementsByTagName('video')[0].playbackRate = 2.0;"];
+
+    EXPECT_EQ(2.0, [[webView objectByEvaluatingJavaScript:@"document.getElementsByTagName('video')[0].playbackRate"] doubleValue]);
+    EXPECT_EQ(1.0, [[webView objectByEvaluatingJavaScript:@"document.getElementsByTagName('video')[0].defaultPlaybackRate"] doubleValue]);
 }
 
 } // namespace TestWebKitAPI

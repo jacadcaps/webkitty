@@ -33,7 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WKFullScreenViewController : UIViewController
 @property (retain, nonatomic) id target;
-@property (assign, nonatomic) SEL action;
+@property (assign, nonatomic) SEL exitFullScreenAction;
 @property (copy, nonatomic) NSString *location;
 @property (assign, nonatomic) BOOL prefersStatusBarHidden;
 @property (assign, nonatomic) BOOL prefersHomeIndicatorAutoHidden;
@@ -42,9 +42,18 @@ NS_ASSUME_NONNULL_BEGIN
 @property (assign, nonatomic, getter=isAnimating) BOOL animating;
 
 - (id)initWithWebView:(WKWebView *)webView;
+- (void)invalidate;
 - (void)showUI;
 - (void)hideUI;
+- (void)showBanner;
+- (void)hideBanner;
 - (void)videoControlsManagerDidChange;
+- (void)setAnimatingViewAlpha:(CGFloat)alpha;
+- (void)setSupportedOrientations:(UIInterfaceOrientationMask)supportedOrientations;
+- (void)resetSupportedOrientations;
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+- (void)hideMediaControls:(BOOL)hidden;
+#endif
 @end
 
 NS_ASSUME_NONNULL_END

@@ -34,14 +34,16 @@ class RegistrableDomain;
 
 namespace WebKit {
 
+class AuxiliaryProcess;
+
 bool hasRequestedCrossWebsiteTrackingPermission();
 bool hasProhibitedUsageStrings();
-Optional<Vector<WebCore::RegistrableDomain>> getAppBoundDomainsTesting(const String&);
-bool shouldBeTreatedAsFullBrowser(const String& bundleID);
-void determineITPState();
-bool doesAppHaveITPEnabled();
-bool doesParentProcessHaveITPEnabled(Optional<audit_token_t>, bool);
+Span<const WebCore::RegistrableDomain> appBoundDomainsForTesting(const String&);
+bool isRunningTest(const String& bundleID);
+void determineTrackingPreventionState();
+bool doesAppHaveTrackingPreventionEnabled();
+bool doesParentProcessHaveTrackingPreventionEnabled(AuxiliaryProcess&, bool hasRequestedCrossWebsiteTrackingPermission);
 bool isFullWebBrowser();
-bool isParentProcessAFullWebBrowser(Optional<audit_token_t>);
+bool isParentProcessAFullWebBrowser(AuxiliaryProcess&);
 
 } // namespace WebKit

@@ -26,35 +26,45 @@
 #import "config.h"
 #import "_WKHitTestResultInternal.h"
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
+
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation _WKHitTestResult
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKHitTestResult.class, self))
+        return;
+
     _hitTestResult->~HitTestResult();
 
     [super dealloc];
 }
 
+static NSURL *URLFromString(const WTF::String& urlString)
+{
+    return urlString.isEmpty() ? nil : [NSURL URLWithString:urlString];
+}
+
 - (NSURL *)absoluteImageURL
 {
-    return [NSURL URLWithString:_hitTestResult->absoluteImageURL()];
+    return URLFromString(_hitTestResult->absoluteImageURL());
 }
 
 - (NSURL *)absolutePDFURL
 {
-    return [NSURL URLWithString:_hitTestResult->absolutePDFURL()];
+    return URLFromString(_hitTestResult->absolutePDFURL());
 }
 
 - (NSURL *)absoluteLinkURL
 {
-    return [NSURL URLWithString:_hitTestResult->absoluteLinkURL()];
+    return URLFromString(_hitTestResult->absoluteLinkURL());
 }
 
 - (NSURL *)absoluteMediaURL
 {
-    return [NSURL URLWithString:_hitTestResult->absoluteMediaURL()];
+    return URLFromString(_hitTestResult->absoluteMediaURL());
 }
 
 - (NSString *)linkLabel

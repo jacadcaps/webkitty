@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,8 @@
 #import "config.h"
 #import "_WKWebsiteDataStoreConfigurationInternal.h"
 
+#import "UnifiedOriginStorageLevel.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/RetainPtr.h>
 
 static void checkURLArgument(NSURL *url)
@@ -58,8 +60,24 @@ static void checkURLArgument(NSURL *url)
     return self;
 }
 
+- (instancetype)initWithIdentifier:(NSUUID *)identifier
+{
+    self = [super init];
+    if (!self)
+        return nil;
+
+    if (!identifier)
+        [NSException raise:NSInvalidArgumentException format:@"Identifier cannot be nil"];
+
+    API::Object::constructInWrapper<WebKit::WebsiteDataStoreConfiguration>(self, UUID(identifier));
+
+    return self;
+}
+
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKWebsiteDataStoreConfiguration.class, self))
+        return;
     _configuration->~WebsiteDataStoreConfiguration();
     [super dealloc];
 }
@@ -78,6 +96,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _webStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+    
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _webStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setLocalStorageDirectory(url.path);
 }
@@ -91,6 +113,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _indexedDBDatabaseDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+    
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _indexedDBDatabaseDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setIndexedDBDatabaseDirectory(url.path);
 }
@@ -104,6 +130,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set networkCacheDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set networkCacheDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setNetworkCacheDirectory(url.path);
 }
@@ -117,6 +147,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set deviceIdHashSaltsStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set deviceIdHashSaltsStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setDeviceIdHashSaltsStorageDirectory(url.path);
 }
@@ -130,6 +164,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _webSQLDatabaseDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _webSQLDatabaseDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setWebSQLDatabaseDirectory(url.path);
 }
@@ -163,6 +201,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _cookieStorageFile on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _cookieStorageFile on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     if ([url hasDirectoryPath])
         [NSException raise:NSInvalidArgumentException format:@"The cookie storage path must point to a file, not a directory."];
@@ -179,6 +221,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _resourceLoadStatisticsDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _resourceLoadStatisticsDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setResourceLoadStatisticsDirectory(url.path);
 }
@@ -192,6 +238,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _cacheStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _cacheStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setCacheStorageDirectory(url.path);
 }
@@ -205,6 +255,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set _serviceWorkerRegistrationDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set _serviceWorkerRegistrationDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setServiceWorkerRegistrationDirectory(url.path);
 }
@@ -248,6 +302,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set applicationCacheDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set applicationCacheDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setApplicationCacheDirectory(url.path);
 }
@@ -261,6 +319,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set applicationCacheFlatFileSubdirectoryName on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set applicationCacheFlatFileSubdirectoryName on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     _configuration->setApplicationCacheFlatFileSubdirectoryName(name);
 }
 
@@ -273,6 +335,10 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set mediaCacheDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set mediaCacheDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setMediaCacheDirectory(url.path);
 }
@@ -286,8 +352,29 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set mediaKeysStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set mediaKeysStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setMediaKeysStorageDirectory(url.path);
+}
+
+- (NSURL *)hstsStorageDirectory
+{
+    return [NSURL fileURLWithPath:_configuration->hstsStorageDirectory() isDirectory:YES];
+}
+
+- (void)setHSTSStorageDirectory:(NSURL *)url
+{
+    if (!_configuration->isPersistent())
+        [NSException raise:NSInvalidArgumentException format:@"Cannot set hstsStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set hstsStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
+    checkURLArgument(url);
+    _configuration->setHSTSStorageDirectory(url.path);
 }
 
 - (NSURL *)alternativeServicesStorageDirectory
@@ -299,8 +386,76 @@ static void checkURLArgument(NSURL *url)
 {
     if (!_configuration->isPersistent())
         [NSException raise:NSInvalidArgumentException format:@"Cannot set alternativeServicesDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set alternativeServicesStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
     checkURLArgument(url);
     _configuration->setAlternativeServicesDirectory(url.path);
+}
+
+- (NSURL *)generalStorageDirectory
+{
+    auto& directory = _configuration->generalStorageDirectory();
+    if (directory.isNull())
+        return nil;
+    return [NSURL fileURLWithPath:directory isDirectory:YES];
+}
+
+- (void)setGeneralStorageDirectory:(NSURL *)url
+{
+    if (!_configuration->isPersistent())
+        [NSException raise:NSInvalidArgumentException format:@"Cannot set generalStorageDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
+
+    if (_configuration->identifier())
+        [NSException raise:NSGenericException format:@"Cannot set generalStorageDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
+
+    checkURLArgument(url);
+    _configuration->setGeneralStorageDirectory(url.path);
+}
+
+static _WKUnifiedOriginStorageLevel toWKUnifiedOriginStorageLevel(WebKit::UnifiedOriginStorageLevel level)
+{
+    switch (level) {
+    case WebKit::UnifiedOriginStorageLevel::None:
+        return _WKUnifiedOriginStorageLevelNone;
+    case WebKit::UnifiedOriginStorageLevel::Basic:
+        return _WKUnifiedOriginStorageLevelBasic;
+    case WebKit::UnifiedOriginStorageLevel::Standard:
+        return _WKUnifiedOriginStorageLevelStandard;
+    }
+}
+
+static WebKit::UnifiedOriginStorageLevel toUnifiedOriginStorageLevel(_WKUnifiedOriginStorageLevel wkLevel)
+{
+    switch (wkLevel) {
+    case _WKUnifiedOriginStorageLevelNone:
+        return WebKit::UnifiedOriginStorageLevel::None;
+    case _WKUnifiedOriginStorageLevelBasic:
+        return WebKit::UnifiedOriginStorageLevel::Basic;
+    case _WKUnifiedOriginStorageLevelStandard:
+        return WebKit::UnifiedOriginStorageLevel::Standard;
+    }
+}
+
+- (_WKUnifiedOriginStorageLevel)unifiedOriginStorageLevel
+{
+    return toWKUnifiedOriginStorageLevel(_configuration->unifiedOriginStorageLevel());
+}
+
+- (void)setUnifiedOriginStorageLevel:(_WKUnifiedOriginStorageLevel)level
+{
+    _configuration->setUnifiedOriginStorageLevel(toUnifiedOriginStorageLevel(level));
+}
+
+- (NSString *)webPushPartitionString
+{
+    return _configuration->webPushPartitionString();
+}
+
+- (void)setWebPushPartitionString:(NSString *)string
+{
+    _configuration->setWebPushPartitionString(string);
 }
 
 - (BOOL)deviceManagementRestrictionsEnabled
@@ -433,9 +588,47 @@ static void checkURLArgument(NSURL *url)
     return _configuration->requiresSecureHTTPSProxyConnection();
 }
 
-- (void)setRequiresSecureHTTPSProxyConnection:(BOOL)requires
+- (void)setRequiresSecureHTTPSProxyConnection:(BOOL)requiresSecureProxy
 {
-    _configuration->setRequiresSecureHTTPSProxyConnection(requires);
+    _configuration->setRequiresSecureHTTPSProxyConnection(requiresSecureProxy);
+}
+
+- (BOOL)shouldRunServiceWorkersOnMainThreadForTesting
+{
+    return _configuration->shouldRunServiceWorkersOnMainThreadForTesting();
+}
+
+- (void)setShouldRunServiceWorkersOnMainThreadForTesting:(BOOL)shouldRunOnMainThread
+{
+    _configuration->setShouldRunServiceWorkersOnMainThreadForTesting(shouldRunOnMainThread);
+}
+
+- (NSUInteger)overrideServiceWorkerRegistrationCountTestingValue
+{
+    return _configuration->overrideServiceWorkerRegistrationCountTestingValue().value_or(0);
+}
+
+- (void)setOverrideServiceWorkerRegistrationCountTestingValue:(NSUInteger)count
+{
+    _configuration->setOverrideServiceWorkerRegistrationCountTestingValue(count);
+}
+
+- (BOOL)_shouldAcceptInsecureCertificatesForWebSockets
+{
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    return _configuration->shouldAcceptInsecureCertificatesForWebSockets();
+#else
+    return false;
+#endif
+}
+
+- (void)_setShouldAcceptInsecureCertificatesForWebSockets:(BOOL)accept
+{
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    _configuration->setShouldAcceptInsecureCertificatesForWebSockets(accept);
+#else
+    UNUSED_PARAM(accept);
+#endif
 }
 
 - (void)setProxyConfiguration:(NSDictionary *)configuration
@@ -453,6 +646,46 @@ static void checkURLArgument(NSURL *url)
     _configuration->setStandaloneApplicationURL(url);
 }
 
+- (BOOL)enableInAppBrowserPrivacyForTesting
+{
+    return _configuration->enableInAppBrowserPrivacyForTesting();
+}
+
+- (void)setEnableInAppBrowserPrivacyForTesting:(BOOL)enable
+{
+    _configuration->setEnableInAppBrowserPrivacyForTesting(enable);
+}
+
+- (BOOL)allowsHSTSWithUntrustedRootCertificate
+{
+    return _configuration->allowsHSTSWithUntrustedRootCertificate();
+}
+
+- (void)setAllowsHSTSWithUntrustedRootCertificate:(BOOL)allows
+{
+    _configuration->setAllowsHSTSWithUntrustedRootCertificate(allows);
+}
+
+- (NSString *)pcmMachServiceName
+{
+    return _configuration->pcmMachServiceName();
+}
+
+- (void)setPCMMachServiceName:(NSString *)name
+{
+    _configuration->setPCMMachServiceName(name);
+}
+
+- (NSString *)webPushMachServiceName
+{
+    return _configuration->webPushMachServiceName();
+}
+
+- (void)setWebPushMachServiceName:(NSString *)name
+{
+    _configuration->setWebPushMachServiceName(name);
+}
+
 - (BOOL)allLoadsBlockedByDeviceManagementRestrictionsForTesting
 {
     return _configuration->allLoadsBlockedByDeviceManagementRestrictionsForTesting();
@@ -461,6 +694,35 @@ static void checkURLArgument(NSURL *url)
 - (void)setAllLoadsBlockedByDeviceManagementRestrictionsForTesting:(BOOL)blocked
 {
     _configuration->setAllLoadsBlockedByDeviceManagementRestrictionsForTesting(blocked);
+}
+
+- (BOOL)webPushDaemonUsesMockBundlesForTesting
+{
+    return _configuration->webPushDaemonUsesMockBundlesForTesting();
+}
+
+- (void)setWebPushDaemonUsesMockBundlesForTesting:(BOOL)usesMockBundles
+{
+    _configuration->setWebPushDaemonUsesMockBundlesForTesting(usesMockBundles);
+}
+
+- (BOOL)resourceLoadStatisticsDebugModeEnabled
+{
+    return _configuration->resourceLoadStatisticsDebugModeEnabled();
+}
+
+- (void)setResourceLoadStatisticsDebugModeEnabled:(BOOL)enabled
+{
+    _configuration->setResourceLoadStatisticsDebugModeEnabled(enabled);
+}
+
+- (NSUUID *)identifier
+{
+    auto currentIdentifier = _configuration->identifier();
+    if (!currentIdentifier)
+        return nullptr;
+
+    return *currentIdentifier;
 }
 
 - (API::Object&)_apiObject

@@ -68,7 +68,7 @@ DragSource::DragSource(GtkWidget* webView)
             break;
         }
         case DragTargetType::Image: {
-            GRefPtr<GdkPixbuf> pixbuf = adoptGRef(drag.m_selectionData->image()->getGdkPixbuf());
+            auto pixbuf = drag.m_selectionData->image()->gdkPixbuf();
             gtk_selection_data_set_pixbuf(data, pixbuf.get());
             break;
         }
@@ -90,7 +90,7 @@ DragSource::DragSource(GtkWidget* webView)
         if (!drag.m_selectionData)
             return;
 
-        drag.m_selectionData = WTF::nullopt;
+        drag.m_selectionData = std::nullopt;
         drag.m_drag = nullptr;
 
         GdkDevice* device = gdk_drag_context_get_device(context);
@@ -112,7 +112,7 @@ DragSource::~DragSource()
     g_signal_handlers_disconnect_by_data(m_webView, this);
 }
 
-void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image)
+void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image, IntPoint&& imageHotspot)
 {
     if (m_drag) {
         gtk_drag_cancel(m_drag.get());
@@ -140,8 +140,7 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
     m_drag = gtk_drag_begin_with_coordinates(m_webView, list.get(), dragOperationToGdkDragActions(operationMask), GDK_BUTTON_PRIMARY, nullptr, -1, -1);
     if (image) {
         RefPtr<cairo_surface_t> imageSurface(image->createCairoSurface());
-        // Use the center of the drag image as hotspot.
-        cairo_surface_set_device_offset(imageSurface.get(), -cairo_image_surface_get_width(imageSurface.get()) / 2, -cairo_image_surface_get_height(imageSurface.get()) / 2);
+        cairo_surface_set_device_offset(imageSurface.get(), -imageHotspot.x(), -imageHotspot.y());
         gtk_drag_set_icon_surface(m_drag.get(), imageSurface.get());
     } else
         gtk_drag_set_icon_default(m_drag.get());

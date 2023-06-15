@@ -27,6 +27,7 @@
 #import "WKContentWorldInternal.h"
 
 #import "_WKUserContentWorldInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation WKContentWorld
 
@@ -47,6 +48,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKContentWorld.class, self))
+        return;
+
     _contentWorld->~ContentWorld();
 
     [super dealloc];
@@ -74,7 +78,7 @@
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (_WKUserContentWorld *)_userContentWorld
 {
-    return [[[_WKUserContentWorld alloc] _initWithContentWorld:self] autorelease];
+    return adoptNS([[_WKUserContentWorld alloc] _initWithContentWorld:self]).autorelease();
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
 

@@ -28,11 +28,13 @@
 
 #if ENABLE(DATALIST_ELEMENT) && PLATFORM(IOS_FAMILY)
 
+#import "UIKitSPI.h"
 #import "UserInterfaceIdiom.h"
 #import "WKContentView.h"
 #import "WKContentViewInteraction.h"
 #import "WKFormPeripheral.h"
 #import "WKFormPopover.h"
+#import "WKWebViewPrivateForTesting.h"
 #import "WebPageProxy.h"
 
 static const CGFloat maxVisibleSuggestions = 5;
@@ -40,23 +42,18 @@ static const CGFloat suggestionsPopoverCellHeight = 44;
 static const CGFloat suggestionsPopoverWidth = 320;
 static NSString * const suggestionCellReuseIdentifier = @"WKDataListSuggestionCell";
 
-@interface WKDataListSuggestionsControl : NSObject {
-    WeakPtr<WebKit::WebDataListSuggestionsDropdownIOS> _dropdown;
-    Vector<WebCore::DataListSuggestion> _suggestions;
-}
+@interface WKDataListSuggestionsControl ()
 
 @property (nonatomic, weak) WKContentView *view;
+@property (nonatomic) BOOL isShowingSuggestions;
 
-- (instancetype)initWithInformation:(WebCore::DataListSuggestionInformation&&)information inView:(WKContentView *)view;
-- (void)updateWithInformation:(WebCore::DataListSuggestionInformation&&)information;
 - (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownIOS&)dropdown activationType:(WebCore::DataListSuggestionActivationType)activationType;
-- (void)didSelectOptionAtIndex:(NSInteger)index;
-- (void)invalidate;
 
 - (NSArray<WKDataListTextSuggestion *> *)textSuggestions;
 - (NSInteger)suggestionsCount;
 - (String)suggestionAtIndex:(NSInteger)index;
 - (NSTextAlignment)textAlignment;
+
 @end
 
 @interface WKDataListSuggestionsPicker : WKDataListSuggestionsControl <UIPickerViewDataSource, UIPickerViewDelegate>
@@ -74,6 +71,15 @@ static NSString * const suggestionCellReuseIdentifier = @"WKDataListSuggestionCe
 
 - (void)reloadData;
 @end
+
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+#if USE(UICONTEXTMENU)
+@interface WKDataListSuggestionsDropdown : WKDataListSuggestionsControl <UIContextMenuInteractionDelegate>
+#else
+@interface WKDataListSuggestionsDropdown : WKDataListSuggestionsControl
+#endif
+@end
+#endif
 
 @implementation WKDataListTextSuggestion
 @end
@@ -102,10 +108,18 @@ void WebDataListSuggestionsDropdownIOS::show(WebCore::DataListSuggestionInformat
 
     WebCore::DataListSuggestionActivationType type = information.activationType;
 
-    if (currentUserInterfaceIdiomIsPad())
-        m_suggestionsControl = adoptNS([[WKDataListSuggestionsPopover alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
-    else
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+    if (m_contentView._shouldUseContextMenusForFormControls) {
+        m_suggestionsControl = adoptNS([[WKDataListSuggestionsDropdown alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
+        [m_suggestionsControl showSuggestionsDropdown:*this activationType:type];
+        return;
+    }
+#endif
+
+    if (currentUserInterfaceIdiomIsSmallScreen())
         m_suggestionsControl = adoptNS([[WKDataListSuggestionsPicker alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
+    else
+        m_suggestionsControl = adoptNS([[WKDataListSuggestionsPopover alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
 
     [m_suggestionsControl showSuggestionsDropdown:*this activationType:type];
 }
@@ -134,7 +148,10 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
 
 #pragma mark - WKDataListSuggestionsControl
 
-@implementation WKDataListSuggestionsControl
+@implementation WKDataListSuggestionsControl {
+    WeakPtr<WebKit::WebDataListSuggestionsDropdownIOS> _dropdown;
+    Vector<WebCore::DataListSuggestion> _suggestions;
+}
 
 - (instancetype)initWithInformation:(WebCore::DataListSuggestionInformation&&)information inView:(WKContentView *)view
 {
@@ -143,6 +160,8 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
 
     _view = view;
     _suggestions = WTFMove(information.suggestions);
+
+    [_view _setDataListSuggestionsControl:self];
 
     return self;
 }
@@ -154,7 +173,7 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
 
 - (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownIOS&)dropdown activationType:(WebCore::DataListSuggestionActivationType)activationType
 {
-    _dropdown = makeWeakPtr(dropdown);
+    _dropdown = dropdown;
 }
 
 - (void)didSelectOptionAtIndex:(NSInteger)index
@@ -321,7 +340,7 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
     self.view.dataListTextSuggestions = self.textSuggestions;
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    [_popover setPopoverController:[[[UIPopoverController alloc] initWithContentViewController:_suggestionsViewController.get()] autorelease]];
+    [_popover setPopoverController:adoptNS([[UIPopoverController alloc] initWithContentViewController:_suggestionsViewController.get()]).get()];
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     [_popover presentPopoverAnimated:NO];
@@ -346,7 +365,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)reloadData
 {
     [self.tableView reloadData];
-    [self setPreferredContentSize:CGSizeMake(suggestionsPopoverWidth, maxVisibleSuggestions * suggestionsPopoverCellHeight + suggestionsPopoverCellHeight / 2)];
+
+    NSInteger suggestionsCount = [self.control suggestionsCount];
+    if (suggestionsCount > maxVisibleSuggestions)
+        [self setPreferredContentSize:CGSizeMake(suggestionsPopoverWidth, maxVisibleSuggestions * suggestionsPopoverCellHeight + suggestionsPopoverCellHeight / 2)];
+    else
+        [self setPreferredContentSize:CGSizeMake(suggestionsPopoverWidth, suggestionsCount * suggestionsPopoverCellHeight)];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
@@ -356,15 +380,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:suggestionCellReuseIdentifier];
+    auto cell = retainPtr([tableView dequeueReusableCellWithIdentifier:suggestionCellReuseIdentifier]);
     if (!cell)
-        cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:suggestionCellReuseIdentifier] autorelease];
+        cell = adoptNS([[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:suggestionCellReuseIdentifier]);
 
-    cell.textLabel.text = [self.control suggestionAtIndex:indexPath.row];
-    cell.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    cell.textLabel.textAlignment = [self.control textAlignment];
+    [cell textLabel].text = [self.control suggestionAtIndex:indexPath.row];
+    [cell textLabel].lineBreakMode = NSLineBreakByTruncatingTail;
+    [cell textLabel].textAlignment = [self.control textAlignment];
 
-    return cell;
+    return cell.autorelease();
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
@@ -373,5 +397,212 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 @end
+
+#if ENABLE(IOS_FORM_CONTROL_REFRESH)
+
+#pragma mark - WKDataListSuggestionsDropdown
+
+@implementation WKDataListSuggestionsDropdown {
+#if USE(UICONTEXTMENU)
+    RetainPtr<NSArray<UIMenuElement *>> _suggestionsMenuElements;
+    RetainPtr<UIContextMenuInteraction> _suggestionsContextMenuInteraction;
+#endif
+}
+
+- (instancetype)initWithInformation:(WebCore::DataListSuggestionInformation&&)information inView:(WKContentView *)view
+{
+    if (!(self = [super initWithInformation:WTFMove(information) inView:view]))
+        return nil;
+
+    return self;
+}
+
+- (void)updateWithInformation:(WebCore::DataListSuggestionInformation&&)information
+{
+    auto activationType = information.activationType;
+
+    [super updateWithInformation:WTFMove(information)];
+    [self _displayWithActivationType:activationType];
+}
+
+- (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownIOS&)dropdown activationType:(WebCore::DataListSuggestionActivationType)activationType
+{
+    [super showSuggestionsDropdown:dropdown activationType:activationType];
+    [self _displayWithActivationType:activationType];
+}
+
+- (void)invalidate
+{
+#if USE(UICONTEXTMENU)
+    [self _removeContextMenuInteraction];
+#endif
+}
+
+- (void)didSelectOptionAtIndex:(NSInteger)index
+{
+    [self.view updateFocusedElementFocusedWithDataListDropdown:NO];
+    [super didSelectOptionAtIndex:index];
+}
+
+- (void)_displayWithActivationType:(WebCore::DataListSuggestionActivationType)activationType
+{
+    if (activationType == WebCore::DataListSuggestionActivationType::IndicatorClicked)
+        [self.view updateFocusedElementFocusedWithDataListDropdown:YES];
+    else if (activationType == WebCore::DataListSuggestionActivationType::ControlClicked)
+        [self.view updateFocusedElementFocusedWithDataListDropdown:NO];
+
+    [self _updateTextSuggestions];
+
+    if (![UIKeyboard isInHardwareKeyboardMode] && activationType != WebCore::DataListSuggestionActivationType::IndicatorClicked)
+        return;
+
+    [self _showSuggestions];
+}
+
+- (void)_showSuggestions
+{
+#if USE(UICONTEXTMENU)
+    [self _updateSuggestionsMenuElements];
+
+    if (!_suggestionsContextMenuInteraction) {
+        _suggestionsContextMenuInteraction = adoptNS([[UIContextMenuInteraction alloc] initWithDelegate:self]);
+        [self.view addInteraction:_suggestionsContextMenuInteraction.get()];
+
+        [self.view doAfterEditorStateUpdateAfterFocusingElement:[weakSelf = WeakObjCPtr<WKDataListSuggestionsDropdown>(self)] {
+            auto strongSelf = weakSelf.get();
+            if (!strongSelf)
+                return;
+
+            auto view = [strongSelf view];
+            [view presentContextMenu:strongSelf->_suggestionsContextMenuInteraction.get() atLocation:[view lastInteractionLocation]];
+        }];
+    } else {
+        [_suggestionsContextMenuInteraction updateVisibleMenuWithBlock:[&](UIMenu *visibleMenu) -> UIMenu * {
+            return [visibleMenu menuByReplacingChildren:_suggestionsMenuElements.get()];
+        }];
+    }
+#endif
+}
+
+- (void)_updateTextSuggestions
+{
+    self.view.dataListTextSuggestions = self.textSuggestions;
+}
+
+#if USE(UICONTEXTMENU)
+
+- (void)_updateSuggestionsMenuElements
+{
+    NSMutableArray *suggestions = [NSMutableArray arrayWithCapacity:self.suggestionsCount];
+
+    for (NSInteger index = 0; index < self.suggestionsCount; index++) {
+        UIAction *suggestionAction = [UIAction actionWithTitle:[self suggestionAtIndex:index] image:nil identifier:nil handler:[weakSelf = WeakObjCPtr<WKDataListSuggestionsDropdown>(self), index] (UIAction *) {
+            auto strongSelf = weakSelf.get();
+            if (!strongSelf)
+                return;
+
+            [strongSelf didSelectOptionAtIndex:index];
+        }];
+
+        [suggestions addObject:suggestionAction];
+    }
+
+    _suggestionsMenuElements = adoptNS([suggestions copy]);
+}
+
+- (void)_removeContextMenuInteraction
+{
+    if (!_suggestionsContextMenuInteraction)
+        return;
+
+    [self.view removeInteraction:_suggestionsContextMenuInteraction.get()];
+    _suggestionsContextMenuInteraction = nil;
+    [self.view _removeContextMenuHintContainerIfPossible];
+    [self.view.webView _didDismissContextMenu];
+}
+
+- (void)_suggestionsMenuDidPresent
+{
+    self.isShowingSuggestions = YES;
+
+    [self.view.webView _didShowContextMenu];
+}
+
+- (void)_suggestionsMenuDidDismiss
+{
+    self.isShowingSuggestions = NO;
+
+    [self.view updateFocusedElementFocusedWithDataListDropdown:NO];
+    [self _updateTextSuggestions];
+
+    [self _removeContextMenuInteraction];
+}
+
+- (UIEdgeInsets)_preferredEdgeInsetsForSuggestionsMenu
+{
+    CGRect windowBounds = self.view.textEffectsWindow.bounds;
+    CGRect elementFrameInWindowCoordinates = [self.view convertRect:self.view.focusedElementInformation.interactionRect toView:nil];
+
+    if (CGRectGetMidY(elementFrameInWindowCoordinates) > CGRectGetMidY(windowBounds))
+        return UIEdgeInsetsMake(0, 0, CGRectGetMaxY(windowBounds) - CGRectGetMinY(elementFrameInWindowCoordinates), 0);
+
+    // Use MinY rather than MaxY to account for the hint preview.
+    return UIEdgeInsetsMake(CGRectGetMinY(elementFrameInWindowCoordinates), 0, 0, 0);
+}
+
+#pragma mark UIContextMenuInteractionDelegate
+
+#if HAVE(UI_CONTEXT_MENU_PREVIEW_ITEM_IDENTIFIER)
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configuration:(UIContextMenuConfiguration *)configuration highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier
+#else
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction previewForHighlightingMenuWithConfiguration:(UIContextMenuConfiguration *)configuration
+#endif
+{
+    return [self.view _createTargetedContextMenuHintPreviewForFocusedElement];
+}
+
+- (_UIContextMenuStyle *)_contextMenuInteraction:(UIContextMenuInteraction *)interaction styleForMenuWithConfiguration:(UIContextMenuConfiguration *)configuration
+{
+    _UIContextMenuStyle *style = [_UIContextMenuStyle defaultStyle];
+    style.preferredLayout = _UIContextMenuLayoutCompactMenu;
+    style.preferredEdgeInsets = [self _preferredEdgeInsetsForSuggestionsMenu];
+
+    return style;
+}
+
+- (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configurationForMenuAtLocation:(CGPoint)location
+{
+    UIContextMenuActionProvider actionMenuProvider = [weakSelf = WeakObjCPtr<WKDataListSuggestionsDropdown>(self)] (NSArray<UIMenuElement *> *) -> UIMenu * {
+        auto strongSelf = weakSelf.get();
+        if (!strongSelf)
+            return nil;
+
+        return [UIMenu menuWithTitle:@"" children:strongSelf->_suggestionsMenuElements.get()];
+    };
+
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:actionMenuProvider];
+}
+
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction willDisplayMenuForConfiguration:(UIContextMenuConfiguration *)configuration animator:(id <UIContextMenuInteractionAnimating>)animator
+{
+    [animator addCompletion:[weakSelf = WeakObjCPtr<WKDataListSuggestionsDropdown>(self)] {
+        if (auto strongSelf = weakSelf.get())
+            [strongSelf _suggestionsMenuDidPresent];
+    }];
+}
+
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction willEndForConfiguration:(UIContextMenuConfiguration *)configuration animator:(id <UIContextMenuInteractionAnimating>)animator
+{
+    [animator addCompletion:[weakSelf = WeakObjCPtr<WKDataListSuggestionsDropdown>(self)] {
+        if (auto strongSelf = weakSelf.get())
+            [strongSelf _suggestionsMenuDidDismiss];
+    }];
+}
+
+#endif // USE(UICONTEXTMENU)
+
+@end
+
+#endif // ENABLE(IOS_FORM_CONTROL_REFRESH)
 
 #endif // ENABLE(DATALIST_ELEMENT) && PLATFORM(IOS_FAMILY)

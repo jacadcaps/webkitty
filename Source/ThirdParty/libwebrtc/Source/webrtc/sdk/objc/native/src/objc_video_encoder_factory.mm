@@ -19,7 +19,6 @@
 #import "components/video_codec/RTCCodecSpecificInfoH265+Private.h"
 #endif
 #import "sdk/objc/api/peerconnection/RTCEncodedImage+Private.h"
-#import "sdk/objc/api/peerconnection/RTCRtpFragmentationHeader+Private.h"
 #import "sdk/objc/api/peerconnection/RTCVideoCodecInfo+Private.h"
 #import "sdk/objc/api/peerconnection/RTCVideoEncoderSettings+Private.h"
 #import "sdk/objc/api/video_codec/RTCVideoCodecConstants.h"
@@ -43,7 +42,7 @@ namespace {
 class ObjCVideoEncoder : public VideoEncoder {
  public:
   ObjCVideoEncoder(id<RTCVideoEncoder> encoder)
-      : encoder_(encoder), implementation_name_([encoder implementationName].stdString) {}
+      : encoder_(encoder), implementation_name_([encoder implementationName].rtcStdString) {}
 
   int32_t InitEncode(const VideoCodec *codec_settings, const Settings &encoder_settings) override {
 #if defined(WEBRTC_WEBKIT_BUILD)
@@ -80,10 +79,8 @@ class ObjCVideoEncoder : public VideoEncoder {
 #endif
       }
 
-      std::unique_ptr<RTPFragmentationHeader> fragmentationHeader =
-          [header createNativeFragmentationHeader];
       EncodedImageCallback::Result res =
-          callback->OnEncodedImage(encodedImage, &codecSpecificInfo, fragmentationHeader.get());
+          callback->OnEncodedImage(encodedImage, &codecSpecificInfo);
       return res.error == EncodedImageCallback::Result::OK;
     }];
 
@@ -120,7 +117,6 @@ class ObjCVideoEncoder : public VideoEncoder {
                                             ScalingSettings::kOff;
 
     info.is_hardware_accelerated = true;
-    info.has_internal_source = false;
     return info;
   }
 
@@ -161,19 +157,6 @@ std::vector<SdpVideoFormat> ObjCVideoEncoderFactory::GetImplementations() const 
   return GetSupportedFormats();
 }
 
-VideoEncoderFactory::CodecInfo ObjCVideoEncoderFactory::QueryVideoEncoder(
-    const SdpVideoFormat &format) const {
-  // TODO(andersc): This is a hack until we figure out how this should be done properly.
-  NSString *formatName = [NSString stringForStdString:format.name];
-  NSSet *wrappedSoftwareFormats =
-      [NSSet setWithObjects:kRTCVideoCodecVp8Name, kRTCVideoCodecVp9Name, nil];
-
-  CodecInfo codec_info;
-  codec_info.is_hardware_accelerated = ![wrappedSoftwareFormats containsObject:formatName];
-  codec_info.has_internal_source = false;
-  return codec_info;
-}
-
 std::unique_ptr<VideoEncoder> ObjCVideoEncoderFactory::CreateVideoEncoder(
     const SdpVideoFormat &format) {
   RTCVideoCodecInfo *info = [[RTCVideoCodecInfo alloc] initWithNativeSdpVideoFormat:format];
@@ -181,7 +164,7 @@ std::unique_ptr<VideoEncoder> ObjCVideoEncoderFactory::CreateVideoEncoder(
   // Because of symbol conflict, isKindOfClass doesn't work as expected.
   // See https://bugs.webkit.org/show_bug.cgi?id=198782.
   // if ([encoder isKindOfClass:[RTCWrappedNativeVideoEncoder class]]) {
-  if ([info.name isEqual:@"VP8"] || [info.name isEqual:@"VP9"]) {
+  if ([info.name isEqual:@"VP8"] || [info.name isEqual:@"VP9"] || [info.name isEqual:@"AV1"]) {
     return [(RTCWrappedNativeVideoEncoder *)encoder releaseWrappedEncoder];
   } else {
     return std::unique_ptr<ObjCVideoEncoder>(new ObjCVideoEncoder(encoder));

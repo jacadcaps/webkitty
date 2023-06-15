@@ -43,12 +43,12 @@ private:
 
     void startAnimation() override;
     void stopAnimation(SVGElement* targetElement) override;
-    bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
-    bool calculateFromAndToValues(const String& fromString, const String& toString) override;
-    bool calculateFromAndByValues(const String& fromString, const String& byString) override;
+    bool setFromAndToValues(const String& fromString, const String& toString) override;
+    bool setFromAndByValues(const String& fromString, const String& byString) override;
+    bool setToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
     void calculateAnimatedValue(float percentage, unsigned repeatCount) override;
     void applyResultsToTarget() override;
-    Optional<float> calculateDistance(const String& fromString, const String& toString) override;
+    std::optional<float> calculateDistance(const String& fromString, const String& toString) override;
 
     enum RotateMode {
         RotateAngle,
@@ -63,7 +63,7 @@ private:
     // Note: we do not support percentage values for to/from coords as the spec implies we should (opera doesn't either)
     FloatPoint m_fromPoint;
     FloatPoint m_toPoint;
-    Optional<FloatPoint> m_toPointAtEndOfDuration;
+    std::optional<FloatPoint> m_toPointAtEndOfDuration;
 
     Path m_path;
     Path m_animationPath;

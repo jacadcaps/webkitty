@@ -39,18 +39,21 @@ namespace WebKit {
 
 class RemoteLayerTreeScrollbars;
 
-class RemoteLayerTreeNode {
+class RemoteLayerTreeNode : public CanMakeWeakPtr<RemoteLayerTreeNode> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID, RetainPtr<CALayer>);
+    RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID, Markable<WebCore::LayerHostingContextIdentifier>, RetainPtr<CALayer>);
 #if PLATFORM(IOS_FAMILY)
-    RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID, RetainPtr<UIView>);
+    RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID, Markable<WebCore::LayerHostingContextIdentifier>, RetainPtr<UIView>);
 #endif
     ~RemoteLayerTreeNode();
 
     static std::unique_ptr<RemoteLayerTreeNode> createWithPlainLayer(WebCore::GraphicsLayer::PlatformLayerID);
 
     CALayer *layer() const { return m_layer.get(); }
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    CALayer *interactionRegionsLayer() const { return m_interactionRegionsLayer.get(); }
+#endif
 #if PLATFORM(IOS_FAMILY)
     UIView *uiView() const { return m_uiView.get(); }
 #endif
@@ -75,19 +78,37 @@ public:
 
     static NSString *appendLayerDescription(NSString *description, CALayer *);
 
+#if ENABLE(SCROLLING_THREAD)
+    WebCore::ScrollingNodeID scrollingNodeID() const { return m_scrollingNodeID; }
+    void setScrollingNodeID(WebCore::ScrollingNodeID nodeID) { m_scrollingNodeID = nodeID; }
+#endif
+
+    Markable<WebCore::LayerHostingContextIdentifier> remoteContextHostingIdentifier() const { return m_remoteContextHostingIdentifier; }
+    Markable<WebCore::LayerHostingContextIdentifier> remoteContextHostedIdentifier() const { return m_remoteContextHostedIdentifier; }
+    void setRemoteContextHostedIdentifier(WebCore::LayerHostingContextIdentifier identifier) { m_remoteContextHostedIdentifier = identifier; }
+
 private:
     void initializeLayer();
 
     WebCore::GraphicsLayer::PlatformLayerID m_layerID;
+    Markable<WebCore::LayerHostingContextIdentifier> m_remoteContextHostingIdentifier;
+    Markable<WebCore::LayerHostingContextIdentifier> m_remoteContextHostedIdentifier;
 
     RetainPtr<CALayer> m_layer;
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    RetainPtr<CALayer> m_interactionRegionsLayer;
+#endif
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<UIView> m_uiView;
 #endif
 
     WebCore::EventRegion m_eventRegion;
 
-    WebCore::GraphicsLayer::PlatformLayerID m_actingScrollContainerID { 0 };
+#if ENABLE(SCROLLING_THREAD)
+    WebCore::ScrollingNodeID m_scrollingNodeID { 0 };
+#endif
+
+    WebCore::GraphicsLayer::PlatformLayerID m_actingScrollContainerID;
     Vector<WebCore::GraphicsLayer::PlatformLayerID> m_stationaryScrollContainerIDs;
 };
 

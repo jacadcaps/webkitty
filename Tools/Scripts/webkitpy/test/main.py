@@ -41,7 +41,7 @@ from webkitpy.common.system.filesystem import FileSystem
 from webkitpy.common.host import Host
 from webkitpy.test.finder import Finder
 from webkitpy.test.printer import Printer
-from webkitpy.test.runner import Runner, unit_test_name
+from webkitpy.test.runner import Runner
 from webkitpy.results.upload import Upload
 from webkitpy.results.options import upload_options
 
@@ -63,14 +63,55 @@ def main():
     tester = Tester()
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts'), 'webkitpy')
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitcorepy'), 'webkitcorepy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitbugspy'), 'webkitbugspy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitscmpy'), 'webkitscmpy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitflaskpy'), 'webkitflaskpy')
+    if sys.version_info > (3, 0):
+        tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'reporelaypy'), 'reporelaypy')
 
-    # There is no WebKit2 on Windows, so we don't need to run WebKit2 unittests on it.
-    if not (sys.platform.startswith('win') or sys.platform == 'cygwin'):
+    # AppleWin is the only platform that does not support Modern WebKit
+    # FIXME: Find a better way to detect this currently assuming cygwin means AppleWin
+    if sys.platform != 'cygwin':
         tester.add_tree(os.path.join(_webkit_root, 'Source', 'WebKit', 'Scripts'), 'webkit')
 
     tester.skip(('webkitpy.common.checkout.scm.scm_unittest',), 'are really, really, slow', 31818)
     if sys.platform.startswith('win'):
-        tester.skip(('webkitpy.common.checkout', 'webkitpy.common.config', 'webkitpy.tool'), 'fail horribly on win32', 54526)
+        tester.skip(('webkitpy.common.checkout', 'webkitpy.tool'), 'fail horribly on win32', 54526)
+        tester.skip(('reporelaypy',), 'fail to install lupa and don\'t have to test on win32', 243316)
+
+    # Tests that are platform specific
+    mac_only_tests = (
+        'webkitpy.xcode',
+        'webkitpy.port.ios_device_unittest',
+        'webkitpy.port.ios_simulator_unittest',
+        'webkitpy.port.mac_unittest',
+        'webkitpy.port.watch_simulator_unittest',
+    )
+    linux_only_tests = (
+        'webkitpy.port.gtk_unittest',
+        'webkitpy.port.headlessdriver_unittest',
+        'webkitpy.port.linux_get_crash_log_unittest',
+        'webkitpy.port.waylanddriver_unittest',
+        'webkitpy.port.westondriver_unittest',
+        'webkitpy.port.wpe_unittest',
+        'webkitpy.port.xorgdriver_unittest',
+        'webkitpy.port.xvfbdriver_unittest',
+    )
+    windows_only_tests = ('webkitpy.port.win_unittest',)
+
+    # Skip platform specific tests on Windows and Linux
+    # The webkitpy EWS is run on Mac so only skip tests that won't run on it
+    if sys.platform.startswith('darwin'):
+        skip_tests = None
+    elif sys.platform.startswith('win'):
+        skip_tests = mac_only_tests + linux_only_tests + \
+            ('webkitpy.port.leakdetector_unittest', 'webkitpy.port.leakdetector_valgrind_unittest')
+    else:
+        skip_tests = mac_only_tests + windows_only_tests
+
+    if skip_tests is not None:
+        tester.skip(skip_tests, 'are not relevant for the platform running tests', 222066)
+
     return not tester.run()
 
 
@@ -133,8 +174,8 @@ class Tester(object):
 
         return parser.parse_args(argv)
 
-    def run(self):
-        self._options, args = self._parse_args()
+    def run(self, argv=None):
+        self._options, args = self._parse_args(argv)
         self.printer.configure(self._options)
 
         self.finder.clean_trees()
@@ -150,13 +191,13 @@ class Tester(object):
         # Make sure PYTHONPATH is set up properly.
         sys.path = self.finder.additional_paths(sys.path) + sys.path
 
-        # We autoinstall everything up so that we can run tests concurrently
-        # and not have to worry about autoinstalling packages concurrently.
-        self.printer.write_update("Checking autoinstalled packages ...")
-        from webkitpy.thirdparty import autoinstall_everything
-        autoinstall_everything()
-
         from webkitcorepy import AutoInstall
+
+        # Force registration of all autoinstalled packages.
+        if any([n.startswith('reporelaypy') for n in names]):
+            import reporelaypy
+        import webkitflaskpy
+
         AutoInstall.install_everything()
 
         start_time = time.time()
@@ -165,12 +206,10 @@ class Tester(object):
             _log.warning("Checking code coverage, so running things serially")
             self._options.child_processes = 1
 
-            import webkitpy.thirdparty.autoinstalled.coverage as coverage
+            import coverage
             cov = coverage.coverage(omit=[
                 "/usr/*",
-                "*/webkitpy/thirdparty/autoinstalled/*",
-                "*/webkitpy/thirdparty/BeautifulSoup.py",
-                "*/webkitpy/thirdparty/BeautifulSoup_legacy.py",
+                "*/webkitpy/thirdparty/*",
             ])
             cov.start()
 
@@ -295,7 +334,7 @@ class Tester(object):
             for t in suite._tests:
                 names.extend(self._all_test_names(t))
         else:
-            names.append(unit_test_name(suite))
+            names.append(suite.id())
         return names
 
     def _log_exception(self):

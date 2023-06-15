@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016, 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,8 +31,10 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include <WebCore/RuntimeApplicationChecks.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebKit {
@@ -56,7 +58,7 @@ unsigned inspectorLevelForPage(WebPageProxy* page)
     return 1;
 }
 
-String inspectorPageGroupIdentifierForPage(WebPageProxy* page)
+String defaultInspectorPageGroupIdentifierForPage(WebPageProxy* page)
 {
     return makeString("__WebInspectorPageGroupLevel", inspectorLevelForPage(page), "__");
 }
@@ -74,7 +76,13 @@ void untrackInspectorPage(WebPageProxy* inspectorPage)
 static WebProcessPool* s_mainInspectorProcessPool;
 static WebProcessPool* s_nestedInspectorProcessPool;
 
-WebProcessPool& inspectorProcessPool(unsigned inspectionLevel)
+static WeakHashSet<WebProcessPool>& allInspectorProcessPools()
+{
+    static NeverDestroyed<WeakHashSet<WebProcessPool>> allInspectorProcessPools;
+    return allInspectorProcessPools.get();
+}
+
+WebProcessPool& defaultInspectorProcessPool(unsigned inspectionLevel)
 {
     // Having our own process pool removes us from the main process pool and
     // guarantees no process sharing for our user interface.
@@ -82,21 +90,39 @@ WebProcessPool& inspectorProcessPool(unsigned inspectionLevel)
     if (!pool) {
         auto configuration = API::ProcessPoolConfiguration::create();
         pool = &WebProcessPool::create(configuration.get()).leakRef();
-        // Do not delay process launch for inspector pages as inspector pages do not know how to transition from a terminated process.
-        pool->disableDelayedWebProcessLaunch();
+        prepareProcessPoolForInspector(*pool);
     }
     return *pool;
 }
 
+void prepareProcessPoolForInspector(WebProcessPool& processPool)
+{
+    // Do not delay process launch for inspector pages as inspector pages do not know how to transition from a terminated process.
+    processPool.disableDelayedWebProcessLaunch();
+
+    allInspectorProcessPools().add(processPool);
+}
+
 bool isInspectorProcessPool(WebProcessPool& processPool)
 {
-    return (s_mainInspectorProcessPool && s_mainInspectorProcessPool == &processPool)
-        || (s_nestedInspectorProcessPool && s_nestedInspectorProcessPool == &processPool);
+    return allInspectorProcessPools().contains(processPool);
 }
 
 bool isInspectorPage(WebPageProxy& webPage)
 {
     return pageLevelMap().contains(&webPage);
 }
+
+#if PLATFORM(COCOA)
+CFStringRef bundleIdentifierForSandboxBroker()
+{
+    if (WebCore::applicationBundleIdentifier() == "com.apple.SafariTechnologyPreview"_s)
+        return CFSTR("com.apple.SafariTechnologyPreview.SandboxBroker");
+    if (WebCore::applicationBundleIdentifier() == "com.apple.Safari.automation"_s)
+        return CFSTR("com.apple.Safari.automation.SandboxBroker");
+
+    return CFSTR("com.apple.Safari.SandboxBroker");
+}
+#endif // PLATFORM(COCOA)
 
 } // namespace WebKit

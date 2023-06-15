@@ -36,6 +36,7 @@
 #include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/NetworkConnectionIntegrity.h>
 #include <wtf/OptionSet.h>
 
 namespace IPC {
@@ -52,7 +53,8 @@ namespace WebKit {
 struct WebsitePoliciesData {
     static void applyToDocumentLoader(WebsitePoliciesData&&, WebCore::DocumentLoader&);
 
-    bool contentBlockersEnabled { true };
+    WebCore::ContentExtensionEnablement contentExtensionEnablement;
+    HashMap<WTF::String, Vector<WTF::String>> activeContentRuleListActionPatterns;
     OptionSet<WebsiteAutoplayQuirk> allowedAutoplayQuirks;
     WebsiteAutoplayPolicy autoplayPolicy { WebsiteAutoplayPolicy::Default };
 #if ENABLE(DEVICE_ORIENTATION)
@@ -70,10 +72,14 @@ struct WebsitePoliciesData {
     bool allowContentChangeObserverQuirk { false };
     WebCore::AllowsContentJavaScript allowsContentJavaScript { WebCore::AllowsContentJavaScript::Yes };
     WebCore::MouseEventPolicy mouseEventPolicy { WebCore::MouseEventPolicy::Default };
+    WebCore::ModalContainerObservationPolicy modalContainerObservationPolicy { WebCore::ModalContainerObservationPolicy::Disabled };
+    WebCore::ColorSchemePreference colorSchemePreference { WebCore::ColorSchemePreference::NoPreference };
+    OptionSet<WebCore::NetworkConnectionIntegrity> networkConnectionIntegrityPolicy;
     bool idempotentModeAutosizingOnlyHonorsPercentages { false };
+    bool allowPrivacyProxy { true };
 
     void encode(IPC::Encoder&) const;
-    static Optional<WebsitePoliciesData> decode(IPC::Decoder&);
+    static std::optional<WebsitePoliciesData> decode(IPC::Decoder&);
 };
 
 } // namespace WebKit

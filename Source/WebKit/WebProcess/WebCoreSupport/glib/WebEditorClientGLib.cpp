@@ -24,6 +24,7 @@
 #include <WebCore/Document.h>
 #include <WebCore/Editor.h>
 #include <WebCore/Frame.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/KeyboardEvent.h>
 #include <WebCore/PlatformKeyboardEvent.h>
 #include <WebPage.h>
@@ -46,8 +47,8 @@ void WebEditorClient::didDispatchInputMethodKeydown(KeyboardEvent& event)
     ASSERT(frame);
 
     if (const auto& underlines = platformEvent->preeditUnderlines()) {
-        auto rangeStart = platformEvent->preeditSelectionRangeStart().valueOr(0);
-        auto rangeLength = platformEvent->preeditSelectionRangeLength().valueOr(0);
+        auto rangeStart = platformEvent->preeditSelectionRangeStart().value_or(0);
+        auto rangeLength = platformEvent->preeditSelectionRangeLength().value_or(0);
         frame->editor().setComposition(platformEvent->text(), underlines.value(), { }, rangeStart, rangeStart + rangeLength);
     } else
         frame->editor().confirmComposition(platformEvent->text());

@@ -60,6 +60,7 @@ struct _BrowserTab {
 };
 
 static GHashTable *userMediaPermissionGrantedOrigins;
+static GHashTable *mediaKeySystemPermissionGrantedOrigins;
 struct _BrowserTabClass {
     GtkBoxClass parent;
 };
@@ -124,10 +125,7 @@ static gboolean decidePolicy(WebKitWebView *webView, WebKitPolicyDecision *decis
     if (webkit_response_policy_decision_is_mime_type_supported(responseDecision))
         return FALSE;
 
-    WebKitWebResource *mainResource = webkit_web_view_get_main_resource(webView);
-    WebKitURIRequest *request = webkit_response_policy_decision_get_request(responseDecision);
-    const char *requestURI = webkit_uri_request_get_uri(request);
-    if (g_strcmp0(webkit_web_resource_get_uri(mainResource), requestURI))
+    if (!webkit_response_policy_decision_is_main_frame_main_resource(responseDecision))
         return FALSE;
 
     webkit_policy_decision_download(decision);
@@ -218,9 +216,19 @@ static void tlsErrorsDialogResponse(GtkWidget *dialog, gint response, BrowserTab
     if (response == GTK_RESPONSE_YES) {
         const char *failingURI = (const char *)g_object_get_data(G_OBJECT(dialog), "failingURI");
         GTlsCertificate *certificate = (GTlsCertificate *)g_object_get_data(G_OBJECT(dialog), "certificate");
+#if SOUP_CHECK_VERSION(2, 91, 0)
+        GUri *uri = g_uri_parse(failingURI, SOUP_HTTP_URI_FLAGS, NULL);
+#if GTK_CHECK_VERSION(3, 98, 5)
+        webkit_network_session_allow_tls_certificate_for_host(webkit_web_view_get_network_session(tab->webView), certificate, g_uri_get_host(uri));
+#else
+        webkit_web_context_allow_tls_certificate_for_host(webkit_web_view_get_context(tab->webView), certificate, g_uri_get_host(uri));
+#endif
+        g_uri_unref(uri);
+#else
         SoupURI *uri = soup_uri_new(failingURI);
         webkit_web_context_allow_tls_certificate_for_host(webkit_web_view_get_context(tab->webView), certificate, uri->host);
         soup_uri_free(uri);
+#endif
         webkit_web_view_load_uri(tab->webView, failingURI);
     }
 #if GTK_CHECK_VERSION(3, 98, 5)
@@ -264,12 +272,16 @@ static void permissionRequestDialogResponse(GtkWidget *dialog, gint response, Pe
     case GTK_RESPONSE_YES:
         if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(requestData->request))
             g_hash_table_add(userMediaPermissionGrantedOrigins, g_strdup(requestData->origin));
+        if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_add(mediaKeySystemPermissionGrantedOrigins, g_strdup(requestData->origin));
 
         webkit_permission_request_allow(requestData->request);
         break;
     default:
         if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(requestData->request))
             g_hash_table_remove(userMediaPermissionGrantedOrigins, requestData->origin);
+        if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_remove(mediaKeySystemPermissionGrantedOrigins, requestData->origin);
 
         webkit_permission_request_deny(requestData->request);
         break;
@@ -296,21 +308,21 @@ static gboolean decidePermissionRequest(WebKitWebView *webView, WebKitPermission
         text = g_strdup("Allow notifications request?");
     } else if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request)) {
         title = "UserMedia request";
-        gboolean is_for_audio_device = webkit_user_media_permission_is_for_audio_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
-        gboolean is_for_video_device = webkit_user_media_permission_is_for_video_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
+        gboolean isForAudioDevice = webkit_user_media_permission_is_for_audio_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
+        gboolean isForVideoDevice = webkit_user_media_permission_is_for_video_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
+        gboolean isForDisplayDevice = webkit_user_media_permission_is_for_display_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
+
         const char *mediaType = NULL;
-        if (is_for_audio_device) {
-            if (is_for_video_device)
+        if (isForAudioDevice) {
+            if (isForVideoDevice)
                 mediaType = "audio/video";
             else
                 mediaType = "audio";
-        } else if (is_for_video_device)
+        } else if (isForVideoDevice)
             mediaType = "video";
+        else if (isForDisplayDevice)
+            mediaType = "display";
         text = g_strdup_printf("Allow access to %s device?", mediaType);
-    } else if (WEBKIT_IS_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
-        title = "Media plugin missing request";
-        text = g_strdup_printf("The media backend was unable to find a plugin to play the requested media:\n%s.\nAllow to search and install the missing plugin?",
-            webkit_install_missing_media_plugins_permission_request_get_description(WEBKIT_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)));
     } else if (WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request)) {
         char* origin = getWebViewOrigin(webView);
         if (g_hash_table_contains(userMediaPermissionGrantedOrigins, origin)) {
@@ -340,6 +352,16 @@ static gboolean decidePermissionRequest(WebKitWebView *webView, WebKitPermission
         const gchar *currentDomain = webkit_website_data_access_permission_request_get_current_domain(websiteDataAccessRequest);
         text = g_strdup_printf("Do you want to allow \"%s\" to use cookies while browsing \"%s\"? This will allow \"%s\" to track your activity",
             requestingDomain, currentDomain, requestingDomain);
+    } else if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(request)) {
+        char *origin = getWebViewOrigin(webView);
+        if (g_hash_table_contains(mediaKeySystemPermissionGrantedOrigins, origin)) {
+            webkit_permission_request_allow(request);
+            g_free(origin);
+            return TRUE;
+        }
+        g_free(origin);
+        title = "DRM system access request";
+        text = g_strdup_printf("Allow to use a CDM providing access to %s?", webkit_media_key_system_permission_get_name(WEBKIT_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(request)));
     } else {
         g_print("%s request not handled\n", G_OBJECT_TYPE_NAME(request));
         return FALSE;
@@ -408,11 +430,71 @@ static gboolean runColorChooserCallback(WebKitWebView *webView, WebKitColorChoos
     gtk_widget_show(colorChooser);
 #endif
 
-    g_object_ref(request);
-    g_signal_connect_object(popover, "hide", G_CALLBACK(popoverColorClosed), request, 0);
+    g_signal_connect_object(popover, "hide", G_CALLBACK(popoverColorClosed), g_object_ref(request), 0);
     g_signal_connect_object(request, "finished", G_CALLBACK(colorChooserRequestFinished), popover, 0);
 
     gtk_widget_show(popover);
+
+    return TRUE;
+}
+
+static void webProcessTerminatedCallback(WebKitWebView *webView, WebKitWebProcessTerminationReason reason)
+{
+    if (reason == WEBKIT_WEB_PROCESS_CRASHED)
+        g_warning("WebProcess CRASHED");
+}
+
+static void certificateDialogResponse(GtkDialog *dialog, int response, WebKitAuthenticationRequest *request)
+{
+    if (response == GTK_RESPONSE_ACCEPT) {
+        GFile *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
+        if (file) {
+            char *path = g_file_get_path(file);
+            GError *error = NULL;
+            GTlsCertificate *certificate = g_tls_certificate_new_from_file(path, &error);
+            if (certificate) {
+                WebKitCredential *credential = webkit_credential_new_for_certificate(certificate, WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION);
+                webkit_authentication_request_authenticate(request, credential);
+                webkit_credential_free(credential);
+                g_object_unref(certificate);
+            } else {
+                g_warning("Failed to create certificate for %s", path);
+                g_error_free(error);
+            }
+            g_free(path);
+            g_object_unref(file);
+        }
+    } else
+        webkit_authentication_request_authenticate(request, NULL);
+
+    g_object_unref(request);
+
+#if GTK_CHECK_VERSION(3, 98, 5)
+    gtk_window_destroy(GTK_WINDOW(dialog));
+#else
+    gtk_widget_destroy(GTK_WIDGET(dialog));
+#endif
+}
+
+static gboolean webViewAuthenticate(WebKitWebView *webView, WebKitAuthenticationRequest *request, BrowserTab *tab)
+{
+    if (webkit_authentication_request_get_scheme(request) != WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_REQUESTED)
+        return FALSE;
+
+#if GTK_CHECK_VERSION(3, 98, 5)
+    GtkWindow *window = GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(tab)));
+#else
+    GtkWindow *window = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(tab)));
+#endif
+    GtkWidget *fileChooser = gtk_file_chooser_dialog_new("Certificate required", window, GTK_FILE_CHOOSER_ACTION_OPEN, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL);
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "PEM Certificate");
+    gtk_file_filter_add_mime_type(filter, "application/x-x509-ca-cert");
+    gtk_file_filter_add_pattern(filter, "*.pem");
+    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(fileChooser), filter);
+
+    g_signal_connect(fileChooser, "response", G_CALLBACK(certificateDialogResponse), g_object_ref(request));
+    gtk_widget_show(fileChooser);
 
     return TRUE;
 }
@@ -626,6 +708,8 @@ static void browserTabConstructed(GObject *gObject)
     g_signal_connect(tab->webView, "load-failed-with-tls-errors", G_CALLBACK(loadFailedWithTLSerrors), tab);
     g_signal_connect(tab->webView, "permission-request", G_CALLBACK(decidePermissionRequest), tab);
     g_signal_connect(tab->webView, "run-color-chooser", G_CALLBACK(runColorChooserCallback), tab);
+    g_signal_connect(tab->webView, "web-process-terminated", G_CALLBACK(webProcessTerminatedCallback), NULL);
+    g_signal_connect(tab->webView, "authenticate", G_CALLBACK(webViewAuthenticate), tab);
 
     g_object_bind_property(tab->webView, "is-playing-audio", tab->titleAudioButton, "visible", G_BINDING_DEFAULT | G_BINDING_SYNC_CREATE);
     g_signal_connect(tab->webView, "notify::is-muted", G_CALLBACK(audioMutedChanged), tab);
@@ -648,13 +732,15 @@ static void browser_tab_class_init(BrowserTabClass *klass)
     if (!userMediaPermissionGrantedOrigins)
         userMediaPermissionGrantedOrigins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
+    if (!mediaKeySystemPermissionGrantedOrigins)
+        mediaKeySystemPermissionGrantedOrigins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
     g_object_class_install_property(
         gobjectClass,
         PROP_VIEW,
         g_param_spec_object(
             "view",
-            "View",
-            "The web view of this tab",
+            NULL, NULL,
             WEBKIT_TYPE_WEB_VIEW,
             G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY));
 }
@@ -698,7 +784,7 @@ void browser_tab_load_uri(BrowserTab *tab, const char *uri)
         return;
     }
 
-    webkit_web_view_run_javascript(tab->webView, strstr(uri, "javascript:"), NULL, NULL, NULL);
+    webkit_web_view_evaluate_javascript(tab->webView, strstr(uri, "javascript:"), -1, NULL, NULL, NULL, NULL, NULL);
 }
 
 GtkWidget *browser_tab_get_title_widget(BrowserTab *tab)

@@ -13,11 +13,13 @@
 #include <memory>
 #include <utility>
 
+#include "api/units/timestamp.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/remote_estimate.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/sender_report.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/transport_feedback.h"
 #include "rtc_base/event.h"
 #include "rtc_base/task_queue_for_test.h"
+#include "system_wrappers/include/clock.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/mock_transport.h"
@@ -34,7 +36,9 @@ using ::testing::NiceMock;
 using ::webrtc::MockTransport;
 using ::webrtc::RtcpTransceiver;
 using ::webrtc::RtcpTransceiverConfig;
+using ::webrtc::SimulatedClock;
 using ::webrtc::TaskQueueForTest;
+using ::webrtc::Timestamp;
 using ::webrtc::rtcp::RemoteEstimate;
 using ::webrtc::rtcp::RtcpPacket;
 using ::webrtc::rtcp::TransportFeedback;
@@ -42,7 +46,10 @@ using ::webrtc::test::RtcpPacketParser;
 
 class MockMediaReceiverRtcpObserver : public webrtc::MediaReceiverRtcpObserver {
  public:
-  MOCK_METHOD3(OnSenderReport, void(uint32_t, webrtc::NtpTime, uint32_t));
+  MOCK_METHOD(void,
+              OnSenderReport,
+              (uint32_t, webrtc::NtpTime, uint32_t),
+              (override));
 };
 
 constexpr int kTimeoutMs = 1000;
@@ -54,9 +61,11 @@ void WaitPostedTasks(TaskQueueForTest* queue) {
 }
 
 TEST(RtcpTransceiverTest, SendsRtcpOnTaskQueueWhenCreatedOffTaskQueue) {
+  SimulatedClock clock(0);
   MockTransport outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   EXPECT_CALL(outgoing_transport, SendRtcp(_, _))
@@ -71,9 +80,11 @@ TEST(RtcpTransceiverTest, SendsRtcpOnTaskQueueWhenCreatedOffTaskQueue) {
 }
 
 TEST(RtcpTransceiverTest, SendsRtcpOnTaskQueueWhenCreatedOnTaskQueue) {
+  SimulatedClock clock(0);
   MockTransport outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   EXPECT_CALL(outgoing_transport, SendRtcp(_, _))
@@ -91,9 +102,11 @@ TEST(RtcpTransceiverTest, SendsRtcpOnTaskQueueWhenCreatedOnTaskQueue) {
 }
 
 TEST(RtcpTransceiverTest, CanBeDestroyedOnTaskQueue) {
+  SimulatedClock clock(0);
   NiceMock<MockTransport> outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   auto rtcp_transceiver = std::make_unique<RtcpTransceiver>(config);
@@ -107,9 +120,11 @@ TEST(RtcpTransceiverTest, CanBeDestroyedOnTaskQueue) {
 }
 
 TEST(RtcpTransceiverTest, CanBeDestroyedWithoutBlocking) {
+  SimulatedClock clock(0);
   TaskQueueForTest queue("rtcp");
   NiceMock<MockTransport> outgoing_transport;
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   auto* rtcp_transceiver = new RtcpTransceiver(config);
@@ -128,9 +143,11 @@ TEST(RtcpTransceiverTest, CanBeDestroyedWithoutBlocking) {
 }
 
 TEST(RtcpTransceiverTest, MaySendPacketsAfterDestructor) {  // i.e. Be careful!
+  SimulatedClock clock(0);
   NiceMock<MockTransport> outgoing_transport;  // Must outlive queue below.
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   auto* rtcp_transceiver = new RtcpTransceiver(config);
@@ -159,9 +176,11 @@ rtc::CopyOnWriteBuffer CreateSenderReport(uint32_t ssrc, uint32_t rtp_time) {
 
 TEST(RtcpTransceiverTest, DoesntPostToRtcpObserverAfterCallToRemove) {
   const uint32_t kRemoteSsrc = 1234;
+  SimulatedClock clock(0);
   MockTransport null_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &null_transport;
   config.task_queue = queue.Get();
   RtcpTransceiver rtcp_transceiver(config);
@@ -186,9 +205,11 @@ TEST(RtcpTransceiverTest, DoesntPostToRtcpObserverAfterCallToRemove) {
 
 TEST(RtcpTransceiverTest, RemoveMediaReceiverRtcpObserverIsNonBlocking) {
   const uint32_t kRemoteSsrc = 1234;
+  SimulatedClock clock(0);
   MockTransport null_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &null_transport;
   config.task_queue = queue.Get();
   RtcpTransceiver rtcp_transceiver(config);
@@ -210,9 +231,11 @@ TEST(RtcpTransceiverTest, RemoveMediaReceiverRtcpObserverIsNonBlocking) {
 }
 
 TEST(RtcpTransceiverTest, CanCallSendCompoundPacketFromAnyThread) {
+  SimulatedClock clock(0);
   MockTransport outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
 
@@ -239,9 +262,11 @@ TEST(RtcpTransceiverTest, CanCallSendCompoundPacketFromAnyThread) {
 }
 
 TEST(RtcpTransceiverTest, DoesntSendPacketsAfterStopCallback) {
+  SimulatedClock clock(0);
   NiceMock<MockTransport> outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
   config.schedule_periodic_compound_packets = true;
@@ -260,9 +285,11 @@ TEST(RtcpTransceiverTest, DoesntSendPacketsAfterStopCallback) {
 TEST(RtcpTransceiverTest, SendsCombinedRtcpPacketOnTaskQueue) {
   static constexpr uint32_t kSenderSsrc = 12345;
 
+  SimulatedClock clock(0);
   MockTransport outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.feedback_ssrc = kSenderSsrc;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();
@@ -284,7 +311,7 @@ TEST(RtcpTransceiverTest, SendsCombinedRtcpPacketOnTaskQueue) {
   // Create minimalistic transport feedback packet.
   std::vector<std::unique_ptr<RtcpPacket>> packets;
   auto transport_feedback = std::make_unique<TransportFeedback>();
-  transport_feedback->AddReceivedPacket(321, 10000);
+  transport_feedback->AddReceivedPacket(321, Timestamp::Millis(10));
   packets.push_back(std::move(transport_feedback));
 
   auto remote_estimate = std::make_unique<RemoteEstimate>();
@@ -297,9 +324,11 @@ TEST(RtcpTransceiverTest, SendsCombinedRtcpPacketOnTaskQueue) {
 TEST(RtcpTransceiverTest, SendFrameIntraRequestDefaultsToNewRequest) {
   static constexpr uint32_t kSenderSsrc = 12345;
 
+  SimulatedClock clock(0);
   MockTransport outgoing_transport;
   TaskQueueForTest queue("rtcp");
   RtcpTransceiverConfig config;
+  config.clock = &clock;
   config.feedback_ssrc = kSenderSsrc;
   config.outgoing_transport = &outgoing_transport;
   config.task_queue = queue.Get();

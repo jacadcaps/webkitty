@@ -30,7 +30,7 @@
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "NativeWebMouseEvent.h"
 #include "NativeWebWheelEvent.h"
-#include "ScrollGestureController.h"
+#include "TouchGestureController.h"
 #include "WPEView.h"
 #include "WebContextMenuProxy.h"
 #include "WebContextMenuProxyWPE.h"
@@ -57,21 +57,21 @@ struct wpe_view_backend* PageClientImpl::viewBackend()
     return m_view.backend();
 }
 
-IPC::Attachment PageClientImpl::hostFileDescriptor()
+UnixFileDescriptor PageClientImpl::hostFileDescriptor()
 {
-    return wpe_view_backend_get_renderer_host_fd(m_view.backend());
+    return UnixFileDescriptor { wpe_view_backend_get_renderer_host_fd(m_view.backend()), UnixFileDescriptor::Adopt };
 }
 
 std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& process)
 {
-    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(m_view.page(), process);
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(m_view.page());
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region&)
 {
 }
 
-void PageClientImpl::requestScroll(const WebCore::FloatPoint&, const WebCore::IntPoint&)
+void PageClientImpl::requestScroll(const WebCore::FloatPoint&, const WebCore::IntPoint&, WebCore::ScrollIsAnimated)
 {
 }
 
@@ -127,11 +127,6 @@ void PageClientImpl::toolTipChanged(const String&, const String&)
 
 void PageClientImpl::didCommitLoadForMainFrame(const String&, bool)
 {
-}
-
-void PageClientImpl::handleDownloadRequest(DownloadProxy& download)
-{
-    m_view.handleDownloadRequest(download);
 }
 
 void PageClientImpl::didChangeContentSize(const WebCore::IntSize&)
@@ -212,42 +207,36 @@ void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& touchEvent, b
         return;
 
     auto& page = m_view.page();
-    auto& scrollGestureController = m_view.scrollGestureController();
+    auto& touchGestureController = m_view.touchGestureController();
 
-    if (scrollGestureController.handleEvent(touchPoint)) {
-        struct wpe_input_axis_event* axisEvent = scrollGestureController.axisEvent();
-        if (axisEvent->type != wpe_input_axis_event_type_null)
-            page.handleWheelEvent(WebKit::NativeWebWheelEvent(axisEvent, m_view.page().deviceScaleFactor(), WebWheelEvent::Phase::PhaseNone, WebWheelEvent::Phase::PhaseNone));
-        return;
-    }
+    auto generatedEvent = touchGestureController.handleEvent(touchPoint);
+    WTF::switchOn(generatedEvent,
+        [](TouchGestureController::NoEvent&) { },
+        [&](TouchGestureController::ClickEvent& clickEvent)
+        {
+            auto* event = &clickEvent.event;
 
-    struct wpe_input_pointer_event pointerEvent {
-        wpe_input_pointer_event_type_null, touchPoint->time,
-        touchPoint->x, touchPoint->y,
-        1, 0, 0
-    };
+            // Mouse motion towards the point of the click.
+            event->type = wpe_input_pointer_event_type_motion;
+            page.handleMouseEvent(NativeWebMouseEvent(event, page.deviceScaleFactor()));
 
-    switch (touchPoint->type) {
-    case wpe_input_touch_event_type_down:
-        pointerEvent.type = wpe_input_pointer_event_type_button;
-        pointerEvent.state = 1;
-        pointerEvent.modifiers |= wpe_input_pointer_modifier_button1;
-        break;
-    case wpe_input_touch_event_type_motion:
-        pointerEvent.type = wpe_input_pointer_event_type_motion;
-        pointerEvent.state = 1;
-        break;
-    case wpe_input_touch_event_type_up:
-        pointerEvent.type = wpe_input_pointer_event_type_button;
-        pointerEvent.state = 0;
-        pointerEvent.modifiers &= ~wpe_input_pointer_modifier_button1;
-        break;
-    case wpe_input_pointer_event_type_null:
-        ASSERT_NOT_REACHED();
-        return;
-    }
+            event->type = wpe_input_pointer_event_type_button;
+            event->button = 1;
 
-    page.handleMouseEvent(NativeWebMouseEvent(&pointerEvent, page.deviceScaleFactor()));
+            // Mouse down on the point of the click.
+            event->state = 1;
+            event->modifiers |= wpe_input_pointer_modifier_button1;
+            page.handleMouseEvent(NativeWebMouseEvent(event, page.deviceScaleFactor()));
+
+            // Mouse up on the same location.
+            event->state = 0;
+            event->modifiers &= ~wpe_input_pointer_modifier_button1;
+            page.handleMouseEvent(NativeWebMouseEvent(event, page.deviceScaleFactor()));
+        },
+        [&](TouchGestureController::ContextMenuEvent&) {
+            // FIXME: Generate contextmenuevent without accidentally generating mouseup/mousedown events
+        },
+        [](TouchGestureController::AxisEvent&) { });
 }
 #endif
 
@@ -342,13 +331,6 @@ void PageClientImpl::derefView()
 {
 }
 
-#if ENABLE(VIDEO) && USE(GSTREAMER)
-bool PageClientImpl::decidePolicyForInstallMissingMediaPluginsPermissionRequest(InstallMissingMediaPluginsPermissionRequest&)
-{
-    return false;
-}
-#endif
-
 void PageClientImpl::didRestoreScrollPosition()
 {
 }
@@ -382,8 +364,8 @@ void PageClientImpl::enterFullScreen()
     WebFullScreenManagerProxy* fullScreenManagerProxy = m_view.page().fullScreenManager();
     if (fullScreenManagerProxy) {
         fullScreenManagerProxy->willEnterFullScreen();
-        m_view.setFullScreen(true);
-        fullScreenManagerProxy->didEnterFullScreen();
+        if (!m_view.setFullScreen(true))
+            fullScreenManagerProxy->didExitFullScreen();
     }
 }
 
@@ -395,8 +377,9 @@ void PageClientImpl::exitFullScreen()
     WebFullScreenManagerProxy* fullScreenManagerProxy = m_view.page().fullScreenManager();
     if (fullScreenManagerProxy) {
         fullScreenManagerProxy->willExitFullScreen();
-        m_view.setFullScreen(false);
-        fullScreenManagerProxy->didExitFullScreen();
+        if (!m_view.setFullScreen(false))
+            fullScreenManagerProxy->didEnterFullScreen();
+
     }
 }
 
@@ -412,7 +395,7 @@ void PageClientImpl::beganExitFullScreen(const WebCore::IntRect& /* initialFrame
 
 #endif // ENABLE(FULLSCREEN_API)
 
-void PageClientImpl::requestDOMPasteAccess(const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
     completionHandler(WebCore::DOMPasteAccessResponse::DeniedForGesture);
 }
@@ -434,7 +417,7 @@ void PageClientImpl::sendMessageToWebView(UserMessage&& message, CompletionHandl
     m_view.didReceiveUserMessage(WTFMove(message), WTFMove(completionHandler));
 }
 
-void PageClientImpl::setInputMethodState(Optional<InputMethodState>&& state)
+void PageClientImpl::setInputMethodState(std::optional<InputMethodState>&& state)
 {
     m_view.setInputMethodState(WTFMove(state));
 }
@@ -442,6 +425,11 @@ void PageClientImpl::setInputMethodState(Optional<InputMethodState>&& state)
 void PageClientImpl::selectionDidChange()
 {
     m_view.selectionDidChange();
+}
+
+WebKitWebResourceLoadManager* PageClientImpl::webResourceLoadManager()
+{
+    return m_view.webResourceLoadManager();
 }
 
 } // namespace WebKit

@@ -31,17 +31,21 @@ OBJC_CLASS WKWebView;
 
 namespace WTR {
 
-class UIScriptControllerMac : public UIScriptControllerCocoa {
+class UIScriptControllerMac final : public UIScriptControllerCocoa {
 public:
     explicit UIScriptControllerMac(UIScriptContext& context)
         : UIScriptControllerCocoa(context)
     {
     }
 
+private:
     void replaceTextAtRange(JSStringRef, int, int) override;
     void zoomToScale(double, JSValueRef) override;
     double zoomScale() const override;
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
+    bool isShowingDateTimePicker() const override;
+    double dateTimePickerValue() const override;
+    void chooseDateTimePickerValue() override;
     bool isShowingDataListSuggestions() const override;
     void activateDataListSuggestion(unsigned index, JSValueRef callback) override;
     void beginBackSwipe(JSValueRef) override;
@@ -50,6 +54,8 @@ public:
     void firstResponderSuppressionForWebView(bool) override;
     void makeWindowContentViewFirstResponder() override;
     bool isWindowContentViewFirstResponder() const override;
+    void becomeFirstResponder() override;
+    void resignFirstResponder() override;
     void toggleCapsLock(JSValueRef) override;
     NSView *platformContentView() const override;
     void clearAllCallbacks() override;
@@ -60,7 +66,8 @@ public:
 
     void activateAtPoint(long x, long y, JSValueRef callback) override;
 
-private:
+    void sendEventStream(JSStringRef, JSValueRef) override;
+
     NSTableView *dataListSuggestionsTableView() const;
 };
 

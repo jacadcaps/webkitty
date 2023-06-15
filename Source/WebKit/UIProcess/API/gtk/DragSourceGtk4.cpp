@@ -45,7 +45,7 @@ DragSource::~DragSource()
 {
 }
 
-void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image)
+void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image, IntPoint&& imageHotspot)
 {
     if (m_drag) {
         gdk_drag_drop_done(m_drag.get(), FALSE);
@@ -75,7 +75,7 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
     }
 
     if (m_selectionData->hasImage()) {
-        GRefPtr<GdkPixbuf> pixbuf = adoptGRef(m_selectionData->image()->getGdkPixbuf());
+        auto pixbuf = m_selectionData->image()->gdkPixbuf();
         providers.append(gdk_content_provider_new_typed(GDK_TYPE_PIXBUF, pixbuf.get()));
     }
 
@@ -89,7 +89,7 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
 
     if (m_selectionData->hasCustomData()) {
         GRefPtr<GBytes> bytes = m_selectionData->customData()->createGBytes();
-        providers.append(gdk_content_provider_new_for_bytes(PasteboardCustomData::gtkType(), bytes.get()));
+        providers.append(gdk_content_provider_new_for_bytes(PasteboardCustomData::gtkType().characters(), bytes.get()));
     }
 
     auto* surface = gtk_native_get_surface(gtk_widget_get_native(m_webView));
@@ -101,7 +101,7 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
         if (drag.m_drag.get() != gtkDrag)
             return;
 
-        drag.m_selectionData = WTF::nullopt;
+        drag.m_selectionData = std::nullopt;
         drag.m_drag = nullptr;
 
         GdkDevice* device = gdk_drag_get_device(gtkDrag);
@@ -121,15 +121,15 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
         if (drag.m_drag.get() != gtkDrag)
             return;
 
-        drag.m_selectionData = WTF::nullopt;
+        drag.m_selectionData = std::nullopt;
         drag.m_drag = nullptr;
     }), this);
 
     auto* dragIcon = gtk_drag_icon_get_for_drag(m_drag.get());
     RefPtr<Image> iconImage = image ? image->createImage() : nullptr;
     if (iconImage) {
-        if (GRefPtr<GdkTexture> texture = adoptGRef(iconImage->gdkTexture())) {
-            gdk_drag_set_hotspot(m_drag.get(), -gdk_texture_get_width(texture.get()) / 2, -gdk_texture_get_height(texture.get()) / 2);
+        if (auto texture = iconImage->gdkTexture()) {
+            gdk_drag_set_hotspot(m_drag.get(), -imageHotspot.x(), -imageHotspot.y());
             auto* picture = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture.get()));
             gtk_drag_icon_set_child(GTK_DRAG_ICON(dragIcon), picture);
             return;

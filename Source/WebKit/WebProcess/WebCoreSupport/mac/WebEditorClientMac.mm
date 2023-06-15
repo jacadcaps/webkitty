@@ -65,14 +65,14 @@ void WebEditorClient::setInsertionPasteboard(const String&)
 
 static void changeWordCase(WebPage* page, NSString *(*changeCase)(NSString *))
 {
-    Frame& frame = page->corePage()->focusController().focusedOrMainFrame();
-    if (!frame.editor().canEdit())
+    Ref frame = CheckedRef(page->corePage()->focusController())->focusedOrMainFrame();
+    if (!frame->editor().canEdit())
         return;
 
-    frame.editor().command("selectWord").execute();
+    frame->editor().command("selectWord"_s).execute();
 
-    NSString *selectedString = frame.displayStringModifiedByEncoding(frame.editor().selectedText());
-    page->replaceSelectionWithText(&frame, changeCase(selectedString));
+    NSString *selectedString = frame->displayStringModifiedByEncoding(frame->editor().selectedText());
+    page->replaceSelectionWithText(frame.ptr(), changeCase(selectedString));
 }
 
 void WebEditorClient::uppercaseWord()
@@ -105,8 +105,8 @@ void WebEditorClient::showSubstitutionsPanel(bool)
 
 bool WebEditorClient::substitutionsPanelIsShowing()
 {
-    bool isShowing { false };
-    m_page->sendSync(Messages::WebPageProxy::SubstitutionsPanelIsShowing(), Messages::WebPageProxy::SubstitutionsPanelIsShowing::Reply(isShowing));
+    auto sendResult = m_page->sendSync(Messages::WebPageProxy::SubstitutionsPanelIsShowing());
+    auto [isShowing] = sendResult.takeReplyOr(false);
     return isShowing;
 }
 
@@ -178,6 +178,11 @@ void WebEditorClient::toggleAutomaticSpellingCorrection()
 }
 
 #endif // USE(AUTOMATIC_TEXT_REPLACEMENT)
+
+void WebEditorClient::setCaretDecorationVisibility(bool visibility)
+{
+    m_page->send(Messages::WebPageProxy::SetCaretDecorationVisibility(visibility));
+}
 
 } // namespace WebKit
 

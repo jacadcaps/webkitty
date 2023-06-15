@@ -29,11 +29,13 @@
 
 #if USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
 
+#include "DrawingArea.h"
 #include "WebPage.h"
 #include <GLES2/gl2.h>
 #include <WebCore/Document.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameView.h>
+#include <WebCore/GraphicsContext.h>
 #include <WebCore/GraphicsLayerTextureMapper.h>
 #include <WebCore/Page.h>
 #include <WebCore/Settings.h>
@@ -60,14 +62,11 @@ bool LayerTreeHost::prepareForRendering()
 
 void LayerTreeHost::compositeLayersToContext()
 {
-    if (!prepareForRendering())
-        return;
-
     IntSize windowSize = expandedIntSize(m_rootLayer->size());
     glViewport(0, 0, windowSize.width(), windowSize.height());
 
     m_textureMapper->beginPainting();
-    downcast<GraphicsLayerTextureMapper>(*m_rootLayer).layer().paint();
+    downcast<GraphicsLayerTextureMapper>(*m_rootLayer).layer().paint(*m_textureMapper);
     m_fpsCounter.updateFPSAndDisplay(*m_textureMapper);
     m_textureMapper->endPainting();
 
@@ -84,12 +83,21 @@ bool LayerTreeHost::flushPendingLayerChanges()
     if (m_overlayCompositingLayer)
         m_overlayCompositingLayer->flushCompositingState(FloatRect(FloatPoint(), m_rootLayer->size()));
 
-    downcast<GraphicsLayerTextureMapper>(*m_rootLayer).updateBackingStoreIncludingSubLayers();
+    downcast<GraphicsLayerTextureMapper>(*m_rootLayer).updateBackingStoreIncludingSubLayers(*m_textureMapper);
     return true;
 }
 
 void LayerTreeHost::layerFlushTimerFired()
 {
+    if (m_isSuspended)
+        return;
+
+    if (m_notifyAfterScheduledLayerFlush) {
+        m_webPage.drawingArea()->layerHostDidFlushLayers();
+        m_notifyAfterScheduledLayerFlush = false;
+        return;
+    }
+
     flushAndRenderLayers();
 
     if (!enabled())
@@ -97,20 +105,22 @@ void LayerTreeHost::layerFlushTimerFired()
 
     // In case an animation is running, we should flush again soon.
     if (downcast<GraphicsLayerTextureMapper>(m_rootLayer.get())->layer().descendantsOrSelfHaveRunningAnimations())
-        m_webPage.corePage()->scheduleTimedRenderingUpdate();
+        m_webPage.corePage()->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
 }
 
 LayerTreeHost::LayerTreeHost(WebPage& webPage)
     : m_webPage(webPage)
     , m_layerFlushTimer(*this, &LayerTreeHost::layerFlushTimerFired)
 {
+    m_layerTreeContext.contextID = reinterpret_cast<uint64_t>(this);
+
     m_rootLayer = GraphicsLayer::create(nullptr, *this);
     m_rootLayer->setDrawsContent(true);
     m_rootLayer->setContentsOpaque(true);
     m_rootLayer->setSize(m_webPage.size());
     m_rootLayer->setNeedsDisplay();
 #ifndef NDEBUG
-    m_rootLayer->setName("Root layer");
+    m_rootLayer->setName(MAKE_STATIC_STRING_IMPL("Root layer"));
 #endif
     applyDeviceScaleFactor();
 
@@ -123,7 +133,6 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
     m_context->makeContextCurrent();
 
     m_textureMapper = TextureMapperGL::create();
-    downcast<GraphicsLayerTextureMapper>(*m_rootLayer).layer().setTextureMapper(m_textureMapper.get());
 }
 
 LayerTreeHost::~LayerTreeHost() = default;
@@ -132,8 +141,9 @@ void LayerTreeHost::setLayerFlushSchedulingEnabled(bool)
 {
 }
 
-void LayerTreeHost::setShouldNotifyAfterNextScheduledLayerFlush(bool)
+void LayerTreeHost::setShouldNotifyAfterNextScheduledLayerFlush(bool notifyAfterScheduledLayerFlush)
 {
+    m_notifyAfterScheduledLayerFlush = notifyAfterScheduledLayerFlush;
 }
 
 void LayerTreeHost::scheduleLayerFlush()
@@ -196,7 +206,10 @@ void LayerTreeHost::flushAndRenderLayers()
     if (!enabled())
         return;
 
-    m_webPage.corePage()->updateRendering();
+    m_webPage.corePage()->isolatedUpdateRendering();
+
+    if (!prepareForRendering())
+        return;
 
     if (!flushPendingLayerChanges())
         return;
@@ -209,9 +222,9 @@ void LayerTreeHost::forceRepaint()
     flushAndRenderLayers();
 }
 
-bool LayerTreeHost::forceRepaintAsync(CallbackID)
+void LayerTreeHost::forceRepaintAsync(CompletionHandler<void()>&& completionHandler)
 {
-    return false;
+    completionHandler();
 }
 
 void LayerTreeHost::sizeDidChange(const WebCore::IntSize& newSize)
@@ -229,10 +242,12 @@ void LayerTreeHost::sizeDidChange(const WebCore::IntSize& newSize)
 
 void LayerTreeHost::pauseRendering()
 {
+    m_isSuspended = true;
 }
 
 void LayerTreeHost::resumeRendering()
 {
+    m_isSuspended = false;
 }
 
 WebCore::GraphicsLayerFactory* LayerTreeHost::graphicsLayerFactory()
@@ -261,9 +276,9 @@ RefPtr<WebCore::DisplayRefreshMonitor> LayerTreeHost::createDisplayRefreshMonito
     return nullptr;
 }
 
-HWND LayerTreeHost::window()
+GLNativeWindowType LayerTreeHost::window()
 {
-    return reinterpret_cast<HWND>(m_webPage.nativeWindowHandle());
+    return reinterpret_cast<GLNativeWindowType>(m_webPage.nativeWindowHandle());
 }
 
 bool LayerTreeHost::enabled()

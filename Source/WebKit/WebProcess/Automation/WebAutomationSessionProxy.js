@@ -39,11 +39,11 @@ let AutomationSessionProxy = class AutomationSessionProxy
 
     // Public
 
-    evaluateJavaScriptFunction(functionString, argumentStrings, expectsImplicitCallbackArgument, frameID, callbackID, resultCallback, callbackTimeout)
+    evaluateJavaScriptFunction(functionString, argumentStrings, expectsImplicitCallbackArgument, frameID, processID, callbackID, resultCallback, callbackTimeout)
     {
         this._execute(functionString, argumentStrings, expectsImplicitCallbackArgument, callbackTimeout)
-            .then(result => { resultCallback(frameID, callbackID, this._jsonStringify(result)); })
-            .catch(error => { resultCallback(frameID, callbackID, error); });
+            .then(result => { resultCallback(frameID, processID, callbackID, this._jsonStringify(result)); })
+            .catch(error => { resultCallback(frameID, processID, callbackID, error); });
     }
 
     nodeForIdentifier(identifier)
@@ -71,8 +71,20 @@ let AutomationSessionProxy = class AutomationSessionProxy
         }
 
         let promise = new Promise((resolve, reject) => {
+            // Split initial line comments like "//# __injectedScript" source map that would break the async expression below.
+            let lines = functionString.split("\n");
+            let prefixLines = [];
+            while (lines && lines[0].startsWith("//")) {
+                prefixLines.push(lines.shift());
+            }
+            functionString = lines.join("\n");
+
+            let prefix = prefixLines.join("\n")
+            if (prefix)
+                prefix += "\n";
+
             // The script is expected to be a function declaration. Evaluate it inside parenthesis to get the function value.
-            let functionValue = evaluate("(async " + functionString + ")");
+            let functionValue = evaluate(prefix + "(async " + functionString + ")");
             if (typeof functionValue !== "function")
                 reject(new TypeError("Script did not evaluate to a function."));
 
@@ -252,7 +264,8 @@ let AutomationSessionProxy = class AutomationSessionProxy
     _clearStaleNodes()
     {
         for (var [node, identifier] of this._nodeToIdMap) {
-            if (!document.contains(node)) {
+            const rootNode = node.getRootNode({ composed: true });
+            if (rootNode !== document) {
                 this._nodeToIdMap.delete(node);
                 this._idToNodeMap.delete(identifier);
             }

@@ -32,6 +32,7 @@
 #import "PageLoadStateObserver.h"
 #import "RemoteObjectRegistry.h"
 #import "RemoteObjectRegistryMessages.h"
+#import "WKAPICast.h"
 #import "WKBackForwardListInternal.h"
 #import "WKBackForwardListItemInternal.h"
 #import "WKBrowsingContextGroupInternal.h"
@@ -48,16 +49,18 @@
 #import "WKPagePolicyClientInternal.h"
 #import "WKProcessGroupPrivate.h"
 #import "WKRetainPtr.h"
+#import "WKSharedAPICast.h"
 #import "WKURLRequestNS.h"
 #import "WKURLResponseNS.h"
-#import "WKViewInternal.h"
-#import "WebCertificateInfo.h"
 #import "WebPageProxy.h"
 #import "WebProcessPool.h"
 #import "WebProtectionSpace.h"
 #import "_WKRemoteObjectRegistryInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/cf/CFURLExtras.h>
 
 NSString * const WKActionIsMainFrameKey = @"WKActionIsMainFrameKey";
 NSString * const WKActionNavigationTypeKey = @"WKActionNavigationTypeKey";
@@ -90,6 +93,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBrowsingContextController.class, self))
+        return;
+
     ASSERT(browsingContextControllerMap().get(_page.get()) == self);
     browsingContextControllerMap().remove(_page.get());
 
@@ -102,12 +108,26 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 + (void)registerSchemeForCustomProtocol:(NSString *)scheme
 {
-    WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
+    if ([NSThread isMainThread])
+        WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
+    else {
+        // This cannot be RunLoop::main().dispatch because it is called before the main runloop is initialized.  See rdar://problem/73615999
+        WorkQueue::main().dispatch([scheme = retainPtr(scheme)] {
+            WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme.get());
+        });
+    }
 }
 
 + (void)unregisterSchemeForCustomProtocol:(NSString *)scheme
 {
-    WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
+    if ([NSThread isMainThread])
+        WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
+    else {
+        // This cannot be RunLoop::main().dispatch because it is called before the main runloop is initialized.  See rdar://problem/73615999
+        WorkQueue::main().dispatch([scheme = retainPtr(scheme)] {
+            WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme.get());
+        });
+    }
 }
 
 - (void)loadRequest:(NSURLRequest *)request
@@ -138,7 +158,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (userData)
         wkUserData = WebKit::ObjCObjectGraph::create(userData);
 
-    _page->loadFile([URL _web_originalDataAsWTFString], [allowedDirectory _web_originalDataAsWTFString], wkUserData.get());
+    _page->loadFile(bytesAsString(bridge_cast(URL)), bytesAsString(bridge_cast(allowedDirectory)), wkUserData.get());
 }
 
 - (void)loadHTMLString:(NSString *)HTMLString baseURL:(NSURL *)baseURL
@@ -153,13 +173,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         wkUserData = WebKit::ObjCObjectGraph::create(userData);
 
     NSData *data = [HTMLString dataUsingEncoding:NSUTF8StringEncoding];
-    _page->loadData({ static_cast<const uint8_t*>(data.bytes), data.length }, "text/html"_s, "UTF-8"_s, [baseURL _web_originalDataAsWTFString], wkUserData.get());
+    _page->loadData({ static_cast<const uint8_t*>(data.bytes), data.length }, "text/html"_s, "UTF-8"_s, bytesAsString(bridge_cast(baseURL)), wkUserData.get());
 }
 
 - (void)loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL
 {
     NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding];
-    _page->loadAlternateHTML({ static_cast<const uint8_t*>(data.bytes), data.length }, "UTF-8"_s, baseURL, unreachableURL);
+    _page->loadAlternateHTML(WebCore::DataSegment::create((__bridge CFDataRef)data), "UTF-8"_s, baseURL, unreachableURL);
 }
 
 - (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL
@@ -173,7 +193,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (userData)
         wkUserData = WebKit::ObjCObjectGraph::create(userData);
 
-    _page->loadData({ static_cast<const uint8_t*>(data.bytes), data.length }, MIMEType, encodingName, [baseURL _web_originalDataAsWTFString], wkUserData.get());
+    _page->loadData({ static_cast<const uint8_t*>(data.bytes), data.length }, MIMEType, encodingName, bytesAsString(bridge_cast(baseURL)), wkUserData.get());
 }
 
 - (void)stopLoading
@@ -293,7 +313,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (NSArray *)certificateChain
 {
     if (WebKit::WebFrameProxy* mainFrame = _page->mainFrame())
-        return mainFrame->certificateInfo() ? (__bridge NSArray *)mainFrame->certificateInfo()->certificateInfo().certificateChain() : nil;
+        return (__bridge NSArray *)WebCore::CertificateInfo::certificateChainFromSecTrust(mainFrame->certificateInfo().trust().get()).autorelease();
 
     return nil;
 }
@@ -421,7 +441,9 @@ static void processDidCrash(WKPageRef page, const void* clientInfo)
         [(id <WKBrowsingContextLoadDelegatePrivate>)loadDelegate browsingContextControllerWebProcessDidCrash:browsingContext];
 }
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 static void setUpPageLoaderClient(WKBrowsingContextController *browsingContext, WebKit::WebPageProxy& page)
+ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKPageNavigationClientV0 loaderClient;
     memset(&loaderClient, 0, sizeof(loaderClient));
@@ -441,30 +463,26 @@ static void setUpPageLoaderClient(WKBrowsingContextController *browsingContext, 
     WKPageSetPageNavigationClient(toAPI(&page), &loaderClient.base);
 }
 
-static WKPolicyDecisionHandler makePolicyDecisionBlock(WKFramePolicyListenerRef listener)
+static BlockPtr<void(WKPolicyDecision)> makePolicyDecisionBlock(WKFramePolicyListenerRef listener)
 {
-    WKRetain(listener); // Released in the decision handler below.
-
-    return [[^(WKPolicyDecision decision) {
+    return makeBlockPtr([listener = retainWK(listener)](WKPolicyDecision decision) {
         switch (decision) {
         case WKPolicyDecisionCancel:
-            WKFramePolicyListenerIgnore(listener);                    
+            WKFramePolicyListenerIgnore(listener.get());
             break;
-        
         case WKPolicyDecisionAllow:
-            WKFramePolicyListenerUse(listener);
+            WKFramePolicyListenerUse(listener.get());
             break;
-        
         case WKPolicyDecisionBecomeDownload:
-            WKFramePolicyListenerDownload(listener);
+            WKFramePolicyListenerDownload(listener.get());
             break;
         };
-
-        WKRelease(listener); // Retained in the context above.
-    } copy] autorelease];
+    });
 }
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, WebKit::WebPageProxy& page)
+ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKPagePolicyClientInternal policyClient;
     memset(&policyClient, 0, sizeof(policyClient));
@@ -480,21 +498,21 @@ static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, 
         auto policyDelegate = browsingContext->_policyDelegate.get();
 
         if ([policyDelegate respondsToSelector:@selector(browsingContextController:decidePolicyForNavigationAction:decisionHandler:)]) {
-            NSDictionary *actionDictionary = @{
+            auto actionDictionary = retainPtr(@{
                 WKActionIsMainFrameKey: @(WKFrameIsMainFrame(frame)),
                 WKActionNavigationTypeKey: @(navigationType),
                 WKActionModifierFlagsKey: @(modifiers),
                 WKActionMouseButtonKey: @(mouseButton),
                 WKActionOriginalURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(originalRequest)).get(),
                 WKActionURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(request)).get()
-            };
+            });
 
             if (originatingFrame) {
-                actionDictionary = [[actionDictionary mutableCopy] autorelease];
-                [(NSMutableDictionary *)actionDictionary setObject:[NSURL _web_URLWithWTFString:WebKit::toImpl(originatingFrame)->url().string()] forKey:WKActionOriginatingFrameURLKey];
+                actionDictionary = adoptNS([actionDictionary mutableCopy]);
+                [(NSMutableDictionary *)actionDictionary.get() setObject:(NSURL *)WebKit::toImpl(originatingFrame)->url() forKey:WKActionOriginatingFrameURLKey];
             }
             
-            [policyDelegate browsingContextController:browsingContext decidePolicyForNavigationAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener)];
+            [policyDelegate browsingContextController:browsingContext decidePolicyForNavigationAction:actionDictionary.get() decisionHandler:makePolicyDecisionBlock(listener).get()];
         } else
             WKFramePolicyListenerUse(listener);
     };
@@ -516,7 +534,7 @@ static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, 
                 WKActionFrameNameKey: WebKit::toImpl(frameName)->wrapper()
             };
             
-            [policyDelegate browsingContextController:browsingContext decidePolicyForNewWindowAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener)];
+            [policyDelegate browsingContextController:browsingContext decidePolicyForNewWindowAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener).get()];
         } else
             WKFramePolicyListenerUse(listener);
     };
@@ -536,7 +554,7 @@ static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, 
                 WKActionCanShowMIMETypeKey: @(canShowMIMEType),
             };
 
-            [policyDelegate browsingContextController:browsingContext decidePolicyForResponseAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener)];
+            [policyDelegate browsingContextController:browsingContext decidePolicyForResponseAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener).get()];
         } else
             WKFramePolicyListenerUse(listener);
     };
@@ -705,12 +723,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)setPaginationLineGridEnabled:(BOOL)lineGridEnabled
 {
-    _page->setPaginationLineGridEnabled(lineGridEnabled);
 }
 
 - (BOOL)paginationLineGridEnabled
 {
-    return _page->paginationLineGridEnabled();
+    return NO;
 }
 
 - (NSUInteger)pageCount
@@ -720,7 +737,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (WKBrowsingContextHandle *)handle
 {
-    return [[[WKBrowsingContextHandle alloc] _initWithPageProxy:*_page] autorelease];
+    return adoptNS([[WKBrowsingContextHandle alloc] _initWithPageProxy:*_page]).autorelease();
 }
 
 - (_WKRemoteObjectRegistry *)_remoteObjectRegistry

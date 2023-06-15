@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "Connection.h"
 #include "RemoteMediaResourceIdentifier.h"
@@ -47,7 +47,7 @@ private:
     void redirectReceived(WebCore::PlatformMediaResource&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
     bool shouldCacheResponse(WebCore::PlatformMediaResource&, const WebCore::ResourceResponse&) final;
     void dataSent(WebCore::PlatformMediaResource&, unsigned long long, unsigned long long) final;
-    void dataReceived(WebCore::PlatformMediaResource&, const char*, int) final;
+    void dataReceived(WebCore::PlatformMediaResource&, const WebCore::SharedBuffer&) final;
     void accessControlCheckFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError&) final;
     void loadFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError&) final;
     void loadFinished(WebCore::PlatformMediaResource&, const WebCore::NetworkLoadMetrics&) final;
@@ -59,4 +59,4 @@ private:
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

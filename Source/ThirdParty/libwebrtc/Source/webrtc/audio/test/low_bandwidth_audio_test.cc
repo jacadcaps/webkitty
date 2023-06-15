@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "api/test/simulated_network.h"
 #include "audio/test/audio_end_to_end_test.h"
@@ -72,9 +73,9 @@ class AudioQualityTest : public AudioEndToEndTest {
 };
 
 class Mobile2GNetworkTest : public AudioQualityTest {
-  void ModifyAudioConfigs(
-      AudioSendStream::Config* send_config,
-      std::vector<AudioReceiveStream::Config>* receive_configs) override {
+  void ModifyAudioConfigs(AudioSendStream::Config* send_config,
+                          std::vector<AudioReceiveStreamInterface::Config>*
+                              receive_configs) override {
     send_config->send_codec_spec = AudioSendStream::Config::SendCodecSpec(
         test::CallTest::kAudioSendPayloadType,
         {"OPUS",

@@ -26,8 +26,9 @@
 #import "config.h"
 #import <WebKit/WebKit.h>
 
+#import "DeprecatedGlobalValues.h"
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import "ServiceWorkerTCPServer.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
@@ -48,8 +49,6 @@
 #import <wtf/text/WTFString.h>
 
 using namespace TestWebKitAPI;
-
-static bool didFinishNavigation;
 
 @interface QuotaDelegate : NSObject <WKUIDelegate>
 -(bool)quotaDelegateCalled;
@@ -143,7 +142,7 @@ static bool receivedMessage;
 }
 @end
 
-static const char* TestBytes = R"SWRESOURCE(
+static constexpr auto TestBytes = R"SWRESOURCE(
 <script>
 
 async function doTest()
@@ -178,9 +177,9 @@ function doTestAgain()
     doTest();
 }
 </script>
-)SWRESOURCE";
+)SWRESOURCE"_s;
 
-static const char* TestUrlBytes = R"SWRESOURCE(
+static constexpr auto TestUrlBytes = R"SWRESOURCE(
 <script>
 
 var index = 0;
@@ -207,10 +206,10 @@ function doTest(num)
     test(num);
 }
 </script>
-)SWRESOURCE";
+)SWRESOURCE"_s;
 
 #if PLATFORM(MAC)
-static const char* TestHiddenBytes = R"SWRESOURCE(
+static constexpr auto TestHiddenBytes = R"SWRESOURCE(
 <script>
 
 async function test()
@@ -232,10 +231,8 @@ async function test()
 
 test();
 </script>
-)SWRESOURCE";
+)SWRESOURCE"_s;
 #endif
-
-static bool done;
 
 static inline void setVisible(TestWKWebView *webView)
 {
@@ -250,24 +247,22 @@ static inline void setVisible(TestWKWebView *webView)
 TEST(WebKit, QuotaDelegateHidden)
 {
     done = false;
-    _WKWebsiteDataStoreConfiguration *storeConfiguration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
-    storeConfiguration.perOriginStorageQuota = 1024 * 400;
-    WKWebsiteDataStore *dataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration] autorelease];
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    [storeConfiguration setPerOriginStorageQuota:1024 * 400];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
     [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
 
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setWebsiteDataStore:dataStore];
+    [configuration setWebsiteDataStore:dataStore.get()];
 
     auto messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"qt"];
 
-    ServiceWorkerTCPServer server({
-        { "text/html", TestHiddenBytes }
-    }, {
-        { "text/html", TestHiddenBytes }
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { TestHiddenBytes } },
     });
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
@@ -310,24 +305,22 @@ TEST(WebKit, QuotaDelegateHidden)
 TEST(WebKit, QuotaDelegate)
 {
     done = false;
-    _WKWebsiteDataStoreConfiguration *storeConfiguration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
-    storeConfiguration.perOriginStorageQuota = 1024 * 400;
-    WKWebsiteDataStore *dataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration] autorelease];
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    [storeConfiguration setPerOriginStorageQuota:1024 * 400];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
     [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
 
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setWebsiteDataStore:dataStore];
+    [configuration setWebsiteDataStore:dataStore.get()];
 
     auto messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"qt"];
 
-    ServiceWorkerTCPServer server({
-        { "text/html", TestBytes }
-    }, {
-        { "text/html", TestBytes }
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { TestBytes } },
     });
 
     auto webView1 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
@@ -357,7 +350,7 @@ TEST(WebKit, QuotaDelegate)
     Util::run(&receivedMessage);
 
     while (!delegate2.get().quotaDelegateCalled)
-        TestWebKitAPI::Util::sleep(0.1);
+        TestWebKitAPI::Util::runFor(0.1_s);
 
     [delegate2 denyQuota];
 
@@ -368,26 +361,30 @@ TEST(WebKit, QuotaDelegate)
     NSLog(@"QuotaDelegate 6");
 }
 
+// FIXME: Re-enable this test for iOS once webkit.org/b/250228 is resolved
+#if PLATFORM(IOS)
+TEST(WebKit, DISABLED_QuotaDelegateReload)
+#else
 TEST(WebKit, QuotaDelegateReload)
+#endif
 {
     done = false;
-    _WKWebsiteDataStoreConfiguration *storeConfiguration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
-    storeConfiguration.perOriginStorageQuota = 1024 * 400;
-    WKWebsiteDataStore *dataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration] autorelease];
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    [storeConfiguration setPerOriginStorageQuota:1024 * 400];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
     [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
     
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setWebsiteDataStore:dataStore];
+    [configuration setWebsiteDataStore:dataStore.get()];
     
     auto messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"qt"];
     
-    ServiceWorkerTCPServer server({
-        { "text/html", TestBytes },
-        { "text/html", TestBytes }
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { TestBytes } },
     });
     
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
@@ -416,25 +413,30 @@ TEST(WebKit, QuotaDelegateReload)
     Util::run(&receivedMessage);
 }
 
+// FIXME: Re-enable this test for iOS once webkit.org/b/250228 is resolved
+#if PLATFORM(IOS)
+TEST(WebKit, DISABLED_QuotaDelegateNavigateFragment)
+#else
 TEST(WebKit, QuotaDelegateNavigateFragment)
+#endif
 {
     done = false;
-    _WKWebsiteDataStoreConfiguration *storeConfiguration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
-    storeConfiguration.perOriginStorageQuota = 1024 * 400;
-    WKWebsiteDataStore *dataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration] autorelease];
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    [storeConfiguration setPerOriginStorageQuota:1024 * 400];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
     [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
 
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setWebsiteDataStore:dataStore];
+    [configuration setWebsiteDataStore:dataStore.get()];
 
     auto messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"qt"];
 
-    ServiceWorkerTCPServer server({
-        { "text/html", TestBytes }
+    TestWebKitAPI::HTTPServer server({
+        { "/main.html"_s, { TestBytes } },
     });
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
@@ -443,7 +445,7 @@ TEST(WebKit, QuotaDelegateNavigateFragment)
     setVisible(webView.get());
 
     receivedQuotaDelegateCalled = false;
-    [webView loadRequest:server.request()];
+    [webView loadRequest:server.request("/main.html"_s)];
     Util::run(&receivedQuotaDelegateCalled);
 
     [delegate denyQuota];
@@ -453,7 +455,7 @@ TEST(WebKit, QuotaDelegateNavigateFragment)
     Util::run(&receivedMessage);
 
     receivedQuotaDelegateCalled = false;
-    [webView loadRequest:server.requestWithFragment()];
+    [webView loadRequest:server.request("/main.html#fragment"_s)];
     [webView stringByEvaluatingJavaScript:@"doTestAgain()"];
 
     [messageHandler setExpectedMessage: @"start"];
@@ -470,8 +472,8 @@ TEST(WebKit, QuotaDelegateNavigateFragment)
 TEST(WebKit, DefaultQuota)
 {
     done = false;
-    _WKWebsiteDataStoreConfiguration *storeConfiguration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
-    WKWebsiteDataStore *dataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration] autorelease];
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
 
     [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
@@ -479,13 +481,13 @@ TEST(WebKit, DefaultQuota)
     TestWebKitAPI::Util::run(&done);
 
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration setWebsiteDataStore:dataStore];
+    [configuration setWebsiteDataStore:dataStore.get()];
 
     auto messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"qt"];
 
-    ServiceWorkerTCPServer server({
-        { "text/html", TestUrlBytes }
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { TestUrlBytes } },
     });
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
@@ -495,13 +497,13 @@ TEST(WebKit, DefaultQuota)
 
     auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
     [navigationDelegate setDidFinishNavigation:^(WKWebView *, WKNavigation *) {
-        didFinishNavigation = true;
+        didFinishNavigationBoolean = true;
     }];
     [webView setNavigationDelegate:navigationDelegate.get()];
 
-    didFinishNavigation = false;
+    didFinishNavigationBoolean = false;
     [webView loadRequest:server.request()];
-    Util::run(&didFinishNavigation);
+    Util::run(&didFinishNavigationBoolean);
 
     receivedQuotaDelegateCalled = false;
 

@@ -29,6 +29,7 @@
 
 #import "PlatformWebView.h"
 #import "TestController.h"
+#import <WebKit/WKProcessPoolPrivate.h>
 
 static void setDefaultsToConsistentValuesForTesting()
 {
@@ -41,9 +42,8 @@ static void setDefaultsToConsistentValuesForTesting()
         @"AppleEnableSwipeNavigateWithScrolls": @YES,
         @"com.apple.swipescrolldirection": @1,
         @"com.apple.trackpad.forceClick": @1,
-        @"WebKitLinkedOnOrAfterEverything": @YES,
-        @"NSScrollAnimationEnabled": @NO,
         @"NSOverlayScrollersEnabled": @NO,
+        @"NSScrollAnimationEnabled" : @NO,
         @"AppleShowScrollBars": @"Always",
         @"WebKit2UseRemoteLayerTreeDrawingArea": @NO,
     };
@@ -53,11 +53,14 @@ static void setDefaultsToConsistentValuesForTesting()
 
 static void disableAppNapInUIProcess()
 {
-    NSActivityOptions options = (NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical) & ~(NSActivitySuddenTerminationDisabled | NSActivityAutomaticTerminationDisabled);
-    static id assertion = [[[NSProcessInfo processInfo] beginActivityWithOptions:options reason:@"WebKitTestRunner should not be subject to process suppression"] retain];
-    ASSERT_UNUSED(assertion, assertion);
+    static NeverDestroyed<RetainPtr<id>> assertion;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSActivityOptions options = (NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical) & ~(NSActivitySuddenTerminationDisabled | NSActivityAutomaticTerminationDisabled);
+        assertion.get() = [[NSProcessInfo processInfo] beginActivityWithOptions:options reason:@"WebKitTestRunner should not be subject to process suppression"];
+    });
+    ASSERT_UNUSED(assertion, assertion.get());
 }
-
 
 int main(int argc, const char* argv[])
 {
@@ -65,6 +68,7 @@ int main(int argc, const char* argv[])
         [NSApplication sharedApplication];
         setDefaultsToConsistentValuesForTesting();
         disableAppNapInUIProcess(); // For secondary processes, app nap is disabled using WKPreferencesSetPageVisibilityBasedProcessSuppressionEnabled().
+        [WKProcessPool _setLinkedOnOrAfterEverythingForTesting];
     }
     WTR::TestController controller(argc, argv);
     return 0;

@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Apple Inc. All rights reserved.
+# Copyright (C) 2020-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -24,29 +24,78 @@ import logging
 import platform
 import sys
 
+from logging import NullHandler
+
 log = logging.getLogger('webkitcorepy')
+log.addHandler(NullHandler())
 
 from webkitcorepy.version import Version
 from webkitcorepy.string_utils import BytesIO, StringIO, UnicodeIO, unicode
+from webkitcorepy.timeout import Timeout
+from webkitcorepy.subprocess_utils import TimeoutExpired, CompletedProcess, run, Thread
+from webkitcorepy.output_capture import LoggerCapture, OutputCapture, OutputDuplicate
+from webkitcorepy.task_pool import TaskPool
+from webkitcorepy.timer import Timer
+from webkitcorepy.terminal import Terminal
+from webkitcorepy.environment import Environment
+from webkitcorepy.credentials import credentials, delete_credentials
+from webkitcorepy.measure_time import MeasureTime
+from webkitcorepy.nested_fuzzy_dict import NestedFuzzyDict
+from webkitcorepy.call_by_need import CallByNeed
+from webkitcorepy.editor import Editor
+from webkitcorepy.file_lock import FileLock
+from webkitcorepy.null_context import NullContext
+from webkitcorepy.filtered_call import filtered_call
 
-version = Version(0, 2, 2)
+version = Version(0, 14, 0)
 
 from webkitcorepy.autoinstall import Package, AutoInstall
 if sys.version_info > (3, 0):
     AutoInstall.register(Package('mock', Version(4)))
+    AutoInstall.register(Package('setuptools', Version(56, 0, 0)))
 else:
     AutoInstall.register(Package('mock', Version(3, 0, 5)))
+    AutoInstall.register(Package('setuptools', Version(44, 1, 1)))
     if platform.system() == 'Windows':
         AutoInstall.register(Package('win_inet_pton', Version(1, 1, 0), pypi_name='win-inet-pton'))
 
-AutoInstall.register(Package('certifi', Version(2020, 6, 20)))
+if sys.version_info >= (3, 6):
+    AutoInstall.register(Package('certifi', Version(2022, 12, 7)))
+else:
+    AutoInstall.register(Package('certifi', Version(2021, 10, 8)))
+
 AutoInstall.register(Package('chardet', Version(3, 0, 4)))
+AutoInstall.register(Package('dateutil', Version(2, 8, 1), pypi_name='python-dateutil'))
+AutoInstall.register(Package('entrypoints', Version(0, 3, 0)))
 AutoInstall.register(Package('funcsigs', Version(1, 0, 2)))
 AutoInstall.register(Package('idna', Version(2, 10)))
-AutoInstall.register(Package('packaging', Version(20, 4)))
+
+if sys.version_info > (3, 0):
+    AutoInstall.register(Package('packaging', Version(21, 3)))
+else:
+    AutoInstall.register(Package('packaging', Version(20, 4)))
+
 AutoInstall.register(Package('pyparsing', Version(2, 4, 7)))
 AutoInstall.register(Package('requests', Version(2, 24)))
-AutoInstall.register(Package('setuptools', Version(44, 1,  1)))
+AutoInstall.register(Package('setuptools_scm', Version(5, 0, 2), pypi_name='setuptools-scm'))
 AutoInstall.register(Package('socks', Version(1, 7, 1), pypi_name='PySocks'))
 AutoInstall.register(Package('six', Version(1, 15, 0)))
+AutoInstall.register(Package('tblib', Version(1, 7, 0)))
 AutoInstall.register(Package('urllib3', Version(1, 25, 10)))
+AutoInstall.register(Package('wheel', Version(0, 35, 1)))
+AutoInstall.register(Package('whichcraft', Version(0, 6, 1)))
+
+if sys.version_info >= (3, 6):
+    if sys.platform == 'linux':
+        AutoInstall.register(Package('jeepney', Version(0, 7, 1)))
+        AutoInstall.register(Package('cffi', Version(1, 15, 0)))
+        AutoInstall.register(Package('cryptography', Version(36, 0, 1), wheel=True, implicit_deps=['cffi']))
+        AutoInstall.register(Package('secretstorage', Version(3, 3, 1)))
+    AutoInstall.register(Package('keyring', Version(23, 2, 1)))
+else:
+    AutoInstall.register(Package('keyring', Version(18, 0, 1)))
+
+if sys.version_info < (3, 0):
+    AutoInstall.register(Package('inspect2', Version(0, 1, 2)))
+
+name = 'webkitcorepy'

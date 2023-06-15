@@ -27,7 +27,6 @@
 #import "AlternativeTextUIController.h"
 
 #import "FloatRect.h"
-#import <wtf/cocoa/VectorCocoa.h>
 
 #if USE(APPKIT)
 #import <AppKit/NSSpellChecker.h>
@@ -46,9 +45,14 @@ DictationContext AlternativeTextUIController::addAlternatives(NSTextAlternatives
     return m_contextController.addAlternatives(alternatives);
 }
 
-Vector<String> AlternativeTextUIController::alternativesForContext(DictationContext context)
+void AlternativeTextUIController::replaceAlternatives(NSTextAlternatives *alternatives, DictationContext context)
 {
-    return makeVector<String>(m_contextController.alternativesForContext(context).alternativeStrings);
+    m_contextController.replaceAlternatives(alternatives, context);
+}
+
+NSTextAlternatives *AlternativeTextUIController::alternativesForContext(DictationContext context)
+{
+    return m_contextController.alternativesForContext(context);
 }
 
 void AlternativeTextUIController::clear()

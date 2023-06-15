@@ -25,45 +25,95 @@
 
 #pragma once
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+#if HAVE(CVDISPLAYLINK)
 
 #include "DisplayLinkObserverID.h"
 #include <CoreVideo/CVDisplayLink.h>
+#include <WebCore/AnimationFrameRate.h>
+#include <WebCore/DisplayUpdate.h>
 #include <WebCore/PlatformScreen.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 
-namespace IPC {
-class Connection;
-}
-
 namespace WebKit {
-    
+
 class DisplayLink {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    class Client : public CanMakeThreadSafeCheckedPtr {
+    friend class DisplayLink;
+    public:
+        virtual ~Client() = default;
+        
+    private:
+        virtual void displayLinkFired(WebCore::PlatformDisplayID, WebCore::DisplayUpdate, bool wantsFullSpeedUpdates, bool anyObserverWantsCallback) = 0;
+    };
+
     explicit DisplayLink(WebCore::PlatformDisplayID);
     ~DisplayLink();
-    
-    void addObserver(IPC::Connection&, DisplayLinkObserverID);
-    void removeObserver(IPC::Connection&, DisplayLinkObserverID);
-    void removeObservers(IPC::Connection&);
-    bool hasObservers() const;
 
     WebCore::PlatformDisplayID displayID() const { return m_displayID; }
+    WebCore::FramesPerSecond nominalFramesPerSecond() const { return m_displayNominalFramesPerSecond; }
     
-    Optional<unsigned> nominalFramesPerSecond() const;
+    void displayPropertiesChanged();
+
+    void addObserver(Client&, DisplayLinkObserverID, WebCore::FramesPerSecond);
+    void removeObserver(Client&, DisplayLinkObserverID);
+
+    void removeClient(Client&);
+
+    // FIXME: Maybe callers should just register a DisplayLinkObserverID with the appropriate fps.
+    void incrementFullSpeedRequestClientCount(Client&);
+    void decrementFullSpeedRequestClientCount(Client&);
+
+    void setObserverPreferredFramesPerSecond(Client&, DisplayLinkObserverID, WebCore::FramesPerSecond);
 
 private:
     static CVReturn displayLinkCallback(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* data);
-    
+    void notifyObserversDisplayWasRefreshed();
+
+    bool removeInfoForClientIfUnused(Client&) WTF_REQUIRES_LOCK(m_clientsLock);
+
+    static WebCore::FramesPerSecond nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef);
+
+    struct ObserverInfo {
+        DisplayLinkObserverID observerID;
+        WebCore::FramesPerSecond preferredFramesPerSecond;
+    };
+
+    struct ClientInfo {
+        unsigned fullSpeedUpdatesClientCount { 0 };
+        Vector<ObserverInfo> observers;
+    };
+
     CVDisplayLinkRef m_displayLink { nullptr };
-    Lock m_observersLock;
-    HashMap<RefPtr<IPC::Connection>, Vector<DisplayLinkObserverID>> m_observers;
-    WebCore::PlatformDisplayID m_displayID;
+    Lock m_clientsLock;
+    HashMap<CheckedRef<Client>, ClientInfo> m_clients WTF_GUARDED_BY_LOCK(m_clientsLock);
+    const WebCore::PlatformDisplayID m_displayID;
+    WebCore::FramesPerSecond m_displayNominalFramesPerSecond { WebCore::FullSpeedFramesPerSecond };
+    WebCore::DisplayUpdate m_currentUpdate;
+    unsigned m_fireCountWithoutObservers { 0 };
+};
+
+class DisplayLinkCollection {
+public:
+    DisplayLink& displayLinkForDisplay(WebCore::PlatformDisplayID);
+    DisplayLink* existingDisplayLinkForDisplay(WebCore::PlatformDisplayID) const;
+
+    std::optional<unsigned> nominalFramesPerSecondForDisplay(WebCore::PlatformDisplayID);
+    void startDisplayLink(DisplayLink::Client&, DisplayLinkObserverID, WebCore::PlatformDisplayID, WebCore::FramesPerSecond preferredFramesPerSecond);
+    void stopDisplayLink(DisplayLink::Client&, DisplayLinkObserverID, WebCore::PlatformDisplayID);
+    void stopDisplayLinks(DisplayLink::Client&);
+    void setDisplayLinkPreferredFramesPerSecond(DisplayLink::Client&, DisplayLinkObserverID, WebCore::PlatformDisplayID, WebCore::FramesPerSecond preferredFramesPerSecond);
+    void setDisplayLinkForDisplayWantsFullSpeedUpdates(DisplayLink::Client&, WebCore::PlatformDisplayID, bool wantsFullSpeedUpdates);
+
+private:
+    void add(std::unique_ptr<DisplayLink>&&);
+
+    Vector<std::unique_ptr<DisplayLink>> m_displayLinks;
 };
 
 } // namespace WebKit
 
-#endif
-
+#endif // HAVE(CVDISPLAYLINK)

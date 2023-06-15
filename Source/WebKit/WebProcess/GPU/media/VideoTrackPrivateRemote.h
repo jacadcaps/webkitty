@@ -26,26 +26,28 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include "TrackPrivateRemoteConfiguration.h"
 #include "TrackPrivateRemoteIdentifier.h"
+#include <WebCore/MediaPlayerIdentifier.h>
 #include <WebCore/VideoTrackPrivate.h>
 
 namespace WebKit {
 
+class GPUProcessConnection;
 class MediaPlayerPrivateRemote;
-struct TrackPrivateRemoteConfiguration;
+struct VideoTrackPrivateRemoteConfiguration;
 
-class VideoTrackPrivateRemote : public WebCore::VideoTrackPrivate {
+class VideoTrackPrivateRemote
+    : public WebCore::VideoTrackPrivate {
     WTF_MAKE_NONCOPYABLE(VideoTrackPrivateRemote)
 public:
-    static Ref<VideoTrackPrivateRemote> create(MediaPlayerPrivateRemote& player, TrackPrivateRemoteIdentifier idendifier, TrackPrivateRemoteConfiguration&& configuration)
+    static Ref<VideoTrackPrivateRemote> create(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier identifier, VideoTrackPrivateRemoteConfiguration&& configuration)
     {
-        return adoptRef(*new VideoTrackPrivateRemote(player, idendifier, WTFMove(configuration)));
+        return adoptRef(*new VideoTrackPrivateRemote(gpuProcessConnection, playerIdentifier, identifier, WTFMove(configuration)));
     }
 
-    void updateConfiguration(TrackPrivateRemoteConfiguration&&);
+    void updateConfiguration(VideoTrackPrivateRemoteConfiguration&&);
 
     using VideoTrackKind = WebCore::VideoTrackPrivate::Kind;
     VideoTrackKind kind() const final { return m_kind; }
@@ -53,22 +55,24 @@ public:
     AtomString label() const final { return m_label; }
     AtomString language() const final { return m_language; }
     int trackIndex() const final { return m_trackIndex; }
+    MediaTime startTimeVariance() const final { return m_startTimeVariance; }
 
-protected:
-    VideoTrackPrivateRemote(MediaPlayerPrivateRemote&, TrackPrivateRemoteIdentifier, TrackPrivateRemoteConfiguration&&);
+private:
+    VideoTrackPrivateRemote(GPUProcessConnection&, WebCore::MediaPlayerIdentifier, TrackPrivateRemoteIdentifier, VideoTrackPrivateRemoteConfiguration&&);
 
     void setSelected(bool) final;
 
-    MediaPlayerPrivateRemote& m_player;
+    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    WebCore::MediaPlayerIdentifier m_playerIdentifier;
     VideoTrackKind m_kind { None };
     AtomString m_id;
     AtomString m_label;
     AtomString m_language;
     int m_trackIndex { -1 };
     MediaTime m_startTimeVariance { MediaTime::zeroTime() };
-    TrackPrivateRemoteIdentifier m_idendifier;
+    TrackPrivateRemoteIdentifier m_identifier;
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

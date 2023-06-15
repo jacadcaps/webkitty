@@ -43,6 +43,7 @@ std::string VideoStream::ToString() const {
   ss << ", num_temporal_layers: " << num_temporal_layers.value_or(1);
   ss << ", bitrate_priority: " << bitrate_priority.value_or(0);
   ss << ", active: " << active;
+  ss << ", scale_down_by: " << scale_resolution_down_by;
 
   return ss.str();
 }
@@ -51,11 +52,14 @@ VideoEncoderConfig::VideoEncoderConfig()
     : codec_type(kVideoCodecGeneric),
       video_format("Unset"),
       content_type(ContentType::kRealtimeVideo),
+      frame_drop_enabled(false),
       encoder_specific_settings(nullptr),
       min_transmit_bitrate_bps(0),
       max_bitrate_bps(0),
       bitrate_priority(1.0),
-      number_of_streams(0) {}
+      number_of_streams(0),
+      legacy_conference_mode(false),
+      is_quality_scaling_allowed(false) {}
 
 VideoEncoderConfig::VideoEncoderConfig(VideoEncoderConfig&&) = default;
 
@@ -75,8 +79,9 @@ std::string VideoEncoderConfig::ToString() const {
       ss << "kScreenshare";
       break;
   }
+  ss << ", frame_drop_enabled: " << frame_drop_enabled;
   ss << ", encoder_specific_settings: ";
-  ss << (encoder_specific_settings != NULL ? "(ptr)" : "NULL");
+  ss << (encoder_specific_settings != nullptr ? "(ptr)" : "NULL");
 
   ss << ", min_transmit_bitrate_bps: " << min_transmit_bitrate_bps;
   ss << '}';
@@ -87,62 +92,25 @@ VideoEncoderConfig::VideoEncoderConfig(const VideoEncoderConfig&) = default;
 
 void VideoEncoderConfig::EncoderSpecificSettings::FillEncoderSpecificSettings(
     VideoCodec* codec) const {
-  if (codec->codecType == kVideoCodecH264) {
-    FillVideoCodecH264(codec->H264());
-  } else if (codec->codecType == kVideoCodecVP8) {
+  if (codec->codecType == kVideoCodecVP8) {
     FillVideoCodecVp8(codec->VP8());
   } else if (codec->codecType == kVideoCodecVP9) {
     FillVideoCodecVp9(codec->VP9());
-#ifndef DISABLE_H265
-  } else if (codec->codecType == kVideoCodecH265) {
-    FillVideoCodecH265(codec->H265());
-#endif
   } else {
-    RTC_NOTREACHED() << "Encoder specifics set/used for unknown codec type.";
+    RTC_DCHECK_NOTREACHED()
+        << "Encoder specifics set/used for unknown codec type.";
   }
 }
 
-void VideoEncoderConfig::EncoderSpecificSettings::FillVideoCodecH264(
-    VideoCodecH264* h264_settings) const {
-  RTC_NOTREACHED();
-}
-
-#ifndef DISABLE_H265
-void VideoEncoderConfig::EncoderSpecificSettings::FillVideoCodecH265(
-    VideoCodecH265* h265_settings) const {
-  RTC_NOTREACHED();
-}
-#endif
-
 void VideoEncoderConfig::EncoderSpecificSettings::FillVideoCodecVp8(
     VideoCodecVP8* vp8_settings) const {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
 }
 
 void VideoEncoderConfig::EncoderSpecificSettings::FillVideoCodecVp9(
     VideoCodecVP9* vp9_settings) const {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
 }
-
-VideoEncoderConfig::H264EncoderSpecificSettings::H264EncoderSpecificSettings(
-    const VideoCodecH264& specifics)
-    : specifics_(specifics) {}
-
-void VideoEncoderConfig::H264EncoderSpecificSettings::FillVideoCodecH264(
-    VideoCodecH264* h264_settings) const {
-  *h264_settings = specifics_;
-}
-
-#ifndef DISABLE_H265
-VideoEncoderConfig::H265EncoderSpecificSettings::H265EncoderSpecificSettings(
-    const VideoCodecH265& specifics)
-    : specifics_(specifics) {}
-
-void VideoEncoderConfig::H265EncoderSpecificSettings::FillVideoCodecH265(
-    VideoCodecH265* h265_settings) const {
-  *h265_settings = specifics_;
-}
-#endif
 
 VideoEncoderConfig::Vp8EncoderSpecificSettings::Vp8EncoderSpecificSettings(
     const VideoCodecVP8& specifics)

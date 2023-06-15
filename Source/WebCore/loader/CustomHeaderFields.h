@@ -36,32 +36,6 @@ struct WEBCORE_EXPORT CustomHeaderFields {
     Vector<String> thirdPartyDomains;
 
     bool thirdPartyDomainsMatch(const URL&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<CustomHeaderFields> decode(Decoder&);
 };
-
-template<class Encoder>
-void CustomHeaderFields::encode(Encoder& encoder) const
-{
-    encoder << fields;
-    encoder << thirdPartyDomains;
-}
-
-template<class Decoder>
-Optional<CustomHeaderFields> CustomHeaderFields::decode(Decoder& decoder)
-{
-    Optional<Vector<HTTPHeaderField>> fields;
-    decoder >> fields;
-    if (!fields)
-        return WTF::nullopt;
-    
-    Optional<Vector<String>> thirdPartyDomains;
-    decoder >> thirdPartyDomains;
-    if (!thirdPartyDomains)
-        return WTF::nullopt;
-    
-    return {{ WTFMove(*fields), WTFMove(*thirdPartyDomains) }};
-}
 
 } // namespace WebCore

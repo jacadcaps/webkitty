@@ -104,6 +104,11 @@
     completionHandler(value);
 }
 
+- (void)takeDictionary:(NSDictionary *)value completionHandler:(void (^)(NSDictionary *value))completionHandler
+{
+    completionHandler(value);
+}
+
 - (void)doNotCallCompletionHandler:(void (^)())completionHandler
 {
 }
@@ -113,10 +118,25 @@
     completionHandler(request, response, challenge, error);
 }
 
+- (void)sendError:(NSError *)error completionHandler:(void (^)(NSError *))completionHandler
+{
+    completionHandler(error);
+}
+
+- (void)sendAwakener:(TestAwakener *)awakener completionHandler:(void (^)(TestAwakener *))completionHandler
+{
+    completionHandler(awakener);
+}
+
 - (void)callUIProcessMethodWithReplyBlock
 {
     id <LocalObjectProtocol> localObject = [[_browserContextController _remoteObjectRegistry] remoteObjectProxyWithInterface:localObjectInterface()];
     [localObject doSomethingWithCompletionHandler:^{ }];
+}
+
+- (void)getGroupIdentifier:(void(^)(NSString *))completionHandler
+{
+    completionHandler([_browserContextController _groupIdentifier]);
 }
 
 @end

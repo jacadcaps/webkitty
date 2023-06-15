@@ -1,5 +1,5 @@
 add_custom_target(WebKitTestRunner-forwarding-headers
-    COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${WebKitTestRunner_DIR} --include-path ${WebKitTestRunner_SHARED_DIR} --output ${FORWARDING_HEADERS_DIR} --platform gtk --platform soup
+    COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${WebKitTestRunner_DIR} --include-path ${TOOLS_DIR}/TestRunnerShared --output ${FORWARDING_HEADERS_DIR} --platform gtk --platform soup
 )
 list(APPEND WebKitTestRunner_DEPENDENCIES WebKitTestRunner-forwarding-headers)
 
@@ -22,23 +22,21 @@ list(APPEND WebKitTestRunner_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKitTestRunner_LIBRARIES
-    ${ATK_LIBRARIES}
     ${GLIB_LIBRARIES}
     Cairo::Cairo
     GTK::GTK
 )
 
-list(APPEND WebKitTestRunnerInjectedBundle_LIBRARIES
-    ${ATK_LIBRARIES}
+list(APPEND TestRunnerInjectedBundle_LIBRARIES
     ${GLIB_LIBRARIES}
     Fontconfig::Fontconfig
     GTK::GTK
 )
 
-list(APPEND WebKitTestRunnerInjectedBundle_SOURCES
-    InjectedBundle/atk/AccessibilityControllerAtk.cpp
-    InjectedBundle/atk/AccessibilityNotificationHandlerAtk.cpp
-    InjectedBundle/atk/AccessibilityUIElementAtk.cpp
+list(APPEND TestRunnerInjectedBundle_SOURCES
+    InjectedBundle/atspi/AccessibilityControllerAtspi.cpp
+    InjectedBundle/atspi/AccessibilityNotificationHandler.cpp
+    InjectedBundle/atspi/AccessibilityUIElementAtspi.cpp
 
     InjectedBundle/gtk/ActivateFontsGtk.cpp
     InjectedBundle/gtk/InjectedBundleGtk.cpp
@@ -46,10 +44,9 @@ list(APPEND WebKitTestRunnerInjectedBundle_SOURCES
     InjectedBundle/gtk/TestRunnerGtk.cpp
 )
 
-list(APPEND WebKitTestRunnerInjectedBundle_INCLUDE_DIRECTORIES
-    ${ATK_INCLUDE_DIRS}
+list(APPEND TestRunnerInjectedBundle_INCLUDE_DIRECTORIES
     ${GLIB_INCLUDE_DIRS}
-    ${WebKitTestRunner_DIR}/InjectedBundle/atk
+    ${WebKitTestRunner_DIR}/InjectedBundle/atspi
     ${WebKitTestRunner_DIR}/InjectedBundle/gtk
 )
 

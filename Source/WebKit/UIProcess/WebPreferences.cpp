@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,10 +50,8 @@ Ref<WebPreferences> WebPreferences::createWithLegacyDefaults(const String& ident
     auto preferences = WebPreferences::create(identifier, keyPrefix, globalDebugKeyPrefix);
     // FIXME: The registerDefault...ValueForKey machinery is unnecessarily heavyweight and complicated.
     // We can just compute different defaults for modern and legacy APIs in WebPreferencesDefinitions.h macros.
-    preferences->registerDefaultBoolValueForKey(WebPreferencesKey::javaEnabledKey(), true);
-    preferences->registerDefaultBoolValueForKey(WebPreferencesKey::javaEnabledForLocalFilesKey(), true);
     preferences->registerDefaultBoolValueForKey(WebPreferencesKey::pluginsEnabledKey(), true);
-    preferences->registerDefaultUInt32ValueForKey(WebPreferencesKey::storageBlockingPolicyKey(), WebCore::SecurityOrigin::AllowAllStorage);
+    preferences->registerDefaultUInt32ValueForKey(WebPreferencesKey::storageBlockingPolicyKey(), static_cast<uint32_t>(WebCore::StorageBlockingPolicy::AllowAll));
     return preferences;
 }
 
@@ -76,7 +74,35 @@ WebPreferences::WebPreferences(const WebPreferences& other)
 
 WebPreferences::~WebPreferences()
 {
-    ASSERT(m_pages.isEmpty());
+    ASSERT(m_pages.isEmptyIgnoringNullReferences());
+}
+
+const Vector<RefPtr<API::Object>>& WebPreferences::experimentalFeatures()
+{
+    static auto experimentalFeatures = NeverDestroyed([]() {
+        Vector<RefPtr<API::Object>> result;
+        for (auto& object : features()) {
+            API::FeatureStatus status = static_pointer_cast<API::Feature>(object)->status();
+            if (status == API::FeatureStatus::Developer || status == API::FeatureStatus::Testable || status == API::FeatureStatus::Preview || status == API::FeatureStatus::Stable)
+                result.append(object);
+        }
+        return result;
+    }());
+    return experimentalFeatures;
+}
+
+const Vector<RefPtr<API::Object>>& WebPreferences::internalDebugFeatures()
+{
+    static auto internalDebugFeatures = NeverDestroyed([]() {
+        Vector<RefPtr<API::Object>> result;
+        for (auto& object : features()) {
+            API::FeatureStatus status = static_pointer_cast<API::Feature>(object)->status();
+            if (status == API::FeatureStatus::Unstable || status == API::FeatureStatus::Internal)
+                result.append(object);
+        }
+        return result;
+    }());
+    return internalDebugFeatures;
 }
 
 Ref<WebPreferences> WebPreferences::copy() const
@@ -86,63 +112,105 @@ Ref<WebPreferences> WebPreferences::copy() const
 
 void WebPreferences::addPage(WebPageProxy& webPageProxy)
 {
-    ASSERT(!m_pages.contains(&webPageProxy));
-    m_pages.add(&webPageProxy);
+    ASSERT(!m_pages.contains(webPageProxy));
+    m_pages.add(webPageProxy);
 }
 
 void WebPreferences::removePage(WebPageProxy& webPageProxy)
 {
-    ASSERT(m_pages.contains(&webPageProxy));
-    m_pages.remove(&webPageProxy);
+    ASSERT(m_pages.contains(webPageProxy));
+    m_pages.remove(webPageProxy);
 }
 
 void WebPreferences::update()
 {
+    if (m_updateBatchCount) {
+        m_needUpdateAfterBatch = true;
+        return;
+    }
+        
     for (auto& webPageProxy : m_pages)
-        webPageProxy->preferencesDidChange();
+        webPageProxy.preferencesDidChange();
 }
 
-void WebPreferences::updateStringValueForKey(const String& key, const String& value)
+void WebPreferences::startBatchingUpdates()
+{
+    if (!m_updateBatchCount)
+        m_needUpdateAfterBatch = false;
+
+    ++m_updateBatchCount;
+}
+
+void WebPreferences::endBatchingUpdates()
+{
+    ASSERT(m_updateBatchCount > 0);
+    --m_updateBatchCount;
+    if (!m_updateBatchCount && m_needUpdateAfterBatch)
+        update();
+}
+
+void WebPreferences::setBoolValueForKey(const String& key, bool value, bool ephemeral)
+{
+    if (!m_store.setBoolValueForKey(key, value))
+        return;
+    updateBoolValueForKey(key, value, ephemeral);
+}
+
+void WebPreferences::setDoubleValueForKey(const String& key, double value, bool ephemeral)
+{
+    if (!m_store.setDoubleValueForKey(key, value))
+        return;
+    updateDoubleValueForKey(key, value, ephemeral);
+}
+
+void WebPreferences::setUInt32ValueForKey(const String& key, uint32_t value, bool ephemeral)
+{
+    if (!m_store.setUInt32ValueForKey(key, value))
+        return;
+    updateUInt32ValueForKey(key, value, ephemeral);
+}
+
+void WebPreferences::setStringValueForKey(const String& key, const String& value, bool ephemeral)
+{
+    if (!m_store.setStringValueForKey(key, value))
+        return;
+    updateStringValueForKey(key, value, ephemeral);
+}
+
+void WebPreferences::updateStringValueForKey(const String& key, const String& value, bool ephemeral)
 {
     platformUpdateStringValueForKey(key, value);
     update(); // FIXME: Only send over the changed key and value.
 }
 
-void WebPreferences::updateBoolValueForKey(const String& key, bool value)
+void WebPreferences::updateBoolValueForKey(const String& key, bool value, bool ephemeral)
 {
-    platformUpdateBoolValueForKey(key, value);
-    update(); // FIXME: Only send over the changed key and value.
-}
-
-void WebPreferences::updateBoolValueForInternalDebugFeatureKey(const String& key, bool value)
-{
+    if (!ephemeral)
+        platformUpdateBoolValueForKey(key, value);
+    
     if (key == WebPreferencesKey::processSwapOnCrossSiteNavigationEnabledKey()) {
-        for (auto* page : m_pages)
-            page->process().processPool().configuration().setProcessSwapsOnNavigation(value);
+        for (auto& page : m_pages)
+            page.process().processPool().configuration().setProcessSwapsOnNavigation(value);
 
         return;
     }
+
     update(); // FIXME: Only send over the changed key and value.
 }
 
-void WebPreferences::updateBoolValueForExperimentalFeatureKey(const String& key, bool value)
-{
-    update(); // FIXME: Only send over the changed key and value.
-}
-
-void WebPreferences::updateUInt32ValueForKey(const String& key, uint32_t value)
+void WebPreferences::updateUInt32ValueForKey(const String& key, uint32_t value, bool ephemeral)
 {
     platformUpdateUInt32ValueForKey(key, value);
     update(); // FIXME: Only send over the changed key and value.
 }
 
-void WebPreferences::updateDoubleValueForKey(const String& key, double value)
+void WebPreferences::updateDoubleValueForKey(const String& key, double value, bool ephemeral)
 {
     platformUpdateDoubleValueForKey(key, value);
     update(); // FIXME: Only send over the changed key and value.
 }
 
-void WebPreferences::updateFloatValueForKey(const String& key, float value)
+void WebPreferences::updateFloatValueForKey(const String& key, float value, bool ephemeral)
 {
     platformUpdateFloatValueForKey(key, value);
     update(); // FIXME: Only send over the changed key and value.
@@ -154,30 +222,6 @@ void WebPreferences::deleteKey(const String& key)
     platformDeleteKey(key);
     update(); // FIXME: Only send over the changed key and value.
 }
-
-#define DEFINE_PREFERENCE_GETTER_AND_SETTERS(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
-    void WebPreferences::set##KeyUpper(const Type& value) \
-    { \
-        if (!m_store.set##TypeName##ValueForKey(WebPreferencesKey::KeyLower##Key(), value)) \
-            return; \
-        update##TypeName##ValueForKey(WebPreferencesKey::KeyLower##Key(), value); \
-    } \
-    \
-    void WebPreferences::delete##KeyUpper() \
-    { \
-        deleteKey(WebPreferencesKey::KeyLower##Key()); \
-    } \
-    \
-    Type WebPreferences::KeyLower() const \
-    { \
-        return m_store.get##TypeName##ValueForKey(WebPreferencesKey::KeyLower##Key()); \
-    } \
-
-FOR_EACH_WEBKIT_PREFERENCE(DEFINE_PREFERENCE_GETTER_AND_SETTERS)
-FOR_EACH_WEBKIT_DEBUG_PREFERENCE(DEFINE_PREFERENCE_GETTER_AND_SETTERS)
-
-#undef DEFINE_PREFERENCE_GETTER_AND_SETTERS
-
 
 void WebPreferences::registerDefaultBoolValueForKey(const String& key, bool value)
 {

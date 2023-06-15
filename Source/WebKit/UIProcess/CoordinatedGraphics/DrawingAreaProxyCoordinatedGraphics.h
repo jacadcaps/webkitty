@@ -40,7 +40,7 @@ namespace WebKit {
 
 class DrawingAreaProxyCoordinatedGraphics final : public DrawingAreaProxy {
 public:
-    DrawingAreaProxyCoordinatedGraphics(WebPageProxy&, WebProcessProxy&);
+    DrawingAreaProxyCoordinatedGraphics(WebPageProxy&);
     virtual ~DrawingAreaProxyCoordinatedGraphics();
 
 #if !PLATFORM(WPE)
@@ -57,12 +57,20 @@ private:
     void waitForBackingStoreUpdateOnNextPaint() override;
     void setBackingStoreIsDiscardable(bool) override;
 
+#if PLATFORM(GTK)
+    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
+    void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
+#endif
+
     // IPC message handlers
     void update(uint64_t backingStoreStateID, const UpdateInfo&) override;
     void didUpdateBackingStoreState(uint64_t backingStoreStateID, const UpdateInfo&, const LayerTreeContext&) override;
     void enterAcceleratedCompositingMode(uint64_t backingStoreStateID, const LayerTreeContext&) override;
     void exitAcceleratedCompositingMode(uint64_t backingStoreStateID, const UpdateInfo&) override;
     void updateAcceleratedCompositingMode(uint64_t backingStoreStateID, const LayerTreeContext&) override;
+    void targetRefreshRateDidChange(unsigned) override;
+
+    bool shouldSendWheelEventsToEventDispatcher() const override { return true; }
 
 #if !PLATFORM(WPE)
     void incorporateUpdate(const UpdateInfo&);
@@ -83,7 +91,8 @@ private:
     void discardBackingStore();
 #endif
 
-    void dispatchAfterEnsuringDrawing(WTF::Function<void(CallbackBase::Error)>&&) override;
+    void dispatchAfterEnsuringDrawing(CompletionHandler<void()>&&) final;
+    void attachToProvisionalFrameProcess(WebProcessProxy&) final { ASSERT_NOT_REACHED(); }
 
     class DrawingMonitor {
         WTF_MAKE_NONCOPYABLE(DrawingMonitor); WTF_MAKE_FAST_ALLOCATED;
@@ -91,7 +100,7 @@ private:
         DrawingMonitor(WebPageProxy&);
         ~DrawingMonitor();
 
-        void start(WTF::Function<void(CallbackBase::Error)>&&);
+        void start(CompletionHandler<void()>&&);
 
     private:
         static int webViewDrawCallback(DrawingMonitor*);
@@ -100,8 +109,8 @@ private:
         void didDraw();
 
         MonotonicTime m_startTime;
-        WTF::Function<void(CallbackBase::Error)> m_callback;
-        RunLoop::Timer<DrawingMonitor> m_timer;
+        CompletionHandler<void()> m_callback;
+        RunLoop::Timer m_timer;
 #if PLATFORM(GTK)
         WebPageProxy& m_webPage;
 #endif
@@ -129,7 +138,7 @@ private:
 #if !PLATFORM(WPE)
     bool m_isBackingStoreDiscardable { true };
     std::unique_ptr<BackingStore> m_backingStore;
-    RunLoop::Timer<DrawingAreaProxyCoordinatedGraphics> m_discardBackingStoreTimer;
+    RunLoop::Timer m_discardBackingStoreTimer;
 #endif
     std::unique_ptr<DrawingMonitor> m_drawingMonitor;
 };

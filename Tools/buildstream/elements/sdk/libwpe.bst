@@ -1,10 +1,10 @@
-kind: cmake
+kind: meson
 sources:
 - kind: tar
-  url: github_com:WebPlatformForEmbedded/libwpe/releases/download/1.6.0/libwpe-1.6.0.tar.xz
-  ref: 3587c6b8a807f4bb76b268ba74ca82c6b395b90235db41ad8252224456193c90
+  url: wpe:libwpe-1.13.90.tar.xz
+  ref: 97af9fbea3a70093e5f3979fa89594343e255942645c3b781d4f3517df5388a1
 build-depends:
-- freedesktop-sdk.bst:public-stacks/buildsystem-cmake.bst
+- freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
 - freedesktop-sdk.bst:components/libxkbcommon.bst
 - freedesktop-sdk.bst:components/mesa-headers.bst

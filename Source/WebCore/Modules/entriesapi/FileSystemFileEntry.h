@@ -35,19 +35,16 @@ class ScriptExecutionContext;
 
 class FileSystemFileEntry final : public FileSystemEntry {
 public:
-    static Ref<FileSystemFileEntry> create(ScriptExecutionContext& context, DOMFileSystem& filesystem, const String& virtualPath)
-    {
-        return adoptRef(*new FileSystemFileEntry(context, filesystem, virtualPath));
-    }
+    static Ref<FileSystemFileEntry> create(ScriptExecutionContext&, DOMFileSystem&, const String&);
 
-    void file(Ref<FileCallback>&&, RefPtr<ErrorCallback>&& = nullptr);
+    void file(ScriptExecutionContext&, Ref<FileCallback>&&, RefPtr<ErrorCallback>&& = nullptr);
 
 private:
     bool isFile() const final { return true; }
 
     FileSystemFileEntry(ScriptExecutionContext&, DOMFileSystem&, const String& virtualPath);
 };
-static_assert(sizeof(FileSystemFileEntry) == sizeof(FileSystemEntry), "");
+static_assert(sizeof(FileSystemFileEntry) == sizeof(FileSystemEntry));
 
 } // namespace WebCore
 

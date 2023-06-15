@@ -52,6 +52,8 @@ struct RecordInformation {
     URL url;
     bool hasVaryStar { false };
     HashMap<String, String> varyHeaders;
+
+    RecordInformation isolatedCopy() &&;
 };
 
 class AsynchronousPutTaskCounter;
@@ -60,12 +62,12 @@ class ReadRecordTaskCounter;
 class Cache {
 public:
     enum class State { Uninitialized, Opening, Open };
-    Cache(Caches&, uint64_t identifier, State, String&& name, String&& uniqueName);
+    Cache(Caches&, WebCore::DOMCacheIdentifier, State, String&& name, String&& uniqueName);
 
     bool isOpened() const { return m_state == State::Open; }
     void open(WebCore::DOMCacheEngine::CompletionCallback&&);
 
-    uint64_t identifier() const { return m_identifier; }
+    WebCore::DOMCacheIdentifier identifier() const { return m_identifier; }
     const String& name() const { return m_name; }
     const String& uniqueName() const { return m_uniqueName; }
     bool isActive() const { return m_state != State::Uninitialized; }
@@ -81,7 +83,7 @@ public:
     void dispose();
     void clearMemoryRepresentation();
 
-    static Optional<WebCore::DOMCacheEngine::Record> decode(const NetworkCache::Storage::Record&);
+    static std::optional<WebCore::DOMCacheEngine::Record> decode(const NetworkCache::Storage::Record&);
     static NetworkCache::Storage::Record encode(const RecordInformation&, const WebCore::DOMCacheEngine::Record&);
 
     struct DecodedRecord {
@@ -95,7 +97,7 @@ public:
         uint64_t size { 0 };
         WebCore::DOMCacheEngine::Record record;
     };
-    static Optional<DecodedRecord> decodeRecordHeader(const NetworkCache::Storage::Record&);
+    static std::optional<DecodedRecord> decodeRecordHeader(const NetworkCache::Storage::Record&);
 
     bool hasPendingOpeningCallbacks() const { return !m_pendingOpeningCallbacks.isEmpty(); }
 
@@ -108,7 +110,7 @@ private:
 
     RecordInformation toRecordInformation(const WebCore::DOMCacheEngine::Record&);
 
-    void finishOpening(WebCore::DOMCacheEngine::CompletionCallback&&, Optional<WebCore::DOMCacheEngine::Error>&&);
+    void finishOpening(WebCore::DOMCacheEngine::CompletionCallback&&, std::optional<WebCore::DOMCacheEngine::Error>&&);
     void retrieveRecord(const RecordInformation&, Ref<ReadRecordTaskCounter>&&);
 
     void readRecordsList(WebCore::DOMCacheEngine::CompletionCallback&&);
@@ -120,7 +122,7 @@ private:
 
     Caches& m_caches;
     State m_state;
-    uint64_t m_identifier { 0 };
+    WebCore::DOMCacheIdentifier m_identifier;
     String m_name;
     String m_uniqueName;
     HashMap<String, Vector<RecordInformation>> m_records;

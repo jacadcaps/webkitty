@@ -28,24 +28,45 @@
 
 #include <JavaScriptCore/Options.h>
 #include <WebCore/ProcessIdentifier.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
+#if ENABLE(BREAKPAD)
+#include "unix/BreakpadExceptionHandler.h"
+#endif
+
 namespace WebKit {
 
-bool AuxiliaryProcessMainBase::parseCommandLine(int argc, char** argv)
+AuxiliaryProcessMainCommon::AuxiliaryProcessMainCommon()
+{
+#if ENABLE(BREAKPAD)
+    installBreakpadExceptionHandler();
+#endif
+}
+
+bool AuxiliaryProcessMainCommon::parseCommandLine(int argc, char** argv)
 {
     ASSERT(argc >= 3);
     if (argc < 3)
         return false;
 
     m_parameters.processIdentifier = makeObjectIdentifier<WebCore::ProcessIdentifierType>(atoll(argv[1]));
-    m_parameters.connectionIdentifier = atoi(argv[2]);
+    m_parameters.connectionIdentifier = IPC::Connection::Identifier { atoi(argv[2]) };
 #if ENABLE(DEVELOPER_MODE)
     if (argc > 3 && !strcmp(argv[3], "--configure-jsc-for-testing"))
         JSC::Config::configureForTesting();
 #endif
     return true;
+}
+
+void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationParameters&)
+{
+    struct sigaction signalAction;
+    memset(&signalAction, 0, sizeof(signalAction));
+    RELEASE_ASSERT(!sigemptyset(&signalAction.sa_mask));
+    signalAction.sa_handler = SIG_IGN;
+    RELEASE_ASSERT(!sigaction(SIGPIPE, &signalAction, nullptr));
 }
 
 } // namespace WebKit

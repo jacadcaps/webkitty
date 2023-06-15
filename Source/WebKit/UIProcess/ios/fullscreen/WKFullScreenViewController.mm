@@ -33,12 +33,13 @@
 #import "UIKitSPI.h"
 #import "VideoFullscreenManagerProxy.h"
 #import "WKFullscreenStackView.h"
-#import "WKWebViewInternal.h"
+#import "WKWebViewIOS.h"
 #import "WebFullScreenManagerProxy.h"
 #import "WebPageProxy.h"
 #import <WebCore/LocalizedStrings.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/WeakObjCPtr.h>
 
 static const NSTimeInterval showHideAnimationDuration = 0.1;
 static const NSTimeInterval pipHideAnimationDuration = 0.2;
@@ -46,19 +47,14 @@ static const NSTimeInterval autoHideDelay = 4.0;
 
 @class WKFullscreenStackView;
 
-@interface WKFullScreenViewController (VideoFullscreenClientCallbacks)
-- (void)willEnterPictureInPicture;
-- (void)didEnterPictureInPicture;
-- (void)failedToEnterPictureInPicture;
-@end
-
 class WKFullScreenViewControllerPlaybackSessionModelClient : WebCore::PlaybackSessionModelClient {
 public:
     void setParent(WKFullScreenViewController *parent) { m_parent = parent; }
 
-    void rateChanged(bool isPlaying, float) override
+    void rateChanged(OptionSet<WebCore::PlaybackSessionModel::PlaybackState> playbackState, double /* playbackRate */, double /* defaultPlaybackRate */) override
     {
-        m_parent.playing = isPlaying;
+        if (auto *controller = m_parent.getAutoreleased())
+            controller.playing = playbackState.contains(WebCore::PlaybackSessionModel::PlaybackState::Playing);
     }
 
     void isPictureInPictureSupportedChanged(bool) override
@@ -67,7 +63,8 @@ public:
 
     void pictureInPictureActiveChanged(bool active) override
     {
-        m_parent.pictureInPictureActive = active;
+        if (auto *controller = m_parent.getAutoreleased())
+            controller.pictureInPictureActive = active;
     }
 
     void setInterface(WebCore::PlaybackSessionInterfaceAVKit* interface)
@@ -83,47 +80,8 @@ public:
     }
 
 private:
-    WKFullScreenViewController *m_parent { nullptr };
+    WeakObjCPtr<WKFullScreenViewController> m_parent;
     RefPtr<WebCore::PlaybackSessionInterfaceAVKit> m_interface;
-};
-
-class WKFullScreenViewControllerVideoFullscreenModelClient : WebCore::VideoFullscreenModelClient {
-    WTF_MAKE_FAST_ALLOCATED;
-public:
-    void setParent(WKFullScreenViewController *parent) { m_parent = parent; }
-
-    void setInterface(WebCore::VideoFullscreenInterfaceAVKit* interface)
-    {
-        if (m_interface == interface)
-            return;
-
-        if (m_interface && m_interface->videoFullscreenModel())
-            m_interface->videoFullscreenModel()->removeClient(*this);
-        m_interface = interface;
-        if (m_interface && m_interface->videoFullscreenModel())
-            m_interface->videoFullscreenModel()->addClient(*this);
-    }
-
-    WebCore::VideoFullscreenInterfaceAVKit* interface() const { return m_interface.get(); }
-
-    void willEnterPictureInPicture() final
-    {
-        [m_parent willEnterPictureInPicture];
-    }
-
-    void didEnterPictureInPicture() final
-    {
-        [m_parent didEnterPictureInPicture];
-    }
-
-    void failedToEnterPictureInPicture() final
-    {
-        [m_parent failedToEnterPictureInPicture];
-    }
-
-private:
-    WKFullScreenViewController *m_parent { nullptr };
-    RefPtr<WebCore::VideoFullscreenInterfaceAVKit> m_interface;
 };
 
 #pragma mark - _WKExtrinsicButton
@@ -145,6 +103,27 @@ private:
 }
 @end
 
+#pragma mark - _WKInsetLabel
+
+@interface _WKInsetLabel : UILabel
+@property (assign, nonatomic) UIEdgeInsets edgeInsets;
+@end
+
+@implementation _WKInsetLabel
+- (void)drawTextInRect:(CGRect)rect
+{
+    [super drawTextInRect:UIEdgeInsetsInsetRect(rect, self.edgeInsets)];
+}
+
+- (CGSize)intrinsicContentSize
+{
+    auto intrinsicSize = [super intrinsicContentSize];
+    intrinsicSize.width += self.edgeInsets.left + self.edgeInsets.right;
+    intrinsicSize.height += self.edgeInsets.top + self.edgeInsets.bottom;
+    return intrinsicSize;
+}
+@end
+
 #pragma mark - WKFullScreenViewController
 
 @interface WKFullScreenViewController () <UIGestureRecognizerDelegate, UIToolbarDelegate>
@@ -154,22 +133,31 @@ private:
 @end
 
 @implementation WKFullScreenViewController {
+    BOOL _valid;
     RetainPtr<UILongPressGestureRecognizer> _touchGestureRecognizer;
     RetainPtr<UIView> _animatingView;
-    RetainPtr<WKFullscreenStackView> _stackView;
+    RetainPtr<UIStackView> _stackView;
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    RetainPtr<UIStackView> _banner;
+    RetainPtr<_WKInsetLabel> _bannerLabel;
+#endif
     RetainPtr<_WKExtrinsicButton> _cancelButton;
     RetainPtr<_WKExtrinsicButton> _pipButton;
     RetainPtr<UIButton> _locationButton;
     RetainPtr<UILayoutGuide> _topGuide;
     RetainPtr<NSLayoutConstraint> _topConstraint;
+    String _location;
     WebKit::FullscreenTouchSecheuristic _secheuristic;
     WKFullScreenViewControllerPlaybackSessionModelClient _playbackClient;
-    WKFullScreenViewControllerVideoFullscreenModelClient _videoFullscreenClient;
     CGFloat _nonZeroStatusBarHeight;
+    std::optional<UIInterfaceOrientationMask> _supportedOrientations;
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+    BOOL m_shouldHideMediaControls;
+#endif
 }
 
-@synthesize prefersStatusBarHidden=_prefersStatusBarHidden;
-@synthesize prefersHomeIndicatorAutoHidden=_prefersHomeIndicatorAutoHidden;
+@synthesize prefersStatusBarHidden = _prefersStatusBarHidden;
+@synthesize prefersHomeIndicatorAutoHidden = _prefersHomeIndicatorAutoHidden;
 
 #pragma mark - External Interface
 
@@ -184,33 +172,64 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_statusBarFrameDidChange:) name:UIApplicationDidChangeStatusBarFrameNotification object:nil];
 ALLOW_DEPRECATED_DECLARATIONS_END
     _secheuristic.setParameters(WebKit::FullscreenTouchSecheuristicParameters::iosParameters());
-
     self._webView = webView;
 
     _playbackClient.setParent(self);
-    _videoFullscreenClient.setParent(self);
+    _valid = YES;
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+    m_shouldHideMediaControls = NO;
+#endif
 
     return self;
 }
 
-- (void)dealloc
+- (void)invalidate
 {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self];
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    if (!_valid)
+        return;
 
+    _valid = NO;
+
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideUI) object:nil];
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideBanner) object:nil];
+#endif
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     _playbackClient.setParent(nullptr);
     _playbackClient.setInterface(nullptr);
-    _videoFullscreenClient.setParent(nullptr);
-    _videoFullscreenClient.setInterface(nullptr);
+}
+
+- (void)dealloc
+{
+    [self invalidate];
 
     [_target release];
-    [_location release];
 
     [super dealloc];
 }
 
+- (void)setSupportedOrientations:(UIInterfaceOrientationMask)supportedOrientations
+{
+    _supportedOrientations = supportedOrientations;
+    [self setNeedsUpdateOfSupportedInterfaceOrientations];
+}
+
+- (void)resetSupportedOrientations
+{
+    _supportedOrientations = std::nullopt;
+    [self setNeedsUpdateOfSupportedInterfaceOrientations];
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    if (!_supportedOrientations)
+        return [super supportedInterfaceOrientations];
+    return *_supportedOrientations;
+}
+
 - (void)showUI
 {
+    ASSERT(_valid);
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideUI) object:nil];
 
     if (_playing) {
@@ -233,6 +252,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)hideUI
 {
+    ASSERT(_valid);
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideUI) object:nil];
     [UIView animateWithDuration:showHideAnimationDuration animations:^{
 
@@ -253,15 +273,46 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }];
 }
 
+- (void)showBanner
+{
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    ASSERT(_valid);
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideBanner) object:nil];
+
+    [UIView animateWithDuration:showHideAnimationDuration animations:^{
+        [_banner setHidden:NO];
+        [_banner setAlpha:1];
+    }];
+
+    [self performSelector:@selector(hideBanner) withObject:nil afterDelay:autoHideDelay];
+#endif
+}
+
+- (void)hideBanner
+{
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    ASSERT(_valid);
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideBanner) object:nil];
+    [UIView animateWithDuration:showHideAnimationDuration animations:^{
+        [_banner setAlpha:0];
+    } completion:^(BOOL finished) {
+        if (!finished)
+            return;
+
+        [_banner setHidden:YES];
+    }];
+#endif
+}
+
 - (void)videoControlsManagerDidChange
 {
+    ASSERT(_valid);
     auto page = [self._webView _page];
     auto* videoFullscreenManager = page ? page->videoFullscreenManager() : nullptr;
     auto* videoFullscreenInterface = videoFullscreenManager ? videoFullscreenManager->controlsManagerInterface() : nullptr;
     auto* playbackSessionInterface = videoFullscreenInterface ? &videoFullscreenInterface->playbackSessionInterface() : nullptr;
 
     _playbackClient.setInterface(playbackSessionInterface);
-    _videoFullscreenClient.setInterface(videoFullscreenInterface);
 
     WebCore::PlaybackSessionModel* playbackSessionModel = playbackSessionInterface ? playbackSessionInterface->playbackSessionModel() : nullptr;
     self.playing = playbackSessionModel ? playbackSessionModel->isPlaying() : NO;
@@ -269,11 +320,35 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (auto page = [self._webView _page])
         isPiPEnabled = page->preferences().pictureInPictureAPIEnabled() && page->preferences().allowsPictureInPictureMediaPlayback();
     bool isPiPSupported = playbackSessionModel && playbackSessionModel->isPictureInPictureSupported();
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+    [_cancelButton setHidden:m_shouldHideMediaControls];
+    isPiPEnabled = !m_shouldHideMediaControls && isPiPEnabled;
+#endif
     [_pipButton setHidden:!isPiPEnabled || !isPiPSupported];
 }
 
+- (void)setAnimatingViewAlpha:(CGFloat)alpha
+{
+    ASSERT(_valid);
+    [UIView animateWithDuration:pipHideAnimationDuration animations:^{
+        _animatingView.get().alpha = alpha;
+    }];
+}
+
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+- (void)hideMediaControls:(BOOL)hidden
+{
+    if (m_shouldHideMediaControls == hidden)
+        return;
+
+    m_shouldHideMediaControls = hidden;
+    [self videoControlsManagerDidChange];
+}
+#endif // HAVE(UIKIT_WEBKIT_INTERNALS)
+
 - (void)setPrefersStatusBarHidden:(BOOL)value
 {
+    ASSERT(_valid);
     _prefersStatusBarHidden = value;
     [self setNeedsStatusBarAppearanceUpdate];
     [self _updateWebViewFullscreenInsets];
@@ -281,12 +356,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)setPrefersHomeIndicatorAutoHidden:(BOOL)value
 {
+    ASSERT(_valid);
     _prefersHomeIndicatorAutoHidden = value;
     [self setNeedsUpdateOfHomeIndicatorAutoHidden];
 }
 
 - (void)setPlaying:(BOOL)isPlaying
 {
+    ASSERT(_valid);
     if (_playing == isPlaying)
         return;
 
@@ -306,6 +383,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)setPictureInPictureActive:(BOOL)active
 {
+    ASSERT(_valid);
     if (_pictureInPictureActive == active)
         return;
 
@@ -315,6 +393,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)setAnimating:(BOOL)animating
 {
+    ASSERT(_valid);
     if (_animating == animating)
         return;
     _animating = animating;
@@ -330,37 +409,44 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [self showUI];
 }
 
-- (void)willEnterPictureInPicture
+- (NSString *)location
 {
-    auto* interface = _videoFullscreenClient.interface();
-    if (!interface || !interface->pictureInPictureWasStartedWhenEnteringBackground())
-        return;
-
-    [UIView animateWithDuration:pipHideAnimationDuration animations:^{
-        _animatingView.get().alpha = 0;
-    }];
+    return _location;
 }
 
-- (void)didEnterPictureInPicture
+- (void)setLocation:(NSString *)location
 {
-    [self _cancelAction:self];
-}
+    _location = location;
 
-- (void)failedToEnterPictureInPicture
-{
-    auto* interface = _videoFullscreenClient.interface();
-    if (!interface || !interface->pictureInPictureWasStartedWhenEnteringBackground())
-        return;
-
-    [UIView animateWithDuration:pipHideAnimationDuration animations:^{
-        _animatingView.get().alpha = 1;
-    }];
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    [_bannerLabel setText:[NSString stringWithFormat:WEB_UI_NSSTRING(@"”%@” is in full screen.\nSwipe down to exit.", "Full Screen Warning Banner Content Text"), (NSString *)self.location]];
+    [_bannerLabel sizeToFit];
+#endif
 }
 
 #pragma mark - UIViewController Overrides
 
 - (void)loadView
 {
+    CGSize buttonSize;
+    UIImage *doneImage;
+    UIImage *startPiPImage;
+    UIImage *stopPiPImage;
+    auto alternateFullScreenControlDesignEnabled = self._webView._page->preferences().alternateFullScreenControlDesignEnabled();
+    
+    if (alternateFullScreenControlDesignEnabled) {
+        buttonSize = CGSizeMake(38.0, 38.0);
+        doneImage = [UIImage systemImageNamed:@"arrow.down.right.and.arrow.up.left"];
+        startPiPImage = nil;
+        stopPiPImage = nil;
+    } else {
+        buttonSize = CGSizeMake(60.0, 47.0);
+        NSBundle *bundle = [NSBundle bundleForClass:self.class];
+        doneImage = [UIImage imageNamed:@"Done" inBundle:bundle compatibleWithTraitCollection:nil];
+        startPiPImage = [UIImage imageNamed:@"StartPictureInPictureButton" inBundle:bundle compatibleWithTraitCollection:nil];
+        stopPiPImage = [UIImage imageNamed:@"StopPictureInPictureButton" inBundle:bundle compatibleWithTraitCollection:nil];
+    }
+    
     [self setView:adoptNS([[UIView alloc] initWithFrame:CGRectMake(0, 0, 100, 100)]).get()];
     self.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.view.backgroundColor = [UIColor blackColor];
@@ -371,49 +457,96 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _cancelButton = [_WKExtrinsicButton buttonWithType:UIButtonTypeSystem];
     [_cancelButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [_cancelButton setAdjustsImageWhenHighlighted:NO];
-    [_cancelButton setExtrinsicContentSize:CGSizeMake(60.0, 47.0)];
-    NSBundle *bundle = [NSBundle bundleForClass:self.class];
-    UIImage *doneImage = [UIImage imageNamed:@"Done" inBundle:bundle compatibleWithTraitCollection:nil];
+    ALLOW_DEPRECATED_DECLARATIONS_END
+    [_cancelButton setExtrinsicContentSize:buttonSize];
+    
     [_cancelButton setImage:[doneImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
     [_cancelButton setTintColor:[UIColor whiteColor]];
     [_cancelButton sizeToFit];
     [_cancelButton addTarget:self action:@selector(_cancelAction:) forControlEvents:UIControlEventTouchUpInside];
 
-    _pipButton = [_WKExtrinsicButton buttonWithType:UIButtonTypeSystem];
-    [_pipButton setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [_pipButton setAdjustsImageWhenHighlighted:NO];
-    [_pipButton setExtrinsicContentSize:CGSizeMake(60.0, 47.0)];
-    UIImage *startPiPImage = [UIImage imageNamed:@"StartPictureInPictureButton" inBundle:bundle compatibleWithTraitCollection:nil];
-    UIImage *stopPiPImage = [UIImage imageNamed:@"StopPictureInPictureButton" inBundle:bundle compatibleWithTraitCollection:nil];
-    [_pipButton setImage:[startPiPImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
-    [_pipButton setImage:[stopPiPImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateSelected];
-    [_pipButton setTintColor:[UIColor whiteColor]];
-    [_pipButton sizeToFit];
-    [_pipButton addTarget:self action:@selector(_togglePiPAction:) forControlEvents:UIControlEventTouchUpInside];
+    if (alternateFullScreenControlDesignEnabled) {
+        UIButtonConfiguration *cancelButtonConfiguration = [UIButtonConfiguration filledButtonConfiguration];
+        // FIXME: this color specification should not be necessary.
+        cancelButtonConfiguration.baseBackgroundColor = [UIColor colorWithWhite:1.0 alpha:0.15];
+        [_cancelButton setConfiguration:cancelButtonConfiguration];
+        
+        _stackView = adoptNS([[UIStackView alloc] init]);
+        [_stackView addArrangedSubview:_cancelButton.get()];
+        [_stackView addArrangedSubview:_pipButton.get()];
+        [_stackView setSpacing:24.0];
+    } else {
+        _pipButton = [_WKExtrinsicButton buttonWithType:UIButtonTypeSystem];
+        [_pipButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        [_pipButton setAdjustsImageWhenHighlighted:NO];
+        ALLOW_DEPRECATED_DECLARATIONS_END
+        [_pipButton setExtrinsicContentSize:buttonSize];
+        
+        [_pipButton setImage:[startPiPImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
+        [_pipButton setImage:[stopPiPImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateSelected];
+        [_pipButton setTintColor:[UIColor whiteColor]];
+        [_pipButton sizeToFit];
+        [_pipButton addTarget:self action:@selector(_togglePiPAction:) forControlEvents:UIControlEventTouchUpInside];
+        
+        RetainPtr<WKFullscreenStackView> stackView = adoptNS([[WKFullscreenStackView alloc] init]);
+        [stackView addArrangedSubview:_cancelButton.get() applyingMaterialStyle:AVBackgroundViewMaterialStyleSecondary tintEffectStyle:AVBackgroundViewTintEffectStyleSecondary];
+        [stackView addArrangedSubview:_pipButton.get() applyingMaterialStyle:AVBackgroundViewMaterialStylePrimary tintEffectStyle:AVBackgroundViewTintEffectStyleSecondary];
+        _stackView = WTFMove(stackView);
+    }
 
-    _stackView = adoptNS([[WKFullscreenStackView alloc] init]);
     [_stackView setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [_stackView addArrangedSubview:_cancelButton.get() applyingMaterialStyle:AVBackgroundViewMaterialStyleSecondary tintEffectStyle:AVBackgroundViewTintEffectStyleSecondary];
-    [_stackView addArrangedSubview:_pipButton.get() applyingMaterialStyle:AVBackgroundViewMaterialStylePrimary tintEffectStyle:AVBackgroundViewTintEffectStyleSecondary];
     [_animatingView addSubview:_stackView.get()];
+
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    _bannerLabel = adoptNS([[_WKInsetLabel alloc] initWithFrame:CGRectMake(0, 0, 100, 100)]);
+    [_bannerLabel setEdgeInsets:UIEdgeInsetsMake(16, 16, 16, 16)];
+    [_bannerLabel setBackgroundColor:[UIColor clearColor]];
+    [_bannerLabel setNumberOfLines:0];
+    [_bannerLabel setLineBreakMode:NSLineBreakByWordWrapping];
+    [_bannerLabel setTextAlignment:NSTextAlignmentCenter];
+    [_bannerLabel setText:[NSString stringWithFormat:WEB_UI_NSSTRING(@"”%@” is in full screen.\nSwipe down to exit.", "Full Screen Warning Banner Content Text"), (NSString *)self.location]];
+
+    auto banner = adoptNS([[WKFullscreenStackView alloc] init]);
+    [banner addArrangedSubview:_bannerLabel.get() applyingMaterialStyle:AVBackgroundViewMaterialStyleSecondary tintEffectStyle:AVBackgroundViewTintEffectStyleSecondary];
+    _banner = WTFMove(banner);
+    [_banner setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    [_animatingView addSubview:_banner.get()];
+#endif
 
     UILayoutGuide *safeArea = self.view.safeAreaLayoutGuide;
     UILayoutGuide *margins = self.view.layoutMarginsGuide;
 
     _topGuide = adoptNS([[UILayoutGuide alloc] init]);
     [self.view addLayoutGuide:_topGuide.get()];
-    NSLayoutAnchor *topAnchor = [_topGuide topAnchor];
+    NSLayoutYAxisAnchor *topAnchor = [_topGuide topAnchor];
+    NSLayoutConstraint *stackViewToTopGuideConstraint;
+    if (alternateFullScreenControlDesignEnabled)
+        stackViewToTopGuideConstraint = [[_stackView topAnchor] constraintEqualToSystemSpacingBelowAnchor:topAnchor multiplier:2];
+    else
+        stackViewToTopGuideConstraint = [[_stackView topAnchor] constraintEqualToAnchor:topAnchor];
     _topConstraint = [topAnchor constraintEqualToAnchor:safeArea.topAnchor];
     [NSLayoutConstraint activateConstraints:@[
         _topConstraint.get(),
-        [[_stackView topAnchor] constraintEqualToAnchor:topAnchor],
+        stackViewToTopGuideConstraint,
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+        [[_banner centerYAnchor] constraintEqualToAnchor:margins.centerYAnchor],
+        [[_banner centerXAnchor] constraintEqualToAnchor:margins.centerXAnchor],
+#endif
         [[_stackView leadingAnchor] constraintEqualToAnchor:margins.leadingAnchor],
     ]];
 
     [_stackView setAlpha:0];
     [_stackView setHidden:YES];
     [self videoControlsManagerDidChange];
+
+#if ENABLE(FULLSCREEN_DISMISSAL_GESTURES)
+    [_banner setAlpha:0];
+    [_banner setHidden:YES];
+#endif
 
     _touchGestureRecognizer = adoptNS([[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(_touchDetected:)]);
     [_touchGestureRecognizer setCancelsTouchesInView:NO];
@@ -433,6 +566,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [super viewWillAppear:animated];
 }
+
+#if HAVE(UIKIT_WEBKIT_INTERNALS)
+- (void)viewIsAppearing:(BOOL)animated
+{
+    self.view.clipsToBounds = YES;
+    self.view._continuousCornerRadius = self.view.window._continuousCornerRadius;
+
+    [super viewIsAppearing:animated];
+}
+#endif
 
 - (void)viewDidLayoutSubviews
 {
@@ -484,6 +627,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @dynamic _manager;
 - (WebKit::WebFullScreenManagerProxy*)_manager
 {
+    ASSERT(_valid);
     if (auto page = [self._webView _page])
         return page->fullScreenManager();
     return nullptr;
@@ -492,6 +636,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @dynamic _effectiveFullscreenInsets;
 - (WebCore::FloatBoxExtent)_effectiveFullscreenInsets
 {
+    ASSERT(_valid);
     auto safeAreaInsets = self.view.safeAreaInsets;
     WebCore::FloatBoxExtent insets { safeAreaInsets.top, safeAreaInsets.right, safeAreaInsets.bottom, safeAreaInsets.left };
 
@@ -503,11 +648,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_cancelAction:(id)sender
 {
-    [[self target] performSelector:[self action]];
+    ASSERT(_valid);
+    [[self target] performSelector:[self exitFullScreenAction]];
 }
 
 - (void)_togglePiPAction:(id)sender
 {
+    ASSERT(_valid);
     auto page = [self._webView _page];
     if (!page)
         return;
@@ -529,7 +676,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_touchDetected:(id)sender
 {
-    if ([_touchGestureRecognizer state] == UIGestureRecognizerStateEnded) {
+    ASSERT(_valid);
+    if ([_touchGestureRecognizer state] == UIGestureRecognizerStateEnded && !self._webView._shouldAvoidSecurityHeuristicScoreUpdates) {
         double score = _secheuristic.scoreOfNextTouch([_touchGestureRecognizer locationInView:self.view]);
         if (score > _secheuristic.requiredScore())
             [self _showPhishingAlert];
@@ -540,6 +688,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_statusBarFrameDidChange:(NSNotificationCenter *)notification
 {
+    ASSERT(_valid);
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CGFloat height = UIApplication.sharedApplication.statusBarFrame.size.height;
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -552,18 +701,20 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_updateWebViewFullscreenInsets
 {
+    ASSERT(_valid);
     if (auto* manager = self._manager)
         manager->setFullscreenInsets(self._effectiveFullscreenInsets);
 }
 
 - (void)_showPhishingAlert
 {
+    ASSERT(_valid);
     NSString *alertTitle = WEB_UI_STRING("It looks like you are typing while in full screen", "Full Screen Deceptive Website Warning Sheet Title");
-    NSString *alertMessage = [NSString stringWithFormat:WEB_UI_STRING("Typing is not allowed in full screen websites. “%@” may be showing a fake keyboard to trick you into disclosing personal or financial information.", "Full Screen Deceptive Website Warning Sheet Content Text"), (NSString *)self.location];
+    NSString *alertMessage = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Typing is not allowed in full screen websites. “%@” may be showing a fake keyboard to trick you into disclosing personal or financial information.", "Full Screen Deceptive Website Warning Sheet Content Text"), (NSString *)self.location];
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:alertTitle message:alertMessage preferredStyle:UIAlertControllerStyleAlert];
 
     if (auto page = [self._webView _page]) {
-        page->suspendAllMediaPlayback();
+        page->suspendAllMediaPlayback([] { });
         page->suspendActiveDOMObjectsAndAnimations();
     }
 
@@ -571,14 +722,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [self _cancelAction:action];
         if (auto page = [self._webView _page]) {
             page->resumeActiveDOMObjectsAndAnimations();
-            page->resumeAllMediaPlayback();
+            page->resumeAllMediaPlayback([] { });
         }
     }];
 
     UIAlertAction* stayAction = [UIAlertAction actionWithTitle:WEB_UI_STRING_KEY("Stay in Full Screen", "Stay in Full Screen (Element Full Screen)", "Full Screen Deceptive Website Stay Action") style:UIAlertActionStyleDefault handler:^(UIAlertAction * action) {
         if (auto page = [self._webView _page]) {
             page->resumeActiveDOMObjectsAndAnimations();
-            page->resumeAllMediaPlayback();
+            page->resumeAllMediaPlayback([] { });
         }
         _secheuristic.reset();
     }];

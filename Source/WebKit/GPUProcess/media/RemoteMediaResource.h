@@ -25,14 +25,17 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaResourceIdentifier.h"
 #include <WebCore/PlatformMediaResourceLoader.h>
+#include <wtf/Ref.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class NetworkLoadMetrics;
+class FragmentedSharedBuffer;
+class SharedBuffer;
 }
 
 namespace WebKit {
@@ -45,9 +48,6 @@ public:
     static Ref<RemoteMediaResource> create(RemoteMediaResourceManager&, RemoteMediaPlayerProxy&, RemoteMediaResourceIdentifier);
     ~RemoteMediaResource();
 
-    bool ready() const { return m_ready; }
-    void setReady(bool ready) { m_ready = ready; }
-
     // PlatformMediaResource
     void stop() final;
     bool didPassAccessControlCheck() const final;
@@ -55,7 +55,7 @@ public:
     void responseReceived(const WebCore::ResourceResponse&, bool, CompletionHandler<void(WebCore::ShouldContinuePolicyCheck)>&&);
     void redirectReceived(WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
     void dataSent(uint64_t, uint64_t);
-    void dataReceived(const char*, int64_t);
+    void dataReceived(const WebCore::SharedBuffer&);
     void accessControlCheckFailed(const WebCore::ResourceError&);
     void loadFailed(const WebCore::ResourceError&);
     void loadFinished(const WebCore::NetworkLoadMetrics&);
@@ -63,14 +63,13 @@ public:
 private:
     RemoteMediaResource(RemoteMediaResourceManager&, RemoteMediaPlayerProxy&, RemoteMediaResourceIdentifier);
 
-    RemoteMediaResourceManager& m_remoteMediaResourceManager;
+    WeakPtr<RemoteMediaResourceManager> m_remoteMediaResourceManager;
     WeakPtr<RemoteMediaPlayerProxy> m_remoteMediaPlayerProxy;
     RemoteMediaResourceIdentifier m_id;
     bool m_didPassAccessControlCheck { false };
-    bool m_ready { false };
 };
 
 } // namespace WebKit
 
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

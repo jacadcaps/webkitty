@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2010, 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -114,6 +114,9 @@ private:
     unsigned short m_generation;
     Pitch m_pitch { UnknownPitch };
     bool m_isForPlatformFont { false };
+#if ASSERT_ENABLED
+    std::optional<Ref<Thread>> m_thread;
+#endif
 };
 
 inline bool FontCascadeFonts::isFixedPitch(const FontCascadeDescription& description)
@@ -125,12 +128,12 @@ inline bool FontCascadeFonts::isFixedPitch(const FontCascadeDescription& descrip
 
 inline const Font& FontCascadeFonts::primaryFont(const FontCascadeDescription& description)
 {
-    ASSERT(isMainThread());
+    ASSERT(m_thread ? m_thread->ptr() == &Thread::current() : isMainThread());
     if (!m_cachedPrimaryFont) {
         auto& primaryRanges = realizeFallbackRangesAt(description, 0);
         m_cachedPrimaryFont = primaryRanges.glyphDataForCharacter(' ', ExternalResourceDownloadPolicy::Allow).font;
         if (!m_cachedPrimaryFont)
-            m_cachedPrimaryFont = &primaryRanges.fontForFirstRange();
+            m_cachedPrimaryFont = primaryRanges.rangeAt(0).font(ExternalResourceDownloadPolicy::Allow);
         else if (m_cachedPrimaryFont->isInterstitial()) {
             for (unsigned index = 1; ; ++index) {
                 auto& localRanges = realizeFallbackRangesAt(description, index);

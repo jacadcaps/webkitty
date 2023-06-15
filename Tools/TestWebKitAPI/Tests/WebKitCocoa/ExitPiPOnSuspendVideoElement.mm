@@ -28,6 +28,7 @@
 // We can enable the test for old iOS versions after <rdar://problem/63572534> is fixed.
 #if ENABLE(VIDEO_PRESENTATION_MODE) && (PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 140000))
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestWKWebView.h"
@@ -36,9 +37,6 @@
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
-
-static bool didEnterPiP;
-static bool didExitPiP;
 
 @interface ExitPiPOnSuspendVideoElementUIDelegate : NSObject <WKUIDelegate>
 @end
@@ -57,10 +55,16 @@ static bool didExitPiP;
 
 namespace TestWebKitAPI {
 
-TEST(PictureInPicture, ExitPiPOnSuspendVideoElement)
+// FIXME: Re-enable after webkit.org/b/242014 is resolved
+TEST(PictureInPicture, DISABLED_ExitPiPOnSuspendVideoElement)
 {
     if (!WebCore::supportsPictureInPicture())
         return;
+
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"Fullscreen=debug",
+        @"WebKit2Logging": @"Fullscreen=debug",
+    }];
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration preferences]._fullScreenEnabled = YES;
@@ -71,15 +75,20 @@ TEST(PictureInPicture, ExitPiPOnSuspendVideoElement)
 
     [webView synchronouslyLoadTestPageNamed:@"ExitFullscreenOnEnterPiP"];
 
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"",
+        @"WebKit2Logging": @"",
+    }];
+
     didEnterPiP = false;
     [webView evaluateJavaScript:@"document.getElementById('enter-pip').click()" completionHandler: nil];
-    TestWebKitAPI::Util::run(&didEnterPiP);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didEnterPiP, 10_s));
 
     sleep(1_s);
 
     didExitPiP = false;
     [webView synchronouslyLoadHTMLString:@"<body>Hello world</body>"];
-    TestWebKitAPI::Util::run(&didExitPiP);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didExitPiP, 10_s));
 }
 
 } // namespace TestWebKitAPI

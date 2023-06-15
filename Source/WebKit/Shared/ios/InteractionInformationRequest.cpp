@@ -40,7 +40,9 @@ void InteractionInformationRequest::encode(IPC::Encoder& encoder) const
     encoder << includeLinkIndicator;
     encoder << includeCaretContext;
     encoder << includeHasDoubleClickHandler;
+    encoder << includeImageData;
     encoder << linkIndicatorShouldHaveLegacyMargins;
+    encoder << disallowUserAgentShadowContent;
 }
 
 bool InteractionInformationRequest::decode(IPC::Decoder& decoder, InteractionInformationRequest& result)
@@ -60,7 +62,13 @@ bool InteractionInformationRequest::decode(IPC::Decoder& decoder, InteractionInf
     if (!decoder.decode(result.includeHasDoubleClickHandler))
         return false;
 
+    if (!decoder.decode(result.includeImageData))
+        return false;
+
     if (!decoder.decode(result.linkIndicatorShouldHaveLegacyMargins))
+        return false;
+
+    if (!decoder.decode(result.disallowUserAgentShadowContent))
         return false;
 
     return true;
@@ -80,7 +88,13 @@ bool InteractionInformationRequest::isValidForRequest(const InteractionInformati
     if (other.includeHasDoubleClickHandler && !includeHasDoubleClickHandler)
         return false;
 
+    if (other.includeImageData && !includeImageData)
+        return false;
+
     if (other.linkIndicatorShouldHaveLegacyMargins != linkIndicatorShouldHaveLegacyMargins)
+        return false;
+
+    if (other.disallowUserAgentShadowContent != disallowUserAgentShadowContent)
         return false;
 
     return (other.point - point).diagonalLengthSquared() <= radius * radius;

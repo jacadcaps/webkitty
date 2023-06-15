@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020, 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,35 +28,21 @@
 
 #import "LaunchServicesDatabaseXPCConstants.h"
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/cocoa/Entitlements.h>
 #import <wtf/spi/cocoa/SecuritySPI.h>
 
 namespace WebKit {
 
-#if HAVE(LSDATABASECONTEXT)
-static LSDatabaseContext *databaseContext()
-{
-    static dispatch_once_t once;
-    static LSDatabaseContext *context = nullptr;
-    dispatch_once(&once, ^{
-        context = [NSClassFromString(@"LSDatabaseContext") sharedDatabaseContext];
-    });
-    return context;
-}
-#endif
-
 LaunchServicesDatabaseObserver::LaunchServicesDatabaseObserver(NetworkProcess&)
 {
-#if HAVE(LSDATABASECONTEXT)
-    if (![databaseContext() respondsToSelector:@selector(addDatabaseChangeObserver4WebKit:)])
-        return;
-
-    m_observer = [databaseContext() addDatabaseChangeObserver4WebKit:^(xpc_object_t change) {
+#if HAVE(LSDATABASECONTEXT) && !HAVE(SYSTEM_CONTENT_LS_DATABASE)
+    m_observer = [LSDatabaseContext.sharedDatabaseContext addDatabaseChangeObserver4WebKit:^(xpc_object_t change) {
         auto message = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
         xpc_dictionary_set_string(message.get(), XPCEndpoint::xpcMessageNameKey, LaunchServicesDatabaseXPCConstants::xpcUpdateLaunchServicesDatabaseMessageName);
         xpc_dictionary_set_value(message.get(), LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseKey, change);
 
-        LockHolder holder(m_connectionsLock);
+        Locker locker { m_connectionsLock };
         for (auto& connection : m_connections) {
             RELEASE_ASSERT(xpc_get_type(connection.get()) == XPC_TYPE_CONNECTION);
             xpc_connection_send_message(connection.get(), message.get());
@@ -73,19 +59,23 @@ const char* LaunchServicesDatabaseObserver::supplementName()
 void LaunchServicesDatabaseObserver::startObserving(OSObjectPtr<xpc_connection_t> connection)
 {
     {
-        LockHolder holder(m_connectionsLock);
+        Locker locker { m_connectionsLock };
         m_connections.append(connection);
     }
 
-#if HAVE(LSDATABASECONTEXT)
-    if (![databaseContext() respondsToSelector:@selector(addDatabaseChangeObserver4WebKit:)]) {
+#if HAVE(SYSTEM_CONTENT_LS_DATABASE)
+    [LSDatabaseContext.sharedDatabaseContext getSystemContentDatabaseObject4WebKit:makeBlockPtr([connection = connection] (xpc_object_t _Nullable object, NSError * _Nullable error) {
+        if (!object)
+            return;
         auto message = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
         xpc_dictionary_set_string(message.get(), XPCEndpoint::xpcMessageNameKey, LaunchServicesDatabaseXPCConstants::xpcUpdateLaunchServicesDatabaseMessageName);
-        xpc_connection_send_message(connection.get(), message.get());
-        return;
-    }
+        xpc_dictionary_set_value(message.get(), LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseKey, object);
 
-    RetainPtr<id> observer = [databaseContext() addDatabaseChangeObserver4WebKit:^(xpc_object_t change) {
+        xpc_connection_send_message(connection.get(), message.get());
+
+    }).get()];
+#elif HAVE(LSDATABASECONTEXT)
+    RetainPtr<id> observer = [LSDatabaseContext.sharedDatabaseContext addDatabaseChangeObserver4WebKit:^(xpc_object_t change) {
         auto message = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
         xpc_dictionary_set_string(message.get(), XPCEndpoint::xpcMessageNameKey, LaunchServicesDatabaseXPCConstants::xpcUpdateLaunchServicesDatabaseMessageName);
         xpc_dictionary_set_value(message.get(), LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseKey, change);
@@ -93,7 +83,7 @@ void LaunchServicesDatabaseObserver::startObserving(OSObjectPtr<xpc_connection_t
         xpc_connection_send_message(connection.get(), message.get());
     }];
 
-    [databaseContext() removeDatabaseChangeObserver4WebKit:observer.get()];
+    [LSDatabaseContext.sharedDatabaseContext removeDatabaseChangeObserver4WebKit:observer.get()];
 #else
     auto message = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     xpc_dictionary_set_string(message.get(), XPCEndpoint::xpcMessageNameKey, LaunchServicesDatabaseXPCConstants::xpcUpdateLaunchServicesDatabaseMessageName);
@@ -103,11 +93,8 @@ void LaunchServicesDatabaseObserver::startObserving(OSObjectPtr<xpc_connection_t
 
 LaunchServicesDatabaseObserver::~LaunchServicesDatabaseObserver()
 {
-#if HAVE(LSDATABASECONTEXT)
-    if (![databaseContext() respondsToSelector:@selector(removeDatabaseChangeObserver4WebKit:)])
-        return;
-
-    [databaseContext() removeDatabaseChangeObserver4WebKit:m_observer.get()];
+#if HAVE(LSDATABASECONTEXT) && !HAVE(SYSTEM_CONTENT_LS_DATABASE)
+    [LSDatabaseContext.sharedDatabaseContext removeDatabaseChangeObserver4WebKit:m_observer.get()];
 #endif
 }
 
@@ -132,7 +119,7 @@ void LaunchServicesDatabaseObserver::handleEvent(xpc_connection_t connection, xp
         if (event != XPC_ERROR_CONNECTION_INVALID && event != XPC_ERROR_TERMINATION_IMMINENT)
             return;
 
-        LockHolder holder(m_connectionsLock);
+        Locker locker { m_connectionsLock };
         for (size_t i = 0; i < m_connections.size(); i++) {
             if (m_connections[i].get() == connection) {
                 m_connections.remove(i);
@@ -142,8 +129,8 @@ void LaunchServicesDatabaseObserver::handleEvent(xpc_connection_t connection, xp
         return;
     }
     if (xpc_get_type(event) == XPC_TYPE_DICTIONARY) {
-        String messageName = xpc_dictionary_get_string(event, xpcMessageNameKey);
-        if (messageName != LaunchServicesDatabaseXPCConstants::xpcRequestLaunchServicesDatabaseUpdateMessageName)
+        auto* messageName = xpc_dictionary_get_string(event, xpcMessageNameKey);
+        if (LaunchServicesDatabaseXPCConstants::xpcRequestLaunchServicesDatabaseUpdateMessageName != messageName)
             return;
         startObserving(connection);
     }

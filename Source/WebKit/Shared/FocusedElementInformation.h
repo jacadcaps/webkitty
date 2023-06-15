@@ -26,11 +26,13 @@
 #pragma once
 
 #include "ArgumentCoders.h"
+#include "IdentifierTypes.h"
 #include <WebCore/AutocapitalizeTypes.h>
 #include <WebCore/Autofill.h>
 #include <WebCore/Color.h>
 #include <WebCore/ElementContext.h>
 #include <WebCore/EnterKeyHint.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/InputMode.h>
 #include <WebCore/IntRect.h>
@@ -66,18 +68,9 @@ enum class InputType {
 
 #if PLATFORM(IOS_FAMILY)
 struct OptionItem {
-    OptionItem() { }
+    OptionItem() = default;
 
-    OptionItem(const OptionItem& item)
-        : text(item.text)
-        , isGroup(item.isGroup)
-        , isSelected(item.isSelected)
-        , disabled(item.disabled)
-        , parentGroupID(item.parentGroupID)
-    {
-    }
-
-    OptionItem(const String& text, bool isGroup, int parentID, bool selected, bool disabled)
+    OptionItem(const String& text, bool isGroup, bool selected, bool disabled, int parentID)
         : text(text)
         , isGroup(isGroup)
         , isSelected(selected)
@@ -85,17 +78,13 @@ struct OptionItem {
         , parentGroupID(parentID)
     {
     }
+
     String text;
     bool isGroup { false };
     bool isSelected { false };
     bool disabled { false };
     int parentGroupID { 0 };
-
-    void encode(IPC::Encoder&) const;
-    static Optional<OptionItem> decode(IPC::Decoder&);
 };
-
-using FocusedElementIdentifier = uint64_t;
 
 struct FocusedElementInformation {
     WebCore::IntRect interactionRect;
@@ -130,13 +119,15 @@ struct FocusedElementInformation {
     bool isAutofillableUsernameField { false };
     URL representingPageURL;
     WebCore::AutofillFieldName autofillFieldName { WebCore::AutofillFieldName::None };
+    WebCore::NonAutofillCredentialType nonAutofillCredentialType { WebCore::NonAutofillCredentialType::None };
     String placeholder;
     String label;
     String ariaLabel;
-    WebCore::GraphicsLayer::EmbeddedViewID embeddedViewID;
 #if ENABLE(DATALIST_ELEMENT)
     bool hasSuggestions { false };
+    bool isFocusingWithDataListDropdown { false };
 #if ENABLE(INPUT_TYPE_COLOR)
+    WebCore::Color colorValue;
     Vector<WebCore::Color> suggestedColors;
 #endif
 #endif
@@ -145,11 +136,13 @@ struct FocusedElementInformation {
     bool shouldAvoidResizingWhenInputViewBoundsChange { false };
     bool shouldAvoidScrollingWhenFocusedContentIsVisible { false };
     bool shouldUseLegacySelectPopoverDismissalBehaviorInDataActivation { false };
+    bool isFocusingWithValidationMessage { false };
+    bool preventScroll { false };
 
-    FocusedElementIdentifier focusedElementIdentifier { 0 };
+    FocusedElementInformationIdentifier identifier;
+    WebCore::ScrollingNodeID containerScrollingNodeID { 0 };
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, FocusedElementInformation&);
+    WebCore::FrameIdentifier frameID;
 };
 #endif
 

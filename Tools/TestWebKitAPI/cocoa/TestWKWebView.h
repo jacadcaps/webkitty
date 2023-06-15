@@ -30,10 +30,11 @@
 
 #if PLATFORM(IOS_FAMILY)
 @class _WKActivatedElementInfo;
+@class _WKTextInputContext;
 @protocol UITextInputInternal;
 @protocol UITextInputMultiDocument;
 @protocol UITextInputPrivate;
-@protocol UIWKInteractionViewProtocol;
+@protocol UIWKInteractionViewProtocol_Staging_95652872;
 #endif
 
 @interface WKWebView (AdditionalDeclarations)
@@ -48,7 +49,14 @@
 @end
 
 @interface WKWebView (TestWebKitAPI)
+#if PLATFORM(IOS_FAMILY)
+@property (nonatomic, readonly) UIView <UITextInputPrivate, UITextInputInternal, UITextInputMultiDocument, UIWKInteractionViewProtocol_Staging_95652872, UITextInputTokenizer> *textInputContentView;
+- (NSArray<_WKTextInputContext *> *)synchronouslyRequestTextInputContextsInRect:(CGRect)rect;
+#endif
+@property (nonatomic, readonly) NSUInteger gpuToWebProcessConnectionCount;
+@property (nonatomic, readonly) NSString *contentsAsString;
 @property (nonatomic, readonly) NSArray<NSString *> *tagsInBody;
+@property (nonatomic, readonly) NSString *selectedText;
 - (void)loadTestPageNamed:(NSString *)pageName;
 - (void)synchronouslyGoBack;
 - (void)synchronouslyGoForward;
@@ -56,11 +64,14 @@
 - (void)synchronouslyLoadHTMLString:(NSString *)html baseURL:(NSURL *)url;
 - (void)synchronouslyLoadHTMLString:(NSString *)html preferences:(WKWebpagePreferences *)preferences;
 - (void)synchronouslyLoadRequest:(NSURLRequest *)request;
+- (void)synchronouslyLoadRequest:(NSURLRequest *)request preferences:(WKWebpagePreferences *)preferences;
+- (void)synchronouslyLoadRequestIgnoringSSLErrors:(NSURLRequest *)request;
 - (void)synchronouslyLoadTestPageNamed:(NSString *)pageName;
 - (BOOL)_synchronouslyExecuteEditCommand:(NSString *)command argument:(NSString *)argument;
 - (void)expectElementTagsInOrder:(NSArray<NSString *> *)tagNames;
 - (void)expectElementCount:(NSInteger)count querySelector:(NSString *)querySelector;
 - (void)expectElementTag:(NSString *)tagName toComeBefore:(NSString *)otherTagName;
+- (BOOL)evaluateMediaQuery:(NSString *)query;
 - (NSString *)stringByEvaluatingJavaScript:(NSString *)script;
 - (id)objectByEvaluatingJavaScriptWithUserGesture:(NSString *)script;
 - (id)objectByEvaluatingJavaScript:(NSString *)script;
@@ -70,6 +81,7 @@
 
 @interface TestMessageHandler : NSObject <WKScriptMessageHandler>
 - (void)addMessage:(NSString *)message withHandler:(dispatch_block_t)handler;
+- (void)setWildcardMessageHandler:(void (^)(NSString *))handler;
 @end
 
 @interface TestWKWebView : WKWebView
@@ -78,6 +90,7 @@
 - (void)synchronouslyLoadHTMLStringAndWaitUntilAllImmediateChildFramesPaint:(NSString *)html;
 - (void)clearMessageHandlers:(NSArray *)messageNames;
 - (void)performAfterReceivingMessage:(NSString *)message action:(dispatch_block_t)action;
+- (void)performAfterReceivingAnyMessage:(void (^)(NSString *))action;
 - (void)waitForMessage:(NSString *)message;
 
 // This function waits until a DOM load event is fired.
@@ -85,6 +98,7 @@
 - (void)performAfterLoading:(dispatch_block_t)actions;
 
 - (void)waitForNextPresentationUpdate;
+- (void)waitUntilActivityStateUpdateDone;
 - (void)forceDarkMode;
 - (NSString *)stylePropertyAtSelectionStart:(NSString *)propertyName;
 - (NSString *)stylePropertyAtSelectionEnd:(NSString *)propertyName;
@@ -93,6 +107,8 @@
 - (void)addToTestWindow;
 - (BOOL)selectionRangeHasStartOffset:(int)start endOffset:(int)end;
 - (void)clickOnElementID:(NSString *)elementID;
+- (void)waitForPendingMouseEvents;
+- (void)focus;
 @end
 
 #if PLATFORM(IOS_FAMILY)
@@ -107,7 +123,6 @@
 @end
 
 @interface TestWKWebView (IOSOnly)
-@property (nonatomic, readonly) UIView <UITextInputPrivate, UITextInputInternal, UITextInputMultiDocument, UIWKInteractionViewProtocol, UITextInputTokenizer> *textInputContentView;
 @property (nonatomic, readonly) RetainPtr<NSArray> selectionRectsAfterPresentationUpdate;
 @property (nonatomic, readonly) CGRect caretViewRectInContentCoordinates;
 @property (nonatomic, readonly) NSArray<NSValue *> *selectionViewRectsInContentCoordinates;
@@ -129,11 +144,14 @@
 - (void)mouseMoveToPoint:(NSPoint)pointInWindow withFlags:(NSEventModifierFlags)flags;
 - (void)sendClicksAtPoint:(NSPoint)pointInWindow numberOfClicks:(NSUInteger)numberOfClicks;
 - (void)sendClickAtPoint:(NSPoint)pointInWindow;
+- (void)wheelEventAtPoint:(CGPoint)pointInWindow wheelDelta:(CGSize)delta;
+- (BOOL)acceptsFirstMouseAtPoint:(NSPoint)pointInWindow;
 - (NSWindow *)hostWindow;
+- (void)typeCharacter:(char)character modifiers:(NSEventModifierFlags)modifiers;
 - (void)typeCharacter:(char)character;
-- (void)waitForPendingMouseEvents;
 - (void)setEventTimestampOffset:(NSTimeInterval)offset;
 @property (nonatomic, readonly) NSTimeInterval eventTimestamp;
+@property (nonatomic) BOOL forceWindowToBecomeKey;
 @end
 #endif
 

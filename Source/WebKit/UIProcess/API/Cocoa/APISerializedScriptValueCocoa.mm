@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,38 +27,63 @@
 #import "APISerializedScriptValue.h"
 
 #import <JavaScriptCore/APICast.h>
-#import <JavaScriptCore/JSContext.h>
+#import <JavaScriptCore/JSContextPrivate.h>
 #import <JavaScriptCore/JSGlobalObjectInlines.h>
+#import <JavaScriptCore/JSRemoteInspector.h>
 #import <JavaScriptCore/JSValue.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/RunLoop.h>
 
 namespace API {
 
+static constexpr auto sharedJSContextMaxIdleTime = 10_s;
+
 class SharedJSContext {
 public:
     SharedJSContext()
-        : m_timer(RunLoop::main(), this, &SharedJSContext::releaseContext)
+        : m_timer(RunLoop::main(), this, &SharedJSContext::releaseContextIfNecessary)
     {
     }
 
     JSContext* ensureContext()
     {
+        m_lastUseTime = MonotonicTime::now();
         if (!m_context) {
+            bool inspectionPreviouslyFollowedInternalPolicies = JSRemoteInspectorGetInspectionFollowsInternalPolicies();
+            JSRemoteInspectorSetInspectionFollowsInternalPolicies(false);
+
+            // FIXME: rdar://100738357 Remote Web Inspector: Remove use of JSRemoteInspectorGetInspectionEnabledByDefault
+            // and JSRemoteInspectorSetInspectionEnabledByDefault once the default state is always false.
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            bool previous = JSRemoteInspectorGetInspectionEnabledByDefault();
+            JSRemoteInspectorSetInspectionEnabledByDefault(false);
             m_context = adoptNS([[JSContext alloc] init]);
-            m_timer.startOneShot(1_s);
+            JSRemoteInspectorSetInspectionEnabledByDefault(previous);
+            ALLOW_DEPRECATED_DECLARATIONS_END
+
+            JSRemoteInspectorSetInspectionFollowsInternalPolicies(inspectionPreviouslyFollowedInternalPolicies);
+
+            m_timer.startOneShot(sharedJSContextMaxIdleTime);
         }
         return m_context.get();
     }
 
-    void releaseContext()
+    void releaseContextIfNecessary()
     {
+        auto idleTime = MonotonicTime::now() - m_lastUseTime;
+        if (idleTime < sharedJSContextMaxIdleTime) {
+            // We lazily restart the timer if needed every 10 seconds instead of doing so every time ensureContext()
+            // is called, for performance reasons.
+            m_timer.startOneShot(sharedJSContextMaxIdleTime - idleTime);
+            return;
+        }
         m_context.clear();
     }
 
 private:
     RetainPtr<JSContext> m_context;
-    RunLoop::Timer<SharedJSContext> m_timer;
+    RunLoop::Timer m_timer;
+    MonotonicTime m_lastUseTime;
 };
 
 static SharedJSContext& sharedContext()

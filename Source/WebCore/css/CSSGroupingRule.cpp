@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Adobe Systems Incorporated. All rights reserved.
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,12 +29,12 @@
  */
 
 #include "config.h"
-
 #include "CSSGroupingRule.h"
 
 #include "CSSParser.h"
 #include "CSSRuleList.h"
 #include "CSSStyleSheet.h"
+#include "StylePropertiesInlines.h"
 #include "StyleRule.h"
 #include <wtf/text/StringBuilder.h>
 
@@ -50,9 +50,9 @@ CSSGroupingRule::CSSGroupingRule(StyleRuleGroup& groupRule, CSSStyleSheet* paren
 CSSGroupingRule::~CSSGroupingRule()
 {
     ASSERT(m_childRuleCSSOMWrappers.size() == m_groupRule->childRules().size());
-    for (unsigned i = 0; i < m_childRuleCSSOMWrappers.size(); ++i) {
-        if (m_childRuleCSSOMWrappers[i])
-            m_childRuleCSSOMWrappers[i]->setParentRule(0);
+    for (auto& wrapper : m_childRuleCSSOMWrappers) {
+        if (wrapper)
+            wrapper->setParentRule(nullptr);
     }
 }
 
@@ -111,14 +111,42 @@ ExceptionOr<void> CSSGroupingRule::deleteRule(unsigned index)
     return { };
 }
 
-void CSSGroupingRule::appendCssTextForItems(StringBuilder& result) const
+void CSSGroupingRule::appendCSSTextForItems(StringBuilder& builder) const
 {
-    unsigned size = length();
-    for (unsigned i = 0; i < size; ++i) {
-        result.appendLiteral("  ");
-        result.append(item(i)->cssText());
-        result.append('\n');
+    builder.append(" {");
+
+    StringBuilder decls;
+    StringBuilder rules;
+    cssTextForDeclsAndRules(decls, rules);
+
+    if (decls.isEmpty() && rules.isEmpty()) {
+        builder.append("\n}");
+        return;
     }
+
+    if (rules.isEmpty()) {
+        builder.append(' ', static_cast<StringView>(decls), " }");
+        return;
+    }
+    
+    if (decls.isEmpty()) {
+        builder.append(static_cast<StringView>(rules), "\n}");
+        return;
+    }
+
+    builder.append('\n', static_cast<StringView>(decls), static_cast<StringView>(rules), "\n}");
+    return;
+}
+
+void CSSGroupingRule::cssTextForDeclsAndRules(StringBuilder&, StringBuilder& rules) const
+{
+    auto& childRules = m_groupRule->childRules();
+
+    for (unsigned index = 0 ; index < childRules.size() ; index++) {
+        auto wrappedRule = item(index);
+        rules.append("\n  ", wrappedRule->cssText());
+    }
+
 }
 
 unsigned CSSGroupingRule::length() const
@@ -131,9 +159,9 @@ CSSRule* CSSGroupingRule::item(unsigned index) const
     if (index >= length())
         return nullptr;
     ASSERT(m_childRuleCSSOMWrappers.size() == m_groupRule->childRules().size());
-    RefPtr<CSSRule>& rule = m_childRuleCSSOMWrappers[index];
+    auto& rule = m_childRuleCSSOMWrappers[index];
     if (!rule)
-        rule = m_groupRule->childRules()[index]->createCSSOMWrapper(const_cast<CSSGroupingRule*>(this));
+        rule = m_groupRule->childRules()[index]->createCSSOMWrapper(const_cast<CSSGroupingRule&>(*this));
     return rule.get();
 }
 
@@ -146,7 +174,7 @@ CSSRuleList& CSSGroupingRule::cssRules() const
 
 void CSSGroupingRule::reattach(StyleRuleBase& rule)
 {
-    m_groupRule = static_cast<StyleRuleGroup&>(rule);
+    m_groupRule = downcast<StyleRuleGroup>(rule);
     for (unsigned i = 0; i < m_childRuleCSSOMWrappers.size(); ++i) {
         if (m_childRuleCSSOMWrappers[i])
             m_childRuleCSSOMWrappers[i]->reattach(*m_groupRule.get().childRules()[i]);

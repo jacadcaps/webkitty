@@ -17,10 +17,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import android.support.annotation.Nullable;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
+import androidx.annotation.Nullable;
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -1486,6 +1486,38 @@ public class PeerConnectionEndToEndTest {
     videoSource.dispose();
     surfaceTextureHelper.dispose();
     factory.dispose();
+  }
+
+  @Test
+  @SmallTest
+  public void testRollback() throws Exception {
+    PeerConnectionFactory factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
+    PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(Arrays.asList());
+    config.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+
+    ObserverExpectations offeringExpectations = new ObserverExpectations("PCTest:offerer");
+    PeerConnection pc = factory.createPeerConnection(config, offeringExpectations);
+
+    SdpObserverLatch sdpLatch = new SdpObserverLatch();
+    pc.createOffer(sdpLatch, new MediaConstraints());
+    assertTrue(sdpLatch.await());
+    SessionDescription offer = sdpLatch.getSdp();
+
+    sdpLatch = new SdpObserverLatch();
+    offeringExpectations.expectSignalingChange(SignalingState.HAVE_LOCAL_OFFER);
+    pc.setLocalDescription(sdpLatch, offer);
+    assertTrue(sdpLatch.await());
+
+    SessionDescription rollback = new SessionDescription(SessionDescription.Type.ROLLBACK, "");
+    sdpLatch = new SdpObserverLatch();
+    offeringExpectations.expectSignalingChange(SignalingState.STABLE);
+    // TODO(bugs.webrtc.org/11970): determine if triggering ONN (twice even) is correct.
+    offeringExpectations.expectRenegotiationNeeded();
+    offeringExpectations.expectRenegotiationNeeded();
+    pc.setLocalDescription(sdpLatch, rollback);
+    assertTrue(sdpLatch.await());
+
+    assertTrue(offeringExpectations.waitForAllExpectationsToBeSatisfied(DEFAULT_TIMEOUT_SECONDS));
   }
 
   private static void negotiate(PeerConnection offeringPC,

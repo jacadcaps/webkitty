@@ -39,10 +39,6 @@
 
 #define DELEGATE_REF_COUNTING_TO_COCOA PLATFORM(COCOA)
 
-#if DELEGATE_REF_COUNTING_TO_COCOA
-OBJC_CLASS NSObject;
-#endif
-
 namespace API {
 
 class Object
@@ -66,9 +62,7 @@ public:
         Error,
         FrameHandle,
         Image,
-        PageGroupData,
         PageHandle,
-        PageGroupHandle,
         ProtectionSpace,
         RenderLayer,
         RenderObject,
@@ -115,13 +109,15 @@ public:
 #if PLATFORM(IOS_FAMILY)
         ContextMenuElementInfo,
 #endif
+#if PLATFORM(MAC)
+        ContextMenuElementInfoMac,
+#endif
         ContextMenuListener,
-        CookieManager,
         CustomHeaderFields,
-        InternalDebugFeature,
+        DataTask,
         DebuggableInfo,
         Download,
-        ExperimentalFeature,
+        Feature,
         FormSubmissionListener,
         Frame,
         FrameInfo,
@@ -136,6 +132,10 @@ public:
         GrammarDetail,
         IconDatabase,
         Inspector,
+        InspectorConfiguration,
+#if ENABLE(INSPECTOR_EXTENSIONS)
+        InspectorExtension,
+#endif
         KeyValueStorageManager,
         MediaCacheManager,
         MessageListener,
@@ -164,6 +164,7 @@ public:
         RunJavaScriptAlertResultListener,
         RunJavaScriptConfirmResultListener,
         RunJavaScriptPromptResultListener,
+        SpeechRecognitionPermissionCallback,
         TextChecker,
         URLSchemeTask,
         UserContentController,
@@ -172,6 +173,13 @@ public:
         UserMediaPermissionRequest,
         ViewportAttributes,
         VisitedLinkStore,
+#if ENABLE(WK_WEB_EXTENSIONS)
+        WebExtension,
+        WebExtensionContext,
+        WebExtensionController,
+        WebExtensionControllerConfiguration,
+        WebExtensionMatchPattern,
+#endif
         WebResourceLoadStatisticsManager,
         WebsiteDataRecord,
         WebsiteDataStore,
@@ -179,15 +187,13 @@ public:
         WebsitePolicies,
         WindowFeatures,
 
-#if ENABLE(MEDIA_SESSION)
-        MediaSessionFocusManager,
-        MediaSessionMetadata,
-#endif
-
 #if ENABLE(WEB_AUTHN)
         WebAuthenticationAssertionResponse,
         WebAuthenticationPanel,
 #endif
+
+        MediaKeySystemPermissionCallback,
+        QueryPermissionResultCallback,
 
         // Bundle types
         Bundle,
@@ -198,11 +204,9 @@ public:
         BundleFrame,
         BundleHitTestResult,
         BundleInspector,
-        BundleNavigationAction,
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,
-        BundlePageGroup,
         BundlePageOverlay,
         BundleRangeHandle,
         BundleScriptWorld,
@@ -226,14 +230,14 @@ public:
 #if DELEGATE_REF_COUNTING_TO_COCOA
 #ifdef __OBJC__
     template<typename T, typename... Args>
-    static void constructInWrapper(NSObject <WKObject> *wrapper, Args&&... args)
+    static void constructInWrapper(id <WKObject> wrapper, Args&&... args)
     {
         Object* object = new (&wrapper._apiObject) T(std::forward<Args>(args)...);
-        object->m_wrapper = wrapper;
+        object->m_wrapper = (__bridge CFTypeRef)wrapper;
     }
-#endif
 
-    NSObject *wrapper() const { return m_wrapper; }
+    id <WKObject> wrapper() const { return (__bridge id <WKObject>)m_wrapper; }
+#endif
 
     void ref() const;
     void deref() const;
@@ -256,7 +260,7 @@ private:
     // Derived classes must override operator new and call newObject().
     void* operator new(size_t) = delete;
 
-    NSObject *m_wrapper;
+    CFTypeRef m_wrapper;
 #endif // DELEGATE_REF_COUNTING_TO_COCOA
 };
 
@@ -317,9 +321,7 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::Error,
         API::Object::Type::FrameHandle,
         API::Object::Type::Image,
-        API::Object::Type::PageGroupData,
         API::Object::Type::PageHandle,
-        API::Object::Type::PageGroupHandle,
         API::Object::Type::ProtectionSpace,
         API::Object::Type::ResourceLoadInfo,
         API::Object::Type::SecurityOrigin,
@@ -364,13 +366,15 @@ template<> struct EnumTraits<API::Object::Type> {
 #if PLATFORM(IOS_FAMILY)
         API::Object::Type::ContextMenuElementInfo,
 #endif
+#if PLATFORM(MAC)
+        API::Object::Type::ContextMenuElementInfoMac,
+#endif
         API::Object::Type::ContextMenuListener,
-        API::Object::Type::CookieManager,
         API::Object::Type::CustomHeaderFields,
-        API::Object::Type::InternalDebugFeature,
+        API::Object::Type::DataTask,
         API::Object::Type::DebuggableInfo,
         API::Object::Type::Download,
-        API::Object::Type::ExperimentalFeature,
+        API::Object::Type::Feature,
         API::Object::Type::FormSubmissionListener,
         API::Object::Type::Frame,
         API::Object::Type::FrameInfo,
@@ -385,6 +389,10 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::GrammarDetail,
         API::Object::Type::IconDatabase,
         API::Object::Type::Inspector,
+        API::Object::Type::InspectorConfiguration,
+#if ENABLE(INSPECTOR_EXTENSIONS)
+        API::Object::Type::InspectorExtension,
+#endif
         API::Object::Type::KeyValueStorageManager,
         API::Object::Type::MediaCacheManager,
         API::Object::Type::MessageListener,
@@ -413,6 +421,7 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::RunJavaScriptAlertResultListener,
         API::Object::Type::RunJavaScriptConfirmResultListener,
         API::Object::Type::RunJavaScriptPromptResultListener,
+        API::Object::Type::SpeechRecognitionPermissionCallback,
         API::Object::Type::TextChecker,
         API::Object::Type::URLSchemeTask,
         API::Object::Type::UserContentController,
@@ -421,6 +430,13 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::UserMediaPermissionRequest,
         API::Object::Type::ViewportAttributes,
         API::Object::Type::VisitedLinkStore,
+#if ENABLE(WK_WEB_EXTENSIONS)
+        API::Object::Type::WebExtension,
+        API::Object::Type::WebExtensionContext,
+        API::Object::Type::WebExtensionController,
+        API::Object::Type::WebExtensionControllerConfiguration,
+        API::Object::Type::WebExtensionMatchPattern,
+#endif
         API::Object::Type::WebResourceLoadStatisticsManager,
         API::Object::Type::WebsiteDataRecord,
         API::Object::Type::WebsiteDataStore,
@@ -428,15 +444,12 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::WebsitePolicies,
         API::Object::Type::WindowFeatures,
 
-#if ENABLE(MEDIA_SESSION)
-        API::Object::Type::MediaSessionFocusManager,
-        API::Object::Type::MediaSessionMetadata,
-#endif
-
 #if ENABLE(WEB_AUTHN)
         API::Object::Type::WebAuthenticationAssertionResponse,
         API::Object::Type::WebAuthenticationPanel,
 #endif
+
+        API::Object::Type::MediaKeySystemPermissionCallback,
 
         // Bundle types
         API::Object::Type::Bundle,
@@ -447,11 +460,9 @@ template<> struct EnumTraits<API::Object::Type> {
         API::Object::Type::BundleFrame,
         API::Object::Type::BundleHitTestResult,
         API::Object::Type::BundleInspector,
-        API::Object::Type::BundleNavigationAction,
         API::Object::Type::BundleNodeHandle,
         API::Object::Type::BundlePage,
         API::Object::Type::BundlePageBanner,
-        API::Object::Type::BundlePageGroup,
         API::Object::Type::BundlePageOverlay,
         API::Object::Type::BundleRangeHandle,
         API::Object::Type::BundleScriptWorld,

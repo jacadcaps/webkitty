@@ -51,55 +51,65 @@ ScrollingTreeFrameScrollingNodeRemoteIOS::~ScrollingTreeFrameScrollingNodeRemote
 {
 }
 
-void ScrollingTreeFrameScrollingNodeRemoteIOS::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
+ScrollingTreeScrollingNodeDelegateIOS* ScrollingTreeFrameScrollingNodeRemoteIOS::delegate() const
 {
-    ScrollingTreeFrameScrollingNode::commitStateBeforeChildren(stateNode);
-    
-    const auto& scrollingStateNode = downcast<ScrollingStateFrameScrollingNode>(stateNode);
-
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateFrameScrollingNode::CounterScrollingLayer))
-        m_counterScrollingLayer = static_cast<CALayer*>(scrollingStateNode.counterScrollingLayer());
-
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateFrameScrollingNode::HeaderLayer))
-        m_headerLayer = static_cast<CALayer*>(scrollingStateNode.headerLayer());
-
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateFrameScrollingNode::FooterLayer))
-        m_footerLayer = static_cast<CALayer*>(scrollingStateNode.footerLayer());
-
-    if (stateNode.hasChangedProperty(ScrollingStateScrollingNode::ScrollContainerLayer)) {
-        if (scrollContainerLayer())
-            m_scrollingNodeDelegate = makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this);
-        else
-            m_scrollingNodeDelegate = nullptr;
-    }
-
-    if (m_scrollingNodeDelegate)
-        m_scrollingNodeDelegate->commitStateBeforeChildren(downcast<ScrollingStateScrollingNode>(stateNode));
+    return static_cast<ScrollingTreeScrollingNodeDelegateIOS*>(m_delegate.get());
 }
 
-void ScrollingTreeFrameScrollingNodeRemoteIOS::commitStateAfterChildren(const ScrollingStateNode& stateNode)
+UIScrollView *ScrollingTreeFrameScrollingNodeRemoteIOS::scrollView() const
 {
-    ScrollingTreeFrameScrollingNode::commitStateAfterChildren(stateNode);
+    return m_delegate ? delegate()->scrollView() : nil;
+}
+
+bool ScrollingTreeFrameScrollingNodeRemoteIOS::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
+{
+    if (!ScrollingTreeFrameScrollingNode::commitStateBeforeChildren(stateNode))
+        return false;
+
+    if (!is<ScrollingStateFrameScrollingNode>(stateNode))
+        return false;
 
     const auto& scrollingStateNode = downcast<ScrollingStateFrameScrollingNode>(stateNode);
 
-    if (m_scrollingNodeDelegate) {
-        m_scrollingNodeDelegate->commitStateAfterChildren(scrollingStateNode);
-        return;
+    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::CounterScrollingLayer))
+        m_counterScrollingLayer = static_cast<CALayer*>(scrollingStateNode.counterScrollingLayer());
+
+    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::HeaderLayer))
+        m_headerLayer = static_cast<CALayer*>(scrollingStateNode.headerLayer());
+
+    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::FooterLayer))
+        m_footerLayer = static_cast<CALayer*>(scrollingStateNode.footerLayer());
+
+    if (stateNode.hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer)) {
+        if (scrollContainerLayer())
+            m_delegate = makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this);
+        else
+            m_delegate = nullptr;
     }
 
-    // Update the scroll position after child nodes have been updated, because they need to have updated their constraints before any scrolling happens.
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateScrollingNode::RequestedScrollPosition)) {
-        const auto& requestedScrollData = scrollingStateNode.requestedScrollData();
-        scrollTo(requestedScrollData.scrollPosition, requestedScrollData.scrollType, requestedScrollData.clamping);
+    if (m_delegate)
+        delegate()->commitStateBeforeChildren(scrollingStateNode);
+
+    return true;
+}
+
+bool ScrollingTreeFrameScrollingNodeRemoteIOS::commitStateAfterChildren(const ScrollingStateNode& stateNode)
+{
+    if (m_delegate) {
+        if (!is<ScrollingStateFrameScrollingNode>(stateNode))
+            return false;
+
+        delegate()->commitStateAfterChildren(downcast<ScrollingStateFrameScrollingNode>(stateNode));
     }
+
+    return ScrollingTreeFrameScrollingNode::commitStateAfterChildren(stateNode);
 }
 
 FloatPoint ScrollingTreeFrameScrollingNodeRemoteIOS::minimumScrollPosition() const
 {
     FloatPoint position = ScrollableArea::scrollPositionFromOffset(FloatPoint(), toFloatSize(scrollOrigin()));
     
-    if (isRootNode() && scrollingTree().scrollPinningBehavior() == PinToBottom)
+    if (isRootNode() && scrollingTree().scrollPinningBehavior() == ScrollPinningBehavior::PinToBottom)
         position.setY(maximumScrollPosition().y());
 
     return position;
@@ -110,7 +120,7 @@ FloatPoint ScrollingTreeFrameScrollingNodeRemoteIOS::maximumScrollPosition() con
     FloatPoint position = ScrollableArea::scrollPositionFromOffset(FloatPoint(totalContentsSizeForRubberBand() - scrollableAreaSize()), toFloatSize(scrollOrigin()));
     position = position.expandedTo(FloatPoint());
 
-    if (isRootNode() && scrollingTree().scrollPinningBehavior() == PinToTop)
+    if (isRootNode() && scrollingTree().scrollPinningBehavior() == ScrollPinningBehavior::PinToTop)
         position.setY(minimumScrollPosition().y());
 
     return position;
@@ -118,8 +128,8 @@ FloatPoint ScrollingTreeFrameScrollingNodeRemoteIOS::maximumScrollPosition() con
 
 void ScrollingTreeFrameScrollingNodeRemoteIOS::repositionScrollingLayers()
 {
-    if (m_scrollingNodeDelegate) {
-        m_scrollingNodeDelegate->repositionScrollingLayers();
+    if (m_delegate) {
+        delegate()->repositionScrollingLayers();
         return;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -61,7 +61,7 @@ public:
 
         UChar32 from() const { return m_from; }
         UChar32 to() const { return m_to; }
-        const Font* font(ExternalResourceDownloadPolicy) const;
+        WEBCORE_EXPORT const Font* font(ExternalResourceDownloadPolicy) const;
         const FontAccessor& fontAccessor() const { return m_fontAccessor; }
 
     private:
@@ -82,6 +82,8 @@ public:
     void appendRange(Range&& range) { m_ranges.append(WTFMove(range)); }
     unsigned size() const { return m_ranges.size(); }
     const Range& rangeAt(unsigned i) const { return m_ranges[i]; }
+
+    void shrinkToFit() { m_ranges.shrinkToFit(); }
 
     WEBCORE_EXPORT GlyphData glyphDataForCharacter(UChar32, ExternalResourceDownloadPolicy) const;
     WEBCORE_EXPORT const Font* fontForCharacter(UChar32) const;

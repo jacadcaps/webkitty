@@ -18,7 +18,6 @@
 #include "api/test/simulated_network.h"
 #include "call/simulated_packet_receiver.h"
 #include "call/video_send_stream.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
 #include "system_wrappers/include/field_trial.h"
 #include "test/direct_transport.h"
@@ -68,9 +67,9 @@ class RtpRtcpObserver {
   }
 
  protected:
-  RtpRtcpObserver() : RtpRtcpObserver(0) {}
-  explicit RtpRtcpObserver(int event_timeout_ms)
-      : timeout_ms_(event_timeout_ms) {}
+  RtpRtcpObserver() : RtpRtcpObserver(TimeDelta::Zero()) {}
+  explicit RtpRtcpObserver(TimeDelta event_timeout)
+      : timeout_ms_(event_timeout.ms()) {}
 
   rtc::Event observation_complete_;
 

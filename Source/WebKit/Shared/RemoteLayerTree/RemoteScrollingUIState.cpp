@@ -27,13 +27,14 @@
 #import "RemoteScrollingUIState.h"
 
 #import "ArgumentCoders.h"
+#import "GeneratedSerializers.h"
 #import <wtf/text/TextStream.h>
 
 namespace WebKit {
 
 void RemoteScrollingUIState::encode(IPC::Encoder& encoder) const
 {
-    encoder.encode(m_changes);
+    encoder << m_changes;
 
     if (m_changes.contains(Changes::ScrollSnapNodes))
         encoder << m_nodesWithActiveScrollSnap;
@@ -42,21 +43,21 @@ void RemoteScrollingUIState::encode(IPC::Encoder& encoder) const
         encoder << m_nodesWithActiveUserScrolls;
 }
 
-Optional<RemoteScrollingUIState> RemoteScrollingUIState::decode(IPC::Decoder& decoder)
+std::optional<RemoteScrollingUIState> RemoteScrollingUIState::decode(IPC::Decoder& decoder)
 {
     RemoteScrollingUIState uiState;
 
     if (!decoder.decode(uiState.m_changes))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (uiState.m_changes.contains(Changes::ScrollSnapNodes)) {
         if (!decoder.decode(uiState.m_nodesWithActiveScrollSnap))
-            return WTF::nullopt;
+            return std::nullopt;
     }
 
     if (uiState.m_changes.contains(Changes::UserScrollNodes)) {
         if (!decoder.decode(uiState.m_nodesWithActiveUserScrolls))
-            return WTF::nullopt;
+            return std::nullopt;
     }
 
     return uiState;

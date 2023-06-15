@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,72 +30,16 @@
 namespace JSC {
 
 IsoAlignedMemoryAllocator::IsoAlignedMemoryAllocator(CString name)
+    : Base(name)
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    : m_debugHeap(name.data())
+    , m_heap(makeString("IsoAlignedAllocator ", name.data()).utf8().data())
 #endif
 {
-    UNUSED_PARAM(name);
 }
 
 IsoAlignedMemoryAllocator::~IsoAlignedMemoryAllocator()
 {
-#if !ENABLE(MALLOC_HEAP_BREAKDOWN)
-    for (unsigned i = 0; i < m_blocks.size(); ++i) {
-        void* block = m_blocks[i];
-        if (!m_committed[i])
-            WTF::fastCommitAlignedMemory(block, MarkedBlock::blockSize);
-        fastAlignedFree(block);
-    }
-#endif
-}
-
-void* IsoAlignedMemoryAllocator::tryAllocateAlignedMemory(size_t alignment, size_t size)
-{
-    // Since this is designed specially for IsoSubspace, we know that we will only be asked to
-    // allocate MarkedBlocks.
-    RELEASE_ASSERT(alignment == MarkedBlock::blockSize);
-    RELEASE_ASSERT(size == MarkedBlock::blockSize);
-
-#if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    return m_debugHeap.memalign(MarkedBlock::blockSize, MarkedBlock::blockSize, true);
-#else
-    auto locker = holdLock(m_lock);
-    
-    m_firstUncommitted = m_committed.findBit(m_firstUncommitted, false);
-    if (m_firstUncommitted < m_blocks.size()) {
-        m_committed[m_firstUncommitted] = true;
-        void* result = m_blocks[m_firstUncommitted];
-        WTF::fastCommitAlignedMemory(result, MarkedBlock::blockSize);
-        return result;
-    }
-    
-    void* result = tryFastAlignedMalloc(MarkedBlock::blockSize, MarkedBlock::blockSize);
-    if (!result)
-        return nullptr;
-    unsigned index = m_blocks.size();
-    m_blocks.append(result);
-    m_blockIndices.add(result, index);
-    if (m_blocks.capacity() != m_committed.size())
-        m_committed.resize(m_blocks.capacity());
-    m_committed[index] = true;
-    return result;
-#endif
-}
-
-void IsoAlignedMemoryAllocator::freeAlignedMemory(void* basePtr)
-{
-#if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    m_debugHeap.free(basePtr);
-#else
-    auto locker = holdLock(m_lock);
-    
-    auto iter = m_blockIndices.find(basePtr);
-    RELEASE_ASSERT(iter != m_blockIndices.end());
-    unsigned index = iter->value;
-    m_committed[index] = false;
-    m_firstUncommitted = std::min(index, m_firstUncommitted);
-    WTF::fastDecommitAlignedMemory(basePtr, MarkedBlock::blockSize);
-#endif
+    releaseMemoryFromSubclassDestructor();
 }
 
 void IsoAlignedMemoryAllocator::dump(PrintStream& out) const
@@ -106,7 +50,7 @@ void IsoAlignedMemoryAllocator::dump(PrintStream& out) const
 void* IsoAlignedMemoryAllocator::tryAllocateMemory(size_t size)
 {
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    return m_debugHeap.malloc(size);
+    return m_heap.malloc(size);
 #else
     return FastMalloc::tryMalloc(size);
 #endif
@@ -115,7 +59,7 @@ void* IsoAlignedMemoryAllocator::tryAllocateMemory(size_t size)
 void IsoAlignedMemoryAllocator::freeMemory(void* pointer)
 {
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    m_debugHeap.free(pointer);
+    return m_heap.free(pointer);
 #else
     FastMalloc::free(pointer);
 #endif
@@ -125,6 +69,34 @@ void* IsoAlignedMemoryAllocator::tryReallocateMemory(void*, size_t)
 {
     // In IsoSubspace-managed PreciseAllocation, we must not perform realloc.
     RELEASE_ASSERT_NOT_REACHED();
+}
+
+void* IsoAlignedMemoryAllocator::tryMallocBlock()
+{
+#if ENABLE(MALLOC_HEAP_BREAKDOWN)
+    return m_heap.memalign(MarkedBlock::blockSize, MarkedBlock::blockSize, true);
+#else
+    return tryFastAlignedMalloc(MarkedBlock::blockSize, MarkedBlock::blockSize);
+#endif
+}
+
+void IsoAlignedMemoryAllocator::freeBlock(void* block)
+{
+#if ENABLE(MALLOC_HEAP_BREAKDOWN)
+    m_heap.free(block);
+#else
+    fastAlignedFree(block);
+#endif
+}
+
+void IsoAlignedMemoryAllocator::commitBlock(void* block)
+{
+    WTF::fastCommitAlignedMemory(block, MarkedBlock::blockSize);
+}
+
+void IsoAlignedMemoryAllocator::decommitBlock(void* block)
+{
+    WTF::fastDecommitAlignedMemory(block, MarkedBlock::blockSize);
 }
 
 } // namespace JSC

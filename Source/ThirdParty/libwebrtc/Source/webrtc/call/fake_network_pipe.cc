@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "api/media_types.h"
-#include "modules/utility/include/process_thread.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/clock.h"
@@ -122,17 +121,17 @@ FakeNetworkPipe::~FakeNetworkPipe() {
 }
 
 void FakeNetworkPipe::SetReceiver(PacketReceiver* receiver) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   receiver_ = receiver;
 }
 
 void FakeNetworkPipe::AddActiveTransport(Transport* transport) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   active_transports_[transport]++;
 }
 
 void FakeNetworkPipe::RemoveActiveTransport(Transport* transport) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   auto it = active_transports_.find(transport);
   RTC_CHECK(it != active_transports_.end());
   if (--(it->second) == 0) {
@@ -186,7 +185,7 @@ PacketReceiver::DeliveryStatus FakeNetworkPipe::DeliverPacket(
 }
 
 void FakeNetworkPipe::SetClockOffset(int64_t offset_ms) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   clock_offset_ms_ = offset_ms;
 }
 
@@ -198,7 +197,7 @@ bool FakeNetworkPipe::EnqueuePacket(rtc::CopyOnWriteBuffer packet,
                                     bool is_rtcp,
                                     MediaType media_type,
                                     absl::optional<int64_t> packet_time_us) {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   int64_t time_now_us = clock_->TimeInMicroseconds();
   return EnqueuePacket(NetworkPacket(std::move(packet), time_now_us,
                                      time_now_us, options, is_rtcp, media_type,
@@ -209,7 +208,7 @@ bool FakeNetworkPipe::EnqueuePacket(rtc::CopyOnWriteBuffer packet,
                                     absl::optional<PacketOptions> options,
                                     bool is_rtcp,
                                     Transport* transport) {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   int64_t time_now_us = clock_->TimeInMicroseconds();
   return EnqueuePacket(NetworkPacket(std::move(packet), time_now_us,
                                      time_now_us, options, is_rtcp,
@@ -233,7 +232,7 @@ bool FakeNetworkPipe::EnqueuePacket(NetworkPacket&& net_packet) {
 }
 
 float FakeNetworkPipe::PercentageLoss() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   if (sent_packets_ == 0)
     return 0;
 
@@ -242,7 +241,7 @@ float FakeNetworkPipe::PercentageLoss() {
 }
 
 int FakeNetworkPipe::AverageDelay() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   if (sent_packets_ == 0)
     return 0;
 
@@ -251,12 +250,12 @@ int FakeNetworkPipe::AverageDelay() {
 }
 
 size_t FakeNetworkPipe::DroppedPackets() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   return dropped_packets_;
 }
 
 size_t FakeNetworkPipe::SentPackets() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   return sent_packets_;
 }
 
@@ -264,7 +263,7 @@ void FakeNetworkPipe::Process() {
   int64_t time_now_us;
   std::queue<NetworkPacket> packets_to_deliver;
   {
-    rtc::CritScope crit(&process_lock_);
+    MutexLock lock(&process_lock_);
     time_now_us = clock_->TimeInMicroseconds();
     if (time_now_us - last_log_time_us_ > kLogIntervalMs * 1000) {
       int64_t queueing_delay_us = 0;
@@ -307,7 +306,7 @@ void FakeNetworkPipe::Process() {
             delivery_info.receive_time_us - packet.send_time();
         packet.IncrementArrivalTime(added_delay_us);
         packets_to_deliver.emplace(std::move(packet));
-        // |time_now_us| might be later than when the packet should have
+        // `time_now_us` might be later than when the packet should have
         // arrived, due to NetworkProcess being called too late. For stats, use
         // the time it should have been on the link.
         total_packet_delay_us_ += added_delay_us;
@@ -318,7 +317,7 @@ void FakeNetworkPipe::Process() {
     }
   }
 
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   while (!packets_to_deliver.empty()) {
     NetworkPacket packet = std::move(packets_to_deliver.front());
     packets_to_deliver.pop();
@@ -354,7 +353,7 @@ void FakeNetworkPipe::DeliverNetworkPacket(NetworkPacket* packet) {
 }
 
 absl::optional<int64_t> FakeNetworkPipe::TimeUntilNextProcess() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   absl::optional<int64_t> delivery_us = network_behavior_->NextDeliveryTimeUs();
   if (delivery_us) {
     int64_t delay_us = *delivery_us - clock_->TimeInMicroseconds();
@@ -364,17 +363,17 @@ absl::optional<int64_t> FakeNetworkPipe::TimeUntilNextProcess() {
 }
 
 bool FakeNetworkPipe::HasReceiver() const {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   return receiver_ != nullptr;
 }
 
 void FakeNetworkPipe::DeliverPacketWithLock(NetworkPacket* packet) {
-  rtc::CritScope crit(&config_lock_);
+  MutexLock lock(&config_lock_);
   DeliverNetworkPacket(packet);
 }
 
 void FakeNetworkPipe::ResetStats() {
-  rtc::CritScope crit(&process_lock_);
+  MutexLock lock(&process_lock_);
   dropped_packets_ = 0;
   sent_packets_ = 0;
   total_packet_delay_us_ = 0;

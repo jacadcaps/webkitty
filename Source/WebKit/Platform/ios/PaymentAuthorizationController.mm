@@ -29,8 +29,9 @@
 #if USE(PASSKIT) && PLATFORM(IOS_FAMILY)
 
 #import "WKPaymentAuthorizationDelegate.h"
-#import <pal/cocoa/PassKitSoftLink.h>
+#import <WebCore/RuntimeApplicationChecks.h>
 #import <wtf/CompletionHandler.h>
+#import <pal/cocoa/PassKitSoftLink.h>
 
 @interface WKPaymentAuthorizationControllerDelegate : WKPaymentAuthorizationDelegate <PKPaymentAuthorizationControllerDelegate, PKPaymentAuthorizationControllerPrivateDelegate>
 
@@ -84,6 +85,15 @@
     [self _didSelectPaymentMethod:paymentMethod completion:completion];
 }
 
+#if HAVE(PASSKIT_COUPON_CODE)
+
+- (void)paymentAuthorizationController:(PKPaymentAuthorizationController *)controller didChangeCouponCode:(NSString *)couponCode handler:(void (^)(PKPaymentRequestCouponCodeUpdate *update))completion
+{
+    [self _didChangeCouponCode:couponCode completion:completion];
+}
+
+#endif // HAVE(PASSKIT_COUPON_CODE)
+
 #pragma mark PKPaymentAuthorizationControllerPrivateDelegate
 
 - (void)paymentAuthorizationController:(PKPaymentAuthorizationController *)controller willFinishWithError:(NSError *)error
@@ -95,6 +105,20 @@
 {
     [self _didRequestMerchantSession:sessionBlock];
 }
+
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+- (NSString *)presentationSceneIdentifierForPaymentAuthorizationController:(PKPaymentAuthorizationController *)controller
+{
+    if (!_presenter)
+        return nil;
+    return nsStringNilIfEmpty(_presenter->sceneIdentifier());
+}
+
+- (NSString *)presentationSceneBundleIdentifierForPaymentAuthorizationController:(PKPaymentAuthorizationController *)controller
+{
+    return nsStringNilIfEmpty(WebCore::applicationBundleIdentifier());
+}
+#endif
 
 @end
 
@@ -122,6 +146,9 @@ void PaymentAuthorizationController::dismiss()
     m_controller = nil;
     [m_delegate invalidate];
     m_delegate = nil;
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+    m_sceneIdentifier = nullString();
+#endif
 }
 
 void PaymentAuthorizationController::present(UIViewController *, CompletionHandler<void(bool)>&& completionHandler)
@@ -133,6 +160,14 @@ void PaymentAuthorizationController::present(UIViewController *, CompletionHandl
         completionHandler(success);
     }).get()];
 }
+
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+void PaymentAuthorizationController::presentInScene(const String& sceneIdentifier, CompletionHandler<void(bool)>&& completionHandler)
+{
+    m_sceneIdentifier = sceneIdentifier;
+    present(nil, WTFMove(completionHandler));
+}
+#endif
 
 } // namespace WebKit
 

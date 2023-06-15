@@ -15,17 +15,17 @@
 #include <memory>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "api/scoped_refptr.h"
 #include "rtc_base/async_invoker_inl.h"
-#include "rtc_base/bind.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/event.h"
-#include "rtc_base/ref_counted_object.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 
 namespace rtc {
 
+// DEPRECATED - do not use.
+//
 // Invokes function objects (aka functors) asynchronously on a Thread, and
 // owns the lifetime of calls (ie, when this object is destroyed, calls in
 // flight are cancelled). AsyncInvoker can optionally execute a user-specified
@@ -87,12 +87,15 @@ namespace rtc {
 //   destruction. This can be done by starting each chain of invocations on the
 //   same thread on which it will be destroyed, or by using some other
 //   synchronization method.
-class AsyncInvoker : public MessageHandler {
+class DEPRECATED_AsyncInvoker : public MessageHandlerAutoCleanup {
  public:
-  AsyncInvoker();
-  ~AsyncInvoker() override;
+  DEPRECATED_AsyncInvoker();
+  ~DEPRECATED_AsyncInvoker() override;
 
-  // Call |functor| asynchronously on |thread|, with no callback upon
+  DEPRECATED_AsyncInvoker(const DEPRECATED_AsyncInvoker&) = delete;
+  DEPRECATED_AsyncInvoker& operator=(const DEPRECATED_AsyncInvoker&) = delete;
+
+  // Call `functor` asynchronously on `thread`, with no callback upon
   // completion. Returns immediately.
   template <class ReturnT, class FunctorT>
   void AsyncInvoke(const Location& posted_from,
@@ -105,7 +108,7 @@ class AsyncInvoker : public MessageHandler {
     DoInvoke(posted_from, thread, std::move(closure), id);
   }
 
-  // Call |functor| asynchronously on |thread| with |delay_ms|, with no callback
+  // Call `functor` asynchronously on `thread` with `delay_ms`, with no callback
   // upon completion. Returns immediately.
   template <class ReturnT, class FunctorT>
   void AsyncInvokeDelayed(const Location& posted_from,
@@ -118,13 +121,6 @@ class AsyncInvoker : public MessageHandler {
             this, std::forward<FunctorT>(functor)));
     DoInvokeDelayed(posted_from, thread, std::move(closure), delay_ms, id);
   }
-
-  // Synchronously execute on |thread| all outstanding calls we own
-  // that are pending on |thread|, and wait for calls to complete
-  // before returning. Optionally filter by message id.
-  // The destructor will not wait for outstanding calls, so if that
-  // behavior is desired, call Flush() before destroying this object.
-  void Flush(Thread* thread, uint32_t id = MQID_ANY);
 
   // Cancels any outstanding calls we own that are pending on any thread, and
   // which have not yet started to execute. This does not wait for any calls
@@ -153,11 +149,10 @@ class AsyncInvoker : public MessageHandler {
   // future.
   std::atomic<int> pending_invocations_;
 
-  // Reference counted so that if the AsyncInvoker destructor finishes before
-  // an AsyncClosure's destructor that's about to call
-  // "invocation_complete_->Set()", it's not dereferenced after being
-  // destroyed.
-  scoped_refptr<RefCountedObject<Event>> invocation_complete_;
+  // Reference counted so that if the destructor finishes before an
+  // AsyncClosure's destructor that's about to call
+  // "invocation_complete_->Set()", it's not dereferenced after being destroyed.
+  rtc::scoped_refptr<FinalRefCountedObject<Event>> invocation_complete_;
 
   // This flag is used to ensure that if an application AsyncInvokes tasks that
   // recursively AsyncInvoke other tasks ad infinitum, the cycle eventually
@@ -165,99 +160,6 @@ class AsyncInvoker : public MessageHandler {
   std::atomic<bool> destroying_;
 
   friend class AsyncClosure;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(AsyncInvoker);
-};
-
-// Similar to AsyncInvoker, but guards against the Thread being destroyed while
-// there are outstanding dangling pointers to it. It will connect to the current
-// thread in the constructor, and will get notified when that thread is
-// destroyed. After GuardedAsyncInvoker is constructed, it can be used from
-// other threads to post functors to the thread it was constructed on. If that
-// thread dies, any further calls to AsyncInvoke() will be safely ignored.
-class GuardedAsyncInvoker : public sigslot::has_slots<> {
- public:
-  GuardedAsyncInvoker();
-  ~GuardedAsyncInvoker() override;
-
-  // Synchronously execute all outstanding calls we own, and wait for calls to
-  // complete before returning. Optionally filter by message id. The destructor
-  // will not wait for outstanding calls, so if that behavior is desired, call
-  // Flush() first. Returns false if the thread has died.
-  bool Flush(uint32_t id = MQID_ANY);
-
-  // Call |functor| asynchronously with no callback upon completion. Returns
-  // immediately. Returns false if the thread has died.
-  template <class ReturnT, class FunctorT>
-  bool AsyncInvoke(const Location& posted_from,
-                   FunctorT&& functor,
-                   uint32_t id = 0) {
-    CritScope cs(&crit_);
-    if (thread_ == nullptr)
-      return false;
-    invoker_.AsyncInvoke<ReturnT, FunctorT>(
-        posted_from, thread_, std::forward<FunctorT>(functor), id);
-    return true;
-  }
-
-  // Call |functor| asynchronously with |delay_ms|, with no callback upon
-  // completion. Returns immediately. Returns false if the thread has died.
-  template <class ReturnT, class FunctorT>
-  bool AsyncInvokeDelayed(const Location& posted_from,
-                          FunctorT&& functor,
-                          uint32_t delay_ms,
-                          uint32_t id = 0) {
-    CritScope cs(&crit_);
-    if (thread_ == nullptr)
-      return false;
-    invoker_.AsyncInvokeDelayed<ReturnT, FunctorT>(
-        posted_from, thread_, std::forward<FunctorT>(functor), delay_ms, id);
-    return true;
-  }
-
-  // Call |functor| asynchronously, calling |callback| when done. Returns false
-  // if the thread has died.
-  template <class ReturnT, class FunctorT, class HostT>
-  bool AsyncInvoke(const Location& posted_from,
-                   const Location& callback_posted_from,
-                   FunctorT&& functor,
-                   void (HostT::*callback)(ReturnT),
-                   HostT* callback_host,
-                   uint32_t id = 0) {
-    CritScope cs(&crit_);
-    if (thread_ == nullptr)
-      return false;
-    invoker_.AsyncInvoke<ReturnT, FunctorT, HostT>(
-        posted_from, callback_posted_from, thread_,
-        std::forward<FunctorT>(functor), callback, callback_host, id);
-    return true;
-  }
-
-  // Call |functor| asynchronously calling |callback| when done. Overloaded for
-  // void return. Returns false if the thread has died.
-  template <class ReturnT, class FunctorT, class HostT>
-  bool AsyncInvoke(const Location& posted_from,
-                   const Location& callback_posted_from,
-                   FunctorT&& functor,
-                   void (HostT::*callback)(),
-                   HostT* callback_host,
-                   uint32_t id = 0) {
-    CritScope cs(&crit_);
-    if (thread_ == nullptr)
-      return false;
-    invoker_.AsyncInvoke<ReturnT, FunctorT, HostT>(
-        posted_from, callback_posted_from, thread_,
-        std::forward<FunctorT>(functor), callback, callback_host, id);
-    return true;
-  }
-
- private:
-  // Callback when |thread_| is destroyed.
-  void ThreadDestroyed();
-
-  CriticalSection crit_;
-  Thread* thread_ RTC_GUARDED_BY(crit_);
-  AsyncInvoker invoker_ RTC_GUARDED_BY(crit_);
 };
 
 }  // namespace rtc

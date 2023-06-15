@@ -44,7 +44,7 @@ const char* LegacyCustomProtocolManager::supplementName()
 LegacyCustomProtocolManager::LegacyCustomProtocolManager(NetworkProcess& networkProcess)
     : m_networkProcess(networkProcess)
 {
-    m_networkProcess.addMessageReceiver(Messages::LegacyCustomProtocolManager::messageReceiverName(), *this);
+    m_networkProcess->addMessageReceiver(Messages::LegacyCustomProtocolManager::messageReceiverName(), *this);
 }
 
 void LegacyCustomProtocolManager::initialize(const NetworkProcessCreationParameters& parameters)
@@ -57,7 +57,7 @@ void LegacyCustomProtocolManager::initialize(const NetworkProcessCreationParamet
 
 LegacyCustomProtocolID LegacyCustomProtocolManager::addCustomProtocol(CustomProtocol&& customProtocol)
 {
-    LockHolder locker(m_customProtocolMapMutex);
+    Locker locker { m_customProtocolMapLock };
     auto customProtocolID = LegacyCustomProtocolID::generate();
     m_customProtocolMap.add(customProtocolID, WTFMove(customProtocol));
     return customProtocolID;
@@ -65,18 +65,18 @@ LegacyCustomProtocolID LegacyCustomProtocolManager::addCustomProtocol(CustomProt
 
 void LegacyCustomProtocolManager::removeCustomProtocol(LegacyCustomProtocolID customProtocolID)
 {
-    LockHolder locker(m_customProtocolMapMutex);
+    Locker locker { m_customProtocolMapLock };
     m_customProtocolMap.remove(customProtocolID);
 }
 
 void LegacyCustomProtocolManager::startLoading(LegacyCustomProtocolID customProtocolID, const WebCore::ResourceRequest& request)
 {
-    m_networkProcess.send(Messages::LegacyCustomProtocolManagerProxy::StartLoading(customProtocolID, request));
+    m_networkProcess->send(Messages::LegacyCustomProtocolManagerProxy::StartLoading(customProtocolID, request));
 }
 
 void LegacyCustomProtocolManager::stopLoading(LegacyCustomProtocolID customProtocolID)
 {
-    m_networkProcess.send(Messages::LegacyCustomProtocolManagerProxy::StopLoading(customProtocolID), 0);
+    m_networkProcess->send(Messages::LegacyCustomProtocolManagerProxy::StopLoading(customProtocolID), 0);
 }
 
 } // namespace WebKit

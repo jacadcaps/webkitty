@@ -1,6 +1,4 @@
-#!/usr/bin/env python
-#
-# Copyright (C) 2018 Igalia S.L.
+# Copyright (C) 2018-2023 Igalia S.L.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -24,19 +22,16 @@
 
 
 import argparse
-import ConfigParser
+import configparser
 import json
 import logging
 import os
-import platform
-import sys
 import tempfile
-import time
 import urllib
+from datetime import datetime
 
 from webkitpy.benchmark_runner.benchmark_runner import BenchmarkRunner
 from webkitpy.benchmark_runner.browser_driver.browser_driver_factory import BrowserDriverFactory
-from webkitpy.benchmark_runner.webdriver_benchmark_runner import WebDriverBenchmarkRunner
 from webkitpy.benchmark_runner.webserver_benchmark_runner import WebServerBenchmarkRunner
 from webkitpy.benchmark_runner.run_benchmark import default_browser, default_platform, benchmark_runner_subclasses
 
@@ -49,12 +44,14 @@ def parse_args():
     parser.add_argument('--config-file', dest='config_file', default=None, required=True, help='Configuration file for sending the results to the performance dashboard server(s).')
     parser.add_argument('--browser-version', dest='browser_version', default=None, required=True, help='A string that identifies the browser version.')
     # arguments shared with run-benchmark.
-    parser.add_argument('--build-directory', dest='buildDir', help='Path to the browser executable. e.g. WebKitBuild/Release/')
+    parser.add_argument('--build-directory', dest='buildDir', help='Path to the browser executable (e.g. WebKitBuild/Release/).')
     parser.add_argument('--platform', dest='platform', default=default_platform(), choices=BrowserDriverFactory.available_platforms())
     parser.add_argument('--browser', dest='browser', default=default_browser(), choices=BrowserDriverFactory.available_browsers())
     parser.add_argument('--driver', default=WebServerBenchmarkRunner.name, choices=benchmark_runner_subclasses.keys(), help='Use the specified benchmark driver. Defaults to %s.' % WebServerBenchmarkRunner.name)
-    parser.add_argument('--local-copy', dest='localCopy', help='Path to a local copy of the benchmark. e.g. PerformanceTests/SunSpider/')
-    parser.add_argument('--count', dest='countOverride', type=int, help='Number of times to run the benchmark. e.g. 5')
+    parser.add_argument('--local-copy', dest='localCopy', help='Path to a local copy of the benchmark (e.g. PerformanceTests/SunSpider/).')
+    parser.add_argument('--count', dest='countOverride', type=int, help='Number of times to run the benchmark (e.g. 5).')
+    parser.add_argument('--timeout', dest='timeoutOverride', type=int, help='Number of seconds to wait for the benchmark to finish (e.g. 600).')
+    parser.add_argument('--timestamp', dest='timestamp', type=int, help='Date of when the benchmark was run that will be sent to the performance dashboard server. Format is Unix timestamp (second since epoch). Optional. The server will use as date "now" if not specified.')
     mutual_group = parser.add_mutually_exclusive_group(required=True)
     mutual_group.add_argument('--plan', dest='plan', help='Benchmark plan to run. e.g. speedometer, jetstream')
     mutual_group.add_argument('--allplans', action='store_true', help='Run all available benchmark plans sequentially')
@@ -83,11 +80,15 @@ class BrowserPerfDashRunner(object):
                              'test_id': None,
                              'test_version': None,
                              'test_data': None}
+        if args.timestamp:
+            self._result_data['timestamp'] = args.timestamp
+            date_str = datetime.fromtimestamp(self._result_data['timestamp']).isoformat()
+            _log.info('Will send the benchmark data as if it was generated on date: {date}'.format(date=date_str))
 
     def _parse_config_file(self, config_file):
         if not os.path.isfile(config_file):
             raise Exception('Can not open config file for uploading results at: {config_file}'.format(config_file=config_file))
-        self._config_parser = ConfigParser.RawConfigParser()
+        self._config_parser = configparser.RawConfigParser()
         self._config_parser.read(config_file)
 
     def _get_test_version_string(self, plan_name):
@@ -109,22 +110,31 @@ class BrowserPerfDashRunner(object):
             del temp_result_json['debugOutput']
         return json.dumps(temp_result_json)
 
+    # urllib.request.urlopen always raises an exception when the http return code is not 200
+    # so this wraps the call to return the HTTPError object instead of raising the exception.
+    # The HTTPError object can be treated later as a http.client.HTTPResponse object.
+    def _send_post_request_data(self, post_url, post_data):
+        try:
+            return urllib.request.urlopen(post_url, post_data)
+        except urllib.error.HTTPError as e:
+            return e
+
     def _upload_result(self):
         upload_failed = False
         for server in self._config_parser.sections():
             self._result_data['bot_id'] = self._config_parser.get(server, 'bot_id')
             self._result_data['bot_password'] = self._config_parser.get(server, 'bot_password')
-            post_data = urllib.urlencode(self._result_data)
+            post_data = urllib.parse.urlencode(self._result_data).encode('utf-8')
             post_url = self._config_parser.get(server, 'post_url')
             try:
-                post_request = urllib.urlopen(post_url, post_data)
+                post_request = self._send_post_request_data(post_url, post_data)
                 if post_request.getcode() == 200:
                     _log.info('Sucesfully uploaded results to server {server_name} for test {test_name} and browser {browser_name} version {browser_version}'.format(
                                server_name=server, test_name=self._result_data['test_id'], browser_name=self._result_data['browser_id'], browser_version=self._result_data['browser_version']))
                 else:
                     upload_failed = True
                     _log.error('The server {server_name} returned an error code: {http_error}'.format(server_name=server, http_error=post_request.getcode()))
-                    _log.error('The error text from the server {server_name} was: "{error_text}"'.format(server_name=server, error_text=post_request.read()))
+                    _log.error('The error text from the server {server_name} was: "{error_text}"'.format(server_name=server, error_text=post_request.read().decode('utf-8')))
             except Exception as e:
                 upload_failed = True
                 _log.error('Exception while trying to upload results to server {server_name}'.format(server_name=server))
@@ -165,7 +175,7 @@ class BrowserPerfDashRunner(object):
                 # Run test and save test info
                 with tempfile.NamedTemporaryFile() as temp_result_file:
                     benchmark_runner_class = benchmark_runner_subclasses[self._args.driver]
-                    runner = benchmark_runner_class(plan, self._args.localCopy, self._args.countOverride, self._args.buildDir, temp_result_file.name, self._args.platform, self._args.browser, None)
+                    runner = benchmark_runner_class(plan, self._args.localCopy, self._args.countOverride, self._args.timeoutOverride, self._args.buildDir, temp_result_file.name, self._args.platform, self._args.browser, None)
                     runner.execute()
                     _log.info('Finished benchmark plan: {plan_name}'.format(plan_name=plan))
                     # Fill test info for upload

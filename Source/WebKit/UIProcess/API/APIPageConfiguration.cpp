@@ -39,6 +39,10 @@
 #include "APIApplicationManifest.h"
 #endif
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebExtensionController.h"
+#endif
+
 namespace API {
 using namespace WebKit;
 
@@ -59,6 +63,10 @@ Ref<PageConfiguration> PageConfiguration::copy() const
 
     copy->m_processPool = this->m_processPool;
     copy->m_userContentController = this->m_userContentController;
+#if ENABLE(WK_WEB_EXTENSIONS)
+    copy->m_webExtensionController = this->m_webExtensionController;
+    copy->m_weakWebExtensionController = this->m_weakWebExtensionController;
+#endif
     copy->m_pageGroup = this->m_pageGroup;
     copy->m_preferences = this->m_preferences;
     copy->m_relatedPage = this->m_relatedPage;
@@ -79,18 +87,32 @@ Ref<PageConfiguration> PageConfiguration::copy() const
     copy->m_applicationManifest = this->m_applicationManifest;
 #endif
     copy->m_shouldRelaxThirdPartyCookieBlocking = this->m_shouldRelaxThirdPartyCookieBlocking;
+    copy->m_attributedBundleIdentifier = this->m_attributedBundleIdentifier;
     for (auto& pair : this->m_urlSchemeHandlers)
         copy->m_urlSchemeHandlers.set(pair.key, pair.value.copyRef());
     copy->m_corsDisablingPatterns = this->m_corsDisablingPatterns;
+    copy->m_maskedURLSchemes = this->m_maskedURLSchemes;
     copy->m_crossOriginAccessControlCheckEnabled = this->m_crossOriginAccessControlCheckEnabled;
     copy->m_userScriptsShouldWaitUntilNotification = this->m_userScriptsShouldWaitUntilNotification;
-    copy->m_webViewCategory = this->m_webViewCategory;
 
     copy->m_processDisplayName = this->m_processDisplayName;
-    copy->m_ignoresAppBoundDomains = this->m_ignoresAppBoundDomains;
     copy->m_loadsSubresources = this->m_loadsSubresources;
-    copy->m_loadsFromNetwork = this->m_loadsFromNetwork;
+    copy->m_allowedNetworkHosts = this->m_allowedNetworkHosts;
+#if ENABLE(APP_BOUND_DOMAINS)
+    copy->m_ignoresAppBoundDomains = this->m_ignoresAppBoundDomains;
     copy->m_limitsNavigationsToAppBoundDomains = this->m_limitsNavigationsToAppBoundDomains;
+#endif
+
+    copy->m_mediaCaptureEnabled = this->m_mediaCaptureEnabled;
+    copy->m_httpsUpgradeEnabled = this->m_httpsUpgradeEnabled;
+#if PLATFORM(IOS_FAMILY)
+    copy->m_appInitiatedOverrideValueForTesting = this->m_appInitiatedOverrideValueForTesting;
+#endif
+#if HAVE(TOUCH_BAR)
+    copy->m_requiresUserActionForEditingControlsManager = this->m_requiresUserActionForEditingControlsManager;
+#endif
+
+    copy->m_contentSecurityPolicyModeForExtension = this->m_contentSecurityPolicyModeForExtension;
 
     return copy;
 }
@@ -115,6 +137,28 @@ void PageConfiguration::setUserContentController(WebUserContentControllerProxy* 
 {
     m_userContentController = userContentController;
 }
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+WebExtensionController* PageConfiguration::webExtensionController()
+{
+    return m_webExtensionController.get();
+}
+
+void PageConfiguration::setWebExtensionController(WebExtensionController* webExtensionController)
+{
+    m_webExtensionController = webExtensionController;
+}
+
+WebExtensionController* PageConfiguration::weakWebExtensionController()
+{
+    return m_weakWebExtensionController.get();
+}
+
+void PageConfiguration::setWeakWebExtensionController(WebExtensionController* webExtensionController)
+{
+    m_weakWebExtensionController = webExtensionController;
+}
+#endif // ENABLE(WK_WEB_EXTENSIONS)
 
 WebPageGroup* PageConfiguration::pageGroup()
 {
@@ -144,6 +188,16 @@ WebPageProxy* PageConfiguration::relatedPage() const
 void PageConfiguration::setRelatedPage(WebPageProxy* relatedPage)
 {
     m_relatedPage = relatedPage;
+}
+
+WebKit::WebPageProxy* PageConfiguration::pageToCloneSessionStorageFrom() const
+{
+    return m_pageToCloneSessionStorageFrom.get();
+}
+
+void PageConfiguration::setPageToCloneSessionStorageFrom(WebKit::WebPageProxy* pageToCloneSessionStorageFrom)
+{
+    m_pageToCloneSessionStorageFrom = pageToCloneSessionStorageFrom;
 }
 
 WebKit::VisitedLinkStore* PageConfiguration::visitedLinkStore()
@@ -184,6 +238,18 @@ RefPtr<WebKit::WebURLSchemeHandler> PageConfiguration::urlSchemeHandlerForURLSch
 void PageConfiguration::setURLSchemeHandlerForURLScheme(Ref<WebKit::WebURLSchemeHandler>&& handler, const WTF::String& scheme)
 {
     m_urlSchemeHandlers.set(scheme, WTFMove(handler));
+}
+
+bool PageConfiguration::lockdownModeEnabled() const
+{
+    if (m_defaultWebsitePolicies)
+        return m_defaultWebsitePolicies->lockdownModeEnabled();
+    return lockdownModeEnabledBySystem();
+}
+
+bool PageConfiguration::isLockdownModeExplicitlySet() const
+{
+    return m_defaultWebsitePolicies && m_defaultWebsitePolicies->isLockdownModeExplicitlySet();
 }
 
 #if ENABLE(APPLICATION_MANIFEST)

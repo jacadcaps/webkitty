@@ -1,0 +1,210 @@
+#!/usr/bin/env {{ python }}
+
+import os
+import re
+import subprocess
+import sys
+
+LOCATION = r'{{ location }}'
+SPACING = 8
+SCRIPTS = os.path.dirname(os.path.dirname(LOCATION))
+CHERRY_PICKING_RE = re.compile(r'^# You are currently cherry-picking commit (?P<hash>[a-f0-9A-F]+)\.$')
+IDENTIFIER_RE = re.compile(r'(\d+\.)?\d+@\S+')
+PREFER_RADAR = {{ prefer_radar }}
+
+sys.path.append(SCRIPTS)
+from webkitpy.common.checkout.diff_parser import DiffParser
+from webkitbugspy import radar
+
+
+def get_bugs_string():
+    """Determines what bug URLs to fill or suggest in a WebKit commit message."""
+    env = os.environ
+    need_the_bug_url = 'Need the bug URL (OOPS!).'
+    need_the_radar = 'Include a Radar link (OOPS!).'
+    has_radar = any([bool(regex.match(line))
+                     for line in env.get('COMMIT_MESSAGE_BUG', '').splitlines()
+                     for regex in radar.Tracker.RES])
+
+    if env.get('COMMIT_MESSAGE_BUG'):
+        if has_radar or not bool(radar.Tracker.radarclient()):
+            return env['COMMIT_MESSAGE_BUG']
+        else:
+            return env['COMMIT_MESSAGE_BUG'] + '\n' + need_the_radar
+
+    bugs_string = need_the_bug_url
+    if bool(radar.Tracker.radarclient()):
+        bugs_string += '\n' + need_the_radar
+    return bugs_string
+
+def parseChanges(command, commit_message):
+    dirname = None
+
+    try:
+        for line in subprocess.check_output(
+            command,
+            **(dict(encoding='utf-8') if sys.version_info > (3, 0) else dict())
+        ).splitlines():
+            if line == '~':
+                dirname = None
+                continue
+            if line.startswith(' ' * SPACING):
+                if dirname:
+                    line = line.replace('* ', '* {}/'.format(dirname))
+                commit_message.append(line[SPACING:])
+                continue
+            if line.endswith(':'):
+                dirname = line.split(':')[0]
+                continue
+    except subprocess.CalledProcessError:
+        commit_message.append('')
+        return
+
+def message(source=None, sha=None):
+    commit_message = []
+    command = ['perl', os.path.join(SCRIPTS, 'prepare-ChangeLog'), '--no-write', '--only-files', '--delimiters', '--git-index']
+
+    if sha:
+        commit_message.append('Amend changes:')
+        parseChanges(command, commit_message)
+        commit_message.append('')
+
+        commit_message.append('Combined changes:')
+        command.append('--git-commit')
+        command.append('HEAD')
+
+    parseChanges(command, commit_message)
+
+    bugs_string = get_bugs_string()
+
+    return '''{title}
+{bugs}
+
+Reviewed by NOBODY (OOPS!).
+
+Explanation of why this fixes the bug (OOPS!).
+
+{content}
+'''.format(
+        title=os.environ.get('COMMIT_MESSAGE_TITLE', '') or 'Need a short description (OOPS!).',
+        bugs=bugs_string,
+        content='\n'.join(commit_message) + os.environ.get('COMMIT_MESSAGE_CONTENT', ''),
+    )
+
+
+def cherry_pick(content):
+    cherry_picked = os.environ.get('GIT_WEBKIT_CHERRY_PICKED')
+    bug = os.environ.get('GIT_WEBKIT_BUG')
+
+    if PREFER_RADAR and not bug:
+        RADAR_RES = [
+            re.compile(r'<?rdar://problem/(?P<id>\d+)>?'),
+            re.compile(r'<?radar://problem/(?P<id>\d+)>?'),
+            re.compile(r'<?rdar:\/\/(?P<id>\d+)>?'),
+            re.compile(r'<?radar:\/\/(?P<id>\d+)>?'),
+        ]
+        seen_empty = False
+        for line in content.splitlines():
+            if not line and seen_empty:
+                break
+            elif not line:
+                seen_empty = True
+                continue
+            words = line.split()
+            for word in [words[0], words[-1]] if words[0] != words[-1] else [words[0]]:
+                for regex in RADAR_RES:
+                    if regex.match(word):
+                        bug = word
+                        break
+                if bug:
+                    break
+
+    if not cherry_picked or not bug:
+        LINK_RE = re.compile(r'^\S+:\/\/\S+\d+\S*$')
+
+        last_line = ''
+        for line in content.splitlines():
+            if not line:
+                continue
+            if not line.startswith('#'):
+                last_line = line
+            if not bug and LINK_RE.match(line):
+                bug = line
+            match = None if cherry_picked else CHERRY_PICKING_RE.match(line)
+            if match:
+                cherry_picked = match.group('hash')
+
+            if bug and cherry_picked:
+                break
+
+        if last_line and (not cherry_picked or not IDENTIFIER_RE.search(cherry_picked)):
+            from_last_line = IDENTIFIER_RE.search(last_line)
+            if from_last_line and not cherry_picked:
+                cherry_picked = from_last_line.group(0)
+            elif from_last_line:
+                cherry_picked = '{} ({})'.format(from_last_line.group(0), cherry_picked)
+
+    result = 'Cherry-pick {}. {}\n\n'.format(cherry_picked or '???', bug or '<bug>')
+    for line in content.splitlines():
+        if not line:
+            result += '\n'
+            continue
+        if line[0] != '#':
+            result += 4*' '
+        result += line + '\n'
+    return result
+
+
+def main(file_name=None, source=None, sha=None):
+    with open(file_name, 'r') as commit_message_file:
+        content = commit_message_file.read()
+
+    if source not in (None, 'commit', 'template', 'merge'):
+        return 0
+
+    for line in content.splitlines():
+        if CHERRY_PICKING_RE.match(line):
+            os.environ['GIT_REFLOG_ACTION'] = 'cherry-pick'
+            break
+
+    if source == 'merge' and os.environ.get('GIT_REFLOG_ACTION') == 'cherry-pick':
+        with open(file_name, 'w') as commit_message_file:
+            commit_message_file.write(cherry_pick(content))
+        return 0
+
+    if source == 'merge' and not content.startswith('Revert'):
+        return 0
+
+    if os.environ.get('GIT_EDITOR', '') == ':':
+        # When there's no editor being launched, do nothing.
+        return 0
+
+    with open(file_name, 'w') as commit_message_file:
+        if sha:
+            commit_message_file.write(subprocess.check_output(
+                ['git', 'log', 'HEAD', '-1', '--pretty=format:%B'],
+                **(dict(encoding='utf-8') if sys.version_info > (3, 5) else dict())
+            ))
+        else:
+            commit_message_file.write(message(source=source, sha=sha))
+
+        commit_message_file.write('''
+# Please populate the above commit message. Lines starting
+# with '#' will be ignored
+
+''')
+        if sha:
+            for line in message(source=source, sha=sha).splitlines():
+                commit_message_file.write('# {}\n'.format(line))
+            commit_message_file.write('\n')
+        for line in subprocess.check_output(
+            ['git', 'status'],
+            **(dict(encoding='utf-8') if sys.version_info > (3, 5) else dict())
+        ).splitlines():
+            commit_message_file.write('# {}\n'.format(line))
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(*sys.argv[1:]))

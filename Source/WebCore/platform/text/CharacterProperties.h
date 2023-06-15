@@ -31,13 +31,21 @@ namespace WebCore {
 
 static inline bool isEmojiGroupCandidate(UChar32 character)
 {
-    switch (ublock_getCode(character)) {
+#define SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A 298
+#if U_ICU_VERSION_MAJOR_NUM < 64
+#define UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A
+#else
+static_assert(UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A == SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A);
+#endif
+
+    switch (static_cast<int>(ublock_getCode(character))) {
     case UBLOCK_MISCELLANEOUS_SYMBOLS:
     case UBLOCK_DINGBATS:
     case UBLOCK_MISCELLANEOUS_SYMBOLS_AND_PICTOGRAPHS:
     case UBLOCK_EMOTICONS:
     case UBLOCK_TRANSPORT_AND_MAP_SYMBOLS:
     case UBLOCK_SUPPLEMENTAL_SYMBOLS_AND_PICTOGRAPHS:
+    case UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A:
         return true;
     default:
         return false;
@@ -87,7 +95,7 @@ inline bool isDefaultIgnorableCodePoint(UChar32 character)
 
 inline bool isControlCharacter(UChar32 character)
 {
-    return u_getIntPropertyValue(character, UCHAR_GENERAL_CATEGORY) == U_CONTROL_CHAR;
+    return u_charType(character) == U_CONTROL_CHAR;
 }
 
 }

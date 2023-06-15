@@ -44,7 +44,7 @@ class PseudoTcpForTest : public cricket::PseudoTcp {
 };
 
 class PseudoTcpTestBase : public ::testing::Test,
-                          public rtc::MessageHandler,
+                          public rtc::MessageHandlerAutoCleanup,
                           public cricket::IPseudoTcpNotify {
  public:
   PseudoTcpTestBase()
@@ -65,7 +65,7 @@ class PseudoTcpTestBase : public ::testing::Test,
     rtc::SetRandomTestMode(false);
   }
   // If true, both endpoints will send the "connect" segment simultaneously,
-  // rather than |local_| sending it followed by a response from |remote_|.
+  // rather than `local_` sending it followed by a response from `remote_`.
   // Note that this is what chromoting ends up doing.
   void SetSimultaneousOpen(bool enabled) { simultaneous_open_ = enabled; }
   void SetLocalMtu(int mtu) {
@@ -218,6 +218,7 @@ class PseudoTcpTestBase : public ::testing::Test,
     delete message->pdata;
   }
 
+  rtc::AutoThread main_thread_;
   PseudoTcpForTest local_;
   PseudoTcpForTest remote_;
   rtc::MemoryStream send_stream_;
@@ -461,7 +462,7 @@ class PseudoTcpTestPingPong : public PseudoTcpTestBase {
 // contracts and enlarges correctly.
 class PseudoTcpTestReceiveWindow : public PseudoTcpTestBase {
  public:
-  // Not all the data are transfered, |size| just need to be big enough
+  // Not all the data are transfered, `size` just need to be big enough
   // to fill up the receiver window twice.
   void TestTransfer(int size) {
     // Create some dummy data to send.

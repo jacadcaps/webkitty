@@ -26,17 +26,13 @@
 #include "config.h"
 #include "ResourceLoadStatisticsStore.h"
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
 
 #include "Logging.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
-#include "PluginProcessManager.h"
-#include "PluginProcessProxy.h"
-#include "ResourceLoadStatisticsPersistentStorage.h"
 #include "StorageAccessStatus.h"
 #include "WebProcessProxy.h"
-#include "WebResourceLoadStatisticsTelemetry.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/CookieJar.h>
 #include <WebCore/KeyedCoding.h>
@@ -46,6 +42,7 @@
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/DateMath.h>
 #include <wtf/MathExtras.h>
+#include <wtf/SuspendableWorkQueue.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
@@ -56,35 +53,20 @@ constexpr Seconds minimumStatisticsProcessingInterval { 5_s };
 static String domainsToString(const Vector<RegistrableDomain>& domains)
 {
     StringBuilder builder;
-    for (auto& domain : domains) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-    }
+    for (auto& domain : domains)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string());
     return builder.toString();
 }
 
 static String domainsToString(const RegistrableDomainsToDeleteOrRestrictWebsiteDataFor& domainsToRemoveOrRestrictWebsiteDataFor)
 {
     StringBuilder builder;
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllCookiesFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all data)");
-    }
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllButHttpOnlyCookiesFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all but HttpOnly cookies)");
-    }
-    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllNonCookieWebsiteDataFor) {
-        if (!builder.isEmpty())
-            builder.appendLiteral(", ");
-        builder.append(domain.string());
-        builder.appendLiteral("(all but cookies)");
-    }
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllCookiesFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all data)");
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllButHttpOnlyCookiesFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all but HttpOnly cookies)");
+    for (auto& domain : domainsToRemoveOrRestrictWebsiteDataFor.domainsToDeleteAllScriptWrittenStorageFor)
+        builder.append(builder.isEmpty() ? "" : ", ", domain.string(), "(all but cookies)");
     return builder.toString();
 }
 
@@ -95,13 +77,12 @@ OperatingDate OperatingDate::fromWallTime(WallTime time)
     int yearDay = dayInYear(ms, year);
     int month = monthFromDayInYear(yearDay, isLeapYear(year));
     int monthDay = dayInMonthFromDayInYear(yearDay, isLeapYear(year));
-
     return OperatingDate { year, month, monthDay };
 }
 
-OperatingDate OperatingDate::today()
+OperatingDate OperatingDate::today(Seconds timeAdvanceForTesting)
 {
-    return OperatingDate::fromWallTime(WallTime::now());
+    return OperatingDate::fromWallTime(WallTime::now() + timeAdvanceForTesting);
 }
 
 Seconds OperatingDate::secondsSinceEpoch() const
@@ -124,7 +105,7 @@ bool OperatingDate::operator<=(const OperatingDate& other) const
     return secondsSinceEpoch() <= other.secondsSinceEpoch();
 }
 
-ResourceLoadStatisticsStore::ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore& store, WorkQueue& workQueue, ShouldIncludeLocalhost shouldIncludeLocalhost)
+ResourceLoadStatisticsStore::ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore& store, SuspendableWorkQueue& workQueue, ShouldIncludeLocalhost shouldIncludeLocalhost)
     : m_store(store)
     , m_workQueue(workQueue)
     , m_shouldIncludeLocalhost(shouldIncludeLocalhost)
@@ -157,7 +138,7 @@ bool ResourceLoadStatisticsStore::shouldSkip(const RegistrableDomain& domain) co
 {
     ASSERT(!RunLoop::isMain());
     return !(parameters().isRunningTest)
-    && m_shouldIncludeLocalhost == ShouldIncludeLocalhost::No && domain.string() == "localhost";
+    && m_shouldIncludeLocalhost == ShouldIncludeLocalhost::No && domain.string() == "localhost"_s;
 }
 
 void ResourceLoadStatisticsStore::setIsRunningTest(bool value)
@@ -172,12 +153,6 @@ void ResourceLoadStatisticsStore::setShouldClassifyResourcesBeforeDataRecordsRem
     m_parameters.shouldClassifyResourcesBeforeDataRecordsRemoval = value;
 }
 
-void ResourceLoadStatisticsStore::setShouldSubmitTelemetry(bool value)
-{
-    ASSERT(!RunLoop::isMain());
-    m_parameters.shouldSubmitTelemetry = value;
-}
-
 void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
@@ -186,12 +161,6 @@ void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&& 
         completionHandler();
         return;
     }
-
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    m_activePluginTokens.clear();
-    for (const auto& plugin : PluginProcessManager::singleton().pluginProcesses())
-        m_activePluginTokens.add(plugin->pluginProcessToken());
-#endif
 
     auto domainsToDeleteOrRestrictWebsiteDataFor = registrableDomainsToDeleteOrRestrictWebsiteDataFor();
     if (domainsToDeleteOrRestrictWebsiteDataFor.isEmpty()) {
@@ -206,9 +175,9 @@ void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&& 
 
     setDataRecordsBeingRemoved(true);
 
-    RunLoop::main().dispatch([store = makeRef(m_store), domainsToDeleteOrRestrictWebsiteDataFor = crossThreadCopy(domainsToDeleteOrRestrictWebsiteDataFor), completionHandler = WTFMove(completionHandler), weakThis = makeWeakPtr(*this), shouldNotifyPagesWhenDataRecordsWereScanned = m_parameters.shouldNotifyPagesWhenDataRecordsWereScanned, workQueue = m_workQueue] () mutable {
-        store->deleteAndRestrictWebsiteDataForRegistrableDomains(WebResourceLoadStatisticsStore::monitoredDataTypes(), WTFMove(domainsToDeleteOrRestrictWebsiteDataFor), shouldNotifyPagesWhenDataRecordsWereScanned, [completionHandler = WTFMove(completionHandler), weakThis = WTFMove(weakThis), workQueue](const HashSet<RegistrableDomain>& domainsWithDeletedWebsiteData) mutable {
-            workQueue->dispatch([domainsWithDeletedWebsiteData = crossThreadCopy(domainsWithDeletedWebsiteData), completionHandler = WTFMove(completionHandler), weakThis = WTFMove(weakThis)] () mutable {
+    RunLoop::main().dispatch([store = Ref { m_store }, domainsToDeleteOrRestrictWebsiteDataFor = crossThreadCopy(WTFMove(domainsToDeleteOrRestrictWebsiteDataFor)), completionHandler = WTFMove(completionHandler), weakThis = WeakPtr { *this }, shouldNotifyPagesWhenDataRecordsWereScanned = m_parameters.shouldNotifyPagesWhenDataRecordsWereScanned, workQueue = m_workQueue] () mutable {
+        store->deleteAndRestrictWebsiteDataForRegistrableDomains(WebResourceLoadStatisticsStore::monitoredDataTypes(), WTFMove(domainsToDeleteOrRestrictWebsiteDataFor), shouldNotifyPagesWhenDataRecordsWereScanned, [completionHandler = WTFMove(completionHandler), weakThis = WTFMove(weakThis), workQueue](HashSet<RegistrableDomain>&& domainsWithDeletedWebsiteData) mutable {
+            workQueue->dispatch([domainsWithDeletedWebsiteData = crossThreadCopy(WTFMove(domainsWithDeletedWebsiteData)), completionHandler = WTFMove(completionHandler), weakThis = WTFMove(weakThis)] () mutable {
                 if (!weakThis) {
                     completionHandler();
                     return;
@@ -242,20 +211,19 @@ void ResourceLoadStatisticsStore::processStatisticsAndDataRecords()
     if (m_parameters.shouldClassifyResourcesBeforeDataRecordsRemoval)
         classifyPrevalentResources();
     
-    removeDataRecords([this, weakThis = makeWeakPtr(*this)] () mutable {
+    removeDataRecords([this, weakThis = WeakPtr { *this }] () mutable {
         ASSERT(!RunLoop::isMain());
         if (!weakThis)
             return;
 
         pruneStatisticsIfNeeded();
-        syncStorageIfNeeded();
 
         logTestingEvent("Storage Synced"_s);
 
         if (!m_parameters.shouldNotifyPagesWhenDataRecordsWereScanned)
             return;
 
-        RunLoop::main().dispatch([store = makeRef(m_store)] {
+        RunLoop::main().dispatch([store = Ref { m_store }] {
             store->notifyResourceLoadStatisticsProcessed();
         });
     });
@@ -265,9 +233,9 @@ void ResourceLoadStatisticsStore::grandfatherExistingWebsiteData(CompletionHandl
 {
     ASSERT(!RunLoop::isMain());
 
-    RunLoop::main().dispatch([weakThis = makeWeakPtr(*this), callback = WTFMove(callback), shouldNotifyPagesWhenDataRecordsWereScanned = m_parameters.shouldNotifyPagesWhenDataRecordsWereScanned, workQueue = m_workQueue, store = makeRef(m_store)] () mutable {
+    RunLoop::main().dispatch([weakThis = WeakPtr { *this }, callback = WTFMove(callback), shouldNotifyPagesWhenDataRecordsWereScanned = m_parameters.shouldNotifyPagesWhenDataRecordsWereScanned, workQueue = m_workQueue, store = Ref { m_store }] () mutable {
         store->registrableDomainsWithWebsiteData(WebResourceLoadStatisticsStore::monitoredDataTypes(), shouldNotifyPagesWhenDataRecordsWereScanned, [weakThis = WTFMove(weakThis), callback = WTFMove(callback), workQueue] (HashSet<RegistrableDomain>&& domainsWithWebsiteData) mutable {
-            workQueue->dispatch([weakThis = WTFMove(weakThis), domainsWithWebsiteData = crossThreadCopy(domainsWithWebsiteData), callback = WTFMove(callback)] () mutable {
+            workQueue->dispatch([weakThis = WTFMove(weakThis), domainsWithWebsiteData = crossThreadCopy(WTFMove(domainsWithWebsiteData)), callback = WTFMove(callback)] () mutable {
                 if (!weakThis) {
                     callback();
                     return;
@@ -275,7 +243,6 @@ void ResourceLoadStatisticsStore::grandfatherExistingWebsiteData(CompletionHandl
 
                 weakThis->grandfatherDataForDomains(domainsWithWebsiteData);
                 weakThis->m_endOfGrandfatheringTimestamp = WallTime::now() + weakThis->m_parameters.grandfatheringTime;
-                weakThis->syncStorageImmediately();
                 callback();
                 weakThis->logTestingEvent("Grandfathered"_s);
             });
@@ -312,17 +279,26 @@ void ResourceLoadStatisticsStore::setPrevalentResourceForDebugMode(const Registr
     m_debugManualPrevalentResource = domain;
 }
 
+#if ENABLE(APP_BOUND_DOMAINS)
 void ResourceLoadStatisticsStore::setAppBoundDomains(HashSet<RegistrableDomain>&& domains)
 {
     m_appBoundDomains = WTFMove(domains);
 }
+#endif
+
+#if ENABLE(MANAGED_DOMAINS)
+void ResourceLoadStatisticsStore::setManagedDomains(HashSet<RegistrableDomain>&& domains)
+{
+    m_managedDomains = WTFMove(domains);
+}
+#endif
 
 void ResourceLoadStatisticsStore::scheduleStatisticsProcessingRequestIfNecessary()
 {
     ASSERT(!RunLoop::isMain());
 
     m_pendingStatisticsProcessingRequestIdentifier = ++m_lastStatisticsProcessingRequestIdentifier;
-    m_workQueue->dispatchAfter(minimumStatisticsProcessingInterval, [this, weakThis = makeWeakPtr(*this), statisticsProcessingRequestIdentifier = *m_pendingStatisticsProcessingRequestIdentifier] {
+    m_workQueue->dispatchAfter(minimumStatisticsProcessingInterval, [this, weakThis = WeakPtr { *this }, statisticsProcessingRequestIdentifier = *m_pendingStatisticsProcessingRequestIdentifier] {
         if (!weakThis)
             return;
 
@@ -340,7 +316,7 @@ void ResourceLoadStatisticsStore::cancelPendingStatisticsProcessingRequest()
 {
     ASSERT(!RunLoop::isMain());
 
-    m_pendingStatisticsProcessingRequestIdentifier = WTF::nullopt;
+    m_pendingStatisticsProcessingRequestIdentifier = std::nullopt;
 }
 
 void ResourceLoadStatisticsStore::setTimeToLiveUserInteraction(Seconds seconds)
@@ -380,26 +356,25 @@ void ResourceLoadStatisticsStore::updateCacheMaxAgeCap()
 {
     ASSERT(!RunLoop::isMain());
     
-    RunLoop::main().dispatch([store = makeRef(m_store), seconds = m_parameters.cacheMaxAgeCapTime] () {
+    RunLoop::main().dispatch([store = Ref { m_store }, seconds = m_parameters.cacheMaxAgeCapTime] () {
         store->setCacheMaxAgeCap(seconds, [] { });
     });
-}
-
-void ResourceLoadStatisticsStore::setAgeCapForClientSideCookies(Seconds seconds)
-{
-    ASSERT(!RunLoop::isMain());
-    ASSERT(seconds >= 0_s);
-    
-    m_parameters.clientSideCookiesAgeCapTime = seconds;
-    updateClientSideCookiesAgeCap();
 }
 
 void ResourceLoadStatisticsStore::updateClientSideCookiesAgeCap()
 {
     ASSERT(!RunLoop::isMain());
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    RunLoop::main().dispatch([store = makeRef(m_store), seconds = m_parameters.clientSideCookiesAgeCapTime] () {
+#if ENABLE(TRACKING_PREVENTION)
+    
+    Seconds capTime;
+#if ENABLE(JS_COOKIE_CHECKING)
+    capTime = m_parameters.clientSideCookiesForLinkDecorationTargetPageAgeCapTime;
+#else
+    capTime = m_parameters.clientSideCookiesAgeCapTime;
+#endif
+
+    RunLoop::main().dispatch([store = Ref { m_store }, seconds = capTime] () {
         if (auto* networkSession = store->networkSession()) {
             if (auto* storageSession = networkSession->networkStorageSession())
                 storageSession->setAgeCapForClientSideCookies(seconds);
@@ -415,13 +390,6 @@ bool ResourceLoadStatisticsStore::shouldRemoveDataRecords() const
     if (m_dataRecordsBeingRemoved)
         return false;
 
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    for (const auto& plugin : PluginProcessManager::singleton().pluginProcesses()) {
-        if (!m_activePluginTokens.contains(plugin->pluginProcessToken()))
-            return true;
-    }
-#endif
-
     return !m_lastTimeDataRecordsWereRemoved || MonotonicTime::now() >= (m_lastTimeDataRecordsWereRemoved + m_parameters.minimumTimeBetweenDataRecordsRemoval) || parameters().isRunningTest;
 }
 
@@ -434,11 +402,11 @@ void ResourceLoadStatisticsStore::setDataRecordsBeingRemoved(bool value)
         m_lastTimeDataRecordsWereRemoved = MonotonicTime::now();
 }
 
-void ResourceLoadStatisticsStore::updateCookieBlockingForDomains(const RegistrableDomainsToBlockCookiesFor& domainsToBlock, CompletionHandler<void()>&& completionHandler)
+void ResourceLoadStatisticsStore::updateCookieBlockingForDomains(RegistrableDomainsToBlockCookiesFor&& domainsToBlock, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
     
-    RunLoop::main().dispatch([store = makeRef(m_store), domainsToBlock = crossThreadCopy(domainsToBlock), completionHandler = WTFMove(completionHandler)] () mutable {
+    RunLoop::main().dispatch([store = Ref { m_store }, domainsToBlock = crossThreadCopy(WTFMove(domainsToBlock)), completionHandler = WTFMove(completionHandler)] () mutable {
         store->callUpdatePrevalentDomainsToBlockCookiesForHandler(domainsToBlock, [store, completionHandler = WTFMove(completionHandler)]() mutable {
             store->statisticsQueue().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
                 completionHandler();
@@ -449,13 +417,9 @@ void ResourceLoadStatisticsStore::updateCookieBlockingForDomains(const Registrab
 
 bool ResourceLoadStatisticsStore::shouldEnforceSameSiteStrictForSpecificDomain(const RegistrableDomain& domain) const
 {
-    static NeverDestroyed<HashSet<RegistrableDomain>> domains = [] {
-        HashSet<RegistrableDomain> set;
-        set.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("yahoo.co.jp"_s));
-        return set;
-    }();
-
-    return domains.get().contains(domain);
+    // We currently know of no domains that need this protection.
+    UNUSED_PARAM(domain);
+    return false;
 }
 
 void ResourceLoadStatisticsStore::setMaxStatisticsEntries(size_t maximumEntryCount)
@@ -480,11 +444,11 @@ void ResourceLoadStatisticsStore::resetParametersToDefaultValues()
     m_appBoundDomains.clear();
 }
 
-void ResourceLoadStatisticsStore::logTestingEvent(const String& event)
+void ResourceLoadStatisticsStore::logTestingEvent(String&& event)
 {
     ASSERT(!RunLoop::isMain());
 
-    RunLoop::main().dispatch([store = makeRef(m_store), event = event.isolatedCopy()] {
+    RunLoop::main().dispatch([store = Ref { m_store }, event = WTFMove(event).isolatedCopy()] {
         store->logTestingEvent(event);
     });
 }
@@ -492,7 +456,7 @@ void ResourceLoadStatisticsStore::logTestingEvent(const String& event)
 void ResourceLoadStatisticsStore::removeAllStorageAccess(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(!RunLoop::isMain());
-    RunLoop::main().dispatch([store = makeRef(m_store), completionHandler = WTFMove(completionHandler)]() mutable {
+    RunLoop::main().dispatch([store = Ref { m_store }, completionHandler = WTFMove(completionHandler)]() mutable {
         store->removeAllStorageAccess([store, completionHandler = WTFMove(completionHandler)]() mutable {
             store->statisticsQueue().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
                 completionHandler();
@@ -513,7 +477,7 @@ void ResourceLoadStatisticsStore::didCreateNetworkProcess()
 void ResourceLoadStatisticsStore::debugBroadcastConsoleMessage(MessageSource source, MessageLevel level, const String& message)
 {
     if (!RunLoop::isMain()) {
-        RunLoop::main().dispatch([&, weakThis = makeWeakPtr(*this), source = crossThreadCopy(source), level = crossThreadCopy(level), message = crossThreadCopy(message)]() {
+        RunLoop::main().dispatch([&, weakThis = WeakPtr { *this }, source = crossThreadCopy(source), level = crossThreadCopy(level), message = crossThreadCopy(message)]() {
             if (!weakThis)
                 return;
 
@@ -547,24 +511,28 @@ void ResourceLoadStatisticsStore::debugLogDomainsInBatches(const char* action, c
 
     Vector<RegistrableDomain> batch;
     batch.reserveInitialCapacity(maxNumberOfDomainsInOneLogStatement);
+#if !RELEASE_LOG_DISABLED
     auto batchNumber = 1;
     unsigned numberOfBatches = std::ceil(domains.size() / static_cast<float>(maxNumberOfDomainsInOneLogStatement));
+#endif
 
     for (auto& domain : domains) {
         if (batch.size() == maxNumberOfDomainsInOneLogStatement) {
-            RELEASE_LOG_INFO(ITPDebug, "%" PUBLIC_LOG_STRING " to (%{public}d of %u): %" PUBLIC_LOG_STRING ".", action, batchNumber, numberOfBatches, domainsToString(batch).utf8().data());
+            RELEASE_LOG_INFO(ITPDebug, "%" PUBLIC_LOG_STRING " to (%d of %u): %" PUBLIC_LOG_STRING ".", action, batchNumber, numberOfBatches, domainsToString(batch).utf8().data());
             batch.shrink(0);
+#if !RELEASE_LOG_DISABLED
             ++batchNumber;
+#endif
         }
         batch.append(domain);
     }
     if (!batch.isEmpty())
-        RELEASE_LOG_INFO(ITPDebug, "%" PUBLIC_LOG_STRING " to (%{public}d of %u): %" PUBLIC_LOG_STRING ".", action, batchNumber, numberOfBatches, domainsToString(batch).utf8().data());
+        RELEASE_LOG_INFO(ITPDebug, "%" PUBLIC_LOG_STRING " to (%d of %u): %" PUBLIC_LOG_STRING ".", action, batchNumber, numberOfBatches, domainsToString(batch).utf8().data());
 }
 
 bool ResourceLoadStatisticsStore::shouldExemptFromWebsiteDataDeletion(const RegistrableDomain& domain) const
 {
-    return !domain.isEmpty() && (domain == m_standaloneApplicationDomain || m_appBoundDomains.contains(domain));
+    return !domain.isEmpty() && (domain == m_standaloneApplicationDomain || m_appBoundDomains.contains(domain) || m_managedDomains.contains(domain));
 }
 
 } // namespace WebKit

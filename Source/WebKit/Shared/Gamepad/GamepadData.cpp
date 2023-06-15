@@ -35,21 +35,14 @@ using WebCore::SharedGamepadValue;
 
 namespace WebKit {
 
-GamepadData::GamepadData(unsigned index, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime)
-    : m_index(index)
-    , m_axisValues(WTF::map(axisValues, [](const auto& value) { return value.value(); }))
-    , m_buttonValues(WTF::map(buttonValues, [](const auto& value) { return value.value(); }))
-    , m_lastUpdateTime(lastUpdateTime)
-{
-}
-
-GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime)
+GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime, const WebCore::GamepadHapticEffectTypeSet& supportedEffectTypes)
     : m_index(index)
     , m_id(id)
     , m_mapping(mapping)
     , m_axisValues(WTF::map(axisValues, [](const auto& value) { return value.value(); }))
     , m_buttonValues(WTF::map(buttonValues, [](const auto& value) { return value.value(); }))
     , m_lastUpdateTime(lastUpdateTime)
+    , m_supportedEffectTypes(supportedEffectTypes)
 {
 }
 
@@ -59,37 +52,40 @@ void GamepadData::encode(IPC::Encoder& encoder) const
     if (m_isNull)
         return;
 
-    encoder << m_index << m_id << m_mapping << m_axisValues << m_buttonValues << m_lastUpdateTime;
+    encoder << m_index << m_id << m_mapping << m_axisValues << m_buttonValues << m_lastUpdateTime << m_supportedEffectTypes;
 }
 
-Optional<GamepadData> GamepadData::decode(IPC::Decoder& decoder)
+std::optional<GamepadData> GamepadData::decode(IPC::Decoder& decoder)
 {
     GamepadData data;
     if (!decoder.decode(data.m_isNull))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (data.m_isNull)
         return data;
 
     if (!decoder.decode(data.m_index))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(data.m_id))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(data.m_mapping))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(data.m_axisValues))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(data.m_buttonValues))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (!decoder.decode(data.m_lastUpdateTime))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    return WTFMove(data);
+    if (!decoder.decode(data.m_supportedEffectTypes))
+        return std::nullopt;
+
+    return data;
 }
 
 #if !LOG_DISABLED

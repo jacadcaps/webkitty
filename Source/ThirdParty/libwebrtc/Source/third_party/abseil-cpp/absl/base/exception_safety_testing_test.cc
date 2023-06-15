@@ -14,6 +14,8 @@
 
 #include "absl/base/internal/exception_safety_testing.h"
 
+#ifdef ABSL_HAVE_EXCEPTIONS
+
 #include <cstddef>
 #include <exception>
 #include <iostream>
@@ -326,17 +328,15 @@ TEST(ThrowingValueTest, NonThrowingDelete) {
   UnsetCountdown();
 }
 
-using Storage =
-    absl::aligned_storage_t<sizeof(ThrowingValue<>), alignof(ThrowingValue<>)>;
-
 TEST(ThrowingValueTest, NonThrowingPlacementDelete) {
   constexpr int kArrayLen = 2;
   // We intentionally create extra space to store the tag allocated by placement
   // new[].
   constexpr int kStorageLen = 4;
 
-  Storage buf;
-  Storage array_buf[kStorageLen];
+  alignas(ThrowingValue<>) unsigned char buf[sizeof(ThrowingValue<>)];
+  alignas(ThrowingValue<>) unsigned char
+      array_buf[sizeof(ThrowingValue<>[kStorageLen])];
   auto* placed = new (&buf) ThrowingValue<>(1);
   auto placed_array = new (&array_buf) ThrowingValue<>[kArrayLen];
 
@@ -701,7 +701,10 @@ struct BasicGuaranteeWithExtraContracts : public NonNegative {
 
   static constexpr int kExceptionSentinel = 9999;
 };
+
+#ifdef ABSL_INTERNAL_NEED_REDUNDANT_CONSTEXPR_DECL
 constexpr int BasicGuaranteeWithExtraContracts::kExceptionSentinel;
+#endif
 
 TEST(ExceptionCheckTest, BasicGuaranteeWithExtraContracts) {
   auto tester_with_val =
@@ -900,12 +903,12 @@ TEST(ConstructorTrackerTest, CreatedAfter) {
 }
 
 TEST(ConstructorTrackerTest, NotDestroyedAfter) {
-  absl::aligned_storage_t<sizeof(Tracked), alignof(Tracked)> storage;
+  alignas(Tracked) unsigned char storage[sizeof(Tracked)];
   EXPECT_NONFATAL_FAILURE(
       {
         exceptions_internal::ConstructorTracker ct(
             exceptions_internal::countdown);
-        new (&storage) Tracked;
+        new (&storage) Tracked();
       },
       "not destroyed");
 }
@@ -922,11 +925,11 @@ TEST(ConstructorTrackerTest, DestroyedTwice) {
 
 TEST(ConstructorTrackerTest, ConstructedTwice) {
   exceptions_internal::ConstructorTracker ct(exceptions_internal::countdown);
-  absl::aligned_storage_t<sizeof(Tracked), alignof(Tracked)> storage;
+  alignas(Tracked) unsigned char storage[sizeof(Tracked)];
   EXPECT_NONFATAL_FAILURE(
       {
-        new (&storage) Tracked;
-        new (&storage) Tracked;
+        new (&storage) Tracked();
+        new (&storage) Tracked();
         reinterpret_cast<Tracked*>(&storage)->~Tracked();
       },
       "re-constructed");
@@ -952,3 +955,5 @@ TEST(ThrowingAllocatorTraitsTest, Assignablility) {
 }  // namespace
 
 }  // namespace testing
+
+#endif  // ABSL_HAVE_EXCEPTIONS

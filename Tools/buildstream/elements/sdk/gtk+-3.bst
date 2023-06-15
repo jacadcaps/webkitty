@@ -1,18 +1,16 @@
 kind: meson
 sources:
 - kind: tar
-  url: gnome_downloads:gtk+/3.24/gtk+-3.24.16.tar.xz
-  ref: 0d5e1e1494101b8c0c63c0526180780559eee469f021ca0d714018b20fa3d8e8
-- kind: patch
-  path: patches/gtk-meson-Bump-to-latest-version-of-the-3.24-branch.patch
+  url: gnome_downloads:gtk+/3.24/gtk+-3.24.34.tar.xz
+  ref: dbc69f90ddc821b8d1441f00374dc1da4323a2eafa9078e61edbe5eeefa852ec
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
 depends:
-- sdk/at-spi2-atk.bst
-- sdk/atk.bst
+- freedesktop-sdk.bst:components/at-spi2-atk.bst
+- freedesktop-sdk.bst:components/atk.bst
 - freedesktop-sdk.bst:components/gdk-pixbuf.bst
-- sdk/glib.bst
-- sdk/gobject-introspection.bst
+- freedesktop-sdk.bst:components/glib.bst
+- freedesktop-sdk.bst:components/gobject-introspection.bst
 - freedesktop-sdk.bst:components/pango.bst
 - freedesktop-sdk.bst:components/cairo.bst
 - freedesktop-sdk.bst:components/hicolor-icon-theme.bst
@@ -29,11 +27,11 @@ depends:
 - freedesktop-sdk.bst:bootstrap-import.bst
 variables:
   meson-local: >-
+    -Ddemos=false
     -Dbroadway_backend=true
     -Dinstalled_tests=true
     -Dtests=false
     -Dx11_backend=true
-    -Dwayland-backend=true
     -Dgtk_doc=false
     -Dman=false
     -Dintrospection=true

@@ -9,8 +9,8 @@
 #ifndef LIBANGLE_RENDERER_PROGRAMIMPL_H_
 #define LIBANGLE_RENDERER_PROGRAMIMPL_H_
 
+#include "common/BinaryStream.h"
 #include "common/angleutils.h"
-#include "libANGLE/BinaryStream.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Program.h"
 #include "libANGLE/Shader.h"
@@ -84,8 +84,9 @@ class ProgramImpl : angle::NonCopyable
 
     virtual std::unique_ptr<LinkEvent> link(const gl::Context *context,
                                             const gl::ProgramLinkedResources &resources,
-                                            gl::InfoLog &infoLog)          = 0;
-    virtual GLboolean validate(const gl::Caps &caps, gl::InfoLog *infoLog) = 0;
+                                            gl::InfoLog &infoLog,
+                                            const gl::ProgramMergedVaryings &mergedVaryings) = 0;
+    virtual GLboolean validate(const gl::Caps &caps, gl::InfoLog *infoLog)                   = 0;
 
     virtual void setUniform1fv(GLint location, GLsizei count, const GLfloat *v) = 0;
     virtual void setUniform2fv(GLint location, GLsizei count, const GLfloat *v) = 0;
@@ -157,6 +158,8 @@ class ProgramImpl : angle::NonCopyable
 
     virtual angle::Result syncState(const gl::Context *context,
                                     const gl::Program::DirtyBits &dirtyBits);
+
+    virtual angle::Result onLabelUpdate(const gl::Context *context);
 
   protected:
     const gl::ProgramState &mState;

@@ -29,6 +29,7 @@
 #include "APIData.h"
 #include "SessionState.h"
 #include <mutex>
+#include <wtf/CheckedArithmetic.h>
 #include <wtf/MallocPtr.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/text/StringView.h>
@@ -41,6 +42,7 @@ static const uint32_t sessionStateDataVersion = 2;
 static const CFStringRef sessionHistoryKey = CFSTR("SessionHistory");
 static const CFStringRef provisionalURLKey = CFSTR("ProvisionalURL");
 static const CFStringRef renderTreeSizeKey = CFSTR("RenderTreeSize");
+static const CFStringRef isAppInitiatedKey = CFSTR("IsAppInitiated");
 
 // Session history keys.
 static const uint32_t sessionHistoryVersion = 1;
@@ -204,7 +206,7 @@ private:
     template<typename Type>
     HistoryEntryDataEncoder& encodeArithmeticType(Type value)
     {
-        static_assert(std::is_arithmetic<Type>::value, "");
+        static_assert(std::is_arithmetic<Type>::value);
 
         encodeFixedLengthData(reinterpret_cast<uint8_t*>(&value), sizeof(value), sizeof(value));
         return *this;
@@ -223,11 +225,14 @@ private:
     {
         size_t alignedSize = ((m_bufferSize + alignment - 1) / alignment) * alignment;
 
-        growCapacity(alignedSize + size);
+        Checked<size_t> bufferSize = size;
+        bufferSize += alignedSize;
+
+        growCapacity(bufferSize.value());
 
         std::memset(m_buffer.get() + m_bufferSize, 0, alignedSize - m_bufferSize);
 
-        m_bufferSize = alignedSize + size;
+        m_bufferSize = bufferSize.value();
         m_bufferPointer = m_buffer.get() + m_bufferSize;
 
         return m_buffer.get() + alignedSize;
@@ -238,12 +243,12 @@ private:
         if (newSize <= m_bufferCapacity)
             return;
 
-        size_t newCapacity = m_bufferCapacity * 2;
+        Checked<size_t> newCapacity = m_bufferCapacity;
         while (newCapacity < newSize)
-            newCapacity *= 2;
+            newCapacity *= 2U;
 
-        m_buffer.realloc(newCapacity);
-        m_bufferCapacity = newCapacity;
+        m_buffer.realloc(newCapacity.value());
+        m_bufferCapacity = newCapacity.value();
     }
 
     size_t m_bufferSize;
@@ -258,29 +263,13 @@ enum class FormDataElementType {
     EncodedBlob = 2,
 };
 
-static bool isValidEnum(FormDataElementType type)
-{
-    switch (type) {
-    case FormDataElementType::Data:
-    case FormDataElementType::EncodedFile:
-    case FormDataElementType::EncodedBlob:
-        return true;
-    }
-
-    return false;
-}
-
 static void encodeFormDataElement(HistoryEntryDataEncoder& encoder, const HTTPBody::Element& element)
 {
-    switch (element.type) {
-    case HTTPBody::Element::Type::Data:
-        encoder << FormDataElementType::Data;
-        encoder << element.data;
-        break;
-
-    case HTTPBody::Element::Type::File:
-        encoder << FormDataElementType::EncodedFile;
-        encoder << element.filePath;
+    encoder << static_cast<uint32_t>(element.data.index());
+    WTF::switchOn(element.data, [&] (const Vector<uint8_t>& data) {
+        encoder << data;
+    }, [&] (const HTTPBody::Element::FileData& fileData) {
+        encoder << fileData.filePath;
 
         // Used to be generatedFilename.
         encoder << String();
@@ -288,16 +277,13 @@ static void encodeFormDataElement(HistoryEntryDataEncoder& encoder, const HTTPBo
         // Used to be shouldGenerateFile.
         encoder << false;
 
-        encoder << element.fileStart;
-        encoder << element.fileLength.valueOr(-1);
-        encoder << element.expectedFileModificationTime.valueOr(WallTime::nan()).secondsSinceEpoch().value();
-        break;
+        encoder << fileData.fileStart;
+        encoder << fileData.fileLength.value_or(-1);
+        encoder << fileData.expectedFileModificationTime.value_or(WallTime::nan()).secondsSinceEpoch().value();
 
-    case HTTPBody::Element::Type::Blob:
-        encoder << FormDataElementType::EncodedBlob;
-        encoder << element.blobURLString;
-        break;
-    }
+    }, [&] (const String& blobURLString) {
+        encoder << blobURLString;
+    });
 }
 
 static void encodeFormData(HistoryEntryDataEncoder& encoder, const HTTPBody& formData)
@@ -323,9 +309,7 @@ static void encodeFrameStateNode(HistoryEntryDataEncoder& encoder, const FrameSt
 {
     encoder << static_cast<uint64_t>(frameState.children.size());
 
-    RELEASE_ASSERT(!frameState.isDestructed);
     for (const auto& childFrameState : frameState.children) {
-        RELEASE_ASSERT(!childFrameState.isDestructed);
         encoder << childFrameState.originalURLString;
         encoder << childFrameState.urlString;
 
@@ -334,8 +318,9 @@ static void encodeFrameStateNode(HistoryEntryDataEncoder& encoder, const FrameSt
 
     encoder << frameState.documentSequenceNumber;
 
-    encoder << static_cast<uint64_t>(frameState.documentState.size());
-    for (const auto& documentState : frameState.documentState)
+    FrameState::validateDocumentState(frameState.documentState());
+    encoder << static_cast<uint64_t>(frameState.documentState().size());
+    for (const auto& documentState : frameState.documentState())
         encoder << documentState;
 
     if (frameState.httpBody) {
@@ -385,7 +370,7 @@ static MallocPtr<uint8_t, HistoryEntryDataEncoderMalloc> encodeSessionHistoryEnt
 
 static RetainPtr<CFDataRef> encodeSessionHistoryEntryData(const FrameState& frameState)
 {
-    static CFAllocatorRef fastMallocDeallocator;
+    static NeverDestroyed<RetainPtr<CFAllocatorRef>> fastMallocDeallocator;
 
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
@@ -402,13 +387,13 @@ static RetainPtr<CFDataRef> encodeSessionHistoryEntryData(const FrameState& fram
             },
             nullptr, // preferredSize
         };
-        fastMallocDeallocator = CFAllocatorCreate(kCFAllocatorDefault, &context);
+        fastMallocDeallocator.get() = adoptCF(CFAllocatorCreate(kCFAllocatorDefault, &context));
     });
 
     size_t bufferSize;
     auto buffer = encodeSessionHistoryEntryData(frameState, bufferSize);
 
-    return adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, buffer.leakPtr(), bufferSize, fastMallocDeallocator));
+    return adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, buffer.leakPtr(), bufferSize, fastMallocDeallocator.get().get()));
 }
 
 static RetainPtr<CFDictionaryRef> createDictionary(std::initializer_list<std::pair<CFStringRef, CFTypeRef>> keyValuePairs)
@@ -482,18 +467,21 @@ RefPtr<API::Data> encodeLegacySessionState(const SessionState& sessionState)
     auto sessionHistoryDictionary = encodeSessionHistory(sessionState.backForwardListState);
     auto provisionalURLString = sessionState.provisionalURL.isNull() ? nullptr : sessionState.provisionalURL.string().createCFString();
     RetainPtr<CFNumberRef> renderTreeSizeNumber(adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &sessionState.renderTreeSize)));
+    RetainPtr<CFBooleanRef> isAppInitiated = adoptCF(sessionState.isAppInitiated ? kCFBooleanTrue : kCFBooleanFalse);
 
     RetainPtr<CFDictionaryRef> stateDictionary;
     if (provisionalURLString) {
         stateDictionary = createDictionary({
             { sessionHistoryKey, sessionHistoryDictionary.get() },
             { provisionalURLKey, provisionalURLString.get() },
-            { renderTreeSizeKey, renderTreeSizeNumber.get() }
+            { renderTreeSizeKey, renderTreeSizeNumber.get() },
+            { isAppInitiatedKey, isAppInitiated.get() }
         });
     } else {
         stateDictionary = createDictionary({
             { sessionHistoryKey, sessionHistoryDictionary.get() },
-            { renderTreeSizeKey, renderTreeSizeNumber.get() }
+            { renderTreeSizeKey, renderTreeSizeNumber.get() },
+            { isAppInitiatedKey, isAppInitiated.get() }
         });
     }
 
@@ -512,7 +500,9 @@ RefPtr<API::Data> encodeLegacySessionState(const SessionState& sessionState)
     CFIndex length = CFDataGetLength(data.get());
 
     size_t bufferSize = length + sizeof(uint32_t);
-    auto buffer = MallocPtr<uint8_t, HistoryEntryDataEncoderMalloc>::malloc(bufferSize);
+    auto buffer = MallocPtr<uint8_t, HistoryEntryDataEncoderMalloc>::tryMalloc(bufferSize);
+    if (!buffer)
+        return nullptr;
 
     // Put the session state version number at the start of the buffer
     buffer.get()[0] = (sessionStateDataVersion & 0xff000000) >> 24;
@@ -605,6 +595,15 @@ public:
         decodeFixedLengthData(reinterpret_cast<uint8_t*>(buffer), length * sizeof(UChar), alignof(UChar));
 
         value = string;
+        return *this;
+    }
+
+    HistoryEntryDataDecoder& operator>>(AtomString& value)
+    {
+        // FIXME: This could be more efficient but this matches what the IPC decoder currently does.
+        String string;
+        *this >> string;
+        value = AtomString { string };
         return *this;
     }
 
@@ -713,13 +712,13 @@ public:
 #endif
 
     template<typename T>
-    auto operator>>(Optional<T>& value) -> typename std::enable_if<std::is_enum<T>::value, HistoryEntryDataDecoder&>::type
+    auto operator>>(std::optional<T>& value) -> typename std::enable_if<std::is_enum<T>::value, HistoryEntryDataDecoder&>::type
     {
         uint32_t underlyingEnumValue;
         *this >> underlyingEnumValue;
 
         if (!isValid() || !isValidEnum(static_cast<T>(underlyingEnumValue)))
-            value = WTF::nullopt;
+            value = std::nullopt;
         else
             value = static_cast<T>(underlyingEnumValue);
 
@@ -735,7 +734,7 @@ private:
     template<typename Type>
     HistoryEntryDataDecoder& decodeArithmeticType(Type& value)
     {
-        static_assert(std::is_arithmetic<Type>::value, "");
+        static_assert(std::is_arithmetic<Type>::value);
         value = Type();
 
         decodeFixedLengthData(reinterpret_cast<uint8_t*>(&value), sizeof(value), sizeof(value));
@@ -799,19 +798,22 @@ private:
 
 static void decodeFormDataElement(HistoryEntryDataDecoder& decoder, HTTPBody::Element& formDataElement)
 {
-    Optional<FormDataElementType> elementType;
+    uint32_t elementType;
     decoder >> elementType;
-    if (!elementType)
+    if (!decoder.isValid())
         return;
 
-    switch (elementType.value()) {
-    case FormDataElementType::Data:
-        formDataElement.type = HTTPBody::Element::Type::Data;
-        decoder >> formDataElement.data;
+    switch (elementType) {
+    case WTF::alternativeIndexV<Vector<uint8_t>, HTTPBody::Element::Data>: {
+        Vector<uint8_t> data;
+        decoder >> data;
+        formDataElement.data = WTFMove(data);
         break;
+    }
 
-    case FormDataElementType::EncodedFile: {
-        decoder >> formDataElement.filePath;
+    case WTF::alternativeIndexV<HTTPBody::Element::FileData, HTTPBody::Element::Data>: {
+        HTTPBody::Element::FileData fileData;
+        decoder >> fileData.filePath;
 
         String generatedFilename;
         decoder >> generatedFilename;
@@ -819,8 +821,8 @@ static void decodeFormDataElement(HistoryEntryDataDecoder& decoder, HTTPBody::El
         bool shouldGenerateFile;
         decoder >> shouldGenerateFile;
 
-        decoder >> formDataElement.fileStart;
-        if (formDataElement.fileStart < 0) {
+        decoder >> fileData.fileStart;
+        if (fileData.fileStart < 0) {
             decoder.markInvalid();
             return;
         }
@@ -828,23 +830,27 @@ static void decodeFormDataElement(HistoryEntryDataDecoder& decoder, HTTPBody::El
         int64_t fileLength;
         decoder >> fileLength;
         if (fileLength != -1) {
-            if (fileLength < formDataElement.fileStart)
+            if (fileLength < fileData.fileStart)
                 return;
 
-            formDataElement.fileLength = fileLength;
+            fileData.fileLength = fileLength;
         }
 
         double expectedFileModificationTime;
         decoder >> expectedFileModificationTime;
         if (!std::isnan(expectedFileModificationTime))
-            formDataElement.expectedFileModificationTime = WallTime::fromRawSeconds(expectedFileModificationTime);
+            fileData.expectedFileModificationTime = WallTime::fromRawSeconds(expectedFileModificationTime);
 
+        formDataElement.data = WTFMove(fileData);
         break;
     }
 
-    case FormDataElementType::EncodedBlob:
-        decoder >> formDataElement.blobURLString;
+    case WTF::alternativeIndexV<String, HTTPBody::Element::Data>: {
+        String blobURLString;
+        decoder >> blobURLString;
+        formDataElement.data = WTFMove(blobURLString);
         break;
+    }
     }
 }
 
@@ -899,15 +905,17 @@ static void decodeBackForwardTreeNode(HistoryEntryDataDecoder& decoder, FrameSta
     uint64_t documentStateVectorSize;
     decoder >> documentStateVectorSize;
 
+    Vector<AtomString> documentState;
     for (uint64_t i = 0; i < documentStateVectorSize; ++i) {
-        String state;
+        AtomString state;
         decoder >> state;
 
         if (!decoder.isValid())
             return;
 
-        frameState.documentState.append(WTFMove(state));
+        documentState.append(WTFMove(state));
     }
+    frameState.setDocumentState(documentState, FrameState::ShouldValidate::Yes);
 
     String formContentType;
     decoder >> formContentType;
@@ -1005,7 +1013,7 @@ static WARN_UNUSED_RETURN bool decodeSessionHistoryEntry(CFDictionaryRef entryDi
         CFNumberGetValue(rawShouldOpenExternalURLsPolicy, kCFNumberSInt64Type, &value);
         shouldOpenExternalURLsPolicy = static_cast<WebCore::ShouldOpenExternalURLsPolicy>(value);
     } else
-        shouldOpenExternalURLsPolicy = WebCore::ShouldOpenExternalURLsPolicy::ShouldAllowExternalSchemes;
+        shouldOpenExternalURLsPolicy = WebCore::ShouldOpenExternalURLsPolicy::ShouldAllowExternalSchemesButNotAppLinks;
 
     if (!decodeSessionHistoryEntryData(historyEntryData, backForwardListItemState.pageState.mainFrameState))
         return false;
@@ -1076,7 +1084,7 @@ static WARN_UNUSED_RETURN bool decodeV1SessionHistory(CFDictionaryRef sessionHis
     auto currentIndexNumber = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(sessionHistoryDictionary, sessionHistoryCurrentIndexKey));
     if (!currentIndexNumber) {
         // No current index means the dictionary represents an empty session.
-        backForwardListState.currentIndex = WTF::nullopt;
+        backForwardListState.currentIndex = std::nullopt;
         backForwardListState.items = { };
         return true;
     }
@@ -1141,7 +1149,7 @@ bool decodeLegacySessionState(const uint8_t* bytes, size_t size, SessionState& s
     }
 
     if (auto provisionalURLString = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(sessionStateDictionary, provisionalURLKey))) {
-        sessionState.provisionalURL = URL(URL(), provisionalURLString);
+        sessionState.provisionalURL = URL { provisionalURLString };
         if (!sessionState.provisionalURL.isValid())
             return false;
     }
@@ -1150,6 +1158,11 @@ bool decodeLegacySessionState(const uint8_t* bytes, size_t size, SessionState& s
         CFNumberGetValue(renderTreeSize, kCFNumberSInt64Type, &sessionState.renderTreeSize);
     else
         sessionState.renderTreeSize = 0;
+
+    if (auto isAppInitiated = dynamic_cf_cast<CFBooleanRef>(CFDictionaryGetValue(sessionStateDictionary, isAppInitiatedKey)))
+        sessionState.isAppInitiated = isAppInitiated == kCFBooleanTrue;
+    else
+        sessionState.isAppInitiated = true;
 
     return true;
 }

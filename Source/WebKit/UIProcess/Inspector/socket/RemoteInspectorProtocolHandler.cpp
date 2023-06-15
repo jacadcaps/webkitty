@@ -39,6 +39,7 @@
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/URL.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebKit {
 
@@ -54,12 +55,28 @@ public:
 
     void didPostMessage(WebPageProxy& page, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue& serializedScriptValue) override
     {
-        auto tokens = serializedScriptValue.toString().split(":");
-        if (tokens.size() != 3)
+        auto valueAsString = serializedScriptValue.toString();
+        auto tokens = StringView { valueAsString }.split(':');
+        uint32_t connectionID = 0;
+        uint32_t targetID = 0;
+        String type;
+        int i = 0;
+        for (auto token : tokens) {
+            if (!i)
+                connectionID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 1)
+                targetID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 2)
+                type = token.toString();
+            else
+                return;
+            ++i;
+        }
+        if (i != 3)
             return;
 
-        URL requestURL { { }, page.pageLoadState().url() };
-        m_inspectorProtocolHandler.inspect(requestURL.hostAndPort(), tokens[0].toUIntStrict(), tokens[1].toUIntStrict(), tokens[2]);
+        URL requestURL { page.pageLoadState().url() };
+        m_inspectorProtocolHandler.inspect(requestURL.hostAndPort(), connectionID, targetID, type);
     }
     
     bool supportsAsyncReply() override
@@ -90,7 +107,7 @@ private:
     Function<void()> m_loadedCallback;
 };
 
-static Optional<Inspector::DebuggableType> parseDebuggableTypeFromString(const String& debuggableTypeString)
+static std::optional<Inspector::DebuggableType> parseDebuggableTypeFromString(const String& debuggableTypeString)
 {
     if (debuggableTypeString == "itml"_s)
         return Inspector::DebuggableType::ITML;
@@ -103,7 +120,7 @@ static Optional<Inspector::DebuggableType> parseDebuggableTypeFromString(const S
     if (debuggableTypeString == "web-page"_s)
         return Inspector::DebuggableType::WebPage;
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 void RemoteInspectorProtocolHandler::inspect(const String& hostAndPort, ConnectionID connectionID, TargetID targetID, const String& type)
@@ -120,10 +137,10 @@ void RemoteInspectorProtocolHandler::inspect(const String& hostAndPort, Connecti
 
 void RemoteInspectorProtocolHandler::runScript(const String& script)
 {
-    m_page.runJavaScriptInMainFrame({ script, URL { }, false, WTF::nullopt, false }, 
-        [](API::SerializedScriptValue*, Optional<WebCore::ExceptionDetails> exceptionDetails, CallbackBase::Error) {
-            if (exceptionDetails)
-                LOG_ERROR("Exception running script \"%s\"", exceptionDetails->message.utf8().data());
+    m_page.runJavaScriptInMainFrame({ script, URL { }, false, std::nullopt, false }, 
+        [] (auto&& result) {
+        if (!result.has_value())
+            LOG_ERROR("Exception running script \"%s\"", result.error().message.utf8().data());
     });
 }
 
@@ -161,14 +178,14 @@ void RemoteInspectorProtocolHandler::updateTargetList()
 
 void RemoteInspectorProtocolHandler::platformStartTask(WebPageProxy& pageProxy, WebURLSchemeTask& task)
 {
-    auto& requestURL = task.request().url();
+    auto requestURL = task.request().url();
 
     // Destroy the client before creating a new connection so it can connect to the same port
     m_inspectorClient = nullptr;
     m_inspectorClient = makeUnique<RemoteInspectorClient>(requestURL, *this);
 
     // Setup target postMessage listener
-    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector", API::ContentWorld::pageContentWorld());
+    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector"_s, API::ContentWorld::pageContentWorld());
     pageProxy.pageGroup().userContentController().addUserScriptMessageHandler(handler.get());
 
     // Setup loader client to get notified of page load

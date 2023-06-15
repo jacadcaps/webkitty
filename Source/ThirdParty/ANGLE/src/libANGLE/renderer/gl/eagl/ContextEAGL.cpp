@@ -8,11 +8,14 @@
 //   iOS-specific subclass of ContextGL.
 //
 
-#include "libANGLE/renderer/gl/eagl/ContextEAGL.h"
+#import "common/platform.h"
+#if defined(ANGLE_ENABLE_EAGL)
 
-#include "libANGLE/Context.h"
-#include "libANGLE/Display.h"
-#include "libANGLE/renderer/gl/eagl/DisplayEAGL.h"
+#    include "libANGLE/renderer/gl/eagl/ContextEAGL.h"
+
+#    include "libANGLE/Context.h"
+#    include "libANGLE/Display.h"
+#    include "libANGLE/renderer/gl/eagl/DisplayEAGL.h"
 
 namespace rx
 {
@@ -20,7 +23,9 @@ namespace rx
 ContextEAGL::ContextEAGL(const gl::State &state,
                          gl::ErrorSet *errorSet,
                          const std::shared_ptr<RendererGL> &renderer)
-    : ContextGL(state, errorSet, renderer)
+    : ContextGL(state, errorSet, renderer, RobustnessVideoMemoryPurgeStatus::NOT_REQUESTED)
 {}
 
 }  // namespace rx
+
+#endif  // defined(ANGLE_ENABLE_EAGL)

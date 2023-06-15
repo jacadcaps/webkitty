@@ -27,6 +27,7 @@
 
 #if ENABLE(GPU_PROCESS) && PLATFORM(IOS_FAMILY)
 
+#include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
 #include <WebCore/MediaPlaybackTargetContext.h>
 #include <WebCore/MediaSessionHelperIOS.h>
@@ -37,12 +38,13 @@ class WebProcess;
 
 class RemoteMediaSessionHelper final
     : public WebCore::MediaSessionHelper
-    , public IPC::MessageReceiver {
+    , public IPC::MessageReceiver
+    , public GPUProcessConnection::Client {
 public:
     RemoteMediaSessionHelper(WebProcess&);
     virtual ~RemoteMediaSessionHelper() = default;
 
-    IPC::Connection& connection();
+    IPC::Connection& ensureConnection();
 
     using HasAvailableTargets = WebCore::MediaSessionHelperClient::HasAvailableTargets;
     using PlayingToAutomotiveHeadUnit = WebCore::MediaSessionHelperClient::PlayingToAutomotiveHeadUnit;
@@ -54,22 +56,19 @@ private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
     // MediaSessionHelper
-    void startMonitoringWirelessRoutes() final;
-    void stopMonitoringWirelessRoutes() final;
+    void startMonitoringWirelessRoutesInternal() final;
+    void stopMonitoringWirelessRoutesInternal() final;
     void providePresentingApplicationPID(int) final;
 
     // Messages
-    void applicationWillEnterForeground(SuspendedUnderLock);
-    void applicationDidEnterBackground(SuspendedUnderLock);
-    void applicationWillBecomeInactive();
-    void applicationDidBecomeActive();
-    void externalOutputDeviceAvailableDidChange(HasAvailableTargets);
-    void isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit);
-    void activeAudioRouteDidChange(ShouldPause);
     void activeVideoRouteDidChange(SupportsAirPlayVideo, WebCore::MediaPlaybackTargetContext&&);
 
     WebProcess& m_process;
+    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 }

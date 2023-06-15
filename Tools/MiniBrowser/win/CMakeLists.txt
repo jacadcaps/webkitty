@@ -1,6 +1,5 @@
 set(MiniBrowser_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
-    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
 )
 
 set(MiniBrowser_SOURCES
@@ -14,23 +13,25 @@ set(MiniBrowser_SOURCES
 
 set(MiniBrowser_PRIVATE_DEFINITIONS _UNICODE)
 set(MiniBrowser_PRIVATE_LIBRARIES
-    WebKit::WTF
     comctl32
     shlwapi
     user32
 )
+set(MiniBrowser_FRAMEWORKS
+    JavaScriptCore
+    PAL
+    WTF
+    WebCore
+)
 
 if (USE_CF)
     list(APPEND MiniBrowser_PRIVATE_LIBRARIES
-        ${COREFOUNDATION_LIBRARY}
+        Apple::CoreFoundation
     )
 endif ()
 
 if (ENABLE_WEBKIT_LEGACY)
     list(APPEND MiniBrowser_PRIVATE_DEFINITIONS ENABLE_WEBKIT_LEGACY)
-    list(APPEND MiniBrowser_INCLUDE_DIRECTORIES
-        ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
-    )
     list(APPEND MiniBrowser_SOURCES
         AccessibilityDelegate.cpp
         MiniBrowserWebHost.cpp
@@ -39,20 +40,23 @@ if (ENABLE_WEBKIT_LEGACY)
         WebDownloadDelegate.cpp
         WebKitLegacyBrowserWindow.cpp
     )
-    list(APPEND MiniBrowser_PRIVATE_LIBRARIES
-        WebKitLegacy
-        WebKitLegacyGUID
-    )
+    list(APPEND MiniBrowser_FRAMEWORKS WebKitLegacy)
 endif ()
 
 if (ENABLE_WEBKIT)
     list(APPEND MiniBrowser_PRIVATE_DEFINITIONS ENABLE_WEBKIT)
     list(APPEND MiniBrowser_SOURCES
+        Common2.cpp
         WebKitBrowserWindow.cpp
     )
-    list(APPEND MiniBrowser_PRIVATE_LIBRARIES
-        WebKit::WebKit
+    list(APPEND MiniBrowser_FRAMEWORKS WebKit)
+
+    add_library(MiniBrowserInjectedBundle SHARED
+        Common2.cpp
+        InjectedBundle.cpp
     )
+    target_link_libraries(MiniBrowserInjectedBundle WebKit::WebKit)
+    target_include_directories(MiniBrowserInjectedBundle PRIVATE ${CMAKE_BINARY_DIR})
 endif ()
 
 WEBKIT_EXECUTABLE_DECLARE(MiniBrowser)
@@ -63,6 +67,4 @@ WEBKIT_WRAP_EXECUTABLE(MiniBrowser
 WEBKIT_EXECUTABLE(MiniBrowser)
 
 set_target_properties(MiniBrowser PROPERTIES WIN32_EXECUTABLE ON)
-if (${WTF_PLATFORM_WIN_CAIRO})
-    target_compile_definitions(MiniBrowser PRIVATE WIN_CAIRO)
-endif ()
+target_compile_definitions(MiniBrowser PRIVATE WIN_CAIRO)

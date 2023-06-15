@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <queue>
 #include <string>
@@ -23,23 +24,22 @@
 #include "p2p/base/transport_description.h"
 #include "p2p/base/transport_description_factory.h"
 #include "pc/media_session.h"
-#include "pc/peer_connection_internal.h"
-#include "rtc_base/constructor_magic.h"
+#include "pc/sdp_state_provider.h"
 #include "rtc_base/message_handler.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/rtc_certificate_generator.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/thread_message.h"
 #include "rtc_base/unique_id_generator.h"
 
 namespace webrtc {
 
 // DTLS certificate request callback class.
 class WebRtcCertificateGeneratorCallback
-    : public rtc::RTCCertificateGeneratorCallback,
-      public sigslot::has_slots<> {
+    : public rtc::RTCCertificateGeneratorCallback {
  public:
-  // |rtc::RTCCertificateGeneratorCallback| overrides.
+  // `rtc::RTCCertificateGeneratorCallback` overrides.
   void OnSuccess(
       const rtc::scoped_refptr<rtc::RTCCertificate>& certificate) override;
   void OnFailure() override;
@@ -73,19 +73,26 @@ struct CreateSessionDescriptionRequest {
 class WebRtcSessionDescriptionFactory : public rtc::MessageHandler,
                                         public sigslot::has_slots<> {
  public:
-  // Can specify either a |cert_generator| or |certificate| to enable DTLS. If
+  // Can specify either a `cert_generator` or `certificate` to enable DTLS. If
   // a certificate generator is given, starts generating the certificate
   // asynchronously. If a certificate is given, will use that for identifying
   // over DTLS. If neither is specified, DTLS is disabled.
   WebRtcSessionDescriptionFactory(
-      rtc::Thread* signaling_thread,
-      cricket::ChannelManager* channel_manager,
-      PeerConnectionInternal* pc,
+      ConnectionContext* context,
+      const SdpStateProvider* sdp_info,
       const std::string& session_id,
+      bool dtls_enabled,
       std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator,
       const rtc::scoped_refptr<rtc::RTCCertificate>& certificate,
-      rtc::UniqueRandomIdGenerator* ssrc_generator);
+      std::function<void(const rtc::scoped_refptr<rtc::RTCCertificate>&)>
+          on_certificate_ready,
+      const FieldTrialsView& field_trials);
   virtual ~WebRtcSessionDescriptionFactory();
+
+  WebRtcSessionDescriptionFactory(const WebRtcSessionDescriptionFactory&) =
+      delete;
+  WebRtcSessionDescriptionFactory& operator=(
+      const WebRtcSessionDescriptionFactory&) = delete;
 
   static void CopyCandidatesFromSessionDescription(
       const SessionDescriptionInterface* source_desc,
@@ -109,9 +116,6 @@ class WebRtcSessionDescriptionFactory : public rtc::MessageHandler,
   void set_is_unified_plan(bool is_unified_plan) {
     session_desc_factory_.set_is_unified_plan(is_unified_plan);
   }
-
-  sigslot::signal1<const rtc::scoped_refptr<rtc::RTCCertificate>&>
-      SignalCertificateReady;
 
   // For testing.
   bool waiting_for_certificate_for_testing() const {
@@ -151,13 +155,12 @@ class WebRtcSessionDescriptionFactory : public rtc::MessageHandler,
   cricket::MediaSessionDescriptionFactory session_desc_factory_;
   uint64_t session_version_;
   const std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator_;
-  // TODO(jiayl): remove the dependency on peer connection once bug 2264 is
-  // fixed.
-  PeerConnectionInternal* const pc_;
+  const SdpStateProvider* sdp_info_;
   const std::string session_id_;
   CertificateRequestState certificate_request_state_;
 
-  RTC_DISALLOW_COPY_AND_ASSIGN(WebRtcSessionDescriptionFactory);
+  std::function<void(const rtc::scoped_refptr<rtc::RTCCertificate>&)>
+      on_certificate_ready_;
 };
 }  // namespace webrtc
 

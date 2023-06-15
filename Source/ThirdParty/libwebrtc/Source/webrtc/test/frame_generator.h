@@ -20,8 +20,9 @@
 #include "api/video/video_frame.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video/video_source_interface.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/random.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -57,11 +58,11 @@ class SquareGenerator : public FrameGeneratorInterface {
     const uint8_t yuv_a_;
   };
 
-  rtc::CriticalSection crit_;
+  Mutex mutex_;
   const OutputType type_;
-  int width_ RTC_GUARDED_BY(&crit_);
-  int height_ RTC_GUARDED_BY(&crit_);
-  std::vector<std::unique_ptr<Square>> squares_ RTC_GUARDED_BY(&crit_);
+  int width_ RTC_GUARDED_BY(&mutex_);
+  int height_ RTC_GUARDED_BY(&mutex_);
+  std::vector<std::unique_ptr<Square>> squares_ RTC_GUARDED_BY(&mutex_);
 };
 
 class YuvFileGenerator : public FrameGeneratorInterface {
@@ -75,7 +76,8 @@ class YuvFileGenerator : public FrameGeneratorInterface {
 
   VideoFrameData NextFrame() override;
   void ChangeResolution(size_t width, size_t height) override {
-    RTC_NOTREACHED();
+    RTC_LOG(LS_WARNING)
+        << "ScrollingImageFrameGenerator::ChangeResolution not implemented";
   }
 
  private:
@@ -104,7 +106,7 @@ class SlideGenerator : public FrameGeneratorInterface {
 
   VideoFrameData NextFrame() override;
   void ChangeResolution(size_t width, size_t height) override {
-    RTC_NOTREACHED();
+    RTC_LOG(LS_WARNING) << "SlideGenerator::ChangeResolution not implemented";
   }
 
  private:
@@ -134,7 +136,8 @@ class ScrollingImageFrameGenerator : public FrameGeneratorInterface {
 
   VideoFrameData NextFrame() override;
   void ChangeResolution(size_t width, size_t height) override {
-    RTC_NOTREACHED();
+    RTC_LOG(LS_WARNING)
+        << "ScrollingImageFrameGenerator::ChangeResolution not implemented";
   }
 
  private:

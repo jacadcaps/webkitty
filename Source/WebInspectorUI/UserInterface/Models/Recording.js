@@ -218,6 +218,8 @@ WI.Recording = class Recording extends WI.Object
             return WI.unlocalizedString("WebGLTransformFeedback");
         case WI.Recording.Swizzle.WebGLVertexArrayObject:
             return WI.unlocalizedString("WebGLVertexArrayObject");
+        case WI.Recording.Swizzle.DOMPointInit:
+            return WI.unlocalizedString("DOMPointInit");
         default:
             console.error("Unknown swizzle type", swizzleType);
             return null;
@@ -408,7 +410,12 @@ WI.Recording = class Recording extends WI.Object
                     points = await Promise.all(points.map((item) => this.swizzle(item, WI.Recording.Swizzle.Number)));
 
                     WI.ImageUtilities.scratchCanvasContext2D((context) => {
-                        this._swizzle[index][type] = gradientType === "radial-gradient" ? context.createRadialGradient(...points) : context.createLinearGradient(...points);
+                        if (gradientType == "radial-gradient")
+                            this._swizzle[index][type] = context.createRadialGradient(...points);
+                        else if (gradientType == "linear-gradient")
+                            this._swizzle[index][type] = context.createLinearGradient(...points);
+                        else
+                            this._swizzle[index][type] = context.createConicGradient(...points);
                     });
 
                     let stops = [];
@@ -450,7 +457,30 @@ WI.Recording = class Recording extends WI.Object
 
                 case WI.Recording.Swizzle.CallStack: {
                     let array = await this.swizzle(data, WI.Recording.Swizzle.Array);
-                    this._swizzle[index][type] = await Promise.all(array.map((item) => this.swizzle(item, WI.Recording.Swizzle.CallFrame)));
+                    if (!isNaN(array[0])) {
+                        // COMPATIBILITY (macOS 13.0, iOS 16.0): "stackTrace" was sent as an array of call frames instead of a single call stack
+                        array = [array];
+                    }
+
+                    let promises = [];
+
+                    // callFrames
+                    promises.push(Promise.all(array[0].map((item) => this.swizzle(item, WI.Recording.Swizzle.CallFrame))));
+
+                    // topCallFrameIsBoundary
+                    if (array.length > 1)
+                        promises.push(this.swizzle(array[1], WI.Recording.Swizzle.Boolean));
+
+                    // truncated
+                    if (array.length > 2)
+                        promises.push(this.swizzle(array[2], WI.Recording.Swizzle.Boolean));
+
+                    // parentStackTrace
+                    if (array.length > 3)
+                        promises.push(this.swizzle(array[3], WI.Recording.Swizzle.StackTrace));
+
+                    let [callFrames, topCallFrameIsBoundary, truncated, parentStackTrace] = await Promise.all(promises);
+                    this._swizzle[index][type] = WI.StackTrace.fromPayload(WI.assumingMainTarget(), {callFrames, topCallFrameIsBoundary, truncated, parentStackTrace});
                     break;
                 }
 
@@ -663,8 +693,10 @@ WI.Recording = class Recording extends WI.Object
                 lines.push(`    let gradient = null;`);
                 lines.push(`    if (data.type === "radial-gradient")`);
                 lines.push(`        gradient = context.createRadialGradient(data.points[0], data.points[1], data.points[2], data.points[3], data.points[4], data.points[5]);`);
-                lines.push(`    else`);
+                lines.push(`    else if (data.type === "linear-gradient")`);
                 lines.push(`        gradient = context.createLinearGradient(data.points[0], data.points[1], data.points[2], data.points[3]);`);
+                lines.push(`    else`);
+                lines.push(`        gradient = context.createConicGradient(data.points[0], data.points[1], data.points[2]);`);
                 lines.push(`    for (let stop of data.stops)`);
                 lines.push(`        gradient.addColorStop(stop.offset, stop.color);`);
                 lines.push(`    objects[key] = gradient;`);
@@ -880,7 +912,7 @@ WI.Recording = class Recording extends WI.Object
 };
 
 // Keep this in sync with Inspector::Protocol::Recording::VERSION.
-WI.Recording.Version = 1;
+WI.Recording.Version = 2;
 
 WI.Recording.Event = {
     ProcessedAction: "recording-processed-action",
@@ -898,7 +930,7 @@ WI.Recording.Type = {
     CanvasWebGL2: "canvas-webgl2",
 };
 
-// Keep this in sync with WebCore::RecordingSwizzleTypes.
+// Keep this in sync with WebCore::RecordingSwizzleType.
 WI.Recording.Swizzle = {
     None: 0,
     Number: 1,

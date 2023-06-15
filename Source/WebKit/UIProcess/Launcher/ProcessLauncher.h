@@ -30,6 +30,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RefPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Threading.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/StringHash.h>
@@ -52,7 +53,7 @@ enum class SandboxPermission {
 };
 #endif
 
-class ProcessLauncher : public ThreadSafeRefCounted<ProcessLauncher>, public CanMakeWeakPtr<ProcessLauncher> {
+class ProcessLauncher : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ProcessLauncher> {
 public:
     class Client {
     public:
@@ -61,6 +62,8 @@ public:
         virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
+        virtual bool shouldEnableSharedArrayBuffer() const { return false; }
+        virtual bool shouldEnableLockdownMode() const { return false; }
 #if PLATFORM(COCOA)
         virtual RefPtr<XPCEventHandler> xpcEventHandler() const { return nullptr; }
 #endif
@@ -68,12 +71,12 @@ public:
     
     enum class ProcessType {
         Web,
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        Plugin,
-#endif
         Network,
 #if ENABLE(GPU_PROCESS)
-        GPU
+        GPU,
+#endif
+#if ENABLE(BUBBLEWRAP_SANDBOX)
+        DBusProxy,
 #endif
     };
 
@@ -86,7 +89,7 @@ public:
         CString customWebContentServiceBundleIdentifier;
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-        HashMap<CString, SandboxPermission> extraWebProcessSandboxPaths;
+        HashMap<CString, SandboxPermission> extraSandboxPaths;
 #if ENABLE(DEVELOPER_MODE)
         String processCmdPrefix;
 #endif
@@ -116,6 +119,10 @@ private:
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier);
 
     void platformInvalidate();
+
+#if PLATFORM(COCOA)
+    void terminateXPCConnection();
+#endif
 
     Client* m_client;
 

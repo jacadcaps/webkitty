@@ -25,20 +25,19 @@
 
 #pragma once
 
-#include "ArgumentCoder.h"
 #include "Attachment.h"
 #include "MessageNames.h"
-#include "StringReference.h"
-#include <WebCore/ContextMenuItem.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/Forward.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 
 namespace IPC {
 
-class DataReference;
 enum class MessageFlags : uint8_t;
-enum class MessageName : uint16_t;
 enum class ShouldDispatchWhenWaitingForSyncReply : uint8_t;
+
+template<typename, typename> struct ArgumentCoder;
 
 class Encoder final {
     WTF_MAKE_FAST_ALLOCATED;
@@ -46,48 +45,38 @@ public:
     Encoder(MessageName, uint64_t destinationID);
     ~Encoder();
 
+    Encoder(const Encoder&) = delete;
+    Encoder(Encoder&&) = delete;
+    Encoder& operator=(const Encoder&) = delete;
+    Encoder& operator=(Encoder&&) = delete;
+
     ReceiverName messageReceiverName() const { return receiverName(m_messageName); }
     MessageName messageName() const { return m_messageName; }
     uint64_t destinationID() const { return m_destinationID; }
 
-    void setIsSyncMessage(bool);
-    bool isSyncMessage() const;
+    bool isSyncMessage() const { return messageIsSync(messageName()); }
 
     void setShouldDispatchMessageWhenWaitingForSyncReply(ShouldDispatchWhenWaitingForSyncReply);
     ShouldDispatchWhenWaitingForSyncReply shouldDispatchMessageWhenWaitingForSyncReply() const;
 
+    bool isFullySynchronousModeForTesting() const;
     void setFullySynchronousModeForTesting();
+    void setShouldMaintainOrderingWithAsyncMessages();
+    bool isAllowedWhenWaitingForSyncReply() const { return messageAllowedWhenWaitingForSyncReply(messageName()) || isFullySynchronousModeForTesting(); }
+    bool isAllowedWhenWaitingForUnboundedSyncReply() const { return messageAllowedWhenWaitingForUnboundedSyncReply(messageName()); }
 
-    void wrapForTesting(std::unique_ptr<Encoder>);
+    void wrapForTesting(UniqueRef<Encoder>&&);
 
-    void encodeFixedLengthData(const uint8_t* data, size_t, size_t alignment);
-    void encodeVariableLengthByteArray(const DataReference&);
+    template<typename T, size_t Extent>
+    void encodeSpan(const Span<T, Extent>&);
+    template<typename T>
+    void encodeObject(const T&);
 
-    template<typename T, std::enable_if_t<!std::is_enum<typename std::remove_const_t<std::remove_reference_t<T>>>::value && !std::is_arithmetic<typename std::remove_const_t<std::remove_reference_t<T>>>::value>* = nullptr>
-    void encode(T&& t)
-    {
-        ArgumentCoder<typename std::remove_const<typename std::remove_reference<T>::type>::type>::encode(*this, std::forward<T>(t));
-    }
-
-    template<typename E, std::enable_if_t<std::is_enum<E>::value>* = nullptr>
-    Encoder& operator<<(E&& enumValue)
-    {
-        ASSERT(WTF::isValidEnum<E>(WTF::enumToUnderlyingType<E>(enumValue)));
-        encode(WTF::enumToUnderlyingType<E>(enumValue));
-        return *this;
-    }
-
-    template<typename T, std::enable_if_t<!std::is_enum<T>::value>* = nullptr>
+    template<typename T>
     Encoder& operator<<(T&& t)
     {
-        encode(std::forward<T>(t));
+        ArgumentCoder<std::remove_cvref_t<T>, void>::encode(*this, std::forward<T>(t));
         return *this;
-    }
-
-    template<typename T, std::enable_if_t<std::is_arithmetic<T>::value>* = nullptr>
-    void encode(T value)
-    {
-        encodeFixedLengthData(reinterpret_cast<const uint8_t*>(&value), sizeof(T), alignof(T));
     }
 
     uint8_t* buffer() const { return m_buffer; }
@@ -95,20 +84,14 @@ public:
 
     void addAttachment(Attachment&&);
     Vector<Attachment> releaseAttachments();
-
-    static const bool isIPCEncoder = true;
-
-private:
     void reserve(size_t);
 
+    static constexpr bool isIPCEncoder = true;
+
+private:
     uint8_t* grow(size_t alignment, size_t);
 
-    template<typename E, std::enable_if_t<std::is_enum<E>::value>* = nullptr>
-    void encode(E enumValue)
-    {
-        ASSERT(WTF::isValidEnum<E>(WTF::enumToUnderlyingType<E>(enumValue)));
-        encode(WTF::enumToUnderlyingType<E>(enumValue));
-    }
+    bool hasAttachments() const;
 
     void encodeHeader();
     const OptionSet<MessageFlags>& messageFlags() const;
@@ -119,13 +102,32 @@ private:
 
     uint8_t m_inlineBuffer[512];
 
-    uint8_t* m_buffer;
-    uint8_t* m_bufferPointer;
+    uint8_t* m_buffer { m_inlineBuffer };
+    uint8_t* m_bufferPointer { m_inlineBuffer };
     
-    size_t m_bufferSize;
-    size_t m_bufferCapacity;
+    size_t m_bufferSize { 0 };
+    size_t m_bufferCapacity { sizeof(m_inlineBuffer) };
 
     Vector<Attachment> m_attachments;
 };
+
+template<typename T, size_t Extent>
+inline void Encoder::encodeSpan(const Span<T, Extent>& span)
+{
+    auto* data = reinterpret_cast<const uint8_t*>(span.data());
+    size_t size = span.size_bytes();
+    constexpr size_t alignment = alignof(T);
+    ASSERT(!(reinterpret_cast<uintptr_t>(data) % alignment));
+
+    uint8_t* buffer = grow(alignment, size);
+    memcpy(buffer, data, size);
+}
+
+template<typename T>
+inline void Encoder::encodeObject(const T& object)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    encodeSpan(Span { std::addressof(object), 1 });
+}
 
 } // namespace IPC

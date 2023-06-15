@@ -87,20 +87,6 @@ WI.MediaTimelineView = class MediaTimelineView extends WI.TimelineView
         return [pathComponent];
     }
 
-    shown()
-    {
-        super.shown();
-
-        this._dataGrid.shown();
-    }
-
-    hidden()
-    {
-        this._dataGrid.hidden();
-
-        super.hidden();
-    }
-
     closed()
     {
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._handleRecordAdded, this);
@@ -215,3 +201,5 @@ WI.MediaTimelineView = class MediaTimelineView extends WI.TimelineView
         dataGridNode.revealAndSelect();
     }
 };
+
+WI.MediaTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.MediaAndAnimationsTimeline;

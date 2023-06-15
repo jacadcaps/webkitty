@@ -25,8 +25,7 @@
 
 #import "APIWebsitePolicies.h"
 #import "WKObject.h"
-#import "WKWebpagePreferencesPrivate.h"
-#import "_WKWebsitePolicies.h"
+#import <WebKit/WKWebpagePreferencesPrivate.h>
 
 namespace WebKit {
 
@@ -39,12 +38,16 @@ WKContentMode contentMode(WebContentMode);
 WebContentMode webContentMode(WKContentMode);
 #endif
 
+class WebPagePreferencesLockdownModeObserver;
+
 }
 
 @interface WKWebpagePreferences () <WKObject> {
 @package
     API::ObjectStorage<API::WebsitePolicies> _websitePolicies;
+    std::unique_ptr<WebKit::WebPagePreferencesLockdownModeObserver> _lockdownModeObserver;
 }
 
 @property (class, nonatomic, readonly) WKWebpagePreferences *defaultPreferences;
+
 @end

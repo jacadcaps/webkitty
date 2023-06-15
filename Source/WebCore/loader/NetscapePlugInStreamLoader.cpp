@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,10 +57,10 @@ NetscapePlugInStreamLoader::NetscapePlugInStreamLoader(Frame& frame, NetscapePlu
         ContentSecurityPolicyImposition::DoPolicyCheck,
         DefersLoadingPolicy::AllowDefersLoading,
         CachingPolicy::AllowCaching))
-    , m_client(&client)
+    , m_client(client)
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    m_resourceType = ContentExtensions::ResourceType::PlugInStream;
+    m_resourceType = { ContentExtensions::ResourceType::Other };
 #endif
 }
 
@@ -89,7 +89,7 @@ void NetscapePlugInStreamLoader::releaseResources()
 
 void NetscapePlugInStreamLoader::init(ResourceRequest&& request, CompletionHandler<void(bool)>&& completionHandler)
 {
-    ResourceLoader::init(WTFMove(request), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)] (bool success) mutable {
+    ResourceLoader::init(WTFMove(request), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (bool success) mutable {
         if (!success)
             return completionHandler(false);
         ASSERT(!reachedTerminalState());
@@ -101,7 +101,10 @@ void NetscapePlugInStreamLoader::init(ResourceRequest&& request, CompletionHandl
 
 void NetscapePlugInStreamLoader::willSendRequest(ResourceRequest&& request, const ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&& callback)
 {
-    m_client->willSendRequest(this, WTFMove(request), redirectResponse, [protectedThis = makeRef(*this), redirectResponse, callback = WTFMove(callback)] (ResourceRequest&& request) mutable {
+    if (!m_client)
+        return;
+
+    m_client->willSendRequest(this, WTFMove(request), redirectResponse, [protectedThis = Ref { *this }, redirectResponse, callback = WTFMove(callback)] (ResourceRequest&& request) mutable {
         if (!request.isNull())
             protectedThis->willSendRequestInternal(WTFMove(request), redirectResponse, WTFMove(callback));
         else
@@ -114,7 +117,8 @@ void NetscapePlugInStreamLoader::didReceiveResponse(const ResourceResponse& resp
     Ref<NetscapePlugInStreamLoader> protectedThis(*this);
     CompletionHandlerCallingScope completionHandlerCaller(WTFMove(policyCompletionHandler));
 
-    m_client->didReceiveResponse(this, response);
+    if (m_client)
+        m_client->didReceiveResponse(this, response);
 
     // Don't continue if the stream is cancelled
     if (!m_client)
@@ -137,23 +141,14 @@ void NetscapePlugInStreamLoader::didReceiveResponse(const ResourceResponse& resp
     });
 }
 
-void NetscapePlugInStreamLoader::didReceiveData(const char* data, unsigned length, long long encodedDataLength, DataPayloadType dataPayloadType)
-{
-    didReceiveDataOrBuffer(data, length, nullptr, encodedDataLength, dataPayloadType);
-}
-
-void NetscapePlugInStreamLoader::didReceiveBuffer(Ref<SharedBuffer>&& buffer, long long encodedDataLength, DataPayloadType dataPayloadType)
-{
-    didReceiveDataOrBuffer(nullptr, 0, WTFMove(buffer), encodedDataLength, dataPayloadType);
-}
-
-void NetscapePlugInStreamLoader::didReceiveDataOrBuffer(const char* data, int length, RefPtr<SharedBuffer>&& buffer, long long encodedDataLength, DataPayloadType dataPayloadType)
+void NetscapePlugInStreamLoader::didReceiveData(const SharedBuffer& buffer, long long encodedDataLength, DataPayloadType dataPayloadType)
 {
     Ref<NetscapePlugInStreamLoader> protectedThis(*this);
-    
-    m_client->didReceiveData(this, buffer ? buffer->data() : data, buffer ? buffer->size() : length);
 
-    ResourceLoader::didReceiveDataOrBuffer(data, length, WTFMove(buffer), encodedDataLength, dataPayloadType);
+    if (m_client)
+        m_client->didReceiveData(this, buffer);
+
+    ResourceLoader::didReceiveData(buffer, encodedDataLength, dataPayloadType);
 }
 
 void NetscapePlugInStreamLoader::didFinishLoading(const NetworkLoadMetrics& networkLoadMetrics)
@@ -162,7 +157,8 @@ void NetscapePlugInStreamLoader::didFinishLoading(const NetworkLoadMetrics& netw
 
     notifyDone();
 
-    m_client->didFinishLoading(this);
+    if (m_client)
+        m_client->didFinishLoading(this);
     ResourceLoader::didFinishLoading(networkLoadMetrics);
 }
 
@@ -172,13 +168,15 @@ void NetscapePlugInStreamLoader::didFail(const ResourceError& error)
 
     notifyDone();
 
-    m_client->didFail(this, error);
+    if (m_client)
+        m_client->didFail(this, error);
     ResourceLoader::didFail(error);
 }
 
 void NetscapePlugInStreamLoader::willCancel(const ResourceError& error)
 {
-    m_client->didFail(this, error);
+    if (m_client)
+        m_client->didFail(this, error);
 }
 
 void NetscapePlugInStreamLoader::didCancel(const ResourceError&)

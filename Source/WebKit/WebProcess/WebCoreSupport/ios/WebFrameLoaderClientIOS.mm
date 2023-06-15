@@ -26,13 +26,13 @@
 #import "config.h"
 #import "WebFrameLoaderClient.h"
 
+#import "WebFrame.h"
+#import "WebPage.h"
 #import <WebCore/Frame.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/HistoryController.h>
 #import <WebCore/HistoryItem.h>
 #import <WebCore/Page.h>
-#import <WebFrame.h>
-#import <WebPage.h>
 
 #if PLATFORM(IOS_FAMILY)
 
@@ -58,7 +58,7 @@ bool WebFrameLoaderClient::forceLayoutOnRestoreFromBackForwardCache()
     return false;
 }
 
-RetainPtr<CFDictionaryRef> WebFrameLoaderClient::connectionProperties(DocumentLoader*, unsigned long identifier)
+RetainPtr<CFDictionaryRef> WebFrameLoaderClient::connectionProperties(DocumentLoader*, WebCore::ResourceLoaderIdentifier)
 {
     notImplemented();
     return nullptr;

@@ -26,11 +26,14 @@
 #import "config.h"
 #import "TestNavigationDelegate.h"
 
+#import "PlatformUtilities.h"
 #import "Utilities.h"
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 
-@implementation TestNavigationDelegate
+@implementation TestNavigationDelegate {
+    RetainPtr<NSError> _navigationError;
+}
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction preferences:(WKWebpagePreferences *)preferences decisionHandler:(void (^)(WKNavigationActionPolicy, WKWebpagePreferences *))decisionHandler
 {
@@ -62,6 +65,12 @@
 {
     if (_didCommitNavigation)
         _didCommitNavigation(webView, navigation);
+}
+
+- (void)_webView:(WKWebView *)webView didCommitLoadWithRequest:(NSURLRequest *)request inFrame:(WKFrameInfo *)frame
+{
+    if (_didCommitLoadWithRequestInFrame)
+        _didCommitLoadWithRequestInFrame(webView, request, frame);
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error
@@ -96,6 +105,15 @@
         completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
+- (void)allowAnyTLSCertificate
+{
+    EXPECT_FALSE(self.didReceiveAuthenticationChallenge);
+    self.didReceiveAuthenticationChallenge = ^(WKWebView *, NSURLAuthenticationChallenge *challenge, void (^callback)(NSURLSessionAuthChallengeDisposition, NSURLCredential *)) {
+        EXPECT_WK_STREQ(challenge.protectionSpace.authenticationMethod, NSURLAuthenticationMethodServerTrust);
+        callback(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    };
+}
+
 - (void)waitForDidStartProvisionalNavigation
 {
     EXPECT_FALSE(self.didStartProvisionalNavigation);
@@ -124,6 +142,20 @@
     self.didFinishNavigation = nil;
 }
 
+- (void)waitForWebContentProcessDidTerminate
+{
+    EXPECT_FALSE(self.webContentProcessDidTerminate);
+
+    __block bool crashed = false;
+    self.webContentProcessDidTerminate = ^(WKWebView *) {
+        crashed = true;
+    };
+
+    TestWebKitAPI::Util::run(&crashed);
+
+    self.webContentProcessDidTerminate = nil;
+}
+
 - (void)waitForDidFinishNavigationWithPreferences:(WKWebpagePreferences *)preferences
 {
     EXPECT_FALSE(self.decidePolicyForNavigationActionWithPreferences);
@@ -137,18 +169,26 @@
     self.decidePolicyForNavigationActionWithPreferences = nil;
 }
 
-- (void)waitForDidFailProvisionalNavigation
+- (NSError *)waitForDidFailProvisionalNavigation
 {
     EXPECT_FALSE(self.didFailProvisionalNavigation);
 
     __block bool finished = false;
-    self.didFailProvisionalNavigation = ^(WKWebView *, WKNavigation *, NSError *) {
+    self.didFailProvisionalNavigation = ^(WKWebView *, WKNavigation *, NSError *error) {
+        _navigationError = error;
         finished = true;
     };
 
     TestWebKitAPI::Util::run(&finished);
 
     self.didFailProvisionalNavigation = nil;
+    return _navigationError.autorelease();
+}
+
+- (void)_webView:(WKWebView *)webView contentRuleListWithIdentifier:(NSString *)identifier performedAction:(_WKContentRuleListAction *)action forURL:(NSURL *)url
+{
+    if (_contentRuleListPerformedAction)
+        _contentRuleListPerformedAction(webView, identifier, action, url);
 }
 
 @end
@@ -162,6 +202,17 @@
     auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
     self.navigationDelegate = navigationDelegate.get();
     [navigationDelegate waitForDidStartProvisionalNavigation];
+
+    self.navigationDelegate = nil;
+}
+
+- (void)_test_waitForDidFailProvisionalNavigation
+{
+    EXPECT_FALSE(self.navigationDelegate);
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    self.navigationDelegate = navigationDelegate.get();
+    [navigationDelegate waitForDidFailProvisionalNavigation];
 
     self.navigationDelegate = nil;
 }
@@ -205,6 +256,39 @@
     }];
     TestWebKitAPI::Util::run(&presentationUpdateHappened);
 #endif
+}
+
+- (void)_test_waitForDidFinishNavigationWhileIgnoringSSLErrors
+{
+    EXPECT_FALSE(self.navigationDelegate);
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    navigationDelegate.get().didReceiveAuthenticationChallenge = ^(WKWebView *, NSURLAuthenticationChallenge *challenge, void (^completionHandler)(NSURLSessionAuthChallengeDisposition, NSURLCredential *)) {
+        completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    };
+    self.navigationDelegate = navigationDelegate.get();
+    [navigationDelegate waitForDidFinishNavigation];
+
+    self.navigationDelegate = nil;
+
+#if PLATFORM(IOS_FAMILY)
+    __block bool presentationUpdateHappened = false;
+    [self _doAfterNextPresentationUpdateWithoutWaitingForAnimatedResizeForTesting:^{
+        presentationUpdateHappened = true;
+    }];
+    TestWebKitAPI::Util::run(&presentationUpdateHappened);
+#endif
+}
+
+- (void)_test_waitForWebContentProcessDidTerminate
+{
+    EXPECT_FALSE(self.navigationDelegate);
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    self.navigationDelegate = navigationDelegate.get();
+    [navigationDelegate waitForWebContentProcessDidTerminate];
+
+    self.navigationDelegate = nil;
 }
 
 @end

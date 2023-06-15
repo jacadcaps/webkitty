@@ -29,7 +29,6 @@
 
 #include "CacheModel.h"
 #include "InjectedBundleHitTestResultMediaType.h"
-#include "PluginModuleInfo.h"
 #include "ProcessTerminationReason.h"
 #include "WKBundleHitTestResult.h"
 #include "WKContext.h"
@@ -52,8 +51,7 @@
 namespace API {
 class ContentRuleList;
 class ContentRuleListStore;
-class InternalDebugFeature;
-class ExperimentalFeature;
+class Feature;
 class FrameHandle;
 class FrameInfo;
 class HTTPCookieStore;
@@ -78,14 +76,16 @@ class AuthenticationChallengeProxy;
 class AuthenticationDecisionListener;
 class DownloadProxy;
 class GeolocationPermissionRequest;
+class MediaKeySystemPermissionCallback;
 class NotificationPermissionRequest;
+class QueryPermissionResultCallback;
+class SpeechRecognitionPermissionCallback;
 class UserMediaPermissionCheckProxy;
 class UserMediaPermissionRequestProxy;
 class WebBackForwardList;
 class WebBackForwardListItem;
 class WebColorPickerResultListenerProxy;
 class WebContextMenuListenerProxy;
-class WebCookieManagerProxy;
 class WebCredential;
 class WebFormSubmissionListenerProxy;
 class WebFramePolicyListenerProxy;
@@ -93,9 +93,7 @@ class WebFrameProxy;
 class WebGeolocationManagerProxy;
 class WebGeolocationPosition;
 class WebIconDatabase;
-class WebInspectorProxy;
-class WebMediaSessionFocusManager;
-class WebMediaSessionMetadata;
+class WebInspectorUIProxy;
 class WebNotification;
 class WebNotificationManagerProxy;
 class WebNotificationProvider;
@@ -121,9 +119,9 @@ WK_ADD_API_MAPPING(WKColorPickerResultListenerRef, WebColorPickerResultListenerP
 WK_ADD_API_MAPPING(WKContextRef, WebProcessPool)
 WK_ADD_API_MAPPING(WKContextConfigurationRef, API::ProcessPoolConfiguration)
 WK_ADD_API_MAPPING(WKContextMenuListenerRef, WebContextMenuListenerProxy)
-WK_ADD_API_MAPPING(WKCookieManagerRef, WebCookieManagerProxy)
 WK_ADD_API_MAPPING(WKCredentialRef, WebCredential)
 WK_ADD_API_MAPPING(WKDownloadRef, DownloadProxy)
+WK_ADD_API_MAPPING(WKFeatureRef, API::Feature)
 WK_ADD_API_MAPPING(WKFormSubmissionListenerRef, WebFormSubmissionListenerProxy)
 WK_ADD_API_MAPPING(WKFramePolicyListenerRef, WebFramePolicyListenerProxy)
 WK_ADD_API_MAPPING(WKFrameHandleRef, API::FrameHandle)
@@ -135,9 +133,9 @@ WK_ADD_API_MAPPING(WKGeolocationPositionRef, WebGeolocationPosition)
 WK_ADD_API_MAPPING(WKHTTPCookieStoreRef, API::HTTPCookieStore)
 WK_ADD_API_MAPPING(WKHitTestResultRef, API::HitTestResult)
 WK_ADD_API_MAPPING(WKIconDatabaseRef, WebIconDatabase)
-WK_ADD_API_MAPPING(WKInspectorRef, WebInspectorProxy)
-WK_ADD_API_MAPPING(WKMediaSessionFocusManagerRef, WebMediaSessionFocusManager)
-WK_ADD_API_MAPPING(WKMediaSessionMetadataRef, WebMediaSessionMetadata)
+WK_ADD_API_MAPPING(WKInspectorRef, WebInspectorUIProxy)
+WK_ADD_API_MAPPING(WKMediaKeySystemPermissionCallbackRef, MediaKeySystemPermissionCallback)
+WK_ADD_API_MAPPING(WKQueryPermissionResultCallbackRef, QueryPermissionResultCallback)
 WK_ADD_API_MAPPING(WKMessageListenerRef, API::MessageListener)
 WK_ADD_API_MAPPING(WKNavigationActionRef, API::NavigationAction)
 WK_ADD_API_MAPPING(WKNavigationDataRef, API::NavigationData)
@@ -156,6 +154,7 @@ WK_ADD_API_MAPPING(WKPreferencesRef, WebPreferences)
 WK_ADD_API_MAPPING(WKProtectionSpaceRef, WebProtectionSpace)
 WK_ADD_API_MAPPING(WKResourceLoadStatisticsManagerRef, WebResourceLoadStatisticsManager)
 WK_ADD_API_MAPPING(WKSessionStateRef, API::SessionState)
+WK_ADD_API_MAPPING(WKSpeechRecognitionPermissionCallbackRef, SpeechRecognitionPermissionCallback)
 WK_ADD_API_MAPPING(WKTextCheckerRef, WebTextChecker)
 WK_ADD_API_MAPPING(WKUserContentControllerRef, WebUserContentControllerProxy)
 WK_ADD_API_MAPPING(WKUserContentExtensionStoreRef, API::ContentRuleListStore)
@@ -237,13 +236,17 @@ inline WKProcessTerminationReason toAPI(ProcessTerminationReason reason)
         return kWKProcessTerminationReasonExceededMemoryLimit;
     case ProcessTerminationReason::ExceededCPULimit:
         return kWKProcessTerminationReasonExceededCPULimit;
+    case ProcessTerminationReason::IdleExit:
     case ProcessTerminationReason::NavigationSwap:
         // We probably shouldn't bother coming up with a new C-API type for process-swapping.
         // "Requested by client" seems like the best match for existing types.
         FALLTHROUGH;
     case ProcessTerminationReason::RequestedByClient:
         return kWKProcessTerminationReasonRequestedByClient;
+    case ProcessTerminationReason::ExceededProcessCountLimit:
+    case ProcessTerminationReason::Unresponsive:
     case ProcessTerminationReason::RequestedByNetworkProcess:
+    case ProcessTerminationReason::RequestedByGPUProcess:
     case ProcessTerminationReason::Crash:
         return kWKProcessTerminationReasonCrash;
     }
@@ -254,15 +257,15 @@ inline WKProcessTerminationReason toAPI(ProcessTerminationReason reason)
 inline WKEditableLinkBehavior toAPI(WebCore::EditableLinkBehavior behavior)
 {
     switch (behavior) {
-    case WebCore::EditableLinkDefaultBehavior:
+    case WebCore::EditableLinkBehavior::Default:
         return kWKEditableLinkBehaviorDefault;
-    case WebCore::EditableLinkAlwaysLive:
+    case WebCore::EditableLinkBehavior::AlwaysLive:
         return kWKEditableLinkBehaviorAlwaysLive;
-    case WebCore::EditableLinkOnlyLiveWithShiftKey:
+    case WebCore::EditableLinkBehavior::OnlyLiveWithShiftKey:
         return kWKEditableLinkBehaviorOnlyLiveWithShiftKey;
-    case WebCore::EditableLinkLiveWhenNotFocused:
+    case WebCore::EditableLinkBehavior::LiveWhenNotFocused:
         return kWKEditableLinkBehaviorLiveWhenNotFocused;
-    case WebCore::EditableLinkNeverLive:
+    case WebCore::EditableLinkBehavior::NeverLive:
         return kWKEditableLinkBehaviorNeverLive;
     }
     
@@ -274,64 +277,64 @@ inline WebCore::EditableLinkBehavior toEditableLinkBehavior(WKEditableLinkBehavi
 {
     switch (wkBehavior) {
     case kWKEditableLinkBehaviorDefault:
-        return WebCore::EditableLinkDefaultBehavior;
+        return WebCore::EditableLinkBehavior::Default;
     case kWKEditableLinkBehaviorAlwaysLive:
-        return WebCore::EditableLinkAlwaysLive;
+        return WebCore::EditableLinkBehavior::AlwaysLive;
     case kWKEditableLinkBehaviorOnlyLiveWithShiftKey:
-        return WebCore::EditableLinkOnlyLiveWithShiftKey;
+        return WebCore::EditableLinkBehavior::OnlyLiveWithShiftKey;
     case kWKEditableLinkBehaviorLiveWhenNotFocused:
-        return WebCore::EditableLinkLiveWhenNotFocused;
+        return WebCore::EditableLinkBehavior::LiveWhenNotFocused;
     case kWKEditableLinkBehaviorNeverLive:
-        return WebCore::EditableLinkNeverLive;
+        return WebCore::EditableLinkBehavior::NeverLive;
     }
     
     ASSERT_NOT_REACHED();
-    return WebCore::EditableLinkNeverLive;
+    return WebCore::EditableLinkBehavior::NeverLive;
 }
     
-inline WKProtectionSpaceServerType toAPI(WebCore::ProtectionSpaceServerType type)
+inline WKProtectionSpaceServerType toAPI(WebCore::ProtectionSpace::ServerType type)
 {
     switch (type) {
-    case WebCore::ProtectionSpaceServerHTTP:
+    case WebCore::ProtectionSpace::ServerType::HTTP:
         return kWKProtectionSpaceServerTypeHTTP;
-    case WebCore::ProtectionSpaceServerHTTPS:
+    case WebCore::ProtectionSpace::ServerType::HTTPS:
         return kWKProtectionSpaceServerTypeHTTPS;
-    case WebCore::ProtectionSpaceServerFTP:
+    case WebCore::ProtectionSpace::ServerType::FTP:
         return kWKProtectionSpaceServerTypeFTP;
-    case WebCore::ProtectionSpaceServerFTPS:
+    case WebCore::ProtectionSpace::ServerType::FTPS:
         return kWKProtectionSpaceServerTypeFTPS;
-    case WebCore::ProtectionSpaceProxyHTTP:
+    case WebCore::ProtectionSpace::ServerType::ProxyHTTP:
         return kWKProtectionSpaceProxyTypeHTTP;
-    case WebCore::ProtectionSpaceProxyHTTPS:
+    case WebCore::ProtectionSpace::ServerType::ProxyHTTPS:
         return kWKProtectionSpaceProxyTypeHTTPS;
-    case WebCore::ProtectionSpaceProxyFTP:
+    case WebCore::ProtectionSpace::ServerType::ProxyFTP:
         return kWKProtectionSpaceProxyTypeFTP;
-    case WebCore::ProtectionSpaceProxySOCKS:
+    case WebCore::ProtectionSpace::ServerType::ProxySOCKS:
         return kWKProtectionSpaceProxyTypeSOCKS;
     }
     return kWKProtectionSpaceServerTypeHTTP;
 }
 
-inline WKProtectionSpaceAuthenticationScheme toAPI(WebCore::ProtectionSpaceAuthenticationScheme type)
+inline WKProtectionSpaceAuthenticationScheme toAPI(WebCore::ProtectionSpace::AuthenticationScheme type)
 {
     switch (type) {
-    case WebCore::ProtectionSpaceAuthenticationSchemeDefault:
+    case WebCore::ProtectionSpace::AuthenticationScheme::Default:
         return kWKProtectionSpaceAuthenticationSchemeDefault;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTTPBasic:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTTPBasic:
         return kWKProtectionSpaceAuthenticationSchemeHTTPBasic;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTTPDigest:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTTPDigest:
         return kWKProtectionSpaceAuthenticationSchemeHTTPDigest;
-    case WebCore::ProtectionSpaceAuthenticationSchemeHTMLForm:
+    case WebCore::ProtectionSpace::AuthenticationScheme::HTMLForm:
         return kWKProtectionSpaceAuthenticationSchemeHTMLForm;
-    case WebCore::ProtectionSpaceAuthenticationSchemeNTLM:
+    case WebCore::ProtectionSpace::AuthenticationScheme::NTLM:
         return kWKProtectionSpaceAuthenticationSchemeNTLM;
-    case WebCore::ProtectionSpaceAuthenticationSchemeNegotiate:
+    case WebCore::ProtectionSpace::AuthenticationScheme::Negotiate:
         return kWKProtectionSpaceAuthenticationSchemeNegotiate;
-    case WebCore::ProtectionSpaceAuthenticationSchemeClientCertificateRequested:
+    case WebCore::ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
         return kWKProtectionSpaceAuthenticationSchemeClientCertificateRequested;
-    case WebCore::ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested:
+    case WebCore::ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
         return kWKProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested;
-    case WebCore::ProtectionSpaceAuthenticationSchemeOAuth:
+    case WebCore::ProtectionSpace::AuthenticationScheme::OAuth:
         return kWKProtectionSpaceAuthenticationSchemeOAuth;
     default:
         return kWKProtectionSpaceAuthenticationSchemeUnknown;
@@ -386,136 +389,34 @@ inline WKHTTPCookieAcceptPolicy toAPI(WebCore::HTTPCookieAcceptPolicy policy)
     return kWKHTTPCookieAcceptPolicyAlways;
 }
 
-inline WebCore::SecurityOrigin::StorageBlockingPolicy toStorageBlockingPolicy(WKStorageBlockingPolicy policy)
+inline WebCore::StorageBlockingPolicy toStorageBlockingPolicy(WKStorageBlockingPolicy policy)
 {
     switch (policy) {
     case kWKAllowAllStorage:
-        return WebCore::SecurityOrigin::AllowAllStorage;
+        return WebCore::StorageBlockingPolicy::AllowAll;
     case kWKBlockThirdPartyStorage:
-        return WebCore::SecurityOrigin::BlockThirdPartyStorage;
+        return WebCore::StorageBlockingPolicy::BlockThirdParty;
     case kWKBlockAllStorage:
-        return WebCore::SecurityOrigin::BlockAllStorage;
+        return WebCore::StorageBlockingPolicy::BlockAll;
     }
 
     ASSERT_NOT_REACHED();
-    return WebCore::SecurityOrigin::AllowAllStorage;
+    return WebCore::StorageBlockingPolicy::AllowAll;
 }
 
-inline WKStorageBlockingPolicy toAPI(WebCore::SecurityOrigin::StorageBlockingPolicy policy)
+inline WKStorageBlockingPolicy toAPI(WebCore::StorageBlockingPolicy policy)
 {
     switch (policy) {
-    case WebCore::SecurityOrigin::AllowAllStorage:
+    case WebCore::StorageBlockingPolicy::AllowAll:
         return kWKAllowAllStorage;
-    case WebCore::SecurityOrigin::BlockThirdPartyStorage:
+    case WebCore::StorageBlockingPolicy::BlockThirdParty:
         return kWKBlockThirdPartyStorage;
-    case WebCore::SecurityOrigin::BlockAllStorage:
+    case WebCore::StorageBlockingPolicy::BlockAll:
         return kWKBlockAllStorage;
     }
 
     ASSERT_NOT_REACHED();
     return kWKAllowAllStorage;
-}
-
-inline WKPluginLoadPolicy toWKPluginLoadPolicy(PluginModuleLoadPolicy pluginModuleLoadPolicy)
-{
-    switch (pluginModuleLoadPolicy) {
-    case PluginModuleLoadNormally:
-        return kWKPluginLoadPolicyLoadNormally;
-    case PluginModuleLoadUnsandboxed:
-        return kWKPluginLoadPolicyLoadUnsandboxed;
-    case PluginModuleBlockedForSecurity:
-        return kWKPluginLoadPolicyBlocked;
-    case PluginModuleBlockedForCompatibility:
-        return kWKPluginLoadPolicyBlockedForCompatibility;
-    }
-    
-    ASSERT_NOT_REACHED();
-    return kWKPluginLoadPolicyBlocked;
-}
-
-inline WKPluginLoadClientPolicy toWKPluginLoadClientPolicy(WebCore::PluginLoadClientPolicy PluginLoadClientPolicy)
-{
-    switch (PluginLoadClientPolicy) {
-    case WebCore::PluginLoadClientPolicy::Undefined:
-        return kWKPluginLoadClientPolicyUndefined;
-    case WebCore::PluginLoadClientPolicy::Block:
-        return kWKPluginLoadClientPolicyBlock;
-    case WebCore::PluginLoadClientPolicy::Ask:
-        return kWKPluginLoadClientPolicyAsk;
-    case WebCore::PluginLoadClientPolicy::Allow:
-        return kWKPluginLoadClientPolicyAllow;
-    case WebCore::PluginLoadClientPolicy::AllowAlways:
-        return kWKPluginLoadClientPolicyAllowAlways;
-    }
-
-    ASSERT_NOT_REACHED();
-    return kWKPluginLoadClientPolicyBlock;
-}
-
-inline PluginModuleLoadPolicy toPluginModuleLoadPolicy(WKPluginLoadPolicy pluginLoadPolicy)
-{
-    switch (pluginLoadPolicy) {
-    case kWKPluginLoadPolicyLoadNormally:
-        return PluginModuleLoadNormally;
-    case kWKPluginLoadPolicyBlocked:
-        return PluginModuleBlockedForSecurity;
-    case kWKPluginLoadPolicyBlockedForCompatibility:
-        return PluginModuleBlockedForCompatibility;
-    case kWKPluginLoadPolicyLoadUnsandboxed:
-        return PluginModuleLoadUnsandboxed;
-    }
-    
-    ASSERT_NOT_REACHED();
-    return PluginModuleBlockedForSecurity;
-}
-
-inline WebCore::PluginLoadClientPolicy toPluginLoadClientPolicy(WKPluginLoadClientPolicy pluginLoadClientPolicy)
-{
-    switch (pluginLoadClientPolicy) {
-    case kWKPluginLoadClientPolicyUndefined:
-        return WebCore::PluginLoadClientPolicy::Undefined;
-    case kWKPluginLoadClientPolicyBlock:
-        return WebCore::PluginLoadClientPolicy::Block;
-    case kWKPluginLoadClientPolicyAsk:
-        return WebCore::PluginLoadClientPolicy::Ask;
-    case kWKPluginLoadClientPolicyAllow:
-        return WebCore::PluginLoadClientPolicy::Allow;
-    case kWKPluginLoadClientPolicyAllowAlways:
-        return WebCore::PluginLoadClientPolicy::AllowAlways;
-    }
-
-    ASSERT_NOT_REACHED();
-    return WebCore::PluginLoadClientPolicy::Block;
-}
-
-inline WebCore::WebGLLoadPolicy toWebGLLoadPolicy(WKWebGLLoadPolicy webGLLoadPolicy)
-{
-    switch (webGLLoadPolicy) {
-    case kWKWebGLLoadPolicyLoadNormally:
-        return WebCore::WebGLLoadPolicy::WebGLAllowCreation;
-    case kWKWebGLLoadPolicyBlocked:
-        return WebCore::WebGLLoadPolicy::WebGLBlockCreation;
-    case kWKWebGLLoadPolicyPending:
-        return WebCore::WebGLLoadPolicy::WebGLPendingCreation;
-    }
-    
-    ASSERT_NOT_REACHED();
-    return WebCore::WebGLLoadPolicy::WebGLAllowCreation;
-}
-
-inline WKWebGLLoadPolicy toAPI(WebCore::WebGLLoadPolicy webGLLoadPolicy)
-{
-    switch (webGLLoadPolicy) {
-    case WebCore::WebGLLoadPolicy::WebGLAllowCreation:
-        return kWKWebGLLoadPolicyLoadNormally;
-    case WebCore::WebGLLoadPolicy::WebGLBlockCreation:
-        return kWKWebGLLoadPolicyBlocked;
-    case WebCore::WebGLLoadPolicy::WebGLPendingCreation:
-        return kWKWebGLLoadPolicyPending;
-    }
-
-    ASSERT_NOT_REACHED();
-    return kWKWebGLLoadPolicyLoadNormally;
 }
 
 } // namespace WebKit

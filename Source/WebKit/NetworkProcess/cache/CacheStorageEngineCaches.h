@@ -31,10 +31,6 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/Deque.h>
 
-namespace WebCore {
-class StorageQuotaManager;
-}
-
 namespace WebKit {
 
 namespace CacheStorage {
@@ -47,11 +43,11 @@ public:
     static Ref<Caches> create(Engine&, WebCore::ClientOrigin&&, String&& rootPath);
     ~Caches();
 
-    static void retrieveOriginFromDirectory(const String& folderPath, WorkQueue&, WTF::CompletionHandler<void(Optional<WebCore::ClientOrigin>&&)>&&);
+    static void retrieveOriginFromDirectory(const String& folderPath, WorkQueue&, WTF::CompletionHandler<void(std::optional<WebCore::ClientOrigin>&&)>&&);
 
     void initialize(WebCore::DOMCacheEngine::CompletionCallback&&);
     void open(const String& name, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
-    void remove(uint64_t identifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
+    void remove(WebCore::DOMCacheIdentifier, WebCore::DOMCacheEngine::RemoveCacheIdentifierCallback&&);
     void dispose(Cache&);
 
     void detach();
@@ -59,7 +55,7 @@ public:
     bool isInitialized() const { return m_isInitialized; }
     void cacheInfos(uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&&);
 
-    Cache* find(uint64_t identifier);
+    Cache* find(WebCore::DOMCacheIdentifier);
     void appendRepresentation(StringBuilder&) const;
 
     void readRecordsList(Cache&, NetworkCache::Storage::TraverseHandler&&);
@@ -90,7 +86,7 @@ private:
     void writeCachesToDisk(WebCore::DOMCacheEngine::CompletionCallback&&);
 
     void storeOrigin(WebCore::DOMCacheEngine::CompletionCallback&&);
-    static Optional<WebCore::ClientOrigin> readOrigin(const NetworkCache::Data&);
+    static std::optional<WebCore::ClientOrigin> readOrigin(const NetworkCache::Data&);
 
     Cache* find(const String& name);
     void clearPendingWritingCachesToDiskCallbacks();
@@ -109,11 +105,11 @@ private:
     Vector<Cache> m_caches;
     Vector<Cache> m_removedCaches;
     RefPtr<NetworkCache::Storage> m_storage;
-    HashMap<NetworkCache::Key, WebCore::DOMCacheEngine::Record> m_volatileStorage;
-    mutable Optional<NetworkCache::Salt> m_volatileSalt;
+    HashMap<NetworkCache::Key, std::unique_ptr<WebCore::DOMCacheEngine::Record>> m_volatileStorage;
+    mutable std::optional<NetworkCache::Salt> m_volatileSalt;
     Vector<WebCore::DOMCacheEngine::CompletionCallback> m_pendingInitializationCallbacks;
     bool m_isWritingCachesToDisk { false };
-    Deque<CompletionHandler<void(Optional<WebCore::DOMCacheEngine::Error>)>> m_pendingWritingCachesToDiskCallbacks;
+    Deque<CompletionHandler<void(std::optional<WebCore::DOMCacheEngine::Error>)>> m_pendingWritingCachesToDiskCallbacks;
 };
 
 } // namespace CacheStorage

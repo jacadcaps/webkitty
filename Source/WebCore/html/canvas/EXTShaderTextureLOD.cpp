@@ -28,11 +28,16 @@
 #if ENABLE(WEBGL)
 #include "EXTShaderTextureLOD.h"
 
+#include <wtf/IsoMallocInlines.h>
+
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(EXTShaderTextureLOD);
 
 EXTShaderTextureLOD::EXTShaderTextureLOD(WebGLRenderingContextBase& context)
     : WebGLExtension(context)
 {
+    context.graphicsContextGL()->ensureExtensionEnabled("GL_EXT_shader_texture_lod"_s);
 }
 
 EXTShaderTextureLOD::~EXTShaderTextureLOD() = default;
@@ -40,6 +45,11 @@ EXTShaderTextureLOD::~EXTShaderTextureLOD() = default;
 WebGLExtension::ExtensionName EXTShaderTextureLOD::getName() const
 {
     return EXTShaderTextureLODName;
+}
+
+bool EXTShaderTextureLOD::supported(GraphicsContextGL& context)
+{
+    return context.supportsExtension("GL_EXT_shader_texture_lod"_s);
 }
 
 } // namespace WebCore

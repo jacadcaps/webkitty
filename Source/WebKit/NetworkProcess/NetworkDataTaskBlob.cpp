@@ -38,11 +38,13 @@
 #include "Logging.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
+#include "PrivateRelayed.h"
 #include "WebErrors.h"
 #include <WebCore/AsyncFileStream.h>
 #include <WebCore/BlobRegistryImpl.h>
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/ParsedContentRange.h>
+#include <WebCore/PolicyContainer.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/SharedBuffer.h>
@@ -58,13 +60,13 @@ static const int httpPartialContent = 206;
 static const int httpNotAllowed = 403;
 static const int httpRequestedRangeNotSatisfiable = 416;
 static const int httpInternalError = 500;
-static const char* httpOKText = "OK";
-static const char* httpPartialContentText = "Partial Content";
-static const char* httpNotAllowedText = "Not Allowed";
-static const char* httpRequestedRangeNotSatisfiableText = "Requested Range Not Satisfiable";
-static const char* httpInternalErrorText = "Internal Server Error";
+static constexpr auto httpOKText = "OK"_s;
+static constexpr auto httpPartialContentText = "Partial Content"_s;
+static constexpr auto httpNotAllowedText = "Not Allowed"_s;
+static constexpr auto httpRequestedRangeNotSatisfiableText = "Requested Range Not Satisfiable"_s;
+static constexpr auto httpInternalErrorText = "Internal Server Error"_s;
 
-static const char* const webKitBlobResourceDomain = "WebKitBlobResource";
+static constexpr auto webKitBlobResourceDomain = "WebKitBlobResource"_s;
 
 NetworkDataTaskBlob::NetworkDataTaskBlob(NetworkSession& session, BlobRegistryImpl& blobRegistry, NetworkDataTaskClient& client, const ResourceRequest& request, ContentSniffingPolicy shouldContentSniff, const Vector<RefPtr<WebCore::BlobDataFileReference>>& fileReferences)
     : NetworkDataTask(session, client, request, StoredCredentialsPolicy::DoNotUse, false, false)
@@ -87,8 +89,6 @@ NetworkDataTaskBlob::~NetworkDataTaskBlob()
         fileReference->revokeFileAccess();
 
     clearStream();
-    if (m_session)
-        m_session->unregisterNetworkDataTask(*this);
 }
 
 void NetworkDataTaskBlob::clearStream()
@@ -113,13 +113,13 @@ void NetworkDataTaskBlob::resume()
 
     m_state = State::Running;
 
-    RunLoop::main().dispatch([this, protectedThis = makeRef(*this)] {
+    RunLoop::main().dispatch([this, protectedThis = Ref { *this }] {
         if (m_state == State::Canceling || m_state == State::Completed || !m_client) {
             clearStream();
             return;
         }
 
-        if (!equalLettersIgnoringASCIICase(m_firstRequest.httpMethod(), "get")) {
+        if (!equalLettersIgnoringASCIICase(m_firstRequest.httpMethod(), "get"_s)) {
             didFail(Error::MethodNotAllowed);
             return;
         }
@@ -255,7 +255,7 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse(Error errorCode)
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::dispatchDidReceiveResponse(%u)", this, static_cast<unsigned>(errorCode));
 
     Ref<NetworkDataTaskBlob> protectedThis(*this);
-    ResourceResponse response(m_firstRequest.url(), errorCode != Error::NoError ? "text/plain" : m_blobData->contentType(), errorCode != Error::NoError ? 0 : m_totalRemainingSize, String());
+    ResourceResponse response(m_firstRequest.url(), errorCode != Error::NoError ? "text/plain"_s : extractMIMETypeFromMediaType(m_blobData->contentType()), errorCode != Error::NoError ? 0 : m_totalRemainingSize, String());
     switch (errorCode) {
     case Error::NoError: {
         bool isRangeRequest = m_rangeOffset != kPositionNotSpecified;
@@ -263,10 +263,17 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse(Error errorCode)
         response.setHTTPStatusText(isRangeRequest ? httpPartialContentText : httpOKText);
 
         response.setHTTPHeaderField(HTTPHeaderName::ContentType, m_blobData->contentType());
+        response.setTextEncodingName(extractCharsetFromMediaType(m_blobData->contentType()).toAtomString());
         response.setHTTPHeaderField(HTTPHeaderName::ContentLength, String::number(m_totalRemainingSize));
+        addPolicyContainerHeaders(response, m_blobData->policyContainer());
 
-        if (isRangeRequest)
-            response.setHTTPHeaderField(HTTPHeaderName::ContentRange, ParsedContentRange(m_rangeOffset, m_rangeEnd, m_totalSize).headerValue());
+        if (isRangeRequest) {
+            auto rangeEnd = m_rangeEnd;
+            if (rangeEnd == kPositionNotSpecified)
+                rangeEnd = m_totalSize - 1;
+
+            response.setHTTPHeaderField(HTTPHeaderName::ContentRange, ParsedContentRange(m_rangeOffset, rangeEnd, m_totalSize).headerValue());
+        }
         // FIXME: If a resource identified with a blob: URL is a File object, user agents must use that file's name attribute,
         // as if the response had a Content-Disposition header with the filename parameter set to the File's name attribute.
         // Notably, this will affect a name suggested in "File Save As".
@@ -286,7 +293,7 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse(Error errorCode)
         break;
     }
 
-    didReceiveResponse(WTFMove(response), NegotiatedLegacyTLS::No, [this, protectedThis = WTFMove(protectedThis), errorCode](PolicyAction policyAction) {
+    didReceiveResponse(WTFMove(response), NegotiatedLegacyTLS::No, PrivateRelayed::No, [this, protectedThis = WTFMove(protectedThis), errorCode](PolicyAction policyAction) {
         LOG(NetworkSession, "%p - NetworkDataTaskBlob::didReceiveResponse completionHandler (%u)", this, static_cast<unsigned>(policyAction));
 
         if (m_state == State::Canceling || m_state == State::Completed) {
@@ -337,13 +344,17 @@ void NetworkDataTaskBlob::read()
 
 void NetworkDataTaskBlob::readData(const BlobDataItem& item)
 {
-    ASSERT(item.data().data());
+    ASSERT(item.data());
 
     long long bytesToRead = item.length() - m_currentItemReadSize;
+    ASSERT(bytesToRead >= 0);
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = m_totalRemainingSize;
-    consumeData(reinterpret_cast<const char*>(item.data().data()->data()) + item.offset() + m_currentItemReadSize, static_cast<int>(bytesToRead));
+
+    auto* data = item.data()->data() + item.offset() + m_currentItemReadSize;
     m_currentItemReadSize = 0;
+
+    consumeData(data, static_cast<int>(bytesToRead));
 }
 
 void NetworkDataTaskBlob::readFile(const BlobDataItem& item)
@@ -395,7 +406,7 @@ void NetworkDataTaskBlob::didRead(int bytesRead)
     consumeData(m_buffer.data(), bytesRead);
 }
 
-void NetworkDataTaskBlob::consumeData(const char* data, int bytesRead)
+void NetworkDataTaskBlob::consumeData(const uint8_t* data, int bytesRead)
 {
     m_totalRemainingSize -= bytesRead;
 
@@ -442,10 +453,7 @@ void NetworkDataTaskBlob::setPendingDownloadLocation(const String& filename, San
 
 String NetworkDataTaskBlob::suggestedFilename() const
 {
-    if (!m_suggestedFilename.isEmpty())
-        return m_suggestedFilename;
-
-    return "unknown"_s;
+    return m_suggestedFilename;
 }
 
 void NetworkDataTaskBlob::download()
@@ -456,7 +464,7 @@ void NetworkDataTaskBlob::download()
 
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::download to %s", this, m_pendingDownloadLocation.utf8().data());
 
-    m_downloadFile = FileSystem::openFile(m_pendingDownloadLocation, FileSystem::FileOpenMode::Write);
+    m_downloadFile = FileSystem::openFile(m_pendingDownloadLocation, FileSystem::FileOpenMode::Truncate);
     if (m_downloadFile == FileSystem::invalidPlatformFileHandle) {
         didFailDownload(cancelledError(m_firstRequest));
         return;
@@ -474,7 +482,7 @@ void NetworkDataTaskBlob::download()
     read();
 }
 
-bool NetworkDataTaskBlob::writeDownload(const char* data, int bytesRead)
+bool NetworkDataTaskBlob::writeDownload(const uint8_t* data, int bytesRead)
 {
     ASSERT(isDownload());
     int bytesWritten = FileSystem::writeToFile(m_downloadFile, data, bytesRead);

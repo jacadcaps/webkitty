@@ -22,6 +22,7 @@
 #include "modules/video_coding/codecs/vp9/include/vp9.h"
 #include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/numerics/sequence_number_util.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "test/call_test.h"
 
@@ -42,19 +43,19 @@ const size_t kNumTemporalLayers[] = {1, 2, 3};
 class PictureIdObserver : public test::RtpRtcpObserver {
  public:
   explicit PictureIdObserver(VideoCodecType codec_type)
-      : test::RtpRtcpObserver(test::CallTest::kDefaultTimeoutMs),
+      : test::RtpRtcpObserver(test::CallTest::kDefaultTimeout),
         depacketizer_(CreateVideoRtpDepacketizer(codec_type)),
         max_expected_picture_id_gap_(0),
         max_expected_tl0_idx_gap_(0),
         num_ssrcs_to_observe_(1) {}
 
   void SetExpectedSsrcs(size_t num_expected_ssrcs) {
-    rtc::CritScope lock(&crit_);
+    MutexLock lock(&mutex_);
     num_ssrcs_to_observe_ = num_expected_ssrcs;
   }
 
   void ResetObservedSsrcs() {
-    rtc::CritScope lock(&crit_);
+    MutexLock lock(&mutex_);
     // Do not clear the timestamp and picture_id, to ensure that we check
     // consistency between reinits and recreations.
     num_packets_sent_.clear();
@@ -62,9 +63,9 @@ class PictureIdObserver : public test::RtpRtcpObserver {
   }
 
   void SetMaxExpectedPictureIdGap(int max_expected_picture_id_gap) {
-    rtc::CritScope lock(&crit_);
+    MutexLock lock(&mutex_);
     max_expected_picture_id_gap_ = max_expected_picture_id_gap;
-    // Expect smaller gap for |tl0_pic_idx| (running index for temporal_idx 0).
+    // Expect smaller gap for `tl0_pic_idx` (running index for temporal_idx 0).
     max_expected_tl0_idx_gap_ = max_expected_picture_id_gap_ / 2;
   }
 
@@ -110,7 +111,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
       parsed->tl0_pic_idx = vp9_header->tl0_pic_idx;
       parsed->temporal_idx = vp9_header->temporal_idx;
     } else {
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
     }
 
     parsed->frame_type = parsed_payload->video_header.frame_type;
@@ -120,7 +121,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
   // Verify continuity and monotonicity of picture_id sequence.
   void VerifyPictureId(const ParsedPacket& current,
                        const ParsedPacket& last) const
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(&crit_) {
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(&mutex_) {
     if (current.timestamp == last.timestamp) {
       EXPECT_EQ(last.picture_id, current.picture_id);
       return;  // Same frame.
@@ -134,16 +135,20 @@ class PictureIdObserver : public test::RtpRtcpObserver {
     // Expect continuously increasing picture id.
     int diff = ForwardDiff<uint16_t, kPictureIdWraparound>(last.picture_id,
                                                            current.picture_id);
-    if (diff > 1) {
+    EXPECT_LE(diff - 1, max_expected_picture_id_gap_);
+    if (diff > 2) {
       // If the VideoSendStream is destroyed, any frames still in queue is lost.
-      // Gaps only possible for first frame after a recreation, i.e. key frames.
+      // This can result in a two-frame gap, which will result in logs like
+      // "packet transmission failed, no matching RTP module found, or
+      // transmission error".
+      // A larger gap is only possible for first frame after a recreation, i.e.
+      // key frames.
       EXPECT_EQ(VideoFrameType::kVideoFrameKey, current.frame_type);
-      EXPECT_LE(diff - 1, max_expected_picture_id_gap_);
     }
   }
 
   void VerifyTl0Idx(const ParsedPacket& current, const ParsedPacket& last) const
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(&crit_) {
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(&mutex_) {
     if (current.tl0_pic_idx == kNoTl0PicIdx ||
         current.temporal_idx == kNoTemporalIdx) {
       return;  // No temporal layers.
@@ -154,8 +159,8 @@ class PictureIdObserver : public test::RtpRtcpObserver {
       return;
     }
 
-    // New frame with |temporal_idx| 0.
-    // |tl0_pic_idx| should be increasing.
+    // New frame with `temporal_idx` 0.
+    // `tl0_pic_idx` should be increasing.
     EXPECT_TRUE(AheadOf<uint8_t>(current.tl0_pic_idx, last.tl0_pic_idx));
 
     // Expect continuously increasing idx.
@@ -169,7 +174,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
   }
 
   Action OnSendRtp(const uint8_t* packet, size_t length) override {
-    rtc::CritScope lock(&crit_);
+    MutexLock lock(&mutex_);
 
     ParsedPacket parsed;
     if (!ParsePayload(packet, length, &parsed))
@@ -196,14 +201,14 @@ class PictureIdObserver : public test::RtpRtcpObserver {
     return SEND_PACKET;
   }
 
-  rtc::CriticalSection crit_;
+  Mutex mutex_;
   const std::unique_ptr<VideoRtpDepacketizer> depacketizer_;
-  std::map<uint32_t, ParsedPacket> last_observed_packet_ RTC_GUARDED_BY(crit_);
-  std::map<uint32_t, size_t> num_packets_sent_ RTC_GUARDED_BY(crit_);
-  int max_expected_picture_id_gap_ RTC_GUARDED_BY(crit_);
-  int max_expected_tl0_idx_gap_ RTC_GUARDED_BY(crit_);
-  size_t num_ssrcs_to_observe_ RTC_GUARDED_BY(crit_);
-  std::set<uint32_t> observed_ssrcs_ RTC_GUARDED_BY(crit_);
+  std::map<uint32_t, ParsedPacket> last_observed_packet_ RTC_GUARDED_BY(mutex_);
+  std::map<uint32_t, size_t> num_packets_sent_ RTC_GUARDED_BY(mutex_);
+  int max_expected_picture_id_gap_ RTC_GUARDED_BY(mutex_);
+  int max_expected_tl0_idx_gap_ RTC_GUARDED_BY(mutex_);
+  size_t num_ssrcs_to_observe_ RTC_GUARDED_BY(mutex_);
+  std::set<uint32_t> observed_ssrcs_ RTC_GUARDED_BY(mutex_);
 };
 
 class PictureIdTest : public test::CallTest,
@@ -212,7 +217,7 @@ class PictureIdTest : public test::CallTest,
   PictureIdTest() : num_temporal_layers_(GetParam()) {}
 
   virtual ~PictureIdTest() {
-    SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+    SendTask(task_queue(), [this]() {
       send_transport_.reset();
       receive_transport_.reset();
       DestroyCalls();
@@ -232,7 +237,14 @@ class PictureIdTest : public test::CallTest,
   std::unique_ptr<PictureIdObserver> observer_;
 };
 
-INSTANTIATE_TEST_SUITE_P(TemporalLayers,
+// TODO(bugs.webrtc.org/13725): Enable on android when flakiness fixed.
+#if defined(WEBRTC_ANDROID)
+#define MAYBE_TemporalLayers DISABLED_TemporalLayers
+#else
+#define MAYBE_TemporalLayers TemporalLayers
+#endif
+
+INSTANTIATE_TEST_SUITE_P(MAYBE_TemporalLayers,
                          PictureIdTest,
                          ::testing::ValuesIn(kNumTemporalLayers));
 
@@ -242,7 +254,7 @@ void PictureIdTest::SetupEncoder(VideoEncoderFactory* encoder_factory,
       new PictureIdObserver(PayloadStringToCodecType(payload_name)));
 
   SendTask(
-      RTC_FROM_HERE, task_queue(), [this, encoder_factory, payload_name]() {
+      task_queue(), [this, encoder_factory, payload_name]() {
         CreateCalls();
 
         send_transport_.reset(new test::PacketTransport(
@@ -287,7 +299,7 @@ void PictureIdTest::SetVideoEncoderConfig(int num_streams) {
 
 void PictureIdTest::TestPictureIdContinuousAfterReconfigure(
     const std::vector<int>& ssrc_counts) {
-  SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+  SendTask(task_queue(), [this]() {
     CreateVideoStreams();
     CreateFrameGeneratorCapturer(kFrameRate, kFrameMaxWidth, kFrameMaxHeight);
 
@@ -305,14 +317,14 @@ void PictureIdTest::TestPictureIdContinuousAfterReconfigure(
     observer_->SetExpectedSsrcs(ssrc_count);
     observer_->ResetObservedSsrcs();
     // Make sure the picture_id sequence is continuous on reinit and recreate.
-    SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+    SendTask(task_queue(), [this]() {
       GetVideoSendStream()->ReconfigureVideoEncoder(
           GetVideoEncoderConfig()->Copy());
     });
     EXPECT_TRUE(observer_->Wait()) << "Timed out waiting for packets.";
   }
 
-  SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+  SendTask(task_queue(), [this]() {
     Stop();
     DestroyStreams();
   });
@@ -320,7 +332,7 @@ void PictureIdTest::TestPictureIdContinuousAfterReconfigure(
 
 void PictureIdTest::TestPictureIdIncreaseAfterRecreateStreams(
     const std::vector<int>& ssrc_counts) {
-  SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+  SendTask(task_queue(), [this]() {
     CreateVideoStreams();
     CreateFrameGeneratorCapturer(kFrameRate, kFrameMaxWidth, kFrameMaxHeight);
 
@@ -335,7 +347,7 @@ void PictureIdTest::TestPictureIdIncreaseAfterRecreateStreams(
   // with it, therefore it is expected that some frames might be lost.
   observer_->SetMaxExpectedPictureIdGap(kMaxFramesLost);
   for (int ssrc_count : ssrc_counts) {
-    SendTask(RTC_FROM_HERE, task_queue(), [this, &ssrc_count]() {
+    SendTask(task_queue(), [this, &ssrc_count]() {
       DestroyVideoSendStreams();
 
       SetVideoEncoderConfig(ssrc_count);
@@ -350,7 +362,7 @@ void PictureIdTest::TestPictureIdIncreaseAfterRecreateStreams(
     EXPECT_TRUE(observer_->Wait()) << "Timed out waiting for packets.";
   }
 
-  SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+  SendTask(task_queue(), [this]() {
     Stop();
     DestroyStreams();
   });

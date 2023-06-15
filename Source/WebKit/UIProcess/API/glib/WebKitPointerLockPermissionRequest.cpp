@@ -26,10 +26,10 @@
 #include <wtf/glib/WTFGType.h>
 
 /**
- * SECTION: WebKitPointerLockPermissionRequest
- * @Short_description: A permission request for locking the pointer
- * @Title: WebKitPointerLockPermissionRequest
+ * WebKitPointerLockPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
+ *
+ * A permission request for locking the pointer.
  *
  * WebKitPointerLockPermissionRequest represents a request for
  * permission to decide whether WebKit can lock the pointer device when
@@ -41,15 +41,19 @@
  * Since: 2.28
  */
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitPointerLockPermissionRequestPrivate {
     GRefPtr<WebKitWebView> webView;
     bool madeDecision;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitPointerLockPermissionRequest, webkit_pointer_lock_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitPointerLockPermissionRequest, webkit_pointer_lock_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitPointerLockPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -80,7 +84,7 @@ static void webkitPointerLockPermissionRequestDeny(WebKitPermissionRequest* requ
     priv->madeDecision = true;
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitPointerLockPermissionRequestAllow;
     iface->deny = webkitPointerLockPermissionRequestDeny;

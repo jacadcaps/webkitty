@@ -47,10 +47,7 @@ exclude .*\/(Configurations|mac|ios|cf|cg|cocoa|Cocoa|objc|avfoundation|ca|curl|
 
 directory Source
 exclude Source/JavaScriptCore/tests
-exclude Source/ThirdParty/capstone
-exclude Source/ThirdParty/libwebrtc
-exclude Source/ThirdParty/qunit
-exclude Source/ThirdParty/openvr
+exclude Source/WebCore/PAL/libavif
 exclude Source/WebCore/platform/audio/resources
 exclude Source/WebCore/bindings/scripts/test
 exclude Source/WebCore/Resources
@@ -60,6 +57,14 @@ exclude Source/cmake/OptionsWindows.cmake$
 exclude Source/cmake/OptionsAppleWin.cmake$
 exclude Source/cmake/OptionsGTK.cmake$
 exclude Source/WebInspectorUI/Tools
+
+exclude Source/ThirdParty
+directory Source/ThirdParty/ANGLE
+directory Source/ThirdParty/gtest
+directory Source/ThirdParty/pdfjs
+# We need to include ThirdParty/pdfjs/web/locale/ca/viewer.properties manually, because ca directories are excluded as port specific.
+file Source/ThirdParty/pdfjs/web/locale/ca/viewer.properties
+directory Source/ThirdParty/xdgmime
 
 exclude Source/WebKit/Resources
 
@@ -85,8 +90,9 @@ exclude Tools/wpe/jhbuildrc
 
 file Tools/glib/common.py
 file Tools/glib/generate-inspector-gresource-manifest.py
+file Tools/glib/generate-modern-media-controls-gresource-manifest.py
+file Tools/glib/generate-pdfjs-resource-manifest.py
 
-directory Tools/gtkdoc
 directory Tools/MiniBrowser
 directory Tools/TestWebKitAPI
 
@@ -94,5 +100,6 @@ file CMakeLists.txt
 file Tools/CMakeLists.txt
 file Tools/PlatformWPE.cmake
 
-directory ${CMAKE_BINARY_DIR}/Documentation/wpe-${WPE_API_VERSION}/html/wpe-${WPE_API_VERSION} Documentation/wpe-${WPE_API_VERSION}/html
-directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webextensions-${WPE_API_VERSION}/html/wpe-webextensions-${WPE_API_VERSION} Documentation/wpe-webextensions-${WPE_API_VERSION}/html
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-javascriptcore-${WPE_API_VERSION} Documentation/wpe-javascriptcore-${WPE_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webkit-${WPE_API_VERSION} Documentation/wpe-webkit-${WPE_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-web-extension-${WPE_API_VERSION} Documentation/wpe-web-extension-${WPE_API_VERSION}

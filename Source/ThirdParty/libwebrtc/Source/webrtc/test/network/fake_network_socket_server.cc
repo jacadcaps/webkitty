@@ -16,7 +16,8 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "rtc_base/async_invoker.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
 
@@ -74,7 +75,7 @@ class FakeNetworkSocket : public rtc::AsyncSocket,
   std::map<Option, int> options_map_ RTC_GUARDED_BY(&thread_);
 
   absl::optional<EmulatedIpPacket> pending_ RTC_GUARDED_BY(thread_);
-  rtc::AsyncInvoker invoker_;
+  rtc::scoped_refptr<PendingTaskSafetyFlag> alive_;
 };
 
 FakeNetworkSocket::FakeNetworkSocket(FakeNetworkSocketServer* socket_server,
@@ -82,9 +83,13 @@ FakeNetworkSocket::FakeNetworkSocket(FakeNetworkSocketServer* socket_server,
     : socket_server_(socket_server),
       thread_(thread),
       state_(CS_CLOSED),
-      error_(0) {}
+      error_(0),
+      alive_(PendingTaskSafetyFlag::Create()) {}
 
 FakeNetworkSocket::~FakeNetworkSocket() {
+  // Abandon all pending packets.
+  alive_->SetNotAlive();
+
   Close();
   socket_server_->Unregister(this);
 }
@@ -103,7 +108,7 @@ void FakeNetworkSocket::OnPacketReceived(EmulatedIpPacket packet) {
     SignalReadEvent(this);
     RTC_DCHECK(!pending_);
   };
-  invoker_.AsyncInvoke<void>(RTC_FROM_HERE, thread_, std::move(task));
+  thread_->PostTask(SafeTask(alive_, std::move(task)));
   socket_server_->WakeUp();
 }
 
@@ -126,7 +131,7 @@ int FakeNetworkSocket::Bind(const rtc::SocketAddress& addr) {
   endpoint_ = socket_server_->GetEndpointNode(local_addr_.ipaddr());
   if (!endpoint_) {
     local_addr_.Clear();
-    RTC_LOG(INFO) << "No endpoint for address: " << ToString(addr);
+    RTC_LOG(LS_INFO) << "No endpoint for address: " << ToString(addr);
     error_ = EADDRNOTAVAIL;
     return 2;
   }
@@ -134,7 +139,7 @@ int FakeNetworkSocket::Bind(const rtc::SocketAddress& addr) {
       endpoint_->BindReceiver(local_addr_.port(), this);
   if (!port) {
     local_addr_.Clear();
-    RTC_LOG(INFO) << "Cannot bind to in-use address: " << ToString(addr);
+    RTC_LOG(LS_INFO) << "Cannot bind to in-use address: " << ToString(addr);
     error_ = EADDRINUSE;
     return 1;
   }
@@ -270,17 +275,13 @@ FakeNetworkSocketServer::FakeNetworkSocketServer(
       wakeup_(/*manual_reset=*/false, /*initially_signaled=*/false) {}
 FakeNetworkSocketServer::~FakeNetworkSocketServer() = default;
 
-void FakeNetworkSocketServer::OnMessageQueueDestroyed() {
-  thread_ = nullptr;
-}
-
 EmulatedEndpointImpl* FakeNetworkSocketServer::GetEndpointNode(
     const rtc::IPAddress& ip) {
   return endpoints_container_->LookupByLocalAddress(ip);
 }
 
 void FakeNetworkSocketServer::Unregister(FakeNetworkSocket* socket) {
-  rtc::CritScope crit(&lock_);
+  MutexLock lock(&lock_);
   sockets_.erase(absl::c_find(sockets_, socket));
 }
 
@@ -297,7 +298,7 @@ rtc::AsyncSocket* FakeNetworkSocketServer::CreateAsyncSocket(int family,
   RTC_DCHECK(thread_) << "must be attached to thread before creating sockets";
   FakeNetworkSocket* out = new FakeNetworkSocket(this, thread_);
   {
-    rtc::CritScope crit(&lock_);
+    MutexLock lock(&lock_);
     sockets_.push_back(out);
   }
   return out;
@@ -305,10 +306,6 @@ rtc::AsyncSocket* FakeNetworkSocketServer::CreateAsyncSocket(int family,
 
 void FakeNetworkSocketServer::SetMessageQueue(rtc::Thread* thread) {
   thread_ = thread;
-  if (thread_) {
-    thread_->SignalQueueDestroyed.connect(
-        this, &FakeNetworkSocketServer::OnMessageQueueDestroyed);
-  }
 }
 
 // Always returns true (if return false, it won't be invoked again...)

@@ -28,15 +28,17 @@
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestWKWebView.h"
+#import <WebKit/WKHTTPCookieStorePrivate.h>
 #import <WebKit/WKProcessPool.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKWebView.h>
 #import <WebKit/WKWebViewConfiguration.h>
+#import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/text/StringConcatenateNumbers.h>
 #import <wtf/text/WTFString.h>
 
-static bool receivedAlert;
+static bool didRunJavaScriptAlertForCookiePrivateBrowsing;
 
 @interface CookiePrivateBrowsingDelegate : NSObject <WKUIDelegate>
 @end
@@ -46,7 +48,7 @@ static bool receivedAlert;
 - (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler
 {
     EXPECT_STREQ(message.UTF8String, "old cookie: <>");
-    receivedAlert = true;
+    didRunJavaScriptAlertForCookiePrivateBrowsing = true;
     completionHandler();
 }
 
@@ -67,14 +69,20 @@ TEST(WebKit, CookiePrivateBrowsing)
     [view2 setUIDelegate:delegate.get()];
     NSString *alertOldCookie = @"<script>var oldCookie = document.cookie; document.cookie = 'key=value'; alert('old cookie: <' + oldCookie + '>');</script>";
     [view1 loadHTMLString:alertOldCookie baseURL:[NSURL URLWithString:@"http://example.com/"]];
-    TestWebKitAPI::Util::run(&receivedAlert);
-    receivedAlert = false;
+    TestWebKitAPI::Util::run(&didRunJavaScriptAlertForCookiePrivateBrowsing);
+    didRunJavaScriptAlertForCookiePrivateBrowsing = false;
     [view2 loadHTMLString:alertOldCookie baseURL:[NSURL URLWithString:@"http://example.com/"]];
-    TestWebKitAPI::Util::run(&receivedAlert);
+    TestWebKitAPI::Util::run(&didRunJavaScriptAlertForCookiePrivateBrowsing);
 }
 
 TEST(WebKit, CookieCacheSyncAcrossProcess)
 {
+    __block bool setDefaultCookieAcceptPolicy = false;
+    [[WKWebsiteDataStore defaultDataStore].httpCookieStore _setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain completionHandler:^{
+        setDefaultCookieAcceptPolicy = true;
+    }];
+    TestWebKitAPI::Util::run(&setDefaultCookieAcceptPolicy);
+
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setWebsiteDataStore:[WKWebsiteDataStore nonPersistentDataStore]];
     auto view1 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -116,7 +124,7 @@ TEST(WebKit, CookieCacheSyncAcrossProcess)
     int timeout = 0;
     __block String cookieString;
     do {
-        TestWebKitAPI::Util::sleep(0.1);
+        TestWebKitAPI::Util::runFor(0.1_s);
         doneEvaluatingJavaScript = false;
         [view2 evaluateJavaScript:@"document.cookie;" completionHandler:^(id _Nullable cookie, NSError * _Nullable error) {
             EXPECT_NULL(error);
@@ -126,7 +134,7 @@ TEST(WebKit, CookieCacheSyncAcrossProcess)
         }];
         TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
         ++timeout;
-    } while (cookieString != "" && timeout < 50);
+    } while (!cookieString.isEmpty() && timeout < 50);
     EXPECT_WK_STREQ("foo=bar", cookieString);
 }
 

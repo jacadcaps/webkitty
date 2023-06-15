@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,38 +25,39 @@
 
 #import "config.h"
 #import "WebInspectorUI.h"
-#import "RemoteWebInspectorUI.h"
+
+#import "WKInspectorViewController.h"
 
 #if PLATFORM(MAC)
 
 namespace WebKit {
+using namespace WebCore;
 
-bool WebInspectorUI::canSave()
+bool WebInspectorUI::canSave(InspectorFrontendClient::SaveMode saveMode)
+{
+    switch (saveMode) {
+    case InspectorFrontendClient::SaveMode::SingleFile:
+    case InspectorFrontendClient::SaveMode::FileVariants:
+        return true;
+    }
+
+    ASSERT_NOT_REACHED();
+    return false;
+}
+
+bool WebInspectorUI::canLoad()
 {
     return true;
 }
 
-static String webInspectorUILocalizedStringsURL()
+bool WebInspectorUI::canPickColorFromScreen()
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    if (!bundle)
-        return String();
-
-    NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
-    if (!path)
-        return String();
-    
-    return [NSURL fileURLWithPath:path isDirectory:NO].absoluteString;
+    return true;
 }
 
 String WebInspectorUI::localizedStringsURL() const
 {
-    return webInspectorUILocalizedStringsURL();
-}
-
-String RemoteWebInspectorUI::localizedStringsURL() const
-{
-    return webInspectorUILocalizedStringsURL();
+    return [WKInspectorViewController URLForInspectorResource:@"localizedStrings.js"].absoluteString;
 }
 
 } // namespace WebKit

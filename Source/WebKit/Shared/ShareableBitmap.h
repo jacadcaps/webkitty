@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,28 +26,13 @@
 #pragma once
 
 #include "SharedMemory.h"
+#include <WebCore/CopyImageOptions.h>
+#include <WebCore/DestinationColorSpace.h>
 #include <WebCore/IntRect.h>
-#include <wtf/RefCounted.h>
+#include <WebCore/PlatformImage.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/RefPtr.h>
-
-#if USE(CG)
-#include "ColorSpaceData.h"
-#include <wtf/RetainPtr.h>
-#endif
-
-#if USE(CAIRO)
-#include <WebCore/RefPtrCairo.h>
-#endif
-
-#if USE(DIRECT2D)
-interface ID2D1Bitmap;
-interface ID2D1RenderTarget;
-interface ID3D11Device1;
-interface IDXGIKeyedMutex;
-interface IDXGISurface1;
-
-#include <WebCore/COMPtr.h>
-#endif
+#include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
 class Image;
@@ -55,63 +40,69 @@ class GraphicsContext;
 }
 
 namespace WebKit {
-    
-class ShareableBitmap : public RefCounted<ShareableBitmap> {
+
+struct ShareableBitmapConfiguration {
+    std::optional<WebCore::DestinationColorSpace> colorSpace;
+    bool isOpaque { false };
+};
+
+class ShareableBitmapHandle  {
+    WTF_MAKE_NONCOPYABLE(ShareableBitmapHandle);
 public:
-    struct Configuration {
-        bool isOpaque { false };
-#if PLATFORM(COCOA)
-        ColorSpaceData colorSpace;
-#endif
-#if USE(DIRECT2D)
-        mutable HANDLE sharedResourceHandle { nullptr };
-#endif
+    ShareableBitmapHandle();
+    ShareableBitmapHandle(ShareableBitmapHandle&&) = default;
+    ShareableBitmapHandle(SharedMemory::Handle&&, const WebCore::IntSize&, const ShareableBitmapConfiguration&);
 
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, Configuration&);
-    };
+    ShareableBitmapHandle& operator=(ShareableBitmapHandle&&) = default;
 
-    class Handle {
-        WTF_MAKE_NONCOPYABLE(Handle);
-    public:
-        Handle();
-        Handle(Handle&&) = default;
-        Handle& operator=(Handle&&) = default;
+    bool isNull() const { return m_handle.isNull(); }
 
-        bool isNull() const { return m_handle.isNull(); }
+    SharedMemory::Handle& handle() { return m_handle; }
 
-        void clear();
+    // Take ownership of the memory for process memory accounting purposes.
+    void takeOwnershipOfMemory(MemoryLedger) const;
 
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, Handle&);
+    void clear();
+private:
+    friend struct IPC::ArgumentCoder<ShareableBitmapHandle, void>;
+    friend class ShareableBitmap;
 
-    private:
-        friend class ShareableBitmap;
+    mutable SharedMemory::Handle m_handle;
+    WebCore::IntSize m_size;
+    ShareableBitmapConfiguration m_configuration;
+};
 
-        mutable SharedMemory::Handle m_handle;
-        WebCore::IntSize m_size;
-        Configuration m_configuration;
-    };
+class ShareableBitmap : public ThreadSafeRefCounted<ShareableBitmap> {
+public:
 
-    // Create a shareable bitmap that uses malloced memory.
-    static RefPtr<ShareableBitmap> create(const WebCore::IntSize&, Configuration);
+    static void validateConfiguration(ShareableBitmapConfiguration&);
+    static CheckedUint32 numBytesForSize(WebCore::IntSize, const ShareableBitmapConfiguration&);
+    static CheckedUint32 calculateBytesPerRow(WebCore::IntSize, const ShareableBitmapConfiguration&);
+    static CheckedUint32 calculateBytesPerPixel(const ShareableBitmapConfiguration&);
 
     // Create a shareable bitmap whose backing memory can be shared with another process.
-    static RefPtr<ShareableBitmap> createShareable(const WebCore::IntSize&, Configuration);
+    static RefPtr<ShareableBitmap> create(const WebCore::IntSize&, ShareableBitmapConfiguration);
 
     // Create a shareable bitmap from an already existing shared memory block.
-    static RefPtr<ShareableBitmap> create(const WebCore::IntSize&, Configuration, RefPtr<SharedMemory>);
+    static RefPtr<ShareableBitmap> create(const WebCore::IntSize&, ShareableBitmapConfiguration, Ref<SharedMemory>&&);
 
     // Create a shareable bitmap from a handle.
-    static RefPtr<ShareableBitmap> create(const Handle&, SharedMemory::Protection = SharedMemory::Protection::ReadWrite);
+    static RefPtr<ShareableBitmap> create(const ShareableBitmapHandle&, SharedMemory::Protection = SharedMemory::Protection::ReadWrite);
+    
+    // Create a shareable bitmap from a ReadOnly handle.
+    static std::optional<Ref<ShareableBitmap>> createReadOnly(const std::optional<ShareableBitmapHandle>&);
 
-    // Create a handle.
-    bool createHandle(Handle&, SharedMemory::Protection = SharedMemory::Protection::ReadWrite) const;
-
-    ~ShareableBitmap();
+    std::optional<ShareableBitmapHandle> createHandle(SharedMemory::Protection = SharedMemory::Protection::ReadWrite) const;
+    
+    // Create a ReadOnly handle.
+    std::optional<ShareableBitmapHandle> createReadOnlyHandle() const;
 
     const WebCore::IntSize& size() const { return m_size; }
     WebCore::IntRect bounds() const { return WebCore::IntRect(WebCore::IntPoint(), size()); }
+
+    void* data() const;
+    size_t bytesPerRow() const { return calculateBytesPerRow(m_size, m_configuration); }
+    size_t sizeInBytes() const { return numBytesForSize(m_size, m_configuration); }
 
     // Create a graphics context that can be used to paint into the backing store.
     std::unique_ptr<WebCore::GraphicsContext> createGraphicsContext();
@@ -119,8 +110,6 @@ public:
     // Paint the backing store into the given context.
     void paint(WebCore::GraphicsContext&, const WebCore::IntPoint& destination, const WebCore::IntRect& source);
     void paint(WebCore::GraphicsContext&, float scaleFactor, const WebCore::IntPoint& destination, const WebCore::IntRect& source);
-
-    bool isBackedBySharedMemory() const { return m_sharedMemory; }
 
     // This creates a bitmap image that directly references the shared bitmap data.
     // This is only safe to use when we know that the contents of the shareable bitmap won't change.
@@ -132,56 +121,38 @@ public:
 
     // This creates a CGImageRef that directly references the shared bitmap data.
     // This is only safe to use when we know that the contents of the shareable bitmap won't change.
-    RetainPtr<CGImageRef> makeCGImage();
+    RetainPtr<CGImageRef> makeCGImage(WebCore::ShouldInterpolate = WebCore::ShouldInterpolate::No);
+
+    WebCore::PlatformImagePtr createPlatformImage(WebCore::BackingStoreCopy = WebCore::CopyBackingStore, WebCore::ShouldInterpolate = WebCore::ShouldInterpolate::No);
 #elif USE(CAIRO)
     // This creates a BitmapImage that directly references the shared bitmap data.
     // This is only safe to use when we know that the contents of the shareable bitmap won't change.
+    RefPtr<cairo_surface_t> createPersistentCairoSurface();
     RefPtr<cairo_surface_t> createCairoSurface();
-#elif USE(DIRECT2D)
-    COMPtr<ID2D1Bitmap> createDirect2DSurface(ID3D11Device1*, ID2D1RenderTarget*);
-    IDXGISurface1* dxSurface() { return m_surface.get(); }
-    void createSharedResource();
-    void disposeSharedResource();
-    void leakSharedResource();
+
+    WebCore::PlatformImagePtr createPlatformImage(WebCore::BackingStoreCopy = WebCore::CopyBackingStore, WebCore::ShouldInterpolate = WebCore::ShouldInterpolate::No) { return createCairoSurface(); }
 #endif
 
 private:
-    ShareableBitmap(const WebCore::IntSize&, Configuration, void*);
-    ShareableBitmap(const WebCore::IntSize&, Configuration, RefPtr<SharedMemory>);
-
-    static Checked<unsigned, RecordOverflow> numBytesForSize(WebCore::IntSize, const ShareableBitmap::Configuration&);
-    static Checked<unsigned, RecordOverflow> calculateBytesPerRow(WebCore::IntSize, const Configuration&);
-    static unsigned calculateBytesPerPixel(const Configuration&);
+    ShareableBitmap(const WebCore::IntSize&, ShareableBitmapConfiguration, Ref<SharedMemory>&&);
 
 #if USE(CG)
-    RetainPtr<CGImageRef> createCGImage(CGDataProviderRef) const;
+    RetainPtr<CGImageRef> createCGImage(CGDataProviderRef, WebCore::ShouldInterpolate) const;
     static void releaseBitmapContextData(void* typelessBitmap, void* typelessData);
-    static void releaseDataProviderData(void* typelessBitmap, const void* typelessData, size_t);
 #endif
 
 #if USE(CAIRO)
     static void releaseSurfaceData(void* typelessBitmap);
 #endif
 
-public:
-    void* data() const;
-private:
-    size_t sizeInBytes() const { return numBytesForSize(m_size, m_configuration).unsafeGet(); }
-
     WebCore::IntSize m_size;
-    Configuration m_configuration;
+    ShareableBitmapConfiguration m_configuration;
 
-#if USE(DIRECT2D)
-    COMPtr<IDXGISurface1> m_surface;
-    COMPtr<IDXGIKeyedMutex> m_surfaceMutex;
-    COMPtr<ID2D1Bitmap> m_bitmap;
+#if USE(CG)
+    bool m_releaseBitmapContextDataCalled { false };
 #endif
 
-    // If the shareable bitmap is backed by shared memory, this points to the shared memory object.
-    RefPtr<SharedMemory> m_sharedMemory;
-
-    // If the shareable bitmap is backed by fastMalloced memory, this points to the data.
-    void* m_data { nullptr };
+    Ref<SharedMemory> m_sharedMemory;
 };
 
 } // namespace WebKit

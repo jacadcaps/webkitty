@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include "WTFStringUtilities.h"
+#include "Test.h"
 #include <cstddef>
 #include <cstdint>
 #include <unicode/uvernum.h>
@@ -194,6 +194,26 @@ TEST(WTF, StringConcatenate_Pad)
     EXPECT_STREQ("xxxxxxxxxxxxxxx1E240", makeString(pad('x', 20, hex(123456))).utf8().data());
     EXPECT_STREQ("xxxxxxxxxxxxxxx1E2400.000", makeString(pad('x', 20, hex(123456)), FormattedNumber::fixedWidth(0.f, 3)).utf8().data());
     EXPECT_STREQ(" B32AF0071F9 id 1231232312313231 (0.000,0.000-0.000,0.000) 0.00KB", makeString(pad(' ', 12, hex(12312312312313)), " id ", 1231232312313231, " (", FormattedNumber::fixedWidth(0.f, 3), ',', FormattedNumber::fixedWidth(0.f, 3), '-', FormattedNumber::fixedWidth(0.f, 3), ',', FormattedNumber::fixedWidth(0.f, 3), ") ", FormattedNumber::fixedWidth(0.f, 2), "KB").utf8().data());
+}
+
+TEST(WTF, StringConcatenate_Tuple)
+{
+    EXPECT_STREQ("hello 42 world", makeString("hello", ' ', 42, ' ', "world").utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString("hello", ' ', std::make_tuple(unsigned(42)), ' ', "world").utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString("hello", ' ', std::make_tuple(unsigned(42), ' ', "world")).utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString(std::make_tuple("hello", ' ', unsigned(42), ' ', "world")).utf8().data());
+
+    UChar checkmarkCodepoint = 0x2713;
+    EXPECT_STREQ("hello \xE2\x9C\x93 world", makeString("hello", ' ', checkmarkCodepoint, ' ', "world").utf8().data());
+    EXPECT_STREQ("hello \xE2\x9C\x93 world", makeString("hello", ' ', std::make_tuple(checkmarkCodepoint), ' ', "world").utf8().data());
+    EXPECT_STREQ("hello \xE2\x9C\x93 world", makeString("hello", ' ', std::make_tuple(checkmarkCodepoint, ' ', "world")).utf8().data());
+    EXPECT_STREQ("hello \xE2\x9C\x93 world", makeString(std::make_tuple("hello", ' ', checkmarkCodepoint, ' ', "world")).utf8().data());
+
+    const UChar helloCodepoints[] = { 'h', 'e', 'l', 'l', 'o', '\0' };
+    EXPECT_STREQ("hello 42 world", makeString(helloCodepoints, ' ', unsigned(42), ' ', "world").utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString(std::make_tuple(helloCodepoints), ' ', unsigned(42), ' ', "world").utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString(std::make_tuple(helloCodepoints, ' ', unsigned(42)), ' ', "world").utf8().data());
+    EXPECT_STREQ("hello 42 world", makeString(std::make_tuple(helloCodepoints, ' ', unsigned(42), ' ', "world")).utf8().data());
 }
 
 }

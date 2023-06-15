@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,6 +48,12 @@ void PlaybackSessionModelContext::removeClient(PlaybackSessionModelClient& clien
 {
     ASSERT(m_clients.contains(&client));
     m_clients.remove(&client);
+}
+
+void PlaybackSessionModelContext::sendRemoteCommand(WebCore::PlatformMediaSession::RemoteControlCommandType command, const WebCore::PlatformMediaSession::RemoteCommandArgument& argument)
+{
+    if (m_manager)
+        m_manager->sendRemoteCommand(m_contextId, command, argument);
 }
 
 void PlaybackSessionModelContext::play()
@@ -113,6 +119,18 @@ void PlaybackSessionModelContext::endScanning()
 {
     if (m_manager)
         m_manager->endScanning(m_contextId);
+}
+
+void PlaybackSessionModelContext::setDefaultPlaybackRate(double defaultPlaybackRate)
+{
+    if (m_manager)
+        m_manager->setDefaultPlaybackRate(m_contextId, defaultPlaybackRate);
+}
+
+void PlaybackSessionModelContext::setPlaybackRate(double playbackRate)
+{
+    if (m_manager)
+        m_manager->setPlaybackRate(m_contextId, playbackRate);
 }
 
 void PlaybackSessionModelContext::selectAudioMediaOption(uint64_t optionId)
@@ -188,12 +206,13 @@ void PlaybackSessionModelContext::bufferedTimeChanged(double bufferedTime)
         client->bufferedTimeChanged(bufferedTime);
 }
 
-void PlaybackSessionModelContext::rateChanged(bool isPlaying, float playbackRate)
+void PlaybackSessionModelContext::rateChanged(OptionSet<WebCore::PlaybackSessionModel::PlaybackState> playbackState, double playbackRate, double defaultPlaybackRate)
 {
-    m_isPlaying = isPlaying;
+    m_playbackState = playbackState;
     m_playbackRate = playbackRate;
+    m_defaultPlaybackRate = defaultPlaybackRate;
     for (auto* client : m_clients)
-        client->rateChanged(isPlaying, playbackRate);
+        client->rateChanged(m_playbackState, m_playbackRate, m_defaultPlaybackRate);
 }
 
 void PlaybackSessionModelContext::seekableRangesChanged(WebCore::TimeRanges& seekableRanges, double lastModifiedTime, double liveUpdateInterval)
@@ -392,6 +411,11 @@ void PlaybackSessionManagerProxy::clearPlaybackControlsManager()
 void PlaybackSessionManagerProxy::currentTimeChanged(PlaybackSessionContextIdentifier contextId, double currentTime, double hostTime)
 {
     ensureModel(contextId).currentTimeChanged(currentTime);
+
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    if (m_page)
+        m_page->didChangeCurrentTime(contextId);
+#endif
 }
 
 void PlaybackSessionManagerProxy::bufferedTimeChanged(PlaybackSessionContextIdentifier contextId, double bufferedTime)
@@ -404,7 +428,6 @@ void PlaybackSessionManagerProxy::seekableRangesVectorChanged(PlaybackSessionCon
     Ref<TimeRanges> timeRanges = TimeRanges::create();
     for (const auto& range : ranges) {
         ASSERT(isfinite(range.first));
-        ASSERT(isfinite(range.second));
         ASSERT(range.second >= range.first);
         timeRanges->add(range.first, range.second);
     }
@@ -437,12 +460,9 @@ void PlaybackSessionManagerProxy::legibleMediaSelectionIndexChanged(PlaybackSess
     ensureModel(contextId).legibleMediaSelectionIndexChanged(selectedIndex);
 }
 
-void PlaybackSessionManagerProxy::externalPlaybackPropertiesChanged(PlaybackSessionContextIdentifier contextId, bool enabled, uint32_t targetType, String localizedDeviceName)
+void PlaybackSessionManagerProxy::externalPlaybackPropertiesChanged(PlaybackSessionContextIdentifier contextId, bool enabled, WebCore::PlaybackSessionModel::ExternalPlaybackTargetType targetType, String localizedDeviceName)
 {
-    PlaybackSessionModel::ExternalPlaybackTargetType type = static_cast<PlaybackSessionModel::ExternalPlaybackTargetType>(targetType);
-    ASSERT(type == PlaybackSessionModel::TargetTypeAirPlay || type == PlaybackSessionModel::TargetTypeTVOut || type == PlaybackSessionModel::TargetTypeNone);
-
-    ensureModel(contextId).externalPlaybackChanged(enabled, type, localizedDeviceName);
+    ensureModel(contextId).externalPlaybackChanged(enabled, targetType, localizedDeviceName);
 }
 
 void PlaybackSessionManagerProxy::wirelessVideoPlaybackDisabledChanged(PlaybackSessionContextIdentifier contextId, bool disabled)
@@ -470,9 +490,14 @@ void PlaybackSessionManagerProxy::playbackStartedTimeChanged(PlaybackSessionCont
     ensureModel(contextId).playbackStartedTimeChanged(playbackStartedTime);
 }
 
-void PlaybackSessionManagerProxy::rateChanged(PlaybackSessionContextIdentifier contextId, bool isPlaying, double rate)
+void PlaybackSessionManagerProxy::rateChanged(PlaybackSessionContextIdentifier contextId, OptionSet<WebCore::PlaybackSessionModel::PlaybackState> playbackState, double rate, double defaultPlaybackRate)
 {
-    ensureModel(contextId).rateChanged(isPlaying, rate);
+    ensureModel(contextId).rateChanged(playbackState, rate, defaultPlaybackRate);
+
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    if (m_page)
+        m_page->didChangePlaybackRate(contextId);
+#endif
 }
 
 void PlaybackSessionManagerProxy::pictureInPictureSupportedChanged(PlaybackSessionContextIdentifier contextId, bool supported)
@@ -544,6 +569,16 @@ void PlaybackSessionManagerProxy::endScanning(PlaybackSessionContextIdentifier c
     m_page->send(Messages::PlaybackSessionManager::EndScanning(contextId));
 }
 
+void PlaybackSessionManagerProxy::setDefaultPlaybackRate(PlaybackSessionContextIdentifier contextId, double defaultPlaybackRate)
+{
+    m_page->send(Messages::PlaybackSessionManager::SetDefaultPlaybackRate(contextId, defaultPlaybackRate));
+}
+
+void PlaybackSessionManagerProxy::setPlaybackRate(PlaybackSessionContextIdentifier contextId, double playbackRate)
+{
+    m_page->send(Messages::PlaybackSessionManager::SetPlaybackRate(contextId, playbackRate));
+}
+
 void PlaybackSessionManagerProxy::selectAudioMediaOption(PlaybackSessionContextIdentifier contextId, uint64_t index)
 {
     m_page->send(Messages::PlaybackSessionManager::SelectAudioMediaOption(contextId, index));
@@ -580,6 +615,21 @@ void PlaybackSessionManagerProxy::setPlayingOnSecondScreen(PlaybackSessionContex
         m_page->send(Messages::PlaybackSessionManager::SetPlayingOnSecondScreen(contextId, value));
 }
 
+void PlaybackSessionManagerProxy::sendRemoteCommand(PlaybackSessionContextIdentifier contextId, WebCore::PlatformMediaSession::RemoteControlCommandType command, const WebCore::PlatformMediaSession::RemoteCommandArgument& argument)
+{
+    if (m_page)
+        m_page->send(Messages::PlaybackSessionManager::SendRemoteCommand(contextId, command, argument));
+}
+
+bool PlaybackSessionManagerProxy::wirelessVideoPlaybackDisabled()
+{
+    auto it = m_contextMap.find(m_controlsManagerContextId);
+    if (it == m_contextMap.end())
+        return true;
+
+    return std::get<0>(it->value)->wirelessVideoPlaybackDisabled();
+}
+
 void PlaybackSessionManagerProxy::requestControlledElementID()
 {
     if (m_controlsManagerContextId)
@@ -593,6 +643,16 @@ PlatformPlaybackSessionInterface* PlaybackSessionManagerProxy::controlsManagerIn
 
     auto& interface = ensureInterface(m_controlsManagerContextId);
     return &interface;
+}
+
+bool PlaybackSessionManagerProxy::isPaused(PlaybackSessionContextIdentifier identifier) const
+{
+    auto iterator = m_contextMap.find(identifier);
+    if (iterator == m_contextMap.end())
+        return false;
+
+    auto& model = *std::get<0>(iterator->value);
+    return !model.isPlaying() && !model.isStalled();
 }
 
 } // namespace WebKit

@@ -26,19 +26,28 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioIOCallback_h
-#define AudioIOCallback_h
+#pragma once
+
+#include <wtf/MonotonicTime.h>
+#include <wtf/Seconds.h>
 
 namespace WebCore {
 
 class AudioBus;
+
+struct AudioIOPosition {
+    // Audio stream position in seconds.
+    Seconds position;
+    // System's monotonic time in seconds corresponding to the contained |position| value.
+    MonotonicTime timestamp;
+};
 
 // Abstract base-class for isochronous audio I/O client.
 class AudioIOCallback {
 public:
     // render() is called periodically to get the next render quantum of audio into destinationBus.
     // Optional audio input is given in sourceBus (if it's not 0).
-    virtual void render(AudioBus* sourceBus, AudioBus* destinationBus, size_t framesToProcess) = 0;
+    virtual void render(AudioBus* sourceBus, AudioBus* destinationBus, size_t framesToProcess, const AudioIOPosition& outputPosition) = 0;
 
     virtual void isPlayingDidChange() = 0;
 
@@ -46,5 +55,3 @@ public:
 };
 
 } // WebCore
-
-#endif // AudioIOCallback_h

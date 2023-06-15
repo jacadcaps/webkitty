@@ -38,18 +38,18 @@ struct ResourceLoadStatisticsParameters {
     String directory;
     SandboxExtension::Handle directoryExtensionHandle;
     bool enabled { false };
-    bool isItpStateExplicitlySet { false };
+    bool isTrackingPreventionStateExplicitlySet { false };
     bool enableLogTestingEvent { false };
     bool shouldIncludeLocalhost { true };
     bool enableDebugMode { false };
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     WebCore::SameSiteStrictEnforcementEnabled sameSiteStrictEnforcementEnabled { WebCore::SameSiteStrictEnforcementEnabled::No };
-    WebCore::CNAMECloakingMitigationEnabled cnameCloakingMitigationEnabled { WebCore::CNAMECloakingMitigationEnabled::No };
 #endif
     WebCore::FirstPartyWebsiteDataRemovalMode firstPartyWebsiteDataRemovalMode { WebCore::FirstPartyWebsiteDataRemovalMode::AllButCookies };
     WebCore::RegistrableDomain standaloneApplicationDomain;
     HashSet<WebCore::RegistrableDomain> appBoundDomains;
+    HashSet<WebCore::RegistrableDomain> managedDomains;
     WebCore::RegistrableDomain manualPrevalentResource;
     
     void encode(IPC::Encoder& encoder) const
@@ -57,111 +57,111 @@ struct ResourceLoadStatisticsParameters {
         encoder << directory;
         encoder << directoryExtensionHandle;
         encoder << enabled;
-        encoder << isItpStateExplicitlySet;
+        encoder << isTrackingPreventionStateExplicitlySet;
         encoder << enableLogTestingEvent;
         encoder << shouldIncludeLocalhost;
         encoder << enableDebugMode;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
         encoder << thirdPartyCookieBlockingMode;
         encoder << sameSiteStrictEnforcementEnabled;
-        encoder << cnameCloakingMitigationEnabled;
 #endif
         encoder << firstPartyWebsiteDataRemovalMode;
         encoder << standaloneApplicationDomain;
         encoder << appBoundDomains;
+        encoder << managedDomains;
         encoder << manualPrevalentResource;
     }
 
-    static Optional<ResourceLoadStatisticsParameters> decode(IPC::Decoder& decoder)
+    static std::optional<ResourceLoadStatisticsParameters> decode(IPC::Decoder& decoder)
     {
-        Optional<String> directory;
+        std::optional<String> directory;
         decoder >> directory;
         if (!directory)
-            return WTF::nullopt;
+            return std::nullopt;
         
-        Optional<SandboxExtension::Handle> directoryExtensionHandle;
+        std::optional<SandboxExtension::Handle> directoryExtensionHandle;
         decoder >> directoryExtensionHandle;
         if (!directoryExtensionHandle)
-            return WTF::nullopt;
-        
-        Optional<bool> enabled;
+            return std::nullopt;
+
+        std::optional<bool> enabled;
         decoder >> enabled;
         if (!enabled)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> isItpStateExplicitlySet;
-        decoder >> isItpStateExplicitlySet;
-        if (!isItpStateExplicitlySet)
-            return WTF::nullopt;
+        std::optional<bool> isTrackingPreventionStateExplicitlySet;
+        decoder >> isTrackingPreventionStateExplicitlySet;
+        if (!isTrackingPreventionStateExplicitlySet)
+            return std::nullopt;
 
-        Optional<bool> enableLogTestingEvent;
+        std::optional<bool> enableLogTestingEvent;
         decoder >> enableLogTestingEvent;
         if (!enableLogTestingEvent)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> shouldIncludeLocalhost;
+        std::optional<bool> shouldIncludeLocalhost;
         decoder >> shouldIncludeLocalhost;
         if (!shouldIncludeLocalhost)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<bool> enableDebugMode;
+        std::optional<bool> enableDebugMode;
         decoder >> enableDebugMode;
         if (!enableDebugMode)
-            return WTF::nullopt;
+            return std::nullopt;
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-        Optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
+#if ENABLE(TRACKING_PREVENTION)
+        std::optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
         decoder >> thirdPartyCookieBlockingMode;
         if (!thirdPartyCookieBlockingMode)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::SameSiteStrictEnforcementEnabled> sameSiteStrictEnforcementEnabled;
+        std::optional<WebCore::SameSiteStrictEnforcementEnabled> sameSiteStrictEnforcementEnabled;
         decoder >> sameSiteStrictEnforcementEnabled;
         if (!sameSiteStrictEnforcementEnabled)
-            return WTF::nullopt;
-
-        Optional<WebCore::CNAMECloakingMitigationEnabled> cnameCloakingMitigationEnabled;
-        decoder >> cnameCloakingMitigationEnabled;
-        if (!cnameCloakingMitigationEnabled)
-            return WTF::nullopt;
+            return std::nullopt;
 #endif
 
-        Optional<WebCore::FirstPartyWebsiteDataRemovalMode> firstPartyWebsiteDataRemovalMode;
+        std::optional<WebCore::FirstPartyWebsiteDataRemovalMode> firstPartyWebsiteDataRemovalMode;
         decoder >> firstPartyWebsiteDataRemovalMode;
         if (!firstPartyWebsiteDataRemovalMode)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::RegistrableDomain> standaloneApplicationDomain;
+        std::optional<WebCore::RegistrableDomain> standaloneApplicationDomain;
         decoder >> standaloneApplicationDomain;
         if (!standaloneApplicationDomain)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<HashSet<WebCore::RegistrableDomain>> appBoundDomains;
+        std::optional<HashSet<WebCore::RegistrableDomain>> appBoundDomains;
         decoder >> appBoundDomains;
         if (!appBoundDomains)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        Optional<WebCore::RegistrableDomain> manualPrevalentResource;
+        std::optional<HashSet<WebCore::RegistrableDomain>> managedDomains;
+        decoder >> managedDomains;
+        if (!managedDomains)
+            return std::nullopt;
+
+        std::optional<WebCore::RegistrableDomain> manualPrevalentResource;
         decoder >> manualPrevalentResource;
         if (!manualPrevalentResource)
-            return WTF::nullopt;
+            return std::nullopt;
 
         return {{
             WTFMove(*directory),
             WTFMove(*directoryExtensionHandle),
             WTFMove(*enabled),
-            WTFMove(*isItpStateExplicitlySet),
+            WTFMove(*isTrackingPreventionStateExplicitlySet),
             WTFMove(*enableLogTestingEvent),
             WTFMove(*shouldIncludeLocalhost),
             WTFMove(*enableDebugMode),
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
             WTFMove(*thirdPartyCookieBlockingMode),
             WTFMove(*sameSiteStrictEnforcementEnabled),
-            WTFMove(*cnameCloakingMitigationEnabled),
 #endif
             WTFMove(*firstPartyWebsiteDataRemovalMode),
             WTFMove(*standaloneApplicationDomain),
             WTFMove(*appBoundDomains),
+            WTFMove(*managedDomains),
             WTFMove(*manualPrevalentResource),
         }};
     }

@@ -26,6 +26,7 @@ CLANG_LINK_OBJC_RUNTIME = NO;
 EXECUTABLE_PREFIX = libswift;
 GENERATE_TEXT_BASED_STUBS = YES;
 IS_ZIPPERED = NO;
+PROFILE_GENERATE_OR_USE_CFLAGS_ENABLE_LLVM_PROFILE_GENERATION = ; // Disable PGO profile generation
 OTHER_LDFLAGS = $(inherited) -weak_framework WebKit;
 PRODUCT_NAME = WebKit;
 STRIP_SWIFT_SYMBOLS = NO;
@@ -50,7 +51,11 @@ INSTALLHDRS_SCRIPT_PHASE = YES;
 // SDK variant on macOS, in which case it's /System/iOSSupport/usr/lib/swift.
 INSTALL_PATH = $(WK_ALTERNATE_FRAMEWORKS_DIR)$(SWIFT_OVERLAY_INSTALL_PATH);
 
-OTHER_SWIFT_FLAGS = -module-link-name $(SWIFT_MODULE_LINK_NAME) -autolink-force-load -runtime-compatibility-version none -disable-autolinking-runtime-compatibility-dynamic-replacements;
+WK_SWIFT_CONCURRENCY_FLAGS = -Xfrontend -enable-experimental-concurrency;
+WK_SWIFT_CONCURRENCY_FLAGS[sdk=macos*11.*] = ;
+WK_SWIFT_CONCURRENCY_FLAGS[sdk=iphone*14.*] = ;
+
+OTHER_SWIFT_FLAGS = -module-link-name $(SWIFT_MODULE_LINK_NAME) -autolink-force-load -runtime-compatibility-version none -disable-autolinking-runtime-compatibility-dynamic-replacements $(WK_SWIFT_CONCURRENCY_FLAGS);
 SWIFT_MODULE_LINK_NAME = swift$(PRODUCT_NAME);
 
 SWIFT_ENABLE_INCREMENTAL_COMPILATION = NO; // YES conflicts with -autolink-force-load
@@ -58,3 +63,12 @@ SWIFT_ENABLE_INCREMENTAL_COMPILATION = NO; // YES conflicts with -autolink-force
 // Custom build settings for install-swiftmodules.sh.
 SWIFT_INSTALL_MODULES = YES;
 SWIFT_MODULE_INSTALL_PATH = $(INSTALL_PATH);
+
+// We need to generate swiftmodules for these architectures, so that they can be
+// imported in apps that are deployable on OS versions that support them.
+// However, we can only generate module files for these; we can't emit binaries.
+// (All imported definitions will be unavailable on these older OS versions.)
+SWIFT_MODULE_ONLY_ARCHS = $(SWIFT_MODULE_ONLY_ARCHS_$(PLATFORM_NAME));
+SWIFT_MODULE_ONLY_ARCHS_iphoneos = armv7 armv7s;
+SWIFT_MODULE_ONLY_ARCHS_iphonesimulator = i386;
+SWIFT_MODULE_ONLY_IPHONEOS_DEPLOYMENT_TARGET = 10.3;

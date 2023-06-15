@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -121,7 +121,7 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
         if (this._resource.type === WI.Resource.Type.WebSocket)
             return;
 
-        InspectorFrontendHost.openInNewTab(this._resource.url);
+        WI.openURL(this._resource.url);
     }
 
     // Protected (Used by FrameTreeElement)
@@ -139,7 +139,7 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
             this._resource.removeEventListener(WI.Resource.Event.URLDidChange, this._urlDidChange, this);
             this._resource.removeEventListener(WI.Resource.Event.TypeDidChange, this._typeDidChange, this);
             this._resource.removeEventListener(WI.Resource.Event.LoadingDidFinish, this.updateStatus, this);
-            this._resource.removeEventListener(WI.Resource.Event.LoadingDidFail, this.updateStatus, this);
+            this._resource.removeEventListener(WI.Resource.Event.LoadingDidFail, this._loadingDidFail, this);
             this._resource.removeEventListener(WI.Resource.Event.ResponseReceived, this._responseReceived, this);
         }
 
@@ -150,7 +150,7 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
         resource.addEventListener(WI.Resource.Event.URLDidChange, this._urlDidChange, this);
         resource.addEventListener(WI.Resource.Event.TypeDidChange, this._typeDidChange, this);
         resource.addEventListener(WI.Resource.Event.LoadingDidFinish, this.updateStatus, this);
-        resource.addEventListener(WI.Resource.Event.LoadingDidFail, this.updateStatus, this);
+        resource.addEventListener(WI.Resource.Event.LoadingDidFail, this._loadingDidFail, this);
         resource.addEventListener(WI.Resource.Event.ResponseReceived, this._responseReceived, this);
 
         this._updateTitles();
@@ -163,6 +163,7 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
 
     get mainTitleText()
     {
+        // Overridden by subclasses if needed.
         return WI.displayNameForURL(this._resource.url, this._resource.urlComponents, {
             allowDirectoryAsName: this._allowDirectoryAsName,
         });
@@ -189,12 +190,16 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
         this.mainTitle = this.mainTitleText;
 
         if (!this._hideOrigin) {
-            if (this._resource.isLocalResourceOverride) {
-                // Show the host for a local resource override if it is different from the main frame.
-                let localResourceOverrideHost = urlComponents.host;
-                let mainFrameHost = (WI.networkManager.mainFrame && WI.networkManager.mainFrame.mainResource) ? WI.networkManager.mainFrame.mainResource.urlComponents.host : null;
-                let subtitle = localResourceOverrideHost !== mainFrameHost ? localResourceOverrideHost : null;
-                this.subtitle = this.mainTitle !== subtitle ? subtitle : null;
+            if (this._resource.localResourceOverride) {
+                if (WI.NetworkManager.supportsOverridingRequests())
+                    this.subtitle = WI.LocalResourceOverride.displayNameForType(this._resource.localResourceOverride.type);
+                else {
+                    // Show the host for a local resource override if it is different from the main frame.
+                    let localResourceOverrideHost = urlComponents.host;
+                    let mainFrameHost = (WI.networkManager.mainFrame && WI.networkManager.mainFrame.mainResource) ? WI.networkManager.mainFrame.mainResource.urlComponents.host : null;
+                    let subtitle = localResourceOverrideHost !== mainFrameHost ? localResourceOverrideHost : null;
+                    this.subtitle = this.mainTitle !== subtitle ? subtitle : null;
+                }
             } else {
                 // Show the host as the subtitle if it is different from the main resource or if this is the main frame's main resource.
                 let subtitle = (parentResourceHost !== urlComponents.host || (frame && frame.isMainFrame() && isMainResource)) ? WI.displayNameForHost(urlComponents.host) : null;
@@ -255,15 +260,27 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
 
     _updateIcon()
     {
-        let isOverride = this._resource.isLocalResourceOverride;
+        let localResourceOverride = this._resource.localResourceOverride || WI.networkManager.localResourceOverridesForURL(this._resource.url).filter((localResourceOverride) => !localResourceOverride.disabled)[0];
+        let isOverride = !!this._resource.localResourceOverride;
         let wasOverridden = this._resource.responseSource === WI.Resource.ResponseSource.InspectorOverride;
-
-        if (isOverride || wasOverridden)
+        let shouldBeOverridden = this._resource.isLoading() && localResourceOverride;
+        let shouldBeBlocked = (this._resource.failed || isOverride) && localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.Block;
+        if (isOverride || wasOverridden || shouldBeOverridden || shouldBeBlocked) {
             this.addClassName("override");
-        else
-            this.removeClassName("override");
 
-        this.iconElement.title = wasOverridden ? WI.UIString("This resource was loaded from a local override") : "";
+            if (shouldBeBlocked || localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork)
+                this.addClassName("skip-network");
+        } else {
+            this.removeClassName("override");
+            this.removeClassName("skip-network");
+        }
+
+        if (wasOverridden)
+            this.iconElement.title = WI.UIString("This resource was loaded from a local override");
+        else if (shouldBeBlocked)
+            this.iconElement.title = WI.UIString("This resource was blocked by a local override");
+        else
+            this.iconElement.title = "";
     }
 
     _urlDidChange(event)
@@ -278,6 +295,12 @@ WI.ResourceTreeElement = class ResourceTreeElement extends WI.SourceCodeTreeElem
         this.addClassName(this._resource.type);
 
         this.callFirstAncestorFunction("descendantResourceTreeElementTypeDidChange", [this, event.data.oldType]);
+    }
+
+    _loadingDidFail(event)
+    {
+        this.updateStatus();
+        this._updateIcon();
     }
 
     _responseReceived(event)

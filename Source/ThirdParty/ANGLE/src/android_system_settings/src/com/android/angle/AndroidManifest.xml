@@ -28,9 +28,11 @@
               android:targetSdkVersion="28">
     </uses-sdk>
 
-    <application android:label="Android System Angle"
+    <application android:allowBackup="false"
+                 android:label="Android System Angle"
                  android:icon="@drawable/icon"
                  android:extractNativeLibs="false"
+                 android:forceQueryable="true"
                  android:multiArch="true">
 
         <activity android:name="com.android.angle.MainActivity"

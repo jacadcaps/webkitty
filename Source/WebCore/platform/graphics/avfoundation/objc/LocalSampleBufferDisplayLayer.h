@@ -32,12 +32,17 @@
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/MediaTime.h>
 #include <wtf/WorkQueue.h>
 
 OBJC_CLASS AVSampleBufferDisplayLayer;
 OBJC_CLASS WebAVSampleBufferStatusChangeListener;
 
+typedef struct __CVBuffer* CVPixelBufferRef;
+
 namespace WebCore {
+
+enum class VideoFrameRotation : uint16_t;
 
 class WEBCORE_EXPORT LocalSampleBufferDisplayLayer final : public SampleBufferDisplayLayer, public CanMakeWeakPtr<LocalSampleBufferDisplayLayer, WeakPtrFactoryInitialization::Eager> {
     WTF_MAKE_FAST_ALLOCATED;
@@ -46,6 +51,8 @@ public:
 
     LocalSampleBufferDisplayLayer(RetainPtr<AVSampleBufferDisplayLayer>&&, Client&);
     ~LocalSampleBufferDisplayLayer();
+
+    void enqueueBuffer(CVPixelBufferRef, MediaTime);
 
     // API used by WebAVSampleBufferStatusChangeListener
     void layerStatusDidChange();
@@ -56,18 +63,22 @@ public:
 
     PlatformLayer* displayLayer();
 
-    PlatformLayer* rootLayer() final;
-
     enum class ShouldUpdateRootLayer { No, Yes };
-    void updateRootLayerBoundsAndPosition(CGRect, MediaSample::VideoRotation, ShouldUpdateRootLayer);
+    void updateRootLayerBoundsAndPosition(CGRect, VideoFrameRotation, ShouldUpdateRootLayer);
+    void updateRootLayerAffineTransform(CGAffineTransform);
 
+    // SampleBufferDisplayLayer.
+    PlatformLayer* rootLayer() final;
     void initialize(bool hideRootLayer, IntSize, CompletionHandler<void(bool didSucceed)>&&) final;
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(String&& logIdentifier) final { m_logIdentifier = WTFMove(logIdentifier); }
+#endif
     bool didFail() const final;
 
     void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer) final;
 
     void updateAffineTransform(CGAffineTransform)  final;
-    void updateBoundsAndPosition(CGRect, MediaSample::VideoRotation) final;
+    void updateBoundsAndPosition(CGRect, VideoFrameRotation) final;
 
     void flush() final;
     void flushAndRemoveImage() final;
@@ -75,15 +86,16 @@ public:
     void play() final;
     void pause() final;
 
-    void enqueueSample(MediaSample&) final;
-    void clearEnqueuedSamples() final;
+    void enqueueVideoFrame(VideoFrame&) final;
+    void clearVideoFrames() final;
     void setRenderPolicy(RenderPolicy) final;
 
 private:
-    void removeOldSamplesFromPendingQueue();
-    void addSampleToPendingQueue(MediaSample&);
+
+    void removeOldVideoFramesFromPendingQueue();
+    void addVideoFrameToPendingQueue(Ref<VideoFrame>&&);
     void requestNotificationWhenReadyForVideoData();
-    void enqueueSampleBuffer(MediaSample&);
+    void setRootLayerBoundsAndPositions(CGRect, VideoFrameRotation);
 
 #if !RELEASE_LOG_DISABLED
     void onIrregularFrameRateNotification(MonotonicTime frameTime, MonotonicTime lastFrameTime);
@@ -98,12 +110,13 @@ private:
     RefPtr<WorkQueue> m_processingQueue;
 
     // Only accessed through m_processingQueue or if m_processingQueue is null.
-    using PendingSampleQueue = Deque<Ref<MediaSample>>;
-    PendingSampleQueue m_pendingVideoSampleQueue;
+    using PendingSampleQueue = Deque<Ref<VideoFrame>>;
+    PendingSampleQueue m_pendingVideoFrameQueue;
     
     bool m_paused { false };
-
+    bool m_didFail { false };
 #if !RELEASE_LOG_DISABLED
+    String m_logIdentifier;
     FrameRateMonitor m_frameRateMonitor;
 #endif
 };

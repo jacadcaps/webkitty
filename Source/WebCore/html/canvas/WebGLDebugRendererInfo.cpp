@@ -26,12 +26,13 @@
 #include "config.h"
 
 #if ENABLE(WEBGL)
-
 #include "WebGLDebugRendererInfo.h"
 
-#include "WebGLRenderingContextBase.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(WebGLDebugRendererInfo);
 
 WebGLDebugRendererInfo::WebGLDebugRendererInfo(WebGLRenderingContextBase& context)
     : WebGLExtension(context)

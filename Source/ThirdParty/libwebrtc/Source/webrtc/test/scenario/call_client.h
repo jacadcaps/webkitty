@@ -18,10 +18,10 @@
 
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/test/time_controller.h"
+#include "api/units/data_rate.h"
 #include "call/call.h"
 #include "modules/audio_device/include/test_audio_device.h"
 #include "modules/congestion_controller/goog_cc/test/goog_cc_printer.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "test/logging/log_writer.h"
 #include "test/network/network_emulation.h"
@@ -68,13 +68,20 @@ class LoggingNetworkControllerFactory
  public:
   LoggingNetworkControllerFactory(LogWriterFactoryInterface* log_writer_factory,
                                   TransportControllerConfig config);
-  RTC_DISALLOW_COPY_AND_ASSIGN(LoggingNetworkControllerFactory);
+
   ~LoggingNetworkControllerFactory();
+
+  LoggingNetworkControllerFactory(const LoggingNetworkControllerFactory&) =
+      delete;
+  LoggingNetworkControllerFactory& operator=(
+      const LoggingNetworkControllerFactory&) = delete;
+
   std::unique_ptr<NetworkControllerInterface> Create(
       NetworkControllerConfig config) override;
   TimeDelta GetProcessInterval() const override;
   // TODO(srte): Consider using the Columnprinter interface for this.
   void LogCongestionControllerStats(Timestamp at_time);
+  void SetRemoteBitrateEstimate(RemoteBitrateReport msg);
 
   NetworkControlUpdate GetUpdate() const;
 
@@ -98,9 +105,12 @@ class CallClient : public EmulatedNetworkReceiverInterface {
   CallClient(TimeController* time_controller,
              std::unique_ptr<LogWriterFactoryInterface> log_writer_factory,
              CallClientConfig config);
-  RTC_DISALLOW_COPY_AND_ASSIGN(CallClient);
 
   ~CallClient();
+
+  CallClient(const CallClient&) = delete;
+  CallClient& operator=(const CallClient&) = delete;
+
   ColumnPrinter StatsPrinter();
   Call::Stats GetStats();
   DataRate send_bandwidth() {
@@ -109,9 +119,16 @@ class CallClient : public EmulatedNetworkReceiverInterface {
   DataRate target_rate() const;
   DataRate stable_target_rate() const;
   DataRate padding_rate() const;
+  void UpdateBitrateConstraints(const BitrateConstraints& constraints);
+  void SetRemoteBitrate(DataRate bitrate);
 
   void OnPacketReceived(EmulatedIpPacket packet) override;
   std::unique_ptr<RtcEventLogOutput> GetLogWriter(std::string name);
+
+  // Exposed publicly so that tests can execute tasks such as querying stats
+  // for media streams in the expected runtime environment (essentially what
+  // CallClient does internally for GetStats()).
+  void SendTask(std::function<void()> task);
 
  private:
   friend class Scenario;
@@ -129,7 +146,6 @@ class CallClient : public EmulatedNetworkReceiverInterface {
   uint32_t GetNextAudioLocalSsrc();
   uint32_t GetNextRtxSsrc();
   void AddExtensions(std::vector<RtpExtension> extensions);
-  void SendTask(std::function<void()> task);
   int16_t Bind(EmulatedEndpoint* endpoint);
   void UnBind();
 
@@ -158,8 +174,11 @@ class CallClient : public EmulatedNetworkReceiverInterface {
 
 class CallClientPair {
  public:
-  RTC_DISALLOW_COPY_AND_ASSIGN(CallClientPair);
   ~CallClientPair();
+
+  CallClientPair(const CallClientPair&) = delete;
+  CallClientPair& operator=(const CallClientPair&) = delete;
+
   CallClient* first() { return first_; }
   CallClient* second() { return second_; }
   std::pair<CallClient*, CallClient*> forward() { return {first(), second()}; }

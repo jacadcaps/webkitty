@@ -25,17 +25,16 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
 
 #include "ResourceLoadStatisticsClassifier.h"
 #include "WebResourceLoadStatisticsStore.h"
-#include "WebResourceLoadStatisticsTelemetry.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Forward.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
-#include <wtf/WorkQueue.h>
 
 #if HAVE(CORE_PREDICTION)
 #include "ResourceLoadStatisticsClassifierCocoa.h"
@@ -51,14 +50,12 @@ struct ResourceLoadStatistics;
 
 namespace WebKit {
 
-class ResourceLoadStatisticsPersistentStorage;
-
 class OperatingDate {
 public:
     OperatingDate() = default;
     
     static OperatingDate fromWallTime(WallTime);
-    static OperatingDate today();
+    static OperatingDate today(Seconds timeAdvanceForTesting);
     Seconds secondsSinceEpoch() const;
     int year() const { return m_year; }
     int month() const { return m_month; }
@@ -80,8 +77,8 @@ private:
     int m_monthDay { 0 }; // [1, 31].
 };
 
-constexpr unsigned operatingDatesWindowLong { 30 };
-constexpr unsigned operatingDatesWindowShort { 7 };
+constexpr unsigned operatingDatesWindowLong { 30 }; // days
+constexpr unsigned operatingDatesWindowShort { 7 }; // days
 constexpr Seconds operatingTimeWindowForLiveOnTesting { 1_h };
 
 enum class OperatingDatesWindow : uint8_t { Long, Short, ForLiveOnTesting, ForReproTesting };
@@ -111,14 +108,12 @@ public:
     virtual Vector<WebResourceLoadStatisticsStore::ThirdPartyData> aggregatedThirdPartyData() const = 0;
 
     virtual void updateCookieBlocking(CompletionHandler<void()>&&) = 0;
-    void updateCookieBlockingForDomains(const RegistrableDomainsToBlockCookiesFor&, CompletionHandler<void()>&&);
+    void updateCookieBlockingForDomains(RegistrableDomainsToBlockCookiesFor&&, CompletionHandler<void()>&&);
     void clearBlockingStateForDomains(const Vector<RegistrableDomain>& domains, CompletionHandler<void()>&&);
 
     void processStatisticsAndDataRecords();
 
     virtual void classifyPrevalentResources() = 0;
-    virtual void syncStorageIfNeeded() = 0;
-    virtual void syncStorageImmediately() = 0;
     virtual void mergeStatistics(Vector<ResourceLoadStatistics>&&) = 0;
 
     virtual void requestStorageAccessUnderOpener(DomainInNeedOfStorageAccess&&, WebCore::PageIdentifier openerID, OpenerDomain&&) = 0;
@@ -132,11 +127,12 @@ public:
     virtual bool isRegisteredAsRedirectingTo(const RedirectedFromDomain&, const RedirectedToDomain&) const = 0;
 
     virtual void clearPrevalentResource(const RegistrableDomain&) = 0;
-    virtual void dumpResourceLoadStatistics(CompletionHandler<void(const String&)>&&) = 0;
+    virtual void dumpResourceLoadStatistics(CompletionHandler<void(String&&)>&&) = 0;
     virtual bool isPrevalentResource(const RegistrableDomain&) const = 0;
     virtual bool isVeryPrevalentResource(const RegistrableDomain&) const = 0;
     virtual void setPrevalentResource(const RegistrableDomain&) = 0;
     virtual void setVeryPrevalentResource(const RegistrableDomain&) = 0;
+    virtual void setMostRecentWebPushInteractionTime(const RegistrableDomain&) = 0;
 
     virtual void setGrandfathered(const RegistrableDomain&, bool value) = 0;
     virtual bool isGrandfathered(const RegistrableDomain&) const = 0;
@@ -151,19 +147,18 @@ public:
     virtual void setTopFrameUniqueRedirectTo(const TopFrameDomain&, const RedirectDomain&) = 0;
     virtual void setTopFrameUniqueRedirectFrom(const TopFrameDomain&, const RedirectDomain&) = 0;
 
-    void logTestingEvent(const String&);
+    void logTestingEvent(String&&);
+
+    virtual void setTimeAdvanceForTesting(Seconds) = 0;
 
     void setMaxStatisticsEntries(size_t maximumEntryCount);
     void setPruneEntriesDownTo(size_t pruneTargetCount);
     void resetParametersToDefaultValues();
 
-    virtual void calculateAndSubmitTelemetry(NotifyPagesForTesting = NotifyPagesForTesting::No) const = 0;
-
     void setNotifyPagesWhenDataRecordsWereScanned(bool);
     void setIsRunningTest(bool);
     bool shouldSkip(const RegistrableDomain&) const;
     void setShouldClassifyResourcesBeforeDataRecordsRemoval(bool);
-    void setShouldSubmitTelemetry(bool);
     void setTimeToLiveUserInteraction(Seconds);
     void setMinimumTimeBetweenDataRecordsRemoval(Seconds);
     void setGrandfatheringTime(Seconds);
@@ -176,10 +171,14 @@ public:
     bool isSameSiteStrictEnforcementEnabled() const { return m_sameSiteStrictEnforcementEnabled == WebCore::SameSiteStrictEnforcementEnabled::Yes; };
     void setFirstPartyWebsiteDataRemovalMode(WebCore::FirstPartyWebsiteDataRemovalMode mode) { m_firstPartyWebsiteDataRemovalMode = mode; }
     void setStandaloneApplicationDomain(RegistrableDomain&& domain) { m_standaloneApplicationDomain = WTFMove(domain); }
+#if ENABLE(APP_BOUND_DOMAINS)
     void setAppBoundDomains(HashSet<RegistrableDomain>&&);
-
+#endif
+#if ENABLE(MANAGED_DOMAINS)
+    void setManagedDomains(HashSet<RegistrableDomain>&&);
+#endif
     virtual bool areAllThirdPartyCookiesBlockedUnder(const TopFrameDomain&) = 0;
-    virtual void hasStorageAccess(const SubFrameDomain&, const TopFrameDomain&, Optional<WebCore::FrameIdentifier>, WebCore::PageIdentifier, CompletionHandler<void(bool)>&&) = 0;
+    virtual void hasStorageAccess(SubFrameDomain&&, TopFrameDomain&&, std::optional<WebCore::FrameIdentifier>, WebCore::PageIdentifier, CompletionHandler<void(bool)>&&) = 0;
     virtual void requestStorageAccess(SubFrameDomain&&, TopFrameDomain&&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebCore::StorageAccessScope, CompletionHandler<void(StorageAccessStatus)>&&) = 0;
     virtual void grantStorageAccess(SubFrameDomain&&, TopFrameDomain&&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebCore::StorageAccessPromptWasShown, WebCore::StorageAccessScope, CompletionHandler<void(WebCore::StorageAccessWasGranted)>&&) = 0;
 
@@ -208,12 +207,12 @@ public:
     virtual void includeTodayAsOperatingDateIfNecessary() = 0;
     virtual void clearOperatingDates() = 0;
     virtual bool hasStatisticsExpired(WallTime mostRecentUserInteractionTime, OperatingDatesWindow) const = 0;
-    virtual void insertExpiredStatisticForTesting(const RegistrableDomain&, bool hasUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool) = 0;
+    virtual void insertExpiredStatisticForTesting(const RegistrableDomain&, unsigned numberOfOperatingDaysPassed, bool hasUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool) = 0;
 
 protected:
     static unsigned computeImportance(const WebCore::ResourceLoadStatistics&);
 
-    ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore&, WorkQueue&, ShouldIncludeLocalhost);
+    ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore&, SuspendableWorkQueue&, ShouldIncludeLocalhost);
     
     bool dataRecordsBeingRemoved() const { return m_dataRecordsBeingRemoved; }
 
@@ -224,7 +223,7 @@ protected:
     virtual void pruneStatisticsIfNeeded() = 0;
 
     WebResourceLoadStatisticsStore& store() { return m_store; }
-    Ref<WorkQueue>& workQueue() { return m_workQueue; }
+    Ref<SuspendableWorkQueue>& workQueue() { return m_workQueue; }
 #if HAVE(CORE_PREDICTION)
     ResourceLoadStatisticsClassifierCocoa& classifier() { return m_resourceLoadStatisticsClassifier; }
 #else
@@ -234,16 +233,16 @@ protected:
     struct Parameters {
         size_t pruneEntriesDownTo { 800 };
         size_t maxStatisticsEntries { 1000 };
-        Optional<Seconds> timeToLiveUserInteraction;
+        std::optional<Seconds> timeToLiveUserInteraction;
         Seconds minimumTimeBetweenDataRecordsRemoval { 1_h };
         Seconds grandfatheringTime { 24_h * 7 };
         Seconds cacheMaxAgeCapTime { 24_h * 7 };
         Seconds clientSideCookiesAgeCapTime { 24_h * 7 };
+        Seconds clientSideCookiesForLinkDecorationTargetPageAgeCapTime { 24_h };
         Seconds minDelayAfterMainFrameDocumentLoadToNotBeARedirect { 5_s };
         bool shouldNotifyPagesWhenDataRecordsWereScanned { false };
         bool shouldClassifyResourcesBeforeDataRecordsRemoval { true };
         size_t minimumTopFrameRedirectsForSameSiteStrictEnforcement { 10 };
-        bool shouldSubmitTelemetry { true };
         bool isRunningTest { false };
     };
     const Parameters& parameters() const { return m_parameters; }
@@ -263,6 +262,7 @@ protected:
     static constexpr unsigned maxNumberOfRecursiveCallsInRedirectTraceBack { 50 };
     
     Vector<CompletionHandler<void()>> m_dataRecordRemovalCompletionHandlers;
+    Seconds m_timeAdvanceForTesting;
 
 private:
     bool shouldRemoveDataRecords() const;
@@ -271,26 +271,22 @@ private:
     void removeDataRecords(CompletionHandler<void()>&&);
     void setCacheMaxAgeCap(Seconds);
     void updateCacheMaxAgeCap();
-    void setAgeCapForClientSideCookies(Seconds);
     void updateClientSideCookiesAgeCap();
 
     WebResourceLoadStatisticsStore& m_store;
-    Ref<WorkQueue> m_workQueue;
+    Ref<SuspendableWorkQueue> m_workQueue;
 #if HAVE(CORE_PREDICTION)
     ResourceLoadStatisticsClassifierCocoa m_resourceLoadStatisticsClassifier;
 #else
     ResourceLoadStatisticsClassifier m_resourceLoadStatisticsClassifier;
-#endif
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    HashSet<uint64_t> m_activePluginTokens;
 #endif
     Parameters m_parameters;
     WallTime m_endOfGrandfatheringTimestamp;
     RegistrableDomain m_debugManualPrevalentResource;
     MonotonicTime m_lastTimeDataRecordsWereRemoved;
     uint64_t m_lastStatisticsProcessingRequestIdentifier { 0 };
-    Optional<uint64_t> m_pendingStatisticsProcessingRequestIdentifier;
-    const RegistrableDomain m_debugStaticPrevalentResource { URL { URL(), "https://3rdpartytestwebkit.org"_s } };
+    std::optional<uint64_t> m_pendingStatisticsProcessingRequestIdentifier;
+    const RegistrableDomain m_debugStaticPrevalentResource { URL { "https://3rdpartytestwebkit.org"_str } };
     bool m_debugLoggingEnabled { false };
     bool m_debugModeEnabled { false };
     WebCore::ThirdPartyCookieBlockingMode m_thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
@@ -300,6 +296,7 @@ private:
     WebCore::FirstPartyWebsiteDataRemovalMode m_firstPartyWebsiteDataRemovalMode { WebCore::FirstPartyWebsiteDataRemovalMode::AllButCookies };
     RegistrableDomain m_standaloneApplicationDomain;
     HashSet<RegistrableDomain> m_appBoundDomains;
+    HashSet<RegistrableDomain> m_managedDomains;
 };
 
 } // namespace WebKit

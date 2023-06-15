@@ -46,8 +46,9 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._styleSheetFrameURLMap = new Map;
         this._nodeStylesMap = {};
         this._modifiedStyles = new Map;
-        this._defaultAppearance = null;
-        this._forcedAppearance = null;
+        this._defaultUserPreferences = new Map;
+        this._overridenUserPreferences = new Map;
+        this._propertyNameCompletions = null;
     }
 
     // Target
@@ -56,6 +57,90 @@ WI.CSSManager = class CSSManager extends WI.Object
     {
         if (target.hasDomain("CSS"))
             target.CSSAgent.enable();
+    }
+
+    initializeCSSPropertyNameCompletions(target)
+    {
+        console.assert(target.hasDomain("CSS"));
+
+        if (this._propertyNameCompletions)
+            return;
+
+        target.CSSAgent.getSupportedCSSProperties((error, cssProperties) => {
+            if (error)
+                return;
+
+            this._propertyNameCompletions = new WI.CSSPropertyNameCompletions(cssProperties);
+
+            WI.CSSKeywordCompletions.addCustomCompletions(cssProperties);
+
+            // CodeMirror is not included by tests so we shouldn't assume it always exists.
+            // If it isn't available we skip MIME type associations.
+            if (!window.CodeMirror)
+                return;
+
+            let propertyNamesForCodeMirror = {};
+            let valueKeywordsForCodeMirror = {"inherit": true, "initial": true, "unset": true, "revert": true, "revert-layer": true, "var": true, "env": true};
+            let colorKeywordsForCodeMirror = {};
+
+            function nameForCodeMirror(name) {
+                // CodeMirror parses the vendor prefix separate from the property or keyword name,
+                // so we need to strip vendor prefixes from our names. Also strip function parenthesis.
+                return name.replace(/^-[^-]+-/, "").replace(/\(\)$/, "").toLowerCase();
+            }
+
+            for (let property of cssProperties) {
+                // Properties can also be value keywords, like when used in a transition.
+                // So we add them to both lists.
+                let codeMirrorPropertyName = nameForCodeMirror(property.name);
+                propertyNamesForCodeMirror[codeMirrorPropertyName] = true;
+                valueKeywordsForCodeMirror[codeMirrorPropertyName] = true;
+            }
+
+            for (let propertyName in WI.CSSKeywordCompletions._propertyKeywordMap) {
+                let keywords = WI.CSSKeywordCompletions._propertyKeywordMap[propertyName];
+                for (let keyword of keywords) {
+                    // Skip numbers, like the ones defined for font-weight.
+                    if (keyword === WI.CSSKeywordCompletions.AllPropertyNamesPlaceholder || !isNaN(Number(keyword)))
+                        continue;
+                    valueKeywordsForCodeMirror[nameForCodeMirror(keyword)] = true;
+                }
+            }
+
+            for (let color of WI.CSSKeywordCompletions._colors)
+                colorKeywordsForCodeMirror[nameForCodeMirror(color)] = true;
+
+            // TODO: Remove these keywords once they are built-in codemirror or once we get values from WebKit itself.
+            valueKeywordsForCodeMirror["conic-gradient"] = true;
+            valueKeywordsForCodeMirror["repeating-conic-gradient"] = true;
+
+            function updateCodeMirrorCSSMode(mimeType) {
+                let modeSpec = CodeMirror.resolveMode(mimeType);
+
+                console.assert(modeSpec.propertyKeywords);
+                console.assert(modeSpec.valueKeywords);
+                console.assert(modeSpec.colorKeywords);
+
+                modeSpec.propertyKeywords = propertyNamesForCodeMirror;
+                modeSpec.valueKeywords = valueKeywordsForCodeMirror;
+                modeSpec.colorKeywords = colorKeywordsForCodeMirror;
+
+                CodeMirror.defineMIME(mimeType, modeSpec);
+            }
+
+            updateCodeMirrorCSSMode("text/css");
+            updateCodeMirrorCSSMode("text/x-scss");
+        });
+
+        if (target.hasCommand("CSS.getSupportedSystemFontFamilyNames")) {
+            target.CSSAgent.getSupportedSystemFontFamilyNames((error, fontFamilyNames) =>{
+                if (error)
+                    return;
+
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font-family", fontFamilyNames);
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font", fontFamilyNames);
+            });
+        }
     }
 
     // Static
@@ -155,6 +240,8 @@ WI.CSSManager = class CSSManager extends WI.Object
             return WI.unlocalizedString("::after");
         case CSSManager.PseudoSelectorNames.Selection:
             return WI.unlocalizedString("::selection");
+        case CSSManager.PseudoSelectorNames.Backdrop:
+            return WI.unlocalizedString("::backdrop");
         case CSSManager.PseudoSelectorNames.Scrollbar:
             return WI.unlocalizedString("::scrollbar");
         case CSSManager.PseudoSelectorNames.ScrollbarThumb:
@@ -176,7 +263,38 @@ WI.CSSManager = class CSSManager extends WI.Object
         }
     }
 
+    static displayNameForForceablePseudoClass(pseudoClass)
+    {
+        switch (pseudoClass) {
+        case WI.CSSManager.ForceablePseudoClass.Active:
+            return WI.unlocalizedString(":active");
+        case WI.CSSManager.ForceablePseudoClass.Focus:
+            return WI.unlocalizedString(":focus");
+        case WI.CSSManager.ForceablePseudoClass.FocusVisible:
+            return WI.unlocalizedString(":focus-visible");
+        case WI.CSSManager.ForceablePseudoClass.FocusWithin:
+            return WI.unlocalizedString(":focus-within");
+        case WI.CSSManager.ForceablePseudoClass.Hover:
+            return WI.unlocalizedString(":hover");
+        case WI.CSSManager.ForceablePseudoClass.Target:
+            return WI.unlocalizedString(":target");
+        case WI.CSSManager.ForceablePseudoClass.Visited:
+            return WI.unlocalizedString(":visited");
+        }
+
+        console.assert(false, "Unknown pseudo class", pseudoClass);
+        return "";
+    }
+
     // Public
+
+    get propertyNameCompletions() { return this._propertyNameCompletions; }
+
+    get overridenUserPreferences() { return this._overridenUserPreferences; }
+
+    get defaultUserPreferences() { return this._defaultUserPreferences; }
+
+    get overridenUserPreferences() { return this._overridenUserPreferences; }
 
     get preferredColorFormat()
     {
@@ -188,60 +306,108 @@ WI.CSSManager = class CSSManager extends WI.Object
         return Array.from(this._styleSheetIdentifierMap.values());
     }
 
-    get defaultAppearance()
+    get supportsOverrideUserPreference()
     {
-        return this._defaultAppearance;
+        return InspectorBackend.hasCommand("Page.overrideUserPreference") && this._defaultUserPreferences.size;
     }
 
-    get forcedAppearance()
+    get supportsOverrideColorScheme()
     {
-        return this._forcedAppearance;
+        // A backend for a platform that does not support color schemes will not dispatch an initial event (Page.defaultAppearanceDidChange or Page.defaultUserPreferencesDidChange)
+        // with the default value for the color scheme preference which gets stored on the frontend.
+
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): `PrefersColorScheme` value for `Page.UserPreferenceName` did not exist yet.
+        return this._defaultUserPreferences.has(InspectorBackend.Enum.Page.UserPreferenceName?.PrefersColorScheme) || this._defaultUserPreferences.has(WI.CSSManager.ForcedAppearancePreference);
     }
 
-    set forcedAppearance(name)
+    // COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+    setForcedAppearance(name)
     {
-        if (!this.canForceAppearance())
-            return;
-
-        let protocolName = "";
+        let commandArguments = {};
 
         switch (name) {
         case WI.CSSManager.Appearance.Light:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Light;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Light;
             break;
 
         case WI.CSSManager.Appearance.Dark:
-            protocolName = InspectorBackend.Enum.Page.Appearance.Dark;
+            commandArguments.appearance = InspectorBackend.Enum.Page.Appearance.Dark;
             break;
 
         case null:
-        case undefined:
-        case "":
-            protocolName = "";
+            // COMPATIBILITY (iOS 14): the `appearance`` parameter of `Page.setForcedAppearance` was not optional.
+            // Since support can't be tested directly, check for the `options`` parameter of `DOMDebugger.setDOMBreakpoint` (iOS 14.0+).
+            // FIXME: Use explicit version checking once https://webkit.org/b/148680 is fixed.
+            if (!InspectorBackend.hasCommand("DOMDebugger.setDOMBreakpoint", "options"))
+                commandArguments.appearance = "";
             break;
 
         default:
-            // Abort for unknown values.
+            console.assert(false, "Unknown appearance", name);
             return;
         }
 
-        this._forcedAppearance = name || null;
-
         let target = WI.assumingMainTarget();
-        target.PageAgent.setForcedAppearance(protocolName).then(() => {
+        return target.PageAgent.setForcedAppearance.invoke(commandArguments);
+    }
+
+    set layoutContextTypeChangedMode(layoutContextTypeChangedMode)
+    {
+        for (let target of WI.targets) {
+            // COMPATIBILITY (iOS 14.5): CSS.setLayoutContextTypeChangedMode did not exist.
+            if (target.hasCommand("CSS.setLayoutContextTypeChangedMode"))
+                target.CSSAgent.setLayoutContextTypeChangedMode(layoutContextTypeChangedMode);
+        }
+    }
+
+    canForcePseudoClass(pseudoClass)
+    {
+        if (!InspectorBackend.hasCommand("CSS.forcePseudoState"))
+            return false;
+
+        if (!pseudoClass)
+            return true;
+
+        switch (pseudoClass) {
+        case WI.CSSManager.ForceablePseudoClass.Active:
+        case WI.CSSManager.ForceablePseudoClass.Focus:
+        case WI.CSSManager.ForceablePseudoClass.Hover:
+        case WI.CSSManager.ForceablePseudoClass.Visited:
+            return true;
+
+        case WI.CSSManager.ForceablePseudoClass.FocusVisible:
+        case WI.CSSManager.ForceablePseudoClass.FocusWithin:
+        case WI.CSSManager.ForceablePseudoClass.Target:
+            // COMPATIBILITY (macOS 12.3, iOS 15.4): CSS.ForceablePseudoClass did not exist yet.
+            return !!InspectorBackend.Enum.CSS.ForceablePseudoClass;
+        }
+
+        console.assert(false, "Unknown pseudo class", pseudoClass);
+        return false;
+    }
+
+    overrideUserPreference(preference, value)
+    {
+        let promises = [];
+        for (let target of WI.targets) {
+            // COMPATIBILITY (macOS 13.0, iOS 16.0): `Page.overrideUserPreference()` did not exist yet.
+            if (target.hasCommand("Page.overrideUserPreference") && InspectorBackend.Enum.Page.UserPreferenceName[preference])
+                promises.push(target.PageAgent.overrideUserPreference(preference, value));
+
+            // COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+            if (preference === WI.CSSManager.ForcedAppearancePreference && target.hasCommand("Page.setForcedAppearance"))
+                promises.push(this.setForcedAppearance(value || null));
+        }
+
+        if (value)
+            this._overridenUserPreferences.set(preference, value);
+        else
+            this._overridenUserPreferences.delete(preference);
+
+        Promise.allSettled(promises).then(() => {
             this.mediaQueryResultChanged();
-            this.dispatchEventToListeners(WI.CSSManager.Event.ForcedAppearanceDidChange, {appearance: this._forcedAppearance});
-        });
-    }
-
-    canForceAppearance()
-    {
-        return InspectorBackend.hasCommand("Page.setForcedAppearance") && this._defaultAppearance;
-    }
-
-    canForcePseudoClasses()
-    {
-        return InspectorBackend.hasCommand("CSS.forcePseudoState");
+            this.dispatchEventToListeners(WI.CSSManager.Event.OverridenUserPreferencesDidChange);
+        })
     }
 
     propertyNameHasOtherVendorPrefix(name)
@@ -270,6 +436,7 @@ WI.CSSManager = class CSSManager extends WI.Object
         if (!name || name.length < 8 || name.charAt(0) !== "-")
             return name;
 
+        // Keep in sync with prefix list from Source/WebInspectorUI/Scripts/update-inspector-css-documentation
         var match = name.match(/^(?:-webkit-|-khtml-|-apple-)(.+)/);
         if (!match)
             return name;
@@ -342,6 +509,8 @@ WI.CSSManager = class CSSManager extends WI.Object
     addModifiedStyle(style)
     {
         this._modifiedStyles.set(style.stringId, style);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     getModifiedStyle(style)
@@ -352,10 +521,13 @@ WI.CSSManager = class CSSManager extends WI.Object
     removeModifiedStyle(style)
     {
         this._modifiedStyles.delete(style.stringId);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.ModifiedStylesChanged);
     }
 
     // PageObserver
 
+    // COMPATIBILITY (macOS 13, iOS 16.0): `Page.defaultAppearanceDidChange` was removed in favor of `Page.defaultUserPreferencesDidChange`
     defaultAppearanceDidChange(protocolName)
     {
         let appearance = null;
@@ -374,11 +546,21 @@ WI.CSSManager = class CSSManager extends WI.Object
             break;
         }
 
-        this._defaultAppearance = appearance;
-
         this.mediaQueryResultChanged();
 
-        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultAppearanceDidChange, {appearance});
+        this._defaultUserPreferences.set(WI.CSSManager.ForcedAppearancePreference, appearance);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultUserPreferencesDidChange);
+    }
+
+    defaultUserPreferencesDidChange(userPreferences)
+    {
+        this._defaultUserPreferences.clear();
+
+        for (let userPreference of userPreferences)
+            this._defaultUserPreferences.set(userPreference.name, userPreference.value)
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultUserPreferencesDidChange);
     }
 
     // CSSObserver
@@ -465,7 +647,6 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._styleSheetIdentifierMap.clear();
         this._styleSheetFrameURLMap.clear();
         this._modifiedStyles.clear();
-        this._forcedAppearance = null;
 
         this._nodeStylesMap = {};
     }
@@ -567,7 +748,7 @@ WI.CSSManager = class CSSManager extends WI.Object
             return;
 
         // Ignore changes to resource overrides, those are not live on the page.
-        if (resource.isLocalResourceOverride)
+        if (resource.localResourceOverride)
             return;
 
         // Ignore if it isn't a CSS style sheet.
@@ -661,18 +842,24 @@ WI.CSSManager = class CSSManager extends WI.Object
 WI.CSSManager.Event = {
     StyleSheetAdded: "css-manager-style-sheet-added",
     StyleSheetRemoved: "css-manager-style-sheet-removed",
-    DefaultAppearanceDidChange: "css-manager-default-appearance-did-change",
-    ForcedAppearanceDidChange: "css-manager-forced-appearance-did-change",
+    ModifiedStylesChanged: "css-manager-modified-styles-changed",
+    DefaultUserPreferencesDidChange: "css-manager-default-user-preferences-did-change",
+    OverridenUserPreferencesDidChange: "css-manager-overriden-user-preferences-did-change",
 };
 
+WI.CSSManager.UserPreferenceDefaultValue = "System";
+
+// COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+WI.CSSManager.ForcedAppearancePreference = "ForcedAppearancePreference";
 WI.CSSManager.Appearance = {
-    Light: Symbol("light"),
-    Dark: Symbol("dark"),
+    Light: "Light",
+    Dark: "Dark",
 };
 
 WI.CSSManager.PseudoSelectorNames = {
     After: "after",
     Before: "before",
+    Backdrop: "backdrop",
     FirstLetter: "first-letter",
     FirstLine: "first-line",
     Highlight: "highlight",
@@ -687,6 +874,21 @@ WI.CSSManager.PseudoSelectorNames = {
     Selection: "selection",
 };
 
+WI.CSSManager.LayoutContextTypeChangedMode = {
+    Observed: "observed",
+    All: "all",
+};
+
 WI.CSSManager.PseudoElementNames = ["before", "after"];
-WI.CSSManager.ForceablePseudoClasses = ["active", "focus", "hover", "visited"];
+
+WI.CSSManager.ForceablePseudoClass = {
+    Active: "active",
+    Focus: "focus",
+    FocusVisible: "focus-visible",
+    FocusWithin: "focus-within",
+    Hover: "hover",
+    Target: "target",
+    Visited: "visited",
+};
+
 WI.CSSManager.PreferredInspectorStyleSheetSymbol = Symbol("css-manager-preferred-inspector-style-sheet");

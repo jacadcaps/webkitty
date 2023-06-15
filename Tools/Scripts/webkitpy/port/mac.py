@@ -1,5 +1,5 @@
 # Copyright (C) 2011 Google Inc. All rights reserved.
-# Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+# Copyright (C) 2012-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -37,8 +37,10 @@ from webkitpy.common.memoized import memoized
 from webkitpy.common.system.executive import ScriptError
 from webkitpy.common.version_name_map import PUBLIC_TABLE, INTERNAL_TABLE
 from webkitpy.common.version_name_map import VersionNameMap
+from webkitpy.port.base import Port
 from webkitpy.port.config import apple_additions, Config
 from webkitpy.port.darwin import DarwinPort
+from webkitpy.port.driver import DriverInput
 
 _log = logging.getLogger(__name__)
 
@@ -46,8 +48,8 @@ _log = logging.getLogger(__name__)
 class MacPort(DarwinPort):
     port_name = "mac"
 
-    CURRENT_VERSION = Version(10, 15)
-    LAST_MACOSX = Version(10, 16)  # FIXME: Once we don't need to support the seed, deprecate in favor of Catalina
+    CURRENT_VERSION = Version(13, 0)
+    LAST_MACOSX = Version(10, 15)
 
     SDK = 'macosx'
 
@@ -73,6 +75,18 @@ class MacPort(DarwinPort):
             return 'arm64'
         return result
 
+    # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
+    def expectations_dict(self, device_type=None):
+        result = super(MacPort, self).expectations_dict(device_type=device_type)
+        if self.architecture() == 'x86_64' and self.host.platform.architecture() == 'arm64':
+            rosetta_expectations = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac', 'TestExpectationsRosetta')
+            if self._filesystem.exists(rosetta_expectations):
+                result[rosetta_expectations] = self._filesystem.read_text_file(rosetta_expectations)
+            else:
+                _log.warning('Failed to find Rosetta special-case expectation path at {}'.format(rosetta_expectations))
+        return result
+
+
     def _build_driver_flags(self):
         architecture = self.architecture()
         # The Internal SDK should always prefer arm64e binaries to arm64 ones
@@ -93,15 +107,16 @@ class MacPort(DarwinPort):
             while temp_version != self.CURRENT_VERSION:
                 versions_to_fallback.append(Version.from_iterable(temp_version))
                 if temp_version < self.CURRENT_VERSION:
-                    if temp_version.minor < self.LAST_MACOSX.minor:
-                        temp_version.minor += 1
+                    if temp_version.major == self.LAST_MACOSX.major:
+                        if temp_version.minor < self.LAST_MACOSX.minor:
+                            temp_version.minor += 1
+                        else:
+                            temp_version = Version(11, 0)
                     else:
-                        temp_version = Version(11, 0)
+                        temp_version = Version(temp_version.major + 1)
                 else:
-                    if temp_version.minor > 0:
-                        temp_version.minor -= 1
-                    else:
-                        temp_version = Version(self.LAST_MACOSX.major, self.LAST_MACOSX.minor)
+                    temp_version = Version(temp_version.major - 1)
+
         wk_string = 'wk1'
         if self.get_option('webkit_test_runner'):
             wk_string = 'wk2'
@@ -171,8 +186,13 @@ class MacPort(DarwinPort):
             if self.get_option('guard_malloc'):
                 self._append_value_colon_separated(env, 'DYLD_INSERT_LIBRARIES', '/usr/lib/libgmalloc.dylib')
                 self._append_value_colon_separated(env, '__XPC_DYLD_INSERT_LIBRARIES', '/usr/lib/libgmalloc.dylib')
-            self._append_value_colon_separated(env, 'DYLD_INSERT_LIBRARIES', self._build_path("libWebCoreTestShim.dylib"))
         env['XML_CATALOG_FILES'] = ''  # work around missing /etc/catalog <rdar://problem/4292995>
+        return env
+
+    def port_adjust_environment_for_test_driver(self, env):
+        env = super(MacPort, self).port_adjust_environment_for_test_driver(env)
+        env['CA_DISABLE_GENERIC_SHADERS'] = '1'
+        env['__XPC_CA_DISABLE_GENERIC_SHADERS'] = '1'
         return env
 
     def _clear_global_caches_and_temporary_files(self):
@@ -205,6 +225,11 @@ class MacPort(DarwinPort):
     def default_child_processes(self, **kwargs):
         default_count = super(MacPort, self).default_child_processes()
 
+        # FIXME: arm64 Mac hardware can handle more processes than the default number we calculate.
+        # Double the amount of default workers until we implement more sophisticated test scheduling.
+        if self.architecture() == 'arm64':
+            default_count = default_count * 2
+
         # FIXME: https://bugs.webkit.org/show_bug.cgi?id=95906  With too many WebProcess WK2 tests get stuck in resource contention.
         # To alleviate the issue reduce the number of running processes
         # Anecdotal evidence suggests that a 4 core/8 core logical machine may run into this, but that a 2 core/4 core logical machine does not.
@@ -232,6 +257,8 @@ class MacPort(DarwinPort):
         return min(supportable_instances, default_count)
 
     def start_helper(self, pixel_tests=False, prefer_integrated_gpu=False):
+        self.stop_helper()
+
         helper_path = self._path_to_helper()
         if not helper_path:
             _log.error("No path to LayoutTestHelper binary")
@@ -240,9 +267,9 @@ class MacPort(DarwinPort):
         arguments = [helper_path, '--install-color-profile']
         if prefer_integrated_gpu:
             arguments.append('--prefer-integrated-gpu')
-        self._helper = self._executive.popen(arguments,
+        Port.helper = self._executive.popen(arguments,
             stdin=self._executive.PIPE, stdout=self._executive.PIPE, stderr=None)
-        is_ready = self._helper.stdout.readline()
+        is_ready = Port.helper.stdout.readline()
         if not is_ready.startswith(b'ready'):
             _log.error("LayoutTestHelper could not start")
             return False
@@ -251,7 +278,7 @@ class MacPort(DarwinPort):
     def reset_preferences(self):
         _log.debug("Resetting persistent preferences")
 
-        for domain in ["DumpRenderTree", "WebKitTestRunner"]:
+        for domain in ["com.apple.WebKit.DumpRenderTree", "com.apple.WebKit.WebKitTestRunner"]:
             try:
                 self._executive.run_command(["defaults", "delete", domain])
             except ScriptError as e:
@@ -259,19 +286,8 @@ class MacPort(DarwinPort):
                 if e.exit_code != 1:
                     raise e
 
-    def stop_helper(self):
-        if self._helper:
-            _log.debug("Stopping LayoutTestHelper")
-            try:
-                self._helper.stdin.write(b"x\n")
-                self._helper.stdin.close()
-                self._helper.wait()
-            except IOError as e:
-                _log.debug("IOError raised while stopping helper: %s" % str(e))
-            self._helper = None
-
     def logging_patterns_to_strip(self):
-        logging_patterns = []
+        logging_patterns = super(MacPort, self).logging_patterns_to_strip()
 
         # FIXME: Remove this after <rdar://problem/35954459> is fixed.
         logging_patterns.append(('AVDCreateGPUAccelerator: Error loading GPU renderer\n', ''))
@@ -282,10 +298,24 @@ class MacPort(DarwinPort):
         # FIXME: Remove this after <rdar://problem/52897406> is fixed.
         logging_patterns.append((re.compile('VPA info:.*\n'), ''))
 
+        # FIXME: Find where this is coming from and file a bug to have it removed (then remove this line).
+        logging_patterns.append((re.compile('VP9 Info:.*\n'), ''))
+
+        # FIXME: Find where this is coming from and file a bug to have it removed (then remove this line).
+        logging_patterns.append((re.compile('set AppID to 1\n'), ''))
+
         return logging_patterns
 
+    def logging_detectors_to_strip_text_start(self, test_name):
+        logging_detectors = []
+
+        if 'webrtc' in test_name and self._os_version.major == 11:
+            logging_detectors.append('')
+
+        return logging_detectors
+
     def stderr_patterns_to_strip(self):
-        worthless_patterns = []
+        worthless_patterns = super(MacPort, self).stderr_patterns_to_strip()
         worthless_patterns.append((re.compile('.*(Fig|fig|itemasync|vt|mv_|PullParamSetSPS|ccrp_|client).* signalled err=.*\n'), ''))
         worthless_patterns.append((re.compile('.*<<<< FigFilePlayer >>>>.*\n'), ''))
         worthless_patterns.append((re.compile('.*<<<< FigFile >>>>.*\n'), ''))
@@ -307,6 +337,15 @@ class MacPort(DarwinPort):
                 configuration['model'] = match.group('model')
 
         return configuration
+
+    def setup_test_run(self, device_type=None):
+        super(MacPort, self).setup_test_run(device_type)
+        # Warm-up can be disabled with `--no-timeout`. This is useful when trying to avoid debugger
+        # attaching to the warmup process when debugging with `lldb --wait-for --attach-name ...`.
+        if not self.get_option("no_timeout"):
+            _log.debug('Warming up the runner ...')
+            warmup_driver = self.create_driver(0)
+            warmup_driver.run_test(DriverInput('file:///warmup-does-not-exist', 60000., None, should_run_pixel_test=False), stop_when_done=True)
 
 
 class MacCatalystPort(MacPort):

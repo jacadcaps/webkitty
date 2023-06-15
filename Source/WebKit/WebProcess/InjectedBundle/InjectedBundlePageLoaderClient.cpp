@@ -47,10 +47,8 @@ using namespace WebCore;
 InjectedBundlePageLoaderClient::InjectedBundlePageLoaderClient(const WKBundlePageLoaderClientBase* client)
 {
     initialize(client);
-#if !PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED > 101400
     // Deprecated callbacks.
     ASSERT(!m_client.shouldGoToBackForwardListItem);
-#endif
 }
 
 void InjectedBundlePageLoaderClient::willLoadURLRequest(WebPage& page, const ResourceRequest& request, API::Object* userData)
@@ -64,18 +62,19 @@ void InjectedBundlePageLoaderClient::willLoadURLRequest(WebPage& page, const Res
 static void releaseSharedBuffer(unsigned char*, const void* data)
 {
     // Balanced by ref() in InjectedBundlePageLoaderClient::willLoadDataRequest().
-    static_cast<SharedBuffer*>(const_cast<void*>(data))->deref();
+    static_cast<const SharedBuffer*>(data)->deref();
 }
 
-void InjectedBundlePageLoaderClient::willLoadDataRequest(WebPage& page, const ResourceRequest& request, SharedBuffer* sharedBuffer, const String& MIMEType, const String& encodingName, const URL& unreachableURL, API::Object* userData)
+void InjectedBundlePageLoaderClient::willLoadDataRequest(WebPage& page, const ResourceRequest& request, RefPtr<FragmentedSharedBuffer> sharedBuffer, const String& MIMEType, const String& encodingName, const URL& unreachableURL, API::Object* userData)
 {
     if (!m_client.willLoadDataRequest)
         return;
 
     RefPtr<API::Data> data;
     if (sharedBuffer) {
-        sharedBuffer->ref();
-        data = API::Data::createWithoutCopying((const unsigned char*)sharedBuffer->data(), sharedBuffer->size(), releaseSharedBuffer, sharedBuffer);
+        auto contiguousBuffer = sharedBuffer->makeContiguous();
+        contiguousBuffer->ref();
+        data = API::Data::createWithoutCopying(contiguousBuffer->data(), contiguousBuffer->size(), releaseSharedBuffer, contiguousBuffer.ptr());
     }
 
     m_client.willLoadDataRequest(toAPI(&page), toAPI(request), toAPI(data.get()), toAPI(MIMEType.impl()), toAPI(encodingName.impl()), toURLRef(unreachableURL.string().impl()), toAPI(userData), m_client.base.clientInfo);
@@ -209,16 +208,6 @@ void InjectedBundlePageLoaderClient::didRunInsecureContentForFrame(WebPage& page
     userData = adoptRef(toImpl(userDataToPass));
 }
 
-void InjectedBundlePageLoaderClient::didDetectXSSForFrame(WebPage& page, WebFrame& frame, RefPtr<API::Object>& userData)
-{
-    if (!m_client.didDetectXSSForFrame)
-        return;
-
-    WKTypeRef userDataToPass = nullptr;
-    m_client.didDetectXSSForFrame(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
-    userData = adoptRef(toImpl(userDataToPass));
-}
-
 void InjectedBundlePageLoaderClient::didFirstLayoutForFrame(WebPage& page, WebFrame& frame, RefPtr<API::Object>& userData)
 {
     if (!m_client.didFirstLayoutForFrame)
@@ -296,6 +285,15 @@ void InjectedBundlePageLoaderClient::globalObjectIsAvailableForFrame(WebPage& pa
 
     RefPtr<InjectedBundleScriptWorld> injectedWorld = InjectedBundleScriptWorld::getOrCreate(world);
     m_client.globalObjectIsAvailableForFrame(toAPI(&page), toAPI(&frame), toAPI(injectedWorld.get()), m_client.base.clientInfo);
+}
+
+void InjectedBundlePageLoaderClient::serviceWorkerGlobalObjectIsAvailableForFrame(WebPage& page, WebFrame& frame, DOMWrapperWorld& world)
+{
+    if (!m_client.serviceWorkerGlobalObjectIsAvailableForFrame)
+        return;
+
+    RefPtr<InjectedBundleScriptWorld> injectedWorld = InjectedBundleScriptWorld::getOrCreate(world);
+    m_client.serviceWorkerGlobalObjectIsAvailableForFrame(toAPI(&page), toAPI(&frame), toAPI(injectedWorld.get()), m_client.base.clientInfo);
 }
 
 void InjectedBundlePageLoaderClient::willInjectUserScriptForFrame(WebPage& page, WebFrame& frame, DOMWrapperWorld& world)

@@ -16,14 +16,12 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "modules/audio_device/audio_device_generic.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/file_wrapper.h"
 #include "rtc_base/time_utils.h"
-
-namespace rtc {
-class PlatformThread;
-}  // namespace rtc
 
 namespace webrtc {
 
@@ -31,13 +29,14 @@ namespace webrtc {
 // and plays out into a file.
 class FileAudioDevice : public AudioDeviceGeneric {
  public:
-  // Constructs a file audio device with |id|. It will read audio from
-  // |inputFilename| and record output audio to |outputFilename|.
+  // Constructs a file audio device with `id`. It will read audio from
+  // `inputFilename` and record output audio to `outputFilename`.
   //
   // The input file should be a readable 48k stereo raw file, and the output
   // file should point to a writable location. The output format will also be
   // 48k stereo raw audio.
-  FileAudioDevice(const char* inputFilename, const char* outputFilename);
+  FileAudioDevice(absl::string_view inputFilename,
+                  absl::string_view outputFilename);
   virtual ~FileAudioDevice();
 
   // Retrieve the currently utilized audio layer
@@ -139,15 +138,14 @@ class FileAudioDevice : public AudioDeviceGeneric {
   int8_t* _playoutBuffer;    // In bytes.
   uint32_t _recordingFramesLeft;
   uint32_t _playoutFramesLeft;
-  rtc::CriticalSection _critSect;
+  Mutex mutex_;
 
   size_t _recordingBufferSizeIn10MS;
   size_t _recordingFramesIn10MS;
   size_t _playoutFramesIn10MS;
 
-  // TODO(pbos): Make plain members instead of pointers and stop resetting them.
-  std::unique_ptr<rtc::PlatformThread> _ptrThreadRec;
-  std::unique_ptr<rtc::PlatformThread> _ptrThreadPlay;
+  rtc::PlatformThread _ptrThreadRec;
+  rtc::PlatformThread _ptrThreadPlay;
 
   bool _playing;
   bool _recording;

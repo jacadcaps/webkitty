@@ -28,12 +28,14 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "AuxiliaryProcessProxy.h"
-#include "GPUProcessProxyMessagesReplies.h"
 #include "ProcessLauncher.h"
+#include "ProcessTerminationReason.h"
 #include "ProcessThrottler.h"
 #include "ProcessThrottlerClient.h"
+#include "ShareableBitmap.h"
 #include "WebPageProxyIdentifier.h"
-#include "WebProcessProxyMessagesReplies.h"
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/PageIdentifier.h>
 #include <memory>
 #include <pal/SessionID.h>
 
@@ -41,44 +43,82 @@
 #include "LayerHostingContext.h"
 #endif
 
+#if PLATFORM(MAC)
+#include <CoreGraphics/CGDisplayConfiguration.h>
+#endif
+
+namespace WebCore {
+class CaptureDevice;
+struct MockMediaDevice;
+struct ScreenProperties;
+class SecurityOriginData;
+}
+
 namespace WebKit {
 
 class WebProcessProxy;
 class WebsiteDataStore;
+struct GPUProcessConnectionParameters;
 struct GPUProcessCreationParameters;
 
-class GPUProcessProxy final : public AuxiliaryProcessProxy, private ProcessThrottlerClient, public CanMakeWeakPtr<GPUProcessProxy> {
+class GPUProcessProxy final : public AuxiliaryProcessProxy, private ProcessThrottlerClient {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(GPUProcessProxy);
     friend LazyNeverDestroyed<GPUProcessProxy>;
 public:
-    static GPUProcessProxy& singleton();
-    static GPUProcessProxy* singletonIfCreated() { return m_singleton; }
+    static Ref<GPUProcessProxy> getOrCreate();
+    static GPUProcessProxy* singletonIfCreated();
+    ~GPUProcessProxy();
 
-    void getGPUProcessConnection(WebProcessProxy&, Messages::WebProcessProxy::GetGPUProcessConnectionDelayedReply&&);
+    void createGPUProcessConnection(WebProcessProxy&, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
 
     ProcessThrottler& throttler() final { return m_throttler; }
     void updateProcessAssertion();
-
-    // ProcessThrottlerClient
-    void sendProcessDidResume() final { }
-    ASCIILiteral clientName() const final { return "GPUProcess"_s; }
 
 #if ENABLE(MEDIA_STREAM)
     void setUseMockCaptureDevices(bool);
     void setOrientationForMediaCapture(uint64_t orientation);
     void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier, CompletionHandler<void()>&&);
+    void updateCaptureOrigin(const WebCore::SecurityOriginData&, WebCore::ProcessIdentifier);
+    void addMockMediaDevice(const WebCore::MockMediaDevice&);
+    void clearMockMediaDevices();
+    void removeMockMediaDevice(const String&);
+    void setMockMediaDeviceIsEphemeral(const String&, bool);
+    void resetMockMediaDevices();
+    void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
+    void triggerMockMicrophoneConfigurationChange();
+    void updateSandboxAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture);
+#endif
+
+#if HAVE(SC_CONTENT_SHARING_SESSION)
+    void showWindowPicker(CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
+    void showScreenPicker(CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);
 #endif
 
     void removeSession(PAL::SessionID);
 
-#if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    LayerHostingContextID contextIDForVisibilityPropagation() const;
+#if PLATFORM(MAC)
+    void displayConfigurationChanged(CGDirectDisplayID, CGDisplayChangeSummaryFlags);
+    void setScreenProperties(const WebCore::ScreenProperties&);
+#endif
+
+#if HAVE(POWERLOG_TASK_MODE_QUERY)
+    void enablePowerLogging();
+    static bool isPowerLoggingInTaskMode();
+#endif
+
+    void updatePreferences(WebProcessProxy&);
+    void updateScreenPropertiesIfNeeded();
+
+    void terminateForTesting();
+    void webProcessConnectionCountForTesting(CompletionHandler<void(uint64_t)>&&);
+
+#if ENABLE(VIDEO)
+    void requestBitmapImageForCurrentTime(WebCore::ProcessIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(const ShareableBitmapHandle&)>&&);
 #endif
 
 private:
     explicit GPUProcessProxy();
-    ~GPUProcessProxy();
 
     void addSession(const WebsiteDataStore&);
 
@@ -89,10 +129,12 @@ private:
     void connectionWillOpen(IPC::Connection&) override;
     void processWillShutDown(IPC::Connection&) override;
 
-    void gpuProcessCrashed();
+    void gpuProcessExited(ProcessTerminationReason);
 
     // ProcessThrottlerClient
-    void sendPrepareToSuspend(IsSuspensionImminent, CompletionHandler<void()>&&) final { }
+    ASCIILiteral clientName() const final { return "GPUProcess"_s; }
+    void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
+    void sendProcessDidResume(ResumeReason) final;
 
     // ProcessLauncher::Client
     void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) override;
@@ -102,11 +144,27 @@ private:
     void didClose(IPC::Connection&) override;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName) override;
 
+    // ResponsivenessTimer::Client
+    void didBecomeUnresponsive() final;
+
+    void terminateWebProcess(WebCore::ProcessIdentifier);
+    void processIsReadyToExit();
+
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    void didCreateContextForVisibilityPropagation(LayerHostingContextID);
+    void didCreateContextForVisibilityPropagation(WebPageProxyIdentifier, WebCore::PageIdentifier, LayerHostingContextID);
 #endif
 
-    static GPUProcessProxy* m_singleton;
+#if ENABLE(VP9)
+    void setHasVP9HardwareDecoder(bool hasVP9HardwareDecoder) { s_hasVP9HardwareDecoder = hasVP9HardwareDecoder; }
+    void setHasVP9ExtensionSupport(bool hasVP9ExtensionSupport) { s_hasVP9ExtensionSupport = hasVP9ExtensionSupport; }
+#endif
+
+#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
+    void statusBarWasTapped(CompletionHandler<void()>&&);
+#endif
+
+    GPUProcessCreationParameters processCreationParameters();
+    void platformInitializeGPUProcessParameters(GPUProcessCreationParameters&);
 
     ProcessThrottler m_throttler;
     ProcessThrottler::ActivityVariant m_activityFromWebProcesses;
@@ -114,12 +172,22 @@ private:
     bool m_useMockCaptureDevices { false };
     uint64_t m_orientation { 0 };
 #endif
-    HashSet<PAL::SessionID> m_sessionIDs;
-
-#if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    LayerHostingContextID m_contextIDForVisibilityPropagation { 0 };
-    Vector<WeakPtr<WebProcessProxy>> m_processesPendingVisibilityPropagationNotification;
+#if PLATFORM(COCOA)
+    bool m_hasSentTCCDSandboxExtension { false };
+    bool m_hasSentCameraSandboxExtension { false };
+    bool m_hasSentMicrophoneSandboxExtension { false };
+    bool m_hasSentDisplayCaptureSandboxExtension { false };
 #endif
+
+#if HAVE(SCREEN_CAPTURE_KIT)
+    bool m_hasEnabledScreenCaptureKit { false };
+#endif
+#if ENABLE(VP9)
+    static std::optional<bool> s_hasVP9HardwareDecoder;
+    static std::optional<bool> s_hasVP9ExtensionSupport;
+#endif
+
+    HashSet<PAL::SessionID> m_sessionIDs;
 };
 
 } // namespace WebKit

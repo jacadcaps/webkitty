@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,12 @@
 
 #include <wtf/Packed.h>
 #include <wtf/HashMap.h>
+#include <wtf/MathExtras.h>
 #include <wtf/Vector.h>
+
+#if OS(DARWIN)
+#include <mach/vm_param.h>
+#endif
 
 namespace TestWebKitAPI {
 
@@ -61,7 +66,7 @@ TEST(WTF_Packed, AssignAndGet)
 {
     {
         PackedPtr<uint8_t> key { nullptr };
-        static_assert(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) != 64, "");
+        static_assert(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) != 64);
         uint8_t* candidates[] = {
             0,
             bitwise_cast<uint8_t*>(static_cast<uintptr_t>((1ULL << (OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) / 2)) - 1)),

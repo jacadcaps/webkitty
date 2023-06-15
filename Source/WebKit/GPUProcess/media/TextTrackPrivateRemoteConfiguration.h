@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include <WebCore/InbandTextTrackPrivate.h>
 #include <WebCore/TrackPrivateBase.h>
@@ -34,7 +34,7 @@
 namespace WebKit {
 
 struct TextTrackPrivateRemoteConfiguration {
-    AtomString id;
+    AtomString trackId;
     AtomString label;
     AtomString language;
     AtomString inBandMetadataTrackDispatchType;
@@ -42,7 +42,6 @@ struct TextTrackPrivateRemoteConfiguration {
     int trackIndex;
 
     WebCore::InbandTextTrackPrivate::CueFormat cueFormat { WebCore::InbandTextTrackPrivate::CueFormat::Generic };
-    WebCore::InbandTextTrackPrivate::Mode mode { WebCore::InbandTextTrackPrivate::Mode::Disabled };
     WebCore::InbandTextTrackPrivate::Kind kind { WebCore::InbandTextTrackPrivate::Kind::None };
 
     bool isClosedCaptions { false };
@@ -51,126 +50,8 @@ struct TextTrackPrivateRemoteConfiguration {
     bool isMainProgramContent { true };
     bool isEasyToRead { false };
     bool isDefault { false };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << id;
-        encoder << label;
-        encoder << language;
-        encoder << inBandMetadataTrackDispatchType;
-        encoder << startTimeVariance;
-        encoder << trackIndex;
-        encoder << cueFormat;
-        encoder << mode;
-        encoder << kind;
-        encoder << isClosedCaptions;
-        encoder << isSDH;
-        encoder << containsOnlyForcedSubtitles;
-        encoder << isMainProgramContent;
-        encoder << isEasyToRead;
-        encoder << isDefault;
-    }
-
-    template <class Decoder>
-    static Optional<TextTrackPrivateRemoteConfiguration> decode(Decoder& decoder)
-    {
-        Optional<AtomString> id;
-        decoder >> id;
-        if (!id)
-            return WTF::nullopt;
-
-        Optional<AtomString> label;
-        decoder >> label;
-        if (!label)
-            return WTF::nullopt;
-
-        Optional<AtomString> language;
-        decoder >> language;
-        if (!language)
-            return WTF::nullopt;
-
-        Optional<AtomString> inBandMetadataTrackDispatchType;
-        decoder >> inBandMetadataTrackDispatchType;
-        if (!inBandMetadataTrackDispatchType)
-            return WTF::nullopt;
-
-        Optional<MediaTime> startTimeVariance;
-        decoder >> startTimeVariance;
-        if (!startTimeVariance)
-            return WTF::nullopt;
-
-        Optional<int> trackIndex;
-        decoder >> trackIndex;
-        if (!trackIndex)
-            return WTF::nullopt;
-
-        Optional<WebCore::InbandTextTrackPrivate::CueFormat> cueFormat;
-        decoder >> cueFormat;
-        if (!cueFormat)
-            return WTF::nullopt;
-
-        Optional<WebCore::InbandTextTrackPrivate::Mode> mode;
-        decoder >> mode;
-        if (!mode)
-            return WTF::nullopt;
-
-        Optional<WebCore::InbandTextTrackPrivate::Kind> kind;
-        decoder >> kind;
-        if (!kind)
-            return WTF::nullopt;
-
-        Optional<bool> isClosedCaptions;
-        decoder >> isClosedCaptions;
-        if (!isClosedCaptions)
-            return WTF::nullopt;
-
-        Optional<bool> isSDH;
-        decoder >> isSDH;
-        if (!isSDH)
-            return WTF::nullopt;
-
-        Optional<bool> containsOnlyForcedSubtitles;
-        decoder >> containsOnlyForcedSubtitles;
-        if (!containsOnlyForcedSubtitles)
-            return WTF::nullopt;
-
-        Optional<bool> isMainProgramContent;
-        decoder >> isMainProgramContent;
-        if (!isMainProgramContent)
-            return WTF::nullopt;
-
-        Optional<bool> isEasyToRead;
-        decoder >> isEasyToRead;
-        if (!isEasyToRead)
-            return WTF::nullopt;
-
-        Optional<bool> isDefault;
-        decoder >> isDefault;
-        if (!isDefault)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*id),
-            WTFMove(*label),
-            WTFMove(*language),
-            WTFMove(*inBandMetadataTrackDispatchType),
-            WTFMove(*startTimeVariance),
-            *trackIndex,
-            *cueFormat,
-            *mode,
-            *kind,
-            *isClosedCaptions,
-            *isSDH,
-            *containsOnlyForcedSubtitles,
-            *isMainProgramContent,
-            *isEasyToRead,
-            *isDefault,
-        }};
-    }
 };
-
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

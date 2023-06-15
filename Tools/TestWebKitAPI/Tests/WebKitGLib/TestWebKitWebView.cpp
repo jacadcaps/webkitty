@@ -21,8 +21,13 @@
 #include "config.h"
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/SoupVersioning.h>
 #include <glib/gstdio.h>
 #include <wtf/glib/GRefPtr.h>
+
+#if PLATFORM(WPE) && USE(WPEBACKEND_FDO_AUDIO_EXTENSION)
+#include <wpe/extensions/audio.h>
+#endif
 
 class IsPlayingAudioWebViewTest : public WebViewTest {
 public:
@@ -39,6 +44,25 @@ public:
         g_signal_connect(m_webView, "notify::is-playing-audio", G_CALLBACK(isPlayingAudioChanged), this);
         g_main_loop_run(m_mainLoop);
     }
+
+    void periodicallyCheckIsPlayingForAWhile()
+    {
+        m_tickCount = 0;
+        g_timeout_add(50, [](gpointer userData) -> gboolean {
+            auto* test = static_cast<IsPlayingAudioWebViewTest*>(userData);
+            g_assert_true(webkit_web_view_is_playing_audio(test->m_webView));
+            test->m_tickCount++;
+            if (test->m_tickCount >= 10) {
+                test->quitMainLoop();
+                return G_SOURCE_REMOVE;
+            }
+            return G_SOURCE_CONTINUE;
+        }, this);
+        g_main_loop_run(m_mainLoop);
+    }
+
+private:
+    uint32_t m_tickCount { 0 };
 };
 
 static WebKitTestServer* gServer;
@@ -61,6 +85,7 @@ static void testWebViewWebContext(WebViewTest* test, gconstpointer)
     g_assert_true(webkit_web_view_get_context(webView.get()) == test->m_webContext.get());
 
     // Check that a web context given as construct parameter is ignored if a related view is also provided.
+    Test::removeLogFatalFlag(G_LOG_LEVEL_CRITICAL);
     webView = Test::adoptView(g_object_new(WEBKIT_TYPE_WEB_VIEW,
 #if PLATFORM(WPE)
         "backend", Test::createWebViewBackend(),
@@ -68,6 +93,7 @@ static void testWebViewWebContext(WebViewTest* test, gconstpointer)
         "web-context", webkit_web_context_get_default(),
         "related-view", test->m_webView,
         nullptr));
+    Test::addLogFatalFlag(G_LOG_LEVEL_CRITICAL);
     g_assert_true(webkit_web_view_get_context(webView.get()) == test->m_webContext.get());
 }
 
@@ -195,11 +221,19 @@ static void ephemeralViewloadChanged(WebKitWebView* webView, WebKitLoadEvent loa
 
 static void testWebViewEphemeral(WebViewTest* test, gconstpointer)
 {
+#if ENABLE(2022_GLIB_API)
+    auto* networkSession = webkit_web_view_get_network_session(test->m_webView);
+    g_assert_false(webkit_network_session_is_ephemeral(networkSession));
+    auto* manager = webkit_network_session_get_website_data_manager(networkSession);
+    g_assert_false(webkit_website_data_manager_is_ephemeral(manager));
+    GRefPtr<WebKitNetworkSession> ephemeralSession = adoptGRef(webkit_network_session_new_ephemeral());
+#else
     g_assert_false(webkit_web_view_is_ephemeral(test->m_webView));
     g_assert_false(webkit_web_context_is_ephemeral(webkit_web_view_get_context(test->m_webView)));
     auto* manager = webkit_web_context_get_website_data_manager(test->m_webContext.get());
     g_assert_false(webkit_website_data_manager_is_ephemeral(manager));
     g_assert_true(webkit_web_view_get_website_data_manager(test->m_webView) == manager);
+#endif
     webkit_website_data_manager_clear(manager, WEBKIT_WEBSITE_DATA_DISK_CACHE, 0, nullptr, [](GObject* manager, GAsyncResult* result, gpointer userData) {
         webkit_website_data_manager_clear_finish(WEBKIT_WEBSITE_DATA_MANAGER(manager), result, nullptr);
         static_cast<WebViewTest*>(userData)->quitMainLoop();
@@ -212,11 +246,20 @@ static void testWebViewEphemeral(WebViewTest* test, gconstpointer)
         "backend", Test::createWebViewBackend(),
 #endif
         "web-context", webkit_web_view_get_context(test->m_webView),
+#if ENABLE(2022_GLIB_API)
+        "network-session", ephemeralSession.get(),
+#else
         "is-ephemeral", TRUE,
+#endif
         nullptr));
+#if ENABLE(2022_GLIB_API)
+    g_assert_true(webkit_network_session_is_ephemeral(webkit_web_view_get_network_session(webView.get())));
+    g_assert_true(webkit_web_view_get_network_session(webView.get()) != networkSession);
+#else
     g_assert_true(webkit_web_view_is_ephemeral(webView.get()));
     g_assert_false(webkit_web_context_is_ephemeral(webkit_web_view_get_context(webView.get())));
     g_assert_true(webkit_web_view_get_website_data_manager(webView.get()) != manager);
+#endif
 
     g_signal_connect(webView.get(), "load-changed", G_CALLBACK(ephemeralViewloadChanged), test);
     webkit_web_view_load_uri(webView.get(), gServer->getURIForPath("/").data());
@@ -295,107 +338,310 @@ static void testWebViewZoomLevel(WebViewTest* test, gconstpointer)
     g_assert_cmpfloat(webkit_web_view_get_zoom_level(test->m_webView), ==, 2.5);
 }
 
+static void testWebViewRunAsyncFunctions(WebViewTest* test, gconstpointer)
+{
+    GUniqueOutPtr<GError> error;
+
+    JSCValue* value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(42); });", nullptr, nullptr, &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_no_error(error.get());
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 42);
+
+    GVariantDict dict;
+    g_variant_dict_init(&dict, nullptr);
+    g_variant_dict_insert(&dict, "count", "u", 42);
+    auto* args = g_variant_dict_end(&dict);
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(count); });", args, nullptr, &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_no_error(error.get());
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 42);
+
+    g_variant_dict_init(&dict, nullptr);
+    g_variant_dict_insert(&dict, "motto", "s", "Never gonna give you up");
+    args = g_variant_dict_end(&dict);
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(motto); });", args, nullptr, &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_no_error(error.get());
+    GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(value));
+    g_assert_cmpstr(valueString.get(), ==, "Never gonna give you up");
+
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise(function(resolve, reject) { setTimeout(function(){ reject('Rejected!') }, 0); })", nullptr, nullptr, &error.outPtr());
+    g_assert_null(value);
+    g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+    g_assert_true(g_strstr_len(error->message, strlen(error->message), "Rejected!") != nullptr);
+
+    g_variant_dict_init(&dict, nullptr);
+    g_variant_dict_insert(&dict, "countt", "u", 42);
+    args = g_variant_dict_end(&dict);
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(count); });", args, nullptr, &error.outPtr());
+    g_assert_null(value);
+    g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+
+    g_variant_dict_init(&dict, nullptr);
+    g_variant_dict_insert(&dict, "count", "u", 42);
+    args = g_variant_dict_end(&dict);
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return count", args, nullptr, &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_no_error(error.get());
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 42);
+
+    g_variant_dict_init(&dict, nullptr);
+    g_variant_dict_insert(&dict, "count", "(u)", 42);
+    args = g_variant_dict_end(&dict);
+    value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(count); });", args, nullptr, &error.outPtr());
+    g_assert_null(value);
+    g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_INVALID_PARAMETER);
+
+    {
+        // Set a value in main world.
+        JSCValue* value = test->runJavaScriptAndWaitUntilFinished("a = 25;", &error.outPtr());
+        g_assert_nonnull(value);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+        g_assert_no_error(error.get());
+        g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 25);
+
+        // Read back value from main world.
+        value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return a", nullptr, nullptr, &error.outPtr());
+        g_assert_nonnull(value);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+        g_assert_no_error(error.get());
+        g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 25);
+
+        // Values of the main world are not available in the isolated one.
+        value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return a", nullptr, "WebExtensionTestScriptWorld", &error.outPtr());
+        g_assert_null(value);
+        g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+
+        // An empty string for world name is a distinct isolated world.
+        value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return a", nullptr, "", &error.outPtr());
+        g_assert_null(value);
+        g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+
+        // Running a script in a world that doesn't exist should fail.
+        value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return a", nullptr, "InvalidScriptWorld", &error.outPtr());
+        g_assert_null(value);
+        g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+    }
+
+    {
+        // Disable JS support and expect an error when attempting to evaluate JS code.
+        WebKitSettings* defaultSettings = webkit_web_view_get_settings(test->m_webView);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(defaultSettings));
+        g_assert_nonnull(defaultSettings);
+        g_assert_true(webkit_settings_get_enable_javascript(defaultSettings));
+
+        GRefPtr<WebKitSettings> newSettings = adoptGRef(webkit_settings_new());
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(newSettings.get()));
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript", FALSE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+
+        JSCValue* value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(42); });", nullptr, nullptr, &error.outPtr());
+        g_assert_null(value);
+        g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript", TRUE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+    }
+
+    {
+        // Disable JS markup support and expect no error when attempting to evaluate JS code.
+        WebKitSettings* defaultSettings = webkit_web_view_get_settings(test->m_webView);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(defaultSettings));
+        g_assert_nonnull(defaultSettings);
+        g_assert_true(webkit_settings_get_enable_javascript_markup(defaultSettings));
+
+        GRefPtr<WebKitSettings> newSettings = adoptGRef(webkit_settings_new());
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(newSettings.get()));
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript-markup", FALSE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+
+        JSCValue* value = test->runAsyncJavaScriptFunctionInWorldAndWaitUntilFinished("return new Promise((resolve) => { resolve(42); });", nullptr, nullptr, &error.outPtr());
+        g_assert_nonnull(value);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+        g_assert_no_error(error.get());
+
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript-markup", TRUE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+    }
+}
+
 static void testWebViewRunJavaScript(WebViewTest* test, gconstpointer)
 {
     static const char* html = "<html><body><a id='WebKitLink' href='http://www.webkitgtk.org/' title='WebKitGTK Title'>WebKitGTK Website</a></body></html>";
-    test->loadHtml(html, 0);
+    test->loadHtml(html, "file:///");
     test->waitUntilLoadFinished();
 
     GUniqueOutPtr<GError> error;
-    WebKitJavascriptResult* javascriptResult = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').title;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    JSCValue* value = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').title;", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(javascriptResult));
+    GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "WebKitGTK Title");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').href;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').href;", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    valueString.reset(WebViewTest::javascriptResultToCString(javascriptResult));
+    valueString.reset(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "http://www.webkitgtk.org/");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').textContent", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("window.document.getElementById('WebKitLink').textContent", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    valueString.reset(WebViewTest::javascriptResultToCString(javascriptResult));
+    valueString.reset(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "WebKitGTK Website");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a = 25;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a = 25;", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(javascriptResult), ==, 25);
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 25);
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a = 2.5;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a = 2.5;", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(javascriptResult), ==, 2.5);
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 2.5);
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a = true", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a = true", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_true(WebViewTest::javascriptResultToBoolean(javascriptResult));
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a = false", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a = false", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_false(WebViewTest::javascriptResultToBoolean(javascriptResult));
+    g_assert_false(WebViewTest::javascriptResultToBoolean(value));
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a = null", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a = null", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_true(WebViewTest::javascriptResultIsNull(javascriptResult));
+    g_assert_true(WebViewTest::javascriptResultIsNull(value));
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("function Foo() { a = 25; } Foo();", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("function Foo() { a = 25; } Foo();", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_true(WebViewTest::javascriptResultIsUndefined(javascriptResult));
+    g_assert_true(WebViewTest::javascriptResultIsUndefined(value));
 
-    javascriptResult = test->runJavaScriptFromGResourceAndWaitUntilFinished("/org/webkit/glib/tests/link-title.js", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    GUniquePtr<char> scriptFile(g_build_filename(WEBKIT_SRC_DIR, "Tools", "TestWebKitAPI", "Tests", "JavaScriptCore", "glib", "script.js", nullptr));
+    GUniqueOutPtr<char> contents;
+    gsize contentsSize;
+    g_assert_true(g_file_get_contents(scriptFile.get(), &contents.outPtr(), &contentsSize, nullptr));
+    value = test->runJavaScriptAndWaitUntilFinished(contents.get(), contentsSize, &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    valueString.reset(WebViewTest::javascriptResultToCString(javascriptResult));
+    value = test->runJavaScriptAndWaitUntilFinished("testStringWithNull()", &error.outPtr());
+    g_assert_nonnull(value);
+    g_assert_true(JSC_IS_VALUE(value));
+    g_assert_no_error(error.get());
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_true(jsc_value_is_string(value));
+    valueString.reset(jsc_value_to_string(value));
+    g_assert_cmpstr(valueString.get(), ==, "String");
+    GRefPtr<GBytes> valueBytes = adoptGRef(jsc_value_to_string_as_bytes(value));
+    GString* expected = g_string_new("String");
+    expected = g_string_append_c(expected, '\0');
+    expected = g_string_append(expected, "With");
+    expected = g_string_append_c(expected, '\0');
+    expected = g_string_append(expected, "Null");
+    GRefPtr<GBytes> expectedBytes = adoptGRef(g_string_free_to_bytes(expected));
+    g_assert_true(g_bytes_equal(valueBytes.get(), expectedBytes.get()));
+
+    value = test->runJavaScriptFromGResourceAndWaitUntilFinished("/org/webkit/glib/tests/link-title.js", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+    g_assert_no_error(error.get());
+    valueString.reset(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "WebKitGTK Title");
 
-    javascriptResult = test->runJavaScriptFromGResourceAndWaitUntilFinished("/wrong/path/to/resource.js", &error.outPtr());
-    g_assert_null(javascriptResult);
+    value = test->runJavaScriptFromGResourceAndWaitUntilFinished("/wrong/path/to/resource.js", &error.outPtr());
+    g_assert_null(value);
     g_assert_error(error.get(), G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND);
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("foo();", &error.outPtr());
-    g_assert_null(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("foo();", &error.outPtr());
+    g_assert_null(value);
     g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+    g_assert_true(g_str_has_prefix(error->message, "file:///"));
+
+    value = test->runJavaScriptAndWaitUntilFinished("window.document.body", &error.outPtr());
+    g_assert_null(value);
+    g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_INVALID_RESULT);
 
     // Values of the main world are not available in the isolated one.
-    javascriptResult = test->runJavaScriptInWorldAndWaitUntilFinished("a", "WebExtensionTestScriptWorld", &error.outPtr());
-    g_assert_null(javascriptResult);
+    value = test->runJavaScriptInWorldAndWaitUntilFinished("a", "WebExtensionTestScriptWorld", nullptr, &error.outPtr());
+    g_assert_null(value);
     g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+    g_assert_true(g_str_has_prefix(error->message, "file:///"));
 
-    javascriptResult = test->runJavaScriptInWorldAndWaitUntilFinished("a = 50", "WebExtensionTestScriptWorld", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptInWorldAndWaitUntilFinished("a = 50", "WebExtensionTestScriptWorld", nullptr, &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(javascriptResult), ==, 50);
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 50);
 
     // Values of the isolated world are not available in the normal one.
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("a", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
-    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webkit_javascript_result_get_js_value(javascriptResult)));
+    value = test->runJavaScriptAndWaitUntilFinished("a", &error.outPtr());
+    g_assert_nonnull(value);
+    test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
     g_assert_no_error(error.get());
-    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(javascriptResult), ==, 25);
+    g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(value), ==, 25);
 
     // Running a script in a world that doesn't exist should fail.
-    javascriptResult = test->runJavaScriptInWorldAndWaitUntilFinished("a", "InvalidScriptWorld", &error.outPtr());
-    g_assert_null(javascriptResult);
+    value = test->runJavaScriptInWorldAndWaitUntilFinished("a", "InvalidScriptWorld", "foo:///bar", &error.outPtr());
+    g_assert_null(value);
     g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+    g_assert_true(g_str_has_prefix(error->message, "foo:///bar"));
+
+    {
+        // Disable JS support and expect an error when attempting to evaluate JS code.
+        WebKitSettings* defaultSettings = webkit_web_view_get_settings(test->m_webView);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(defaultSettings));
+        g_assert_nonnull(defaultSettings);
+        g_assert_true(webkit_settings_get_enable_javascript(defaultSettings));
+
+        GRefPtr<WebKitSettings> newSettings = adoptGRef(webkit_settings_new());
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(newSettings.get()));
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript", FALSE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+
+        JSCValue* value = test->runJavaScriptAndWaitUntilFinished("console.log(\"Hi\");", &error.outPtr());
+        g_assert_null(value);
+        g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript", TRUE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+    }
+
+    {
+        // Disable JS markup support and expect no error when attempting to evaluate JS code.
+        WebKitSettings* defaultSettings = webkit_web_view_get_settings(test->m_webView);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(defaultSettings));
+        g_assert_nonnull(defaultSettings);
+        g_assert_true(webkit_settings_get_enable_javascript_markup(defaultSettings));
+
+        GRefPtr<WebKitSettings> newSettings = adoptGRef(webkit_settings_new());
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(newSettings.get()));
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript-markup", FALSE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+
+        JSCValue* value = test->runJavaScriptAndWaitUntilFinished("console.log(\"Hi\");", &error.outPtr());
+        g_assert_nonnull(value);
+        test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(value));
+        g_assert_no_error(error.get());
+
+        g_object_set(G_OBJECT(newSettings.get()), "enable-javascript-markup", TRUE, NULL);
+        webkit_web_view_set_settings(test->m_webView, newSettings.get());
+    }
 }
 
 class FullScreenClientTest: public WebViewTest {
@@ -438,8 +684,7 @@ public:
     void requestFullScreenAndWaitUntilEnteredFullScreen()
     {
         m_event = None;
-        webkit_web_view_run_javascript(m_webView, "document.documentElement.webkitRequestFullScreen();", 0, 0, 0);
-        g_main_loop_run(m_mainLoop);
+        runJavaScriptAndWait("document.documentElement.webkitRequestFullScreen();");
     }
 
     static gboolean leaveFullScreenIdle(FullScreenClientTest* test)
@@ -526,6 +771,7 @@ public:
         quitMainLoop();
     }
 
+#if !USE(GTK4)
     GHashTable* getTextFieldsAsHashTable()
     {
 #pragma GCC diagnostic push
@@ -533,6 +779,7 @@ public:
         return webkit_form_submission_request_get_text_fields(m_request.get());
 #pragma GCC diagnostic pop
     }
+#endif
 
     GPtrArray* getTextFieldNames()
     {
@@ -588,6 +835,7 @@ static void testWebViewSubmitForm(FormClientTest* test, gconstpointer)
     test->loadHtml(formHTML, "file:///");
     test->waitUntilLoadFinished();
 
+#if !USE(GTK4)
     test->submitFormAtPosition(5, 5);
     GHashTable* tableValues = test->getTextFieldsAsHashTable();
     g_assert_nonnull(tableValues);
@@ -596,6 +844,7 @@ static void testWebViewSubmitForm(FormClientTest* test, gconstpointer)
     g_assert_cmpstr(static_cast<char*>(g_hash_table_lookup(tableValues, "")), ==, "value3");
     g_assert_cmpstr(static_cast<char*>(g_hash_table_lookup(tableValues, "text2")), ==, "");
     g_assert_cmpstr(static_cast<char*>(g_hash_table_lookup(tableValues, "password")), ==, "secret");
+#endif
 
     GPtrArray* names = test->getTextFieldNames();
     g_assert_nonnull(names);
@@ -732,46 +981,82 @@ static void testWebViewPageVisibility(WebViewTest* test, gconstpointer)
     test->waitUntilLoadFinished();
 
     GUniqueOutPtr<GError> error;
-    WebKitJavascriptResult* javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    JSCValue* value = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(javascriptResult));
-    g_assert_cmpstr(valueString.get(), ==, "prerender");
+    GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(value));
+    g_assert_cmpstr(valueString.get(), ==, "hidden");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    g_assert_true(WebViewTest::javascriptResultToBoolean(javascriptResult));
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
 
     // Show the page. The visibility should be updated to 'visible'.
     test->showInWindow();
-    test->waitUntilTitleChanged();
+    test->waitUntilTitleChangedTo("visible");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    valueString.reset(WebViewTest::javascriptResultToCString(javascriptResult));
+    valueString.reset(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "visible");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    g_assert_false(WebViewTest::javascriptResultToBoolean(javascriptResult));
+    g_assert_false(WebViewTest::javascriptResultToBoolean(value));
 
     // Hide the page. The visibility should be updated to 'hidden'.
     test->hideView();
-    test->waitUntilTitleChanged();
+    test->waitUntilTitleChangedTo("hidden");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("document.visibilityState;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    valueString.reset(WebViewTest::javascriptResultToCString(javascriptResult));
+    valueString.reset(WebViewTest::javascriptResultToCString(value));
     g_assert_cmpstr(valueString.get(), ==, "hidden");
 
-    javascriptResult = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
-    g_assert_nonnull(javascriptResult);
+    value = test->runJavaScriptAndWaitUntilFinished("document.hidden;", &error.outPtr());
+    g_assert_nonnull(value);
     g_assert_no_error(error.get());
-    g_assert_true(WebViewTest::javascriptResultToBoolean(javascriptResult));
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
+}
+
+static void testWebViewDocumentFocus(WebViewTest* test, gconstpointer)
+{
+    if (!g_strcmp0(g_getenv("UNDER_XVFB"), "yes")) {
+        g_test_skip("This tests doesn't work under Xvfb");
+        return;
+    }
+
+    test->showInWindow();
+    test->loadHtml("<html><title></title>"
+        "<body onload='document.getElementById(\"editable\").focus()'>"
+        "<input id='editable'></input>"
+        "<script>"
+        "document.addEventListener(\"visibilitychange\", onVisibilityChange, false);"
+        "function onVisibilityChange() {"
+        "    document.title = document.visibilityState;"
+        "}"
+        "</script>"
+        "</body></html>",
+        nullptr);
+    test->waitUntilLoadFinished();
+
+    GUniqueOutPtr<GError> error;
+    JSCValue* value = test->runJavaScriptAndWaitUntilFinished("document.hasFocus();", &error.outPtr());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
+
+    // Hide the view to make it lose the focus, the window is still the active one though.
+    test->hideView();
+    test->waitUntilTitleChangedTo("hidden");
+    value = test->runJavaScriptAndWaitUntilFinished("document.hasFocus();", &error.outPtr());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    g_assert_false(WebViewTest::javascriptResultToBoolean(value));
 }
 
 #if PLATFORM(GTK)
@@ -779,20 +1064,68 @@ class SnapshotWebViewTest: public WebViewTest {
 public:
     MAKE_GLIB_TEST_FIXTURE(SnapshotWebViewTest);
 
-    static void onSnapshotCancelledReady(WebKitWebView* web_view, GAsyncResult* res, SnapshotWebViewTest* test)
+#if !USE(GTK4)
+    ~SnapshotWebViewTest()
+    {
+        if (m_snapshot)
+            cairo_surface_destroy(m_snapshot);
+    }
+#endif
+
+    static void onSnapshotReady(WebKitWebView* webView, GAsyncResult* result, SnapshotWebViewTest* test)
     {
         GUniqueOutPtr<GError> error;
-        test->m_surface = webkit_web_view_get_snapshot_finish(web_view, res, &error.outPtr());
-        g_assert_null(test->m_surface);
+#if USE(GTK4)
+        test->m_snapshot = adoptGRef(webkit_web_view_get_snapshot_finish(webView, result, &error.outPtr()));
+#else
+        test->m_snapshot = webkit_web_view_get_snapshot_finish(webView, result, &error.outPtr());
+#endif
+        g_assert_true(!test->m_snapshot || !error.get());
+        if (error)
+            g_assert_error(error.get(), WEBKIT_SNAPSHOT_ERROR, WEBKIT_SNAPSHOT_ERROR_FAILED_TO_CREATE);
+        test->quitMainLoop();
+    }
+
+#if USE(GTK4)
+    GdkTexture* getSnapshotAndWaitUntilReady(WebKitSnapshotRegion region, WebKitSnapshotOptions options)
+#else
+    cairo_surface_t* getSnapshotAndWaitUntilReady(WebKitSnapshotRegion region, WebKitSnapshotOptions options)
+#endif
+    {
+#if !USE(GTK4)
+        if (m_snapshot)
+            cairo_surface_destroy(m_snapshot);
+#endif
+        m_snapshot = nullptr;
+        webkit_web_view_get_snapshot(m_webView, region, options, nullptr, reinterpret_cast<GAsyncReadyCallback>(onSnapshotReady), this);
+        g_main_loop_run(m_mainLoop);
+#if USE(GTK4)
+        return m_snapshot.get();
+#else
+        return m_snapshot;
+#endif
+    }
+
+    static void onSnapshotCancelledReady(WebKitWebView* webView, GAsyncResult* result, SnapshotWebViewTest* test)
+    {
+        GUniqueOutPtr<GError> error;
+#if USE(GTK4)
+        test->m_snapshot = adoptGRef(webkit_web_view_get_snapshot_finish(webView, result, &error.outPtr()));
+#else
+        test->m_snapshot = webkit_web_view_get_snapshot_finish(webView, result, &error.outPtr());
+#endif
+        g_assert_null(test->m_snapshot);
         g_assert_error(error.get(), G_IO_ERROR, G_IO_ERROR_CANCELLED);
         test->quitMainLoop();
     }
 
     gboolean getSnapshotAndCancel()
     {
-        if (m_surface)
-            cairo_surface_destroy(m_surface);
-        m_surface = 0;
+#if !USE(GTK4)
+        if (m_snapshot)
+            cairo_surface_destroy(m_snapshot);
+#endif
+        m_snapshot = nullptr;
         GRefPtr<GCancellable> cancellable = adoptGRef(g_cancellable_new());
         webkit_web_view_get_snapshot(m_webView, WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE, cancellable.get(), reinterpret_cast<GAsyncReadyCallback>(onSnapshotCancelledReady), this);
         g_cancellable_cancel(cancellable.get());
@@ -801,6 +1134,26 @@ public:
         return true;
     }
 
+#if USE(GTK4)
+    static cairo_surface_t* snapshotToSurface(GdkTexture* snapshot)
+    {
+        cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, gdk_texture_get_width(snapshot), gdk_texture_get_height(snapshot));
+        gdk_texture_download(snapshot, cairo_image_surface_get_data(surface), cairo_image_surface_get_stride(surface));
+        cairo_surface_mark_dirty(surface);
+        return surface;
+    }
+#else
+    static cairo_surface_t* snapshotToSurface(cairo_surface_t* snapshot)
+    {
+        return cairo_surface_reference(snapshot);
+    }
+#endif
+
+#if USE(GTK4)
+    GRefPtr<GdkTexture> m_snapshot;
+#else
+    cairo_surface_t* m_snapshot { nullptr };
+#endif
 };
 
 static void testWebViewSnapshot(SnapshotWebViewTest* test, gconstpointer)
@@ -808,45 +1161,79 @@ static void testWebViewSnapshot(SnapshotWebViewTest* test, gconstpointer)
     test->loadHtml("<html><head><style>html { width: 200px; height: 100px; } ::-webkit-scrollbar { display: none; }</style></head><body><p>Whatever</p></body></html>", nullptr);
     test->waitUntilLoadFinished();
 
-    // WEBKIT_SNAPSHOT_REGION_VISIBLE returns a null surface when the view is not visible.
-    cairo_surface_t* surface1 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE);
-    g_assert_null(surface1);
+    // WEBKIT_SNAPSHOT_REGION_VISIBLE returns a null snapshot when the view is not visible.
+    auto* snapshot1 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE);
+    g_assert_null(snapshot1);
 
     // WEBKIT_SNAPSHOT_REGION_FULL_DOCUMENT works even if the window is not visible.
-    surface1 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_FULL_DOCUMENT, WEBKIT_SNAPSHOT_OPTIONS_NONE);
-    g_assert_nonnull(surface1);
-    g_assert_cmpuint(cairo_surface_get_type(surface1), ==, CAIRO_SURFACE_TYPE_IMAGE);
-    g_assert_cmpint(cairo_image_surface_get_width(surface1), ==, 200);
-    g_assert_cmpint(cairo_image_surface_get_height(surface1), ==, 100);
+    snapshot1 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_FULL_DOCUMENT, WEBKIT_SNAPSHOT_OPTIONS_NONE);
+    g_assert_nonnull(snapshot1);
+#if USE(GTK4)
+    g_assert_true(GDK_IS_MEMORY_TEXTURE(snapshot1));
+    g_assert_cmpint(gdk_texture_get_width(snapshot1), ==, 200);
+    g_assert_cmpint(gdk_texture_get_height(snapshot1), ==, 100);
+#else
+    g_assert_cmpuint(cairo_surface_get_type(snapshot1), ==, CAIRO_SURFACE_TYPE_IMAGE);
+    g_assert_cmpint(cairo_image_surface_get_width(snapshot1), ==, 200);
+    g_assert_cmpint(cairo_image_surface_get_height(snapshot1), ==, 100);
+#endif
 
     // Show the WebView in a popup widow of 50x50 and try again with WEBKIT_SNAPSHOT_REGION_VISIBLE.
     test->showInWindow(50, 50);
-    surface1 = cairo_surface_reference(test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE));
-    g_assert_nonnull(surface1);
-    g_assert_cmpuint(cairo_surface_get_type(surface1), ==, CAIRO_SURFACE_TYPE_IMAGE);
-    g_assert_cmpint(cairo_image_surface_get_width(surface1), ==, 50);
-    g_assert_cmpint(cairo_image_surface_get_height(surface1), ==, 50);
+    snapshot1 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE);
+    g_assert_nonnull(snapshot1);
+    auto* surface1 = SnapshotWebViewTest::snapshotToSurface(snapshot1);
+#if USE(GTK4)
+    GRefPtr<GdkTexture> protectSnapshot1 = snapshot1;
+    g_assert_true(GDK_IS_MEMORY_TEXTURE(snapshot1));
+    g_assert_cmpint(gdk_texture_get_width(snapshot1), ==, 50);
+    g_assert_cmpint(gdk_texture_get_height(snapshot1), ==, 50);
+#else
+    g_assert_cmpuint(cairo_surface_get_type(snapshot1), ==, CAIRO_SURFACE_TYPE_IMAGE);
+    g_assert_cmpint(cairo_image_surface_get_width(snapshot1), ==, 50);
+    g_assert_cmpint(cairo_image_surface_get_height(snapshot1), ==, 50);
+#endif
 
     // Select all text in the WebView, request a snapshot ignoring selection.
     test->selectAll();
-    cairo_surface_t* surface2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE);
-    g_assert_nonnull(surface2);
+    auto* snapshot2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE);
+    g_assert_nonnull(snapshot2);
+    auto* surface2 = SnapshotWebViewTest::snapshotToSurface(snapshot2);
     g_assert_true(Test::cairoSurfacesEqual(surface1, surface2));
+    cairo_surface_destroy(surface2);
 
     // Request a new snapshot, including the selection this time. The size should be the same but the result
     // must be different to the one previously obtained.
-    surface2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_INCLUDE_SELECTION_HIGHLIGHTING);
-    g_assert_cmpuint(cairo_surface_get_type(surface2), ==, CAIRO_SURFACE_TYPE_IMAGE);
-    g_assert_cmpint(cairo_image_surface_get_width(surface1), ==, cairo_image_surface_get_width(surface2));
-    g_assert_cmpint(cairo_image_surface_get_height(surface1), ==, cairo_image_surface_get_height(surface2));
+    snapshot2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_INCLUDE_SELECTION_HIGHLIGHTING);
+    g_assert_nonnull(snapshot2);
+    surface2 = SnapshotWebViewTest::snapshotToSurface(snapshot2);
+#if USE(GTK4)
+    g_assert_true(GDK_IS_MEMORY_TEXTURE(snapshot2));
+    g_assert_cmpint(gdk_texture_get_width(snapshot1), ==, gdk_texture_get_width(snapshot2));
+    g_assert_cmpint(gdk_texture_get_height(snapshot1), ==, gdk_texture_get_height(snapshot2));
+#else
+    g_assert_cmpuint(cairo_surface_get_type(snapshot2), ==, CAIRO_SURFACE_TYPE_IMAGE);
+    g_assert_cmpint(cairo_image_surface_get_width(snapshot1), ==, cairo_image_surface_get_width(snapshot2));
+    g_assert_cmpint(cairo_image_surface_get_height(snapshot1), ==, cairo_image_surface_get_height(snapshot2));
+#endif
     g_assert_false(Test::cairoSurfacesEqual(surface1, surface2));
+    cairo_surface_destroy(surface2);
 
     // Get a snpashot with a transparent background, the result must be different.
-    surface2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_TRANSPARENT_BACKGROUND);
-    g_assert_cmpuint(cairo_surface_get_type(surface2), ==, CAIRO_SURFACE_TYPE_IMAGE);
-    g_assert_cmpint(cairo_image_surface_get_width(surface1), ==, cairo_image_surface_get_width(surface2));
-    g_assert_cmpint(cairo_image_surface_get_height(surface1), ==, cairo_image_surface_get_height(surface2));
+    snapshot2 = test->getSnapshotAndWaitUntilReady(WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_TRANSPARENT_BACKGROUND);
+    g_assert_nonnull(snapshot2);
+    surface2 = SnapshotWebViewTest::snapshotToSurface(snapshot2);
+#if USE(GTK4)
+    g_assert_true(GDK_IS_MEMORY_TEXTURE(snapshot2));
+    g_assert_cmpint(gdk_texture_get_width(snapshot1), ==, gdk_texture_get_width(snapshot2));
+    g_assert_cmpint(gdk_texture_get_height(snapshot1), ==, gdk_texture_get_height(snapshot2));
+#else
+    g_assert_cmpuint(cairo_surface_get_type(snapshot2), ==, CAIRO_SURFACE_TYPE_IMAGE);
+    g_assert_cmpint(cairo_image_surface_get_width(snapshot1), ==, cairo_image_surface_get_width(snapshot2));
+    g_assert_cmpint(cairo_image_surface_get_height(snapshot1), ==, cairo_image_surface_get_height(snapshot2));
+#endif
     g_assert_false(Test::cairoSurfacesEqual(surface1, surface2));
+    cairo_surface_destroy(surface2);
     cairo_surface_destroy(surface1);
 
     // Test that cancellation works.
@@ -923,9 +1310,13 @@ public:
         return TRUE;
     }
 
-    static void notificationsMessageReceivedCallback(WebKitUserContentManager* userContentManager, WebKitJavascriptResult* javascriptResult, NotificationWebViewTest* test)
+#if ENABLE(2022_GLIB_API)
+    static void notificationsMessageReceivedCallback(WebKitUserContentManager* userContentManager, JSCValue* result, NotificationWebViewTest* test)
+#else
+    static void notificationsMessageReceivedCallback(WebKitUserContentManager* userContentManager, WebKitJavascriptResult* result, NotificationWebViewTest* test)
+#endif
     {
-        GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(javascriptResult));
+        GUniquePtr<char> valueString(WebViewTest::javascriptResultToCString(result));
 
         if (g_str_equal(valueString.get(), "clicked"))
             test->m_event = OnClicked;
@@ -940,7 +1331,11 @@ public:
         initializeWebView();
         g_signal_connect(m_webView, "permission-request", G_CALLBACK(permissionRequestCallback), this);
         g_signal_connect(m_webView, "show-notification", G_CALLBACK(showNotificationCallback), this);
+#if !ENABLE(2022_GLIB_API)
         webkit_user_content_manager_register_script_message_handler(m_userContentManager.get(), "notifications");
+#else
+        webkit_user_content_manager_register_script_message_handler(m_userContentManager.get(), "notifications", nullptr);
+#endif
         g_signal_connect(m_userContentManager.get(), "script-message-received::notifications", G_CALLBACK(notificationsMessageReceivedCallback), this);
     }
 
@@ -948,7 +1343,12 @@ public:
     {
         g_signal_handlers_disconnect_matched(m_webView, G_SIGNAL_MATCH_DATA, 0, 0, 0, 0, this);
         g_signal_handlers_disconnect_matched(m_userContentManager.get(), G_SIGNAL_MATCH_DATA, 0, 0, 0, 0, this);
+
+#if !ENABLE(2022_GLIB_API)
         webkit_user_content_manager_unregister_script_message_handler(m_userContentManager.get(), "notifications");
+#else
+        webkit_user_content_manager_unregister_script_message_handler(m_userContentManager.get(), "notifications", nullptr);
+#endif
     }
 
     bool hasPermission()
@@ -963,8 +1363,7 @@ public:
     {
         m_event = None;
         m_isExpectingPermissionRequest = true;
-        webkit_web_view_run_javascript(m_webView, "Notification.requestPermission();", nullptr, nullptr, nullptr);
-        g_main_loop_run(m_mainLoop);
+        runJavaScriptAndWait("Notification.requestPermission();");
     }
 
     void requestNotificationAndWaitUntilShown(const char* title, const char* body)
@@ -972,9 +1371,7 @@ public:
         m_event = None;
 
         GUniquePtr<char> jscode(g_strdup_printf("n = new Notification('%s', { body: '%s'});", title, body));
-        webkit_web_view_run_javascript(m_webView, jscode.get(), nullptr, nullptr, nullptr);
-
-        g_main_loop_run(m_mainLoop);
+        runJavaScriptAndWait(jscode.get());
     }
 
     void requestNotificationAndWaitUntilShown(const char* title, const char* body, const char* tag)
@@ -982,9 +1379,7 @@ public:
         m_event = None;
 
         GUniquePtr<char> jscode(g_strdup_printf("n = new Notification('%s', { body: '%s', tag: '%s'});", title, body, tag));
-        webkit_web_view_run_javascript(m_webView, jscode.get(), nullptr, nullptr, nullptr);
-
-        g_main_loop_run(m_mainLoop);
+        runJavaScriptAndWait(jscode.get());
     }
 
     void clickNotificationAndWaitUntilClicked()
@@ -999,8 +1394,7 @@ public:
     void closeNotificationAndWaitUntilClosed()
     {
         m_event = None;
-        webkit_web_view_run_javascript(m_webView, "n.close()", nullptr, nullptr, nullptr);
-        g_main_loop_run(m_mainLoop);
+        runJavaScriptAndWait("n.close()");
     }
 
     void closeNotificationAndWaitUntilOnClosed()
@@ -1065,16 +1459,14 @@ static void testWebViewNotification(NotificationWebViewTest* test, gconstpointer
 
 static void setInitialNotificationPermissionsAllowedCallback(WebKitWebContext* context, NotificationWebViewTest* test)
 {
-    GUniquePtr<char> baseURI(soup_uri_to_string(gServer->baseURI(), FALSE));
-    GList* allowedOrigins = g_list_prepend(nullptr, webkit_security_origin_new_for_uri(baseURI.get()));
+    GList* allowedOrigins = g_list_prepend(nullptr, webkit_security_origin_new_for_uri(gServer->baseURL().string().utf8().data()));
     webkit_web_context_initialize_notification_permissions(test->m_webContext.get(), allowedOrigins, nullptr);
     g_list_free_full(allowedOrigins, reinterpret_cast<GDestroyNotify>(webkit_security_origin_unref));
 }
 
 static void setInitialNotificationPermissionsDisallowedCallback(WebKitWebContext* context, NotificationWebViewTest* test)
 {
-    GUniquePtr<char> baseURI(soup_uri_to_string(gServer->baseURI(), FALSE));
-    GList* disallowedOrigins = g_list_prepend(nullptr, webkit_security_origin_new_for_uri(baseURI.get()));
+    GList* disallowedOrigins = g_list_prepend(nullptr, webkit_security_origin_new_for_uri(gServer->baseURL().string().utf8().data()));
     webkit_web_context_initialize_notification_permissions(test->m_webContext.get(), nullptr, disallowedOrigins);
     g_list_free_full(disallowedOrigins, reinterpret_cast<GDestroyNotify>(webkit_security_origin_unref));
 }
@@ -1111,6 +1503,7 @@ static void testWebViewIsPlayingAudio(IsPlayingAudioWebViewTest* test, gconstpoi
 
     // Initially, web views should always report no audio being played.
     g_assert_false(webkit_web_view_is_playing_audio(test->m_webView));
+    g_assert_false(webkit_web_view_get_is_muted(test->m_webView));
 
     GUniquePtr<char> resourcePath(g_build_filename(Test::getResourcesDir(Test::WebKit2Resources).data(), "file-with-video.html", nullptr));
     GUniquePtr<char> resourceURL(g_filename_to_uri(resourcePath.get(), nullptr, nullptr));
@@ -1121,6 +1514,15 @@ static void testWebViewIsPlayingAudio(IsPlayingAudioWebViewTest* test, gconstpoi
     test->runJavaScriptAndWaitUntilFinished("playVideo();", nullptr);
     if (!webkit_web_view_is_playing_audio(test->m_webView))
         test->waitUntilIsPlayingAudioChanged();
+    g_assert_true(webkit_web_view_is_playing_audio(test->m_webView));
+
+    // Mute the page, webkit_web_view_is_playing_audio() should still return TRUE.
+    webkit_web_view_set_is_muted(test->m_webView, TRUE);
+    g_assert_true(webkit_web_view_get_is_muted(test->m_webView));
+    test->periodicallyCheckIsPlayingForAWhile();
+    g_assert_true(webkit_web_view_is_playing_audio(test->m_webView));
+    webkit_web_view_set_is_muted(test->m_webView, FALSE);
+    g_assert_false(webkit_web_view_get_is_muted(test->m_webView));
     g_assert_true(webkit_web_view_is_playing_audio(test->m_webView));
 
     // Pause the video, and check again.
@@ -1143,6 +1545,39 @@ static void testWebViewAutoplayPolicy(WebViewTest* test, gconstpointer)
 {
     WebKitWebsitePolicies* policies = webkit_web_view_get_website_policies(test->m_webView);
     g_assert_cmpint(webkit_website_policies_get_autoplay_policy(policies), ==, WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND);
+}
+
+static void testWebViewIsWebProcessResponsive(WebViewTest* test, gconstpointer)
+{
+    static const char* hangHTML =
+        "<html>"
+        " <body>"
+        "  <script>"
+        "   setTimeout(function() {"
+        "    var start = new Date().getTime();"
+        "    var end = start;"
+        "     while(end < start + 4000) {"
+        "      end = new Date().getTime();"
+        "     }"
+        "    }, 500);"
+        "  </script>"
+        " </body>"
+        "</html>";
+
+    g_assert_true(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+    test->loadHtml(hangHTML, nullptr);
+    test->waitUntilLoadFinished();
+    // Wait 1 second, so the js while loop kicks in and blocks the web process. Then try to load a new
+    // page. As the web process is busy this won't work, and after 3 seconds the web process will be marked
+    // as unresponsive.
+    test->wait(1);
+    test->loadHtml("<html></html>", nullptr);
+    test->waitUntilIsWebProcessResponsiveChanged();
+    g_assert_false(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+    // 500ms after the web process is marked as unresponsive, the js while loop will finish and the process
+    // will be responsive again, finishing the pending load.
+    test->waitUntilLoadFinished();
+    g_assert_true(webkit_web_view_get_is_web_process_responsive(test->m_webView));
 }
 
 static void testWebViewBackgroundColor(WebViewTest* test, gconstpointer)
@@ -1225,15 +1660,17 @@ static void testWebViewTitleChange(WebViewTitleTest* test, gconstpointer)
     g_assert_cmpint(test->m_webViewTitles.size(), ==, 0);
 
     test->loadHtml("<head><title>Page Title</title></head>", nullptr);
-    test->waitUntilLoadFinished();
+    test->waitUntilTitleChanged();
     g_assert_cmpint(test->m_webViewTitles.size(), ==, 1);
     g_assert_cmpstr(test->m_webViewTitles[0].data(), ==, "Page Title");
 
     test->loadHtml("<head><title>Another Page Title</title></head>", nullptr);
-    test->waitUntilLoadFinished();
+    test->waitUntilTitleChanged();
+    g_assert_cmpint(test->m_webViewTitles.size(), ==, 2);
+    g_assert_cmpstr(test->m_webViewTitles[1].data(), ==, "");
+    test->waitUntilTitleChanged();
     g_assert_cmpint(test->m_webViewTitles.size(), ==, 3);
     /* Page title should be immediately unset when loading a new page. */
-    g_assert_cmpstr(test->m_webViewTitles[1].data(), ==, "");
     g_assert_cmpstr(test->m_webViewTitles[2].data(), ==, "Another Page Title");
 
     test->loadHtml("<p>This page has no title!</p>", nullptr);
@@ -1242,11 +1679,9 @@ static void testWebViewTitleChange(WebViewTitleTest* test, gconstpointer)
     g_assert_cmpstr(test->m_webViewTitles[3].data(), ==, "");
 
     test->loadHtml("<script>document.title = 'one'; document.title = 'two'; document.title = 'three';</script>", nullptr);
-    test->waitUntilLoadFinished();
-    g_assert_cmpint(test->m_webViewTitles.size(), ==, 7);
-    g_assert_cmpstr(test->m_webViewTitles[4].data(), ==, "one");
-    g_assert_cmpstr(test->m_webViewTitles[5].data(), ==, "two");
-    g_assert_cmpstr(test->m_webViewTitles[6].data(), ==, "three");
+    test->waitUntilTitleChanged();
+    g_assert_cmpint(test->m_webViewTitles.size(), ==, 5);
+    g_assert_cmpstr(test->m_webViewTitles[4].data(), ==, "three");
 }
 
 #if PLATFORM(WPE)
@@ -1343,18 +1778,378 @@ static void testWebViewFrameDisplayed(FrameDisplayedTest* test, gconstpointer)
 }
 #endif
 
-static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#if PLATFORM(WPE) && USE(WPEBACKEND_FDO_AUDIO_EXTENSION)
+enum class RenderingState {
+    Unknown,
+    Started,
+    Paused,
+    Stopped
+};
+
+class AudioRenderingWebViewTest : public WebViewTest {
+public:
+    MAKE_GLIB_TEST_FIXTURE_WITH_SETUP_TEARDOWN(AudioRenderingWebViewTest, setup, teardown);
+
+    static void setup()
+    {
+    }
+
+    static void teardown()
+    {
+        wpe_audio_register_receiver(nullptr, nullptr);
+    }
+
+    AudioRenderingWebViewTest()
+    {
+        wpe_audio_register_receiver(&m_audioReceiver, this);
+    }
+
+    void handleStart(uint32_t id, int32_t channels, const char* layout, int32_t sampleRate)
+    {
+        g_assert(m_state == RenderingState::Unknown);
+        g_assert_false(m_streamId.has_value());
+        g_assert_cmpuint(id, ==, 0);
+        m_streamId = id;
+        m_state = RenderingState::Started;
+        g_assert_cmpint(channels, ==, 2);
+        g_assert_cmpstr(layout, ==, "S16LE");
+        g_assert_cmpint(sampleRate, ==, 44100);
+    }
+
+    void handleStop(uint32_t id)
+    {
+        g_assert_cmpuint(*m_streamId, ==, id);
+        g_assert(m_state != RenderingState::Unknown);
+        m_state = RenderingState::Stopped;
+        g_main_loop_quit(m_mainLoop);
+        m_streamId.reset();
+    }
+
+    void handlePause(uint32_t id)
+    {
+        g_assert_cmpuint(*m_streamId, ==, id);
+        g_assert(m_state != RenderingState::Unknown);
+        m_state = RenderingState::Paused;
+    }
+
+    void handleResume(uint32_t id)
+    {
+        g_assert_cmpuint(*m_streamId, ==, id);
+        g_assert(m_state == RenderingState::Paused);
+        m_state = RenderingState::Started;
+    }
+
+    void handlePacket(struct wpe_audio_packet_export* packet_export, uint32_t id, int32_t fd, uint32_t size)
+    {
+        g_assert_cmpuint(*m_streamId, ==, id);
+        g_assert(m_state == RenderingState::Started || m_state == RenderingState::Paused);
+        g_assert_cmpuint(size, >, 0);
+        wpe_audio_packet_export_release(packet_export);
+    }
+
+    void waitUntilStarted()
+    {
+        g_timeout_add(200, [](gpointer userData) -> gboolean {
+            auto* test = static_cast<AudioRenderingWebViewTest*>(userData);
+            if (test->state() == RenderingState::Started) {
+                test->quitMainLoop();
+                return G_SOURCE_REMOVE;
+            }
+            return G_SOURCE_CONTINUE;
+        }, this);
+        g_main_loop_run(m_mainLoop);
+    }
+
+    void waitUntilPaused()
+    {
+        g_timeout_add(200, [](gpointer userData) -> gboolean {
+            auto* test = static_cast<AudioRenderingWebViewTest*>(userData);
+            if (test->state() == RenderingState::Paused) {
+                test->quitMainLoop();
+                return G_SOURCE_REMOVE;
+            }
+            return G_SOURCE_CONTINUE;
+        }, this);
+        g_main_loop_run(m_mainLoop);
+    }
+
+    void waitUntilEOS()
+    {
+        g_main_loop_run(m_mainLoop);
+    }
+
+    RenderingState state() const { return m_state; }
+
+private:
+    static const struct wpe_audio_receiver m_audioReceiver;
+    RenderingState m_state { RenderingState::Unknown };
+    std::optional<uint32_t> m_streamId;
+};
+
+const struct wpe_audio_receiver AudioRenderingWebViewTest::m_audioReceiver = {
+    [](void* data, uint32_t id, int32_t channels, const char* layout, int32_t sampleRate) { static_cast<AudioRenderingWebViewTest*>(data)->handleStart(id, channels, layout, sampleRate); },
+    [](void* data, struct wpe_audio_packet_export* packet_export, uint32_t id, int32_t fd, uint32_t size) { static_cast<AudioRenderingWebViewTest*>(data)->handlePacket(packet_export, id, fd, size); },
+    [](void* data, uint32_t id) { static_cast<AudioRenderingWebViewTest*>(data)->handleStop(id); },
+    [](void* data, uint32_t id) { static_cast<AudioRenderingWebViewTest*>(data)->handlePause(id); },
+    [](void* data, uint32_t id) { static_cast<AudioRenderingWebViewTest*>(data)->handleResume(id); }
+};
+
+static void testWebViewExternalAudioRendering(AudioRenderingWebViewTest* test, gconstpointer)
 {
-    if (message->method != SOUP_METHOD_GET) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED);
+    GUniquePtr<char> resourcePath(g_build_filename(Test::getResourcesDir(Test::WebKit2Resources).data(), "file-with-video.html", nullptr));
+    GUniquePtr<char> resourceURL(g_filename_to_uri(resourcePath.get(), nullptr, nullptr));
+    webkit_web_view_load_uri(test->m_webView, resourceURL.get());
+    test->waitUntilLoadFinished();
+
+    test->runJavaScriptAndWaitUntilFinished("playVideo();", nullptr);
+    test->waitUntilStarted();
+    g_assert(test->state() == RenderingState::Started);
+    test->runJavaScriptAndWaitUntilFinished("pauseVideo();", nullptr);
+    test->waitUntilPaused();
+    g_assert(test->state() == RenderingState::Paused);
+
+    test->runJavaScriptAndWaitUntilFinished("playVideo(); seekNearTheEnd();", nullptr);
+    test->waitUntilEOS();
+    g_assert(test->state() == RenderingState::Stopped);
+}
+#endif
+
+class WebViewTerminateWebProcessTest: public WebViewTest {
+public:
+    MAKE_GLIB_TEST_FIXTURE(WebViewTerminateWebProcessTest);
+
+    static void webProcessTerminatedCallback(WebKitWebView* webView, WebKitWebProcessTerminationReason reason, WebViewTerminateWebProcessTest* test)
+    {
+        test->m_terminationReason = reason;
+    }
+
+    WebViewTerminateWebProcessTest()
+    {
+        g_signal_connect_after(m_webView, "web-process-terminated", G_CALLBACK(WebViewTerminateWebProcessTest::webProcessTerminatedCallback), this);
+    }
+
+    ~WebViewTerminateWebProcessTest()
+    {
+        g_signal_handlers_disconnect_by_data(m_webView, this);
+    }
+
+    WebKitWebProcessTerminationReason m_terminationReason { WEBKIT_WEB_PROCESS_CRASHED };
+};
+
+static void testWebViewTerminateWebProcess(WebViewTerminateWebProcessTest* test, gconstpointer)
+{
+    test->loadHtml("<html></html>", nullptr);
+    test->waitUntilLoadFinished();
+    test->m_expectedWebProcessCrash = true;
+    webkit_web_view_terminate_web_process(test->m_webView);
+    g_assert_cmpuint(test->m_terminationReason, ==, WEBKIT_WEB_PROCESS_TERMINATED_BY_API);
+    g_assert_true(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+}
+
+static void testWebViewTerminateUnresponsiveWebProcess(WebViewTerminateWebProcessTest* test, gconstpointer)
+{
+    static const char* hangHTML =
+        "<html>"
+        " <body>"
+        "  <script>"
+        "   setTimeout(function() {"
+        "     while(true) { }"
+        "    }, 500);"
+        "  </script>"
+        " </body>"
+        "</html>";
+
+    test->loadHtml(hangHTML, nullptr);
+    test->waitUntilLoadFinished();
+    g_assert_true(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+    // Wait 1 second, so the js while loop kicks in and blocks the web process, and try to load a new page.
+    // As the web process is busy this won't work, and after 3 seconds the web process will be marked
+    // as unresponsive.
+    test->wait(1);
+    test->loadHtml("<html></html>", nullptr);
+    test->waitUntilIsWebProcessResponsiveChanged();
+    g_assert_false(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+
+    // Now that the process is unresponsive, terminate it.
+    test->m_expectedWebProcessCrash = true;
+    test->m_terminationReason = WEBKIT_WEB_PROCESS_CRASHED;
+    webkit_web_view_terminate_web_process(test->m_webView);
+    g_assert_cmpuint(test->m_terminationReason, ==, WEBKIT_WEB_PROCESS_TERMINATED_BY_API);
+    g_assert_true(webkit_web_view_get_is_web_process_responsive(test->m_webView));
+}
+
+static void testWebViewCORSAllowlist(WebViewTest* test, gconstpointer)
+{
+    webkit_web_context_register_uri_scheme(test->m_webContext.get(), "foo",
+        [](WebKitURISchemeRequest* request, gpointer userData) {
+            GRefPtr<GInputStream> inputStream = adoptGRef(g_memory_input_stream_new());
+            const char* data = "<p>foobar!</p>";
+            g_memory_input_stream_add_data(G_MEMORY_INPUT_STREAM(inputStream.get()), data, strlen(data), nullptr);
+            webkit_uri_scheme_request_finish(request, inputStream.get(), strlen(data), "text/html");
+        }, nullptr, nullptr);
+
+    char html[] = "<html><script>let foo = 0; fetch('foo://bar/baz').then(response => { foo = response.status; }).catch(err => { foo = -1; });</script></html>";
+
+    auto waitForFooChanged = [&test]() {
+        GUniqueOutPtr<GError> error;
+        JSCValue* jscvalue;
+        int value;
+        do {
+            jscvalue = test->runJavaScriptAndWaitUntilFinished("foo;", &error.outPtr());
+            g_assert_no_error(error.get());
+            value = jsc_value_to_int32(jscvalue);
+        } while (!value);
+        return value;
+    };
+
+    // Request is not allowed, foo should be 0.
+    webkit_web_view_load_html(test->m_webView, html, "http://example.com");
+    test->waitUntilLoadFinished();
+    g_assert_cmpint(waitForFooChanged(), ==, -1);
+
+    // Allowlisting host alone does not work. Path is also required. foo should remain 0.
+    GUniquePtr<char*> allowlist(g_new(char*, 2));
+    allowlist.get()[0] = g_strdup("foo://*");
+    allowlist.get()[1] = nullptr;
+    webkit_web_view_set_cors_allowlist(test->m_webView, allowlist.get());
+
+    webkit_web_view_load_html(test->m_webView, html, "http://example.com");
+    test->waitUntilLoadFinished();
+    g_assert_cmpint(waitForFooChanged(), ==, -1);
+
+    // Finally let's properly allow our scheme. foo should now change to 42 when the request succeeds.
+    allowlist.reset(g_new(char*, 2));
+    allowlist.get()[0] = g_strdup("foo://*/*");
+    allowlist.get()[1] = nullptr;
+    webkit_web_view_set_cors_allowlist(test->m_webView, allowlist.get());
+
+    webkit_web_view_load_html(test->m_webView, html, "http://example.com");
+    test->waitUntilLoadFinished();
+    g_assert_cmpint(waitForFooChanged(), ==, 200);
+}
+
+static void testWebViewDefaultContentSecurityPolicy(WebViewTest* test, gconstpointer)
+{
+    GUniqueOutPtr<GError> error;
+    JSCValue* value;
+
+    // Sanity check that eval works normally.
+    value = test->runJavaScriptAndWaitUntilFinished("eval('\"allowed\"')", &error.outPtr());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    GUniquePtr<char> evalValue(WebViewTest::javascriptResultToCString(value));
+    g_assert_cmpstr(evalValue.get(), ==, "allowed");
+
+    // Create a new web view with a policy that blocks eval().
+    auto webView = Test::adoptView(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "default-content-security-policy", "script-src 'self'",
+#if PLATFORM(WPE)
+        "backend", Test::createWebViewBackend(),
+#endif
+        nullptr));
+
+    // Ensure JavaScript still functions.
+    value = test->runJavaScriptAndWaitUntilFinished("'allowed'", &error.outPtr(), webView.get());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    GUniquePtr<char> strValue(WebViewTest::javascriptResultToCString(value));
+    g_assert_cmpstr(strValue.get(), ==, "allowed");
+
+    // Then ensure eval is blocked.
+    value = test->runJavaScriptAndWaitUntilFinished("eval('\"allowed\"')", &error.outPtr(), webView.get());
+    g_assert_null(value);
+    g_assert_error(error.get(), WEBKIT_JAVASCRIPT_ERROR, WEBKIT_JAVASCRIPT_ERROR_SCRIPT_FAILED);
+}
+
+static void testWebViewWebExtensionMode(WebViewTest* test, gconstpointer)
+{
+    GUniqueOutPtr<GError> error;
+    JSCValue* value;
+    static const char* html =
+        "<html>"
+        "  <head>"
+        "    <title>unset</title>"
+        "    <meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'unsafe-inline';\">"
+        "    <script>document.title = 'set';</script>"
+        "  </head>"
+        "</html>";
+
+    // Sanity check that this HTML works as expected.
+    test->loadHtml(html, nullptr);
+    test->waitUntilLoadFinished();
+    value = test->runJavaScriptAndWaitUntilFinished("document.title == 'set';", &error.outPtr());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
+
+    // Create a new web view with an extension mode that blocks the unsafe-inline keyword.
+    auto webView = Test::adoptView(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "web-extension-mode", WEBKIT_WEB_EXTENSION_MODE_MANIFESTV3,
+#if PLATFORM(WPE)
+        "backend", Test::createWebViewBackend(),
+#endif
+        nullptr));
+    test->loadHtml(html, nullptr, webView.get());
+    test->waitUntilLoadFinished(webView.get());
+    value = test->runJavaScriptAndWaitUntilFinished("document.title == 'unset';", &error.outPtr(), webView.get());
+    g_assert_nonnull(value);
+    g_assert_no_error(error.get());
+    g_assert_true(WebViewTest::javascriptResultToBoolean(value));
+}
+
+static void testWebViewDisableWebSecurity(WebViewTest* test, gconstpointer)
+{
+    webkit_web_context_register_uri_scheme(test->m_webContext.get(), "foo",
+        [](WebKitURISchemeRequest* request, gpointer userData) {
+            GRefPtr<GInputStream> inputStream = adoptGRef(g_memory_input_stream_new());
+            const char* data = "<p>foobar!</p>";
+            g_memory_input_stream_add_data(G_MEMORY_INPUT_STREAM(inputStream.get()), data, strlen(data), nullptr);
+            webkit_uri_scheme_request_finish(request, inputStream.get(), strlen(data), "text/html");
+        }, nullptr, nullptr);
+
+    char html[] = "<html><script>let foo = 0; fetch('foo://bar/baz').then(response => { foo = response.status; }).catch(err => { foo = -1; });</script></html>";
+
+    auto waitForFooChanged = [&test]() {
+        int fooValue;
+        do {
+            GUniqueOutPtr<GError> error;
+            JSCValue* jscvalue = test->runJavaScriptAndWaitUntilFinished("foo;", &error.outPtr());
+            g_assert_no_error(error.get());
+            fooValue = jsc_value_to_int32(jscvalue);
+        } while (!fooValue);
+        return fooValue;
+    };
+
+    // By default web security is enabled, request is not allowed, foo should be -1.
+    webkit_web_view_load_html(test->m_webView, html, "http://example.com");
+    test->waitUntilLoadFinished();
+    g_assert_cmpint(waitForFooChanged(), ==, -1);
+
+    WebKitSettings* settings = webkit_web_view_get_settings(test->m_webView);
+    // Disable web security, now we can request forbidden content
+    webkit_settings_set_disable_web_security(settings, TRUE);
+
+    webkit_web_view_load_html(test->m_webView, html, "http://example.com");
+    test->waitUntilLoadFinished();
+    g_assert_cmpint(waitForFooChanged(), ==, 200);
+}
+
+#if USE(SOUP2)
+static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
+#endif
+{
+    if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
     if (g_str_equal(path, "/")) {
-        soup_message_set_status(message, SOUP_STATUS_OK);
-        soup_message_body_complete(message->response_body);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
+        soup_message_body_complete(soup_server_message_get_response_body(message));
     } else
-        soup_message_set_status(message, SOUP_STATUS_NOT_FOUND);
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_FOUND, nullptr);
 }
 
 void beforeAll()
@@ -1373,6 +2168,7 @@ void beforeAll()
     WebViewTest::add("WebKitWebView", "settings", testWebViewSettings);
     WebViewTest::add("WebKitWebView", "zoom-level", testWebViewZoomLevel);
     WebViewTest::add("WebKitWebView", "run-javascript", testWebViewRunJavaScript);
+    WebViewTest::add("WebKitWebView", "run-async-js-functions", testWebViewRunAsyncFunctions);
 #if ENABLE(FULLSCREEN_API)
     FullScreenClientTest::add("WebKitWebView", "fullscreen", testWebViewFullScreen);
 #endif
@@ -1387,6 +2183,7 @@ void beforeAll()
     SnapshotWebViewTest::add("WebKitWebView", "snapshot", testWebViewSnapshot);
 #endif
     WebViewTest::add("WebKitWebView", "page-visibility", testWebViewPageVisibility);
+    WebViewTest::add("WebKitWebView", "document-focus", testWebViewDocumentFocus);
 #if ENABLE(NOTIFICATIONS)
     NotificationWebViewTest::add("WebKitWebView", "notification", testWebViewNotification);
     NotificationWebViewTest::add("WebKitWebView", "notification-initial-permission-allowed", testWebViewNotificationInitialPermissionAllowed);
@@ -1403,6 +2200,16 @@ void beforeAll()
 #endif
     WebViewTest::add("WebKitWebView", "is-audio-muted", testWebViewIsAudioMuted);
     WebViewTest::add("WebKitWebView", "autoplay-policy", testWebViewAutoplayPolicy);
+#if PLATFORM(WPE) && USE(WPEBACKEND_FDO_AUDIO_EXTENSION)
+    AudioRenderingWebViewTest::add("WebKitWebView", "external-audio-rendering", testWebViewExternalAudioRendering);
+#endif
+    WebViewTest::add("WebKitWebView", "is-web-process-responsive", testWebViewIsWebProcessResponsive);
+    WebViewTerminateWebProcessTest::add("WebKitWebView", "terminate-web-process", testWebViewTerminateWebProcess);
+    WebViewTerminateWebProcessTest::add("WebKitWebView", "terminate-unresponsive-web-process", testWebViewTerminateUnresponsiveWebProcess);
+    WebViewTest::add("WebKitWebView", "cors-allowlist", testWebViewCORSAllowlist);
+    WebViewTest::add("WebKitWebView", "default-content-security-policy", testWebViewDefaultContentSecurityPolicy);
+    WebViewTest::add("WebKitWebView", "web-extension-mode", testWebViewWebExtensionMode);
+    WebViewTest::add("WebKitWebView", "disable-web-security", testWebViewDisableWebSecurity);
 }
 
 void afterAll()

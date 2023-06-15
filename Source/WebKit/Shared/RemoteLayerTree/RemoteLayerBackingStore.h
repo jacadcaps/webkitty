@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "ShareableBitmap.h"
+#include "ImageBufferBackendHandle.h"
 #include <WebCore/FloatRect.h>
-#include <WebCore/IOSurface.h>
+#include <WebCore/ImageBuffer.h>
 #include <WebCore/Region.h>
 #include <wtf/MachSendRight.h>
 #include <wtf/MonotonicTime.h>
@@ -36,12 +36,20 @@ OBJC_CLASS CALayer;
 
 // FIXME: Make PlatformCALayerRemote.cpp Objective-C so we can include WebLayer.h here and share the typedef.
 namespace WebCore {
+class NativeImage;
+class ThreadSafeImageBufferFlusher;
 typedef Vector<WebCore::FloatRect, 5> RepaintRectList;
 }
 
 namespace WebKit {
 
 class PlatformCALayerRemote;
+class RemoteLayerBackingStoreCollection;
+enum class SwapBuffersDisplayRequirement : uint8_t;
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+using UseCGDisplayListImageCache = WebCore::ImageBufferCreationContext::UseCGDisplayListImageCache;
+#endif
 
 class RemoteLayerBackingStore {
     WTF_MAKE_NONCOPYABLE(RemoteLayerBackingStore);
@@ -50,23 +58,75 @@ public:
     RemoteLayerBackingStore(PlatformCALayerRemote*);
     ~RemoteLayerBackingStore();
 
-    void ensureBackingStore(WebCore::FloatSize, float scale, bool acceleratesDrawing, bool deepColor, bool isOpaque);
+    enum class Type : bool {
+        IOSurface,
+        Bitmap
+    };
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+    enum class IncludeDisplayList : bool { No, Yes };
+#endif
+
+    struct Parameters {
+        Type type { Type::Bitmap };
+        WebCore::FloatSize size;
+        WebCore::DestinationColorSpace colorSpace { WebCore::DestinationColorSpace::SRGB() };
+        float scale { 1.0f };
+        bool deepColor { false };
+        bool isOpaque { false };
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+        IncludeDisplayList includeDisplayList { IncludeDisplayList::No };
+        UseCGDisplayListImageCache useCGDisplayListImageCache { UseCGDisplayListImageCache::No };
+#endif
+        
+        void encode(IPC::Encoder&) const;
+        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, Parameters&);
+
+        bool operator==(const Parameters& other) const
+        {
+            return (type == other.type
+                && size == other.size
+                && colorSpace == other.colorSpace
+                && scale == other.scale
+                && deepColor == other.deepColor
+                && isOpaque == other.isOpaque
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+                && includeDisplayList == other.includeDisplayList
+                && useCGDisplayListImageCache == other.useCGDisplayListImageCache
+#endif
+                );
+        }
+    };
+
+    void ensureBackingStore(const Parameters&);
 
     void setNeedsDisplay(const WebCore::IntRect);
     void setNeedsDisplay();
 
-    bool display();
+    void setContents(WTF::MachSendRight&& surfaceHandle);
 
-    WebCore::FloatSize size() const { return m_size; }
-    float scale() const { return m_scale; }
-    bool acceleratesDrawing() const { return m_acceleratesDrawing; }
-    bool isOpaque() const { return m_isOpaque; }
+    // Returns true if we need to encode the buffer.
+    bool layerWillBeDisplayed();
+    bool needsDisplay() const;
+
+    bool performDelegatedLayerDisplay();
+    void prepareToDisplay();
+    void paintContents();
+
+    WebCore::FloatSize size() const { return m_parameters.size; }
+    float scale() const { return m_parameters.scale; }
+    bool usesDeepColorBackingStore() const;
+    WebCore::DestinationColorSpace colorSpace() const { return m_parameters.colorSpace; }
+    WebCore::PixelFormat pixelFormat() const;
+    Type type() const { return m_parameters.type; }
+    bool isOpaque() const { return m_parameters.isOpaque; }
     unsigned bytesPerPixel() const;
 
     PlatformCALayerRemote* layer() const { return m_layer; }
 
     enum class LayerContentsType { IOSurface, CAMachPort };
-    void applyBackingStoreToLayer(CALayer *, LayerContentsType);
+    void applyBackingStoreToLayer(CALayer *, LayerContentsType, bool replayCGDisplayListsIntoBackingStore);
 
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RemoteLayerBackingStore&);
@@ -75,14 +135,14 @@ public:
 
     bool hasFrontBuffer() const
     {
-#if HAVE(IOSURFACE)
-        if (m_acceleratesDrawing)
-            return !!m_frontBuffer.surface;
-#endif
-        return !!m_frontBuffer.bitmap;
+        return m_contentsBufferHandle || !!m_frontBuffer.imageBuffer;
     }
 
-    RetainPtr<CGContextRef> takeFrontContextPendingFlush();
+    // Just for RemoteBackingStoreCollection.
+    void applySwappedBuffers(RefPtr<WebCore::ImageBuffer>&& front, RefPtr<WebCore::ImageBuffer>&& back, RefPtr<WebCore::ImageBuffer>&& secondaryBack, SwapBuffersDisplayRequirement);
+    WebCore::SetNonVolatileResult swapToValidFrontBuffer();
+
+    Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>> takePendingFlushers();
 
     enum class BufferType {
         Front,
@@ -90,63 +150,67 @@ public:
         SecondaryBack
     };
 
+    RefPtr<WebCore::ImageBuffer> bufferForType(BufferType) const;
+
     // Returns true if it was able to fulfill the request. This can fail when trying to mark an in-use surface as volatile.
-    bool setBufferVolatility(BufferType, bool isVolatile);
+    bool setBufferVolatile(BufferType);
+    WebCore::SetNonVolatileResult setFrontBufferNonVolatile();
+
+    bool hasEmptyDirtyRegion() const { return m_dirtyRegion.isEmpty() || m_parameters.size.isEmpty(); }
+    bool supportsPartialRepaint() const;
 
     MonotonicTime lastDisplayTime() const { return m_lastDisplayTime; }
 
-private:
-    void drawInContext(WebCore::GraphicsContext&, CGImageRef backImage);
     void clearBackingStore();
-    void swapToValidFrontBuffer();
 
-#if HAVE(IOSURFACE)
-    WebCore::IOSurface::Format surfaceBufferFormat() const;
-#endif
+    static RetainPtr<id> layerContentsBufferFromBackendHandle(ImageBufferBackendHandle&&, LayerContentsType);
 
-    WebCore::IntSize backingStoreSize() const;
+private:
+    RemoteLayerBackingStoreCollection* backingStoreCollection() const;
 
-    PlatformCALayerRemote* m_layer;
-
-    WebCore::FloatSize m_size;
-    float m_scale;
-    bool m_isOpaque;
-
-    WebCore::Region m_dirtyRegion;
+    void drawInContext(WebCore::GraphicsContext&, WTF::Function<void()>&& additionalContextSetupCallback = nullptr);
 
     struct Buffer {
-        RefPtr<ShareableBitmap> bitmap;
-#if HAVE(IOSURFACE)
-        std::unique_ptr<WebCore::IOSurface> surface;
-        bool isVolatile = false;
-#endif
+        RefPtr<WebCore::ImageBuffer> imageBuffer;
 
         explicit operator bool() const
         {
-#if HAVE(IOSURFACE)
-            if (surface)
-                return true;
-#endif
-            if (bitmap)
-                return true;
-
-            return false;
+            return !!imageBuffer;
         }
 
         void discard();
     };
 
+    bool setBufferVolatile(Buffer&);
+    WebCore::SetNonVolatileResult setBufferNonVolatile(Buffer&);
+    
+    SwapBuffersDisplayRequirement prepareBuffers();
+    void ensureFrontBuffer();
+    void dirtyRepaintCounterIfNecessary();
+
+    PlatformCALayerRemote* m_layer;
+
+    Parameters m_parameters;
+
+    WebCore::Region m_dirtyRegion;
+
+    // Used in the WebContent Process.
     Buffer m_frontBuffer;
     Buffer m_backBuffer;
-#if HAVE(IOSURFACE)
     Buffer m_secondaryBackBuffer;
-    WTF::MachSendRight m_frontBufferSendRight;
+
+    // Used in the UI Process.
+    std::optional<ImageBufferBackendHandle> m_bufferHandle;
+    // FIXME: This should be removed and m_bufferHandle should be used to ref the buffer once ShareableBitmapHandle
+    // can be encoded multiple times. http://webkit.org/b/234169
+    std::optional<MachSendRight> m_contentsBufferHandle;
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+    RefPtr<WebCore::ImageBuffer> m_displayListBuffer;
+    std::optional<ImageBufferBackendHandle> m_displayListBufferHandle;
 #endif
 
-    RetainPtr<CGContextRef> m_frontContextPendingFlush;
-
-    bool m_acceleratesDrawing { false };
-    bool m_deepColor { false };
+    Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>> m_frontBufferFlushers;
 
     WebCore::RepaintRectList m_paintingRects;
 

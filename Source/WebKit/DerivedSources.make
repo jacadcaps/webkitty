@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2018 Apple Inc. All rights reserved.
+# Copyright (C) 2010-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -37,19 +37,21 @@ VPATH = \
     $(WebKit2)/NetworkProcess/IndexedDB \
     $(WebKit2)/NetworkProcess/ServiceWorker \
     $(WebKit2)/NetworkProcess/WebStorage \
-    $(WebKit2)/PluginProcess \
-    $(WebKit2)/PluginProcess/mac \
+    $(WebKit2)/NetworkProcess/storage \
+    $(WebKit2)/Resources/SandboxProfiles/ios \
     $(WebKit2)/Shared/Plugins \
     $(WebKit2)/Shared \
     $(WebKit2)/Shared/API/Cocoa \
     $(WebKit2)/Shared/ApplePay \
     $(WebKit2)/Shared/Authentication \
     $(WebKit2)/Shared/mac \
+    $(WebKit2)/Shared/Notifications \
     $(WebKit2)/WebProcess/ApplePay \
     $(WebKit2)/WebProcess/ApplicationCache \
     $(WebKit2)/WebProcess/Automation \
     $(WebKit2)/WebProcess/Cache \
     $(WebKit2)/WebProcess/Databases/IndexedDB \
+    $(WebKit2)/WebProcess/Extensions/Interfaces \
     $(WebKit2)/WebProcess/FullScreen \
     $(WebKit2)/WebProcess/Geolocation \
     $(WebKit2)/WebProcess/GPU \
@@ -60,6 +62,7 @@ VPATH = \
     $(WebKit2)/WebProcess/IconDatabase \
     $(WebKit2)/WebProcess/Inspector \
     $(WebKit2)/WebProcess/MediaCache \
+    $(WebKit2)/WebProcess/MediaSession \
     $(WebKit2)/WebProcess/MediaStream \
     $(WebKit2)/WebProcess/Network \
     $(WebKit2)/WebProcess/Network/webrtc \
@@ -67,6 +70,7 @@ VPATH = \
     $(WebKit2)/WebProcess/OriginData \
     $(WebKit2)/WebProcess/Plugins \
     $(WebKit2)/WebProcess/ResourceCache \
+	$(WebKit2)/WebProcess/Speech \
     $(WebKit2)/WebProcess/Storage \
     $(WebKit2)/WebProcess/UserContent \
     $(WebKit2)/WebProcess/WebAuthentication \
@@ -99,11 +103,16 @@ VPATH = \
     $(WebKit2)/UIProcess/WebAuthentication \
     $(WebKit2)/UIProcess/mac \
     $(WebKit2)/UIProcess/ios \
+    $(WebKit2)/webpushd/mac \
     $(WEBKITADDITIONS_HEADER_SEARCH_PATHS) \
 #
 
-PYTHON = python
-PERL = perl
+# Workaround for rdar://84212106.
+find_tool = $(realpath $(shell xcrun --sdk $(SDK_NAME) -f $(1)))
+
+PYTHON := $(call find_tool,python3)
+PERL := perl
+RUBY := ruby
 
 ifeq ($(OS),Windows_NT)
     DELETE = cmd //C del
@@ -112,88 +121,124 @@ else
 endif
 
 MESSAGE_RECEIVERS = \
+	NetworkProcess/NetworkBroadcastChannelRegistry \
 	NetworkProcess/NetworkConnectionToWebProcess \
-	NetworkProcess/IndexedDB/WebIDBServer \
 	NetworkProcess/NetworkContentRuleListManager \
-	NetworkProcess/WebStorage/StorageManagerSet \
 	NetworkProcess/cache/CacheStorageEngineConnection \
 	NetworkProcess/CustomProtocols/LegacyCustomProtocolManager \
 	NetworkProcess/NetworkSocketChannel \
 	NetworkProcess/ServiceWorker/WebSWServerConnection \
+	NetworkProcess/ServiceWorker/ServiceWorkerDownloadTask \
 	NetworkProcess/ServiceWorker/ServiceWorkerFetchTask \
 	NetworkProcess/ServiceWorker/WebSWServerToContextConnection \
+	NetworkProcess/SharedWorker/WebSharedWorkerServerConnection \
+	NetworkProcess/SharedWorker/WebSharedWorkerServerToContextConnection \
 	NetworkProcess/NetworkSocketStream \
 	NetworkProcess/NetworkProcess \
 	NetworkProcess/NetworkResourceLoader \
 	NetworkProcess/webrtc/NetworkMDNSRegister \
 	NetworkProcess/webrtc/NetworkRTCProvider \
 	NetworkProcess/webrtc/NetworkRTCMonitor \
+	NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy \
 	NetworkProcess/Cookies/WebCookieManager \
-	Shared/Plugins/NPObjectMessageReceiver \
+	NetworkProcess/storage/NetworkStorageManager \
 	Shared/AuxiliaryProcess \
 	Shared/API/Cocoa/RemoteObjectRegistry \
 	Shared/ApplePay/WebPaymentCoordinatorProxy \
 	Shared/Authentication/AuthenticationManager \
+	Shared/Notifications/NotificationManagerMessageHandler \
 	Shared/WebConnection \
+	Shared/IPCConnectionTester \
+	Shared/IPCStreamTester \
+	Shared/IPCStreamTesterProxy \
+	Shared/IPCTester \
+	Shared/IPCTesterReceiver \
 	UIProcess/WebFullScreenManagerProxy \
 	UIProcess/RemoteLayerTree/RemoteLayerTreeDrawingAreaProxy \
 	UIProcess/GPU/GPUProcessProxy \
 	UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy \
 	UIProcess/WebPasteboardProxy \
 	UIProcess/UserContent/WebUserContentControllerProxy \
-	UIProcess/Inspector/WebInspectorProxy \
-	UIProcess/Inspector/RemoteWebInspectorProxy \
-	UIProcess/Plugins/PluginProcessProxy \
+	UIProcess/Inspector/WebInspectorUIProxy \
+	UIProcess/Inspector/RemoteWebInspectorUIProxy \
+	UIProcess/Inspector/WebInspectorUIExtensionControllerProxy \
 	UIProcess/DrawingAreaProxy \
 	UIProcess/Network/NetworkProcessProxy \
 	UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy \
+	UIProcess/WebFrameProxy \
 	UIProcess/WebPageProxy \
 	UIProcess/VisitedLinkStore \
 	UIProcess/ios/WebDeviceOrientationUpdateProviderProxy \
-	UIProcess/ios/EditableImageController \
 	UIProcess/ios/SmartMagnificationController \
 	UIProcess/mac/SecItemShimProxy \
 	UIProcess/WebGeolocationManagerProxy \
+	UIProcess/WebLockRegistryProxy \
+	UIProcess/WebPermissionControllerProxy \
 	UIProcess/Cocoa/PlaybackSessionManagerProxy \
 	UIProcess/Cocoa/UserMediaCaptureManagerProxy \
 	UIProcess/Cocoa/VideoFullscreenManagerProxy \
-	UIProcess/WebCookieManagerProxy \
 	UIProcess/ViewGestureController \
 	UIProcess/WebProcessProxy \
 	UIProcess/Automation/WebAutomationSession \
 	UIProcess/WebProcessPool \
+	UIProcess/WebScreenOrientationManagerProxy \
 	UIProcess/Downloads/DownloadProxy \
+	UIProcess/Extensions/WebExtensionContext \
+	UIProcess/Extensions/WebExtensionController \
 	UIProcess/Media/AudioSessionRoutingArbitratorProxy \
+	UIProcess/Media/RemoteMediaSessionCoordinatorProxy \
+	UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager \
+	UIProcess/SpeechRecognitionServer \
+	UIProcess/XR/PlatformXRSystem \
 	WebProcess/Databases/IndexedDB/WebIDBConnectionToServer \
+	WebProcess/Extensions/WebExtensionContextProxy \
+	WebProcess/Extensions/WebExtensionControllerProxy \
 	WebProcess/GPU/GPUProcessConnection \
-	WebProcess/GPU/graphics/RemoteRenderingBackend \
+	WebProcess/GPU/graphics/RemoteRenderingBackendProxy \
+	WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy \
+	WebProcess/GPU/graphics/WebGPU/RemoteGPUProxy \
 	WebProcess/GPU/webrtc/LibWebRTCCodecs \
 	WebProcess/GPU/webrtc/SampleBufferDisplayLayer \
 	WebProcess/GPU/media/MediaPlayerPrivateRemote \
-	WebProcess/GPU/media/RemoteCDMInstanceSession \
-	WebProcess/GPU/media/RemoteLegacyCDMSession \
-	WebProcess/GPU/media/ios/RemoteMediaSessionHelper \
-	WebProcess/GPU/media/RemoteMediaPlayerManager \
-	WebProcess/GPU/media/RemoteAudioDestinationProxy \
+	WebProcess/GPU/media/MediaSourcePrivateRemote \
+	WebProcess/GPU/media/RemoteAudioHardwareListener \
 	WebProcess/GPU/media/RemoteAudioSession \
+	WebProcess/GPU/media/RemoteAudioSourceProviderManager \
+	WebProcess/GPU/media/RemoteCDMInstance \
+	WebProcess/GPU/media/RemoteCDMInstanceSession \
+	WebProcess/GPU/media/RemoteImageDecoderAVFManager \
+	WebProcess/GPU/media/RemoteLegacyCDMSession \
+	WebProcess/GPU/media/RemoteRemoteCommandListener \
+	WebProcess/GPU/media/SourceBufferPrivateRemote \
+	WebProcess/GPU/media/ios/RemoteMediaSessionHelper \
+	WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor \
 	WebProcess/WebStorage/StorageAreaMap \
 	WebProcess/UserContent/WebUserContentController \
 	WebProcess/Inspector/WebInspectorInterruptDispatcher \
 	WebProcess/Inspector/WebInspectorUI \
+	WebProcess/Inspector/WebInspectorUIExtensionController \
 	WebProcess/Inspector/WebInspector \
 	WebProcess/Inspector/RemoteWebInspectorUI \
-	WebProcess/Plugins/PluginProcessConnectionManager \
-	WebProcess/Plugins/PluginProxy \
-	WebProcess/Plugins/PluginProcessConnection \
+	WebProcess/MediaSession/RemoteMediaSessionCoordinator \
 	WebProcess/Network/WebSocketChannel \
 	WebProcess/Network/NetworkProcessConnection \
 	WebProcess/Network/WebSocketStream \
 	WebProcess/Network/WebResourceLoader \
-	WebProcess/Network/webrtc/WebRTCMonitor \
 	WebProcess/Network/webrtc/LibWebRTCNetwork \
+	WebProcess/Network/webrtc/RTCDataChannelRemoteManager \
+	WebProcess/Network/webrtc/WebRTCMonitor \
 	WebProcess/Network/webrtc/WebMDNSRegister \
 	WebProcess/Network/webrtc/WebRTCResolver \
+	WebProcess/WebCoreSupport/RemoteWebLockRegistry \
+	WebProcess/WebCoreSupport/WebBroadcastChannelRegistry \
 	WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider \
+	WebProcess/WebCoreSupport/WebFileSystemStorageConnection \
+	WebProcess/WebCoreSupport/WebPermissionController \
+	WebProcess/WebCoreSupport/WebScreenOrientationManager \
+	WebProcess/WebCoreSupport/WebSpeechRecognitionConnection \
+	WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager \
+	WebProcess/Storage/WebSharedWorkerContextManagerConnection \
+	WebProcess/Storage/WebSharedWorkerObjectConnection \
 	WebProcess/Storage/WebSWContextManagerConnection \
 	WebProcess/Storage/WebSWClientConnection \
 	WebProcess/WebProcess \
@@ -210,36 +255,66 @@ MESSAGE_RECEIVERS = \
 	WebProcess/WebPage/RemoteLayerTree/RemoteScrollingCoordinator \
 	WebProcess/WebPage/ViewGestureGeometryCollector \
 	WebProcess/WebPage/DrawingArea \
+	WebProcess/WebPage/WebFrame \
 	WebProcess/WebPage/WebPage \
 	WebProcess/WebPage/VisitedLinkTableController \
 	WebProcess/WebPage/Cocoa/TextCheckingControllerProxy \
 	WebProcess/WebPage/ViewUpdateDispatcher \
-	PluginProcess/WebProcessConnection \
-	PluginProcess/PluginControllerProxy \
-	PluginProcess/PluginProcess \
+	WebProcess/XR/PlatformXRSystemProxy \
 	GPUProcess/GPUConnectionToWebProcess \
-	GPUProcess/graphics/RemoteRenderingBackendProxy \
+	GPUProcess/graphics/RemoteDisplayListRecorder \
+	GPUProcess/graphics/RemoteRenderingBackend \
+	GPUProcess/graphics/RemoteGraphicsContextGL \
+	GPUProcess/graphics/WebGPU/RemoteAdapter \
+	GPUProcess/graphics/WebGPU/RemoteBindGroup \
+	GPUProcess/graphics/WebGPU/RemoteBindGroupLayout \
+	GPUProcess/graphics/WebGPU/RemoteBuffer \
+	GPUProcess/graphics/WebGPU/RemoteCommandBuffer \
+	GPUProcess/graphics/WebGPU/RemoteCommandEncoder \
+	GPUProcess/graphics/WebGPU/RemoteCompositorIntegration \
+	GPUProcess/graphics/WebGPU/RemoteComputePassEncoder \
+	GPUProcess/graphics/WebGPU/RemoteComputePipeline \
+	GPUProcess/graphics/WebGPU/RemoteDevice \
+	GPUProcess/graphics/WebGPU/RemoteExternalTexture \
+	GPUProcess/graphics/WebGPU/RemoteGPU \
+	GPUProcess/graphics/WebGPU/RemotePipelineLayout \
+	GPUProcess/graphics/WebGPU/RemotePresentationContext \
+	GPUProcess/graphics/WebGPU/RemoteQuerySet \
+	GPUProcess/graphics/WebGPU/RemoteQueue \
+	GPUProcess/graphics/WebGPU/RemoteRenderBundle \
+	GPUProcess/graphics/WebGPU/RemoteRenderBundleEncoder \
+	GPUProcess/graphics/WebGPU/RemoteRenderPassEncoder \
+	GPUProcess/graphics/WebGPU/RemoteRenderPipeline \
+	GPUProcess/graphics/WebGPU/RemoteSampler \
+	GPUProcess/graphics/WebGPU/RemoteShaderModule \
+	GPUProcess/graphics/WebGPU/RemoteTexture \
+	GPUProcess/graphics/WebGPU/RemoteTextureView \
 	GPUProcess/webrtc/LibWebRTCCodecsProxy \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager \
-	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererManager \
 	GPUProcess/webrtc/RemoteMediaRecorderManager \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayer \
 	GPUProcess/webrtc/RemoteMediaRecorder \
-	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRenderer \
+	GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager \
 	GPUProcess/GPUProcess \
+	GPUProcess/media/RemoteImageDecoderAVFProxy \
 	GPUProcess/media/RemoteLegacyCDMSessionProxy \
 	GPUProcess/media/RemoteLegacyCDMFactoryProxy \
 	GPUProcess/media/RemoteAudioSessionProxy \
 	GPUProcess/media/RemoteCDMInstanceSessionProxy \
 	GPUProcess/media/RemoteCDMProxy \
 	GPUProcess/media/ios/RemoteMediaSessionHelperProxy \
-	GPUProcess/media/RemoteMediaPlayerProxy \
+	GPUProcess/media/RemoteAudioDestinationManager \
 	GPUProcess/media/RemoteCDMFactoryProxy \
-	GPUProcess/media/RemoteMediaResourceManager \
 	GPUProcess/media/RemoteCDMInstanceProxy \
 	GPUProcess/media/RemoteLegacyCDMProxy \
+	GPUProcess/media/RemoteMediaEngineConfigurationFactoryProxy \
 	GPUProcess/media/RemoteMediaPlayerManagerProxy \
-	GPUProcess/media/RemoteAudioDestinationManager \
+	GPUProcess/media/RemoteMediaPlayerProxy \
+	GPUProcess/media/RemoteMediaResourceManager \
+	GPUProcess/media/RemoteVideoFrameObjectHeap \
+	GPUProcess/media/RemoteMediaSourceProxy \
+	GPUProcess/media/RemoteRemoteCommandListenerProxy \
+	GPUProcess/media/RemoteSourceBufferProxy \
 #
 
 GENERATE_MESSAGE_RECEIVER_SCRIPT = $(WebKit2)/Scripts/generate-message-receiver.py
@@ -249,16 +324,25 @@ GENERATE_MESSAGE_RECEIVER_SCRIPTS = \
     $(WebKit2)/Scripts/webkit/messages.py \
     $(WebKit2)/Scripts/webkit/model.py \
     $(WebKit2)/Scripts/webkit/parser.py \
+    $(WebKit2)/DerivedSources.make \
 #
 
-FRAMEWORK_FLAGS := $(shell echo $(BUILT_PRODUCTS_DIR) $(FRAMEWORK_SEARCH_PATHS) $(SYSTEM_FRAMEWORK_SEARCH_PATHS) | perl -e 'print "-F " . join(" -F ", split(" ", <>));')
-HEADER_FLAGS := $(shell echo $(BUILT_PRODUCTS_DIR) $(HEADER_SEARCH_PATHS) $(SYSTEM_HEADER_SEARCH_PATHS) | perl -e 'print "-I" . join(" -I", split(" ", <>));')
+FRAMEWORK_FLAGS := $(addprefix -F, $(BUILT_PRODUCTS_DIR) $(FRAMEWORK_SEARCH_PATHS) $(SYSTEM_FRAMEWORK_SEARCH_PATHS))
+HEADER_FLAGS := $(addprefix -I, $(BUILT_PRODUCTS_DIR) $(HEADER_SEARCH_PATHS) $(SYSTEM_HEADER_SEARCH_PATHS))
+EXTERNAL_FLAGS := -DRELEASE_WITHOUT_OPTIMIZATIONS $(addprefix -D, $(GCC_PREPROCESSOR_DEFINITIONS))
+
+platform_h_compiler_command = $(CC) -std=c++2a -x c++ $(1) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null
+
+FEATURE_AND_PLATFORM_DEFINES := $(shell $(call platform_h_compiler_command,-E -P -dM) | $(PERL) -ne "print if s/\#define ((HAVE_|USE_|ENABLE_|WTF_PLATFORM_)\w+) 1/\1/")
+
+PLATFORM_HEADER_DIR := $(realpath $(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH))
+PLATFORM_HEADER_DEPENDENCIES := $(filter $(PLATFORM_HEADER_DIR)/%,$(realpath $(shell $(call platform_h_compiler_command,-M) | $(PERL) -e "local \$$/; my (\$$target, \$$deps) = split(/:/, <>); print split(/\\\\/, \$$deps);")))
+FEATURE_AND_PLATFORM_DEFINE_DEPENDENCIES = $(WebKit2)/DerivedSources.make $(PLATFORM_HEADER_DEPENDENCIES)
 
 MESSAGE_RECEIVER_FILES := $(addsuffix MessageReceiver.cpp,$(notdir $(MESSAGE_RECEIVERS)))
 MESSAGES_FILES := $(addsuffix Messages.h,$(notdir $(MESSAGE_RECEIVERS)))
-MESSAGE_REPLIES_FILES := $(addsuffix MessagesReplies.h,$(notdir $(MESSAGE_RECEIVERS)))
 
-GENERATED_MESSAGES_FILES := $(MESSAGE_RECEIVER_FILES) $(MESSAGES_FILES) $(MESSAGE_REPLIES_FILES) MessageNames.h MessageNames.cpp
+GENERATED_MESSAGES_FILES := $(MESSAGE_RECEIVER_FILES) $(MESSAGES_FILES) MessageNames.h MessageNames.cpp MessageArgumentDescriptions.cpp
 GENERATED_MESSAGES_FILES_AS_PATTERNS := $(subst .,%,$(GENERATED_MESSAGES_FILES))
 
 MESSAGES_IN_FILES := $(addsuffix .messages.in,$(MESSAGE_RECEIVERS))
@@ -268,7 +352,7 @@ MESSAGES_IN_FILES := $(addsuffix .messages.in,$(MESSAGE_RECEIVERS))
 all : $(GENERATED_MESSAGES_FILES)
 
 $(GENERATED_MESSAGES_FILES_AS_PATTERNS) : $(MESSAGES_IN_FILES) $(GENERATE_MESSAGE_RECEIVER_SCRIPTS)
-	python $(GENERATE_MESSAGE_RECEIVER_SCRIPT) $(WebKit2) $(MESSAGE_RECEIVERS)
+	$(PYTHON) $(GENERATE_MESSAGE_RECEIVER_SCRIPT) $(WebKit2) $(MESSAGE_RECEIVERS)
 
 TEXT_PREPROCESSOR_FLAGS=-E -P -w
 
@@ -276,22 +360,33 @@ ifneq ($(SDKROOT),)
 	SDK_FLAGS=-isysroot $(SDKROOT)
 endif
 
-ifeq ($(USE_LLVM_TARGET_TRIPLES_FOR_CLANG),YES)
-	WK_CURRENT_ARCH=$(word 1, $(ARCHS))
-	TARGET_TRIPLE_FLAGS=-target $(WK_CURRENT_ARCH)-$(LLVM_TARGET_TRIPLE_VENDOR)-$(LLVM_TARGET_TRIPLE_OS_VERSION)$(LLVM_TARGET_TRIPLE_SUFFIX)
+WK_CURRENT_ARCH=$(word 1, $(ARCHS))
+TARGET_TRIPLE_FLAGS=-target $(WK_CURRENT_ARCH)-$(LLVM_TARGET_TRIPLE_VENDOR)-$(LLVM_TARGET_TRIPLE_OS_VERSION)$(LLVM_TARGET_TRIPLE_SUFFIX)
+
+ifeq ($(USE_SYSTEM_CONTENT_PATH),YES)
+	SANDBOX_DEFINES = -DUSE_SYSTEM_CONTENT_PATH=1 -DSYSTEM_CONTENT_PATH=$(SYSTEM_CONTENT_PATH)
 endif
 
 SANDBOX_PROFILES = \
 	com.apple.WebProcess.sb \
-	com.apple.WebKit.plugin-common.sb \
 	com.apple.WebKit.NetworkProcess.sb \
-	com.apple.WebKit.GPUProcess.sb
+	com.apple.WebKit.GPUProcess.sb \
+	com.apple.WebKit.webpushd.mac.sb
+	
+SANDBOX_PROFILES_IOS = \
+	com.apple.WebKit.adattributiond.sb \
+	com.apple.WebKit.webpushd.sb \
+	com.apple.WebKit.GPU.sb \
+	com.apple.WebKit.Networking.sb \
+	com.apple.WebKit.WebContent.sb
 
-all : $(SANDBOX_PROFILES)
+sandbox-profiles-ios : $(SANDBOX_PROFILES_IOS)
+
+all : $(SANDBOX_PROFILES) $(SANDBOX_PROFILES_IOS)
 
 %.sb : %.sb.in
 	@echo Pre-processing $* sandbox profile...
-	grep -o '^[^;]*' $< | $(CC) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(TEXT_PREPROCESSOR_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) -include "wtf/Platform.h" - > $@
+	grep -o '^[^;]*' $< | $(CC) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(SANDBOX_DEFINES) $(TEXT_PREPROCESSOR_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" - > $@
 
 AUTOMATION_PROTOCOL_GENERATOR_SCRIPTS = \
 	$(JavaScriptCore_SCRIPTS_DIR)/cpp_generator_templates.py \
@@ -338,36 +433,182 @@ all : WebAutomationSessionProxyScriptSource.h
 
 # WebPreferences generation
 
-WEB_PREFERENCES_INPUT_FILES = \
-    $(WebKit2)/Shared/WebPreferences.yaml \
+WEB_PREFERENCES = \
+    $(WTF_BUILD_SCRIPTS_DIR)/Preferences/UnifiedWebPreferences.yaml \
     $(ADDITIONAL_WEB_PREFERENCES_INPUT_FILES) \
 #
-WEB_PREFERENCES_COMBINED_INPUT_FILE = WebPreferencesCombined.yaml
 
 WEB_PREFERENCES_TEMPLATES = \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPageUpdatePreferences.cpp.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb \
-    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.cpp.erb \
-    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesInternalDebugFeatures.cpp.erb \
-    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb \
+    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesFeatures.cpp.erb \
+    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesGetterSetters.cpp.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.cpp.erb \
+    $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb \
     $(WebKit2)/Scripts/PreferencesTemplates/WebPreferencesStoreDefaultsMap.cpp.erb \
 #
 WEB_PREFERENCES_FILES = $(basename $(notdir $(WEB_PREFERENCES_TEMPLATES)))
 WEB_PREFERENCES_PATTERNS = $(subst .,%,$(WEB_PREFERENCES_FILES))
 
-all : $(WEB_PREFERENCES_FILES) $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
+all : $(WEB_PREFERENCES_FILES)
 
-$(WEB_PREFERENCES_COMBINED_INPUT_FILE) : $(WEB_PREFERENCES_INPUT_FILES)
-	cat $^ > $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
+$(WEB_PREFERENCES_PATTERNS) : $(WTF_BUILD_SCRIPTS_DIR)/GeneratePreferences.rb $(WEB_PREFERENCES_TEMPLATES) $(WEB_PREFERENCES)
+	$(RUBY) $< --frontend WebKit $(addprefix --template , $(WEB_PREFERENCES_TEMPLATES)) $(WEB_PREFERENCES)
 
-$(WEB_PREFERENCES_PATTERNS) : $(WebKit2)/Scripts/GeneratePreferences.rb $(WEB_PREFERENCES_TEMPLATES) $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
-	$(RUBY) $< --input $(WEB_PREFERENCES_COMBINED_INPUT_FILE)
+SERIALIZATION_DESCRIPTION_FILES = \
+	GPUProcess/GPUProcessSessionParameters.serialization.in \
+	GPUProcess/graphics/InlinePathData.serialization.in \
+	GPUProcess/graphics/RemoteRenderingBackendCreationParameters.serialization.in \
+	GPUProcess/media/InitializationSegmentInfo.serialization.in \
+	GPUProcess/media/MediaDescriptionInfo.serialization.in \
+	GPUProcess/media/RemoteMediaPlayerProxyConfiguration.serialization.in \
+	GPUProcess/media/TextTrackPrivateRemoteConfiguration.serialization.in \
+	NetworkProcess/NetworkProcessCreationParameters.serialization.in \
+	Shared/API/APIError.serialization.in \
+	Shared/API/APIFrameHandle.serialization.in \
+	NetworkProcess/NetworkResourceLoadParameters.serialization.in \
+	Shared/API/APIGeometry.serialization.in \
+	Shared/API/APIPageHandle.serialization.in \
+	Shared/API/APIURL.serialization.in \
+	Shared/API/APIURLRequest.serialization.in \
+	Shared/API/APIURLResponse.serialization.in \
+	Shared/Cocoa/CacheStoragePolicy.serialization.in \
+	Shared/Cocoa/DataDetectionResult.serialization.in \
+	Shared/Cocoa/RevealItem.serialization.in \
+	Shared/Cocoa/WebCoreArgumentCodersCocoa.serialization.in \
+	Shared/EditorState.serialization.in \
+	Shared/Extensions/WebExtensionEventListenerType.serialization.in \
+	Shared/FocusedElementInformation.serialization.in \
+	Shared/FrameInfoData.serialization.in \
+	Shared/FrameTreeNodeData.serialization.in \
+	Shared/ios/InteractionInformationAtPosition.serialization.in \
+	Shared/LayerTreeContext.serialization.in \
+	Shared/Model.serialization.in \
+	Shared/PALArgumentCoders.serialization.in \
+	Shared/Pasteboard.serialization.in \
+	Shared/SameDocumentNavigationType.serialization.in \
+	Shared/SessionState.serialization.in \
+	Shared/ShareableBitmap.serialization.in \
+	Shared/TextFlags.serialization.in \
+	Shared/TextRecognitionResult.serialization.in \
+	Shared/WTFArgumentCoders.serialization.in \
+	Shared/WebCoreArgumentCoders.serialization.in \
+	Shared/WebExtensionContextParameters.serialization.in \
+	Shared/WebEvent.serialization.in \
+	Shared/WebExtensionControllerParameters.serialization.in \
+	Shared/WebHitTestResultData.serialization.in \
+	Shared/WebPopupItem.serialization.in \
+	Shared/WebPushDaemonConnectionConfiguration.serialization.in \
+	Shared/WebPushMessage.serialization.in \
+	Shared/ApplePay/ApplePayPaymentSetupFeatures.serialization.in \
+	Shared/ApplePay/PaymentSetupConfiguration.serialization.in \
+	Shared/Databases/IndexedDB/WebIDBResult.serialization.in \
+	Shared/RemoteLayerTree/RemoteLayerTree.serialization.in \
+	Shared/mac/SecItemRequestData.serialization.in \
+	Shared/mac/SecItemResponseData.serialization.in \
+	Shared/mac/WebHitTestResultPlatformData.serialization.in \
+	Shared/WebsiteDataStoreParameters.serialization.in \
+	Shared/WebsiteData/WebsiteDataFetchOption.serialization.in \
+	Shared/WebGPU/WebGPUBindGroupDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUBindGroupLayoutDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUBindGroupLayoutEntry.serialization.in \
+	Shared/WebGPU/WebGPUBufferDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUCommandBufferDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUCommandEncoderDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUCompilationMessage.serialization.in \
+	Shared/WebGPU/WebGPUComputePassDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUComputePipelineDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUDepthStencilState.serialization.in \
+	Shared/WebGPU/WebGPUDeviceDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUExtent3D.serialization.in \
+	Shared/WebGPU/WebGPUExternalTextureBindingLayout.serialization.in \
+	Shared/WebGPU/WebGPUExternalTextureDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUFeatureName.serialization.in \
+	Shared/WebGPU/WebGPUFragmentState.serialization.in \
+	Shared/WebGPU/WebGPUImageCopyBuffer.serialization.in \
+	Shared/WebGPU/WebGPUImageCopyExternalImage.serialization.in \
+	Shared/WebGPU/WebGPUImageCopyTexture.serialization.in \
+	Shared/WebGPU/WebGPUImageCopyTextureTagged.serialization.in \
+	Shared/WebGPU/WebGPUImageDataLayout.serialization.in \
+	Shared/WebGPU/WebGPUMultisampleState.serialization.in \
+	Shared/WebGPU/WebGPUOrigin2D.serialization.in \
+	Shared/WebGPU/WebGPUOutOfMemoryError.serialization.in \
+	Shared/WebGPU/WebGPUPipelineDescriptorBase.serialization.in \
+	Shared/WebGPU/WebGPUPipelineLayoutDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUPresentationContextDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUQuerySetDescriptor.serialization.in \
+	Shared/WebGPU/WebGPURenderBundleDescriptor.serialization.in \
+	Shared/WebGPU/WebGPURenderBundleEncoderDescriptor.serialization.in \
+	Shared/WebGPU/WebGPURenderPassDescriptor.serialization.in \
+	Shared/WebGPU/WebGPURenderPassLayout.serialization.in \
+	Shared/WebGPU/WebGPURenderPipelineDescriptor.serialization.in \
+	Shared/WebGPU/WebGPURequestAdapterOptions.serialization.in \
+	Shared/WebGPU/WebGPUSamplerBindingLayout.serialization.in \
+	Shared/WebGPU/WebGPUSamplerDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUShaderModuleCompilationHint.serialization.in \
+	Shared/WebGPU/WebGPUShaderModuleDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUTextureDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUTextureViewDescriptor.serialization.in \
+	Shared/WebGPU/WebGPUVertexState.serialization.in \
+	Shared/WebGPU/WebGPUVertexBufferLayout.serialization.in \
+ 	Shared/WebGPU/WebGPUVertexAttribute.serialization.in \
+	Shared/WebGPU/WebGPUValidationError.serialization.in \
+	Shared/WebGPU/WebGPUTextureBindingLayout.serialization.in \
+	Shared/WebGPU/WebGPUSupportedLimits.serialization.in \
+	Shared/WebGPU/WebGPUSupportedFeatures.serialization.in \
+	Shared/WebGPU/WebGPUStorageTextureBindingLayout.serialization.in \
+	Shared/WebGPU/WebGPUStencilFaceState.serialization.in \
+	Shared/WebGPU/WebGPURenderPassTimestampWrites.serialization.in \
+	Shared/WebGPU/WebGPURenderPassDepthStencilAttachment.serialization.in \
+	Shared/WebGPU/WebGPURenderPassColorAttachment.serialization.in \
+	Shared/WebGPU/WebGPUProgrammableStage.serialization.in \
+	Shared/WebGPU/WebGPUPrimitiveState.serialization.in \
+	Shared/WebGPU/WebGPUOrigin3D.serialization.in \
+	Shared/WebGPU/WebGPUObjectDescriptorBase.serialization.in \
+	Shared/WebGPU/WebGPUComputePassTimestampWrites.serialization.in \
+	Shared/WebGPU/WebGPUColorTargetState.serialization.in \
+	Shared/WebGPU/WebGPUColor.serialization.in \
+	Shared/WebGPU/WebGPUCanvasConfiguration.serialization.in \
+	Shared/WebGPU/WebGPUBufferBindingLayout.serialization.in \
+	Shared/WebGPU/WebGPUBufferBinding.serialization.in \
+	Shared/WebGPU/WebGPUBlendState.serialization.in \
+	Shared/WebGPU/WebGPUBlendComponent.serialization.in \
+	Shared/WebGPU/WebGPUBindGroupEntry.serialization.in \
+	Shared/XR/XRSystem.serialization.in \
+	WebProcess/GPU/media/RemoteMediaPlayerConfiguration.serialization.in \
+	WebProcess/GPU/media/RemoteMediaPlayerState.serialization.in \
+#
 
-# FIXME: We should switch to the internal HTTPSUpgradeList.txt once the feature is ready.
-# VPATH += $(WebKit2)/Shared/HTTPSUpgrade/
-VPATH := $(WebKit2)/Shared/HTTPSUpgrade/ $(VPATH)
+all : GeneratedSerializers.h GeneratedSerializers.mm SerializedTypeInfo.mm
 
-all : HTTPSUpgradeList.db
-HTTPSUpgradeList.db : HTTPSUpgradeList.txt $(WebKit2)/Scripts/generate-https-upgrade-database.sh
-	sh $(WebKit2)/Scripts/generate-https-upgrade-database.sh $< $@
+GeneratedSerializers.h GeneratedSerializers.mm SerializedTypeInfo.mm : $(WebKit2)/Scripts/generate-serializers.py $(SERIALIZATION_DESCRIPTION_FILES) $(WebKit2)/DerivedSources.make
+	$(PYTHON) $(WebKit2)/Scripts/generate-serializers.py mm $(WebKit2)/ $(SERIALIZATION_DESCRIPTION_FILES)
+
+EXTENSIONS_DIR = $(WebKit2)/WebProcess/Extensions
+EXTENSIONS_SCRIPTS_DIR = $(EXTENSIONS_DIR)/Bindings/Scripts
+EXTENSIONS_INTERFACES_DIR = $(EXTENSIONS_DIR)/Interfaces
+IDL_ATTRIBUTES_FILE = $(EXTENSIONS_SCRIPTS_DIR)/IDLAttributes.json
+
+BINDINGS_SCRIPTS = \
+    $(WebCorePrivateHeaders)/generate-bindings.pl \
+    $(WebCorePrivateHeaders)/IDLParser.pm \
+    $(WebCorePrivateHeaders)/CodeGenerator.pm \
+    $(EXTENSIONS_SCRIPTS_DIR)/CodeGeneratorExtensions.pm \
+#
+
+EXTENSION_INTERFACES = \
+    WebExtensionAPIEvent \
+    WebExtensionAPIExtension \
+    WebExtensionAPINamespace \
+    WebExtensionAPIPermissions \
+    WebExtensionAPIRuntime \
+    WebExtensionAPITest \
+    WebExtensionAPIWebNavigation \
+    WebExtensionAPIWebNavigationEvent \
+#
+
+JS%.h JS%.mm : %.idl $(BINDINGS_SCRIPTS) $(IDL_ATTRIBUTES_FILE) $(FEATURE_AND_PLATFORM_DEFINE_DEPENDENCIES)
+	@echo Generating bindings for $*...
+	$(PERL) -I $(WebCorePrivateHeaders) -I $(EXTENSIONS_SCRIPTS_DIR) $(WebCorePrivateHeaders)/generate-bindings.pl --defines "$(FEATURE_AND_PLATFORM_DEFINES)" --include $(EXTENSIONS_INTERFACES_DIR) --outputDir . --generator Extensions --idlAttributesFile $(IDL_ATTRIBUTES_FILE) $<
+
+all : $(EXTENSION_INTERFACES:%=JS%.h) $(EXTENSION_INTERFACES:%=JS%.mm)

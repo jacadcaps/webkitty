@@ -27,19 +27,21 @@
 #include "config.h"
 #include "WebProcess.h"
 
-#include "WebKitExtensionManager.h"
-#include "WebKitWebExtensionPrivate.h"
+#include "WebKitWebProcessExtensionPrivate.h"
+#include "WebPage.h"
 #include "WebProcessCreationParameters.h"
+#include "WebProcessExtensionManager.h"
+
+#if ENABLE(REMOTE_INSPECTOR)
+#include <JavaScriptCore/RemoteInspector.h>
+#endif
 
 #if USE(GSTREAMER)
 #include <WebCore/GStreamerCommon.h>
 #endif
 
+#include <WebCore/ApplicationGLib.h>
 #include <WebCore/MemoryCache.h>
-
-#if PLATFORM(WAYLAND)
-#include "WaylandCompositorDisplay.h"
-#endif
 
 #if USE(WPE_RENDERER)
 #include <WebCore/PlatformDisplayLibWPE.h>
@@ -50,17 +52,62 @@
 #include <WebCore/ScrollbarThemeGtk.h>
 #endif
 
+#if ENABLE(MEDIA_STREAM)
+#include "UserMediaCaptureManager.h"
+#endif
+
+#if OS(LINUX)
+#include <wtf/linux/RealTimeThreads.h>
+#endif
+
+#if USE(ATSPI)
+#include <WebCore/AccessibilityAtspi.h>
+#endif
+
+#if PLATFORM(GTK)
+#include "GtkSettingsManagerProxy.h"
+#include <gtk/gtk.h>
+#endif
+
+#include <WebCore/CairoUtilities.h>
+
 namespace WebKit {
 
 using namespace WebCore;
+
+void WebProcess::stopRunLoop()
+{
+    // Pages are normally closed after Close message is received from the UI
+    // process, but it can happen that the connection is closed before the
+    // Close message is processed because the UI process close the socket
+    // right after sending the Close message. Close here any pending page to
+    // ensure the threaded compositor is invalidated and GL resources
+    // released (see https://bugs.webkit.org/show_bug.cgi?id=217655).
+    for (auto& webPage : copyToVector(m_pageMap.values()))
+        webPage->close();
+
+    AuxiliaryProcess::stopRunLoop();
+}
 
 void WebProcess::platformSetCacheModel(CacheModel cacheModel)
 {
     WebCore::MemoryCache::singleton().setDisabled(cacheModel == CacheModel::DocumentViewer);
 }
 
+void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters&)
+{
+#if OS(LINUX)
+    // Disable RealTimeThreads in WebProcess initially, since it depends on having a visible web page.
+    RealTimeThreads::singleton().setEnabled(false);
+#endif
+}
+
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
+#if ENABLE(MEDIA_STREAM)
+    addSupplement<UserMediaCaptureManager>();
+#endif
+
 #if PLATFORM(WPE)
     if (!parameters.isServiceWorkerProcess) {
         auto& implementationLibraryName = parameters.implementationLibraryName;
@@ -68,34 +115,53 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
             wpe_loader_init(parameters.implementationLibraryName.data());
 
         RELEASE_ASSERT(is<PlatformDisplayLibWPE>(PlatformDisplay::sharedDisplay()));
-        downcast<PlatformDisplayLibWPE>(PlatformDisplay::sharedDisplay()).initialize(parameters.hostClientFileDescriptor.releaseFileDescriptor());
+        downcast<PlatformDisplayLibWPE>(PlatformDisplay::sharedDisplay()).initialize(parameters.hostClientFileDescriptor.release());
     }
 #endif
 
 #if PLATFORM(WAYLAND)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland) {
-#if USE(WPE_RENDERER)
-        if (!parameters.isServiceWorkerProcess) {
-            auto hostClientFileDescriptor = parameters.hostClientFileDescriptor.releaseFileDescriptor();
-            if (hostClientFileDescriptor != -1) {
-                wpe_loader_init(parameters.implementationLibraryName.data());
-                m_wpeDisplay = WebCore::PlatformDisplayLibWPE::create();
-                if (!m_wpeDisplay->initialize(hostClientFileDescriptor))
-                    m_wpeDisplay = nullptr;
-            }
+    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland && !parameters.isServiceWorkerProcess) {
+        auto hostClientFileDescriptor = parameters.hostClientFileDescriptor.release();
+        if (hostClientFileDescriptor != -1) {
+            wpe_loader_init(parameters.implementationLibraryName.data());
+            m_wpeDisplay = WebCore::PlatformDisplayLibWPE::create();
+            if (!m_wpeDisplay->initialize(hostClientFileDescriptor))
+                m_wpeDisplay = nullptr;
         }
-#else
-        m_waylandCompositorDisplay = WaylandCompositorDisplay::create(parameters.waylandCompositorDisplayName);
-#endif
     }
 #endif
 
 #if USE(GSTREAMER)
-    WebCore::initializeGStreamer(WTFMove(parameters.gstreamerOptions));
+    WebCore::setGStreamerOptionsFromUIProcess(WTFMove(parameters.gstreamerOptions));
 #endif
 
 #if PLATFORM(GTK) && !USE(GTK4)
     setUseSystemAppearanceForScrollbars(parameters.useSystemAppearanceForScrollbars);
+#endif
+
+    if (parameters.memoryPressureHandlerConfiguration)
+        MemoryPressureHandler::singleton().setConfiguration(WTFMove(*parameters.memoryPressureHandlerConfiguration));
+
+    if (!parameters.applicationID.isEmpty())
+        WebCore::setApplicationID(parameters.applicationID);
+
+    if (!parameters.applicationName.isEmpty())
+        WebCore::setApplicationName(parameters.applicationName);
+
+#if ENABLE(REMOTE_INSPECTOR)
+    if (!parameters.inspectorServerAddress.isNull())
+        Inspector::RemoteInspector::setInspectorServerAddress(WTFMove(parameters.inspectorServerAddress));
+#endif
+
+#if USE(ATSPI)
+    AccessibilityAtspi::singleton().connect(parameters.accessibilityBusAddress);
+#endif
+
+    if (parameters.disableFontHintingForTesting)
+        disableCairoFontHintingForTesting();
+
+#if PLATFORM(GTK)
+    GtkSettingsManagerProxy::singleton().applySettings(WTFMove(parameters.gtkSettings));
 #endif
 }
 
@@ -107,10 +173,10 @@ void WebProcess::platformTerminate()
 {
 }
 
-void WebProcess::sendMessageToWebExtension(UserMessage&& message)
+void WebProcess::sendMessageToWebProcessExtension(UserMessage&& message)
 {
-    if (auto* extension = WebKitExtensionManager::singleton().extension())
-        webkitWebExtensionDidReceiveUserMessage(extension, WTFMove(message));
+    if (auto* extension = WebProcessExtensionManager::singleton().extension())
+        webkitWebProcessExtensionDidReceiveUserMessage(extension, WTFMove(message));
 }
 
 #if PLATFORM(GTK) && !USE(GTK4)
@@ -119,5 +185,17 @@ void WebProcess::setUseSystemAppearanceForScrollbars(bool useSystemAppearanceFor
     static_cast<ScrollbarThemeGtk&>(ScrollbarTheme::theme()).setUseSystemAppearance(useSystemAppearanceForScrollbars);
 }
 #endif
+
+void WebProcess::grantAccessToAssetServices(Vector<WebKit::SandboxExtension::Handle>&&)
+{
+}
+
+void WebProcess::revokeAccessToAssetServices()
+{
+}
+
+void WebProcess::switchFromStaticFontRegistryToUserFontRegistry(Vector<WebKit::SandboxExtension::Handle>&&)
+{
+}
 
 } // namespace WebKit

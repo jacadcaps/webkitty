@@ -60,6 +60,31 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteMouseEventPolicy) {
     // Indirect pointing devices will always synthesize touch events and behave as if touch input is being used.
     _WKWebsiteMouseEventPolicySynthesizeTouchEvents,
 #endif
+} WK_API_AVAILABLE(macos(11.0), ios(14.0));
+
+typedef NS_OPTIONS(NSUInteger, _WKWebsiteModalContainerObservationPolicy) {
+    _WKWebsiteModalContainerObservationPolicyDisabled,
+    _WKWebsiteModalContainerObservationPolicyPrompt,
+} WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+// Allow overriding the system color-scheme with a per-website preference.
+typedef NS_OPTIONS(NSUInteger, _WKWebsiteColorSchemePreference) {
+    _WKWebsiteColorSchemePreferenceNoPreference,
+    _WKWebsiteColorSchemePreferenceLight,
+    _WKWebsiteColorSchemePreferenceDark,
+} WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+// Allow controlling a per-page network connection integrity policy.
+typedef NS_OPTIONS(NSUInteger, _WKWebsiteNetworkConnectionIntegrityPolicy) {
+    _WKWebsiteNetworkConnectionIntegrityPolicyNone = 0,
+    _WKWebsiteNetworkConnectionIntegrityPolicyEnabled = 1 << 0,
+    _WKWebsiteNetworkConnectionIntegrityPolicyHTTPSFirst = 1 << 1,
+    _WKWebsiteNetworkConnectionIntegrityPolicyHTTPSOnly = 1 << 2,
+    _WKWebsiteNetworkConnectionIntegrityPolicyHTTPSOnlyExplicitlyBypassedForDomain = 1 << 3,
+    _WKWebsiteNetworkConnectionIntegrityPolicyFailClosed = 1 << 4,
+    _WKWebsiteNetworkConnectionIntegrityPolicyWebSearchContent = 1 << 5,
+    _WKWebsiteNetworkConnectionIntegrityPolicyEnhancedTelemetry = 1 << 6,
+    _WKWebsiteNetworkConnectionIntegrityPolicyRequestValidation = 1 << 7,
 } WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 @class _WKCustomHeaderFields;
@@ -69,12 +94,13 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteMouseEventPolicy) {
 @interface WKWebpagePreferences (WKPrivate)
 
 @property (nonatomic, setter=_setContentBlockersEnabled:) BOOL _contentBlockersEnabled;
+@property (nonatomic, copy, setter=_setActiveContentRuleListActionPatterns:) NSDictionary<NSString *, NSSet<NSString *> *> *_activeContentRuleListActionPatterns WK_API_AVAILABLE(macos(13.0), ios(16.0));
 @property (nonatomic, setter=_setAllowedAutoplayQuirks:) _WKWebsiteAutoplayQuirk _allowedAutoplayQuirks;
 @property (nonatomic, setter=_setAutoplayPolicy:) _WKWebsiteAutoplayPolicy _autoplayPolicy;
 @property (nonatomic, copy, setter=_setCustomHeaderFields:) NSArray<_WKCustomHeaderFields *> *_customHeaderFields;
 @property (nonatomic, setter=_setPopUpPolicy:) _WKWebsitePopUpPolicy _popUpPolicy;
 @property (nonatomic, strong, setter=_setWebsiteDataStore:) WKWebsiteDataStore *_websiteDataStore;
-@property (nonatomic, strong, setter=_setUserContentController:) WKUserContentController *_userContentController WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, strong, setter=_setUserContentController:) WKUserContentController *_userContentController WK_API_AVAILABLE(macos(11.0), ios(14.0));
 @property (nonatomic, copy, setter=_setCustomUserAgent:) NSString *_customUserAgent;
 @property (nonatomic, copy, setter=_setCustomUserAgentAsSiteSpecificQuirks:) NSString *_customUserAgentAsSiteSpecificQuirks;
 @property (nonatomic, copy, setter=_setCustomNavigatorPlatform:) NSString *_customNavigatorPlatform;
@@ -83,6 +109,17 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteMouseEventPolicy) {
 
 @property (nonatomic, copy, setter=_setApplicationNameForUserAgentWithModernCompatibility:) NSString *_applicationNameForUserAgentWithModernCompatibility;
 
-@property (nonatomic, setter=_setMouseEventPolicy:) _WKWebsiteMouseEventPolicy _mouseEventPolicy WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, setter=_setMouseEventPolicy:) _WKWebsiteMouseEventPolicy _mouseEventPolicy WK_API_AVAILABLE(macos(11.0), ios(14.0));
+@property (nonatomic, setter=_setModalContainerObservationPolicy:) _WKWebsiteModalContainerObservationPolicy _modalContainerObservationPolicy WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+@property (nonatomic, setter=_setCaptivePortalModeEnabled:) BOOL _captivePortalModeEnabled WK_API_AVAILABLE(macos(13.0), ios(16.0));
+@property (nonatomic, setter=_setAllowPrivacyProxy:) BOOL _allowPrivacyProxy WK_API_AVAILABLE(macos(13.1), ios(16.2));
+
+@property (nonatomic, setter=_setColorSchemePreference:) _WKWebsiteColorSchemePreference _colorSchemePreference;
+
+@property (nonatomic, setter=_setNetworkConnectionIntegrityEnabled:) BOOL _networkConnectionIntegrityEnabled WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, setter=_setNetworkConnectionIntegrityPolicy:) _WKWebsiteNetworkConnectionIntegrityPolicy _networkConnectionIntegrityPolicy WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+
+- (void)_setContentRuleListsEnabled:(BOOL)enabled exceptions:(NSSet<NSString *> *)exceptions WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 @end

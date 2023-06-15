@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +32,7 @@
 #include "ArgumentCodersCF.h"
 #endif
 
-#if USE(CURL)
+#if USE(CURL) || USE(SOUP)
 #include "WebCoreArgumentCoders.h"
 #endif
 
@@ -41,26 +41,30 @@ namespace WebKit {
 void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
 {
     encoder << sessionID;
+    encoder << dataStoreIdentifier;
     encoder << boundInterfaceIdentifier;
     encoder << allowsCellularAccess;
 #if PLATFORM(COCOA)
-    IPC::encode(encoder, proxyConfiguration.get());
+    encoder << proxyConfiguration;
     encoder << sourceApplicationBundleIdentifier;
     encoder << sourceApplicationSecondaryIdentifier;
     encoder << shouldLogCookieInformation;
-    encoder << loadThrottleLatency;
     encoder << httpProxy;
     encoder << httpsProxy;
 #endif
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
     encoder << alternativeServiceDirectory;
     encoder << alternativeServiceDirectoryExtensionHandle;
-    encoder << http3Enabled;
 #endif
+    encoder << hstsStorageDirectory;
+    encoder << hstsStorageDirectoryExtensionHandle;
 #if USE(SOUP)
     encoder << cookiePersistentStoragePath;
     encoder << cookiePersistentStorageType;
     encoder << persistentCredentialStorageEnabled;
+    encoder << ignoreTLSErrors;
+    encoder << proxySettings;
+    encoder << cookieAcceptPolicy;
 #endif
 #if USE(CURL)
     encoder << cookiePersistentStorageFile;
@@ -70,6 +74,7 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
 
     encoder << deviceManagementRestrictionsEnabled;
     encoder << allLoadsBlockedByDeviceManagementRestrictionsForTesting;
+    encoder << webPushDaemonConnectionConfiguration;
     encoder << dataConnectionServiceType;
     encoder << fastServerTrustEvaluationEnabled;
     encoder << networkCacheSpeculativeValidationEnabled;
@@ -79,192 +84,358 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << suppressesConnectionTerminationOnSystemChange;
     encoder << allowsServerPreconnect;
     encoder << requiresSecureHTTPSProxyConnection;
+    encoder << shouldRunServiceWorkersOnMainThreadForTesting;
+    encoder << overrideServiceWorkerRegistrationCountTestingValue;
     encoder << preventsSystemHTTPProxyAuthentication;
     encoder << appHasRequestedCrossWebsiteTrackingPermission;
+    encoder << useNetworkLoader;
+    encoder << allowsHSTSWithUntrustedRootCertificate;
+    encoder << pcmMachServiceName;
+    encoder << webPushMachServiceName;
+    encoder << webPushPartitionString;
+    encoder << enablePrivateClickMeasurementDebugMode;
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    encoder << shouldAcceptInsecureCertificatesForWebSockets;
+#endif
+
+    encoder << unifiedOriginStorageLevel;
+    encoder << perOriginStorageQuota << perThirdPartyOriginStorageQuota;
+    encoder << localStorageDirectory << localStorageDirectoryExtensionHandle;
+    encoder << indexedDBDirectory << indexedDBDirectoryExtensionHandle;
+    encoder << cacheStorageDirectory << cacheStorageDirectoryExtensionHandle;
+    encoder << generalStorageDirectory << generalStorageDirectoryHandle;
+#if ENABLE(SERVICE_WORKER)
+    encoder << serviceWorkerRegistrationDirectory << serviceWorkerRegistrationDirectoryExtensionHandle << serviceWorkerProcessTerminationDelayEnabled;
+#endif
     encoder << resourceLoadStatisticsParameters;
 }
 
-Optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters::decode(IPC::Decoder& decoder)
+std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters::decode(IPC::Decoder& decoder)
 {
-    Optional<PAL::SessionID> sessionID;
+    std::optional<PAL::SessionID> sessionID;
     decoder >> sessionID;
     if (!sessionID)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<String> boundInterfaceIdentifier;
+    std::optional<Markable<UUID>> dataStoreIdentifier;
+    decoder >> dataStoreIdentifier;
+    if (!dataStoreIdentifier)
+        return std::nullopt;
+
+    std::optional<String> boundInterfaceIdentifier;
     decoder >> boundInterfaceIdentifier;
     if (!boundInterfaceIdentifier)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<AllowsCellularAccess> allowsCellularAccess;
+    std::optional<AllowsCellularAccess> allowsCellularAccess;
     decoder >> allowsCellularAccess;
     if (!allowsCellularAccess)
-        return WTF::nullopt;
+        return std::nullopt;
     
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> proxyConfiguration;
-    if (!IPC::decode(decoder, proxyConfiguration))
-        return WTF::nullopt;
+    if (!decoder.decode(proxyConfiguration))
+        return std::nullopt;
     
-    Optional<String> sourceApplicationBundleIdentifier;
+    std::optional<String> sourceApplicationBundleIdentifier;
     decoder >> sourceApplicationBundleIdentifier;
     if (!sourceApplicationBundleIdentifier)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<String> sourceApplicationSecondaryIdentifier;
+    std::optional<String> sourceApplicationSecondaryIdentifier;
     decoder >> sourceApplicationSecondaryIdentifier;
     if (!sourceApplicationSecondaryIdentifier)
-        return WTF::nullopt;
-
-    Optional<bool> shouldLogCookieInformation;
+        return std::nullopt;
+    
+    std::optional<bool> shouldLogCookieInformation;
     decoder >> shouldLogCookieInformation;
     if (!shouldLogCookieInformation)
-        return WTF::nullopt;
-    
-    Optional<Seconds> loadThrottleLatency;
-    decoder >> loadThrottleLatency;
-    if (!loadThrottleLatency)
-        return WTF::nullopt;
-    
-    Optional<URL> httpProxy;
+        return std::nullopt;
+
+    std::optional<URL> httpProxy;
     decoder >> httpProxy;
     if (!httpProxy)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<URL> httpsProxy;
+    std::optional<URL> httpsProxy;
     decoder >> httpsProxy;
     if (!httpsProxy)
-        return WTF::nullopt;
+        return std::nullopt;
 #endif
 
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
-    Optional<String> alternativeServiceDirectory;
+    std::optional<String> alternativeServiceDirectory;
     decoder >> alternativeServiceDirectory;
     if (!alternativeServiceDirectory)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SandboxExtension::Handle> alternativeServiceDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> alternativeServiceDirectoryExtensionHandle;
     decoder >> alternativeServiceDirectoryExtensionHandle;
     if (!alternativeServiceDirectoryExtensionHandle)
-        return WTF::nullopt;
-    
-    Optional<bool> http3Enabled;
-    decoder >> http3Enabled;
-    if (!http3Enabled)
-        return WTF::nullopt;
+        return std::nullopt;
 #endif
 
+    std::optional<String> hstsStorageDirectory;
+    decoder >> hstsStorageDirectory;
+    if (!hstsStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> hstsStorageDirectoryExtensionHandle;
+    decoder >> hstsStorageDirectoryExtensionHandle;
+    if (!hstsStorageDirectoryExtensionHandle)
+        return std::nullopt;
+    
 #if USE(SOUP)
-    Optional<String> cookiePersistentStoragePath;
+    std::optional<String> cookiePersistentStoragePath;
     decoder >> cookiePersistentStoragePath;
     if (!cookiePersistentStoragePath)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<SoupCookiePersistentStorageType> cookiePersistentStorageType;
+    std::optional<SoupCookiePersistentStorageType> cookiePersistentStorageType;
     decoder >> cookiePersistentStorageType;
     if (!cookiePersistentStorageType)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> persistentCredentialStorageEnabled;
+    std::optional<bool> persistentCredentialStorageEnabled;
     decoder >> persistentCredentialStorageEnabled;
     if (!persistentCredentialStorageEnabled)
-        return WTF::nullopt;
+        return std::nullopt;
+
+    std::optional<bool> ignoreTLSErrors;
+    decoder >> ignoreTLSErrors;
+    if (!ignoreTLSErrors)
+        return std::nullopt;
+
+    std::optional<WebCore::SoupNetworkProxySettings> proxySettings;
+    decoder >> proxySettings;
+    if (!proxySettings)
+        return std::nullopt;
+
+    std::optional<WebCore::HTTPCookieAcceptPolicy> cookieAcceptPolicy;
+    decoder >> cookieAcceptPolicy;
+    if (!cookieAcceptPolicy)
+        return std::nullopt;
 #endif
 
 #if USE(CURL)
-    Optional<String> cookiePersistentStorageFile;
+    std::optional<String> cookiePersistentStorageFile;
     decoder >> cookiePersistentStorageFile;
     if (!cookiePersistentStorageFile)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<WebCore::CurlProxySettings> proxySettings;
+    std::optional<WebCore::CurlProxySettings> proxySettings;
     decoder >> proxySettings;
     if (!proxySettings)
-        return WTF::nullopt;
+        return std::nullopt;
 #endif
 
-    Optional<String> networkCacheDirectory;
+    std::optional<String> networkCacheDirectory;
     decoder >> networkCacheDirectory;
     if (!networkCacheDirectory)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<SandboxExtension::Handle> networkCacheDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> networkCacheDirectoryExtensionHandle;
     decoder >> networkCacheDirectoryExtensionHandle;
     if (!networkCacheDirectoryExtensionHandle)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> deviceManagementRestrictionsEnabled;
+    std::optional<bool> deviceManagementRestrictionsEnabled;
     decoder >> deviceManagementRestrictionsEnabled;
     if (!deviceManagementRestrictionsEnabled)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> allLoadsBlockedByDeviceManagementRestrictionsForTesting;
+    std::optional<bool> allLoadsBlockedByDeviceManagementRestrictionsForTesting;
     decoder >> allLoadsBlockedByDeviceManagementRestrictionsForTesting;
     if (!allLoadsBlockedByDeviceManagementRestrictionsForTesting)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<String> dataConnectionServiceType;
+    std::optional<WebPushD::WebPushDaemonConnectionConfiguration> webPushDaemonConnectionConfiguration;
+    decoder >> webPushDaemonConnectionConfiguration;
+    if (!webPushDaemonConnectionConfiguration)
+        return std::nullopt;
+
+    std::optional<String> dataConnectionServiceType;
     decoder >> dataConnectionServiceType;
     if (!dataConnectionServiceType)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<bool> fastServerTrustEvaluationEnabled;
+    std::optional<bool> fastServerTrustEvaluationEnabled;
     decoder >> fastServerTrustEvaluationEnabled;
     if (!fastServerTrustEvaluationEnabled)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<bool> networkCacheSpeculativeValidationEnabled;
+    std::optional<bool> networkCacheSpeculativeValidationEnabled;
     decoder >> networkCacheSpeculativeValidationEnabled;
     if (!networkCacheSpeculativeValidationEnabled)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<bool> shouldUseTestingNetworkSession;
+    std::optional<bool> shouldUseTestingNetworkSession;
     decoder >> shouldUseTestingNetworkSession;
     if (!shouldUseTestingNetworkSession)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> staleWhileRevalidateEnabled;
+    std::optional<bool> staleWhileRevalidateEnabled;
     decoder >> staleWhileRevalidateEnabled;
     if (!staleWhileRevalidateEnabled)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<unsigned> testSpeedMultiplier;
+    std::optional<unsigned> testSpeedMultiplier;
     decoder >> testSpeedMultiplier;
     if (!testSpeedMultiplier)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<bool> suppressesConnectionTerminationOnSystemChange;
+    std::optional<bool> suppressesConnectionTerminationOnSystemChange;
     decoder >> suppressesConnectionTerminationOnSystemChange;
     if (!suppressesConnectionTerminationOnSystemChange)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> allowsServerPreconnect;
+    std::optional<bool> allowsServerPreconnect;
     decoder >> allowsServerPreconnect;
     if (!allowsServerPreconnect)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> requiresSecureHTTPSProxyConnection;
+    std::optional<bool> requiresSecureHTTPSProxyConnection;
     decoder >> requiresSecureHTTPSProxyConnection;
     if (!requiresSecureHTTPSProxyConnection)
-        return WTF::nullopt;
+        return std::nullopt;
+
+    std::optional<bool> shouldRunServiceWorkersOnMainThreadForTesting;
+    decoder >> shouldRunServiceWorkersOnMainThreadForTesting;
+    if (!shouldRunServiceWorkersOnMainThreadForTesting)
+        return std::nullopt;
     
-    Optional<bool> preventsSystemHTTPProxyAuthentication;
+    std::optional<std::optional<unsigned>> overrideServiceWorkerRegistrationCountTestingValue;
+    decoder >> overrideServiceWorkerRegistrationCountTestingValue;
+    if (!overrideServiceWorkerRegistrationCountTestingValue)
+        return std::nullopt;
+
+    std::optional<bool> preventsSystemHTTPProxyAuthentication;
     decoder >> preventsSystemHTTPProxyAuthentication;
     if (!preventsSystemHTTPProxyAuthentication)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<bool> appHasRequestedCrossWebsiteTrackingPermission;
+    std::optional<bool> appHasRequestedCrossWebsiteTrackingPermission;
     decoder >> appHasRequestedCrossWebsiteTrackingPermission;
     if (!appHasRequestedCrossWebsiteTrackingPermission)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<ResourceLoadStatisticsParameters> resourceLoadStatisticsParameters;
+    std::optional<bool> useNetworkLoader;
+    decoder >> useNetworkLoader;
+    if (!useNetworkLoader)
+        return std::nullopt;
+
+    std::optional<bool> allowsHSTSWithUntrustedRootCertificate;
+    decoder >> allowsHSTSWithUntrustedRootCertificate;
+    if (!allowsHSTSWithUntrustedRootCertificate)
+        return std::nullopt;
+
+    std::optional<String> pcmMachServiceName;
+    decoder >> pcmMachServiceName;
+    if (!pcmMachServiceName)
+        return std::nullopt;
+
+    std::optional<String> webPushMachServiceName;
+    decoder >> webPushMachServiceName;
+    if (!webPushMachServiceName)
+        return std::nullopt;
+    
+    std::optional<String> webPushPartitionString;
+    decoder >> webPushPartitionString;
+    if (!webPushPartitionString)
+        return std::nullopt;
+
+    std::optional<bool> enablePrivateClickMeasurementDebugMode;
+    decoder >> enablePrivateClickMeasurementDebugMode;
+    if (!enablePrivateClickMeasurementDebugMode)
+        return std::nullopt;
+
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    std::optional<bool> shouldAcceptInsecureCertificatesForWebSockets;
+    decoder >> shouldAcceptInsecureCertificatesForWebSockets;
+    if (!shouldAcceptInsecureCertificatesForWebSockets)
+        return std::nullopt;
+#endif
+
+    std::optional<UnifiedOriginStorageLevel> unifiedOriginStorageLevel;
+    decoder >> unifiedOriginStorageLevel;
+    if (!unifiedOriginStorageLevel)
+        return std::nullopt;
+
+    std::optional<uint64_t> perOriginStorageQuota;
+    decoder >> perOriginStorageQuota;
+    if (!perOriginStorageQuota)
+        return std::nullopt;
+
+    std::optional<uint64_t> perThirdPartyOriginStorageQuota;
+    decoder >> perThirdPartyOriginStorageQuota;
+    if (!perThirdPartyOriginStorageQuota)
+        return std::nullopt;
+
+    std::optional<String> localStorageDirectory;
+    decoder >> localStorageDirectory;
+    if (!localStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> localStorageDirectoryExtensionHandle;
+    decoder >> localStorageDirectoryExtensionHandle;
+    if (!localStorageDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> indexedDBDirectory;
+    decoder >> indexedDBDirectory;
+    if (!indexedDBDirectory)
+        return std::nullopt;
+    
+    std::optional<SandboxExtension::Handle> indexedDBDirectoryExtensionHandle;
+    decoder >> indexedDBDirectoryExtensionHandle;
+    if (!indexedDBDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> cacheStorageDirectory;
+    decoder >> cacheStorageDirectory;
+    if (!cacheStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> cacheStorageDirectoryExtensionHandle;
+    decoder >> cacheStorageDirectoryExtensionHandle;
+    if (!cacheStorageDirectoryExtensionHandle)
+        return std::nullopt;
+
+    std::optional<String> generalStorageDirectory;
+    decoder >> generalStorageDirectory;
+    if (!generalStorageDirectory)
+        return std::nullopt;
+
+    std::optional<SandboxExtension::Handle> generalStorageDirectoryHandle;
+    decoder >> generalStorageDirectoryHandle;
+    if (!generalStorageDirectoryHandle)
+        return std::nullopt;
+
+#if ENABLE(SERVICE_WORKER)
+    std::optional<String> serviceWorkerRegistrationDirectory;
+    decoder >> serviceWorkerRegistrationDirectory;
+    if (!serviceWorkerRegistrationDirectory)
+        return std::nullopt;
+    
+    std::optional<SandboxExtension::Handle> serviceWorkerRegistrationDirectoryExtensionHandle;
+    decoder >> serviceWorkerRegistrationDirectoryExtensionHandle;
+    if (!serviceWorkerRegistrationDirectoryExtensionHandle)
+        return std::nullopt;
+    
+    std::optional<bool> serviceWorkerProcessTerminationDelayEnabled;
+    decoder >> serviceWorkerProcessTerminationDelayEnabled;
+    if (!serviceWorkerProcessTerminationDelayEnabled)
+        return std::nullopt;
+#endif
+
+    std::optional<ResourceLoadStatisticsParameters> resourceLoadStatisticsParameters;
     decoder >> resourceLoadStatisticsParameters;
     if (!resourceLoadStatisticsParameters)
-        return WTF::nullopt;
-    
+        return std::nullopt;
+
     return {{
         *sessionID
+        , WTFMove(*dataStoreIdentifier)
         , WTFMove(*boundInterfaceIdentifier)
         , WTFMove(*allowsCellularAccess)
 #if PLATFORM(COCOA)
@@ -272,19 +443,22 @@ Optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters::dec
         , WTFMove(*sourceApplicationBundleIdentifier)
         , WTFMove(*sourceApplicationSecondaryIdentifier)
         , WTFMove(*shouldLogCookieInformation)
-        , WTFMove(*loadThrottleLatency)
         , WTFMove(*httpProxy)
         , WTFMove(*httpsProxy)
 #endif
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
         , WTFMove(*alternativeServiceDirectory)
         , WTFMove(*alternativeServiceDirectoryExtensionHandle)
-        , WTFMove(*http3Enabled)
 #endif
+        , WTFMove(*hstsStorageDirectory)
+        , WTFMove(*hstsStorageDirectoryExtensionHandle)
 #if USE(SOUP)
         , WTFMove(*cookiePersistentStoragePath)
         , WTFMove(*cookiePersistentStorageType)
         , WTFMove(*persistentCredentialStorageEnabled)
+        , WTFMove(*ignoreTLSErrors)
+        , WTFMove(*proxySettings)
+        , WTFMove(*cookieAcceptPolicy)
 #endif
 #if USE(CURL)
         , WTFMove(*cookiePersistentStorageFile)
@@ -292,6 +466,7 @@ Optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters::dec
 #endif
         , WTFMove(*deviceManagementRestrictionsEnabled)
         , WTFMove(*allLoadsBlockedByDeviceManagementRestrictionsForTesting)
+        , WTFMove(*webPushDaemonConnectionConfiguration)
         , WTFMove(*networkCacheDirectory)
         , WTFMove(*networkCacheDirectoryExtensionHandle)
         , WTFMove(*dataConnectionServiceType)
@@ -303,8 +478,35 @@ Optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters::dec
         , WTFMove(*suppressesConnectionTerminationOnSystemChange)
         , WTFMove(*allowsServerPreconnect)
         , WTFMove(*requiresSecureHTTPSProxyConnection)
+        , *shouldRunServiceWorkersOnMainThreadForTesting
+        , WTFMove(*overrideServiceWorkerRegistrationCountTestingValue)
         , WTFMove(*preventsSystemHTTPProxyAuthentication)
         , WTFMove(*appHasRequestedCrossWebsiteTrackingPermission)
+        , WTFMove(*useNetworkLoader)
+        , WTFMove(*allowsHSTSWithUntrustedRootCertificate)
+        , WTFMove(*pcmMachServiceName)
+        , WTFMove(*webPushMachServiceName)
+        , WTFMove(*webPushPartitionString)
+        , WTFMove(*enablePrivateClickMeasurementDebugMode)
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+        , WTFMove(*shouldAcceptInsecureCertificatesForWebSockets)
+#endif
+        , *unifiedOriginStorageLevel
+        , WTFMove(*perOriginStorageQuota)
+        , WTFMove(*perThirdPartyOriginStorageQuota)
+        , WTFMove(*localStorageDirectory)
+        , WTFMove(*localStorageDirectoryExtensionHandle)
+        , WTFMove(*indexedDBDirectory)
+        , WTFMove(*indexedDBDirectoryExtensionHandle)
+        , WTFMove(*cacheStorageDirectory)
+        , WTFMove(*cacheStorageDirectoryExtensionHandle)
+        , WTFMove(*generalStorageDirectory)
+        , WTFMove(*generalStorageDirectoryHandle)
+#if ENABLE(SERVICE_WORKER)
+        , WTFMove(*serviceWorkerRegistrationDirectory)
+        , WTFMove(*serviceWorkerRegistrationDirectoryExtensionHandle)
+        , *serviceWorkerProcessTerminationDelayEnabled
+#endif
         , WTFMove(*resourceLoadStatisticsParameters)
     }};
 }

@@ -30,6 +30,18 @@ var ellipsis = "\u2026";
 var zeroWidthSpace = "\u200b";
 var multiplicationSign = "\u00d7";
 
+function xor(a, b)
+{
+    if (a)
+        return b ? false : a;
+    return b || false;
+}
+
+function nullish(value)
+{
+    return value === null || value === undefined;
+}
+
 Object.defineProperty(Object, "shallowCopy",
 {
     value(object)
@@ -141,6 +153,31 @@ Object.defineProperty(Map.prototype, "getOrInitialize",
         if (value)
             return value;
 
+        if (typeof initialValue === "function")
+            initialValue = initialValue();
+
+        console.assert(initialValue !== undefined, "getOrInitialize should not be used with undefined.");
+
+        this.set(key, initialValue);
+        return initialValue;
+    }
+});
+
+Object.defineProperty(WeakMap.prototype, "getOrInitialize",
+{
+    value(key, initialValue)
+    {
+        console.assert(initialValue !== undefined, "getOrInitialize should not be used with undefined.");
+
+        let value = this.get(key);
+        if (value)
+            return value;
+
+        if (typeof initialValue === "function")
+            initialValue = initialValue();
+
+        console.assert(initialValue !== undefined, "getOrInitialize should not be used with undefined.");
+
         this.set(key, initialValue);
         return initialValue;
     }
@@ -158,6 +195,31 @@ Object.defineProperty(Set.prototype, "find",
     },
 });
 
+Object.defineProperty(Set.prototype, "filter",
+{
+    value(callback, thisArg)
+    {
+        let filtered = new Set;
+        for (let item of this) {
+            if (callback.call(thisArg, item, item, this))
+                filtered.add(item);
+        }
+        return filtered;
+    },
+});
+
+Object.defineProperty(Set.prototype, "some",
+{
+    value(predicate, thisArg)
+    {
+        for (let item of this) {
+            if (predicate.call(thisArg, item, item, this))
+                return true;
+        }
+        return false;
+    },
+});
+
 Object.defineProperty(Set.prototype, "addAll",
 {
     value(iterable)
@@ -171,10 +233,12 @@ Object.defineProperty(Set.prototype, "take",
 {
     value(key)
     {
-        let exists = this.has(key);
-        if (exists)
+        if (this.has(key)) {
             this.delete(key);
-        return exists;
+            return key;
+        }
+
+        return undefined;
     }
 });
 
@@ -479,10 +543,42 @@ Object.defineProperty(Element.prototype, "recalculateStyles",
     }
 });
 
+Object.defineProperty(Element.prototype, "getComputedCSSPropertyNumberValue", {
+    value(property) {
+        let result = undefined;
+        result ??= this.computedStyleMap?.().get(property)?.value;
+        result ??= window.getComputedStyle(this).getPropertyCSSValue(property)?.getFloatValue(CSSPrimitiveValue.CSS_PX);
+        return result;
+    },
+});
+
 Object.defineProperty(DocumentFragment.prototype, "createChild",
 {
     value: Element.prototype.createChild
 });
+
+(function() {
+    const fontSymbol = Symbol("font");
+
+    Object.defineProperty(HTMLInputElement.prototype, "autosize",
+    {
+        value(extra = 0)
+        {
+            extra += 6; // UserAgent styles add 1px padding and 2px border.
+            if (this.type === "number")
+                extra += 13; // Number input inner spin button width.
+            extra += 2; // Add extra pixels for the cursor.
+
+            WI.ImageUtilities.scratchCanvasContext2D((context) => {
+                this[fontSymbol] ||= window.getComputedStyle(this).font;
+
+                context.font = this[fontSymbol];
+                let textMetrics = context.measureText(this.value || this.placeholder);
+                this.style.setProperty("width", (textMetrics.width + extra) + "px");
+            });
+        },
+    });
+})();
 
 Object.defineProperty(Event.prototype, "stop",
 {
@@ -645,6 +741,14 @@ Object.defineProperty(Array, "diffArrays",
     }
 });
 
+Object.defineProperty(Array.prototype, "firstValue",
+{
+    get()
+    {
+        return this[0];
+    }
+});
+
 Object.defineProperty(Array.prototype, "lastValue",
 {
     get()
@@ -693,7 +797,8 @@ Object.defineProperty(Array.prototype, "toggleIncludes",
     value(value, force)
     {
         let exists = this.includes(value);
-        if (exists === !!force)
+
+        if (force !== undefined && exists === !!force)
             return;
 
         if (exists)
@@ -741,7 +846,7 @@ Object.defineProperty(String.prototype, "isLowerCase",
 {
     value()
     {
-        return String(this) === this.toLowerCase();
+        return /^[a-z]+$/.test(this);
     }
 });
 
@@ -749,7 +854,7 @@ Object.defineProperty(String.prototype, "isUpperCase",
 {
     value()
     {
-        return String(this) === this.toUpperCase();
+        return /^[A-Z]+$/.test(this);
     }
 });
 
@@ -1093,6 +1198,7 @@ Object.defineProperty(String, "format",
         var result = initialValue;
         var tokens = String.tokenizeFormatString(format);
         var usedSubstitutionIndexes = {};
+        let ignoredUnknownSpecifierCount = 0;
 
         for (var i = 0; i < tokens.length; ++i) {
             var token = tokens[i];
@@ -1107,24 +1213,24 @@ Object.defineProperty(String, "format",
                 continue;
             }
 
-            if (token.substitutionIndex >= substitutions.length) {
+            let substitutionIndex = token.substitutionIndex - ignoredUnknownSpecifierCount;
+            if (substitutionIndex >= substitutions.length) {
                 // If there are not enough substitutions for the current substitutionIndex
                 // just output the format specifier literally and move on.
-                error("not enough substitution arguments. Had " + substitutions.length + " but needed " + (token.substitutionIndex + 1) + ", so substitution was skipped.");
+                error("not enough substitution arguments. Had " + substitutions.length + " but needed " + (substitutionIndex + 1) + ", so substitution was skipped.");
                 result = append(result, "%" + (token.precision > -1 ? token.precision : "") + token.specifier);
                 continue;
             }
 
-            usedSubstitutionIndexes[token.substitutionIndex] = true;
-
             if (!(token.specifier in formatters)) {
-                // Encountered an unsupported format character, treat as a string.
-                warn("unsupported format character \u201C" + token.specifier + "\u201D. Treating as a string.");
-                result = append(result, substitutions[token.substitutionIndex]);
+                warn(`Unsupported format specifier "%${token.specifier}" will be ignored.`);
+                result = append(result, "%" + token.specifier);
+                ++ignoredUnknownSpecifierCount;
                 continue;
             }
 
-            result = append(result, formatters[token.specifier](substitutions[token.substitutionIndex], token));
+            usedSubstitutionIndexes[substitutionIndex] = true;
+            result = append(result, formatters[token.specifier](substitutions[substitutionIndex], token));
         }
 
         var unusedSubstitutions = [];
@@ -1324,29 +1430,29 @@ Object.defineProperty(Number, "secondsToString",
 
 Object.defineProperty(Number, "bytesToString",
 {
-    value(bytes, higherResolution)
+    value(bytes, higherResolution, bytesThreshold)
     {
-        if (higherResolution === undefined)
-            higherResolution = true;
+        higherResolution ??= true;
+        bytesThreshold ??= 1000;
 
-        if (Math.abs(bytes) < 1024)
+        if (Math.abs(bytes) < bytesThreshold)
             return WI.UIString("%.0f B").format(bytes);
 
-        let kilobytes = bytes / 1024;
-        if (Math.abs(kilobytes) < 1024) {
+        let kilobytes = bytes / 1000;
+        if (Math.abs(kilobytes) < 1000) {
             if (higherResolution || Math.abs(kilobytes) < 10)
                 return WI.UIString("%.2f KB").format(kilobytes);
             return WI.UIString("%.1f KB").format(kilobytes);
         }
 
-        let megabytes = kilobytes / 1024;
-        if (Math.abs(megabytes) < 1024) {
+        let megabytes = kilobytes / 1000;
+        if (Math.abs(megabytes) < 1000) {
             if (higherResolution || Math.abs(megabytes) < 10)
                 return WI.UIString("%.2f MB").format(megabytes);
             return WI.UIString("%.1f MB").format(megabytes);
         }
 
-        let gigabytes = megabytes / 1024;
+        let gigabytes = megabytes / 1000;
         if (higherResolution || Math.abs(gigabytes) < 10)
             return WI.UIString("%.2f GB").format(gigabytes);
         return WI.UIString("%.1f GB").format(gigabytes);
@@ -1524,6 +1630,33 @@ function simpleGlobStringToRegExp(globString, regExpFlags)
 
     return new RegExp(regexString, regExpFlags);
 }
+
+Object.defineProperty(Array.prototype, "min",
+{
+    value(comparator)
+    {
+        return this[this.minIndex(comparator)];
+    },
+});
+
+Object.defineProperty(Array.prototype, "minIndex",
+{
+    value(comparator)
+    {
+        function defaultComparator(a, b)
+        {
+            return a - b;
+        }
+        comparator = comparator || defaultComparator;
+
+        let minIndex = -1;
+        for (let i = 0; i < this.length; ++i) {
+            if (minIndex === -1 || comparator(this[minIndex], this[i]) > 0)
+                minIndex = i;
+        }
+        return minIndex;
+    },
+});
 
 Object.defineProperty(Array.prototype, "lowerBound",
 {
@@ -1719,3 +1852,17 @@ function insertObjectIntoSortedArray(object, array, comparator)
 {
     array.splice(insertionIndexForObjectInListSortedByFunction(object, array, comparator), 0, object);
 }
+
+WI.setReentrantCheck = function(object, key)
+{
+    key = "__checkReentrant_" + key;
+    object[key] = (object[key] || 0) + 1;
+    return object[key] === 1;
+};
+
+WI.clearReentrantCheck = function(object, key)
+{
+    key = "__checkReentrant_" + key;
+    object[key] = (object[key] || 0) - 1;
+    return object[key] === 0;
+};

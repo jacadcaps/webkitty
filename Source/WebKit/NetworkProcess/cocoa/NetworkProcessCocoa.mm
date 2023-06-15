@@ -32,7 +32,9 @@
 #import "NetworkProcessCreationParameters.h"
 #import "NetworkResourceLoader.h"
 #import "NetworkSessionCocoa.h"
+#import "NetworkStorageManager.h"
 #import "SandboxExtension.h"
+#import "WebCookieManager.h"
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/PublicSuffix.h>
 #import <WebCore/ResourceRequestCFNet.h>
@@ -43,6 +45,7 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
+#import <wtf/FileSystem.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -71,25 +74,6 @@ static void initializeNetworkSettings()
 
 void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessCreationParameters& parameters)
 {
-    WebCore::setApplicationBundleIdentifier(parameters.uiProcessBundleIdentifier);
-    setApplicationSDKVersion(parameters.uiProcessSDKVersion);
-
-#if HAVE(HSTS_STORAGE_PATH)
-    if (!parameters.hstsStorageDirectory.isNull()) {
-        SandboxExtension::consumePermanently(parameters.hstsStorageDirectoryExtensionHandle);
-        _CFNetworkSetHSTSStoragePath(parameters.hstsStorageDirectory.createCFString().get());
-    }
-#endif
-
-#if PLATFORM(IOS_FAMILY)
-    SandboxExtension::consumePermanently(parameters.cookieStorageDirectoryExtensionHandle);
-    SandboxExtension::consumePermanently(parameters.containerCachesDirectoryExtensionHandle);
-    SandboxExtension::consumePermanently(parameters.parentBundleDirectoryExtensionHandle);
-#if ENABLE(INDEXED_DATABASE)
-    SandboxExtension::consumePermanently(parameters.defaultDataStoreParameters.indexedDatabaseTempBlobDirectoryExtensionHandle);
-#endif
-#endif
-
     _CFNetworkSetATSContext(parameters.networkATSContext.get());
 
     m_uiProcessBundleIdentifier = parameters.uiProcessBundleIdentifier;
@@ -100,7 +84,8 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
     setSharedHTTPCookieStorage(parameters.uiProcessCookieStorageIdentifier);
 #endif
 
-    WebCore::NetworkStorageSession::setStorageAccessAPIEnabled(parameters.storageAccessAPIEnabled);
+    // Allow the network process to materialize files stored in the cloud so that loading/reading such files actually succeeds.
+    FileSystem::setAllowsMaterializingDatalessFiles(true, FileSystem::PolicyScope::Process);
 
     // FIXME: Most of what this function does for cache size gets immediately overridden by setCacheModel().
     // - memory cache size passed from UI process is always ignored;
@@ -114,74 +99,67 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
     [NSURLCache setSharedURLCache:urlCache.get()];
 }
 
-std::unique_ptr<WebCore::NetworkStorageSession> NetworkProcess::platformCreateDefaultStorageSession() const
+RetainPtr<CFDataRef> NetworkProcess::sourceApplicationAuditData() const
 {
-    return makeUnique<WebCore::NetworkStorageSession>(PAL::SessionID::defaultSessionID());
+#if USE(SOURCE_APPLICATION_AUDIT_DATA)
+    if (auto auditToken = sourceApplicationAuditToken())
+        return adoptCF(CFDataCreate(nullptr, (const UInt8*)&*auditToken, sizeof(*auditToken)));
+#endif
+
+    return nullptr;
 }
 
-RetainPtr<CFDataRef> NetworkProcess::sourceApplicationAuditData() const
+std::optional<audit_token_t> NetworkProcess::sourceApplicationAuditToken() const
 {
 #if USE(SOURCE_APPLICATION_AUDIT_DATA)
     ASSERT(parentProcessConnection());
     if (!parentProcessConnection())
-        return nullptr;
-    Optional<audit_token_t> auditToken = parentProcessConnection()->getAuditToken();
-    if (!auditToken)
-        return nullptr;
-    return adoptCF(CFDataCreate(nullptr, (const UInt8*)&*auditToken, sizeof(*auditToken)));
+        return { };
+    return parentProcessConnection()->getAuditToken();
 #else
-    return nullptr;
+    return { };
 #endif
 }
 
-static void filterPreloadHSTSEntry(const void* key, const void* value, void* context)
+HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID) const
 {
-    RELEASE_ASSERT(context);
-
-    ASSERT(key);
-    ASSERT(value);
-    if (!key || !value)
-        return;
-
-    ASSERT(key != kCFNull);
-    if (key == kCFNull)
-        return;
-    
-    auto* hostnames = static_cast<HashSet<String>*>(context);
-    auto val = static_cast<CFDictionaryRef>(value);
-    if (CFDictionaryGetValue(val, _kCFNetworkHSTSPreloaded) != kCFBooleanTrue)
-        hostnames->add((CFStringRef)key);
+    HashSet<String> hostNames;
+    if (auto* networkSession = static_cast<NetworkSessionCocoa*>(this->networkSession(sessionID))) {
+        for (NSString *host in networkSession->hstsStorage().nonPreloadedHosts)
+            hostNames.add(host);
+    }
+    return hostNames;
 }
 
-void NetworkProcess::getHostNamesWithHSTSCache(WebCore::NetworkStorageSession& session, HashSet<String>& hostNames)
+void NetworkProcess::deleteHSTSCacheForHostNames(PAL::SessionID sessionID, const Vector<String>& hostNames)
 {
-    if (auto HSTSPolicies = adoptCF(_CFNetworkCopyHSTSPolicies(session.platformSession())))
-        CFDictionaryApplyFunction(HSTSPolicies.get(), filterPreloadHSTSEntry, &hostNames);
-}
-
-void NetworkProcess::deleteHSTSCacheForHostNames(WebCore::NetworkStorageSession& session, const Vector<String>& hostNames)
-{
-    for (auto& hostName : hostNames) {
-        auto url = URL({ }, makeString("https://", hostName));
-        _CFNetworkResetHSTS(url.createCFURL().get(), session.platformSession());
+    if (auto* networkSession = static_cast<NetworkSessionCocoa*>(this->networkSession(sessionID))) {
+        for (auto& hostName : hostNames)
+            [networkSession->hstsStorage() resetHSTSForHost:hostName];
     }
 }
 
-void NetworkProcess::clearHSTSCache(WebCore::NetworkStorageSession& session, WallTime modifiedSince)
+void NetworkProcess::allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo& certificateInfo, const String& host)
+{
+    // FIXME: Remove this once rdar://30655740 is fixed.
+    [NSURLRequest setAllowsSpecificHTTPSCertificate:(NSArray *)WebCore::CertificateInfo::certificateChainFromSecTrust(certificateInfo.trust().get()).get() forHost:host];
+}
+
+void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedSince)
 {
     NSTimeInterval timeInterval = modifiedSince.secondsSinceEpoch().seconds();
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:timeInterval];
-
-    _CFNetworkResetHSTSHostsSinceDate(session.platformSession(), (__bridge CFDateRef)date);
+    if (auto* networkSession = static_cast<NetworkSessionCocoa*>(this->networkSession(sessionID)))
+        [networkSession->hstsStorage() resetHSTSHostsSinceDate:date];
 }
 
 void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<void()>&& completionHandler)
 {
     if (!m_clearCacheDispatchGroup)
-        m_clearCacheDispatchGroup = dispatch_group_create();
+        m_clearCacheDispatchGroup = adoptOSObject(dispatch_group_create());
 
-    auto group = m_clearCacheDispatchGroup;
-    dispatch_group_async(group, dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = makeRef(*this), modifiedSince, completionHandler = WTFMove(completionHandler)] () mutable {
+    auto group = m_clearCacheDispatchGroup.get();
+    dispatch_group_async(group, dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }, modifiedSince, completionHandler = WTFMove(completionHandler)] () mutable {
         auto aggregator = CallbackAggregator::create(WTFMove(completionHandler));
         forEachNetworkSession([modifiedSince, &aggregator](NetworkSession& session) {
             if (auto* cache = session.cache())
@@ -198,59 +176,54 @@ void NetworkProcess::setSharedHTTPCookieStorage(const Vector<uint8_t>& identifie
 }
 #endif
 
-void NetworkProcess::setStorageAccessAPIEnabled(bool enabled)
+void NetworkProcess::flushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    WebCore::NetworkStorageSession::setStorageAccessAPIEnabled(enabled);
+    platformFlushCookies(sessionID, WTFMove(completionHandler));
 }
 
-void NetworkProcess::syncAllCookies()
-{
-    platformSyncAllCookies([this] {
-        didSyncAllCookies();
-    });
-}
-
-#if HAVE(FOUNDATION_WITH_SAVE_COOKIES_WITH_COMPLETION_HANDLER)
-static void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
+void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
+    ASSERT(cookieStorage);
     [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTFMove(completionHandler)]() mutable {
         // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
         RunLoop::main().dispatch(WTFMove(completionHandler));
     }).get()];
 }
-#endif
 
-void NetworkProcess::platformSyncAllCookies(CompletionHandler<void()>&& completionHander) {
+void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
+{
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    if (auto* networkStorageSession = storageSession(sessionID))
+        saveCookies(networkStorageSession->nsCookieStorage(), WTFMove(completionHandler));
+    else
+        completionHandler();
+}
 
-#if HAVE(FOUNDATION_WITH_SAVE_COOKIES_WITH_COMPLETION_HANDLER)
-    RefPtr<CallbackAggregator> callbackAggregator = CallbackAggregator::create(WTFMove(completionHander));
-    forEachNetworkStorageSession([&] (auto& networkStorageSession) {
-        saveCookies(networkStorageSession.nsCookieStorage(), [callbackAggregator] { });
-    });
-#else
-    _CFHTTPCookieStorageFlushCookieStores();
-    completionHander();
+#if ENABLE(CFPREFS_DIRECT_MODE)
+void NetworkProcess::notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue)
+{
+    preferenceDidUpdate(domain, key, encodedValue);
+}
 #endif
 
-    ALLOW_DEPRECATED_DECLARATIONS_END
+const String& NetworkProcess::uiProcessBundleIdentifier() const
+{
+    if (m_uiProcessBundleIdentifier.isNull())
+        m_uiProcessBundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+
+    return m_uiProcessBundleIdentifier;
 }
 
-void NetworkProcess::platformProcessDidTransitionToBackground()
+#if PLATFORM(IOS_FAMILY)
+
+void NetworkProcess::setBackupExclusionPeriodForTesting(PAL::SessionID sessionID, Seconds period, CompletionHandler<void()>&& completionHandler)
 {
+    auto callbackAggregator = CallbackAggregator::create(WTFMove(completionHandler));
+    if (auto* session = networkSession(sessionID))
+        session->storageManager().setBackupExclusionPeriodForTesting(period, [callbackAggregator] { });
 }
 
-void NetworkProcess::platformProcessDidTransitionToForeground()
-{
-}
-
-NetworkHTTPSUpgradeChecker& NetworkProcess::networkHTTPSUpgradeChecker()
-{
-    if (!m_networkHTTPSUpgradeChecker)
-        m_networkHTTPSUpgradeChecker = makeUnique<NetworkHTTPSUpgradeChecker>();
-    return *m_networkHTTPSUpgradeChecker;
-}
+#endif
 
 } // namespace WebKit

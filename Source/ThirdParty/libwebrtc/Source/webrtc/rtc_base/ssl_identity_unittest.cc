@@ -8,19 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "rtc_base/ssl_identity.h"
+
 #include <string.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/fake_ssl_identity.h"
 #include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/message_digest.h"
 #include "rtc_base/ssl_fingerprint.h"
-#include "rtc_base/ssl_identity.h"
 #include "test/gtest.h"
 
 using rtc::SSLIdentity;
@@ -65,12 +68,12 @@ const unsigned char kTestCertSha512[] = {
     0x35, 0xce, 0x26, 0x58, 0x4a, 0x33, 0x6d, 0xbc, 0xb6};
 
 // These PEM strings were created by generating an identity with
-// |SSLIdentity::Generate| and invoking |identity->PrivateKeyToPEMString()|,
-// |identity->PublicKeyToPEMString()| and
-// |identity->certificate().ToPEMString()|. If the crypto library is updated,
+// `SSLIdentity::Create` and invoking `identity->PrivateKeyToPEMString()`,
+// `identity->PublicKeyToPEMString()` and
+// `identity->certificate().ToPEMString()`. If the crypto library is updated,
 // and the update changes the string form of the keys, these will have to be
 // updated too.  The fingerprint, fingerprint algorithm and base64 certificate
-// were created by calling |identity->certificate().GetStats()|.
+// were created by calling `identity->certificate().GetStats()`.
 static const char kRSA_PRIVATE_KEY_PEM[] =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIICdQIBADANBgkqhkiG9w0BAQEFAASCAl8wggJbAgEAAoGBAMQPqDStRlYeDpkX\n"
@@ -194,10 +197,10 @@ IdentityAndInfo CreateFakeIdentityAndInfoFromDers(
 class SSLIdentityTest : public ::testing::Test {
  public:
   void SetUp() override {
-    identity_rsa1_.reset(SSLIdentity::Generate("test1", rtc::KT_RSA));
-    identity_rsa2_.reset(SSLIdentity::Generate("test2", rtc::KT_RSA));
-    identity_ecdsa1_.reset(SSLIdentity::Generate("test3", rtc::KT_ECDSA));
-    identity_ecdsa2_.reset(SSLIdentity::Generate("test4", rtc::KT_ECDSA));
+    identity_rsa1_ = SSLIdentity::Create("test1", rtc::KT_RSA);
+    identity_rsa2_ = SSLIdentity::Create("test2", rtc::KT_RSA);
+    identity_ecdsa1_ = SSLIdentity::Create("test3", rtc::KT_ECDSA);
+    identity_ecdsa2_ = SSLIdentity::Create("test4", rtc::KT_ECDSA);
 
     ASSERT_TRUE(identity_rsa1_);
     ASSERT_TRUE(identity_rsa2_);
@@ -236,7 +239,7 @@ class SSLIdentityTest : public ::testing::Test {
 
   void TestDigestHelper(DigestType digest,
                         const SSLIdentity* identity,
-                        const std::string& algorithm,
+                        absl::string_view algorithm,
                         size_t expected_len) {
     DigestType digest1;
     size_t digest_len;
@@ -258,7 +261,7 @@ class SSLIdentityTest : public ::testing::Test {
     EXPECT_EQ(0, memcmp(digest, digest1, expected_len));
   }
 
-  void TestDigestForGeneratedCert(const std::string& algorithm,
+  void TestDigestForGeneratedCert(absl::string_view algorithm,
                                   size_t expected_len) {
     DigestType digest[4];
 
@@ -281,7 +284,7 @@ class SSLIdentityTest : public ::testing::Test {
     }
   }
 
-  void TestDigestForFixedCert(const std::string& algorithm,
+  void TestDigestForFixedCert(absl::string_view algorithm,
                               size_t expected_len,
                               const unsigned char* expected_digest) {
     bool rv;
@@ -298,13 +301,13 @@ class SSLIdentityTest : public ::testing::Test {
   }
 
   void TestCloningIdentity(const SSLIdentity& identity) {
-    // Convert |identity| to PEM strings and create a new identity by converting
+    // Convert `identity` to PEM strings and create a new identity by converting
     // back from the string format.
     std::string priv_pem = identity.PrivateKeyToPEMString();
     std::string publ_pem = identity.PublicKeyToPEMString();
     std::string cert_pem = identity.certificate().ToPEMString();
-    std::unique_ptr<SSLIdentity> clone(
-        SSLIdentity::FromPEMStrings(priv_pem, cert_pem));
+    std::unique_ptr<SSLIdentity> clone =
+        SSLIdentity::CreateFromPEMStrings(priv_pem, cert_pem);
     EXPECT_TRUE(clone);
 
     // Make sure the clone is identical to the original.
@@ -390,7 +393,7 @@ TEST_F(SSLIdentityTest, IdentityComparison) {
 
 TEST_F(SSLIdentityTest, FromPEMStringsRSA) {
   std::unique_ptr<SSLIdentity> identity(
-      SSLIdentity::FromPEMStrings(kRSA_PRIVATE_KEY_PEM, kRSA_CERT_PEM));
+      SSLIdentity::CreateFromPEMStrings(kRSA_PRIVATE_KEY_PEM, kRSA_CERT_PEM));
   EXPECT_TRUE(identity);
   EXPECT_EQ(kRSA_PRIVATE_KEY_PEM, identity->PrivateKeyToPEMString());
   EXPECT_EQ(kRSA_PUBLIC_KEY_PEM, identity->PublicKeyToPEMString());
@@ -398,12 +401,27 @@ TEST_F(SSLIdentityTest, FromPEMStringsRSA) {
 }
 
 TEST_F(SSLIdentityTest, FromPEMStringsEC) {
-  std::unique_ptr<SSLIdentity> identity(
-      SSLIdentity::FromPEMStrings(kECDSA_PRIVATE_KEY_PEM, kECDSA_CERT_PEM));
+  std::unique_ptr<SSLIdentity> identity(SSLIdentity::CreateFromPEMStrings(
+      kECDSA_PRIVATE_KEY_PEM, kECDSA_CERT_PEM));
   EXPECT_TRUE(identity);
   EXPECT_EQ(kECDSA_PRIVATE_KEY_PEM, identity->PrivateKeyToPEMString());
   EXPECT_EQ(kECDSA_PUBLIC_KEY_PEM, identity->PublicKeyToPEMString());
   EXPECT_EQ(kECDSA_CERT_PEM, identity->certificate().ToPEMString());
+}
+
+TEST_F(SSLIdentityTest, FromPEMChainStrings) {
+  // This doesn't form a valid certificate chain, but that doesn't matter for
+  // the purposes of the test
+  std::string chain(kRSA_CERT_PEM);
+  chain.append(kTestCertificate);
+  std::unique_ptr<SSLIdentity> identity(
+      SSLIdentity::CreateFromPEMChainStrings(kRSA_PRIVATE_KEY_PEM, chain));
+  EXPECT_TRUE(identity);
+  EXPECT_EQ(kRSA_PRIVATE_KEY_PEM, identity->PrivateKeyToPEMString());
+  EXPECT_EQ(kRSA_PUBLIC_KEY_PEM, identity->PublicKeyToPEMString());
+  ASSERT_EQ(2u, identity->cert_chain().GetSize());
+  EXPECT_EQ(kRSA_CERT_PEM, identity->cert_chain().Get(0).ToPEMString());
+  EXPECT_EQ(kTestCertificate, identity->cert_chain().Get(1).ToPEMString());
 }
 
 TEST_F(SSLIdentityTest, CloneIdentityRSA) {
@@ -433,7 +451,7 @@ TEST_F(SSLIdentityTest, GetSignatureDigestAlgorithm) {
 
 TEST_F(SSLIdentityTest, SSLCertificateGetStatsRSA) {
   std::unique_ptr<SSLIdentity> identity(
-      SSLIdentity::FromPEMStrings(kRSA_PRIVATE_KEY_PEM, kRSA_CERT_PEM));
+      SSLIdentity::CreateFromPEMStrings(kRSA_PRIVATE_KEY_PEM, kRSA_CERT_PEM));
   std::unique_ptr<rtc::SSLCertificateStats> stats =
       identity->certificate().GetStats();
   EXPECT_EQ(stats->fingerprint, kRSA_FINGERPRINT);
@@ -443,8 +461,8 @@ TEST_F(SSLIdentityTest, SSLCertificateGetStatsRSA) {
 }
 
 TEST_F(SSLIdentityTest, SSLCertificateGetStatsECDSA) {
-  std::unique_ptr<SSLIdentity> identity(
-      SSLIdentity::FromPEMStrings(kECDSA_PRIVATE_KEY_PEM, kECDSA_CERT_PEM));
+  std::unique_ptr<SSLIdentity> identity(SSLIdentity::CreateFromPEMStrings(
+      kECDSA_PRIVATE_KEY_PEM, kECDSA_CERT_PEM));
   std::unique_ptr<rtc::SSLCertificateStats> stats =
       identity->certificate().GetStats();
   EXPECT_EQ(stats->fingerprint, kECDSA_FINGERPRINT);
@@ -580,14 +598,13 @@ class SSLIdentityExpirationTest : public ::testing::Test {
       time_t lifetime =
           rtc::CreateRandomId() % (0x80000000 - time_before_generation);
       rtc::KeyParams key_params = rtc::KeyParams::ECDSA(rtc::EC_NIST_P256);
-      SSLIdentity* identity =
-          rtc::SSLIdentity::GenerateWithExpiration("", key_params, lifetime);
+      auto identity =
+          rtc::SSLIdentity::Create("", key_params, lifetime);
       time_t time_after_generation = time(nullptr);
       EXPECT_LE(time_before_generation + lifetime,
                 identity->certificate().CertificateExpirationTime());
       EXPECT_GE(time_after_generation + lifetime,
                 identity->certificate().CertificateExpirationTime());
-      delete identity;
     }
   }
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,9 +35,13 @@
 
 OBJC_CLASS AVPlayerLayer;
 
-#if PLATFORM(COCOA)
 typedef struct CGContext *CGContextRef;
+
+namespace WTF {
+#if HAVE(IOSURFACE)
+class MachSendRight;
 #endif
+}
 
 namespace WebCore {
 
@@ -48,12 +52,12 @@ class PlatformCALayerClient;
 
 typedef Vector<RefPtr<PlatformCALayer>> PlatformCALayerList;
 
-class WEBCORE_EXPORT PlatformCALayer : public ThreadSafeRefCounted<PlatformCALayer> {
-#if PLATFORM(COCOA)
-    friend class PlatformCALayerCocoa;
-#elif PLATFORM(WIN)
-    friend class PlatformCALayerWin;
+#if HAVE(IOSURFACE)
+class IOSurface;
 #endif
+
+class WEBCORE_EXPORT PlatformCALayer : public ThreadSafeRefCounted<PlatformCALayer, WTF::DestructionThread::Main> {
+    friend class PlatformCALayerCocoa;
 public:
     static CFTimeInterval currentTimeToMediaTime(MonotonicTime);
 
@@ -73,11 +77,12 @@ public:
         LayerTypeContentsProvidedLayer,
         LayerTypeBackdropLayer,
         LayerTypeShapeLayer,
-        LayerTypeLightSystemBackdropLayer,
-        LayerTypeDarkSystemBackdropLayer,
         LayerTypeScrollContainerLayer,
-        LayerTypeEditableImageLayer,
+#if ENABLE(MODEL_ELEMENT)
+        LayerTypeModelLayer,
+#endif
         LayerTypeCustom,
+        LayerTypeHost,
     };
     enum FilterType { Linear, Nearest, Trilinear };
 
@@ -87,9 +92,14 @@ public:
 
     GraphicsLayer::PlatformLayerID layerID() const { return m_layerID; }
 
-    virtual bool isPlatformCALayerCocoa() const { return false; }
-    virtual bool isPlatformCALayerRemote() const { return false; }
-    virtual bool isPlatformCALayerRemoteCustom() const { return false; }
+    enum class Type : uint8_t {
+        Cocoa,
+        Remote,
+        RemoteCustom,
+        RemoteHost,
+        RemoteModel
+    };
+    virtual Type type() const = 0;
 
     // This function passes the layer as a void* rather than a PlatformLayer because PlatformLayer
     // is defined differently for Obj C and C++. This allows callers from both languages.
@@ -119,6 +129,7 @@ public:
     virtual PlatformCALayer* superlayer() const = 0;
     virtual void removeFromSuperlayer() = 0;
     virtual void setSublayers(const PlatformCALayerList&) = 0;
+    virtual PlatformCALayerList sublayersForLogging() const = 0;
     virtual void removeAllSublayers() = 0;
     virtual void appendSublayer(PlatformCALayer&) = 0;
     virtual void insertSublayer(PlatformCALayer&, size_t index) = 0;
@@ -180,12 +191,15 @@ public:
     virtual bool wantsDeepColorBackingStore() const = 0;
     virtual void setWantsDeepColorBackingStore(bool) = 0;
 
-    virtual bool supportsSubpixelAntialiasedText() const = 0;
-    virtual void setSupportsSubpixelAntialiasedText(bool) = 0;
-
     virtual bool hasContents() const = 0;
     virtual CFTypeRef contents() const = 0;
     virtual void setContents(CFTypeRef) = 0;
+    virtual void clearContents();
+
+#if HAVE(IOSURFACE)
+    virtual void setContents(const WebCore::IOSurface&) = 0;
+    virtual void setContents(const WTF::MachSendRight&) = 0;
+#endif
 
     virtual void setContentsRect(const FloatRect&) = 0;
 
@@ -223,7 +237,7 @@ public:
     virtual float cornerRadius() const = 0;
     virtual void setCornerRadius(float) = 0;
 
-    virtual void setEdgeAntialiasingMask(unsigned) = 0;
+    virtual void setAntialiasesEdges(bool) = 0;
     
     // Only used by LayerTypeShapeLayer.
     virtual FloatRoundedRect shapeRoundedRect() const = 0;
@@ -247,7 +261,18 @@ public:
     virtual GraphicsLayer::CustomAppearance customAppearance() const = 0;
     virtual void updateCustomAppearance(GraphicsLayer::CustomAppearance) = 0;
 
-    virtual GraphicsLayer::EmbeddedViewID embeddedViewID() const = 0;
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    virtual bool isSeparated() const = 0;
+    virtual void setIsSeparated(bool) = 0;
+    
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    virtual bool isSeparatedPortal() const = 0;
+    virtual void setIsSeparatedPortal(bool) = 0;
+
+    virtual bool isDescendentOfSeparatedPortal() const = 0;
+    virtual void setIsDescendentOfSeparatedPortal(bool) = 0;
+#endif
+#endif
 
     virtual TiledBacking* tiledBacking() = 0;
 
@@ -256,13 +281,6 @@ public:
     static void flipContext(CGContextRef, CGFloat height);
     
     virtual unsigned backingStoreBytesPerPixel() const { return 4; }
-
-#if PLATFORM(WIN)
-    virtual PlatformCALayer* rootLayer() const = 0;
-    virtual void setNeedsLayout() = 0;
-    virtual void setNeedsCommit() = 0;
-    virtual String layerTreeAsString() const = 0;
-#endif // PLATFORM(WIN)
 
 #if PLATFORM(IOS_FAMILY)
     bool isWebLayer();
@@ -274,16 +292,10 @@ public:
     virtual Ref<PlatformCALayer> createCompatibleLayer(LayerType, PlatformCALayerClient*) const = 0;
     Ref<PlatformCALayer> createCompatibleLayerOrTakeFromPool(LayerType, PlatformCALayerClient*, IntSize);
 
-#if PLATFORM(COCOA)
     virtual void enumerateRectsBeingDrawn(GraphicsContext&, void (^block)(FloatRect)) = 0;
-#endif
 
     static const unsigned webLayerMaxRectsToPaint = 5;
-#if COMPILER(MSVC)
-    static const float webLayerWastedSpaceThreshold;
-#else
     constexpr static const float webLayerWastedSpaceThreshold = 0.75f;
-#endif
 
     typedef Vector<FloatRect, webLayerMaxRectsToPaint> RepaintRectList;
         
@@ -294,6 +306,8 @@ public:
     static CGRect frameForLayer(const PlatformLayer*);
 
     void moveToLayerPool();
+    
+    virtual void dumpAdditionalProperties(TextStream&, OptionSet<PlatformLayerTreeAsTextFlags>);
 
 protected:
     PlatformCALayer(LayerType, PlatformCALayerClient* owner);
@@ -342,11 +356,12 @@ template<> struct EnumTraits<WebCore::PlatformCALayer::LayerType> {
         WebCore::PlatformCALayer::LayerType::LayerTypeContentsProvidedLayer,
         WebCore::PlatformCALayer::LayerType::LayerTypeBackdropLayer,
         WebCore::PlatformCALayer::LayerType::LayerTypeShapeLayer,
-        WebCore::PlatformCALayer::LayerType::LayerTypeLightSystemBackdropLayer,
-        WebCore::PlatformCALayer::LayerType::LayerTypeDarkSystemBackdropLayer,
         WebCore::PlatformCALayer::LayerType::LayerTypeScrollContainerLayer,
-        WebCore::PlatformCALayer::LayerType::LayerTypeEditableImageLayer,
-        WebCore::PlatformCALayer::LayerType::LayerTypeCustom
+#if ENABLE(MODEL_ELEMENT)
+        WebCore::PlatformCALayer::LayerType::LayerTypeModelLayer,
+#endif
+        WebCore::PlatformCALayer::LayerType::LayerTypeCustom,
+        WebCore::PlatformCALayer::LayerType::LayerTypeHost
     >;
 };
 

@@ -23,6 +23,7 @@
 #include <WebCore/Document.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameDestructionObserver.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/Node.h>
 #include <glib-object.h>
 #include <wtf/HashMap.h>
@@ -111,7 +112,7 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
     public:
         DOMWindowObserver(WebCore::DOMWindow& window, DOMObjectCacheFrameObserver& frameObserver)
-            : m_window(makeWeakPtr(window))
+            : m_window(window)
             , m_frameObserver(frameObserver)
         {
             window.registerObserver(*this);
@@ -131,7 +132,7 @@ private:
             m_frameObserver.willDetachGlobalObjectFromFrame();
         }
 
-        WeakPtr<WebCore::DOMWindow> m_window;
+        WeakPtr<WebCore::DOMWindow, WebCore::WeakPtrImplWithEventTargetData> m_window;
         DOMObjectCacheFrameObserver& m_frameObserver;
     };
 
@@ -170,7 +171,7 @@ private:
     void frameDestroyed() override
     {
         clear();
-        WebCore::Frame* frame = m_frame;
+        WebCore::Frame* frame = m_frame.get();
         FrameDestructionObserver::frameDestroyed();
         domObjectCacheFrameObservers().remove(frame);
     }

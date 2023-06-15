@@ -49,8 +49,8 @@ public:
     Type type() const { return m_type; }
 
     union ValueUnion {
-        int asInt;
         double asDouble;
+        int asInt;
     };
 
     CapabilityValueOrRange()
@@ -106,25 +106,38 @@ public:
     template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, CapabilityValueOrRange&);
 
 private:
-    ValueUnion m_minOrValue;
-    ValueUnion m_max;
-    Type m_type;
+    ValueUnion m_minOrValue { };
+    ValueUnion m_max { };
+    Type m_type { Undefined };
 };
 
 template<class Encoder>
 void CapabilityValueOrRange::encode(Encoder& encoder) const
 {
-    encoder.encodeFixedLengthData(reinterpret_cast<const uint8_t*>(&m_minOrValue), sizeof(ValueUnion), alignof(ValueUnion));
-    encoder.encodeFixedLengthData(reinterpret_cast<const uint8_t*>(&m_max), sizeof(ValueUnion), alignof(ValueUnion));
+    encoder.encodeObject(m_minOrValue);
+    encoder.encodeObject(m_max);
     encoder << m_type;
 }
 
 template<class Decoder>
 bool CapabilityValueOrRange::decode(Decoder& decoder, CapabilityValueOrRange& valueOrRange)
 {
-    return decoder.decodeFixedLengthData(reinterpret_cast<uint8_t*>(&valueOrRange.m_minOrValue), sizeof(ValueUnion), alignof(ValueUnion))
-        && decoder.decodeFixedLengthData(reinterpret_cast<uint8_t*>(&valueOrRange.m_max), sizeof(ValueUnion), alignof(ValueUnion))
-        && decoder.decode(valueOrRange.m_type);
+    auto minOrValue = decoder.template decodeObject<ValueUnion>();
+    if (!minOrValue)
+        return false;
+
+    auto max = decoder.template decodeObject<ValueUnion>();
+    if (!max)
+        return false;
+
+    auto type = decoder.template decode<Type>();
+    if (!type)
+        return false;
+
+    valueOrRange.m_minOrValue = *minOrValue;
+    valueOrRange.m_max = *max;
+    valueOrRange.m_type = *type;
+    return true;
 }
 
 class RealtimeMediaSourceCapabilities {
@@ -206,7 +219,7 @@ private:
     CapabilityValueOrRange m_volume;
     CapabilityValueOrRange m_sampleRate;
     CapabilityValueOrRange m_sampleSize;
-    EchoCancellation m_echoCancellation;
+    EchoCancellation m_echoCancellation { EchoCancellation::ReadOnly };
     AtomString m_deviceId;
     AtomString m_groupId;
 
@@ -226,8 +239,8 @@ void RealtimeMediaSourceCapabilities::encode(Encoder& encoder) const
         << m_sampleSize
         << m_deviceId
         << m_groupId
-        << m_supportedConstraints;
-    encoder << m_echoCancellation;
+        << m_supportedConstraints
+        << m_echoCancellation;
 }
 
 template<class Decoder>

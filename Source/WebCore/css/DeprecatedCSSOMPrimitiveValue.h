@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CSSParserIdioms.h"
 #include "CSSPrimitiveValue.h"
 #include "DeprecatedCSSOMValue.h"
 
@@ -63,42 +64,39 @@ public:
         CSS_ATTR = 22,
         CSS_COUNTER = 23,
         CSS_RECT = 24,
-        CSS_RGBCOLOR = 25,
-        CSS_VW = 26,
-        CSS_VH = 27,
-        CSS_VMIN = 28,
-        CSS_VMAX = 29
+        CSS_RGBCOLOR = 25
+        // Do not add new units here; this is deprecated and we shouldn't expose anything not in DOM Level 2 Style.
     };
 
-    static Ref<DeprecatedCSSOMPrimitiveValue> create(const CSSPrimitiveValue& value, CSSStyleDeclaration& owner)
+    static Ref<DeprecatedCSSOMPrimitiveValue> create(const CSSValue& value, CSSStyleDeclaration& owner)
     {
         return adoptRef(*new DeprecatedCSSOMPrimitiveValue(value, owner));
     }
 
     bool equals(const DeprecatedCSSOMPrimitiveValue& other) const { return m_value->equals(other.m_value); }
-    unsigned cssValueType() const { return m_value->cssValueType(); }
     String cssText() const { return m_value->cssText(); }
     
     WEBCORE_EXPORT unsigned short primitiveType() const;
-    WEBCORE_EXPORT ExceptionOr<void> setFloatValue(unsigned short unitType, double);
     WEBCORE_EXPORT ExceptionOr<float> getFloatValue(unsigned short unitType) const;
-    WEBCORE_EXPORT ExceptionOr<void> setStringValue(unsigned short stringType, const String&);
     WEBCORE_EXPORT ExceptionOr<String> getStringValue() const;
     WEBCORE_EXPORT ExceptionOr<Ref<DeprecatedCSSOMCounter>> getCounterValue() const;
     WEBCORE_EXPORT ExceptionOr<Ref<DeprecatedCSSOMRect>> getRectValue() const;
     WEBCORE_EXPORT ExceptionOr<Ref<DeprecatedCSSOMRGBColor>> getRGBColorValue() const;
 
-    String stringValue() const { return m_value->stringValue(); }
+    static ExceptionOr<void> setFloatValue(unsigned short, double) { return Exception { NoModificationAllowedError }; }
+    static ExceptionOr<void> setStringValue(unsigned short, const String&) { return Exception { NoModificationAllowedError }; }
 
-protected:
-    DeprecatedCSSOMPrimitiveValue(const CSSPrimitiveValue& value, CSSStyleDeclaration& owner)
-        : DeprecatedCSSOMValue(DeprecatedPrimitiveValueClass, owner)
-        , m_value(const_cast<CSSPrimitiveValue&>(value))
+    bool isCSSWideKeyword() const { return WebCore::isCSSWideKeyword(valueID(m_value.get())); }
+    static unsigned short cssValueType() { return CSS_PRIMITIVE_VALUE; }
+
+private:
+    DeprecatedCSSOMPrimitiveValue(const CSSValue& value, CSSStyleDeclaration& owner)
+        : DeprecatedCSSOMValue(ClassType::Primitive, owner)
+        , m_value(value)
     {
     }
 
-private:
-    Ref<CSSPrimitiveValue> m_value;
+    Ref<const CSSValue> m_value;
 };
     
 } // namespace WebCore

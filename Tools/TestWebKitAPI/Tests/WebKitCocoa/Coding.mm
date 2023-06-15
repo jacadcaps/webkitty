@@ -49,11 +49,11 @@ TEST(Coding, WKPreferences)
     // Change all defaults to something else.
     [a setMinimumFontSize:10];
     [a setJavaScriptEnabled:NO];
+    [a setShouldPrintBackgrounds:YES];
 #if PLATFORM(IOS_FAMILY)
     [a setJavaScriptCanOpenWindowsAutomatically:YES];
 #else
     [a setJavaScriptCanOpenWindowsAutomatically:NO];
-    [a setJavaEnabled:YES];
     [a setPlugInsEnabled:YES];
     [a setTabFocusesLinks:YES];
 #endif
@@ -63,9 +63,9 @@ TEST(Coding, WKPreferences)
     EXPECT_EQ([a minimumFontSize], [b minimumFontSize]);
     EXPECT_EQ([a javaScriptEnabled], [b javaScriptEnabled]);
     EXPECT_EQ([a javaScriptCanOpenWindowsAutomatically], [b javaScriptCanOpenWindowsAutomatically]);
+    EXPECT_EQ([a shouldPrintBackgrounds], [b shouldPrintBackgrounds]);
 
 #if PLATFORM(MAC)
-    EXPECT_EQ([a javaEnabled], [b javaEnabled]);
     EXPECT_EQ([a plugInsEnabled], [b plugInsEnabled]);
     EXPECT_EQ([a tabFocusesLinks], [b tabFocusesLinks]);
 #endif
@@ -137,6 +137,9 @@ TEST(Coding, WKWebView)
 
 #if PLATFORM(IOS_FAMILY)
     [a setAllowsLinkPreview:YES];
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST)
+    [a setFindInteractionEnabled:YES];
+#endif
 #else
     [a setAllowsLinkPreview:NO];
     [a setAllowsMagnification:YES];
@@ -152,6 +155,10 @@ TEST(Coding, WKWebView)
 #if PLATFORM(MAC)
     EXPECT_EQ([a allowsMagnification], [b allowsMagnification]);
     EXPECT_EQ([a magnification], [b magnification]);
+#endif
+
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST)
+    EXPECT_EQ([a isFindInteractionEnabled], [b isFindInteractionEnabled]);
 #endif
 }
 

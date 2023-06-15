@@ -31,13 +31,14 @@
 
 namespace WebKit {
 
-class TiledCoreAnimationDrawingAreaProxy : public DrawingAreaProxy {
+class TiledCoreAnimationDrawingAreaProxy final : public DrawingAreaProxy {
 public:
-    TiledCoreAnimationDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
+    TiledCoreAnimationDrawingAreaProxy(WebPageProxy&);
     virtual ~TiledCoreAnimationDrawingAreaProxy();
 
 private:
     // DrawingAreaProxy
+    void attachToProvisionalFrameProcess(WebProcessProxy&) final { ASSERT_NOT_REACHED(); }
     void deviceScaleFactorDidChange() override;
     void sizeDidChange() override;
     void colorSpaceDidChange() override;
@@ -51,21 +52,22 @@ private:
     void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
     void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
 
-    void waitForDidUpdateActivityState(ActivityStateChangeID) override;
-    void dispatchAfterEnsuringDrawing(WTF::Function<void (CallbackBase::Error)>&&) override;
-    void dispatchPresentationCallbacksAfterFlushingLayers(const Vector<CallbackID>&) final;
+    void waitForDidUpdateActivityState(ActivityStateChangeID, WebProcessProxy&) override;
+    void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
+    void dispatchAfterEnsuringDrawing(CompletionHandler<void()>&&) final;
 
-    void willSendUpdateGeometry() override;
+    void willSendUpdateGeometry();
 
     WTF::MachSendRight createFence() override;
 
-    // Message handlers.
-    void didUpdateGeometry() override;
+    bool shouldSendWheelEventsToEventDispatcher() const override { return true; }
+
+    void didUpdateGeometry();
 
     void sendUpdateGeometry();
 
     // Whether we're waiting for a DidUpdateGeometry message from the web process.
-    bool m_isWaitingForDidUpdateGeometry;
+    bool m_isWaitingForDidUpdateGeometry { false };
 
     // The last size we sent to the web process.
     WebCore::IntSize m_lastSentSize;
@@ -75,12 +77,10 @@ private:
 
     // The last maxmium size for size-to-content auto-sizing we sent to the web process.
     WebCore::IntSize m_lastSentSizeToContentAutoSizeMaximumSize;
-
-    CallbackMap m_callbacks;
 };
 
 } // namespace WebKit
 
-SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(TiledCoreAnimationDrawingAreaProxy, DrawingAreaTypeTiledCoreAnimation)
+SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(TiledCoreAnimationDrawingAreaProxy, DrawingAreaType::TiledCoreAnimation)
 
 #endif // !PLATFORM(IOS_FAMILY)

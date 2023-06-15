@@ -16,36 +16,28 @@ namespace rx
 namespace vk
 {
 // Resource implementation.
-Resource::Resource()
-{
-    mUse.init();
-}
-
-Resource::~Resource()
-{
-    mUse.release();
-}
-
-angle::Result Resource::finishRunningCommands(ContextVk *contextVk)
-{
-    return contextVk->finishToSerial(mUse.getSerial());
-}
-
-angle::Result Resource::waitForIdle(ContextVk *contextVk)
+angle::Result Resource::waitForIdle(ContextVk *contextVk,
+                                    const char *debugMessage,
+                                    RenderPassClosureReason reason)
 {
     // If there are pending commands for the resource, flush them.
-    if (usedInRecordedCommands())
+    if (contextVk->hasUnsubmittedUse(mUse))
     {
-        ANGLE_TRY(contextVk->flushImpl(nullptr));
+        ANGLE_TRY(contextVk->flushImpl(nullptr, reason));
     }
 
+    RendererVk *renderer = contextVk->getRenderer();
     // Make sure the driver is done with the resource.
-    if (usedInRunningCommands(contextVk->getLastCompletedQueueSerial()))
+    if (renderer->hasUnfinishedUse(mUse))
     {
-        ANGLE_TRY(finishRunningCommands(contextVk));
+        if (debugMessage)
+        {
+            ANGLE_VK_PERF_WARNING(contextVk, GL_DEBUG_SEVERITY_HIGH, "%s", debugMessage);
+        }
+        ANGLE_TRY(renderer->finishResourceUse(contextVk, mUse));
     }
 
-    ASSERT(!isCurrentlyInUse(contextVk->getLastCompletedQueueSerial()));
+    ASSERT(!renderer->hasUnfinishedUse(mUse));
 
     return angle::Result::Continue;
 }
@@ -58,8 +50,8 @@ SharedGarbage::SharedGarbage(SharedGarbage &&other)
     *this = std::move(other);
 }
 
-SharedGarbage::SharedGarbage(SharedResourceUse &&use, std::vector<GarbageObject> &&garbage)
-    : mLifetime(std::move(use)), mGarbage(std::move(garbage))
+SharedGarbage::SharedGarbage(const ResourceUse &use, GarbageList &&garbage)
+    : mLifetime(use), mGarbage(std::move(garbage))
 {}
 
 SharedGarbage::~SharedGarbage() = default;
@@ -71,12 +63,12 @@ SharedGarbage &SharedGarbage::operator=(SharedGarbage &&rhs)
     return *this;
 }
 
-bool SharedGarbage::destroyIfComplete(RendererVk *renderer, Serial completedSerial)
+bool SharedGarbage::destroyIfComplete(RendererVk *renderer)
 {
-    if (mLifetime.isCurrentlyInUse(completedSerial))
+    if (renderer->hasUnfinishedUse(mLifetime))
+    {
         return false;
-
-    mLifetime.release();
+    }
 
     for (GarbageObject &object : mGarbage)
     {
@@ -86,32 +78,9 @@ bool SharedGarbage::destroyIfComplete(RendererVk *renderer, Serial completedSeri
     return true;
 }
 
-// ResourceUseList implementation.
-ResourceUseList::ResourceUseList() = default;
-
-ResourceUseList::~ResourceUseList()
+bool SharedGarbage::hasUnsubmittedUse(RendererVk *renderer) const
 {
-    ASSERT(mResourceUses.empty());
-}
-
-void ResourceUseList::releaseResourceUses()
-{
-    for (SharedResourceUse &use : mResourceUses)
-    {
-        use.release();
-    }
-
-    mResourceUses.clear();
-}
-
-void ResourceUseList::releaseResourceUsesAndUpdateSerials(Serial serial)
-{
-    for (SharedResourceUse &use : mResourceUses)
-    {
-        use.releaseAndUpdateSerial(serial);
-    }
-
-    mResourceUses.clear();
+    return renderer->hasUnsubmittedUse(mLifetime);
 }
 }  // namespace vk
 }  // namespace rx

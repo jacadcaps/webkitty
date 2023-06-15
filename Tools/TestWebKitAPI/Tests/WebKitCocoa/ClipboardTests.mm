@@ -31,7 +31,7 @@
 #import <CoreServices/CoreServices.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKPreferencesPrivate.h>
-#import <WebKit/_WKExperimentalFeature.h>
+#import <WebKit/_WKFeature.h>
 
 @interface TestWKWebView (ClipboardTests)
 
@@ -76,9 +76,9 @@ static RetainPtr<TestWKWebView> createWebViewForClipboardTests()
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration preferences] _setDOMPasteAllowed:YES];
     [[configuration preferences] _setJavaScriptCanAccessClipboard:YES];
-    for (_WKExperimentalFeature *feature in [WKPreferences _experimentalFeatures]) {
+    for (_WKFeature *feature in [WKPreferences _features]) {
         if ([feature.key isEqualToString:@"AsyncClipboardAPIEnabled"]) {
-            [[configuration preferences] _setEnabled:YES forExperimentalFeature:feature];
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
             break;
         }
     }
@@ -129,14 +129,14 @@ static void writeMultipleObjectsToPlatformPasteboard()
 #endif
 }
 
-static NSString *readMarkupFromPasteboard()
+static RetainPtr<NSString> readMarkupFromPasteboard()
 {
 #if PLATFORM(MAC)
     NSData *rawData = [NSPasteboard.generalPasteboard dataForType:WebCore::legacyHTMLPasteboardType()];
 #else
     NSData *rawData = [UIPasteboard.generalPasteboard dataForPasteboardType:(__bridge NSString *)kUTTypeHTML];
 #endif
-    return [[[NSString alloc] initWithData:rawData encoding:NSUTF8StringEncoding] autorelease];
+    return adoptNS([[NSString alloc] initWithData:rawData encoding:NSUTF8StringEncoding]);
 }
 
 TEST(ClipboardTests, ReadMultipleItems)
@@ -160,7 +160,7 @@ TEST(ClipboardTests, WriteSanitizedMarkup)
     auto webView = createWebViewForClipboardTests();
     [webView writeString:@"<script>/* super secret */</script>This is a test." toClipboardWithType:@"text/html"];
 
-    NSString *writtenMarkup = readMarkupFromPasteboard();
+    auto writtenMarkup = readMarkupFromPasteboard();
     EXPECT_TRUE([writtenMarkup containsString:@"This is a test."]);
     EXPECT_FALSE([writtenMarkup containsString:@"super secret"]);
     EXPECT_FALSE([writtenMarkup containsString:@"<script>"]);

@@ -51,12 +51,11 @@
 
 - (void)willMoveToWindow:(UIWindow *)newWindow
 {
-    if (!self._contentView.window || newWindow)
+    if ((self.window && !self._contentView.window) || newWindow)
         return;
 
     auto page = [_webViewToTrack _page];
-    RELEASE_LOG(ViewState, "%p - WKApplicationStateTrackingView: View with page [%p, pageProxyID: %" PRIu64 "] was removed from a window, _lastObservedStateWasBackground: %d", self, page.get(), page ? page->identifier().toUInt64() : 0, page ? page->lastObservedStateWasBackground() : false);
-    ASSERT(_applicationStateTracker);
+    RELEASE_LOG(ViewState, "%p - WKApplicationStateTrackingView: View with page [%p, pageProxyID=%" PRIu64 "] was removed from a window, _lastObservedStateWasBackground=%d", self, page.get(), page ? page->identifier().toUInt64() : 0, page ? page->lastObservedStateWasBackground() : false);
     _applicationStateTracker = nullptr;
 }
 
@@ -69,7 +68,7 @@
     bool lastObservedStateWasBackground = page ? page->lastObservedStateWasBackground() : false;
 
     _applicationStateTracker = makeUnique<WebKit::ApplicationStateTracker>(self, @selector(_applicationDidEnterBackground), @selector(_applicationDidFinishSnapshottingAfterEnteringBackground), @selector(_applicationWillEnterForeground), @selector(_willBeginSnapshotSequence), @selector(_didCompleteSnapshotSequence));
-    RELEASE_LOG(ViewState, "%p - WKApplicationStateTrackingView: View with page [%p, pageProxyID: %" PRIu64 "] was added to a window, _lastObservedStateWasBackground: %d, isNowBackground: %d", self, page.get(), page ? page->identifier().toUInt64() : 0, lastObservedStateWasBackground, [self isBackground]);
+    RELEASE_LOG(ViewState, "%p - WKApplicationStateTrackingView: View with page [%p, pageProxyID=%" PRIu64 "] was added to a window, _lastObservedStateWasBackground=%d, isNowBackground=%d", self, page.get(), page ? page->identifier().toUInt64() : 0, lastObservedStateWasBackground, [self isBackground]);
 
     if (lastObservedStateWasBackground && ![self isBackground])
         [self _applicationWillEnterForeground];
@@ -109,7 +108,7 @@
     if (!page)
         return;
 
-    page->setShouldFireEvents(false);
+    page->setIsTakingSnapshotsForApplicationSuspension(true);
 }
 
 - (void)_didCompleteSnapshotSequence
@@ -118,7 +117,7 @@
     if (!page)
         return;
 
-    page->setShouldFireEvents(true);
+    page->setIsTakingSnapshotsForApplicationSuspension(false);
 }
 
 - (BOOL)isBackground

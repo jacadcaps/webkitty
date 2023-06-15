@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKPreferences.h>
@@ -36,7 +37,6 @@
 
 @class ModalAlertsUIDelegate;
 
-static bool isDone;
 static RetainPtr<TestWKWebView> openedWebView;
 static RetainPtr<ModalAlertsUIDelegate> sharedUIDelegate;
 
@@ -188,7 +188,7 @@ TEST(WebKit, SlowBeforeUnloadPromptReject)
     TestWebKitAPI::Util::run(&didRespondToPrompt);
     EXPECT_FALSE([webView _isClosed]);
 
-    TestWebKitAPI::Util::sleep(0.1);
+    TestWebKitAPI::Util::runFor(0.1_s);
     EXPECT_FALSE([webView _isClosed]);
 }
 
@@ -212,7 +212,7 @@ TEST(WebKit, SlowBeforeUnloadPromptAllow)
     TestWebKitAPI::Util::run(&didRespondToPrompt);
 
     while (![webView _isClosed])
-        TestWebKitAPI::Util::sleep(0.1);
+        TestWebKitAPI::Util::runFor(0.1_s);
 }
 
 TEST(WebKit, BeforeUnloadPromptRejectOnReload)
@@ -236,7 +236,7 @@ TEST(WebKit, BeforeUnloadPromptRejectOnReload)
 
     EXPECT_FALSE([webView _isClosed]);
 
-    TestWebKitAPI::Util::sleep(0.1);
+    TestWebKitAPI::Util::runFor(0.1_s);
     EXPECT_FALSE([webView _isClosed]);
 }
 
@@ -261,7 +261,7 @@ TEST(WebKit, BeforeUnloadPromptAllowOnReload)
 
     EXPECT_FALSE([webView _isClosed]);
 
-    TestWebKitAPI::Util::sleep(0.1);
+    TestWebKitAPI::Util::runFor(0.1_s);
     EXPECT_FALSE([webView _isClosed]);
 }
 
@@ -306,7 +306,7 @@ TEST(WebKit, SlowBeforeUnloadHandlerSingleClosePageCall)
     EXPECT_EQ(1U, viewDidCloseCallCount);
     EXPECT_FALSE([webView _isClosed]);
 
-    TestWebKitAPI::Util::sleep(0.2);
+    TestWebKitAPI::Util::runFor(0.2_s);
 
     EXPECT_EQ(1U, viewDidCloseCallCount);
     EXPECT_FALSE([webView _isClosed]);

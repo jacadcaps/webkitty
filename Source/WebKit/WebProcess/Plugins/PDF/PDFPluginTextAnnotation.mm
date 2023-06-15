@@ -29,10 +29,10 @@
 #if ENABLE(PDFKIT_PLUGIN)
 
 #import "PDFAnnotationTextWidgetDetails.h"
-#import "PDFKitImports.h"
 #import "PDFLayerControllerSPI.h"
 #import "PDFPlugin.h"
 #import <Quartz/Quartz.h>
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/CSSPrimitiveValue.h>
 #import <WebCore/CSSPropertyNames.h>
 #import <WebCore/ColorMac.h>
@@ -54,15 +54,15 @@ static const String cssAlignmentValueForNSTextAlignment(NSTextAlignment alignmen
 {
     switch (alignment) {
     case NSTextAlignmentLeft:
-        return "left";
+        return "left"_s;
     case NSTextAlignmentRight:
-        return "right";
+        return "right"_s;
     case NSTextAlignmentCenter:
-        return "center";
+        return "center"_s;
     case NSTextAlignmentJustified:
-        return "justify";
+        return "justify"_s;
     case NSTextAlignmentNatural:
-        return "-webkit-start";
+        return "-webkit-start"_s;
     }
     ASSERT_NOT_REACHED();
     return String();
@@ -95,7 +95,7 @@ Ref<Element> PDFPluginTextAnnotation::createAnnotationElement()
         return element;
 
     // FIXME: Match font weight and style as well?
-    styledElement.setInlineStyleProperty(CSSPropertyColor, serializationForHTML(colorFromNSColor(textAnnotation.fontColor)));
+    styledElement.setInlineStyleProperty(CSSPropertyColor, serializationForHTML(colorFromCocoaColor(textAnnotation.fontColor)));
     styledElement.setInlineStyleProperty(CSSPropertyFontFamily, textAnnotation.font.familyName);
     styledElement.setInlineStyleProperty(CSSPropertyTextAlign, cssAlignmentValueForNSTextAlignment(textAnnotation.alignment));
 
@@ -134,7 +134,7 @@ bool PDFPluginTextAnnotation::handleEvent(Event& event)
     if (event.isKeyboardEvent() && event.type() == eventNames().keydownEvent) {
         auto& keyboardEvent = downcast<KeyboardEvent>(event);
 
-        if (keyboardEvent.keyIdentifier() == "U+0009") {
+        if (keyboardEvent.keyIdentifier() == "U+0009"_s) {
             if (keyboardEvent.ctrlKey() || keyboardEvent.metaKey() || keyboardEvent.altGraphKey())
                 return false;
 

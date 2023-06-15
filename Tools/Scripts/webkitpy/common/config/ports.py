@@ -32,7 +32,6 @@
 
 import os
 import platform
-import sys
 
 from webkitpy.common.system.executive import Executive
 
@@ -66,8 +65,6 @@ class DeprecatedPort(object):
             "ftw": FTWPort,
             "gtk-wk2": GtkWK2Port,
             "ios-device": IOSPort,
-            # FIXME: https://bugs.webkit.org/show_bug.cgi?id=169302
-            "ios": IOSPort,
             "ios-simulator-wk2": IOSSimulatorWK2Port,
             "jsc-only": JscOnlyPort,
             "mac": MacPort,

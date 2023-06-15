@@ -27,8 +27,10 @@
 
 namespace WebCore {
 
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleBackgroundData);
+
 StyleBackgroundData::StyleBackgroundData()
-    : background(FillLayerType::Background)
+    : background(FillLayer::create(FillLayerType::Background))
     , color(RenderStyle::initialBackgroundColor())
 {
 }
@@ -51,18 +53,22 @@ bool StyleBackgroundData::operator==(const StyleBackgroundData& other) const
     return background == other.background && color == other.color && outline == other.outline;
 }
 
-bool StyleBackgroundData::isEquivalentForPainting(const StyleBackgroundData& other) const
+bool StyleBackgroundData::isEquivalentForPainting(const StyleBackgroundData& other, bool currentColorDiffers) const
 {
     if (background != other.background || color != other.color)
         return false;
+    if (currentColorDiffers && color == RenderStyle::currentColor())
+        return false;
     if (!outline.isVisible() && !other.outline.isVisible())
         return true;
+    if (currentColorDiffers && outline.color() == RenderStyle::currentColor())
+        return false;
     return outline == other.outline;
 }
 
 void StyleBackgroundData::dump(TextStream& ts, DumpStyleValues behavior) const
 {
-    if (behavior == DumpStyleValues::All || background != FillLayer(FillLayerType::Background))
+    if (behavior == DumpStyleValues::All || *background != FillLayer::create(FillLayerType::Background).get())
         ts.dumpProperty("background-image", background);
     if (behavior == DumpStyleValues::All || color != RenderStyle::initialBackgroundColor())
         ts.dumpProperty("background-color", color);

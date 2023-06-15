@@ -32,11 +32,15 @@
 #import "Utilities.h"
 
 #import <WebKit/WKContentWorld.h>
+#import <WebKit/WKUIDelegate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKitPrivate.h>
 #import <WebKit/_WKActivatedElementInfo.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
+#import <WebKit/_WKTextInputContext.h>
 #import <objc/runtime.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 
 #if PLATFORM(MAC)
@@ -55,19 +59,7 @@ static NSString *overrideBundleIdentifier(id, SEL)
 {
     return @"com.apple.TestWebKitAPI";
 }
-
-@implementation WKWebView (WKWebViewTestingQuirks)
-
-// TestWebKitAPI is currently not a UIApplication so we are unable to track if it is in
-// the background or not (https://bugs.webkit.org/show_bug.cgi?id=175204). This can
-// cause our processes to get suspended on iOS. We work around this by having
-// WKWebView._isBackground always return NO in the context of API tests.
-- (BOOL)_isBackground
-{
-    return NO;
-}
-@end
-#endif
+#endif // PLATFORM(IOS_FAMILY)
 
 @implementation WKWebView (TestWebKitAPI)
 
@@ -93,6 +85,18 @@ static NSString *overrideBundleIdentifier(id, SEL)
 {
     [self loadRequest:request];
     [self _test_waitForDidFinishNavigation];
+}
+
+- (void)synchronouslyLoadRequest:(NSURLRequest *)request preferences:(WKWebpagePreferences *)preferences
+{
+    [self loadRequest:request];
+    [self _test_waitForDidFinishNavigationWithPreferences:preferences];
+}
+
+- (void)synchronouslyLoadRequestIgnoringSSLErrors:(NSURLRequest *)request
+{
+    [self loadRequest:request];
+    [self _test_waitForDidFinishNavigationWhileIgnoringSSLErrors];
 }
 
 - (void)synchronouslyLoadHTMLString:(NSString *)html baseURL:(NSURL *)url
@@ -130,9 +134,59 @@ static NSString *overrideBundleIdentifier(id, SEL)
     return success;
 }
 
+#if PLATFORM(IOS_FAMILY)
+
+- (UIView <UITextInputPrivate, UITextInputMultiDocument> *)textInputContentView
+{
+    return (UIView <UITextInputPrivate, UITextInputMultiDocument> *)[self valueForKey:@"_currentContentView"];
+}
+
+- (NSArray<_WKTextInputContext *> *)synchronouslyRequestTextInputContextsInRect:(CGRect)rect
+{
+    __block bool finished = false;
+    __block RetainPtr<NSArray<_WKTextInputContext *>> result;
+    [self _requestTextInputContextsInRect:rect completionHandler:^(NSArray<_WKTextInputContext *> *contexts) {
+        result = contexts;
+        finished = true;
+    }];
+    TestWebKitAPI::Util::run(&finished);
+    return result.autorelease();
+}
+
+#endif // PLATFORM(IOS_FAMILY)
+
+- (NSUInteger)gpuToWebProcessConnectionCount
+{
+    __block bool done = false;
+    __block NSUInteger count = 0;
+    [self _gpuToWebProcessConnectionCountForTesting:^(NSUInteger result) {
+        done = true;
+        count = result;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    return count;
+}
+
+- (NSString *)contentsAsString
+{
+    __block bool done = false;
+    __block RetainPtr<NSString> result;
+    [self _getContentsAsStringWithCompletionHandler:^(NSString *contents, NSError *error) {
+        result = contents;
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    return result.autorelease();
+}
+
 - (NSArray<NSString *> *)tagsInBody
 {
     return [self objectByEvaluatingJavaScript:@"Array.from(document.body.getElementsByTagName('*')).map(e => e.tagName)"];
+}
+
+- (NSString *)selectedText
+{
+    return [self stringByEvaluatingJavaScript:@"getSelection().toString()"];
 }
 
 - (void)expectElementTagsInOrder:(NSArray<NSString *> *)tagNames
@@ -161,53 +215,58 @@ static NSString *overrideBundleIdentifier(id, SEL)
     [self expectElementTagsInOrder:@[tagName, otherTagName]];
 }
 
+- (BOOL)evaluateMediaQuery:(NSString *)query
+{
+    return [[self objectByEvaluatingJavaScript:[NSString stringWithFormat:@"window.matchMedia(\"(%@)\").matches", query]] boolValue];
+}
+
 - (id)objectByEvaluatingJavaScript:(NSString *)script
 {
-    bool isWaitingForJavaScript = false;
+    bool callbackComplete = false;
     RetainPtr<id> evalResult;
     [self _evaluateJavaScriptWithoutUserGesture:script completionHandler:[&] (id result, NSError *error) {
         evalResult = result;
-        isWaitingForJavaScript = true;
+        callbackComplete = true;
         EXPECT_TRUE(!error);
         if (error)
             NSLog(@"Encountered error: %@ while evaluating script: %@", error, script);
     }];
-    TestWebKitAPI::Util::run(&isWaitingForJavaScript);
+    TestWebKitAPI::Util::run(&callbackComplete);
     return evalResult.autorelease();
 }
 
 - (id)objectByEvaluatingJavaScriptWithUserGesture:(NSString *)script
 {
-    bool isWaitingForJavaScript = false;
+    bool callbackComplete = false;
     RetainPtr<id> evalResult;
     [self evaluateJavaScript:script completionHandler:[&] (id result, NSError *error) {
         evalResult = result;
-        isWaitingForJavaScript = true;
+        callbackComplete = true;
         EXPECT_TRUE(!error);
         if (error)
             NSLog(@"Encountered error: %@ while evaluating script: %@", error, script);
     }];
-    TestWebKitAPI::Util::run(&isWaitingForJavaScript);
+    TestWebKitAPI::Util::run(&callbackComplete);
     return evalResult.autorelease();
 }
 
 - (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments error:(NSError **)errorOut
 {
-    bool isWaitingForJavaScript = false;
+    bool callbackComplete = false;
     if (errorOut)
         *errorOut = nil;
 
     RetainPtr<id> evalResult;
+    RetainPtr<NSError> strongError;
     [self callAsyncJavaScript:script arguments:arguments inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:[&] (id result, NSError *error) {
         evalResult = result;
-        if (errorOut)
-            *errorOut = [error retain];
-        isWaitingForJavaScript = true;
+        strongError = error;
+        callbackComplete = true;
     }];
-    TestWebKitAPI::Util::run(&isWaitingForJavaScript);
+    TestWebKitAPI::Util::run(&callbackComplete);
 
     if (errorOut)
-        [*errorOut autorelease];
+        *errorOut = strongError.autorelease();
 
     return evalResult.autorelease();
 }
@@ -223,7 +282,7 @@ static NSString *overrideBundleIdentifier(id, SEL)
     unsigned clientWidth = 0;
     do {
         if (timeout != 10)
-            TestWebKitAPI::Util::sleep(0.1);
+            TestWebKitAPI::Util::runFor(0.1_s);
 
         id result = [self objectByEvaluatingJavaScript:@"function ___forceLayoutAndGetClientWidth___() { document.body.offsetTop; return document.body.clientWidth; }; ___forceLayoutAndGetClientWidth___();"];
         clientWidth = [result integerValue];
@@ -238,6 +297,7 @@ static NSString *overrideBundleIdentifier(id, SEL)
 
 @implementation TestMessageHandler {
     NSMutableDictionary<NSString *, dispatch_block_t> *_messageHandlers;
+    BlockPtr<void(NSString *)> _wildcardMessageHandler;
 }
 
 - (void)addMessage:(NSString *)message withHandler:(dispatch_block_t)handler
@@ -246,6 +306,11 @@ static NSString *overrideBundleIdentifier(id, SEL)
         _messageHandlers = [NSMutableDictionary dictionary];
 
     _messageHandlers[message] = [handler copy];
+}
+
+- (void)setWildcardMessageHandler:(void (^)(NSString *))handler
+{
+    _wildcardMessageHandler = handler;
 }
 
 - (void)removeMessage:(NSString *)message
@@ -258,6 +323,9 @@ static NSString *overrideBundleIdentifier(id, SEL)
     dispatch_block_t handler = _messageHandlers[message.body];
     if (handler)
         handler();
+
+    if (_wildcardMessageHandler)
+        _wildcardMessageHandler(message.body);
 }
 
 @end
@@ -316,6 +384,11 @@ NSEventMask __simulated_forceClickAssociatedEventsMask(id self, SEL _cmd)
 - (void)_mouseUpAtPoint:(NSPoint)point clickCount:(NSUInteger)clickCount modifierFlags:(NSEventModifierFlags)modifierFlags eventType:(NSEventType)eventType
 {
     [self sendEvent:[NSEvent mouseEventWithType:eventType location:point modifierFlags:modifierFlags timestamp:_webView.eventTimestamp windowNumber:self.windowNumber context:[NSGraphicsContext currentContext] eventNumber:++gEventNumber clickCount:clickCount pressure:0]];
+}
+
+- (BOOL)canBecomeKeyWindow
+{
+    return _webView.forceWindowToBecomeKey || super.canBecomeKeyWindow;
 }
 
 #endif
@@ -405,14 +478,15 @@ static InputSessionChangeCount nextInputSessionChangeCount()
     InputSessionChangeCount _inputSessionChangeCount;
 #endif
 #if PLATFORM(MAC)
+    BOOL _forceWindowToBecomeKey;
     NSTimeInterval _eventTimestampOffset;
 #endif
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
-    WKWebViewConfiguration *defaultConfiguration = [[[WKWebViewConfiguration alloc] init] autorelease];
-    return [self initWithFrame:frame configuration:defaultConfiguration];
+    auto defaultConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    return [self initWithFrame:frame configuration:defaultConfiguration.get()];
 }
 
 - (instancetype)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration
@@ -449,7 +523,7 @@ static UICalloutBar *suppressUICalloutBar()
 
 - (instancetype)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration processPoolConfiguration:(_WKProcessPoolConfiguration *)processPoolConfiguration
 {
-    [configuration setProcessPool:[[[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration] autorelease]];
+    [configuration setProcessPool:adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration]).get()];
     return [self initWithFrame:frame configuration:configuration];
 }
 
@@ -457,7 +531,7 @@ static UICalloutBar *suppressUICalloutBar()
 {
 #if PLATFORM(MAC)
     _hostWindow = adoptNS([[TestWKWebViewHostWindow alloc] initWithWebView:self contentRect:frame styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable) backing:NSBackingStoreBuffered defer:NO]);
-    [_hostWindow setFrameOrigin:NSMakePoint(0, 0)];
+    [_hostWindow setFrameOrigin:frame.origin];
     [_hostWindow setIsVisible:YES];
     [_hostWindow contentView].wantsLayer = YES;
     [[_hostWindow contentView] addSubview:self];
@@ -471,6 +545,11 @@ static UICalloutBar *suppressUICalloutBar()
 
 - (void)addToTestWindow
 {
+    if (!_hostWindow) {
+        [self _setUpTestWindow:self.frame];
+        return;
+    }
+
 #if PLATFORM(MAC)
     [[_hostWindow contentView] addSubview:self];
 #else
@@ -492,6 +571,15 @@ static UICalloutBar *suppressUICalloutBar()
     }
 
     [_testHandler addMessage:message withHandler:action];
+}
+
+- (void)performAfterReceivingAnyMessage:(void (^)(NSString *))action
+{
+    if (!_testHandler) {
+        _testHandler = adoptNS([[TestMessageHandler alloc] init]);
+        [[[self configuration] userContentController] addScriptMessageHandler:_testHandler.get() name:@"testHandler"];
+    }
+    [_testHandler setWildcardMessageHandler:action];
 }
 
 - (void)synchronouslyLoadHTMLStringAndWaitUntilAllImmediateChildFramesPaint:(NSString *)html
@@ -528,6 +616,16 @@ static UICalloutBar *suppressUICalloutBar()
 {
     __block bool done = false;
     [self _doAfterNextPresentationUpdate:^() {
+        done = true;
+    }];
+
+    TestWebKitAPI::Util::run(&done);
+}
+
+- (void)waitUntilActivityStateUpdateDone
+{
+    __block bool done = false;
+    [self _doAfterActivityStateUpdate:^() {
         done = true;
     }];
 
@@ -590,6 +688,24 @@ static UICalloutBar *suppressUICalloutBar()
     [self evaluateJavaScript:[NSString stringWithFormat:@"document.getElementById('%@').click();", elementID] completionHandler:nil];
 }
 
+- (void)waitForPendingMouseEvents
+{
+    __block bool doneProcessingMouseEvents = false;
+    [self _doAfterProcessingAllPendingMouseEvents:^{
+        doneProcessingMouseEvents = true;
+    }];
+    TestWebKitAPI::Util::run(&doneProcessingMouseEvents);
+}
+
+- (void)focus
+{
+#if PLATFORM(MAC)
+    [_hostWindow makeFirstResponder:self];
+#else
+    [super becomeFirstResponder];
+#endif
+}
+
 #if PLATFORM(IOS_FAMILY)
 
 - (void)didStartFormControlInteraction
@@ -630,11 +746,6 @@ static UICalloutBar *suppressUICalloutBar()
     }
 }
 
-- (UIView <UITextInputPrivate, UITextInputMultiDocument> *)textInputContentView
-{
-    return (UIView <UITextInputPrivate, UITextInputMultiDocument> *)[self valueForKey:@"_currentContentView"];
-}
-
 - (RetainPtr<NSArray>)selectionRectsAfterPresentationUpdate
 {
     RetainPtr<TestWKWebView> retainedSelf = self;
@@ -642,7 +753,7 @@ static UICalloutBar *suppressUICalloutBar()
     __block bool isDone = false;
     __block RetainPtr<NSArray> selectionRects;
     [self _doAfterNextPresentationUpdate:^() {
-        selectionRects = adoptNS([[retainedSelf _uiTextSelectionRects] retain]);
+        selectionRects = [retainedSelf _uiTextSelectionRects];
         isDone = true;
     }];
 
@@ -716,6 +827,16 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
     return GetCurrentEventTime() + _eventTimestampOffset;
 }
 
+- (BOOL)forceWindowToBecomeKey
+{
+    return _forceWindowToBecomeKey;
+}
+
+- (void)setForceWindowToBecomeKey:(BOOL)forceWindowToBecomeKey
+{
+    _forceWindowToBecomeKey = forceWindowToBecomeKey;
+}
+
 - (void)mouseDownAtPoint:(NSPoint)pointInWindow simulatePressure:(BOOL)simulatePressure
 {
     [self mouseDownAtPoint:pointInWindow simulatePressure:simulatePressure withFlags:0 eventType:NSEventTypeLeftMouseDown];
@@ -738,7 +859,7 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 
 - (void)mouseMoveToPoint:(NSPoint)pointInWindow withFlags:(NSEventModifierFlags)flags
 {
-    [self mouseMoved:[self _mouseEventWithType:NSEventTypeMouseMoved atLocation:pointInWindow flags:flags timestamp:self.eventTimestamp clickCount:0]];
+    [self _simulateMouseMove:[self _mouseEventWithType:NSEventTypeMouseMoved atLocation:pointInWindow flags:flags timestamp:self.eventTimestamp clickCount:0]];
 }
 
 - (void)sendClicksAtPoint:(NSPoint)pointInWindow numberOfClicks:(NSUInteger)numberOfClicks
@@ -752,6 +873,11 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 - (void)sendClickAtPoint:(NSPoint)pointInWindow
 {
     [self sendClicksAtPoint:pointInWindow numberOfClicks:1];
+}
+
+- (BOOL)acceptsFirstMouseAtPoint:(NSPoint)pointInWindow
+{
+    return [self acceptsFirstMouse:[self _mouseEventWithType:NSEventTypeLeftMouseDown atLocation:pointInWindow]];
 }
 
 - (void)mouseEnterAtPoint:(NSPoint)pointInWindow
@@ -780,6 +906,18 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
     }
 }
 
+- (void)wheelEventAtPoint:(CGPoint)pointInWindow wheelDelta:(CGSize)delta
+{
+    RetainPtr<CGEventRef> cgScrollEvent = adoptCF(CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitPixel, 2, delta.height, delta.width, 0));
+
+    CGPoint locationInGlobalScreenCoordinates = [[self window] convertPointToScreen:pointInWindow];
+    locationInGlobalScreenCoordinates.y = [[[NSScreen screens] objectAtIndex:0] frame].size.height - locationInGlobalScreenCoordinates.y;
+    CGEventSetLocation(cgScrollEvent.get(), locationInGlobalScreenCoordinates);
+    
+    NSEvent* event = [NSEvent eventWithCGEvent:cgScrollEvent.get()];
+    [self scrollWheel:event];
+}
+
 - (NSWindow *)hostWindow
 {
     return _hostWindow.get();
@@ -787,20 +925,16 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 
 - (void)typeCharacter:(char)character
 {
+    [self typeCharacter:character modifiers:0];
+}
+
+- (void)typeCharacter:(char)character modifiers:(NSEventModifierFlags)modifiers
+{
     NSString *characterAsString = [NSString stringWithFormat:@"%c" , character];
     NSEventType keyDownEventType = NSEventTypeKeyDown;
     NSEventType keyUpEventType = NSEventTypeKeyUp;
-    [self keyDown:[NSEvent keyEventWithType:keyDownEventType location:NSZeroPoint modifierFlags:0 timestamp:self.eventTimestamp windowNumber:[_hostWindow windowNumber] context:nil characters:characterAsString charactersIgnoringModifiers:characterAsString isARepeat:NO keyCode:character]];
-    [self keyUp:[NSEvent keyEventWithType:keyUpEventType location:NSZeroPoint modifierFlags:0 timestamp:self.eventTimestamp windowNumber:[_hostWindow windowNumber] context:nil characters:characterAsString charactersIgnoringModifiers:characterAsString isARepeat:NO keyCode:character]];
-}
-
-- (void)waitForPendingMouseEvents
-{
-    __block bool doneProcessingMouseEvents = false;
-    [self _doAfterProcessingAllPendingMouseEvents:^{
-        doneProcessingMouseEvents = true;
-    }];
-    TestWebKitAPI::Util::run(&doneProcessingMouseEvents);
+    [self keyDown:[NSEvent keyEventWithType:keyDownEventType location:NSZeroPoint modifierFlags:modifiers timestamp:self.eventTimestamp windowNumber:[_hostWindow windowNumber] context:nil characters:characterAsString charactersIgnoringModifiers:characterAsString isARepeat:NO keyCode:character]];
+    [self keyUp:[NSEvent keyEventWithType:keyUpEventType location:NSZeroPoint modifierFlags:modifiers timestamp:self.eventTimestamp windowNumber:[_hostWindow windowNumber] context:nil characters:characterAsString charactersIgnoringModifiers:characterAsString isARepeat:NO keyCode:character]];
 }
 
 @end

@@ -34,7 +34,7 @@ namespace TestWebKitAPI {
 enum class Mode { Add, AddCurrentThread };
 static void testThreadGroup(Mode mode)
 {
-    std::shared_ptr<ThreadGroup> threadGroup = ThreadGroup::create();
+    auto threadGroup = ThreadGroup::create();
     unsigned numberOfThreads = 16;
     unsigned waitingThreads = 0;
     bool restarting = false;
@@ -44,10 +44,10 @@ static void testThreadGroup(Mode mode)
     Vector<Ref<Thread>> threads;
 
     {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
         for (unsigned i = 0; i < numberOfThreads; ++i) {
             Ref<Thread> thread = Thread::create("ThreadGroupWorker", [&] {
-                auto locker = holdLock(lock);
+                Locker locker { lock };
                 if (mode == Mode::AddCurrentThread)
                     threadGroup->addCurrentThread();
                 ++waitingThreads;
@@ -67,11 +67,11 @@ static void testThreadGroup(Mode mode)
     }
 
     {
-        auto threadGroupLocker = holdLock(threadGroup->getLock());
+        Locker threadGroupLocker { threadGroup->getLock() };
         EXPECT_EQ(threads.size(), numberOfThreads);
         EXPECT_EQ(threadGroup->threads(threadGroupLocker).size(), numberOfThreads);
         {
-            auto locker = holdLock(lock);
+            Locker locker { lock };
             restarting = true;
             restartCondition.notifyAll();
         }
@@ -84,7 +84,7 @@ static void testThreadGroup(Mode mode)
         for (auto& thread : threads)
             thread->waitForCompletion();
 
-        auto threadGroupLocker = holdLock(threadGroup->getLock());
+        Locker threadGroupLocker { threadGroup->getLock() };
         EXPECT_EQ(threadGroup->threads(threadGroupLocker).size(), 0u);
     }
 }
@@ -101,12 +101,12 @@ TEST(WTF, ThreadGroupAddCurrentThread)
 
 TEST(WTF, ThreadGroupDoNotAddDeadThread)
 {
-    std::shared_ptr<ThreadGroup> threadGroup = ThreadGroup::create();
+    auto threadGroup = ThreadGroup::create();
     Ref<Thread> thread = Thread::create("ThreadGroupWorker", [&] { });
     thread->waitForCompletion();
     EXPECT_TRUE(threadGroup->add(thread.get()) == ThreadGroupAddResult::NotAdded);
 
-    auto threadGroupLocker = holdLock(threadGroup->getLock());
+    Locker threadGroupLocker { threadGroup->getLock() };
     EXPECT_EQ(threadGroup->threads(threadGroupLocker).size(), 0u);
 }
 
@@ -115,9 +115,9 @@ TEST(WTF, ThreadGroupAddDuplicateThreads)
     bool restarting = false;
     Lock lock;
     Condition restartCondition;
-    std::shared_ptr<ThreadGroup> threadGroup = ThreadGroup::create();
+    auto threadGroup = ThreadGroup::create();
     Ref<Thread> thread = Thread::create("ThreadGroupWorker", [&] {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
         restartCondition.wait(lock, [&] {
             return restarting;
         });
@@ -126,18 +126,18 @@ TEST(WTF, ThreadGroupAddDuplicateThreads)
     EXPECT_TRUE(threadGroup->add(thread.get()) == ThreadGroupAddResult::AlreadyAdded);
 
     {
-        auto threadGroupLocker = holdLock(threadGroup->getLock());
+        Locker threadGroupLocker { threadGroup->getLock() };
         EXPECT_EQ(threadGroup->threads(threadGroupLocker).size(), 1u);
     }
 
     {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
         restarting = true;
         restartCondition.notifyAll();
     }
     thread->waitForCompletion();
     {
-        auto threadGroupLocker = holdLock(threadGroup->getLock());
+        Locker threadGroupLocker { threadGroup->getLock() };
         EXPECT_EQ(threadGroup->threads(threadGroupLocker).size(), 0u);
     }
 }
@@ -163,10 +163,10 @@ TEST(WTF, ThreadGroupRemove)
 
     Vector<Ref<Thread>> threads;
 
-    auto threadGroup = ThreadGroup::create();
+    RefPtr<ThreadGroup> threadGroup = ThreadGroup::create();
     for (unsigned i = 0; i < NumberOfThreads; i++) {
         auto thread = Thread::create("ThreadGroupWorker", [&]() {
-            auto locker = holdLock(lock);
+            Locker locker { lock };
             ++waitingThreads;
             condition.notifyOne();
             threadRunningCondition.wait(lock, [&]() {
@@ -180,7 +180,7 @@ TEST(WTF, ThreadGroupRemove)
     EXPECT_EQ(NumberOfThreads, countThreadGroups(threads));
 
     {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
         condition.wait(lock, [&] {
             return waitingThreads == NumberOfThreads;
         });
@@ -193,7 +193,7 @@ TEST(WTF, ThreadGroupRemove)
     EXPECT_EQ(0U, countThreadGroups(threads));
 
     {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
         threadRunning = false;
         threadRunningCondition.notifyAll();
     }

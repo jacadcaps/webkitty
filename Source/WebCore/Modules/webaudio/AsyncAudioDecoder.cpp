@@ -30,7 +30,9 @@
 
 #include "AudioBuffer.h"
 #include "AudioBufferCallback.h"
-#include <JavaScriptCore/ArrayBuffer.h>
+#include "ExceptionOr.h"
+#include <JavaScriptCore/GenericTypedArrayViewInlines.h>
+#include <JavaScriptCore/TypedArrayAdaptors.h>
 #include <wtf/MainThread.h>
 
 namespace WebCore {
@@ -38,7 +40,7 @@ namespace WebCore {
 AsyncAudioDecoder::AsyncAudioDecoder()
 {
     // Start worker thread.
-    LockHolder lock(m_threadCreationMutex);
+    Locker locker { m_threadCreationMutex };
     m_thread = Thread::create("Audio Decoder", [this] {
         runLoop();
     }, ThreadType::Audio);
@@ -66,7 +68,7 @@ void AsyncAudioDecoder::runLoop()
 
     {
         // Wait for until we have m_thread established before starting the run loop.
-        LockHolder lock(m_threadCreationMutex);
+        Locker locker { m_threadCreationMutex };
     }
 
     // Keep running decoding tasks until we're killed.
@@ -98,7 +100,7 @@ void AsyncAudioDecoder::DecodingTask::decode()
 void AsyncAudioDecoder::DecodingTask::notifyComplete()
 {
     if (auto* audioBuffer = this->audioBuffer())
-        callback()(makeRef(*audioBuffer));
+        callback()(Ref { *audioBuffer });
     else
         callback()(Exception { EncodingError, "Decoding failed"_s });
 

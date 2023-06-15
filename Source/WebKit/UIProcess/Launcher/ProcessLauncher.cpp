@@ -30,6 +30,11 @@
 #include <wtf/SystemTracing.h>
 #include <wtf/WorkQueue.h>
 
+#if OS(DARWIN)
+#include <mach/mach_init.h>
+#include <mach/mach_traps.h>
+#endif
+
 namespace WebKit {
 
 ProcessLauncher::ProcessLauncher(Client* client, LaunchOptions&& launchOptions)
@@ -61,7 +66,7 @@ void ProcessLauncher::didFinishLaunchingProcess(ProcessID processIdentifier, IPC
 
 void ProcessLauncher::invalidate()
 {
-    m_client = 0;
+    m_client = nullptr;
     platformInvalidate();
 }
 

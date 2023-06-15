@@ -29,12 +29,9 @@
 #if PLATFORM(MAC)
 
 #import "AppKitSPI.h"
-#import "VersionChecks.h"
-#import "WKContentViewMac.h"
 #import "WKSafeBrowsingWarning.h"
-#import "WKScrollViewMac.h"
 #import "WKTextFinderClient.h"
-#import "WKUIDelegatePrivate.h"
+#import <WebKit/WKUIDelegatePrivate.h>
 #import "WebBackForwardList.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
@@ -42,8 +39,10 @@
 #import "_WKFrameHandleInternal.h"
 #import "_WKHitTestResultInternal.h"
 #import <pal/spi/mac/NSTextFinderSPI.h>
+#import <pal/spi/mac/NSViewSPI.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
-_WKOverlayScrollbarStyle toAPIScrollbarStyle(Optional<WebCore::ScrollbarOverlayStyle> coreScrollbarStyle)
+_WKOverlayScrollbarStyle toAPIScrollbarStyle(std::optional<WebCore::ScrollbarOverlayStyle> coreScrollbarStyle)
 {
     if (!coreScrollbarStyle)
         return _WKOverlayScrollbarStyleAutomatic;
@@ -60,7 +59,7 @@ _WKOverlayScrollbarStyle toAPIScrollbarStyle(Optional<WebCore::ScrollbarOverlayS
     return _WKOverlayScrollbarStyleAutomatic;
 }
 
-Optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollbarStyle scrollbarStyle)
+std::optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollbarStyle scrollbarStyle)
 {
     switch (scrollbarStyle) {
     case _WKOverlayScrollbarStyleDark:
@@ -72,7 +71,7 @@ Optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollba
     case _WKOverlayScrollbarStyleAutomatic:
         break;
     }
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 @interface WKWebView (WKImplementationMac) <NSTextInputClient
@@ -83,6 +82,9 @@ Optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollba
 #if ENABLE(DRAG_SUPPORT)
     , NSFilePromiseProviderDelegate
     , NSDraggingSource
+#endif
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+    , NSScrollViewSeparatorTrackingAdapter
 #endif
     >
 @end
@@ -137,6 +139,8 @@ Optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollba
     [_safeBrowsingWarning setFrame:self.bounds];
     if (_impl)
         _impl->setFrameSize(NSSizeToCGSize(size));
+
+    [self _recalculateViewportSizesWithMinimumViewportInset:_minimumViewportInset maximumViewportInset:_maximumViewportInset throwOnInvalidInput:NO];
 }
 
 - (void)setUserInterfaceLayoutDirection:(NSUserInterfaceLayoutDirection)userInterfaceLayoutDirection
@@ -145,6 +149,23 @@ Optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollba
     if (_impl)
         _impl->setUserInterfaceLayoutDirection(userInterfaceLayoutDirection);
 }
+
+#if USE(NSVIEW_SEMANTICCONTEXT)
+
+- (void)_setSemanticContext:(NSViewSemanticContext)semanticContext
+{
+    auto wasUsingFormSemanticContext = _impl ? _impl->useFormSemanticContext() : false;
+
+    [super _setSemanticContext:semanticContext];
+
+    if (!_impl)
+        return;
+
+    if (wasUsingFormSemanticContext != _impl->useFormSemanticContext())
+        _impl->semanticContextDidChange();
+}
+
+#endif
 
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)renewGState
@@ -164,6 +185,7 @@ WEBCORE_COMMAND(alignJustified)
 WEBCORE_COMMAND(alignLeft)
 WEBCORE_COMMAND(alignRight)
 WEBCORE_COMMAND(copy)
+WEBCORE_COMMAND(copyFont)
 WEBCORE_COMMAND(cut)
 WEBCORE_COMMAND(delete)
 WEBCORE_COMMAND(deleteBackward)
@@ -239,6 +261,7 @@ WEBCORE_COMMAND(paste)
 WEBCORE_COMMAND(pasteAsPlainText)
 WEBCORE_COMMAND(scrollPageDown)
 WEBCORE_COMMAND(scrollPageUp)
+WEBCORE_COMMAND(pasteFont)
 WEBCORE_COMMAND(scrollLineDown)
 WEBCORE_COMMAND(scrollLineUp)
 WEBCORE_COMMAND(scrollToBeginningOfDocument)
@@ -451,11 +474,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
     _impl->swipeWithEvent(event);
 }
 
-- (void)mouseMoved:(NSEvent *)event
-{
-    _impl->mouseMoved(event);
-}
-
 - (void)mouseDown:(NSEvent *)event
 {
     _impl->mouseDown(event);
@@ -469,16 +487,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)mouseDragged:(NSEvent *)event
 {
     _impl->mouseDragged(event);
-}
-
-- (void)mouseEntered:(NSEvent *)event
-{
-    _impl->mouseEntered(event);
-}
-
-- (void)mouseExited:(NSEvent *)event
-{
-    _impl->mouseExited(event);
 }
 
 - (void)otherMouseDown:(NSEvent *)event
@@ -994,6 +1002,26 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 #endif // HAVE(TOUCH_BAR)
 
+#pragma mark - NSScrollViewSeparatorTrackingAdapter
+
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+
+- (NSRect)scrollViewFrame
+{
+    if (!_impl)
+        return NSZeroRect;
+    return _impl->scrollViewFrame();
+}
+
+- (BOOL)hasScrolledContentsUnderTitlebar
+{
+    if (!_impl)
+        return NO;
+    return _impl->hasScrolledContentsUnderTitlebar();
+}
+
+#endif // HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+
 @end
 
 #pragma mark -
@@ -1156,7 +1184,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if ([uiDelegate respondsToSelector:@selector(_webView:dragDestinationActionMaskForDraggingInfo:)])
         return [uiDelegate _webView:self dragDestinationActionMaskForDraggingInfo:draggingInfo];
 
-    if (!linkedOnOrAfter(WebKit::SDKVersion::FirstWithDropToNavigateDisallowedByDefault))
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DropToNavigateDisallowedByDefault))
         return WKDragDestinationActionAny;
 
     return WKDragDestinationActionAny & ~WKDragDestinationActionLoad;
@@ -1191,11 +1219,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     [self _gestureEventWasNotHandledByWebCore:event];
 }
 
-- (void)_web_grantDOMPasteAccess
-{
-    _impl->handleDOMPasteRequestWithResult(WebCore::DOMPasteAccessResponse::GrantedForGesture);
-}
-
 - (void)_takeFindStringFromSelectionInternal:(id)sender
 {
     [self takeFindStringFromSelection:sender];
@@ -1211,32 +1234,21 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _impl->insertText(string, replacementRange);
 }
 
-#pragma mark - WKScrollViewDelegate
+#pragma mark - QLPreviewPanelController
 
-- (void)scrollViewDidScroll:(NSScrollView *)scrollView
+- (BOOL)acceptsPreviewPanelControl:(QLPreviewPanel *)panel
 {
-    // Only called with UI-side compositing.
+    return _impl->acceptsPreviewPanelControl(panel);
 }
 
-- (void)scrollViewContentInsetsDidChange:(NSScrollView *)scrollView
+- (void)beginPreviewPanelControl:(QLPreviewPanel *)panel
 {
-    // Only called with UI-side compositing.
+    _impl->beginPreviewPanelControl(panel);
 }
 
-#pragma mark -
-
-- (void)_setupScrollAndContentViews
+- (void)endPreviewPanelControl:(QLPreviewPanel *)panel
 {
-    if (!_impl->isUsingUISideCompositing())
-        return;
-
-    _scrollView = adoptNS([[WKScrollView alloc] initWithFrame:[self bounds]]);
-    [_scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-    [self addSubview:_scrollView.get() positioned:NSWindowBelow relativeTo:nil];
-
-    // The content view will get resized to fit the content.
-    [_scrollView setDocumentView:_contentView.get()];
-    [_scrollView setDelegate:self];
+    _impl->endPreviewPanelControl(panel);
 }
 
 @end
@@ -1265,6 +1277,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _impl->setIgnoresNonWheelEvents(ignoresNonWheelEvents);
 }
 
+- (BOOL)_ignoresMouseMoveEvents
+{
+    return _impl->ignoresMouseMoveEvents();
+}
+
+- (void)_setIgnoresMouseMoveEvents:(BOOL)ignoresMouseMoveEvents
+{
+    _impl->setIgnoresMouseMoveEvents(ignoresMouseMoveEvents);
+}
+
 - (NSView *)_safeBrowsingWarning
 {
     return _impl->safeBrowsingWarning();
@@ -1285,11 +1307,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _impl->setRubberBandingEnabled(state);
 }
 
-- (NSColor *)_pageExtendedBackgroundColor
-{
-    return _impl->pageExtendedBackgroundColor();
-}
-
 - (NSColor *)_backgroundColor
 {
     return _impl->backgroundColor();
@@ -1302,7 +1319,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSColor *)_underlayColor
 {
-    return _impl->underlayColor();
+    return _impl->underlayColor().autorelease();
 }
 
 - (void)_setUnderlayColor:(NSColor *)underlayColor
@@ -1348,16 +1365,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (BOOL)_automaticallyAdjustsContentInsets
 {
     return _impl->automaticallyAdjustsContentInsets();
-}
-
-- (void)_setOverrideDeviceScaleFactor:(CGFloat)deviceScaleFactor
-{
-    _impl->setOverrideDeviceScaleFactor(deviceScaleFactor);
-}
-
-- (CGFloat)_overrideDeviceScaleFactor
-{
-    return _impl->overrideDeviceScaleFactor();
 }
 
 - (BOOL)_windowOcclusionDetectionEnabled
@@ -1518,7 +1525,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)_canChangeFrameLayout:(_WKFrameHandle *)frameHandle
 {
-    if (auto* webFrameProxy = _page->process().webFrame(frameHandle->_frameHandle->frameID()))
+    if (auto* webFrameProxy = WebKit::WebFrameProxy::webFrame(frameHandle->_frameHandle->frameID()))
         return _impl->canChangeFrameLayout(*webFrameProxy);
     return false;
 }
@@ -1605,7 +1612,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSPrintOperation *)_printOperationWithPrintInfo:(NSPrintInfo *)printInfo forFrame:(_WKFrameHandle *)frameHandle
 {
-    if (auto* webFrameProxy = _page->process().webFrame(frameHandle->_frameHandle->frameID()))
+    if (auto* webFrameProxy = WebKit::WebFrameProxy::webFrame(frameHandle->_frameHandle->frameID()))
         return _impl->printOperationWithPrintInfo(printInfo, *webFrameProxy);
     return nil;
 }
@@ -1651,6 +1658,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     _impl->prepareForMoveToWindow(targetWindow, [completionHandlerCopy] {
         completionHandlerCopy();
     });
+}
+
+- (void)_simulateMouseMove:(NSEvent *)event
+{
+    return _impl->mouseMoved(event);
+}
+
+- (void)_setFont:(NSFont *)font sender:(id)sender
+{
+    _impl->setFontForWebView(font, sender);
 }
 
 @end // WKWebView (WKPrivateMac)

@@ -31,6 +31,8 @@
 
 namespace JSC {
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HasOwnPropertyCache);
+
 class HasOwnPropertyCache {
     static const uint32_t size = 2 * 1024;
     static_assert(hasOneBitSet(size), "size should be a power of two.");
@@ -43,7 +45,7 @@ public:
         static ptrdiff_t offsetOfResult() { return OBJECT_OFFSETOF(Entry, result); }
 
         RefPtr<UniquedStringImpl> impl;
-        StructureID structureID { 0 };
+        StructureID structureID;
         bool result { false };
     };
 
@@ -52,13 +54,13 @@ public:
     void operator delete(void* cache)
     {
         static_cast<HasOwnPropertyCache*>(cache)->clear();
-        fastFree(cache);
+        HasOwnPropertyCacheMalloc::free(cache);
     }
 
     static HasOwnPropertyCache* create()
     {
         size_t allocationSize = sizeof(Entry) * size;
-        HasOwnPropertyCache* result = static_cast<HasOwnPropertyCache*>(fastMalloc(allocationSize));
+        HasOwnPropertyCache* result = static_cast<HasOwnPropertyCache*>(HasOwnPropertyCacheMalloc::malloc(allocationSize));
         result->clearBuffer();
         return result;
     }
@@ -68,7 +70,7 @@ public:
         return bitwise_cast<uint32_t>(structureID) + impl->hash();
     }
 
-    ALWAYS_INLINE Optional<bool> get(Structure* structure, PropertyName propName)
+    ALWAYS_INLINE std::optional<bool> get(Structure* structure, PropertyName propName)
     {
         UniquedStringImpl* impl = propName.uid();
         StructureID id = structure->id();
@@ -76,10 +78,10 @@ public:
         Entry& entry = bitwise_cast<Entry*>(this)[index];
         if (entry.structureID == id && entry.impl.get() == impl)
             return entry.result;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
-    ALWAYS_INLINE void tryAdd(VM& vm, PropertySlot& slot, JSObject* object, PropertyName propName, bool result)
+    ALWAYS_INLINE void tryAdd(PropertySlot& slot, JSObject* object, PropertyName propName, bool result)
     {
         if (parseIndex(propName))
             return;
@@ -87,10 +89,10 @@ public:
         if (!slot.isCacheable() && !slot.isUnset())
             return;
 
-        if (object->type() == PureForwardingProxyType || object->type() == ImpureProxyType)
+        if (object->type() == PureForwardingProxyType)
             return;
 
-        Structure* structure = object->structure(vm);
+        Structure* structure = object->structure();
         if (!structure->typeInfo().prohibitsPropertyCaching()
             && structure->propertyAccessesAreCacheable()
             && (!slot.isUnset() || structure->propertyAccessesAreCacheableForAbsence())) {

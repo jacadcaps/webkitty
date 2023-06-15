@@ -17,9 +17,9 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/match.h"
 #include "api/test/create_frame_generator.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/time_utils.h"
@@ -31,10 +31,10 @@ namespace test {
 namespace {
 std::string TransformFilePath(std::string path) {
   static const std::string resource_prefix = "res://";
-  int ext_pos = path.rfind(".");
+  int ext_pos = path.rfind('.');
   if (ext_pos < 0) {
     return test::ResourcePath(path, "yuv");
-  } else if (path.find(resource_prefix) == 0) {
+  } else if (absl::StartsWith(path, resource_prefix)) {
     std::string name = path.substr(resource_prefix.length(), ext_pos);
     std::string ext = path.substr(ext_pos, path.size());
     return test::ResourcePath(name, ext);
@@ -149,13 +149,13 @@ std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
 }
 
 void FrameGeneratorCapturer::SetFakeRotation(VideoRotation rotation) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   fake_rotation_ = rotation;
 }
 
 void FrameGeneratorCapturer::SetFakeColorSpace(
     absl::optional<ColorSpace> color_space) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   fake_color_space_ = color_space;
 }
 
@@ -167,66 +167,89 @@ bool FrameGeneratorCapturer::Init() {
 
   frame_task_ = RepeatingTaskHandle::DelayedStart(
       task_queue_.Get(),
-      TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate(), [this] {
+      TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate(),
+      [this] {
         InsertFrame();
         return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
-      });
+      },
+      TaskQueueBase::DelayPrecision::kHigh);
   return true;
 }
 
 void FrameGeneratorCapturer::InsertFrame() {
-  rtc::CritScope cs(&lock_);
-  if (sending_) {
-    FrameGeneratorInterface::VideoFrameData frame_data =
-        frame_generator_->NextFrame();
-    // TODO(srte): Use more advanced frame rate control to allow arbritrary
-    // fractions.
-    int decimation =
-        std::round(static_cast<double>(source_fps_) / target_capture_fps_);
-    for (int i = 1; i < decimation; ++i)
-      frame_data = frame_generator_->NextFrame();
+  absl::optional<Resolution> resolution;
 
-    VideoFrame frame = VideoFrame::Builder()
-                           .set_video_frame_buffer(frame_data.buffer)
-                           .set_rotation(fake_rotation_)
-                           .set_timestamp_us(clock_->TimeInMicroseconds())
-                           .set_ntp_time_ms(clock_->CurrentNtpInMilliseconds())
-                           .set_update_rect(frame_data.update_rect)
-                           .set_color_space(fake_color_space_)
-                           .build();
-    if (first_frame_capture_time_ == -1) {
-      first_frame_capture_time_ = frame.ntp_time_ms();
+  {
+    MutexLock lock(&lock_);
+    if (sending_) {
+      FrameGeneratorInterface::VideoFrameData frame_data =
+          frame_generator_->NextFrame();
+      // TODO(srte): Use more advanced frame rate control to allow arbritrary
+      // fractions.
+      int decimation =
+          std::round(static_cast<double>(source_fps_) / target_capture_fps_);
+      for (int i = 1; i < decimation; ++i)
+        frame_data = frame_generator_->NextFrame();
+
+      VideoFrame frame =
+          VideoFrame::Builder()
+              .set_video_frame_buffer(frame_data.buffer)
+              .set_rotation(fake_rotation_)
+              .set_timestamp_us(clock_->TimeInMicroseconds())
+              .set_ntp_time_ms(clock_->CurrentNtpInMilliseconds())
+              .set_update_rect(frame_data.update_rect)
+              .set_color_space(fake_color_space_)
+              .build();
+      if (first_frame_capture_time_ == -1) {
+        first_frame_capture_time_ = frame.ntp_time_ms();
+      }
+
+      resolution = Resolution{frame.width(), frame.height()};
+
+      TestVideoCapturer::OnFrame(frame);
     }
-
-    TestVideoCapturer::OnFrame(frame);
   }
+
+  if (resolution) {
+    MutexLock lock(&stats_lock_);
+    source_resolution_ = resolution;
+  }
+}
+
+absl::optional<FrameGeneratorCapturer::Resolution>
+FrameGeneratorCapturer::GetResolution() {
+  MutexLock lock(&stats_lock_);
+  return source_resolution_;
 }
 
 void FrameGeneratorCapturer::Start() {
   {
-    rtc::CritScope cs(&lock_);
+    MutexLock lock(&lock_);
     sending_ = true;
   }
   if (!frame_task_.Running()) {
-    frame_task_ = RepeatingTaskHandle::Start(task_queue_.Get(), [this] {
-      InsertFrame();
-      return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
-    });
+    frame_task_ = RepeatingTaskHandle::Start(
+        task_queue_.Get(),
+        [this] {
+          InsertFrame();
+          return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
+        },
+        TaskQueueBase::DelayPrecision::kHigh);
   }
 }
 
 void FrameGeneratorCapturer::Stop() {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   sending_ = false;
 }
 
 void FrameGeneratorCapturer::ChangeResolution(size_t width, size_t height) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   frame_generator_->ChangeResolution(width, height);
 }
 
 void FrameGeneratorCapturer::ChangeFramerate(int target_framerate) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   RTC_CHECK(target_capture_fps_ > 0);
   if (target_framerate > source_fps_)
     RTC_LOG(LS_WARNING) << "Target framerate clamped from " << target_framerate
@@ -243,8 +266,15 @@ void FrameGeneratorCapturer::ChangeFramerate(int target_framerate) {
   target_capture_fps_ = std::min(source_fps_, target_framerate);
 }
 
+void FrameGeneratorCapturer::OnOutputFormatRequest(
+    int width,
+    int height,
+    const absl::optional<int>& max_fps) {
+  TestVideoCapturer::OnOutputFormatRequest(width, height, max_fps);
+}
+
 void FrameGeneratorCapturer::SetSinkWantsObserver(SinkWantsObserver* observer) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   RTC_DCHECK(!sink_wants_observer_);
   sink_wants_observer_ = observer;
 }
@@ -253,7 +283,7 @@ void FrameGeneratorCapturer::AddOrUpdateSink(
     rtc::VideoSinkInterface<VideoFrame>* sink,
     const rtc::VideoSinkWants& wants) {
   TestVideoCapturer::AddOrUpdateSink(sink, wants);
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   if (sink_wants_observer_) {
     // Tests need to observe unmodified sink wants.
     sink_wants_observer_->OnSinkWantsChanged(sink, wants);
@@ -265,7 +295,7 @@ void FrameGeneratorCapturer::RemoveSink(
     rtc::VideoSinkInterface<VideoFrame>* sink) {
   TestVideoCapturer::RemoveSink(sink);
 
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   UpdateFps(GetSinkWants().max_framerate_fps);
 }
 
@@ -283,7 +313,7 @@ void FrameGeneratorCapturer::ForceFrame() {
 }
 
 int FrameGeneratorCapturer::GetCurrentConfiguredFramerate() {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   if (wanted_fps_ && *wanted_fps_ < target_capture_fps_)
     return *wanted_fps_;
   return target_capture_fps_;

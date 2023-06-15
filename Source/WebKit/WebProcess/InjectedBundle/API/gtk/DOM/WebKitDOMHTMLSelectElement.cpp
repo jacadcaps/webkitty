@@ -346,8 +346,7 @@ WebKitDOMNode* webkit_dom_html_select_element_named_item(WebKitDOMHTMLSelectElem
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_SELECT_ELEMENT(self), 0);
     g_return_val_if_fail(name, 0);
     WebCore::HTMLSelectElement* item = WebKit::core(self);
-    WTF::String convertedName = WTF::String::fromUTF8(name);
-    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->namedItem(convertedName));
+    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->namedItem(WTF::AtomString::fromUTF8(name)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -361,7 +360,7 @@ void webkit_dom_html_select_element_add(WebKitDOMHTMLSelectElement* self, WebKit
     WebCore::HTMLSelectElement* item = WebKit::core(self);
     WebCore::HTMLElement* convertedElement = WebKit::core(element);
     WebCore::HTMLElement* convertedBefore = WebKit::core(before);
-    Variant<RefPtr<WebCore::HTMLOptionElement>, RefPtr<WebCore::HTMLOptGroupElement>> variantElement;
+    std::variant<RefPtr<WebCore::HTMLOptionElement>, RefPtr<WebCore::HTMLOptGroupElement>> variantElement;
     if (is<WebCore::HTMLOptionElement>(convertedElement))
         variantElement = &downcast<WebCore::HTMLOptionElement>(*convertedElement);
     else if (is<WebCore::HTMLOptGroupElement>(convertedElement))
@@ -462,8 +461,7 @@ void webkit_dom_html_select_element_set_name(WebKitDOMHTMLSelectElement* self, c
     g_return_if_fail(WEBKIT_DOM_IS_HTML_SELECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLSelectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_select_element_get_size(WebKitDOMHTMLSelectElement* self)

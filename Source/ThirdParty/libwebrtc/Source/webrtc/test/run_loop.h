@@ -10,13 +10,64 @@
 #ifndef TEST_RUN_LOOP_H_
 #define TEST_RUN_LOOP_H_
 
+#include <utility>
+
+#include "absl/functional/any_invocable.h"
 #include "api/task_queue/task_queue_base.h"
+#include "rtc_base/thread.h"
 
 namespace webrtc {
 namespace test {
 
-// Blocks until the user presses enter.
-void PressEnterToContinue(TaskQueueBase* task_queue);
+// This utility class allows you to run a TaskQueue supported interface on the
+// main test thread, call Run() while doing things asynchonously and break
+// the loop (from the same thread) from a callback by calling Quit().
+class RunLoop {
+ public:
+  RunLoop();
+  ~RunLoop();
+
+  TaskQueueBase* task_queue();
+
+  void Run();
+  void Quit();
+
+  void Flush();
+
+  void PostTask(absl::AnyInvocable<void() &&> task) {
+    task_queue()->PostTask(std::move(task));
+  }
+
+ private:
+  class FakeSocketServer : public rtc::SocketServer {
+   public:
+    FakeSocketServer();
+    ~FakeSocketServer();
+
+    void FailNextWait();
+
+   private:
+    bool Wait(int cms, bool process_io) override;
+    void WakeUp() override;
+
+    rtc::Socket* CreateSocket(int family, int type) override;
+    rtc::AsyncSocket* CreateAsyncSocket(int family, int type) override;
+
+   private:
+    bool fail_next_wait_ = false;
+  };
+
+  class WorkerThread : public rtc::Thread {
+   public:
+    explicit WorkerThread(rtc::SocketServer* ss);
+
+   private:
+    CurrentTaskQueueSetter tq_setter_;
+  };
+
+  FakeSocketServer socket_server_;
+  WorkerThread worker_thread_{&socket_server_};
+};
 
 }  // namespace test
 }  // namespace webrtc

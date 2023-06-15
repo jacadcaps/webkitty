@@ -44,11 +44,11 @@ using namespace WebCore;
 {
     WTF::initializeMainThread();
 
-    auto origin = SecurityOriginData::fromDatabaseIdentifier(databaseIdentifier);
+    auto origin = SecurityOriginData::fromDatabaseIdentifier(String { databaseIdentifier });
     if (!origin)
         return nil;
 
-    return [[[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:origin->securityOrigin().ptr()] autorelease];
+    return adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:origin->securityOrigin().ptr()]).autorelease();
 }
 
 - (id)initWithURL:(NSURL *)url
@@ -92,7 +92,7 @@ using namespace WebCore;
 
 - (unsigned short)port
 {
-    return reinterpret_cast<SecurityOrigin*>(_private)->port().valueOr(0);
+    return reinterpret_cast<SecurityOrigin*>(_private)->port().value_or(0);
 }
 
 // FIXME: Overriding isEqual: without overriding hash will cause trouble if this ever goes into an NSSet or is the key in an NSDictionary,
@@ -131,6 +131,12 @@ using namespace WebCore;
     _private = reinterpret_cast<WebSecurityOriginPrivate *>(origin);
 
     return self;
+}
+
+- (id)_initWithString:(NSString *)originString
+{
+    auto origin = SecurityOrigin::createFromString(originString);
+    return adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:origin.ptr()]).autorelease();
 }
 
 - (SecurityOrigin *)_core

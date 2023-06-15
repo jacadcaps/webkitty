@@ -23,11 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PageBanner_h
-#define PageBanner_h
+#pragma once
 
 #include "APIObject.h"
-#include "WebEvent.h"
+#include "WebMouseEvent.h"
 
 #if PLATFORM(MAC)
 OBJC_CLASS CALayer;
@@ -56,7 +55,7 @@ public:
     
     public:
         virtual void pageBannerDestroyed(PageBanner*) = 0;
-        virtual bool mouseEvent(PageBanner*, WebEvent::Type, WebMouseEvent::Button, const WebCore::IntPoint&) = 0;
+        virtual bool mouseEvent(PageBanner*, WebEventType, WebMouseEventButton, const WebCore::IntPoint&) = 0;
     };
 
 #if PLATFORM(MAC)
@@ -96,5 +95,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // PageBanner_h

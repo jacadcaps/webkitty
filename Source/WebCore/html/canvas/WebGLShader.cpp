@@ -31,6 +31,8 @@
 
 #include "WebGLContextGroup.h"
 #include "WebGLRenderingContextBase.h"
+#include <wtf/Lock.h>
+#include <wtf/Locker.h>
 
 namespace WebCore {
 
@@ -43,17 +45,19 @@ WebGLShader::WebGLShader(WebGLRenderingContextBase& ctx, GCGLenum type)
     : WebGLSharedObject(ctx)
     , m_type(type)
     , m_source(emptyString())
-    , m_isValid(false)
 {
     setObject(ctx.graphicsContextGL()->createShader(type));
 }
 
 WebGLShader::~WebGLShader()
 {
-    deleteObject(0);
+    if (!hasGroupOrContext())
+        return;
+
+    runDestructor();
 }
 
-void WebGLShader::deleteObjectImpl(GraphicsContextGLOpenGL* context3d, PlatformGLObject object)
+void WebGLShader::deleteObjectImpl(const AbstractLocker&, GraphicsContextGL* context3d, PlatformGLObject object)
 {
     context3d->deleteShader(object);
 }

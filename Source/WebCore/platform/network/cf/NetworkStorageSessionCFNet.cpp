@@ -26,36 +26,41 @@
 #include "config.h"
 #include "NetworkStorageSession.h"
 
+#include "PublicSuffix.h"
+#include "ResourceRequest.h"
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
-#if PLATFORM(COCOA)
-#include "PublicSuffix.h"
-#include "ResourceRequest.h"
-#endif
-
 namespace WebCore {
 
-static bool storageAccessAPIEnabled;
-
-RetainPtr<CFURLStorageSessionRef> NetworkStorageSession::createCFStorageSessionForIdentifier(CFStringRef identifier)
+RetainPtr<CFURLStorageSessionRef> NetworkStorageSession::createCFStorageSessionForIdentifier(CFStringRef identifier, ShouldDisableCFURLCache shouldDisableCFURLCache)
 {
     auto storageSession = adoptCF(_CFURLStorageSessionCreate(kCFAllocatorDefault, identifier, nullptr));
 
     if (!storageSession)
         return nullptr;
 
-    auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, storageSession.get()));
-    if (!cache)
-        return nullptr;
+    if (shouldDisableCFURLCache == ShouldDisableCFURLCache::Yes) {
+#if HAVE(CFNETWORK_DISABLE_CACHE_SPI)
+        _CFURLStorageSessionDisableCache(storageSession.get());
+#else
+        shouldDisableCFURLCache = ShouldDisableCFURLCache::No;
+#endif
+    }
 
-    CFURLCacheSetDiskCapacity(cache.get(), 0);
+    if (shouldDisableCFURLCache == ShouldDisableCFURLCache::No) {
+        auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, storageSession.get()));
+        if (!cache)
+            return nullptr;
 
-    auto sharedCache = adoptCF(CFURLCacheCopySharedURLCache());
-    CFURLCacheSetMemoryCapacity(cache.get(), CFURLCacheMemoryCapacity(sharedCache.get()));
+        CFURLCacheSetDiskCapacity(cache.get(), 0);
+
+        auto sharedCache = adoptCF(CFURLCacheCopySharedURLCache());
+        CFURLCacheSetMemoryCapacity(cache.get(), CFURLCacheMemoryCapacity(sharedCache.get()));
+    }
 
     if (!NetworkStorageSession::processMayUseCookieAPI())
         return storageSession;
@@ -100,17 +105,8 @@ RetainPtr<CFHTTPCookieStorageRef> NetworkStorageSession::cookieStorage() const
     if (m_platformSession)
         return adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, m_platformSession.get()));
 
-#if USE(CFURLCONNECTION)
-    return _CFHTTPCookieStorageGetDefault(kCFAllocatorDefault);
-#else
     // When using NSURLConnection, we also use its shared cookie storage.
     return nullptr;
-#endif
-}
-
-void NetworkStorageSession::setStorageAccessAPIEnabled(bool enabled)
-{
-    storageAccessAPIEnabled = enabled;
 }
 
 } // namespace WebCore

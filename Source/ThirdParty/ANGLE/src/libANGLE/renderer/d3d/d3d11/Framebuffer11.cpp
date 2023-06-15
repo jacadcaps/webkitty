@@ -54,6 +54,17 @@ angle::Result MarkAttachmentsDirty(const gl::Context *context,
 
     return angle::Result::Continue;
 }
+
+UINT GetAttachmentLayer(const gl::FramebufferAttachment *attachment)
+{
+    if (attachment->type() == GL_TEXTURE &&
+        attachment->getTexture()->getType() == gl::TextureType::_3D)
+    {
+        return attachment->layer();
+    }
+    return 0;
+}
+
 }  // anonymous namespace
 
 Framebuffer11::Framebuffer11(const gl::FramebufferState &data, Renderer11 *renderer)
@@ -294,6 +305,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
 
         const auto &colorAttachments = mState.getColorAttachments();
         const auto &drawBufferStates = mState.getDrawBufferStates();
+        UINT readLayer               = GetAttachmentLayer(readBuffer);
 
         for (size_t colorAttachment = 0; colorAttachment < colorAttachments.size();
              colorAttachment++)
@@ -318,6 +330,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
 
                 const bool invertColorDest   = UsePresentPathFast(mRenderer, &drawBuffer);
                 gl::Rectangle actualDestArea = destArea;
+                UINT drawLayer               = GetAttachmentLayer(&drawBuffer);
 
                 const auto &surfaceTextureOffset = mState.getSurfaceTextureOffset();
                 actualDestArea.x                 = actualDestArea.x + surfaceTextureOffset.x;
@@ -330,9 +343,10 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
                     actualDestArea.height = -destArea.height;
                 }
 
-                ANGLE_TRY(mRenderer->blitRenderbufferRect(
-                    context, actualSourceArea, actualDestArea, readRenderTarget, drawRenderTarget,
-                    filter, scissor, blitRenderTarget, false, false));
+                ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea,
+                                                          readLayer, drawLayer, readRenderTarget,
+                                                          drawRenderTarget, filter, scissor,
+                                                          blitRenderTarget, false, false));
             }
         }
     }
@@ -371,7 +385,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
             actualDestArea.height              = -destArea.height;
         }
 
-        ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea,
+        ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea, 0, 0,
                                                   readRenderTarget, drawRenderTarget, filter,
                                                   scissor, false, blitDepth, blitStencil));
     }
@@ -392,10 +406,11 @@ const gl::InternalFormat &Framebuffer11::getImplementationColorReadFormat(
 
 angle::Result Framebuffer11::syncState(const gl::Context *context,
                                        GLenum binding,
-                                       const gl::Framebuffer::DirtyBits &dirtyBits)
+                                       const gl::Framebuffer::DirtyBits &dirtyBits,
+                                       gl::Command command)
 {
     ANGLE_TRY(mRenderTargetCache.update(context, mState, dirtyBits));
-    ANGLE_TRY(FramebufferD3D::syncState(context, binding, dirtyBits));
+    ANGLE_TRY(FramebufferD3D::syncState(context, binding, dirtyBits, command));
 
     // Call this last to allow the state manager to take advantage of the cached render targets.
     mRenderer->getStateManager()->invalidateRenderTarget();
@@ -431,7 +446,7 @@ RenderTarget11 *Framebuffer11::getFirstRenderTarget() const
         }
     }
 
-    return mRenderTargetCache.getDepthStencil(true);
+    return mRenderTargetCache.getDepthStencil();
 }
 
 }  // namespace rx

@@ -31,17 +31,20 @@
 #include <wtf/CompletionHandler.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+struct NotificationData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
+
+class WebPageProxy;
 
 class WebsiteDataStoreClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     virtual ~WebsiteDataStoreClient() { }
 
-    virtual void requestStorageSpace(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(Optional<uint64_t>)>&& completionHandler)
+    virtual void requestStorageSpace(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(std::optional<uint64_t>)>&& completionHandler)
     {
         completionHandler({ });
     }
@@ -49,6 +52,25 @@ public:
     virtual void didReceiveAuthenticationChallenge(Ref<AuthenticationChallengeProxy>&& challenge)
     {
         challenge->listener().completeChallenge(AuthenticationChallengeDisposition::PerformDefaultHandling);
+    }
+
+    virtual void openWindowFromServiceWorker(const String&, const WebCore::SecurityOriginData&, CompletionHandler<void(WebPageProxy*)>&& completionHandler)
+    {
+        completionHandler(nullptr);
+    }
+
+    virtual bool showNotification(const WebCore::NotificationData&)
+    {
+        return false;
+    }
+
+    virtual HashMap<WTF::String, bool> notificationPermissions()
+    {
+        return { };
+    }
+
+    virtual void workerUpdatedAppBadge(const WebCore::SecurityOriginData&, std::optional<uint64_t>)
+    {
     }
 };
 

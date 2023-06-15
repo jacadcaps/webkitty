@@ -39,43 +39,44 @@ void URLSchemeTaskParameters::encode(IPC::Encoder& encoder) const
     encoder << request;
     if (request.httpBody()) {
         encoder << true;
-        request.httpBody()->encode(encoder);
+        encoder << request.httpBody();
     } else
         encoder << false;
     encoder << frameInfo;
 }
 
-Optional<URLSchemeTaskParameters> URLSchemeTaskParameters::decode(IPC::Decoder& decoder)
+std::optional<URLSchemeTaskParameters> URLSchemeTaskParameters::decode(IPC::Decoder& decoder)
 {
-    Optional<uint64_t> handlerIdentifier;
+    std::optional<WebURLSchemeHandlerIdentifier> handlerIdentifier;
     decoder >> handlerIdentifier;
     if (!handlerIdentifier)
-        return WTF::nullopt;
+        return std::nullopt;
     
-    Optional<uint64_t> taskIdentifier;
+    std::optional<WebCore::ResourceLoaderIdentifier> taskIdentifier;
     decoder >> taskIdentifier;
     if (!taskIdentifier)
-        return WTF::nullopt;
+        return std::nullopt;
 
     WebCore::ResourceRequest request;
     if (!decoder.decode(request))
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<bool> hasHTTPBody;
+    std::optional<bool> hasHTTPBody;
     decoder >> hasHTTPBody;
     if (!hasHTTPBody)
-        return WTF::nullopt;
+        return std::nullopt;
     if (*hasHTTPBody) {
-        RefPtr<WebCore::FormData> formData = WebCore::FormData::decode(decoder);
+        std::optional<RefPtr<WebCore::FormData>> formData;
+        decoder >> formData;
         if (!formData)
-            return WTF::nullopt;
-        request.setHTTPBody(WTFMove(formData));
+            return std::nullopt;
+        request.setHTTPBody(WTFMove(*formData));
     }
     
-    Optional<FrameInfoData> frameInfo;
+    std::optional<FrameInfoData> frameInfo;
     decoder >> frameInfo;
     if (!frameInfo)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return {{
         WTFMove(*handlerIdentifier),

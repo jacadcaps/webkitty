@@ -815,8 +815,8 @@ static void fill_variance_8x8avg(const uint8_t *s, int sp, const uint8_t *d,
 
 // Check if most of the superblock is skin content, and if so, force split to
 // 32x32, and set x->sb_is_skin for use in mode selection.
-static int skin_sb_split(VP9_COMP *cpi, MACROBLOCK *x, const int low_res,
-                         int mi_row, int mi_col, int *force_split) {
+static int skin_sb_split(VP9_COMP *cpi, const int low_res, int mi_row,
+                         int mi_col, int *force_split) {
   VP9_COMMON *const cm = &cpi->common;
 #if CONFIG_VP9_HIGHBITDEPTH
   if (cm->use_highbitdepth) return 0;
@@ -828,11 +828,6 @@ static int skin_sb_split(VP9_COMP *cpi, MACROBLOCK *x, const int low_res,
                    mi_row + 8 < cm->mi_rows)) {
     int num_16x16_skin = 0;
     int num_16x16_nonskin = 0;
-    uint8_t *ysignal = x->plane[0].src.buf;
-    uint8_t *usignal = x->plane[1].src.buf;
-    uint8_t *vsignal = x->plane[2].src.buf;
-    int sp = x->plane[0].src.stride;
-    int spuv = x->plane[1].src.stride;
     const int block_index = mi_row * cm->mi_cols + mi_col;
     const int bw = num_8x8_blocks_wide_lookup[BLOCK_64X64];
     const int bh = num_8x8_blocks_high_lookup[BLOCK_64X64];
@@ -851,13 +846,7 @@ static int skin_sb_split(VP9_COMP *cpi, MACROBLOCK *x, const int low_res,
           i = ymis;
           break;
         }
-        ysignal += 16;
-        usignal += 8;
-        vsignal += 8;
       }
-      ysignal += (sp << 4) - 64;
-      usignal += (spuv << 3) - 32;
-      vsignal += (spuv << 3) - 32;
     }
     if (num_16x16_skin > 12) {
       *force_split = 1;
@@ -1534,8 +1523,7 @@ static int choose_partitioning(VP9_COMP *cpi, const TileInfo *const tile,
     vp9_build_inter_predictors_sb(xd, mi_row, mi_col, BLOCK_64X64);
 
     if (cpi->use_skin_detection)
-      x->sb_is_skin =
-          skin_sb_split(cpi, x, low_res, mi_row, mi_col, force_split);
+      x->sb_is_skin = skin_sb_split(cpi, low_res, mi_row, mi_col, force_split);
 
     d = xd->plane[0].dst.buf;
     dp = xd->plane[0].dst.stride;
@@ -3766,9 +3754,6 @@ static int wiener_var_segment(VP9_COMP *cpi, BLOCK_SIZE bsize, int mi_row,
 static int get_rdmult_delta(VP9_COMP *cpi, BLOCK_SIZE bsize, int mi_row,
                             int mi_col, int orig_rdmult) {
   const int gf_group_index = cpi->twopass.gf_group.index;
-  TplDepFrame *tpl_frame = &cpi->tpl_stats[gf_group_index];
-  TplDepStats *tpl_stats = tpl_frame->tpl_stats_ptr;
-  int tpl_stride = tpl_frame->stride;
   int64_t intra_cost = 0;
   int64_t mc_dep_cost = 0;
   int mi_wide = num_8x8_blocks_wide_lookup[bsize];
@@ -3779,11 +3764,18 @@ static int get_rdmult_delta(VP9_COMP *cpi, BLOCK_SIZE bsize, int mi_row,
   int count = 0;
   double r0, rk, beta;
 
-  if (tpl_frame->is_valid == 0) return orig_rdmult;
-
-  if (cpi->twopass.gf_group.layer_depth[gf_group_index] > 1) return orig_rdmult;
+  TplDepFrame *tpl_frame;
+  TplDepStats *tpl_stats;
+  int tpl_stride;
 
   if (gf_group_index >= MAX_ARF_GOP_SIZE) return orig_rdmult;
+  tpl_frame = &cpi->tpl_stats[gf_group_index];
+
+  if (tpl_frame->is_valid == 0) return orig_rdmult;
+  tpl_stats = tpl_frame->tpl_stats_ptr;
+  tpl_stride = tpl_frame->stride;
+
+  if (cpi->twopass.gf_group.layer_depth[gf_group_index] > 1) return orig_rdmult;
 
   for (row = mi_row; row < mi_row + mi_high; ++row) {
     for (col = mi_col; col < mi_col + mi_wide; ++col) {
@@ -5086,8 +5078,8 @@ static void nonrd_pick_partition(VP9_COMP *cpi, ThreadData *td,
 
   (void)*tp_orig;
 
-  // Avoid checking for rectangular partitions for speed >= 6.
-  if (cpi->oxcf.speed >= 6) do_rect = 0;
+  // Avoid checking for rectangular partitions for speed >= 5.
+  if (cpi->oxcf.speed >= 5) do_rect = 0;
 
   assert(num_8x8_blocks_wide_lookup[bsize] ==
          num_8x8_blocks_high_lookup[bsize]);

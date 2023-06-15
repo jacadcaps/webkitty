@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,45 +26,39 @@
 #import "config.h"
 #import "DefaultWebBrowserChecks.h"
 
-#import "TCCSPI.h"
-#import "VersionChecks.h"
+#import "AuxiliaryProcess.h"
+#import "Connection.h"
+#import "Logging.h"
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/RuntimeApplicationChecks.h>
 #import <wtf/HashMap.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/RunLoop.h>
-#import <wtf/SoftLinking.h>
+#import <wtf/WorkQueue.h>
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/text/StringHash.h>
 
-SOFT_LINK_PRIVATE_FRAMEWORK(TCC)
-SOFT_LINK(TCC, TCCAccessPreflight, TCCAccessPreflightResult, (CFStringRef service, CFDictionaryRef options), (service, options))
-SOFT_LINK(TCC, TCCAccessPreflightWithAuditToken, TCCAccessPreflightResult, (CFStringRef service, audit_token_t token, CFDictionaryRef options), (service, token, options))
-SOFT_LINK_CONSTANT(TCC, kTCCServiceWebKitIntelligentTrackingPrevention, CFStringRef)
-
+#import "TCCSoftLink.h"
 
 namespace WebKit {
 
 static bool isFullWebBrowser(const String&);
 
-bool shouldBeTreatedAsFullBrowser(const String& bundleID)
+bool isRunningTest(const String& bundleID)
 {
     return bundleID == "com.apple.WebKit.TestWebKitAPI"_s || bundleID == "com.apple.WebKit.WebKitTestRunner"_s || bundleID == "org.webkit.WebKitTestRunnerApp"_s;
 }
 
-Optional<Vector<WebCore::RegistrableDomain>> getAppBoundDomainsTesting(const String& bundleID)
+Span<const WebCore::RegistrableDomain> appBoundDomainsForTesting(const String& bundleID)
 {
-    if (bundleID.isNull())
-        return WTF::nullopt;
-
-    static auto appBoundDomainList = makeNeverDestroyed(HashMap<String, Vector<WebCore::RegistrableDomain>> {
-        {"inAppBrowserPrivacyTestIdentifier"_s, Vector<WebCore::RegistrableDomain> { WebCore::RegistrableDomain::uncheckedCreateFromRegistrableDomainString("127.0.0.1") }},
-    });
-
-    auto appBoundDomainIter = appBoundDomainList->find(bundleID);
-    if (appBoundDomainIter != appBoundDomainList->end())
-        return appBoundDomainIter->value;
-
-    return WTF::nullopt;
+    if (bundleID == "inAppBrowserPrivacyTestIdentifier"_s) {
+        static NeverDestroyed domains = std::array {
+            WebCore::RegistrableDomain::uncheckedCreateFromRegistrableDomainString("127.0.0.1"_s),
+        };
+        return domains.get();
+    }
+    return { };
 }
 
 #if ASSERT_ENABLED
@@ -84,14 +78,13 @@ static bool isInWebKitChildProcess()
 }
 #endif
 
-enum class ITPState : uint8_t {
+enum class TrackingPreventionState : uint8_t {
     Uninitialized,
-    Initializing,
     Enabled,
     Disabled
 };
 
-static std::atomic<ITPState> g_currentITPState = ITPState::Uninitialized;
+static std::atomic<TrackingPreventionState> currentTrackingPreventionState = TrackingPreventionState::Uninitialized;
 
 bool hasRequestedCrossWebsiteTrackingPermission()
 {
@@ -101,12 +94,12 @@ bool hasRequestedCrossWebsiteTrackingPermission()
     return hasRequestedCrossWebsiteTrackingPermission;
 }
 
-static bool determineITPStateInternal(bool appWasLinkedOnOrAfter, const String& bundleIdentifier)
+static bool determineTrackingPreventionStateInternal(bool appWasLinkedOnOrAfter, const String& bundleIdentifier)
 {
     ASSERT(!RunLoop::isMain());
     ASSERT(!isInWebKitChildProcess());
 
-    if (!appWasLinkedOnOrAfter)
+    if (!appWasLinkedOnOrAfter && !isFullWebBrowser(bundleIdentifier))
         return false;
 
     if (!isFullWebBrowser(bundleIdentifier) && !hasRequestedCrossWebsiteTrackingPermission())
@@ -114,64 +107,77 @@ static bool determineITPStateInternal(bool appWasLinkedOnOrAfter, const String& 
 
     TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
 #if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 140000) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000)
-    result = TCCAccessPreflight(getkTCCServiceWebKitIntelligentTrackingPrevention(), nullptr);
+    result = TCCAccessPreflight(get_TCC_kTCCServiceWebKitIntelligentTrackingPrevention(), nullptr);
 #endif
     return result != kTCCAccessPreflightDenied;
 }
 
-static dispatch_queue_t g_itpQueue;
+static RefPtr<WorkQueue>& itpQueue()
+{
+    static NeverDestroyed<RefPtr<WorkQueue>> itpQueue;
+    return itpQueue;
+}
 
-void determineITPState()
+void determineTrackingPreventionState()
 {
     ASSERT(RunLoop::isMain());
-    if (g_currentITPState != ITPState::Uninitialized)
+    if (currentTrackingPreventionState != TrackingPreventionState::Uninitialized)
         return;
 
-    g_currentITPState = ITPState::Initializing;
-    bool appWasLinkedOnOrAfter = linkedOnOrAfter(SDKVersion::FirstWithSessionCleanupByDefault, AssumeSafariIsAlwaysLinkedOnAfter::Yes);
+    bool appWasLinkedOnOrAfter = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SessionCleanupByDefault);
 
-    g_itpQueue = dispatch_queue_create("com.apple.WebKit.itpCheckQueue", NULL);
-
-    dispatch_async(g_itpQueue, [appWasLinkedOnOrAfter, bundleIdentifier = WebCore::applicationBundleIdentifier().isolatedCopy()] {
-        g_currentITPState = determineITPStateInternal(appWasLinkedOnOrAfter, bundleIdentifier) ? ITPState::Enabled : ITPState::Disabled;
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            dispatch_release(g_itpQueue);
-            g_itpQueue = nullptr;
+    itpQueue() = WorkQueue::create("com.apple.WebKit.itpCheckQueue");
+    itpQueue()->dispatch([appWasLinkedOnOrAfter, bundleIdentifier = WebCore::applicationBundleIdentifier().isolatedCopy()] {
+        currentTrackingPreventionState = determineTrackingPreventionStateInternal(appWasLinkedOnOrAfter, bundleIdentifier) ? TrackingPreventionState::Enabled : TrackingPreventionState::Disabled;
+        RunLoop::main().dispatch([] {
+            itpQueue() = nullptr;
         });
     });
 }
 
-bool doesAppHaveITPEnabled()
+bool doesAppHaveTrackingPreventionEnabled()
 {
     ASSERT(!isInWebKitChildProcess());
     ASSERT(RunLoop::isMain());
-    if (g_currentITPState > ITPState::Initializing)
-        return g_currentITPState == ITPState::Enabled;
-
-    RELEASE_ASSERT(g_itpQueue);
-
-    __block bool isITPEnabled;
-    dispatch_sync(g_itpQueue, ^{
-        isITPEnabled = g_currentITPState == ITPState::Enabled;
-    });
-    return isITPEnabled;
+    // If we're still computing the ITP state on the background thread, then synchronize with it.
+    if (itpQueue())
+        itpQueue()->dispatchSync([] { });
+    ASSERT(currentTrackingPreventionState != TrackingPreventionState::Uninitialized);
+    return currentTrackingPreventionState == TrackingPreventionState::Enabled;
 }
 
-bool doesParentProcessHaveITPEnabled(Optional<audit_token_t> auditToken, bool hasRequestedCrossWebsiteTrackingPermissionValue)
+bool doesParentProcessHaveTrackingPreventionEnabled(AuxiliaryProcess& auxiliaryProcess, bool hasRequestedCrossWebsiteTrackingPermission)
 {
     ASSERT(isInWebKitChildProcess());
     ASSERT(RunLoop::isMain());
 
-    if (!isParentProcessAFullWebBrowser(auditToken) && !hasRequestedCrossWebsiteTrackingPermissionValue)
+    if (!isParentProcessAFullWebBrowser(auxiliaryProcess) && !hasRequestedCrossWebsiteTrackingPermission)
         return true;
 
-    TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
+    static bool trackingPreventionEnabled { true };
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+
+        TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
 #if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 140000) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000)
-    if (auditToken)
-        result = TCCAccessPreflightWithAuditToken(getkTCCServiceWebKitIntelligentTrackingPrevention(), auditToken.value(), nullptr);
+        RefPtr<IPC::Connection> connection = auxiliaryProcess.parentProcessConnection();
+        if (!connection) {
+            ASSERT_NOT_REACHED();
+            RELEASE_LOG_ERROR(IPC, "Unable to get parent process connection");
+            return;
+        }
+
+        auto auditToken = connection->getAuditToken();
+        if (!auditToken) {
+            ASSERT_NOT_REACHED();
+            RELEASE_LOG_ERROR(IPC, "Unable to get parent process audit token");
+            return;
+        }
+        result = TCCAccessPreflightWithAuditToken(get_TCC_kTCCServiceWebKitIntelligentTrackingPrevention(), auditToken.value(), nullptr);
 #endif
-    return result != kTCCAccessPreflightDenied;
+        trackingPreventionEnabled = result != kTCCAccessPreflightDenied;
+    });
+    return trackingPreventionEnabled;
 }
 
 static std::atomic<bool> hasCheckedUsageStrings = false;
@@ -210,28 +216,40 @@ bool hasProhibitedUsageStrings()
     return hasProhibitedUsageStrings;
 }
 
-bool isParentProcessAFullWebBrowser(Optional<audit_token_t> auditToken)
+bool isParentProcessAFullWebBrowser(AuxiliaryProcess& auxiliaryProcess)
 {
     ASSERT(isInWebKitChildProcess());
-    RELEASE_ASSERT(auditToken);
 
-    static bool fullWebBrowser;
-
+    static bool fullWebBrowser { false };
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        fullWebBrowser = WTF::hasEntitlement(auditToken.value(), "com.apple.developer.web-browser");
+        RefPtr<IPC::Connection> connection = auxiliaryProcess.parentProcessConnection();
+        if (!connection) {
+            ASSERT_NOT_REACHED();
+            RELEASE_LOG_ERROR(IPC, "Unable to get parent process connection");
+            return;
+        }
+
+        auto auditToken = connection->getAuditToken();
+        if (!auditToken) {
+            ASSERT_NOT_REACHED();
+            RELEASE_LOG_ERROR(IPC, "Unable to get parent process audit token");
+            return;
+        }
+
+        fullWebBrowser = WTF::hasEntitlement(*auditToken, "com.apple.developer.web-browser"_s);
     });
 
-    return fullWebBrowser || shouldBeTreatedAsFullBrowser(WebCore::applicationBundleIdentifier());
+    return fullWebBrowser || isRunningTest(WebCore::applicationBundleIdentifier());
 }
 
 static bool isFullWebBrowser(const String& bundleIdentifier)
 {
     ASSERT(!isInWebKitChildProcess());
 
-    static bool fullWebBrowser = WTF::processHasEntitlement("com.apple.developer.web-browser");
+    static bool fullWebBrowser = WTF::processHasEntitlement("com.apple.developer.web-browser"_s);
 
-    return fullWebBrowser || shouldBeTreatedAsFullBrowser(bundleIdentifier);
+    return fullWebBrowser || isRunningTest(bundleIdentifier);
 }
 
 bool isFullWebBrowser()

@@ -26,9 +26,10 @@
 
 WI.Resource = class Resource extends WI.SourceCode
 {
-    constructor(url, {mimeType, type, loaderIdentifier, targetId, requestIdentifier, requestMethod, requestHeaders, requestData, requestSentTimestamp, requestSentWalltime, initiatorCallFrames, initiatorSourceCodeLocation, initiatorNode} = {})
+    constructor(url, {mimeType, type, loaderIdentifier, targetId, requestIdentifier, requestMethod, requestHeaders, requestData, requestSentTimestamp, requestSentWalltime, referrerPolicy, integrity, initiatorStackTrace, initiatorSourceCodeLocation, initiatorNode} = {})
     {
         console.assert(url);
+        console.assert(!initiatorStackTrace || initiatorStackTrace instanceof WI.StackTrace, initiatorStackTrace);
 
         super(url);
 
@@ -54,7 +55,7 @@ WI.Resource = class Resource extends WI.SourceCode
         this._responseCookies = null;
         this._serverTimingEntries = null;
         this._parentFrame = null;
-        this._initiatorCallFrames = initiatorCallFrames || null;
+        this._initiatorStackTrace = initiatorStackTrace || null;
         this._initiatorSourceCodeLocation = initiatorSourceCodeLocation || null;
         this._initiatorNode = initiatorNode || null;
         this._initiatedResources = [];
@@ -79,8 +80,11 @@ WI.Resource = class Resource extends WI.SourceCode
         this._priority = WI.Resource.NetworkPriority.Unknown;
         this._remoteAddress = null;
         this._connectionIdentifier = null;
+        this._isProxyConnection = false;
         this._target = targetId ? WI.targetManager.targetForIdentifier(targetId) : WI.mainTarget;
         this._redirects = [];
+        this._referrerPolicy = referrerPolicy ?? null;
+        this._integrity = integrity ?? null;
 
         // Exact sizes if loaded over the network or cache.
         this._requestHeadersTransferSize = NaN;
@@ -171,6 +175,10 @@ WI.Resource = class Resource extends WI.SourceCode
             if (plural)
                 return WI.UIString("Sockets");
             return WI.UIString("Socket");
+        case WI.Resource.Type.EventSource:
+            if (plural)
+                return WI.UIString("EventSources", "Display name for the type of network requests sent via EventSource(s) API (https://developer.mozilla.org/en-US/docs/Web/API/EventSource)");
+            return WI.UIString("EventSource", "Display name for the type of network requests sent via EventSource API (https://developer.mozilla.org/en-US/docs/Web/API/EventSource)");
         case WI.Resource.Type.Other:
             return WI.UIString("Other");
         default:
@@ -183,11 +191,17 @@ WI.Resource = class Resource extends WI.SourceCode
     {
         let classes = [];
 
-        let isOverride = resource.isLocalResourceOverride;
+        let localResourceOverride = resource.localResourceOverride || WI.networkManager.localResourceOverridesForURL(resource.url).filter((localResourceOverride) => !localResourceOverride.disabled)[0];
+        let isOverride = !!resource.localResourceOverride;
         let wasOverridden = resource.responseSource === WI.Resource.ResponseSource.InspectorOverride;
-        let shouldBeOverridden = resource.isLoading() && WI.networkManager.localResourceOverrideForURL(resource.url);
-        if (isOverride || wasOverridden || shouldBeOverridden)
+        let shouldBeOverridden = resource.isLoading() && localResourceOverride;
+        let shouldBeBlocked = (resource.failed || isOverride) && localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.Block;
+        if (isOverride || wasOverridden || shouldBeOverridden || shouldBeBlocked) {
             classes.push("override");
+
+            if (shouldBeBlocked || localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork)
+                classes.push("skip-network");
+        }
 
         if (resource.type === WI.Resource.Type.Other) {
             if (resource.requestedByteRange)
@@ -239,11 +253,11 @@ WI.Resource = class Resource extends WI.SourceCode
     {
         switch (priority) {
         case WI.Resource.NetworkPriority.Low:
-            return WI.UIString("Low");
+            return WI.UIString("Low", "Low @ Network Priority", "Low network request priority");
         case WI.Resource.NetworkPriority.Medium:
-            return WI.UIString("Medium");
+            return WI.UIString("Medium", "Medium @ Network Priority", "Medium network request priority");
         case WI.Resource.NetworkPriority.High:
-            return WI.UIString("High");
+            return WI.UIString("High", "High @ Network Priority", "High network request priority");
         default:
             return null;
         }
@@ -314,7 +328,7 @@ WI.Resource = class Resource extends WI.SourceCode
     get requestIdentifier() { return this._requestIdentifier; }
     get requestMethod() { return this._requestMethod; }
     get requestData() { return this._requestData; }
-    get initiatorCallFrames() { return this._initiatorCallFrames; }
+    get initiatorStackTrace() { return this._initiatorStackTrace; }
     get initiatorSourceCodeLocation() { return this._initiatorSourceCodeLocation; }
     get initiatorNode() { return this._initiatorNode; }
     get initiatedResources() { return this._initiatedResources; }
@@ -346,6 +360,8 @@ WI.Resource = class Resource extends WI.SourceCode
     get responseBodyTransferSize() { return this._responseBodyTransferSize; }
     get cachedResponseBodySize() { return this._cachedResponseBodySize; }
     get redirects() { return this._redirects; }
+    get referrerPolicy() { return this._referrerPolicy; }
+    get integrity() { return this._integrity; }
 
     get loadedSecurely()
     {
@@ -363,7 +379,7 @@ WI.Resource = class Resource extends WI.SourceCode
 
     get supportsScriptBlackboxing()
     {
-        if (this.isLocalResourceOverride)
+        if (this.localResourceOverride)
             return false;
         if (!this.finished || this.failed)
             return false;
@@ -380,6 +396,14 @@ WI.Resource = class Resource extends WI.SourceCode
         const isMultiLine = true;
         const dataURIMaxSize = 64;
         return WI.truncateURL(this._url, isMultiLine, dataURIMaxSize);
+    }
+
+    get displayRemoteAddress()
+    {
+        if (this._isProxyConnection)
+            return WI.UIString("%s (Proxy)", "%s (Proxy) @ Resource Remote Address", "Label for the IP address of a proxy server used to retrieve a network resource.").format(this._remoteAddress);
+
+        return this._remoteAddress;
     }
 
     get mimeTypeComponents()
@@ -412,6 +436,13 @@ WI.Resource = class Resource extends WI.SourceCode
         return this._mimeType;
     }
 
+    get hasMetadata()
+    {
+        // Some metadata is only collected when Web Inspector is open (e.g. resource timing data, HTTP method, request headers, etc.).
+        // Use `_requestIdentifier` as a general signal since it is always included when metadata is collected.
+        return !!this._requestIdentifier;
+    }
+
     createObjectURL()
     {
         let revision = this.currentRevision;
@@ -427,11 +458,6 @@ WI.Resource = class Resource extends WI.SourceCode
     isMainResource()
     {
         return this._parentFrame ? this._parentFrame.mainResource === this : false;
-    }
-
-    get isLocalResourceOverride()
-    {
-        return false;
     }
 
     addInitiatedResource(resource)
@@ -675,13 +701,17 @@ WI.Resource = class Resource extends WI.SourceCode
 
         let oldURL = this._url;
         let oldHeaders = this._requestHeaders;
+        let oldMethod = this._requestMethod;
 
         if (request.url)
             this._url = request.url;
 
         this._requestHeaders = request.headers || {};
         this._requestCookies = null;
-        this._redirects.push(new WI.Redirect(oldURL, request.method, oldHeaders, response.status, response.statusText, response.headers, elapsedTime));
+        this._requestMethod = request.method || null;
+        this._redirects.push(new WI.Redirect(oldURL, oldMethod, oldHeaders, response.status, response.statusText, response.headers, elapsedTime));
+        this._referrerPolicy = request.referrerPolicy ?? null;
+        this._integrity = request.integrity ?? null;
 
         if (oldURL !== request.url) {
             // Delete the URL components so the URL is re-parsed the next time it is requested.
@@ -825,6 +855,8 @@ WI.Resource = class Resource extends WI.SourceCode
             this._security.connection = metrics.securityConnection;
         }
 
+        this._isProxyConnection = !!metrics.isProxyConnection;
+
         this.dispatchEventToListeners(WI.Resource.Event.MetricsDidChange);
     }
 
@@ -948,26 +980,6 @@ WI.Resource = class Resource extends WI.SourceCode
         this._finishedOrFailedTimestamp = NaN;
     }
 
-    legacyMarkServedFromMemoryCache()
-    {
-        // COMPATIBILITY (iOS 10.3): This is a legacy code path where we know the resource came from the MemoryCache.
-        console.assert(this._responseSource === WI.Resource.ResponseSource.Unknown);
-
-        this._responseSource = WI.Resource.ResponseSource.MemoryCache;
-
-        this.markAsCached();
-    }
-
-    legacyMarkServedFromDiskCache()
-    {
-        // COMPATIBILITY (iOS 10.3): This is a legacy code path where we know the resource came from the DiskCache.
-        console.assert(this._responseSource === WI.Resource.ResponseSource.Unknown);
-
-        this._responseSource = WI.Resource.ResponseSource.DiskCache;
-
-        this.markAsCached();
-    }
-
     isLoading()
     {
         return !this._finished && !this._failed;
@@ -1027,16 +1039,16 @@ WI.Resource = class Resource extends WI.SourceCode
     requestContent()
     {
         if (this._finished)
-            return super.requestContent();
+            return super.requestContent().catch(this._requestContentFailure.bind(this));
 
         if (this._failed)
-            return Promise.resolve({error: WI.UIString("An error occurred trying to load the resource.")});
+            return this._requestContentFailure();
 
         if (!this._finishThenRequestContentPromise) {
             this._finishThenRequestContentPromise = new Promise((resolve, reject) => {
-                this.addEventListener(WI.Resource.Event.LoadingDidFinish, resolve);
-                this.addEventListener(WI.Resource.Event.LoadingDidFail, reject);
-            }).then(WI.SourceCode.prototype.requestContent.bind(this));
+                this.singleFireEventListener(WI.Resource.Event.LoadingDidFinish, resolve, this);
+                this.singleFireEventListener(WI.Resource.Event.LoadingDidFail, reject, this);
+            }).then(this.requestContent.bind(this));
         }
 
         return this._finishThenRequestContentPromise;
@@ -1062,22 +1074,131 @@ WI.Resource = class Resource extends WI.SourceCode
         cookie[WI.Resource.MainResourceCookieKey] = this.isMainResource();
     }
 
-    async createLocalResourceOverride({initialMIMEType, initialBase64Encoded, initialContent} = {})
+    async createLocalResourceOverride(type, {mimeType, base64Encoded, content} = {})
     {
-        console.assert(!this.isLocalResourceOverride);
-        console.assert(WI.NetworkManager.supportsLocalResourceOverrides());
+        console.assert(!this.localResourceOverride);
+        console.assert(WI.NetworkManager.supportsOverridingResponses());
 
-        let {rawContent, rawBase64Encoded} = await this.requestContent();
+        let resourceData = {
+            requestURL: this.url,
+        };
 
-        return WI.LocalResourceOverride.create({
-            url: this.url,
-            mimeType: initialMIMEType !== undefined ? initialMIMEType : this.mimeType,
-            content: initialContent !== undefined ? initialContent : rawContent,
-            base64Encoded: initialBase64Encoded !== undefined ? initialBase64Encoded : rawBase64Encoded,
-            statusCode: this.statusCode,
-            statusText: this.statusText,
-            headers: this.responseHeaders,
-        });
+        switch (type) {
+        case WI.LocalResourceOverride.InterceptType.Request:
+            resourceData.requestMethod = this.requestMethod ?? WI.HTTPUtilities.RequestMethod.GET;
+            resourceData.requestHeaders = Object.shallowCopy(this.requestHeaders);
+            resourceData.requestData = this.requestData ?? "";
+            break;
+
+        case WI.LocalResourceOverride.InterceptType.Response:
+        case WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork:
+            resourceData.responseMIMEType = this.mimeType ?? WI.mimeTypeForFileExtension(WI.fileExtensionForFilename(this.urlComponents.lastPathComponent));
+            resourceData.responseStatusCode = this.statusCode;
+            resourceData.responseStatusText = this.statusText;
+            if (!resourceData.responseStatusCode) {
+                resourceData.responseStatusCode = 200;
+                resourceData.responseStatusText = null;
+            }
+            resourceData.responseStatusText ||= WI.HTTPUtilities.statusTextForStatusCode(resourceData.responseStatusCode);
+
+            if (base64Encoded === undefined || content === undefined) {
+                try {
+                    let {rawContent, rawBase64Encoded} = await this.requestContent();
+                    content ??= rawContent;
+                    base64Encoded ??= rawBase64Encoded;
+                } catch {
+                    content ??= "";
+                    base64Encoded ??= !WI.shouldTreatMIMETypeAsText(resourceData.mimeType);
+                }
+            }
+            resourceData.responseContent = content;
+            resourceData.responseBase64Encoded = base64Encoded;
+            resourceData.responseHeaders = Object.shallowCopy(this.responseHeaders);
+            break;
+        }
+
+        return WI.LocalResourceOverride.create(this.url, type, resourceData);
+    }
+
+    updateLocalResourceOverrideRequestData(data)
+    {
+        console.assert(this.localResourceOverride);
+
+        if (data === this._requestData)
+            return;
+
+        this._requestData = data;
+
+        this.dispatchEventToListeners(WI.Resource.Event.RequestDataDidChange);
+    }
+
+    generateFetchCode()
+    {
+        let options = {};
+
+        if (this.requestData)
+            options.body = this.requestData;
+
+        options.cache = "default";
+        options.credentials = (this.requestCookies.length || this._requestHeaders.valueForCaseInsensitiveKey("Authorization")) ? "include" : "omit";
+
+        // https://fetch.spec.whatwg.org/#forbidden-header-name
+        const forbiddenHeaders = new Set([
+            "accept-charset",
+            "accept-encoding",
+            "access-control-request-headers",
+            "access-control-request-method",
+            "connection",
+            "content-length",
+            "cookie",
+            "cookie2",
+            "date",
+            "dnt",
+            "expect",
+            "host",
+            "keep-alive",
+            "origin",
+            "referer",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "via",
+        ]);
+        let headers = Object.entries(this.requestHeaders)
+            .filter((header) => {
+                let key = header[0].toLowerCase();
+                if (forbiddenHeaders.has(key))
+                    return false;
+                if (key.startsWith("proxy-") || key.startsWith("sec-"))
+                    return false;
+                return true;
+            })
+            .sort((a, b) => a[0].extendedLocaleCompare(b[0]))
+            .reduce((accumulator, current) => {
+                accumulator[current[0]] = current[1];
+                return accumulator;
+            }, {});
+        if (!isEmptyObject(headers))
+            options.headers = headers;
+
+        if (this._integrity)
+            options.integrity = this._integrity;
+
+        if (this.requestMethod)
+            options.method = this.requestMethod;
+
+        options.mode = "cors";
+        options.redirect = "follow";
+
+        let referrer = this.requestHeaders.valueForCaseInsensitiveKey("Referer");
+        if (referrer)
+            options.referrer = referrer;
+
+        if (this._referrerPolicy)
+            options.referrerPolicy = this._referrerPolicy;
+
+        return `fetch(${JSON.stringify(this.url)}, ${JSON.stringify(options, null, WI.indentString())})`;
     }
 
     generateCURLCommand()
@@ -1185,6 +1306,17 @@ WI.Resource = class Resource extends WI.SourceCode
 
         throw errorString;
     }
+
+    // Private
+
+    _requestContentFailure(error)
+    {
+        return Promise.resolve({
+            error: WI.UIString("An error occurred trying to load the resource."),
+            reason: error?.message || this._failureReasonText,
+            sourceCode: this,
+        });
+    }
 };
 
 WI.Resource.TypeIdentifier = "resource";
@@ -1196,6 +1328,7 @@ WI.Resource.Event = {
     MIMETypeDidChange: "resource-mime-type-did-change",
     TypeDidChange: "resource-type-did-change",
     RequestHeadersDidChange: "resource-request-headers-did-change",
+    RequestDataDidChange: "resource-request-data-did-change",
     ResponseReceived: "resource-response-received",
     LoadingDidFinish: "resource-loading-did-finish",
     LoadingDidFail: "resource-loading-did-fail",
@@ -1219,6 +1352,7 @@ WI.Resource.Type = {
     Ping: "resource-type-ping",
     Beacon: "resource-type-beacon",
     WebSocket: "resource-type-websocket",
+    EventSource: "resource-type-eventsource",
     Other: "resource-type-other",
 };
 

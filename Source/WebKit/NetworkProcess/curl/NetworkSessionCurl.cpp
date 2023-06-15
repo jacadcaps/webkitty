@@ -29,6 +29,7 @@
 #include "NetworkProcess.h"
 #include "NetworkSessionCreationParameters.h"
 #include "WebCookieManager.h"
+#include "WebSocketTaskCurl.h"
 #include <WebCore/CookieJarDB.h>
 #include <WebCore/CurlContext.h>
 #include <WebCore/NetworkStorageSession.h>
@@ -37,25 +38,30 @@ namespace WebKit {
 
 using namespace WebCore;
 
-NetworkSessionCurl::NetworkSessionCurl(NetworkProcess& networkProcess, NetworkSessionCreationParameters&& parameters)
+NetworkSessionCurl::NetworkSessionCurl(NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
     : NetworkSession(networkProcess, parameters)
 {
     if (!parameters.cookiePersistentStorageFile.isEmpty())
         networkStorageSession()->setCookieDatabase(makeUniqueRef<CookieJarDB>(parameters.cookiePersistentStorageFile));
-    networkStorageSession()->setProxySettings(WTFMove(parameters.proxySettings));
+    networkStorageSession()->setProxySettings(parameters.proxySettings);
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
     m_resourceLoadStatisticsDirectory = parameters.resourceLoadStatisticsParameters.directory;
     m_shouldIncludeLocalhostInResourceLoadStatistics = parameters.resourceLoadStatisticsParameters.shouldIncludeLocalhost ? ShouldIncludeLocalhost::Yes : ShouldIncludeLocalhost::No;
     m_enableResourceLoadStatisticsDebugMode = parameters.resourceLoadStatisticsParameters.enableDebugMode ? EnableResourceLoadStatisticsDebugMode::Yes : EnableResourceLoadStatisticsDebugMode::No;
     m_resourceLoadStatisticsManualPrevalentResource = parameters.resourceLoadStatisticsParameters.manualPrevalentResource;
-    setResourceLoadStatisticsEnabled(parameters.resourceLoadStatisticsParameters.enabled);
+    setTrackingPreventionEnabled(parameters.resourceLoadStatisticsParameters.enabled);
 #endif
 }
 
 NetworkSessionCurl::~NetworkSessionCurl()
 {
 
+}
+
+std::unique_ptr<WebSocketTask> NetworkSessionCurl::createWebSocketTask(WebPageProxyIdentifier, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::NetworkConnectionIntegrity>, ShouldRelaxThirdPartyCookieBlocking, StoredCredentialsPolicy)
+{
+    return makeUnique<WebSocketTask>(channel, request, protocol);
 }
 
 } // namespace WebKit

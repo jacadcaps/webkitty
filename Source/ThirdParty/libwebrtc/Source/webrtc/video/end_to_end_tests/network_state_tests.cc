@@ -10,11 +10,16 @@
 
 #include <memory>
 
+#include "api/media_types.h"
+#include "api/task_queue/default_task_queue_factory.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "api/test/simulated_network.h"
 #include "api/video_codecs/video_encoder.h"
 #include "call/fake_network_pipe.h"
 #include "call/simulated_network.h"
 #include "modules/rtp_rtcp/source/rtp_packet.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "system_wrappers/include/sleep.h"
 #include "test/call_test.h"
@@ -60,19 +65,19 @@ class NetworkStateEndToEndTest : public test::CallTest {
     bool SendRtp(const uint8_t* packet,
                  size_t length,
                  const PacketOptions& options) override {
-      rtc::CritScope lock(&crit_);
+      MutexLock lock(&mutex_);
       need_rtp_ = false;
       return true;
     }
 
     bool SendRtcp(const uint8_t* packet, size_t length) override {
-      rtc::CritScope lock(&crit_);
+      MutexLock lock(&mutex_);
       need_rtcp_ = false;
       return true;
     }
     bool need_rtp_;
     bool need_rtcp_;
-    rtc::CriticalSection crit_;
+    Mutex mutex_;
   };
   void VerifyNewVideoSendStreamsRespectNetworkState(
       MediaType network_to_bring_up,
@@ -89,7 +94,7 @@ void NetworkStateEndToEndTest::VerifyNewVideoSendStreamsRespectNetworkState(
     Transport* transport) {
   test::VideoEncoderProxyFactory encoder_factory(encoder);
 
-  SendTask(RTC_FROM_HERE, task_queue(),
+  SendTask(task_queue(),
            [this, network_to_bring_up, &encoder_factory, transport]() {
              CreateSenderCall(Call::Config(send_event_log_.get()));
              sender_call_->SignalChannelNetworkState(network_to_bring_up,
@@ -107,7 +112,7 @@ void NetworkStateEndToEndTest::VerifyNewVideoSendStreamsRespectNetworkState(
 
   SleepMs(kSilenceTimeoutMs);
 
-  SendTask(RTC_FROM_HERE, task_queue(), [this]() {
+  SendTask(task_queue(), [this]() {
     Stop();
     DestroyStreams();
     DestroyCalls();
@@ -120,7 +125,7 @@ void NetworkStateEndToEndTest::VerifyNewVideoReceiveStreamsRespectNetworkState(
   std::unique_ptr<test::DirectTransport> sender_transport;
 
   SendTask(
-      RTC_FROM_HERE, task_queue(),
+      task_queue(),
       [this, &sender_transport, network_to_bring_up, transport]() {
         CreateCalls();
         receiver_call_->SignalChannelNetworkState(network_to_bring_up,
@@ -142,7 +147,7 @@ void NetworkStateEndToEndTest::VerifyNewVideoReceiveStreamsRespectNetworkState(
 
   SleepMs(kSilenceTimeoutMs);
 
-  SendTask(RTC_FROM_HERE, task_queue(), [this, &sender_transport]() {
+  SendTask(task_queue(), [this, &sender_transport]() {
     Stop();
     DestroyStreams();
     sender_transport.reset();
@@ -163,9 +168,12 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
   class NetworkStateTest : public test::EndToEndTest, public test::FakeEncoder {
    public:
     explicit NetworkStateTest(TaskQueueBase* task_queue)
-        : EndToEndTest(kDefaultTimeoutMs),
+        : EndToEndTest(kDefaultTimeout),
           FakeEncoder(Clock::GetRealTimeClock()),
-          task_queue_(task_queue),
+          e2e_test_task_queue_(task_queue),
+          task_queue_(CreateDefaultTaskQueueFactory()->CreateTaskQueue(
+              "NetworkStateTest",
+              TaskQueueFactory::Priority::NORMAL)),
           sender_call_(nullptr),
           receiver_call_(nullptr),
           encoder_factory_(this),
@@ -177,7 +185,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
           down_frames_(0) {}
 
     Action OnSendRtp(const uint8_t* packet, size_t length) override {
-      rtc::CritScope lock(&test_crit_);
+      MutexLock lock(&test_mutex_);
       RtpPacket rtp_packet;
       EXPECT_TRUE(rtp_packet.Parse(packet, length));
       if (rtp_packet.payload_size() == 0)
@@ -188,7 +196,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
     }
 
     Action OnSendRtcp(const uint8_t* packet, size_t length) override {
-      rtc::CritScope lock(&test_crit_);
+      MutexLock lock(&test_mutex_);
       ++sender_rtcp_;
       packet_event_.Set();
       return SEND_PACKET;
@@ -200,7 +208,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
     }
 
     Action OnReceiveRtcp(const uint8_t* packet, size_t length) override {
-      rtc::CritScope lock(&test_crit_);
+      MutexLock lock(&test_mutex_);
       ++receiver_rtcp_;
       packet_event_.Set();
       return SEND_PACKET;
@@ -213,33 +221,42 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
 
     void ModifyVideoConfigs(
         VideoSendStream::Config* send_config,
-        std::vector<VideoReceiveStream::Config>* receive_configs,
+        std::vector<VideoReceiveStreamInterface::Config>* receive_configs,
         VideoEncoderConfig* encoder_config) override {
       send_config->encoder_settings.encoder_factory = &encoder_factory_;
     }
 
+    void SignalChannelNetworkState(Call* call,
+                                   MediaType media_type,
+                                   NetworkState network_state) {
+      SendTask(e2e_test_task_queue_, [call, media_type, network_state] {
+        call->SignalChannelNetworkState(media_type, network_state);
+      });
+    }
+
     void PerformTest() override {
-      EXPECT_TRUE(encoded_frames_.Wait(kDefaultTimeoutMs))
+      EXPECT_TRUE(encoded_frames_.Wait(kDefaultTimeout.ms()))
           << "No frames received by the encoder.";
 
-      SendTask(RTC_FROM_HERE, task_queue_, [this]() {
+      SendTask(task_queue_.get(), [this]() {
         // Wait for packets from both sender/receiver.
         WaitForPacketsOrSilence(false, false);
 
         // Sender-side network down for audio; there should be no effect on
         // video
-        sender_call_->SignalChannelNetworkState(MediaType::AUDIO, kNetworkDown);
+        SignalChannelNetworkState(sender_call_, MediaType::AUDIO, kNetworkDown);
+
         WaitForPacketsOrSilence(false, false);
 
         // Receiver-side network down for audio; no change expected
-        receiver_call_->SignalChannelNetworkState(MediaType::AUDIO,
-                                                  kNetworkDown);
+        SignalChannelNetworkState(receiver_call_, MediaType::AUDIO,
+                                  kNetworkDown);
         WaitForPacketsOrSilence(false, false);
 
         // Sender-side network down.
-        sender_call_->SignalChannelNetworkState(MediaType::VIDEO, kNetworkDown);
+        SignalChannelNetworkState(sender_call_, MediaType::VIDEO, kNetworkDown);
         {
-          rtc::CritScope lock(&test_crit_);
+          MutexLock lock(&test_mutex_);
           // After network goes down we shouldn't be encoding more frames.
           sender_state_ = kNetworkDown;
         }
@@ -247,25 +264,25 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
         WaitForPacketsOrSilence(true, false);
 
         // Receiver-side network down.
-        receiver_call_->SignalChannelNetworkState(MediaType::VIDEO,
-                                                  kNetworkDown);
+        SignalChannelNetworkState(receiver_call_, MediaType::VIDEO,
+                                  kNetworkDown);
         WaitForPacketsOrSilence(true, true);
 
         // Network up for audio for both sides; video is still not expected to
         // start
-        sender_call_->SignalChannelNetworkState(MediaType::AUDIO, kNetworkUp);
-        receiver_call_->SignalChannelNetworkState(MediaType::AUDIO, kNetworkUp);
+        SignalChannelNetworkState(sender_call_, MediaType::AUDIO, kNetworkUp);
+        SignalChannelNetworkState(receiver_call_, MediaType::AUDIO, kNetworkUp);
         WaitForPacketsOrSilence(true, true);
 
         // Network back up again for both.
         {
-          rtc::CritScope lock(&test_crit_);
+          MutexLock lock(&test_mutex_);
           // It's OK to encode frames again, as we're about to bring up the
           // network.
           sender_state_ = kNetworkUp;
         }
-        sender_call_->SignalChannelNetworkState(MediaType::VIDEO, kNetworkUp);
-        receiver_call_->SignalChannelNetworkState(MediaType::VIDEO, kNetworkUp);
+        SignalChannelNetworkState(sender_call_, MediaType::VIDEO, kNetworkUp);
+        SignalChannelNetworkState(receiver_call_, MediaType::VIDEO, kNetworkUp);
         WaitForPacketsOrSilence(false, false);
 
         // TODO(skvlad): add tests to verify that the audio streams are stopped
@@ -277,7 +294,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
     int32_t Encode(const VideoFrame& input_image,
                    const std::vector<VideoFrameType>* frame_types) override {
       {
-        rtc::CritScope lock(&test_crit_);
+        MutexLock lock(&test_mutex_);
         if (sender_state_ == kNetworkDown) {
           ++down_frames_;
           EXPECT_LE(down_frames_, 1)
@@ -298,7 +315,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
       int initial_sender_rtcp;
       int initial_receiver_rtcp;
       {
-        rtc::CritScope lock(&test_crit_);
+        MutexLock lock(&test_mutex_);
         initial_sender_rtp = sender_rtp_;
         initial_sender_rtcp = sender_rtcp_;
         initial_receiver_rtcp = receiver_rtcp_;
@@ -308,7 +325,7 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
       while (!sender_done || !receiver_done) {
         packet_event_.Wait(kSilenceTimeoutMs);
         int64_t time_now_ms = clock_->TimeInMilliseconds();
-        rtc::CritScope lock(&test_crit_);
+        MutexLock lock(&test_mutex_);
         if (sender_down) {
           ASSERT_LE(sender_rtp_ - initial_sender_rtp - sender_padding_,
                     kNumAcceptedDowntimeRtp)
@@ -339,19 +356,20 @@ TEST_F(NetworkStateEndToEndTest, RespectsNetworkState) {
       }
     }
 
-    TaskQueueBase* const task_queue_;
-    rtc::CriticalSection test_crit_;
+    TaskQueueBase* const e2e_test_task_queue_;
+    std::unique_ptr<TaskQueueBase, TaskQueueDeleter> task_queue_;
+    Mutex test_mutex_;
     rtc::Event encoded_frames_;
     rtc::Event packet_event_;
     Call* sender_call_;
     Call* receiver_call_;
     test::VideoEncoderProxyFactory encoder_factory_;
-    NetworkState sender_state_ RTC_GUARDED_BY(test_crit_);
-    int sender_rtp_ RTC_GUARDED_BY(test_crit_);
-    int sender_padding_ RTC_GUARDED_BY(test_crit_);
-    int sender_rtcp_ RTC_GUARDED_BY(test_crit_);
-    int receiver_rtcp_ RTC_GUARDED_BY(test_crit_);
-    int down_frames_ RTC_GUARDED_BY(test_crit_);
+    NetworkState sender_state_ RTC_GUARDED_BY(test_mutex_);
+    int sender_rtp_ RTC_GUARDED_BY(test_mutex_);
+    int sender_padding_ RTC_GUARDED_BY(test_mutex_);
+    int sender_rtcp_ RTC_GUARDED_BY(test_mutex_);
+    int receiver_rtcp_ RTC_GUARDED_BY(test_mutex_);
+    int down_frames_ RTC_GUARDED_BY(test_mutex_);
   } test(task_queue());
 
   RunBaseTest(&test);

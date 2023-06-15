@@ -26,9 +26,18 @@
 #include "config.h"
 #include "WebProcess.h"
 
+#include "LogInitialization.h"
+#include <WebCore/LogInitialization.h>
+#include <wtf/LogInitialization.h>
+
 namespace WebKit {
 
-void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters&)
+void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
+{
+    applyProcessCreationParameters(parameters.auxiliaryProcessParameters);
+}
+
+void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
 }
 
@@ -41,6 +50,18 @@ void WebProcess::platformTerminate()
 }
 
 void WebProcess::platformSetCacheModel(CacheModel)
+{
+}
+
+void WebProcess::grantAccessToAssetServices(Vector<WebKit::SandboxExtension::Handle>&&)
+{
+}
+
+void WebProcess::revokeAccessToAssetServices()
+{
+}
+
+void WebProcess::switchFromStaticFontRegistryToUserFontRegistry(Vector<WebKit::SandboxExtension::Handle>&&)
 {
 }
 

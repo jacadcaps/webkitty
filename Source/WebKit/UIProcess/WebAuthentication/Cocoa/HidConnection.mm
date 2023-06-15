@@ -51,9 +51,7 @@ static void reportReceived(void* context, IOReturn status, void*, IOHIDReportTyp
     ASSERT(reportID == kHidReportId);
     ASSERT(reportLength == kHidMaxPacketSize);
 
-    Vector<uint8_t> reportData;
-    reportData.append(report, reportLength);
-    connection->receiveReport(WTFMove(reportData));
+    connection->receiveReport({ report, static_cast<size_t>(reportLength) });
 }
 
 HidConnection::HidConnection(IOHIDDeviceRef device)
@@ -68,7 +66,7 @@ HidConnection::~HidConnection()
 
 void HidConnection::initialize()
 {
-    IOHIDDeviceOpen(m_device.get(), kIOHIDOptionsTypeNone);
+    IOHIDDeviceOpen(m_device.get(), kIOHIDOptionsTypeSeizeDevice);
     IOHIDDeviceScheduleWithRunLoop(m_device.get(), CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
     m_inputBuffer.resize(kHidMaxPacketSize);
     IOHIDDeviceRegisterInputReportCallback(m_device.get(), m_inputBuffer.data(), m_inputBuffer.size(), &reportReceived, this);

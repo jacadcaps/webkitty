@@ -130,7 +130,7 @@ WebCore::Color TestPDFPage::colorAtPoint(int x, int y) const
 {
     auto boundsRect = bounds();
     auto colorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
-    auto context = adoptCF(CGBitmapContextCreate(NULL, boundsRect.size.width, boundsRect.size.height, 8, 0, colorSpace.get(), kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big));
+    auto context = adoptCF(CGBitmapContextCreate(NULL, boundsRect.size.width, boundsRect.size.height, 8, 0, colorSpace.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Big)));
 
     auto cgPage = m_page.get().pageRef;
     CGContextDrawPDFPageWithAnnotations(context.get(), cgPage, nullptr);
@@ -145,7 +145,7 @@ WebCore::Color TestPDFPage::colorAtPoint(int x, int y) const
 
     if (!a)
         return WebCore::Color::transparentBlack;
-    return WebCore::clampToComponentBytes<WebCore::SRGBA>(r * 255 / a, g * 255 / a, b * 255 / a, a);
+    return WebCore::makeFromComponentsClampingExceptAlpha<WebCore::SRGBA<uint8_t>>(r * 255 / a, g * 255 / a, b * 255 / a, a);
 }
 
 // Documents

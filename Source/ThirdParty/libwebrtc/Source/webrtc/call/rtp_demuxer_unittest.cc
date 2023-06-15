@@ -14,7 +14,7 @@
 #include <set>
 #include <string>
 
-#include "call/ssrc_binding_observer.h"
+#include "absl/strings/string_view.h"
 #include "call/test/mock_rtp_packet_sink_interface.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
@@ -31,30 +31,14 @@ namespace {
 
 using ::testing::_;
 using ::testing::AtLeast;
-using ::testing::AtMost;
 using ::testing::InSequence;
 using ::testing::NiceMock;
-
-class MockSsrcBindingObserver : public SsrcBindingObserver {
- public:
-  MOCK_METHOD2(OnSsrcBoundToRsid, void(const std::string& rsid, uint32_t ssrc));
-  MOCK_METHOD2(OnSsrcBoundToMid, void(const std::string& mid, uint32_t ssrc));
-  MOCK_METHOD3(OnSsrcBoundToMidRsid,
-               void(const std::string& mid,
-                    const std::string& rsid,
-                    uint32_t ssrc));
-  MOCK_METHOD2(OnSsrcBoundToPayloadType,
-               void(uint8_t payload_type, uint32_t ssrc));
-};
 
 class RtpDemuxerTest : public ::testing::Test {
  protected:
   ~RtpDemuxerTest() {
     for (auto* sink : sinks_to_tear_down_) {
       demuxer_.RemoveSink(sink);
-    }
-    for (auto* observer : observers_to_tear_down_) {
-      demuxer_.DeregisterSsrcBindingObserver(observer);
     }
   }
 
@@ -73,48 +57,30 @@ class RtpDemuxerTest : public ::testing::Test {
 
   bool AddSinkOnlySsrc(uint32_t ssrc, RtpPacketSinkInterface* sink) {
     RtpDemuxerCriteria criteria;
-    criteria.ssrcs = {ssrc};
+    criteria.ssrcs().insert(ssrc);
     return AddSink(criteria, sink);
   }
 
-  bool AddSinkOnlyRsid(const std::string& rsid, RtpPacketSinkInterface* sink) {
-    RtpDemuxerCriteria criteria;
-    criteria.rsid = rsid;
+  bool AddSinkOnlyRsid(absl::string_view rsid, RtpPacketSinkInterface* sink) {
+    RtpDemuxerCriteria criteria(absl::string_view(), rsid);
     return AddSink(criteria, sink);
   }
 
-  bool AddSinkOnlyMid(const std::string& mid, RtpPacketSinkInterface* sink) {
-    RtpDemuxerCriteria criteria;
-    criteria.mid = mid;
+  bool AddSinkOnlyMid(absl::string_view mid, RtpPacketSinkInterface* sink) {
+    RtpDemuxerCriteria criteria(mid);
     return AddSink(criteria, sink);
   }
 
-  bool AddSinkBothMidRsid(const std::string& mid,
-                          const std::string& rsid,
+  bool AddSinkBothMidRsid(absl::string_view mid,
+                          absl::string_view rsid,
                           RtpPacketSinkInterface* sink) {
-    RtpDemuxerCriteria criteria;
-    criteria.mid = mid;
-    criteria.rsid = rsid;
+    RtpDemuxerCriteria criteria(mid, rsid);
     return AddSink(criteria, sink);
   }
 
   bool RemoveSink(RtpPacketSinkInterface* sink) {
     sinks_to_tear_down_.erase(sink);
     return demuxer_.RemoveSink(sink);
-  }
-
-  // These are convenience methods for calling
-  // demuxer.{Register|Unregister}SsrcBindingObserver such that observers are
-  // automatically removed when the test finishes.
-
-  void RegisterSsrcBindingObserver(SsrcBindingObserver* observer) {
-    demuxer_.RegisterSsrcBindingObserver(observer);
-    observers_to_tear_down_.insert(observer);
-  }
-
-  void DeregisterSsrcBindingObserver(SsrcBindingObserver* observer) {
-    demuxer_.DeregisterSsrcBindingObserver(observer);
-    observers_to_tear_down_.erase(observer);
   }
 
   // The CreatePacket* methods are helpers for creating new RTP packets with
@@ -145,7 +111,7 @@ class RtpDemuxerTest : public ::testing::Test {
 
   std::unique_ptr<RtpPacketReceived> CreatePacketWithSsrcMid(
       uint32_t ssrc,
-      const std::string& mid) {
+      absl::string_view mid) {
     RtpPacketReceived::ExtensionManager extension_manager;
     extension_manager.Register<RtpMid>(11);
 
@@ -156,7 +122,7 @@ class RtpDemuxerTest : public ::testing::Test {
 
   std::unique_ptr<RtpPacketReceived> CreatePacketWithSsrcRsid(
       uint32_t ssrc,
-      const std::string& rsid) {
+      absl::string_view rsid) {
     RtpPacketReceived::ExtensionManager extension_manager;
     extension_manager.Register<RtpStreamId>(6);
 
@@ -167,7 +133,7 @@ class RtpDemuxerTest : public ::testing::Test {
 
   std::unique_ptr<RtpPacketReceived> CreatePacketWithSsrcRrid(
       uint32_t ssrc,
-      const std::string& rrid) {
+      absl::string_view rrid) {
     RtpPacketReceived::ExtensionManager extension_manager;
     extension_manager.Register<RepairedRtpStreamId>(7);
 
@@ -178,8 +144,8 @@ class RtpDemuxerTest : public ::testing::Test {
 
   std::unique_ptr<RtpPacketReceived> CreatePacketWithSsrcMidRsid(
       uint32_t ssrc,
-      const std::string& mid,
-      const std::string& rsid) {
+      absl::string_view mid,
+      absl::string_view rsid) {
     RtpPacketReceived::ExtensionManager extension_manager;
     extension_manager.Register<RtpMid>(11);
     extension_manager.Register<RtpStreamId>(6);
@@ -192,8 +158,8 @@ class RtpDemuxerTest : public ::testing::Test {
 
   std::unique_ptr<RtpPacketReceived> CreatePacketWithSsrcRsidRrid(
       uint32_t ssrc,
-      const std::string& rsid,
-      const std::string& rrid) {
+      absl::string_view rsid,
+      absl::string_view rrid) {
     RtpPacketReceived::ExtensionManager extension_manager;
     extension_manager.Register<RtpStreamId>(6);
     extension_manager.Register<RepairedRtpStreamId>(7);
@@ -206,9 +172,10 @@ class RtpDemuxerTest : public ::testing::Test {
 
   RtpDemuxer demuxer_;
   std::set<RtpPacketSinkInterface*> sinks_to_tear_down_;
-  std::set<SsrcBindingObserver*> observers_to_tear_down_;
   uint16_t next_sequence_number_ = 1;
 };
+
+class RtpDemuxerDeathTest : public RtpDemuxerTest {};
 
 MATCHER_P(SamePacketAs, other, "") {
   return arg.Ssrc() == other.Ssrc() &&
@@ -229,15 +196,13 @@ TEST_F(RtpDemuxerTest, AllowAddSinkWithOverlappingPayloadTypesIfDifferentMid) {
   constexpr uint8_t pt2 = 31;
   constexpr uint8_t pt3 = 32;
 
-  RtpDemuxerCriteria pt1_pt2;
-  pt1_pt2.mid = mid1;
-  pt1_pt2.payload_types = {pt1, pt2};
+  RtpDemuxerCriteria pt1_pt2(mid1);
+  pt1_pt2.payload_types() = {pt1, pt2};
   MockRtpPacketSink sink1;
   AddSink(pt1_pt2, &sink1);
 
-  RtpDemuxerCriteria pt1_pt3;
-  pt1_pt2.mid = mid2;
-  pt1_pt3.payload_types = {pt1, pt3};
+  RtpDemuxerCriteria pt1_pt3(mid2);
+  pt1_pt3.payload_types() = {pt1, pt3};
   MockRtpPacketSink sink2;
   EXPECT_TRUE(AddSink(pt1_pt3, &sink2));
 }
@@ -310,12 +275,12 @@ TEST_F(RtpDemuxerTest, DISABLED_RejectAddSinkForSamePayloadTypes) {
   constexpr uint8_t pt2 = 31;
 
   RtpDemuxerCriteria pt1_pt2;
-  pt1_pt2.payload_types = {pt1, pt2};
+  pt1_pt2.payload_types() = {pt1, pt2};
   MockRtpPacketSink sink1;
   AddSink(pt1_pt2, &sink1);
 
   RtpDemuxerCriteria pt2_pt1;
-  pt2_pt1.payload_types = {pt2, pt1};
+  pt2_pt1.payload_types() = {pt2, pt1};
   MockRtpPacketSink sink2;
   EXPECT_FALSE(AddSink(pt2_pt1, &sink2));
 }
@@ -397,7 +362,7 @@ TEST_F(RtpDemuxerTest, OnRtpPacketCalledOnCorrectSinkByPayloadType) {
 
   MockRtpPacketSink sink;
   RtpDemuxerCriteria criteria;
-  criteria.payload_types = {payload_type};
+  criteria.payload_types() = {payload_type};
   AddSink(criteria, &sink);
 
   auto packet = CreatePacketWithSsrc(ssrc);
@@ -661,13 +626,13 @@ TEST_F(RtpDemuxerTest, FirstSsrcAssociatedWithAnRsidIsNotForgotten) {
 
   constexpr uint32_t shared_ssrc = 100;
 
-  // First a packet with |rsid_a| is received, and |sink_a| is associated with
+  // First a packet with `rsid_a` is received, and `sink_a` is associated with
   // its SSRC.
   auto packet_a = CreatePacketWithSsrcRsid(shared_ssrc, rsid_a);
   EXPECT_CALL(sink_a, OnRtpPacket(SamePacketAs(*packet_a))).Times(1);
   EXPECT_TRUE(demuxer_.OnRtpPacket(*packet_a));
 
-  // Second, a packet with |rsid_b| is received. We guarantee that |sink_b|
+  // Second, a packet with `rsid_b` is received. We guarantee that `sink_b`
   // receives it.
   auto packet_b = CreatePacketWithSsrcRsid(shared_ssrc, rsid_b);
   EXPECT_CALL(sink_a, OnRtpPacket(_)).Times(0);
@@ -675,7 +640,7 @@ TEST_F(RtpDemuxerTest, FirstSsrcAssociatedWithAnRsidIsNotForgotten) {
   EXPECT_TRUE(demuxer_.OnRtpPacket(*packet_b));
 
   // Known edge-case; adding a new RSID association makes us re-examine all
-  // SSRCs. |sink_b| may or may not be associated with the SSRC now; we make
+  // SSRCs. `sink_b` may or may not be associated with the SSRC now; we make
   // no promises on that. However, since the RSID is specified and it cannot be
   // found the packet should be dropped.
   MockRtpPacketSink sink_c;
@@ -746,73 +711,6 @@ TEST_F(RtpDemuxerTest, AssociatingByRsidAndBySsrcCannotTriggerDoubleCall) {
   EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
 }
 
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundToMid) {
-  const std::string mid = "v";
-  constexpr uint32_t ssrc = 10;
-
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyMid(mid, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  auto packet = CreatePacketWithSsrcMid(ssrc, mid);
-  EXPECT_CALL(observer, OnSsrcBoundToMid(mid, ssrc));
-  EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
-}
-
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundToRsid) {
-  const std::string rsid = "1";
-  constexpr uint32_t ssrc = 111;
-
-  // Only RSIDs which the demuxer knows may be resolved.
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyRsid(rsid, &sink);
-
-  NiceMock<MockSsrcBindingObserver> rsid_resolution_observers[3];
-  for (auto& observer : rsid_resolution_observers) {
-    RegisterSsrcBindingObserver(&observer);
-    EXPECT_CALL(observer, OnSsrcBoundToRsid(rsid, ssrc)).Times(1);
-  }
-
-  // The expected calls to OnSsrcBoundToRsid() will be triggered by this.
-  auto packet = CreatePacketWithSsrcRsid(ssrc, rsid);
-  EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
-}
-
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundToMidRsid) {
-  const std::string mid = "v";
-  const std::string rsid = "1";
-  constexpr uint32_t ssrc = 10;
-
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkBothMidRsid(mid, rsid, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  auto packet = CreatePacketWithSsrcMidRsid(ssrc, mid, rsid);
-  EXPECT_CALL(observer, OnSsrcBoundToMidRsid(mid, rsid, ssrc));
-  EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
-}
-
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundToPayloadType) {
-  constexpr uint8_t payload_type = 3;
-  constexpr uint32_t ssrc = 10;
-
-  RtpDemuxerCriteria criteria;
-  criteria.payload_types = {payload_type};
-  NiceMock<MockRtpPacketSink> sink;
-  AddSink(criteria, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  auto packet = CreatePacketWithSsrc(ssrc);
-  packet->SetPayloadType(payload_type);
-  EXPECT_CALL(observer, OnSsrcBoundToPayloadType(payload_type, ssrc));
-  EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
-}
 
 // If one sink is associated with SSRC x, and another sink with RSID y, then if
 // we receive a packet with both SSRC x and RSID y, route that to only the sink
@@ -847,9 +745,6 @@ TEST_F(RtpDemuxerTest,
   NiceMock<MockRtpPacketSink> rsid_sink;
   AddSinkOnlyRsid(rsid, &rsid_sink);
 
-  NiceMock<MockSsrcBindingObserver> observer;
-  RegisterSsrcBindingObserver(&observer);
-
   // The SSRC was mapped to an SSRC sink, but was even active (packets flowed
   // over it).
   auto packet = CreatePacketWithSsrcRsid(ssrc, rsid);
@@ -860,7 +755,6 @@ TEST_F(RtpDemuxerTest,
   // is guaranteed.
   RemoveSink(&ssrc_sink);
   EXPECT_CALL(rsid_sink, OnRtpPacket(SamePacketAs(*packet))).Times(AtLeast(0));
-  EXPECT_CALL(observer, OnSsrcBoundToRsid(rsid, ssrc)).Times(AtLeast(0));
   EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
 }
 
@@ -1065,15 +959,13 @@ TEST_F(RtpDemuxerTest, DropByPayloadTypeIfAddedInMultipleSinks) {
   constexpr uint8_t payload_type = 30;
   constexpr uint32_t ssrc = 10;
 
-  RtpDemuxerCriteria mid1_pt;
-  mid1_pt.mid = mid1;
-  mid1_pt.payload_types = {payload_type};
+  RtpDemuxerCriteria mid1_pt(mid1);
+  mid1_pt.payload_types() = {payload_type};
   MockRtpPacketSink sink1;
   AddSink(mid1_pt, &sink1);
 
-  RtpDemuxerCriteria mid2_pt;
-  mid2_pt.mid = mid2;
-  mid2_pt.payload_types = {payload_type};
+  RtpDemuxerCriteria mid2_pt(mid2);
+  mid2_pt.payload_types() = {payload_type};
   MockRtpPacketSink sink2;
   AddSink(mid2_pt, &sink2);
 
@@ -1093,15 +985,13 @@ TEST_F(RtpDemuxerTest, RoutedByPayloadTypeIfAmbiguousSinkRemoved) {
   constexpr uint8_t payload_type = 30;
   constexpr uint32_t ssrc = 10;
 
-  RtpDemuxerCriteria mid1_pt;
-  mid1_pt.mid = mid1;
-  mid1_pt.payload_types = {payload_type};
+  RtpDemuxerCriteria mid1_pt(mid1);
+  mid1_pt.payload_types().insert(payload_type);
   MockRtpPacketSink sink1;
   AddSink(mid1_pt, &sink1);
 
-  RtpDemuxerCriteria mid2_pt;
-  mid2_pt.mid = mid2;
-  mid2_pt.payload_types = {payload_type};
+  RtpDemuxerCriteria mid2_pt(mid2);
+  mid2_pt.payload_types().insert(payload_type);
   MockRtpPacketSink sink2;
   AddSink(mid2_pt, &sink2);
 
@@ -1121,7 +1011,7 @@ TEST_F(RtpDemuxerTest, RoutedByPayloadTypeLatchesSsrc) {
   constexpr uint32_t ssrc = 10;
 
   RtpDemuxerCriteria pt;
-  pt.payload_types = {payload_type};
+  pt.payload_types().insert(payload_type);
   NiceMock<MockRtpPacketSink> sink;
   AddSink(pt, &sink);
 
@@ -1208,7 +1098,7 @@ TEST_F(RtpDemuxerTest, RouteByPayloadTypeMultipleMatch) {
 
   MockRtpPacketSink sink;
   RtpDemuxerCriteria criteria;
-  criteria.payload_types = {pt1, pt2};
+  criteria.payload_types() = {pt1, pt2};
   AddSink(criteria, &sink);
 
   auto packet_with_pt1 = CreatePacketWithSsrc(ssrc);
@@ -1241,10 +1131,8 @@ TEST_F(RtpDemuxerTest, DemuxBySsrcEvenWithMidAndRsid) {
   const std::string rsid = "1";
   constexpr uint32_t ssrc = 10;
 
-  RtpDemuxerCriteria criteria;
-  criteria.rsid = rsid;
-  criteria.mid = mid;
-  criteria.ssrcs = {ssrc};
+  RtpDemuxerCriteria criteria(mid, rsid);
+  criteria.ssrcs().insert(ssrc);
   MockRtpPacketSink sink;
   AddSink(criteria, &sink);
 
@@ -1262,8 +1150,8 @@ TEST_F(RtpDemuxerTest, DoNotCheckPayloadTypeIfMatchedByOtherCriteria) {
   constexpr uint8_t different_payload_type = payload_type + 1;
 
   RtpDemuxerCriteria criteria;
-  criteria.ssrcs = {ssrc};
-  criteria.payload_types = {payload_type};
+  criteria.ssrcs().insert(ssrc);
+  criteria.payload_types().insert(payload_type);
   MockRtpPacketSink sink;
   AddSink(criteria, &sink);
 
@@ -1321,10 +1209,8 @@ TEST_F(RtpDemuxerTest, PacketWithMidAndUnknownRsidIsNotRoutedBySsrc) {
   const std::string rsid = "1";
   const std::string wrong_rsid = "2";
 
-  RtpDemuxerCriteria criteria;
-  criteria.mid = mid;
-  criteria.rsid = rsid;
-  criteria.ssrcs = {ssrc};
+  RtpDemuxerCriteria criteria(mid, rsid);
+  criteria.ssrcs().insert(ssrc);
   MockRtpPacketSink sink;
   AddSink(criteria, &sink);
 
@@ -1342,10 +1228,8 @@ TEST_F(RtpDemuxerTest, PacketWithMidAndUnknownRsidIsNotRoutedByPayloadType) {
   const std::string wrong_rsid = "2";
   constexpr uint8_t payload_type = 30;
 
-  RtpDemuxerCriteria criteria;
-  criteria.mid = mid;
-  criteria.rsid = rsid;
-  criteria.payload_types = {payload_type};
+  RtpDemuxerCriteria criteria(mid, rsid);
+  criteria.payload_types().insert(payload_type);
   MockRtpPacketSink sink;
   AddSink(criteria, &sink);
 
@@ -1355,167 +1239,46 @@ TEST_F(RtpDemuxerTest, PacketWithMidAndUnknownRsidIsNotRoutedByPayloadType) {
   EXPECT_FALSE(demuxer_.OnRtpPacket(*packet));
 }
 
-// Observers are only notified of an SSRC binding to an RSID if we care about
-// the RSID (i.e., have a sink added for that RSID).
-TEST_F(RtpDemuxerTest, ObserversNotNotifiedOfUntrackedRsids) {
-  const std::string rsid = "1";
-  constexpr uint32_t ssrc = 111;
+TEST_F(RtpDemuxerTest, MidMustNotExceedMaximumLength) {
+  MockRtpPacketSink sink1;
+  std::string mid1(BaseRtpStringExtension::kMaxValueSizeBytes + 1, 'a');
+  // Adding the sink should pass even though the supplied mid is too long.
+  // The mid will be truncated though.
+  EXPECT_TRUE(AddSinkOnlyMid(mid1, &sink1));
 
-  MockSsrcBindingObserver rsid_resolution_observers[3];
-  for (auto& observer : rsid_resolution_observers) {
-    RegisterSsrcBindingObserver(&observer);
-    EXPECT_CALL(observer, OnSsrcBoundToRsid(_, _)).Times(0);
-  }
+  // Adding a second sink with a mid that matches the truncated mid that was
+  // just added, should fail.
+  MockRtpPacketSink sink2;
+  std::string mid2(mid1.substr(0, BaseRtpStringExtension::kMaxValueSizeBytes));
+  EXPECT_FALSE(AddSinkOnlyMid(mid2, &sink2));
+  EXPECT_FALSE(RemoveSink(&sink2));
 
-  // Since no sink is registered for this SSRC/RSID, expect the packet to not be
-  // routed and no observers notified of the SSRC -> RSID binding.
-  EXPECT_FALSE(demuxer_.OnRtpPacket(*CreatePacketWithSsrcRsid(ssrc, rsid)));
-}
-
-// Ensure that observers are notified of SSRC bindings only once per unique
-// binding source (e.g., SSRC -> MID, SSRC -> RSID, etc.)
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundtoMidOnlyOnce) {
-  const std::string mid = "v";
-  constexpr uint32_t ssrc = 10;
-
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyMid(mid, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  EXPECT_CALL(observer, OnSsrcBoundToMid(mid, ssrc)).Times(1);
-
-  demuxer_.OnRtpPacket(*CreatePacketWithSsrcMid(ssrc, mid));
-  demuxer_.OnRtpPacket(*CreatePacketWithSsrcMid(ssrc, mid));
-}
-
-// Ensure that when a new SSRC -> MID binding is discovered observers are also
-// notified of that, even if there has already been an SSRC bound to the MID.
-TEST_F(RtpDemuxerTest, ObserversNotifiedOfSsrcBoundtoMidWhenSsrcChanges) {
-  const std::string mid = "v";
-  constexpr uint32_t ssrc1 = 10;
-  constexpr uint32_t ssrc2 = 11;
-
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyMid(mid, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  InSequence seq;
-  EXPECT_CALL(observer, OnSsrcBoundToMid(mid, ssrc1)).Times(1);
-  EXPECT_CALL(observer, OnSsrcBoundToMid(mid, ssrc2)).Times(1);
-
-  auto p1 = CreatePacketWithSsrcMid(ssrc1, mid);
-  demuxer_.OnRtpPacket(*p1);
-
-  auto p2 = CreatePacketWithSsrcMid(ssrc2, mid);
-  demuxer_.OnRtpPacket(*p2);
-}
-
-TEST_F(RtpDemuxerTest, DeregisteredRsidObserversNotInformedOfResolutions) {
-  constexpr uint32_t ssrc = 111;
-  const std::string rsid = "a";
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyRsid(rsid, &sink);
-
-  // Register several, then deregister only one, to show that not all of the
-  // observers had been forgotten when one was removed.
-  MockSsrcBindingObserver observer_1;
-  MockSsrcBindingObserver observer_2_removed;
-  MockSsrcBindingObserver observer_3;
-
-  RegisterSsrcBindingObserver(&observer_1);
-  RegisterSsrcBindingObserver(&observer_2_removed);
-  RegisterSsrcBindingObserver(&observer_3);
-
-  DeregisterSsrcBindingObserver(&observer_2_removed);
-
-  EXPECT_CALL(observer_1, OnSsrcBoundToRsid(rsid, ssrc)).Times(1);
-  EXPECT_CALL(observer_2_removed, OnSsrcBoundToRsid(_, _)).Times(0);
-  EXPECT_CALL(observer_3, OnSsrcBoundToRsid(rsid, ssrc)).Times(1);
-
-  // The expected calls to OnSsrcBoundToRsid() will be triggered by this.
-  demuxer_.OnRtpPacket(*CreatePacketWithSsrcRsid(ssrc, rsid));
-}
-
-TEST_F(RtpDemuxerTest,
-       PacketFittingBothRsidSinkAndSsrcSinkTriggersResolutionCallbacks) {
-  constexpr uint32_t ssrc = 111;
-  NiceMock<MockRtpPacketSink> ssrc_sink;
-  AddSinkOnlySsrc(ssrc, &ssrc_sink);
-
-  const std::string rsid = "a";
-  NiceMock<MockRtpPacketSink> rsid_sink;
-  AddSinkOnlyRsid(rsid, &rsid_sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  auto packet = CreatePacketWithSsrcRsid(ssrc, rsid);
-  EXPECT_CALL(observer, OnSsrcBoundToRsid(rsid, ssrc)).Times(1);
-  demuxer_.OnRtpPacket(*packet);
-}
-
-TEST_F(RtpDemuxerTest, MaliciousPeerCannotCauseMemoryOveruse) {
-  const std::string mid = "v";
-
-  NiceMock<MockRtpPacketSink> sink;
-  AddSinkOnlyMid(mid, &sink);
-
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-
-  EXPECT_CALL(observer, OnSsrcBoundToMid(_, _))
-      .Times(AtMost(RtpDemuxer::kMaxSsrcBindings));
-
-  for (int i = 0; i < RtpDemuxer::kMaxSsrcBindings + 1; i++) {
-    auto packet = CreatePacketWithSsrcMid(i, mid);
-    EXPECT_TRUE(demuxer_.OnRtpPacket(*packet));
-  }
+  // Remove the original sink.
+  EXPECT_TRUE(RemoveSink(&sink1));
 }
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
 
-TEST_F(RtpDemuxerTest, CriteriaMustBeNonEmpty) {
+TEST_F(RtpDemuxerDeathTest, CriteriaMustBeNonEmpty) {
   MockRtpPacketSink sink;
   RtpDemuxerCriteria criteria;
   EXPECT_DEATH(AddSink(criteria, &sink), "");
 }
 
-TEST_F(RtpDemuxerTest, RsidMustBeAlphaNumeric) {
+TEST_F(RtpDemuxerDeathTest, RsidMustBeAlphaNumeric) {
   MockRtpPacketSink sink;
   EXPECT_DEATH(AddSinkOnlyRsid("a_3", &sink), "");
 }
 
-TEST_F(RtpDemuxerTest, MidMustBeToken) {
+TEST_F(RtpDemuxerDeathTest, MidMustBeToken) {
   MockRtpPacketSink sink;
   EXPECT_DEATH(AddSinkOnlyMid("a(3)", &sink), "");
 }
 
-TEST_F(RtpDemuxerTest, RsidMustNotExceedMaximumLength) {
+TEST_F(RtpDemuxerDeathTest, RsidMustNotExceedMaximumLength) {
   MockRtpPacketSink sink;
   std::string rsid(BaseRtpStringExtension::kMaxValueSizeBytes + 1, 'a');
   EXPECT_DEATH(AddSinkOnlyRsid(rsid, &sink), "");
-}
-
-TEST_F(RtpDemuxerTest, MidMustNotExceedMaximumLength) {
-  MockRtpPacketSink sink;
-  std::string mid(BaseRtpStringExtension::kMaxValueSizeBytes + 1, 'a');
-  EXPECT_DEATH(AddSinkOnlyMid(mid, &sink), "");
-}
-
-TEST_F(RtpDemuxerTest, DoubleRegisterationOfSsrcBindingObserverDisallowed) {
-  MockSsrcBindingObserver observer;
-  RegisterSsrcBindingObserver(&observer);
-  EXPECT_DEATH(RegisterSsrcBindingObserver(&observer), "");
-}
-
-TEST_F(RtpDemuxerTest,
-       DregisterationOfNeverRegisteredSsrcBindingObserverDisallowed) {
-  MockSsrcBindingObserver observer;
-  EXPECT_DEATH(DeregisterSsrcBindingObserver(&observer), "");
 }
 
 #endif

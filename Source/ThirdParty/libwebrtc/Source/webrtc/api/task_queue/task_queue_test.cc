@@ -9,11 +9,13 @@
  */
 #include "api/task_queue/task_queue_test.h"
 
-#include "absl/memory/memory.h"
+#include <memory>
+
+#include "absl/cleanup/cleanup.h"
 #include "absl/strings/string_view.h"
+#include "api/units/time_delta.h"
 #include "rtc_base/event.h"
 #include "rtc_base/ref_counter.h"
-#include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/time_utils.h"
 
 namespace webrtc {
@@ -37,14 +39,16 @@ TEST_P(TaskQueueTest, PostAndCheckCurrent) {
   rtc::Event event;
   auto queue = CreateTaskQueue(factory, "PostAndCheckCurrent");
 
-  // We're not running a task, so there shouldn't be a current queue.
+  // We're not running a task, so `queue` shouldn't be current.
+  // Note that because rtc::Thread also supports the TQ interface and
+  // TestMainImpl::Init wraps the main test thread (bugs.webrtc.org/9714), that
+  // means that TaskQueueBase::Current() will still return a valid value.
   EXPECT_FALSE(queue->IsCurrent());
-  EXPECT_FALSE(TaskQueueBase::Current());
 
-  queue->PostTask(ToQueuedTask([&event, &queue] {
+  queue->PostTask([&event, &queue] {
     EXPECT_TRUE(queue->IsCurrent());
     event.Set();
-  }));
+  });
   EXPECT_TRUE(event.Wait(1000));
 }
 
@@ -53,20 +57,17 @@ TEST_P(TaskQueueTest, PostCustomTask) {
   rtc::Event ran;
   auto queue = CreateTaskQueue(factory, "PostCustomImplementation");
 
-  class CustomTask : public QueuedTask {
+  class CustomTask {
    public:
     explicit CustomTask(rtc::Event* ran) : ran_(ran) {}
 
-   private:
-    bool Run() override {
-      ran_->Set();
-      return false;  // Do not allow the task to be deleted by the queue.
-    }
+    void operator()() { ran_->Set(); }
 
+   private:
     rtc::Event* const ran_;
   } my_task(&ran);
 
-  queue->PostTask(absl::WrapUnique(&my_task));
+  queue->PostTask(my_task);
   EXPECT_TRUE(ran.Wait(1000));
 }
 
@@ -75,7 +76,7 @@ TEST_P(TaskQueueTest, PostDelayedZero) {
   rtc::Event event;
   auto queue = CreateTaskQueue(factory, "PostDelayedZero");
 
-  queue->PostDelayedTask(ToQueuedTask([&event] { event.Set(); }), 0);
+  queue->PostDelayedTask([&event] { event.Set(); }, TimeDelta::Zero());
   EXPECT_TRUE(event.Wait(1000));
 }
 
@@ -84,9 +85,8 @@ TEST_P(TaskQueueTest, PostFromQueue) {
   rtc::Event event;
   auto queue = CreateTaskQueue(factory, "PostFromQueue");
 
-  queue->PostTask(ToQueuedTask([&event, &queue] {
-    queue->PostTask(ToQueuedTask([&event] { event.Set(); }));
-  }));
+  queue->PostTask(
+      [&event, &queue] { queue->PostTask([&event] { event.Set(); }); });
   EXPECT_TRUE(event.Wait(1000));
 }
 
@@ -97,11 +97,12 @@ TEST_P(TaskQueueTest, PostDelayed) {
       CreateTaskQueue(factory, "PostDelayed", TaskQueueFactory::Priority::HIGH);
 
   int64_t start = rtc::TimeMillis();
-  queue->PostDelayedTask(ToQueuedTask([&event, &queue] {
-                           EXPECT_TRUE(queue->IsCurrent());
-                           event.Set();
-                         }),
-                         100);
+  queue->PostDelayedTask(
+      [&event, &queue] {
+        EXPECT_TRUE(queue->IsCurrent());
+        event.Set();
+      },
+      TimeDelta::Millis(100));
   EXPECT_TRUE(event.Wait(1000));
   int64_t end = rtc::TimeMillis();
   // These tests are a little relaxed due to how "powerful" our test bots can
@@ -118,11 +119,12 @@ TEST_P(TaskQueueTest, PostMultipleDelayed) {
   std::vector<rtc::Event> events(100);
   for (int i = 0; i < 100; ++i) {
     rtc::Event* event = &events[i];
-    queue->PostDelayedTask(ToQueuedTask([event, &queue] {
-                             EXPECT_TRUE(queue->IsCurrent());
-                             event->Set();
-                           }),
-                           i);
+    queue->PostDelayedTask(
+        [event, &queue] {
+          EXPECT_TRUE(queue->IsCurrent());
+          event->Set();
+        },
+        TimeDelta::Millis(i));
   }
 
   for (rtc::Event& e : events)
@@ -134,8 +136,9 @@ TEST_P(TaskQueueTest, PostDelayedAfterDestruct) {
   rtc::Event run;
   rtc::Event deleted;
   auto queue = CreateTaskQueue(factory, "PostDelayedAfterDestruct");
-  queue->PostDelayedTask(
-      ToQueuedTask([&run] { run.Set(); }, [&deleted] { deleted.Set(); }), 100);
+  absl::Cleanup cleanup = [&deleted] { deleted.Set(); };
+  queue->PostDelayedTask([&run, cleanup = std::move(cleanup)] { run.Set(); },
+                         TimeDelta::Millis(100));
   // Destroy the queue.
   queue = nullptr;
   // Task might outlive the TaskQueue, but still should be deleted.
@@ -151,44 +154,39 @@ TEST_P(TaskQueueTest, PostAndReuse) {
 
   int call_count = 0;
 
-  class ReusedTask : public QueuedTask {
+  class ReusedTask {
    public:
     ReusedTask(int* counter, TaskQueueBase* reply_queue, rtc::Event* event)
         : counter_(*counter), reply_queue_(reply_queue), event_(*event) {
       EXPECT_EQ(counter_, 0);
     }
+    ReusedTask(ReusedTask&&) = default;
+    ReusedTask& operator=(ReusedTask&&) = delete;
 
-   private:
-    bool Run() override {
+    void operator()() && {
       if (++counter_ == 1) {
-        reply_queue_->PostTask(absl::WrapUnique(this));
-        // At this point, the object is owned by reply_queue_ and it's
-        // theoratically possible that the object has been deleted (e.g. if
-        // posting wasn't possible).  So, don't touch any member variables here.
-
-        // Indicate to the current queue that ownership has been transferred.
-        return false;
+        reply_queue_->PostTask(std::move(*this));
+        // At this point, the object is in the moved-from state.
       } else {
         EXPECT_EQ(counter_, 2);
         EXPECT_TRUE(reply_queue_->IsCurrent());
         event_.Set();
-        return true;  // Indicate that the object should be deleted.
       }
     }
 
+   private:
     int& counter_;
     TaskQueueBase* const reply_queue_;
     rtc::Event& event_;
   };
 
-  auto task =
-      std::make_unique<ReusedTask>(&call_count, reply_queue.get(), &event);
+  ReusedTask task(&call_count, reply_queue.get(), &event);
   post_queue->PostTask(std::move(task));
   EXPECT_TRUE(event.Wait(1000));
 }
 
 TEST_P(TaskQueueTest, PostALot) {
-  // Waits until DecrementCount called |count| times. Thread safe.
+  // Waits until DecrementCount called `count` times. Thread safe.
   class BlockingCounter {
    public:
     explicit BlockingCounter(int initial_count) : count_(initial_count) {}
@@ -213,16 +211,18 @@ TEST_P(TaskQueueTest, PostALot) {
   int tasks_executed = 0;
   auto task_queue = CreateTaskQueue(factory, "PostALot");
 
-  task_queue->PostTask(ToQueuedTask([&] {
+  task_queue->PostTask([&] {
     // Post tasks from the queue to guarantee that the 1st task won't be
     // executed before the last one is posted.
     for (int i = 0; i < kTaskCount; ++i) {
-      task_queue->PostTask(ToQueuedTask(
-          [&] { ++tasks_executed; }, [&] { all_destroyed.DecrementCount(); }));
+      absl::Cleanup cleanup = [&] { all_destroyed.DecrementCount(); };
+      task_queue->PostTask([&tasks_executed, cleanup = std::move(cleanup)] {
+        ++tasks_executed;
+      });
     }
 
     posting_done.Set();
-  }));
+  });
 
   // Before destroying the task queue wait until all child tasks are posted.
   posting_done.Wait(rtc::Event::kForever);
@@ -255,19 +255,24 @@ TEST_P(TaskQueueTest, PostTwoWithSharedUnprotectedState) {
 
   auto queue = CreateTaskQueue(factory, "PostTwoWithSharedUnprotectedState");
   rtc::Event done;
-  queue->PostTask(ToQueuedTask([&state, &queue, &done] {
+  queue->PostTask([&state, &queue, &done] {
     // Post tasks from queue to guarantee, that 1st task won't be
     // executed before the second one will be posted.
-    queue->PostTask(ToQueuedTask([&state] { state.state = 1; }));
-    queue->PostTask(ToQueuedTask([&state, &done] {
+    queue->PostTask([&state] { state.state = 1; });
+    queue->PostTask([&state, &done] {
       EXPECT_EQ(state.state, 1);
       done.Set();
-    }));
+    });
     // Check, that state changing tasks didn't start yet.
     EXPECT_EQ(state.state, 0);
-  }));
+  });
   EXPECT_TRUE(done.Wait(1000));
 }
+
+// TaskQueueTest is a set of tests for any implementation of the TaskQueueBase.
+// Tests are instantiated next to the concrete implementation(s).
+// https://github.com/google/googletest/blob/master/googletest/docs/advanced.md#creating-value-parameterized-abstract-tests
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TaskQueueTest);
 
 }  // namespace
 }  // namespace webrtc

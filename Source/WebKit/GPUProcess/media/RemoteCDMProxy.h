@@ -43,19 +43,15 @@ struct CDMKeySystemConfiguration;
 struct CDMRestrictions;
 }
 
-namespace IPC {
-class SharedBufferDataReference;
-}
-
 namespace WebKit {
 
 class RemoteCDMInstanceProxy;
 struct RemoteCDMInstanceConfiguration;
 struct RemoteCDMConfiguration;
 
-class RemoteCDMProxy : private IPC::MessageReceiver, public CanMakeWeakPtr<RemoteCDMProxy> {
+class RemoteCDMProxy : public IPC::MessageReceiver {
 public:
-    static std::unique_ptr<RemoteCDMProxy> create(WeakPtr<RemoteCDMFactoryProxy>&&, std::unique_ptr<WebCore::CDMPrivate>&&);
+    static std::unique_ptr<RemoteCDMProxy> create(RemoteCDMFactoryProxy&, std::unique_ptr<WebCore::CDMPrivate>&&);
     ~RemoteCDMProxy();
 
     const RemoteCDMConfiguration& configuration() const { return m_configuration.get(); }
@@ -64,24 +60,35 @@ public:
 
     bool supportsInitData(const AtomString&, const WebCore::SharedBuffer&);
     RefPtr<WebCore::SharedBuffer> sanitizeResponse(const WebCore::SharedBuffer& response);
-    Optional<String> sanitizeSessionId(const String& sessionId);
+    std::optional<String> sanitizeSessionId(const String& sessionId);
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    const void* logIdentifier() const { return m_logIdentifier; }
+#endif
 
 private:
     friend class RemoteCDMFactoryProxy;
-    RemoteCDMProxy(WeakPtr<RemoteCDMFactoryProxy>&&, std::unique_ptr<WebCore::CDMPrivate>&&, UniqueRef<RemoteCDMConfiguration>&&);
+    RemoteCDMProxy(RemoteCDMFactoryProxy&, std::unique_ptr<WebCore::CDMPrivate>&&, UniqueRef<RemoteCDMConfiguration>&&);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // Messages
-    void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&&, WebCore::CDMPrivate::LocalStorageAccess, WebCore::CDMPrivate::SupportedConfigurationCallback&&);
+    void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&&, WebCore::CDMPrivate::LocalStorageAccess, CompletionHandler<void(std::optional<WebCore::CDMKeySystemConfiguration>)>&&);
     void createInstance(CompletionHandler<void(RemoteCDMInstanceIdentifier, RemoteCDMInstanceConfiguration&&)>&&);
     void loadAndInitialize();
+    void setLogIdentifier(uint64_t);
 
     WeakPtr<RemoteCDMFactoryProxy> m_factory;
     std::unique_ptr<WebCore::CDMPrivate> m_private;
     UniqueRef<RemoteCDMConfiguration> m_configuration;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier { nullptr };
+#endif
 };
 
 }

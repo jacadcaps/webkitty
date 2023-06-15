@@ -43,39 +43,53 @@ Ref<ScrollingTreeOverflowScrollingNodeIOS> ScrollingTreeOverflowScrollingNodeIOS
 
 ScrollingTreeOverflowScrollingNodeIOS::ScrollingTreeOverflowScrollingNodeIOS(WebCore::ScrollingTree& scrollingTree, WebCore::ScrollingNodeID nodeID)
     : ScrollingTreeOverflowScrollingNode(scrollingTree, nodeID)
-    , m_scrollingNodeDelegate(makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this))
 {
+    m_delegate = makeUnique<ScrollingTreeScrollingNodeDelegateIOS>(*this);
 }
 
 ScrollingTreeOverflowScrollingNodeIOS::~ScrollingTreeOverflowScrollingNodeIOS()
 {
 }
 
+ScrollingTreeScrollingNodeDelegateIOS& ScrollingTreeOverflowScrollingNodeIOS::delegate() const
+{
+    return *static_cast<ScrollingTreeScrollingNodeDelegateIOS*>(m_delegate.get());
+}
+
 UIScrollView* ScrollingTreeOverflowScrollingNodeIOS::scrollView() const
 {
-    return m_scrollingNodeDelegate->scrollView();
+    return delegate().scrollView();
 }
 
-void ScrollingTreeOverflowScrollingNodeIOS::commitStateBeforeChildren(const WebCore::ScrollingStateNode& stateNode)
+bool ScrollingTreeOverflowScrollingNodeIOS::commitStateBeforeChildren(const WebCore::ScrollingStateNode& stateNode)
 {
-    if (stateNode.hasChangedProperty(ScrollingStateScrollingNode::ScrollContainerLayer))
-        m_scrollingNodeDelegate->resetScrollViewDelegate();
+    if (!is<ScrollingStateScrollingNode>(stateNode))
+        return false;
 
-    ScrollingTreeOverflowScrollingNode::commitStateBeforeChildren(stateNode);
-    m_scrollingNodeDelegate->commitStateBeforeChildren(downcast<ScrollingStateScrollingNode>(stateNode));
+    if (stateNode.hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer))
+        delegate().resetScrollViewDelegate();
+
+    if (!ScrollingTreeOverflowScrollingNode::commitStateBeforeChildren(stateNode))
+        return false;
+
+    delegate().commitStateBeforeChildren(downcast<ScrollingStateScrollingNode>(stateNode));
+    return true;
 }
 
-void ScrollingTreeOverflowScrollingNodeIOS::commitStateAfterChildren(const ScrollingStateNode& stateNode)
+bool ScrollingTreeOverflowScrollingNodeIOS::commitStateAfterChildren(const ScrollingStateNode& stateNode)
 {
-    ScrollingTreeOverflowScrollingNode::commitStateAfterChildren(stateNode);
+    if (!is<ScrollingStateScrollingNode>(stateNode))
+        return false;
 
     const auto& scrollingStateNode = downcast<ScrollingStateScrollingNode>(stateNode);
-    m_scrollingNodeDelegate->commitStateAfterChildren(scrollingStateNode);
+    delegate().commitStateAfterChildren(scrollingStateNode);
+
+    return ScrollingTreeOverflowScrollingNode::commitStateAfterChildren(stateNode);
 }
 
 void ScrollingTreeOverflowScrollingNodeIOS::repositionScrollingLayers()
 {
-    m_scrollingNodeDelegate->repositionScrollingLayers();
+    delegate().repositionScrollingLayers();
 }
 
 } // namespace WebKit

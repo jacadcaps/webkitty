@@ -25,7 +25,8 @@
 
 #import <WebKit/WKFoundation.h>
 
-WK_CLASS_AVAILABLE(macos(10.11), ios(9.0))
+// FIXME: Remove this once rdar://100785999 is unblocked.
+WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKContentRuleList", macos(10.11, WK_MAC_TBA), ios(9.0, WK_IOS_TBA))
 @interface _WKUserContentFilter : NSObject
 
 @end

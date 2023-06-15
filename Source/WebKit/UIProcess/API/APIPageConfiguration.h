@@ -26,12 +26,12 @@
 #pragma once
 
 #include "APIObject.h"
-#include "WebViewCategory.h"
+#include <WebCore/ContentSecurityPolicy.h>
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <wtf/Forward.h>
 #include <wtf/GetPtr.h>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
+#include <wtf/RobinHoodHashSet.h>
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -48,6 +48,19 @@ class WebProcessPool;
 class WebURLSchemeHandler;
 class WebUserContentControllerProxy;
 class WebsiteDataStore;
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+class WebExtensionController;
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+enum class AttributionOverrideTesting : uint8_t {
+    NoOverride,
+    UserInitiated,
+    AppInitiated
+};
+#endif
+
 }
 
 namespace API {
@@ -73,6 +86,14 @@ public:
     WebKit::WebUserContentControllerProxy* userContentController();
     void setUserContentController(WebKit::WebUserContentControllerProxy*);
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+    WebKit::WebExtensionController* webExtensionController();
+    void setWebExtensionController(WebKit::WebExtensionController*);
+
+    WebKit::WebExtensionController* weakWebExtensionController();
+    void setWeakWebExtensionController(WebKit::WebExtensionController*);
+#endif
+
     WebKit::WebPageGroup* pageGroup();
     void setPageGroup(WebKit::WebPageGroup*);
 
@@ -81,6 +102,9 @@ public:
 
     WebKit::WebPageProxy* relatedPage() const;
     void setRelatedPage(WebKit::WebPageProxy*);
+
+    WebKit::WebPageProxy* pageToCloneSessionStorageFrom() const;
+    void setPageToCloneSessionStorageFrom(WebKit::WebPageProxy*);
 
     WebKit::VisitedLinkStore* visitedLinkStore();
     void setVisitedLinkStore(WebKit::VisitedLinkStore*);
@@ -104,7 +128,7 @@ public:
     bool initialCapitalizationEnabled() { return m_initialCapitalizationEnabled; }
     void setInitialCapitalizationEnabled(bool initialCapitalizationEnabled) { m_initialCapitalizationEnabled = initialCapitalizationEnabled; }
 
-    Optional<double> cpuLimit() const { return m_cpuLimit; }
+    std::optional<double> cpuLimit() const { return m_cpuLimit; }
     void setCPULimit(double cpuLimit) { m_cpuLimit = cpuLimit; }
 
     bool waitsForPaintAfterViewDidMoveToWindow() const { return m_waitsForPaintAfterViewDidMoveToWindow; }
@@ -135,7 +159,10 @@ public:
 
     const Vector<WTF::String>& corsDisablingPatterns() const { return m_corsDisablingPatterns; }
     void setCORSDisablingPatterns(Vector<WTF::String>&& patterns) { m_corsDisablingPatterns = WTFMove(patterns); }
-    
+
+    const HashSet<WTF::String>& maskedURLSchemes() const { return m_maskedURLSchemes; }
+    void setMaskedURLSchemes(HashSet<WTF::String>&& schemes) { m_maskedURLSchemes = WTFMove(schemes); }
+
     bool userScriptsShouldWaitUntilNotification() const { return m_userScriptsShouldWaitUntilNotification; }
     void setUserScriptsShouldWaitUntilNotification(bool value) { m_userScriptsShouldWaitUntilNotification = value; }
 
@@ -145,31 +172,60 @@ public:
     const WTF::String& processDisplayName() const { return m_processDisplayName; }
     void setProcessDisplayName(const WTF::String& name) { m_processDisplayName = name; }
 
-    WebKit::WebViewCategory webViewCategory() const { return m_webViewCategory; }
-    void setWebViewCategory(WebKit::WebViewCategory category) { m_webViewCategory = category; }
-
-    bool ignoresAppBoundDomains() const { return m_ignoresAppBoundDomains; }
-    void setIgnoresAppBoundDomains(bool shouldIgnore) { m_ignoresAppBoundDomains = shouldIgnore; }
-
     bool loadsSubresources() const { return m_loadsSubresources; }
     void setLoadsSubresources(bool loads) { m_loadsSubresources = loads; }
 
-    bool loadsFromNetwork() const { return m_loadsFromNetwork; }
-    void setLoadsFromNetwork(bool loads) { m_loadsFromNetwork = loads; }
+    const std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>>& allowedNetworkHosts() const { return m_allowedNetworkHosts; }
+    void setAllowedNetworkHosts(std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>>&& hosts) { m_allowedNetworkHosts = WTFMove(hosts); }
 
+#if ENABLE(APP_BOUND_DOMAINS)
+    bool ignoresAppBoundDomains() const { return m_ignoresAppBoundDomains; }
+    void setIgnoresAppBoundDomains(bool shouldIgnore) { m_ignoresAppBoundDomains = shouldIgnore; }
+    
     bool limitsNavigationsToAppBoundDomains() const { return m_limitsNavigationsToAppBoundDomains; }
     void setLimitsNavigationsToAppBoundDomains(bool limits) { m_limitsNavigationsToAppBoundDomains = limits; }
+#endif
+
+    void setMediaCaptureEnabled(bool value) { m_mediaCaptureEnabled = value; }
+    bool mediaCaptureEnabled() const { return m_mediaCaptureEnabled; }
+
+    void setHTTPSUpgradeEnabled(bool enabled) { m_httpsUpgradeEnabled = enabled; }
+    bool httpsUpgradeEnabled() const { return m_httpsUpgradeEnabled; }
 
     void setShouldRelaxThirdPartyCookieBlocking(WebCore::ShouldRelaxThirdPartyCookieBlocking value) { m_shouldRelaxThirdPartyCookieBlocking = value; }
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking() const { return m_shouldRelaxThirdPartyCookieBlocking; }
-    
+
+    void setAttributedBundleIdentifier(WTF::String&& identifier) { m_attributedBundleIdentifier = WTFMove(identifier); }
+    const WTF::String& attributedBundleIdentifier() const { return m_attributedBundleIdentifier; }
+
+#if PLATFORM(IOS_FAMILY)
+    WebKit::AttributionOverrideTesting appInitiatedOverrideValueForTesting() const { return m_appInitiatedOverrideValueForTesting; }
+    void setAppInitiatedOverrideValueForTesting(WebKit::AttributionOverrideTesting appInitiatedOverrideValueForTesting) { m_appInitiatedOverrideValueForTesting = appInitiatedOverrideValueForTesting; }
+#endif
+
+#if HAVE(TOUCH_BAR)
+    bool requiresUserActionForEditingControlsManager() const { return m_requiresUserActionForEditingControlsManager; }
+    void setRequiresUserActionForEditingControlsManager(bool value) { m_requiresUserActionForEditingControlsManager = value; }
+#endif
+
+    bool isLockdownModeExplicitlySet() const;
+    bool lockdownModeEnabled() const;
+
+    void setContentSecurityPolicyModeForExtension(WebCore::ContentSecurityPolicyModeForExtension mode) { m_contentSecurityPolicyModeForExtension = mode; }
+    WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension() const { return m_contentSecurityPolicyModeForExtension; }
+
 private:
 
     RefPtr<WebKit::WebProcessPool> m_processPool;
     RefPtr<WebKit::WebUserContentControllerProxy> m_userContentController;
+#if ENABLE(WK_WEB_EXTENSIONS)
+    RefPtr<WebKit::WebExtensionController> m_webExtensionController;
+    WeakPtr<WebKit::WebExtensionController> m_weakWebExtensionController;
+#endif
     RefPtr<WebKit::WebPageGroup> m_pageGroup;
     RefPtr<WebKit::WebPreferences> m_preferences;
     RefPtr<WebKit::WebPageProxy> m_relatedPage;
+    WeakPtr<WebKit::WebPageProxy> m_pageToCloneSessionStorageFrom;
     RefPtr<WebKit::VisitedLinkStore> m_visitedLinkStore;
 
     RefPtr<WebKit::WebsiteDataStore> m_websiteDataStore;
@@ -184,7 +240,7 @@ private:
     bool m_waitsForPaintAfterViewDidMoveToWindow { true };
     bool m_drawsBackground { true };
     bool m_controlledByAutomation { false };
-    Optional<double> m_cpuLimit;
+    std::optional<double> m_cpuLimit;
 
     WTF::String m_overrideContentSecurityPolicy;
 
@@ -198,15 +254,33 @@ private:
 
     HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>> m_urlSchemeHandlers;
     Vector<WTF::String> m_corsDisablingPatterns;
+    HashSet<WTF::String> m_maskedURLSchemes;
     bool m_userScriptsShouldWaitUntilNotification { true };
     bool m_crossOriginAccessControlCheckEnabled { true };
     WTF::String m_processDisplayName;
-    WebKit::WebViewCategory m_webViewCategory { WebKit::WebViewCategory::AppBoundDomain };
-    bool m_ignoresAppBoundDomains { false };
     bool m_loadsSubresources { true };
-    bool m_loadsFromNetwork { true };
+    std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>> m_allowedNetworkHosts;
+    
+#if ENABLE(APP_BOUND_DOMAINS)
+    bool m_ignoresAppBoundDomains { false };
     bool m_limitsNavigationsToAppBoundDomains { false };
+#endif
+
+    bool m_mediaCaptureEnabled { false };
+    bool m_httpsUpgradeEnabled { true };
+
     WebCore::ShouldRelaxThirdPartyCookieBlocking m_shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
+    WTF::String m_attributedBundleIdentifier;
+
+#if PLATFORM(IOS_FAMILY)
+    WebKit::AttributionOverrideTesting m_appInitiatedOverrideValueForTesting { WebKit::AttributionOverrideTesting::NoOverride };
+#endif
+
+#if HAVE(TOUCH_BAR)
+    bool m_requiresUserActionForEditingControlsManager { false };
+#endif
+
+    WebCore::ContentSecurityPolicyModeForExtension m_contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
 };
 
 } // namespace API

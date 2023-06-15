@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython3
 
 # Copyright (c) 2018 The WebRTC project authors. All Rights Reserved.
 #
@@ -27,7 +27,6 @@ def TemporaryDirectory():
 
 
 class GtestParallelWrapperHelpersTest(unittest.TestCase):
-
   def testGetWorkersAsIs(self):
     # pylint: disable=protected-access
     self.assertEqual(gtest_parallel_wrapper._ParseWorkersOption('12'), 12)
@@ -40,12 +39,11 @@ class GtestParallelWrapperHelpersTest(unittest.TestCase):
   def testGetHalfWorkers(self):
     expected = max(multiprocessing.cpu_count() // 2, 1)
     # pylint: disable=protected-access
-    self.assertEqual(
-        gtest_parallel_wrapper._ParseWorkersOption('0.5x'), expected)
+    self.assertEqual(gtest_parallel_wrapper._ParseWorkersOption('0.5x'),
+                     expected)
 
 
 class GtestParallelWrapperTest(unittest.TestCase):
-
   @classmethod
   def _Expected(cls, gtest_parallel_args):
     return ['--shard_index=0', '--shard_count=1'] + gtest_parallel_args

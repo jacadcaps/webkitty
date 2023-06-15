@@ -15,6 +15,9 @@
 #include <memory>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "test/time_controller/simulated_time_controller.h"
 
 namespace webrtc {
@@ -30,26 +33,28 @@ class SimulatedTaskQueue : public TaskQueueBase,
   void RunReady(Timestamp at_time) override;
 
   Timestamp GetNextRunTime() const override {
-    rtc::CritScope lock(&lock_);
+    MutexLock lock(&lock_);
     return next_run_time_;
   }
   TaskQueueBase* GetAsTaskQueue() override { return this; }
 
   // TaskQueueBase interface
   void Delete() override;
-  void PostTask(std::unique_ptr<QueuedTask> task) override;
-  void PostDelayedTask(std::unique_ptr<QueuedTask> task,
-                       uint32_t milliseconds) override;
+  void PostTask(absl::AnyInvocable<void() &&> task) override;
+  void PostDelayedTask(absl::AnyInvocable<void() &&> task,
+                       TimeDelta delay) override;
+  void PostDelayedHighPrecisionTask(absl::AnyInvocable<void() &&> task,
+                                    TimeDelta delay) override;
 
  private:
   sim_time_impl::SimulatedTimeControllerImpl* const handler_;
   // Using char* to be debugger friendly.
   char* name_;
 
-  rtc::CriticalSection lock_;
+  mutable Mutex lock_;
 
-  std::deque<std::unique_ptr<QueuedTask>> ready_tasks_ RTC_GUARDED_BY(lock_);
-  std::map<Timestamp, std::vector<std::unique_ptr<QueuedTask>>> delayed_tasks_
+  std::deque<absl::AnyInvocable<void() &&>> ready_tasks_ RTC_GUARDED_BY(lock_);
+  std::map<Timestamp, std::vector<absl::AnyInvocable<void() &&>>> delayed_tasks_
       RTC_GUARDED_BY(lock_);
 
   Timestamp next_run_time_ RTC_GUARDED_BY(lock_) = Timestamp::PlusInfinity();

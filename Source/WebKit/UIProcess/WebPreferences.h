@@ -25,13 +25,13 @@
 
 #pragma once
 
-#include "APIExperimentalFeature.h"
-#include "APIInternalDebugFeature.h"
+#include "APIFeature.h"
 #include "APIObject.h"
 #include "WebPreferencesDefinitions.h"
 #include "WebPreferencesStore.h"
-#include <wtf/HashSet.h>
+#include <WebCore/LibWebRTCProvider.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakHashSet.h>
 
 #define DECLARE_PREFERENCE_GETTER_AND_SETTERS(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
     void set##KeyUpper(const Type& value); \
@@ -59,38 +59,59 @@ public:
 
     const WebPreferencesStore& store() const { return m_store; }
 
+    // Implemented in generated file WebPreferencesGetterSetters.cpp.
     FOR_EACH_WEBKIT_PREFERENCE(DECLARE_PREFERENCE_GETTER_AND_SETTERS)
-    FOR_EACH_WEBKIT_DEBUG_PREFERENCE(DECLARE_PREFERENCE_GETTER_AND_SETTERS)
-    FOR_EACH_WEBKIT_INTERNAL_DEBUG_FEATURE_PREFERENCE(DECLARE_PREFERENCE_GETTER_AND_SETTERS)
-    FOR_EACH_WEBKIT_EXPERIMENTAL_FEATURE_PREFERENCE(DECLARE_PREFERENCE_GETTER_AND_SETTERS)
 
+    static const Vector<RefPtr<API::Object>>& features();
     static const Vector<RefPtr<API::Object>>& experimentalFeatures();
-    bool isFeatureEnabled(const API::ExperimentalFeature&) const;
-    void setFeatureEnabled(const API::ExperimentalFeature&, bool);
-    void setExperimentalFeatureEnabledForKey(const String&, bool);
-    void enableAllExperimentalFeatures();
-
     static const Vector<RefPtr<API::Object>>& internalDebugFeatures();
-    bool isFeatureEnabled(const API::InternalDebugFeature&) const;
-    void setFeatureEnabled(const API::InternalDebugFeature&, bool);
-    void setInternalDebugFeatureEnabledForKey(const String&, bool);
+    
+    bool isFeatureEnabled(const API::Feature&) const;
+    void setFeatureEnabled(const API::Feature&, bool);
+    void setFeatureEnabledForKey(const String&, bool);
+
+    // FIXME: Update for unified feature semantics
+    // enableAllExperimentalFeatures() should enable settings for testing based on status, or be replaced with an API that WebKitTestRunner can use to enable arbitrary settings.
+    void enableAllExperimentalFeatures();
     void resetAllInternalDebugFeatures();
 
     // Exposed for WebKitTestRunner use only.
+    void setBoolValueForKey(const String&, bool value, bool ephemeral);
+    void setDoubleValueForKey(const String&, double value, bool ephemeral);
+    void setUInt32ValueForKey(const String&, uint32_t value, bool ephemeral);
+    void setStringValueForKey(const String&, const String& value, bool ephemeral);
     void forceUpdate() { update(); }
+
+    void startBatchingUpdates();
+    void endBatchingUpdates();
 
 private:
     void platformInitializeStore();
 
     void update();
 
-    void updateStringValueForKey(const String& key, const String& value);
-    void updateBoolValueForKey(const String& key, bool value);
-    void updateBoolValueForInternalDebugFeatureKey(const String& key, bool value);
-    void updateBoolValueForExperimentalFeatureKey(const String& key, bool value);
-    void updateUInt32ValueForKey(const String& key, uint32_t value);
-    void updateDoubleValueForKey(const String& key, double value);
-    void updateFloatValueForKey(const String& key, float value);
+    class UpdateBatch {
+    public:
+        explicit UpdateBatch(WebPreferences& preferences)
+            : m_preferences(preferences)
+        {
+            m_preferences.startBatchingUpdates();
+        }
+        
+        ~UpdateBatch()
+        {
+            m_preferences.endBatchingUpdates();
+        }
+        
+    private:
+        WebPreferences& m_preferences;
+    };
+
+    void updateStringValueForKey(const String& key, const String& value, bool ephemeral);
+    void updateBoolValueForKey(const String& key, bool value, bool ephemeral);
+    void updateUInt32ValueForKey(const String& key, uint32_t value, bool ephemeral);
+    void updateDoubleValueForKey(const String& key, double value, bool ephemeral);
+    void updateFloatValueForKey(const String& key, float value, bool ephemeral);
     void platformUpdateStringValueForKey(const String& key, const String& value);
     void platformUpdateBoolValueForKey(const String& key, bool value);
     void platformUpdateUInt32ValueForKey(const String& key, uint32_t value);
@@ -113,7 +134,9 @@ private:
     const String m_globalDebugKeyPrefix;
     WebPreferencesStore m_store;
 
-    HashSet<WebPageProxy*> m_pages;
+    WeakHashSet<WebPageProxy> m_pages;
+    unsigned m_updateBatchCount { 0 };
+    bool m_needUpdateAfterBatch { false };
 };
 
 } // namespace WebKit

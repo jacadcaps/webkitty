@@ -35,7 +35,7 @@ WI.GraphicsTabContentView = class GraphicsTabContentView extends WI.ContentBrows
                 WI.CanvasDetailsSidebarPanel,
                 WI.AnimationDetailsSidebarPanel,
             ],
-            disableBackForward: true,
+            hideBackForwardButtons: true,
         });
 
         this._canvasesTreeOutline = new WI.TreeOutline;
@@ -136,9 +136,22 @@ WI.GraphicsTabContentView = class GraphicsTabContentView extends WI.ContentBrows
         // FIXME: implement once <https://webkit.org/b/177606> is complete.
     }
 
-    async handleFileDrop(files)
+    // DropZoneView delegate
+
+    dropZoneShouldAppearForDragEvent(dropZone, event)
     {
-        await WI.FileUtilities.readJSON(files, (result) => WI.canvasManager.processJSON(result));
+        return event.dataTransfer.types.includes("Files");
+    }
+
+    dropZoneHandleDrop(dropZone, event)
+    {
+        let files = event.dataTransfer.files;
+        if (files.length !== 1) {
+            InspectorFrontendHost.beep();
+            return;
+        }
+
+        WI.FileUtilities.readJSON(files, (result) => WI.canvasManager.processJSON(result));
     }
 
     // Protected
@@ -187,8 +200,19 @@ WI.GraphicsTabContentView = class GraphicsTabContentView extends WI.ContentBrows
 
     initialLayout()
     {
+        super.initialLayout();
+
         this._overviewContentView = new WI.GraphicsOverviewContentView;
-        this.contentBrowser.showContentView(this._overviewContentView);
+
+        // FIXME: <https://webkit.org/b/224650> (Web Inspector: audit for re-entrancy issues with `initialLayout` and `layout`)
+        setTimeout(() => {
+            this.contentBrowser.showContentView(this._overviewContentView);
+        });
+
+        let dropZoneView = new WI.DropZoneView(this);
+        dropZoneView.text = WI.UIString("Import Recording");
+        dropZoneView.targetElement = this.element;
+        this.addSubview(dropZoneView);
     }
 
     // Private
@@ -215,7 +239,9 @@ WI.GraphicsTabContentView = class GraphicsTabContentView extends WI.ContentBrows
         this._canvasesTreeElement.removeChild(treeElement);
 
         let currentContentView = this.contentBrowser.currentContentView;
-        if (currentContentView instanceof WI.CanvasContentView)
+        if (currentContentView instanceof WI.CanvasContentView && canvas === currentContentView.representedObject)
+            WI.showRepresentedObject(WI.canvasManager.canvasCollection);
+        else if (currentContentView instanceof WI.ShaderProgramContentView && canvas === currentContentView.representedObject.canvas)
             WI.showRepresentedObject(WI.canvasManager.canvasCollection);
         else if (currentContentView instanceof WI.RecordingContentView && canvas.recordingCollection.has(currentContentView.representedObject))
             this.contentBrowser.updateHierarchicalPathForCurrentContentView();

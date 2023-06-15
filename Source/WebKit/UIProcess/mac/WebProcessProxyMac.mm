@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,10 +29,10 @@
 
 #if PLATFORM(MAC)
 
+#import "CodeSigning.h"
 #import "WKFullKeyboardAccessWatcher.h"
-#import <Kernel/kern/cs_blobs.h>
+#import <signal.h>
 #import <wtf/ProcessPrivilege.h>
-#import <wtf/spi/cocoa/SecuritySPI.h>
 
 namespace WebKit {
 
@@ -51,28 +51,49 @@ bool WebProcessProxy::shouldAllowNonValidInjectedCode() const
     if (!isSystemWebKit)
         return false;
 
-    static bool isPlatformBinary = SecTaskGetCodeSignStatus(adoptCF(SecTaskCreateFromSelf(kCFAllocatorDefault)).get()) & CS_PLATFORM_BINARY;
+    static bool isPlatformBinary = currentProcessIsPlatformBinary();
     if (isPlatformBinary)
         return false;
 
     const String& path = m_processPool->configuration().injectedBundlePath();
-    return !path.isEmpty() && !path.startsWith("/System/");
+    return !path.isEmpty() && !path.startsWith("/System/"_s);
 }
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
-void WebProcessProxy::startDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID)
+std::optional<unsigned> WebProcessProxy::nominalFramesPerSecondForDisplay(WebCore::PlatformDisplayID displayID)
+{
+    return processPool().displayLinks().nominalFramesPerSecondForDisplay(displayID);
+}
+
+void WebProcessProxy::startDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID, WebCore::FramesPerSecond preferredFramesPerSecond)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    ASSERT(connection());
-    processPool().startDisplayLink(*connection(), observerID, displayID);
+    processPool().displayLinks().startDisplayLink(m_displayLinkClient, observerID, displayID, preferredFramesPerSecond);
 }
 
 void WebProcessProxy::stopDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID)
 {
-    ASSERT(connection());
-    processPool().stopDisplayLink(*connection(), observerID, displayID);
+    processPool().displayLinks().stopDisplayLink(m_displayLinkClient, observerID, displayID);
 }
-#endif
+
+void WebProcessProxy::setDisplayLinkPreferredFramesPerSecond(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID, WebCore::FramesPerSecond preferredFramesPerSecond)
+{
+    processPool().displayLinks().setDisplayLinkPreferredFramesPerSecond(m_displayLinkClient, observerID, displayID, preferredFramesPerSecond);
+}
+
+void WebProcessProxy::setDisplayLinkForDisplayWantsFullSpeedUpdates(WebCore::PlatformDisplayID displayID, bool wantsFullSpeedUpdates)
+{
+    processPool().displayLinks().setDisplayLinkForDisplayWantsFullSpeedUpdates(m_displayLinkClient, displayID, wantsFullSpeedUpdates);
+}
+
+void WebProcessProxy::platformSuspendProcess()
+{
+    // FIXME: Adopt RunningBoard on macOS to support process suspension.
+}
+
+void WebProcessProxy::platformResumeProcess()
+{
+    // FIXME: Adopt RunningBoard on macOS to support process suspension.
+}
 
 } // namespace WebKit
 

@@ -6,35 +6,34 @@ set(test_main_SOURCES
 
 list(APPEND TestWTF_SOURCES
     ${test_main_SOURCES}
-
-    generic/UtilitiesGeneric.cpp
+)
+list(APPEND TestWTF_PRIVATE_INCLUDE_DIRECTORIES
+    ${WEBKIT_LIBRARIES_DIR}/include
 )
 
-# Both bmalloc and WTF are built as object libraries. The WebKit:: interface
-# targets are used. A limitation of that is the object files are not propagated
-# so they are added here.
-list(APPEND TestWTF_PRIVATE_LIBRARIES
-    $<TARGET_OBJECTS:WTF>
-    $<TARGET_OBJECTS:bmalloc>
+WEBKIT_ADD_TARGET_CXX_FLAGS(TestWTF -Wno-unused-function)
+
+list(APPEND TestJavaScriptCore_SOURCES
+    ${test_main_SOURCES}
 )
+list(APPEND TestJavaScriptCore_PRIVATE_INCLUDE_DIRECTORIES
+    ${WEBKIT_LIBRARIES_DIR}/include
+)
+
+WEBKIT_ADD_TARGET_CXX_FLAGS(TestJavaScriptCore -Wno-unused-function)
 
 list(APPEND TestWebCore_SOURCES
     ${test_main_SOURCES}
-)
 
-# Both PAL and WebCore are built as object libraries. The WebKit:: interface
-# targets are used. A limitation of that is the object files are not propagated
-# so they are added here.
-list(APPEND TestWebCore_PRIVATE_LIBRARIES
-    $<TARGET_OBJECTS:PAL>
-    $<TARGET_OBJECTS:WebCore>
+    Tests/WebCore/curl/OpenSSLHelperTests.cpp
+)
+list(APPEND TestWebCore_PRIVATE_INCLUDE_DIRECTORIES
+    ${WEBKIT_LIBRARIES_DIR}/include
 )
 
 # TestWebKit
 if (ENABLE_WEBKIT)
     target_sources(TestWebKitAPIInjectedBundle PRIVATE
-        generic/UtilitiesGeneric.cpp
-
         playstation/PlatformUtilitiesPlayStation.cpp
     )
 
@@ -43,10 +42,11 @@ if (ENABLE_WEBKIT)
 
         Tests/WebKit/curl/Certificates.cpp
 
-        generic/UtilitiesGeneric.cpp
-
         playstation/PlatformUtilitiesPlayStation.cpp
         playstation/PlatformWebViewPlayStation.cpp
+    )
+    list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
+        ${WEBKIT_LIBRARIES_DIR}/include
     )
 
     # Exclude tests which don't finish.
@@ -54,8 +54,13 @@ if (ENABLE_WEBKIT)
         Tests/WebKit/ForceRepaint.cpp
         Tests/WebKit/Geolocation.cpp
     )
-endif ()
 
+    list(APPEND TestWebKit_PRIVATE_LIBRARIES
+        ${ProcessLauncher_LIBRARY}
+    )
+
+    WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKit -Wno-deprecated-declarations)
+endif ()
 
 # Set the debugger working directory for Visual Studio
 if (${CMAKE_GENERATOR} MATCHES "Visual Studio")

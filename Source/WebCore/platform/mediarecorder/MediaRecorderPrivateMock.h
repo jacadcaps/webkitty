@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,10 +24,11 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 #include "MediaRecorderPrivate.h"
 #include <wtf/Lock.h>
+#include <wtf/MediaTime.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -42,16 +43,18 @@ public:
 
 private:
     // MediaRecorderPrivate
-    void videoSampleAvailable(MediaSample&) final;
+    void videoFrameAvailable(VideoFrame&, VideoFrameTimeMetadata) final;
     void fetchData(FetchDataCallback&&) final;
-    void audioSamplesAvailable(const WTF::MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final;
-    void stopRecording() final;
+    void audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final;
+    void stopRecording(CompletionHandler<void()>&&) final;
+    void pauseRecording(CompletionHandler<void()>&&) final;
+    void resumeRecording(CompletionHandler<void()>&&) final;
+    const String& mimeType() const final;
 
-    const String& mimeType();
-    void generateMockCounterString();
+    void generateMockCounterString() WTF_REQUIRES_LOCK(m_bufferLock);
 
     mutable Lock m_bufferLock;
-    StringBuilder m_buffer;
+    StringBuilder m_buffer WTF_GUARDED_BY_LOCK(m_bufferLock);
     unsigned m_counter { 0 };
     String m_audioTrackID;
     String m_videoTrackID;
@@ -59,4 +62,4 @@ private:
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

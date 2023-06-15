@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,16 +29,13 @@
 #import "WebDatabaseManagerPrivate.h"
 
 #import "WebDatabaseManagerClient.h"
+#import "WebDatabaseProvider.h"
 #import "WebPlatformStrategies.h"
 #import "WebSecurityOriginInternal.h"
 #import <WebCore/DatabaseManager.h>
 #import <WebCore/DatabaseTracker.h>
 #import <WebCore/SecurityOrigin.h>
 #import <wtf/cocoa/VectorCocoa.h>
-
-#if ENABLE(INDEXED_DATABASE)
-#import "WebDatabaseProvider.h"
-#endif
 
 #if PLATFORM(IOS_FAMILY)
 #import "WebDatabaseManagerInternal.h"
@@ -85,7 +82,7 @@ static NSString *databasesDirectoryPath();
     dbManager.initialize(databasesDirectoryPath());
 
     // Set the DatabaseManagerClient
-    dbManager.setClient(WebDatabaseManagerClient::sharedWebDatabaseManagerClient());
+    dbManager.setClient(&WebKit::WebDatabaseManagerClient::sharedWebDatabaseManagerClient());
 
     return self;
 }
@@ -143,9 +140,7 @@ static NSString *databasesDirectoryPath();
 // For DumpRenderTree support only
 - (void)deleteAllIndexedDatabases
 {
-#if ENABLE(INDEXED_DATABASE)
     WebDatabaseProvider::singleton().deleteAllDatabases();
-#endif
 }
 
 #if PLATFORM(IOS_FAMILY)

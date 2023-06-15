@@ -27,6 +27,7 @@
 
 #include "APIObject.h"
 #include "InputMethodFilter.h"
+#include "KeyAutoRepeatHandler.h"
 #include "PageClientImpl.h"
 #include "WebPageProxy.h"
 #include <WebCore/ActivityState.h>
@@ -53,8 +54,8 @@ struct CompositionUnderline;
 }
 
 namespace WebKit {
-class DownloadProxy;
-class ScrollGestureController;
+class TouchGestureController;
+class WebKitWebResourceLoadManager;
 class WebPageGroup;
 class WebProcessPool;
 struct EditingRange;
@@ -75,15 +76,15 @@ public:
     // Client methods
     void setClient(std::unique_ptr<API::ViewClient>&&);
     void frameDisplayed();
-    void handleDownloadRequest(WebKit::DownloadProxy&);
     void willStartLoad();
     void didChangePageID();
     void didReceiveUserMessage(WebKit::UserMessage&&, CompletionHandler<void(WebKit::UserMessage&&)>&&);
+    WebKit::WebKitWebResourceLoadManager* webResourceLoadManager();
 
     void setInputMethodContext(WebKitInputMethodContext*);
     WebKitInputMethodContext* inputMethodContext() const;
-    void setInputMethodState(Optional<WebKit::InputMethodState>&&);
-    void synthesizeCompositionKeyPress(const String&, Optional<Vector<WebCore::CompositionUnderline>>&&, Optional<WebKit::EditingRange>&&);
+    void setInputMethodState(std::optional<WebKit::InputMethodState>&&);
+    void synthesizeCompositionKeyPress(const String&, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<WebKit::EditingRange>&&);
 
     void selectionDidChange();
 
@@ -100,14 +101,19 @@ public:
 
 #if ENABLE(FULLSCREEN_API)
     bool isFullScreen() { return m_fullScreenModeActive; };
-    void setFullScreen(bool fullScreenState) { m_fullScreenModeActive = fullScreenState; };
+    bool setFullScreen(bool);
 #endif
 
 #if ENABLE(ACCESSIBILITY)
     WebKitWebViewAccessible* accessible() const;
 #endif
 
-    WebKit::ScrollGestureController& scrollGestureController() const { return *m_scrollGestureController; }
+#if ENABLE(TOUCH_EVENTS)
+    WebKit::TouchGestureController& touchGestureController() const { return *m_touchGestureController; }
+#endif
+#if ENABLE(GAMEPAD)
+    static WebKit::WebPageProxy* platformWebPageProxyForGamepadInput();
+#endif
 
 private:
     View(struct wpe_view_backend*, const API::PageConfiguration&);
@@ -118,7 +124,9 @@ private:
 
     std::unique_ptr<API::ViewClient> m_client;
 
-    std::unique_ptr<WebKit::ScrollGestureController> m_scrollGestureController;
+#if ENABLE(TOUCH_EVENTS)
+    std::unique_ptr<WebKit::TouchGestureController> m_touchGestureController;
+#endif
     std::unique_ptr<WebKit::PageClientImpl> m_pageClient;
     RefPtr<WebKit::WebPageProxy> m_pageProxy;
     WebCore::IntSize m_size;
@@ -134,7 +142,11 @@ private:
     mutable GRefPtr<WebKitWebViewAccessible> m_accessible;
 #endif
 
+    bool m_horizontalScrollActive { false };
+    bool m_verticalScrollActive { false };
+
     WebKit::InputMethodFilter m_inputMethodFilter;
+    WebKit::KeyAutoRepeatHandler m_keyAutoRepeatHandler;
 };
 
 } // namespace WKWPE

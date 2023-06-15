@@ -13,8 +13,10 @@
 #include <string.h>
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
+#include "absl/strings/string_view.h"
 #include "modules/rtp_rtcp/include/rtp_cvo.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
 // TODO(bug:9855) Move kNoSpatialIdx from vp9_globals.h to common_constants
@@ -40,7 +42,6 @@ namespace webrtc {
 //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType AbsoluteSendTime::kId;
 constexpr uint8_t AbsoluteSendTime::kValueSizeBytes;
-constexpr const char AbsoluteSendTime::kUri[];
 
 bool AbsoluteSendTime::Parse(rtc::ArrayView<const uint8_t> data,
                              uint32_t* time_24bits) {
@@ -97,7 +98,6 @@ constexpr RTPExtensionType AbsoluteCaptureTimeExtension::kId;
 constexpr uint8_t AbsoluteCaptureTimeExtension::kValueSizeBytes;
 constexpr uint8_t AbsoluteCaptureTimeExtension::
     kValueSizeBytesWithoutEstimatedCaptureClockOffset;
-constexpr const char AbsoluteCaptureTimeExtension::kUri[];
 
 bool AbsoluteCaptureTimeExtension::Parse(rtc::ArrayView<const uint8_t> data,
                                          AbsoluteCaptureTime* extension) {
@@ -163,7 +163,6 @@ bool AbsoluteCaptureTimeExtension::Write(rtc::ArrayView<uint8_t> data,
 
 constexpr RTPExtensionType AudioLevel::kId;
 constexpr uint8_t AudioLevel::kValueSizeBytes;
-constexpr const char AudioLevel::kUri[];
 
 bool AudioLevel::Parse(rtc::ArrayView<const uint8_t> data,
                        bool* voice_activity,
@@ -186,6 +185,59 @@ bool AudioLevel::Write(rtc::ArrayView<uint8_t> data,
   return true;
 }
 
+// An RTP Header Extension for Mixer-to-Client Audio Level Indication
+//
+// https://tools.ietf.org/html/rfc6465
+//
+// The form of the audio level extension block:
+//
+//  0                   1                   2                   3
+//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |  ID   | len=2 |0|   level 1   |0|   level 2   |0|   level 3   |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// Sample Audio Level Encoding Using the One-Byte Header Format
+//
+//  0                   1                   2                   3
+//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |      ID       |     len=3     |0|   level 1   |0|   level 2   |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |0|   level 3   |    0 (pad)    |               ...             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// Sample Audio Level Encoding Using the Two-Byte Header Format
+constexpr RTPExtensionType CsrcAudioLevel::kId;
+constexpr uint8_t CsrcAudioLevel::kMaxValueSizeBytes;
+
+bool CsrcAudioLevel::Parse(rtc::ArrayView<const uint8_t> data,
+                           std::vector<uint8_t>* csrc_audio_levels) {
+  if (data.size() > kRtpCsrcSize) {
+    return false;
+  }
+  csrc_audio_levels->resize(data.size());
+  for (size_t i = 0; i < data.size(); i++) {
+    (*csrc_audio_levels)[i] = data[i] & 0x7F;
+  }
+  return true;
+}
+
+size_t CsrcAudioLevel::ValueSize(
+    rtc::ArrayView<const uint8_t> csrc_audio_levels) {
+  return csrc_audio_levels.size();
+}
+
+bool CsrcAudioLevel::Write(rtc::ArrayView<uint8_t> data,
+                           rtc::ArrayView<const uint8_t> csrc_audio_levels) {
+  RTC_CHECK_LE(csrc_audio_levels.size(), kRtpCsrcSize);
+  if (csrc_audio_levels.size() != data.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < csrc_audio_levels.size(); i++) {
+    data[i] = csrc_audio_levels[i] & 0x7F;
+  }
+  return true;
+}
+
 // From RFC 5450: Transmission Time Offsets in RTP Streams.
 //
 // The transmission time is signaled to the receiver in-band using the
@@ -204,7 +256,6 @@ bool AudioLevel::Write(rtc::ArrayView<uint8_t> data,
 //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType TransmissionOffset::kId;
 constexpr uint8_t TransmissionOffset::kValueSizeBytes;
-constexpr const char TransmissionOffset::kUri[];
 
 bool TransmissionOffset::Parse(rtc::ArrayView<const uint8_t> data,
                                int32_t* rtp_time) {
@@ -230,7 +281,6 @@ bool TransmissionOffset::Write(rtc::ArrayView<uint8_t> data, int32_t rtp_time) {
 //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType TransportSequenceNumber::kId;
 constexpr uint8_t TransportSequenceNumber::kValueSizeBytes;
-constexpr const char TransportSequenceNumber::kUri[];
 
 bool TransportSequenceNumber::Parse(rtc::ArrayView<const uint8_t> data,
                                     uint16_t* transport_sequence_number) {
@@ -260,15 +310,14 @@ bool TransportSequenceNumber::Write(rtc::ArrayView<uint8_t> data,
 //  |seq count cont.|
 //  +-+-+-+-+-+-+-+-+
 //
-// The bit |T| determines whether the feedback should include timing information
-// or not and |seq_count| determines how many packets the feedback packet should
-// cover including the current packet. If |seq_count| is zero no feedback is
+// The bit `T` determines whether the feedback should include timing information
+// or not and `seq_count` determines how many packets the feedback packet should
+// cover including the current packet. If `seq_count` is zero no feedback is
 // requested.
 constexpr RTPExtensionType TransportSequenceNumberV2::kId;
 constexpr uint8_t TransportSequenceNumberV2::kValueSizeBytes;
 constexpr uint8_t
     TransportSequenceNumberV2::kValueSizeBytesWithoutFeedbackRequest;
-constexpr const char TransportSequenceNumberV2::kUri[];
 constexpr uint16_t TransportSequenceNumberV2::kIncludeTimestampsBit;
 
 bool TransportSequenceNumberV2::Parse(
@@ -289,7 +338,7 @@ bool TransportSequenceNumberV2::Parse(
         (feedback_request_raw & kIncludeTimestampsBit) != 0;
     uint16_t sequence_count = feedback_request_raw & ~kIncludeTimestampsBit;
 
-    // If |sequence_count| is zero no feedback is requested.
+    // If `sequence_count` is zero no feedback is requested.
     if (sequence_count != 0) {
       *feedback_request = {include_timestamps, sequence_count};
     }
@@ -330,7 +379,6 @@ bool TransportSequenceNumberV2::Write(
 //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType VideoOrientation::kId;
 constexpr uint8_t VideoOrientation::kValueSizeBytes;
-constexpr const char VideoOrientation::kUri[];
 
 bool VideoOrientation::Parse(rtc::ArrayView<const uint8_t> data,
                              VideoRotation* rotation) {
@@ -368,10 +416,9 @@ bool VideoOrientation::Write(rtc::ArrayView<uint8_t> data, uint8_t value) {
 //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType PlayoutDelayLimits::kId;
 constexpr uint8_t PlayoutDelayLimits::kValueSizeBytes;
-constexpr const char PlayoutDelayLimits::kUri[];
 
 bool PlayoutDelayLimits::Parse(rtc::ArrayView<const uint8_t> data,
-                               PlayoutDelay* playout_delay) {
+                               VideoPlayoutDelay* playout_delay) {
   RTC_DCHECK(playout_delay);
   if (data.size() != 3)
     return false;
@@ -386,7 +433,7 @@ bool PlayoutDelayLimits::Parse(rtc::ArrayView<const uint8_t> data,
 }
 
 bool PlayoutDelayLimits::Write(rtc::ArrayView<uint8_t> data,
-                               const PlayoutDelay& playout_delay) {
+                               const VideoPlayoutDelay& playout_delay) {
   RTC_DCHECK_EQ(data.size(), 3);
   RTC_DCHECK_LE(0, playout_delay.min_ms);
   RTC_DCHECK_LE(playout_delay.min_ms, playout_delay.max_ms);
@@ -410,7 +457,6 @@ bool PlayoutDelayLimits::Write(rtc::ArrayView<uint8_t> data,
 //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 constexpr RTPExtensionType VideoContentTypeExtension::kId;
 constexpr uint8_t VideoContentTypeExtension::kValueSizeBytes;
-constexpr const char VideoContentTypeExtension::kUri[];
 
 bool VideoContentTypeExtension::Parse(rtc::ArrayView<const uint8_t> data,
                                       VideoContentType* content_type) {
@@ -432,7 +478,7 @@ bool VideoContentTypeExtension::Write(rtc::ArrayView<uint8_t> data,
 // Video Timing.
 // 6 timestamps in milliseconds counted from capture time stored in rtp header:
 // encode start/finish, packetization complete, pacer exit and reserved for
-// modification by the network modification. |flags| is a bitmask and has the
+// modification by the network modification. `flags` is a bitmask and has the
 // following allowed values:
 // 0 = Valid data, but no flags available (backwards compatibility)
 // 1 = Frame marked as timing frame due to cyclic timer.
@@ -453,7 +499,6 @@ bool VideoContentTypeExtension::Write(rtc::ArrayView<uint8_t> data,
 
 constexpr RTPExtensionType VideoTimingExtension::kId;
 constexpr uint8_t VideoTimingExtension::kValueSizeBytes;
-constexpr const char VideoTimingExtension::kUri[];
 constexpr uint8_t VideoTimingExtension::kFlagsOffset;
 constexpr uint8_t VideoTimingExtension::kEncodeStartDeltaOffset;
 constexpr uint8_t VideoTimingExtension::kEncodeFinishDeltaOffset;
@@ -525,86 +570,6 @@ bool VideoTimingExtension::Write(rtc::ArrayView<uint8_t> data,
   return true;
 }
 
-// Frame Marking.
-//
-// Meta-information about an RTP stream outside the encrypted media payload,
-// useful for an RTP switch to do codec-agnostic selective forwarding
-// without decrypting the payload.
-//
-// For non-scalable streams:
-//    0                   1
-//    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
-//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//   |  ID   | L = 0 |S|E|I|D|0 0 0 0|
-//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//
-// For scalable streams:
-//    0                   1                   2                   3
-//    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//   |  ID   | L = 2 |S|E|I|D|B| TID |      LID      |   TL0PICIDX   |
-//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-constexpr RTPExtensionType FrameMarkingExtension::kId;
-constexpr const char FrameMarkingExtension::kUri[];
-
-bool FrameMarkingExtension::IsScalable(uint8_t temporal_id, uint8_t layer_id) {
-  return temporal_id != kNoTemporalIdx || layer_id != kNoSpatialIdx;
-}
-
-bool FrameMarkingExtension::Parse(rtc::ArrayView<const uint8_t> data,
-                                  FrameMarking* frame_marking) {
-  RTC_DCHECK(frame_marking);
-
-  if (data.size() != 1 && data.size() != 3)
-    return false;
-
-  frame_marking->start_of_frame = (data[0] & 0x80) != 0;
-  frame_marking->end_of_frame = (data[0] & 0x40) != 0;
-  frame_marking->independent_frame = (data[0] & 0x20) != 0;
-  frame_marking->discardable_frame = (data[0] & 0x10) != 0;
-
-  if (data.size() == 3) {
-    frame_marking->base_layer_sync = (data[0] & 0x08) != 0;
-    frame_marking->temporal_id = data[0] & 0x7;
-    frame_marking->layer_id = data[1];
-    frame_marking->tl0_pic_idx = data[2];
-  } else {
-    // non-scalable
-    frame_marking->base_layer_sync = false;
-    frame_marking->temporal_id = kNoTemporalIdx;
-    frame_marking->layer_id = kNoSpatialIdx;
-    frame_marking->tl0_pic_idx = 0;
-  }
-  return true;
-}
-
-size_t FrameMarkingExtension::ValueSize(const FrameMarking& frame_marking) {
-  if (IsScalable(frame_marking.temporal_id, frame_marking.layer_id))
-    return 3;
-  else
-    return 1;
-}
-
-bool FrameMarkingExtension::Write(rtc::ArrayView<uint8_t> data,
-                                  const FrameMarking& frame_marking) {
-  RTC_DCHECK_GE(data.size(), 1);
-  RTC_CHECK_LE(frame_marking.temporal_id, 0x07);
-  data[0] = frame_marking.start_of_frame ? 0x80 : 0x00;
-  data[0] |= frame_marking.end_of_frame ? 0x40 : 0x00;
-  data[0] |= frame_marking.independent_frame ? 0x20 : 0x00;
-  data[0] |= frame_marking.discardable_frame ? 0x10 : 0x00;
-
-  if (IsScalable(frame_marking.temporal_id, frame_marking.layer_id)) {
-    RTC_DCHECK_EQ(data.size(), 3);
-    data[0] |= frame_marking.base_layer_sync ? 0x08 : 0x00;
-    data[0] |= frame_marking.temporal_id & 0x07;
-    data[1] = frame_marking.layer_id;
-    data[2] = frame_marking.tl0_pic_idx;
-  }
-  return true;
-}
-
 // Color space including HDR metadata as an optional field.
 //
 // RTP header extension to carry color space information and optionally HDR
@@ -643,7 +608,6 @@ bool FrameMarkingExtension::Write(rtc::ArrayView<uint8_t> data,
 
 constexpr RTPExtensionType ColorSpaceExtension::kId;
 constexpr uint8_t ColorSpaceExtension::kValueSizeBytes;
-constexpr const char ColorSpaceExtension::kUri[];
 
 bool ColorSpaceExtension::Parse(rtc::ArrayView<const uint8_t> data,
                                 ColorSpace* color_space) {
@@ -829,7 +793,7 @@ bool BaseRtpStringExtension::Parse(rtc::ArrayView<const uint8_t> data,
   if (data.empty() || data[0] == 0)  // Valid string extension can't be empty.
     return false;
   const char* cstr = reinterpret_cast<const char*>(data.data());
-  // If there is a \0 character in the middle of the |data|, treat it as end
+  // If there is a \0 character in the middle of the `data`, treat it as end
   // of the string. Well-formed string extensions shouldn't contain it.
   str->assign(cstr, strnlen(cstr, data.size()));
   RTC_DCHECK(!str->empty());
@@ -837,7 +801,7 @@ bool BaseRtpStringExtension::Parse(rtc::ArrayView<const uint8_t> data,
 }
 
 bool BaseRtpStringExtension::Write(rtc::ArrayView<uint8_t> data,
-                                   const std::string& str) {
+                                   absl::string_view str) {
   if (str.size() > kMaxValueSizeBytes) {
     return false;
   }
@@ -847,16 +811,10 @@ bool BaseRtpStringExtension::Write(rtc::ArrayView<uint8_t> data,
   return true;
 }
 
-// Constant declarations for string RTP header extension types.
-
+// Constant declarations for RTP header extension types.
 constexpr RTPExtensionType RtpStreamId::kId;
-constexpr const char RtpStreamId::kUri[];
-
 constexpr RTPExtensionType RepairedRtpStreamId::kId;
-constexpr const char RepairedRtpStreamId::kUri[];
-
 constexpr RTPExtensionType RtpMid::kId;
-constexpr const char RtpMid::kUri[];
 
 // An RTP Header Extension for Inband Comfort Noise
 //
@@ -900,6 +858,33 @@ bool InbandComfortNoiseExtension::Write(rtc::ArrayView<uint8_t> data,
     }
     data[0] = 0b1000'0000 | *level;
   }
+  return true;
+}
+
+// VideoFrameTrackingIdExtension
+//
+//   0                   1                   2
+//   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
+//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//  |  ID   | L=1   |    video-frame-tracking-id    |
+//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+constexpr RTPExtensionType VideoFrameTrackingIdExtension::kId;
+constexpr uint8_t VideoFrameTrackingIdExtension::kValueSizeBytes;
+
+bool VideoFrameTrackingIdExtension::Parse(rtc::ArrayView<const uint8_t> data,
+                                          uint16_t* video_frame_tracking_id) {
+  if (data.size() != kValueSizeBytes) {
+    return false;
+  }
+  *video_frame_tracking_id = ByteReader<uint16_t>::ReadBigEndian(data.data());
+  return true;
+}
+
+bool VideoFrameTrackingIdExtension::Write(rtc::ArrayView<uint8_t> data,
+                                          uint16_t video_frame_tracking_id) {
+  RTC_DCHECK_EQ(data.size(), kValueSizeBytes);
+  ByteWriter<uint16_t>::WriteBigEndian(data.data(), video_frame_tracking_id);
   return true;
 }
 

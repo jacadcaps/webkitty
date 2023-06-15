@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,7 +50,7 @@
     top: var(--details-section-header-top);
     height: var(--details-section-header-height);
     padding: var(--details-section-header-vertical-padding) 0;
-    -webkit-padding-end: 5px;
+    padding-inline-end: 5px;
     font-size: 11px;
     font-weight: bold;
     white-space: nowrap;
@@ -88,12 +88,15 @@ body[dir=rtl] .details-section > .header > .options {
 }
 
 .details-section .details-section > .header {
-    top: 21px;
     background-color: var(--background-color-content);
     font-weight: 500;
 
     /* Ensure these headers are displayed below the parent header but above scrollbars. */
     z-index: calc(var(--z-index-header) - 1);
+}
+
+.details-section:has(> .header > .title:not(:empty)) .details-section > .header {
+    top: 21px;
 }
 
 .details-section .details-section:not(.collapsed) > .header {
@@ -150,7 +153,7 @@ body[dir=rtl] .details-section > .header::before {
 
 .details-section > .header > label > input[type="checkbox"] {
     margin: 0;
-    -webkit-margin-start: 5px;
+    margin-inline-start: 5px;
     vertical-align: 1px;
     font-size: 10px;
 }
@@ -158,7 +161,7 @@ body[dir=rtl] .details-section > .header::before {
 .details-section > .header .go-to-arrow {
     width: 10px;
     height: 15px;
-    -webkit-margin-start: 3px;
+    margin-inline-start: 3px;
 }
 
 .details-section > .content {
@@ -177,16 +180,16 @@ body[dir=rtl] .details-section > .header::before {
     border-bottom: 1px solid var(--border-color);
 }
 
+.details-section > .content > .group:has(.row.font-variation) {
+    display: unset; /* Unsets `display: table-row-group` because it affects sizing of child elements that are grid containers. */
+}
+
 .details-section > .content > .group:last-child {
     border-bottom: none;
 }
 
 .details-section > .content > .group:nth-child(even) {
     background-color: var(--background-color-intermediate);
-}
-
-.details-section > .content > .group:nth-child(even) > .row:matches(.simple:first-child > *, :not(.simple):first-child) {
-    border-top: 1px solid var(--border-color);
 }
 
 .details-section > .content > .group > .row.simple {
@@ -230,13 +233,13 @@ body[dir=rtl] .details-section > .header::before {
 
 .details-section > .content > .group > .row.simple > .label {
     width: 85px;
-    -webkit-padding-start: 6px;
+    padding-inline-start: 6px;
     color: hsl(0, 0%, 20%);
     text-align: end;
 }
 
 .details-section > .content > .group > .row.simple > .value {
-    -webkit-padding-start: 6px;
+    padding-inline-start: 6px;
     word-break: break-all;
     word-wrap: break-word;
     cursor: text;
@@ -246,14 +249,39 @@ body[dir=rtl] .details-section > .header::before {
 .details-section > .content > .group > .row.simple > .value .go-to-arrow {
     width: 10px;
     height: 12px;
-    -webkit-margin-start: 5px;
+    margin-inline-start: 5px;
+}
+
+.details-section > .content > .group > .row:is(.simple, .font-variation):has(.warning) {
+    background-color: var(--warning-background-color-secondary);
+    position: relative;
+}
+
+.details-section > .content > .group > .row:is(.simple, .font-variation) > .warning {
+    position: absolute;
+    right: 0;
+    align-self: center;
+    display: inline-block;
+    width: calc(var(--warning-badge-arrow-depth) + var(--warning-icon-inline-padding) + var(--warning-icon-size) + var(--warning-icon-inline-padding) + 4px);
+    height: 18px;
+    margin-block-start: 0.5px;
+    background-image: url(/Images/Warning.svg);
+    background-color: var(--warning-background-color);
+    background-repeat: no-repeat;
+    background-size: var(--warning-icon-size);
+    background-position-y: center;
+    background-position-x: calc(var(--warning-badge-arrow-depth) + var(--warning-icon-inline-padding));
+    clip-path: polygon(0% 50%, var(--warning-badge-arrow-depth) 0%, 100% 0%, 100% 100%, var(--warning-badge-arrow-depth) 100%);
+    --warning-icon-size: 11px;
+    --warning-icon-inline-padding: 2px;
+    --warning-badge-arrow-depth: 6px;
 }
 
 .details-section > .content > .group > .row.simple.data > .value {
     word-break: break-all;
 }
 
-.details-section > .content > .group > .row:matches(.empty, .text) {
+.details-section > .content > .group > .row:is(.empty, .text) {
     padding: 0 6px 7px 6px;
     text-align: center;
     color: var(--text-color-secondary);
@@ -290,7 +318,7 @@ body[dir=rtl] .details-section > .header::before {
     word-break: break-all;
 }
 
-@media (-webkit-min-device-pixel-ratio: 2) {
+@media (min-resolution: 2dppx) {
     .details-section,
     .details-section .details-section:not(.collapsed) > .header,
     .details-section > .content > .group {

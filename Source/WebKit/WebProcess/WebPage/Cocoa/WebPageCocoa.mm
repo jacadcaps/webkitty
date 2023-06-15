@@ -26,74 +26,92 @@
 #import "config.h"
 #import "WebPage.h"
 
+#import "EditorState.h"
 #import "InsertTextOptions.h"
-#import "LaunchServicesDatabaseManager.h"
 #import "LoadParameters.h"
 #import "PluginView.h"
+#import "UserMediaCaptureManager.h"
 #import "WKAccessibilityWebPageObjectBase.h"
 #import "WebPageProxyMessages.h"
+#import "WebPasteboardOverrides.h"
 #import "WebPaymentCoordinator.h"
 #import "WebRemoteObjectRegistry.h"
-#import <pal/spi/cocoa/LaunchServicesSPI.h>
+#import <WebCore/DeprecatedGlobalSettings.h>
 #import <WebCore/DictionaryLookup.h>
+#import <WebCore/DocumentMarkerController.h>
 #import <WebCore/Editing.h>
 #import <WebCore/Editor.h>
 #import <WebCore/EventHandler.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FrameView.h>
+#import <WebCore/GeometryUtilities.h>
+#import <WebCore/GraphicsContextCG.h>
+#import <WebCore/HTMLBodyElement.h>
 #import <WebCore/HTMLConverter.h>
+#import <WebCore/HTMLImageElement.h>
 #import <WebCore/HTMLOListElement.h>
 #import <WebCore/HTMLUListElement.h>
 #import <WebCore/HitTestResult.h>
+#import <WebCore/ImageOverlay.h>
+#import <WebCore/MutableStyleProperties.h>
 #import <WebCore/NetworkExtensionContentFilter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/PaymentCoordinator.h>
 #import <WebCore/PlatformMediaSessionManager.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderElement.h>
+#import <WebCore/RenderLayer.h>
+#import <WebCore/RenderedDocumentMarker.h>
 #import <WebCore/TextIterator.h>
+#import <pal/spi/cocoa/LaunchServicesSPI.h>
+
+#if ENABLE(GPU_PROCESS) && PLATFORM(COCOA)
+#include "LibWebRTCCodecs.h"
+#endif
 
 #if PLATFORM(IOS)
 #import <WebCore/ParentalControlsContentFilter.h>
 #endif
 
+#define WEBPAGE_RELEASE_LOG(channel, fmt, ...) RELEASE_LOG(channel, "%p - [webPageID=%" PRIu64 "] WebPage::" fmt, this, m_identifier.toUInt64(), ##__VA_ARGS__)
+
 #if PLATFORM(COCOA)
 
 namespace WebKit {
 
-void WebPage::platformDidReceiveLoadParameters(const LoadParameters& parameters)
+void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
 {
-#if HAVE(LSDATABASECONTEXT)
-    auto startTime = WallTime::now();
-    bool databaseUpdated = LaunchServicesDatabaseManager::singleton().waitForDatabaseUpdate(1_s);
-    auto elapsedTime = WallTime::now() - startTime;
-    if (elapsedTime.value() > 0.5)
-        RELEASE_LOG(Loading, "Waiting for Launch Services database update took %f seconds", elapsedTime.value());
-    ASSERT_UNUSED(databaseUpdated, databaseUpdated);
-    if (!databaseUpdated)
-        RELEASE_LOG_ERROR(Loading, "Timed out waiting for Launch Services database update.");
+    platformInitializeAccessibility();
+
+#if ENABLE(MEDIA_STREAM)
+    if (auto* captureManager = WebProcess::singleton().supplement<UserMediaCaptureManager>())
+        captureManager->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess, m_page->settings().webRTCRemoteVideoFrameEnabled());
 #endif
-
-    m_dataDetectionContext = parameters.dataDetectionContext;
-
-    if (parameters.neHelperExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.neHelperExtensionHandle);
-    if (parameters.neSessionManagerExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.neSessionManagerExtensionHandle);
-    NetworkExtensionContentFilter::setHasConsumedSandboxExtensions(parameters.neHelperExtensionHandle.hasValue() && parameters.neSessionManagerExtensionHandle.hasValue());
-
-#if PLATFORM(IOS)
-    if (parameters.contentFilterExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.contentFilterExtensionHandle);
-    ParentalControlsContentFilter::setHasConsumedSandboxExtension(parameters.contentFilterExtensionHandle.hasValue());
-
-    if (parameters.frontboardServiceExtensionHandle)
-        SandboxExtension::consumePermanently(*parameters.frontboardServiceExtensionHandle);
+#if USE(LIBWEBRTC)
+    LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
+    LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
 }
 
-void WebPage::requestActiveNowPlayingSessionInfo(CallbackID callbackID)
+void WebPage::platformDidReceiveLoadParameters(const LoadParameters& parameters)
+{
+    m_dataDetectionContext = parameters.dataDetectionContext;
+
+#if !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+    consumeNetworkExtensionSandboxExtensions(parameters.networkExtensionSandboxExtensionHandles);
+#if PLATFORM(IOS)
+    if (parameters.contentFilterExtensionHandle)
+        SandboxExtension::consumePermanently(*parameters.contentFilterExtensionHandle);
+    ParentalControlsContentFilter::setHasConsumedSandboxExtension(parameters.contentFilterExtensionHandle.has_value());
+
+    if (parameters.frontboardServiceExtensionHandle)
+        SandboxExtension::consumePermanently(*parameters.frontboardServiceExtensionHandle);
+#endif // PLATFORM(IOS)
+#endif // !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+}
+
+void WebPage::requestActiveNowPlayingSessionInfo(CompletionHandler<void(bool, bool, const String&, double, double, uint64_t)>&& completionHandler)
 {
     bool hasActiveSession = false;
     String title = emptyString();
@@ -110,21 +128,23 @@ void WebPage::requestActiveNowPlayingSessionInfo(CallbackID callbackID)
         registeredAsNowPlayingApplication = sharedManager->registeredAsNowPlayingApplication();
     }
 
-    send(Messages::WebPageProxy::NowPlayingInfoCallback(hasActiveSession, registeredAsNowPlayingApplication, title, duration, elapsedTime, uniqueIdentifier, callbackID));
+    completionHandler(hasActiveSession, registeredAsNowPlayingApplication, title, duration, elapsedTime, uniqueIdentifier);
 }
     
 void WebPage::performDictionaryLookupAtLocation(const FloatPoint& floatPoint)
 {
-    if (auto* pluginView = pluginViewForFrame(&m_page->mainFrame())) {
+#if ENABLE(PDFKIT_PLUGIN)
+    if (auto* pluginView = mainFramePlugIn()) {
         if (pluginView->performDictionaryLookupAtLocation(floatPoint))
             return;
     }
+#endif
     
     // Find the frame the point is over.
-    constexpr OptionSet<HitTestRequest::RequestType> hitType { HitTestRequest::ReadOnly, HitTestRequest::Active, HitTestRequest::DisallowUserAgentShadowContent, HitTestRequest::AllowChildFrameContent };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     auto result = m_page->mainFrame().eventHandler().hitTestResultAtPoint(m_page->mainFrame().view()->windowToContents(roundedIntPoint(floatPoint)), hitType);
 
-    auto* frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+    RefPtr frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &CheckedRef(m_page->focusController())->focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -148,8 +168,8 @@ void WebPage::performDictionaryLookupForSelection(Frame& frame, const VisibleSel
 
 void WebPage::performDictionaryLookupOfCurrentSelection()
 {
-    auto& frame = m_page->focusController().focusedOrMainFrame();
-    performDictionaryLookupForSelection(frame, frame.selection().selection(), TextIndicatorPresentationTransition::BounceAndCrossfade);
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    performDictionaryLookupForSelection(frame, frame->selection().selection(), TextIndicatorPresentationTransition::BounceAndCrossfade);
 }
     
 void WebPage::performDictionaryLookupForRange(Frame& frame, const SimpleRange& range, NSDictionary *options, TextIndicatorPresentationTransition presentationTransition)
@@ -162,8 +182,7 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
     Editor& editor = frame.editor();
     editor.setIsGettingDictionaryPopupInfo(true);
 
-    // FIXME: Inefficient to call stripWhiteSpace to detect whether a string has a non-whitespace character in it.
-    if (plainText(range).stripWhiteSpace().isEmpty()) {
+    if (plainText(range).find(isNotSpaceOrNewline) == notFound) {
         editor.setIsGettingDictionaryPopupInfo(false);
         return { };
     }
@@ -179,9 +198,9 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
     IntRect rangeRect = frame.view()->contentsToWindow(quads[0].enclosingBoundingBox());
 
     const RenderStyle* style = range.startContainer().renderStyle();
-    float scaledAscent = style ? style->fontMetrics().ascent() * pageScaleFactor() : 0;
+    float scaledAscent = style ? style->metricsOfPrimaryFont().ascent() * pageScaleFactor() : 0;
     dictionaryPopupInfo.origin = FloatPoint(rangeRect.x(), rangeRect.y() + scaledAscent);
-    dictionaryPopupInfo.options = options;
+    dictionaryPopupInfo.platformData.options = options;
 
 #if PLATFORM(MAC)
     auto attributedString = editingAttributedString(range, IncludeImages::No).string;
@@ -199,6 +218,9 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
 #endif // PLATFORM(MAC)
 
     OptionSet<TextIndicatorOption> indicatorOptions { TextIndicatorOption::UseBoundingRectAndPaintAllContentForComplexRanges };
+    if (ImageOverlay::isInsideOverlay(range))
+        indicatorOptions.add({ TextIndicatorOption::PaintAllContent, TextIndicatorOption::PaintBackgrounds });
+
     if (presentationTransition == TextIndicatorPresentationTransition::BounceAndCrossfade)
         indicatorOptions.add(TextIndicatorOption::IncludeSnapshotWithSelectionHighlight);
     
@@ -210,9 +232,9 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
 
     dictionaryPopupInfo.textIndicator = textIndicator->data();
 #if PLATFORM(MAC)
-    dictionaryPopupInfo.attributedString = scaledAttributedString;
+    dictionaryPopupInfo.platformData.attributedString = scaledAttributedString;
 #elif PLATFORM(MACCATALYST)
-    dictionaryPopupInfo.attributedString = adoptNS([[NSMutableAttributedString alloc] initWithString:plainText(range)]);
+    dictionaryPopupInfo.platformData.attributedString = adoptNS([[NSMutableAttributedString alloc] initWithString:plainText(range)]);
 #endif
 
     editor.setIsGettingDictionaryPopupInfo(false);
@@ -221,29 +243,110 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(Frame& frame, const Sim
 
 void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& replacementEditingRange, const Vector<WebCore::DictationAlternative>& dictationAlternativeLocations, InsertTextOptions&& options)
 {
-    auto& frame = m_page->focusController().focusedOrMainFrame();
-    Ref<Frame> protector { frame };
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
 
     if (replacementEditingRange.location != notFound) {
         auto replacementRange = EditingRange::toRange(frame, replacementEditingRange);
         if (replacementRange)
-            frame.selection().setSelection(VisibleSelection { *replacementRange, SEL_DEFAULT_AFFINITY });
+            frame->selection().setSelection(VisibleSelection { *replacementRange });
     }
 
     if (options.registerUndoGroup)
         send(Messages::WebPageProxy::RegisterInsertionUndoGrouping { });
 
-    RefPtr<Element> focusedElement = frame.document() ? frame.document()->focusedElement() : nullptr;
+    RefPtr<Element> focusedElement = frame->document() ? frame->document()->focusedElement() : nullptr;
     if (focusedElement && options.shouldSimulateKeyboardInput)
         focusedElement->dispatchEvent(Event::create(eventNames().keydownEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes));
 
-    ASSERT(!frame.editor().hasComposition());
-    frame.editor().insertDictatedText(text, dictationAlternativeLocations, nullptr /* triggeringEvent */);
+    ASSERT(!frame->editor().hasComposition());
+    frame->editor().insertDictatedText(text, dictationAlternativeLocations, nullptr /* triggeringEvent */);
 
     if (focusedElement && options.shouldSimulateKeyboardInput) {
         focusedElement->dispatchEvent(Event::create(eventNames().keyupEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes));
         focusedElement->dispatchEvent(Event::create(eventNames().changeEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes));
     }
+}
+
+void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
+{
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    RefPtr document = frame->document();
+    if (!document) {
+        completion(false);
+        return;
+    }
+
+    auto selection = frame->selection().selection();
+    RefPtr editableRoot = selection.rootEditableElement();
+    if (!editableRoot) {
+        completion(false);
+        return;
+    }
+
+    auto firstEditablePosition = firstPositionInNode(editableRoot.get());
+    auto selectionEnd = selection.end();
+    auto searchRange = makeSimpleRange(firstEditablePosition, selectionEnd);
+    if (!searchRange) {
+        completion(false);
+        return;
+    }
+
+    auto targetOffset = characterCount(*searchRange);
+    targetOffset -= std::min<uint64_t>(targetOffset, text.length());
+    auto matchRange = findClosestPlainText(*searchRange, text, { Backwards, DoNotRevealSelection }, targetOffset);
+    if (matchRange.collapsed()) {
+        completion(false);
+        return;
+    }
+
+    document->markers().addMarker(matchRange, DocumentMarker::DictationAlternatives, { DocumentMarker::DictationData { context, text } });
+    completion(true);
+}
+
+void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
+{
+    Vector<DictationContext> contexts;
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    RefPtr document = frame->document();
+    if (!document) {
+        completion(WTFMove(contexts));
+        return;
+    }
+
+    auto selection = frame->selection().selection();
+    auto expandedSelectionRange = VisibleSelection { selection.visibleStart().previous(CannotCrossEditingBoundary), selection.visibleEnd().next(CannotCrossEditingBoundary) }.range();
+    if (!expandedSelectionRange) {
+        completion(WTFMove(contexts));
+        return;
+    }
+
+    auto markers = document->markers().markersInRange(*expandedSelectionRange, DocumentMarker::DictationAlternatives);
+    contexts.reserveInitialCapacity(markers.size());
+    for (auto* marker : markers) {
+        if (std::holds_alternative<DocumentMarker::DictationData>(marker->data()))
+            contexts.uncheckedAppend(std::get<DocumentMarker::DictationData>(marker->data()).context);
+    }
+    completion(WTFMove(contexts));
+}
+
+void WebPage::clearDictationAlternatives(Vector<DictationContext>&& contexts)
+{
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    RefPtr document = frame->document();
+    if (!document)
+        return;
+
+    HashSet<DictationContext> setOfContextsToRemove;
+    setOfContextsToRemove.reserveInitialCapacity(contexts.size());
+    for (auto context : contexts)
+        setOfContextsToRemove.add(context);
+
+    auto documentRange = makeRangeSelectingNodeContents(*document);
+    document->markers().filterMarkers(documentRange, [&] (auto& marker) {
+        if (!std::holds_alternative<DocumentMarker::DictationData>(marker.data()))
+            return FilterMarkerResult::Keep;
+        return setOfContextsToRemove.contains(std::get<WebCore::DocumentMarker::DictationData>(marker.data()).context) ? FilterMarkerResult::Remove : FilterMarkerResult::Keep;
+    }, DocumentMarker::DictationAlternatives);
 }
 
 void WebPage::accessibilityTransferRemoteToken(RetainPtr<NSData> remoteToken)
@@ -257,8 +360,7 @@ WebPaymentCoordinator* WebPage::paymentCoordinator()
 {
     if (!m_page)
         return nullptr;
-    auto& client = m_page->paymentCoordinator().client();
-    return is<WebPaymentCoordinator>(client) ? downcast<WebPaymentCoordinator>(&client) : nullptr;
+    return dynamicDowncast<WebPaymentCoordinator>(m_page->paymentCoordinator().client());
 }
 #endif
 
@@ -269,7 +371,7 @@ void WebPage::getContentsAsAttributedString(CompletionHandler<void(const WebCore
 
 void WebPage::setRemoteObjectRegistry(WebRemoteObjectRegistry* registry)
 {
-    m_remoteObjectRegistry = makeWeakPtr(registry);
+    m_remoteObjectRegistry = registry;
 }
 
 WebRemoteObjectRegistry* WebPage::remoteObjectRegistry()
@@ -317,7 +419,7 @@ RetainPtr<CFDataRef> WebPage::pdfSnapshotAtSize(IntRect rect, IntSize bitmapSize
 
         CGPDFContextBeginPage(pdfContext.get(), dictionary);
 
-        GraphicsContext graphicsContext { pdfContext.get() };
+        GraphicsContextCG graphicsContext { pdfContext.get() };
         graphicsContext.scale({ 1, -1 });
         graphicsContext.translate(0, -bitmapSize.height());
 
@@ -337,7 +439,11 @@ RetainPtr<CFDataRef> WebPage::pdfSnapshotAtSize(IntRect rect, IntSize bitmapSize
 void WebPage::getProcessDisplayName(CompletionHandler<void(String&&)>&& completionHandler)
 {
 #if PLATFORM(MAC)
+#if ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS)
+    WebProcess::singleton().getProcessDisplayName(WTFMove(completionHandler));
+#else
     completionHandler(adoptCF((CFStringRef)_LSCopyApplicationInformationItem(kLSDefaultSessionID, _LSGetCurrentApplicationASN(), _kLSDisplayNameKey)).get());
+#endif
 #else
     completionHandler({ });
 #endif
@@ -345,7 +451,7 @@ void WebPage::getProcessDisplayName(CompletionHandler<void(String&&)>&& completi
 
 void WebPage::getPlatformEditorStateCommon(const Frame& frame, EditorState& result) const
 {
-    if (result.isMissingPostLayoutData)
+    if (!result.hasPostLayoutAndVisualData())
         return;
 
     const auto& selection = frame.selection().selection();
@@ -353,7 +459,7 @@ void WebPage::getPlatformEditorStateCommon(const Frame& frame, EditorState& resu
     if (!result.isContentEditable || selection.isNone())
         return;
 
-    auto& postLayoutData = result.postLayoutData();
+    auto& postLayoutData = *result.postLayoutData;
     if (auto editingStyle = EditingStyle::styleAtSelectionStart(selection)) {
         if (editingStyle->hasStyle(CSSPropertyFontWeight, "bold"_s))
             postLayoutData.typingAttributes |= AttributeBold;
@@ -366,7 +472,7 @@ void WebPage::getPlatformEditorStateCommon(const Frame& frame, EditorState& resu
 
         if (auto* styleProperties = editingStyle->style()) {
             bool isLeftToRight = styleProperties->propertyAsValueID(CSSPropertyDirection) == CSSValueLtr;
-            switch (styleProperties->propertyAsValueID(CSSPropertyTextAlign)) {
+            switch (styleProperties->propertyAsValueID(CSSPropertyTextAlign).value_or(CSSValueInvalid)) {
             case CSSValueRight:
             case CSSValueWebkitRight:
                 postLayoutData.textAlignment = RightAlignment;
@@ -406,6 +512,303 @@ void WebPage::getPlatformEditorStateCommon(const Frame& frame, EditorState& resu
     }
 
     postLayoutData.baseWritingDirection = frame.editor().baseWritingDirectionForSelectionStart();
+
+#if PLATFORM(MAC)
+    const Vector<FloatPoint> offsetsForHitTesting { { -30, 50 }, { 30, 50 }, { -60, 35 }, { 60, 35 }, { 0, 20 } };
+    postLayoutData.evasionRectsAroundSelection = getEvasionRectsAroundSelection(offsetsForHitTesting, false);
+#endif
+}
+
+#if !ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+void WebPage::consumeNetworkExtensionSandboxExtensions(const Vector<SandboxExtension::Handle>& networkExtensionsHandles)
+{
+#if ENABLE(CONTENT_FILTERING)
+    SandboxExtension::consumePermanently(networkExtensionsHandles);
+    NetworkExtensionContentFilter::setHasConsumedSandboxExtensions(networkExtensionsHandles.size());
+#else
+    UNUSED_PARAM(networkExtensionsHandles);
+#endif
+}
+#endif
+
+void WebPage::getPDFFirstPageSize(WebCore::FrameIdentifier frameID, CompletionHandler<void(WebCore::FloatSize)>&& completionHandler)
+{
+#if !ENABLE(PDFKIT_PLUGIN)
+    return completionHandler({ });
+#else
+    auto* webFrame = WebProcess::singleton().webFrame(frameID);
+    if (!webFrame)
+        return completionHandler({ });
+
+    auto* pluginView = pluginViewForFrame(webFrame->coreFrame());
+    if (!pluginView)
+        return completionHandler({ });
+    
+    completionHandler(FloatSize(pluginView->pdfDocumentSizeForPrinting()));
+#endif
+}
+
+#if ENABLE(DATA_DETECTION)
+
+void WebPage::handleClickForDataDetectionResult(const DataDetectorElementInfo& info, const IntPoint& clickLocation)
+{
+    send(Messages::WebPageProxy::HandleClickForDataDetectionResult(info, clickLocation));
+}
+
+#endif
+
+static String& replaceSelectionPasteboardName()
+{
+    static NeverDestroyed<String> string("ReplaceSelectionPasteboard"_s);
+    return string;
+}
+
+class OverridePasteboardForSelectionReplacement {
+    WTF_MAKE_NONCOPYABLE(OverridePasteboardForSelectionReplacement);
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    OverridePasteboardForSelectionReplacement(const Vector<String>& types, const IPC::DataReference& data)
+        : m_types(types)
+    {
+        for (auto& type : types)
+            WebPasteboardOverrides::sharedPasteboardOverrides().addOverride(replaceSelectionPasteboardName(), type, { data });
+    }
+
+    ~OverridePasteboardForSelectionReplacement()
+    {
+        for (auto& type : m_types)
+            WebPasteboardOverrides::sharedPasteboardOverrides().removeOverride(replaceSelectionPasteboardName(), type);
+    }
+
+private:
+    Vector<String> m_types;
+};
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+
+void WebPage::replaceImageForRemoveBackground(const ElementContext& elementContext, const Vector<String>& types, const IPC::DataReference& data)
+{
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    auto element = elementForContext(elementContext);
+    if (!element || !element->isContentEditable())
+        return;
+
+    Ref document = element->document();
+    if (frame->document() != document.ptr())
+        return;
+
+    auto originalSelection = frame->selection().selection();
+    RefPtr selectionHost = originalSelection.rootEditableElement() ?: document->body();
+    if (!selectionHost)
+        return;
+
+    constexpr OptionSet iteratorOptions = TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions;
+    std::optional<CharacterRange> rangeToRestore;
+    uint64_t numberOfCharactersInSelectionHost = 0;
+    if (auto range = originalSelection.range()) {
+        auto selectionHostRangeBeforeReplacement = makeRangeSelectingNodeContents(*selectionHost);
+        rangeToRestore = characterRange(selectionHostRangeBeforeReplacement, *range, iteratorOptions);
+        numberOfCharactersInSelectionHost = characterCount(selectionHostRangeBeforeReplacement, iteratorOptions);
+    }
+
+    {
+        OverridePasteboardForSelectionReplacement overridePasteboard { types, data };
+        IgnoreSelectionChangeForScope ignoreSelectionChanges { frame.get() };
+        frame->editor().replaceNodeFromPasteboard(*element, replaceSelectionPasteboardName(), EditAction::RemoveBackground);
+
+        auto position = frame->selection().selection().visibleStart();
+        if (auto imageRange = makeSimpleRange(WebCore::VisiblePositionRange { position.previous(), position })) {
+            for (WebCore::TextIterator iterator { *imageRange, { } }; !iterator.atEnd(); iterator.advance()) {
+                if (RefPtr image = dynamicDowncast<HTMLImageElement>(iterator.node())) {
+                    m_elementsToExcludeFromRemoveBackground.add(*image);
+                    break;
+                }
+            }
+        }
+    }
+
+    constexpr auto restoreSelectionOptions = FrameSelection::defaultSetSelectionOptions(UserTriggered);
+    if (!originalSelection.isNoneOrOrphaned()) {
+        frame->selection().setSelection(originalSelection, restoreSelectionOptions);
+        return;
+    }
+
+    if (!rangeToRestore || !selectionHost->isConnected())
+        return;
+
+    auto selectionHostRange = makeRangeSelectingNodeContents(*selectionHost);
+    if (numberOfCharactersInSelectionHost != characterCount(selectionHostRange, iteratorOptions)) {
+        // FIXME: We don't attempt to restore the selection if the replaced element contains a different
+        // character count than the content that replaces it, since this codepath is currently only used
+        // to replace a single non-text element with another. If this is used to replace text content in
+        // the future, we should adjust the `rangeToRestore` to fit the newly inserted content.
+        return;
+    }
+
+    // The node replacement may have orphaned the original selection range; in this case, try to restore
+    // the original selected character range.
+    auto newSelectionRange = resolveCharacterRange(selectionHostRange, *rangeToRestore, iteratorOptions);
+    frame->selection().setSelection(newSelectionRange, restoreSelectionOptions);
+}
+
+#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+
+void WebPage::replaceSelectionWithPasteboardData(const Vector<String>& types, const IPC::DataReference& data)
+{
+    OverridePasteboardForSelectionReplacement overridePasteboard { types, data };
+    readSelectionFromPasteboard(replaceSelectionPasteboardName(), [](bool) { });
+}
+
+void WebPage::readSelectionFromPasteboard(const String& pasteboardName, CompletionHandler<void(bool&&)>&& completionHandler)
+{
+    auto& frame = m_page->focusController().focusedOrMainFrame();
+    if (frame.selection().isNone())
+        return completionHandler(false);
+    frame.editor().readSelectionFromPasteboard(pasteboardName);
+    completionHandler(true);
+}
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebPageCocoaAdditions.mm>)
+#include <WebKitAdditions/WebPageCocoaAdditions.mm>
+#else
+URL WebPage::sanitizeLookalikeCharacters(const URL& url, LookalikeCharacterSanitizationTrigger)
+{
+    return url;
+}
+
+URL WebPage::allowedLookalikeCharacters(const URL& url)
+{
+    return url;
+}
+#endif
+
+Node* WebPage::clickableNodeAtLocation(const FloatPoint& viewportLocation, FloatPoint& adjustedViewportLocation) const
+{
+#if PLATFORM(IOS_FAMILY)
+    return Ref(m_page->mainFrame())->nodeRespondingToClickEvents(viewportLocation, adjustedViewportLocation);
+#else
+    UNUSED_PARAM(adjustedViewportLocation);
+
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    RefPtr frameView = frame->view();
+    if (!frameView)
+        return nullptr;
+
+    auto pointInContentsCoordinates = frameView->windowToContents(roundedIntPoint(viewportLocation));
+
+    RefPtr document = frame->document();
+    if (!document)
+        return nullptr;
+
+    WebCore::HitTestResult result { pointInContentsCoordinates };
+    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowVisibleChildFrameContentOnly };
+
+    document->hitTest(WebCore::HitTestRequest { hitType }, result);
+    return result.innerNode();
+#endif
+}
+
+bool WebPage::isTransparentOrFullyClipped(const Element& element) const
+{
+    auto* renderer = element.renderer();
+    if (!renderer)
+        return false;
+
+    auto* enclosingLayer = renderer->enclosingLayer();
+    if (enclosingLayer && enclosingLayer->isTransparentRespectingParentFrames())
+        return true;
+
+    return renderer->hasNonEmptyVisibleRectRespectingParentFrames();
+}
+
+Vector<FloatRect> WebPage::getEvasionRectsAroundSelection(const Vector<WebCore::FloatPoint>& offsetsForHitTesting, bool evasionRectsAboveSelection) const
+{
+    Ref frame = CheckedRef(m_page->focusController())->focusedOrMainFrame();
+    RefPtr frameView = frame->view();
+    if (!frameView)
+        return { };
+
+    auto selection = frame->selection().selection();
+    if (selection.isNone())
+        return { };
+
+    auto selectedRange = selection.toNormalizedRange();
+    if (!selectedRange)
+        return { };
+
+    if (!m_focusedElement || !m_focusedElement->renderer() || isTransparentOrFullyClipped(*m_focusedElement))
+        return { };
+
+    float scaleFactor = pageScaleFactor();
+    const double factorOfContentArea = 0.5;
+    auto unobscuredContentArea = RefPtr(m_page->mainFrame().view())->unobscuredContentRect().area();
+    if (unobscuredContentArea.hasOverflowed())
+        return { };
+
+    double contextMenuAreaLimit = factorOfContentArea * scaleFactor * unobscuredContentArea.value();
+
+    FloatRect selectionBoundsInRootViewCoordinates;
+    if (selection.isRange())
+        selectionBoundsInRootViewCoordinates = frameView->contentsToRootView(unionRect(RenderObject::absoluteTextRects(*selectedRange)));
+    else
+        selectionBoundsInRootViewCoordinates = frameView->contentsToRootView(frame->selection().absoluteCaretBounds());
+
+    auto centerOfTargetBounds = selectionBoundsInRootViewCoordinates.center();
+    FloatPoint centerTopInRootViewCoordinates { centerOfTargetBounds.x(), evasionRectsAboveSelection ? selectionBoundsInRootViewCoordinates.y() : selectionBoundsInRootViewCoordinates.maxY() };
+
+    auto clickableNonEditableNode = [&] (const FloatPoint& locationInRootViewCoordinates) -> Node* {
+        FloatPoint adjustedPoint;
+        auto* hitNode = clickableNodeAtLocation(locationInRootViewCoordinates, adjustedPoint);
+        if (!hitNode || is<HTMLBodyElement>(hitNode) || is<Document>(hitNode) || hitNode->hasEditableStyle())
+            return nullptr;
+
+        return hitNode;
+    };
+
+    // This heuristic attempts to find a list of rects to avoid when showing the callout menu on iOS.
+    // First, hit-test several points above the bounds of the selection rect in search of clickable nodes that are not editable.
+    // Secondly, hit-test several points around the edges of the selection rect and exclude any nodes found in the first round of
+    // hit-testing if these nodes are also reachable by moving outwards from the left, right, or bottom edges of the selection.
+    // Additionally, exclude any hit-tested nodes that are either very large relative to the size of the root view, or completely
+    // encompass the selection bounds. The resulting rects are the bounds of these hit-tested nodes in root view coordinates.
+    HashSet<Ref<Node>> hitTestedNodes;
+    Vector<FloatRect> rectsToAvoidInRootViewCoordinates;
+    for (auto offset : offsetsForHitTesting) {
+        offset.scale(1 / scaleFactor);
+        if (auto* hitNode = clickableNonEditableNode(centerTopInRootViewCoordinates + offset))
+            hitTestedNodes.add(*hitNode);
+    }
+
+    const float marginForHitTestingSurroundingNodes = 80 / scaleFactor;
+    Vector<FloatPoint, 3> exclusionHitTestLocations {
+        { selectionBoundsInRootViewCoordinates.x() - marginForHitTestingSurroundingNodes, centerOfTargetBounds.y() },
+        { centerOfTargetBounds.x(), selectionBoundsInRootViewCoordinates.maxY() + marginForHitTestingSurroundingNodes },
+        { selectionBoundsInRootViewCoordinates.maxX() + marginForHitTestingSurroundingNodes, centerOfTargetBounds.y() }
+    };
+
+    for (auto& location : exclusionHitTestLocations) {
+        if (auto* nodeToExclude = clickableNonEditableNode(location))
+            hitTestedNodes.remove(*nodeToExclude);
+    }
+
+    for (auto& node : hitTestedNodes) {
+        RefPtr frameView = node->document().view();
+        auto* renderer = node->renderer();
+        if (!renderer || !frameView)
+            continue;
+
+        auto bounds = frameView->contentsToRootView(renderer->absoluteBoundingBoxRect());
+        auto area = bounds.area<RecordOverflow>();
+        if (area.hasOverflowed() || area > contextMenuAreaLimit)
+            continue;
+
+        if (bounds.contains(enclosingIntRect(selectionBoundsInRootViewCoordinates)))
+            continue;
+
+        rectsToAvoidInRootViewCoordinates.append(WTFMove(bounds));
+    }
+
+    return rectsToAvoidInRootViewCoordinates;
 }
 
 } // namespace WebKit

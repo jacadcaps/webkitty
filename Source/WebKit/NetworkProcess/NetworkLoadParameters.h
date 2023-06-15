@@ -44,17 +44,44 @@ enum class PreconnectOnly : bool { No, Yes };
 
 class NetworkLoadParameters {
 public:
+    NetworkLoadParameters() = default;
+    NetworkLoadParameters(WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, RefPtr<WebCore::SecurityOrigin>&& topOrigin, RefPtr<WebCore::SecurityOrigin>&& sourceOrigin, WTF::ProcessID parentPID, WebCore::ResourceRequest&& request, WebCore::ContentSniffingPolicy contentSniffingPolicy, WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::ClientCredentialPolicy clientCredentialPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool needsCertificateInfo, bool isMainFrameNavigation, bool isMainResourceNavigationForAnyFrame, WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, PreconnectOnly shouldPreconnectOnly, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::NetworkConnectionIntegrity> networkConnectionIntegrityPolicy)
+        : webPageProxyID(webPageProxyID)
+        , webPageID(webPageID)
+        , webFrameID(webFrameID)
+        , topOrigin(WTFMove(topOrigin))
+        , sourceOrigin(WTFMove(sourceOrigin))
+        , parentPID(parentPID)
+        , request(WTFMove(request))
+        , contentSniffingPolicy(contentSniffingPolicy)
+        , contentEncodingSniffingPolicy(contentEncodingSniffingPolicy)
+        , storedCredentialsPolicy(storedCredentialsPolicy)
+        , clientCredentialPolicy(clientCredentialPolicy)
+        , shouldClearReferrerOnHTTPSToHTTPRedirect(shouldClearReferrerOnHTTPSToHTTPRedirect)
+        , needsCertificateInfo(needsCertificateInfo)
+        , isMainFrameNavigation(isMainFrameNavigation)
+        , isMainResourceNavigationForAnyFrame(isMainResourceNavigationForAnyFrame)
+        , shouldRelaxThirdPartyCookieBlocking(shouldRelaxThirdPartyCookieBlocking)
+        , shouldPreconnectOnly(shouldPreconnectOnly)
+        , isNavigatingToAppBoundDomain(isNavigatingToAppBoundDomain)
+        , hadMainFrameMainResourcePrivateRelayed(hadMainFrameMainResourcePrivateRelayed)
+        , allowPrivacyProxy(allowPrivacyProxy)
+        , networkConnectionIntegrityPolicy(networkConnectionIntegrityPolicy)
+    {
+    }
+    
     WebPageProxyIdentifier webPageProxyID;
     WebCore::PageIdentifier webPageID;
     WebCore::FrameIdentifier webFrameID;
     RefPtr<WebCore::SecurityOrigin> topOrigin;
+    RefPtr<WebCore::SecurityOrigin> sourceOrigin;
     WTF::ProcessID parentPID { 0 };
 #if HAVE(AUDIT_TOKEN)
-    Optional<audit_token_t> networkProcessAuditToken;
+    std::optional<audit_token_t> networkProcessAuditToken;
 #endif
     WebCore::ResourceRequest request;
     WebCore::ContentSniffingPolicy contentSniffingPolicy { WebCore::ContentSniffingPolicy::SniffContent };
-    WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Sniff };
+    WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Default };
     WebCore::StoredCredentialsPolicy storedCredentialsPolicy { WebCore::StoredCredentialsPolicy::DoNotUse };
     WebCore::ClientCredentialPolicy clientCredentialPolicy { WebCore::ClientCredentialPolicy::CannotAskClientForCredentials };
     bool shouldClearReferrerOnHTTPSToHTTPRedirect { true };
@@ -64,8 +91,11 @@ public:
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
     Vector<RefPtr<WebCore::BlobDataFileReference>> blobFileReferences;
     PreconnectOnly shouldPreconnectOnly { PreconnectOnly::No };
-    Optional<NetworkActivityTracker> networkActivityTracker;
-    Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain { NavigatingToAppBoundDomain::No };
+    std::optional<NetworkActivityTracker> networkActivityTracker;
+    std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain { NavigatingToAppBoundDomain::No };
+    bool hadMainFrameMainResourcePrivateRelayed { false };
+    bool allowPrivacyProxy { true };
+    OptionSet<WebCore::NetworkConnectionIntegrity> networkConnectionIntegrityPolicy;
 };
 
 } // namespace WebKit

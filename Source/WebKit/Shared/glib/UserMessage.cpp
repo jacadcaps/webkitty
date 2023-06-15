@@ -27,9 +27,8 @@
 #include "UserMessage.h"
 
 #include "ArgumentCodersGLib.h"
-#include "Attachment.h"
 #include "DataReference.h"
-#include <gio/gunixfdlist.h>
+#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 
@@ -45,55 +44,43 @@ void UserMessage::encode(IPC::Encoder& encoder) const
         return;
     }
 
-    IPC::encode(encoder, parameters.get());
-
-    Vector<IPC::Attachment> attachments;
-    if (fileDescriptors) {
-        int length = g_unix_fd_list_get_length(fileDescriptors.get());
-        for (int i = 0; i < length; ++i)
-            attachments.append(IPC::Attachment(g_unix_fd_list_get(fileDescriptors.get(), i, nullptr)));
-    }
-    encoder << attachments;
+    encoder << parameters;
+    encoder << fileDescriptors;
 }
 
-Optional<UserMessage> UserMessage::decode(IPC::Decoder& decoder)
+std::optional<UserMessage> UserMessage::decode(IPC::Decoder& decoder)
 {
     UserMessage result;
     if (!decoder.decode(result.type))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (result.type == Type::Null)
         return result;
 
     if (!decoder.decode(result.name))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (result.type == Type::Error) {
-        Optional<uint32_t> errorCode;
+        std::optional<uint32_t> errorCode;
         decoder >> errorCode;
         if (!errorCode)
-            return WTF::nullopt;
+            return std::nullopt;
 
         result.errorCode = errorCode.value();
         return result;
     }
 
-    Optional<GRefPtr<GVariant>> parameters = IPC::decode(decoder);
+    std::optional<GRefPtr<GVariant>> parameters;
+    decoder >> parameters;
     if (!parameters)
-        return WTF::nullopt;
+        return std::nullopt;
     result.parameters = WTFMove(*parameters);
 
-    Optional<Vector<IPC::Attachment>> attachments;
-    decoder >> attachments;
-    if (!attachments)
-        return WTF::nullopt;
-    if (!attachments->isEmpty()) {
-        result.fileDescriptors = adoptGRef(g_unix_fd_list_new());
-        for (auto& attachment : *attachments) {
-            if (g_unix_fd_list_append(result.fileDescriptors.get(), attachment.releaseFileDescriptor(), nullptr) == -1)
-                return WTF::nullopt;
-        }
-    }
+    std::optional<GRefPtr<GUnixFDList>> fileDescriptors;
+    decoder >> fileDescriptors;
+    if (!fileDescriptors)
+        return std::nullopt;
+    result.fileDescriptors = WTFMove(*fileDescriptors);
 
     return result;
 }

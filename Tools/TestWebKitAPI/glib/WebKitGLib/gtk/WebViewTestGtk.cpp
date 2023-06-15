@@ -21,10 +21,10 @@
 #include "config.h"
 #include "WebViewTest.h"
 
-#include "WebKitWebViewBaseInternal.h"
 #include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/GtkVersioning.h>
 #include <gtk/gtk.h>
+#include <webkit/WebKitWebViewBaseInternal.h>
 
 void WebViewTest::platformDestroy()
 {

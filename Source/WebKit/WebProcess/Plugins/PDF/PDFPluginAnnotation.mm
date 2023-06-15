@@ -28,16 +28,18 @@
 
 #if ENABLE(PDFKIT_PLUGIN)
 
-#import "PDFKitImports.h"
+#import "PDFKitSoftLink.h"
 #import "PDFLayerControllerSPI.h"
 #import "PDFPlugin.h"
 #import "PDFPluginChoiceAnnotation.h"
 #import "PDFPluginTextAnnotation.h"
 #import <Quartz/Quartz.h>
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/CSSPrimitiveValue.h>
 #import <WebCore/CSSPropertyNames.h>
 #import <WebCore/ColorMac.h>
 #import <WebCore/Event.h>
+#import <WebCore/EventLoop.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/HTMLInputElement.h>
 #import <WebCore/HTMLNames.h>
@@ -52,9 +54,9 @@ using namespace HTMLNames;
 
 RefPtr<PDFPluginAnnotation> PDFPluginAnnotation::create(PDFAnnotation *annotation, PDFLayerController *pdfLayerController, PDFPlugin* plugin)
 {
-    if ([annotation isKindOfClass:pdfAnnotationTextWidgetClass()])
+    if ([annotation isKindOfClass:getPDFAnnotationTextWidgetClass()])
         return PDFPluginTextAnnotation::create(annotation, pdfLayerController, plugin);
-    if ([annotation isKindOfClass:pdfAnnotationChoiceWidgetClass()])
+    if ([annotation isKindOfClass:getPDFAnnotationChoiceWidgetClass()])
         return PDFPluginChoiceAnnotation::create(annotation, pdfLayerController, plugin);
 
     return nullptr;
@@ -67,8 +69,8 @@ void PDFPluginAnnotation::attach(Element* parent)
     m_parent = parent;
     m_element = createAnnotationElement();
 
-    m_element->setAttributeWithoutSynchronization(classAttr, AtomString("annotation", AtomString::ConstructFromLiteral));
-    m_element->setAttributeWithoutSynchronization(x_apple_pdf_annotationAttr, AtomString("true", AtomString::ConstructFromLiteral));
+    m_element->setAttributeWithoutSynchronization(classAttr, "annotation"_s);
+    m_element->setAttributeWithoutSynchronization(x_apple_pdf_annotationAttr, "true"_s);
     m_element->addEventListener(eventNames().changeEvent, *m_eventListener, false);
     m_element->addEventListener(eventNames().blurEvent, *m_eventListener, false);
 
@@ -92,7 +94,10 @@ PDFPluginAnnotation::~PDFPluginAnnotation()
 
     m_eventListener->setAnnotation(0);
 
-    m_parent->removeChild(*element());
+    m_element->document().eventLoop().queueTask(TaskSource::InternalAsyncTask, [ weakElement = WeakPtr<Node, WeakPtrImplWithEventTargetData> { element() } ]() {
+        if (RefPtr element = weakElement.get())
+            element->remove();
+    });
 }
 
 void PDFPluginAnnotation::updateGeometry()

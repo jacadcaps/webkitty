@@ -27,12 +27,8 @@
 
 #include "WebBackForwardListCounts.h"
 #include <WebCore/BackForwardClient.h>
+#include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/PageIdentifier.h>
-#include <wtf/HashSet.h>
-
-namespace WebCore {
-struct BackForwardItemIdentifier;
-}
 
 namespace WebKit {
 
@@ -63,13 +59,14 @@ private:
     RefPtr<WebCore::HistoryItem> itemAtIndex(int) override;
     unsigned backListCount() const override;
     unsigned forwardListCount() const override;
+    bool containsItem(const WebCore::HistoryItem&) const final;
     const WebBackForwardListCounts& cacheListCountsIfNecessary() const;
     void clearCachedListCounts();
 
     void close() override;
 
     WebPage* m_page;
-    mutable Optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
+    mutable std::optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
 };
 
 } // namespace WebKit

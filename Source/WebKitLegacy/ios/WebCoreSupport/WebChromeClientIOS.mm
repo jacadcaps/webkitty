@@ -76,11 +76,11 @@ using namespace WebCore;
 static WebMediaCaptureType webMediaCaptureType(MediaCaptureType type)
 {
     switch (type) {
-    case MediaCaptureTypeNone:
+    case MediaCaptureType::MediaCaptureTypeNone:
         return WebMediaCaptureTypeNone;
-    case MediaCaptureTypeUser:
+    case MediaCaptureType::MediaCaptureTypeUser:
         return WebMediaCaptureTypeUser;
-    case MediaCaptureTypeEnvironment:
+    case MediaCaptureType::MediaCaptureTypeEnvironment:
         return WebMediaCaptureTypeEnvironment;
     }
 
@@ -133,7 +133,7 @@ void WebChromeClientIOS::runOpenPanel(Frame&, FileChooser& chooser)
 {
     auto& settings = chooser.settings();
     BOOL allowMultipleFiles = settings.allowsMultipleFiles;
-    WebOpenPanelResultListener *listener = [[WebOpenPanelResultListener alloc] initWithChooser:chooser];
+    auto listener = adoptNS([[WebOpenPanelResultListener alloc] initWithChooser:chooser]);
 
     WebMediaCaptureType captureType = WebMediaCaptureTypeNone;
 #if ENABLE(MEDIA_CAPTURE)
@@ -146,13 +146,11 @@ void WebChromeClientIOS::runOpenPanel(Frame&, FileChooser& chooser)
     };
 
     if (WebThreadIsCurrent()) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[webView() _UIKitDelegateForwarder] webView:webView() runOpenPanelForFileButtonWithResultListener:listener configuration:configuration];
+        RunLoop::main().dispatch([this, listener = WTFMove(listener), configuration = retainPtr(configuration)] {
+            [[webView() _UIKitDelegateForwarder] webView:webView() runOpenPanelForFileButtonWithResultListener:listener.get() configuration:configuration.get()];
         });
     } else
-        [[webView() _UIKitDelegateForwarder] webView:webView() runOpenPanelForFileButtonWithResultListener:listener configuration:configuration];
-
-    [listener release];
+        [[webView() _UIKitDelegateForwarder] webView:webView() runOpenPanelForFileButtonWithResultListener:listener.get() configuration:configuration];
 }
 
 void WebChromeClientIOS::showShareSheet(ShareDataWithParsedURL&, CompletionHandler<void(bool)>&&)
@@ -275,7 +273,7 @@ void WebChromeClientIOS::restoreFormNotifications()
         m_formNotificationSuppressions = 0;
 }
 
-void WebChromeClientIOS::elementDidFocus(WebCore::Element& element)
+void WebChromeClientIOS::elementDidFocus(WebCore::Element& element, const WebCore::FocusOptions&)
 {
     if (m_formNotificationSuppressions <= 0)
         [[webView() _UIKitDelegateForwarder] webView:webView() elementDidFocusNode:kit(&element)];

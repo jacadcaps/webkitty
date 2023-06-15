@@ -31,6 +31,7 @@
 #import <WebCore/ScrollingTreeScrollingNodeDelegate.h>
 
 @class CALayer;
+@class UIScrollEvent;
 @class UIScrollView;
 @class WKScrollingNodeScrollViewDelegate;
 
@@ -45,9 +46,12 @@ class ScrollingTreeScrollingNode;
 
 namespace WebKit {
 
-class ScrollingTreeScrollingNodeDelegateIOS : public WebCore::ScrollingTreeScrollingNodeDelegate {
+class ScrollingTreeScrollingNodeDelegateIOS final : public WebCore::ScrollingTreeScrollingNodeDelegate {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    
+    enum class AllowOverscrollToPreventScrollPropagation : bool { Yes, No };
+    
     explicit ScrollingTreeScrollingNodeDelegateIOS(WebCore::ScrollingTreeScrollingNode&);
     ~ScrollingTreeScrollingNodeDelegateIOS() final;
 
@@ -56,7 +60,7 @@ public:
     void scrollViewWillStartPanGesture() const;
     void scrollViewDidScroll(const WebCore::FloatPoint& scrollOffset, bool inUserInteraction);
 
-    void currentSnapPointIndicesDidChange(unsigned horizontal, unsigned vertical) const;
+    void currentSnapPointIndicesDidChange(std::optional<unsigned> horizontal, std::optional<unsigned> vertical) const;
     CALayer *scrollLayer() const { return m_scrollLayer.get(); }
 
     void resetScrollViewDelegate();
@@ -65,6 +69,10 @@ public:
 
     void repositionScrollingLayers();
 
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+    void handleAsynchronousCancelableScrollEvent(UIScrollView *, UIScrollEvent *, void (^completion)(BOOL handled));
+#endif
+
     OptionSet<WebCore::TouchAction> activeTouchActions() const { return m_activeTouchActions; }
     void computeActiveTouchActionsForGestureRecognizer(UIGestureRecognizer*);
     void clearActiveTouchActions() { m_activeTouchActions = { }; }
@@ -72,6 +80,13 @@ public:
 
     UIScrollView *findActingScrollParent(UIScrollView *);
     UIScrollView *scrollView() const;
+
+    bool startAnimatedScrollToPosition(WebCore::FloatPoint) final;
+    void stopAnimatedScroll() final;
+
+    void serviceScrollAnimation(MonotonicTime) final { }
+    
+    static void updateScrollViewForOverscrollBehavior(UIScrollView *, const WebCore::OverscrollBehavior, const WebCore::OverscrollBehavior, AllowOverscrollToPreventScrollPropagation);
 
 private:
     RetainPtr<CALayer> m_scrollLayer;

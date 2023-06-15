@@ -30,7 +30,6 @@
 #include "SharedBuffer.h"
 #include <cairo.h>
 #include <gdk/gdk.h>
-#include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
 namespace WebCore {
@@ -54,28 +53,23 @@ Ref<Image> Image::loadPlatformResource(const char* name)
     return loadImageFromGResource(name);
 }
 
-GdkPixbuf* BitmapImage::getGdkPixbuf()
+GRefPtr<GdkPixbuf> BitmapImage::gdkPixbuf()
 {
-    RefPtr<cairo_surface_t> surface = nativeImageForCurrentFrame();
-    return surface ? cairoSurfaceToGdkPixbuf(surface.get()) : 0;
+    if (auto nativeImage = nativeImageForCurrentFrame()) {
+        auto& surface = nativeImage->platformImage();
+        return cairoSurfaceToGdkPixbuf(surface.get());
+    }
+    return nullptr;
 }
 
 #if USE(GTK4)
-GdkTexture* BitmapImage::gdkTexture()
+GRefPtr<GdkTexture> BitmapImage::gdkTexture()
 {
-    RefPtr<cairo_surface_t> surface = nativeImageForCurrentFrame();
-    if (!surface)
-        return nullptr;
-
-    ASSERT(cairo_image_surface_get_format(surface.get()) == CAIRO_FORMAT_ARGB32);
-    auto width = cairo_image_surface_get_width(surface.get());
-    auto height = cairo_image_surface_get_height(surface.get());
-    auto stride = cairo_image_surface_get_stride(surface.get());
-    auto* data = cairo_image_surface_get_data(surface.get());
-    GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_with_free_func(data, height * stride, [](gpointer data) {
-        cairo_surface_destroy(static_cast<cairo_surface_t*>(data));
-    }, surface.leakRef()));
-    return gdk_memory_texture_new(width, height, GDK_MEMORY_DEFAULT, bytes.get(), stride);
+    if (auto nativeImage = nativeImageForCurrentFrame()) {
+        auto& surface = nativeImage->platformImage();
+        return cairoSurfaceToGdkTexture(surface.get());
+    }
+    return nullptr;
 }
 #endif
 

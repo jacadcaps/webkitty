@@ -26,6 +26,12 @@
 #include "config.h"
 #include "PlaceholderRenderingContext.h"
 
+#if ENABLE(OFFSCREEN_CANVAS)
+
+#include "GraphicsLayerContentsDisplayDelegate.h"
+#include "HTMLCanvasElement.h"
+#include "ImageBufferPipe.h"
+#include "OffscreenCanvas.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -35,6 +41,27 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(PlaceholderRenderingContext);
 PlaceholderRenderingContext::PlaceholderRenderingContext(CanvasBase& canvas)
     : CanvasRenderingContext(canvas)
 {
+    m_imageBufferPipe = ImageBufferPipe::create();
+}
+
+HTMLCanvasElement* PlaceholderRenderingContext::canvas() const
+{
+    auto& base = canvasBase();
+    if (!is<HTMLCanvasElement>(base))
+        return nullptr;
+    return &downcast<HTMLCanvasElement>(base);
+}
+
+void PlaceholderRenderingContext::setContentsToLayer(GraphicsLayer& layer)
+{
+    if (m_imageBufferPipe) {
+        m_imageBufferPipe->setContentsToLayer(layer);
+        return;
+    }
+
+    return CanvasRenderingContext::setContentsToLayer(layer);
 }
 
 }
+
+#endif

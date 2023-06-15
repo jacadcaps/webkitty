@@ -17,7 +17,6 @@
 #include "modules/rtp_rtcp/source/video_rtp_depacketizer.h"
 #include "modules/video_coding/codecs/h265/include/h265_globals.h"
 #include "rtc_base/buffer.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -27,8 +26,7 @@ class RtpPacketizerH265 : public RtpPacketizer {
   // The payload_data must be exactly one encoded H.265 frame.
   RtpPacketizerH265(rtc::ArrayView<const uint8_t> payload,
                     PayloadSizeLimits limits,
-                    H265PacketizationMode packetization_mode,
-                    const RTPFragmentationHeader& fragmentation);
+                    H265PacketizationMode packetization_mode);
 
    ~RtpPacketizerH265() override;
 
@@ -104,9 +102,6 @@ class RtpPacketizerH265 : public RtpPacketizer {
 
   const PayloadSizeLimits limits_;
   size_t num_packets_left_;
-  RTPFragmentationHeader fragmentation_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(RtpPacketizerH265);
 };
 
 // Depacketizer for H.265.

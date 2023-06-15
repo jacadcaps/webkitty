@@ -28,9 +28,9 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import "AssertionServicesSPI.h"
 #import "EndowmentStateTracker.h"
 #import "Logging.h"
+#import "ProcessAssertion.h"
 #import "SandboxUtilities.h"
 #import "UIKitSPI.h"
 #import <wtf/ObjCRuntimeExtras.h>
@@ -51,12 +51,34 @@ static NSNotificationName const viewServiceForegroundNotificationName = @"_UIVie
 
 namespace WebKit {
 
+static WeakHashSet<ApplicationStateTracker>& allApplicationStateTrackers()
+{
+    static NeverDestroyed<WeakHashSet<ApplicationStateTracker>> trackers;
+    return trackers;
+}
+
+static void updateApplicationBackgroundState()
+{
+    static bool s_isApplicationInBackground = false;
+    auto isAnyStateTrackerInForeground = []() -> bool {
+        return WTF::anyOf(allApplicationStateTrackers(), [](auto& tracker) {
+            return !tracker.isInBackground();
+        });
+    };
+    bool isApplicationInBackground = !isAnyStateTrackerInForeground();
+    if (s_isApplicationInBackground == isApplicationInBackground)
+        return;
+
+    s_isApplicationInBackground = isApplicationInBackground;
+    ProcessAndUIAssertion::setProcessStateMonitorEnabled(isApplicationInBackground);
+}
+
 ApplicationType applicationType(UIWindow *window)
 {
     if (_UIApplicationIsExtension())
         return ApplicationType::Extension;
 
-    if (WTF::processHasEntitlement("com.apple.UIKit.vends-view-services") && window._isHostedInAnotherProcess)
+    if (WTF::processHasEntitlement("com.apple.UIKit.vends-view-services"_s) && window._isHostedInAnotherProcess)
         return ApplicationType::ViewService;
 
     return ApplicationType::Application;
@@ -84,7 +106,7 @@ ApplicationStateTracker::ApplicationStateTracker(UIView *view, SEL didEnterBackg
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
     UIApplication *application = [UIApplication sharedApplication];
 
-    auto weakThis = makeWeakPtr(*this);
+    WeakPtr weakThis { *this };
 
     m_didFinishSnapshottingAfterEnteringBackgroundObserver = [notificationCenter addObserverForName:@"_UIApplicationDidFinishSuspensionSnapshotNotification" object:application queue:nil usingBlock:[weakThis](NSNotification *) {
         auto applicationStateTracker = weakThis.get();
@@ -96,7 +118,7 @@ ApplicationStateTracker::ApplicationStateTracker(UIView *view, SEL didEnterBackg
     switch (applicationType(window)) {
     case ApplicationType::Application: {
         m_isInBackground = window.windowScene.activationState == UISceneActivationStateBackground || window.windowScene.activationState == UISceneActivationStateUnattached;
-        RELEASE_LOG(ViewState, "%p - ApplicationStateTracker::ApplicationStateTracker(): m_isInBackground: %d", this, m_isInBackground);
+        RELEASE_LOG(ViewState, "%p - ApplicationStateTracker::ApplicationStateTracker(): m_isInBackground=%d", this, m_isInBackground);
 
         m_didEnterBackgroundObserver = [notificationCenter addObserverForName:UISceneDidEnterBackgroundNotification object:nil queue:nil usingBlock:[this](NSNotification *notification) {
             if (notification.object == [[m_view window] windowScene]) {
@@ -148,20 +170,23 @@ ApplicationStateTracker::ApplicationStateTracker(UIView *view, SEL didEnterBackg
         if ([serviceViewController._hostApplicationBundleIdentifier isEqualToString:@"com.apple.ios.StoreKitUIService"])
             m_isInBackground = false;
 
-        RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID: %d, isInBackground: %d", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID, m_isInBackground);
+        RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID=%d, isInBackground=%d", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID, m_isInBackground);
 
         m_didEnterBackgroundObserver = [notificationCenter addObserverForName:viewServiceBackgroundNotificationName object:serviceViewController queue:nil usingBlock:[this, applicationPID](NSNotification *) {
-            RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID: %d, didEnterBackground", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID);
+            RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID=%d, didEnterBackground", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID);
             applicationDidEnterBackground();
         }];
         m_willEnterForegroundObserver = [notificationCenter addObserverForName:viewServiceForegroundNotificationName object:serviceViewController queue:nil usingBlock:[this, applicationPID](NSNotification *) {
-            RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID: %d, willEnterForeground", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID);
+            RELEASE_LOG(ProcessSuspension, "%{public}s has PID %d, host application PID=%d, willEnterForeground", _UIApplicationIsExtension() ? "Extension" : "ViewService", getpid(), applicationPID);
             applicationWillEnterForeground();
         }];
 
         break;
     }
     }
+
+    allApplicationStateTrackers().add(*this);
+    updateApplicationBackgroundState();
 }
 
 ApplicationStateTracker::~ApplicationStateTracker()
@@ -174,11 +199,15 @@ ApplicationStateTracker::~ApplicationStateTracker()
     [notificationCenter removeObserver:m_willEnterForegroundObserver];
     [notificationCenter removeObserver:m_willBeginSnapshotSequenceObserver];
     [notificationCenter removeObserver:m_didCompleteSnapshotSequenceObserver];
+
+    allApplicationStateTrackers().remove(*this);
+    updateApplicationBackgroundState();
 }
 
 void ApplicationStateTracker::applicationDidEnterBackground()
 {
     m_isInBackground = true;
+    updateApplicationBackgroundState();
 
     if (auto view = m_view.get())
         wtfObjCMsgSend<void>(view.get(), m_didEnterBackgroundSelector);
@@ -193,6 +222,7 @@ void ApplicationStateTracker::applicationDidFinishSnapshottingAfterEnteringBackg
 void ApplicationStateTracker::applicationWillEnterForeground()
 {
     m_isInBackground = false;
+    updateApplicationBackgroundState();
 
     if (auto view = m_view.get())
         wtfObjCMsgSend<void>(view.get(), m_willEnterForegroundSelector);

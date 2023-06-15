@@ -77,29 +77,6 @@ PaymentSetupConfiguration::PaymentSetupConfiguration(RetainPtr<PKPaymentSetupCon
 {
 }
 
-void PaymentSetupConfiguration::encode(IPC::Encoder& encoder) const
-{
-    encoder << m_configuration;
-}
-
-Optional<PaymentSetupConfiguration> PaymentSetupConfiguration::decode(IPC::Decoder& decoder)
-{
-    static NSArray *allowedClasses;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        auto allowed = adoptNS([[NSMutableArray alloc] initWithCapacity:1]);
-        if (auto pkPaymentSetupConfigurationClass = PAL::getPKPaymentSetupConfigurationClass())
-            [allowed addObject:pkPaymentSetupConfigurationClass];
-        allowedClasses = [allowed copy];
-    });
-
-    auto configuration = IPC::decode<PKPaymentSetupConfiguration>(decoder, allowedClasses);
-    if (!configuration)
-        return WTF::nullopt;
-
-    return PaymentSetupConfiguration { WTFMove(*configuration) };
-}
-
 } // namespace WebKitAdditions
 
 #endif // ENABLE(APPLE_PAY)

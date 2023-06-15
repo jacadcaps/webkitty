@@ -36,7 +36,6 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
         this._navigationInfo = {identifier, label};
 
         this._nodeStyles = null;
-        this._visible = false;
     }
 
     // Public
@@ -57,24 +56,23 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
         return false;
     }
 
-    shown()
+    get supportsToggleCSSClassList()
     {
-        if (this._visible)
-            return;
-
-        this._visible = true;
-
-        this._refreshNodeStyles();
-
-        // FIXME: remove once <https://webkit.org/b/150741> is fixed.
-        this.updateLayoutIfNeeded();
+        // Overriden by subclasses if needed.
+        return false;
     }
 
-    hidden()
+    get supportsToggleCSSForcedPseudoClass()
     {
-        this._visible = false;
+        // Overriden by subclasses if needed.
+        return false;
+    }
 
-        this.cancelLayout();
+    attached()
+    {
+        super.attached();
+
+        this._refreshNodeStyles();
     }
 
     markAsNeedsRefresh(domNode)
@@ -103,7 +101,7 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
             this._forceSignificantChange = true;
         }
 
-        if (this._visible)
+        if (this.isAttached)
             this._refreshNodeStyles();
     }
 
@@ -116,23 +114,11 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
 
     nodeStylesRefreshed(event)
     {
-        if (this._visible)
+        if (this.isAttached)
             this._refreshPreservingScrollPosition(event.data.significantChange);
     }
 
-    filterDidChange(filterBar)
-    {
-        // Implemented by subclasses.
-    }
-
     // Private
-
-    get _initialScrollOffset()
-    {
-        if (!WI.cssManager.canForcePseudoClasses())
-            return 0;
-        return this.nodeStyles.node.enabledPseudoClasses.length ? 0 : WI.GeneralStyleDetailsSidebarPanel.NoForcedPseudoClassesScrollOffset;
-    }
 
     _refreshNodeStyles()
     {
@@ -145,7 +131,7 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
     {
         significantChange = this._forceSignificantChange || significantChange || false;
 
-        var previousScrollTop = this._initialScrollOffset;
+        let previousScrollTop = 0;
 
         // Only remember the scroll position if the previous node is the same as this one.
         if (this.element.parentNode && this._previousRefreshNodeIdentifier === this._nodeStyles.node.id)
@@ -163,7 +149,7 @@ WI.StyleDetailsPanel = class StyleDetailsPanel extends WI.View
 
     _nodeStylesNeedsRefreshed(event)
     {
-        if (this._visible)
+        if (this.isAttached)
             this._refreshNodeStyles();
     }
 };

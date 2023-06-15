@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,45 +28,63 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "UIKitSPI.h"
 #import <WebCore/KeyEventCodesIOS.h>
 #import <WebCore/PlatformEventFactoryIOS.h>
+#import <WebCore/Scrollbar.h>
 
-UIKeyModifierFlags WebIOSEventFactory::toUIKeyModifierFlags(OptionSet<WebKit::WebEvent::Modifier> modifiers)
+OptionSet<WebKit::WebEventModifier> WebIOSEventFactory::webEventModifiersForUIKeyModifierFlags(UIKeyModifierFlags modifierFlags)
+{
+    OptionSet<WebKit::WebEventModifier> modifiers;
+    if (modifierFlags & UIKeyModifierShift)
+        modifiers.add(WebKit::WebEventModifier::ShiftKey);
+    if (modifierFlags & UIKeyModifierControl)
+        modifiers.add(WebKit::WebEventModifier::ControlKey);
+    if (modifierFlags & UIKeyModifierAlternate)
+        modifiers.add(WebKit::WebEventModifier::AltKey);
+    if (modifierFlags & UIKeyModifierCommand)
+        modifiers.add(WebKit::WebEventModifier::MetaKey);
+    if (modifierFlags & UIKeyModifierAlphaShift)
+        modifiers.add(WebKit::WebEventModifier::CapsLockKey);
+    return modifiers;
+}
+
+UIKeyModifierFlags WebIOSEventFactory::toUIKeyModifierFlags(OptionSet<WebKit::WebEventModifier> modifiers)
 {
     UIKeyModifierFlags modifierFlags = 0;
-    if (modifiers.contains(WebKit::WebEvent::Modifier::ShiftKey))
+    if (modifiers.contains(WebKit::WebEventModifier::ShiftKey))
         modifierFlags |= UIKeyModifierShift;
-    if (modifiers.contains(WebKit::WebEvent::Modifier::ControlKey))
+    if (modifiers.contains(WebKit::WebEventModifier::ControlKey))
         modifierFlags |= UIKeyModifierControl;
-    if (modifiers.contains(WebKit::WebEvent::Modifier::AltKey))
+    if (modifiers.contains(WebKit::WebEventModifier::AltKey))
         modifierFlags |= UIKeyModifierAlternate;
-    if (modifiers.contains(WebKit::WebEvent::Modifier::MetaKey))
+    if (modifiers.contains(WebKit::WebEventModifier::MetaKey))
         modifierFlags |= UIKeyModifierCommand;
-    if (modifiers.contains(WebKit::WebEvent::Modifier::CapsLockKey))
+    if (modifiers.contains(WebKit::WebEventModifier::CapsLockKey))
         modifierFlags |= UIKeyModifierAlphaShift;
     return modifierFlags;
 }
 
-static OptionSet<WebKit::WebEvent::Modifier> modifiersForEvent(::WebEvent *event)
+static OptionSet<WebKit::WebEventModifier> modifiersForEvent(::WebEvent *event)
 {
-    OptionSet<WebKit::WebEvent::Modifier> modifiers;
+    OptionSet<WebKit::WebEventModifier> modifiers;
     WebEventFlags eventModifierFlags = event.modifierFlags;
     if (eventModifierFlags & WebEventFlagMaskShiftKey)
-        modifiers.add(WebKit::WebEvent::Modifier::ShiftKey);
+        modifiers.add(WebKit::WebEventModifier::ShiftKey);
     if (eventModifierFlags & WebEventFlagMaskControlKey)
-        modifiers.add(WebKit::WebEvent::Modifier::ControlKey);
+        modifiers.add(WebKit::WebEventModifier::ControlKey);
     if (eventModifierFlags & WebEventFlagMaskOptionKey)
-        modifiers.add(WebKit::WebEvent::Modifier::AltKey);
+        modifiers.add(WebKit::WebEventModifier::AltKey);
     if (eventModifierFlags & WebEventFlagMaskCommandKey)
-        modifiers.add(WebKit::WebEvent::Modifier::MetaKey);
+        modifiers.add(WebKit::WebEventModifier::MetaKey);
     if (eventModifierFlags & WebEventFlagMaskLeftCapsLockKey)
-        modifiers.add(WebKit::WebEvent::Modifier::CapsLockKey);
+        modifiers.add(WebKit::WebEventModifier::CapsLockKey);
     return modifiers;
 }
 
 WebKit::WebKeyboardEvent WebIOSEventFactory::createWebKeyboardEvent(::WebEvent *event, bool handledByInputMethod)
 {
-    WebKit::WebEvent::Type type = (event.type == WebEventKeyUp) ? WebKit::WebEvent::KeyUp : WebKit::WebEvent::KeyDown;
+    WebKit::WebEventType type = (event.type == WebEventKeyUp) ? WebKit::WebEventType::KeyUp : WebKit::WebEventType::KeyDown;
     String text;
     String unmodifiedText;
     bool autoRepeat;
@@ -99,9 +117,9 @@ WebKit::WebKeyboardEvent WebIOSEventFactory::createWebKeyboardEvent(::WebEvent *
     // The adjustments below are only needed in backward compatibility mode, but we cannot tell what mode we are in from here.
 
     // Turn 0x7F into 8, because backspace needs to always be 8.
-    if (text == "\x7F")
+    if (text == "\x7F"_s)
         text = "\x8"_s;
-    if (unmodifiedText == "\x7F")
+    if (unmodifiedText == "\x7F"_s)
         unmodifiedText = "\x8"_s;
     // Always use 9 for tab.
     if (windowsVirtualKeyCode == 9) {
@@ -109,7 +127,7 @@ WebKit::WebKeyboardEvent WebIOSEventFactory::createWebKeyboardEvent(::WebEvent *
         unmodifiedText = text;
     }
 
-    return WebKit::WebKeyboardEvent { type, text, unmodifiedText, key, code, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, handledByInputMethod, autoRepeat, isKeypad, isSystemKey, modifiers, WallTime::fromRawSeconds(timestamp) };
+    return WebKit::WebKeyboardEvent { { type, modifiers, WallTime::fromRawSeconds(timestamp) }, text, unmodifiedText, key, code, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, handledByInputMethod, autoRepeat, isKeypad, isSystemKey };
 }
 
 WebKit::WebMouseEvent WebIOSEventFactory::createWebMouseEvent(::WebEvent *event)
@@ -117,8 +135,8 @@ WebKit::WebMouseEvent WebIOSEventFactory::createWebMouseEvent(::WebEvent *event)
     // This currently only supports synthetic mouse moved events with no button pressed.
     ASSERT_ARG(event, event.type == WebEventMouseMoved);
 
-    auto type = WebKit::WebEvent::MouseMove;
-    auto button = WebKit::WebMouseEvent::NoButton;
+    auto type = WebKit::WebEventType::MouseMove;
+    auto button = WebKit::WebMouseEventButton::NoButton;
     unsigned short buttons = 0;
     auto position = WebCore::IntPoint(event.locationInWindow);
     float deltaX = 0;
@@ -127,7 +145,57 @@ WebKit::WebMouseEvent WebIOSEventFactory::createWebMouseEvent(::WebEvent *event)
     int clickCount = 0;
     double timestamp = event.timestamp;
 
-    return WebKit::WebMouseEvent(type, button, buttons, position, position, deltaX, deltaY, deltaZ, clickCount, OptionSet<WebKit::WebEvent::Modifier> { }, WallTime::fromRawSeconds(timestamp));
+    return WebKit::WebMouseEvent({ type, OptionSet<WebKit::WebEventModifier> { }, WallTime::fromRawSeconds(timestamp) }, button, buttons, position, position, deltaX, deltaY, deltaZ, clickCount);
 }
+
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+static WebKit::WebWheelEvent::Phase toWebPhase(UIScrollPhase phase)
+{
+    switch (phase) {
+    case UIScrollPhaseNone:
+        return WebKit::WebWheelEvent::PhaseNone;
+    case UIScrollPhaseMayBegin:
+        return WebKit::WebWheelEvent::PhaseMayBegin;
+    case UIScrollPhaseBegan:
+        return WebKit::WebWheelEvent::PhaseBegan;
+    case UIScrollPhaseChanged:
+        return WebKit::WebWheelEvent::PhaseChanged;
+    case UIScrollPhaseEnded:
+        return WebKit::WebWheelEvent::PhaseEnded;
+    case UIScrollPhaseCancelled:
+        return WebKit::WebWheelEvent::PhaseCancelled;
+    default:
+        ASSERT_NOT_REACHED();
+        return WebKit::WebWheelEvent::PhaseNone;
+    }
+}
+
+WebKit::WebWheelEvent WebIOSEventFactory::createWebWheelEvent(UIScrollEvent *event, UIView *contentView, std::optional<WebKit::WebWheelEvent::Phase> overridePhase)
+{
+    WebCore::IntPoint scrollLocation = WebCore::roundedIntPoint([event locationInView:contentView]);
+    CGVector deltaVector = [event _adjustedAcceleratedDeltaInView:contentView];
+    WebCore::FloatSize delta(deltaVector.dx, deltaVector.dy);
+    WebCore::FloatSize wheelTicks = delta;
+    wheelTicks.scale(1. / static_cast<float>(WebCore::Scrollbar::pixelsPerLineStep()));
+    auto timestamp = MonotonicTime::fromRawSeconds(event.timestamp).approximateWallTime();
+    return {
+        { WebKit::WebEventType::Wheel, OptionSet<WebKit::WebEventModifier> { }, timestamp },
+        scrollLocation,
+        scrollLocation,
+        delta,
+        wheelTicks,
+        WebKit::WebWheelEvent::Granularity::ScrollByPixelWheelEvent,
+        false,
+        overridePhase.value_or(toWebPhase(event.phase)),
+        WebKit::WebWheelEvent::PhaseNone,
+        true,
+        1,
+        delta,
+        timestamp,
+        { },
+        WebKit::WebWheelEvent::MomentumEndType::Unknown
+    };
+}
+#endif
 
 #endif // PLATFORM(IOS_FAMILY)

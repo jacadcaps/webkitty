@@ -1,68 +1,64 @@
 set(DumpRenderTree_DIR "${TOOLS_DIR}/DumpRenderTree")
 set(DumpRenderTree_BINDINGS_DIR "${TOOLS_DIR}/DumpRenderTree/Bindings")
-set(WebKitTestRunner_SHARED_DIR "${TOOLS_DIR}/TestRunnerShared/")
-set(WebKitTestRunner_UISCRIPTCONTEXT_DIR "${TOOLS_DIR}/TestRunnerShared/UIScriptContext")
 
 file(MAKE_DIRECTORY ${DumpRenderTree_DERIVED_SOURCES_DIR})
 
 set(DumpRenderTree_SOURCES
-    ${WebKitTestRunner_SHARED_DIR}/Bindings/JSWrapper.cpp
-
-    ${WebKitTestRunner_UISCRIPTCONTEXT_DIR}/UIScriptContext.cpp
-    ${WebKitTestRunner_UISCRIPTCONTEXT_DIR}/UIScriptControllerShared.cpp
-
     AccessibilityController.cpp
     AccessibilityTextMarker.cpp
     AccessibilityUIElement.cpp
     CyclicRedundancyCheck.cpp
-    DumpRenderTreeCommon.cpp
     GCController.cpp
     JavaScriptThreading.cpp
     PixelDumpSupport.cpp
     TestOptions.cpp
     TestRunner.cpp
-    UIScriptController.cpp
     WorkQueue.cpp
 )
 
 set(DumpRenderTree_LIBRARIES
+    WebKit::TestRunnerShared
     WebKit::WebCoreTestSupport
-    WebKit::JavaScriptCore
 )
+set(DumpRenderTree_FRAMEWORKS
+    JavaScriptCore
+    PAL
+    WTF
+    WebCore
+    WebKitLegacy
+)
+if (NOT USE_SYSTEM_MALLOC)
+    list(APPEND WebKitTestRunner_FRAMEWORKS bmalloc)
+endif ()
 
 set(DumpRenderTree_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${DumpRenderTree_DERIVED_SOURCES_DIR}
     ${DumpRenderTree_DIR}
-    ${WebKitTestRunner_SHARED_DIR}/Bindings
-    ${WebKitTestRunner_UISCRIPTCONTEXT_DIR}
 )
 
-list(APPEND DumpRenderTree_PRIVATE_INCLUDE_DIRECTORIES
-    ${PAL_FRAMEWORK_HEADERS_DIR}
-    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-    ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
+set(DumpRenderTree_WEB_PREFERENCES_TEMPLATES
+    ${DumpRenderTree_DIR}/Scripts/PreferencesTemplates/TestOptionsGeneratedWebKitLegacyKeyMapping.cpp.erb
+    ${DumpRenderTree_DIR}/Scripts/PreferencesTemplates/TestOptionsGeneratedKeys.h.erb
 )
 
-set(DumpRenderTree_IDL_FILES
-    "${WebKitTestRunner_UISCRIPTCONTEXT_DIR}/Bindings/UIScriptController.idl"
+set(DumpRenderTree_WEB_PREFERENCES
+    ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
 )
 
-GENERATE_BINDINGS(DumpRenderTreeBindings
-    OUTPUT_SOURCE DumpRenderTree_SOURCES
-    INPUT_FILES ${DumpRenderTree_IDL_FILES}
-    BASE_DIR ${DumpRenderTree_BINDINGS_DIR}
-    IDL_INCLUDES Bindings
-    FEATURES ${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}
-    DESTINATION ${DumpRenderTree_DERIVED_SOURCES_DIR}
-    GENERATOR DumpRenderTree)
+set_source_files_properties(${DumpRenderTree_WEB_PREFERENCES} PROPERTIES GENERATED TRUE)
 
-set(DumpRenderTree_DEPENDENCIES DumpRenderTreeBindings)
+add_custom_command(
+    OUTPUT ${DumpRenderTree_DERIVED_SOURCES_DIR}/TestOptionsGeneratedWebKitLegacyKeyMapping.cpp ${DumpRenderTree_DERIVED_SOURCES_DIR}/TestOptionsGeneratedKeys.h
+    DEPENDS ${DumpRenderTree_WEB_PREFERENCES_TEMPLATES} ${DumpRenderTree_WEB_PREFERENCES} WTF_CopyPreferences
+    COMMAND ${RUBY_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${DumpRenderTree_DERIVED_SOURCES_DIR}" --template ${DumpRenderTree_DIR}/Scripts/PreferencesTemplates/TestOptionsGeneratedWebKitLegacyKeyMapping.cpp.erb --template ${DumpRenderTree_DIR}/Scripts/PreferencesTemplates/TestOptionsGeneratedKeys.h.erb ${DumpRenderTree_WEB_PREFERENCES}
+    VERBATIM)
+
+list(APPEND DumpRenderTree_SOURCES
+    ${DumpRenderTree_DERIVED_SOURCES_DIR}/TestOptionsGeneratedWebKitLegacyKeyMapping.cpp
+    ${DumpRenderTree_DERIVED_SOURCES_DIR}/TestOptionsGeneratedKeys.h
+)
 
 WEBKIT_EXECUTABLE_DECLARE(DumpRenderTree)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_EXECUTABLE(DumpRenderTree)
-
-if (ENABLE_NETSCAPE_PLUGIN_API)
-    add_subdirectory(TestNetscapePlugIn)
-endif ()

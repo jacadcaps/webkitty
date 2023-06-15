@@ -33,6 +33,10 @@ namespace WebKit {
 
 void LoadParameters::encode(IPC::Encoder& encoder) const
 {
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    encoder << topPrivatelyControlledDomain;
+    encoder << host;
+#endif
     encoder << navigationID;
     encoder << request;
 
@@ -56,13 +60,26 @@ void LoadParameters::encode(IPC::Encoder& encoder) const
     encoder << lockHistory;
     encoder << lockBackForwardList;
     encoder << clientRedirectSourceForHistory;
+    encoder << effectiveSandboxFlags;
     encoder << isNavigatingToAppBoundDomain;
-
+    encoder << existingNetworkResourceLoadIdentifierToResume;
+    encoder << isServiceWorkerLoad;
+    encoder << sessionHistoryVisibility;
     platformEncode(encoder);
 }
 
 bool LoadParameters::decode(IPC::Decoder& decoder, LoadParameters& data)
 {
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (!decoder.decode(data.topPrivatelyControlledDomain))
+        return false;
+
+    if (!decoder.decode(data.host))
+        return false;
+
+    WebCore::setTopPrivatelyControlledDomain(data.host, data.topPrivatelyControlledDomain);
+#endif
+
     if (!decoder.decode(data.navigationID))
         return false;
 
@@ -75,7 +92,7 @@ bool LoadParameters::decode(IPC::Decoder& decoder, LoadParameters& data)
 
     if (hasHTTPBody) {
         // FormDataReference encoder / decoder takes care of passing and consuming the needed sandbox extensions.
-        Optional<IPC::FormDataReference> formDataReference;
+        std::optional<IPC::FormDataReference> formDataReference;
         decoder >> formDataReference;
         if (!formDataReference)
             return false;
@@ -83,7 +100,7 @@ bool LoadParameters::decode(IPC::Decoder& decoder, LoadParameters& data)
         data.request.setHTTPBody(formDataReference->takeData());
     }
 
-    Optional<SandboxExtension::Handle> sandboxExtensionHandle;
+    std::optional<SandboxExtension::Handle> sandboxExtensionHandle;
     decoder >> sandboxExtensionHandle;
     if (!sandboxExtensionHandle)
         return false;
@@ -107,7 +124,7 @@ bool LoadParameters::decode(IPC::Decoder& decoder, LoadParameters& data)
     if (!decoder.decode(data.provisionalLoadErrorURLString))
         return false;
 
-    Optional<Optional<WebsitePoliciesData>> websitePolicies;
+    std::optional<std::optional<WebsitePoliciesData>> websitePolicies;
     decoder >> websitePolicies;
     if (!websitePolicies)
         return false;
@@ -128,15 +145,30 @@ bool LoadParameters::decode(IPC::Decoder& decoder, LoadParameters& data)
     if (!decoder.decode(data.lockBackForwardList))
         return false;
 
-    Optional<String> clientRedirectSourceForHistory;
+    std::optional<String> clientRedirectSourceForHistory;
     decoder >> clientRedirectSourceForHistory;
     if (!clientRedirectSourceForHistory)
         return false;
     data.clientRedirectSourceForHistory = WTFMove(*clientRedirectSourceForHistory);
+
+    std::optional<WebCore::SandboxFlags> effectiveSandboxFlags;
+    decoder >> effectiveSandboxFlags;
+    if (!effectiveSandboxFlags)
+        return false;
+    data.effectiveSandboxFlags = *effectiveSandboxFlags;
     
     if (!decoder.decode(data.isNavigatingToAppBoundDomain))
         return false;
+
+    if (!decoder.decode(data.existingNetworkResourceLoadIdentifierToResume))
+        return false;
+
+    if (!decoder.decode(data.isServiceWorkerLoad))
+        return false;
     
+    if (!decoder.decode(data.sessionHistoryVisibility))
+        return false;
+
     if (!platformDecode(decoder, data))
         return false;
 

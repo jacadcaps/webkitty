@@ -187,7 +187,7 @@ TEST(EditorStateTests, TypingAttributesTextAlignmentAbsoluteAlignmentOptions)
     [testHarness insertParagraphAndExpectEditorStateWith:@{ @"text-alignment": @(NSTextAlignmentCenter) }];
 
     [testHarness insertHTML:@"<span id='left'>left</span>" andExpectEditorStateWith:@{ @"text-alignment": @(NSTextAlignmentCenter) }];
-    [webView stringByEvaluatingJavaScript:@"getSelection().setBaseAndExtent(left.childNodes[0], 0, left.childNodes[0], 6)"];
+    [webView stringByEvaluatingJavaScript:@"getSelection().setBaseAndExtent(left.childNodes[0], 0, left.childNodes[0], 4)"];
     [testHarness alignLeftAndExpectEditorStateWith:@{ @"text-alignment": @(NSTextAlignmentLeft) }];
 
     [testHarness selectAllAndExpectEditorStateWith:@{ @"text-alignment": @(NSTextAlignmentRight) }];
@@ -372,28 +372,28 @@ TEST(EditorStateTests, ObserveSelectionAttributeChanges)
 
     [webView evaluateJavaScript:@"document.body.focus()" completionHandler:nil];
     [webView waitForNextPresentationUpdate];
-    EXPECT_EQ(_WKSelectionAttributeIsCaret | _WKSelectionAttributeAtStartOfSentence, [observer currentSelectionAttributes]);
+    EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor insertText:@"Hello"];
     EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor insertText:@"."];
-    EXPECT_EQ(_WKSelectionAttributeIsCaret | _WKSelectionAttributeAtStartOfSentence, [observer currentSelectionAttributes]);
+    EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor moveBackward];
     EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor moveForward];
-    EXPECT_EQ(_WKSelectionAttributeIsCaret | _WKSelectionAttributeAtStartOfSentence, [observer currentSelectionAttributes]);
+    EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor deleteBackwards];
     EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor insertParagraph];
-    EXPECT_EQ(_WKSelectionAttributeIsCaret | _WKSelectionAttributeAtStartOfSentence, [observer currentSelectionAttributes]);
+    EXPECT_EQ(_WKSelectionAttributeIsCaret, [observer currentSelectionAttributes]);
 
     [editor selectAll];
-    EXPECT_EQ(_WKSelectionAttributeIsRange | _WKSelectionAttributeAtStartOfSentence, [observer currentSelectionAttributes]);
+    EXPECT_EQ(_WKSelectionAttributeIsRange, [observer currentSelectionAttributes]);
 
     [webView evaluateJavaScript:@"getSelection().removeAllRanges()" completionHandler:nil];
     [webView waitForNextPresentationUpdate];

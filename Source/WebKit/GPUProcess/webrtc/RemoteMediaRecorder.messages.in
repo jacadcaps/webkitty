@@ -21,14 +21,18 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 messages -> RemoteMediaRecorder NotRefCounted {
-    AudioSamplesStorageChanged(WebKit::SharedMemory::Handle storageHandle, WebCore::CAAudioStreamDescription description, uint64_t numberOfFrames)
-    AudioSamplesAvailable(MediaTime time, uint64_t numberOfFrames, uint64_t startFrame, uint64_t endFrame)
-    VideoSampleAvailable(WebCore::RemoteVideoSample sample)
-    FetchData() -> (IPC::DataReference buffer, String mimeType) Async
-    StopRecording()
+    AudioSamplesStorageChanged(WebKit::ConsumerSharedCARingBuffer::Handle storageHandle, WebCore::CAAudioStreamDescription description)
+    AudioSamplesAvailable(MediaTime time, uint64_t numberOfFrames)
+    VideoFrameAvailable(struct WebKit::SharedVideoFrame frame)
+    FetchData() -> (IPC::DataReference buffer, double timeCode)
+    StopRecording() -> ()
+    Pause() -> ()
+    Resume() -> ()
+    SetSharedVideoFrameSemaphore(IPC::Semaphore semaphore)
+    SetSharedVideoFrameMemory(WebKit::SharedMemory::Handle storageHandle)
 }
 
 #endif

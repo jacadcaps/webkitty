@@ -25,103 +25,40 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include <WebCore/AudioTrackPrivate.h>
-#include <WebCore/VideoTrackPrivate.h>
 #include <wtf/MediaTime.h>
 
 namespace WebKit {
 
 struct TrackPrivateRemoteConfiguration {
-    AtomString id;
+    AtomString trackId;
     AtomString label;
     AtomString language;
     MediaTime startTimeVariance { MediaTime::zeroTime() };
     int trackIndex;
 
-    bool enabled;
-    WebCore::AudioTrackPrivate::Kind audioKind { WebCore::AudioTrackPrivate::Kind::None };
-
-    bool selected;
-    WebCore::VideoTrackPrivate::Kind videoKind { WebCore::VideoTrackPrivate::Kind::None };
-
     template<class Encoder>
     void encode(Encoder& encoder) const
     {
-        encoder << id;
+        encoder << trackId;
         encoder << label;
         encoder << language;
         encoder << startTimeVariance;
         encoder << trackIndex;
-        encoder << enabled;
-        encoder << audioKind;
-        encoder << selected;
-        encoder << videoKind;
     }
 
     template <class Decoder>
-    static Optional<TrackPrivateRemoteConfiguration> decode(Decoder& decoder)
+    static bool decode(Decoder& decoder, TrackPrivateRemoteConfiguration& configuration)
     {
-        Optional<AtomString> id;
-        decoder >> id;
-        if (!id)
-            return WTF::nullopt;
-
-        Optional<AtomString> label;
-        decoder >> label;
-        if (!label)
-            return WTF::nullopt;
-
-        Optional<AtomString> language;
-        decoder >> language;
-        if (!language)
-            return WTF::nullopt;
-
-        Optional<MediaTime> startTimeVariance;
-        decoder >> startTimeVariance;
-        if (!startTimeVariance)
-            return WTF::nullopt;
-
-        Optional<int> trackIndex;
-        decoder >> trackIndex;
-        if (!trackIndex)
-            return WTF::nullopt;
-
-        Optional<bool> enabled;
-        decoder >> enabled;
-        if (!enabled)
-            return WTF::nullopt;
-
-        Optional<WebCore::AudioTrackPrivate::Kind> audioKind;
-        decoder >> audioKind;
-        if (!audioKind)
-            return WTF::nullopt;
-
-        Optional<bool> selected;
-        decoder >> selected;
-        if (!selected)
-            return WTF::nullopt;
-
-        Optional<WebCore::VideoTrackPrivate::Kind> videoKind;
-        decoder >> videoKind;
-        if (!videoKind)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*id),
-            WTFMove(*label),
-            WTFMove(*language),
-            WTFMove(*startTimeVariance),
-            *trackIndex,
-            *enabled,
-            *audioKind,
-            *selected,
-            *videoKind,
-        }};
+        return decoder.decode(configuration.trackId)
+            && decoder.decode(configuration.label)
+            && decoder.decode(configuration.language)
+            && decoder.decode(configuration.startTimeVariance)
+            && decoder.decode(configuration.trackIndex);
     }
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (C) 2015 Canon Incorporated. All rights reserved.
 #
@@ -29,11 +29,29 @@
 
 import sys
 import argparse
+import os
 
 from webkitpy.common.checkout.scm.detection import SCMDetector
 from webkitpy.common.host import Host
 from webkitpy.common.system.filesystem import FileSystem
 
+def usesFlatpak():
+    return not os.environ.get('WEBKIT_JHBUILD') or os.environ.get('WEBKIT_JHBUILD') == '0'
+
+def listWebKitBuildFiles(fs):
+    ret = []
+    if fs.isdir("WebKitBuild"):
+        for build_dir in fs.listdir("WebKitBuild"):
+            build_path = fs.join("WebKitBuild", build_dir)
+            ret.append(build_path)
+    return ret
+
+def removeFiles(fs, l):
+    for each in l:
+        if fs.isdir(each):
+            fs.rmtree(each)
+        else:
+            fs.remove(each)
 
 def main(args):
     fs = FileSystem()
@@ -41,18 +59,17 @@ def main(args):
     scm = SCMDetector(fs, host.executive).detect_scm_system(fs.getcwd())
 
     scm.discard_working_directory_changes()
+    if args.optimize_local_repository:
+        scm.cleanup_and_optimize_local_repository()
 
     if args.keep_jhbuild_directory:
         # Clean everything inside WebKitBuild, except the JHBuild directories.
         scm.discard_untracked_files(discard_ignored_files=True, keep_webkitbuild_directory=True)
         if fs.isdir("WebKitBuild"):
-            for build_dir in fs.listdir("WebKitBuild"):
-                build_path = fs.join("WebKitBuild", build_dir)
-                if fs.isdir(build_path):
-                    if build_dir not in ["DependenciesGTK", "DependenciesWPE"]:
-                        fs.rmtree(build_path)
-                else:
-                    fs.remove(build_path)
+            files = listWebKitBuildFiles(fs)
+            keepDirs = usesFlatpak() and ["Toolchains", "UserFlatpak"] or ["DependenciesGTK", "DependenciesWPE"]
+            files = [path for path in files if path[len("WebKitBuild/"):] not in keepDirs]
+            removeFiles(fs, files)
     else:
         scm.discard_untracked_files(discard_ignored_files=True)
 
@@ -61,6 +78,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Clean WebKit")
     parser.add_argument("--keep-jhbuild-directory", action="store_true",
                         help="Don't wipe the JHBuild build directories.")
-
+    parser.add_argument('--optimize-local-repository', action='store_true',
+                        default=False, help='run `git gc`')
     args = parser.parse_args()
     sys.exit(main(args))

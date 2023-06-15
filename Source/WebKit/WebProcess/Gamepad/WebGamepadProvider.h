@@ -43,7 +43,7 @@ class WebGamepad;
 
 class GamepadData;
 
-class WebGamepadProvider : public WebCore::GamepadProvider {
+class WebGamepadProvider final : public WebCore::GamepadProvider {
 public:
     static WebGamepadProvider& singleton();
 
@@ -61,6 +61,8 @@ private:
     void startMonitoringGamepads(WebCore::GamepadProviderClient&) final;
     void stopMonitoringGamepads(WebCore::GamepadProviderClient&) final;
     const Vector<WebCore::PlatformGamepad*>& platformGamepads() final;
+    void playEffect(unsigned gamepadIndex, const String& gamepadID, WebCore::GamepadHapticEffectType, const WebCore::GamepadEffectParameters&, CompletionHandler<void(bool)>&&) final;
+    void stopEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&&) final;
 
     HashSet<WebCore::GamepadProviderClient*> m_clients;
 

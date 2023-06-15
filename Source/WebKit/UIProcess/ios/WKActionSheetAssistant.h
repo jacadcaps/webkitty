@@ -28,8 +28,14 @@
 #import "GestureTypes.h"
 #import "WKActionSheet.h"
 #import <UIKit/UIPopoverController.h>
+#import <WebCore/MediaControlsContextMenuItem.h>
 #import <pal/spi/ios/DataDetectorsUISPI.h>
+#import <wtf/Forward.h>
 #import <wtf/RetainPtr.h>
+
+namespace WebCore {
+class FloatRect;
+}
 
 namespace WebKit {
 class WebPageProxy;
@@ -48,7 +54,7 @@ typedef NS_ENUM(NSInteger, _WKElementActionType);
 
 @protocol WKActionSheetAssistantDelegate <NSObject>
 @required
-- (Optional<WebKit::InteractionInformationAtPosition>)positionInformationForActionSheetAssistant:(WKActionSheetAssistant *)assistant;
+- (std::optional<WebKit::InteractionInformationAtPosition>)positionInformationForActionSheetAssistant:(WKActionSheetAssistant *)assistant;
 - (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant performAction:(WebKit::SheetAction)action;
 - (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant openElementAtLocation:(CGPoint)location;
 - (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant shareElementWithURL:(NSURL *)url rect:(CGRect)boundingRect;
@@ -69,13 +75,28 @@ typedef NS_ENUM(NSInteger, _WKElementActionType);
 #if USE(UICONTEXTMENU)
 - (UITargetedPreview *)createTargetedContextMenuHintForActionSheetAssistant:(WKActionSheetAssistant *)assistant;
 - (void)removeContextMenuViewIfPossibleForActionSheetAssistant:(WKActionSheetAssistant *)assistant;
+- (void)actionSheetAssistantDidShowContextMenu:(WKActionSheetAssistant *)assistant;
+- (void)actionSheetAssistantDidDismissContextMenu:(WKActionSheetAssistant *)assistant;
 #endif
 - (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant shareElementWithImage:(UIImage *)image rect:(CGRect)boundingRect;
-
+#if ENABLE(IMAGE_ANALYSIS)
+- (BOOL)actionSheetAssistant:(WKActionSheetAssistant *)assistant shouldIncludeShowTextActionForElement:(_WKActivatedElementInfo *)element;
+- (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant showTextForImage:(UIImage *)image imageURL:(NSURL *)imageURL title:(NSString *)title imageBounds:(CGRect)imageBounds;
+- (BOOL)actionSheetAssistant:(WKActionSheetAssistant *)assistant shouldIncludeLookUpImageActionForElement:(_WKActivatedElementInfo *)element;
+- (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant lookUpImage:(UIImage *)image imageURL:(NSURL *)imageURL title:(NSString *)title imageBounds:(CGRect)imageBounds;
+#endif
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+- (BOOL)actionSheetAssistantShouldIncludeCopySubjectAction:(WKActionSheetAssistant *)assistant;
+- (void)actionSheetAssistant:(WKActionSheetAssistant *)assistant copySubject:(UIImage *)image sourceMIMEType:(NSString *)sourceMIMEType;
+#endif
 @end
 
-#if ENABLE(DATA_DETECTION) && USE(UICONTEXTMENU)
-@interface WKActionSheetAssistant : NSObject <WKActionSheetDelegate, DDDetectionControllerInteractionDelegate, UIContextMenuInteractionDelegate>
+#if USE(UICONTEXTMENU)
+@interface WKActionSheetAssistant : NSObject <WKActionSheetDelegate,
+#if ENABLE(DATA_DETECTION)
+DDDetectionControllerInteractionDelegate,
+#endif
+UIContextMenuInteractionDelegate>
 - (BOOL)hasContextMenuInteraction;
 #else
 @interface WKActionSheetAssistant : NSObject <WKActionSheetDelegate>
@@ -86,17 +107,26 @@ typedef NS_ENUM(NSInteger, _WKElementActionType);
 - (void)showLinkSheet;
 - (void)showImageSheet;
 - (void)showDataDetectorsUIForPositionInformation:(const WebKit::InteractionInformationAtPosition&)positionInformation;
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
+- (void)showMediaControlsContextMenu:(WebCore::FloatRect&&)targetFrame items:(Vector<WebCore::MediaControlsContextMenuItem>&&)items completionHandler:(CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)>&&)completionHandler;
+#endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
 - (void)cleanupSheet;
 - (void)updateSheetPosition;
 - (RetainPtr<NSArray<_WKElementAction *>>)defaultActionsForLinkSheet:(_WKActivatedElementInfo *)elementInfo;
 - (RetainPtr<NSArray<_WKElementAction *>>)defaultActionsForImageSheet:(_WKActivatedElementInfo *)elementInfo;
 - (BOOL)isShowingSheet;
 - (void)interactionDidStartWithPositionInformation:(const WebKit::InteractionInformationAtPosition&)information;
-- (NSArray *)currentAvailableActionTitles;
 - (void)handleElementActionWithType:(_WKElementActionType)type element:(_WKActivatedElementInfo *)element needsInteraction:(BOOL)needsInteraction;
 #if USE(UICONTEXTMENU)
-- (NSArray<UIMenuElement *> *)suggestedActionsForContextMenuWithPositionInformation:(const WebKit::InteractionInformationAtPosition&)positionInformation;
+- (NSMutableArray<UIMenuElement *> *)suggestedActionsForContextMenuWithPositionInformation:(const WebKit::InteractionInformationAtPosition&)positionInformation;
 #endif
+@end
+
+@interface WKActionSheetAssistant (WKTesting)
+- (NSArray *)currentlyAvailableActionTitles;
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
+- (NSArray *)currentlyAvailableMediaControlsContextMenuItems;
+#endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
 @end
 
 #endif // PLATFORM(IOS_FAMILY)

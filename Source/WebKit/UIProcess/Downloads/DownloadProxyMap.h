@@ -35,6 +35,10 @@
 #include <objc/objc.h>
 #endif
 
+namespace API {
+class DownloadClient;
+}
+
 namespace WebCore {
 class ResourceRequest;
 }
@@ -45,7 +49,6 @@ class DownloadProxy;
 class NetworkProcessProxy;
 class ProcessAssertion;
 class WebPageProxy;
-class WebProcessPool;
 class WebsiteDataStore;
 struct FrameInfoData;
 
@@ -57,31 +60,22 @@ public:
     explicit DownloadProxyMap(NetworkProcessProxy&);
     ~DownloadProxyMap();
 
-    DownloadProxy& createDownloadProxy(WebsiteDataStore&, WebProcessPool&, const WebCore::ResourceRequest&, const FrameInfoData&, WebPageProxy* originatingPage);
+    DownloadProxy& createDownloadProxy(WebsiteDataStore&, Ref<API::DownloadClient>&&, const WebCore::ResourceRequest&, const FrameInfoData&, WebPageProxy* originatingPage);
     void downloadFinished(DownloadProxy&);
 
     bool isEmpty() const { return m_downloads.isEmpty(); }
-
     void invalidate();
-
-    void applicationDidEnterBackground();
-    void applicationWillEnterForeground();
 
 private:
     void platformCreate();
     void platformDestroy();
 
-    WeakPtr<NetworkProcessProxy> m_process;
+    NetworkProcessProxy& m_process;
     HashMap<DownloadID, RefPtr<DownloadProxy>> m_downloads;
 
     bool m_shouldTakeAssertion { false };
-    std::unique_ptr<ProcessAssertion> m_downloadUIAssertion;
-    std::unique_ptr<ProcessAssertion> m_downloadNetworkingAssertion;
-
-#if PLATFORM(IOS_FAMILY)
-    RetainPtr<id> m_backgroundObserver;
-    RetainPtr<id> m_foregroundObserver;
-#endif
+    RefPtr<ProcessAssertion> m_downloadUIAssertion;
+    RefPtr<ProcessAssertion> m_downloadNetworkingAssertion;
 };
 
 } // namespace WebKit

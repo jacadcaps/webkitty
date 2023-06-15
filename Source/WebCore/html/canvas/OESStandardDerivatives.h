@@ -30,11 +30,14 @@
 namespace WebCore {
 
 class OESStandardDerivatives final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(OESStandardDerivatives);
 public:
     explicit OESStandardDerivatives(WebGLRenderingContextBase&);
     virtual ~OESStandardDerivatives();
 
     ExtensionName getName() const override;
+
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

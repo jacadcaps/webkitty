@@ -26,14 +26,12 @@
 #include "config.h"
 #include "RemoteMediaPlayerMIMETypeCache.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
+#include "Logging.h"
+#include "RemoteMediaPlayerManager.h"
 #include "RemoteMediaPlayerManagerProxyMessages.h"
-#include <WebCore/MediaPlayerPrivate.h>
-
-#if PLATFORM(COCOA)
-#include <WebCore/AVAssetMIMETypeCache.h>
-#endif
+#include <wtf/Vector.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -44,96 +42,55 @@ RemoteMediaPlayerMIMETypeCache::RemoteMediaPlayerMIMETypeCache(RemoteMediaPlayer
 {
 }
 
-MIMETypeCache* RemoteMediaPlayerMIMETypeCache::mimeCache() const
+void RemoteMediaPlayerMIMETypeCache::addSupportedTypes(const Vector<String>& newTypes)
 {
-    switch (m_engineIdentifier) {
-    case MediaPlayerEnums::MediaEngineIdentifier::AVFoundation:
-#if PLATFORM(COCOA)
-        return &AVAssetMIMETypeCache::singleton();
-        break;
-#endif
+    m_supportedTypesCache.add(newTypes.begin(), newTypes.end());
+}
 
-    case MediaPlayerEnums::MediaEngineIdentifier::AVFoundationMSE:
-    case MediaPlayerEnums::MediaEngineIdentifier::AVFoundationMediaStream:
-    case MediaPlayerEnums::MediaEngineIdentifier::AVFoundationCF:
-    case MediaPlayerEnums::MediaEngineIdentifier::GStreamer:
-    case MediaPlayerEnums::MediaEngineIdentifier::GStreamerMSE:
-    case MediaPlayerEnums::MediaEngineIdentifier::HolePunch:
-    case MediaPlayerEnums::MediaEngineIdentifier::MediaFoundation:
-    case MediaPlayerEnums::MediaEngineIdentifier::MockMSE:
-        ASSERT_NOT_REACHED();
-        break;
+bool RemoteMediaPlayerMIMETypeCache::isEmpty() const
+{
+    return m_hasPopulatedSupportedTypesCacheFromGPUProcess && m_supportedTypesCache.isEmpty();
+}
+
+HashSet<String, ASCIICaseInsensitiveHash>& RemoteMediaPlayerMIMETypeCache::supportedTypes()
+{
+    ASSERT(isMainRunLoop());
+    if (!m_hasPopulatedSupportedTypesCacheFromGPUProcess) {
+        auto sendResult = m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes(m_engineIdentifier), 0);
+        if (sendResult) {
+            auto& [types] = sendResult.reply();
+            addSupportedTypes(types);
+            m_hasPopulatedSupportedTypesCacheFromGPUProcess = true;
+        } else
+            RELEASE_LOG_ERROR(Media, "RemoteMediaPlayerMIMETypeCache::supportedTypes: Sync IPC to the GPUProcess failed.");
     }
-
-    return nullptr;
+    return m_supportedTypesCache;
 }
 
-const HashSet<String, ASCIICaseInsensitiveHash>& RemoteMediaPlayerMIMETypeCache::staticContainerTypeList()
-{
-    if (auto* mimeCache = this->mimeCache())
-        return mimeCache->staticContainerTypeList();
-
-    return MIMETypeCache::staticContainerTypeList();
-}
-
-bool RemoteMediaPlayerMIMETypeCache::isUnsupportedContainerType(const String& type)
-{
-    if (auto* mimeCache = this->mimeCache())
-        return mimeCache->isUnsupportedContainerType(type);
-
-    return false;
-}
-
-bool RemoteMediaPlayerMIMETypeCache::canDecodeExtendedType(const WebCore::ContentType& type)
-{
-    bool result;
-    if (!m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::CanDecodeExtendedType(m_engineIdentifier, type.raw()), Messages::RemoteMediaPlayerManagerProxy::CanDecodeExtendedType::Reply(result), 0))
-        return false;
-
-    return result;
-}
-
-WebCore::MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCodecs(const WebCore::MediaEngineSupportParameters& parameters)
+MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters)
 {
     if (parameters.type.raw().isEmpty())
         return MediaPlayerEnums::SupportsType::MayBeSupported;
 
-    if (parameters.contentTypesRequiringHardwareSupport.isEmpty())
-        return canDecodeType(parameters.type.raw());
+    SupportedTypesAndCodecsKey searchKey { parameters.type.raw(), parameters.isMediaSource, parameters.isMediaStream, parameters.requiresRemotePlayback };
 
     if (m_supportsTypeAndCodecsCache) {
-        auto it = m_supportsTypeAndCodecsCache->find(parameters.type.raw());
+        auto it = m_supportsTypeAndCodecsCache->find(searchKey);
         if (it != m_supportsTypeAndCodecsCache->end())
             return it->value;
     }
 
-    MediaPlayer::SupportsType result;
-    if (!m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs(m_engineIdentifier, parameters), Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs::Reply(result), 0))
-        return MediaPlayer::SupportsType::IsNotSupported;
-
     if (!m_supportsTypeAndCodecsCache)
-        m_supportsTypeAndCodecsCache = HashMap<String, MediaPlayerEnums::SupportsType, ASCIICaseInsensitiveHash>();
-    m_supportsTypeAndCodecsCache->add(parameters.type.raw(), result);
+        m_supportsTypeAndCodecsCache = HashMap<SupportedTypesAndCodecsKey, MediaPlayerEnums::SupportsType> { };
+
+    auto sendResult = m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs(m_engineIdentifier, parameters), 0);
+    auto [result] = sendResult.takeReplyOr(MediaPlayerEnums::SupportsType::IsNotSupported);
+    if (sendResult)
+        m_supportsTypeAndCodecsCache->add(searchKey, result);
 
     return result;
 }
 
-void RemoteMediaPlayerMIMETypeCache::initializeCache(HashSet<String, ASCIICaseInsensitiveHash>& cache)
-{
-    auto* mimeCache = this->mimeCache();
-    if (!isEmpty() || !mimeCache)
-        return;
-
-    Vector<String> types;
-    if (!m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes(m_engineIdentifier), Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes::Reply(types), 0))
-        return;
-
-    for (auto& type : types)
-        cache.add(type);
-
-    mimeCache->addSupportedTypes(types);
 }
 
-}
-
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

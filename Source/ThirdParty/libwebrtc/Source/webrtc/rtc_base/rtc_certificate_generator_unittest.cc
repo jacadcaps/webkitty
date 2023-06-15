@@ -13,9 +13,9 @@
 #include <memory>
 
 #include "absl/types/optional.h"
+#include "api/make_ref_counted.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/ref_counted_object.h"
 #include "rtc_base/thread.h"
 #include "test/gtest.h"
 
@@ -70,11 +70,12 @@ class RTCCertificateGeneratorFixture : public RTCCertificateGeneratorCallback {
 class RTCCertificateGeneratorTest : public ::testing::Test {
  public:
   RTCCertificateGeneratorTest()
-      : fixture_(new RefCountedObject<RTCCertificateGeneratorFixture>()) {}
+      : fixture_(make_ref_counted<RTCCertificateGeneratorFixture>()) {}
 
  protected:
-  static const int kGenerationTimeoutMs = 10000;
+  static constexpr int kGenerationTimeoutMs = 10000;
 
+  rtc::AutoThread main_thread_;
   scoped_refptr<RTCCertificateGeneratorFixture> fixture_;
 };
 
@@ -94,7 +95,7 @@ TEST_F(RTCCertificateGeneratorTest, GenerateAsyncECDSA) {
                                                   absl::nullopt, fixture_);
   // Until generation has completed, the certificate is null. Since this is an
   // async call, generation must not have completed until we process messages
-  // posted to this thread (which is done by |EXPECT_TRUE_WAIT|).
+  // posted to this thread (which is done by `EXPECT_TRUE_WAIT`).
   EXPECT_FALSE(fixture_->GenerateAsyncCompleted());
   EXPECT_FALSE(fixture_->certificate());
   EXPECT_TRUE_WAIT(fixture_->GenerateAsyncCompleted(), kGenerationTimeoutMs);
@@ -120,7 +121,7 @@ TEST_F(RTCCertificateGeneratorTest, GenerateWithExpires) {
                                                    kExpiresMs);
   EXPECT_TRUE(cert_b);
 
-  // Verify that |cert_b| expires approximately |kExpiresMs| after |cert_a|
+  // Verify that `cert_b` expires approximately `kExpiresMs` after `cert_a`
   // (allowing a +/- 1 second plus maximum generation time difference).
   EXPECT_GT(cert_b->Expires(), cert_a->Expires());
   uint64_t expires_diff = cert_b->Expires() - cert_a->Expires();

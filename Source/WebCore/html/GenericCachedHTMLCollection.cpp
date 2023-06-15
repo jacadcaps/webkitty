@@ -26,7 +26,7 @@
 #include "config.h"
 #include "GenericCachedHTMLCollection.h"
 
-#include "HTMLAppletElement.h"
+#include "CachedHTMLCollection.h"
 #include "HTMLFieldSetElement.h"
 #include "HTMLNames.h"
 #include "HTMLObjectElement.h"
@@ -68,7 +68,7 @@ bool GenericCachedHTMLCollection<traversalType>::elementMatches(Element& element
     case MapAreas:
         return element.hasTagName(areaTag);
     case DocApplets:
-        return is<HTMLAppletElement>(element) || (is<HTMLObjectElement>(element) && downcast<HTMLObjectElement>(element).containsJavaApplet());
+        return is<HTMLObjectElement>(element) && downcast<HTMLObjectElement>(element).containsJavaApplet();
     case DocEmbeds:
         return element.hasTagName(embedTag);
     case DocLinks:
@@ -76,7 +76,7 @@ bool GenericCachedHTMLCollection<traversalType>::elementMatches(Element& element
     case DocAnchors:
         return element.hasTagName(aTag) && element.hasAttributeWithoutSynchronization(nameAttr);
     case FieldSetElements:
-        return is<HTMLObjectElement>(element) || is<HTMLFormControlElement>(element);
+        return element.isFormListedElement();
     case ByClass:
     case ByTag:
     case ByHTMLTag:

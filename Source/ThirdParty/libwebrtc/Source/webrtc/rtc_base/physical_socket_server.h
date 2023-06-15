@@ -16,14 +16,18 @@
 #define WEBRTC_USE_EPOLL 1
 #endif
 
+#include <array>
 #include <memory>
-#include <set>
+#include <unordered_map>
 #include <vector>
 
-#include "rtc_base/critical_section.h"
-#include "rtc_base/net_helpers.h"
+#include "rtc_base/async_resolver.h"
+#include "rtc_base/async_resolver_interface.h"
+#include "rtc_base/deprecated/recursive_critical_section.h"
 #include "rtc_base/socket_server.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/rtc_export.h"
+#include "rtc_base/thread_annotations.h"
 
 #if defined(WEBRTC_POSIX)
 typedef int SOCKET;
@@ -41,15 +45,11 @@ enum DispatcherEvent {
 };
 
 class Signaler;
-#if defined(WEBRTC_POSIX)
-class PosixSignalDispatcher;
-#endif
 
 class Dispatcher {
  public:
   virtual ~Dispatcher() {}
   virtual uint32_t GetRequestedEvents() = 0;
-  virtual void OnPreEvent(uint32_t ff) = 0;
   virtual void OnEvent(uint32_t ff, int err) = 0;
 #if defined(WEBRTC_WIN)
   virtual WSAEVENT GetWSAEvent() = 0;
@@ -69,10 +69,9 @@ class RTC_EXPORT PhysicalSocketServer : public SocketServer {
 
   // SocketFactory:
   Socket* CreateSocket(int family, int type) override;
-  AsyncSocket* CreateAsyncSocket(int family, int type) override;
 
   // Internal Factory for Accept (virtual so it can be overwritten in tests).
-  virtual AsyncSocket* WrapSocket(SOCKET s);
+  virtual Socket* WrapSocket(SOCKET s);
 
   // SocketServer:
   bool Wait(int cms, bool process_io) override;
@@ -82,57 +81,55 @@ class RTC_EXPORT PhysicalSocketServer : public SocketServer {
   void Remove(Dispatcher* dispatcher);
   void Update(Dispatcher* dispatcher);
 
-#if defined(WEBRTC_POSIX)
-  // Sets the function to be executed in response to the specified POSIX signal.
-  // The function is executed from inside Wait() using the "self-pipe trick"--
-  // regardless of which thread receives the signal--and hence can safely
-  // manipulate user-level data structures.
-  // "handler" may be SIG_IGN, SIG_DFL, or a user-specified function, just like
-  // with signal(2).
-  // Only one PhysicalSocketServer should have user-level signal handlers.
-  // Dispatching signals on multiple PhysicalSocketServers is not reliable.
-  // The signal mask is not modified. It is the caller's responsibily to
-  // maintain it as desired.
-  virtual bool SetPosixSignalHandler(int signum, void (*handler)(int));
-
- protected:
-  Dispatcher* signal_dispatcher();
-#endif
-
  private:
-  typedef std::set<Dispatcher*> DispatcherSet;
-
-  void AddRemovePendingDispatchers();
+  // The number of events to process with one call to "epoll_wait".
+  static constexpr size_t kNumEpollEvents = 128;
 
 #if defined(WEBRTC_POSIX)
   bool WaitSelect(int cms, bool process_io);
-  static bool InstallSignal(int signum, void (*handler)(int));
-
-  std::unique_ptr<PosixSignalDispatcher> signal_dispatcher_;
 #endif  // WEBRTC_POSIX
 #if defined(WEBRTC_USE_EPOLL)
-  void AddEpoll(Dispatcher* dispatcher);
+  void AddEpoll(Dispatcher* dispatcher, uint64_t key);
   void RemoveEpoll(Dispatcher* dispatcher);
-  void UpdateEpoll(Dispatcher* dispatcher);
+  void UpdateEpoll(Dispatcher* dispatcher, uint64_t key);
   bool WaitEpoll(int cms);
   bool WaitPoll(int cms, Dispatcher* dispatcher);
 
-  int epoll_fd_ = INVALID_SOCKET;
-  std::vector<struct epoll_event> epoll_events_;
+  // This array is accessed in isolation by a thread calling into Wait().
+  // It's useless to use a SequenceChecker to guard it because a socket
+  // server can outlive the thread it's bound to, forcing the Wait call
+  // to have to reset the sequence checker on Wait calls.
+  std::array<epoll_event, kNumEpollEvents> epoll_events_;
+  const int epoll_fd_ = INVALID_SOCKET;
 #endif  // WEBRTC_USE_EPOLL
-  DispatcherSet dispatchers_;
-  DispatcherSet pending_add_dispatchers_;
-  DispatcherSet pending_remove_dispatchers_;
-  bool processing_dispatchers_ = false;
-  Signaler* signal_wakeup_;
-  CriticalSection crit_;
-  bool fWait_;
+  // uint64_t keys are used to uniquely identify a dispatcher in order to avoid
+  // the ABA problem during the epoll loop (a dispatcher being destroyed and
+  // replaced by one with the same address).
+  uint64_t next_dispatcher_key_ RTC_GUARDED_BY(crit_) = 0;
+  std::unordered_map<uint64_t, Dispatcher*> dispatcher_by_key_
+      RTC_GUARDED_BY(crit_);
+  // Reverse lookup necessary for removals/updates.
+  std::unordered_map<Dispatcher*, uint64_t> key_by_dispatcher_
+      RTC_GUARDED_BY(crit_);
+  // A list of dispatcher keys that we're interested in for the current
+  // select() or WSAWaitForMultipleEvents() loop. Again, used to avoid the ABA
+  // problem (a socket being destroyed and a new one created with the same
+  // handle, erroneously receiving the events from the destroyed socket).
+  //
+  // Kept as a member variable just for efficiency.
+  std::vector<uint64_t> current_dispatcher_keys_;
+  Signaler* signal_wakeup_;  // Assigned in constructor only
+  RecursiveCriticalSection crit_;
 #if defined(WEBRTC_WIN)
-  WSAEVENT socket_ev_;
+  const WSAEVENT socket_ev_;
 #endif
+  bool fWait_;
+  // Are we currently in a select()/epoll()/WSAWaitForMultipleEvents loop?
+  // Used for a DCHECK, because we don't support reentrant waiting.
+  bool waiting_ = false;
 };
 
-class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
+class PhysicalSocket : public Socket, public sigslot::has_slots<> {
  public:
   PhysicalSocket(PhysicalSocketServer* ss, SOCKET s = INVALID_SOCKET);
   ~PhysicalSocket() override;
@@ -166,7 +163,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
                int64_t* timestamp) override;
 
   int Listen(int backlog) override;
-  AsyncSocket* Accept(SocketAddress* out_addr) override;
+  Socket* Accept(SocketAddress* out_addr) override;
 
   int Close() override;
 
@@ -205,8 +202,8 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
   SOCKET s_;
   bool udp_;
   int family_ = 0;
-  CriticalSection crit_;
-  int error_ RTC_GUARDED_BY(crit_);
+  mutable webrtc::Mutex mutex_;
+  int error_ RTC_GUARDED_BY(mutex_);
   ConnState state_;
   AsyncResolver* resolver_;
 
@@ -239,7 +236,6 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
 #endif
 
   uint32_t GetRequestedEvents() override;
-  void OnPreEvent(uint32_t ff) override;
   void OnEvent(uint32_t ff, int err) override;
 
   int Close() override;

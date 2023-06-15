@@ -37,6 +37,8 @@
 #include "SoupCookiePersistentStorageType.h"
 #endif
 
+OBJC_CLASS NSHTTPCookieStorage;
+
 namespace WebCore {
 struct Cookie;
 enum class HTTPCookieAcceptPolicy : uint8_t;
@@ -70,8 +72,8 @@ private:
     void getHostnamesWithCookies(PAL::SessionID, CompletionHandler<void(Vector<String>&&)>&&);
 
     void deleteCookie(PAL::SessionID, const WebCore::Cookie&, CompletionHandler<void()>&&);
-    void deleteCookiesForHostnames(PAL::SessionID, const Vector<String>&);
-    void deleteAllCookies(PAL::SessionID);
+    void deleteCookiesForHostnames(PAL::SessionID, const Vector<String>&, CompletionHandler<void()>&&);
+    void deleteAllCookies(PAL::SessionID, CompletionHandler<void()>&&);
     void deleteAllCookiesModifiedSince(PAL::SessionID, WallTime, CompletionHandler<void()>&&);
 
     void setCookie(PAL::SessionID, const Vector<WebCore::Cookie>&, CompletionHandler<void()>&&);
@@ -79,13 +81,17 @@ private:
     void getAllCookies(PAL::SessionID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
     void getCookies(PAL::SessionID, const URL&, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
 
-    void platformSetHTTPCookieAcceptPolicy(WebCore::HTTPCookieAcceptPolicy);
-    void getHTTPCookieAcceptPolicy(CompletionHandler<void(WebCore::HTTPCookieAcceptPolicy)>&&);
+    void platformSetHTTPCookieAcceptPolicy(WebCore::HTTPCookieAcceptPolicy, CompletionHandler<void()>&&);
+    void getHTTPCookieAcceptPolicy(PAL::SessionID, CompletionHandler<void(WebCore::HTTPCookieAcceptPolicy)>&&);
 
     void startObservingCookieChanges(PAL::SessionID);
     void stopObservingCookieChanges(PAL::SessionID);
 
     NetworkProcess& m_process;
 };
+
+#if PLATFORM(COCOA)
+void saveCookies(NSHTTPCookieStorage *, CompletionHandler<void()>&&);
+#endif
 
 } // namespace WebKit

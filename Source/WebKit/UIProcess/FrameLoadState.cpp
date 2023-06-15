@@ -52,6 +52,12 @@ void FrameLoadState::didStartProvisionalLoad(const URL& url)
     m_provisionalURL = url;
 }
 
+void FrameLoadState::didSuspend()
+{
+    m_provisionalURL = { };
+    m_state = State::Finished;
+}
+
 void FrameLoadState::didExplicitOpen(const URL& url)
 {
     m_url = url;
@@ -90,11 +96,8 @@ void FrameLoadState::didFinishLoad()
 
     m_state = State::Finished;
 
-    Vector<Observer*> observersCopy;
-    for (auto& observer : m_observers)
-        observersCopy.append(&observer);
-    for (auto* observer : observersCopy)
-        observer->didFinishLoad();
+    for (auto& observer : copyToVectorOf<std::reference_wrapper<Observer>>(m_observers))
+        observer.get().didFinishLoad();
 }
 
 void FrameLoadState::didFailLoad()

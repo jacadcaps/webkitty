@@ -35,7 +35,7 @@ VideoCaptureDS::~VideoCaptureDS() {
   }
   if (_graphBuilder) {
     if (sink_filter_)
-      _graphBuilder->RemoveFilter(sink_filter_);
+      _graphBuilder->RemoveFilter(sink_filter_.get());
     if (_captureFilter)
       _graphBuilder->RemoveFilter(_captureFilter);
     if (_dvFilter)
@@ -57,7 +57,7 @@ VideoCaptureDS::~VideoCaptureDS() {
 
 int32_t VideoCaptureDS::Init(const char* deviceUniqueIdUTF8) {
   const int32_t nameLength = (int32_t)strlen((char*)deviceUniqueIdUTF8);
-  if (nameLength > kVideoCaptureUniqueNameLength)
+  if (nameLength >= kVideoCaptureUniqueNameLength)
     return -1;
 
   // Store the device name
@@ -101,13 +101,13 @@ int32_t VideoCaptureDS::Init(const char* deviceUniqueIdUTF8) {
   // Create the sink filte used for receiving Captured frames.
   sink_filter_ = new ComRefCount<CaptureSinkFilter>(this);
 
-  hr = _graphBuilder->AddFilter(sink_filter_, SINK_FILTER_NAME);
+  hr = _graphBuilder->AddFilter(sink_filter_.get(), SINK_FILTER_NAME);
   if (FAILED(hr)) {
     RTC_LOG(LS_INFO) << "Failed to add the send filter to the graph.";
     return -1;
   }
 
-  _inputSendPin = GetInputPin(sink_filter_);
+  _inputSendPin = GetInputPin(sink_filter_.get());
   if (!_inputSendPin) {
     RTC_LOG(LS_INFO) << "Failed to get input send pin";
     return -1;
@@ -130,7 +130,7 @@ int32_t VideoCaptureDS::Init(const char* deviceUniqueIdUTF8) {
 }
 
 int32_t VideoCaptureDS::StartCapture(const VideoCaptureCapability& capability) {
-  rtc::CritScope cs(&_apiCs);
+  MutexLock lock(&api_lock_);
 
   if (capability != _requestedCapability) {
     DisconnectGraph();
@@ -148,7 +148,7 @@ int32_t VideoCaptureDS::StartCapture(const VideoCaptureCapability& capability) {
 }
 
 int32_t VideoCaptureDS::StopCapture() {
-  rtc::CritScope cs(&_apiCs);
+  MutexLock lock(&api_lock_);
 
   HRESULT hr = _mediaControl->Pause();
   if (FAILED(hr)) {

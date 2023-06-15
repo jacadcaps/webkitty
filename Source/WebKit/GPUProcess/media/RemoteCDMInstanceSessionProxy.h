@@ -36,20 +36,20 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/WeakPtr.h>
 
-namespace IPC {
-class SharedBufferDataReference;
+namespace WebCore {
+class SharedBuffer;
 }
 
 namespace WebKit {
 
 class RemoteCDMInstanceSessionProxy final : private IPC::MessageReceiver, private WebCore::CDMInstanceSessionClient {
 public:
-    static std::unique_ptr<RemoteCDMInstanceSessionProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, RemoteCDMInstanceSessionIdentifier);
+    static std::unique_ptr<RemoteCDMInstanceSessionProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, uint64_t logIdentifier, RemoteCDMInstanceSessionIdentifier);
     virtual ~RemoteCDMInstanceSessionProxy();
 
 private:
     friend class RemoteCDMFactoryProxy;
-    RemoteCDMInstanceSessionProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, RemoteCDMInstanceSessionIdentifier);
+    RemoteCDMInstanceSessionProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, uint64_t logIdentifier, RemoteCDMInstanceSessionIdentifier);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -59,21 +59,21 @@ private:
     using KeyStatusVector = WebCore::CDMInstanceSession::KeyStatusVector;
     using Message = WebCore::CDMInstanceSession::Message;
     using SessionLoadFailure = WebCore::CDMInstanceSession::SessionLoadFailure;
-    using LicenseCallback = CompletionHandler<void(IPC::SharedBufferDataReference&&, const String& sessionId, bool, bool)>;
-    using LicenseUpdateCallback = CompletionHandler<void(bool, Optional<KeyStatusVector>&&, Optional<double>&&, Optional<Message>&&, bool)>;
-    using LoadSessionCallback = CompletionHandler<void(Optional<KeyStatusVector>&&, Optional<double>&&, Optional<Message>&&, bool, SessionLoadFailure)>;
+    using LicenseCallback = CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&, const String& sessionId, bool, bool)>;
+    using LicenseUpdateCallback = CompletionHandler<void(bool, std::optional<KeyStatusVector>&&, std::optional<double>&&, std::optional<Message>&&, bool)>;
+    using LoadSessionCallback = CompletionHandler<void(std::optional<KeyStatusVector>&&, std::optional<double>&&, std::optional<Message>&&, bool, SessionLoadFailure)>;
     using CloseSessionCallback = CompletionHandler<void()>;
-    using RemoveSessionDataCallback = CompletionHandler<void(KeyStatusVector&&, Optional<IPC::SharedBufferDataReference>&&, bool)>;
+    using RemoveSessionDataCallback = CompletionHandler<void(KeyStatusVector&&, RefPtr<WebCore::SharedBuffer>&&, bool)>;
     using StoreRecordCallback = CompletionHandler<void()>;
 
     // Messages
-    void requestLicense(LicenseType, AtomString initDataType, IPC::SharedBufferDataReference&& initData, LicenseCallback&&);
-    void updateLicense(String sessionId, LicenseType, IPC::SharedBufferDataReference&& response, LicenseUpdateCallback&&);
+    void setLogIdentifier(uint64_t);
+    void requestLicense(LicenseType, AtomString initDataType, RefPtr<WebCore::SharedBuffer>&& initData, LicenseCallback&&);
+    void updateLicense(String sessionId, LicenseType, RefPtr<WebCore::SharedBuffer>&& response, LicenseUpdateCallback&&);
     void loadSession(LicenseType, String sessionId, String origin, LoadSessionCallback&&);
     void closeSession(const String& sessionId, CloseSessionCallback&&);
     void removeSessionData(const String& sessionId, LicenseType, RemoveSessionDataCallback&&);
     void storeRecordOfKeyUsage(const String& sessionId);
-    void displayIDChanged(PlatformDisplayID);
 
     // CDMInstanceSessionClient
     void updateKeyStatuses(KeyStatusVector&&) final;

@@ -36,7 +36,6 @@ import mimetypes
 import re
 import socket
 import sys
-import urllib
 
 from datetime import datetime  # used in timestamp()
 from webkitcorepy import BytesIO, StringIO, string_utils, unicode
@@ -49,6 +48,11 @@ from webkitpy.common.net.credentials import Credentials
 from webkitpy.common.net.networktransaction import NetworkTransaction
 from webkitpy.common.system.user import User
 from webkitpy.thirdparty.BeautifulSoup import BeautifulSoup, BeautifulStoneSoup, SoupStrainer
+
+if sys.version_info > (3, 0):
+    from urllib.parse import quote as urlquote
+else:
+    from urllib import quote as urlquote
 
 _log = logging.getLogger(__name__)
 
@@ -188,8 +192,8 @@ class BugzillaQueries(object):
 
     def _parse_attachment_ids_request_query(self, page, since=None):
         # Formats
-        digits = re.compile("\d+")
-        attachment_href = re.compile("attachment.cgi\?id=\d+&action=review")
+        digits = re.compile(r"\d+")
+        attachment_href = re.compile(r"attachment.cgi\?id=\d+&action=review")
         # if no date is given, return all ids
         if not since:
             attachment_links = SoupStrainer("a", href=attachment_href)
@@ -197,7 +201,7 @@ class BugzillaQueries(object):
                 for tag in BeautifulSoup(page, parseOnlyThese=attachment_links)]
 
         # Parse the main table only
-        date_format = re.compile("\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+        date_format = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
         mtab = SoupStrainer("table", {"class": "requests"})
         soup = BeautifulSoup(page, parseOnlyThese=mtab)
         patch_ids = []
@@ -233,7 +237,7 @@ class BugzillaQueries(object):
         # We may want to use a more explicit query than "quicksearch".
         # If quicksearch changes we should probably change to use
         # a normal buglist.cgi?query_format=advanced query.
-        quicksearch_url = "buglist.cgi?quicksearch=%s" % urllib.quote(search_string)
+        quicksearch_url = "buglist.cgi?quicksearch=%s" % urlquote(search_string)
         return self._fetch_bugs_from_advanced_query(quicksearch_url)
 
     # Currently this returns all bugs across all components.
@@ -241,7 +245,7 @@ class BugzillaQueries(object):
     def fetch_bugs_matching_search(self, search_string):
         query = "buglist.cgi?query_format=advanced"
         if search_string:
-            query += "&short_desc_type=allwordssubstr&short_desc=%s" % urllib.quote(search_string)
+            query += "&short_desc_type=allwordssubstr&short_desc=%s" % urlquote(search_string)
         return self._fetch_bugs_from_advanced_query(query)
 
     def fetch_patches_from_pending_commit_list(self):
@@ -252,7 +256,7 @@ class BugzillaQueries(object):
         query = "buglist.cgi?query_format=advanced&bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=flagtypes.name&type0-0-0=equals&value0-0-0=review?"
 
         if cc_email:
-            query += "&emailcc1=1&emailtype1=substring&email1=%s" % urllib.quote(cc_email)
+            query += "&emailcc1=1&emailtype1=substring&email1=%s" % urlquote(cc_email)
 
         return self._fetch_bugs_from_advanced_query(query)
 
@@ -286,13 +290,13 @@ class BugzillaQueries(object):
     # We could easily parse https://bugs.webkit.org/userprefs.cgi?tab=permissions to
     # check permissions, but bugzilla will just return an error if we don't have them.
     def fetch_login_userid_pairs_matching_substring(self, search_string):
-        review_queue_url = "editusers.cgi?action=list&matchvalue=login_name&matchstr=%s&matchtype=substr" % urllib.quote(search_string)
+        review_queue_url = "editusers.cgi?action=list&matchvalue=login_name&matchstr=%s&matchtype=substr" % urlquote(search_string)
         results_page = self._load_query(review_queue_url)
         # We could pull the EditUsersParser off Bugzilla if needed.
         return EditUsersParser().login_userid_pairs_from_edit_user_results(results_page)
 
     def is_invalid_bugzilla_email(self, search_string):
-        review_queue_url = "request.cgi?action=queue&requester=%s&product=&type=review&requestee=&component=&group=requestee" % urllib.quote(search_string)
+        review_queue_url = "request.cgi?action=queue&requester=%s&product=&type=review&requestee=&component=&group=requestee" % urlquote(search_string)
         results_page = self._load_query(review_queue_url)
         return bool(re.search('did not match anything', string_utils.decode(results_page.read(), target_type=str)))
 
@@ -317,7 +321,7 @@ class Bugzilla(object):
     def _get_browser(self):
         if not self._browser:
             self.setdefaulttimeout(600)
-            from webkitpy.thirdparty.autoinstalled.mechanize import Browser
+            from mechanize import Browser
             self._browser = Browser()
             self._browser.set_handle_robots(False)
         return self._browser
@@ -457,6 +461,10 @@ class Bugzilla(object):
 
     def _parse_bug_dictionary_from_xml(self, page):
         soup = BeautifulStoneSoup(page, convertEntities=BeautifulStoneSoup.XML_ENTITIES)
+        bug_element = soup.find('bug')
+        if bug_element and bug_element.get('error', '') == 'NotPermitted':
+            _log.warning("You don't have permission to view this bug.")
+            return {}
         bug = {}
         bug["id"] = int(soup.find("bug_id").string)
         bug["title"] = self._string_contents(soup.find("short_desc"))
@@ -490,7 +498,10 @@ class Bugzilla(object):
     # FIXME: A BugzillaCache object should provide all these fetch_ methods.
 
     def fetch_bug(self, bug_id):
-        return Bug(self.fetch_bug_dictionary(bug_id), self)
+        bug_dictionary = self.fetch_bug_dictionary(bug_id)
+        if bug_dictionary:
+            return Bug(bug_dictionary, self)
+        return None
 
     def fetch_attachment_contents(self, attachment_id):
         attachment_url = self.attachment_url_for_id(attachment_id)
@@ -505,7 +516,7 @@ class Bugzilla(object):
         if not title:
             _log.warning("This attachment does not exist (or you don't have permissions to view it).")
             return None
-        match = re.search("show_bug.cgi\?id=(?P<bug_id>\d+)", str(title))
+        match = re.search(r"show_bug.cgi\?id=(?P<bug_id>\d+)", str(title))
         if not match:
             _log.warning("Unable to parse bug id from attachment")
             return None
@@ -557,7 +568,6 @@ class Bugzilla(object):
             self.browser.select_form(name="login")
             self.browser['Bugzilla_login'] = username
             self.browser['Bugzilla_password'] = password
-            self.browser.find_control("Bugzilla_restrictlogin").items[0].selected = False
             response = self.browser.submit()
 
             match = re.search(b'<title>(.+?)</title>', response.read())
@@ -640,7 +650,7 @@ class Bugzilla(object):
     @staticmethod
     def _parse_attachment_id_from_add_patch_to_bug_response(response_html):
         response_html = string_utils.decode(response_html, target_type=str)
-        match = re.search('<title>Attachment (?P<attachment_id>\d+) added to Bug \d+</title>', response_html)
+        match = re.search(r'<title>Attachment (?P<attachment_id>\d+) added to Bug \d+</title>', response_html)
         if match:
             return match.group('attachment_id')
         _log.warning('Unable to parse attachment id')
@@ -684,7 +694,7 @@ class Bugzilla(object):
     # FIXME: There has to be a more concise way to write this method.
     def _check_create_bug_response(self, response_html):
         response_html = string_utils.decode(response_html, target_type=str)
-        match = re.search('<title>Bug (?P<bug_id>\d+) Submitted[^<]*</title>', response_html)
+        match = re.search(r'<title>Bug (?P<bug_id>\d+) Submitted[^<]*</title>', response_html)
         if match:
             return match.group('bug_id')
 

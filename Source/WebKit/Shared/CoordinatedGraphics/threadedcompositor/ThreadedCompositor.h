@@ -30,7 +30,6 @@
 #include "CompositingRunLoop.h"
 #include "CoordinatedGraphicsScene.h"
 #include "ThreadedDisplayRefreshMonitor.h"
-#include <WebCore/CoordinatedGraphicsState.h>
 #include <WebCore/GLContext.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/TextureMapper.h>
@@ -40,9 +39,6 @@
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebKit {
-
-class CoordinatedGraphicsScene;
-class CoordinatedGraphicsSceneClient;
 
 class ThreadedCompositor : public CoordinatedGraphicsSceneClient, public ThreadSafeRefCounted<ThreadedCompositor> {
     WTF_MAKE_NONCOPYABLE(ThreadedCompositor);
@@ -56,6 +52,7 @@ public:
         virtual void resize(const WebCore::IntSize&) = 0;
         virtual void willRenderFrame() = 0;
         virtual void didRenderFrame() = 0;
+        virtual void displayDidRefresh(WebCore::PlatformDisplayID) = 0;
     };
 
     static Ref<ThreadedCompositor> create(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
@@ -65,16 +62,18 @@ public:
     void setScrollPosition(const WebCore::IntPoint&, float scale);
     void setViewportSize(const WebCore::IntSize&, float scale);
 
-    void updateSceneState(const WebCore::CoordinatedGraphicsState&);
+    void updateSceneState(const RefPtr<Nicosia::Scene>&);
     void updateScene();
+    void updateSceneWithoutRendering();
 
     void invalidate();
 
     void forceRepaint();
 
-    RefPtr<WebCore::DisplayRefreshMonitor> displayRefreshMonitor(WebCore::PlatformDisplayID);
+    WebCore::DisplayRefreshMonitor& displayRefreshMonitor() const;
 
     void frameComplete();
+    void targetRefreshRateDidChange(unsigned);
 
     void suspend();
     void resume();
@@ -90,11 +89,13 @@ private:
 
     void createGLContext();
 
+    void displayUpdateFired();
+
     Client& m_client;
     RefPtr<CoordinatedGraphicsScene> m_scene;
     std::unique_ptr<WebCore::GLContext> m_context;
 
-    uint64_t m_nativeSurfaceHandle;
+    uintptr_t m_nativeSurfaceHandle;
     WebCore::TextureMapper::PaintFlags m_paintFlags { 0 };
     unsigned m_suspendedCount { 0 };
 
@@ -106,10 +107,16 @@ private:
         WebCore::IntPoint scrollPosition;
         float scaleFactor { 1 };
         bool needsResize { false };
-        Vector<WebCore::CoordinatedGraphicsState> states;
+        Vector<RefPtr<Nicosia::Scene>> states;
 
         bool clientRendersNextFrame { false };
     } m_attributes;
+
+    struct {
+        WebCore::PlatformDisplayID displayID;
+        WebCore::DisplayUpdate displayUpdate;
+        std::unique_ptr<RunLoop::Timer> updateTimer;
+    } m_display;
 
     Ref<ThreadedDisplayRefreshMonitor> m_displayRefreshMonitor;
 };

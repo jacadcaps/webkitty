@@ -39,7 +39,7 @@ class WebPageProxy;
 class WebProcessPool;
 class GamepadData;
 
-class UIGamepadProvider : public WebCore::GamepadProviderClient {
+class UIGamepadProvider final : public WebCore::GamepadProviderClient {
 public:
     static UIGamepadProvider& singleton();
 
@@ -83,7 +83,7 @@ private:
 
     Vector<std::unique_ptr<UIGamepad>> m_gamepads;
 
-    RunLoop::Timer<UIGamepadProvider> m_gamepadSyncTimer;
+    RunLoop::Timer m_gamepadSyncTimer;
 
     bool m_isMonitoringGamepads { false };
     bool m_shouldMakeGamepadsVisibleOnSync { false };

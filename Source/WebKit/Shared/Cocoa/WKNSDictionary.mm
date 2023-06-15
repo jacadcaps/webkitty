@@ -27,6 +27,7 @@
 #import "WKNSDictionary.h"
 
 #import "WKNSArray.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 using namespace WebKit;
 
@@ -36,6 +37,9 @@ using namespace WebKit;
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNSDictionary.class, self))
+        return;
+
     _dictionary->~Dictionary();
 
     [super dealloc];
@@ -64,7 +68,7 @@ using namespace WebKit;
     if (!exists)
         return nil;
 
-    return value ? value->wrapper() : [NSNull null];
+    return value ? (id)value->wrapper() : [NSNull null];
 }
 
 - (NSEnumerator *)keyEnumerator

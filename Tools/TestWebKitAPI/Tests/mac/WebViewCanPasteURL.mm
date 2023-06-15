@@ -24,9 +24,9 @@
  */
 
 #import "config.h"
-#import "PlatformUtilities.h"
-#import "WTFStringUtilities.h"
 
+#import "PlatformUtilities.h"
+#import "Test.h"
 #import <WebKit/WebViewPrivate.h>
 #import <WebKit/DOM.h>
 
@@ -34,7 +34,7 @@ namespace TestWebKitAPI {
 
 TEST(WebKitLegacy, WebViewCanPasteURL)
 {
-    WebView *webView = [[WebView alloc] initWithFrame:NSZeroRect frameName:nil groupName:nil];
+    auto webView = adoptNS([[WebView alloc] initWithFrame:NSZeroRect frameName:nil groupName:nil]);
     [webView setEditable:YES];
 
     [[NSPasteboard generalPasteboard] declareTypes:@[NSURLPboardType] owner:nil];
@@ -46,9 +46,7 @@ TEST(WebKitLegacy, WebViewCanPasteURL)
     DOMHTMLAnchorElement *anchor = (DOMHTMLAnchorElement *)[documentElement querySelector:@"a"];
     NSString *text = [anchor href];
     
-    EXPECT_EQ(String("http://www.webkit.org/"), String(text));
-    
-    [webView release];
+    EXPECT_EQ(String(text), "http://www.webkit.org/"_s);
 }
 
 } // namespace TestWebKitAPI

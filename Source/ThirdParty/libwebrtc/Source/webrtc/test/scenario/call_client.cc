@@ -9,11 +9,15 @@
  */
 #include "test/scenario/call_client.h"
 
+#include <iostream>
+#include <memory>
 #include <utility>
 
-#include <memory>
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
+#include "api/transport/network_types.h"
+#include "call/call.h"
+#include "call/rtp_transport_controller_send_factory.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
 
 namespace webrtc {
@@ -66,9 +70,10 @@ Call* CreateCall(TimeController* time_controller,
   call_config.network_controller_factory = network_controller_factory;
   call_config.audio_state = audio_state;
   call_config.trials = config.field_trials;
-  return Call::Create(call_config, time_controller->GetClock(),
-                      time_controller->CreateProcessThread("CallModules"),
-                      time_controller->CreateProcessThread("Pacer"));
+  Clock* clock = time_controller->GetClock();
+  return Call::Create(call_config, clock,
+                      RtpTransportControllerSendFactory().Create(
+                          call_config.ExtractTransportConfig(), clock));
 }
 
 std::unique_ptr<RtcEventLog> CreateEventLog(
@@ -196,6 +201,12 @@ TimeDelta LoggingNetworkControllerFactory::GetProcessInterval() const {
   return cc_factory_->GetProcessInterval();
 }
 
+void LoggingNetworkControllerFactory::SetRemoteBitrateEstimate(
+    RemoteBitrateReport msg) {
+  if (last_controller_)
+    last_controller_->OnRemoteBitrateReport(msg);
+}
+
 CallClient::CallClient(
     TimeController* time_controller,
     std::unique_ptr<LogWriterFactoryInterface> log_writer_factory,
@@ -213,6 +224,7 @@ CallClient::CallClient(
     event_log_ = CreateEventLog(time_controller_->GetTaskQueueFactory(),
                                 log_writer_factory_.get());
     fake_audio_setup_ = InitAudio(time_controller_);
+
     call_.reset(CreateCall(time_controller_, event_log_.get(), config,
                            &network_controller_factory_,
                            fake_audio_setup_.audio_state));
@@ -260,6 +272,20 @@ DataRate CallClient::stable_target_rate() const {
 
 DataRate CallClient::padding_rate() const {
   return network_controller_factory_.GetUpdate().pacer_config->pad_rate();
+}
+
+void CallClient::SetRemoteBitrate(DataRate bitrate) {
+  RemoteBitrateReport msg;
+  msg.bandwidth = bitrate;
+  msg.receive_time = clock_->CurrentTime();
+  network_controller_factory_.SetRemoteBitrateEstimate(msg);
+}
+
+void CallClient::UpdateBitrateConstraints(
+    const BitrateConstraints& constraints) {
+  SendTask([this, &constraints]() {
+    call_->GetTransportControllerSend()->SetSdpBitrateParameters(constraints);
+  });
 }
 
 void CallClient::OnPacketReceived(EmulatedIpPacket packet) {
@@ -315,7 +341,7 @@ void CallClient::AddExtensions(std::vector<RtpExtension> extensions) {
 }
 
 void CallClient::SendTask(std::function<void()> task) {
-  task_queue_.SendTask(std::move(task), RTC_FROM_HERE);
+  task_queue_.SendTask(std::move(task));
 }
 
 int16_t CallClient::Bind(EmulatedEndpoint* endpoint) {

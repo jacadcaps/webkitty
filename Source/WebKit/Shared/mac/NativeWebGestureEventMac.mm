@@ -28,27 +28,26 @@
 
 #if ENABLE(MAC_GESTURE_EVENTS)
 
-#import "WebEvent.h"
 #import "WebGestureEvent.h"
 #import <WebCore/IntPoint.h>
 #import <WebCore/PlatformEventFactoryMac.h>
 
 namespace WebKit {
 
-static inline WebEvent::Type webEventTypeForNSEvent(NSEvent *event)
+static inline WebEventType webEventTypeForNSEvent(NSEvent *event)
 {
     switch (event.phase) {
     case NSEventPhaseBegan:
-        return WebEvent::GestureStart;
+        return WebEventType::GestureStart;
     case NSEventPhaseChanged:
-        return WebEvent::GestureChange;
+        return WebEventType::GestureChange;
     case NSEventPhaseEnded:
     case NSEventPhaseCancelled:
-        return WebEvent::GestureEnd;
+        return WebEventType::GestureEnd;
     default:
         break;
     }
-    return WebEvent::Type::NoType;
+    return WebEventType::NoType;
 }
 
 static NSPoint pointForEvent(NSEvent *event, NSView *windowView)
@@ -61,9 +60,7 @@ static NSPoint pointForEvent(NSEvent *event, NSView *windowView)
 
 NativeWebGestureEvent::NativeWebGestureEvent(NSEvent *event, NSView *view)
     : WebGestureEvent(
-        webEventTypeForNSEvent(event),
-        OptionSet<WebEvent::Modifier> { },
-        WebCore::eventTimeStampSince1970(event),
+        { webEventTypeForNSEvent(event), OptionSet<WebEventModifier> { }, WebCore::eventTimeStampSince1970(event.timestamp) },
         WebCore::IntPoint(pointForEvent(event, view)),
         event.type == NSEventTypeMagnify ? event.magnification : 0,
         event.type == NSEventTypeRotate ? event.rotation : 0)

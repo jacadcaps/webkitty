@@ -32,7 +32,6 @@
 #import "DOMRangeInternal.h"
 #import "WebFrameInternal.h"
 #import "WebHTMLViewInternal.h"
-#import "WebTypesInternal.h"
 #import "WebView.h"
 #import <WebCore/Frame.h>
 #import <WebCore/SimpleRange.h>
@@ -88,14 +87,13 @@ using namespace WebCore;
     ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     tableFrame.size = [NSScrollView contentSizeForFrameSize:scrollFrame.size hasHorizontalScroller:NO hasVerticalScroller:YES borderType:NSNoBorder];
     ALLOW_DEPRECATED_DECLARATIONS_END
-    NSTableColumn *column = [[NSTableColumn alloc] init];
+    auto column = adoptNS([[NSTableColumn alloc] init]);
     [column setWidth:tableFrame.size.width];
     [column setEditable:NO];
     
     _tableView = [[NSTableView alloc] initWithFrame:tableFrame];
     [_tableView setAutoresizingMask:NSViewWidthSizable];
-    [_tableView addTableColumn:column];
-    [column release];
+    [_tableView addTableColumn:column.get()];
     [_tableView setGridStyleMask:NSTableViewGridNone];
     [_tableView setCornerView:nil];
     [_tableView setHeaderView:nil];
@@ -105,7 +103,7 @@ using namespace WebCore;
     [_tableView setTarget:self];
     [_tableView setDoubleAction:@selector(tableAction:)];
     
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:scrollFrame];
+    auto scrollView = adoptNS([[NSScrollView alloc] initWithFrame:scrollFrame]);
     [scrollView setBorderType:NSNoBorder];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
@@ -114,8 +112,7 @@ using namespace WebCore;
     
     _popupWindow = [[NSWindow alloc] initWithContentRect:scrollFrame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     [_popupWindow setAlphaValue:0.88f];
-    [_popupWindow setContentView:scrollView];
-    [scrollView release];
+    [_popupWindow setContentView:scrollView.get()];
     [_popupWindow setHasShadow:YES];
     [_popupWindow _setForceActiveControls:YES];
     [_popupWindow setReleasedWhenClosed:NO];

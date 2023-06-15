@@ -29,12 +29,15 @@
 #if ENABLE(SERVICE_WORKER)
 
 #include "Connection.h"
-#include "DataReference.h"
 #include "FormDataReference.h"
 #include "Logging.h"
+#include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "NetworkResourceLoader.h"
-#include "SharedBufferDataReference.h"
+#include "NetworkSession.h"
+#include "PrivateRelayed.h"
+#include "ServiceWorkerNavigationPreloader.h"
+#include "SharedBufferReference.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebResourceLoaderMessages.h"
 #include "WebSWContextManagerConnectionMessages.h"
@@ -43,33 +46,82 @@
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/SWServerRegistration.h>
 
-#define RELEASE_LOG_IF_ALLOWED(fmt, ...) RELEASE_LOG_IF(m_loader.sessionID().isAlwaysOnLoggingAllowed(), ServiceWorker, "%p - [fetchIdentifier=%" PRIu64 "] ServiceWorkerFetchTask::" fmt, this, m_fetchIdentifier.toUInt64(), ##__VA_ARGS__)
-#define RELEASE_LOG_ERROR_IF_ALLOWED(fmt, ...) RELEASE_LOG_ERROR_IF(m_loader.sessionID().isAlwaysOnLoggingAllowed(), ServiceWorker, "%p - [fetchIdentifier=%" PRIu64 "] ServiceWorkerFetchTask::" fmt, this, m_fetchIdentifier.toUInt64(), ##__VA_ARGS__)
-
-using namespace WebCore;
+#define SWFETCH_RELEASE_LOG(fmt, ...) RELEASE_LOG(ServiceWorker, "%p - [fetchIdentifier=%" PRIu64 "] ServiceWorkerFetchTask::" fmt, this, m_fetchIdentifier.toUInt64(), ##__VA_ARGS__)
+#define SWFETCH_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(ServiceWorker, "%p - [fetchIdentifier=%" PRIu64 "] ServiceWorkerFetchTask::" fmt, this, m_fetchIdentifier.toUInt64(), ##__VA_ARGS__)
 
 namespace WebKit {
 
-ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerConnection, NetworkResourceLoader& loader, ResourceRequest&& request, SWServerConnectionIdentifier serverConnectionIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, ServiceWorkerRegistrationIdentifier serviceWorkerRegistrationIdentifier, bool shouldSoftUpdate)
-    : m_swServerConnection(makeWeakPtr(swServerConnection))
+using namespace WebCore;
+
+std::unique_ptr<ServiceWorkerFetchTask> ServiceWorkerFetchTask::fromNavigationPreloader(WebSWServerConnection& swServerConnection, NetworkResourceLoader& loader, const WebCore::ResourceRequest& request, NetworkSession* session)
+{
+    if (!loader.parameters().navigationPreloadIdentifier)
+        return nullptr;
+
+    auto task = session ? session->navigationPreloaderTaskFromFetchIdentifier(*loader.parameters().navigationPreloadIdentifier) : nullptr;
+    if (!task || !task->m_preloader || task->m_isLoadingFromPreloader) {
+        RELEASE_LOG_ERROR(ServiceWorker, "Unable to retrieve preloader, load will go to the network");
+        return nullptr;
+    }
+
+    auto preload = std::exchange(task->m_preloader, { });
+    return makeUnique<ServiceWorkerFetchTask>(swServerConnection, loader, WTFMove(preload));
+}
+
+ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerConnection, NetworkResourceLoader& loader, std::unique_ptr<ServiceWorkerNavigationPreloader>&& preloader)
+    : m_swServerConnection(swServerConnection)
+    , m_loader(loader)
+    , m_fetchIdentifier(WebCore::FetchIdentifier::generate())
+    , m_preloader(WTFMove(preloader))
+{
+    callOnMainRunLoop([weakThis = WeakPtr { *this }] {
+        if (weakThis)
+            weakThis->loadResponseFromPreloader();
+    });
+}
+
+ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerConnection, NetworkResourceLoader& loader, ResourceRequest&& request, SWServerConnectionIdentifier serverConnectionIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, SWServerRegistration& registration, NetworkSession* session, bool isWorkerReady)
+    : m_swServerConnection(swServerConnection)
     , m_loader(loader)
     , m_fetchIdentifier(WebCore::FetchIdentifier::generate())
     , m_serverConnectionIdentifier(serverConnectionIdentifier)
     , m_serviceWorkerIdentifier(serviceWorkerIdentifier)
     , m_currentRequest(WTFMove(request))
-    , m_timeoutTimer(*this, &ServiceWorkerFetchTask::timeoutTimerFired)
-    , m_serviceWorkerRegistrationIdentifier(serviceWorkerRegistrationIdentifier)
-    , m_shouldSoftUpdate(shouldSoftUpdate)
+    , m_serviceWorkerRegistrationIdentifier(registration.identifier())
+    , m_shouldSoftUpdate(registration.shouldSoftUpdate(loader.parameters().options))
 {
-    RELEASE_LOG_IF_ALLOWED("ServiceWorkerFetchTask: (serverConnectionIdentifier=%" PRIu64 ", serviceWorkerRegistrationIdentifier=%" PRIu64 ", serviceWorkerIdentifier=%" PRIu64 ")", m_serverConnectionIdentifier.toUInt64(), m_serviceWorkerRegistrationIdentifier.toUInt64(), m_serviceWorkerIdentifier.toUInt64());
-    m_timeoutTimer.startOneShot(loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+    SWFETCH_RELEASE_LOG("ServiceWorkerFetchTask: (serverConnectionIdentifier=%" PRIu64 ", serviceWorkerRegistrationIdentifier=%" PRIu64 ", serviceWorkerIdentifier=%" PRIu64 ", %d)", m_serverConnectionIdentifier.toUInt64(), m_serviceWorkerRegistrationIdentifier.toUInt64(), m_serviceWorkerIdentifier.toUInt64(), isWorkerReady);
+
+    // We only do the timeout logic for main document navigations because it is not Web-compatible to do so for subresources.
+    if (loader.parameters().request.requester() == WebCore::ResourceRequestRequester::Main) {
+        m_timeoutTimer = makeUnique<Timer>(*this, &ServiceWorkerFetchTask::timeoutTimerFired);
+        m_timeoutTimer->startOneShot(loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+    }
+
+    bool shouldDoNavigationPreload = session && isNavigationRequest(loader.parameters().options.destination) && m_currentRequest.httpMethod() == "GET"_s;
+
+    if (shouldDoNavigationPreload && (!isWorkerReady || registration.navigationPreloadState().enabled)) {
+        NetworkLoadParameters parameters = loader.parameters();
+        parameters.request = m_currentRequest;
+        m_preloader = makeUnique<ServiceWorkerNavigationPreloader>(*session, WTFMove(parameters), registration.navigationPreloadState(), loader.shouldCaptureExtraNetworkLoadMetrics());
+        session->addNavigationPreloaderTask(*this);
+
+        m_preloader->waitForResponse([weakThis = WeakPtr { *this }] {
+            if (weakThis)
+                weakThis->preloadResponseIsReady();
+        });
+    }
+
+    loader.setWorkerStart(MonotonicTime::now());
 }
 
 ServiceWorkerFetchTask::~ServiceWorkerFetchTask()
 {
-    RELEASE_LOG_IF_ALLOWED("~ServiceWorkerFetchTask:");
+    SWFETCH_RELEASE_LOG("~ServiceWorkerFetchTask:");
     if (m_serviceWorkerConnection)
         m_serviceWorkerConnection->unregisterFetch(*this);
+
+    cancelPreloadIfNecessary();
 }
 
 template<typename Message> bool ServiceWorkerFetchTask::sendToServiceWorker(Message&& message)
@@ -79,13 +131,13 @@ template<typename Message> bool ServiceWorkerFetchTask::sendToServiceWorker(Mess
 
 template<typename Message> bool ServiceWorkerFetchTask::sendToClient(Message&& message)
 {
-    return m_loader.connectionToWebProcess().connection().send(std::forward<Message>(message), m_loader.identifier());
+    return m_loader.connectionToWebProcess().connection().send(std::forward<Message>(message), m_loader.coreIdentifier());
 }
 
 void ServiceWorkerFetchTask::start(WebSWServerToContextConnection& serviceWorkerConnection)
 {
-    RELEASE_LOG_IF_ALLOWED("start:");
-    m_serviceWorkerConnection = makeWeakPtr(serviceWorkerConnection);
+    SWFETCH_RELEASE_LOG("start:");
+    m_serviceWorkerConnection = serviceWorkerConnection;
     serviceWorkerConnection.registerFetch(*this);
 
     startFetch();
@@ -93,7 +145,7 @@ void ServiceWorkerFetchTask::start(WebSWServerToContextConnection& serviceWorker
 
 void ServiceWorkerFetchTask::contextClosed()
 {
-    RELEASE_LOG_IF_ALLOWED("contextClosed: (m_isDone=%d, m_wasHandled=%d)", m_isDone, m_wasHandled);
+    SWFETCH_RELEASE_LOG("contextClosed: (m_isDone=%d, m_wasHandled=%d)", m_isDone, m_wasHandled);
     m_serviceWorkerConnection = nullptr;
     if (m_isDone)
         return;
@@ -107,7 +159,7 @@ void ServiceWorkerFetchTask::contextClosed()
 
 void ServiceWorkerFetchTask::startFetch()
 {
-    RELEASE_LOG_IF_ALLOWED("startFetch");
+    SWFETCH_RELEASE_LOG("startFetch");
     m_loader.consumeSandboxExtensionsIfNeeded();
     auto& options = m_loader.parameters().options;
     auto referrer = m_currentRequest.httpReferrer();
@@ -116,56 +168,124 @@ void ServiceWorkerFetchTask::startFetch()
     auto request = m_currentRequest;
     cleanHTTPRequestHeadersForAccessControl(request, m_loader.parameters().httpHeadersToKeep);
 
-    bool isSent = sendToServiceWorker(Messages::WebSWContextManagerConnection::StartFetch { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier, request, options, IPC::FormDataReference { m_currentRequest.httpBody() }, referrer });
+    String clientIdentifier;
+    if (m_loader.parameters().options.mode != FetchOptions::Mode::Navigate) {
+        if (auto identifier = m_loader.parameters().options.clientIdentifier)
+            clientIdentifier = identifier->toString();
+    }
+
+    bool isSent = sendToServiceWorker(Messages::WebSWContextManagerConnection::StartFetch { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier, request, options, IPC::FormDataReference { m_currentRequest.httpBody() }, referrer, m_preloader && m_preloader->isServiceWorkerNavigationPreloadEnabled(), clientIdentifier, m_loader.resultingClientIdentifier() });
     ASSERT_UNUSED(isSent, isSent);
 }
 
-void ServiceWorkerFetchTask::didReceiveRedirectResponse(ResourceResponse&& response)
+void ServiceWorkerFetchTask::didReceiveRedirectResponse(WebCore::ResourceResponse&& response)
+{
+    cancelPreloadIfNecessary();
+
+    processRedirectResponse(WTFMove(response), ShouldSetSource::Yes);
+}
+
+void ServiceWorkerFetchTask::processRedirectResponse(ResourceResponse&& response, ShouldSetSource shouldSetSource)
 {
     if (m_isDone)
         return;
 
-    RELEASE_LOG_IF_ALLOWED("didReceiveRedirectResponse:");
+    SWFETCH_RELEASE_LOG("processRedirectResponse:");
     m_wasHandled = true;
-    m_timeoutTimer.stop();
+    if (m_timeoutTimer)
+        m_timeoutTimer->stop();
     softUpdateIfNeeded();
 
-    response.setSource(ResourceResponse::Source::ServiceWorker);
+    if (shouldSetSource == ShouldSetSource::Yes)
+        response.setSource(ResourceResponse::Source::ServiceWorker);
     auto newRequest = m_currentRequest.redirectedRequest(response, m_loader.parameters().shouldClearReferrerOnHTTPSToHTTPRedirect);
 
-    sendToClient(Messages::WebResourceLoader::WillSendRequest { newRequest, IPC::FormDataReference { newRequest.httpBody() }, response });
+    m_loader.willSendServiceWorkerRedirectedRequest(ResourceRequest(m_currentRequest), WTFMove(newRequest), WTFMove(response));
 }
 
-void ServiceWorkerFetchTask::didReceiveResponse(ResourceResponse&& response, bool needsContinueDidReceiveResponseMessage)
+void ServiceWorkerFetchTask::didReceiveResponse(WebCore::ResourceResponse&& response, bool needsContinueDidReceiveResponseMessage)
+{
+    if (m_preloader && !m_preloader->isServiceWorkerNavigationPreloadEnabled())
+        cancelPreloadIfNecessary();
+
+    processResponse(WTFMove(response), needsContinueDidReceiveResponseMessage, ShouldSetSource::Yes);
+}
+
+void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool needsContinueDidReceiveResponseMessage, ShouldSetSource shouldSetSource)
 {
     if (m_isDone)
         return;
 
-    RELEASE_LOG_IF_ALLOWED("didReceiveResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%" PRId64 ", needsContinueDidReceiveResponseMessage=%d, source=%u)", response.httpStatusCode(), response.mimeType().utf8().data(), response.expectedContentLength(), needsContinueDidReceiveResponseMessage, static_cast<unsigned>(response.source()));
+#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+    if (!m_loader.continueAfterServiceWorkerReceivedResponse(response))
+        return;
+#endif
+
+    SWFETCH_RELEASE_LOG("processResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%" PRId64 ", needsContinueDidReceiveResponseMessage=%d, source=%u)", response.httpStatusCode(), response.mimeType().string().utf8().data(), response.expectedContentLength(), needsContinueDidReceiveResponseMessage, static_cast<unsigned>(response.source()));
     m_wasHandled = true;
-    m_timeoutTimer.stop();
+    if (m_timeoutTimer)
+        m_timeoutTimer->stop();
     softUpdateIfNeeded();
 
-    response.setSource(ResourceResponse::Source::ServiceWorker);
-    sendToClient(Messages::WebResourceLoader::DidReceiveResponse { response, needsContinueDidReceiveResponseMessage });
+    if (m_loader.parameters().options.mode == FetchOptions::Mode::Navigate) {
+        if (auto parentOrigin = m_loader.parameters().parentOrigin()) {
+            if (auto error = validateCrossOriginResourcePolicy(m_loader.parameters().parentCrossOriginEmbedderPolicy.value, *parentOrigin, m_currentRequest.url(), response, ForNavigation::Yes)) {
+                didFail(*error);
+                return;
+            }
+        }
+    }
+    if (m_loader.parameters().options.mode == FetchOptions::Mode::NoCors) {
+        if (auto error = validateCrossOriginResourcePolicy(m_loader.parameters().crossOriginEmbedderPolicy.value, *m_loader.parameters().sourceOrigin, m_currentRequest.url(), response, ForNavigation::No)) {
+            didFail(*error);
+            return;
+        }
+    }
+
+    if (auto error = m_loader.doCrossOriginOpenerHandlingOfResponse(response)) {
+        didFail(*error);
+        return;
+    }
+
+    if (shouldSetSource == ShouldSetSource::Yes)
+        response.setSource(ResourceResponse::Source::ServiceWorker);
+    m_loader.sendDidReceiveResponsePotentiallyInNewBrowsingContextGroup(response, PrivateRelayed::No, needsContinueDidReceiveResponseMessage);
+    if (needsContinueDidReceiveResponseMessage)
+        m_loader.setResponse(WTFMove(response));
 }
 
-void ServiceWorkerFetchTask::didReceiveData(const IPC::DataReference& data, int64_t encodedDataLength)
+void ServiceWorkerFetchTask::didReceiveData(const IPC::SharedBufferReference& data, uint64_t encodedDataLength)
 {
     if (m_isDone)
         return;
 
-    ASSERT(!m_timeoutTimer.isActive());
-    sendToClient(Messages::WebResourceLoader::DidReceiveData { data, encodedDataLength });
+    ASSERT(!m_timeoutTimer || !m_timeoutTimer->isActive());
+
+#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+    RefPtr<WebCore::SharedBuffer> buffer = data.unsafeBuffer();
+    if (!buffer)
+        return;
+    if (!m_loader.continueAfterServiceWorkerReceivedData(*buffer, encodedDataLength))
+        return;
+#endif
+    sendToClient(Messages::WebResourceLoader::DidReceiveData { IPC::SharedBufferReference(data), encodedDataLength });
 }
 
-void ServiceWorkerFetchTask::didReceiveSharedBuffer(const IPC::SharedBufferDataReference& data, int64_t encodedDataLength)
+void ServiceWorkerFetchTask::didReceiveDataFromPreloader(const WebCore::FragmentedSharedBuffer& data, uint64_t encodedDataLength)
 {
     if (m_isDone)
         return;
 
-    ASSERT(!m_timeoutTimer.isActive());
-    sendToClient(Messages::WebResourceLoader::DidReceiveSharedBuffer { data, encodedDataLength });
+    ASSERT(!m_timeoutTimer || !m_timeoutTimer->isActive());
+
+#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+    RefPtr<WebCore::SharedBuffer> buffer = data.makeContiguous();
+    if (!buffer)
+        return;
+    if (!m_loader.continueAfterServiceWorkerReceivedData(*buffer, encodedDataLength))
+        return;
+#endif
+    sendToClient(Messages::WebResourceLoader::DidReceiveData { IPC::SharedBufferReference(data), encodedDataLength });
 }
 
 void ServiceWorkerFetchTask::didReceiveFormData(const IPC::FormDataReference& formData)
@@ -173,28 +293,38 @@ void ServiceWorkerFetchTask::didReceiveFormData(const IPC::FormDataReference& fo
     if (m_isDone)
         return;
 
-    ASSERT(!m_timeoutTimer.isActive());
+    ASSERT(!m_timeoutTimer || !m_timeoutTimer->isActive());
     // FIXME: Allow WebResourceLoader to receive form data.
 }
 
-void ServiceWorkerFetchTask::didFinish()
+void ServiceWorkerFetchTask::didFinish(const NetworkLoadMetrics& networkLoadMetrics)
 {
-    ASSERT(!m_timeoutTimer.isActive());
-    RELEASE_LOG_IF_ALLOWED("didFinish:");
+    ASSERT(!m_timeoutTimer || !m_timeoutTimer->isActive());
+    SWFETCH_RELEASE_LOG("didFinish:");
 
     m_isDone = true;
-    m_timeoutTimer.stop();
-    sendToClient(Messages::WebResourceLoader::DidFinishResourceLoad { { } });
+    if (m_timeoutTimer)
+        m_timeoutTimer->stop();
+
+#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+    m_loader.serviceWorkerDidFinish();
+#endif
+
+    sendToClient(Messages::WebResourceLoader::DidFinishResourceLoad { networkLoadMetrics });
+
+    cancelPreloadIfNecessary();
 }
 
 void ServiceWorkerFetchTask::didFail(const ResourceError& error)
 {
     m_isDone = true;
-    if (m_timeoutTimer.isActive()) {
-        m_timeoutTimer.stop();
+    if (m_timeoutTimer && m_timeoutTimer->isActive()) {
+        m_timeoutTimer->stop();
         softUpdateIfNeeded();
     }
-    RELEASE_LOG_ERROR_IF_ALLOWED("didFail: (error.domain=%" PUBLIC_LOG_STRING ", error.code=%d)", error.domain().utf8().data(), error.errorCode());
+    cancelPreloadIfNecessary();
+
+    SWFETCH_RELEASE_LOG_ERROR("didFail: (error.domain=%" PUBLIC_LOG_STRING ", error.code=%d)", error.domain().utf8().data(), error.errorCode());
     m_loader.didFailLoading(error);
 }
 
@@ -203,19 +333,40 @@ void ServiceWorkerFetchTask::didNotHandle()
     if (m_isDone)
         return;
 
-    RELEASE_LOG_IF_ALLOWED("didNotHandle:");
-    m_isDone = true;
-    m_timeoutTimer.stop();
+    SWFETCH_RELEASE_LOG("didNotHandle:");
+    if (m_timeoutTimer)
+        m_timeoutTimer->stop();
     softUpdateIfNeeded();
 
+    if (m_preloader && !m_preloader->isServiceWorkerNavigationPreloadEnabled()) {
+        loadResponseFromPreloader();
+        return;
+    }
+
+    m_isDone = true;
+    m_loader.serviceWorkerDidNotHandle(this);
+}
+
+void ServiceWorkerFetchTask::usePreload()
+{
+    if (m_isDone)
+        return;
+
+    ASSERT(m_preloader);
+    if (m_preloader) {
+        loadResponseFromPreloader();
+        return;
+    }
+
+    m_isDone = true;
     m_loader.serviceWorkerDidNotHandle(this);
 }
 
 void ServiceWorkerFetchTask::cannotHandle()
 {
-    RELEASE_LOG_IF_ALLOWED("cannotHandle:");
+    SWFETCH_RELEASE_LOG("cannotHandle:");
     // Make sure we call didNotHandle asynchronously because failing synchronously would get the NetworkResourceLoader in a bad state.
-    RunLoop::main().dispatch([weakThis = makeWeakPtr(this)] {
+    RunLoop::main().dispatch([weakThis = WeakPtr { *this }] {
         if (weakThis)
             weakThis->didNotHandle();
     });
@@ -223,24 +374,32 @@ void ServiceWorkerFetchTask::cannotHandle()
 
 void ServiceWorkerFetchTask::cancelFromClient()
 {
-    RELEASE_LOG_IF_ALLOWED("cancelFromClient:");
+    SWFETCH_RELEASE_LOG("cancelFromClient: isDone=%d", m_isDone);
+    if (m_isDone)
+        return;
+
     sendToServiceWorker(Messages::WebSWContextManagerConnection::CancelFetch { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier });
 }
 
 void ServiceWorkerFetchTask::continueDidReceiveFetchResponse()
 {
-    RELEASE_LOG_IF_ALLOWED("continueDidReceiveFetchResponse:");
+    SWFETCH_RELEASE_LOG("continueDidReceiveFetchResponse:");
+    if (m_isLoadingFromPreloader) {
+        loadBodyFromPreloader();
+        return;
+    }
     sendToServiceWorker(Messages::WebSWContextManagerConnection::ContinueDidReceiveFetchResponse { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier });
 }
 
 void ServiceWorkerFetchTask::continueFetchTaskWith(ResourceRequest&& request)
 {
-    RELEASE_LOG_IF_ALLOWED("continueFetchTaskWith: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
+    SWFETCH_RELEASE_LOG("continueFetchTaskWith: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
     if (!m_serviceWorkerConnection) {
         m_loader.serviceWorkerDidNotHandle(this);
         return;
     }
-    m_timeoutTimer.startOneShot(m_loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+    if (m_timeoutTimer)
+        m_timeoutTimer->startOneShot(m_loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
     m_currentRequest = WTFMove(request);
     startFetch();
 }
@@ -249,7 +408,7 @@ void ServiceWorkerFetchTask::timeoutTimerFired()
 {
     ASSERT(!m_isDone);
     ASSERT(!m_wasHandled);
-    RELEASE_LOG_ERROR_IF_ALLOWED("timeoutTimerFired: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
+    SWFETCH_RELEASE_LOG_ERROR("timeoutTimerFired: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
 
     softUpdateIfNeeded();
 
@@ -261,13 +420,140 @@ void ServiceWorkerFetchTask::timeoutTimerFired()
 
 void ServiceWorkerFetchTask::softUpdateIfNeeded()
 {
-    RELEASE_LOG_IF_ALLOWED("softUpdateIfNeeded: (m_shouldSoftUpdate=%d)", m_shouldSoftUpdate);
+    SWFETCH_RELEASE_LOG("softUpdateIfNeeded: (m_shouldSoftUpdate=%d)", m_shouldSoftUpdate);
     if (!m_shouldSoftUpdate)
         return;
-    if (auto* registration = m_loader.connectionToWebProcess().swConnection().server().getRegistration(m_serviceWorkerRegistrationIdentifier))
-        registration->scheduleSoftUpdate();
+    auto* swConnection = m_loader.connectionToWebProcess().swConnection();
+    if (!swConnection)
+        return;
+    if (auto* registration = swConnection->server().getRegistration(m_serviceWorkerRegistrationIdentifier))
+        registration->scheduleSoftUpdate(m_loader.isAppInitiated() ? WebCore::IsAppInitiated::Yes : WebCore::IsAppInitiated::No);
+}
+
+void ServiceWorkerFetchTask::loadResponseFromPreloader()
+{
+    SWFETCH_RELEASE_LOG("loadResponseFromPreloader");
+
+    if (m_isLoadingFromPreloader)
+        return;
+
+    m_isLoadingFromPreloader = true;
+    m_preloader->waitForResponse([weakThis = WeakPtr { *this }] {
+        if (weakThis)
+            weakThis->preloadResponseIsReady();
+    });
+}
+
+void ServiceWorkerFetchTask::preloadResponseIsReady()
+{
+    if (!m_isLoadingFromPreloader) {
+        if (m_preloader && m_preloader->isServiceWorkerNavigationPreloadEnabled()) {
+            if (!m_preloader->error().isNull())
+                sendToServiceWorker(Messages::WebSWContextManagerConnection::NavigationPreloadFailed { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier, m_preloader->error() });
+            else
+                sendToServiceWorker(Messages::WebSWContextManagerConnection::NavigationPreloadIsReady { m_serverConnectionIdentifier, m_serviceWorkerIdentifier, m_fetchIdentifier, m_preloader->response() });
+        }
+        return;
+    }
+
+    if (!m_preloader->error().isNull()) {
+        // Let's copy the error as calling didFail might destroy m_preloader.
+        didFail(ResourceError { m_preloader->error() });
+        return;
+    }
+
+    auto response = m_preloader->response();
+    if (response.isRedirection() && response.httpHeaderFields().contains(HTTPHeaderName::Location)) {
+        processRedirectResponse(WTFMove(response), ShouldSetSource::No);
+        return;
+    }
+
+    bool needsContinueDidReceiveResponseMessage = true;
+    processResponse(WTFMove(response), needsContinueDidReceiveResponseMessage, ShouldSetSource::No);
+}
+
+void ServiceWorkerFetchTask::loadBodyFromPreloader()
+{
+    SWFETCH_RELEASE_LOG("loadBodyFromPreloader");
+
+    ASSERT(m_isLoadingFromPreloader);
+    if (!m_preloader) {
+        SWFETCH_RELEASE_LOG_ERROR("loadBodyFromPreloader preloader is null");
+        didFail(ResourceError(errorDomainWebKitInternal, 0, m_currentRequest.url(), "Request canceled from preloader"_s, ResourceError::Type::Cancellation));
+        return;
+    }
+
+    m_preloader->waitForBody([weakThis = WeakPtr { *this }, this](auto&& chunk, uint64_t length) {
+        if (!weakThis)
+            return;
+        if (!m_preloader->error().isNull()) {
+            // Let's copy the error as calling didFail might destroy m_preloader.
+            didFail(ResourceError { m_preloader->error() });
+            return;
+        }
+        if (!chunk) {
+            didFinish(m_preloader->networkLoadMetrics());
+            return;
+        }
+        didReceiveDataFromPreloader(const_cast<WebCore::FragmentedSharedBuffer&>(*chunk), length);
+    });
+}
+
+void ServiceWorkerFetchTask::cancelPreloadIfNecessary()
+{
+    if (!m_preloader)
+        return;
+
+    if (auto* session = this->session())
+        session->removeNavigationPreloaderTask(*this);
+
+    m_preloader->cancel();
+    m_preloader = nullptr;
+}
+
+NetworkSession* ServiceWorkerFetchTask::session()
+{
+    return m_swServerConnection ? m_swServerConnection->session() : nullptr;
+}
+
+bool ServiceWorkerFetchTask::convertToDownload(DownloadManager& manager, DownloadID downloadID, const ResourceRequest& request, const ResourceResponse& response)
+{
+    if (m_preloader)
+        return m_preloader->convertToDownload(manager, downloadID, request, response);
+
+    auto* session = this->session();
+    if (!session || !m_serviceWorkerConnection)
+        return false;
+
+    m_isDone = true;
+
+    // FIXME: We might want to keep the service worker alive until the download ends.
+    RefPtr<ServiceWorkerDownloadTask> serviceWorkerDownloadTask;
+    auto serviceWorkerDownloadLoad = makeUnique<NetworkLoad>(m_loader, *session, [&](auto& client) {
+        serviceWorkerDownloadTask =  ServiceWorkerDownloadTask::create(*session, client, *m_serviceWorkerConnection, m_serviceWorkerIdentifier, m_serverConnectionIdentifier, m_fetchIdentifier, request, downloadID);
+        return serviceWorkerDownloadTask.copyRef();
+    });
+
+    ResponseCompletionHandler completionHandler = [serviceWorkerDownloadTask = WTFMove(serviceWorkerDownloadTask)](auto policy) {
+        if (policy != PolicyAction::Download) {
+            serviceWorkerDownloadTask->stop();
+            return;
+        }
+        serviceWorkerDownloadTask->start();
+    };
+
+    manager.convertNetworkLoadToDownload(downloadID, WTFMove(serviceWorkerDownloadLoad), WTFMove(completionHandler), { }, request, response);
+    return true;
+}
+
+MonotonicTime ServiceWorkerFetchTask::startTime() const
+{
+    return m_preloader ? m_preloader->startTime() : MonotonicTime { };
 }
 
 } // namespace WebKit
+
+#undef SWFETCH_RELEASE_LOG
+#undef SWFETCH_RELEASE_LOG_ERROR
 
 #endif // ENABLE(SERVICE_WORKER)

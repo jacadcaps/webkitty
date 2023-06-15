@@ -104,7 +104,7 @@ void TestController::setHidden(bool)
 {
 }
 
-void TestController::platformInitialize()
+void TestController::platformInitialize(const Options&)
 {
     // Cygwin calls ::SetErrorMode(SEM_FAILCRITICALERRORS), which we will inherit. This is bad for
     // testing/debugging, as it causes the post-mortem debugger not to be invoked. We reset the
@@ -154,9 +154,9 @@ void TestController::platformRunUntil(bool& condition, WTF::Seconds timeout)
 
     // First, let the test harness know this happened so it won't think we've hung. But
     // make sure we don't exit just yet!
-    m_shouldExitWhenWebProcessCrashes = false;
-    processDidCrash();
-    m_shouldExitWhenWebProcessCrashes = true;
+    m_shouldExitWhenAuxiliaryProcessCrashes = false;
+    webProcessDidTerminate(kWKProcessTerminationReasonCrash);
+    m_shouldExitWhenAuxiliaryProcessCrashes = true;
 
     // Then spin a run loop until it finishes crashing to give time for a crash log to be saved. If
     // it takes too long for a crash log to be saved, we'll just give up.
@@ -222,14 +222,14 @@ void TestController::platformConfigureViewForTest(const TestInvocation&)
     notImplemented();
 }
 
-void TestController::platformResetPreferencesToConsistentValues()
+bool TestController::platformResetStateToConsistentValues(const TestOptions&)
 {
-    notImplemented();
+    return true;
 }
 
-void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions&, const std::string&) const
+TestFeatures TestController::platformSpecificFeatureDefaultsForTest(const TestCommand&) const
 {
-    notImplemented();
+    return { };
 }
 
 } // namespace WTR

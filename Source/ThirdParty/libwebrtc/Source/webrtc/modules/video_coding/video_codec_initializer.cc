@@ -20,8 +20,11 @@
 #include "api/units/data_rate.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video_codecs/video_encoder.h"
+#include "modules/video_coding/codecs/av1/av1_svc_config.h"
+#include "modules/video_coding/codecs/vp8/vp8_scalability.h"
 #include "modules/video_coding/codecs/vp9/svc_config.h"
 #include "modules/video_coding/include/video_coding_defines.h"
+#include "modules/video_coding/svc/scalability_mode_util.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/min_video_bitrate_experiment.h"
 #include "rtc_base/logging.h"
@@ -56,7 +59,6 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
   RTC_DCHECK_GE(config.min_transmit_bitrate_bps, 0);
 
   VideoCodec video_codec;
-  memset(&video_codec, 0, sizeof(video_codec));
   video_codec.codecType = config.codec_type;
 
   switch (config.content_type) {
@@ -68,14 +70,18 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
       break;
   }
 
-  // TODO(nisse): The plType field should be deleted. Luckily, our
-  // callers don't need it.
-  video_codec.plType = 0;
+  video_codec.legacy_conference_mode =
+      config.content_type == VideoEncoderConfig::ContentType::kScreen &&
+      config.legacy_conference_mode;
+
+  video_codec.SetFrameDropEnabled(config.frame_drop_enabled);
   video_codec.numberOfSimulcastStreams =
       static_cast<unsigned char>(streams.size());
   video_codec.minBitrate = streams[0].min_bitrate_bps / 1000;
   bool codec_active = false;
-  for (const VideoStream& stream : streams) {
+  // Active configuration might not be fully copied to `streams` for SVC yet.
+  // Therefore the `config` is checked here.
+  for (const VideoStream& stream : config.simulcast_layers) {
     if (stream.active) {
       codec_active = true;
       break;
@@ -91,6 +97,8 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
 
   int max_framerate = 0;
 
+  absl::optional<ScalabilityMode> scalability_mode =
+      streams[0].scalability_mode;
   for (size_t i = 0; i < streams.size(); ++i) {
     SimulcastStream* sim_stream = &video_codec.simulcastStream[i];
     RTC_DCHECK_GT(streams[i].width, 0);
@@ -108,8 +116,14 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
     sim_stream->targetBitrate = streams[i].target_bitrate_bps / 1000;
     sim_stream->maxBitrate = streams[i].max_bitrate_bps / 1000;
     sim_stream->qpMax = streams[i].max_qp;
+
+    int num_temporal_layers =
+        streams[i].scalability_mode.has_value()
+            ? ScalabilityModeToNumTemporalLayers(*streams[i].scalability_mode)
+            : streams[i].num_temporal_layers.value_or(1);
+
     sim_stream->numberOfTemporalLayers =
-        static_cast<unsigned char>(streams[i].num_temporal_layers.value_or(1));
+        static_cast<unsigned char>(num_temporal_layers);
     sim_stream->active = streams[i].active;
 
     video_codec.width =
@@ -123,6 +137,22 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
     video_codec.qpMax = std::max(video_codec.qpMax,
                                  static_cast<unsigned int>(streams[i].max_qp));
     max_framerate = std::max(max_framerate, streams[i].max_framerate);
+
+    // TODO(bugs.webrtc.org/11607): Since scalability mode is a top-level
+    // setting on VideoCodec, setting it makes sense only if it is the same for
+    // all simulcast streams.
+    if (streams[0].scalability_mode != streams[i].scalability_mode) {
+      scalability_mode.reset();
+      // For VP8, top-level scalability mode doesn't matter, since configuration
+      // is based on the per-simulcast stream configuration of temporal layers.
+      if (video_codec.codecType != kVideoCodecVP8) {
+        RTC_LOG(LS_WARNING) << "Inconsistent scalability modes configured.";
+      }
+    }
+  }
+
+  if (scalability_mode.has_value()) {
+    video_codec.SetScalabilityMode(*scalability_mode);
   }
 
   if (video_codec.maxBitrate == 0) {
@@ -135,6 +165,14 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
     video_codec.maxBitrate = kEncoderMinBitrateKbps;
 
   video_codec.maxFramerate = max_framerate;
+  video_codec.spatialLayers[0] = {0};
+  video_codec.spatialLayers[0].width = video_codec.width;
+  video_codec.spatialLayers[0].height = video_codec.height;
+  video_codec.spatialLayers[0].maxFramerate = max_framerate;
+  video_codec.spatialLayers[0].numberOfTemporalLayers =
+      streams[0].scalability_mode.has_value()
+          ? ScalabilityModeToNumTemporalLayers(*streams[0].scalability_mode)
+          : streams[0].num_temporal_layers.value_or(1);
 
   // Set codec specific options
   if (config.encoder_specific_settings)
@@ -146,9 +184,26 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
         *video_codec.VP8() = VideoEncoder::GetDefaultVp8Settings();
       }
 
-      video_codec.VP8()->numberOfTemporalLayers = static_cast<unsigned char>(
-          streams.back().num_temporal_layers.value_or(
-              video_codec.VP8()->numberOfTemporalLayers));
+      // Validate specified scalability modes. If some layer has an unsupported
+      // mode, store it as the top-level scalability mode, which will make
+      // InitEncode fail with an appropriate error.
+      for (const auto& stream : streams) {
+        if (stream.scalability_mode.has_value() &&
+            !VP8SupportsScalabilityMode(*stream.scalability_mode)) {
+          RTC_LOG(LS_WARNING)
+              << "Invalid scalability mode for VP8: "
+              << ScalabilityModeToString(*stream.scalability_mode);
+          video_codec.SetScalabilityMode(*stream.scalability_mode);
+          break;
+        }
+      }
+      video_codec.VP8()->numberOfTemporalLayers =
+          streams.back().scalability_mode.has_value()
+              ? ScalabilityModeToNumTemporalLayers(
+                    *streams.back().scalability_mode)
+              : streams.back().num_temporal_layers.value_or(
+                    video_codec.VP8()->numberOfTemporalLayers);
+
       RTC_DCHECK_GE(video_codec.VP8()->numberOfTemporalLayers, 1);
       RTC_DCHECK_LE(video_codec.VP8()->numberOfTemporalLayers,
                     kMaxTemporalStreams);
@@ -178,20 +233,24 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
       if (!config.spatial_layers.empty()) {
         // Layering is set explicitly.
         spatial_layers = config.spatial_layers;
+      } else if (scalability_mode.has_value()) {
+        // Layering is set via scalability mode.
+        spatial_layers = GetVp9SvcConfig(video_codec);
+        if (spatial_layers.empty())
+          break;
       } else {
-        size_t min_required_layers = 0;
-        // Need at least enough layers for the first active one to be present.
+        size_t first_active_layer = 0;
         for (size_t spatial_idx = 0;
              spatial_idx < config.simulcast_layers.size(); ++spatial_idx) {
           if (config.simulcast_layers[spatial_idx].active) {
-            min_required_layers = spatial_idx + 1;
+            first_active_layer = spatial_idx;
             break;
           }
         }
 
         spatial_layers = GetSvcConfig(
             video_codec.width, video_codec.height, video_codec.maxFramerate,
-            min_required_layers, video_codec.VP9()->numberOfSpatialLayers,
+            first_active_layer, video_codec.VP9()->numberOfSpatialLayers,
             video_codec.VP9()->numberOfTemporalLayers,
             video_codec.mode == VideoCodecMode::kScreensharing);
 
@@ -206,11 +265,11 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
           spatial_layers.back().maxBitrate = video_codec.maxBitrate;
         }
 
-        for (size_t spatial_idx = 0;
+        for (size_t spatial_idx = first_active_layer;
              spatial_idx < config.simulcast_layers.size() &&
-             spatial_idx < spatial_layers.size();
+             spatial_idx < spatial_layers.size() + first_active_layer;
              ++spatial_idx) {
-          spatial_layers[spatial_idx].active =
+          spatial_layers[spatial_idx - first_active_layer].active =
               config.simulcast_layers[spatial_idx].active;
         }
       }
@@ -219,6 +278,14 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
       for (size_t i = 0; i < spatial_layers.size(); ++i) {
         video_codec.spatialLayers[i] = spatial_layers[i];
       }
+
+      // The top spatial layer dimensions may not be equal to the input
+      // resolution because of the rounding or explicit configuration.
+      // This difference must be propagated to the stream configuration.
+      video_codec.width = spatial_layers.back().width;
+      video_codec.height = spatial_layers.back().height;
+      video_codec.simulcastStream[0].width = spatial_layers.back().width;
+      video_codec.simulcastStream[0].height = spatial_layers.back().height;
 
       // Update layering settings.
       video_codec.VP9()->numberOfSpatialLayers =
@@ -235,9 +302,23 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
 
       break;
     }
+    case kVideoCodecAV1:
+      if (SetAv1SvcConfig(video_codec,
+                          /*num_temporal_layers=*/
+                          streams.back().num_temporal_layers.value_or(1),
+                          /*num_spatial_layers=*/
+                          std::max<int>(config.spatial_layers.size(), 1))) {
+        for (size_t i = 0; i < config.spatial_layers.size(); ++i) {
+          video_codec.spatialLayers[i].active = config.spatial_layers[i].active;
+        }
+      } else {
+        RTC_LOG(LS_WARNING) << "Failed to configure svc bitrates for av1.";
+      }
+      break;
     case kVideoCodecH264: {
-      if (!config.encoder_specific_settings)
-        *video_codec.H264() = VideoEncoder::GetDefaultH264Settings();
+      RTC_CHECK(!config.encoder_specific_settings);
+
+      *video_codec.H264() = VideoEncoder::GetDefaultH264Settings();
       video_codec.H264()->numberOfTemporalLayers = static_cast<unsigned char>(
           streams.back().num_temporal_layers.value_or(
               video_codec.H264()->numberOfTemporalLayers));

@@ -32,39 +32,39 @@
 
 namespace WebCore {
 
-    class SubstituteData {
-    public:
-        enum class SessionHistoryVisibility {
-            Visible,
-            Hidden,
-        };
-
-        SubstituteData()
-        {
-        }
-
-        SubstituteData(RefPtr<SharedBuffer>&& content, const URL& failingURL, const ResourceResponse& response, SessionHistoryVisibility shouldRevealToSessionHistory)
-            : m_content(WTFMove(content))
-            , m_failingURL(failingURL)
-            , m_response(response)
-            , m_shouldRevealToSessionHistory(shouldRevealToSessionHistory)
-        {
-        }
-
-        bool isValid() const { return m_content != nullptr; }
-        bool shouldRevealToSessionHistory() const { return m_shouldRevealToSessionHistory == SessionHistoryVisibility::Visible; }
-
-        const SharedBuffer* content() const { return m_content.get(); }
-        const String& mimeType() const { return m_response.mimeType(); }
-        const String& textEncoding() const { return m_response.textEncodingName(); }
-        const URL& failingURL() const { return m_failingURL; }
-        const ResourceResponse& response() const { return m_response; }
-        
-    private:
-        RefPtr<SharedBuffer> m_content;
-        URL m_failingURL;
-        ResourceResponse m_response;
-        SessionHistoryVisibility m_shouldRevealToSessionHistory { SessionHistoryVisibility::Hidden };
+class SubstituteData {
+public:
+    enum class SessionHistoryVisibility : bool {
+        Visible,
+        Hidden,
     };
+
+    SubstituteData()
+    {
+    }
+
+    SubstituteData(RefPtr<FragmentedSharedBuffer>&& content, const URL& failingURL, const ResourceResponse& response, SessionHistoryVisibility shouldRevealToSessionHistory)
+        : m_content(WTFMove(content))
+        , m_failingURL(failingURL)
+        , m_response(response)
+        , m_shouldRevealToSessionHistory(shouldRevealToSessionHistory)
+    {
+    }
+
+    bool isValid() const { return m_content != nullptr; }
+    SessionHistoryVisibility shouldRevealToSessionHistory() const { return m_shouldRevealToSessionHistory; }
+
+    const RefPtr<FragmentedSharedBuffer> content() const { return m_content; }
+    const String& mimeType() const { return m_response.mimeType(); }
+    const String& textEncoding() const { return m_response.textEncodingName(); }
+    const URL& failingURL() const { return m_failingURL; }
+    const ResourceResponse& response() const { return m_response; }
+
+private:
+    RefPtr<FragmentedSharedBuffer> m_content;
+    URL m_failingURL;
+    ResourceResponse m_response;
+    SessionHistoryVisibility m_shouldRevealToSessionHistory { SessionHistoryVisibility::Hidden };
+};
 
 } // namespace WebCore

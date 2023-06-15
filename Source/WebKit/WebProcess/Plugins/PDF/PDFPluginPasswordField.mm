@@ -28,10 +28,10 @@
 
 #if ENABLE(PDFKIT_PLUGIN)
 
-#import "PDFKitImports.h"
 #import "PDFLayerControllerSPI.h"
 #import "PDFPlugin.h"
 #import <Quartz/Quartz.h>
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/Event.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/HTMLElement.h>
@@ -54,7 +54,7 @@ PDFPluginPasswordField::~PDFPluginPasswordField()
 Ref<Element> PDFPluginPasswordField::createAnnotationElement()
 {
     auto element = PDFPluginTextAnnotation::createAnnotationElement();
-    element->setAttribute(typeAttr, "password");
+    element->setAttribute(typeAttr, "password"_s);
     element->addEventListener(eventNames().keyupEvent, *eventListener(), false);
     return element;
 }
@@ -68,7 +68,7 @@ bool PDFPluginPasswordField::handleEvent(WebCore::Event& event)
     if (event.isKeyboardEvent() && event.type() == eventNames().keyupEvent) {
         auto& keyboardEvent = downcast<KeyboardEvent>(event);
 
-        if (keyboardEvent.keyIdentifier() == "Enter") {
+        if (keyboardEvent.keyIdentifier() == "Enter"_s) {
             plugin()->attemptToUnlockPDF(value());
             event.preventDefault();
             return true;

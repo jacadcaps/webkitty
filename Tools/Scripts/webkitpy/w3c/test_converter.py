@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2013 Adobe Systems Incorporated. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,6 +27,7 @@
 
 import json
 import logging
+import os
 import re
 import sys
 
@@ -49,9 +48,6 @@ def convert_for_webkit(new_path, filename, reference_support_info, host=Host(), 
     Returns the list of modified properties and the modified text if the file was modifed, None otherwise."""
     contents = host.filesystem.read_text_file(filename)
 
-    # WebKit does not have a www test domain.
-    contents = contents.replace('{{domains[www]}}', '{{hosts[alt][]}}')
-
     converter = _W3CTestConverter(new_path, filename, reference_support_info, host, convert_test_harness_links, webkit_test_runner_options)
     if filename.endswith('.css'):
         return converter.add_webkit_prefix_to_unprefixed_properties_and_values(contents)
@@ -65,7 +61,10 @@ def convert_for_webkit(new_path, filename, reference_support_info, host=Host(), 
 
 class _W3CTestConverter(HTMLParser):
     def __init__(self, new_path, filename, reference_support_info, host=Host(), convert_test_harness_links=True, webkit_test_runner_options=''):
-        HTMLParser.__init__(self)
+        if sys.version_info > (3, 0):
+            HTMLParser.__init__(self, convert_charrefs=False)
+        else:
+            HTMLParser.__init__(self)
 
         self._host = host
         self._filesystem = self._host.filesystem
@@ -83,7 +82,7 @@ class _W3CTestConverter(HTMLParser):
 
         resources_path = self.path_from_webkit_root('LayoutTests', 'resources')
         resources_relpath = self._filesystem.relpath(resources_path, new_path)
-        self.new_test_harness_path = resources_relpath
+        self.new_test_harness_path = resources_relpath.replace(os.sep, '/')
         self.convert_test_harness_links = convert_test_harness_links
 
         # These settings might vary between WebKit and Blink
@@ -93,11 +92,11 @@ class _W3CTestConverter(HTMLParser):
         self.test_harness_re = re.compile('/resources/testharness')
 
         self.prefixed_properties = self.read_webkit_prefixed_css_property_list(css_property_file)
-        prop_regex = '([\s{]|^)(' + "|".join(prop.replace('-webkit-', '') for prop in self.prefixed_properties) + ')(\s+:|:)'
+        prop_regex = r'([\s{]|^)(' + "|".join(prop.replace('-webkit-', '') for prop in self.prefixed_properties) + r')(\s+:|:)'
         self.prop_re = re.compile(prop_regex)
 
         self.prefixed_property_values = self.legacy_read_webkit_prefixed_css_property_list(css_property_value_file)
-        prop_value_regex = '(:\s*|^\s*)(' + "|".join(value.replace('-webkit-', '') for value in self.prefixed_property_values) + ')(\s*;|\s*}|\s*$)'
+        prop_value_regex = r'(:\s*|^\s*)(' + "|".join(value.replace('-webkit-', '') for value in self.prefixed_property_values) + r')(\s*;|\s*}|\s*$)'
         self.prop_value_re = re.compile(prop_value_regex)
 
     def output(self):
@@ -123,7 +122,7 @@ class _W3CTestConverter(HTMLParser):
         unprefixed_properties = set()
         for property_name in property_names:
             # Find properties starting with the -webkit- prefix.
-            match = re.match('-webkit-([\w|-]*)', property_name)
+            match = re.match(r'-webkit-([\w|-]*)', property_name)
             if match:
                 prefixed_properties.append(match.group(1))
             else:
@@ -144,7 +143,7 @@ class _W3CTestConverter(HTMLParser):
             # Property name is always first on the line.
             property_name = line.split(' ', 1)[0]
             # Find properties starting with the -webkit- prefix.
-            match = re.match('-webkit-([\w|-]*)', property_name)
+            match = re.match(r'-webkit-([\w|-]*)', property_name)
             if match:
                 prefixed_properties.append(match.group(1))
             else:

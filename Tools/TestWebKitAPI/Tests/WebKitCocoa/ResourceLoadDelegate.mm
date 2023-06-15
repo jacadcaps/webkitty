@@ -27,7 +27,6 @@
 
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import "TCPServer.h"
 #import "TestNavigationDelegate.h"
 #import "TestUIDelegate.h"
 #import "TestWKWebView.h"
@@ -107,14 +106,12 @@ TEST(ResourceLoadDelegate, Basic)
     EXPECT_WK_STREQ(requestLoaded.get().URL.absoluteString, requestFromDelegate.get().URL.absoluteString);
 }
 
-#if HAVE(NETWORK_FRAMEWORK)
-
 TEST(ResourceLoadDelegate, BeaconAndSyncXHR)
 {
     TestWebKitAPI::HTTPServer server({
-        { "/", { "hello" } },
-        { "/xhrTarget", { {{ "Content-Type", "text/html" }},  "hi" } },
-        { "/beaconTarget", { "hi" } },
+        { "/"_s, { "hello"_s } },
+        { "/xhrTarget"_s, { {{ "Content-Type"_s, "text/html"_s }},  "hi"_s } },
+        { "/beaconTarget"_s, { "hi"_s } },
     });
 
     auto webView = adoptNS([TestWKWebView new]);
@@ -158,8 +155,8 @@ TEST(ResourceLoadDelegate, BeaconAndSyncXHR)
 TEST(ResourceLoadDelegate, Redirect)
 {
     TestWebKitAPI::HTTPServer server({
-        { "/", { 301, {{ "Location", "/redirectTarget" }} } },
-        { "/redirectTarget", { "hi" } },
+        { "/"_s, { 301, {{ "Location"_s, "/redirectTarget"_s }} } },
+        { "/redirectTarget"_s, { "hi"_s } },
     });
 
     __block bool done = false;
@@ -184,7 +181,7 @@ TEST(ResourceLoadDelegate, Redirect)
 
 TEST(ResourceLoadDelegate, ResourceType)
 {
-    const char* testJS = R"TESTJS(
+    constexpr auto testJS = R"TESTJS(
     function loadMoreThingsAfterFetchAndXHR() {
         navigator.sendBeacon('beaconTarget');
 
@@ -207,16 +204,16 @@ TEST(ResourceLoadDelegate, ResourceType)
         xhr.open('GET', 'xhrTarget');
         xhr.send();
     })
-    )TESTJS";
+    )TESTJS"_s;
     TestWebKitAPI::HTTPServer server({
-        { "/", { "<script src='scriptSrc'></script><div>text needing a font</div>" } },
-        { "/scriptSrc", { {{ "Content-Type", "application/javascript" }}, testJS } },
-        { "/fetchTarget", { "hi" } },
-        { "/xhrTarget", { {{ "Content-Type", "application/octet-stream" }}, "hi" } },
-        { "/beaconTarget", { "hi" } },
-        { "/imageSource", { "not really an image" } },
-        { "/styleSource", { "@font-face { font-family: TestFontFamily; src: url(fontSource) } div { font-family: TestFontFamily }" } },
-        { "/fontSource", { "not really a font" } },
+        { "/"_s, { "<script src='scriptSrc'></script><div>text needing a font</div>"_s } },
+        { "/scriptSrc"_s, { {{ "Content-Type"_s, "application/javascript"_s }}, testJS } },
+        { "/fetchTarget"_s, { "hi"_s } },
+        { "/xhrTarget"_s, { {{ "Content-Type"_s, "application/octet-stream"_s }}, "hi"_s } },
+        { "/beaconTarget"_s, { "hi"_s } },
+        { "/imageSource"_s, { "not really an image"_s } },
+        { "/styleSource"_s, { "@font-face { font-family: TestFontFamily; src: url(fontSource) } div { font-family: TestFontFamily }"_s } },
+        { "/fontSource"_s, { "not really a font"_s } },
     });
 
     __block Vector<RetainPtr<_WKResourceLoadInfo>> loadInfos;
@@ -251,10 +248,16 @@ TEST(ResourceLoadDelegate, ResourceType)
 
 TEST(ResourceLoadDelegate, LoadInfo)
 {
+    __block bool clearedStore = false;
+    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
+        clearedStore = true;
+    }];
+    TestWebKitAPI::Util::run(&clearedStore);
+
     TestWebKitAPI::HTTPServer server({
-        { "/", { "<iframe src='iframeSrc'></iframe>" } },
-        { "/iframeSrc", { "<script>fetch('fetchTarget', { body: 'a=b&c=d', method: 'post'})</script>" } },
-        { "/fetchTarget", { "hi" } },
+        { "/"_s, { "<iframe src='iframeSrc'></iframe>"_s } },
+        { "/iframeSrc"_s, { "<script>fetch('fetchTarget', { body: 'a=b&c=d', method: 'post'})</script>"_s } },
+        { "/fetchTarget"_s, { "hi"_s } },
     });
 
     enum class Callback {
@@ -366,7 +369,7 @@ TEST(ResourceLoadDelegate, LoadInfo)
 
     EXPECT_WK_STREQ(NSStringFromClass([otherParameters[8] class]), "NSMutableURLRequest");
     EXPECT_WK_STREQ([otherParameters[8] URL].path, "/fetchTarget");
-    EXPECT_WK_STREQ([[[NSString alloc] initWithData:[otherParameters[8] HTTPBody] encoding:NSUTF8StringEncoding] autorelease], "a=b&c=d");
+    EXPECT_WK_STREQ(adoptNS([[NSString alloc] initWithData:[otherParameters[8] HTTPBody] encoding:NSUTF8StringEncoding]).get(), "a=b&c=d");
     EXPECT_WK_STREQ(NSStringFromClass([otherParameters[9] class]), "NSHTTPURLResponse");
     EXPECT_WK_STREQ([otherParameters[9] URL].path, "/fetchTarget");
     EXPECT_EQ(otherParameters[10], nil);
@@ -376,7 +379,6 @@ TEST(ResourceLoadDelegate, LoadInfo)
     _WKResourceLoadInfo *original = loadInfos[0].get();
     NSError *error = nil;
     NSData *archiveData = [NSKeyedArchiver archivedDataWithRootObject:original requiringSecureCoding:YES error:&error];
-    EXPECT_EQ(archiveData.length, 607ull);
     EXPECT_FALSE(error);
     _WKResourceLoadInfo *deserialized = [NSKeyedUnarchiver unarchivedObjectOfClass:[_WKResourceLoadInfo class] fromData:archiveData error:&error];
     EXPECT_FALSE(error);
@@ -420,5 +422,3 @@ TEST(ResourceLoadDelegate, Challenge)
     TestWebKitAPI::Util::run(&receivedErrorNotification);
     EXPECT_TRUE(receivedChallengeNotificiation);
 }
-
-#endif // HAVE(NETWORK_FRAMEWORK)

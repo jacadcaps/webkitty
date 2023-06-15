@@ -129,15 +129,15 @@ private:
     }
 
 #if PLATFORM(MAC)
-    Optional<WebKit::WebPageOverlay::ActionContext> actionContextForResultAtPoint(WebKit::WebPageOverlay& pageOverlay, WebCore::FloatPoint location) final
+    std::optional<WebKit::WebPageOverlay::ActionContext> actionContextForResultAtPoint(WebKit::WebPageOverlay& pageOverlay, WebCore::FloatPoint location) final
     {
         if (!m_client.actionContextForResultAtPoint)
-            return WTF::nullopt;
+            return std::nullopt;
 
         WKBundleRangeHandleRef apiRange = nullptr;
         auto actionContext = (DDActionContext *)m_client.actionContextForResultAtPoint(toAPI(&pageOverlay), WKPointMake(location.x(), location.y()), &apiRange, m_client.base.clientInfo);
         if (!actionContext || !apiRange)
-            return WTF::nullopt;
+            return std::nullopt;
 
         return { { actionContext, makeSimpleRange(WebKit::toImpl(apiRange)->coreRange()) } };
     }
@@ -197,11 +197,13 @@ private:
         auto wkNames = m_accessibilityClient.client().copyAccessibilityAttributeNames(toAPI(&pageOverlay), paramerizedNames, m_accessibilityClient.client().base.clientInfo);
 
         size_t count = WKArrayGetSize(wkNames);
+        names.reserveInitialCapacity(count);
         for (size_t k = 0; k < count; k++) {
             WKTypeRef item = WKArrayGetItemAtIndex(wkNames, k);
             if (WebKit::toImpl(item)->type() == API::String::APIType)
-                names.append(WebKit::toWTFString(static_cast<WKStringRef>(item)));
+                names.uncheckedAppend(WebKit::toWTFString(static_cast<WKStringRef>(item)));
         }
+        names.shrinkToFit();
 
         return names;
     }

@@ -26,21 +26,38 @@
 #import "config.h"
 #import "TestWebsiteDataStoreDelegate.h"
 
+#import "PlatformWebView.h"
+#import "TestController.h"
+#import "TestRunnerWKWebView.h"
+#import <WebKit/WKWebView.h>
+#import <wtf/UniqueRef.h>
+
 @implementation TestWebsiteDataStoreDelegate { }
 - (instancetype)init
 {
     _shouldAllowRaisingQuota = false;
+    _quota = 40 * KB;
     return self;
 }
 
-- (void)requestStorageSpace:(NSURL *)mainFrameURL frameOrigin:(NSURL *)frameURL quota:(NSUInteger)quota currentSize:(NSUInteger)currentSize spaceRequired:(NSUInteger)spaceRequired decisionHandler:(void (^)(unsigned long long))decisionHandler
+- (void)requestStorageSpace:(NSURL *)mainFrameURL frameOrigin:(NSURL *)frameURL quota:(NSUInteger)currentQuota currentSize:(NSUInteger)currentSize spaceRequired:(NSUInteger)spaceRequired decisionHandler:(void (^)(unsigned long long))decisionHandler
 {
-    decisionHandler(_shouldAllowRaisingQuota ? quota + currentSize + spaceRequired : quota);
+    auto totalSpaceRequired = currentSize + spaceRequired;
+    if (_shouldAllowRaisingQuota || totalSpaceRequired <= _quota)
+        return decisionHandler(totalSpaceRequired);
+
+    // Deny request by not changing quota.
+    decisionHandler(currentQuota);
 }
 
 - (void)setAllowRaisingQuota:(BOOL)shouldAllowRaisingQuota
 {
     _shouldAllowRaisingQuota = shouldAllowRaisingQuota;
+}
+
+- (void)setQuota:(NSUInteger)quota
+{
+    _quota = quota;
 }
 
 - (void)didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler
@@ -59,6 +76,17 @@
 - (void)setAllowAnySSLCertificate:(BOOL)shouldAllowAnySSLCertificate
 {
     _shouldAllowAnySSLCertificate = shouldAllowAnySSLCertificate;
+}
+
+- (void)websiteDataStore:(WKWebsiteDataStore *)dataStore openWindow:(NSURL *)url fromServiceWorkerOrigin:(WKSecurityOrigin *)serviceWorkerOrigin completionHandler:(void (^)(WKWebView *newWebView))completionHandler
+{
+    auto* newView = WTR::TestController::singleton().createOtherPlatformWebView(nullptr, nullptr, nullptr, nullptr);
+    WKWebView *webView = newView->platformView();
+
+    ASSERT(webView.configuration.websiteDataStore == dataStore);
+
+    [webView loadRequest:[NSURLRequest requestWithURL:url]];
+    completionHandler(webView);
 }
 
 @end

@@ -26,10 +26,16 @@
 #include "config.h"
 #include "GraphicsLayerCARemote.h"
 
+#include "ImageBufferBackendHandleSharing.h"
 #include "PlatformCAAnimationRemote.h"
 #include "PlatformCALayerRemote.h"
+#include "PlatformCALayerRemoteHost.h"
 #include "RemoteLayerTreeContext.h"
+#include "RemoteLayerTreeDrawingAreaProxyMessages.h"
+#include <WebCore/GraphicsLayerContentsDisplayDelegate.h>
+#include <WebCore/Model.h>
 #include <WebCore/PlatformScreen.h>
+#include <WebCore/RemoteFrame.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -67,9 +73,16 @@ Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(PlatformLayer*
     return PlatformCALayerRemote::create(platformLayer, owner, *m_context);
 }
 
-Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayerForEmbeddedView(PlatformCALayer::LayerType layerType, GraphicsLayer::EmbeddedViewID embeddedViewID, PlatformCALayerClient* owner)
+#if ENABLE(MODEL_ELEMENT)
+Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(Ref<WebCore::Model> model, PlatformCALayerClient* owner)
 {
-    return PlatformCALayerRemote::createForEmbeddedView(layerType, embeddedViewID, owner, *m_context);
+    return PlatformCALayerRemote::create(model, owner, *m_context);
+}
+#endif
+
+Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayerHost(WebCore::LayerHostingContextIdentifier identifier, PlatformCALayerClient* owner)
+{
+    return PlatformCALayerRemoteHost::create(identifier, owner, *m_context);
 }
 
 Ref<PlatformCAAnimation> GraphicsLayerCARemote::createPlatformCAAnimation(PlatformCAAnimation::AnimationType type, const String& keyPath)
@@ -85,6 +98,53 @@ void GraphicsLayerCARemote::moveToContext(RemoteLayerTreeContext& context)
     m_context = &context;
 
     context.graphicsLayerDidEnterContext(*this);
+}
+
+Color GraphicsLayerCARemote::pageTiledBackingBorderColor() const
+{
+    return SRGBA<uint8_t> { 28, 74, 120, 128 }; // remote tile cache layer: navy blue
+}
+
+class GraphicsLayerCARemoteAsyncContentsDisplayDelegate : public GraphicsLayerAsyncContentsDisplayDelegate {
+public:
+    GraphicsLayerCARemoteAsyncContentsDisplayDelegate(IPC::Connection& connection, DrawingAreaIdentifier identifier, WebCore::GraphicsLayer::PlatformLayerID layerID)
+        : m_connection(connection)
+        , m_drawingArea(identifier)
+        , m_layerID(layerID)
+    { }
+
+    bool tryCopyToLayer(ImageBuffer& buffer) final
+    {
+        auto clone = buffer.clone();
+        if (!clone)
+            return false;
+        auto* backend = clone->ensureBackendCreated();
+        if (!backend)
+            return false;
+
+        clone->flushDrawingContext();
+
+        auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(backend->toBackendSharing());
+        if (!sharing)
+            return false;
+
+        auto backendHandle = sharing->createBackendHandle(SharedMemory::Protection::ReadOnly);
+        m_connection->send(Messages::RemoteLayerTreeDrawingAreaProxy::AsyncSetLayerContents(m_layerID, backendHandle), m_drawingArea.toUInt64());
+        return true;
+    }
+
+private:
+    Ref<IPC::Connection> m_connection;
+    DrawingAreaIdentifier m_drawingArea;
+    WebCore::GraphicsLayer::PlatformLayerID m_layerID;
+};
+
+RefPtr<WebCore::GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayerCARemote::createAsyncContentsDisplayDelegate()
+{
+    if (!m_context || !m_context->drawingAreaIdentifier() || !WebProcess::singleton().parentProcessConnection())
+        return nullptr;
+
+    return adoptRef(new GraphicsLayerCARemoteAsyncContentsDisplayDelegate(*WebProcess::singleton().parentProcessConnection(), m_context->drawingAreaIdentifier(), primaryLayerID()));
 }
 
 } // namespace WebKit

@@ -26,7 +26,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
+import re
 import logging
 
 from webkitpy.common.wavediff import WaveDiff
@@ -61,6 +61,7 @@ class TestResultWriter(object):
     FILENAME_SUFFIX_PRETTY_PATCH = "-pretty-diff.html"
     FILENAME_SUFFIX_IMAGE_DIFF = "-diff.png"
     FILENAME_SUFFIX_IMAGE_DIFFS_HTML = "-diffs.html"
+    PROCESS_NAME_RE = re.compile(r'(com\.apple|org\.WebKit)\..+')
 
     @staticmethod
     def expected_filename(test_name, filesystem, port_name=None, suffix='txt'):
@@ -97,13 +98,25 @@ class TestResultWriter(object):
           The absolute path to the output filename
         """
         fs = self._filesystem
-        output_filename = fs.join(self._root_output_dir, self._test_name)
 
-        # Temporary fix, also in LayoutTests/fast/harness/results.html, line 275.
-        # FIXME: Refactor to avoid confusing reference to both test and process names.
-        if len(fs.splitext(output_filename)[1]) - 1 > 5:
-            return output_filename + modifier
-        return fs.splitext(output_filename)[0] + modifier
+        test_name = self._test_name
+        variant = ''
+        if '?' in test_name:
+            (test_name, variant) = test_name.split('?', 1)
+        if '#' in test_name:
+            (test_name, variant) = test_name.split('#', 1)
+
+        # Test names that are actually process names are treated like they don't have any extension
+        if self.PROCESS_NAME_RE.match(fs.basename(test_name)):
+            ext_parts = (test_name, '', '')
+        else:
+            ext_parts = fs.splitext(test_name)
+        output_basename = ext_parts[0]
+
+        if len(variant):
+            output_basename += "_" + re.sub(r'[|* <>:]', '_', variant)
+
+        return fs.join(self._root_output_dir, output_basename) + modifier
 
     def _write_binary_file(self, path, contents):
         if contents is not None:
@@ -184,7 +197,7 @@ class TestResultWriter(object):
     def write_image_files(self, actual_image, expected_image):
         self.write_output_files('.png', actual_image, expected_image)
 
-    def write_image_diff_files(self, image_diff):
+    def write_image_diff_files(self, image_diff, diff_percent_text=None, fuzzy_data_text=None):
         diff_filename = self.output_filename(self.FILENAME_SUFFIX_IMAGE_DIFF)
         self._write_binary_file(diff_filename, image_diff)
 
@@ -196,7 +209,20 @@ class TestResultWriter(object):
             image_diff_file = self._filesystem.read_text_file(image_diff_template)
 
         html = image_diff_file.replace('__TITLE__', self._test_name)
+        html = html.replace('__TEST_NAME__', self._test_name)
         html = html.replace('__PREFIX__', self._output_testname(''))
+
+        if not diff_percent_text:
+            html = html.replace('__HIDE_DIFF_CLASS__', 'hidden')
+        else:
+            html = html.replace('__HIDE_DIFF_CLASS__', '')
+            html = html.replace('__PIXEL_DIFF__', diff_percent_text)
+
+        if not fuzzy_data_text:
+            html = html.replace('__HIDE_FUZZY_CLASS__', 'hidden')
+        else:
+            html = html.replace('__HIDE_FUZZY_CLASS__', '')
+            html = html.replace('__FUZZY_DATA__', fuzzy_data_text)
 
         diffs_html_filename = self.output_filename(self.FILENAME_SUFFIX_IMAGE_DIFFS_HTML)
         self._filesystem.write_text_file(diffs_html_filename, html)
@@ -205,4 +231,5 @@ class TestResultWriter(object):
         fs = self._filesystem
         dst_dir = fs.dirname(fs.join(self._root_output_dir, self._test_name))
         dst_filepath = fs.join(dst_dir, fs.basename(src_filepath))
-        self._write_text_file(dst_filepath, fs.read_text_file(src_filepath))
+        self._make_output_directory()
+        fs.copyfile(src_filepath, dst_filepath)

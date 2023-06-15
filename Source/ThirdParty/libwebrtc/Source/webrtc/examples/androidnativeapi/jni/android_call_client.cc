@@ -43,7 +43,7 @@ class AndroidCallClient::PCObserver : public webrtc::PeerConnectionObserver {
   void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
 
  private:
-  const AndroidCallClient* client_;
+  AndroidCallClient* const client_;
 };
 
 namespace {
@@ -88,7 +88,7 @@ void AndroidCallClient::Call(JNIEnv* env,
                              const webrtc::JavaRef<jobject>& remote_sink) {
   RTC_DCHECK_RUN_ON(&thread_checker_);
 
-  rtc::CritScope lock(&pc_mutex_);
+  webrtc::MutexLock lock(&pc_mutex_);
   if (call_started_) {
     RTC_LOG(LS_WARNING) << "Call already started.";
     return;
@@ -112,7 +112,7 @@ void AndroidCallClient::Hangup(JNIEnv* env) {
   call_started_ = false;
 
   {
-    rtc::CritScope lock(&pc_mutex_);
+    webrtc::MutexLock lock(&pc_mutex_);
     if (pc_ != nullptr) {
       pc_->Close();
       pc_ = nullptr;
@@ -170,25 +170,27 @@ void AndroidCallClient::CreatePeerConnectionFactory() {
   RTC_LOG(LS_INFO) << "Media engine created: " << pcf_deps.media_engine.get();
 
   pcf_ = CreateModularPeerConnectionFactory(std::move(pcf_deps));
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory created: " << pcf_;
+  RTC_LOG(LS_INFO) << "PeerConnectionFactory created: " << pcf_.get();
 }
 
 void AndroidCallClient::CreatePeerConnection() {
-  rtc::CritScope lock(&pc_mutex_);
+  webrtc::MutexLock lock(&pc_mutex_);
   webrtc::PeerConnectionInterface::RTCConfiguration config;
   config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
-  // DTLS SRTP has to be disabled for loopback to work.
-  config.enable_dtls_srtp = false;
-  pc_ = pcf_->CreatePeerConnection(config, nullptr /* port_allocator */,
-                                   nullptr /* cert_generator */,
-                                   pc_observer_.get());
-  RTC_LOG(LS_INFO) << "PeerConnection created: " << pc_;
+  // Encryption has to be disabled for loopback to work.
+  webrtc::PeerConnectionFactoryInterface::Options options;
+  options.disable_encryption = true;
+  pcf_->SetOptions(options);
+  webrtc::PeerConnectionDependencies deps(pc_observer_.get());
+  pc_ = pcf_->CreatePeerConnectionOrError(config, std::move(deps)).MoveValue();
 
-  rtc::scoped_refptr<webrtc::VideoTrackInterface> local_video_track =
-      pcf_->CreateVideoTrack("video", video_source_);
+  RTC_LOG(LS_INFO) << "PeerConnection created: " << pc_.get();
+
+  rtc::scoped_refptr<webrtc::VideoTrackInterface> local_video_track(
+      pcf_->CreateVideoTrack("video", video_source_.get()));
   local_video_track->AddOrUpdateSink(local_sink_.get(), rtc::VideoSinkWants());
   pc_->AddTransceiver(local_video_track);
-  RTC_LOG(LS_INFO) << "Local video sink set up: " << local_video_track;
+  RTC_LOG(LS_INFO) << "Local video sink set up: " << local_video_track.get();
 
   for (const rtc::scoped_refptr<webrtc::RtpTransceiverInterface>& tranceiver :
        pc_->GetTransceivers()) {
@@ -198,15 +200,15 @@ void AndroidCallClient::CreatePeerConnection() {
         track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
       static_cast<webrtc::VideoTrackInterface*>(track.get())
           ->AddOrUpdateSink(remote_sink_.get(), rtc::VideoSinkWants());
-      RTC_LOG(LS_INFO) << "Remote video sink set up: " << track;
+      RTC_LOG(LS_INFO) << "Remote video sink set up: " << track.get();
       break;
     }
   }
 }
 
 void AndroidCallClient::Connect() {
-  rtc::CritScope lock(&pc_mutex_);
-  pc_->CreateOffer(new rtc::RefCountedObject<CreateOfferObserver>(pc_),
+  webrtc::MutexLock lock(&pc_mutex_);
+  pc_->CreateOffer(rtc::make_ref_counted<CreateOfferObserver>(pc_).get(),
                    webrtc::PeerConnectionInterface::RTCOfferAnswerOptions());
 }
 
@@ -240,7 +242,7 @@ void AndroidCallClient::PCObserver::OnIceGatheringChange(
 void AndroidCallClient::PCObserver::OnIceCandidate(
     const webrtc::IceCandidateInterface* candidate) {
   RTC_LOG(LS_INFO) << "OnIceCandidate: " << candidate->server_url();
-  rtc::CritScope lock(&client_->pc_mutex_);
+  webrtc::MutexLock lock(&client_->pc_mutex_);
   RTC_DCHECK(client_->pc_ != nullptr);
   client_->pc_->AddIceCandidate(candidate);
 }
@@ -256,14 +258,14 @@ void CreateOfferObserver::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
 
   // Ownership of desc was transferred to us, now we transfer it forward.
   pc_->SetLocalDescription(
-      new rtc::RefCountedObject<SetLocalSessionDescriptionObserver>(), desc);
+      rtc::make_ref_counted<SetLocalSessionDescriptionObserver>().get(), desc);
 
   // Generate a fake answer.
   std::unique_ptr<webrtc::SessionDescriptionInterface> answer(
       webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, sdp));
   pc_->SetRemoteDescription(
       std::move(answer),
-      new rtc::RefCountedObject<SetRemoteSessionDescriptionObserver>());
+      rtc::make_ref_counted<SetRemoteSessionDescriptionObserver>());
 }
 
 void CreateOfferObserver::OnFailure(webrtc::RTCError error) {

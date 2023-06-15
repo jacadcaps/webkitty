@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2017 Apple Inc. All rights reserved.
 # Copyright (C) 2020 Igalia S.L.
 #
@@ -40,9 +38,10 @@ from webkitpy.common.net.layouttestresults import LayoutTestResults
 from webkitpy.common.webkit_finder import WebKitFinder
 from webkitpy.layout_tests.controllers.test_result_writer import TestResultWriter
 from webkitpy.layout_tests.models import test_expectations
-from webkitpy.thirdparty.autoinstalled import requests
+
 import json
 import re
+import requests
 
 # Buildbot status codes referenced from https://github.com/buildbot/buildbot/blob/master/master/buildbot/process/results.py
 EWS_STATECODES = {'SUCCESS': 0, 'WARNINGS': 1, 'FAILURE': 2, 'SKIPPED': 3, 'EXCEPTION': 4, 'RETRY': 5, 'CANCELLED': 6}

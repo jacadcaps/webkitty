@@ -29,15 +29,20 @@
 #include <glib/gstdio.h>
 #include <sys/file.h>
 #include <wtf/EnumTraits.h>
-#include <wtf/FileMetadata.h>
 #include <wtf/UUID.h>
-#include <wtf/glib/GLibUtilities.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/ASCIIFastPath.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
+
+#if OS(WINDOWS)
+#include <windows.h>
+#else
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 namespace WTF {
 
@@ -73,8 +78,10 @@ String stringFromFileSystemRepresentation(const char* representation)
 
 CString fileSystemRepresentation(const String& path)
 {
-    if (path.isEmpty())
+    if (path.isNull())
         return { };
+    if (path.isEmpty())
+        return CString("");
 
     CString utf8 = path.utf8();
 
@@ -118,224 +125,115 @@ String filenameForDisplay(const String& string)
 #endif
 }
 
-bool fileExists(const String& path)
+// Annoyingly, many important methods are not shared by the different GIO classes. Lacking native polymorphism, we have to dispatch the specific methods by hand:
+
+static bool genericGIOFileClose(PlatformFileHandle handle)
 {
-    auto filename = fileSystemRepresentation(path);
-    return validRepresentation(filename) ? g_file_test(filename.data(), G_FILE_TEST_EXISTS) : false;
+    if (G_IS_INPUT_STREAM(handle))
+        return g_input_stream_close(G_INPUT_STREAM(handle), nullptr, nullptr);
+    if (G_IS_OUTPUT_STREAM(handle))
+        return g_output_stream_close(G_OUTPUT_STREAM(handle), nullptr, nullptr);
+    if (G_IS_IO_STREAM(handle))
+        return g_io_stream_close(G_IO_STREAM(handle), nullptr, nullptr);
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-bool deleteFile(const String& path)
+static GRefPtr<GFileInfo> genericGIOFileQueryInfo(PlatformFileHandle handle, const char* attributes)
 {
-    auto filename = fileSystemRepresentation(path);
-    return validRepresentation(filename) ? g_remove(filename.data()) != -1 : false;
+    if (G_IS_FILE_INPUT_STREAM(handle))
+        return adoptGRef(g_file_input_stream_query_info(G_FILE_INPUT_STREAM(handle), attributes, nullptr, nullptr));
+    if (G_IS_FILE_OUTPUT_STREAM(handle))
+        return adoptGRef(g_file_output_stream_query_info(G_FILE_OUTPUT_STREAM(handle), attributes, nullptr, nullptr));
+    if (G_IS_FILE_IO_STREAM(handle))
+        return adoptGRef(g_file_io_stream_query_info(G_FILE_IO_STREAM(handle), attributes, nullptr, nullptr));
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-bool deleteEmptyDirectory(const String& path)
+static GInputStream* genericGIOGetInputStream(PlatformFileHandle handle)
 {
-    auto filename = fileSystemRepresentation(path);
-    return validRepresentation(filename) ? g_rmdir(filename.data()) != -1 : false;
+    if (G_IS_IO_STREAM(handle))
+        return g_io_stream_get_input_stream(G_IO_STREAM(handle));
+    if (G_IS_INPUT_STREAM(handle))
+        return G_INPUT_STREAM(handle);
+    return nullptr; // handle is an incompatible type, i.e. GFileOutputStream
 }
 
-static bool getFileStat(const String& path, GStatBuf* statBuffer)
+static GOutputStream* genericGIOGetOutputStream(PlatformFileHandle handle)
 {
-    auto filename = fileSystemRepresentation(path);
-    if (!validRepresentation(filename))
-        return false;
-
-    return g_stat(filename.data(), statBuffer) != -1;
+    if (G_IS_IO_STREAM(handle))
+        return g_io_stream_get_output_stream(G_IO_STREAM(handle));
+    if (G_IS_OUTPUT_STREAM(handle))
+        return G_OUTPUT_STREAM(handle);
+    return nullptr; // handle is an incompatible type, i.e. GFileInputStream
 }
 
-static bool getFileLStat(const String& path, GStatBuf* statBuffer)
+static GFileDescriptorBased* genericGIOGetFileDescriptorBased(PlatformFileHandle handle)
 {
-    auto filename = fileSystemRepresentation(path);
-    if (!validRepresentation(filename))
-        return false;
-
-    return g_lstat(filename.data(), statBuffer) != -1;
+    // GFileInputStream and GFileOutputStream implement the GFileDescriptorBased interface.
+    // GFileIOStream does not, but its inner streams do.
+    if (G_IS_FILE_IO_STREAM(handle))
+        return G_FILE_DESCRIPTOR_BASED(g_io_stream_get_input_stream(G_IO_STREAM(handle)));
+    return G_FILE_DESCRIPTOR_BASED(handle);
 }
 
-bool getFileSize(const String& path, long long& resultSize)
+int posixFileDescriptor(PlatformFileHandle handle)
 {
-    GStatBuf statResult;
-    if (!getFileStat(path, &statResult))
-        return false;
+    if (!isHandleValid(handle))
+        return -1;
 
-    resultSize = statResult.st_size;
-    return true;
+    GFileDescriptorBased* descriptorBased = genericGIOGetFileDescriptorBased(handle);
+    return g_file_descriptor_based_get_fd(descriptorBased);
 }
 
-bool getFileSize(PlatformFileHandle handle, long long& resultSize)
+std::optional<uint64_t> fileSize(PlatformFileHandle handle)
 {
-    GRefPtr<GFileInfo> info = adoptGRef(g_file_io_stream_query_info(handle, G_FILE_ATTRIBUTE_STANDARD_SIZE, nullptr, nullptr));
+
+    GRefPtr<GFileInfo> info = genericGIOFileQueryInfo(handle, G_FILE_ATTRIBUTE_STANDARD_SIZE);
     if (!info)
-        return false;
+        return std::nullopt;
 
-    resultSize = g_file_info_get_size(info.get());
-    return true;
+    return g_file_info_get_size(info.get());
 }
 
-Optional<WallTime> getFileCreationTime(const String&)
+std::optional<PlatformFileID> fileID(PlatformFileHandle handle)
 {
-    // FIXME: Is there a way to retrieve file creation time with Gtk on platforms that support it?
-    return WTF::nullopt;
-}
-
-Optional<WallTime> getFileModificationTime(const String& path)
-{
-    GStatBuf statResult;
-    if (!getFileStat(path, &statResult))
-        return WTF::nullopt;
-
-    return WallTime::fromRawSeconds(statResult.st_mtime);
-}
-
-static FileMetadata::Type toFileMetataType(GStatBuf statResult)
-{
-    if (S_ISDIR(statResult.st_mode))
-        return FileMetadata::Type::Directory;
-    if (S_ISLNK(statResult.st_mode))
-        return FileMetadata::Type::SymbolicLink;
-    return FileMetadata::Type::File;
-}
-
-static Optional<FileMetadata> fileMetadataUsingFunction(const String& path, bool (*statFunc)(const String&, GStatBuf*))
-{
-    GStatBuf statResult;
-    if (!statFunc(path, &statResult))
-        return WTF::nullopt;
-
-    String filename = pathGetFileName(path);
-    bool isHidden = !filename.isEmpty() && filename[0] == '.';
-
-    return FileMetadata {
-        WallTime::fromRawSeconds(statResult.st_mtime),
-        statResult.st_size,
-        isHidden,
-        toFileMetataType(statResult)
-    };
-}
-
-Optional<FileMetadata> fileMetadata(const String& path)
-{
-    return fileMetadataUsingFunction(path, &getFileLStat);
-}
-
-Optional<FileMetadata> fileMetadataFollowingSymlinks(const String& path)
-{
-    return fileMetadataUsingFunction(path, &getFileStat);
-}
-
-String pathByAppendingComponent(const String& path, const String& component)
-{
-    if (path.endsWith(G_DIR_SEPARATOR_S))
-        return path + component;
-    return path + G_DIR_SEPARATOR_S + component;
-}
-
-String pathByAppendingComponents(StringView path, const Vector<StringView>& components)
-{
-    StringBuilder builder;
-    builder.append(path);
-    for (auto& component : components) {
-        builder.append(G_DIR_SEPARATOR_S);
-        builder.append(component);
+    if (isHandleValid(handle)) {
+        auto info = genericGIOFileQueryInfo(handle, G_FILE_ATTRIBUTE_ID_FILE);
+        if (info && g_file_info_has_attribute(info.get(), G_FILE_ATTRIBUTE_ID_FILE))
+            return { g_file_info_get_attribute_string(info.get(), G_FILE_ATTRIBUTE_ID_FILE) };
     }
-    return builder.toString();
+    return std::nullopt;
 }
 
-bool makeAllDirectories(const String& path)
+bool fileIDsAreEqual(std::optional<PlatformFileID> a, std::optional<PlatformFileID> b)
 {
-    auto filename = fileSystemRepresentation(path);
-    return validRepresentation(filename) ? g_mkdir_with_parents(filename.data(), S_IRWXU) != -1 : false;
+    return a == b;
 }
 
-String homeDirectoryPath()
+std::optional<WallTime> fileCreationTime(const String& path)
 {
-    return stringFromFileSystemRepresentation(g_get_home_dir());
-}
-
-bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath)
-{
-    CString targetPathFSRep = fileSystemRepresentation(targetPath);
-    if (!validRepresentation(targetPathFSRep))
-        return false;
-
-    CString symbolicLinkPathFSRep = fileSystemRepresentation(symbolicLinkPath);
-    if (!validRepresentation(symbolicLinkPathFSRep))
-        return false;
-
-    return !symlink(targetPathFSRep.data(), symbolicLinkPathFSRep.data());
-}
-
-String pathGetFileName(const String& path)
-{
-    auto filename = fileSystemRepresentation(path);
+    const auto filename = fileSystemRepresentation(path);
     if (!validRepresentation(filename))
-        return path;
-
-    GUniquePtr<gchar> baseName(g_path_get_basename(filename.data()));
-    return String::fromUTF8(baseName.get());
-}
-
-bool getVolumeFreeSpace(const String& path, uint64_t& freeSpace)
-{
-    auto filename = fileSystemRepresentation(path);
-    if (!validRepresentation(filename))
-        return false;
+        return std::nullopt;
 
     GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(filename.data()));
-    GRefPtr<GFileInfo> fileInfo = adoptGRef(g_file_query_filesystem_info(file.get(), G_FILE_ATTRIBUTE_FILESYSTEM_FREE, nullptr, nullptr));
-    if (!fileInfo)
-        return false;
+    GRefPtr<GFileInfo> info = adoptGRef(g_file_query_info(file.get(), G_FILE_ATTRIBUTE_TIME_CREATED, G_FILE_QUERY_INFO_NONE, nullptr, nullptr));
+    if (info && g_file_info_has_attribute(info.get(), G_FILE_ATTRIBUTE_TIME_CREATED))
+        return WallTime::fromRawSeconds(g_file_info_get_attribute_uint64(info.get(), G_FILE_ATTRIBUTE_TIME_CREATED));
 
-    freeSpace = g_file_info_get_attribute_uint64(fileInfo.get(), G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
-    return !!freeSpace;
+    return std::nullopt;
 }
 
-String directoryName(const String& path)
-{
-    auto filename = fileSystemRepresentation(path);
-    if (!validRepresentation(filename))
-        return String();
-
-    GUniquePtr<char> dirname(g_path_get_dirname(filename.data()));
-    return String::fromUTF8(dirname.get());
-}
-
-Vector<String> listDirectory(const String& path, const String& filter)
-{
-    Vector<String> entries;
-
-    auto filename = fileSystemRepresentation(path);
-    if (!validRepresentation(filename))
-        return entries;
-
-    GUniquePtr<GDir> dir(g_dir_open(filename.data(), 0, nullptr));
-    if (!dir)
-        return entries;
-
-    GUniquePtr<GPatternSpec> pspec(g_pattern_spec_new((filter.utf8()).data()));
-    while (const char* name = g_dir_read_name(dir.get())) {
-        if (!g_pattern_match_string(pspec.get(), name))
-            continue;
-
-        GUniquePtr<gchar> entry(g_build_filename(filename.data(), name, nullptr));
-        entries.append(stringFromFileSystemRepresentation(entry.get()));
-    }
-
-    return entries;
-}
-
-String openTemporaryFile(const String& prefix, PlatformFileHandle& handle, const String& suffix)
+String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
 {
     // FIXME: Suffix is not supported, but OK for now since the code using it is macOS-port-only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
-    GUniquePtr<gchar> filename(g_strdup_printf("%s%s", prefix.utf8().data(), createCanonicalUUIDString().utf8().data()));
+    GUniquePtr<gchar> filename(g_strdup_printf("%s%s", prefix.utf8().data(), createVersion4UUIDString().utf8().data()));
     GUniquePtr<gchar> tempPath(g_build_filename(g_get_tmp_dir(), filename.get(), nullptr));
     GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(tempPath.get()));
 
-    handle = g_file_create_readwrite(file.get(), G_FILE_CREATE_NONE, nullptr, nullptr);
+    handle = G_SEEKABLE(g_file_create_readwrite(file.get(), G_FILE_CREATE_NONE, nullptr, nullptr));
     if (!isHandleValid(handle))
         return String();
     return String::fromUTF8(tempPath.get());
@@ -348,24 +246,48 @@ PlatformFileHandle openFile(const String& path, FileOpenMode mode, FileAccessPer
         return invalidPlatformFileHandle;
 
     GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(filename.data()));
-    GRefPtr<GFileIOStream> ioStream;
-    GFileCreateFlags permissionFlag = (permission == FileAccessPermission::All) ? G_FILE_CREATE_NONE : G_FILE_CREATE_PRIVATE;
-
-    if (failIfFileExists) {
-        ioStream = adoptGRef(g_file_create_readwrite(file.get(), permissionFlag, nullptr, nullptr));
-        return ioStream.leakRef();
-    }
+    GFileCreateFlags creationFlags = (permission == FileAccessPermission::All) ? G_FILE_CREATE_NONE : G_FILE_CREATE_PRIVATE;
 
     if (mode == FileOpenMode::Read)
-        ioStream = adoptGRef(g_file_open_readwrite(file.get(), nullptr, nullptr));
-    else if (mode == FileOpenMode::Write || mode == FileOpenMode::ReadWrite) {
-        if (g_file_test(filename.data(), static_cast<GFileTest>(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_REGULAR)))
-            ioStream = adoptGRef(g_file_open_readwrite(file.get(), nullptr, nullptr));
-        else
-            ioStream = adoptGRef(g_file_create_readwrite(file.get(), permissionFlag, nullptr, nullptr));
-    }
+        return G_SEEKABLE(g_file_read(file.get(), nullptr, nullptr));
 
-    return ioStream.leakRef();
+    // Embarrasingly, GIO doesn't have an atomic create-or-open function.
+    //
+    // The closest thing to create-or-open in GIO is g_file_replace() and g_file_replace_readwrite(), but they have some problems:
+    // (a) In the case of modifying an existing file, they return a new file in /tmp, doing a move swap when closing.
+    //     Even calling g_output_stream_flush() won't update the original file.
+    // (b) g_file_replace_readwrite() followed by a g_io_stream_close() will truncate the file, but we don't want ReadWrite to truncate.
+    //
+    // There is no pretty way out of this. Two naive solutions are:
+    // (a) We try to create, if it fails we try to open -> If the file is deleted between the two operations we fail.
+    // (b) We try to open, if it fails we try to create -> If the file is created between the two operations we fail.
+    //
+    // The most reliable thing we can do is spinlock retrying the other operation when we get a G_IO_ERROR_NOT_FOUND or G_IO_ERROR_EXISTS.
+    while (true) {
+        GRefPtr<GSeekable> seekable;
+        GError* error = nullptr;
+
+        // Try to create the file
+        if (mode == FileOpenMode::Truncate)
+            seekable = adoptGRef(G_SEEKABLE(g_file_create(file.get(), creationFlags, nullptr, &error)));
+        else
+            seekable = adoptGRef(G_SEEKABLE(g_file_create_readwrite(file.get(), creationFlags, nullptr, &error)));
+
+        if (seekable || failIfFileExists || (error && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS)))
+            return seekable.leakRef();
+
+        // Try to open the file instead.
+        // We need to open the file as readwrite because there is no write-only open in GIO.
+        // We could use g_io_stream_get_output_stream() to get a GFileOutputStream, but that doesn't seem to be well supported:
+        // even if we ref the output stream before closing the IOStream, the latter will still cause the file to be closed and
+        // therefore we would be returning a stream with an invalid file handle.
+        seekable = adoptGRef(G_SEEKABLE(g_file_open_readwrite(file.get(), nullptr, nullptr)));
+        if (seekable && mode == FileOpenMode::Truncate)
+            g_seekable_truncate(seekable.get(), 0, nullptr, nullptr);
+
+        if (seekable || (error && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)))
+            return seekable.leakRef();
+    }
 }
 
 void closeFile(PlatformFileHandle& handle)
@@ -373,7 +295,7 @@ void closeFile(PlatformFileHandle& handle)
     if (!isHandleValid(handle))
         return;
 
-    g_io_stream_close(G_IO_STREAM(handle), 0, 0);
+    genericGIOFileClose(handle);
     g_object_unref(handle);
     handle = invalidPlatformFileHandle;
 }
@@ -395,120 +317,154 @@ long long seekFile(PlatformFileHandle handle, long long offset, FileSeekOrigin o
         ASSERT_NOT_REACHED();
     }
 
-    if (!g_seekable_seek(G_SEEKABLE(g_io_stream_get_input_stream(G_IO_STREAM(handle))), offset, seekType, nullptr, nullptr))
+    if (!g_seekable_seek(handle, offset, seekType, nullptr, nullptr))
         return -1;
-    return g_seekable_tell(G_SEEKABLE(g_io_stream_get_input_stream(G_IO_STREAM(handle))));
+    return g_seekable_tell(handle);
 }
 
 bool truncateFile(PlatformFileHandle handle, long long offset)
 {
-    return g_seekable_truncate(G_SEEKABLE(g_io_stream_get_output_stream(G_IO_STREAM(handle))), offset, nullptr, nullptr);
+    return g_seekable_truncate(handle, offset, nullptr, nullptr);
 }
 
-int writeToFile(PlatformFileHandle handle, const char* data, int length)
+bool flushFile(PlatformFileHandle handle)
 {
+    GOutputStream* outputStream = genericGIOGetOutputStream(handle);
+    if (!outputStream)
+        return true; // A read-only file needs no flushing.
+    return g_output_stream_flush(outputStream, nullptr, nullptr);
+}
+
+int writeToFile(PlatformFileHandle handle, const void* data, int length)
+{
+    if (!length)
+        return 0;
+
+    GOutputStream* outputStream = genericGIOGetOutputStream(handle);
+    if (!outputStream)
+        return -1; // Attempted to write a read-only file.
+
+    // We're not required by the parent class to enforce that the entire `length` gets written, but
+    // we'll play safe and do it anyway rather than risking a function not handling partial writes.
+    // All GIO backends handle EINTR internally, so we don't need to handle it here.
     gsize bytesWritten;
-    g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(handle)),
-        data, length, &bytesWritten, nullptr, nullptr);
+    if (!g_output_stream_write_all(outputStream, data, length, &bytesWritten, nullptr, nullptr))
+        return -1; // Write failed.
     return bytesWritten;
 }
 
-int readFromFile(PlatformFileHandle handle, char* data, int length)
+int readFromFile(PlatformFileHandle handle, void* data, int length)
 {
-    GUniqueOutPtr<GError> error;
-    do {
-        gssize bytesRead = g_input_stream_read(g_io_stream_get_input_stream(G_IO_STREAM(handle)),
-            data, length, nullptr, &error.outPtr());
-        if (bytesRead >= 0)
-            return bytesRead;
-    } while (error && error->code == G_FILE_ERROR_INTR);
-    return -1;
+    GInputStream* inputStream = genericGIOGetInputStream(handle);
+    if (!inputStream)
+        return -1; // Attempted to read a write-only file.
+
+    // We're not required by the parent class to enforce that the entire `length` gets read, but
+    // we'll play safe and do it anyway if possible, rather than risking a function not handling
+    // partial reads.
+    // All GIO backends handle EINTR internally, so we don't need to handle it here.
+    gsize bytesRead;
+    if (g_input_stream_read_all(inputStream, data, length, &bytesRead, nullptr, nullptr))
+        return bytesRead; // Complete read succeeded.
+    if (bytesRead > 0)
+        return bytesRead; // Read succeeded partially, then failed: return the bytes successfully read.
+    return -1; // Read failed: nothing was read.
 }
 
-bool moveFile(const String& oldPath, const String& newPath)
+std::optional<int32_t> getFileDeviceId(const String& path)
 {
-    auto oldFilename = fileSystemRepresentation(oldPath);
-    if (!validRepresentation(oldFilename))
-        return false;
+    auto fsFile = fileSystemRepresentation(path);
+    if (fsFile.isNull())
+        return std::nullopt;
 
-    auto newFilename = fileSystemRepresentation(newPath);
-    if (!validRepresentation(newFilename))
-        return false;
-
-    GRefPtr<GFile> oldFile = adoptGRef(g_file_new_for_path(oldFilename.data()));
-    GRefPtr<GFile> newFile = adoptGRef(g_file_new_for_path(newFilename.data()));
-
-    return g_file_move(oldFile.get(), newFile.get(), G_FILE_COPY_OVERWRITE, nullptr, nullptr, nullptr, nullptr);
-}
-
-bool hardLink(const String& source, const String& destination)
-{
-#if OS(WINDOWS)
-    return CreateHardLink(destination.wideCharacters().data(), source.wideCharacters().data(), nullptr);
-#else
-    auto sourceFilename = fileSystemRepresentation(source);
-    if (!validRepresentation(sourceFilename))
-        return false;
-
-    auto destinationFilename = fileSystemRepresentation(destination);
-    if (!validRepresentation(destinationFilename))
-        return false;
-
-    return !link(sourceFilename.data(), destinationFilename.data());
-#endif
-}
-
-bool hardLinkOrCopyFile(const String& source, const String& destination)
-{
-    if (hardLink(source, destination))
-        return true;
-
-    // Hard link failed. Perform a copy instead.
-#if OS(WINDOWS)
-    return !!::CopyFile(source.wideCharacters().data(), destination.wideCharacters().data(), TRUE);
-#else
-    auto sourceFilename = fileSystemRepresentation(source);
-    if (!validRepresentation(sourceFilename))
-        return false;
-
-    auto destinationFilename = fileSystemRepresentation(destination);
-    if (!validRepresentation(destinationFilename))
-        return false;
-
-    GRefPtr<GFile> sourceFile = adoptGRef(g_file_new_for_path(sourceFilename.data()));
-    GRefPtr<GFile> destinationFile = adoptGRef(g_file_new_for_path(destinationFilename.data()));
-    return g_file_copy(sourceFile.get(), destinationFile.get(), G_FILE_COPY_NONE, nullptr, nullptr, nullptr, nullptr);
-#endif
-}
-
-Optional<int32_t> getFileDeviceId(const CString& fsFile)
-{
     GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(fsFile.data()));
     GRefPtr<GFileInfo> fileInfo = adoptGRef(g_file_query_filesystem_info(file.get(), G_FILE_ATTRIBUTE_UNIX_DEVICE, nullptr, nullptr));
     if (!fileInfo)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return g_file_info_get_attribute_uint32(fileInfo.get(), G_FILE_ATTRIBUTE_UNIX_DEVICE);
+}
+
+std::optional<uint32_t> volumeFileBlockSize(const String&)
+{
+    return std::nullopt;
 }
 
 #if USE(FILE_LOCK)
 bool lockFile(PlatformFileHandle handle, OptionSet<FileLockMode> lockMode)
 {
-    COMPILE_ASSERT(LOCK_SH == WTF::enumToUnderlyingType(FileLockMode::Shared), LockSharedEncodingIsAsExpected);
-    COMPILE_ASSERT(LOCK_EX == WTF::enumToUnderlyingType(FileLockMode::Exclusive), LockExclusiveEncodingIsAsExpected);
-    COMPILE_ASSERT(LOCK_NB == WTF::enumToUnderlyingType(FileLockMode::Nonblocking), LockNonblockingEncodingIsAsExpected);
-    auto* inputStream = g_io_stream_get_input_stream(G_IO_STREAM(handle));
-    int result = flock(g_file_descriptor_based_get_fd(G_FILE_DESCRIPTOR_BASED(inputStream)), lockMode.toRaw());
+    static_assert(LOCK_SH == WTF::enumToUnderlyingType(FileLockMode::Shared), "LockSharedEncoding is as expected");
+    static_assert(LOCK_EX == WTF::enumToUnderlyingType(FileLockMode::Exclusive), "LockExclusiveEncoding is as expected");
+    static_assert(LOCK_NB == WTF::enumToUnderlyingType(FileLockMode::Nonblocking), "LockNonblockingEncoding is as expected");
+    int fd = posixFileDescriptor(handle);
+    int result = flock(fd, lockMode.toRaw());
     return result != -1;
 }
 
 bool unlockFile(PlatformFileHandle handle)
 {
-    auto* inputStream = g_io_stream_get_input_stream(G_IO_STREAM(handle));
-    int result = flock(g_file_descriptor_based_get_fd(G_FILE_DESCRIPTOR_BASED(inputStream)), LOCK_UN);
+    int fd = posixFileDescriptor(handle);
+    int result = flock(fd, LOCK_UN);
     return result != -1;
 }
 #endif // USE(FILE_LOCK)
+
+#if OS(LINUX)
+CString currentExecutablePath()
+{
+    static char readLinkBuffer[PATH_MAX];
+    ssize_t result = readlink("/proc/self/exe", readLinkBuffer, PATH_MAX);
+    if (result == -1)
+        return { };
+    return CString(readLinkBuffer, result);
+}
+#elif OS(HURD)
+CString currentExecutablePath()
+{
+    return { };
+}
+#elif OS(UNIX)
+CString currentExecutablePath()
+{
+    static char readLinkBuffer[PATH_MAX];
+    ssize_t result = readlink("/proc/curproc/file", readLinkBuffer, PATH_MAX);
+    if (result == -1)
+        return { };
+    return CString(readLinkBuffer, result);
+}
+#elif OS(WINDOWS)
+CString currentExecutablePath()
+{
+    static WCHAR buffer[MAX_PATH];
+    DWORD length = GetModuleFileNameW(0, buffer, MAX_PATH);
+    if (!length || (length == MAX_PATH && GetLastError() == ERROR_INSUFFICIENT_BUFFER))
+        return { };
+
+    String path(buffer, length);
+    return path.utf8();
+}
+#endif
+
+CString currentExecutableName()
+{
+    auto executablePath = currentExecutablePath();
+    if (!executablePath.isNull()) {
+        GUniquePtr<char> basename(g_path_get_basename(executablePath.data()));
+        return basename.get();
+    }
+
+    return g_get_prgname();
+}
+
+String userCacheDirectory()
+{
+    return stringFromFileSystemRepresentation(g_get_user_cache_dir());
+}
+
+String userDataDirectory()
+{
+    return stringFromFileSystemRepresentation(g_get_user_data_dir());
+}
 
 } // namespace FileSystemImpl
 } // namespace WTF

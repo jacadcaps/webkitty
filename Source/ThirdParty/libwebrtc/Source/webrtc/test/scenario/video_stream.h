@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "rtc_base/constructor_magic.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "test/fake_encoder.h"
 #include "test/fake_videorenderer.h"
 #include "test/frame_generator_capturer.h"
@@ -31,8 +31,11 @@ namespace test {
 // states at run time.
 class SendVideoStream {
  public:
-  RTC_DISALLOW_COPY_AND_ASSIGN(SendVideoStream);
   ~SendVideoStream();
+
+  SendVideoStream(const SendVideoStream&) = delete;
+  SendVideoStream& operator=(const SendVideoStream&) = delete;
+
   void SetCaptureFramerate(int framerate);
   VideoSendStream::Stats GetStats() const;
   ColumnPrinter StatsPrinter();
@@ -53,14 +56,14 @@ class SendVideoStream {
                   Transport* send_transport,
                   VideoFrameMatcher* matcher);
 
-  rtc::CriticalSection crit_;
+  Mutex mutex_;
   std::vector<uint32_t> ssrcs_;
   std::vector<uint32_t> rtx_ssrcs_;
   VideoSendStream* send_stream_ = nullptr;
   CallClient* const sender_;
-  VideoStreamConfig config_ RTC_GUARDED_BY(crit_);
+  VideoStreamConfig config_ RTC_GUARDED_BY(mutex_);
   std::unique_ptr<VideoEncoderFactory> encoder_factory_;
-  std::vector<test::FakeEncoder*> fake_encoders_ RTC_GUARDED_BY(crit_);
+  std::vector<test::FakeEncoder*> fake_encoders_ RTC_GUARDED_BY(mutex_);
   std::unique_ptr<VideoBitrateAllocatorFactory> bitrate_allocator_factory_;
   std::unique_ptr<FrameGeneratorCapturer> video_capturer_;
   std::unique_ptr<ForwardingCapturedFrameTap> frame_tap_;
@@ -71,11 +74,14 @@ class SendVideoStream {
 // ReceiveVideoStream represents a video receiver. It can't be used directly.
 class ReceiveVideoStream {
  public:
-  RTC_DISALLOW_COPY_AND_ASSIGN(ReceiveVideoStream);
   ~ReceiveVideoStream();
+
+  ReceiveVideoStream(const ReceiveVideoStream&) = delete;
+  ReceiveVideoStream& operator=(const ReceiveVideoStream&) = delete;
+
   void Start();
   void Stop();
-  VideoReceiveStream::Stats GetStats() const;
+  VideoReceiveStreamInterface::Stats GetStats() const;
 
  private:
   friend class Scenario;
@@ -87,7 +93,7 @@ class ReceiveVideoStream {
                      Transport* feedback_transport,
                      VideoFrameMatcher* matcher);
 
-  std::vector<VideoReceiveStream*> receive_streams_;
+  std::vector<VideoReceiveStreamInterface*> receive_streams_;
   FlexfecReceiveStream* flecfec_stream_ = nullptr;
   FakeVideoRenderer fake_renderer_;
   std::vector<std::unique_ptr<rtc::VideoSinkInterface<VideoFrame>>>
@@ -102,8 +108,11 @@ class ReceiveVideoStream {
 // the Scenario class.
 class VideoStreamPair {
  public:
-  RTC_DISALLOW_COPY_AND_ASSIGN(VideoStreamPair);
   ~VideoStreamPair();
+
+  VideoStreamPair(const VideoStreamPair&) = delete;
+  VideoStreamPair& operator=(const VideoStreamPair&) = delete;
+
   SendVideoStream* send() { return &send_stream_; }
   ReceiveVideoStream* receive() { return &receive_stream_; }
   VideoFrameMatcher* matcher() { return &matcher_; }

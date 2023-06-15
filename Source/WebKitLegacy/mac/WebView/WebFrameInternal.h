@@ -87,7 +87,7 @@ WebView *getWebView(WebFrame *webFrame);
 @interface WebFramePrivate : NSObject {
 @public
     NakedPtr<WebCore::Frame> coreFrame;
-    WebFrameView *webFrameView;
+    RetainPtr<WebFrameView> webFrameView;
     std::unique_ptr<WebScriptDebugger> scriptDebugger;
     id internalLoadDelegate;
     BOOL shouldCreateRenderers;
@@ -106,8 +106,8 @@ WebView *getWebView(WebFrame *webFrame);
 
 @interface WebFrame (WebInternal)
 
-+ (void)_createMainFrameWithPage:(WebCore::Page*)page frameName:(const WTF::String&)name frameView:(WebFrameView *)frameView;
-+ (Ref<WebCore::Frame>)_createSubframeWithOwnerElement:(WebCore::HTMLFrameOwnerElement*)ownerElement frameName:(const WTF::String&)name frameView:(WebFrameView *)frameView;
++ (void)_createMainFrameWithPage:(WebCore::Page*)page frameName:(const WTF::AtomString&)name frameView:(WebFrameView *)frameView;
++ (Ref<WebCore::Frame>)_createSubframeWithOwnerElement:(WebCore::HTMLFrameOwnerElement*)ownerElement frameName:(const WTF::AtomString&)name frameView:(WebFrameView *)frameView;
 - (id)_initWithWebFrameView:(WebFrameView *)webFrameView webView:(WebView *)webView;
 
 - (void)_clearCoreFrame;
@@ -166,8 +166,8 @@ WebView *getWebView(WebFrame *webFrame);
 #endif
 
 - (NSRange)_convertToNSRange:(const WebCore::SimpleRange&)range;
-- (Optional<WebCore::SimpleRange>)_convertToDOMRange:(NSRange)range;
-- (Optional<WebCore::SimpleRange>)_convertToDOMRange:(NSRange)range rangeIsRelativeTo:(WebRangeIsRelativeTo)rangeIsRelativeTo;
+- (std::optional<WebCore::SimpleRange>)_convertToDOMRange:(NSRange)range;
+- (std::optional<WebCore::SimpleRange>)_convertToDOMRange:(NSRange)range rangeIsRelativeTo:(WebRangeIsRelativeTo)rangeIsRelativeTo;
 
 - (DOMDocumentFragment *)_documentFragmentWithMarkupString:(NSString *)markupString baseURLString:(NSString *)baseURLString;
 - (DOMDocumentFragment *)_documentFragmentWithNodesAsParagraphs:(NSArray *)nodes;

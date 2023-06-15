@@ -27,13 +27,14 @@
 #include "WebPage.h"
 
 #include <WebCore/NotImplemented.h>
+#include <WebCore/PointerCharacteristics.h>
 #include <WebCore/Settings.h>
 #include <WebCore/UserAgent.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-void WebPage::platformInitialize()
+void WebPage::platformInitialize(const WebPageCreationParameters&)
 {
 }
 
@@ -43,12 +44,6 @@ void WebPage::platformReinitialize()
 
 void WebPage::platformDetach()
 {
-}
-
-bool WebPage::performDefaultBehaviorForKeyEvent(const WebKeyboardEvent&)
-{
-    notImplemented();
-    return false;
 }
 
 bool WebPage::platformCanHandleRequest(const ResourceRequest&)
@@ -63,6 +58,26 @@ String WebPage::platformUserAgent(const URL& url) const
         return emptyString();
 
     return WebCore::standardUserAgentForURL(url);
+}
+
+bool WebPage::hoverSupportedByPrimaryPointingDevice() const
+{
+    return true;
+}
+
+bool WebPage::hoverSupportedByAnyAvailablePointingDevice() const
+{
+    return true;
+}
+
+std::optional<PointerCharacteristics> WebPage::pointerCharacteristicsOfPrimaryPointingDevice() const
+{
+    return PointerCharacteristics::Fine;
+}
+
+OptionSet<PointerCharacteristics> WebPage::pointerCharacteristicsOfAllAvailablePointingDevices() const
+{
+    return PointerCharacteristics::Fine;
 }
 
 bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)

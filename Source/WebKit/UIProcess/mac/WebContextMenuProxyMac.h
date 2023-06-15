@@ -35,6 +35,7 @@ OBJC_CLASS NSMenu;
 OBJC_CLASS NSMenuItem;
 OBJC_CLASS NSView;
 OBJC_CLASS NSWindow;
+OBJC_CLASS WKMenuDelegate;
 
 namespace WebKit {
 
@@ -52,9 +53,14 @@ public:
 
 #if ENABLE(SERVICE_CONTROLS)
     void clearServicesMenu();
+    void removeBackgroundFromControlledImage();
 #endif
 
     NSWindow *window() const;
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    CGImageRef copySubjectResult() const final { return m_copySubjectResult.get(); }
+#endif
 
 private:
     WebContextMenuProxyMac(NSView *, WebPageProxy&, ContextMenuContextData&&, const UserData&);
@@ -70,10 +76,18 @@ private:
     void getShareMenuItem(CompletionHandler<void(NSMenuItem *)>&&);
     void showServicesMenu();
     void setupServicesMenu();
+    void appendRemoveBackgroundItemToControlledImageMenuIfNeeded();
 #endif
 
+    NSMenu *platformMenu() const override;
+    NSArray *platformData() const override;
+
     RetainPtr<NSMenu> m_menu;
+    RetainPtr<WKMenuDelegate> m_menuDelegate;
     WeakObjCPtr<NSView> m_webView;
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    RetainPtr<CGImageRef> m_copySubjectResult;
+#endif
 };
 
 } // namespace WebKit

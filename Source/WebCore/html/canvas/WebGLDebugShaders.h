@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
 
 namespace WebCore {
@@ -34,15 +32,16 @@ namespace WebCore {
 class WebGLShader;
 
 class WebGLDebugShaders final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(WebGLDebugShaders);
 public:
     explicit WebGLDebugShaders(WebGLRenderingContextBase&);
     virtual ~WebGLDebugShaders();
 
     ExtensionName getName() const override;
 
+    static bool supported(GraphicsContextGL&);
+
     String getTranslatedShaderSource(WebGLShader&);
 };
 
 } // namespace WebCore
-
-#endif

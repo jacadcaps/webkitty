@@ -28,9 +28,10 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
-#include "ShareableBitmap.h"
 #include "WebContextMenuItemData.h"
 #include "WebHitTestResultData.h"
+#include <WebCore/ContextMenuContext.h>
+#include <WebCore/ElementContext.h>
 #include <wtf/EnumTraits.h>
 
 namespace IPC {
@@ -38,18 +39,11 @@ class Decoder;
 class Encoder;
 }
 
-namespace WebCore {
-class ContextMenuContext;
-}
-
 namespace WebKit {
 
 class ContextMenuContextData {
 public:
-    enum class Type : bool {
-        ContextMenu,
-        ServicesMenu,
-    };
+    using Type = WebCore::ContextMenuContext::Type;
 
     ContextMenuContextData();
     ContextMenuContextData(const WebCore::IntPoint& menuLocation, const Vector<WebKit::WebContextMenuItemData>& menuItems, const WebCore::ContextMenuContext&);
@@ -58,7 +52,7 @@ public:
     const WebCore::IntPoint& menuLocation() const { return m_menuLocation; }
     const Vector<WebKit::WebContextMenuItemData>& menuItems() const { return m_menuItems; }
 
-    const WebHitTestResultData& webHitTestResultData() const { return m_webHitTestResultData; }
+    const std::optional<WebHitTestResultData>& webHitTestResultData() const { return m_webHitTestResultData; }
     const String& selectedText() const { return m_selectedText; }
 
 #if ENABLE(SERVICE_CONTROLS)
@@ -71,13 +65,29 @@ public:
     {
     }
 
+    ContextMenuContextData(const WebCore::IntPoint& menuLocation, bool isEditable, const WebCore::IntRect& imageRect, const String& attachmentID, const String& sourceImageMIMEType)
+        : m_type(Type::ServicesMenu)
+        , m_menuLocation(menuLocation)
+        , m_selectionIsEditable(isEditable)
+        , m_controlledImageBounds(imageRect)
+        , m_controlledImageAttachmentID(attachmentID)
+        , m_controlledImageMIMEType(sourceImageMIMEType)
+    {
+    }
+
+    ContextMenuContextData(const WebCore::IntPoint& menuLocation, WebCore::Image&, bool isEditable, const WebCore::IntRect& imageRect, const String& attachmentID, std::optional<WebCore::ElementContext>&&, const String& sourceImageMIMEType);
+
     ShareableBitmap* controlledImage() const { return m_controlledImage.get(); }
     const Vector<uint8_t>& controlledSelectionData() const { return m_controlledSelectionData; }
     const Vector<String>& selectedTelephoneNumbers() const { return m_selectedTelephoneNumbers; }
 
     bool isServicesMenu() const { return m_type == ContextMenuContextData::Type::ServicesMenu; }
     bool controlledDataIsEditable() const;
-#endif
+    WebCore::IntRect controlledImageBounds() const { return m_controlledImageBounds; };
+    String controlledImageAttachmentID() const { return m_controlledImageAttachmentID; };
+    std::optional<WebCore::ElementContext> controlledImageElementContext() const { return m_controlledImageElementContext; }
+    String controlledImageMIMEType() const { return m_controlledImageMIMEType; }
+#endif // ENABLE(SERVICE_CONTROLS)
 
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, ContextMenuContextData&);
@@ -88,14 +98,20 @@ private:
     WebCore::IntPoint m_menuLocation;
     Vector<WebKit::WebContextMenuItemData> m_menuItems;
 
-    WebHitTestResultData m_webHitTestResultData;
+    std::optional<WebHitTestResultData> m_webHitTestResultData;
     String m_selectedText;
 
 #if ENABLE(SERVICE_CONTROLS)
+    void setImage(WebCore::Image*);
+    
     RefPtr<ShareableBitmap> m_controlledImage;
     Vector<uint8_t> m_controlledSelectionData;
     Vector<String> m_selectedTelephoneNumbers;
     bool m_selectionIsEditable;
+    WebCore::IntRect m_controlledImageBounds;
+    String m_controlledImageAttachmentID;
+    std::optional<WebCore::ElementContext> m_controlledImageElementContext;
+    String m_controlledImageMIMEType;
 #endif
 };
 

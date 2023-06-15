@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,15 +25,26 @@
 
 #pragma once
 
-#if ENABLE(GRAPHICS_CONTEXT_GL)
+#if ENABLE(WEBGL)
+#include <optional>
+#include <wtf/EnumTraits.h>
 
 namespace WebCore {
 
-enum class GraphicsContextGLPowerPreference {
+enum class GraphicsContextGLPowerPreference : uint8_t {
     Default,
     LowPower,
     HighPerformance
 };
+
+enum class GraphicsContextGLWebGLVersion : uint8_t {
+    WebGL1,
+    WebGL2
+};
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+using PlatformGPUID = uint64_t;
+#endif
 
 struct GraphicsContextGLAttributes {
     // WebGLContextAttributes
@@ -46,18 +57,34 @@ struct GraphicsContextGLAttributes {
     bool failIfMajorPerformanceCaveat { false };
     using PowerPreference = GraphicsContextGLPowerPreference;
     PowerPreference powerPreference { PowerPreference::Default };
+    bool failPlatformContextCreationForTesting { false };
 
     // Additional attributes.
     bool shareResources { true };
-    bool isWebGL2 { false };
     bool noExtensions { false };
     float devicePixelRatio { 1 };
     PowerPreference initialPowerPreference { PowerPreference::Default };
+    using WebGLVersion = GraphicsContextGLWebGLVersion;
+    WebGLVersion webGLVersion { WebGLVersion::WebGL1 };
+    bool forceRequestForHighPerformanceGPU { false };
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    PlatformGPUID windowGPUID { 0 };
+#endif
+#if PLATFORM(COCOA)
+    bool useMetal { true };
+#endif
 #if ENABLE(WEBXR)
     bool xrCompatible { false };
 #endif
+
+    PowerPreference effectivePowerPreference() const
+    {
+        if (forceRequestForHighPerformanceGPU)
+            return PowerPreference::HighPerformance;
+        return powerPreference;
+    }
 };
 
 }
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL)
+#endif // ENABLE(WEBGL)

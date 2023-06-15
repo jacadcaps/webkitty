@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,71 +23,31 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GraphicsContextPlatformPrivateCG_h
-#define GraphicsContextPlatformPrivateCG_h
+#pragma once
 
 #include <wtf/RetainPtr.h>
 #include <CoreGraphics/CGContext.h>
 
 namespace WebCore {
 
-enum GraphicsContextCGFlag {
-    IsLayerCGContext = 1 << 0,
-    IsAcceleratedCGContext = 1 << 1
+enum class GraphicsContextCGFlag : uint8_t {
+    IsLayerCGContext        = 1 << 0,
+    IsAcceleratedCGContext  = 1 << 1
 };
-
-typedef unsigned GraphicsContextCGFlags;
 
 class GraphicsContextPlatformPrivate {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    GraphicsContextPlatformPrivate(CGContextRef cgContext, GraphicsContextCGFlags flags = 0)
-        : m_cgContext(cgContext)
-#if PLATFORM(WIN)
-        , m_hdc(0)
-        , m_shouldIncludeChildWindows(false)
-#endif
+    GraphicsContextPlatformPrivate(RetainPtr<CGContextRef>&& cgContext, OptionSet<GraphicsContextCGFlag> flags = { })
+        : m_cgContext(WTFMove(cgContext))
         , m_userToDeviceTransformKnownToBeIdentity(false)
         , m_contextFlags(flags)
     {
     }
 
-#if PLATFORM(COCOA)
-    // These methods do nothing on Mac.
-    void save() {}
-    void restore() {}
-    void flush() {}
-    void clip(const FloatRect&) {}
-    void clip(const Path&) {}
-    void scale(const FloatSize&) {}
-    void rotate(float) {}
-    void translate(float, float) {}
-    void concatCTM(const AffineTransform&) {}
-    void setCTM(const AffineTransform&) {}
-#endif
-
-#if PLATFORM(WIN)
-    // On Windows, we need to update the HDC for form controls to draw in the right place.
-    void save();
-    void restore();
-    void flush();
-    void clip(const FloatRect&);
-    void clip(const Path&);
-    void scale(const FloatSize&);
-    void rotate(float);
-    void translate(float, float);
-    void concatCTM(const AffineTransform&);
-    void setCTM(const AffineTransform&);
-
-    HDC m_hdc;
-    bool m_shouldIncludeChildWindows;
-#endif
-
     RetainPtr<CGContextRef> m_cgContext;
     bool m_userToDeviceTransformKnownToBeIdentity;
-    GraphicsContextCGFlags m_contextFlags;
+    OptionSet<GraphicsContextCGFlag> m_contextFlags;
 };
 
 }
-
-#endif // GraphicsContextPlatformPrivateCG_h

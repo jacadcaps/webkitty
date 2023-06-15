@@ -33,12 +33,15 @@ struct NetworkSessionCreationParameters;
 
 class NetworkSessionCurl final : public NetworkSession {
 public:
-    static std::unique_ptr<NetworkSession> create(NetworkProcess& networkProcess, NetworkSessionCreationParameters&& parameters)
+    static std::unique_ptr<NetworkSession> create(NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
     {
-        return makeUnique<NetworkSessionCurl>(networkProcess, WTFMove(parameters));
+        return makeUnique<NetworkSessionCurl>(networkProcess, parameters);
     }
-    NetworkSessionCurl(NetworkProcess&, NetworkSessionCreationParameters&&);
+    NetworkSessionCurl(NetworkProcess&, const NetworkSessionCreationParameters&);
     ~NetworkSessionCurl();
+
+private:
+    std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::NetworkConnectionIntegrity>, WebCore::ShouldRelaxThirdPartyCookieBlocking, WebCore::StoredCredentialsPolicy) final;
 };
 
 } // namespace WebKit

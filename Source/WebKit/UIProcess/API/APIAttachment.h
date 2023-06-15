@@ -28,8 +28,9 @@
 #if ENABLE(ATTACHMENT_ELEMENT)
 
 #include "APIObject.h"
-#include "GenericCallback.h"
 #include "WKBase.h"
+#include <wtf/Function.h>
+#include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -39,6 +40,7 @@ OBJC_CLASS NSString;
 
 namespace WebCore {
 class SharedBuffer;
+class FragmentedSharedBuffer;
 }
 
 namespace WebKit {
@@ -55,17 +57,15 @@ public:
     enum class InsertionState : uint8_t { NotInserted, Inserted };
 
     const WTF::String& identifier() const { return m_identifier; }
-    void updateAttributes(Function<void(WebKit::CallbackBase::Error)>&&);
+    void updateAttributes(CompletionHandler<void()>&&);
 
     void invalidate();
     bool isValid() const { return !!m_webPage; }
 
 #if PLATFORM(COCOA)
-    NSFileWrapper *fileWrapper() const;
-    void setFileWrapper(NSFileWrapper *fileWrapper) { m_fileWrapper = fileWrapper; }
+    void doWithFileWrapper(Function<void(NSFileWrapper *)>&&) const;
+    void setFileWrapper(NSFileWrapper *);
     void setFileWrapperAndUpdateContentType(NSFileWrapper *, NSString *contentType);
-    void setFileWrapperGenerator(Function<RetainPtr<NSFileWrapper>(void)>&&);
-    void invalidateGeneratedFileWrapper();
     WTF::String utiType() const;
 #endif
     WTF::String mimeType() const;
@@ -82,8 +82,11 @@ public:
 
     bool isEmpty() const;
 
-    RefPtr<WebCore::SharedBuffer> enclosingImageData() const;
-    Optional<uint64_t> fileSizeForDisplay() const;
+    RefPtr<WebCore::FragmentedSharedBuffer> enclosingImageData() const;
+#if PLATFORM(COCOA)
+    NSData *enclosingImageNSData() const;
+#endif
+    std::optional<uint64_t> fileSizeForDisplay() const;
 
     void setHasEnclosingImage(bool hasEnclosingImage) { m_hasEnclosingImage = hasEnclosingImage; }
     bool hasEnclosingImage() const { return m_hasEnclosingImage; }
@@ -95,8 +98,8 @@ private:
     explicit Attachment(const WTF::String& identifier, WebKit::WebPageProxy&);
 
 #if PLATFORM(COCOA)
-    mutable RetainPtr<NSFileWrapper> m_fileWrapper;
-    Function<RetainPtr<NSFileWrapper>(void)> m_fileWrapperGenerator;
+    mutable Lock m_fileWrapperLock;
+    RetainPtr<NSFileWrapper> m_fileWrapper WTF_GUARDED_BY_LOCK(m_fileWrapperLock);
 #endif
     WTF::String m_identifier;
     WTF::String m_filePath;

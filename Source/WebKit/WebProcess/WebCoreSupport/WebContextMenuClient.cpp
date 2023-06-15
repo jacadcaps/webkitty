@@ -58,14 +58,12 @@ void WebContextMenuClient::searchWithGoogle(const WebCore::Frame* frame)
     if (!page)
         return;
 
-    auto searchString = frame->editor().selectedText();
-    searchString.stripWhiteSpace();
-    searchString = encodeWithURLEscapeSequences(searchString);
-    searchString.replace("%20"_s, "+"_s);
-    auto searchURL = URL { { }, "https://www.google.com/search?q=" + searchString + "&ie=UTF-8&oe=UTF-8" };
+    auto searchString = frame->editor().selectedText().stripWhiteSpace();
+    searchString = makeStringByReplacingAll(encodeWithURLEscapeSequences(searchString), "%20"_s, "+"_s);
+    auto searchURL = URL { "https://www.google.com/search?q=" + searchString + "&ie=UTF-8&oe=UTF-8" };
 
     WebCore::UserGestureIndicator indicator { WebCore::ProcessingUserGesture };
-    page->mainFrame().loader().changeLocation(searchURL, { }, nullptr, WebCore::LockHistory::No, WebCore::LockBackForwardList::No, WebCore::ReferrerPolicy::EmptyString, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+    page->mainFrame().loader().changeLocation(searchURL, { }, nullptr, WebCore::ReferrerPolicy::EmptyString, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 }
 
 void WebContextMenuClient::lookUpInDictionary(WebCore::Frame*)
@@ -95,7 +93,7 @@ void WebContextMenuClient::stopSpeaking()
 
 void WebContextMenuClient::showContextMenu()
 {
-    m_page->contextMenu()->show();
+    m_page->contextMenu().show();
 }
 
 #endif

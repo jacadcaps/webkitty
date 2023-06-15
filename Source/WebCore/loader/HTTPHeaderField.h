@@ -31,13 +31,10 @@ namespace WebCore {
 
 class WEBCORE_EXPORT HTTPHeaderField {
 public:
-    static Optional<HTTPHeaderField> create(String&& name, String&& value);
+    static std::optional<HTTPHeaderField> create(String&& name, String&& value);
 
     const String& name() const { return m_name; }
     const String& value() const { return m_value; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<HTTPHeaderField> decode(Decoder&);
 
 private:
     HTTPHeaderField(String&& name, String&& value)
@@ -47,36 +44,5 @@ private:
     String m_name;
     String m_value;
 };
-
-template<class Encoder>
-void HTTPHeaderField::encode(Encoder& encoder) const
-{
-    encoder << m_name;
-    encoder << m_value;
-}
-
-template<class Decoder>
-Optional<HTTPHeaderField> HTTPHeaderField::decode(Decoder& decoder)
-{
-    Optional<String> name;
-    decoder >> name;
-    if (!name)
-        return WTF::nullopt;
-
-    Optional<String> value;
-    decoder >> value;
-    if (!value)
-        return WTF::nullopt;
-
-    return {{ WTFMove(*name), WTFMove(*value) }};
-}
-
-namespace RFC7230 {
-bool isTokenCharacter(UChar);
-bool isWhitespace(UChar);
-bool isCommentText(UChar);
-bool isQuotedPairSecondOctet(UChar);
-bool isDelimiter(UChar);
-} // namespace RFC7230
 
 } // namespace WebCore

@@ -40,7 +40,7 @@ LRESULT EventSenderProxy::dispatchMessage(UINT message, WPARAM wParam, LPARAM lP
     msg.message = message;
     msg.wParam = wParam;
     msg.lParam = lParam;
-    msg.time = GetTickCount() + static_cast<DWORD>(m_time);
+    msg.time = GetTickCount();
     msg.pt = positionInPoint();
 
     TranslateMessage(&msg);
@@ -49,7 +49,6 @@ LRESULT EventSenderProxy::dispatchMessage(UINT message, WPARAM wParam, LPARAM lP
 
 EventSenderProxy::EventSenderProxy(TestController* testController)
     : m_testController(testController)
-    , m_time(0)
     , m_leftMouseButtonDown(false)
     , m_clickCount(0)
     , m_clickTime(0)
@@ -61,7 +60,7 @@ EventSenderProxy::~EventSenderProxy()
 {
 }
 
-void EventSenderProxy::mouseDown(unsigned button, WKEventModifiers wkModifiers)
+void EventSenderProxy::mouseDown(unsigned button, WKEventModifiers wkModifiers, WKStringRef pointerType)
 {
     int messageType;
     switch (button) {
@@ -87,7 +86,7 @@ void EventSenderProxy::mouseDown(unsigned button, WKEventModifiers wkModifiers)
     dispatchMessage(messageType, wparam, MAKELPARAM(positionInPoint().x, positionInPoint().y));
 }
 
-void EventSenderProxy::mouseUp(unsigned button, WKEventModifiers wkModifiers)
+void EventSenderProxy::mouseUp(unsigned button, WKEventModifiers wkModifiers, WKStringRef pointerType)
 {
     int messageType;
     switch (button) {
@@ -113,7 +112,7 @@ void EventSenderProxy::mouseUp(unsigned button, WKEventModifiers wkModifiers)
     dispatchMessage(messageType, wparam, MAKELPARAM(positionInPoint().x, positionInPoint().y));
 }
 
-void EventSenderProxy::mouseMoveTo(double x, double y)
+void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType)
 {
     m_position.x = x;
     m_position.y = y;
@@ -152,7 +151,7 @@ void EventSenderProxy::continuousMouseScrollBy(int, int, bool)
 
 void EventSenderProxy::leapForward(int milliseconds)
 {
-    m_time += milliseconds / 1000.0;
+    Sleep(milliseconds);
 }
 
 static unsigned makeKeyDataForScanCode(int virtualKeyCode)
@@ -313,6 +312,14 @@ void EventSenderProxy::keyDown(WKStringRef keyRef, WKEventModifiers wkModifiers,
 
     if (wkModifiers || needsShiftKeyModifier)
         SetKeyboardState(keyState);
+}
+
+void EventSenderProxy::rawKeyDown(WKStringRef key, WKEventModifiers modifiers, unsigned keyLocation)
+{
+}
+
+void EventSenderProxy::rawKeyUp(WKStringRef key, WKEventModifiers modifiers, unsigned keyLocation)
+{
 }
 
 #if ENABLE(TOUCH_EVENTS)

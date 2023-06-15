@@ -43,11 +43,9 @@ public:
 private:
     ScrollingTreeFrameScrollingNodeRemoteMac(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
 
-    void commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
-    WebCore::WheelEventHandlingResult handleWheelEvent(const WebCore::PlatformWheelEvent&) override;
+    bool commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
+    WebCore::WheelEventHandlingResult handleWheelEvent(const WebCore::PlatformWheelEvent&, WebCore::EventTargeting) override;
     void repositionRelatedLayers() override;
-
-    std::unique_ptr<ScrollerPairMac> m_scrollerPair;
 };
 
 }

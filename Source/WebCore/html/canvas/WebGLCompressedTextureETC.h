@@ -25,21 +25,19 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
 
 namespace WebCore {
 
 class WebGLCompressedTextureETC final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(WebGLCompressedTextureETC);
 public:
     explicit WebGLCompressedTextureETC(WebGLRenderingContextBase&);
     virtual ~WebGLCompressedTextureETC();
 
-    static bool supported(WebGLRenderingContextBase&);
     ExtensionName getName() const override;
+
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore
-
-#endif

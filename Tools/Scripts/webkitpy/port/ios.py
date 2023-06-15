@@ -36,7 +36,7 @@ _log = logging.getLogger(__name__)
 class IOSPort(DevicePort):
     port_name = "ios"
 
-    CURRENT_VERSION = Version(14)
+    CURRENT_VERSION = Version(16)
     DEVICE_TYPE = DeviceType(software_variant='iOS')
 
     def __init__(self, host, port_name, **kwargs):
@@ -110,3 +110,9 @@ class IOSPort(DevicePort):
 
     def test_expectations_file_position(self):
         return 5
+
+    def port_adjust_environment_for_test_driver(self, env):
+        env = super(IOSPort, self).port_adjust_environment_for_test_driver(env)
+        env['CA_DISABLE_GENERIC_SHADERS'] = '1'
+        env['__XPC_CA_DISABLE_GENERIC_SHADERS'] = '1'
+        return env

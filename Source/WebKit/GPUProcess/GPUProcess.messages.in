@@ -22,15 +22,15 @@
 
 #if ENABLE(GPU_PROCESS)
 
-messages -> GPUProcess {
-    # Initializes the GPU process.
+messages -> GPUProcess LegacyReceiver {
     InitializeGPUProcess(struct WebKit::GPUProcessCreationParameters processCreationParameters)
 
-    # Creates a connection for communication with a WebProcess
-    CreateGPUConnectionToWebProcess(WebCore::ProcessIdentifier processIdentifier, PAL::SessionID sessionID) -> (Optional<IPC::Attachment> connectionIdentifier) Async
+    CreateGPUConnectionToWebProcess(WebCore::ProcessIdentifier processIdentifier, PAL::SessionID sessionID, IPC::Connection::Handle connectionHandle, struct WebKit::GPUProcessConnectionParameters parameters) -> () AllowedWhenWaitingForSyncReply
+    
+    UpdateGPUProcessPreferences(struct WebKit::GPUProcessPreferences preferences)
 
-    ProcessDidTransitionToForeground()
-    ProcessDidTransitionToBackground()
+    PrepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime) -> ()
+    ProcessDidResume()
 
     AddSession(PAL::SessionID sessionID, struct WebKit::GPUProcessSessionParameters parameters)
     RemoveSession(PAL::SessionID sessionID)
@@ -38,8 +38,50 @@ messages -> GPUProcess {
 #if ENABLE(MEDIA_STREAM)
     SetMockCaptureDevicesEnabled(bool isEnabled)
     SetOrientationForMediaCapture(uint64_t orientation);
-    UpdateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier processID) -> () Async
+    UpdateSandboxAccess(Vector<WebKit::SandboxExtension::Handle> extensions);
+    UpdateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier processID) -> ()
+    UpdateCaptureOrigin(WebCore::SecurityOriginData originData, WebCore::ProcessIdentifier processID)
+    AddMockMediaDevice(struct WebCore::MockMediaDevice device)
+    ClearMockMediaDevices()
+    RemoveMockMediaDevice(String persistentId)
+    SetMockMediaDeviceIsEphemeral(String persistentId, bool isEphemeral)
+    ResetMockMediaDevices()
+    SetMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
+    TriggerMockMicrophoneConfigurationChange()
 #endif
+#if PLATFORM(MAC)
+    DisplayConfigurationChanged(CGDirectDisplayID displayID, CGDisplayChangeSummaryFlags flags)
+    SetScreenProperties(struct WebCore::ScreenProperties screenProperties)
+#endif
+
+#endif
+
+#if HAVE(SC_CONTENT_SHARING_SESSION)
+    ShowWindowPicker() -> (std::optional<WebCore::CaptureDevice> device)
+    ShowScreenPicker() -> (std::optional<WebCore::CaptureDevice> device)
+#endif
+
+#if ENABLE(VIDEO)
+    RequestBitmapImageForCurrentTime(WebCore::ProcessIdentifier processIdentifier, WebCore::MediaPlayerIdentifier playerIdentifier) -> (WebKit::ShareableBitmapHandle handle)
+#endif
+
+#if ENABLE(CFPREFS_DIRECT_MODE)
+    NotifyPreferencesChanged(String domain, String key, std::optional<String> encodedValue)
+#endif
+
+#if PLATFORM(MAC)
+    OpenDirectoryCacheInvalidated(WebKit::SandboxExtension::Handle handle)
+#endif
+
+#if HAVE(AUDIO_COMPONENT_SERVER_REGISTRATIONS)
+    ConsumeAudioComponentRegistrations(IPC::SharedBufferReference registrationData)
+#endif
+
+#if HAVE(POWERLOG_TASK_MODE_QUERY)
+    EnablePowerLogging(WebKit::SandboxExtension::Handle handle)
+#endif
+
+    WebProcessConnectionCountForTesting() -> (uint64_t count)
 }
 
 #endif // ENABLE(GPU_PROCESS)

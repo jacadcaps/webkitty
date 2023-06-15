@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc.  All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,12 +32,18 @@
 OBJC_CLASS NSCachedURLResponse;
 OBJC_CLASS NSURLRequest;
 
-#if PLATFORM(COCOA) || USE(CFURLCONNECTION)
 typedef const struct _CFURLRequest* CFURLRequestRef;
 typedef const struct __CFURLStorageSession* CFURLStorageSessionRef;
-#endif
 
 namespace WebCore {
+
+struct ResourceRequestPlatformData {
+    RetainPtr<NSURLRequest> m_urlRequest;
+    std::optional<bool> m_isAppInitiated;
+    std::optional<ResourceRequestRequester> m_requester;
+};
+
+using ResourceRequestData = std::variant<ResourceRequestBase::RequestData, ResourceRequestPlatformData>;
 
 class ResourceRequest : public ResourceRequestBase {
 public:
@@ -62,38 +68,53 @@ public:
     {
     }
     
-#if USE(CFURLCONNECTION)
-    ResourceRequest(CFURLRequestRef cfRequest)
-        : ResourceRequestBase()
-        , m_cfRequest(cfRequest)
-    {
-    }
-#else
-    ResourceRequest(NSURLRequest *nsRequest)
-        : ResourceRequestBase()
-        , m_nsRequest(nsRequest)
-    {
-    }
+    WEBCORE_EXPORT ResourceRequest(NSURLRequest *);
+
+    ResourceRequest(ResourceRequestBase&& base
+        , const String& cachePartition
+        , bool hiddenFromInspector
+#if USE(SYSTEM_PREVIEW)
+        , const std::optional<SystemPreviewInfo>& systemPreviewInfo
 #endif
+    )
+        : ResourceRequestBase(WTFMove(base))
+    {
+        m_cachePartition = cachePartition;
+        m_hiddenFromInspector = hiddenFromInspector;
+#if USE(SYSTEM_PREVIEW)
+        m_systemPreviewInfo = systemPreviewInfo;
+#endif
+    }
+
+    ResourceRequest(ResourceRequestPlatformData&&, const String& cachePartition, bool hiddenFromInspector
+#if USE(SYSTEM_PREVIEW)
+    , const std::optional<SystemPreviewInfo>&
+#endif
+    );
+
+    WEBCORE_EXPORT static ResourceRequest fromResourceRequestData(ResourceRequestData, const String& cachePartition, bool hiddenFromInspector
+#if USE(SYSTEM_PREVIEW)
+    , const std::optional<SystemPreviewInfo>&
+#endif
+    );
 
     WEBCORE_EXPORT void updateFromDelegatePreservingOldProperties(const ResourceRequest&);
-
-#if PLATFORM(COCOA)
+    
     bool encodingRequiresPlatformData() const { return m_httpBody || m_nsRequest; }
     WEBCORE_EXPORT NSURLRequest *nsURLRequest(HTTPBodyUpdatePolicy) const;
 
     WEBCORE_EXPORT static CFStringRef isUserInitiatedKey();
-#endif
-
-#if PLATFORM(COCOA) || USE(CFURLCONNECTION)
+    WEBCORE_EXPORT ResourceRequestPlatformData getResourceRequestPlatformData() const;
+    WEBCORE_EXPORT ResourceRequestData getRequestDataToSerialize() const;
     WEBCORE_EXPORT CFURLRequestRef cfURLRequest(HTTPBodyUpdatePolicy) const;
     void setStorageSession(CFURLStorageSessionRef);
-#endif
 
     WEBCORE_EXPORT static bool httpPipeliningEnabled();
     WEBCORE_EXPORT static void setHTTPPipeliningEnabled(bool);
 
-    static bool resourcePrioritiesEnabled();
+    static bool resourcePrioritiesEnabled() { return true; }
+
+    WEBCORE_EXPORT void replacePlatformRequest(HTTPBodyUpdatePolicy);
 
 private:
     friend class ResourceRequestBase;
@@ -105,30 +126,11 @@ private:
 
     void doPlatformSetAsIsolatedCopy(const ResourceRequest&);
 
-#if USE(CFURLCONNECTION)
-    RetainPtr<CFURLRequestRef> m_cfRequest;
-#endif
-#if PLATFORM(COCOA)
     RetainPtr<NSURLRequest> m_nsRequest;
-#endif
-
     static bool s_httpPipeliningEnabled;
 };
 
-inline bool ResourceRequest::resourcePrioritiesEnabled()
-{
-#if PLATFORM(MAC)
-    return true;
-#elif PLATFORM(IOS_FAMILY)
-    return true;
-#elif PLATFORM(WIN)
-    return false;
-#endif
-}
-
-#if PLATFORM(COCOA)
-NSURLRequest *copyRequestWithStorageSession(CFURLStorageSessionRef, NSURLRequest *);
+RetainPtr<NSURLRequest> copyRequestWithStorageSession(CFURLStorageSessionRef, NSURLRequest *);
 WEBCORE_EXPORT NSCachedURLResponse *cachedResponseForRequest(CFURLStorageSessionRef, NSURLRequest *);
-#endif
 
 } // namespace WebCore

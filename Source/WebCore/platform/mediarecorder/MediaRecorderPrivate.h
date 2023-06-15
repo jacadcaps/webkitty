@@ -24,12 +24,13 @@
 
 #pragma once
 
+#include "ExceptionOr.h"
+#include "MediaRecorderPrivateOptions.h"
+#include "RealtimeMediaSource.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
-#include "Exception.h"
-#include "RealtimeMediaSource.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 namespace WTF {
 class MediaTime;
@@ -42,11 +43,13 @@ class MediaSample;
 class MediaStreamPrivate;
 class MediaStreamTrackPrivate;
 class PlatformAudioData;
-class SharedBuffer;
+class FragmentedSharedBuffer;
+
+struct MediaRecorderPrivateOptions;
 
 class MediaRecorderPrivate
     : public RealtimeMediaSource::AudioSampleObserver
-    , public RealtimeMediaSource::VideoSampleObserver {
+    , public RealtimeMediaSource::VideoFrameObserver {
 public:
     ~MediaRecorderPrivate();
 
@@ -56,20 +59,47 @@ public:
     };
     WEBCORE_EXPORT static AudioVideoSelectedTracks selectTracks(MediaStreamPrivate&);
 
-    using FetchDataCallback = CompletionHandler<void(RefPtr<SharedBuffer>&&, const String& mimeType)>;
+    using FetchDataCallback = CompletionHandler<void(RefPtr<FragmentedSharedBuffer>&&, const String& mimeType, double)>;
     virtual void fetchData(FetchDataCallback&&) = 0;
-    virtual void stopRecording() = 0;
+    virtual const String& mimeType() const = 0;
 
-    using ErrorCallback = CompletionHandler<void(Optional<Exception>&&)>;
-    virtual void startRecording(ErrorCallback&& callback) { callback({ }); }
+    void stop(CompletionHandler<void()>&&);
+    void pause(CompletionHandler<void()>&&);
+    void resume(CompletionHandler<void()>&&);
+
+    using StartRecordingCallback = CompletionHandler<void(ExceptionOr<String>&&, unsigned, unsigned)>;
+    virtual void startRecording(StartRecordingCallback&& callback) { callback(String(mimeType()), 0, 0); }
+
+    void trackMutedChanged(MediaStreamTrackPrivate& track) { checkTrackState(track); }
+    void trackEnabledChanged(MediaStreamTrackPrivate& track) { checkTrackState(track); }
+
+    struct BitRates {
+        unsigned audio;
+        unsigned video;
+    };
+    static BitRates computeBitRates(const MediaRecorderPrivateOptions&, const MediaStreamPrivate* = nullptr);
 
 protected:
     void setAudioSource(RefPtr<RealtimeMediaSource>&&);
     void setVideoSource(RefPtr<RealtimeMediaSource>&&);
 
+    void checkTrackState(const MediaStreamTrackPrivate&);
+
+    bool shouldMuteAudio() const { return m_shouldMuteAudio; }
+    bool shouldMuteVideo() const { return m_shouldMuteVideo; }
+
 private:
+    virtual void stopRecording(CompletionHandler<void()>&&) = 0;
+    virtual void pauseRecording(CompletionHandler<void()>&&) = 0;
+    virtual void resumeRecording(CompletionHandler<void()>&&) = 0;
+
+private:
+    bool m_shouldMuteAudio { false };
+    bool m_shouldMuteVideo { false };
     RefPtr<RealtimeMediaSource> m_audioSource;
     RefPtr<RealtimeMediaSource> m_videoSource;
+    RefPtr<RealtimeMediaSource> m_pausedAudioSource;
+    RefPtr<RealtimeMediaSource> m_pausedVideoSource;
 };
 
 inline void MediaRecorderPrivate::setAudioSource(RefPtr<RealtimeMediaSource>&& audioSource)
@@ -86,12 +116,12 @@ inline void MediaRecorderPrivate::setAudioSource(RefPtr<RealtimeMediaSource>&& a
 inline void MediaRecorderPrivate::setVideoSource(RefPtr<RealtimeMediaSource>&& videoSource)
 {
     if (m_videoSource)
-        m_videoSource->removeVideoSampleObserver(*this);
+        m_videoSource->removeVideoFrameObserver(*this);
 
     m_videoSource = WTFMove(videoSource);
 
     if (m_videoSource)
-        m_videoSource->addVideoSampleObserver(*this);
+        m_videoSource->addVideoFrameObserver(*this);
 }
 
 inline MediaRecorderPrivate::~MediaRecorderPrivate()
@@ -102,9 +132,9 @@ inline MediaRecorderPrivate::~MediaRecorderPrivate()
     if (m_audioSource)
         m_audioSource->removeAudioSampleObserver(*this);
     if (m_videoSource)
-        m_videoSource->removeVideoSampleObserver(*this);
+        m_videoSource->removeVideoFrameObserver(*this);
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

@@ -30,11 +30,14 @@
 namespace WebCore {
 
 class EXTBlendMinMax final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(EXTBlendMinMax);
 public:
     explicit EXTBlendMinMax(WebGLRenderingContextBase&);
     virtual ~EXTBlendMinMax();
 
     ExtensionName getName() const override;
+
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

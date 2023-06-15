@@ -32,6 +32,14 @@
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/RefPtr.h>
 
+#if USE(GLIB)
+#include <wtf/glib/GRefPtr.h>
+
+typedef struct _GVariant GVariant;
+typedef struct _JSCContext JSCContext;
+typedef struct _JSCValue JSCValue;
+#endif
+
 namespace API {
 
 class SerializedScriptValue : public API::ObjectImpl<API::Object::Type::SerializedScriptValue> {
@@ -49,9 +57,9 @@ public:
         return adoptRef(*new SerializedScriptValue(serializedValue.releaseNonNull()));
     }
     
-    static Ref<SerializedScriptValue> adopt(Vector<uint8_t>&& buffer)
+    static Ref<SerializedScriptValue> createFromWireBytes(Vector<uint8_t>&& buffer)
     {
-        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::adopt(WTFMove(buffer))));
+        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::createFromWireBytes(WTFMove(buffer))));
     }
     
     JSValueRef deserialize(JSContextRef context, JSValueRef* exception)
@@ -64,7 +72,14 @@ public:
     static RefPtr<SerializedScriptValue> createFromNSObject(id);
 #endif
 
-    IPC::DataReference dataReference() const { return m_serializedScriptValue->data(); }
+#if USE(GLIB)
+    static JSCContext* sharedJSCContext();
+    static GRefPtr<JSCValue> deserialize(WebCore::SerializedScriptValue&);
+    static RefPtr<SerializedScriptValue> createFromGVariant(GVariant*);
+    static RefPtr<SerializedScriptValue> createFromJSCValue(JSCValue*);
+#endif
+
+    IPC::DataReference dataReference() const { return m_serializedScriptValue->wireBytes(); }
 
     WebCore::SerializedScriptValue& internalRepresentation() { return m_serializedScriptValue.get(); }
 

@@ -25,27 +25,21 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
 
 namespace WebCore {
 
 class WebGLDrawBuffers final : public WebGLExtension {
+    WTF_MAKE_ISO_ALLOCATED(WebGLDrawBuffers);
 public:
     explicit WebGLDrawBuffers(WebGLRenderingContextBase&);
     virtual ~WebGLDrawBuffers();
 
-    static bool supported(WebGLRenderingContextBase&);
-
     ExtensionName getName() const override;
 
-    void drawBuffersWEBGL(const Vector<GCGLenum>& buffers);
+    static bool supported(WebGLRenderingContextBase&);
 
-private:
-    static bool satisfiesWebGLRequirements(WebGLRenderingContextBase&);
+    void drawBuffersWEBGL(const Vector<GCGLenum>& buffers);
 };
 
 } // namespace WebCore
-
-#endif

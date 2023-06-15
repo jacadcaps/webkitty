@@ -26,8 +26,8 @@
 #include "config.h"
 #include <wtf/StdLibExtras.h>
 
+#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/MathExtras.h>
-#include <wtf/RandomNumber.h>
 
 namespace TestWebKitAPI {
 
@@ -63,9 +63,9 @@ void testFindBitInWord()
 
         // Fill in some random cases.
         for (size_t i = nextTestValue; i < numberOfTestValues; ++i) {
-            startIndex[i] = static_cast<uint8_t>(randomNumber() * bitsInWord);
+            startIndex[i] = static_cast<uint8_t>(cryptographicallyRandomUnitInterval() * bitsInWord);
             uint8_t remainingBits = bitsInWord - startIndex[i];
-            endIndex[i] = static_cast<uint8_t>(randomNumber() * remainingBits) + startIndex[i];
+            endIndex[i] = static_cast<uint8_t>(cryptographicallyRandomUnitInterval() * remainingBits) + startIndex[i];
         }
     };
 
@@ -110,5 +110,21 @@ void testFindBitInWord()
 
 TEST(WTF_StdLibExtras, findBitInWord_uint32_t) { testFindBitInWord<uint32_t>(); }
 TEST(WTF_StdLibExtras, findBitInWord_uint64_t) { testFindBitInWord<uint64_t>(); }
+
+// Tests that function-local types can be instantiated with makeUnique.
+// Style check would complain about use of std::make_unique, enforcing use of
+// makeUnique. The makeUnique needs WTF_..._MAKE_FAST_ALLOCATED.
+// There used to be a warn-unused-typedef errors when using these.
+TEST(WTF_StdLibExtras, MakeUniqueFunctionLocalTypeCompiles)
+{
+    struct LocalStruct {
+        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    };
+    class LocalClass {
+        WTF_MAKE_FAST_ALLOCATED;
+    };
+    auto s = makeUnique<LocalStruct>();
+    auto c = makeUnique<LocalClass>();
+}
 
 } // namespace TestWebKitAPI

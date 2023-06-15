@@ -28,46 +28,75 @@
 
 #if ENABLE(GPU_PROCESS) && PLATFORM(COCOA)
 
-#import <WebCore/FloatRect.h>
+#import "RemoteAudioSourceProvider.h"
+#import "RemoteMediaPlayerProxyMessages.h"
+#import "VideoLayerRemote.h"
+#import "WebCoreArgumentCoders.h"
+#import <WebCore/ColorSpaceCG.h>
+#import <WebCore/VideoLayerManager.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/MachSendRight.h>
 
+#import <WebCore/CoreVideoSoftLink.h>
+
 namespace WebKit {
+using namespace WebCore;
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-
 PlatformLayerContainer MediaPlayerPrivateRemote::createVideoFullscreenLayer()
 {
-    if (!m_fullscreenLayerHostingContextId)
+    return adoptNS([[CALayer alloc] init]);
+}
+#endif
+
+void MediaPlayerPrivateRemote::pushVideoFrameMetadata(WebCore::VideoFrameMetadata&& videoFrameMetadata, RemoteVideoFrameProxy::Properties&& properties)
+{
+    auto videoFrame = RemoteVideoFrameProxy::create(connection(), videoFrameObjectHeapProxy(), WTFMove(properties));
+    if (!m_isGatheringVideoFrameMetadata)
+        return;
+    m_videoFrameMetadata = WTFMove(videoFrameMetadata);
+    m_videoFrameGatheredWithVideoFrameMetadata = WTFMove(videoFrame);
+}
+
+RefPtr<NativeImage> MediaPlayerPrivateRemote::nativeImageForCurrentTime()
+{
+    if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
+        return { };
+
+    auto videoFrame = m_videoFrameGatheredWithVideoFrameMetadata ? RefPtr<WebCore::VideoFrame>(m_videoFrameGatheredWithVideoFrameMetadata) : videoFrameForCurrentTime();
+    if (!videoFrame)
         return nullptr;
 
-    if (!m_videoFullscreenLayer) {
-        m_videoFullscreenLayer = adoptNS([[CALayer alloc] init]);
-        auto sublayer = LayerHostingContext::createPlatformLayerForHostingContext(m_fullscreenLayerHostingContextId.value());
-        [sublayer setName:@"VideoFullscreenLayerSublayer"];
-        [sublayer setPosition:CGPointMake(0, 0)];
-        [m_videoFullscreenLayer addSublayer:sublayer.get()];
-    }
-
-    return m_videoFullscreenLayer;
+    return WebProcess::singleton().ensureGPUProcessConnection().videoFrameObjectHeapProxy().getNativeImage(*videoFrame);
 }
 
-void MediaPlayerPrivateRemote::setVideoFullscreenFrame(WebCore::FloatRect rect)
+WebCore::DestinationColorSpace MediaPlayerPrivateRemote::colorSpace()
 {
-    auto context = [m_videoFullscreenLayer context];
-    if (!context)
+    if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
+        return DestinationColorSpace::SRGB();
+
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::ColorSpace(), m_id);
+    auto [colorSpace] = sendResult.takeReplyOr(DestinationColorSpace::SRGB());
+    return colorSpace;
+}
+
+void MediaPlayerPrivateRemote::layerHostingContextIdChanged(std::optional<WebKit::LayerHostingContextID>&& inlineLayerHostingContextId, const IntSize& presentationSize)
+{
+    RefPtr player = m_player.get();
+    if (!player)
         return;
 
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
+    if (!inlineLayerHostingContextId) {
+        m_videoLayer = nullptr;
+        m_videoLayerManager->didDestroyVideoLayer();
+        return;
+    }
 
-    MachSendRight fenceSendRight = MachSendRight::adopt([context createFencePort]);
-    setVideoFullscreenFrameFenced(rect, fenceSendRight);
-
-    [CATransaction commit];
-}
-
+    m_videoLayer = createVideoLayerRemote(this, inlineLayerHostingContextId.value(), m_videoFullscreenGravity, presentationSize);
+#if PLATFORM(COCOA)
+    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), presentationSize);
 #endif
+}
 
 } // namespace WebKit
 

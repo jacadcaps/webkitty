@@ -38,6 +38,7 @@
 #import <WebCore/Frame.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/GraphicsContext.h>
+#import <WebCore/ImageOverlay.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageOverlayController.h>
 #import <WebCore/PathUtilities.h>
@@ -51,7 +52,13 @@ const int cornerRadius = 3;
 const int totalHorizontalMargin = 1;
 const int totalVerticalMargin = 1;
 
-constexpr OptionSet<TextIndicatorOption> findTextIndicatorOptions { TextIndicatorOption::IncludeMarginIfRangeMatchesSelection, TextIndicatorOption::DoNotClipToVisibleRect };
+static OptionSet<TextIndicatorOption> findTextIndicatorOptions(const Frame& frame)
+{
+    OptionSet<TextIndicatorOption> options { TextIndicatorOption::IncludeMarginIfRangeMatchesSelection, TextIndicatorOption::DoNotClipToVisibleRect };
+    if (auto selectedRange = frame.selection().selection().range(); selectedRange && ImageOverlay::isInsideOverlay(*selectedRange))
+        options.add({ TextIndicatorOption::PaintAllContent, TextIndicatorOption::PaintBackgrounds });
+    return options;
+};
 
 static constexpr auto highlightColor = SRGBA<uint8_t> { 255, 228, 56 };
 
@@ -64,7 +71,7 @@ void FindIndicatorOverlayClientIOS::drawRect(PageOverlay& overlay, GraphicsConte
 
     // If the page scale changed, we need to paint a new TextIndicator.
     if (m_textIndicator->contentImageScaleFactor() != scaleFactor)
-        m_textIndicator = TextIndicator::createWithSelectionInFrame(m_frame, findTextIndicatorOptions, TextIndicatorPresentationTransition::None, FloatSize(totalHorizontalMargin, totalVerticalMargin));
+        m_textIndicator = TextIndicator::createWithSelectionInFrame(m_frame, findTextIndicatorOptions(m_frame), TextIndicatorPresentationTransition::None, FloatSize(totalHorizontalMargin, totalVerticalMargin));
 
     if (!m_textIndicator)
         return;
@@ -91,7 +98,7 @@ bool FindController::updateFindIndicator(Frame& selectedFrame, bool isShowingOve
         m_isShowingFindIndicator = false;
     }
 
-    auto textIndicator = TextIndicator::createWithSelectionInFrame(selectedFrame, findTextIndicatorOptions, TextIndicatorPresentationTransition::None, FloatSize(totalHorizontalMargin, totalVerticalMargin));
+    auto textIndicator = TextIndicator::createWithSelectionInFrame(selectedFrame, findTextIndicatorOptions(selectedFrame), TextIndicatorPresentationTransition::None, FloatSize(totalHorizontalMargin, totalVerticalMargin));
     if (!textIndicator)
         return false;
 
@@ -135,8 +142,12 @@ void FindController::resetMatchIndex()
 
 static void setSelectionChangeUpdatesEnabledInAllFrames(WebPage& page, bool enabled)
 {
-    for (Frame* coreFrame = page.mainFrame(); coreFrame; coreFrame = coreFrame->tree().traverseNext())
-        coreFrame->editor().setIgnoreSelectionChanges(enabled);
+    for (AbstractFrame* coreFrame = page.mainFrame(); coreFrame; coreFrame = coreFrame->tree().traverseNext()) {
+        auto* localFrame = dynamicDowncast<LocalFrame>(coreFrame);
+        if (!localFrame)
+            continue;
+        localFrame->editor().setIgnoreSelectionChanges(enabled);
+    }
 }
 
 void FindController::willFindString()
@@ -151,17 +162,17 @@ void FindController::didFindString()
     // updateAppearance, so the selection won't have been pushed to the render tree.
     // Therefore, we need to force an update no matter what.
 
-    Frame& frame = m_webPage->corePage()->focusController().focusedOrMainFrame();
-    frame.selection().setUpdateAppearanceEnabled(true);
-    frame.selection().updateAppearance();
-    frame.selection().setUpdateAppearanceEnabled(false);
+    Ref frame = CheckedRef(m_webPage->corePage()->focusController())->focusedOrMainFrame();
+    frame->selection().setUpdateAppearanceEnabled(true);
+    frame->selection().updateAppearance();
+    frame->selection().setUpdateAppearanceEnabled(false);
 
     // Scrolling the main frame is handled by the SmartMagnificationController class but we still
     // need to consider overflow nodes and subframes here.
     // Many sites have overlay headers or footers that may overlap with the highlighted
     // text, so we reveal the text at the center of the viewport.
     // FIXME: Find a better way to estimate the obscured area (https://webkit.org/b/183889).
-    frame.selection().revealSelection(SelectionRevealMode::RevealUpToMainFrame, ScrollAlignment::alignCenterAlways, WebCore::DoNotRevealExtent);
+    frame->selection().revealSelection(SelectionRevealMode::RevealUpToMainFrame, ScrollAlignment::alignCenterAlways, WebCore::DoNotRevealExtent);
 }
 
 void FindController::didFailToFindString()

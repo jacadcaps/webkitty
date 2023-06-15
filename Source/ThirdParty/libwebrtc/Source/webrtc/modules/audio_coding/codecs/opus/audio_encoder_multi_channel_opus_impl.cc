@@ -131,6 +131,7 @@ AudioEncoderMultiChannelOpusImpl::MakeAudioEncoder(
     const AudioEncoderMultiChannelOpusConfig& config,
     int payload_type) {
   if (!config.IsOk()) {
+    RTC_DCHECK_NOTREACHED();
     return nullptr;
   }
   return std::make_unique<AudioEncoderMultiChannelOpusImpl>(config,
@@ -162,6 +163,12 @@ size_t AudioEncoderMultiChannelOpusImpl::SufficientOutputBufferSize() const {
 
 void AudioEncoderMultiChannelOpusImpl::Reset() {
   RTC_CHECK(RecreateEncoderInstance(config_));
+}
+
+absl::optional<std::pair<TimeDelta, TimeDelta>>
+AudioEncoderMultiChannelOpusImpl::GetFrameLengthRange() const {
+  return {{TimeDelta::Millis(config_.frame_size_ms),
+           TimeDelta::Millis(config_.frame_size_ms)}};
 }
 
 // If the given config is OK, recreate the Opus encoder instance with those
@@ -274,6 +281,9 @@ AudioEncoderMultiChannelOpusImpl::SdpToConfig(const SdpAudioFormat& format) {
   }
   config.channel_mapping = *channel_mapping;
 
+  if (!config.IsOk()) {
+    return absl::nullopt;
+  }
   return config;
 }
 

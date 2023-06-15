@@ -22,7 +22,12 @@
 #include "WebProcessTestRunner.h"
 #include "WebViewTest.h"
 #include <gtk/gtk.h>
+
+#if USE(GTK4)
+#include <webkit/webkit.h>
+#else
 #include <webkit2/webkit2.h>
+#endif
 
 #define HTML_DOCUMENT "<html><head><title></title></head><style type='text/css'>#test { font-size: 16px; }</style><body><p id='test'>test</p></body></html>"
 
@@ -139,7 +144,12 @@ static void testWebKitDOMDOMWindowGetComputedStyle(WebViewTest* test, gconstpoin
 void beforeAll()
 {
     status.testRunner = new WebProcessTestRunner();
-    webkit_web_context_set_web_extensions_directory(webkit_web_context_get_default(), WEBKIT_TEST_WEB_EXTENSIONS_DIR);
+
+#if ENABLE(2022_GLIB_API)
+    webkit_web_context_set_web_process_extensions_directory(webkit_web_context_get_default(), WEBKIT_TEST_WEB_PROCESS_EXTENSIONS_DIR);
+#else
+    webkit_web_context_set_web_extensions_directory(webkit_web_context_get_default(), WEBKIT_TEST_WEB_PROCESS_EXTENSIONS_DIR);
+#endif
 
     WebViewTest::add("WebKitDOMDOMWindow", "signals", testWebKitDOMDOMWindowSignals);
     WebViewTest::add("WebKitDOMDOMWindow", "dispatch-event", testWebKitDOMDOMWindowDispatchEvent);

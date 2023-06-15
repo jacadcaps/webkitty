@@ -34,15 +34,9 @@ enum class GestureType : uint8_t {
     OneFingerTap,
     TapAndAHalf,
     DoubleTap,
-    TapAndHalf,
-    DoubleTapInUneditable,
-    OneFingerTapInUneditable,
-    OneFingerTapSelectsAll,
     OneFingerDoubleTap,
     OneFingerTripleTap,
     TwoFingerSingleTap,
-    TwoFingerRangedSelectGesture,
-    TapOnLinkWithGesture,
     PhraseBoundary
 };
 
@@ -64,14 +58,17 @@ enum class GestureRecognizerState : uint8_t {
     Failed
 };
 
-enum class SheetAction : bool {
+enum class SheetAction : uint8_t {
     Copy,
-    SaveImage
+    SaveImage,
+    PauseAnimation,
+    PlayAnimation
 };
 
 enum SelectionFlags : uint8_t {
     WordIsNearTap = 1 << 0,
-    PhraseBoundaryChanged = 1 << 1,
+    SelectionFlipped = 1 << 1,
+    PhraseBoundaryChanged = 1 << 2,
 };
 
 enum class RespectSelectionAnchor : bool {
@@ -102,15 +99,9 @@ template<> struct EnumTraits<WebKit::GestureType> {
         WebKit::GestureType::OneFingerTap,
         WebKit::GestureType::TapAndAHalf,
         WebKit::GestureType::DoubleTap,
-        WebKit::GestureType::TapAndHalf,
-        WebKit::GestureType::DoubleTapInUneditable,
-        WebKit::GestureType::OneFingerTapInUneditable,
-        WebKit::GestureType::OneFingerTapSelectsAll,
         WebKit::GestureType::OneFingerDoubleTap,
         WebKit::GestureType::OneFingerTripleTap,
         WebKit::GestureType::TwoFingerSingleTap,
-        WebKit::GestureType::TwoFingerRangedSelectGesture,
-        WebKit::GestureType::TapOnLinkWithGesture,
         WebKit::GestureType::PhraseBoundary
     >;
 };
@@ -119,6 +110,7 @@ template<> struct EnumTraits<WebKit::SelectionFlags> {
     using values = EnumValues<
         WebKit::SelectionFlags,
         WebKit::SelectionFlags::WordIsNearTap,
+        WebKit::SelectionFlags::SelectionFlipped,
         WebKit::SelectionFlags::PhraseBoundaryChanged
     >;
 };

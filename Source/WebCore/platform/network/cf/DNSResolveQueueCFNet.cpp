@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2008 Collin Jackson  <collinj@webkit.org>
- * Copyright (C) 2009 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2009-2023 Apple Inc. All Rights Reserved.
  * Copyright (C) 2012 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,11 +37,7 @@
 #include <wtf/URL.h>
 #include <wtf/text/StringHash.h>
 
-#if PLATFORM(WIN)
-#include "LoaderRunLoopCF.h"
-#endif
-
-#if PLATFORM(WIN) || PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
 #include <CFNetwork/CFNetwork.h>
 #endif
 
@@ -55,8 +51,8 @@ void DNSResolveQueueCFNet::updateIsUsingProxy()
         return;
     }
 
-    RetainPtr<CFURLRef> httpCFURL = URL({ }, "http://example.com/").createCFURL();
-    RetainPtr<CFURLRef> httpsCFURL = URL({ }, "https://example.com/").createCFURL();
+    RetainPtr<CFURLRef> httpCFURL = URL({ }, "http://example.com/"_s).createCFURL();
+    RetainPtr<CFURLRef> httpsCFURL = URL({ }, "https://example.com/"_s).createCFURL();
 
     RetainPtr<CFArrayRef> httpProxyArray = adoptCF(CFNetworkCopyProxiesForURL(httpCFURL.get(), proxySettings.get()));
     RetainPtr<CFArrayRef> httpsProxyArray = adoptCF(CFNetworkCopyProxiesForURL(httpsCFURL.get(), proxySettings.get()));
@@ -91,12 +87,7 @@ void DNSResolveQueueCFNet::platformResolve(const String& hostname)
     CFHostRef leakedHost = host.leakRef(); // The host will be released from clientCallback().
     Boolean result = CFHostSetClient(leakedHost, clientCallback, &context);
     ASSERT_UNUSED(result, result);
-#if !PLATFORM(WIN)
     CFHostScheduleWithRunLoop(leakedHost, CFRunLoopGetMain(), kCFRunLoopCommonModes);
-#else
-    // On Windows, we run a separate thread with CFRunLoop, which is where clientCallback will be called.
-    CFHostScheduleWithRunLoop(leakedHost, loaderRunLoop(), kCFRunLoopDefaultMode);
-#endif
     CFHostStartInfoResolution(leakedHost, kCFHostAddresses, 0);
 }
 

@@ -43,25 +43,36 @@ public:
     String appVersion() const;
     DOMPluginArray& plugins();
     DOMMimeTypeArray& mimeTypes();
+    bool pdfViewerEnabled();
     bool cookieEnabled() const;
-    bool javaEnabled() const;
+    bool javaEnabled() const { return false; }
     const String& userAgent() const final;
     String platform() const final;
     void userAgentChanged();
     bool onLine() const final;
-    bool canShare(ScriptExecutionContext&, const ShareData&);
-    void share(ScriptExecutionContext&, const ShareData&, Ref<DeferredPromise>&&);
+    bool canShare(Document&, const ShareData&);
+    void share(Document&, const ShareData&, Ref<DeferredPromise>&&);
     
 #if PLATFORM(IOS_FAMILY)
     bool standalone() const;
 #endif
 
-    void getStorageUpdates();
-
 #if ENABLE(IOS_TOUCH_EVENTS) && !PLATFORM(MACCATALYST)
     int maxTouchPoints() const { return 5; }
 #else
     int maxTouchPoints() const { return 0; }
+#endif
+
+    GPU* gpu();
+
+    Document* document();
+
+#if ENABLE(BADGING)
+    void setAppBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
+    void clearAppBadge(Ref<DeferredPromise>&&);
+
+    void setClientBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
+    void clearClientBadge(Ref<DeferredPromise>&&);
 #endif
 
 private:
@@ -72,9 +83,11 @@ private:
 
     mutable RefPtr<ShareDataReader> m_loader;
     mutable bool m_hasPendingShare { false };
+    mutable bool m_pdfViewerEnabled { false };
     mutable RefPtr<DOMPluginArray> m_plugins;
     mutable RefPtr<DOMMimeTypeArray> m_mimeTypes;
     mutable String m_userAgent;
     mutable String m_platform;
+    RefPtr<GPU> m_gpuForWebGPU;
 };
 }

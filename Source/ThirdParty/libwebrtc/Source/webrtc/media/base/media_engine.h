@@ -18,11 +18,13 @@
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
 #include "api/crypto/crypto_options.h"
+#include "api/field_trials_view.h"
 #include "api/rtp_parameters.h"
 #include "api/video/video_bitrate_allocator_factory.h"
 #include "call/audio_state.h"
 #include "media/base/codec.h"
 #include "media/base/media_channel.h"
+#include "media/base/media_config.h"
 #include "media/base/video_common.h"
 #include "rtc_base/system/file_wrapper.h"
 
@@ -48,11 +50,23 @@ struct RtpCapabilities {
   std::vector<webrtc::RtpExtension> header_extensions;
 };
 
-class VoiceEngineInterface {
+class RtpHeaderExtensionQueryInterface {
+ public:
+  virtual ~RtpHeaderExtensionQueryInterface() = default;
+
+  // Returns a vector of RtpHeaderExtensionCapability, whose direction is
+  // kStopped if the extension is stopped (not used) by default.
+  virtual std::vector<webrtc::RtpHeaderExtensionCapability>
+  GetRtpHeaderExtensions() const = 0;
+};
+
+class VoiceEngineInterface : public RtpHeaderExtensionQueryInterface {
  public:
   VoiceEngineInterface() = default;
   virtual ~VoiceEngineInterface() = default;
-  RTC_DISALLOW_COPY_AND_ASSIGN(VoiceEngineInterface);
+
+  VoiceEngineInterface(const VoiceEngineInterface&) = delete;
+  VoiceEngineInterface& operator=(const VoiceEngineInterface&) = delete;
 
   // Initialization
   // Starts the engine.
@@ -71,7 +85,6 @@ class VoiceEngineInterface {
 
   virtual const std::vector<AudioCodec>& send_codecs() const = 0;
   virtual const std::vector<AudioCodec>& recv_codecs() const = 0;
-  virtual RtpCapabilities GetCapabilities() const = 0;
 
   // Starts AEC dump using existing file, a maximum file size in bytes can be
   // specified. Logging is stopped just before the size limit is exceeded.
@@ -83,11 +96,13 @@ class VoiceEngineInterface {
   virtual void StopAecDump() = 0;
 };
 
-class VideoEngineInterface {
+class VideoEngineInterface : public RtpHeaderExtensionQueryInterface {
  public:
   VideoEngineInterface() = default;
   virtual ~VideoEngineInterface() = default;
-  RTC_DISALLOW_COPY_AND_ASSIGN(VideoEngineInterface);
+
+  VideoEngineInterface(const VideoEngineInterface&) = delete;
+  VideoEngineInterface& operator=(const VideoEngineInterface&) = delete;
 
   // Creates a video media channel, paired with the specified voice channel.
   // Returns NULL on failure.
@@ -99,8 +114,20 @@ class VideoEngineInterface {
       webrtc::VideoBitrateAllocatorFactory*
           video_bitrate_allocator_factory) = 0;
 
-  virtual std::vector<VideoCodec> codecs() const = 0;
-  virtual RtpCapabilities GetCapabilities() const = 0;
+  // Retrieve list of supported codecs.
+  virtual std::vector<VideoCodec> send_codecs() const = 0;
+  virtual std::vector<VideoCodec> recv_codecs() const = 0;
+  // As above, but if include_rtx is false, don't include RTX codecs.
+  // TODO(bugs.webrtc.org/13931): Remove default implementation once
+  // upstream subclasses have converted.
+  virtual std::vector<VideoCodec> send_codecs(bool include_rtx) const {
+    RTC_DCHECK(include_rtx);
+    return send_codecs();
+  }
+  virtual std::vector<VideoCodec> recv_codecs(bool include_rtx) const {
+    RTC_DCHECK(include_rtx);
+    return recv_codecs();
+  }
 };
 
 // MediaEngineInterface is an abstraction of a media engine which can be
@@ -111,9 +138,9 @@ class MediaEngineInterface {
  public:
   virtual ~MediaEngineInterface() {}
 
-  // Initialization
-  // Starts the engine.
+  // Initialization. Needs to be called on the worker thread.
   virtual bool Init() = 0;
+
   virtual VoiceEngineInterface& voice() = 0;
   virtual VideoEngineInterface& video() = 0;
   virtual const VoiceEngineInterface& voice() const = 0;
@@ -122,11 +149,17 @@ class MediaEngineInterface {
 
 // CompositeMediaEngine constructs a MediaEngine from separate
 // voice and video engine classes.
+// Optionally owns a FieldTrialsView trials map.
 class CompositeMediaEngine : public MediaEngineInterface {
  public:
+  CompositeMediaEngine(std::unique_ptr<webrtc::FieldTrialsView> trials,
+                       std::unique_ptr<VoiceEngineInterface> audio_engine,
+                       std::unique_ptr<VideoEngineInterface> video_engine);
   CompositeMediaEngine(std::unique_ptr<VoiceEngineInterface> audio_engine,
                        std::unique_ptr<VideoEngineInterface> video_engine);
   ~CompositeMediaEngine() override;
+
+  // Always succeeds.
   bool Init() override;
 
   VoiceEngineInterface& voice() override;
@@ -135,37 +168,20 @@ class CompositeMediaEngine : public MediaEngineInterface {
   const VideoEngineInterface& video() const override;
 
  private:
-  std::unique_ptr<VoiceEngineInterface> voice_engine_;
-  std::unique_ptr<VideoEngineInterface> video_engine_;
-};
-
-enum DataChannelType {
-  DCT_NONE = 0,
-  DCT_RTP = 1,
-  DCT_SCTP = 2,
-
-  // Data channel transport over media transport.
-  DCT_MEDIA_TRANSPORT = 3,
-
-  // Data channel transport over datagram transport (with no fallback).  This is
-  // the same behavior as data channel transport over media transport, and is
-  // usable without DTLS.
-  DCT_DATA_CHANNEL_TRANSPORT = 4,
-
-  // Data channel transport over datagram transport (with SCTP negotiation
-  // semantics and a fallback to SCTP).  Only usable with DTLS.
-  DCT_DATA_CHANNEL_TRANSPORT_SCTP = 5,
-};
-
-class DataEngineInterface {
- public:
-  virtual ~DataEngineInterface() {}
-  virtual DataMediaChannel* CreateChannel(const MediaConfig& config) = 0;
-  virtual const std::vector<DataCodec>& data_codecs() = 0;
+  const std::unique_ptr<webrtc::FieldTrialsView> trials_;
+  const std::unique_ptr<VoiceEngineInterface> voice_engine_;
+  const std::unique_ptr<VideoEngineInterface> video_engine_;
 };
 
 webrtc::RtpParameters CreateRtpParametersWithOneEncoding();
 webrtc::RtpParameters CreateRtpParametersWithEncodings(StreamParams sp);
+
+// Returns a vector of RTP extensions as visible from RtpSender/Receiver
+// GetCapabilities(). The returned vector only shows what will definitely be
+// offered by default, i.e. the list of extensions returned from
+// GetRtpHeaderExtensions() that are not kStopped.
+std::vector<webrtc::RtpExtension> GetDefaultEnabledRtpHeaderExtensions(
+    const RtpHeaderExtensionQueryInterface& query_interface);
 
 }  // namespace cricket
 

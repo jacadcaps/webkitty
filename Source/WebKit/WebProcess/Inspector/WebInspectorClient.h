@@ -72,8 +72,12 @@ private:
 
     bool overridesShowPaintRects() const override { return true; }
     void showPaintRect(const WebCore::FloatRect&) override;
+    unsigned paintRectCount() const override { return m_paintRectLayers.size(); }
 
-    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, Optional<bool>) final;
+    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, std::optional<bool>) final;
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    bool setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit) final;
+#endif
 
     // PageOverlay::Client
     void willMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;

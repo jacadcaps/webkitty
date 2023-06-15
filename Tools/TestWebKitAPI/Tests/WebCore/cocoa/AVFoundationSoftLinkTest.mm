@@ -161,7 +161,7 @@ TEST(AVFoundationSoftLink, Constants)
     EXPECT_TRUE([AVContentKeyRequestProtocolVersionsKey isEqualToString:@"ProtocolVersionsKey"]);
 #endif
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS) || PLATFORM(WATCHOS) || PLATFORM(APPLETV)
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(WATCHOS) || PLATFORM(APPLETV)
     EXPECT_TRUE(PAL::canLoad_AVFoundation_AVVideoCodecTypeHEVCWithAlpha());
     EXPECT_TRUE([AVVideoCodecTypeHEVCWithAlpha isEqualToString:@"muxa"]);
 #endif
@@ -193,11 +193,14 @@ TEST(AVFoundationSoftLink, Constants)
 #endif
 
 #endif
-    
+
+#if !PLATFORM(WATCHOS)
+    EXPECT_TRUE([PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification isEqualToString:@"AVRouteDetectorMultipleRoutesDetectedDidChangeNotification"]);
+#endif
+
 #if HAVE(AVROUTEPICKERVIEW)
-    EXPECT_TRUE([AVRouteDetectorMultipleRoutesDetectedDidChangeNotification isEqualToString:@"AVRouteDetectorMultipleRoutesDetectedDidChangeNotification"]);
-    EXPECT_TRUE([AVOutputContextOutputDevicesDidChangeNotification isEqualToString:@"AVOutputContextOutputDevicesDidChangeNotification"]);
-#endif // PLATFORM(WATCHOS)
+    EXPECT_TRUE([PAL::AVOutputContextOutputDevicesDidChangeNotification isEqualToString:@"AVOutputContextOutputDevicesDidChangeNotification"]);
+#endif // HAVE(AVROUTEPICKERVIEW)
 
 }
 

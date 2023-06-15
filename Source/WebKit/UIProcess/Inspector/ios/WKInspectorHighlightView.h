@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014, 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,15 +26,17 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import <UIKit/UIKit.h>
+#import <WebCore/InspectorOverlay.h>
 
 namespace WebCore {
-struct Highlight;
+class FloatRect;
 }
 
 @interface WKInspectorHighlightView : UIView {
-    NSMutableArray *_layers; // CAShapeLayers.
+    RetainPtr<NSMutableArray<CAShapeLayer *>> _layers;
+    std::optional<WebCore::InspectorOverlay::Highlight> _highlight;
 }
-- (void)update:(const WebCore::Highlight&)highlight;
+- (void)update:(const WebCore::InspectorOverlay::Highlight&)highlight scale:(double)scale frame:(const WebCore::FloatRect&)frame;
 @end
 
 #endif

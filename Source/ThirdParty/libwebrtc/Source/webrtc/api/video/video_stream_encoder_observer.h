@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/video/video_adaptation_counters.h"
+#include "api/video/video_adaptation_reason.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/video_encoder.h"
@@ -38,23 +40,19 @@ class CpuOveruseMetricsObserver {
 
 class VideoStreamEncoderObserver : public CpuOveruseMetricsObserver {
  public:
-  // Number of resolution and framerate reductions (unset if disabled).
-  struct AdaptationSteps {
-    AdaptationSteps();
-    absl::optional<int> num_resolution_reductions = 0;
-    absl::optional<int> num_framerate_reductions = 0;
+  struct AdaptationSettings {
+    AdaptationSettings()
+        : resolution_scaling_enabled(false), framerate_scaling_enabled(false) {}
+
+    AdaptationSettings(bool resolution_scaling_enabled,
+                       bool framerate_scaling_enabled)
+        : resolution_scaling_enabled(resolution_scaling_enabled),
+          framerate_scaling_enabled(framerate_scaling_enabled) {}
+
+    bool resolution_scaling_enabled;
+    bool framerate_scaling_enabled;
   };
 
-  // TODO(nisse): There are too many enums to represent this. Besides
-  // this one, see AdaptationObserverInterface::AdaptReason and
-  // WebRtcVideoChannel::AdaptReason.
-  enum class AdaptationReason {
-    kNone,  // Used for reset of counters.
-    kCpu,
-    kQuality,
-  };
-
-  // TODO(nisse): Duplicates enum EncodedImageCallback::DropReason.
   enum class DropReason {
     kSource,
     kEncoderQueue,
@@ -67,7 +65,7 @@ class VideoStreamEncoderObserver : public CpuOveruseMetricsObserver {
 
   virtual void OnIncomingFrame(int width, int height) = 0;
 
-  // TODO(nisse): Merge into one callback per encoded frame.
+  // TODO(bugs.webrtc.org/8504): Merge into one callback per encoded frame.
   using CpuOveruseMetricsObserver::OnEncodedFrameTimeMeasured;
   virtual void OnSendEncodedImage(const EncodedImage& encoded_image,
                                   const CodecSpecificInfo* codec_info) = 0;
@@ -83,9 +81,15 @@ class VideoStreamEncoderObserver : public CpuOveruseMetricsObserver {
       const VideoEncoderConfig& encoder_config,
       const std::vector<VideoStream>& streams) = 0;
 
-  virtual void OnAdaptationChanged(AdaptationReason reason,
-                                   const AdaptationSteps& cpu_steps,
-                                   const AdaptationSteps& quality_steps) = 0;
+  virtual void OnAdaptationChanged(
+      VideoAdaptationReason reason,
+      const VideoAdaptationCounters& cpu_steps,
+      const VideoAdaptationCounters& quality_steps) = 0;
+  virtual void ClearAdaptationStats() = 0;
+
+  virtual void UpdateAdaptationSettings(
+      AdaptationSettings cpu_settings,
+      AdaptationSettings quality_settings) = 0;
   virtual void OnMinPixelLimitReached() = 0;
   virtual void OnInitialQualityResolutionAdaptDown() = 0;
 
@@ -96,14 +100,14 @@ class VideoStreamEncoderObserver : public CpuOveruseMetricsObserver {
       const VideoBitrateAllocation& allocation) {}
 
   // Informes observer if an internal encoder scaler has reduced video
-  // resolution or not. |is_scaled| is a flag indicating if the video is scaled
+  // resolution or not. `is_scaled` is a flag indicating if the video is scaled
   // down.
   virtual void OnEncoderInternalScalerUpdate(bool is_scaled) {}
 
-  // TODO(nisse): VideoStreamEncoder wants to query the stats, which makes this
-  // not a pure observer. GetInputFrameRate is needed for the cpu adaptation, so
-  // can be deleted if that responsibility is moved out to a VideoStreamAdaptor
-  // class.
+  // TODO(bugs.webrtc.org/14246): VideoStreamEncoder wants to query the stats,
+  // which makes this not a pure observer. GetInputFrameRate is needed for the
+  // cpu adaptation, so can be deleted if that responsibility is moved out to a
+  // VideoStreamAdaptor class.
   virtual int GetInputFrameRate() const = 0;
 };
 

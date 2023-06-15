@@ -14,24 +14,34 @@
 #include <utility>
 
 #include "api/function_view.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace rtc {
 
 struct Message;
 
-// Messages get dispatched to a MessageHandler
+// MessageQueue/Thread Messages get dispatched via the MessageHandler interface.
 class RTC_EXPORT MessageHandler {
  public:
-  virtual ~MessageHandler();
+  virtual ~MessageHandler() {}
   virtual void OnMessage(Message* msg) = 0;
+};
+
+// Warning: Provided for backwards compatibility.
+//
+// This class performs expensive cleanup in the dtor that will affect all
+// instances of Thread (and their pending message queues) and will block the
+// current thread as well as all other threads.
+class RTC_EXPORT MessageHandlerAutoCleanup : public MessageHandler {
+ public:
+  ~MessageHandlerAutoCleanup() override;
+
+  MessageHandlerAutoCleanup(const MessageHandlerAutoCleanup&) = delete;
+  MessageHandlerAutoCleanup& operator=(const MessageHandlerAutoCleanup&) =
+      delete;
 
  protected:
-  MessageHandler() {}
-
- private:
-  RTC_DISALLOW_COPY_AND_ASSIGN(MessageHandler);
+  MessageHandlerAutoCleanup();
 };
 
 }  // namespace rtc

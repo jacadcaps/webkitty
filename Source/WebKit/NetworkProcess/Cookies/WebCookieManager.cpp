@@ -27,11 +27,12 @@
 #include "WebCookieManager.h"
 
 #include "NetworkProcess.h"
+#include "NetworkProcessProxyMessages.h"
 #include "WebCookieManagerMessages.h"
-#include "WebCookieManagerProxyMessages.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/Cookie.h>
 #include <WebCore/CookieStorage.h>
+#include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <wtf/MainThread.h>
 #include <wtf/URL.h>
@@ -62,30 +63,36 @@ void WebCookieManager::getHostnamesWithCookies(PAL::SessionID sessionID, Complet
     completionHandler(copyToVector(hostnames));
 }
 
-void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames)
+void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames, CompletionHandler<void()>&& completionHandler)
 {
     if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookiesForHostnames(hostnames);
+        storageSession->deleteCookiesForHostnames(hostnames, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
-void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID)
+void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookies();
+        storageSession->deleteAllCookies(WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteCookie(PAL::SessionID sessionID, const Cookie& cookie, CompletionHandler<void()>&& completionHandler)
 {
     if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookie(cookie);
-    completionHandler();
+        storageSession->deleteCookie(cookie, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteAllCookiesModifiedSince(PAL::SessionID sessionID, WallTime time, CompletionHandler<void()>&& completionHandler)
 {
     if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookiesModifiedSince(time);
-    completionHandler();
+        storageSession->deleteAllCookiesModifiedSince(time, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::getAllCookies(PAL::SessionID sessionID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
@@ -123,7 +130,7 @@ void WebCookieManager::setCookies(PAL::SessionID sessionID, const Vector<Cookie>
 void WebCookieManager::notifyCookiesDidChange(PAL::SessionID sessionID)
 {
     ASSERT(RunLoop::isMain());
-    m_process.send(Messages::WebCookieManagerProxy::CookiesDidChange(sessionID), 0);
+    m_process.send(Messages::NetworkProcessProxy::CookiesDidChange(sessionID), 0);
 }
 
 void WebCookieManager::startObservingCookieChanges(PAL::SessionID sessionID)
@@ -143,15 +150,18 @@ void WebCookieManager::stopObservingCookieChanges(PAL::SessionID sessionID)
 
 void WebCookieManager::setHTTPCookieAcceptPolicy(HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
 {
-    platformSetHTTPCookieAcceptPolicy(policy);
-    m_process.cookieAcceptPolicyChanged(policy);
-
-    completionHandler();
+    platformSetHTTPCookieAcceptPolicy(policy, [policy, process = Ref { m_process }, completionHandler = WTFMove(completionHandler)] () mutable {
+        process->cookieAcceptPolicyChanged(policy);
+        completionHandler();
+    });
 }
 
-void WebCookieManager::getHTTPCookieAcceptPolicy(CompletionHandler<void(HTTPCookieAcceptPolicy)>&& completionHandler)
+void WebCookieManager::getHTTPCookieAcceptPolicy(PAL::SessionID sessionID, CompletionHandler<void(HTTPCookieAcceptPolicy)>&& completionHandler)
 {
-    completionHandler(m_process.defaultStorageSession().cookieAcceptPolicy());
+    if (auto* storageSession = m_process.storageSession(sessionID))
+        completionHandler(storageSession->cookieAcceptPolicy());
+    else
+        completionHandler(HTTPCookieAcceptPolicy::Never);
 }
 
 } // namespace WebKit

@@ -30,11 +30,25 @@ class VideoMediaChannel;
 // CompositeMediaEngine.
 class NullWebRtcVideoEngine : public VideoEngineInterface {
  public:
-  std::vector<VideoCodec> codecs() const override {
+  std::vector<VideoCodec> send_codecs(bool) const override {
     return std::vector<VideoCodec>();
   }
 
-  RtpCapabilities GetCapabilities() const override { return RtpCapabilities(); }
+  std::vector<VideoCodec> recv_codecs(bool) const override {
+    return std::vector<VideoCodec>();
+  }
+  std::vector<VideoCodec> send_codecs() const override {
+    return std::vector<VideoCodec>();
+  }
+
+  std::vector<VideoCodec> recv_codecs() const override {
+    return std::vector<VideoCodec>();
+  }
+
+  std::vector<webrtc::RtpHeaderExtensionCapability> GetRtpHeaderExtensions()
+      const override {
+    return {};
+  }
 
   VideoMediaChannel* CreateMediaChannel(
       webrtc::Call* call,

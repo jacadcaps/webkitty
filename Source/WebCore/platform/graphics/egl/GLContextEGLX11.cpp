@@ -20,18 +20,25 @@
 #include "GLContextEGL.h"
 
 #if USE(EGL) && PLATFORM(X11)
+
 #include "PlatformDisplayX11.h"
 #include "XErrorTrapper.h"
 #include "XUniquePtr.h"
-#include <EGL/egl.h>
 #include <X11/Xlib.h>
+
+#if USE(LIBEPOXY)
+#include <epoxy/egl.h>
+#else
+#include <EGL/egl.h>
+#endif
 
 namespace WebCore {
 
-GLContextEGL::GLContextEGL(PlatformDisplay& display, EGLContext context, EGLSurface surface, XUniquePixmap&& pixmap)
+GLContextEGL::GLContextEGL(PlatformDisplay& display, EGLContext context, EGLSurface surface, EGLConfig config, XUniquePixmap&& pixmap)
     : GLContext(display)
     , m_context(context)
     , m_surface(surface)
+    , m_config(config)
     , m_type(PixmapSurface)
     , m_pixmap(WTFMove(pixmap))
 {
@@ -84,13 +91,16 @@ std::unique_ptr<GLContextEGL> GLContextEGL::createPixmapContext(PlatformDisplay&
     // swap buffers. So, we use a custom XError handler here that ignores BadDrawable errors and only warns about any other
     // errors without aborting in any case.
     XErrorTrapper trapper(x11Display, XErrorTrapper::Policy::Warn, { BadDrawable });
-    EGLSurface surface = eglCreatePixmapSurface(display, config, reinterpret_cast<EGLNativePixmapType>(pixmap.get()), 0);
+    // EGLNativeWindowType changes depending on the EGL implementation, reinterpret_cast
+    // would work for pointers, and static_cast for numeric types only; so use a plain
+    // C cast expression which works in all possible cases.
+    EGLSurface surface = eglCreatePixmapSurface(display, config, (EGLNativePixmapType)pixmap.get(), 0);
     if (surface == EGL_NO_SURFACE) {
         eglDestroyContext(display, context);
         return nullptr;
     }
 
-    return std::unique_ptr<GLContextEGL>(new GLContextEGL(platformDisplay, context, surface, WTFMove(pixmap)));
+    return std::unique_ptr<GLContextEGL>(new GLContextEGL(platformDisplay, context, surface, config, WTFMove(pixmap)));
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,15 +30,17 @@
 #import "TestWKWebView.h"
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
-#import <WebKit/WKViewPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKit.h>
+#import <wtf/text/WTFString.h>
 
 static bool hasTriggerInfo;
 static bool wasTriggered;
+static bool wasTriggeredByDetachedElement;
 static uint64_t elementID;
-static uint64_t documentID;
 static uint64_t pageID;
+static String documentID;
 
 @interface TestSystemPreviewTriggeredHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -47,14 +49,34 @@ static uint64_t pageID;
 
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
-    if ([message.body[@"message"] isEqualToString:@"loaded"]) {
+    if ([message.body[@"message"] isEqualToString:@"loaded_triggered"]) {
         elementID = [message.body[@"elementID"] unsignedIntValue];
-        documentID = [message.body[@"documentID"] unsignedIntValue];
+        documentID = message.body[@"documentID"];
         pageID = [message.body[@"pageID"] unsignedIntValue];
         hasTriggerInfo = true;
     } else if ([message.body[@"message"] isEqualToString:@"triggered"]) {
         EXPECT_TRUE([message.body[@"action"] isEqualToString:@"_apple_ar_quicklook_button_tapped"]);
         wasTriggered = true;
+    }
+}
+
+@end
+
+@interface TestSystemPreviewTriggeredOnDetachedElementHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation TestSystemPreviewTriggeredOnDetachedElementHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    if ([message.body[@"message"] isEqualToString:@"loaded_triggered_detached"]) {
+        elementID = [message.body[@"elementID"] unsignedIntValue];
+        documentID = message.body[@"documentID"];
+        pageID = [message.body[@"pageID"] unsignedIntValue];
+        hasTriggerInfo = true;
+    } else if ([message.body[@"message"] isEqualToString:@"triggered_detached"]) {
+        EXPECT_TRUE([message.body[@"action"] isEqualToString:@"_apple_ar_quicklook_button_tapped"]);
+        wasTriggeredByDetachedElement = true;
     }
 }
 
@@ -68,13 +90,26 @@ TEST(WebKit, SystemPreviewTriggered)
     auto messageHandler = adoptNS([[TestSystemPreviewTriggeredHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testSystemPreview"];
 
-    auto webView = [[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
     [webView synchronouslyLoadTestPageNamed:@"system-preview-trigger"];
     Util::run(&hasTriggerInfo);
 
     [webView _triggerSystemPreviewActionOnElement:elementID document:documentID page:pageID];
     Util::run(&wasTriggered);
+}
 
+TEST(WebKit, SystemPreviewTriggeredOnDetachedElement)
+{
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    auto messageHandler = adoptNS([[TestSystemPreviewTriggeredOnDetachedElementHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testSystemPreview"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
+    [webView synchronouslyLoadTestPageNamed:@"system-preview-trigger"];
+    Util::run(&hasTriggerInfo);
+
+    [webView _triggerSystemPreviewActionOnElement:elementID document:documentID page:pageID];
+    Util::run(&wasTriggeredByDetachedElement);
 }
 
 }

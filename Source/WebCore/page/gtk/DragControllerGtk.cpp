@@ -32,6 +32,7 @@
 #include "Editor.h"
 #include "Element.h"
 #include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "Pasteboard.h"
 #include "markup.h"
 
@@ -47,16 +48,16 @@ const float DragController::DragImageAlpha = 0.75f;
 
 bool DragController::isCopyKeyDown(const DragData& dragData)
 {
-    return dragData.flags().contains(DragApplicationIsCopyKeyDown);
+    return dragData.flags().contains(DragApplicationFlags::IsCopyKeyDown);
 }
 
-Optional<DragOperation> DragController::dragOperation(const DragData& dragData)
+std::optional<DragOperation> DragController::dragOperation(const DragData& dragData)
 {
     // FIXME: This logic is incomplete
     if (dragData.containsURL())
         return DragOperation::Copy;
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 const IntSize& DragController::maxDragImageSize()

@@ -49,20 +49,20 @@ private:
     void setAttributeName(const QualifiedName&) override;
     void resetAnimation() override;
 
-    bool calculateFromAndToValues(const String& fromString, const String& toString) override;
-    bool calculateFromAndByValues(const String& fromString, const String& byString) override;
-    bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
+    bool setFromAndToValues(const String& fromString, const String& toString) override;
+    bool setFromAndByValues(const String& fromString, const String& byString) override;
+    bool setToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
 
     void startAnimation() override;
     void calculateAnimatedValue(float progress, unsigned repeatCount) override;
     void applyResultsToTarget() override;
     void stopAnimation(SVGElement* targetElement) override;
-    Optional<float> calculateDistance(const String& fromString, const String& toString) override;
+    std::optional<float> calculateDistance(const String& fromString, const String& toString) override;
 
     bool hasInvalidCSSAttributeType() const;
 
     mutable RefPtr<SVGAttributeAnimator> m_animator;
-    mutable Optional<bool> m_hasInvalidCSSAttributeType;
+    mutable std::optional<bool> m_hasInvalidCSSAttributeType;
 };
 
 } // namespace WebCore

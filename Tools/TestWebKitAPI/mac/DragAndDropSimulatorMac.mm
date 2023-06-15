@@ -66,6 +66,8 @@ IGNORE_WARNINGS_END
 
 - (NSDraggingSession *)beginDraggingSessionWithItems:(NSArray<NSDraggingItem *> *)items event:(NSEvent *)event source:(id<NSDraggingSource>)source
 {
+    RELEASE_ASSERT(event);
+
     [_dragAndDropSimulator beginDraggingSessionInWebView:self withItems:items source:source];
     return [_dragAndDropSimulator draggingSession];
 }
@@ -76,9 +78,9 @@ IGNORE_WARNINGS_END
 const double initialMouseDragDistance = 45;
 const double dragUpdateProgressIncrement = 0.05;
 
-static NSImage *defaultExternalDragImage()
+static RetainPtr<NSImage> defaultExternalDragImage()
 {
-    return [[[NSImage alloc] initWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"icon" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"]] autorelease];
+    return adoptNS([[NSImage alloc] initWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"icon" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"]]);
 }
 
 @implementation DragAndDropSimulator {
@@ -92,6 +94,7 @@ static NSImage *defaultExternalDragImage()
     RetainPtr<NSMutableArray<NSURL *>> _filePromiseDestinationURLs;
     RetainPtr<NSDraggingSession> _draggingSession;
     RetainPtr<NSMutableArray<NSFilePromiseProvider *>> _filePromiseProviders;
+    BlockPtr<void()> _willBeginDraggingHandler;
     BlockPtr<void()> _willEndDraggingHandler;
     NSPoint _startLocationInWindow;
     NSPoint _endLocationInWindow;
@@ -100,8 +103,8 @@ static NSImage *defaultExternalDragImage()
     bool _doneWaitingForDrop;
 }
 
-@synthesize currentDragOperation=_currentDragOperation;
-@synthesize initialDragImageLocationInView=_initialDragImageLocationInView;
+@synthesize currentDragOperation = _currentDragOperation;
+@synthesize initialDragImageLocationInView = _initialDragImageLocationInView;
 
 - (instancetype)initWithWebViewFrame:(CGRect)frame
 {
@@ -111,10 +114,12 @@ static NSImage *defaultExternalDragImage()
 - (instancetype)initWithWebViewFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration
 {
     if (self = [super init]) {
-        _webView = adoptNS([[DragAndDropTestWKWebView alloc] initWithFrame:frame configuration:configuration ?: [[[WKWebViewConfiguration alloc] init] autorelease] simulator:self]);
+        _webView = adoptNS([[DragAndDropTestWKWebView alloc] initWithFrame:frame configuration:configuration ?: adoptNS([[WKWebViewConfiguration alloc] init]).get() simulator:self]);
         _filePromiseDestinationURLs = adoptNS([NSMutableArray new]);
         [_webView setUIDelegate:self];
         self.dragDestinationAction = WKDragDestinationActionAny & ~WKDragDestinationActionLoad;
+
+        [[NSPasteboard pasteboardWithName:NSPasteboardNameDrag] clearContents];
     }
     return self;
 }
@@ -162,8 +167,8 @@ static NSImage *defaultExternalDragImage()
 
     if (NSPasteboard *pasteboard = self.externalDragPasteboard) {
         NSPoint startLocationInView = [_webView convertPoint:_startLocationInWindow fromView:nil];
-        NSImage *dragImage = self.externalDragImage ?: defaultExternalDragImage();
-        [self performDragInWebView:_webView.get() atLocation:startLocationInView withImage:dragImage pasteboard:pasteboard source:nil];
+        auto dragImage = !self.externalDragImage ? defaultExternalDragImage(): nil;
+        [self performDragInWebView:_webView.get() atLocation:startLocationInView withImage:dragImage.get() pasteboard:pasteboard source:nil];
         TestWebKitAPI::Util::run(&_doneWaitingForDrop);
         return;
     }
@@ -179,6 +184,10 @@ static NSImage *defaultExternalDragImage()
     [_webView mouseDownAtPoint:_startLocationInWindow simulatePressure:NO];
     // Make sure that we exceed the minimum 150ms delay between handling mousedown and drag when dragging a text selection.
     [_webView setEventTimestampOffset:0.25];
+
+    if (_willBeginDraggingHandler)
+        _willBeginDraggingHandler();
+
     [_webView mouseDragToPoint:[self locationInViewForCurrentProgress]];
     [_webView waitForPendingMouseEvents];
 
@@ -341,6 +350,16 @@ static NSImage *defaultExternalDragImage()
     return _draggingInfo.get();
 }
 
+- (dispatch_block_t)willBeginDraggingHandler
+{
+    return _willBeginDraggingHandler.get();
+}
+
+- (void)setWillBeginDraggingHandler:(dispatch_block_t)willBeginDraggingHandler
+{
+    _willBeginDraggingHandler = makeBlockPtr(willBeginDraggingHandler);
+}
+
 - (dispatch_block_t)willEndDraggingHandler
 {
     return _willEndDraggingHandler.get();
@@ -389,6 +408,15 @@ static BOOL getFilePathsAndTypeIdentifiers(NSArray<NSURL *> *fileURLs, NSArray<N
         *outFilePaths = filePaths;
 
     return YES;
+}
+
+- (void)writePromisedWebLoc:(NSURL *)url
+{
+    _externalPromisedFiles = @[ url ];
+    _externalDragPasteboard = NSPasteboard.pasteboardWithUniqueName;
+    [_externalDragPasteboard declareTypes:@[ NSFilesPromisePboardType, NSPasteboardTypeURL ] owner:nil];
+    [_externalDragPasteboard setPropertyList:@[ @"com.apple.web-internet-location" ] forType:NSFilesPromisePboardType];
+    [_externalDragPasteboard setString:url.absoluteString forType:NSPasteboardTypeURL];
 }
 
 - (void)writePromisedFiles:(NSArray<NSURL *> *)fileURLs
@@ -447,6 +475,15 @@ static BOOL getFilePathsAndTypeIdentifiers(NSArray<NSURL *> *fileURLs, NSArray<N
 
 - (void)endDataTransfer
 {
+}
+
+- (BOOL)containsDraggedType:(NSString *)expectedType
+{
+    for (NSPasteboardType type in [NSPasteboard pasteboardWithName:NSPasteboardNameDrag].types) {
+        if ([type isEqualToString:expectedType])
+            return YES;
+    }
+    return NO;
 }
 
 #pragma mark - WKUIDelegatePrivate

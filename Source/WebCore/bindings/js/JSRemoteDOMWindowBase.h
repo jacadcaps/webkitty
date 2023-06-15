@@ -25,14 +25,13 @@
 
 #pragma once
 
-#include "JSDOMGlobalObject.h"
+#include "JSDOMGlobalObjectInlines.h"
 #include "RemoteDOMWindow.h"
 #include <JavaScriptCore/StructureInlines.h>
 
 namespace WebCore {
 
 class JSWindowProxy;
-class JSRemoteDOMWindow;
 
 class WEBCORE_EXPORT JSRemoteDOMWindowBase : public JSDOMGlobalObject {
 public:
@@ -57,7 +56,5 @@ protected:
 private:
     RefPtr<RemoteDOMWindow> m_wrapped;
 };
-
-WEBCORE_EXPORT JSRemoteDOMWindow* toJSRemoteDOMWindow(JSC::VM&, JSC::JSValue);
 
 } // namespace WebCore

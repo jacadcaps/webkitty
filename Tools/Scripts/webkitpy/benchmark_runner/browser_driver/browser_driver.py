@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-
 from abc import ABCMeta, abstractmethod
 from webkitpy.benchmark_runner.utils import get_driver_binary_path
+from contextlib import contextmanager
 
 
 class BrowserDriver(object):
@@ -44,6 +43,14 @@ class BrowserDriver(object):
 
     def diagnose_test_failure(self, debug_directory, error):
         pass
+
+    @contextmanager
+    def prevent_sleep(self, timeout):
+        yield
+
+    @contextmanager
+    def profile(self, timeout):
+        yield
 
     @property
     def webdriver_binary_path(self):

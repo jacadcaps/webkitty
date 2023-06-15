@@ -226,7 +226,7 @@ void PrepareTestCase(const TestCase &tc)
         a.enable(i++);
 }
 
-class AttributeLayoutTest : public ANGLETest
+class AttributeLayoutTest : public ANGLETest<>
 {
   protected:
     AttributeLayoutTest()
@@ -419,7 +419,7 @@ void AttributeLayoutTest::GetTestCases(void)
     {
         mTestCases.push_back({SInt(M0, 0, 40, mCoord), UInt(M0, 16, 40, mColor)});
         // Fails on Nexus devices (anglebug.com/2641)
-        if (!IsNexus5X() && !IsNexus6P())
+        if (!IsNexus5X())
             mTestCases.push_back({NormSInt(M0, 0, 40, mCoord), NormUInt(M0, 16, 40, mColor)});
     }
 }
@@ -454,9 +454,6 @@ class AttributeLayoutBufferIndexed : public AttributeLayoutTest
 
 TEST_P(AttributeLayoutNonIndexed, Test)
 {
-    // Flaky on Linux SwANGLE http://anglebug.com/4502
-    ANGLE_SKIP_TEST_IF(IsLinux() && isSwiftshader());
-
     Run(true);
     ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsOpenGL());
     Run(false);
@@ -464,26 +461,32 @@ TEST_P(AttributeLayoutNonIndexed, Test)
 
 TEST_P(AttributeLayoutMemoryIndexed, Test)
 {
-    // Flaky on Linux SwANGLE http://anglebug.com/4502
-    ANGLE_SKIP_TEST_IF(IsLinux() && isSwiftshader());
-
     Run(true);
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && (IsOpenGL() || IsD3D11_FL93()));
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsOpenGL());
     Run(false);
 }
 
 TEST_P(AttributeLayoutBufferIndexed, Test)
 {
-    // Flaky on Linux SwANGLE http://anglebug.com/4502
-    ANGLE_SKIP_TEST_IF(IsLinux() && isSwiftshader());
-
     Run(true);
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && (IsOpenGL() || IsD3D11_FL93()));
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsOpenGL());
     Run(false);
 }
 
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutNonIndexed);
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutMemoryIndexed);
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutBufferIndexed);
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutNonIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2)
+                                           .disable(Feature::SupportsLogicOpDynamicState));
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutMemoryIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2)
+                                           .disable(Feature::SupportsLogicOpDynamicState));
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutBufferIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2)
+                                           .disable(Feature::SupportsLogicOpDynamicState));
 
 }  // anonymous namespace

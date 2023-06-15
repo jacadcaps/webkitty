@@ -31,6 +31,7 @@
 #import "ResourceLoadInfo.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKResourceLoadInfoInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 static _WKResourceLoadInfoResourceType toWKResourceLoadInfoResourceType(WebKit::ResourceLoadInfo::Type type)
 {
@@ -77,6 +78,8 @@ static _WKResourceLoadInfoResourceType toWKResourceLoadInfoResourceType(WebKit::
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKResourceLoadInfo.class, self))
+        return;
     _info->API::ResourceLoadInfo::~ResourceLoadInfo();
     [super dealloc];
 }
@@ -146,17 +149,14 @@ static _WKResourceLoadInfoResourceType toWKResourceLoadInfoResourceType(WebKit::
         return nil;
     }
 
-    NSNumber *frame = [coder decodeObjectOfClass:[NSNumber class] forKey:@"frame"];
+    _WKFrameHandle *frame = [coder decodeObjectOfClass:[_WKFrameHandle class] forKey:@"frame"];
     if (!frame) {
         [self release];
         return nil;
     }
 
-    NSNumber *parentFrame = [coder decodeObjectOfClass:[NSNumber class] forKey:@"parentFrame"];
-    if (!parentFrame) {
-        [self release];
-        return nil;
-    }
+    _WKFrameHandle *parentFrame = [coder decodeObjectOfClass:[_WKFrameHandle class] forKey:@"parentFrame"];
+    // parentFrame is nullable, so decoding null is ok.
 
     NSURL *originalURL = [coder decodeObjectOfClass:[NSURL class] forKey:@"originalURL"];
     if (!originalURL) {
@@ -190,8 +190,8 @@ static _WKResourceLoadInfoResourceType toWKResourceLoadInfoResourceType(WebKit::
 
     WebKit::ResourceLoadInfo info {
         makeObjectIdentifier<WebKit::NetworkResourceLoadIdentifierType>(resourceLoadID.unsignedLongLongValue),
-        makeObjectIdentifier<WebCore::FrameIdentifierType>(frame.unsignedLongLongValue),
-        makeObjectIdentifier<WebCore::FrameIdentifierType>(parentFrame.unsignedLongLongValue),
+        frame->_frameHandle->frameID(),
+        parentFrame ? std::optional<WebCore::FrameIdentifier>(parentFrame->_frameHandle->frameID()) : std::nullopt,
         originalURL,
         originalHTTPMethod,
         WallTime::fromRawSeconds(eventTimestamp.timeIntervalSince1970),
@@ -207,8 +207,8 @@ static _WKResourceLoadInfoResourceType toWKResourceLoadInfoResourceType(WebKit::
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeObject:@(self.resourceLoadID) forKey:@"resourceLoadID"];
-    [coder encodeObject:@(self.frame.frameID) forKey:@"frame"];
-    [coder encodeObject:@(self.parentFrame.frameID) forKey:@"parentFrame"];
+    [coder encodeObject:self.frame forKey:@"frame"];
+    [coder encodeObject:self.parentFrame forKey:@"parentFrame"];
     [coder encodeObject:self.originalURL forKey:@"originalURL"];
     [coder encodeObject:self.originalHTTPMethod forKey:@"originalHTTPMethod"];
     [coder encodeObject:self.eventTimestamp forKey:@"eventTimestamp"];

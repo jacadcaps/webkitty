@@ -39,13 +39,13 @@
 #import "WebKitNSStringExtras.h"
 #import "WebKitStatisticsPrivate.h"
 #import "WebNSObjectExtras.h"
-#import "WebTypesInternal.h"
 #import "WebView.h"
 #import <Foundation/NSURLResponse.h>
 #import <JavaScriptCore/RegularExpression.h>
 #import <WebCore/Document.h>
 #import <WebCore/DocumentLoader.h>
 #import <WebCore/Editor.h>
+#import <WebCore/ElementInlines.h>
 #import <WebCore/Frame.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/FrameLoaderClient.h>
@@ -63,6 +63,7 @@
 #import <WebCore/TextResourceDecoder.h>
 #import <WebKitLegacy/DOMHTMLInputElement.h>
 #import <wtf/Assertions.h>
+#import <wtf/FixedVector.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -89,7 +90,7 @@ using JSC::Yarr::RegularExpression;
 
 @implementation WebHTMLRepresentation
 
-static RetainPtr<NSArray> newArrayWithStrings(const HashSet<String, ASCIICaseInsensitiveHash>& set)
+static RetainPtr<NSArray> createNSArray(const HashSet<String, ASCIICaseInsensitiveHash>& set)
 {
     auto vector = copyToVectorOf<NSString *>(set);
     return adoptNS([[NSArray alloc] initWithObjects:vector.data() count:vector.size()]);
@@ -97,34 +98,33 @@ static RetainPtr<NSArray> newArrayWithStrings(const HashSet<String, ASCIICaseIns
 
 + (NSArray *)supportedMIMETypes
 {
-    static NSArray *staticSupportedMIMETypes = [[[[self supportedNonImageMIMETypes] arrayByAddingObjectsFromArray:
-        [self supportedImageMIMETypes]] arrayByAddingObjectsFromArray:
-        [self supportedMediaMIMETypes]] retain];
-    return staticSupportedMIMETypes;
+    static NeverDestroyed<RetainPtr<NSArray>> staticSupportedMIMETypes = [[[self supportedNonImageMIMETypes] arrayByAddingObjectsFromArray:
+        [self supportedImageMIMETypes]] arrayByAddingObjectsFromArray:[self supportedMediaMIMETypes]];
+    return staticSupportedMIMETypes.get().get();
 }
 
 + (NSArray *)supportedMediaMIMETypes
 {
-    static NSArray *staticSupportedMediaMIMETypes = newArrayWithStrings(MIMETypeRegistry::supportedMediaMIMETypes()).leakRef();
-    return staticSupportedMediaMIMETypes;
+    static NeverDestroyed<RetainPtr<NSArray>> staticSupportedMediaMIMETypes = createNSArray(MIMETypeRegistry::supportedMediaMIMETypes());
+    return staticSupportedMediaMIMETypes.get().get();
 }
 
 + (NSArray *)supportedNonImageMIMETypes
 {
-    static NSArray *staticSupportedNonImageMIMETypes = newArrayWithStrings(MIMETypeRegistry::supportedNonImageMIMETypes()).leakRef();
-    return staticSupportedNonImageMIMETypes;
+    static NeverDestroyed<RetainPtr<NSArray>> staticSupportedNonImageMIMETypes = createNSArray(MIMETypeRegistry::supportedNonImageMIMETypes());
+    return staticSupportedNonImageMIMETypes.get().get();
 }
 
 + (NSArray *)supportedImageMIMETypes
 {
-    static NSArray *staticSupportedImageMIMETypes = newArrayWithStrings(MIMETypeRegistry::supportedImageMIMETypes()).leakRef();
-    return staticSupportedImageMIMETypes;
+    static NeverDestroyed<RetainPtr<NSArray>> staticSupportedImageMIMETypes = createNSArray(MIMETypeRegistry::supportedImageMIMETypes());
+    return staticSupportedImageMIMETypes.get().get();
 }
 
 + (NSArray *)unsupportedTextMIMETypes
 {
-    static NSArray *staticUnsupportedTextMIMETypes = newArrayWithStrings(MIMETypeRegistry::unsupportedTextMIMETypes()).leakRef();
-    return staticUnsupportedTextMIMETypes;
+    static NeverDestroyed<RetainPtr<NSArray>> staticUnsupportedTextMIMETypes = createNSArray(MIMETypeRegistry::unsupportedTextMIMETypes());
+    return staticUnsupportedTextMIMETypes.get().get();
 }
 
 - (id)init
@@ -230,9 +230,8 @@ static RetainPtr<NSArray> newArrayWithStrings(const HashSet<String, ASCIICaseIns
 - (NSString *)documentSource
 {
     if ([self _isDisplayingWebArchive]) {            
-        SharedBuffer *parsedArchiveData = [_private->dataSource _documentLoader]->parsedArchiveData();
-        NSString *result = [[NSString alloc] initWithData:parsedArchiveData ? parsedArchiveData->createNSData().get() : nil encoding:NSUTF8StringEncoding];
-        return [result autorelease];
+        auto *parsedArchiveData = [_private->dataSource _documentLoader]->parsedArchiveData();
+        return adoptNS([[NSString alloc] initWithData:parsedArchiveData ? parsedArchiveData->createNSData().get() : nil encoding:NSUTF8StringEncoding]).autorelease();
     }
 
     Frame* coreFrame = core([_private->dataSource webFrame]);
@@ -270,7 +269,7 @@ static RetainPtr<NSArray> newArrayWithStrings(const HashSet<String, ASCIICaseIns
 - (NSAttributedString *)attributedStringFrom:(DOMNode *)startNode startOffset:(int)startOffset to:(DOMNode *)endNode endOffset:(int)endOffset
 {
     if (!startNode || !endNode)
-        return [[[NSAttributedString alloc] init] autorelease];
+        return adoptNS([[NSAttributedString alloc] init]).autorelease();
     auto range = SimpleRange { { *core(startNode), static_cast<unsigned>(startOffset) }, { *core(endNode), static_cast<unsigned>(endOffset) } };
     return editingAttributedString(range).string.autorelease();
 }
@@ -291,9 +290,9 @@ static HTMLFormElement* formElementFromDOMElement(DOMElement *element)
 
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
     AtomString targetName = name;
-    for (auto& weakElement : formElement->unsafeAssociatedElements()) {
-        auto element = makeRefPtr(weakElement.get());
-        if (element->asFormAssociatedElement()->name() == targetName)
+    for (auto& weakElement : formElement->unsafeListedElements()) {
+        RefPtr element { weakElement.get() };
+        if (element && element->asFormListedElement()->name() == targetName)
             return kit(element.get());
     }
     return nil;
@@ -302,7 +301,7 @@ static HTMLFormElement* formElementFromDOMElement(DOMElement *element)
 static HTMLInputElement* inputElementFromDOMElement(DOMElement* element)
 {
     Element* node = core(element);
-    return is<HTMLInputElement>(node) ? downcast<HTMLInputElement>(node) : nullptr;
+    return dynamicDowncast<HTMLInputElement>(node);
 }
 
 - (BOOL)elementDoesAutoComplete:(DOMElement *)element
@@ -338,9 +337,9 @@ static HTMLInputElement* inputElementFromDOMElement(DOMElement* element)
         return nil;
 
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
-    auto result = createNSArray(formElement->unsafeAssociatedElements(), [] (auto& weakElement) -> DOMElement * {
-        auto coreElement = makeRefPtr(weakElement.get());
-        if (!coreElement->asFormAssociatedElement()->isEnumeratable()) // Skip option elements, other duds
+    auto result = createNSArray(formElement->unsafeListedElements(), [] (auto& weakElement) -> DOMElement * {
+        RefPtr coreElement { weakElement.get() };
+        if (!coreElement || !coreElement->asFormListedElement()->isEnumeratable()) // Skip option elements, other duds
             return nil;
         return kit(coreElement.get());
     });
@@ -357,14 +356,12 @@ static RegularExpression* regExpForLabels(NSArray *labels)
     // Parallel arrays that we use to cache regExps.  In practice the number of expressions
     // that the app will use is equal to the number of locales is used in searching.
     static const unsigned int regExpCacheSize = 4;
-    static NSMutableArray* regExpLabels = nil;
+    static NeverDestroyed<RetainPtr<NSMutableArray>> regExpLabels = adoptNS([[NSMutableArray alloc] initWithCapacity:regExpCacheSize]);
     static NeverDestroyed<Vector<RegularExpression*>> regExps;
-    static NeverDestroyed<RegularExpression> wordRegExp("\\w");
+    static NeverDestroyed<RegularExpression> wordRegExp("\\w"_s);
 
     RegularExpression* result;
-    if (!regExpLabels)
-        regExpLabels = [[NSMutableArray alloc] initWithCapacity:regExpCacheSize];
-    CFIndex cacheHit = [regExpLabels indexOfObject:labels];
+    CFIndex cacheHit = [regExpLabels.get() indexOfObject:labels];
     if (cacheHit != NSNotFound)
         result = regExps.get().at(cacheHit);
     else {
@@ -375,23 +372,17 @@ static RegularExpression* regExpForLabels(NSArray *labels)
         for (i = 0; i < numLabels; i++) {
             String label = [labels objectAtIndex:i];
 
-            bool startsWithWordChar = false;
-            bool endsWithWordChar = false;
-            if (label.length() != 0) {
-                startsWithWordChar = wordRegExp.get().match(label.substring(0, 1)) >= 0;
-                endsWithWordChar = wordRegExp.get().match(label.substring(label.length() - 1, 1)) >= 0;
+            bool startsWithWordCharacter = false;
+            bool endsWithWordCharacter = false;
+            if (label.length()) {
+                StringView labelView { label };
+                startsWithWordCharacter = wordRegExp.get().match(labelView.left(1)) >= 0;
+                endsWithWordCharacter = wordRegExp.get().match(labelView.right(1)) >= 0;
             }
             
-            if (i != 0)
-                pattern.append('|');
             // Search for word boundaries only if label starts/ends with "word characters".
-            // If we always searched for word boundaries, this wouldn't work for languages
-            // such as Japanese.
-            if (startsWithWordChar)
-                pattern.appendLiteral("\\b");
-            pattern.append(label);
-            if (endsWithWordChar)
-                pattern.appendLiteral("\\b");
+            // If we always searched for word boundaries, this wouldn't work for languages such as Japanese.
+            pattern.append(i ? "|" : "", startsWithWordCharacter ? "\\b" : "", label, endsWithWordCharacter ? "\\b" : "");
         }
         pattern.append(')');
         result = new RegularExpression(pattern.toString(), JSC::Yarr::TextCaseInsensitive);
@@ -401,15 +392,15 @@ static RegularExpression* regExpForLabels(NSArray *labels)
     if (cacheHit != 0) {
         if (cacheHit != NSNotFound) {
             // remove from old spot
-            [regExpLabels removeObjectAtIndex:cacheHit];
+            [regExpLabels.get() removeObjectAtIndex:cacheHit];
             regExps.get().remove(cacheHit);
         }
         // add to start
-        [regExpLabels insertObject:labels atIndex:0];
+        [regExpLabels.get() insertObject:labels atIndex:0];
         regExps.get().insert(0, result);
         // trim if too big
-        if ([regExpLabels count] > regExpCacheSize) {
-            [regExpLabels removeObjectAtIndex:regExpCacheSize];
+        if ([regExpLabels.get() count] > regExpCacheSize) {
+            [regExpLabels.get() removeObjectAtIndex:regExpCacheSize];
             RegularExpression* last = regExps.get().last();
             regExps.get().removeLast();
             delete last;
@@ -493,8 +484,8 @@ static NSString *matchLabelsAgainstString(NSArray *labels, const String& stringT
     String mutableStringToMatch = stringToMatch;
     
     // Make numbers and _'s in field names behave like word boundaries, e.g., "address2"
-    replace(mutableStringToMatch, RegularExpression("\\d"), " ");
-    mutableStringToMatch.replace('_', ' ');
+    replace(mutableStringToMatch, RegularExpression("\\d"_s), " "_s);
+    mutableStringToMatch = makeStringByReplacingAll(mutableStringToMatch, '_', ' ');
     
     RegularExpression* regExp = regExpForLabels(labels);
     // Use the largest match we can find in the whole string

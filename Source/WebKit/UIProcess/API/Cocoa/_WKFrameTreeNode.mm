@@ -27,14 +27,18 @@
 
 #import "WKSecurityOriginInternal.h"
 #import "WKWebViewInternal.h"
+#import "WebPageProxy.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 @implementation _WKFrameTreeNode
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKFrameTreeNode.class, self))
+        return;
     _node->API::FrameTreeNode::~FrameTreeNode();
     [super dealloc];
 }
@@ -52,13 +56,13 @@
 - (WKSecurityOrigin *)securityOrigin
 {
     auto& data = _node->securityOrigin();
-    auto apiOrigin = API::SecurityOrigin::create(data.protocol, data.host, data.port);
-    return [[wrapper(apiOrigin.get()) retain] autorelease];
+    auto apiOrigin = API::SecurityOrigin::create(data);
+    return retainPtr(wrapper(apiOrigin.get())).autorelease();
 }
 
 - (WKWebView *)webView
 {
-    return [[fromWebPageProxy(_node->page()) retain] autorelease];
+    return _node->page().cocoaView().autorelease();
 }
 
 - (NSArray<_WKFrameTreeNode *> *)childFrames
@@ -75,12 +79,18 @@
 
 - (_WKFrameHandle *)_handle
 {
-    return [[wrapper(_node->handle()) retain] autorelease];
+    return retainPtr(wrapper(_node->handle())).autorelease();
 }
 
 - (_WKFrameHandle *)_parentFrameHandle
 {
-    return [[wrapper(_node->parentFrameHandle()) retain] autorelease];
+    return retainPtr(wrapper(_node->parentFrameHandle())).autorelease();
+}
+
+- (pid_t)_processIdentifier
+{
+    auto* frame = WebKit::WebFrameProxy::webFrame(_node->handle()->frameID());
+    return frame ? frame->processIdentifier() : 0;
 }
 
 - (API::Object&)_apiObject

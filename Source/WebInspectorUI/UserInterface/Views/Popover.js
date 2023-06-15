@@ -114,7 +114,7 @@ WI.Popover = class Popover extends WI.Object
             previouslyFocusedElement.focus();
     }
 
-    present(targetFrame, preferredEdges)
+    present(targetFrame, preferredEdges, {updateContent, shouldAnimate} = {})
     {
         this._targetFrame = targetFrame;
         this._preferredEdges = preferredEdges;
@@ -124,7 +124,10 @@ WI.Popover = class Popover extends WI.Object
 
         this._addListenersIfNeeded();
 
-        this._update();
+        if (updateContent && this.visible)
+            this.update(shouldAnimate);
+        else
+            this._update(shouldAnimate);
     }
 
     presentNewContentWithFrame(content, targetFrame, preferredEdges)
@@ -200,6 +203,20 @@ WI.Popover = class Popover extends WI.Object
 
     // Private
 
+    static _getCanvasContext(width, height)
+    {
+        let context = WI.Popover._canvasContext?.deref();
+        if (!context) {
+            context = document.createElement("canvas").getContext("2d");
+            context.canvas.className = "background-canvas";
+            WI.Popover._canvasContext = new WeakRef(context);
+        }
+
+        context.canvas.width = width;
+        context.canvas.height = height;
+        return context;
+    }
+
     _update(shouldAnimate)
     {
         if (shouldAnimate)
@@ -235,7 +252,7 @@ WI.Popover = class Popover extends WI.Object
             this._preferredSize = new WI.Size(Math.ceil(popoverBounds.width), Math.ceil(popoverBounds.height));
         }
 
-        var titleBarOffset = WI.Platform.name === "mac" ? 22 : 0;
+        var titleBarOffset = WI.undockedTitleAreaHeight();
         var containerFrame = new WI.Rect(0, titleBarOffset, window.innerWidth, window.innerHeight - titleBarOffset);
         // The frame of the window with a little inset to make sure we have room for shadows.
         containerFrame = containerFrame.inset(WI.Popover.ShadowEdgeInsets);
@@ -422,7 +439,9 @@ WI.Popover = class Popover extends WI.Object
         bounds = bounds.inset(WI.Popover.ShadowEdgeInsets);
         let computedStyle = window.getComputedStyle(this._element, null);
 
-        let context = document.getCSSCanvasContext("2d", "popover", scaledWidth, scaledHeight);
+        let context = WI.Popover._getCanvasContext(scaledWidth, scaledHeight);
+        this._element.appendChild(context.canvas);
+
         context.clearRect(0, 0, scaledWidth, scaledHeight);
 
         function isolate(callback) {

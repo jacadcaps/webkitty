@@ -29,11 +29,15 @@
 #import "WKSecurityOriginInternal.h"
 #import "WKWebViewInternal.h"
 #import "_WKFrameHandleInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation WKFrameInfo
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKFrameInfo.class, self))
+        return;
+
     _frameInfo->~FrameInfo();
 
     [super dealloc];
@@ -57,15 +61,14 @@
 - (WKSecurityOrigin *)securityOrigin
 {
     auto& data = _frameInfo->securityOrigin();
-    auto apiOrigin = API::SecurityOrigin::create(data.protocol, data.host, data.port);
-    return [[wrapper(apiOrigin.get()) retain] autorelease];
+    auto apiOrigin = API::SecurityOrigin::create(data);
+    return retainPtr(wrapper(apiOrigin.get())).autorelease();
 }
 
 - (WKWebView *)webView
 {
-    if (WebKit::WebPageProxy* page = _frameInfo->page())
-        return [[fromWebPageProxy(*page) retain] autorelease];
-    return nil;
+    auto page = _frameInfo->page();
+    return page ? page->cocoaView().autorelease() : nil;
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -86,12 +89,18 @@
 
 - (_WKFrameHandle *)_handle
 {
-    return [[wrapper(_frameInfo->handle()) retain] autorelease];
+    return retainPtr(wrapper(_frameInfo->handle())).autorelease();
 }
 
 - (_WKFrameHandle *)_parentFrameHandle
 {
-    return [[wrapper(_frameInfo->parentFrameHandle()) retain] autorelease];
+    return retainPtr(wrapper(_frameInfo->parentFrameHandle())).autorelease();
+}
+
+- (pid_t)_processIdentifier
+{
+    auto* frame = WebKit::WebFrameProxy::webFrame(_frameInfo->handle()->frameID());
+    return frame ? frame->processIdentifier() : 0;
 }
 
 @end

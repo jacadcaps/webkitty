@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,14 +26,21 @@
 #include "config.h"
 #include "DisplayLink.h"
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+#if HAVE(CVDISPLAYLINK)
 
-#include "EventDispatcherMessages.h"
+#include "Logging.h"
+#include <WebCore/AnimationFrameRate.h>
 #include <wtf/ProcessPrivilege.h>
+#include <wtf/RunLoop.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebKit {
-    
-DisplayLink::DisplayLink(WebCore::PlatformDisplayID displayID)
+
+using namespace WebCore;
+
+constexpr unsigned maxFireCountWithoutObservers { 20 };
+
+DisplayLink::DisplayLink(PlatformDisplayID displayID)
     : m_displayID(displayID)
 {
     // FIXME: We can get here with displayID == 0 (webkit.org/b/212120), in which case CVDisplayLinkCreateWithCGDisplay()
@@ -41,19 +48,25 @@ DisplayLink::DisplayLink(WebCore::PlatformDisplayID displayID)
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
     CVReturn error = CVDisplayLinkCreateWithCGDisplay(displayID, &m_displayLink);
     if (error) {
-        WTFLogAlways("Could not create a display link for display %u: error %d", displayID, error);
+        RELEASE_LOG_FAULT(DisplayLink, "Could not create a display link for display %u: error %d", displayID, error);
         return;
     }
     
     error = CVDisplayLinkSetOutputCallback(m_displayLink, displayLinkCallback, this);
     if (error) {
-        WTFLogAlways("Could not set the display link output callback for display %u: error %d", displayID, error);
+        RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not set the display link output callback for display %u: error %d", displayID, error);
         return;
     }
+
+    m_displayNominalFramesPerSecond = nominalFramesPerSecondFromDisplayLink(m_displayLink);
+
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] Created DisplayLink " << this << " for display " << displayID << " with nominal fps " << m_displayNominalFramesPerSecond);
 }
 
 DisplayLink::~DisplayLink()
 {
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] Destroying DisplayLink " << this << " for display " << m_displayID);
+
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
     ASSERT(m_displayLink);
     if (!m_displayLink)
@@ -63,79 +76,263 @@ DisplayLink::~DisplayLink()
     CVDisplayLinkRelease(m_displayLink);
 }
 
-Optional<unsigned> DisplayLink::nominalFramesPerSecond() const
+FramesPerSecond DisplayLink::nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef displayLink)
 {
-    CVTime refreshPeriod = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(m_displayLink);
-    return round((double)refreshPeriod.timeScale / (double)refreshPeriod.timeValue);
+    CVTime refreshPeriod = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(displayLink);
+    if (!refreshPeriod.timeValue)
+        return FullSpeedFramesPerSecond;
+
+    FramesPerSecond result = round((double)refreshPeriod.timeScale / (double)refreshPeriod.timeValue);
+    return result ?: FullSpeedFramesPerSecond;
 }
 
-void DisplayLink::addObserver(IPC::Connection& connection, DisplayLinkObserverID observerID)
+void DisplayLink::addObserver(Client& client, DisplayLinkObserverID observerID, FramesPerSecond preferredFramesPerSecond)
 {
     ASSERT(RunLoop::isMain());
-    bool isRunning = !m_observers.isEmpty();
+
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink " << this << " for display display " << m_displayID << " add observer " << observerID << " fps " << preferredFramesPerSecond);
 
     {
-        LockHolder locker(m_observersLock);
-        m_observers.ensure(&connection, [] {
-            return Vector<DisplayLinkObserverID> { };
-        }).iterator->value.append(observerID);
+        Locker locker { m_clientsLock };
+        m_clients.ensure(client, [] {
+            return ClientInfo { };
+        }).iterator->value.observers.append({ observerID, preferredFramesPerSecond });
     }
 
-    if (!isRunning) {
+    if (!CVDisplayLinkIsRunning(m_displayLink)) {
+        LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " starting CVDisplayLink with fps " << m_displayNominalFramesPerSecond);
+
+        m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
+
         CVReturn error = CVDisplayLinkStart(m_displayLink);
         if (error)
-            WTFLogAlways("Could not start the display link: %d", error);
+            RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not start the display link: %d", error);
     }
 }
 
-void DisplayLink::removeObserver(IPC::Connection& connection, DisplayLinkObserverID observerID)
+void DisplayLink::removeObserver(Client& client, DisplayLinkObserverID observerID)
 {
     ASSERT(RunLoop::isMain());
 
-    {
-        LockHolder locker(m_observersLock);
+    Locker locker { m_clientsLock };
 
-        auto it = m_observers.find(&connection);
-        if (it == m_observers.end())
-            return;
-        bool removed = it->value.removeFirst(observerID);
-        ASSERT_UNUSED(removed, removed);
-        if (it->value.isEmpty())
-            m_observers.remove(it);
-    }
+    auto it = m_clients.find(client);
+    if (it == m_clients.end())
+        return;
 
-    if (m_observers.isEmpty())
-        CVDisplayLinkStop(m_displayLink);
+    auto& clientInfo = it->value;
+
+    bool removed = clientInfo.observers.removeFirstMatching([observerID](const auto& value) {
+        return value.observerID == observerID;
+    });
+    ASSERT_UNUSED(removed, removed);
+
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink " << this << " for display " << m_displayID << " remove observer " << observerID);
+
+    removeInfoForClientIfUnused(client);
+
+    // We do not stop the display link right away when |m_clients| becomes empty. Instead, we
+    // let the display link fire up to |maxFireCountWithoutObservers| times without observers to avoid
+    // killing & restarting too many threads when observers gets removed & added in quick succession.
 }
 
-void DisplayLink::removeObservers(IPC::Connection& connection)
+void DisplayLink::removeClient(Client& client)
 {
     ASSERT(RunLoop::isMain());
 
-    {
-        LockHolder locker(m_observersLock);
-        m_observers.remove(&connection);
-    }
+    Locker locker { m_clientsLock };
+    m_clients.remove(client);
 
-    if (m_observers.isEmpty())
-        CVDisplayLinkStop(m_displayLink);
+    // We do not stop the display link right away when |m_clients| becomes empty. Instead, we
+    // let the display link fire up to |maxFireCountWithoutObservers| times without observers to avoid
+    // killing & restarting too many threads when observers gets removed & added in quick succession.
 }
 
-bool DisplayLink::hasObservers() const
+bool DisplayLink::removeInfoForClientIfUnused(Client& client)
 {
-    ASSERT(RunLoop::isMain());
-    return !m_observers.isEmpty();
+    auto it = m_clients.find(client);
+    if (it == m_clients.end())
+        return false;
+
+    auto& clientInfo = it->value;
+    if (clientInfo.observers.isEmpty() && !clientInfo.fullSpeedUpdatesClientCount) {
+        m_clients.remove(it);
+        return true;
+    }
+    return false;
+}
+
+void DisplayLink::incrementFullSpeedRequestClientCount(Client& client)
+{
+    Locker locker { m_clientsLock };
+
+    auto& clientInfo = m_clients.ensure(client, [] {
+        return ClientInfo { };
+    }).iterator->value;
+
+    ++clientInfo.fullSpeedUpdatesClientCount;
+}
+
+void DisplayLink::decrementFullSpeedRequestClientCount(Client& client)
+{
+    Locker locker { m_clientsLock };
+
+    auto it = m_clients.find(client);
+    if (it == m_clients.end())
+        return;
+
+    auto& clientInfo = it->value;
+    ASSERT(clientInfo.fullSpeedUpdatesClientCount);
+    --clientInfo.fullSpeedUpdatesClientCount;
+    removeInfoForClientIfUnused(client);
+}
+
+void DisplayLink::displayPropertiesChanged()
+{
+    // FIXME: Detect whether the refresh frequency changed.
+}
+
+void DisplayLink::setObserverPreferredFramesPerSecond(Client& client, DisplayLinkObserverID observerID, FramesPerSecond preferredFramesPerSecond)
+{
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink " << this << " setPreferredFramesPerSecond - display " << m_displayID << " observer " << observerID << " fps " << preferredFramesPerSecond);
+
+    Locker locker { m_clientsLock };
+
+    auto it = m_clients.find(client);
+    if (it == m_clients.end())
+        return;
+
+    auto& clientInfo = it->value;
+    auto index = clientInfo.observers.findIf([observerID](const auto& observer) {
+        return observer.observerID == observerID;
+    });
+
+    if (index != notFound)
+        clientInfo.observers[index].preferredFramesPerSecond = preferredFramesPerSecond;
 }
 
 CVReturn DisplayLink::displayLinkCallback(CVDisplayLinkRef displayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* data)
 {
-    auto* displayLink = static_cast<DisplayLink*>(data);
-    LockHolder locker(displayLink->m_observersLock);
-    for (auto& connection : displayLink->m_observers.keys())
-        connection->send(Messages::EventDispatcher::DisplayWasRefreshed(displayLink->m_displayID), 0);
+    static_cast<DisplayLink*>(data)->notifyObserversDisplayWasRefreshed();
     return kCVReturnSuccess;
+}
+
+void DisplayLink::notifyObserversDisplayWasRefreshed()
+{
+    ASSERT(!RunLoop::isMain());
+
+    Locker locker { m_clientsLock };
+
+    auto maxFramesPerSecond = [](const Vector<ObserverInfo>& observers) {
+        std::optional<FramesPerSecond> observersMaxFramesPerSecond;
+        for (const auto& observer : observers)
+            observersMaxFramesPerSecond = std::max(observersMaxFramesPerSecond.value_or(0), observer.preferredFramesPerSecond);
+        return observersMaxFramesPerSecond;
+    };
+
+    bool anyConnectionHadObservers = false;
+    for (auto& [client, clientInfo] : m_clients) {
+        if (clientInfo.observers.isEmpty())
+            continue;
+
+        anyConnectionHadObservers = true;
+
+        auto observersMaxFramesPerSecond = maxFramesPerSecond(clientInfo.observers);
+        bool anyObserverWantsCallback = m_currentUpdate.relevantForUpdateFrequency(observersMaxFramesPerSecond.value_or(FullSpeedFramesPerSecond));
+
+        LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink " << this << " for display " << m_displayID << " (display fps " << m_displayNominalFramesPerSecond << ") update " << m_currentUpdate << " " << clientInfo.observers.size()
+            << " observers, maxFramesPerSecond " << observersMaxFramesPerSecond << " full speed client count " << clientInfo.fullSpeedUpdatesClientCount << " relevant " << anyObserverWantsCallback);
+
+        if (clientInfo.fullSpeedUpdatesClientCount || anyObserverWantsCallback)
+            client->displayLinkFired(m_displayID, m_currentUpdate, clientInfo.fullSpeedUpdatesClientCount, anyObserverWantsCallback);
+    }
+
+    m_currentUpdate = m_currentUpdate.nextUpdate();
+
+    if (!anyConnectionHadObservers) {
+        if (++m_fireCountWithoutObservers >= maxFireCountWithoutObservers) {
+            LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " fired " << m_fireCountWithoutObservers << " times with no observers; stopping CVDisplayLink");
+            CVDisplayLinkStop(m_displayLink);
+        }
+        return;
+    }
+    m_fireCountWithoutObservers = 0;
+}
+
+DisplayLink& DisplayLinkCollection::displayLinkForDisplay(PlatformDisplayID displayID)
+{
+    if (auto* displayLink = existingDisplayLinkForDisplay(displayID))
+        return *displayLink;
+
+    auto displayLink = makeUnique<DisplayLink>(displayID);
+    auto displayLinkPtr = displayLink.get();
+    add(WTFMove(displayLink));
+    return *displayLinkPtr;
+}
+
+DisplayLink* DisplayLinkCollection::existingDisplayLinkForDisplay(PlatformDisplayID displayID) const
+{
+    for (auto& displayLink : m_displayLinks) {
+        if (displayLink->displayID() == displayID)
+            return displayLink.get();
+    }
+
+    return nullptr;
+}
+
+void DisplayLinkCollection::add(std::unique_ptr<DisplayLink>&& displayLink)
+{
+    ASSERT(!m_displayLinks.containsIf([&](auto &entry) { return entry->displayID() == displayLink->displayID(); }));
+    m_displayLinks.append(WTFMove(displayLink));
+}
+
+std::optional<unsigned> DisplayLinkCollection::nominalFramesPerSecondForDisplay(PlatformDisplayID displayID)
+{
+    // Note that this may create a DisplayLink with no observers, but it's highly likely that we'll soon call startDisplayLink() for it.
+    auto& displayLink = displayLinkForDisplay(displayID);
+    return displayLink.nominalFramesPerSecond();
+}
+
+void DisplayLinkCollection::startDisplayLink(DisplayLink::Client& client, DisplayLinkObserverID observerID, PlatformDisplayID displayID, FramesPerSecond preferredFramesPerSecond)
+{
+    auto& displayLink = displayLinkForDisplay(displayID);
+    displayLink.addObserver(client, observerID, preferredFramesPerSecond);
+}
+
+void DisplayLinkCollection::stopDisplayLink(DisplayLink::Client& client, DisplayLinkObserverID observerID, PlatformDisplayID displayID)
+{
+    if (auto* displayLink = existingDisplayLinkForDisplay(displayID))
+        displayLink->removeObserver(client, observerID);
+
+    // FIXME: Remove unused display links?
+}
+
+void DisplayLinkCollection::stopDisplayLinks(DisplayLink::Client& client)
+{
+    for (auto& displayLink : m_displayLinks)
+        displayLink->removeClient(client);
+    
+    // FIXME: Remove unused display links?
+}
+
+void DisplayLinkCollection::setDisplayLinkPreferredFramesPerSecond(DisplayLink::Client& client, DisplayLinkObserverID observerID, PlatformDisplayID displayID, FramesPerSecond preferredFramesPerSecond)
+{
+    LOG_WITH_STREAM(DisplayLink, stream << "[UI ] WebProcessPool::setDisplayLinkPreferredFramesPerSecond - display " << displayID << " observer " << observerID << " fps " << preferredFramesPerSecond);
+
+    if (auto* displayLink = existingDisplayLinkForDisplay(displayID))
+        displayLink->setObserverPreferredFramesPerSecond(client, observerID, preferredFramesPerSecond);
+}
+
+void DisplayLinkCollection::setDisplayLinkForDisplayWantsFullSpeedUpdates(DisplayLink::Client& client, PlatformDisplayID displayID, bool wantsFullSpeedUpdates)
+{
+    if (auto* displayLink = existingDisplayLinkForDisplay(displayID)) {
+        if (wantsFullSpeedUpdates)
+            displayLink->incrementFullSpeedRequestClientCount(client);
+        else
+            displayLink->decrementFullSpeedRequestClientCount(client);
+    }
 }
 
 } // namespace WebKit
 
-#endif // ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+#endif // HAVE(CVDISPLAYLINK)

@@ -25,41 +25,17 @@
 
 #pragma once
 
+#include "Connection.h"
 #include <WebCore/HTTPCookieAcceptPolicy.h>
 
 namespace WebKit {
 
 struct NetworkProcessConnectionInfo {
-    IPC::Attachment connection;
+    IPC::Connection::Handle connection;
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy;
 #if HAVE(AUDIT_TOKEN)
-    Optional<audit_token_t> auditToken;
+    std::optional<audit_token_t> auditToken;
 #endif
-
-    IPC::Connection::Identifier identifier() const
-    {
-#if USE(UNIX_DOMAIN_SOCKETS)
-        return IPC::Connection::Identifier(connection.fileDescriptor());
-#elif OS(DARWIN)
-        return IPC::Connection::Identifier(connection.port());
-#elif OS(WINDOWS)
-        return IPC::Connection::Identifier(connection.handle());
-#else
-        ASSERT_NOT_REACHED();
-        return IPC::Connection::Identifier();
-#endif
-    }
-
-    IPC::Connection::Identifier releaseIdentifier()
-    {
-#if USE(UNIX_DOMAIN_SOCKETS)
-        auto returnValue = IPC::Connection::Identifier(connection.releaseFileDescriptor());
-#else
-        auto returnValue = identifier();
-#endif
-        connection = { };
-        return returnValue;
-    }
 
     void encode(IPC::Encoder& encoder) const
     {

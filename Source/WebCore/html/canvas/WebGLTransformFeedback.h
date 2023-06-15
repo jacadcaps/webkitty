@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,25 @@
 
 #pragma once
 
-#if ENABLE(WEBGL2)
+#if ENABLE(WEBGL)
 
-#include "WebGL2RenderingContext.h"
 #include "WebGLSharedObject.h"
+#include <wtf/RefPtr.h>
+#include <wtf/Vector.h>
+
+namespace JSC {
+class AbstractSlotVisitor;
+}
+
+namespace WTF {
+class AbstractLocker;
+}
 
 namespace WebCore {
+
+class WebGL2RenderingContext;
+class WebGLBuffer;
+class WebGLProgram;
 
 class WebGLTransformFeedback final : public WebGLSharedObject {
 public:
@@ -47,8 +60,9 @@ public:
     // These are the indexed bind points for transform feedback buffers.
     // Returns false if index is out of range and the caller should
     // synthesize a GL error.
-    void setBoundIndexedTransformFeedbackBuffer(GCGLuint index, WebGLBuffer*);
+    void setBoundIndexedTransformFeedbackBuffer(const AbstractLocker&, GCGLuint index, WebGLBuffer*);
     bool getBoundIndexedTransformFeedbackBuffer(GCGLuint index, WebGLBuffer** outBuffer);
+    bool hasBoundIndexedTransformFeedbackBuffer(const WebGLBuffer* buffer) { return m_boundIndexedTransformFeedbackBuffers.contains(buffer); }
     
     bool validateProgramForResume(WebGLProgram*) const;
 
@@ -56,15 +70,18 @@ public:
     void setHasEverBeenBound() { m_hasEverBeenBound = true; }
     
     WebGLProgram* program() const { return m_program.get(); }
-    void setProgram(WebGLProgram&);
+    void setProgram(const AbstractLocker&, WebGLProgram&);
     
-    void unbindBuffer(WebGLBuffer&);
+    void unbindBuffer(const AbstractLocker&, WebGLBuffer&);
     
     bool hasEnoughBuffers(GCGLuint numRequired) const;
+
+    void addMembersToOpaqueRoots(const AbstractLocker&, JSC::AbstractSlotVisitor&);
+
 private:
     WebGLTransformFeedback(WebGL2RenderingContext&);
 
-    void deleteObjectImpl(GraphicsContextGLOpenGL*, PlatformGLObject) override;
+    void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
     
     bool m_active { false };
     bool m_paused { false };
@@ -76,4 +93,4 @@ private:
 
 } // namespace WebCore
 
-#endif
+#endif // ENABLE(WEBGL)

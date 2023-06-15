@@ -27,6 +27,7 @@
 #define PlatformWebView_h
 
 #include <wtf/FastMalloc.h>
+#include <wtf/Noncopyable.h>
 
 #if USE(CG)
 #include <CoreGraphics/CGGeometry.h>
@@ -38,13 +39,13 @@
 
 #if defined(__APPLE__) && !PLATFORM(GTK)
 #ifdef __OBJC__
-@class WKView;
+@class WKWebView;
 @class NSWindow;
 #else
-class WKView;
+class WKWebView;
 class NSWindow;
 #endif
-typedef WKView *PlatformWKView;
+typedef WKWebView *PlatformWKView;
 typedef NSWindow *PlatformWindow;
 #elif PLATFORM(GTK)
 typedef WKViewRef PlatformWKView;
@@ -69,6 +70,7 @@ namespace TestWebKitAPI {
 
 class PlatformWebView {
     WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(PlatformWebView);
 public:
     explicit PlatformWebView(WKPageConfigurationRef);
     explicit PlatformWebView(WKContextRef, WKPageGroupRef = 0);

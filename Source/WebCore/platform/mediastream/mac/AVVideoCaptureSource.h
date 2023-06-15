@@ -52,9 +52,11 @@ namespace WebCore {
 class AVVideoPreset;
 class ImageTransferSessionVT;
 
+enum class VideoFrameRotation : uint16_t;
+
 class AVVideoCaptureSource : public RealtimeVideoCaptureSource, private OrientationNotifier::Observer {
 public:
-    static CaptureSourceOrError create(String&& id, String&& hashSalt, const MediaConstraints*);
+    static CaptureSourceOrError create(const CaptureDevice&, MediaDeviceHashSalts&&, const MediaConstraints*, PageIdentifier);
 
     WEBCORE_EXPORT static VideoCaptureFactory& factory();
 
@@ -70,7 +72,7 @@ public:
     void captureDeviceSuspendedDidChange();
 
 private:
-    AVVideoCaptureSource(AVCaptureDevice*, String&& id, String&& hashSalt);
+    AVVideoCaptureSource(AVCaptureDevice*, const CaptureDevice&, MediaDeviceHashSalts&&, PageIdentifier);
     virtual ~AVVideoCaptureSource();
 
     void clearSession();
@@ -81,6 +83,7 @@ private:
 
     const RealtimeMediaSourceCapabilities& capabilities() final;
     const RealtimeMediaSourceSettings& settings() final;
+    double facingModeFitnessDistanceAdjustment() const final;
     void startProducingData() final;
     void stopProducingData() final;
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final;
@@ -91,7 +94,7 @@ private:
     CaptureDevice::DeviceType deviceType() const final { return CaptureDevice::DeviceType::Camera; }
     bool interrupted() const final;
 
-    MediaSample::VideoRotation sampleRotation() const final { return m_sampleRotation; }
+    VideoFrameRotation videoFrameRotation() const final { return m_videoFrameRotation; }
     void setFrameRateWithPreset(double, RefPtr<VideoPreset>) final;
     bool prefersPreset(VideoPreset&) final;
     void generatePresets() final;
@@ -99,7 +102,7 @@ private:
 
     void setSessionSizeAndFrameRate();
     bool setPreset(NSString*);
-    void computeSampleRotation();
+    void computeVideoFrameRotation();
     AVFrameRateRange* frameDurationForFrameRate(double);
 
     // OrientationNotifier::Observer API
@@ -118,28 +121,29 @@ private:
     void updateVerifyCapturingTimer();
     void verifyIsCapturing();
 
-    RefPtr<MediaSample> m_buffer;
+    RefPtr<VideoFrame> m_buffer;
     RetainPtr<AVCaptureVideoDataOutput> m_videoOutput;
     std::unique_ptr<ImageTransferSessionVT> m_imageTransferSession;
 
     int m_sensorOrientation { 0 };
     int m_deviceOrientation { 0 };
-    MediaSample::VideoRotation m_sampleRotation { MediaSample::VideoRotation::None };
+    VideoFrameRotation m_videoFrameRotation { };
 
-    Optional<RealtimeMediaSourceSettings> m_currentSettings;
-    Optional<RealtimeMediaSourceCapabilities> m_capabilities;
+    std::optional<RealtimeMediaSourceSettings> m_currentSettings;
+    std::optional<RealtimeMediaSourceCapabilities> m_capabilities;
     RetainPtr<WebCoreAVVideoCaptureSourceObserver> m_objcObserver;
     RetainPtr<AVCaptureSession> m_session;
     RetainPtr<AVCaptureDevice> m_device;
 
-    Lock m_presetMutex;
     RefPtr<AVVideoPreset> m_currentPreset;
-    IntSize m_currentSize;
+    RefPtr<AVVideoPreset> m_appliedPreset;
+    RetainPtr<AVFrameRateRange> m_appliedFrameRateRange;
+
     double m_currentFrameRate;
     bool m_interrupted { false };
     bool m_isRunning { false };
 
-    static constexpr Seconds verifyCaptureInterval = 3_s;
+    static constexpr Seconds verifyCaptureInterval = 30_s;
     static const uint64_t framesToDropWhenStarting = 4;
 
     Timer m_verifyCapturingTimer;

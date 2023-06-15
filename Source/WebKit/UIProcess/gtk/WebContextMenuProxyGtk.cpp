@@ -35,6 +35,7 @@
 #include "WebKitWebViewBasePrivate.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/GtkUtilities.h>
 #include <gio/gio.h>
 #include <gtk/gtk.h>
@@ -73,7 +74,8 @@ static inline void popdownMenuWidget(GtkWidget* widget)
 
 static inline bool menuWidgetHasItems(GtkWidget* widget)
 {
-    return g_menu_model_get_n_items(gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(widget)));
+    GMenuModel* model = gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(widget));
+    return model ? g_menu_model_get_n_items(model) : 0;
 }
 
 static inline void bindModelToMenuWidget(GtkWidget* widget, GMenuModel* model)
@@ -258,6 +260,16 @@ Vector<Ref<WebContextMenuItem>> WebContextMenuProxyGtk::proposedItems() const
             proposedAPIItems.append(WebContextMenuItem::create(item));
     }
     return proposedAPIItems;
+}
+
+void WebContextMenuProxyGtk::show()
+{
+    if (m_context.type() != ContextMenuContext::Type::ContextMenu) {
+        useContextMenuItems(proposedItems());
+        return;
+    }
+
+    WebContextMenuProxy::show();
 }
 
 void WebContextMenuProxyGtk::showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&& items)

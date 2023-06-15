@@ -30,9 +30,10 @@
 from optparse import make_option
 import re
 
+from webkitcorepy import string_utils
+
 from webkitpy.common.checkout.changelog import ChangeLogEntry
 from webkitpy.common.config.committers import CommitterList
-from webkitpy.tool import grammar
 from webkitpy.tool.multicommandtool import Command
 
 
@@ -50,9 +51,9 @@ class AbstractCommitLogCommand(Command):
     _leading_indent_regexp = re.compile(r"^[ ]{4}", re.MULTILINE)
     _reviewed_by_regexp = re.compile(ChangeLogEntry.reviewed_by_regexp, re.MULTILINE)
     _patch_by_regexp = re.compile(r'^Patch by (?P<name>.+?)\s+<(?P<email>[^<>]+)> on (?P<date>\d{4}-\d{2}-\d{2})$', re.MULTILINE)
-    _committer_regexp = re.compile(r'^Author: (?P<email>\S+)\s+<[^>]+>$', re.MULTILINE)
+    _committer_regexp = re.compile(r'^Author: (?P<name>.*?) <(?P<email>[^>]+)>$', re.MULTILINE)
     _date_regexp = re.compile(r'^Date:   (?P<date>\d{4}-\d{2}-\d{2}) (?P<time>\d{2}:\d{2}:\d{2}) [\+\-]\d{4}$', re.MULTILINE)
-    _revision_regexp = re.compile(r'^git-svn-id: https?://svn.webkit.org/repository/webkit/trunk@(?P<svnid>\d+) (?P<gitid>[0-9a-f\-]{36})$', re.MULTILINE)
+    _canonical_regexp = re.compile(r'^Canonical link: https://commits.webkit.org/(?P<canonicalid>\d+)@main$', re.MULTILINE)
 
     def __init__(self, options=None):
         options = options or []
@@ -95,18 +96,16 @@ class AbstractCommitLogCommand(Command):
             raise CommitLogError
 
         committer = self._contributor_from_email(committer_email)
-        if not committer:
-            raise CommitLogError
 
         commit_date_match = self._date_regexp.search(commit_message)
         if not commit_date_match:
             raise CommitLogError
         commit_date = commit_date_match.group('date')
 
-        revision_match = self._revision_regexp.search(commit_message)
-        if not revision_match:
+        canonical_match = self._canonical_regexp.search(commit_message)
+        if not canonical_match:
             raise CommitLogError
-        revision = revision_match.group('svnid')
+        canonical = canonical_match.group('canonicalid')
 
         # Look for "Patch by" line first, which is used for non-committer contributors;
         # otherwise, use committer info determined above.
@@ -136,7 +135,7 @@ class AbstractCommitLogCommand(Command):
         return {
             'committer': committer,
             'commit_date': commit_date,
-            'revision': revision,
+            'canonical': canonical,
             'author_email': author_email,
             'author_name': author_name,
             'contributor': contributor,
@@ -165,7 +164,7 @@ class SuggestNominations(AbstractCommitLogCommand):
     def _count_commit(self, commit, analysis):
         author_name = commit['author_name']
         author_email = commit['author_email']
-        revision = commit['revision']
+        canonical = commit['canonical']
         commit_date = commit['commit_date']
 
         # See if we already have a contributor with this author_name or email
@@ -201,9 +200,9 @@ class SuggestNominations(AbstractCommitLogCommand):
         counter = analysis['counters_by_name'][author_name]
         counter['count'] = counter.get('count', 0) + 1
 
-        if revision.isdigit():
-            revision = "https://trac.webkit.org/changeset/" + revision
-        counter['commits'] += "  commit: %s on %s by %s (%s)\n" % (revision, commit_date, author_name, author_email)
+        if canonical.isdigit():
+            canonical = "https://commits.webkit.org/%s@main" % canonical
+        counter['commits'] += "  commit: %s on %s by %s (%s)\n" % (canonical, commit_date, author_name, author_email)
 
     def _count_recent_patches(self):
         analysis = {
@@ -213,7 +212,7 @@ class SuggestNominations(AbstractCommitLogCommand):
         for commit_message in self._recent_commit_messages():
             try:
                 self._count_commit(self._parse_commit_message(commit_message), analysis)
-            except CommitLogError as exception:
+            except CommitLogError:
                 continue
         return analysis['counters_by_email']
 
@@ -249,7 +248,7 @@ class SuggestNominations(AbstractCommitLogCommand):
 
         for nomination in nominations:
             # This is a little bit of a hack, but its convienent to just pass the nomination dictionary to the formating operator.
-            nomination['roles_string'] = grammar.join_with_separators(nomination['roles']).upper()
+            nomination['roles_string'] = string_utils.join(nomination['roles']).upper()
             print("%(roles_string)s: %(author_name)s (%(author_email)s) has %(patch_count)s reviewed patches" % nomination)
             counter = counters_by_email[nomination['author_email']]
 
@@ -263,7 +262,6 @@ class SuggestNominations(AbstractCommitLogCommand):
         for author_email, counter in counters:
             if author_email != counter['latest_email']:
                 continue
-            contributor = self._committer_list.contributor_by_email(author_email)
             author_name = counter['latest_name']
             patch_count = counter['count']
             counter['names'] = counter['names'] - set([author_name])
@@ -275,9 +273,9 @@ class SuggestNominations(AbstractCommitLogCommand):
             for alias in counter['emails']:
                 alias_list.append(alias)
             if alias_list:
-                print("CONTRIBUTOR: %s (%s) has %s %s" % (author_name, author_email, grammar.pluralize(patch_count, "reviewed patch"), "(aliases: " + ", ".join(alias_list) + ")"))
+                print("CONTRIBUTOR: %s (%s) has %s %s" % (author_name, author_email, string_utils.pluralize(patch_count, 'reviewed patch', plural='reviewed patches'), "(aliases: " + ", ".join(alias_list) + ")"))
             else:
-                print("CONTRIBUTOR: %s (%s) has %s" % (author_name, author_email, grammar.pluralize(patch_count, "reviewed patch")))
+                print("CONTRIBUTOR: %s (%s) has %s" % (author_name, author_email, string_utils.pluralize(patch_count, 'reviewed patch', plural='reviewed patches')))
         return
 
     def execute(self, options, args, tool):

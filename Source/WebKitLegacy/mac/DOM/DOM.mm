@@ -42,6 +42,7 @@
 #import <WebCore/FocusController.h>
 #import <WebCore/FontCascade.h>
 #import <WebCore/Frame.h>
+#import <WebCore/GeometryUtilities.h>
 #import <WebCore/HTMLLinkElement.h>
 #import <WebCore/HTMLNames.h>
 #import <WebCore/HTMLParserIdioms.h>
@@ -49,8 +50,6 @@
 #import <WebCore/Image.h>
 #import <WebCore/JSNode.h>
 #import <WebCore/KeyboardEvent.h>
-#import <WebCore/MediaList.h>
-#import <WebCore/MediaQueryEvaluator.h>
 #import <WebCore/NodeFilter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/Page.h>
@@ -508,7 +507,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 + (id)_nodeFromJSWrapper:(JSObjectRef)jsWrapper
 {
     JSObject* object = toJS(jsWrapper);
-    if (!object->inherits<JSNode>(object->vm()))
+    if (!object->inherits<JSNode>())
         return nil;
     return kit(&jsCast<JSNode*>(object)->wrapped());
 }
@@ -534,8 +533,10 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(node), options, TextIndicatorPresentationTransition::None, FloatSize(margin, margin));
 
     if (textIndicator) {
-        if (Image* image = textIndicator->contentImage())
-            *cgImage = image->nativeImage().autorelease();
+        if (Image* image = textIndicator->contentImage()) {
+            auto contentImage = image->nativeImage()->platformImage();
+            *cgImage = contentImage.autorelease();
+        }
     }
 
     if (!*cgImage) {
@@ -569,10 +570,9 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSRect)boundingBox
 #endif
 {
-    // FIXME: The call to updateLayoutIgnorePendingStylesheets should be moved into WebCore::Range.
-    auto& range = *core(self);
-    range.ownerDocument().updateLayoutIgnorePendingStylesheets();
-    return range.absoluteBoundingBox();
+    auto range = makeSimpleRange(*core(self));
+    range.start.document().updateLayoutIgnorePendingStylesheets();
+    return unionRect(RenderObject::absoluteTextRects(range));
 }
 
 #if PLATFORM(MAC)
@@ -582,7 +582,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 #endif
 {
     auto range = makeSimpleRange(*core(self));
-    auto frame = makeRefPtr(range.start.container->document().frame());
+    RefPtr frame = range.start.document().frame();
     if (!frame)
         return nil;
 
@@ -601,7 +601,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)textRects
 {
     auto range = makeSimpleRange(*core(self));
-    range.start.container->document().updateLayoutIgnorePendingStylesheets();
+    range.start.document().updateLayoutIgnorePendingStylesheets();
     return createNSArray(RenderObject::absoluteTextRects(range)).autorelease();
 }
 
@@ -706,15 +706,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (BOOL)_mediaQueryMatches
 {
-    HTMLLinkElement& link = *static_cast<HTMLLinkElement*>(core(self));
-
-    auto& media = link.attributeWithoutSynchronization(HTMLNames::mediaAttr);
-    if (media.isEmpty())
-        return true;
-
-    Document& document = link.document();
-    auto mediaQuerySet = MediaQuerySet::create(media, MediaQueryParserContext(document));
-    return MediaQueryEvaluator { "screen", document, document.renderView() ? &document.renderView()->style() : nullptr }.evaluate(mediaQuerySet.get());
+    return downcast<HTMLLinkElement>(core(self))->mediaAttributeMatches();
 }
 
 @end
@@ -782,13 +774,13 @@ DOMNodeFilter *kit(WebCore::NodeFilter* impl)
         return nil;
     
     if (DOMNodeFilter *wrapper = getDOMWrapper(impl))
-        return [[wrapper retain] autorelease];
+        return retainPtr(wrapper).autorelease();
     
-    DOMNodeFilter *wrapper = [[DOMNodeFilter alloc] _init];
+    auto wrapper = adoptNS([[DOMNodeFilter alloc] _init]);
     wrapper->_internal = reinterpret_cast<DOMObjectInternal*>(impl);
     impl->ref();
-    addDOMWrapper(wrapper, impl);
-    return [wrapper autorelease];
+    addDOMWrapper(wrapper.get(), impl);
+    return wrapper.autorelease();
 }
 
 WebCore::NodeFilter* core(DOMNodeFilter *wrapper)

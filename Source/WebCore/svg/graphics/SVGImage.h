@@ -48,27 +48,23 @@ public:
     FrameView* frameView() const;
 
     bool isSVGImage() const final { return true; }
-    FloatSize size(ImageOrientation = ImageOrientation::FromImage) const final { return m_intrinsicSize; }
+    FloatSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const final { return m_intrinsicSize; }
 
-    bool hasSingleSecurityOrigin() const final;
+    bool renderingTaintsOrigin() const final;
 
     bool hasRelativeWidth() const final;
     bool hasRelativeHeight() const final;
 
+    // Start the animation from the beginning.
     void startAnimation() final;
+    // Resume the animation from where it was last stopped.
+    void resumeAnimation();
     void stopAnimation() final;
     void resetAnimation() final;
     bool isAnimating() const final;
 
     void scheduleStartAnimation();
 
-#if USE(CAIRO)
-    NativeImagePtr nativeImageForCurrentFrame(const GraphicsContext* = nullptr) final;
-#endif
-#if USE(DIRECT2D)
-    NativeImagePtr nativeImage(const GraphicsContext* = nullptr) final;
-#endif
-    
     Page* internalPage() { return m_page.get(); }
 
 private:
@@ -87,16 +83,17 @@ private:
     void reportApproximateMemoryCost() const;
     EncodedDataStatus dataChanged(bool allDataReceived) final;
 
-    // FIXME: SVGImages will be unable to prune because this function is not implemented yet.
-    void destroyDecodedData(bool) final { }
+    // FIXME: SVGImages will be unable to prune because destroyDecodedData() is not implemented yet.
 
     // FIXME: Implement this to be less conservative.
     bool currentFrameKnownToBeOpaque() const final { return false; }
 
+    RefPtr<NativeImage> nativeImage(const DestinationColorSpace& = DestinationColorSpace::SRGB()) final;
+
     void startAnimationTimerFired();
 
-    explicit SVGImage(ImageObserver&);
-    ImageDrawResult draw(GraphicsContext&, const FloatRect& fromRect, const FloatRect& toRect, const ImagePaintingOptions& = { }) final;
+    WEBCORE_EXPORT explicit SVGImage(ImageObserver&);
+    ImageDrawResult draw(GraphicsContext&, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& = { }) final;
     ImageDrawResult drawForContainer(GraphicsContext&, const FloatSize containerSize, float containerZoom, const URL& initialFragmentURL, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& = { });
     void drawPatternForContainer(GraphicsContext&, const FloatSize& containerSize, float containerZoom, const URL& initialFragmentURL, const FloatRect& srcRect, const AffineTransform&, const FloatPoint& phase, const FloatSize& spacing, const FloatRect&, const ImagePaintingOptions& = { });
 

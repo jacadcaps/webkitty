@@ -64,10 +64,9 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
     mOSWindow->initialize("EGLMakeCurrent Test", 64, 64);
 
     mEGLLibrary.reset(
-        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
 
-    angle::LoadProc getProc =
-        reinterpret_cast<angle::LoadProc>(mEGLLibrary->getSymbol("eglGetProcAddress"));
+    LoadProc getProc = reinterpret_cast<LoadProc>(mEGLLibrary->getSymbol("eglGetProcAddress"));
 
     if (!getProc)
     {
@@ -75,7 +74,7 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
     }
     else
     {
-        angle::LoadEGL(getProc);
+        LoadUtilEGL(getProc);
 
         if (!eglGetPlatformDisplayEXT)
         {
@@ -145,16 +144,15 @@ TEST_P(EGLMakeCurrentPerfTest, Run)
     run();
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLMakeCurrentPerfTest);
+// We want to run this test on GL(ES) and Vulkan everywhere except Android
 #if !defined(ANGLE_PLATFORM_ANDROID)
 ANGLE_INSTANTIATE_TEST(EGLMakeCurrentPerfTest,
-                       angle::ES2_D3D9(),
                        angle::ES2_D3D11(),
                        angle::ES2_METAL(),
                        angle::ES2_OPENGL(),
                        angle::ES2_OPENGLES(),
                        angle::ES2_VULKAN());
-#else
-ANGLE_INSTANTIATE_TEST(EGLMakeCurrentPerfTest, angle::ES2_D3D9(), angle::ES2_D3D11());
 #endif
 
 }  // namespace

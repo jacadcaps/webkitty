@@ -27,6 +27,7 @@
 
 #if ENABLE(GAMEPAD)
 
+#include <WebCore/GamepadHapticEffectType.h>
 #include <WebCore/SharedGamepadValue.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Vector.h>
@@ -46,11 +47,10 @@ public:
     {
     }
 
-    GamepadData(unsigned index, const Vector<WebCore::SharedGamepadValue>& axisValues, const Vector<WebCore::SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime);
-    GamepadData(unsigned index, const String& id, const String& mapping, const Vector<WebCore::SharedGamepadValue>& axisValues, const Vector<WebCore::SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime);
+    GamepadData(unsigned index, const String& id, const String& mapping, const Vector<WebCore::SharedGamepadValue>& axisValues, const Vector<WebCore::SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime, const WebCore::GamepadHapticEffectTypeSet& supportedEffectTypes);
 
     void encode(IPC::Encoder&) const;
-    static Optional<GamepadData> decode(IPC::Decoder&);
+    static std::optional<GamepadData> decode(IPC::Decoder&);
 
     bool isNull() const { return m_isNull; }
 
@@ -60,6 +60,7 @@ public:
     const String& mapping() const { return m_mapping; }
     const Vector<double>& axisValues() const { return m_axisValues; }
     const Vector<double>& buttonValues() const { return m_buttonValues; }
+    const WebCore::GamepadHapticEffectTypeSet& supportedEffectTypes() const { return m_supportedEffectTypes; }
 
 private:
     unsigned m_index;
@@ -68,6 +69,7 @@ private:
     Vector<double> m_axisValues;
     Vector<double> m_buttonValues;
     MonotonicTime m_lastUpdateTime;
+    WebCore::GamepadHapticEffectTypeSet m_supportedEffectTypes;
 
     bool m_isNull { false };
 

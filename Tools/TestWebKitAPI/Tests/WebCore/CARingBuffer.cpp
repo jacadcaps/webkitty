@@ -25,9 +25,10 @@
 
 #include "config.h"
 
-#if PLATFORM(MAC)
+#if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
 
 #include "Test.h"
+#include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
 #include <wtf/MainThread.h>
 
@@ -41,7 +42,6 @@ public:
     virtual void SetUp()
     {
         WTF::initializeMainThread();
-        m_ringBuffer = makeUniqueWithoutFastMallocCheck<CARingBuffer>();
     }
 
     // CAAudioStreamDescription(double sampleRate, UInt32 numChannels, PCMFormat format, bool isInterleaved, size_t capacity)
@@ -49,16 +49,16 @@ public:
     {
         m_description = CAAudioStreamDescription(sampleRate, numChannels, format, isInterleaved);
         m_capacity = capacity;
-        size_t listSize = offsetof(AudioBufferList, mBuffers) + (sizeof(AudioBuffer) * std::max<uint32_t>(1, m_description.numberOfChannelStreams()));
+        size_t listSize = offsetof(AudioBufferList, mBuffers) + (sizeof(AudioBuffer) * std::max<uint32_t>(1, m_description->numberOfChannelStreams()));
         m_bufferList = std::unique_ptr<AudioBufferList>(static_cast<AudioBufferList*>(::operator new (listSize)));
-        m_ringBuffer->allocate(m_description, capacity);
+        m_ringBuffer = InProcessCARingBuffer::allocate(*m_description, capacity);
     }
 
     void setListDataBuffer(uint8_t* bufferData, size_t sampleCount)
     {
-        size_t bufferCount = m_description.numberOfChannelStreams();
-        size_t channelCount = m_description.numberOfInterleavedChannels();
-        size_t bytesPerChannel = sampleCount * m_description.bytesPerFrame();
+        size_t bufferCount = m_description->numberOfChannelStreams();
+        size_t channelCount = m_description->numberOfInterleavedChannels();
+        size_t bytesPerChannel = sampleCount * m_description->bytesPerFrame();
 
         m_bufferList->mNumberBuffers = bufferCount;
         for (unsigned i = 0; i < bufferCount; ++i) {
@@ -70,103 +70,101 @@ public:
         }
     }
 
-    const CAAudioStreamDescription& description() const { return m_description; }
+    const CAAudioStreamDescription& description() const { return *m_description; }
     AudioBufferList& bufferList() const { return *m_bufferList.get(); }
     CARingBuffer& ringBuffer() const { return *m_ringBuffer.get(); }
     size_t capacity() const { return m_capacity; }
 
 private:
-    size_t audioBufferListSizeForStream(const CAAudioStreamDescription& format)
-    {
-        return offsetof(AudioBufferList, mBuffers) + (sizeof(AudioBuffer) * std::max<uint32_t>(1, format.numberOfChannelStreams()));
-    }
-
-    void configureBufferListForStream(AudioBufferList& bufferList, const CAAudioStreamDescription& format, uint8_t* bufferData, size_t sampleCount)
-    {
-        size_t bufferCount = format.numberOfChannelStreams();
-        size_t channelCount = format.numberOfInterleavedChannels();
-        size_t bytesPerChannel = sampleCount * format.bytesPerFrame();
-
-        bufferList.mNumberBuffers = bufferCount;
-        for (unsigned i = 0; i < bufferCount; ++i) {
-            bufferList.mBuffers[i].mNumberChannels = channelCount;
-            bufferList.mBuffers[i].mDataByteSize = bytesPerChannel;
-            bufferList.mBuffers[i].mData = bufferData;
-            if (bufferData)
-                bufferData = bufferData + bytesPerChannel;
-        }
-    }
 
     std::unique_ptr<AudioBufferList> m_bufferList;
-    std::unique_ptr<CARingBuffer> m_ringBuffer;
-    CAAudioStreamDescription m_description = { };
+    std::unique_ptr<InProcessCARingBuffer> m_ringBuffer;
+    std::optional<CAAudioStreamDescription> m_description;
     size_t m_capacity = { 0 };
 };
 
+static CARingBuffer::TimeBounds makeBounds(uint64_t start, uint64_t end)
+{
+    return { start, end };
+}
+
 TEST_F(CARingBufferTest, Basics)
 {
-    const int capacity = 32;
+    const size_t capacity = 32;
 
     setup(44100, 1, CAAudioStreamDescription::PCMFormat::Float32, true, capacity);
 
+    auto fetchBounds = ringBuffer().getFetchTimeBounds();
+    EXPECT_EQ(fetchBounds, makeBounds(0, 0));
+
     float sourceBuffer[capacity];
-    for (int i = 0; i < capacity; i++)
+    for (size_t i = 0; i < capacity; i++)
         sourceBuffer[i] = i + 0.5;
 
     setListDataBuffer(reinterpret_cast<uint8_t*>(sourceBuffer), capacity);
 
     // Fill the first half of the buffer ...
-    int sampleCount = capacity / 2;
+    uint64_t sampleCount = capacity / 2;
     CARingBuffer::Error err = ringBuffer().store(&bufferList(), sampleCount, 0);
     EXPECT_EQ(err, CARingBuffer::Error::Ok);
 
-    uint64_t startTime;
-    uint64_t endTime;
-    ringBuffer().getCurrentFrameBounds(startTime, endTime);
-    EXPECT_EQ(0, (int)startTime);
-    EXPECT_EQ((int)sampleCount, (int)endTime);
+    fetchBounds = ringBuffer().getFetchTimeBounds();
+    EXPECT_EQ(fetchBounds, makeBounds(0, sampleCount));
 
     float scratchBuffer[capacity];
     setListDataBuffer(reinterpret_cast<uint8_t*>(scratchBuffer), capacity);
 
-    err = ringBuffer().fetch(&bufferList(), sampleCount, 0);
-    EXPECT_EQ(err, CARingBuffer::Error::Ok);
+    ringBuffer().fetch(&bufferList(), sampleCount, 0);
     EXPECT_TRUE(!memcmp(sourceBuffer, scratchBuffer, sampleCount * description().sampleWordSize()));
 
     // ... and the second half.
     err = ringBuffer().store(&bufferList(), capacity / 2, capacity / 2);
     EXPECT_EQ(err, CARingBuffer::Error::Ok);
 
-    ringBuffer().getCurrentFrameBounds(startTime, endTime);
-    EXPECT_EQ(0, (int)startTime);
-    EXPECT_EQ(capacity, (int)endTime);
+    fetchBounds = ringBuffer().getFetchTimeBounds();
+    EXPECT_EQ(fetchBounds, makeBounds(0, capacity));
 
     memset(scratchBuffer, 0, sampleCount * description().sampleWordSize());
-    err = ringBuffer().fetch(&bufferList(), sampleCount, 0);
-    EXPECT_EQ(err, CARingBuffer::Error::Ok);
+    ringBuffer().fetch(&bufferList(), sampleCount, 0);
     EXPECT_TRUE(!memcmp(sourceBuffer, scratchBuffer, sampleCount * description().sampleWordSize()));
 
     // Force the buffer to wrap around
     err = ringBuffer().store(&bufferList(), capacity, capacity - 1);
     EXPECT_EQ(err, CARingBuffer::Error::Ok);
 
-    ringBuffer().getCurrentFrameBounds(startTime, endTime);
-    EXPECT_EQ((int)capacity - 1, (int)startTime);
-    EXPECT_EQ(capacity - 1 + capacity, (int)endTime);
+    fetchBounds = ringBuffer().getFetchTimeBounds();
+    EXPECT_EQ(fetchBounds, makeBounds(capacity - 1, capacity - 1 + capacity));
 
     // Make sure it returns an error when asked to store too much ...
     err = ringBuffer().store(&bufferList(), capacity * 3, capacity / 2);
     EXPECT_EQ(err, CARingBuffer::Error::TooMuch);
 
     // ... and doesn't modify the buffer
-    ringBuffer().getCurrentFrameBounds(startTime, endTime);
-    EXPECT_EQ((int)capacity - 1, (int)startTime);
-    EXPECT_EQ(capacity - 1 + capacity, (int)endTime);
+    fetchBounds = ringBuffer().getFetchTimeBounds();
+    EXPECT_EQ(fetchBounds, makeBounds(capacity - 1, capacity - 1 + capacity));
+}
 
-    ringBuffer().flush();
-    ringBuffer().getCurrentFrameBounds(startTime, endTime);
-    EXPECT_EQ(0, (int)startTime);
-    EXPECT_EQ(0, (int)endTime);
+TEST_F(CARingBufferTest, SmallBufferListForFetch)
+{
+    const int capacity = 32;
+    const int halfCapacity = capacity / 2;
+    setup(44100, 1, CAAudioStreamDescription::PCMFormat::Float32, true, capacity);
+
+    float sourceBuffer[capacity];
+    for (int i = 0; i < capacity; i++)
+        sourceBuffer[i] = i + 0.5;
+    setListDataBuffer(reinterpret_cast<uint8_t*>(sourceBuffer), capacity);
+    CARingBuffer::Error err = ringBuffer().store(&bufferList(), capacity, 0);
+    EXPECT_EQ(err, CARingBuffer::Error::Ok);
+
+    float destinationBuffer[halfCapacity];
+    setListDataBuffer(reinterpret_cast<uint8_t*>(destinationBuffer), halfCapacity);
+    int bufferCount = bufferList().mNumberBuffers;
+    EXPECT_GE(bufferCount, 1);
+    size_t listDataByteSizeBeforeFetch = bufferList().mBuffers[0].mDataByteSize;
+
+    ringBuffer().fetch(&bufferList(), capacity, 0);
+    EXPECT_LE(bufferList().mBuffers[0].mDataByteSize, listDataByteSizeBeforeFetch);
 }
 
 template <typename type>
@@ -174,7 +172,7 @@ class MixingTest {
 public:
     static void run(CARingBufferTest& test)
     {
-        const int sampleCount = 64;
+        const int sampleCount = 441;
 
         CAAudioStreamDescription::PCMFormat format;
         if (std::is_same<type, float>::value)
@@ -205,22 +203,33 @@ public:
 
         memset(readBuffer, 0, sampleCount * test.description().sampleWordSize());
         test.setListDataBuffer(reinterpret_cast<uint8_t*>(readBuffer), sampleCount);
-        err = test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, CARingBuffer::FetchMode::Mix);
-        EXPECT_EQ(err, CARingBuffer::Error::Ok);
+        auto mixFetchMode = CARingBuffer::fetchModeForMixing(test.description().format());
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, mixFetchMode);
 
         for (int i = 0; i < sampleCount; i++)
             EXPECT_EQ(readBuffer[i], referenceBuffer[i]) << "Ring buffer value differs at index " << i;
 
-        err = test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, CARingBuffer::FetchMode::Mix);
-        EXPECT_EQ(err, CARingBuffer::Error::Ok);
-        err = test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, CARingBuffer::FetchMode::Mix);
-        EXPECT_EQ(err, CARingBuffer::Error::Ok);
-        err = test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, CARingBuffer::FetchMode::Mix);
-        EXPECT_EQ(err, CARingBuffer::Error::Ok);
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, mixFetchMode);
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, mixFetchMode);
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, mixFetchMode);
 
         for (int i = 0; i < sampleCount; i++)
             referenceBuffer[i] += sourceBuffer[i] * 3;
         
+        for (int i = 0; i < sampleCount; i++)
+            EXPECT_EQ(readBuffer[i], referenceBuffer[i]) << "Ring buffer value differs at index " << i;
+
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, 0, CARingBuffer::FetchMode::Copy);
+        err = test.ringBuffer().store(&test.bufferList(), sampleCount, sampleCount);
+        EXPECT_EQ(err, CARingBuffer::Error::Ok);
+
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, sampleCount, CARingBuffer::FetchMode::Copy);
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, sampleCount, mixFetchMode);
+        test.ringBuffer().fetch(&test.bufferList(), sampleCount, sampleCount, mixFetchMode);
+
+        for (int i = 0; i < sampleCount; i++)
+            referenceBuffer[i] = sourceBuffer[i] * 3;
+
         for (int i = 0; i < sampleCount; i++)
             EXPECT_EQ(readBuffer[i], referenceBuffer[i]) << "Ring buffer value differs at index " << i;
     }
