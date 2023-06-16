@@ -123,6 +123,9 @@ RenderTheme& RenderTheme::singleton()
 
 bool RenderThemeAdwaita::supportsFocusRing(const RenderStyle& style) const
 {
+#if OS(MORPHOS)
+	return false;
+#else
     switch (style.effectiveAppearance()) {
     case StyleAppearance::PushButton:
     case StyleAppearance::Button:
@@ -140,6 +143,7 @@ bool RenderThemeAdwaita::supportsFocusRing(const RenderStyle& style) const
     }
 
     return false;
+#endif
 }
 
 bool RenderThemeAdwaita::shouldHaveCapsLockIndicator(const HTMLInputElement& element) const
@@ -272,7 +276,9 @@ Color RenderThemeAdwaita::systemColor(CSSValueID cssValueID, OptionSet<StyleColo
 
     case CSSValueCanvas:
     case CSSValueField:
+#if HAVE(OS_DARK_MODE_SUPPORT)
     case CSSValueWebkitControlBackground:
+#endif
         return useDarkAppearance ? textFieldBackgroundColorDark : textFieldBackgroundColorLight;
 
     case CSSValueWindow:
@@ -326,9 +332,10 @@ bool RenderThemeAdwaita::paintTextField(const RenderObject& renderObject, const 
 
     bool enabled = isEnabled(renderObject) && !isReadOnlyControl(renderObject);
     int borderSize = textFieldBorderSize;
+#if !OS(MORPHOS)
     if (enabled && isFocused(renderObject))
         borderSize *= 2;
-
+#endif
     if (!enabled)
         graphicsContext.beginTransparencyLayer(disabledOpacity);
 
@@ -340,9 +347,11 @@ bool RenderThemeAdwaita::paintTextField(const RenderObject& renderObject, const 
     corner.expand(-borderSize, -borderSize);
     path.addRoundedRect(fieldRect, corner);
     graphicsContext.setFillRule(WindRule::EvenOdd);
+#if !OS(MORPHOS)
     if (enabled && isFocused(renderObject))
         graphicsContext.setFillColor(platformFocusRingColor({ }));
     else
+#endif
         graphicsContext.setFillColor(textFieldBorderColor);
     graphicsContext.fillPath(path);
     path.clear();
@@ -445,8 +454,10 @@ bool RenderThemeAdwaita::paintMenuList(const RenderObject& renderObject, const P
     fieldRect.setWidth(zoomedArrowSize);
     ThemeAdwaita::paintArrow(graphicsContext, fieldRect, ThemeAdwaita::ArrowDirection::Down, renderObject.useDarkAppearance());
 
+#if !OS(MORPHOS)
     if (isFocused(renderObject))
         ThemeAdwaita::paintFocus(graphicsContext, rect, menuListButtonFocusOffset, platformFocusRingColor({ }));
+#endif
 
     return false;
 }
@@ -599,12 +610,13 @@ bool RenderThemeAdwaita::paintSliderTrack(const RenderObject& renderObject, cons
     paintSliderTicks(renderObject, paintInfo, rect);
 #endif
 
+#if !OS(MORPHOS)
     if (isFocused(renderObject)) {
         // Sliders support accent-color, so we want to color their focus rings too
         Color focusRingColor = getAccentColor(renderObject).colorWithAlphaMultipliedBy(focusRingOpacity);
         ThemeAdwaita::paintFocus(graphicsContext, fieldRect, sliderTrackFocusOffset, focusRingColor, ThemeAdwaita::PaintRounded::Yes);
     }
-
+#endif
     if (!isEnabled(renderObject))
         graphicsContext.endTransparencyLayer();
 

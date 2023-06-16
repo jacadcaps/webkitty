@@ -487,11 +487,6 @@ void CachedImage::updateBufferInternal(const FragmentedSharedBuffer& data)
     setEncodedSize(m_data->size());
     createImage();
 
-    // Don't update the image with the new buffer very often. Changing the decoder
-    // internal data and repainting the observers sometimes are very expensive operations.
-    if (!m_forceUpdateImageDataEnabledForTesting && shouldDeferUpdateImageData())
-        return;
-
     EncodedDataStatus encodedDataStatus = EncodedDataStatus::Unknown;
 
     if (isPostScriptResource()) {
@@ -529,7 +524,11 @@ void CachedImage::updateBufferInternal(const FragmentedSharedBuffer& data)
 
 bool CachedImage::shouldDeferUpdateImageData() const
 {
+#if OS(MORPHOS)
+    static const double updateImageDataBackoffIntervals[] = { 0, 10, 30, 60, 90 };
+#else
     static const double updateImageDataBackoffIntervals[] = { 0, 1, 3, 6, 15 };
+#endif
     unsigned interval = m_updateImageDataCount;
 
     // The first time through, the chunk time will be 0 and the image will get an update.
@@ -563,12 +562,24 @@ EncodedDataStatus CachedImage::updateImageData(bool allDataReceived)
 void CachedImage::updateBuffer(const FragmentedSharedBuffer& buffer)
 {
     ASSERT(dataBufferingPolicy() == DataBufferingPolicy::BufferData);
+
+    // Don't update the image with the new buffer very often. Changing the decoder
+    // internal data and repainting the observers can be very expensive operations
+    if (!m_forceUpdateImageDataEnabledForTesting && shouldDeferUpdateImageData())
+        return;
+
     updateBufferInternal(buffer);
 }
 
 void CachedImage::updateData(const SharedBuffer& data)
 {
     ASSERT(dataBufferingPolicy() == DataBufferingPolicy::DoNotBufferData);
+
+    // Don't update the image with the new buffer very often. Changing the decoder
+    // internal data and repainting the observers can be very expensive operations
+    if (!m_forceUpdateImageDataEnabledForTesting && shouldDeferUpdateImageData())
+        return;
+
     updateBufferInternal(data);
 }
 

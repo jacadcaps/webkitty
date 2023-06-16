@@ -118,7 +118,9 @@ public:
     WEBCORE_EXPORT void registerServiceWorkerClients();
     bool isClosed() const { return m_isClosed; }
 
+#ifndef __MORPHOS__
 protected:
+#endif
     WEBCORE_EXPORT SWClientConnection();
 
     WEBCORE_EXPORT void jobRejectedInServer(ServiceWorkerJobIdentifier, ExceptionData&&);

@@ -38,8 +38,21 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static String _cookieJarPath = "PROGDIR:Cache/cookie.jar.db"_s;
+
+void setCookieJarPath(const String& path)
+{
+    _cookieJarPath = path;
+}
+
+#endif
+
 static String defaultCookieJarPath()
 {
+#if OS(MORPHOS)
+	return _cookieJarPath;
+#else
     static constexpr auto defaultFileName = "cookie.jar.db"_s;
     char* cookieJarPath = getenv("CURL_COOKIE_JAR_PATH");
     if (cookieJarPath)
@@ -50,6 +63,7 @@ static String defaultCookieJarPath()
 #else
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=192417
     return defaultFileName;
+#endif
 #endif
 }
 
@@ -118,6 +132,12 @@ void NetworkStorageSession::setCookiesFromHTTPResponse(const URL& firstParty, co
 void NetworkStorageSession::setCookieAcceptPolicy(CookieAcceptPolicy policy) const
 {
     cookieDatabase().setAcceptPolicy(policy);
+}
+
+void NetworkStorageSession::setHTTP2Mode(NetworkStorageSession::CurlHTTP2Mode mode)
+{
+    CurlContext::singleton().setIsHttp2Enabled(mode != NetworkStorageSession::CurlHTTP2Mode::Disabled,
+        mode != NetworkStorageSession::CurlHTTP2Mode::EnabledExceptPost && mode != NetworkStorageSession::CurlHTTP2Mode::Disabled);
 }
 
 HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const

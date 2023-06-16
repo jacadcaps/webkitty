@@ -92,6 +92,8 @@ bool OffscreenCanvas::enabledForContext(ScriptExecutionContext& context)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     if (context.isWorkerGlobalScope())
         return context.settingsValues().offscreenCanvasInWorkersEnabled;
+#else
+    UNUSED_PARAM(context);
 #endif
 
     ASSERT(context.isDocument());
@@ -480,7 +482,7 @@ void OffscreenCanvas::setPlaceholderCanvas(HTMLCanvasElement& canvas)
 
 void OffscreenCanvas::pushBufferToPlaceholder()
 {
-    callOnMainThread([placeholderData = Ref { *m_placeholderData }] () mutable {
+    callOnMainThread([placeholderData = Ref { *m_placeholderData }, canvas = RefPtr { m_placeholderData->canvas.get() }] () mutable {
         Locker locker { placeholderData->bufferLock };
         if (placeholderData->canvas && placeholderData->canvas->document().page() && placeholderData->pendingCommitBuffer) {
             GraphicsClient& client = placeholderData->canvas->document().page()->chrome();

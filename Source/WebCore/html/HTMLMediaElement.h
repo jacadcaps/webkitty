@@ -631,6 +631,10 @@ public:
 
     void updateMediaState();
 
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
+#endif
+
 protected:
     HTMLMediaElement(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLMediaElement();

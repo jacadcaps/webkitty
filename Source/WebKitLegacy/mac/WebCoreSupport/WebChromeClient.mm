@@ -1166,17 +1166,17 @@ RefPtr<PAL::WebGPU::GPU> WebChromeClient::createGPUForWebGPU() const
 #endif
 }
 
-void WebChromeClient::requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&& completion)
+void WebChromeClient::requestCookieConsent(CompletionHandler<void(WebCore::CookieConsentDecisionResult)>&& completion)
 {
-    completion(CookieConsentDecisionResult::NotSupported);
+    completion(WebCore::CookieConsentDecisionResult::NotSupported);
 }
 
-void WebChromeClient::classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<ModalContainerControlType>&&)>&& completion)
+void WebChromeClient::classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<WebCore::ModalContainerControlType>&&)>&& completion)
 {
     completion({ });
 }
 
-void WebChromeClient::decidePolicyForModalContainer(OptionSet<ModalContainerControlType>, CompletionHandler<void(ModalContainerDecision)>&& completion)
+void WebChromeClient::decidePolicyForModalContainer(OptionSet<WebCore::ModalContainerControlType>, CompletionHandler<void(WebCore::ModalContainerDecision)>&& completion)
 {
-    completion(ModalContainerDecision::Show);
+    completion(WebCore::ModalContainerDecision::Show);
 }

@@ -145,6 +145,10 @@ public:
     WEBCORE_EXPORT void setCookiesFromHTTPResponse(const URL& firstParty, const URL&, const String&) const;
     WEBCORE_EXPORT void setCookieAcceptPolicy(CookieAcceptPolicy) const;
     WEBCORE_EXPORT void setProxySettings(const CurlProxySettings&);
+    enum class CurlHTTP2Mode {
+        Disabled, Enabled, EnabledExceptPost
+    };
+    WEBCORE_EXPORT void setHTTP2Mode(CurlHTTP2Mode mode);
 #else
     WEBCORE_EXPORT NetworkStorageSession(PAL::SessionID, NetworkingContext*);
     ~NetworkStorageSession();

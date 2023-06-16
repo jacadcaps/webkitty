@@ -405,6 +405,16 @@ public:
             m_info.enable_2pass_quant = FALSE;
             m_info.do_block_smoothing = TRUE;
 
+#if OS(MORPHOS)
+#define DECODING_PERFORMANCE_CUT_OFF 2000
+            if (m_info.image_width + m_info.image_height > DECODING_PERFORMANCE_CUT_OFF)
+            {
+                m_info.dct_method = JDCT_IFAST;
+                m_info.dither_mode = JDITHER_NONE;
+                m_info.do_fancy_upsampling = false;
+            }
+#endif
+
             // Start decompressor.
             if (!jpeg_start_decompress(&m_info))
                 return false; // I/O suspension.
@@ -618,8 +628,13 @@ bool JPEGImageDecoder::outputScanlines(ScalableImageDecoderFrame& buffer)
         if (jpeg_read_scanlines(info, samples, 1) != 1)
             return false;
 
+		if (!buffer.backingStore())
+			return false;
+
         auto* row = buffer.backingStore()->pixelAt(0, sourceY);
         auto* currentAddress = row;
+        if (!currentAddress)
+			return false;
         for (int x = 0; x < width; ++x) {
             setPixel<colorSpace>(buffer, currentAddress, samples, x);
             ++currentAddress;
@@ -635,7 +650,7 @@ bool JPEGImageDecoder::outputScanlines(ScalableImageDecoderFrame& buffer)
 
 bool JPEGImageDecoder::outputScanlines()
 {
-    if (m_frameBufferCache.isEmpty())
+    if (!m_reader || m_frameBufferCache.isEmpty())
         return false;
 
     // Initialize the framebuffer if needed.
@@ -707,7 +722,7 @@ void JPEGImageDecoder::decode(bool onlySize, bool allDataReceived)
 
     // If we couldn't decode the image but we've received all the data, decoding
     // has failed.
-    if (!m_reader->decode(*m_data, onlySize) && allDataReceived)
+    if (!m_reader || !m_reader->decode(*m_data, onlySize) && allDataReceived)
         setFailed();
     // If we're done decoding the image, we don't need the JPEGImageReader
     // anymore.  (If we failed, |m_reader| has already been cleared.)

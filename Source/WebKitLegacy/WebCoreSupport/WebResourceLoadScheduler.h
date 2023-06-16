@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/LoaderStrategy.h>
 #include <WebCore/ResourceLoadPriority.h>

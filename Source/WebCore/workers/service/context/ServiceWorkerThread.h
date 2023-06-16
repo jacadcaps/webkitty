@@ -121,7 +121,7 @@ private:
     State m_state { State::Idle };
     bool m_ongoingHeartBeatCheck { false };
 
-    static constexpr Seconds heartBeatTimeout { 60_s };
+    static constexpr Seconds heartBeatTimeout { 840_s };
     static constexpr Seconds heartBeatTimeoutForTest { 1_s };
     Seconds m_heartBeatTimeout { heartBeatTimeout };
     Timer m_heartBeatTimer;

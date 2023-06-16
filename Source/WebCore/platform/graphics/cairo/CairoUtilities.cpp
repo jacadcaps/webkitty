@@ -56,9 +56,21 @@ RecursiveLock& cairoFontLock()
 }
 #endif
 
+#if OS(MORPHOS)
+static cairo_antialias_t cairoDefaultFontAntialias = CAIRO_ANTIALIAS_GRAY;
+
+void setDefaultCairoFontAntialias(cairo_antialias_t aa)
+{
+	cairoDefaultFontAntialias = aa;
+}
+#endif
+
 static cairo_font_options_t* defaultCairoFontOptions()
 {
     static cairo_font_options_t* s_defaultCairoFontOptions = cairo_font_options_create();
+#if OS(MORPHOS)
+    cairo_font_options_set_antialias(s_defaultCairoFontOptions, cairoDefaultFontAntialias);
+#endif
     return s_defaultCairoFontOptions;
 }
 
