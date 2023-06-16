@@ -33,6 +33,10 @@
 #include "Options.h"
 #include "SuperSampler.h"
 
+#if OS(MORPHOS)
+extern "C" { void oomCrash(); }
+#endif
+
 namespace JSC {
 
 LocalAllocator::LocalAllocator(BlockDirectory* directory)
@@ -145,7 +149,7 @@ void* LocalAllocator::allocateSlowCase(Heap& heap, GCDeferralContext* deferralCo
     MarkedBlock::Handle* block = m_directory->tryAllocateBlock(heap);
     if (!block) {
         if (failureMode == AllocationFailureMode::Assert)
-            RELEASE_ASSERT_NOT_REACHED();
+            oomCrash();
         else
             return nullptr;
     }

@@ -176,7 +176,7 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, reportFTLCompileTimes, false, Normal, "dumps JS function signature and the time it took to FTL compile") \
     v(Bool, reportTotalCompileTimes, false, Normal, nullptr) \
     v(Bool, reportTotalPhaseTimes, false, Normal, "This prints phase times at the end of running script inside jsc.cpp") \
-    v(Bool, reportParseTimes, false, Normal, "dumps JS function signature and the time it took to parse") \
+    /* v(Bool, reportParseTimes, false, Normal, "dumps JS function signature and the time it took to parse") */ \
     v(Bool, reportBytecodeCompileTimes, false, Normal, "dumps JS function signature and the time it took to bytecode compile") \
     v(Bool, countParseTimes, false, Normal, "counts parse times") \
     v(Bool, verboseExitProfile, false, Normal, nullptr) \
@@ -357,7 +357,7 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, sweepSynchronously, false, Normal, "debugging option to sweep all dead objects synchronously at GC end before resuming mutator") \
     v(Unsigned, maxSingleAllocationSize, 0, Configurable, "debugging option to limit individual allocations to a max size (0 = limit not set, N = limit size in bytes)") \
     \
-    v(GCLogLevel, logGC, GCLogging::None, Normal, "debugging option to log GC activity (0 = None, 1 = Basic, 2 = Verbose)") \
+    /*v(GCLogLevel, logGC, GCLogging::None, Normal, "debugging option to log GC activity (0 = None, 1 = Basic, 2 = Verbose)") */ \
     v(Bool, useGC, true, Normal, nullptr) \
     v(Bool, useGlobalGC, false, Normal, nullptr) \
     v(Bool, gcAtEnd, false, Normal, "If true, the jsc CLI will do a GC before exiting") \
@@ -513,8 +513,8 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, forcePolyProto, false, Normal, "If true, create_this will always create an object with a poly proto structure.") \
     v(Bool, forceMiniVMMode, false, Normal, "If true, it will force mini VM mode on.") \
     v(Bool, useTracePoints, false, Normal, nullptr) \
-    v(Bool, traceLLIntExecution, false, Configurable, nullptr) \
-    v(Bool, traceLLIntSlowPath, false, Configurable, nullptr) \
+    /* v(Bool, traceLLIntExecution, false, Configurable, nullptr) */ \
+    /* v(Bool, traceLLIntSlowPath, false, Configurable, nullptr) */ \
     v(Bool, traceBaselineJITExecution, false, Normal, nullptr) \
     v(Unsigned, thresholdForGlobalLexicalBindingEpoch, UINT_MAX, Normal, "Threshold for global lexical binding epoch. If the epoch reaches to this value, CodeBlock metadata for scope operations will be revised globally. It needs to be greater than 1.") \
     v(OptionString, diskCachePath, nullptr, Restricted, nullptr) \

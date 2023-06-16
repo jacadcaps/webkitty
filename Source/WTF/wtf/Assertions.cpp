@@ -67,6 +67,10 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #endif
 
+#if OS(MORPHOS)
+extern "C" { void vdprintf(const char *, va_list); }
+#endif
+
 namespace WTF {
 
 WTF_ATTRIBUTE_PRINTF(1, 0)
@@ -179,6 +183,10 @@ static void vprintf_stderr_common(const char* format, va_list args)
             size *= 2;
         } while (size > 1024);
     }
+#endif
+#if OS(MORPHOS)
+	vdprintf(format, args);
+	return;
 #endif
     vfprintf(stderr, format, args);
 }

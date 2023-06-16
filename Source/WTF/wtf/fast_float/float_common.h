@@ -7,6 +7,16 @@
 #include <cstring>
 #include <type_traits>
 
+#if defined(__MORPHOS__)
+    #ifndef SIZE_MAX
+    #define SIZE_MAX 0xffffffff
+    #endif
+
+    #ifndef UINT64_MAX
+    #define UINT64_MAX 0xffffffffffffffff
+    #endif
+#endif
+
 #if (defined(__x86_64) || defined(__x86_64__) || defined(_M_X64)   \
        || defined(__amd64) || defined(__aarch64__) || defined(_M_ARM64) \
        || defined(__MINGW64__)                                          \
@@ -16,7 +26,7 @@
 #define FASTFLOAT_64BIT
 #elif (defined(__i386) || defined(__i386__) || defined(_M_IX86)   \
      || defined(__arm__) || defined(_M_ARM)                   \
-     || defined(__MINGW32__))
+     || defined(__MINGW32__) || defined(__MORPHOS__))
 #define FASTFLOAT_32BIT
 #else
   // Need to check incrementally, since SIZE_MAX is a size_t, avoid overflow.

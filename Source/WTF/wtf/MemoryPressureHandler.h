@@ -282,6 +282,12 @@ private:
 #if PLATFORM(COCOA)
     OSObjectPtr<dispatch_queue_t> m_dispatchQueue;
 #endif
+
+#if OS(MORPHOS)
+    RunLoop::Timer m_morphosMeasurementTimer;
+    void morphosMeasurementTimerFired();
+#endif
+
 };
 
 } // namespace WTF
