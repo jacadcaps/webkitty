@@ -124,7 +124,12 @@ public:
 			DMHOST(dprintf("%s: vmframe %p\n", __func__, frame));
 			if (frame)
 			{
-				Document *doc = frame->mainFrame().document();
+//				Document *doc = frame->mainFrame().document();
+
+                Document *doc = nullptr;
+                if (auto* localFrame = dynamicDowncast<LocalFrame>(frame->mainFrame()))
+                    doc = localFrame->document();
+
 				DMHOST(dprintf("%s: doc %p\n", __func__, doc));
 				if (doc)
 				{

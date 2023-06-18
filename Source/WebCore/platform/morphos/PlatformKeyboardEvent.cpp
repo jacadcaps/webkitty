@@ -496,7 +496,7 @@ String keyCodeForHardwareKeyCode(unsigned keyCode)
 
 static PlatformEvent::Type eventTypeForIntuiMessage(struct IntuiMessage *imsg)
 {
-    return (imsg->Code & IECODE_UP_PREFIX) ? PlatformEvent::KeyUp : PlatformEvent::KeyDown;
+    return (imsg->Code & IECODE_UP_PREFIX) ? PlatformEventType::KeyUp : PlatformEventType::KeyDown;
 }
 
 static OptionSet<PlatformEvent::Modifier> modifiersForIntuiMessage(struct IntuiMessage *imsg)
@@ -588,7 +588,7 @@ void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardCom
     if (backwardCompatibilityMode)
         return;
 
-    if (type == PlatformEvent::RawKeyDown) {
+    if (type == PlatformEventType::RawKeyDown) {
         m_text = String();
         m_unmodifiedText = String();
 #if 0

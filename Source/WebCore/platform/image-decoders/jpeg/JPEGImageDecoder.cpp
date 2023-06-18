@@ -722,7 +722,7 @@ void JPEGImageDecoder::decode(bool onlySize, bool allDataReceived)
 
     // If we couldn't decode the image but we've received all the data, decoding
     // has failed.
-    if (!m_reader || !m_reader->decode(*m_data, onlySize) && allDataReceived)
+    if (!m_reader || (!m_reader->decode(*m_data, onlySize) && allDataReceived))
         setFailed();
     // If we're done decoding the image, we don't need the JPEGImageReader
     // anymore.  (If we failed, |m_reader| has already been cleared.)

@@ -837,7 +837,7 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&
 #if OS(MORPHOS)
     if (m_downloadFileHandle == FileSystem::invalidPlatformFileHandle)
     {
-        auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::General);
+        auto resourceError = ResourceError(507, m_request.url(), ResourceError::Type::General);
         callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
             client.curlDidFailWithError(request, WTFMove(error), { });
         });
@@ -852,7 +852,7 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&
 #if OS(MORPHOS)
         if (-1 == FileSystem::writeToFile(m_downloadFileHandle, buffer.makeContiguous()->data(), buffer.size()))
         {
-            auto resourceError = ResourceError::httpError(507, m_request.url(), ResourceError::Type::General);
+            auto resourceError = ResourceError(507, m_request.url(), ResourceError::Type::General);
             callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
                 client.curlDidFailWithError(request, WTFMove(error), { });
             });

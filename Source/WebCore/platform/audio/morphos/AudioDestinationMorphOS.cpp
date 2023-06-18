@@ -54,7 +54,7 @@ Ref<AudioDestination> AudioDestination::create(AudioIOCallback&callback, const S
 }
 
 AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float sampleRate)
-	: AudioDestination(callback)
+	: AudioDestination(callback, sampleRate)
 	, m_renderBus(AudioBus::create(2, framesToPull, true))
 	, m_output(*this)
 	, m_sampleRate(sampleRate)

@@ -130,6 +130,10 @@ public:
     Seconds connectTimeout() const { return m_connectTimeout; }
     Seconds defaultTimeoutInterval() const { return m_defaultTimeoutInterval; }
 
+#if OS(MORPHOS)
+    void stopThread();
+#endif
+
 #ifndef NDEBUG
     FILE* getLogFile() const { return m_logFile; }
     bool isVerbose() const { return m_verbose; }
@@ -317,10 +321,6 @@ public:
     Expected<curl_socket_t, CURLcode> getActiveSocket();
     CURLcode send(const uint8_t*, size_t, size_t&);
     CURLcode receive(uint8_t*, size_t, size_t&);
-
-#if OS(MORPHOS)
-    void stopThread();
-#endif
 
 #ifndef NDEBUG
     void enableVerboseIfUsed();

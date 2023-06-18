@@ -132,7 +132,7 @@ protected:
 	void requestNextChunk();
 
 protected:
-	RunLoop::Timer<AcinerellaNetworkBufferHLS>  m_playlistRefreshTimer;
+	RunLoop::Timer                              m_playlistRefreshTimer;
 	RefPtr<AcinerellaNetworkBuffer>             m_chunkRequest;
 	RefPtr<AcinerellaNetworkBuffer>             m_chunkRequestInRead;
 	std::queue<RefPtr<AcinerellaNetworkBuffer>> m_chunksRequestPreviouslyRead;

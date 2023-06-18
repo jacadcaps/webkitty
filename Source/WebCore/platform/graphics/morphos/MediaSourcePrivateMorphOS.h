@@ -115,9 +115,9 @@ private:
 	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_activeSourceBuffers;
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
-	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_watchdogTimer;
-	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_seekTimer;
-	RunLoop::Timer<MediaSourcePrivateMorphOS>        m_seekControlTimer;
+	RunLoop::Timer                                   m_watchdogTimer;
+	RunLoop::Timer                                   m_seekTimer;
+	RunLoop::Timer                                   m_seekControlTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;

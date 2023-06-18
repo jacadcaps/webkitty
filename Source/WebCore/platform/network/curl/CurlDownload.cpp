@@ -142,7 +142,7 @@ Ref<CurlRequest> CurlDownload::createCurlRequest(ResourceRequest& request)
     {
         auto& storageSession = *m_context->storageSession();
         auto includeSecureCookies = request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No;
-        String cookieHeaderField = storageSession.cookieRequestHeaderFieldValue(request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), std::nullopt, std::nullopt, includeSecureCookies, ShouldAskITP::Yes, ShouldRelaxThirdPartyCookieBlocking::No).first;
+        String cookieHeaderField = storageSession.cookieRequestHeaderFieldValue(request.firstPartyForCookies(), SameSiteInfo::create(request), request.url(), std::nullopt, std::nullopt, includeSecureCookies, ApplyTrackingPrevention::No, ShouldRelaxThirdPartyCookieBlocking::No).first;
         if (!cookieHeaderField.isEmpty())
             request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
     }
@@ -244,7 +244,7 @@ void CurlDownload::willSendRequest()
 
     if (m_redirectCount++ > maxRedirects) {
         if (m_listener)
-            m_listener->didFail(ResourceError::httpError(CURLE_TOO_MANY_REDIRECTS, m_request.url()));
+            m_listener->didFail(ResourceError(CURLE_TOO_MANY_REDIRECTS, m_request.url()));
         return;
     }
 
