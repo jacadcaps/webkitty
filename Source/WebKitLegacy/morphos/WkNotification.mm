@@ -13,7 +13,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 	if ((self = [super init]))
 	{
 		_notification = WTFMove(notification);
-		_notificationLookup.add(_notification.notificationID, self);
+		_notificationLookup.add(_notification->notificationID, self);
 	}
 	
 	return self;
@@ -27,14 +27,14 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 
 - (void)cancel
 {
-	auto it = _notificationLookup.find(_notification.notificationID);
+	auto it = _notificationLookup.find(_notification->notificationID);
 	if (it != _notificationLookup.end())
-    	_notificationLookup.remove(_notification.notificationID);
+    	_notificationLookup.remove(_notification->notificationID);
 }
 
 + (id)notificationForNotification:(WebCore::NotificationData&&)notification
 {
-	auto it = _notificationLookup.find(notification.notificationID);
+	auto it = _notificationLookup.find(notification->notificationID);
 	if (it != _notificationLookup.end())
 		return it->value;
 	return nil;
