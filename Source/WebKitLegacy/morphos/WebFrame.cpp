@@ -103,7 +103,7 @@ Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage* , WebCore::Frame* coreF
 Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const String& frameName, HTMLFrameOwnerElement* ownerElement)
 {
     auto frame = create();
-    auto coreFrame = Frame::create(page->corePage(), ownerElement, makeUniqueRef<WebFrameLoaderClient>(frame.get()));
+    auto coreFrame = Frame::create(page->corePage(), ownerElement, makeUniqueRef<WebFrameLoaderClient>(frame.get()), WebCore::FrameIdentifier::generate());
     frame->m_coreFrame = coreFrame.ptr();
 
     coreFrame->tree().setName(AtomString(frameName));
@@ -166,6 +166,19 @@ WebFrame* WebFrame::fromCoreFrame(const Frame& frame)
         return nullptr;
 
     return &webFrameLoaderClient->webFrame();
+}
+
+WebFrame* WebFrame::fromCoreFrame(const WebCore::Frame* frame)
+{
+    if (!frame)
+        return nullptr;
+
+    auto* webFrameLoaderClient = toWebFrameLoaderClient(frame->loader().client());
+    if (!webFrameLoaderClient)
+        return nullptr;
+
+    return &webFrameLoaderClient->webFrame();
+
 }
 
 FrameInfoData WebFrame::info() const
@@ -320,11 +333,11 @@ String WebFrame::contentsAsString() const
 
     if (isFrameSet()) {
         StringBuilder builder;
-        for (Frame* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
+        for (AbstractFrame* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
             if (!builder.isEmpty())
                 builder.append(' ');
 
-            WebFrame* webFrame = WebFrame::fromCoreFrame(*child);
+            WebFrame* webFrame = WebFrame::fromCoreFrame(dynamicDowncast<WebCore::LocalFrame>(child));
             ASSERT(webFrame);
 
             builder.append(webFrame->contentsAsString());
@@ -451,8 +464,8 @@ Ref<API::Array> WebFrame::childFrames()
     Vector<RefPtr<API::Object>> vector;
     vector.reserveInitialCapacity(size);
 
-    for (Frame* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
-        WebFrame* webFrame = WebFrame::fromCoreFrame(*child);
+    for (AbstractFrame* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
+        WebFrame* webFrame = WebFrame::fromCoreFrame(dynamicDowncast<WebCore::LocalFrame>(child)));
         ASSERT(webFrame);
         vector.uncheckedAppend(webFrame);
     }

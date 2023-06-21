@@ -18,7 +18,6 @@ namespace WebCore {
 	class ResourceRequest;
 	class FileChooser;
 	class ResourceResponse;
-	class PolicyCheckIdentifier;
 	class AuthenticationChallenge;
 	class HitTestResult;
 	class SharedBuffer;
@@ -137,8 +136,8 @@ struct WebViewDelegate
 		Default, Grant, Deny
 	};
 	std::function<NotificationPermission(const WTF::URL &url)> _fCheckNotificationPermission;
-	std::function<void(WebCore::Notification* notification)> _fShowNotification;
-	std::function<void(WebCore::Notification* notification)> _fHideNotification;
+	std::function<void(WebCore::NotificationData&& notification)> _fShowNotification;
+	std::function<void(WebCore::NotificationData&& notification)> _fHideNotification;
 #endif
 
 	void clearDelegateCallbacks() {

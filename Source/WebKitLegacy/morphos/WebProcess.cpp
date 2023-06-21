@@ -223,15 +223,6 @@ void WebProcess::initialize(int sigbit)
 	WebKitInitializeWebDatabasesIfNecessary();
 #endif
 
-	DeprecatedGlobalSettings::setAccessibilityObjectModelEnabled(false);
-//	DeprecatedGlobalSettings::setKeygenElementEnabled(true);
-	
-    DeprecatedGlobalSettings::setOffscreenCanvasEnabled(true);
-    DeprecatedGlobalSettings::setOffscreenCanvasInWorkersEnabled(true);
-    
-// This doesn't work yet in WebKitLegacy so it will potentially break pages if enabled
-    DeprecatedGlobalSettings::setCacheAPIEnabled(true);
-    
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
     WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
@@ -470,7 +461,7 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
 						m_urlFilter.parse(buffer);
 						int ssize;
 						char *sbuffer = m_urlFilter.serialize(&ssize, false);
-						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Write);
+						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Truncate);
 						if (WTF::FileSystemImpl::invalidPlatformFileHandle != dfh)
 						{
 							if (ssize != WTF::FileSystemImpl::writeToFile(dfh, sbuffer, ssize))
@@ -549,14 +540,14 @@ void WebProcess::waitForThreads()
 			}
 		}
 		Delay(10);
-		WTF::RunLoop::iterate();
+		RunLoop::current().iterate();
 	}
 	D(dprintf("..done waiting\n"));
 }
 
 void WebProcess::handleSignals(const uint32_t /* sigmask */)
 {
-	WTF::RunLoop::iterate();
+	RunLoop::current().iterate();
 }
 
 float WebProcess::timeToNextTimerEvent()

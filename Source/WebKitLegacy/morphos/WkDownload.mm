@@ -802,7 +802,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
             auto items = data->items();
             for (auto& item : items)
             {
-                size += item.data().size();
+                size += item.data()->size();
             }
 
             _size = size;
@@ -826,12 +826,12 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                 {
                     for (auto& item : items)
                     {
-						D(dprintf("%s: item offset %lld size %d data %p\n", __PRETTY_FUNCTION__, item.offset(), item.data().size(), item.data().data()->data()));
+						D(dprintf("%s: item offset %lld size %d data %p\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size(), item.data()->data()->data()));
                     
-                        if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data().data()->data(), item.data().size()))
+                        if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->data(), item.data()->size()))
 						{
-							_downloadedSize += item.data().size();
-							[_delegate download:self didReceiveBytes:item.data().size()];
+							_downloadedSize += item.data()->size();
+							[_delegate download:self didReceiveBytes:item.data()->size()];
 						}
 						else
 						{

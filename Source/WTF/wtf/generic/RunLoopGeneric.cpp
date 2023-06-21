@@ -236,6 +236,13 @@ void RunLoop::run()
     RunLoop::current().runImpl(RunMode::Drain);
 }
 
+#if OS(MORPHOS)
+void RunLoop::iterate()
+{
+    RunLoop::current().runImpl(RunMode::Iterate);
+}
+#endif
+
 void RunLoop::setWakeUpCallback(WTF::Function<void()>&& function)
 {
     RunLoop::current().m_wakeUpCallback = WTFMove(function);

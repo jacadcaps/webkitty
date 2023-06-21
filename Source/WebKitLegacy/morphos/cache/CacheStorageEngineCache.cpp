@@ -27,17 +27,17 @@
 #include "CacheStorageEngine.h"
 
 #include "CacheStorageEngineCaches.h"
+#include "NetworkCacheCoders.h"
 #include "NetworkCacheIOChannel.h"
 #include "NetworkCacheKey.h"
-#include "NetworkCacheCoders.h"
+#include "NetworkProcess.h"
+#include "WebCoreArgumentCoders.h"
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/RetrieveRecordsOptions.h>
-#include <WebCore/ResourceError.h>
-#include <WebCore/ResourceRequest.h>
-#include <WebCore/HTTPHeaderMap.h>
 #include <pal/SessionID.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/UUID.h>
@@ -90,8 +90,7 @@ static inline void updateVaryInformation(RecordInformation& recordInformation, c
     varyValue.split(',', [&](StringView view) {
         if (!recordInformation.hasVaryStar && stripLeadingAndTrailingHTTPSpaces(view) == "*"_s)
             recordInformation.hasVaryStar = true;
-        String headerName = view.toString();
-        recordInformation.varyHeaders.add(headerName, request.httpHeaderField(headerName));
+        recordInformation.varyHeaders.add(view.toString(), request.httpHeaderField(view));
     });
 
     if (recordInformation.hasVaryStar)
@@ -108,7 +107,7 @@ RecordInformation Cache::toRecordInformation(const Record& record)
     return recordInformation;
 }
 
-Cache::Cache(Caches& caches, uint64_t identifier, State state, String&& name, String&& uniqueName)
+Cache::Cache(Caches& caches, DOMCacheIdentifier identifier, State state, String&& name, String&& uniqueName)
     : m_caches(caches)
     , m_state(state)
     , m_identifier(identifier)
@@ -129,35 +128,23 @@ void Cache::clearMemoryRepresentation()
     m_state = State::Uninitialized;
 }
 
-static RecordInformation isolatedCopy(const RecordInformation& information)
+RecordInformation RecordInformation::isolatedCopy() &&
 {
-    auto result = RecordInformation { information.key, information.insertionTime, information.identifier, information.updateResponseCounter, information.size, information.url.isolatedCopy(), information.hasVaryStar, { } };
-    HashMap<String, String> varyHeaders;
-    for (const auto& keyValue : information.varyHeaders)
-        varyHeaders.set(keyValue.key.isolatedCopy(), keyValue.value.isolatedCopy());
-    result.varyHeaders = WTFMove(varyHeaders);
-    return result;
+    return { key, insertionTime, identifier, updateResponseCounter, size, WTFMove(url).isolatedCopy(), hasVaryStar, crossThreadCopy(WTFMove(varyHeaders)) };
 }
 
 struct TraversalResult {
-    uint64_t cacheIdentifier;
+    WebCore::DOMCacheIdentifier cacheIdentifier;
     HashMap<String, Vector<RecordInformation>> records;
     Vector<Key> failedRecords;
+
+    TraversalResult isolatedCopy() &&;
 };
 
-static TraversalResult isolatedCopy(TraversalResult&& result)
+TraversalResult TraversalResult::isolatedCopy() &&
 {
-    HashMap<String, Vector<RecordInformation>> isolatedRecords;
-    for (auto& keyValue : result.records) {
-        auto& recordVector = keyValue.value;
-        for (size_t cptr = 0; cptr < recordVector.size(); cptr++)
-            recordVector[cptr] = isolatedCopy(recordVector[cptr]);
-
-        isolatedRecords.set(keyValue.key.isolatedCopy(), WTFMove(recordVector));
-    }
-
-    // No need to isolate keys since they are isolated through the copy constructor
-    return TraversalResult { result.cacheIdentifier, WTFMove(isolatedRecords), WTFMove(result.failedRecords) };
+    // No need to isolate keys since they are isolated through the copy constructor.
+    return { cacheIdentifier, crossThreadCopy(WTFMove(records)), WTFMove(failedRecords) };
 }
 
 void Cache::open(CompletionCallback&& callback)
@@ -174,7 +161,7 @@ void Cache::open(CompletionCallback&& callback)
     TraversalResult traversalResult { m_identifier, { }, { } };
     m_caches.readRecordsList(*this, [caches = Ref { m_caches }, callback = WTFMove(callback), traversalResult = WTFMove(traversalResult)](const auto* storageRecord, const auto&) mutable {
         if (!storageRecord) {
-            RunLoop::main().dispatch([caches = WTFMove(caches), callback = WTFMove(callback), traversalResult = isolatedCopy(WTFMove(traversalResult)) ]() mutable {
+            RunLoop::main().dispatch([caches = WTFMove(caches), callback = WTFMove(callback), traversalResult = WTFMove(traversalResult).isolatedCopy() ]() mutable {
                 for (auto& key : traversalResult.failedRecords)
                     caches->removeCacheEntry(key);
 
@@ -329,7 +316,7 @@ void Cache::retrieveRecords(const RetrieveRecordsOptions& options, RecordsCallba
     if (!records)
         return;
 
-    CacheQueryOptions queryOptions { options.ignoreSearch, options.ignoreMethod, options.ignoreVary, { } };
+    CacheQueryOptions queryOptions { options.ignoreSearch, options.ignoreMethod, options.ignoreVary };
     for (auto& record : *records) {
         if (DOMCacheEngine::queryCacheMatch(options.request, record.url, record.hasVaryStar, record.varyHeaders, queryOptions))
             retrieveRecord(record, taskCounter.copyRef());
@@ -568,7 +555,7 @@ Storage::Record Cache::encode(const RecordInformation& recordInformation, const 
     encoder << recordInformation.insertionTime;
     encoder << recordInformation.size;
     encoder << record.requestHeadersGuard;
-    record.request.encodeWithoutPlatformData(encoder);
+    encoder << record.request;
     record.options.encodePersistent(encoder);
     encoder << record.referrer;
 
@@ -597,8 +584,9 @@ static std::optional<WebCore::DOMCacheEngine::Record> decodeDOMCacheRecord(WTF::
     if (!requestHeadersGuard)
         return std::nullopt;
     
-    ResourceRequest request;
-    if (!request.decodeWithoutPlatformData(decoder))
+    std::optional<ResourceRequest> request;
+    decoder >> request;
+    if (!request)
         return std::nullopt;
     
     FetchOptions options;
@@ -615,8 +603,9 @@ static std::optional<WebCore::DOMCacheEngine::Record> decodeDOMCacheRecord(WTF::
     if (!responseHeadersGuard)
         return std::nullopt;
 
-    ResourceResponse response;
-    if (!ResourceResponse::decode(decoder, response))
+    std::optional<ResourceResponse> response;
+    decoder >> response;
+    if (!response)
         return std::nullopt;
     
     std::optional<uint64_t> responseBodySize;
@@ -631,11 +620,11 @@ static std::optional<WebCore::DOMCacheEngine::Record> decodeDOMCacheRecord(WTF::
         0,
         0,
         WTFMove(*requestHeadersGuard),
-        WTFMove(request),
+        WTFMove(*request),
         WTFMove(options),
         WTFMove(*referrer),
         WTFMove(*responseHeadersGuard),
-        WTFMove(response),
+        WTFMove(*response),
         { },
         WTFMove(*responseBodySize)
     }};

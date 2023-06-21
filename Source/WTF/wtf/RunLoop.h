@@ -109,6 +109,10 @@ public:
 
     WTF_EXPORT_PRIVATE void threadWillExit();
 
+#if OS(MORPHOS)
+    void iterate();
+#endif
+
 #if ASSERT_ENABLED
     void assertIsCurrent() const final;
 #endif

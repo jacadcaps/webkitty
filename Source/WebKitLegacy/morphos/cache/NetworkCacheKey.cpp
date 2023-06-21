@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "WebKit.h"
+#include "config.h"
 #include "NetworkCacheKey.h"
 
 #include "NetworkCacheCoders.h"
@@ -114,12 +114,22 @@ Key::HashType Key::computeHash(const Salt& salt) const
     return hash;
 }
 
+String Key::partitionToPartitionHashAsString(const String& partition, const Salt& salt)
+{
+    return hashAsString(partitionToPartitionHash(partition, salt));
+}
+
 Key::HashType Key::computePartitionHash(const Salt& salt) const
+{
+    return partitionToPartitionHash(m_partition, salt);
+}
+
+Key::HashType Key::partitionToPartitionHash(const String& partition, const Salt& salt)
 {
     SHA1 sha1;
     sha1.addBytes(salt.data(), salt.size());
 
-    hashString(sha1, m_partition);
+    hashString(sha1, partition);
 
     SHA1::Digest hash;
     sha1.computeHash(hash);
@@ -162,60 +172,6 @@ bool Key::operator==(const Key& other) const
 {
     return m_hash == other.m_hash && m_partition == other.m_partition && m_type == other.m_type && m_identifier == other.m_identifier && m_range == other.m_range;
 }
-
-void Key::encode(WTF::Persistence::Encoder& encoder) const
-{
-    encoder << m_partition;
-    encoder << m_type;
-    encoder << m_identifier;
-    encoder << m_range;
-    encoder << m_hash;
-    encoder << m_partitionHash;
-}
-
-std::optional<Key> Key::decode(WTF::Persistence::Decoder& decoder)
-{
-    Key key;
-    
-    std::optional<String> partition;
-    decoder >> partition;
-    if (!partition)
-        return std::nullopt;
-    key.m_partition = WTFMove(*partition);
-
-    std::optional<String> type;
-    decoder >> type;
-    if (!type)
-        return std::nullopt;
-    key.m_type = WTFMove(*type);
-
-    std::optional<String> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-    key.m_identifier = WTFMove(*identifier);
-
-    std::optional<String> range;
-    decoder >> range;
-    if (!range)
-        return std::nullopt;
-    key.m_range = WTFMove(*range);
-
-    std::optional<HashType> hash;
-    decoder >> hash;
-    if (!hash)
-        return std::nullopt;
-    key.m_hash = WTFMove(*hash);
-
-    std::optional<HashType> partitionHash;
-    decoder >> partitionHash;
-    if (!partitionHash)
-        return std::nullopt;
-    key.m_partitionHash = WTFMove(*partitionHash);
-
-    return { WTFMove(key) };
-}
-
 
 }
 }

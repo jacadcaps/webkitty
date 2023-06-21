@@ -37,20 +37,20 @@ namespace WebKit {
 
 class WebPage;
 
-class WebNotificationClient : public WebCore::NotificationClient {
+class WebNotificationClient final : public WebCore::NotificationClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WebNotificationClient(WebPage *);
     WebPage *page() { return m_webPage; }
 
 private:
-    bool show(WebCore::Notification&, WTF::CompletionHandler<void()>&&) override;
-    void cancel(WebCore::Notification&) override;
-    void notificationObjectDestroyed(WebCore::Notification&) override;
-    void notificationControllerDestroyed() override;
+    bool show(WebCore::ScriptExecutionContext&, WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;
+    void cancel(WebCore::NotificationData&&) final;
+    void notificationObjectDestroyed(WebCore::NotificationData&&) final;
+    void notificationControllerDestroyed() final;
 
-    void requestPermission(WebCore::ScriptExecutionContext&, WebCore::NotificationClient::PermissionHandler&&) override;
-    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) override;
+    void requestPermission(WebCore::ScriptExecutionContext&, WebCore::NotificationClient::PermissionHandler&&) final;
+    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) final;
 
     WebPage *m_webPage;
     

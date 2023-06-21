@@ -23,16 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkCacheKey_h
-#define NetworkCacheKey_h
+#pragma once
 
 #include "NetworkCacheData.h"
 #include <wtf/SHA1.h>
-#include <wtf/persistence/PersistentCoder.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
-namespace NetworkCache {
+namespace WTF::Persistence {
+template<typename> struct Coder;
+}
+
+namespace WebKit::NetworkCache {
 
 struct DataKey {
     String partition;
@@ -82,16 +83,17 @@ public:
     String hashAsString() const { return hashAsString(m_hash); }
     String partitionHashAsString() const { return hashAsString(m_partitionHash); }
 
-    void encode(WTF::Persistence::Encoder&) const;
-    static std::optional<Key> decode(WTF::Persistence::Decoder&);
-
     bool operator==(const Key&) const;
     bool operator!=(const Key& other) const { return !(*this == other); }
 
+    static String partitionToPartitionHashAsString(const String& partition, const Salt&);
+
 private:
+    friend struct WTF::Persistence::Coder<Key>;
     static String hashAsString(const HashType&);
     HashType computeHash(const Salt&) const;
     HashType computePartitionHash(const Salt&) const;
+    static HashType partitionToPartitionHash(const String& partition, const Salt&);
 
     String m_partition;
     String m_type;
@@ -101,7 +103,6 @@ private:
     HashType m_partitionHash;
 };
 
-}
 }
 
 namespace WTF {
@@ -132,5 +133,3 @@ template<> struct HashTraits<WebKit::NetworkCache::Key> : SimpleClassHashTraits<
 };
 
 } // namespace WTF
-
-#endif

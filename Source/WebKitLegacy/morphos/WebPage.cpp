@@ -108,6 +108,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 #include <WebCore/DummySpeechRecognitionProvider.h>
+#include <WebCore/EmptyBadgeClient.h>
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -1155,9 +1156,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	m_webPageGroup = WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/Storage"_s);
 	auto storageProvider = PageStorageSessionProvider::create();
 
-#if 0
-        [[self preferences] privateBrowsingEnabled] ? PAL::SessionID::legacyPrivateSessionID() : PAL::SessionID::defaultSessionID(),
-#endif
 	WebCore::PageConfiguration pageConfiguration(
 		WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(this),
@@ -1172,10 +1170,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         makeUniqueRef<MediaRecorderProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
-//        WebProcess::singleton().getOrCreateWebLockRegistry(false),
-        WebCore::DummyPermissionController::create(),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
-        makeUniqueRef<WebCore::DummyModelPlayerProvider>()
+        makeUniqueRef<WebCore::DummyModelPlayerProvider>(),
+        WebCore::EmptyBadgeClient::create()
     );
 
 	pageConfiguration.chromeClient = new WebChromeClient(*this);
@@ -1205,7 +1202,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setDeviceHeight(1080);
 //    settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
-    settings.setSubpixelAntialiasedLayerTextEnabled(true);
+//    settings.setSubpixelAntialiasedLayerTextEnabled(true);
     settings.setAuthorAndUserStylesEnabled(true);
     //settings.setStandardFontFamily("DejaVu Serif");
     //settings.setSansSerifFontFamily("DejaVu Serif");
@@ -1219,6 +1216,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setDataTransferItemsEnabled(true);
 	settings.setDownloadAttributeEnabled(true);
     settings.setAsyncClipboardAPIEnabled(true);
+    settings.setOffscreenCanvasEnabled(true);
+    settings.setOffscreenCanvasInWorkersEnabled(true);
+    settings.setCacheAPIEnabled(true);
 
 #if 1
 	settings.setForceCompositingMode(false);
@@ -1283,8 +1283,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 #if ENABLE(VIDEO)
        settings.setInvisibleAutoplayNotPermitted(true);
-       settings.setAudioPlaybackRequiresUserGesture(true);
-       settings.setVideoPlaybackRequiresUserGesture(true);
+       settings.setRequiresUserGestureForVideoPlayback(true);
+       settings.setRequiresUserGestureForAudioPlayback(true);
 #endif
 
 #if ENABLE(MEDIA_STREAM)
@@ -1609,8 +1609,8 @@ void WebPage::setDarkModeEnabled(bool enabled)
 void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
 {
 #if ENABLE(VIDEO)
-	m_page->settings().setAudioPlaybackRequiresUserGesture(requiresGesture);
-	m_page->settings().setVideoPlaybackRequiresUserGesture(requiresGesture);
+	m_page->settings().setRequiresUserGestureForAudioPlayback(requiresGesture);
+	m_page->settings().setRequiresUserGestureForVideoPlayback(requiresGesture);
 #else
 	(void)requiresGesture;
 #endif
@@ -1619,7 +1619,7 @@ void WebPage::setRequiresUserGestureForMediaPlayback(bool requiresGesture)
 bool WebPage::requiresUserGestureForMediaPlayback()
 {
 #if ENABLE(VIDEO)
-	return m_page->settings().audioPlaybackRequiresUserGesture();
+	return m_page->settings().requiresUserGestureForAudioPlayback();
 #else
 	return true;
 #endif
@@ -2384,7 +2384,8 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 #endif
 
 	auto interpolation = m_interpolation;
-	if (frameView->frame().document()->isImageDocument())
+    auto* localFrame = dynamicDowncast<WebCore::LocalFrame>(frameView->frame());
+	if (localFrame && localFrame->document()->isImageDocument())
 		interpolation = m_imageInterpolation;
 
 	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation, m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay() ? &m_page->inspectorController() : nullptr);
@@ -2928,10 +2929,10 @@ static const char* interpretKeyEvent(const KeyboardEvent* evt)
         keyDownCommandsMap = new HashMap<int, const char*>;
         keyPressCommandsMap = new HashMap<int, const char*>;
 
-        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyDownEntries); ++i)
+        for (size_t i = 0; i < std::size(keyDownEntries); ++i)
             keyDownCommandsMap->set(keyDownEntries[i].modifiers << 16 | keyDownEntries[i].virtualKey, keyDownEntries[i].name);
 
-        for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyPressEntries); ++i)
+        for (size_t i = 0; i < std::size(keyPressEntries); ++i)
             keyPressCommandsMap->set(keyPressEntries[i].modifiers << 16 | keyPressEntries[i].charCode, keyPressEntries[i].name);
     }
 
@@ -2963,7 +2964,7 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
 
     auto command = frame->editor().command(String::fromUTF8(interpretKeyEvent(&event)));
 
-    if (keyEvent->type() == PlatformEvent::RawKeyDown) {
+    if (keyEvent->type() == PlatformEvent::Type::RawKeyDown) {
         // WebKit doesn't have enough information about mode to decide how commands that just insert text if executed via Editor should be treated,
         // so we leave it upon WebCore to either handle them immediately (e.g. Tab that changes focus) or let a keypress event be generated
         // (e.g. Tab that inserts a Tab character, or Enter).
@@ -3036,17 +3037,25 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				m_clickCount = 0;
 			else if (imsg->Code == SELECTDOWN || imsg->Code == MIDDLEDOWN)
 				m_clickCount ++;
-			
+
+            OptionSet<PlatformEvent::Modifier> modifiers;
+            
+            if ((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0)
+                modifiers.add(PlatformEvent::Modifier::ShiftKey);
+            if ((imsg->Qualifier & IEQUALIFIER_CONTROL) != 0)
+                modifiers.add(PlatformEvent::Modifier::ControlKey);
+            if ((imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0)
+                modifiers.add(PlatformEvent::Modifier::AltKey);
+            if ((imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0)
+                modifiers.add(PlatformEvent::Modifier::MetaKey);
+            
 			WebCore::PlatformMouseEvent pme(
 				WebCore::IntPoint(mouseX, mouseY),
 				WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
 				imsgToButton(imsg),
 				imsgToEventType(imsg),
 				m_clickCount,
-				(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
-				(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
-				(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
-				(imsg->Qualifier & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND)) != 0,
+                modifiers,
 				WTF::WallTime::fromRawSeconds(imsg->Seconds),
 				imsg->Class == IDCMP_MOUSEBUTTONS ? WebCore::ForceAtClick : 0.0,
 				WebCore::SyntheticClickType::NoTap);
@@ -3902,7 +3911,7 @@ void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlo
 		m_page->dragController().performDragOperation(WTFMove(drag));
 		m_page->dragController().dragEnded();
 
-		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, LeftButton, PlatformEvent::MouseMoved, 0, false, false, false, false, WallTime::now(), 0, WebCore::NoTap);
+		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, LeftButton, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), WallTime::now(), 0, WebCore::NoTap);
 		m_page->mainFrame().eventHandler().dragSourceEndedAt(event, m_page->dragController().sourceDragOperationMask());
 	}
 	else

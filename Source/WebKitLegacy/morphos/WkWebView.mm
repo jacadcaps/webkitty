@@ -2962,23 +2962,23 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return WebViewDelegate::NotificationPermission::Deny;
 		};
 		
-		webPage->_fShowNotification = [self](WebCore::Notification* notification) {
+		webPage->_fShowNotification = [self](WebCore::NotificationData&& notification) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
 			if (delegate)
 			{
-				[delegate webView:self wantsToDisplayNotification:[[[WkNotificationPrivate alloc] initWithNotification:notification] autorelease]];
+				[delegate webView:self wantsToDisplayNotification:[[[WkNotificationPrivate alloc] initWithNotification:WTFMove(notification)] autorelease]];
 			}
 		};
 
-		webPage->_fHideNotification = [self](WebCore::Notification* notification) {
+		webPage->_fHideNotification = [self](WebCore::NotificationData&& notification) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
 			if (delegate)
 			{
-				id notify = [WkNotificationPrivate notificationForNotification:notification];
+				id notify = [WkNotificationPrivate notificationForNotification:WTFMove(notification)];
 				if (notify)
 				{
 					[notify cancel];

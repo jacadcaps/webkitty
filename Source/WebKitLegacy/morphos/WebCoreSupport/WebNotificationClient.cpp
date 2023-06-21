@@ -19,7 +19,7 @@ WebNotificationClient::WebNotificationClient(WebPage *webView)
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 }
 
-bool WebNotificationClient::show(Notification& notification, WTF::CompletionHandler<void()>&& onCompleted)
+bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCore::NotificationData&& notification, WTF::CompletionHandler<void()>&& onCompleted)
 {
 	if (!m_webPage->_fShowNotification)
 		return false;
@@ -43,14 +43,14 @@ bool WebNotificationClient::show(Notification& notification, WTF::CompletionHand
     return true;
 }
 
-void WebNotificationClient::cancel(Notification& notification)
+void WebNotificationClient::cancel(WebCore::NotificationData&& notification)
 {
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
 	if (m_webPage->_fHideNotification)
 		m_webPage->_fHideNotification(&notification);
 }
 
-void WebNotificationClient::notificationObjectDestroyed(Notification& notification)
+void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationData&& notification)
 {
 	if (m_webPage->_fHideNotification)
 		m_webPage->_fHideNotification(&notification);

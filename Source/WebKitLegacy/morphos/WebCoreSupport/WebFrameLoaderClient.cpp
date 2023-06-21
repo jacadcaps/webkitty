@@ -1625,10 +1625,6 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 	}
 }
 
-void WebFrameLoaderClient::didCreateWindow(DOMWindow& window)
-{
-}
-
 #if ENABLE(APPLICATION_MANIFEST)
 void WebFrameLoaderClient::finishedLoadingApplicationManifest(uint64_t, const std::optional<WebCore::ApplicationManifest>&)
 {

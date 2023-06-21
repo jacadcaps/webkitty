@@ -30,6 +30,7 @@
 #include <JavaScriptCore/JSBase.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/FrameIdentifier.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
@@ -68,6 +69,7 @@ public:
     WebPage* page() const;
 
     static WebFrame* fromCoreFrame(const WebCore::Frame&);
+    static WebFrame* fromCoreFrame(const WebCore::Frame*);
     WebCore::Frame* coreFrame() const { return m_coreFrame; }
 
     FrameInfoData info() const;

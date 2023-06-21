@@ -50,7 +50,6 @@ public:
     void applyToDocumentLoader(WebsitePoliciesData&&);
 
     std::optional<WebCore::PageIdentifier> pageID() const final;
-    std::optional<WebCore::FrameIdentifier> frameID() const final;
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     bool hasFrameSpecificStorageAccess() final { return !!m_frameSpecificStorageAccessIdentifier; }
@@ -105,8 +104,8 @@ private:
     void dispatchWillClose() final;
     void dispatchDidStartProvisionalLoad() final;
     void dispatchDidReceiveTitle(const WebCore::StringWithDirection&) final;
-    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>) final;
-    void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading) final;
+    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>) final;
+    void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure) final;
     void dispatchDidFailLoad(const WebCore::ResourceError&) final;
     void dispatchDidFinishDocumentLoad() final;
     void dispatchDidFinishLoad() final;
@@ -151,7 +150,7 @@ private:
 
     void didDisplayInsecureContent() final;
     void didRunInsecureContent(WebCore::SecurityOrigin&, const URL&) final;
-    void didDetectXSS(const URL&, bool didBlockEntirePage) final;
+//    void didDetectXSS(const URL&, bool didBlockEntirePage) final;
 
     WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&) const final;
     WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const final;
@@ -214,7 +213,7 @@ private:
 #endif // ENABLE(WEBGL)
 
     WebCore::ObjectContentType objectContentType(const URL&, const String& mimeType) final;
-    String overrideMediaType() const final;
+    AtomString overrideMediaType() const final;
 
     void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld&) final;
     
@@ -248,8 +247,6 @@ private:
 
     void getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>&) final;
     void finishedLoadingIcon(WebCore::FragmentedSharedBuffer*);
-
-    void didCreateWindow(WebCore::DOMWindow&) final;
 
 #if ENABLE(APPLICATION_MANIFEST)
     void finishedLoadingApplicationManifest(uint64_t, const std::optional<WebCore::ApplicationManifest>&) final;
