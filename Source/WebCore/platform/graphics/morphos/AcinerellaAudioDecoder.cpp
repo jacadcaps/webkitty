@@ -333,7 +333,7 @@ void AcinerellaAudioDecoder::flush()
 
 		D({
 			auto lock = Locker(m_lock);
-			if (!m_decodedFrames.empty())
+			if (!m_decodedFrames.isEmpty())
 			{
 				dprintf("First audio frame @ %f\n", float(m_decodedFrames.front().frame()->timecode));
 			}
@@ -387,12 +387,12 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 
 	{
 		auto lock = Locker(m_lock);
-		while (!m_decodedFrames.empty() && bytesLeft)
+		while (!m_decodedFrames.isEmpty() && bytesLeft)
 		{
 			if (0 == bytesLeft)
 				break;
 
-			if (m_decodedFrames.empty())
+			if (m_decodedFrames.isEmpty())
 				break;
 				
 			if (m_didUnderrun)
@@ -403,13 +403,13 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				m_didUnderrun = false;
 			}
 
-			const auto *frame = m_decodedFrames.front().frame();
+			const auto *frame = m_decodedFrames.first().frame();
 
 			if (!m_isLive && m_position > frame->timecode)
 			{
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
 				m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
-				m_decodedFrames.pop();
+				m_decodedFrames.removeFirst();
 				didPopFrames = true;
 				continue;
 			}
@@ -441,7 +441,7 @@ void AcinerellaAudioDecoder::fillBuffer(int index)
 				DSPAM(dprintf("[AD]%s: pop frame sized %d at %f\n", __func__, frame->buffer_size, float(frame->timecode)));
 				m_bufferedSamples -= frame->buffer_size / 4; // 16bitStereo = 4BPF
 				m_bufferedSeconds = double(m_bufferedSamples) / double(m_audioRate);
-				m_decodedFrames.pop();
+				m_decodedFrames.removeFirst();
 				m_ahiFrameOffset = 0;
 				didPopFrames = true;
 			}

@@ -332,7 +332,7 @@ void AcinerellaVideoDecoder::showFirstFrame(bool locks)
 		auto lock = Locker(m_lock);
 		if (m_decodedFrames.size())
 		{
-			m_position = m_decodedFrames.front().pts();
+			m_position = m_decodedFrames.first().pts();
 			blitFrameLocked();
 			didShowFrame = true;
 		}
@@ -341,7 +341,7 @@ void AcinerellaVideoDecoder::showFirstFrame(bool locks)
 	{
 		if (m_decodedFrames.size())
 		{
-			m_position = m_decodedFrames.front().pts();
+			m_position = m_decodedFrames.first().pts();
 			blitFrameLocked();
 			didShowFrame = true;
 		}
@@ -435,7 +435,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 {
 	if (m_overlayHandle && m_decodedFrames.size())
 	{
-		auto *frame = m_decodedFrames.front().frame();
+		auto *frame = m_decodedFrames.first().frame();
 		auto *avFrame = ac_get_frame_real(frame);
 
 		if (avFrame && ((avFrame->width != m_frameWidth) || (avFrame->height != m_frameHeight)))
@@ -581,9 +581,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					{
 						if (m_decodedFrames.size())
 						{
-							pts = m_decodedFrames.front().pts();
+							pts = m_decodedFrames.first().pts();
 							m_position = pts;
-							m_decodedFrames.pop();
+							m_decodedFrames.removeFirst();
 							m_bufferedSeconds -= m_frameDuration;
 							dropFrame = false;
 							m_frameCount++;
@@ -602,14 +602,14 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 								SwapVLayerBuffer(m_overlayHandle);
 
 							// Store current frame's pts
-							pts = m_decodedFrames.front().pts();
+							pts = m_decodedFrames.first().pts();
 							m_position = pts;
 							
 							// Blit the frame into overlay backbuffer
 							blitFrameLocked();
 
 							// Pop the frame
-							m_decodedFrames.pop();
+							m_decodedFrames.removeFirst();
 							m_bufferedSeconds -= m_frameDuration;
 
 							m_frameCount++;
@@ -651,7 +651,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						// Get next presentation time
 						if (m_decodedFrames.size())
 						{
-							double nextPts = m_decodedFrames.front().pts();
+							double nextPts = m_decodedFrames.first().pts();
 
 							if (nextPts <= pts)
 							{
@@ -701,11 +701,11 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						auto lock = Locker(m_lock);
 						while (m_decodedFrames.size())
 						{
-							auto pts = m_decodedFrames.front().pts();
+							auto pts = m_decodedFrames.first().pts();
 							if (pts >= audioAt + 1.0)
 								break;
 							DSYNC(dprintf("\033[36m[VD]%s: droppped frame at %f\033[0m\n", __func__, float(pts)));
-							m_decodedFrames.pop();
+							m_decodedFrames.removeFirst();
 							m_bufferedSeconds -= m_frameDuration;
 						}
 					}

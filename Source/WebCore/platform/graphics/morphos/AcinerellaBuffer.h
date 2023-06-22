@@ -13,7 +13,6 @@
 #include "SharedBuffer.h"
 #include "acinerella.h"
 #include "AcinerellaPointer.h"
-#include <queue>
 
 namespace WebCore {
 

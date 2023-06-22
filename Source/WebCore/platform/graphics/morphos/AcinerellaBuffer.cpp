@@ -65,8 +65,7 @@ public:
 
 		{
 			auto lock = Locker(m_bufferLock);
-			while (!m_buffer.empty())
-				m_buffer.pop();
+            m_buffer.clear();
 
 			m_finishedLoading = false;
 			m_didFailLoading = false;
@@ -144,9 +143,9 @@ public:
 
 			{
 				auto lock = Locker(m_bufferLock);
-				if (!m_buffer.empty())
+				if (!m_buffer.isEmpty())
 				{
-					auto& buffer = m_buffer.front();
+					auto& buffer = m_buffer.first();
 					int write = std::min(int(buffer.size() - m_bufferRead), sizeLeft);
 
 					memcpy(outBuffer + sizeWritten, buffer.data() + m_bufferRead, write);
@@ -159,7 +158,7 @@ public:
 
 					if (m_bufferRead == int(buffer.size()))
 					{
-						m_buffer.pop();
+						m_buffer.removeFirst();
 						m_bufferSize -= m_bufferRead;
 						m_bufferRead = 0;
 						
@@ -170,7 +169,7 @@ public:
 						}
 					}
 					
-					canReadMore = !m_buffer.empty();
+					canReadMore = !m_buffer.isEmpty();
 				}
 			}
 			
@@ -343,7 +342,7 @@ public:
 				{
 					auto lock = Locker(m_bufferLock);
 					m_bufferSize += buffer.size();
-					m_buffer.emplace(buffer.copyData());
+					m_buffer.append(buffer.copyData());
 
 					if (m_bufferSize > m_readAhead && !m_isPaused)
 					{
@@ -395,7 +394,7 @@ protected:
 	BinarySemaphore                  m_eventSemaphore;
 	RefPtr<CurlRequest>              m_curlRequest;
 	Lock                             m_bufferLock;
-	std::queue<Vector<uint8_t>>      m_buffer;
+	Deque<Vector<uint8_t>>           m_buffer;
 	// pos within the front() chunk
 	int                              m_bufferRead = 0;
 	// abs position in the stream that we've read (not in the buffer anymore)

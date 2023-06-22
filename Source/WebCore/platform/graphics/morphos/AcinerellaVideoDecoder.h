@@ -83,7 +83,7 @@ protected:
 	BinarySemaphore m_frameEvent;
 	
 	uint32_t        m_bufferedSamples = 0;
-	volatile float  m_bufferedSeconds = 0.f;
+	std::atomic<float>  m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
 	int             m_frameWidth;
 	int             m_frameHeight;

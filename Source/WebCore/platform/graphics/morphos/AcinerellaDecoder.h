@@ -11,6 +11,7 @@
 #include <wtf/Threading.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/Deque.h>
 #include <memory>
 #include "AcinerellaBuffer.h"
 #include "AcinerellaMuxer.h"
@@ -173,7 +174,7 @@ protected:
 	bool                               m_isLive = false;
 	bool                               m_isHLS = false;
 	
-	std::queue<AcinerellaDecodedFrame> m_decodedFrames;
+	Deque<AcinerellaDecodedFrame>      m_decodedFrames;
 	Lock                               m_lock;
 
 	ac_decoder                        *m_lastDecoder = nullptr;

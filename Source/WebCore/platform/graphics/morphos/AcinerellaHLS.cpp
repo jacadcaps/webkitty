@@ -215,7 +215,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				chunk.m_url = URL(baseURL, line).string();
 				if (keyURL.length() > 0)
 					chunk.m_encryption.m_keyURL = URL(baseURL, keyURL).string();
-				m_chunks.emplace(WTFMove(chunk));
+				m_chunks.append(WTFMove(chunk));
 				
 				duration = m_targetDuration; // reset
 			}
@@ -311,16 +311,16 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 
 HLSStream& HLSStream::operator+=(HLSStream& append)
 {
-	while (!append.m_chunks.empty())
+	while (!append.m_chunks.isEmpty())
 	{
-		if (append.m_chunks.front().m_mediaSequence > m_mediaSequence || (m_chunks.empty() && m_mediaSequence == -1))
+		if (append.m_chunks.first().m_mediaSequence > m_mediaSequence || (m_chunks.isEmpty() && m_mediaSequence == -1))
 		{
-			m_mediaSequence = append.m_chunks.front().m_mediaSequence;
-			m_remainingDuration += append.m_chunks.front().m_duration;
-			m_chunks.emplace(append.m_chunks.front());
+			m_mediaSequence = append.m_chunks.first().m_mediaSequence;
+			m_remainingDuration += append.m_chunks.first().m_duration;
+			m_chunks.append(append.m_chunks.first());
 		}
 
-		append.m_chunks.pop();
+		append.m_chunks.removeFirst();
 	}
 
 	m_ended = append.m_ended;
@@ -363,7 +363,7 @@ void HLSStream::popUntil(double position)
 {
 	while (position > 0 && !empty())
 	{
-		double duration = m_chunks.front().m_duration;
+		double duration = m_chunks.first().m_duration;
 		position -= duration;
 		m_initialTimeStamp += duration;
 		pop();
@@ -438,10 +438,10 @@ void AcinerellaNetworkBufferHLS::stop()
 
 	D(dprintf("%s(%p) killing old chunks\n", __func__, this));
 	auto lock = Locker(m_lock);
-	while (!m_chunksRequestPreviouslyRead.empty())
+	while (!m_chunksRequestPreviouslyRead.isEmpty())
 	{
-		m_chunksRequestPreviouslyRead.front()->die();
-		m_chunksRequestPreviouslyRead.pop();
+		m_chunksRequestPreviouslyRead.first()->die();
+		m_chunksRequestPreviouslyRead.removeFirst();
 	}
 }
 
@@ -631,17 +631,17 @@ bool AcinerellaNetworkBufferHLS::encryptionKeyNeeded(const HLSChunk& chunk)
 		if (it == m_keys.end())
 		{
 			DENC(dprintf("%s(%p) requesting a key...\n", "encryptionKeyNeeded", this));
-			m_keys.emplace(std::make_pair(chunk.m_encryption.m_keyURL, AcinerellaNetworkFileRequest::create(chunk.m_encryption.m_keyURL, [this, protect = Ref{*this}, url = chunk.m_encryption.m_keyURL](bool) {
+			m_keys.add(chunk.m_encryption.m_keyURL, AcinerellaNetworkFileRequest::create(chunk.m_encryption.m_keyURL, [this, protect = Ref{*this}, url = chunk.m_encryption.m_keyURL](bool) {
 
 				requestNextChunk();
 				DENC(dprintf("%s(%p) key obtained\n", "encryptionKeyNeeded", this));
-			})));
+			}));
 			
 			return true;
 		}
 
 		// still waiting for key!
-		return !it->second->buffer();
+		return !it->value->buffer();
 	}
 	
 	return false;
@@ -653,7 +653,7 @@ RefPtr<SharedBuffer> AcinerellaNetworkBufferHLS::encryptionKey(const HLSChunk& c
 	{
 		auto it = m_keys.find(chunk.m_encryption.m_keyURL);
 		if (m_keys.end() != it)
-			return it->second->buffer();
+			return it->value->buffer();
 	}
 	return nullptr;
 }
@@ -685,10 +685,10 @@ void AcinerellaNetworkBufferHLS::chunkSwallowed()
 
 	{
 		auto lock = Locker(m_lock);
-		while (!m_chunksRequestPreviouslyRead.empty())
+		while (!m_chunksRequestPreviouslyRead.isEmpty())
 		{
-			m_chunksRequestPreviouslyRead.front()->stop();
-			m_chunksRequestPreviouslyRead.pop();
+			m_chunksRequestPreviouslyRead.first()->stop();
+			m_chunksRequestPreviouslyRead.removeFirst();
 		}
 	}
 
@@ -748,7 +748,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 				m_skipping = false;
 				if (m_chunkRequestInRead)
 				{
-					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+					m_chunksRequestPreviouslyRead.append(m_chunkRequestInRead);
 					m_chunkRequestInRead = nullptr;
 				}
 			}
@@ -780,7 +780,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 				{
 					auto lock = Locker(m_lock);
 					ended = m_stream.empty() && m_stream.ended();
-					m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+					m_chunksRequestPreviouslyRead.append(m_chunkRequestInRead);
 					m_chunkRequestInRead = nullptr;
 					DIO(dprintf("%s(%p): discontinuity, ended %d \n", __PRETTY_FUNCTION__, this, ended));
 				}
@@ -807,7 +807,7 @@ int AcinerellaNetworkBufferHLS::read(uint8_t *outBuffer, int size, int64_t readP
 	if (m_stopping && m_chunkRequestInRead)
 	{
 		auto lock = Locker(m_lock);
-		m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+		m_chunksRequestPreviouslyRead.append(m_chunkRequestInRead);
 		m_chunkRequestInRead = nullptr;
 	}
 
@@ -825,7 +825,7 @@ bool AcinerellaNetworkBufferHLS::markLastFrameRead()
 		auto lock = Locker(m_lock);
 		if (m_chunkRequestInRead)
 		{
-			m_chunksRequestPreviouslyRead.emplace(m_chunkRequestInRead);
+			m_chunksRequestPreviouslyRead.append(m_chunkRequestInRead);
 			m_chunkRequestInRead = nullptr;
 			doSwallow = true;
 		}
