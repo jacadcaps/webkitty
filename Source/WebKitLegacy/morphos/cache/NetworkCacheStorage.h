@@ -86,7 +86,7 @@ public:
 
     void remove(const Key&);
     void remove(const Vector<Key>&, CompletionHandler<void()>&&);
-    void clear(const String& type, WallTime modifiedSinceTime, CompletionHandler<void()>&&);
+    void clear(String&& type, WallTime modifiedSinceTime, CompletionHandler<void()>&&);
 
     struct RecordInfo {
         size_t bodySize;
@@ -101,12 +101,14 @@ public:
     using TraverseHandler = Function<void (const Record*, const RecordInfo&)>;
     // Null record signals end.
     void traverse(const String& type, OptionSet<TraverseFlag>, TraverseHandler&&);
+    void traverse(const String& type, const String& partition, OptionSet<TraverseFlag>, TraverseHandler&&);
 
     void setCapacity(size_t);
     size_t capacity() const { return m_capacity; }
     size_t approximateSize() const;
 
     // Incrementing this number will delete all existing cache content for everyone. Do you really need to do it?
+    // FIXME: When this is incremented, remove LegacyCertificateInfoType.
     static const unsigned version = 16;
 
     String basePathIsolatedCopy() const;
@@ -125,6 +127,8 @@ private:
     String recordDirectoryPathForKey(const Key&) const;
     String recordPathForKey(const Key&) const;
     String blobPathForKey(const Key&) const;
+
+    void traverseWithinRootPath(const String& rootPath, const String& type, OptionSet<TraverseFlag>, TraverseHandler&&);
 
     void synchronize();
     void deleteOldVersions();
@@ -147,7 +151,7 @@ private:
     Data encodeRecord(const Record&, std::optional<BlobStorage::Blob>);
     void readRecord(ReadOperation&, const Data&);
 
-    void updateFileModificationTime(const String& path);
+    void updateFileModificationTime(String&& path);
     void removeFromPendingWriteOperations(const Key&);
 
     ConcurrentWorkQueue& ioQueue() { return m_ioQueue.get(); }

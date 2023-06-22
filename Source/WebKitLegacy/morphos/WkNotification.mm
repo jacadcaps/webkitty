@@ -34,7 +34,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 
 + (id)notificationForNotification:(WebCore::NotificationData&&)notification
 {
-	auto it = _notificationLookup.find(notification->notificationID);
+	auto it = _notificationLookup.find(notification.notificationID);
 	if (it != _notificationLookup.end())
 		return it->value;
 	return nil;
@@ -42,37 +42,37 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 
 - (OBString *)title
 {
-    auto utitle = _notification.title.utf8();
+    auto utitle = _notification->title.utf8();
     return [OBString stringWithUTF8String:utitle.data()];
 }
 
 - (OBString *)body
 {
-    auto ubody = _notification.body.utf8();
+    auto ubody = _notification->body.utf8();
     return [OBString stringWithUTF8String:ubody.data()];
 }
 
 - (OBString *)language
 {
-    auto ulanguage = _notification.language.utf8();
+    auto ulanguage = _notification->language.utf8();
     return [OBString stringWithUTF8String:ulanguage.data()];
 }
 
 - (OBString *)tag
 {
-    auto utag = _notification.tag.utf8();
+    auto utag = _notification->tag.utf8();
     return [OBString stringWithUTF8String:utag.data()];
 }
 
 - (OBURL *)icon
 {
-    auto uurl = _notification.iconURL.string().utf8();
+    auto uurl = _notification->iconURL.utf8();
     return [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
 }
 
 - (BOOL)isCancelled
 {
-	auto it = _notificationLookup.find(_notification.notificationID);
+	auto it = _notificationLookup.find(_notification->notificationID);
 	if (it == _notificationLookup.end())
         return YES;
     return NO;
@@ -83,7 +83,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 {
 	if (![self isCancelled])
 	{
-        Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
+        WebCore::Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
             if (notification)
                 notification->dispatchShowEvent();
         });
@@ -94,7 +94,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 {
 	if (![self isCancelled])
 	{
-        Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
+        WebCore::Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
             if (notification)
                 notification->dispatchCloseEvent();
         });
@@ -105,7 +105,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 {
 	if (![self isCancelled])
 	{
-        Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
+        WebCore::Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
             if (notification)
                 notification->dispatchClickEvent();
         });
@@ -116,7 +116,7 @@ static WTF::HashMap<UUID, id> _notificationLookup;
 {
 	if (![self isCancelled])
 	{
-        Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
+        WebCore::Notification::ensureOnNotificationThread(*_notification, [](auto* notification) {
             if (notification)
                 notification->dispatchErrorEvent();
         });

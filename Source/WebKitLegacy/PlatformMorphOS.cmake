@@ -91,7 +91,7 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/cache/NetworkCacheData.cpp
     morphos/cache/NetworkCacheFileSystem.cpp
     morphos/cache/NetworkCacheStorage.cpp
-    morphos/cache/NetworkCache.cpp
+#    morphos/cache/NetworkCache.cpp
     morphos/cache/CacheStorageEngineConnection.cpp
     morphos/cache/WebCacheStorageProvider.cpp
     morphos/cache/WebCacheStorageConnection.cpp
@@ -110,17 +110,17 @@ if (NOT MORPHOS_MINIMAL)
 		morphos/WebDatabaseManager.cpp
 		morphos/WebCoreSupport/WebUserMediaClient.cpp
 
-		morphos/ServiceWorker/WebServiceWorkerProvider.cpp
-        morphos/ServiceWorker/SharedMemory.cpp
-        morphos/ServiceWorker/SharedStringHashTable.cpp
-        morphos/ServiceWorker/SharedStringHashTableReadOnly.cpp
-        morphos/ServiceWorker/SharedStringHashStore.cpp
-        morphos/ServiceWorker/WebSWOriginTable.cpp
-        morphos/ServiceWorker/WebSWOriginStore.cpp
-        morphos/ServiceWorker/WebSWServerConnection.cpp
-        morphos/ServiceWorker/WebSWServerToContextConnection.cpp
-        morphos/ServiceWorker/WebSWContextManagerConnection.cpp
-        morphos/ServiceWorker/ServiceWorkerSoftUpdateLoader.cpp
+#		morphos/ServiceWorker/WebServiceWorkerProvider.cpp
+#        morphos/ServiceWorker/SharedMemory.cpp
+#        morphos/ServiceWorker/SharedStringHashTable.cpp
+#        morphos/ServiceWorker/SharedStringHashTableReadOnly.cpp
+#        morphos/ServiceWorker/SharedStringHashStore.cpp
+#        morphos/ServiceWorker/WebSWOriginTable.cpp
+#        morphos/ServiceWorker/WebSWOriginStore.cpp
+#        morphos/ServiceWorker/WebSWServerConnection.cpp
+#        morphos/ServiceWorker/WebSWServerToContextConnection.cpp
+#        morphos/ServiceWorker/WebSWContextManagerConnection.cpp
+#        morphos/ServiceWorker/ServiceWorkerSoftUpdateLoader.cpp
 	)
 endif()
 

@@ -30,8 +30,17 @@
 #include "NetworkCacheCoders.h"
 #include "NetworkCacheIOChannel.h"
 #include "NetworkCacheKey.h"
+#if OS(MORPHOS)
+#include <WebCore/ResourceError.h>
+#include <WebCore/ResourceRequest.h>
+#include <WebCore/CertificateInfo.h>
+#include <WebCore/CurlProxySettings.h>
+#include <WebCore/ResourceResponse.h>
+#include <WebCore/HTTPHeaderMap.h>
+#else
 #include "NetworkProcess.h"
 #include "WebCoreArgumentCoders.h"
+#endif
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/HTTPParsers.h>
@@ -604,6 +613,7 @@ static std::optional<WebCore::DOMCacheEngine::Record> decodeDOMCacheRecord(WTF::
         return std::nullopt;
 
     std::optional<ResourceResponse> response;
+    ResourceResponse::decode(decoder, *response);
     decoder >> response;
     if (!response)
         return std::nullopt;

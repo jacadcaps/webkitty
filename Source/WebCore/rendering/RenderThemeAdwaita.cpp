@@ -115,11 +115,13 @@ static inline Color getAccentColor(const RenderObject& renderObject)
     return getSystemAccentColor();
 }
 
+#if !OS(MORPHOS)
 RenderTheme& RenderTheme::singleton()
 {
     static MainThreadNeverDestroyed<RenderThemeAdwaita> theme;
     return theme;
 }
+#endif
 
 bool RenderThemeAdwaita::supportsFocusRing(const RenderStyle& style) const
 {

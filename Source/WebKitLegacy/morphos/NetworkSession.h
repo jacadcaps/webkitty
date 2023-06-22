@@ -20,6 +20,7 @@ public:
 
     CacheStorage::Engine* cacheEngine() { return m_cacheEngine.get(); }
     void ensureCacheEngine(Function<void(CacheStorage::Engine&)>&&);
+    CacheStorage::Engine& ensureCacheEngine() { return *(m_cacheEngine.get()); };
     void clearCacheEngine();
 
     PAL::SessionID sessionID() const;

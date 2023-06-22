@@ -66,7 +66,7 @@ void CacheStorageEngineConnection::open(WebCore::ClientOrigin&& origin, String&&
     });
 }
 
-void CacheStorageEngineConnection::remove(uint64_t cacheIdentifier, CacheIdentifierCallback&& callback)
+void CacheStorageEngineConnection::remove(WebCore::DOMCacheIdentifier cacheIdentifier, RemoveCacheIdentifierCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("remove cache %" PRIu64, cacheIdentifier);
     auto* session = m_connection.networkSession();
@@ -92,7 +92,7 @@ void CacheStorageEngineConnection::caches(WebCore::ClientOrigin&& origin, uint64
     });
 }
 
-void CacheStorageEngineConnection::retrieveRecords(uint64_t cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, RecordsCallback&& callback)
+void CacheStorageEngineConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, RecordsCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("retrieveRecords in cache %" PRIu64, cacheIdentifier);
     auto* session = m_connection.networkSession();
@@ -105,7 +105,7 @@ void CacheStorageEngineConnection::retrieveRecords(uint64_t cacheIdentifier, Web
     });
 }
 
-void CacheStorageEngineConnection::deleteMatchingRecords(uint64_t cacheIdentifier, WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
+void CacheStorageEngineConnection::deleteMatchingRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("deleteMatchingRecords in cache %" PRIu64, cacheIdentifier);
     auto* session = m_connection.networkSession();
@@ -118,7 +118,7 @@ void CacheStorageEngineConnection::deleteMatchingRecords(uint64_t cacheIdentifie
     });
 }
 
-void CacheStorageEngineConnection::putRecords(uint64_t cacheIdentifier, Vector<Record>&& records, RecordIdentifiersCallback&& callback)
+void CacheStorageEngineConnection::putRecords(WebCore::DOMCacheIdentifier cacheIdentifier, Vector<Record>&& records, RecordIdentifiersCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("putRecords in cache %" PRIu64 ", %lu records", cacheIdentifier, records.size());
     auto* session = m_connection.networkSession();
@@ -131,7 +131,7 @@ void CacheStorageEngineConnection::putRecords(uint64_t cacheIdentifier, Vector<R
     });
 }
 
-void CacheStorageEngineConnection::reference(uint64_t cacheIdentifier)
+void CacheStorageEngineConnection::reference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
     CACHE_STORAGE_RELEASE_LOG("reference cache %" PRIu64, cacheIdentifier);
     auto* session = m_connection.networkSession();
@@ -149,7 +149,7 @@ void CacheStorageEngineConnection::reference(uint64_t cacheIdentifier)
         Engine::lock(*session, cacheIdentifier);
 }
 
-void CacheStorageEngineConnection::dereference(uint64_t cacheIdentifier)
+void CacheStorageEngineConnection::dereference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
     CACHE_STORAGE_RELEASE_LOG("dereference cache %" PRIu64, cacheIdentifier);
     auto* session = m_connection.networkSession();

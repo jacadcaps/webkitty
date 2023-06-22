@@ -60,7 +60,7 @@ void WebCacheStorageConnection::open(const WebCore::ClientOrigin& origin, const 
     connection().open(WebCore::ClientOrigin(origin), String(cacheName), WTFMove(callback));
 }
 
-void WebCacheStorageConnection::remove(uint64_t cacheIdentifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&& callback)
+void WebCacheStorageConnection::remove(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::DOMCacheEngine::RemoveCacheIdentifierCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
     connection().remove(cacheIdentifier, WTFMove(callback));
@@ -72,30 +72,30 @@ void WebCacheStorageConnection::retrieveCaches(const WebCore::ClientOrigin& orig
     connection().caches(WebCore::ClientOrigin(origin), updateCounter, WTFMove(callback));
 }
 
-void WebCacheStorageConnection::retrieveRecords(uint64_t cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::RecordsCallback&& callback)
+void WebCacheStorageConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::RecordsCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
     connection().retrieveRecords(cacheIdentifier, WTFMove(options), WTFMove(callback));
 }
 
-void WebCacheStorageConnection::batchDeleteOperation(uint64_t cacheIdentifier, const WebCore::ResourceRequest& request, WebCore::CacheQueryOptions&& options, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void WebCacheStorageConnection::batchDeleteOperation(WebCore::DOMCacheIdentifier cacheIdentifier, const WebCore::ResourceRequest& request, WebCore::CacheQueryOptions&& options, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
     connection().deleteMatchingRecords(cacheIdentifier, WebCore::ResourceRequest(request), WTFMove(options), WTFMove(callback));
 }
 
-void WebCacheStorageConnection::batchPutOperation(uint64_t cacheIdentifier, Vector<Record>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void WebCacheStorageConnection::batchPutOperation(WebCore::DOMCacheIdentifier cacheIdentifier, Vector<Record>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
     connection().putRecords(cacheIdentifier, WTFMove(records), WTFMove(callback));
 }
 
-void WebCacheStorageConnection::reference(uint64_t cacheIdentifier)
+void WebCacheStorageConnection::reference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
     connection().reference(cacheIdentifier);
 }
 
-void WebCacheStorageConnection::dereference(uint64_t cacheIdentifier)
+void WebCacheStorageConnection::dereference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
     connection().dereference(cacheIdentifier);
 }

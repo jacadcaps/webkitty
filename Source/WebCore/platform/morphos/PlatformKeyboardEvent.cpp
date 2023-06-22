@@ -571,12 +571,22 @@ PlatformKeyboardEvent::PlatformKeyboardEvent(struct IntuiMessage *imsg)
 	_lastQualifiers = imsg->Qualifier;
 }
 
-void PlatformKeyboardEvent::getCurrentModifierState(bool& shiftKey, bool& ctrlKey, bool& altKey, bool& metaKey)
+OptionSet<PlatformEvent::Modifier> PlatformKeyboardEvent::currentStateOfModifierKeys()
 {
-	shiftKey = !!(_lastQualifiers & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT));
-	ctrlKey  = !!(_lastQualifiers & IEQUALIFIER_CONTROL);
-	altKey   = !!(_lastQualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT));
-	metaKey  = !!(_lastQualifiers & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND));
+    OptionSet<PlatformEvent::Modifier> modifiers;
+    
+  	if (_lastQualifiers & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT))
+        modifiers.add(PlatformEvent::Modifier::ShiftKey);
+	if (_lastQualifiers & IEQUALIFIER_CONTROL)
+        modifiers.add(PlatformEvent::Modifier::ControlKey);
+	if (_lastQualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT))
+        modifiers.add(PlatformEvent::Modifier::AltKey);
+	if (_lastQualifiers & (IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND))
+        modifiers.add(PlatformEvent::Modifier::MetaKey);
+    if (_lastQualifiers & IEQUALIFIER_CAPSLOCK)
+        modifiers.add(PlatformEvent::Modifier::CapsLockKey);
+
+    return modifiers;
 }
 
 void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardCompatibilityMode)
@@ -603,11 +613,6 @@ void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardCom
         m_keyIdentifier = String();
         m_windowsVirtualKeyCode = 0;
     }
-}
-
-bool PlatformKeyboardEvent::currentCapsLockState()
-{
-    return _lastQualifiers & IEQUALIFIER_CAPSLOCK;
 }
 
 }

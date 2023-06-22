@@ -2,6 +2,7 @@
 
 #if ENABLE(NOTIFICATIONS)
 
+#include <WebCore/NotificationData.h>
 #include <WebCore/ScriptExecutionContext.h>
 #include <WebCore/NotificationPermissionCallback.h>
 #include <wtf/CompletionHandler.h>
@@ -19,25 +20,14 @@ WebNotificationClient::WebNotificationClient(WebPage *webView)
 	D(dprintf("%s(%p)\n", __PRETTY_FUNCTION__, this));
 }
 
-bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCore::NotificationData&& notification, WTF::CompletionHandler<void()>&& onCompleted)
+bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCore::NotificationData&& notification, RefPtr<WebCore::NotificationResources>&&, WTF::CompletionHandler<void()>&& onCompleted)
 {
 	if (!m_webPage->_fShowNotification)
 		return false;
 
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
-	auto it = m_notificationContextMap.find(notification.scriptExecutionContext());
 
-	if (it == m_notificationContextMap.end())
-	{
-		it = m_notificationContextMap.add(notification.scriptExecutionContext(), Vector<RefPtr<WebCore::Notification>>()).iterator;
-	}
-
-	if (it != m_notificationContextMap.end())
-	{
-		it->value.append(&notification);
-	}
-	
-	m_webPage->_fShowNotification(&notification);
+	m_webPage->_fShowNotification(WTFMove(notification));
 
     onCompleted();
     return true;
@@ -47,21 +37,13 @@ void WebNotificationClient::cancel(WebCore::NotificationData&& notification)
 {
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
 	if (m_webPage->_fHideNotification)
-		m_webPage->_fHideNotification(&notification);
+		m_webPage->_fHideNotification(WTFMove(notification));
 }
 
 void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationData&& notification)
 {
 	if (m_webPage->_fHideNotification)
-		m_webPage->_fHideNotification(&notification);
-	
-	auto it = m_notificationContextMap.find(notification.scriptExecutionContext());
-	if (it != m_notificationContextMap.end())
-	{
-		size_t index = it->value.find(&notification);
-		if (index != notFound)
-			it->value.remove(index);
-	}
+		m_webPage->_fHideNotification(WTFMove(notification));
 }
 
 void WebNotificationClient::notificationControllerDestroyed()

@@ -104,11 +104,6 @@ std::optional<PageIdentifier> WebFrameLoaderClient::pageID() const
     return std::nullopt;
 }
 
-std::optional<WebCore::FrameIdentifier> WebFrameLoaderClient::frameID() const
-{
-    return WebCore::FrameIdentifier(m_frame->frameID());
-}
-
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
 void WebFrameLoaderClient::setHasFrameSpecificStorageAccess(FrameSpecificStorageAccessIdentifier&& frameSpecificStorageAccessIdentifier )
 {
@@ -388,8 +383,8 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
 	D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
 #if ENABLE(FULLSCREEN_API)
-    Element* documentElement = m_frame->coreFrame()->document()->documentElement();
-    if (documentElement && documentElement->containsFullScreenElement())
+    auto* document = m_frame->coreFrame()->document();
+    if (document && document->fullscreenManager().fullscreenElement())
 		webPage->exitFullscreen();
 #endif
 }
@@ -419,7 +414,7 @@ void WebFrameLoaderClient::dispatchDidReceiveTitle(const StringWithDirection& ti
 #endif
 }
 
-void WebFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureContent> hasInsecureContent, std::optional<WebCore::UsedLegacyTLS>)
+void WebFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureContent> hasInsecureContent, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -460,7 +455,7 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureConten
 #endif
 }
 
-void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading willContinueLoading)
+void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading willContinueLoading, WebCore::WillInternallyHandleFailure)
 {
 }
 
@@ -1079,13 +1074,13 @@ void WebFrameLoaderClient::didRunInsecureContent(SecurityOrigin&, const URL&)
 		webPage->_fDidLoadInsecureContent();
 }
 
-void WebFrameLoaderClient::didDetectXSS(const URL&, bool)
+/* void WebFrameLoaderClient::didDetectXSS(const URL&, bool)
 {
 	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
     WebPage* webPage = m_frame->page();
     if (webPage)
 		webPage->_fDidLoadInsecureContent();
-}
+} */
 
 ResourceError WebFrameLoaderClient::cancelledError(const ResourceRequest& request) const
 {
@@ -1445,10 +1440,10 @@ ObjectContentType WebFrameLoaderClient::objectContentType(const URL& url, const 
     return ObjectContentType::None;
 }
 
-String WebFrameLoaderClient::overrideMediaType() const
+AtomString WebFrameLoaderClient::overrideMediaType() const
 {
     notImplemented();
-    return String();
+    return WTF::nullAtom();
 }
 
 void WebFrameLoaderClient::dispatchDidClearWindowObjectInWorld(DOMWrapperWorld& world)
@@ -1602,7 +1597,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 	if (!!data && data->size() > 0)
 	{
 		const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
-		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Write);
+		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Truncate);
 		if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
 		{
 			if (int(data->size()) != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))

@@ -53,11 +53,6 @@ private:
     WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) final;
 
     WebPage *m_webPage;
-    
-    typedef HashMap<RefPtr<WebCore::ScriptExecutionContext>, Vector<RefPtr<WebCore::Notification>>> NotificationContextMap;
-    NotificationContextMap m_notificationContextMap;
-
-	
 };
 
 }
