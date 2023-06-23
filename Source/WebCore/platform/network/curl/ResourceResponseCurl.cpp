@@ -105,9 +105,12 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
     }
 
 	String mimeType = extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase();
+   
 	if (mimeType.isEmpty()) {
 	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url.path().toString());
 	}
+
+    setMimeType(AtomString { mimeType.convertToASCIILowercase() });
     setTextEncodingName(extractCharsetFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
     setCertificateInfo(WTFMove(response.certificateInfo));
     setSource(ResourceResponse::Source::Network);
