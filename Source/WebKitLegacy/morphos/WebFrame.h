@@ -58,7 +58,7 @@ class WebFrame : public WTF::RefCounted<WebFrame> {
 public:
 	static Ref<WebFrame> create() { return adoptRef(*new WebFrame); }
     static Ref<WebFrame> createWithCoreMainFrame(WebPage*, WebCore::Frame*);
-    static Ref<WebFrame> createSubframe(WebPage*, const String& frameName, WebCore::HTMLFrameOwnerElement*);
+    static Ref<WebFrame> createSubframe(WebPage*, const WTF::AtomString& name, WebCore::HTMLFrameOwnerElement*);
     ~WebFrame();
 
 	void initWithCoreMainFrame(WebPage&, WebCore::Frame&);

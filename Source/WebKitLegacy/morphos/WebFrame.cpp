@@ -100,17 +100,13 @@ Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage* , WebCore::Frame* coreF
     return frame;
 }
 
-Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const String& frameName, HTMLFrameOwnerElement* ownerElement)
+Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& frameName, HTMLFrameOwnerElement* ownerElement)
 {
     auto frame = create();
     auto coreFrame = Frame::create(page->corePage(), ownerElement, makeUniqueRef<WebFrameLoaderClient>(frame.get()), WebCore::FrameIdentifier::generate());
     frame->m_coreFrame = coreFrame.ptr();
 
-    coreFrame->tree().setName(AtomString(frameName));
-    if (ownerElement) {
-        ASSERT(ownerElement->document().frame());
-        ownerElement->document().frame()->tree().appendChild(coreFrame.get());
-    }
+    coreFrame->tree().setName(frameName);
     coreFrame->init();
 
     return frame;
