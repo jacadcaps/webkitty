@@ -45,6 +45,10 @@ public:
 
     void deleteAllDatabases();
 
+#if OS(MORPHOS)
+    void shutdown();
+#endif
+
 private:
     explicit WebDatabaseProvider();
 

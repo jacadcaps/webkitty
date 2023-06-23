@@ -72,6 +72,13 @@ InProcessIDBServer::~InProcessIDBServer()
     semaphore.wait();
 }
 
+#if OS(MORPHOS)
+void InProcessIDBServer::shutdown()
+{
+    m_queue->shutdown();
+}
+#endif
+
 StorageQuotaManager* InProcessIDBServer::quotaManager(const ClientOrigin& origin)
 {
     return m_quotaManagers.ensure(origin, [] {

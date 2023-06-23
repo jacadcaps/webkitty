@@ -23,6 +23,7 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/MediaPlayerMorphOS.h>
 #include <WebCore/FontCascade.h>
+#include <WebCore/DataURLDecoder.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -498,6 +499,8 @@ void WebProcess::terminate()
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
 	CurlCacheManager::singleton().setStorageSizeLimit(0);
+    WebCore::DataURLDecoder::shutdown();
+    WebDatabaseProvider::singleton().shutdown();
 
 #if ENABLE(SERVICE_WORKER)
     m_swServer.reset();
