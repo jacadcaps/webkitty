@@ -18,9 +18,7 @@ public:
     static std::unique_ptr<NetworkSession> create() { return std::make_unique<NetworkSession>(); }
     virtual ~NetworkSession() = default;
 
-    CacheStorage::Engine* cacheEngine() { return m_cacheEngine.get(); }
-    void ensureCacheEngine(Function<void(CacheStorage::Engine&)>&&);
-    CacheStorage::Engine& ensureCacheEngine() { return *(m_cacheEngine.get()); };
+    CacheStorage::Engine& ensureCacheEngine();
     void clearCacheEngine();
 
     PAL::SessionID sessionID() const;

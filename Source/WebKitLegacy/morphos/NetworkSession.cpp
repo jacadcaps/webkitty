@@ -3,13 +3,13 @@
 
 namespace WebKit {
 
-void NetworkSession::ensureCacheEngine(Function<void(CacheStorage::Engine&)>&& callback)
+CacheStorage::Engine& NetworkSession::ensureCacheEngine()
 {
     if (m_cacheEngine)
-        return callback(*m_cacheEngine);
+        return *(m_cacheEngine.get());
 
     m_cacheEngine = CacheStorage::Engine::create(*this, "PROGDIR:Cache/CacheStorage"_s);
-    callback(*m_cacheEngine);
+    return *(m_cacheEngine.get());
 }
 
 void NetworkSession::clearCacheEngine()

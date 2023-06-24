@@ -47,6 +47,8 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
+#pragma GCC optimize ("O0")
+
 namespace WebKit {
 
 namespace CacheStorage {
