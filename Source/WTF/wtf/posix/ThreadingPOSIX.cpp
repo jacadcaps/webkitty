@@ -655,12 +655,19 @@ ThreadCondition::~ThreadCondition()
 {
     pthread_cond_destroy(&m_condition);
 }
-    
+
+#if OS(MORPHOS)
+bool ThreadCondition::wait(Mutex& mutex)
+{
+    return pthread_cond_wait(&m_condition, &mutex.impl()) == 0;
+}
+#else
 void ThreadCondition::wait(Mutex& mutex)
 {
     int result = pthread_cond_wait(&m_condition, &mutex.impl());
     ASSERT_UNUSED(result, !result);
 }
+#endif
 
 bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
 {
@@ -668,8 +675,12 @@ bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
         return false;
 
     if (absoluteTime > WallTime::fromRawSeconds(static_cast<double>(std::numeric_limits<time_t>::max()))) {
+#if OS(MORPHOS)
+        return wait(mutex);
+#else
         wait(mutex);
         return true;
+#endif
     }
 
     double rawSeconds = absoluteTime.secondsSinceEpoch().value();

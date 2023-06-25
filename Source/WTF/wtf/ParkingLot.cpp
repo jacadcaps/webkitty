@@ -36,6 +36,8 @@
 #include <wtf/WeakRandom.h>
 #include <wtf/WordLock.h>
 
+#include <proto/exec.h>
+
 namespace WTF {
 
 namespace {
@@ -602,7 +604,7 @@ NEVER_INLINE ParkingLot::ParkResult ParkingLot::parkConditionallyImpl(
         return ParkResult();
 
     beforeSleep();
-    
+   
     bool didGetDequeued;
     {
         MutexLocker locker(me->parkingLock);
