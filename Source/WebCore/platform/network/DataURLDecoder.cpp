@@ -66,13 +66,6 @@ static WorkQueue& decodeQueue()
     return queue;
 }
 
-#if OS(MORPHOS)
-void shutdown()
-{
-    decodeQueue().shutdown();
-}
-#endif
-
 static Result parseMediaType(const String& mediaType)
 {
     if (std::optional<ParsedContentType> parsedContentType = ParsedContentType::create(mediaType))
