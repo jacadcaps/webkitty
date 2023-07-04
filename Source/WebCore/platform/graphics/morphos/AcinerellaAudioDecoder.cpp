@@ -17,7 +17,7 @@ namespace Acinerella {
 #define AHI_BASE_NAME m_ahiBase
 
 #define D(x)
-#define DSYNC(x) 
+#define DSYNC(x)
 #define DSPAM(x) 
 #define DSPAMTS(x) 
 
@@ -202,6 +202,10 @@ bool AcinerellaAudioDecoder::initializeAudio()
 					AHI_FreeAudio(m_ahiControl);
 					m_ahiControl = 0;
 				}
+                else
+                {
+                    D(dprintf("[AD]%s: AHI_AllocAudio failed\n", __func__));
+                }
 			}
 			
 			DeleteIORequest(reinterpret_cast<IORequest *>(m_ahiIO));
@@ -211,6 +215,10 @@ bool AcinerellaAudioDecoder::initializeAudio()
 		
 		DeleteMsgPort(m_ahiPort);
 		m_ahiPort = nullptr;
+
+        WTF::callOnMainThread([width = m_frameWidth, height = m_frameHeight] {
+            MUI_Request(NULL, NULL, 0, (char *)"WkWebView: Audio", (char *)"OK", (char *)"Failed initializing AHI audio output!");
+        });
 	}
 	
 	return false;
@@ -335,7 +343,7 @@ void AcinerellaAudioDecoder::flush()
 			auto lock = Locker(m_lock);
 			if (!m_decodedFrames.isEmpty())
 			{
-				dprintf("First audio frame @ %f\n", float(m_decodedFrames.front().frame()->timecode));
+				dprintf("First audio frame @ %f\n", float(m_decodedFrames.first().frame()->timecode));
 			}
 			else
 			{

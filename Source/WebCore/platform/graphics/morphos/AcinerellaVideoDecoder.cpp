@@ -28,7 +28,7 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x)
+#define D(x) 
 #define DSYNC(x)
 #define DOVL(x)
 #define DFRAME(x) 
@@ -49,7 +49,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
     m_ismjpeg = 0 == strcmp(ac_codec_name(acinerella->instance(), index), "mjpeg");
-	D(dprintf("\033[35m[VD]%s: %p fps %f %dx%d\033[0m\n", __func__, this, float(m_fps), m_frameWidth, m_frameHeight));
+	D(dprintf("\033[35m[VD]%s: %p fps %f %dx%d codec %s\033[0m\n", __func__, this, float(m_fps), m_frameWidth, m_frameHeight, ac_codec_name(acinerella->instance(), index)));
 	
 	auto decoder = acinerella->decoder(index);
 	//ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
