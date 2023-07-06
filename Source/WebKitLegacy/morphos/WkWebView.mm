@@ -2746,8 +2746,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					[[[WkAuthenticationChallengeResponseDelegatePrivate alloc] initWithAuthenticationChallenge:WkAuthenticationChallenge::create(challenge)] autorelease];
 				if (responseDelegate)
 				{
+                    auto uurl = challenge.failureResponse().url().string().utf8();
+                    OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
 					[[OBRunLoop mainRunLoop] performSelector:@selector(webView:issuedAuthenticationChallengeAtURL:withResponseDelegate:)
-						target:clientDelegate withObject:self withObject:[self URL] withObject:responseDelegate];
+						target:clientDelegate withObject:self withObject:url withObject:responseDelegate];
 					return YES;
 				}
 			}
