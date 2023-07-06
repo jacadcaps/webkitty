@@ -201,7 +201,7 @@ void WebFrameLoaderClient::dispatchDidReceiveResponse(DocumentLoader* loader, We
     if (!webPage)
         return;
 
-    D(dprintf("%s: url %s attach %d\n", __PRETTY_FUNCTION__, response.url().string().utf8().data(), response.isAttachment()));
+    D(dprintf("%s: url %s attach %d sr %d ismoved %d\n", __PRETTY_FUNCTION__, response.url().string().utf8().data(), response.isAttachment(), response.shouldRedirect(), response.isMovedPermanently()));
 
 	bool hadAuth =loader->request().httpHeaderField(HTTPHeaderName::Authorization).length() > 0;
 
@@ -585,7 +585,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 {
     WebPage* webPage = m_frame->page();
 
-	D(dprintf("%s: '%s' isattach %d protocol %s\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), response.isAttachment(), request.url().protocol().toString().utf8().data()));
+	D(dprintf("%s: '%s' isattach %d protocol %s shouldRedirect %d isMoved %d ir %d code %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), response.isAttachment(), request.url().protocol().toString().utf8().data(), response.shouldRedirect(), response.isMovedPermanently(), response.isRedirection(), response.httpStatusCode()));
 
     if (!webPage) {
     	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
@@ -601,8 +601,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
     } */
 
 	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
-	if (response.isAttachment() || (!canShowMIMEType(response.mimeType()) && request.isTopSite()))
+	if (response.isAttachment() || (!canShowMIMEType(response.mimeType()) && !response.mimeType().isNull() && request.isTopSite()))
 	{
+    	D(dprintf("%s: ask to download...\n", __PRETTY_FUNCTION__));
 		// should we download this??
 		if (webPage->_fDownloadAsk)
 		{
@@ -669,8 +670,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         return;
     }
 
-	D(dprintf("%s: %s, is download? %s empty %d protocol %s attach %d canshowmime %d topsite %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), navigationAction.downloadAttribute().string().utf8().data(), request.isEmpty(), request.url().protocol().toString().utf8().data(),
-		redirectResponse.isAttachment(), canShowMIMEType(redirectResponse.mimeType()), request.isTopSite()));
+	D(dprintf("%s: %s, is download? %s empty %d protocol %s attach %d canshowmime %d topsite %d isred %d status %d\n", __PRETTY_FUNCTION__, request.url().string().utf8().data(), navigationAction.downloadAttribute().string().utf8().data(), request.isEmpty(), request.url().protocol().toString().utf8().data(), redirectResponse.isAttachment(), canShowMIMEType(redirectResponse.mimeType()), request.isTopSite(), redirectResponse.isRedirection(), redirectResponse.httpStatusCode()));
 
     if (webPage && webPage->_fShouldNavigateToURL)
     {
@@ -1165,7 +1165,8 @@ bool WebFrameLoaderClient::canHandleRequest(const ResourceRequest& request) cons
 
 bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
 {
-    bool canShow = MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
+    bool canShow = mimeType.isNull()
+        || MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
         || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
         || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
 
