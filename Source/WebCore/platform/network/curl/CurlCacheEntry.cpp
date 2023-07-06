@@ -218,9 +218,14 @@ void CurlCacheEntry::setResponseFromCachedHeaders(ResourceResponse& response)
     response.setExpectedContentLength(contentLength); // -1 on parse error or null
 
 	String mimeType = extractMIMETypeFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType));
-	if (mimeType.isEmpty()) {
-	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url().path().toString());
-	}
+    if (mimeType.isEmpty()) {
+        auto lastPathComponent = response.url().lastPathComponent();
+        size_t pos = lastPathComponent.reverseFind('.');
+        if (pos != notFound) {
+            auto extension = lastPathComponent.substring(pos + 1);
+            mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+        }
+    }
     response.setMimeType(AtomString(mimeType));
     response.setTextEncodingName(extractCharsetFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
 }

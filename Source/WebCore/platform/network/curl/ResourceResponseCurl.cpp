@@ -105,11 +105,14 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
     }
 
 	String mimeType = extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase();
-   
 	if (mimeType.isEmpty()) {
-	    mimeType = MIMETypeRegistry::mimeTypeForPath(response.url.path().toString());
+        auto lastPathComponent = response.url.lastPathComponent();
+        size_t pos = lastPathComponent.reverseFind('.');
+        if (pos != notFound) {
+            auto extension = lastPathComponent.substring(pos + 1);
+            mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+        }
 	}
-
     setMimeType(AtomString { mimeType.convertToASCIILowercase() });
     setTextEncodingName(extractCharsetFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
     setCertificateInfo(WTFMove(response.certificateInfo));
@@ -161,7 +164,7 @@ String ResourceResponse::platformSuggestedFilename() const
     return contentDisposition.toString();
 }
 
-bool ResourceResponse::shouldRedirect()
+bool ResourceResponse::shouldRedirect() const
 {
     auto statusCode = httpStatusCode();
     if (statusCode < 300 || 400 <= statusCode)
