@@ -7,6 +7,9 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <dos/dos.h>
+#include <proto/intuition.h>
+#include <proto/muimaster.h>
+#include <intuition/intuition.h>
 
 namespace WebCore {
 namespace Acinerella {
@@ -216,7 +219,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
 		DeleteMsgPort(m_ahiPort);
 		m_ahiPort = nullptr;
 
-        WTF::callOnMainThread([width = m_frameWidth, height = m_frameHeight] {
+        WTF::callOnMainThread([] {
             MUI_Request(NULL, NULL, 0, (char *)"WkWebView: Audio", (char *)"OK", (char *)"Failed initializing AHI audio output!");
         });
 	}
