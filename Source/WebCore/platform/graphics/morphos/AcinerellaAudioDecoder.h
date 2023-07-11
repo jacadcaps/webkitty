@@ -73,7 +73,7 @@ protected:
 	bool            m_ahiThreadShuttingDown = false;
 
 	uint32_t        m_bufferedSamples = 0;
-	volatile float  m_bufferedSeconds = 0.f;
+	AcinerellaThreadsafeNumber<double> m_bufferedSeconds = 0.f;
 	volatile bool   m_playing = false;
 	double          m_position = 0.0;
 	double          m_liveTimeCode = 0.0;

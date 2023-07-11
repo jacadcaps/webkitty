@@ -7,14 +7,14 @@ all: .buildstamp
 	mkdir -p instdir/include instdir/lib
 	rm -rf opus-$(OPUS_VERSION)
 	tar xf opus-$(OPUS_VERSION).tar.gz
-	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-11 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
-	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-11 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-9 -noixemul" LD=ppc-morphos-ld ./configure --host=ppc-morphos --prefix="")
+	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-9 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
 	(cd opus-$(OPUS_VERSION) && make DESTDIR="$(abspath ./)/instdir" install)
 	rm -rf ffmpeg-$(FFMPEG_VERSION)
 	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
 	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
 	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
-		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-11 --ld=/gg/bin/ppc-morphos-gcc-9 \
+		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
 		--enable-cross-compile --cross-prefix=/gg/bin/ --arch=powerpc --cpu=powerpc --target-os=linux --enable-runtime-cpudetect \
 		--enable-pthreads --disable-shared --disable-indevs --disable-protocols --enable-protocol=file --disable-network --disable-encoders --disable-decoders \
 		 --disable-hwaccels --disable-muxers --disable-demuxers --disable-parsers --disable-bsfs --disable-devices --disable-filters --enable-decoder=aac \

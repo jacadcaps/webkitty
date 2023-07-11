@@ -30,6 +30,25 @@ namespace Acinerella {
 
 class Acinerella;
 
+template<typename T> class AcinerellaThreadsafeNumber
+{
+public:
+    AcinerellaThreadsafeNumber() : _store(0) { };
+    AcinerellaThreadsafeNumber(const T value) : _store(value) { };
+    ~AcinerellaThreadsafeNumber() = default;
+    AcinerellaThreadsafeNumber(const AcinerellaThreadsafeNumber&) = delete;
+    AcinerellaThreadsafeNumber(AcinerellaThreadsafeNumber&&) = delete;
+
+    operator T() const { auto lock = Locker(const_cast<Lock&>(_lock)); return _store; }
+    T& operator=(const T& other) { auto lock = Locker(_lock); _store = other; return _store; }
+    T& operator += (const T& value) { auto lock = Locker(_lock); _store += value; return _store; }
+    T& operator -= (const T& value) { auto lock = Locker(_lock); _store -= value; return _store; }
+    
+private:
+    Lock _lock;
+    T _store;
+};
+
 class AcinerellaDecodedFrame
 {
 public:
