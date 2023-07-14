@@ -1275,15 +1275,19 @@ String WebFrameLoaderClient::userAgent(const URL& url) const
 
     if (webPage && webPage->_fUserAgentForURL)
     {
-    	WTF::String urlBase = url.truncatedForUseAsBase().string();
-    	WTF::String out = webPage->_fUserAgentForURL(urlBase);
-    	return out;
+        auto protocol = url.protocol();
+        
+        if (protocol == "about"_s || protocol == "blob"_s || protocol == "data"_s)
+        {
+            // return default and don't pass it to the client...
+        }
+        else
+        {
+            WTF::String urlBase = url.truncatedForUseAsBase().string();
+            WTF::String out = webPage->_fUserAgentForURL(urlBase);
+            return out;
+        }
 	}
-
- 	// return String("Mozilla/5.0 (MorphOS; PowerPC 3_14) WebKitty/605.1.15 (KHTML, like Gecko)");
-
-	// Chrome
-	// return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36");
 
  	return String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15"_s);
 }
