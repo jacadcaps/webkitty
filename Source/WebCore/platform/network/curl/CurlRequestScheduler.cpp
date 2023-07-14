@@ -190,12 +190,14 @@ void CurlRequestScheduler::workerThread()
 #if 1
         const int selectTimeoutMS = INT_MAX;
         CURLMcode mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
-        if (mc != CURLM_OK)
+        if (mc != CURLM_OK && mc != CURLM_UNRECOVERABLE_POLL) {
             break;
+        }
         int activeCount = 0;
         mc = m_curlMultiHandle->perform(activeCount);
-        if (mc != CURLM_OK)
+        if (mc != CURLM_OK) {
             break;
+        }
 #else
         int activeCount = 0;
         CURLMcode mc = m_curlMultiHandle->perform(activeCount);
@@ -226,6 +228,7 @@ void CurlRequestScheduler::workerThread()
     {
         Locker locker { m_multiHandleMutex };
         m_curlMultiHandle.reset();
+        m_runThread = false;
     }
 }
 
