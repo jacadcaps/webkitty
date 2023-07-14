@@ -21,8 +21,10 @@ extern "C" void dprintf(const char *,...);
 		_tracks = [OBMutableArray new];
 		_audioTrack = [audioTrack retain];
 		_videoTrack = [videoTrack retain];
-		[_tracks addObject:audioTrack];
-		[_tracks addObject:videoTrack];
+        if (audioTrack)
+            [_tracks addObject:audioTrack];
+        if (videoTrack)
+            [_tracks addObject:videoTrack];
 		_identifier = [(id<WkMediaObjectComms>)identifier retain];
 		_type = type;
 		_url = [url retain];
