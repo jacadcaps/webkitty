@@ -52,15 +52,17 @@ public:
     void pause() final;
     FloatSize naturalSize() const final;
 
-    float duration() const final;
-    double durationDouble() const final;
-    MediaTime durationMediaTime() const final;
-
     unsigned decodedFrameCount() const { return m_decodedFrameCount; }
     unsigned droppedFrameCount() const { return m_droppedFrameCount; }
 
 	float maxTimeSeekable() const final;
-    float currentTime() const final { return m_currentTime; }
+
+    float duration() const final { return durationMediaTime().toFloat(); }
+    double durationDouble() const final { return durationMediaTime().toDouble(); }
+    MediaTime durationMediaTime() const final;
+    float currentTime() const final { return currentMediaTime().toFloat(); }
+    double currentTimeDouble() const final { return currentMediaTime().toDouble(); }
+    MediaTime currentMediaTime() const final;
 
     bool hasVideo() const final;
     bool hasAudio() const final;
@@ -120,8 +122,8 @@ protected:
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };
 	MediaPlayerMorphOSStreamSettings m_streamSettings;
-	double m_duration = 0.f;
-	double m_currentTime = 0.f;
+	MediaTime m_duration = MediaTime::invalidTime();
+	MediaTime m_currentTime;
 	int   m_width = 1280;
 	int   m_height = 740;
 	bool  m_prepareToPlay = false;

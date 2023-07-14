@@ -496,20 +496,6 @@ FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
 	return { float(m_width), float(m_height) };
 }
 
-float MediaPlayerPrivateMorphOS::duration() const
-{
-	return durationDouble();
-}
-
-double MediaPlayerPrivateMorphOS::durationDouble() const
-{
-#if ENABLE(MEDIA_SOURCE)
-	if (m_mediaSourcePrivate)
-		return m_mediaSourcePrivate->duration().toDouble();
-#endif
-	return m_duration;
-}
-
 MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
 {
 	if (m_acinerella && m_acinerella->isLive())
@@ -518,7 +504,12 @@ MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
 	if (m_mediaSourcePrivate)
 		return m_mediaSourcePrivate->duration();
 #endif
-	return MediaTime::createWithDouble(durationDouble());
+	return m_duration;
+}
+
+MediaTime MediaPlayerPrivateMorphOS::currentMediaTime() const
+{
+    return m_currentTime;
 }
 
 bool MediaPlayerPrivateMorphOS::hasVideo() const
@@ -618,8 +609,8 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
 	if (m_mediaSourcePrivate)
 		return m_mediaSourcePrivate->buffered();
 #endif
-	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(std::max(0.0, m_currentTime - 1.0 )),
-		MediaTime::createWithDouble(m_currentTime + 10.0));
+	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
+		MediaTime::createWithDouble(m_currentTime.toDouble() + 10.0));
 }
 
 void MediaPlayerPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
@@ -732,9 +723,9 @@ MediaPlayer::MovieLoadType MediaPlayerPrivateMorphOS::movieLoadType() const
 float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 {
 	if (m_acinerella && m_acinerella->canSeek())
-		return m_duration;
+		return m_duration.toFloat();
 #if ENABLE(MEDIA_SOURCE)
-	return m_duration;
+	return m_duration.toFloat();
 #endif
 	return 0.f;
 }
@@ -835,7 +826,7 @@ void MediaPlayerPrivateMorphOS::accSetBufferLength(double buffer)
 void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 {
 	D(dprintf("%s: timechanged to %f\n", __func__, this, float(pos)));
-	m_currentTime = pos;
+	m_currentTime = MediaTime::createWithDouble(pos);
 	m_player->timeChanged();
 }
 
@@ -848,10 +839,10 @@ void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 		return;
 	}
 #endif
-	if (abs(dur - m_duration) >= 1.0)
+	if (abs(dur - m_duration.toDouble()) >= 1.0)
 	{
 		D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
-		m_duration = ceil(dur);
+		m_duration = MediaTime::createWithDouble(ceil(dur));
 		m_player->durationChanged();
 	}
 }
@@ -913,7 +904,7 @@ void MediaPlayerPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 void MediaPlayerPrivateMorphOS::selectHLSStream(const String& url)
 {
 	if (m_acinerella)
-		m_acinerella->selectStream(url, m_currentTime);
+		m_acinerella->selectStream(url, m_currentTime.toDouble());
 }
 
 }
