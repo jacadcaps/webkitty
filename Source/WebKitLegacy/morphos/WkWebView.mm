@@ -675,7 +675,7 @@ namespace  {
 	if (_fsWindowSignalHandler)
 		[[OBRunLoop mainRunLoop] removeSignalHandler:_fsWindowSignalHandler];
 	[_fsWindowSignalHandler release];
-
+	[_overlayTimer release];
 	if (_fsWindow)
 		CloseWindow(_fsWindow);
 	if (_fsScreen)
@@ -2482,10 +2482,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WkWebViewPrivate *privateObject = [self privateObject];
 			const WTF::URL &url = request.url();
 
-			WTF::String protocol = url.protocol().toString();
+			auto protocol = url.protocol();
 
 			// bypass standard protocols...
-			if (protocol == "http"_s || protocol == "https"_s || protocol == "file"_s || protocol == "about"_s || protocol == "blob"_s)
+			if (protocol == "http"_s || protocol == "https"_s || protocol == "file"_s || protocol == "about"_s || protocol == "blob"_s || protocol == "data"_s)
 			{
 				return true;
 			}
