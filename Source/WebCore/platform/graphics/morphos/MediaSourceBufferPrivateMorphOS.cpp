@@ -29,7 +29,7 @@
 #define DRMS(x)
 #define DENABLED(x)
 #define DLIFETIME(x)
-#define DSEEK(x) 
+#define DSEEK(x)
 #define DENQ(x) //do { if (m_audioDecoderMask == 0) x; } while (0);
 #define DRECEIVED(x) //do { if (m_audioDecoderMask == 0) x; } while (0);
 #define DENQDEBUGSTEPS 1
@@ -498,7 +498,7 @@ MediaSourceBufferPrivateMorphOS::~MediaSourceBufferPrivateMorphOS()
 void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
 {
 	EP_EVENT(append);
-	DI(dprintf("[MS][%c]%s bytes %lu main %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, vector.size(), isMainThread()));
+	DAPPEND(dprintf("[MS][%c]%s bytes %lu main %d appendcnt %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, vector.size(), isMainThread(), m_appendCount));
 
 	if (m_initializationBuffer.size() == 0)
 	{
@@ -521,26 +521,43 @@ void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
     if (m_client)
         m_client->sourceBufferPrivateReportExtraMemoryCost(totalTrackBufferSizeInBytes());
 
-    if (m_appendCount > 1 && ac_is_initialization_segment(vector.data(), vector.size(), nullptr, 0) == 0)
+    // youtube is a mess: we have to try and guess whether the stream is a live and only do ac_is_initialization_segment checks
+    // if it is not... and we only need those because youtube will randomly feed us data from different streams in order to
+    // change media quality (instead of doing this correctly...)
+    if (m_appendCount > 2 && !m_durationAtAppend.isValid())
+        m_durationAtAppend = m_mediaSource->duration();
+
+    if (m_appendCount > 3 && !m_isLive)
     {
-        DAPPEND(dprintf("[MS][%c]%s: %p appended chunk is initialization segment!\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this));
+        int is_initialization = ac_is_initialization_segment(vector.data(), vector.size(), nullptr, 1);
+        DAPPEND(dprintf("[MS][%c]%s: %p appended chunk is initialization segment score %d; duration %f oldduration %f\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this, is_initialization, m_mediaSource->duration().toFloat(), m_durationAtAppend.toFloat()));
 
-        m_appendCompleteCount = 0;
-        m_appendCount = 0;
-        m_mustAppendInitializationSegment = false;
+        if (m_mediaSource->duration() > m_durationAtAppend)
+        {
+            DAPPEND(dprintf("[MS][%c]%s: %p determined this is a live!\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this));
+            m_isLive = true;
+            is_initialization = 0;
+        }
 
-        m_reader->signalEOF();
-        m_reader->terminate();
-        m_reader = MediaSourceChunkReader::create(this,
-            [this](bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info) {
-                reinitialize(success, segment, info);
-            },
-            [this](bool success) {
-                appendComplete(success);
-            }
-        );
-        
-        m_initializationBuffer = vector;
+        if (is_initialization == 1)
+        {
+            m_appendCompleteCount = 0;
+            m_appendCount = 0;
+            m_mustAppendInitializationSegment = false;
+
+            m_reader->signalEOF();
+            m_reader->terminate();
+            m_reader = MediaSourceChunkReader::create(this,
+                [this](bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info) {
+                    reinitialize(success, segment, info);
+                },
+                [this](bool success) {
+                    appendComplete(success);
+                }
+            );
+            
+            m_initializationBuffer = vector;
+        }
     }
 
 	m_reader->decode(WTFMove(vector));
@@ -571,7 +588,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 
 			DAPPEND(dprintf("[MS][%c]%s: %p %d, queue %d samples from %f-%f\n",  m_audioDecoderMask == 0 ?'V':'A',__func__, this, success, samples.size(), samples.size()?(*(samples.begin()))->presentationTime().toFloat():-1,samples.size()?(*(samples.rbegin()))->presentationTime().toFloat():-1));
 
-			if (m_appendCompleteCount > 1 && samples.size() == 0)
+			if (m_appendCompleteCount > 1 && samples.size() == 0 && !m_isLive)
 			{
 				DAPPEND(dprintf("[MS][%c]%s: %p simulating append failure!\n",  m_audioDecoderMask == 0 ?'V':'A',__func__, this));
 				m_readerFailed = true;

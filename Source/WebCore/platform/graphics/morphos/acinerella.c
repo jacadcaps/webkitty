@@ -381,67 +381,71 @@ int CALL_CONVT ac_is_initialization_segment(uint8_t *buf, int bufsize,
 
     ret = MIN(fmt_ctx->nb_streams, streamsMax);
 
-    for (int i = 0; i < ret; i++) {
-        AVStream *stream;
-        AVCodecContext *codec_ctx;
-        stream = fmt_ctx->streams[i];
-        codec_ctx = stream->codec;
-        
-        stccpy(streamInfo[i].codecName, avcodec_get_name(codec_ctx->codec_id), sizeof(streamInfo[i].codecName));
-        streamInfo[i].bitrate = codec_ctx->bit_rate;
-        streamInfo[i].duration = 0.0;
-   
-   		int64_t duration = stream->duration;
-		if (duration != AV_NOPTS_VALUE) {
-			AVRational tb = stream->time_base;
-			streamInfo[i].duration = (double)duration * av_q2d(tb);
-		}
+    if (streamInfo)
+    {
+        for (int i = 0; i < ret; i++)
+        {
+            AVStream *stream;
+            AVCodecContext *codec_ctx;
+            stream = fmt_ctx->streams[i];
+            codec_ctx = stream->codec;
+            
+            stccpy(streamInfo[i].codecName, avcodec_get_name(codec_ctx->codec_id), sizeof(streamInfo[i].codecName));
+            streamInfo[i].bitrate = codec_ctx->bit_rate;
+            streamInfo[i].duration = 0.0;
+       
+            int64_t duration = stream->duration;
+            if (duration != AV_NOPTS_VALUE) {
+                AVRational tb = stream->time_base;
+                streamInfo[i].duration = (double)duration * av_q2d(tb);
+            }
 
-   
-        switch (codec_ctx->codec_type) {
-            case AVMEDIA_TYPE_VIDEO:
-                streamInfo[i].type = AC_STREAM_TYPE_VIDEO;
-                streamInfo[i].typeData.video.width = codec_ctx->width;
-                streamInfo[i].typeData.video.height = codec_ctx->height;
-                break;
-
-            case AVMEDIA_TYPE_AUDIO:
-                streamInfo[i].type = AC_STREAM_TYPE_AUDIO;
-                streamInfo[i].typeData.audio.channels = codec_ctx->channels;
-                streamInfo[i].typeData.audio.frequency = codec_ctx->sample_rate;
-
-                switch (stream->codecpar->format) {
-                case AV_SAMPLE_FMT_U8:
-                case AV_SAMPLE_FMT_U8P:
-                    streamInfo[i].typeData.audio.bits = 8;
+       
+            switch (codec_ctx->codec_type) {
+                case AVMEDIA_TYPE_VIDEO:
+                    streamInfo[i].type = AC_STREAM_TYPE_VIDEO;
+                    streamInfo[i].typeData.video.width = codec_ctx->width;
+                    streamInfo[i].typeData.video.height = codec_ctx->height;
                     break;
 
-                case AV_SAMPLE_FMT_S16:
-                case AV_SAMPLE_FMT_S16P:
-                    streamInfo[i].typeData.audio.bits = 16;
-                    break;
+                case AVMEDIA_TYPE_AUDIO:
+                    streamInfo[i].type = AC_STREAM_TYPE_AUDIO;
+                    streamInfo[i].typeData.audio.channels = codec_ctx->channels;
+                    streamInfo[i].typeData.audio.frequency = codec_ctx->sample_rate;
 
-                case AV_SAMPLE_FMT_S32:
-                case AV_SAMPLE_FMT_FLT:
-                case AV_SAMPLE_FMT_DBL:
-                case AV_SAMPLE_FMT_S32P:
-                case AV_SAMPLE_FMT_FLTP:
-                case AV_SAMPLE_FMT_DBLP:
-                    streamInfo[i].typeData.audio.bits = 32;
+                    switch (stream->codecpar->format) {
+                    case AV_SAMPLE_FMT_U8:
+                    case AV_SAMPLE_FMT_U8P:
+                        streamInfo[i].typeData.audio.bits = 8;
+                        break;
+
+                    case AV_SAMPLE_FMT_S16:
+                    case AV_SAMPLE_FMT_S16P:
+                        streamInfo[i].typeData.audio.bits = 16;
+                        break;
+
+                    case AV_SAMPLE_FMT_S32:
+                    case AV_SAMPLE_FMT_FLT:
+                    case AV_SAMPLE_FMT_DBL:
+                    case AV_SAMPLE_FMT_S32P:
+                    case AV_SAMPLE_FMT_FLTP:
+                    case AV_SAMPLE_FMT_DBLP:
+                        streamInfo[i].typeData.audio.bits = 32;
+                        break;
+
+                    default:
+                        streamInfo[i].typeData.audio.bits = 0;
+                        break;
+                    }
                     break;
 
                 default:
-                    streamInfo[i].typeData.audio.bits = 0;
+                    streamInfo[i].type = AC_STREAM_TYPE_UNKNOWN;
                     break;
-                }
-                break;
-
-            default:
-                streamInfo[i].type = AC_STREAM_TYPE_UNKNOWN;
-                break;
+            }
         }
     }
-    
+
 end:
     avformat_close_input(&fmt_ctx);
     if (avio_ctx) {

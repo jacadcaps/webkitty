@@ -10,13 +10,13 @@
 
 #define USE_WDG
 
-#define D(x) 
+#define D(x)
 #define DLIFETIME(x)
 #define DDUMP(x)
-#define DSEEK(x) 
+#define DSEEK(x)
 #define DEOS(x)
 #define DPLAY(x)
-#define DBUFFER(x)
+#define DBUFFER(x) 
 #define DSOURCE(x)
 #define DRS(x) 
 // #pragma GCC optimize ("O0")
@@ -145,7 +145,7 @@ MediaTime MediaSourcePrivateMorphOS::currentMediaTime()
 	//if (m_seekCompleted != SeekCompleted && m_player->currentTime() < m_seekingPos)
 	//	return MediaTime::createWithDouble(m_seekingPos);
 	if (m_seekCompleted != Pending && m_seeking)
-		return MediaTime::createWithFloat(0.f);
+		return MediaTime::invalidTime();
 	if (m_player)
 		return MediaTime::createWithFloat(m_player->currentTime());
 	return { };
@@ -427,11 +427,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 				info.m_duration = duration().toFloat(); //! client provides us with the actual duration!
 				info.m_isDownloadable = false;
 				info.m_isMediaSource = true;
-
-				D(dprintf("onSourceBufferInitialized: src %p dur %f %d %d\n", sourceBufferPrivate.get(), minfo.m_frequency, minfo.m_width));
 			}
-
-			D(dprintf("onSourceBufferInitialized: freq %d w %d h %d duration %f clientDuration %f asb %d\n", info.m_frequency, info.m_width, info.m_height, float(info.m_duration), float(duration().toDouble()), m_activeSourceBuffers.size()));
 
 			if (!m_initialized)
 			{

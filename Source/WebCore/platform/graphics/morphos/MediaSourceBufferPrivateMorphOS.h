@@ -212,8 +212,10 @@ private:
 	bool                                          m_enableAudio = true;
 	bool                                          m_terminating = false;
 	bool                                          m_eos = false;
+    bool                                          m_isLive = false;
 	std::atomic<bool>                             m_appendCompletePending = false;
 	bool                                          m_appendCompleteDelayed = false;
+    MediaTime                                     m_durationAtAppend = MediaTime::invalidTime();
 
 	MediaPlayerMorphOSInfo                        m_info;
     WebCore::SourceBufferPrivateClient::InitializationSegment m_segment;
