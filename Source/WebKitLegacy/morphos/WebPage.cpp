@@ -2962,7 +2962,18 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     if (!keyEvent || keyEvent->isSystemKey())  // do not treat this as text input if it's a system key event
         return false;
 
-    auto command = frame->editor().command(String::fromUTF8(interpretKeyEvent(&event)));
+    const char *interpretedEvent = interpretKeyEvent(&event);
+
+    // if the whole document is editable, insert paragraphs instead of line breaks
+    if (editable() && interpretedEvent && !strcmp(interpretedEvent, "InsertNewline"))
+    {
+        if (event.shiftKey())
+            interpretedEvent = "InsertLineBreak";
+        else
+            interpretedEvent = "InsertParagraph";
+    }
+
+    auto command = frame->editor().command(String::fromUTF8(interpretedEvent));
 
     if (keyEvent->type() == PlatformEvent::Type::RawKeyDown) {
         // WebKit doesn't have enough information about mode to decide how commands that just insert text if executed via Editor should be treated,
