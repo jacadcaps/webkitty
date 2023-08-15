@@ -47,6 +47,12 @@
 #include <wtf/SHA1.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
+#if OS(MORPHOS)
+#define openFile openFileAsync
+#define closeFile closeFileAsync
+#define writeToFile writeToFileAsync
+#endif
+
 namespace WebCore {
 
 CurlCacheEntry::CurlCacheEntry(const String& url, ResourceHandle* job, const String& cacheDir)

@@ -40,6 +40,14 @@
 #include <wtf/Language.h>
 #include <wtf/MainThread.h>
 
+#if OS(MORPHOS)
+#define openTemporaryFile openTemporaryFileAsync
+#define openFile openFileAsync
+#define closeFile closeFileAsync
+#define seekFile seekFileAsync
+#define writeToFile writeToFileAsync
+#endif
+
 namespace WebCore {
 
 #if OS(MORPHOS)
