@@ -52,6 +52,7 @@
 #if OS(MORPHOS)
 #include <libraries/charsets.h>
 #include <proto/dos.h>
+#include <proto/asyncio.h>
 #endif
 
 namespace WTF {
@@ -350,6 +351,144 @@ std::optional<int32_t> getFileDeviceId(const String& path)
 
     return fileStat.st_dev;
 }
+
+#if OS(MORPHOS)
+int mkstempasync(char *path)
+{
+    char *str, *end = path;
+    unsigned long num, tmpnum = 0;
+    int fd = -1;
+
+    while (*end) end++;
+    str = end;
+
+    num = tmpnum++;
+    while (*--str == 'X')
+    {
+        *str = '0' + (num%10);
+        num /= 10;
+    }
+
+    if (end > path && ++str < end)
+    {
+        while (fd == -1)
+        {
+            BPTR lock = Lock(path, SHARED_LOCK);
+            if (lock == 0)
+            {
+                auto asyncfd = OpenAsync(path, MODE_WRITE, 512 * 1024);
+                fd = int(asyncfd);
+                if (0 == fd)
+                    fd = -1;
+            }
+            else
+            {
+                UnLock(lock);
+                char *s;
+
+                num = tmpnum++;
+                s = end;
+                while (s-- > str)
+                {
+                    *s = '0' + (num%10);
+                    num /= 10;
+                }
+            }
+        }
+    }
+
+    return fd;
+}
+
+String openTemporaryFileAsync(StringView prefix, PlatformFileHandle& handle)
+{
+    char buffer[PATH_MAX];
+
+	const char* tmpDirIn = "PROGDIR:Tmp";
+    String tmpDir = String(tmpDirIn, strlen(tmpDirIn), MIBENUM_SYSTEM);
+    auto prefixStr = prefix.toString();
+	if (tmpPathPrefixes.contains(prefixStr))
+        tmpDir = tmpPathPrefixes.get(prefixStr);
+
+	stccpy(buffer, fileSystemRepresentation(tmpDir).data(), sizeof(buffer));
+	auto prefixadd = fileSystemRepresentation(prefix.toString());
+	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+
+    handle = mkstempasync(buffer);
+    if (handle == -1)
+        goto end;
+
+	return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+end:
+    handle = invalidPlatformFileHandle;
+    return String();
+}
+
+PlatformFileHandle openFileAsync(const String& path, FileOpenMode mode, FileAccessPermission, bool failIfFileExists)
+{
+    CString fsRep = fileSystemRepresentation(path);
+
+    if (fsRep.isNull())
+        return invalidPlatformFileHandle;
+
+    OpenModes dosMode = MODE_READ;
+    switch (mode) {
+    case FileOpenMode::Read:
+        break;
+    case FileOpenMode::Truncate:
+        dosMode = MODE_WRITE;
+        break;
+    case FileOpenMode::ReadWrite:
+        dosMode = MODE_APPEND;
+        break;
+    }
+
+    // not handled but we currently do not need this to work!
+    (void)failIfFileExists;
+
+    PlatformFileHandle fh = PlatformFileHandle(OpenAsync(STRPTR(fsRep.data()), dosMode, 512 * 1024));
+
+    if (0 == fh)
+        return -1;
+    return fh;
+}
+
+void closeFileAsync(PlatformFileHandle& fh)
+{
+    if (fh != -1)
+        CloseAsync((AsyncFile *)fh);
+    fh = -1;
+}
+
+long long seekFileAsync(PlatformFileHandle fh, long long offset, FileSeekOrigin origin)
+{
+    SeekModes whence = MODE_CURRENT;
+    switch (origin) {
+    case FileSeekOrigin::Current:
+        break;
+    case FileSeekOrigin::End:
+        whence = MODE_END;
+        break;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+
+    if (fh != -1)
+        return SeekAsync64((AsyncFile *)fh, offset, whence);
+    return -1;
+}
+
+int writeToFileAsync(PlatformFileHandle fh, const void* data, int length)
+{
+    if (fh != -1)
+        return WriteAsync((AsyncFile *)fh, APTR(data), length);
+    return -1;
+}
+#endif
 
 #if ENABLE(FILESYSTEM_POSIX_FAST_PATH)
 

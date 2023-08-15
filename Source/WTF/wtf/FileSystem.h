@@ -223,6 +223,15 @@ WTF_EXPORT_PRIVATE String roamingUserSpecificStorageDirectory();
 WTF_EXPORT_PRIVATE String createTemporaryDirectory();
 #endif
 
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE String openTemporaryFileAsync(StringView prefix, PlatformFileHandle&);
+WTF_EXPORT_PRIVATE PlatformFileHandle openFileAsync(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
+WTF_EXPORT_PRIVATE void closeFileAsync(PlatformFileHandle&);
+// Returns the resulting offset from the beginning of the file if successful, -1 otherwise.
+WTF_EXPORT_PRIVATE long long seekFileAsync(PlatformFileHandle, long long offset, FileSeekOrigin);
+WTF_EXPORT_PRIVATE int writeToFileAsync(PlatformFileHandle, const void* data, int length);
+#endif
+
 #if PLATFORM(COCOA)
 WTF_EXPORT_PRIVATE NSString *createTemporaryDirectory(NSString *directoryPrefix);
 WTF_EXPORT_PRIVATE NSString *systemDirectoryPath();
