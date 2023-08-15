@@ -286,6 +286,7 @@ public:
     void setSslCertType(const char*);
     void setSslKeyPassword(const char*);
     void setSslCipherList(const char*);
+    void setSslCipherListTLS1_3(const char*);
     void setSslECCurves(const char*);
 
     void enableProxyIfExists();

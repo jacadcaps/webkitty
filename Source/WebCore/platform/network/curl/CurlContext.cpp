@@ -465,6 +465,7 @@ void CurlHandle::enableSSLForHost(const String& host)
     }
 
     setSslCipherList(sslHandle.cipherList().data());
+    setSslCipherListTLS1_3(sslHandle.cipherListTLS1_3().data());
 
     if (const auto& ecCurves = sslHandle.ecCurves(); !ecCurves.isNull())
         setSslECCurves(ecCurves.data());
@@ -747,6 +748,11 @@ void CurlHandle::setSslKeyPassword(const char* password)
 void CurlHandle::setSslCipherList(const char* cipherList)
 {
     curl_easy_setopt(m_handle, CURLOPT_SSL_CIPHER_LIST, cipherList);
+}
+
+void CurlHandle::setSslCipherListTLS1_3(const char* cipherList)
+{
+    curl_easy_setopt(m_handle, CURLOPT_TLS13_CIPHERS, cipherList);
 }
 
 void CurlHandle::setSslECCurves(const char* ecCurves)
