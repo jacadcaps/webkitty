@@ -353,15 +353,19 @@ std::optional<int32_t> getFileDeviceId(const String& path)
 }
 
 #if OS(MORPHOS)
+static unsigned long tmpnum = 0;
+
 int mkstempasync(char *path)
 {
     char *str, *end = path;
-    unsigned long num, tmpnum = 0;
+    unsigned long num;
     int fd = -1;
 
     while (*end) end++;
     str = end;
 
+    // this would need a lock in theory, but for the time being this is only being
+    // called by curl on its own thread...
     num = tmpnum++;
     while (*--str == 'X')
     {
@@ -386,7 +390,9 @@ int mkstempasync(char *path)
                 UnLock(lock);
                 char *s;
 
+                // see above
                 num = tmpnum++;
+
                 s = end;
                 while (s-- > str)
                 {
