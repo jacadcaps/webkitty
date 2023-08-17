@@ -188,7 +188,7 @@ void CurlRequestScheduler::workerThread()
         executeTasks();
 
 #if 1
-        const int selectTimeoutMS = INT_MAX;
+        const int selectTimeoutMS = 500;
         CURLMcode mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
         if (mc != CURLM_OK && mc != CURLM_UNRECOVERABLE_POLL) {
             break;
