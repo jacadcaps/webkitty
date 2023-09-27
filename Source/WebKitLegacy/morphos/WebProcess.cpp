@@ -225,7 +225,8 @@ void WebProcess::initialize(int sigbit)
 
     // WebKitGTK overrides this - fixes ligatures by enforcing harfbuzz runs
     // so replacements like 'home' -> home icon from a font work with this enabled
-    WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
+    // MOVED to settings, using Complex by default can be very slow
+    //WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath::Complex);
  
 	m_dummyNetworkingContext = DownloadsNetworkingContext::create();
 

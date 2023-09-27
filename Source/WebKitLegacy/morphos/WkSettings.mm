@@ -12,6 +12,7 @@
 #import <WebCore/MediaPlayerMorphOS.h>
 #import <WebCore/CurlProxySettings.h>
 #import <WebCore/NetworkStorageSession.h>
+#include <WebCore/FontCascade.h>
 #import "../WebCoreSupport/NetworkStorageSessionMap.h"
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>
@@ -605,6 +606,16 @@ static cairo_antialias_t defaultAA;
 	case WkGlobalSettings_Antialias_Subpixel: defaultAA = CAIRO_ANTIALIAS_SUBPIXEL; break;
 	}
 	WebCore::setDefaultCairoFontAntialias(defaultAA);
+}
+
++ (WkGlobalSettings_FontCodePath)fontCodePath
+{
+    return WkGlobalSettings_FontCodePath(WebCore::FontCascade::codePath());
+}
+
++ (void)setFontCodePath:(WkGlobalSettings_FontCodePath)codePath
+{
+    WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath(codePath));
 }
 
 + (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key

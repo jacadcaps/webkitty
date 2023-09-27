@@ -145,6 +145,13 @@ typedef enum
     WkGlobalSettings_HTTP2_ExceptPOST
 } WkGlobalSettings_HTTP2;
 
+typedef enum
+{
+    WkGlobalSettings_FontCodePath_Auto,
+    WkGlobalSettings_FontCodePath_Simple,
+    WkGlobalSettings_FontCodePath_Complex
+} WkGlobalSettings_FontCodePath;
+
 @interface WkGlobalSettings : OBObject
 
 // Set the default download path for all new downloads, they'll be downloaded with a tmp name
@@ -154,6 +161,9 @@ typedef enum
 
 + (WkGlobalSettings_Antialias)fontAntialias;
 + (void)setAntialias:(WkGlobalSettings_Antialias)aa;
+
++ (WkGlobalSettings_FontCodePath)fontCodePath;
++ (void)setFontCodePath:(WkGlobalSettings_FontCodePath)codePath;
 
 // Sets a custom PEM file to be used to validate a connection to the given domain
 // 'key' is an optional password required to load the PEM file
