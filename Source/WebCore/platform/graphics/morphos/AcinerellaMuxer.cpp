@@ -9,6 +9,7 @@
 #include <queue>
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
+#include "AcinerellaClient.h"
 
 #define D(x) 
 #define DPUSH(x)

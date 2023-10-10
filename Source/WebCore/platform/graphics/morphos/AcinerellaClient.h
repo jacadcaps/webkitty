@@ -3,6 +3,9 @@
 #include "MediaPlayerMorphOS.h"
 #include <wtf/RefPtr.h>
 
+#define EP_PROFILING 0
+#include <libeventprofiler.h>
+
 namespace WebCore {
 
 class PlatformMediaResourceLoader;
