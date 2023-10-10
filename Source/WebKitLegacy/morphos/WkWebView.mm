@@ -64,7 +64,7 @@
 #import <cairo.h>
 struct Library *FreetypeBase;
 
-#include <libeventprofiler.h>
+//#include <libeventprofiler.h>
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -575,6 +575,7 @@ namespace  {
 	bool                                    _isLiveResizing;
 	bool                                    _hasOnlySecureContent;
 	bool                                    _isHandlingUserInput;
+    int                                     _postPaintCheckCnt;
 	bool                                    _isQuiet;
 	bool                                    _isShown;
 	OBURL                                  *_url;
@@ -770,6 +771,12 @@ namespace  {
 	return _url;
 }
 
+- (void)onDrawPendingTimer
+{
+    if (_drawPending)
+        [_paintPerform perform];
+}
+
 - (void)setDrawPendingWithSchedule:(BOOL)schedule
 {
 	_drawPendingOnUserInput = schedule && _isHandlingUserInput;
@@ -782,12 +789,6 @@ namespace  {
 
 		_drawPending = YES;
 
-		if (schedule && _isHandlingUserInput)
-		{
-			[[OBRunLoop mainRunLoop] perform:_paintPerform];
-			return;
-		}
-		
 		if (schedule && _paintPerform)
 		{
 			static double divider = (double)_drawTimeBase;
@@ -803,7 +804,7 @@ namespace  {
 				interval = 0.016;
 			if (interval > 0.7)
 				interval = 0.7;
-			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:_paintPerform repeats:NO] retain];
+			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:[OBPerform performSelector:@selector(onDrawPendingTimer) target:self] repeats:NO] retain];
 		}
 	}
 }
@@ -830,15 +831,35 @@ namespace  {
 	return _isHandlingUserInput;
 }
 
+- (void)postInputPaintCheck
+{
+    _postPaintCheckCnt = 0;
+
+    if (_drawPending)
+        [_paintPerform perform];
+}
+
 - (void)setIsHandlingUserInput:(BOOL)handling
 {
 	bool issuePaint = _drawPending && _isHandlingUserInput && !handling && _drawPendingOnUserInput;
 
 	_isHandlingUserInput = handling;
 	_drawPendingOnUserInput = false;
-	
+
 	if (issuePaint)
-		[[OBRunLoop mainRunLoop] perform:_paintPerform];
+    {
+        _postPaintCheckCnt ++;
+        
+        if (1 == _postPaintCheckCnt)
+        {
+            [[OBRunLoop mainRunLoop] performSelector:@selector(postInputPaintCheck) target:self];
+        }
+        else if (_postPaintCheckCnt > 2)
+        {
+            [_paintPerform perform];
+            _postPaintCheckCnt = 0;
+        }
+    }
 }
 
 - (void)setBackForwardDelegate:(id<WkWebViewBackForwardListDelegate>)backForwardDelegate
@@ -3674,6 +3695,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	WkPrintingState *printingState = [_private printingState];
 	auto webPage = [_private page];
 
+    EP_SCOPE(events);
+
 	if (printingState)
 	{
 		if (imsg && imsg->Class == IDCMP_RAWKEY)
@@ -3699,12 +3722,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		return 0;
 	}
 	
-	[_private setIsHandlingUserInput:YES];
-	
-	if (muikey != MUIKEY_NONE && webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self))
-	{
+	if (muikey != MUIKEY_NONE)
+ 	{
+        [_private setIsHandlingUserInput:YES];
+        BOOL handled = webPage->handleMUIKey(int(muikey), [[self windowObject] defaultObject] == self);
 		[_private setIsHandlingUserInput:NO];
-		return MUI_EventHandlerRC_Eat;
+        if (handled)
+            return MUI_EventHandlerRC_Eat;
 	}
 
 	if (imsg)
@@ -3728,7 +3752,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					if (imsg->Code == RAWKEY_ESCAPE)
 					{
 						webPage->exitFullscreen();
-						[_private setIsHandlingUserInput:NO];
 						return MUI_EventHandlerRC_Eat;
 					}
 					break;
@@ -3736,12 +3759,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					if (imsg->Code == SELECTDOWN && [_private isDoubleClickSeconds:imsg->Seconds micros:imsg->Micros])
 					{
 						webPage->exitFullscreen();
-						[_private setIsHandlingUserInput:NO];
 						return MUI_EventHandlerRC_Eat;
 					}
 					break;
 				}
-				[_private setIsHandlingUserInput:NO];
 				return 0;
 			}
 			else // fsWindow
@@ -3752,6 +3773,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					switch (imsg->Code)
 					{
 					case RAWKEY_ESCAPE:
+						[_private setIsHandlingUserInput:YES];
 						if (!webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
 							webPage->exitFullscreen();
 						[_private setIsHandlingUserInput:NO];
@@ -3773,7 +3795,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 								else
 									[media play];
 							}
-							[_private setIsHandlingUserInput:NO];
 							return MUI_EventHandlerRC_Eat;
 						}
 						break;
@@ -3787,7 +3808,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 								[media seek:[media position] - 60.0f];
 							else
 								[media seek:[media position] - 10.0f];
-							[_private setIsHandlingUserInput:NO];
 							return MUI_EventHandlerRC_Eat;
 						}
 						break;
@@ -3801,7 +3821,6 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 								[media seek:[media position] + 60.0f];
 							else
 								[media seek:[media position] + 10.0f];
-							[_private setIsHandlingUserInput:NO];
 							return MUI_EventHandlerRC_Eat;
 						}
 						break;
@@ -3811,24 +3830,24 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 							id<WkMediaObject> media = [self activeMediaObject];
 							[media play];
 						}
-						[_private setIsHandlingUserInput:NO];
 						return MUI_EventHandlerRC_Eat;
 					case RAWKEY_CDTV_STOP:
 						{
 							id<WkMediaObject> media = [self activeMediaObject];
 							[media pause];
 						}
-						[_private setIsHandlingUserInput:NO];
 						return MUI_EventHandlerRC_Eat;
 					}
 					break;
 				}
 
+                [_private setIsHandlingUserInput:YES];
 				if (webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
 				{
 					[_private setIsHandlingUserInput:NO];
 					return MUI_EventHandlerRC_Eat;
 				}
+                [_private setIsHandlingUserInput:NO];
 				return 0;
 			}
 		}
@@ -3840,14 +3859,15 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			isDefault = [[self windowObject] defaultObject] == self;
 		}
 
+        [_private setIsHandlingUserInput:YES];
 		if (webPage->handleIntuiMessage(imsg, x, y, inObject, isDefault))
 		{
 			[_private setIsHandlingUserInput:NO];
 			return MUI_EventHandlerRC_Eat;
 		}
+        [_private setIsHandlingUserInput:NO];
 	}
 
-	[_private setIsHandlingUserInput:NO];
 	return 0;
 }
 
@@ -3866,6 +3886,8 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 - (void)invalidated:(BOOL)force
 {
+    EP_SCOPE(drawRequest);
+
 	if (![_private drawPending] || force || [_private isHandlingUserInput])
 	{
 		[_private setDrawPendingWithSchedule:!force];
