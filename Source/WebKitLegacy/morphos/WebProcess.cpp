@@ -59,6 +59,7 @@
 #include "ServiceWorkerSoftUpdateLoader.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+#include <libraries/charsets.h>
 #include "Gamepad.h"
 #if !MORPHOS_MINIMAL
 #include "WebDatabaseManager.h"
@@ -421,6 +422,18 @@ void WebProcess::initialize(int sigbit)
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt"_s;
 	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat"_s;
+
+    if (m_easyListPath.length())
+    {
+        StringBuilder builder;
+        builder.append(m_easyListPath);
+        builder.append(".txt"_s);
+        easyListPath = builder.toString();
+        builder.clear();
+        builder.append(m_easyListPath);
+        builder.append(".dat"_s);
+        easyListSerializedPath = builder.toString();
+    }
 
 	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Read);
 
@@ -851,6 +864,21 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 WebCore::NetworkStorageSession* WebProcess::storageSession(PAL::SessionID) const
 {
     return &NetworkStorageSessionMap::defaultStorageSession();
+}
+
+void WebProcess::setEasyListPath(const char *path)
+{
+    if (path && *path)
+    {
+        StringBuilder builder;
+        builder.append("PROGDIR:Resources/");
+        builder.append(WTF::String(path, strlen(path), MIBENUM_SYSTEM));
+        m_easyListPath = builder.toString();
+    }
+    else
+    {
+        m_easyListPath = WTF::emptyString();
+    }
 }
 
 #if ENABLE(SERVICE_WORKER)

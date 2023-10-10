@@ -618,6 +618,11 @@ static cairo_antialias_t defaultAA;
     WebCore::FontCascade::setCodePath(WebCore::FontCascade::CodePath(codePath));
 }
 
++ (void)setAdBlockBaseName:(OBString *)path
+{
+    WebKit::WebProcess::singleton().setEasyListPath([path nativeCString]);
+}
+
 + (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key
 {
 	if ([pathToPEM length] && [host length])

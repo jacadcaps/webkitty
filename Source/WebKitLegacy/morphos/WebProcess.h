@@ -96,6 +96,8 @@ public:
 
 	void returnedFromConstrainedRunLoop();
 	void dispatchAllEvents();
+ 
+    void setEasyListPath(const char *path);
 
     Ref<WebCore::LocalWebLockRegistry> getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled);
 
@@ -150,6 +152,8 @@ protected:
 	
 	struct Task *m_sigTask;
     uint32_t m_sigMask;
+    
+    WTF::String m_easyListPath;
 
 #if ENABLE(SERVICE_WORKER)
     HashSet<std::unique_ptr<ServiceWorkerSoftUpdateLoader>> m_softUpdateLoaders;

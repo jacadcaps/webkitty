@@ -201,4 +201,6 @@ typedef enum
 
 + (void)setHTTP2Mode:(WkGlobalSettings_HTTP2)http2;
 
++ (void)setAdBlockBaseName:(OBString *)path;
+
 @end
