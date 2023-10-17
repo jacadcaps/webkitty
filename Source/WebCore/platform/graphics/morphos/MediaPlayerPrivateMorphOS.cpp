@@ -18,7 +18,7 @@
 #include <proto/exec.h>
 #include <exec/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DM(x)
 #define DMHOST(x) 
 
@@ -825,13 +825,14 @@ void MediaPlayerPrivateMorphOS::accSetBufferLength(double buffer)
 
 void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 {
-	D(dprintf("%s: timechanged to %f\n", __func__, this, float(pos)));
+	D(dprintf("%s: timechanged to %f\n", __func__, float(pos)));
 	m_currentTime = MediaTime::createWithDouble(pos);
 	m_player->timeChanged();
 }
 
 void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 {
+	D(dprintf("%s: duration to %f\n", __func__, float(dur)));
 #if ENABLE(MEDIA_SOURCE)
 	if (m_mediaSourcePrivate)
 	{
@@ -839,9 +840,9 @@ void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 		return;
 	}
 #endif
-	if (abs(dur - m_duration.toDouble()) >= 1.0)
+	if (m_duration.isInvalid() || (abs(dur - m_duration.toDouble()) >= 1.0))
 	{
-		D(dprintf("%s: changed to %f\n", __func__, this, float(dur)));
+		D(dprintf("%s: changed to %f\n", __func__, float(dur)));
 		m_duration = MediaTime::createWithDouble(ceil(dur));
 		m_player->durationChanged();
 	}
