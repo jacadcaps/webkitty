@@ -28,7 +28,7 @@
 #include <graphics/rpattr.h>
 #include <proto/graphics.h>
 
-#define D(x) 
+#define D(x)
 #define DSYNC(x)
 #define DOVL(x)
 #define DFRAME(x) 
@@ -679,6 +679,18 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 								
 							break;
 						}
+                        else if (m_decoderEOF)
+                        {
+                            dispatch([this, protectedThis(Ref{*this})]() {
+                                stopPlaying();
+                                if (!m_terminating)
+                                {
+                                    m_position = m_duration;
+                                    onPositionChanged();
+                                    onEnded();
+                                }
+                            });
+                        }
 					}
 
 					m_pullEvent.waitFor(5_s);

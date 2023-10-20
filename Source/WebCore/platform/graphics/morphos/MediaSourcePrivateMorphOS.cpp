@@ -15,8 +15,8 @@
 #define DDUMP(x)
 #define DSEEK(x)
 #define DEOS(x)
-#define DPLAY(x)
-#define DBUFFER(x) 
+#define DPLAY(x) 
+#define DBUFFER(x)
 #define DSOURCE(x)
 #define DRS(x) 
 // #pragma GCC optimize ("O0")
@@ -460,7 +460,6 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
 
 void MediaSourcePrivateMorphOS::onSourceBuffersReadyToPlay()
 {
-	DPLAY(dprintf("%s: ready %d\n", __PRETTY_FUNCTION__, areDecodersReadyToPlay()));
 	if (m_waitReady && areDecodersReadyToPlay())
 	{
 		play();
@@ -572,12 +571,28 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
 
 void MediaSourcePrivateMorphOS::onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>&)
 {
-	DEOS(dprintf("[MS]%s: endedalreadY? %d paused %d\n", __func__, m_ended, m_paused));
+	DEOS(dprintf("[MS]%s: input data ended? %d paused %d\n", __func__, m_ended, m_paused));
 	if (m_ended)
 	{
-		m_position = duration().toFloat();
-		if (m_player)
-			m_player->accEnded();
+        bool allEnded = true;
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+        {
+            DEOS(dprintf("[MS]%s: source %p is ended %d\n", __func__, sourceBufferPrivate.get(), sourceBufferPrivate->isEnded()));
+
+            if (!sourceBufferPrivate->isEnded())
+            {
+                allEnded = false;
+                break;
+            }
+        }
+
+        if (allEnded)
+        {
+            DEOS(dprintf("[MS]%s: all decoders have reported end of stream!\n", __func__));
+            m_position = duration().toFloat();
+            if (m_player)
+                m_player->accEnded();
+        }
 	}
 }
 

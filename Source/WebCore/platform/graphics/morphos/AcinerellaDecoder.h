@@ -126,6 +126,10 @@ public:
 	virtual bool isVideo() const = 0;
 	virtual bool isText() const = 0;
 
+    // not used by decoder directly
+    bool isEnabled() const { return m_enabled; }
+    void setEnabled(bool enabled) { m_enabled = enabled; }
+
 	void setVolume(float volume);
 
 	double duration() const { return m_duration; }
@@ -192,6 +196,7 @@ protected:
 	int                                m_index;
 	bool                               m_isLive = false;
 	bool                               m_isHLS = false;
+    bool                               m_enabled = false;
 	
 	Deque<AcinerellaDecodedFrame>      m_decodedFrames;
 	Lock                               m_lock;

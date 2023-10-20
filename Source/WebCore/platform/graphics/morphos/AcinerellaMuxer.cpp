@@ -12,7 +12,7 @@
 #include "AcinerellaClient.h"
 
 #define D(x) 
-#define DPUSH(x)
+#define DPUSH(x) 
 #define DF(x)
 
 namespace WebCore {

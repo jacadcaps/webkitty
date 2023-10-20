@@ -6,12 +6,12 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x)
-#define DNF(x)  //if (!isAudio()) {x;}
+#define D(x) 
+#define DNF(x) // if (!isAudio()) {x;}
 #define DI(x)
 #define DBF(x)
-#define DPOS(x) 
-#define DLIFETIME(x) 
+#define DPOS(x)
+#define DLIFETIME(x)
 
 // #pragma GCC optimize ("O0")
 
@@ -317,6 +317,8 @@ void AcinerellaDecoder::flush()
     m_decodedFrames.clear();
 		
 	m_decoderEOF = false;
+    m_droppingFrames = false;
+    m_droppingUntilKeyFrame = false;
 }
 
 void AcinerellaDecoder::onPositionChanged()

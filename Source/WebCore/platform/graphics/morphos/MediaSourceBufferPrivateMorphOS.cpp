@@ -17,20 +17,20 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DR(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DIO(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DM(x)
 #define DI(x)
 #define DN(x)
 #define DNERR(x)
-#define DAPPEND(x) 
+#define DAPPEND(x)
 #define DBR(x)
 #define DRMS(x)
 #define DENABLED(x)
 #define DLIFETIME(x)
 #define DSEEK(x)
-#define DENQ(x) //do { if (m_audioDecoderMask == 0) x; } while (0);
+#define DENQ(x)  //do { if (m_audioDecoderMask == 0) x; } while (0);
 #define DRECEIVED(x) //do { if (m_audioDecoderMask == 0) x; } while (0);
 #define DENQDEBUGSTEPS 1
 
@@ -671,6 +671,7 @@ void MediaSourceBufferPrivateMorphOS::willSeek(double time)
 	m_seekTime = time;
 	m_postSeekingAppendDone = false;
 	m_readerFailed = false;
+    m_ended = false;
 
 	for (int i = 0; i < m_numDecoders; i++)
 	{
@@ -824,6 +825,7 @@ void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
         {
             if (!!m_decoders[index])
             {
+                m_decoders[index]->setEnabled(true);
                 if (m_mediaSource->paused())
                 {
                     m_decoders[index]->warmUp();
@@ -838,6 +840,7 @@ void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
         {
             if (!!m_decoders[index])
             {
+                m_decoders[index]->setEnabled(false);
                 m_decoders[index]->coolDown();
             }
         }
@@ -857,7 +860,7 @@ void MediaSourceBufferPrivateMorphOS::dumpStatus()
 	{
 		if (!!m_decoders[i])
 		{
-			dprintf("[%d]", m_muxer->packagesForDecoder(i));
+			dprintf("[%d][%s]", m_muxer->packagesForDecoder(i), m_decoders[i]->isEnabled() ? "EN" : "DI");
 			m_decoders[i]->dumpStatus();
 		}
 	}
@@ -1190,7 +1193,7 @@ void MediaSourceBufferPrivateMorphOS::warmUp()
 	dispatch([this]() {
 		for (int i = 0; i < m_numDecoders; i++)
 		{
-			if (!!m_decoders[i])
+			if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			{
 				D(dprintf("[MS] warmup decoder index %d - %p\n", i, m_decoders[i].get()));
 				m_decoders[i]->warmUp();
@@ -1204,7 +1207,7 @@ void MediaSourceBufferPrivateMorphOS::coolDown()
 	dispatch([this]() {
 		for (int i = 0; i < m_numDecoders; i++)
 		{
-			if (!!m_decoders[i])
+			if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			{
 				D(dprintf("[MS] coolDown decoder index %d - %p\n", i, m_decoders[i].get()));
 				m_decoders[i]->coolDown();
@@ -1244,7 +1247,7 @@ void MediaSourceBufferPrivateMorphOS::play()
 		D(dprintf("%s: ... \n", __PRETTY_FUNCTION__));
 		for (int i = 0; i < m_numDecoders; i++)
 		{
-			if (!!m_decoders[i])
+			if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			{
 				D(dprintf("%s: play at index %d\n", __PRETTY_FUNCTION__, i));
 				m_decoders[i]->play();
@@ -1261,7 +1264,7 @@ void MediaSourceBufferPrivateMorphOS::prePlay()
 		D(dprintf("%s: ... \n", __PRETTY_FUNCTION__));
 		for (int i = 0; i < m_numDecoders; i++)
 		{
-			if (!!m_decoders[i])
+			if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			{
 				D(dprintf("%s: play at index %d\n", __PRETTY_FUNCTION__, i));
 				m_decoders[i]->prePlay();
@@ -1277,7 +1280,7 @@ void MediaSourceBufferPrivateMorphOS::pause()
 	dispatch([this] {
 		for (int i = 0; i < m_numDecoders; i++)
 		{
-			if (!!m_decoders[i])
+			if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			{
 				m_decoders[i]->pause();
 			}
@@ -1360,6 +1363,7 @@ void MediaSourceBufferPrivateMorphOS::onDecoderEnded(RefPtr<Acinerella::Acinerel
 		if (m_mediaSource && !m_terminating)
 		{
 			RefPtr<MediaSourceBufferPrivateMorphOS> me = Ref{*this};
+            m_ended = true;
 			m_mediaSource->onSourceBufferEnded(me);
 		}
 	});
@@ -1395,7 +1399,7 @@ bool MediaSourceBufferPrivateMorphOS::areDecodersReadyToPlay()
 {
 	for (int i = 0; i < m_numDecoders; i++)
 	{
-		if (!!m_decoders[i])
+		if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 		{
 			if (!m_decoders[i]->isReadyToPlay())
             {
@@ -1411,7 +1415,7 @@ bool MediaSourceBufferPrivateMorphOS::areDecodersPlaying()
 {
 	for (int i = 0; i < m_numDecoders; i++)
 	{
-		if (!!m_decoders[i] && !m_decoders[i]->isPlaying())
+		if (!!m_decoders[i] && m_decoders[i]->isEnabled() && !m_decoders[i]->isPlaying())
 			return false;
 	}
 
@@ -1424,7 +1428,7 @@ float MediaSourceBufferPrivateMorphOS::decodersBufferedTime()
 
 	for (int i = 0; i < m_numDecoders; i++)
 	{
-		if (!!m_decoders[i])
+		if (!!m_decoders[i] && m_decoders[i]->isEnabled())
 			buffer = std::max(buffer, float(m_decoders[i]->bufferSize()));
 	}
 	

@@ -118,6 +118,7 @@ public:
 	void willSeek(double seekTo);
 	void seekToTime(const MediaTime&) override;
 	void signalEOF();
+    bool isEnded() const { return m_ended; }
 
     void setVolume(double vol);
 
@@ -213,6 +214,7 @@ private:
 	bool                                          m_terminating = false;
 	bool                                          m_eos = false;
     bool                                          m_isLive = false;
+    bool                                          m_ended = false;
 	std::atomic<bool>                             m_appendCompletePending = false;
 	bool                                          m_appendCompleteDelayed = false;
     MediaTime                                     m_durationAtAppend = MediaTime::invalidTime();
