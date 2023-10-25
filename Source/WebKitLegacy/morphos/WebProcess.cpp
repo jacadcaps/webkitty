@@ -447,6 +447,7 @@ void WebProcess::initialize(int sigbit)
 			{
 				m_urlFilterData[size] = 0; // terminate just in case
 				m_urlFilter.deserialize(&m_urlFilterData[0]);
+                m_urlFilterInitialized = true;
 			}
 			else
 			{
@@ -473,6 +474,7 @@ void WebProcess::initialize(int sigbit)
 						buffer[size] = 0; // terminate, parser expects this to be a null-term string
 dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
 						m_urlFilter.parse(buffer);
+                        m_urlFilterInitialized = true;
 						int ssize;
 						char *sbuffer = m_urlFilter.serialize(&ssize, false);
 						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Truncate);
@@ -843,6 +845,9 @@ void WebProcess::signalMainThread()
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
 #if USE_ADFILTER
+    if (!m_urlFilterInitialized)
+        return true;
+
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
     WebPage *page = frame ? frame->page() : nullptr;
 

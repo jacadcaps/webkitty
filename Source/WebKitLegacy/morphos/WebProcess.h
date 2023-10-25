@@ -141,6 +141,7 @@ protected:
 #if (!MORPHOS_MINIMAL)
     ABP::ABPFilterParser m_urlFilter;
     std::vector<char>    m_urlFilterData;
+    bool                 m_urlFilterInitialized = false;
 #endif
     std::optional<PAL::SessionID> m_sessionID;
     Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
