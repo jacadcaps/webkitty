@@ -54,7 +54,7 @@ AcinerellaAudioRequest::AcinerellaAudioRequest(RefPtr<AcinerellaAudioRequest> pr
 {
     DAAR(dprintf("[AD]%s: %p\n", __func__, this));
     m_primaryRequest = primary;
-    if (!!m_primaryRequest)
+    if (!!m_primaryRequest && primary->isValid())
     {
         m_msgPort = primary->m_msgPort;
         m_request = reinterpret_cast<AHIRequest*>(malloc(sizeof(struct AHIRequest)));
@@ -493,9 +493,6 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
 {
     DTHREAD(dprintf("[AD]%s: started\n", __func__));
 
-    m_ahiThreadTask = FindTask(0);
-    m_ahiThreadStateSignal = AllocSignal(-1);
-
     auto requestA = AcinerellaAudioRequest::create(m_audioRate, m_audioChannels);
     auto requestB = AcinerellaAudioRequest::create(requestA);
 
@@ -506,6 +503,14 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
         m_ahiThreadReady.signal();
         return;
     }
+
+    {
+        Locker lock(m_ahiThreadAccessLock);
+
+        m_ahiThreadTask = FindTask(0);
+        m_ahiThreadStateSignal = AllocSignal(-1);
+    }
+
     
     requestA->setVolume(m_volume);
     requestB->setVolume(m_volume);

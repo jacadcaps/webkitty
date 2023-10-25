@@ -121,7 +121,7 @@ protected:
 	RefPtr<Thread>  m_ahiThread;
     BinarySemaphore m_ahiThreadReady;
     Lock            m_ahiThreadAccessLock;
-    struct Task    *m_ahiThreadTask;
+    struct Task    *m_ahiThreadTask = nullptr;
     int             m_ahiThreadStateSignal = -1;
 	bool            m_ahiThreadShuttingDown = false;
     size_t          m_ahiFrameOffset = 0;
