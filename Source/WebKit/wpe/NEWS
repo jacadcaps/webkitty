@@ -1,4 +1,37 @@
 =================
+WPE WebKit 2.40.4
+=================
+
+What's new in WPE WebKit 2.40.4?
+
+  - Fix a bug in JavaScript reading variable arguments in a call.
+
+=================
+WPE WebKit 2.40.3
+=================
+
+What's new in WPE WebKit 2.40.3?
+
+  - Make memory pressure monitor honor memory.memsw.usage_in_bytes if exists.
+  - Apply cookie blocking policy to WebSocket handshakes.
+  - Remove accidental dependency on GLib 2.70.
+  - Fix the build with BUBBLEWRAP_SANDBOX disabled.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.40.2
+=================
+
+What's new in WPE WebKit 2.40.2?
+
+  - Fix flickering on looped videos when starting again.
+  - Fix CPU usage on autoplaying videos.
+  - Enable threaded rendering by default.
+  - Choose amount of painting threads depending on available CPU cores.
+  - Make libgbm and libdrm optional dependencies.
+  - Fix several crashes and rendering issues.
+
+=================
 WPE WebKit 2.40.1
 =================
 

@@ -316,7 +316,6 @@ static void requestPointerLock(WKPageRef page, const void*)
 static void printFrame(WKPageRef page, WKFrameRef frame, const void*)
 {
     WKPageBeginPrinting(page, frame, WKPrintInfo { 1, 21, 29.7f });
-    WKPageEndPrinting(page);
 }
 
 static bool shouldAllowDeviceOrientationAndMotionAccess(WKPageRef, WKSecurityOriginRef origin, WKFrameInfoRef frame, const void*)
@@ -1219,6 +1218,8 @@ bool TestController::resetStateToConsistentValues(const TestOptions& options, Re
     clearPrivateClickMeasurement();
 
     WKPageDispatchActivityStateUpdateForTesting(m_mainWebView->page());
+
+    WKPageResetProcessState(m_mainWebView->page());
 
     m_didReceiveServerRedirectForProvisionalNavigation = false;
     m_serverTrustEvaluationCallbackCallsCount = 0;
