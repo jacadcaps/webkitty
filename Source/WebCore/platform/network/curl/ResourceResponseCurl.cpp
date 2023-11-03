@@ -27,6 +27,7 @@
 
 #if USE(CURL)
 #include "ResourceResponse.h"
+#include "MIMETypeRegistry.h"
 
 #include "CurlContext.h"
 #include "CurlResponse.h"
@@ -103,7 +104,16 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
         break;
     }
 
-    setMimeType(AtomString { extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase() });
+	String mimeType = extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase();
+	if (mimeType.isEmpty()) {
+        auto lastPathComponent = response.url.lastPathComponent();
+        size_t pos = lastPathComponent.reverseFind('.');
+        if (pos != notFound) {
+            auto extension = lastPathComponent.substring(pos + 1);
+            mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+        }
+	}
+    setMimeType(AtomString { mimeType.convertToASCIILowercase() });
     setTextEncodingName(extractCharsetFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).toAtomString());
     setCertificateInfo(WTFMove(response.certificateInfo));
     setSource(ResourceResponse::Source::Network);
@@ -154,7 +164,7 @@ String ResourceResponse::platformSuggestedFilename() const
     return contentDisposition.toString();
 }
 
-bool ResourceResponse::shouldRedirect()
+bool ResourceResponse::shouldRedirect() const
 {
     auto statusCode = httpStatusCode();
     if (statusCode < 300 || 400 <= statusCode)

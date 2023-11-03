@@ -25,6 +25,10 @@
 
 #pragma once
 
+#if defined(HAVE_CONFIG_H) && HAVE_CONFIG_H && defined(BUILDING_WITH_CMAKE)
+#include "cmakeconfig.h"
+#endif
+
 #include "InProcessIDBServer.h"
 #include <WebCore/DatabaseProvider.h>
 #include <wtf/Forward.h>
@@ -40,6 +44,10 @@ public:
     WebCore::IDBClient::IDBConnectionToServer& idbConnectionToServerForSession(PAL::SessionID) override;
 
     void deleteAllDatabases();
+
+#if OS(MORPHOS)
+    void shutdown();
+#endif
 
 private:
     explicit WebDatabaseProvider();

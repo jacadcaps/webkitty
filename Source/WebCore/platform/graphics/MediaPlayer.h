@@ -87,6 +87,7 @@ class SharedBuffer;
 class TextTrackRepresentation;
 class VideoFrame;
 class VideoTrackPrivate;
+class Page;
 
 struct GraphicsDeviceAdapter;
 class SecurityOriginData;
@@ -95,6 +96,7 @@ struct VideoFrameMetadata;
 struct MediaEngineSupportParameters {
     ContentType type;
     URL url;
+    Page* page { nullptr };
     bool isMediaSource { false };
     bool isMediaStream { false };
     bool requiresRemotePlayback { false };
@@ -292,6 +294,10 @@ public:
 #if !RELEASE_LOG_DISABLED
     virtual const void* mediaPlayerLogIdentifier() { return nullptr; }
     virtual const Logger& mediaPlayerLogger() = 0;
+#endif
+
+#if OS(MORPHOS)
+    virtual Page* mediaPlayerPage() { return nullptr; }
 #endif
 };
 
@@ -610,6 +616,10 @@ public:
     void simulateAudioInterruption();
 #endif
 
+#if OS(MORPHOS)
+	void selectHLSStream(const String& url);
+#endif
+
     void beginSimulatedHDCPError();
     void endSimulatedHDCPError();
 
@@ -709,8 +719,10 @@ private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
 
+public:
     MediaPlayerClient& client() const { return *m_client; }
 
+private:
     const MediaPlayerFactory* nextBestMediaEngine(const MediaPlayerFactory*);
     void loadWithNextMediaEngine(const MediaPlayerFactory*);
     const MediaPlayerFactory* nextMediaEngine(const MediaPlayerFactory*);

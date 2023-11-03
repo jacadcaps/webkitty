@@ -256,6 +256,15 @@ void SQLiteDatabase::checkpoint(CheckpointMode mode)
 
 bool SQLiteDatabase::useWALJournalMode()
 {
+#if OS(MORPHOS)
+	auto syncStatement = prepareStatement("PRAGMA synchronous=off;"_s);
+	if (syncStatement)
+		syncStatement->step();
+	auto walStatement = prepareStatement("PRAGMA journal_mode=off;"_s);
+	if (walStatement)
+		walStatement->step();
+    return true;
+#else
     m_useWAL = true;
     {
         SQLiteTransactionInProgressAutoCounter transactionCounter;
@@ -278,7 +287,7 @@ bool SQLiteDatabase::useWALJournalMode()
 
     // The database can be used even if checkpoint fails, e.g. when there are multiple open database connections.
     checkpoint(CheckpointMode::Truncate);
-
+#endif
     return true;
 }
 
@@ -299,9 +308,9 @@ void SQLiteDatabase::close()
         if (m_useWAL) {
             // Close in the scope of counter as it may acquire lock of database.
             SQLiteTransactionInProgressAutoCounter transactionCounter;
-            closeResult = sqlite3_close(db);
+            closeResult = sqlite3_close_v2(db);
         } else
-            closeResult = sqlite3_close(db);
+            closeResult = sqlite3_close_v2(db);
 
         if (closeResult != SQLITE_OK)
             RELEASE_LOG_ERROR(SQLDatabase, "SQLiteDatabase::close: Failed to close database (%d) - %" PUBLIC_LOG_STRING, closeResult, lastErrorMsg());

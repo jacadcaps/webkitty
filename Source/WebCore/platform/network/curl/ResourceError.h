@@ -27,6 +27,8 @@
 #pragma once
 
 #include "ResourceErrorBase.h"
+#include "CertificateInfo.h"
+#include <optional>
 
 namespace WebCore {
 
@@ -50,10 +52,15 @@ public:
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
+    std::optional<CertificateInfo> certificateInfo() const { return m_certificateInfo; }
+    void setCertificateInfo(CertificateInfo&&info) { m_certificateInfo = WTFMove(info); };
+
 private:
     friend class ResourceErrorBase;
 
     void doPlatformIsolatedCopy(const ResourceError&);
+
+    std::optional<CertificateInfo> m_certificateInfo;
 };
 
 } // namespace WebCore

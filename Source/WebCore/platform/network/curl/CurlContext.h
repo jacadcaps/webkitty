@@ -26,6 +26,10 @@
 
 #pragma once
 
+#if OS(MORPHOS)
+#define PROTO_SOCKET_H
+#endif
+
 #include "CertificateInfo.h"
 #include "CurlProxySettings.h"
 #include "CurlSSLHandle.h"
@@ -60,7 +64,7 @@ class CurlGlobal {
 protected:
     CurlGlobal()
     {
-        curl_global_init(CURL_GLOBAL_ALL);
+        curl_global_init(CURL_GLOBAL_ALL | CURL_GLOBAL_NO_GETENV);
     }
     
     virtual ~CurlGlobal()
@@ -117,12 +121,18 @@ public:
     CurlSSLHandle& sslHandle() { return m_sslHandle; }
 
     // HTTP/2
-    bool isHttp2Enabled() const;
+    bool isHttp2Enabled(bool forPost = false) const;
+
+    void setIsHttp2Enabled(bool enabled, bool enabledForPost) { m_http2Enabled = enabled; m_http2POSTEnabled = enabledForPost; }
 
     // Timeout
     Seconds dnsCacheTimeout() const { return m_dnsCacheTimeout; }
     Seconds connectTimeout() const { return m_connectTimeout; }
     Seconds defaultTimeoutInterval() const { return m_defaultTimeoutInterval; }
+
+#if OS(MORPHOS)
+    void stopThread();
+#endif
 
 #ifndef NDEBUG
     FILE* getLogFile() const { return m_logFile; }
@@ -141,6 +151,9 @@ private:
     Seconds m_dnsCacheTimeout { Seconds::fromMinutes(5) };
     Seconds m_connectTimeout { 30.0 };
     Seconds m_defaultTimeoutInterval { 60.0 };
+
+    bool m_http2Enabled { true };
+    bool m_http2POSTEnabled { true };
 
 #ifndef NDEBUG
     FILE* m_logFile { nullptr };
@@ -169,6 +182,7 @@ public:
     CURLMcode poll(const Vector<curl_waitfd>&, int);
     CURLMcode wakeUp();
     CURLMcode perform(int&);
+	CURLMcode getTimeout(long &timeout);
     CURLMsg* readInfo(int&);
 
 private:
@@ -244,7 +258,7 @@ public:
     void appendRequestHeader(const String& name);
     void removeRequestHeader(const String& name);
 
-    void enableHttp();
+    void enableHttp(bool post = false);
     void enableHttpGetRequest();
     void enableHttpHeadRequest();
     void enableHttpPostRequest();
@@ -253,10 +267,12 @@ public:
     void enableHttpPutRequest();
     void setInFileSizeLarge(curl_off_t);
     void setHttpCustomRequest(const String&);
+    void setResumeOffset(long long);
 
     void enableConnectionOnly();
 
     void enableAcceptEncoding();
+    void disableAcceptEncoding();
     void enableAllowedProtocols();
 
     void setHttpAuthUserPass(const String&, const String&, long authType = CURLAUTH_ANY);
@@ -270,6 +286,7 @@ public:
     void setSslCertType(const char*);
     void setSslKeyPassword(const char*);
     void setSslCipherList(const char*);
+    void setSslCipherListTLS1_3(const char*);
     void setSslECCurves(const char*);
 
     void enableProxyIfExists();

@@ -55,7 +55,7 @@ public:
 
     void appendHTTPHeaderField(const String&);
 
-    bool shouldRedirect();
+    bool shouldRedirect() const;
     bool isMovedPermanently() const;
     bool isFound() const;
     bool isSeeOther() const;

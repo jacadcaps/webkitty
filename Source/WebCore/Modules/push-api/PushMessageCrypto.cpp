@@ -26,6 +26,10 @@
 #include "config.h"
 #include "PushMessageCrypto.h"
 
+#ifndef SIZE_MAX
+#define SIZE_MAX UINT32_MAX
+#endif
+
 #if ENABLE(SERVICE_WORKER)
 
 #include "PushCrypto.h"

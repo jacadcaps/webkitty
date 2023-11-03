@@ -1,0 +1,19 @@
+--- cmake-3.16.2/Source/kwsys/SystemTools.cxx.orig	2019-12-19 16:54:31.000000000 +0200
++++ cmake-3.16.2/Source/kwsys/SystemTools.cxx	2021-12-12 15:04:08.658067641 +0200
+@@ -2191,7 +2191,15 @@
+   // source and destination are files so do a copy if they
+   // are different
+   if (SystemTools::FilesDiffer(source, destination)) {
+-    return SystemTools::CopyFileAlways(source, destination);
++    // attempt to compensate for possible race condition from multiple
++    // concurrent instances. yes, this is fugly as fuck and can as
++    // well fail in the end anyway. - Piru / 2021-12-12
++    if (!SystemTools::CopyFileAlways(source, destination)) {
++      SystemTools::Delay(2); // wait 2 ms and try again
++      if (SystemTools::FilesDiffer(source, destination)) {
++        return SystemTools::CopyFileAlways(source, destination);
++      }
++    }
+   }
+   // at this point the files must be the same so return true
+   return true;

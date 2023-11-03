@@ -127,9 +127,10 @@ public:
     void unschedule(WTF::SchedulePair&);
 #endif
 
-#if OS(WINDOWS) && USE(CURL)
+#if (OS(WINDOWS) || OS(MORPHOS)) && USE(CURL)
     WEBCORE_EXPORT static void setHostAllowsAnyHTTPSCertificate(const String&);
     static void setClientCertificateInfo(const String&, const String&, const String&);
+    static void clearClientCertificateInfo(const String&);
 #endif
 
     bool shouldContentSniff() const;

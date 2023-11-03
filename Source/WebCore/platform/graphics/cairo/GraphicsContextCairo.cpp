@@ -376,10 +376,12 @@ void GraphicsContextCairo::drawPattern(NativeImage& nativeImage, const FloatRect
     Cairo::drawPattern(*this, nativeImage.platformImage().get(), nativeImage.size(), destRect, tileRect, patternTransform, phase, spacing, options);
 }
 
+#if !OS(MORPHOS)
 RenderingMode GraphicsContextCairo::renderingMode() const
 {
     return Cairo::State::isAcceleratedContext(*platformContext()) ? RenderingMode::Accelerated : RenderingMode::Unaccelerated;
 }
+#endif
 
 void GraphicsContextCairo::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothing)
 {

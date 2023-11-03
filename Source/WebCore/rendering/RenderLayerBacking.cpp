@@ -78,6 +78,7 @@
 #include "StyleResolver.h"
 #include "Styleable.h"
 #include "TiledBacking.h"
+#include "GraphicsLayerContentsDisplayDelegate.h"
 #include <wtf/SystemTracing.h>
 #include <wtf/text/TextStream.h>
 

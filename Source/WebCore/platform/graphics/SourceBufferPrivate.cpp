@@ -315,7 +315,11 @@ void SourceBufferPrivate::provideMediaData(TrackBuffer& trackBuffer, const AtomS
         // rather than when all samples have been enqueued.
         auto sample = trackBuffer.decodeQueue().begin()->second;
 
+#if OS(MORPHOS)
+        if (sample->decodeTime() > trackBuffer.enqueueDiscontinuityBoundary() && trackBuffer.samples().size() && trackBuffer.enqueueDiscontinuityBoundary().toFloat() > 1.1f) {
+#else
         if (sample->decodeTime() > trackBuffer.enqueueDiscontinuityBoundary()) {
+#endif
             DEBUG_LOG(LOGIDENTIFIER, "bailing early because of unbuffered gap, new sample: ", sample->decodeTime(), " >= the current discontinuity boundary: ", trackBuffer.enqueueDiscontinuityBoundary());
             break;
         }

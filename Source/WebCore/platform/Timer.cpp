@@ -253,6 +253,8 @@ static bool shouldSuppressThreadSafetyCheck()
     return WebThreadIsEnabled() || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
 #elif PLATFORM(MAC)
     return !isInWebProcess() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
+#elif OS(MORPHOS)
+    return true;
 #else
     return false;
 #endif
@@ -473,7 +475,7 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
-        RELEASE_ASSERT(!std::isnan(newTime));
+        // RELEASE_ASSERT(!std::isnan(newTime));
         m_unalignedNextFireTime = newTime;
     }
 

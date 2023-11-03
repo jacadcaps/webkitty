@@ -39,18 +39,26 @@ static Seconds timevalToSeconds(const struct timeval& value)
 
 std::optional<CPUTime> CPUTime::get()
 {
+#if OS(MORPHOS)
+	return std::nullopt;
+#else
     struct rusage resource { };
     int ret = getrusage(RUSAGE_SELF, &resource);
     ASSERT_UNUSED(ret, !ret);
     return CPUTime { MonotonicTime::now(), timevalToSeconds(resource.ru_utime), timevalToSeconds(resource.ru_stime) };
+#endif
 }
 
 Seconds CPUTime::forCurrentThread()
 {
+#if OS(MORPHOS)
+	return Seconds(0);
+#else
     struct timespec ts { };
     int ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     RELEASE_ASSERT(!ret);
     return Seconds(ts.tv_sec) + Seconds::fromNanoseconds(ts.tv_nsec);
+#endif
 }
 
 }
