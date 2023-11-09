@@ -133,18 +133,10 @@ protected:
     void setNeedsOneShotDrawingSynchronization() final { }
     void triggerRenderingUpdate() final;
 		
- 	CompositingTriggerFlags allowedCompositingTriggers() const { return static_cast<CompositingTriggerFlags>(0); }
-#if 0
     CompositingTriggerFlags allowedCompositingTriggers() const final
     {
-        return static_cast<CompositingTriggerFlags>(
-            ThreeDTransformTrigger |
-            VideoTrigger |
-            PluginTrigger|
-            CanvasTrigger |
-            AnimationTrigger);
+        return static_cast<CompositingTriggerFlags>(ScrollableNonMainFrameTrigger);
     }
-#endif
 
     bool hoverSupportedByPrimaryPointingDevice() const final { return true; };
     bool hoverSupportedByAnyAvailablePointingDevice() const final { return true; }

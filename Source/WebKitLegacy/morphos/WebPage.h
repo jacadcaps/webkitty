@@ -30,6 +30,7 @@ namespace WebCore {
 	class FullscreenManager;
 	class DragItem;
 	class DataTransfer;
+    class GraphicsLayer;
 };
 
 struct RastPort;
@@ -288,6 +289,8 @@ public:
 
     void inspectorHighlightUpdated();
 
+    void setRootGraphicsLayer(WebCore::GraphicsLayer*);
+
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
 
@@ -327,6 +330,7 @@ private:
     WebCore::InterpolationQuality m_interpolation = WebCore::InterpolationQuality::Default;
     WebCore::InterpolationQuality m_imageInterpolation = WebCore::InterpolationQuality::Default;
     WTF::HashSet<WebCore::ResourceLoaderIdentifier> m_trackedNetworkResourceRequestIdentifiers;
+    WebCore::GraphicsLayer *m_graphicsLayer { nullptr };
     uint64_t m_pendingNavigationID { 0 };
 	uint32_t m_lastQualifier { 0 };
 	int  m_clickCount { 0 };

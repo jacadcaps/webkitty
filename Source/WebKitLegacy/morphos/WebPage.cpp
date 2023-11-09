@@ -153,6 +153,8 @@
 #include "WebUserMediaClient.h"
 #endif
 
+#define USES_LAYERING 0
+
 #include <cairo.h>
 #include <cairo-pdf.h>
 #include <cairo-ps.h>
@@ -535,6 +537,59 @@ public:
 		m_didScroll = true;
 	}
 
+    void visitLayer(GraphicsLayer *layer, int level)
+    {
+        for (int i = 0; i < level; i++)
+            dprintf(" ");
+        dprintf("Layer %p \"%s\" type %d draws %d bounds %f %f %f %f p3d %d transform %d\n", layer, layer->name().utf8().data(), int(layer->type()), layer->drawsContent(), layer->position().x(), layer->position().y(), layer->size().width(), layer->size().height(), layer->preserves3D(), layer->hasNonIdentityTransform() || layer->hasNonIdentityChildrenTransform());
+        for (auto child : layer->children()) {
+            visitLayer(&child.get(), level + 1);
+        }
+        
+        if (layer->drawsContent()) {
+        
+            int width = layer->size().width();
+            int height = layer->size().height();
+        
+            auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+            if (nullptr == surface)
+            {
+                return ;
+            }
+
+            auto *cairo = cairo_create(surface);
+            if (nullptr == cairo)
+            {
+                cairo_surface_destroy(surface);
+                return ;
+            }
+
+            {
+                WebCore::GraphicsContextCairo gc(cairo);
+                WebCore::IntRect rect(0, 0,width, height);
+
+                gc.save();
+                gc.clip(rect);
+                gc.setImageInterpolationQuality(WebCore::InterpolationQuality::Default);
+
+                layer->paintGraphicsLayerContents(gc, rect);//, WebCore::GraphicsLayerPaintFlags::GraphicsLayerPaintSnapshotting);
+
+                gc.restore();
+
+                cairo_surface_flush(surface);
+                
+                char name[1024];
+                static int idx = 0;
+                sprintf(name, "ram:%d-%.*s.png", ++idx, 64, layer->name().utf8().data());
+                cairo_surface_write_to_png(surface, name);
+            }
+
+            cairo_destroy(cairo);
+            cairo_surface_destroy(surface);
+        
+        }
+    }
+
 	void invalidate(const WebCore::IntRect& rect)
 	{
 		EP_SCOPE(invalidate);
@@ -556,8 +611,29 @@ public:
 		EP_SCOPE(invalidateall);
 		m_damage.invalidate();
 	}
+ 
+ #if  USES_LAYERING
+    // NOTE: this is incomplete!
+    void repairLayer(WebCore::GraphicsLayer *layer, const WebCore::IntRect& drawRect, const WebCore::IntRect& parentRect)
+    {
+        WebCore::IntRect layerRect(parentRect.x() + layer->position().x(), parentRect.y() + layer->position().y(), layer->size().width(), layer->size().height());
+
+        if (layer->drawsContent()) {
+            m_platformContext->save();
+            m_platformContext->translate(layerRect.x(), layerRect.y());
+            m_platformContext->clip(WebCore::FloatRect(drawRect.x(), drawRect.y(), drawRect.width(), drawRect.height()));
+            layer->paintGraphicsLayerContents(*m_platformContext, drawRect, WebCore::GraphicsLayerPaintFlags::GraphicsLayerPaintSnapshotting);
+            m_platformContext->restore();
+        }
+
+        for (auto child : layer->children()) {
+            
+            repairLayer(&child.get(), drawRect, layerRect, num);
+        }
+    }
+#endif
 	
-	void repair(WebCore::FrameView *frameView, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
+	void repair(WebCore::FrameView *frameView, WebCore::GraphicsLayer *rootLayer, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
 	{
 		EP_SCOPE(repair);
 		
@@ -565,6 +641,10 @@ public:
 		{
 			m_platformContext->setImageInterpolationQuality(interpolation);
 		}
+
+#if USES_LAYERING
+        WebCore::IntRect parentLayerPosition(0, 0, m_width, m_height);
+#endif
 
 		m_damage.visitDamagedTiles([&](const int x, const int y, const int width, const int height) {
 			EP_SCOPE(tile)
@@ -578,6 +658,11 @@ public:
 			m_platformContext->clip(WebCore::FloatRect(x, y, width, height));
 			EP_BEGIN(paint);
 			frameView->paint(*m_platformContext, ir);
+#if USES_LAYERING
+            if (rootLayer) {
+                repairLayer(rootLayer, ir, parentLayerPosition);
+            }
+#endif
 			EP_END(paint);
 			
 			if (highlight) {
@@ -614,7 +699,8 @@ public:
 	}
 
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
-		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
+		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight,
+        WebCore::GraphicsLayer *rootLayer)
 	{
 		if (!m_platformContext)
 			return;
@@ -665,9 +751,7 @@ public:
 		}
 #endif
 
-// dprintf("paint %d @ %d %d %d %d\n", update, x, y, m_width, m_height);
-
-		repair(frameView, interpolation, highlight);
+		repair(frameView, rootLayer, interpolation, highlight);
 		if (update)
 			repaint(rp, x, y);
 		else
@@ -1220,7 +1304,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setOffscreenCanvasInWorkersEnabled(true);
     settings.setCacheAPIEnabled(true);
 
-#if 1
 	settings.setForceCompositingMode(false);
 	settings.setAcceleratedCompositingEnabled(false);
 	settings.setAcceleratedDrawingEnabled(false);
@@ -1228,17 +1311,16 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	// settings.setAccelerated2dCanvasEnabled(false);
 	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
-//	settings.setAcceleratedFiltersEnabled(false);
-//    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
-#else
-    settings.setFrameFlattening(FrameFlattening::FullyEnabled);
-#endif
 
     settings.setHiddenPageDOMTimerThrottlingEnabled(true);
     settings.setHiddenPageDOMTimerThrottlingAutoIncreases(true);
 
-	settings.setWebGLEnabled(false);
+#if USES_LAYERING
+	settings.setAcceleratedCompositingEnabled(true);
+	settings.setAcceleratedCompositingForFixedPositionEnabled(true);
+#endif
 
+	settings.setWebGLEnabled(false);
 
 //     settings.setStorageBlockingPolicy(SecurityOrigin::StorageBlockingPolicy::BlockAllStorage);
 	settings.setLocalStorageDatabasePath("PROGDIR:Cache/LocalStorage"_s);
@@ -2396,7 +2478,15 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 	if (localFrame && localFrame->document()->isImageDocument())
 		interpolation = m_imageInterpolation;
 
-	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation, m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay() ? &m_page->inspectorController() : nullptr);
+    OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
+    OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
+    paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
+    paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
+    frameView->setPaintBehavior(paintBehavior);
+
+	m_drawContext->draw(frameView, rp, x, y, width, height, scroll.x(), scroll.y(), updateMode, interpolation, m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay() ? &m_page->inspectorController() : nullptr, m_graphicsLayer);
+
+    frameView->setPaintBehavior(oldBehavior);
 }
 
 void WebPage::printPreview(struct RastPort *rp, const int x, const int y, const int paintWidth, const int paintHeight,
@@ -2719,6 +2809,19 @@ void WebPage::setSpellingLanguages(const WTF::String &language, const WTF::Strin
 		client->setSpellCheckingLanguages(language, additional);
 }
 
+#if 0
+static inline void dumpLayer(GraphicsLayer *layer, int level)
+{
+    for (int i = 0; i < level; i++)
+        dprintf(" ");
+    dprintf("Fl: %p \"%s\" type %d draws %d bounds %f %f %f %f caw %d acc %d mask %d ucs %d spuc %d ismorphos %d\n", layer, layer->name().utf8().data(), int(layer->type()), layer->drawsContent(), layer->position().x(), layer->position().y(), layer->size().width(), layer->size().height(), layer->contentsAreVisible(), layer->acceleratesDrawing(),
+        layer->isMaskLayer(), layer->usesContentsLayer(), layer->shouldPaintUsingCompositeCopy(), layer->isGraphicsLayerCA());
+    for (auto child : layer->children()) {
+        dumpLayer(&child.get(), level + 1);
+    }
+}
+#endif
+
 void WebPage::flushCompositing()
 {
 	m_needsCompositingFlush = true;
@@ -2726,6 +2829,10 @@ void WebPage::flushCompositing()
 	if (_fInvalidate)
 		_fInvalidate(false);
 
+#if 0
+    if (m_graphicsLayer)
+        dumpLayer(m_graphicsLayer, 0);
+#endif
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -3967,6 +4074,11 @@ void WebPage::inspectorHighlightUpdated()
 	{
 		_fInvalidate(false);
 	}
+}
+
+void WebPage::setRootGraphicsLayer(WebCore::GraphicsLayer* graphicsLayer)
+{
+    m_graphicsLayer = graphicsLayer;
 }
 
 }

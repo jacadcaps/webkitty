@@ -425,8 +425,7 @@ void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
 
 void WebChromeClient::attachRootGraphicsLayer(Frame&, GraphicsLayer* graphicsLayer)
 {
-notImplemented();
-//    m_webPage.setRootChildLayer(graphicsLayer);
+    m_webPage.setRootGraphicsLayer(graphicsLayer);
 }
 
 void WebChromeClient::attachViewOverlayGraphicsLayer(GraphicsLayer*)
