@@ -2265,6 +2265,13 @@ void Page::hiddenPageDOMTimerThrottlingStateChanged()
 
 void Page::updateTimerThrottlingState()
 {
+#if OS(MORPHOS)
+    if (isLowPowerModeEnabled()) {
+        setTimerThrottlingState(TimerThrottlingState::EnabledIncreasing);
+        return;
+    }
+#endif
+
     // Timer throttling disabled if page is visually active, or disabled by setting.
     if (!m_settings->hiddenPageDOMTimerThrottlingEnabled() || !(m_activityState & ActivityState::IsVisuallyIdle)) {
         setTimerThrottlingState(TimerThrottlingState::Disabled);

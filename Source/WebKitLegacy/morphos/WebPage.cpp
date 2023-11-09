@@ -1234,8 +1234,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setFrameFlattening(FrameFlattening::FullyEnabled);
 #endif
 
-//	settings.setTreatsAnyTextCSSLinkAsStylesheet(true);
-//	settings.setUsePreHTML5ParserQuirks(true);
+    settings.setHiddenPageDOMTimerThrottlingEnabled(true);
+    settings.setHiddenPageDOMTimerThrottlingAutoIncreases(true);
 
 	settings.setWebGLEnabled(false);
 
@@ -1674,7 +1674,15 @@ void WebPage::goHidden()
 
 void WebPage::setLowPowerMode(bool lowPowerMode)
 {
-	corePage()->setLowPowerModeEnabledOverrideForTesting(lowPowerMode);
+	WebCore::Settings& settings = m_page->settings();
+    if (corePage()->isLowPowerModeEnabled() != lowPowerMode) {
+        corePage()->setLowPowerModeEnabledOverrideForTesting(lowPowerMode);
+        corePage()->setDOMTimerAlignmentIntervalIncreaseLimit(Seconds::fromMilliseconds(2500));
+        
+        // force refresh of throttling
+        settings.setHiddenPageDOMTimerThrottlingEnabled(!lowPowerMode);
+        settings.setHiddenPageDOMTimerThrottlingEnabled(lowPowerMode);
+    }
 }
 
 bool WebPage::localStorageEnabled()
