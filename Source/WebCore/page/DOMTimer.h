@@ -47,7 +47,7 @@ public:
     WEBCORE_EXPORT virtual ~DOMTimer();
 
 #if OS(MORPHOS)
-    static Seconds defaultMinimumInterval() { return 100_ms; }
+    static Seconds defaultMinimumInterval() { return 30_ms; }
     static Seconds defaultAlignmentInterval() { return 10_ms; }
     static Seconds defaultAlignmentIntervalInLowPowerMode() { return 250_ms; }
     static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 500_ms; }
