@@ -33,6 +33,7 @@
 #include "ContentSecurityPolicy.h"
 #include "Document.h"
 #include "Frame.h"
+#include "FrameLoader.h"
 #include "SecurityOrigin.h"
 
 namespace WebCore {
