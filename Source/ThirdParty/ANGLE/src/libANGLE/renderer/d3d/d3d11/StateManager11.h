@@ -39,7 +39,6 @@ class ShaderConstants11 : angle::NonCopyable
     void markDirty();
 
     void setComputeWorkGroups(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
-    void setMultiviewWriteToViewportIndex(GLfloat index);
     void onViewportChange(const gl::Rectangle &glViewport,
                           const D3D11_VIEWPORT &dxViewport,
                           const gl::Offset &glFragCoordOffset,
@@ -56,6 +55,7 @@ class ShaderConstants11 : angle::NonCopyable
                        const gl::ImageUnit &imageUnit);
     void onClipControlChange(bool lowerLeft, bool zeroToOne);
     bool onClipDistancesEnabledChange(const uint32_t value);
+    bool onMultisamplingChange(bool multisampling);
 
     angle::Result updateBuffer(const gl::Context *context,
                                Renderer11 *renderer,
@@ -71,7 +71,6 @@ class ShaderConstants11 : angle::NonCopyable
               viewAdjust{.0f},
               viewCoords{.0f},
               viewScale{.0f},
-              multiviewWriteToViewportIndex{.0f},
               clipControlOrigin{-1.0f},
               clipControlZeroToOne{.0f},
               firstVertex{0},
@@ -83,10 +82,6 @@ class ShaderConstants11 : angle::NonCopyable
         float viewAdjust[4];
         float viewCoords[4];
         float viewScale[2];
-        // multiviewWriteToViewportIndex is used to select either the side-by-side or layered
-        // code-path in the GS. It's value, if set, is either 0.0f or 1.0f. The value is updated
-        // whenever a multi-view draw framebuffer is made active.
-        float multiviewWriteToViewportIndex;
 
         // EXT_clip_control
         // Multiplied with Y coordinate: -1.0 for GL_LOWER_LEFT_EXT, 1.0f for GL_UPPER_LEFT_EXT
@@ -99,7 +94,7 @@ class ShaderConstants11 : angle::NonCopyable
         uint32_t clipDistancesEnabled;
 
         // Added here to manually pad the struct to 16 byte boundary
-        float padding[1];
+        float padding[2];
     };
     static_assert(sizeof(Vertex) % 16u == 0,
                   "D3D11 constant buffers must be multiples of 16 bytes");
@@ -110,25 +105,22 @@ class ShaderConstants11 : angle::NonCopyable
             : depthRange{.0f},
               viewCoords{.0f},
               depthFront{.0f},
+              misc{0},
               fragCoordOffset{.0f},
-              viewScale{.0f},
-              multiviewWriteToViewportIndex{.0f},
-              padding{.0f}
+              viewScale{.0f}
         {}
 
         float depthRange[4];
         float viewCoords[4];
-        float depthFront[4];
+        float depthFront[3];
+        uint32_t misc;
         float fragCoordOffset[2];
         float viewScale[2];
-        // multiviewWriteToViewportIndex is used to select either the side-by-side or layered
-        // code-path in the GS. It's value, if set, is either 0.0f or 1.0f. The value is updated
-        // whenever a multi-view draw framebuffer is made active.
-        float multiviewWriteToViewportIndex;
-
-        // Added here to manually pad the struct.
-        float padding[3];
     };
+    // Packing information for pixel driver uniform's misc field:
+    // - 1 bit for whether multisampled rendering is used
+    // - 31 bits unused
+    static constexpr uint32_t kPixelMiscMultisamplingMask = 0x1;
     static_assert(sizeof(Pixel) % 16u == 0, "D3D11 constant buffers must be multiples of 16 bytes");
 
     struct Compute
@@ -140,14 +132,11 @@ class ShaderConstants11 : angle::NonCopyable
 
     struct SamplerMetadata
     {
-        SamplerMetadata()
-            : baseLevel(0), internalFormatBits(0), wrapModes(0), padding(0), intBorderColor{0}
-        {}
+        SamplerMetadata() : baseLevel(0), wrapModes(0), padding{0}, intBorderColor{0} {}
 
         int baseLevel;
-        int internalFormatBits;
         int wrapModes;
-        int padding;  // This just pads the struct to 32 bytes
+        int padding[2];  // This just pads the struct to 32 bytes
         int intBorderColor[4];
     };
 
@@ -197,7 +186,8 @@ class StateManager11 final : angle::NonCopyable
     void deinitialize();
 
     void syncState(const gl::Context *context,
-                   const gl::State::DirtyBits &dirtyBits,
+                   const gl::state::DirtyBits &dirtyBits,
+                   const gl::state::ExtendedDirtyBits &extendedDirtyBits,
                    gl::Command command);
 
     angle::Result updateStateForCompute(const gl::Context *context,
@@ -340,6 +330,10 @@ class StateManager11 final : angle::NonCopyable
                               gl::ShaderType shaderType,
                               uintptr_t resource,
                               const gl::ImageIndex *index);
+
+    template <typename CacheType>
+    void unsetConflictingRTVs(uintptr_t resource, CacheType &viewCache);
+
     void unsetConflictingRTVs(uintptr_t resource);
 
     void unsetConflictingAttachmentResources(const gl::FramebufferAttachment &attachment,
@@ -397,8 +391,6 @@ class StateManager11 final : angle::NonCopyable
                                    int index,
                                    const gl::ImageUnit &imageUnit,
                                    UAVList *uavList);
-
-    void handleMultiviewDrawFramebufferChange(const gl::Context *context);
 
     angle::Result syncCurrentValueAttribs(
         const gl::Context *context,
@@ -591,9 +583,11 @@ class StateManager11 final : angle::NonCopyable
     using SRVCache = ViewCache<ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC>;
     using UAVCache = ViewCache<ID3D11UnorderedAccessView, D3D11_UNORDERED_ACCESS_VIEW_DESC>;
     using RTVCache = ViewCache<ID3D11RenderTargetView, D3D11_RENDER_TARGET_VIEW_DESC>;
+    using DSVCache = ViewCache<ID3D11DepthStencilView, D3D11_DEPTH_STENCIL_VIEW_DESC>;
     gl::ShaderMap<SRVCache> mCurShaderSRVs;
     UAVCache mCurComputeUAVs;
     RTVCache mCurRTVs;
+    DSVCache mCurrentDSV;
 
     SRVCache *getSRVCache(gl::ShaderType shaderType);
 
@@ -643,7 +637,6 @@ class StateManager11 final : angle::NonCopyable
     std::vector<const TranslatedAttribute *> mCurrentAttributes;
     Optional<GLint> mLastFirstVertex;
 
-    // ANGLE_multiview.
     bool mIsMultiviewEnabled;
 
     bool mIndependentBlendStates;

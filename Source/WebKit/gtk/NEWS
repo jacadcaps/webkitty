@@ -1,126 +1,154 @@
 ================
-WebKitGTK 2.40.5
+WebKitGTK 2.42.2
 ================
 
-What's new in WebKitGTK 2.40.5?
+What's new in WebKitGTK 2.42.2?
 
+  - Bump Safari version in user agent header.
+  - Fix CSP regression that broke Unity WebGL applications.
+  - Fix the build with GBM disabled.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.40.4
+WebKitGTK 2.42.1
 ================
 
-What's new in WebKitGTK 2.40.4?
+What's new in WebKitGTK 2.42.1?
 
-  - Fix a bug in JavaScript reading variable arguments in a call.
-
-================
-WebKitGTK 2.40.3
-================
-
-What's new in WebKitGTK 2.40.3?
-
-  - Make memory pressure monitor honor memory.memsw.usage_in_bytes if exists.
-  - Include key modifiers in wheel events.
-  - Apply cookie blocking policy to WebSocket handshakes.
-  - Remove accidental dependency on GLib 2.70.
-  - Fix the build with BUBBLEWRAP_SANDBOX disabled.
+  - Fix enable-html5-database setting to properly enable/disable IndexedDB API.
+  - Fix the build with GBM disabled.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.40.2
+WebKitGTK 2.42.0
 ================
 
-What's new in WebKitGTK 2.40.2?
+What's new in WebKitGTK 2.42.0?
 
-  - Fix scrollbar jumping to top when drag released outside window in GTK4.
-  - Fix video rendering when GL is disabled.
-  - Fix flickering on looped videos when starting again.
-  - Fix CPU usage on autoplaying videos.
-  - Choose amount of painting threads depending on available CPU cores on GTK4.
+  - Temporary disable frame rate throttling to fix render updates stoping due to frame rate change.
+  - Translation updates: Swedish.
+
+=================
+WebKitGTK 2.41.92
+=================
+
+What's new in WebKitGTK 2.41.92?
+
+  - Fix render updates after cross origin history navigation with GTK4.
+  - Fix flickering in non accelerated compositing mode.
+  - Fix pixelated accelerated blur filter.
+  - Fix web process launching when xdg-dbus-proxy is not installed.
+  - Pass GBM_BO_USE_RENDERING to gbm_bo_create.
   - Fix several crashes and rendering issues.
 
-================
-WebKitGTK 2.40.1
-================
+=================
+WebKitGTK 2.41.91
+=================
 
-What's new in WebKitGTK 2.40.1?
+What's new in WebKitGTK 2.41.91?
 
-  - The Bubblewrap sandbox no longer requires setting an application
-    identifier via GApplication to operate correctly. Using GApplication
-    is still recommended, but optional.
-  - Adjust the scrolling speed for mouse wheels to make it feel more natural.
-  - Allow pasting content using the Asynchronous Clipboard API when the
-    origin is the same as the clipboard contents.
-  - Improvements to the GStreamer multimedia playback, in particular
-    around MSE, WebRTC, and seeking.
-  - Make all supported image types appear in the Accept HTTP header.
-  - Fix text caret blinking when blinking is disabled in the GTK settings.
-  - Fix default database quota size definition.
-  - Fix application of all caps tags listed in the font-feature-settings
-    CSS property.
-  - Fix the build with journald support enabled when using elogind
-    instead of the systemd libraries.
-  - Fix the build when libgcrypt provides a libgcrypt-config script
-    instead of a pkg-config module file.
-  - Fix font height calculations for the font-size-adjust CSS property.
-  - Fix the build when ccache is used in certain setups.
-  - Fix the build for RISC-V 64-bit targets.
-  - Fix the build with GCC 13.
-  - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.40.0
-================
-
-What's new in WebKitGTK 2.40.0?
-
-  - Enable the async clipboard API to make github work again.
-  - Make unmute work again.
-  - Apply basic font properties as font variation settings.
-  - Fix the remote inspector when using HTTP server.
-  - Fix the build with LTO enabled.
-  - Fix the build with jourland log disabled.
-  - Fix the build with media stream disabled.
-  - Fix clean build with GTK4.
+  - Properly handle toplevel window state changes in GTK4.
+  - Do not keep processing frames while the view is unrealized when using DMA-BUF renderer.
+  - Fallback to first render node returned by DRM when failing to get using EGLDevice.
+  - Fix the build with libjxl < 0.7.0.
   - Fix several crashes and rendering issues.
   - Translation updates: Turkish.
 
 =================
-WebKitGTK 2.39.91
+WebKitGTK 2.41.90
 =================
 
-What's new in WebKitGTK 2.39.91?
+What's new in WebKitGTK 2.41.90?
 
-  - Rename WebKitWebExtension to WebKitWebProcessExtension in GTK4 API.
-  - Remove WebKitJavascriptResult in favor of using JSCValue directly in GTK4 API.
-  - Add new API to get the request body of WebKitURISchemeRequest.
-  - Make it possible to handle WebKitDownload::decide-destination signal asynchronously.
-  - Allow WebKitDownload destination to be a path instead of a URI.
-  - Make webkit://gpu output exportable as JSON.
-  - Improve scrolling performance in accelerated compositing mode.
-  - Implement KeyboardEvent.repeat.
-  - Fix a crash in MiniBrowser when the favicon is updated.
-  - Fix the build in Ubuntu 20.04 and Debian Stable.
+  - Fix the popup menu always shown in github when logged in.
+  - Add API to replace and retrieve the entire cookie jar.
+  - Apply the device scale factor when changed after web view is created.
+  - Do not expose media devices that can't be used in enumerateDevices.
+  - Add support for P010 video format.
+  - Fix non-accelerated rendering that broke web inspector.
   - Fix several crashes and rendering issues.
-  - Translation updates: Korean, Polish, Swedish, Korean.
 
-=================
-WebKitGTK 2.39.90
-=================
+================
+WebKitGTK 2.41.6
+================
 
-What's new in WebKitGTK 2.39.90?
+What's new in WebKitGTK 2.41.6?
 
-  - Add new JavaScript execution APIs.
-  - Merge functions of registering and unregistering script message handler in GTK4 API.
-  - Mark non-derivable types as final and make instance and class struct declarations private in GTK4 API.
-  - Make favicon and snapshot API use GdkTexture instead of cairo surfaces in GTK4 API.
-  - Fix scrolling after a history navigation with PSON enabled.
-  - Fix criticals from webkitOptionMenuSetEvent when opening any combo box.
-  - Fix large memory allocation when uploading content.
-  - Always update the active uri of WebKitFrame.
+  - Add API to set the percentage of volume space that can be used for data storage.
+  - Do not use GBM and DMA-BUF for WebGL implementation.
+  - Use EGL_MESA_image_dma_buf_export if available when GBM is disabled.
+  - Fix AV1 video with the dav1d decoder when using the DMA-BUF sink.
+  - Use three buffers for DMA-BUF renderer.
   - Fix several crashes and rendering issues.
-  - Translation updates: Ukrainian.
+
+================
+WebKitGTK 2.41.5
+================
+
+What's new in WebKitGTK 2.41.5?
+
+  - Include key modifiers in wheel events.
+  - Remove support for OpenGL API in the web process.
+  - Native DASH support is now opt-in, like HLS.
+  - Fix scrollbar jumping to top when drag released outside window in GTK4.
+  - Fix contents not rendered in new web view when realized after configure
+    and frame with DMA-BUF renderer.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.41.4
+================
+
+What's new in WebKitGTK 2.41.4?
+
+  - Add new API to configure experimental features at runtime.
+  - Add support for prefers-reduced-motion media query.
+  - Split hardware acceleration information in webkit://gpu.
+  - Fix CPU usage on autoplaying videos.
+  - Fix video rendering when GL is disabled.
+  - Choose amount of painting threads depending on available CPU cores on GTK4.
+  - Add memory usage of images in web inspector memory timeline.
+  - Fix the build with X11 target disabled.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.41.3
+================
+
+What's new in WebKitGTK 2.41.3?
+
+  - Ensure the same GPU device is used by GBM in all processes.
+  - Fix memory corruption causing glitches in several web sites.
+  - Use more reliable generated application ID.
+  - Show DRM device and render node files when available in webkit://gpu.
+  - Fix the build on i386.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.41.2
+================
+
+What's new in WebKitGTK 2.41.2?
+
+  - Properly handle the modifier value when exporting/importing DMA-BUF buffers.
+  - Don't require GApplication for bubblewrap sandbox.
+  - Fix cap height calculation in font metrics.
+  - Fix the build on i386.
+  - Fix the build with libgbm disabled.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Swedish.
+
+================
+WebKitGTK 2.41.1
+================
+
+What's new in WebKitGTK 2.41.1?
+
+  - Use DMABuf and WebKit IPC for rendering instead of wpe/x11.
+  - Calculate scroll step depending on scrollable area size when scrolling with the mouse wheel or arrow keys.
+  - Add WebKitClipboardPermissionRequest to handle DOM paste access requests.
+  - Remove support for rendering with GLX in the web process.
+  - Fix several crashes and rendering issues.
 
 ================
 WebKitGTK 2.39.7

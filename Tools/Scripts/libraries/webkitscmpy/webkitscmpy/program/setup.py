@@ -1,4 +1,4 @@
-# Copyright (C) 2021, 2022 Apple Inc. All rights reserved.
+# Copyright (C) 2021-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -22,15 +22,16 @@
 
 import getpass
 import os
-import requests
 import sys
 import time
 
 from .command import Command
-from requests.auth import HTTPBasicAuth
-from webkitbugspy import radar
-from webkitcorepy import arguments, run, Editor, OutputCapture, Terminal
-from webkitscmpy import log, local, remote
+from .install_hooks import InstallHooks
+from webkitcorepy import arguments, run, CallByNeed, Editor, OutputCapture, Terminal
+from webkitscmpy import log, local, remote as wspremote
+
+requests = CallByNeed(lambda: __import__('requests'))
+HTTPBasicAuth = CallByNeed(lambda: __import__('requests.auth', fromlist=['HTTPBasicAuth']).HTTPBasicAuth)
 
 
 class Setup(Command):
@@ -38,7 +39,41 @@ class Setup(Command):
     help = 'Configure local settings for the current repository'
 
     @classmethod
-    def github(cls, args, repository, additional_setup=None, remote=None, team=None, **kwargs):
+    def block_secrets(cls, repository):
+        username, access_token = repository.credentials(required=True)
+        auth = HTTPBasicAuth(username, access_token)
+
+        url = '{}/repos/{}/{}'.format(repository.api_url, repository.owner, repository.name)
+        response = repository.session.get(url, auth=auth, headers=dict(Accept=repository.ACCEPT_HEADER))
+        if response.status_code // 100 != 2:
+            sys.stderr.write('Failed to determine if {} has secret scanning enabled\n'.format(repository.url))
+            return False
+
+        has_secrets_scanning = 'enabled' == ((response.json().get('security_and_analysis') or {}).get('secret_scanning') or {}).get('status')
+        has_push_protection = 'enabled' == ((response.json().get('security_and_analysis') or {}).get('secret_scanning_push_protection') or {}).get('status')
+
+        if has_secrets_scanning and has_push_protection:
+            log.info('Secret scanning already enabled on {}'.format(repository.url))
+            return True
+
+        response = repository.session.patch(
+            url, auth=auth, headers=dict(Accept=repository.ACCEPT_HEADER),
+            json=dict(
+                security_and_analysis=dict(
+                    secret_scanning=dict(status='enabled'),
+                    secret_scanning_push_protection=dict(status='enabled'),
+                ),
+            ),
+        )
+        if response.status_code // 100 != 2:
+            sys.stderr.write('Failed to enable secret scanning on {}\n'.format(repository.url))
+            return False
+
+        log.info('Enabled secret scanning on {}!'.format(repository.url))
+        return True
+
+    @classmethod
+    def github(cls, args, repository, additional_setup=None, remote=None, team=None, secrets_scanning=None, **kwargs):
         log.info('Saving GitHub credentials in system credential store...')
         username, access_token = repository.credentials(required=True, validate=True, save_in_keyring=True)
         log.info('GitHub credentials saved via Keyring!')
@@ -48,8 +83,22 @@ class Setup(Command):
         if additional_setup:
             result += additional_setup(args, repository)
 
-        team_id = None
         auth = HTTPBasicAuth(username, access_token)
+
+        if secrets_scanning is None:
+            url = '{}/repos/{}/{}'.format(repository.api_url, repository.owner, repository.name)
+            response = repository.session.get(url, auth=auth, headers=dict(Accept=repository.ACCEPT_HEADER))
+            if response.status_code // 100 == 2:
+                if response.json().get('visibility') == 'public':
+                    secrets_scanning = True
+                    log.info('{} is public, enabling secret scanning on fork'.format(repository.url))
+                else:
+                    secrets_scanning = False
+                    log.info('{} is private, will not enable secret scanning on fork'.format(repository.url))
+            else:
+                sys.stderr.write('Failed to determine if {} is public, will not enable secrets scanning on fork\n'.format(repository.url))
+
+        team_id = None
         if team:
             response = requests.get('{}/orgs/{}'.format(
                 repository.api_url,
@@ -96,16 +145,20 @@ class Setup(Command):
                 else:
                     log.info("Granted '{}' access to '{}/{}'!".format(team, username, forked_name))
 
+            if secrets_scanning and not cls.block_secrets(wspremote.GitHub('https://{}/{}/{}'.format(repository.domain, username, forked_name))):
+                result += 1
+
             parent_name = response.json().get('parent', {}).get('full_name', None)
             if parent_name == '{}/{}'.format(repository.owner, repository.name):
                 log.info("User already owns a fork of '{}'!".format(parent_name))
                 return result
 
         if repository.owner == username or args.defaults or Terminal.choose(
-            "Create a private fork of '{}' belonging to '{}'".format(forked_name, username),
-            default='Yes',
+            "Create a private fork of '{}/{}' named '{}' belonging to '{}'".format(
+                repository.owner, repository.name, forked_name, username
+            ), default='Yes',
         ) == 'No':
-            log.info("Continuing without forking '{}'".format(forked_name))
+            log.info("Continuing without forking '{}/{}'".format(repository.owner, repository.name))
             return 1
 
         data = dict(
@@ -121,7 +174,9 @@ class Setup(Command):
             repository.name,
         ), json=data, auth=auth, headers=dict(Accept=repository.ACCEPT_HEADER))
         if response.status_code // 100 != 2:
-            sys.stderr.write("Failed to create a fork of '{}' belonging to '{}'\n".format(forked_name, username))
+            sys.stderr.write("Failed to create a fork of '{}/{}' named '{}' belonging to '{}'\n".format(
+                repository.owner, repository.name, forked_name, username,
+            ))
             sys.stderr.write("URL: {}\nServer replied with status code {}:\n{}\n".format(response.url, response.status_code, response.text))
             return 1
 
@@ -133,7 +188,9 @@ class Setup(Command):
                 set_name,
             ), json=dict(name=forked_name), auth=auth, headers=dict(Accept=repository.ACCEPT_HEADER))
             if response.status_code // 100 != 2:
-                sys.stderr.write("Fork created with name '{}' belonging to '{}'\n Failed to change name to {}\n".format(set_name, username, forked_name))
+                sys.stderr.write("Fork of '{}/{}' created with name '{}' belonging to '{}'\n Failed to change name to {}\n".format(
+                    repository.owner, repository.name, set_name, username, forked_name,
+                ))
                 sys.stderr.write("URL: {}\nServer replied with status code {}:\n{}\n".format(response.url, response.status_code, response.text))
                 return 1
 
@@ -158,6 +215,10 @@ class Setup(Command):
             ), auth=auth, headers=dict(Accept='application/vnd.github.v3+json'))
 
         log.info("Created a private fork of '{}' belonging to '{}'!".format(forked_name, username))
+
+        if secrets_scanning and not cls.block_secrets(wspremote.GitHub('https://{}/{}/{}'.format(repository.domain, username, forked_name))):
+            result += 1
+
         return result
 
     @classmethod
@@ -329,27 +390,18 @@ class Setup(Command):
                 sys.stderr.write("Failed to set '{}' as the default history management approach\n".format(pr_history))
                 result += 1
 
-        if hooks:
-            for hook in os.listdir(hooks):
-                source_path = os.path.join(hooks, hook)
-                if not os.path.isfile(source_path):
-                    continue
-                log.info('Configuring and copying hook {} for this repository'.format(source_path))
-                with open(source_path, 'r') as f:
-                    from jinja2 import Template
-                    contents = Template(f.read()).render(
-                        location=source_path,
-                        python=os.path.basename(sys.executable),
-                        prefer_radar=bool(radar.Tracker.radarclient()),
-                    )
+        # Only configure GitHub if the URL is a GitHub URL
+        rmt = repository.remote()
+        available_remotes = []
+        if isinstance(rmt, wspremote.GitHub):
+            forking = True
+            username, _ = rmt.credentials(required=True, validate=True, save_in_keyring=True)
+        else:
+            forking = False
+            username = getpass.getuser()
 
-                target = os.path.join(repository.common_directory, 'hooks', hook)
-                if not os.path.exists(os.path.dirname(target)):
-                    os.makedirs(os.path.dirname(target))
-                with open(target, 'w') as f:
-                    f.write(contents)
-                    f.write('\n')
-                os.chmod(target, 0o775)
+        if hooks:
+            result += InstallHooks.main(args, repository, hooks=hooks, **kwargs)
 
         if args.all or not local_config.get('core.editor'):
             log.info('Setting git editor for {}...'.format(repository.root_path))
@@ -386,7 +438,7 @@ class Setup(Command):
         http_remote = local.Git.HTTP_REMOTE.match(repository.url())
         can_push = not http_remote
         rmt = repository.remote()
-        if not can_push and rmt and getattr(rmt, 'credentials', None):
+        if rmt and getattr(rmt, 'credentials', None):
             username, password = rmt.credentials()
             if username and password and not run([
                 repository.executable(), 'config',
@@ -416,26 +468,16 @@ class Setup(Command):
         if additional_setup:
             result += additional_setup(args, repository)
 
-        # Only configure GitHub if the URL is a GitHub URL
-        rmt = repository.remote()
-        available_remotes = []
-        if isinstance(rmt, remote.GitHub):
-            forking = True
-            username, _ = rmt.credentials(required=True, validate=True, save_in_keyring=True)
-        else:
-            forking = False
-            username = getpass.getuser()
-
         # Check and configure alternate remotes
         project_remotes = {}
         for config_arg, url in repository.config().items():
-            if not config_arg.startswith('webkitscmpy.remotes'):
+            if not config_arg.startswith('webkitscmpy.remotes') or not config_arg.endswith('url'):
                 continue
 
             for match in [repository.SSH_REMOTE.match(url), repository.HTTP_REMOTE.match(url)]:
                 if not match:
                     continue
-                project_remotes[config_arg.split('.')[-1]] = [
+                project_remotes[config_arg.split('.')[-2]] = [
                     'https://{}/{}.git'.format(match.group('host'), match.group('path')),
                     'http://{}/{}.git'.format(match.group('host'), match.group('path')),
                     'git@{}:{}.git'.format(match.group('host'), match.group('path')),
@@ -457,7 +499,7 @@ class Setup(Command):
                 nw_rmt = None
                 if urls[0].startswith('http'):
                     try:
-                        nw_rmt = remote.Scm.from_url(urls[0][:-4])
+                        nw_rmt = wspremote.Scm.from_url(urls[0][:-4])
                         with OutputCapture():
                             nw_rmt.default_branch
                     except RuntimeError:
@@ -475,9 +517,14 @@ class Setup(Command):
                     result += 1
                 else:
                     available_remotes.append(name)
-                if not isinstance(nw_rmt, remote.GitHub):
+                if not isinstance(nw_rmt, wspremote.GitHub):
                     continue
-                if cls.github(args, nw_rmt, remote=name, team=repository.config().get('webkitscmpy.access.{}'.format(name), None)):
+                secrets_scanning_config_value = repository.config().get('webkitscmpy.remotes.{}.secrets-scanning'.format(name), None)
+                if cls.github(
+                    args, nw_rmt, remote=name,
+                    team=repository.config().get('webkitscmpy.access.{}'.format(name), None),
+                    secrets_scanning=dict(true=True, false=False).get(secrets_scanning_config_value, None),
+                ):
                     result += 1
                     continue
                 fork_name = '{}-fork'.format(name)
@@ -501,7 +548,13 @@ Automation may create pull requests and forks in unexpected locations
         if not forking or forking == 'No':
             return result
 
-        if cls.github(args, rmt, team=repository.config().get('webkitscmpy.access.origin', None), **kwargs):
+        secrets_scanning_config_value = repository.config().get('webkitscmpy.remotes.origin.secrets-scanning'.format(name), None)
+        if cls.github(
+            args, rmt,
+            team=repository.config().get('webkitscmpy.access.origin', None),
+            secrets_scanning=dict(true=True, false=False).get(secrets_scanning_config_value, None),
+            **kwargs
+        ):
             return result + 1
 
         log.info("Adding forked remote as 'fork'...".format(username))
@@ -537,8 +590,6 @@ Automation may create pull requests and forks in unexpected locations
 
     @classmethod
     def main(cls, args, repository, **kwargs):
-        import jinja2
-
         if isinstance(repository, local.Git):
             if 'true' != repository.config().get('webkitscmpy.setup', ''):
                 info_url = 'https://github.com/WebKit/WebKit/wiki/Git-Config#Configuration-Options'
@@ -562,7 +613,7 @@ Automation may create pull requests and forks in unexpected locations
 
             return result
 
-        if isinstance(repository, remote.GitHub):
+        if isinstance(repository, wspremote.GitHub):
             result = cls.github(args, repository, **kwargs)
             print('Setup failed' if result else 'Setup succeeded!')
             return result

@@ -34,12 +34,17 @@
 #include <WebKit/WKCertificateInfoCurl.h>
 #include <WebKit/WKContextConfigurationRef.h>
 #include <WebKit/WKCredential.h>
+#include <WebKit/WKDownloadClient.h>
+#include <WebKit/WKDownloadRef.h>
+#include <WebKit/WKFrameInfoRef.h>
 #include <WebKit/WKHTTPCookieStoreRef.h>
 #include <WebKit/WKInspector.h>
+#include <WebKit/WKNavigationResponseRef.h>
 #include <WebKit/WKPreferencesRefPrivate.h>
 #include <WebKit/WKProtectionSpace.h>
 #include <WebKit/WKProtectionSpaceCurl.h>
 #include <WebKit/WKSecurityOriginRef.h>
+#include <WebKit/WKURLResponse.h>
 #include <WebKit/WKWebsiteDataStoreConfigurationRef.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 #include <WebKit/WKWebsiteDataStoreRefCurl.h>
@@ -143,14 +148,10 @@ Ref<BrowserWindow> WebKitBrowserWindow::create(BrowserWindowClient& client, HWND
     WKPreferencesSetMediaCapabilitiesEnabled(preferences.get(), false);
     WKPreferencesSetDeveloperExtrasEnabled(preferences.get(), true);
 
-    auto pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(createWKString("WinMiniBrowser").get()));
-    WKPageGroupSetPreferences(pageGroup.get(), preferences.get());
-
     auto pageConf = adoptWK(WKPageConfigurationCreate());
     WKPageConfigurationSetWebsiteDataStore(pageConf.get(), websiteDataStore.get());
     WKPageConfigurationSetContext(pageConf.get(), context.get());
     WKPageConfigurationSetPreferences(pageConf.get(), preferences.get());
-    WKPageConfigurationSetPageGroup(pageConf.get(), pageGroup.get());
 
     return adoptRef(*new WebKitBrowserWindow(client, pageConf.get(), mainWnd));
 }
@@ -165,11 +166,15 @@ WebKitBrowserWindow::WebKitBrowserWindow(BrowserWindowClient& client, WKPageConf
 
     auto page = WKViewGetPage(m_view.get());
 
-    WKPageNavigationClientV0 navigationClient = { };
-    navigationClient.base.version = 0;
+    WKPageNavigationClientV3 navigationClient = { };
+    navigationClient.base.version = 3;
     navigationClient.base.clientInfo = this;
+    navigationClient.decidePolicyForNavigationResponse = decidePolicyForNavigationResponse;
     navigationClient.didFailProvisionalNavigation = didFailProvisionalNavigation;
     navigationClient.didReceiveAuthenticationChallenge = didReceiveAuthenticationChallenge;
+    navigationClient.navigationActionDidBecomeDownload = navigationActionDidBecomeDownload;
+    navigationClient.navigationResponseDidBecomeDownload = navigationResponseDidBecomeDownload;
+    navigationClient.contextMenuDidCreateDownload = contextMenuDidCreateDownload;
     WKPageSetPageNavigationClient(page, &navigationClient.base);
 
     WKPageUIClientV13 uiClient = { };
@@ -223,8 +228,8 @@ HRESULT WebKitBrowserWindow::init()
 void WebKitBrowserWindow::resetFeatureMenu(FeatureType featureType, HMENU menu, bool resetsSettingsToDefaults)
 {
     auto page = WKViewGetPage(m_view.get());
-    auto pgroup = WKPageGetPageGroup(page);
-    auto pref = WKPageGroupGetPreferences(pgroup);
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(page));
+    auto pref = WKPageConfigurationGetPreferences(configuration.get());
     switch (featureType) {
     case FeatureType::Experimental: {
         auto features = adoptWK(WKPreferencesCopyExperimentalFeatures(pref));
@@ -308,8 +313,8 @@ void WebKitBrowserWindow::navigateToHistory(UINT menuID)
 void WebKitBrowserWindow::setPreference(UINT menuID, bool enable)
 {
     auto page = WKViewGetPage(m_view.get());
-    auto pgroup = WKPageGetPageGroup(page);
-    auto pref = WKPageGroupGetPreferences(pgroup);
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(page));
+    auto pref = WKPageConfigurationGetPreferences(configuration.get());
     if (IDM_EXPERIMENTAL_FEATURES_BEGIN <= menuID && menuID <= IDM_EXPERIMENTAL_FEATURES_END) {
         int index = menuID - IDM_EXPERIMENTAL_FEATURES_BEGIN;
         WKPreferencesSetExperimentalFeatureForKey(pref, enable, m_experimentalFeatureKeys[index].get());
@@ -493,6 +498,37 @@ void WebKitBrowserWindow::didChangeActiveURL(const void* clientInfo)
     thisWindow.m_client.activeURLChanged(createString(url.get()));
 }
 
+void WebKitBrowserWindow::decidePolicyForNavigationResponse(WKPageRef page, WKNavigationResponseRef navigationResponse, WKFramePolicyListenerRef listener, WKTypeRef userData, const void* clientInfo)
+{
+    auto& thisWindow = toWebKitBrowserWindow(clientInfo);
+    auto response = adoptWK(WKNavigationResponseCopyResponse(navigationResponse));
+    auto code = WKURLResponseHTTPStatusCode(response.get());
+    auto expectedContentLength = WKURLResponseGetExpectedContentLength(response.get());
+    if (code > 300 && !expectedContentLength) {
+        std::wstringstream text;
+        text << L"Error Code: " << code << std::endl;
+        text << L"MIME type: " << createString(adoptWK(WKURLResponseCopyMIMEType(response.get())).get()) << std::endl;
+        text << L"URL: " << createString(adoptWK(WKURLResponseCopyURL(response.get())).get());
+        MessageBox(thisWindow.m_hMainWnd, text.str().c_str(), L"No Content", MB_OK | MB_ICONWARNING);
+    }
+
+    auto isMainFrame = WKFrameInfoGetIsMainFrame(adoptWK(WKNavigationResponseCopyFrameInfo(navigationResponse)).get());
+    if (WKNavigationResponseCanShowMIMEType(navigationResponse) || !isMainFrame)
+        WKFramePolicyListenerUse(listener);
+    else {
+        std::wstringstream text;
+        text << L"Do you want to save this file?" << std::endl;
+        text << std::endl;
+        text << L"MIME type: " << createString(adoptWK(WKURLResponseCopyMIMEType(response.get())).get()) << std::endl;
+        text << L"URL: " << createString(adoptWK(WKURLResponseCopyURL(response.get())).get());
+
+        if (MessageBox(thisWindow.hwnd(), text.str().c_str(), L"Unsupported MIME type", MB_OKCANCEL | MB_ICONWARNING) == IDOK)
+            WKFramePolicyListenerDownload(listener);
+        else
+            WKFramePolicyListenerIgnore(listener);
+    }
+}
+
 void WebKitBrowserWindow::didFailProvisionalNavigation(WKPageRef page, WKNavigationRef navigation, WKErrorRef error, WKTypeRef userData, const void* clientInfo)
 {
     auto& thisWindow = toWebKitBrowserWindow(clientInfo);
@@ -556,6 +592,69 @@ bool WebKitBrowserWindow::canTrustServerCertificate(WKProtectionSpaceRef protect
     }
 
     return false;
+}
+
+void WebKitBrowserWindow::navigationActionDidBecomeDownload(WKPageRef, WKNavigationActionRef, WKDownloadRef download, const void* clientInfo)
+{
+    setDownloadClient(download, clientInfo);
+}
+
+void WebKitBrowserWindow::navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKDownloadRef download, const void* clientInfo)
+{
+    setDownloadClient(download, clientInfo);
+}
+
+void WebKitBrowserWindow::contextMenuDidCreateDownload(WKPageRef, WKDownloadRef download, const void* clientInfo)
+{
+    setDownloadClient(download, clientInfo);
+}
+
+void WebKitBrowserWindow::setDownloadClient(WKDownloadRef download, const void* clientInfo)
+{
+    WKDownloadClientV0 client = { };
+    client.base = { 0, clientInfo };
+    client.decideDestinationWithResponse = downloadDecideDestinationWithResponse;
+    client.didFinish = downloadDidFinish;
+    client.didFailWithError = downloadDidFailWithError;
+
+    WKDownloadSetClient(download, &client.base);
+}
+
+WKStringRef WebKitBrowserWindow::downloadDecideDestinationWithResponse(WKDownloadRef, WKURLResponseRef response, WKStringRef suggestedFilename, const void* clientInfo)
+{
+    auto& thisWindow = toWebKitBrowserWindow(clientInfo);
+
+    auto filename = createString(suggestedFilename);
+    if (filename.empty()) {
+        auto urlRef = adoptWK(WKURLResponseCopyURL(response));
+        auto hostRef = adoptWK(WKURLCopyHostName(urlRef.get()));
+        filename = createString(hostRef.get());
+    }
+
+    std::wstring folderPath;
+    if (!getKnownFolderPath(FOLDERID_Downloads, folderPath)) {
+        MessageBox(thisWindow.hwnd(), L"Could not get Downloads folder path.", L"Download Failure", MB_OK | MB_ICONWARNING);
+        return nullptr;
+    }
+
+    return createWKString(folderPath + L"\\" + filename).leakRef();
+}
+
+void WebKitBrowserWindow::downloadDidFinish(WKDownloadRef, const void* clientInfo)
+{
+    auto& thisWindow = toWebKitBrowserWindow(clientInfo);
+    MessageBox(thisWindow.hwnd(), L"File has been downloaded successfully.", L"Download", MB_OK);
+}
+
+void WebKitBrowserWindow::downloadDidFailWithError(WKDownloadRef, WKErrorRef error, WKDataRef, const void* clientInfo)
+{
+    auto& thisWindow = toWebKitBrowserWindow(clientInfo);
+    std::wstringstream text;
+    text << createString(adoptWK(WKErrorCopyLocalizedDescription(error)).get()) << std::endl;
+    text << L"Error Code: " << WKErrorGetErrorCode(error) << std::endl;
+    text << L"Domain: " << createString(adoptWK(WKErrorCopyDomain(error)).get()) << std::endl;
+    text << L"Failing URL: " << createString(adoptWK(WKErrorCopyFailingURL(error)).get());
+    MessageBox(thisWindow.hwnd(), text.str().c_str(), L"Download Failure", MB_OK | MB_ICONWARNING);
 }
 
 WKPageRef WebKitBrowserWindow::createNewPage(WKPageRef page, WKPageConfigurationRef pageConf, WKNavigationActionRef navigationAction, WKWindowFeaturesRef windowFeatures, const void *clientInfo)

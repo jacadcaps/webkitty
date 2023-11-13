@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+# Copyright (C) 2020-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,7 +33,8 @@ import loadConfig
 class ConfigDotJSONTest(unittest.TestCase):
     def get_config(self):
         cwd = os.path.dirname(os.path.abspath(__file__))
-        return json.load(open(os.path.join(cwd, 'config.json')))
+        with open(os.path.join(cwd, 'config.json')) as f:
+            return json.load(f)
 
     def test_configuration(self):
         cwd = os.path.dirname(os.path.abspath(__file__))
@@ -88,8 +89,8 @@ class TagsForBuilderTest(unittest.TestCase):
         self.verifyTags('32-EWS', ['32'])
         self.verifyTags('iOS-11-EWS', ['iOS'])
         self.verifyTags('iOS(11),(test)-EWS', ['iOS', 'test'])
-        self.verifyTags('Windows-EWS', ['Windows'])
-        self.verifyTags('Windows_Windows', ['Windows'])
+        self.verifyTags('iOS-EWS', ['iOS'])
+        self.verifyTags('iOS_iOS', ['iOS'])
         self.verifyTags('GTK-Build-EWS', ['GTK', 'Build'])
         self.verifyTags('GTK-WK2-Tests-EWS', ['GTK', 'WK2', 'Tests'])
         self.verifyTags('macOS-Sierra-Release-WK1-EWS', ['Sierra', 'Release', 'macOS', 'WK1'])

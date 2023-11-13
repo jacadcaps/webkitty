@@ -318,7 +318,7 @@ static void drawGlyphsToContext(cairo_t* context, cairo_scaled_font_t* scaledFon
     }
 }
 
-static void drawGlyphsShadow(GraphicsContextCairo& platformContext, const ShadowState& shadowState, TextDrawingModeFlags textDrawingMode, const FloatSize& shadowOffset, const Color& shadowColor, const FloatPoint& point, cairo_scaled_font_t* scaledFont, double syntheticBoldOffset, const Vector<cairo_glyph_t>& glyphs, FontSmoothingMode fontSmoothingMode)
+static void drawGlyphsShadow(GraphicsContextCairo& platformContext, const ShadowState& shadowState, TextDrawingModeFlags textDrawingMode, const GraphicsDropShadow& dropShadow, const FloatPoint& point, cairo_scaled_font_t* scaledFont, double syntheticBoldOffset, const Vector<cairo_glyph_t>& glyphs, FontSmoothingMode fontSmoothingMode)
 {
     ShadowBlur shadow({ shadowState.blur, shadowState.blur }, shadowState.offset, shadowState.color, shadowState.ignoreTransforms);
     if (!textDrawingMode.contains(TextDrawingMode::Fill) || shadow.type() == ShadowBlur::NoShadow)
@@ -329,8 +329,8 @@ static void drawGlyphsShadow(GraphicsContextCairo& platformContext, const Shadow
         cairo_t* context = platformContext.cr();
         cairo_save(context);
 
-        cairo_translate(context, shadowOffset.width(), shadowOffset.height());
-        setSourceRGBAFromColor(context, shadowColor);
+        cairo_translate(context, dropShadow.offset.width(), dropShadow.offset.height());
+        setSourceRGBAFromColor(context, dropShadow.color);
         drawGlyphsToContext(context, scaledFont, syntheticBoldOffset, glyphs, fontSmoothingMode);
 
         cairo_restore(context);
@@ -551,13 +551,15 @@ StrokeSource::StrokeSource(const GraphicsContextState& state)
 }
 
 ShadowState::ShadowState(const GraphicsContextState& state)
-    : offset(state.dropShadow().offset)
-    , blur(state.dropShadow().blurRadius)
-    , color(state.dropShadow().color)
-    , ignoreTransforms(state.shadowsIgnoreTransforms())
+    : ignoreTransforms(state.shadowsIgnoreTransforms())
     , globalAlpha(state.alpha())
     , globalCompositeOperator(state.compositeMode().operation)
 {
+    if (state.dropShadow()) {
+        offset = state.dropShadow()->offset;
+        blur = state.dropShadow()->radius;
+        color = state.dropShadow()->color;
+    }
 }
 
 bool ShadowState::isVisible() const
@@ -741,7 +743,7 @@ void fillRectWithRoundedHole(GraphicsContextCairo& platformContext, const FloatR
     cairo_t* cr = platformContext.cr();
 
     cairo_save(cr);
-    setPathOnCairoContext(platformContext.cr(), path.cairoPath());
+    setPathOnCairoContext(platformContext.cr(), path.platformPath());
     fillCurrentCairoPath(platformContext, fillSource);
     cairo_restore(cr);
 }
@@ -750,7 +752,7 @@ void fillPath(GraphicsContextCairo& platformContext, const Path& path, const Fil
 {
     cairo_t* cr = platformContext.cr();
 
-    setPathOnCairoContext(cr, path.cairoPath());
+    setPathOnCairoContext(cr, path.platformPath());
     drawPathShadow(platformContext, fillSource, { }, shadowState, Fill);
     fillCurrentCairoPath(platformContext, fillSource);
 }
@@ -773,7 +775,7 @@ void strokePath(GraphicsContextCairo& platformContext, const Path& path, const S
 {
     cairo_t* cr = platformContext.cr();
 
-    setPathOnCairoContext(cr, path.cairoPath());
+    setPathOnCairoContext(cr, path.platformPath());
     drawPathShadow(platformContext, { }, strokeSource, shadowState, Stroke);
     prepareForStroking(cr, strokeSource, PreserveAlpha);
     cairo_stroke(cr);
@@ -790,12 +792,14 @@ void clearRect(GraphicsContextCairo& platformContext, const FloatRect& rect)
     cairo_restore(cr);
 }
 
-void drawGlyphs(GraphicsContextCairo& platformContext, const FillSource& fillSource, const StrokeSource& strokeSource, const ShadowState& shadowState, const FloatPoint& point, cairo_scaled_font_t* scaledFont, double syntheticBoldOffset, const Vector<cairo_glyph_t>& glyphs, float xOffset, TextDrawingModeFlags textDrawingMode, float strokeThickness, const FloatSize& shadowOffset, const Color& shadowColor, FontSmoothingMode fontSmoothingMode)
+void drawGlyphs(GraphicsContextCairo& platformContext, const FillSource& fillSource, const StrokeSource& strokeSource, const ShadowState& shadowState, const FloatPoint& point, cairo_scaled_font_t* scaledFont, double syntheticBoldOffset, const Vector<cairo_glyph_t>& glyphs, float xOffset, TextDrawingModeFlags textDrawingMode, float strokeThickness, std::optional<GraphicsDropShadow> dropShadow, FontSmoothingMode fontSmoothingMode)
 {
 #if USE(FREETYPE)
     Locker cairoFontLocker(cairoFontLock());
 #endif
-    drawGlyphsShadow(platformContext, shadowState, textDrawingMode, shadowOffset, shadowColor, point, scaledFont, syntheticBoldOffset, glyphs, fontSmoothingMode);
+
+    if (dropShadow)
+        drawGlyphsShadow(platformContext, shadowState, textDrawingMode, *dropShadow, point, scaledFont, syntheticBoldOffset, glyphs, fontSmoothingMode);
 
     cairo_t* cr = platformContext.cr();
     cairo_save(cr);
@@ -859,7 +863,7 @@ void drawPattern(GraphicsContextCairo& platformContext, cairo_surface_t* surface
 void drawSurface(GraphicsContextCairo& platformContext, cairo_surface_t* surface, const FloatRect& destRect, const FloatRect& originalSrcRect, InterpolationQuality imageInterpolationQuality, float globalAlpha, const ShadowState& shadowState, OrientationSizing orientationSizing)
 {
     // Avoid invalid cairo matrix with small values.
-    if (std::fabs(destRect.width()) < 0.5f || std::fabs(destRect.height()) < 0.5f)
+    if (std::abs(destRect.width()) < 0.5f || std::abs(destRect.height()) < 0.5f)
         return;
 
     FloatRect srcRect = originalSrcRect;
@@ -867,11 +871,11 @@ void drawSurface(GraphicsContextCairo& platformContext, cairo_surface_t* surface
     // We need to account for negative source dimensions by flipping the rectangle.
     if (originalSrcRect.width() < 0) {
         srcRect.setX(originalSrcRect.x() + originalSrcRect.width());
-        srcRect.setWidth(std::fabs(originalSrcRect.width()));
+        srcRect.setWidth(std::abs(originalSrcRect.width()));
     }
     if (originalSrcRect.height() < 0) {
         srcRect.setY(originalSrcRect.y() + originalSrcRect.height());
-        srcRect.setHeight(std::fabs(originalSrcRect.height()));
+        srcRect.setHeight(std::abs(originalSrcRect.height()));
     }
 
     RefPtr<cairo_surface_t> patternSurface = surface;
@@ -918,11 +922,11 @@ void drawSurface(GraphicsContextCairo& platformContext, cairo_surface_t* surface
     float scaleX = 1;
     float scaleY = 1;
     if (didUseWidthAsHeight) {
-        scaleX = std::fabs(srcRect.width() / destRect.height());
-        scaleY = std::fabs(srcRect.height() / destRect.width());
+        scaleX = std::abs(srcRect.width() / destRect.height());
+        scaleY = std::abs(srcRect.height() / destRect.width());
     } else {
-        scaleX = std::fabs(srcRect.width() / destRect.width());
-        scaleY = std::fabs(srcRect.height() / destRect.height());
+        scaleX = std::abs(srcRect.width() / destRect.width());
+        scaleY = std::abs(srcRect.height() / destRect.height());
     }
     cairo_matrix_t matrix = { scaleX, 0, 0, scaleY, leftPadding, topPadding };
     cairo_pattern_set_matrix(pattern.get(), &matrix);
@@ -1060,10 +1064,8 @@ void drawDotsForDocumentMarker(GraphicsContextCairo& platformContext, const Floa
     cairo_t* cr = platformContext.cr();
     cairo_save(cr);
 
-    if (style.mode == DocumentMarkerLineStyleMode::Spelling)
-        cairo_set_source_rgb(cr, 1, 0, 0);
-    else if (style.mode == DocumentMarkerLineStyleMode::Grammar)
-        cairo_set_source_rgb(cr, 0, 1, 0);
+    auto [r, g, b, a] = style.color.toColorTypeLossy<SRGBA<uint8_t>>().resolved();
+    cairo_set_source_rgba(cr, r, g, b, a);
 
     drawErrorUnderline(cr, rect.x(), rect.y(), rect.width(), rect.height());
     cairo_restore(cr);
@@ -1240,8 +1242,8 @@ void clipPath(GraphicsContextCairo& platformContext, const Path& path, WindRule 
 {
     cairo_t* cr = platformContext.cr();
 
-    if (!path.isNull())
-        setPathOnCairoContext(cr, path.cairoPath());
+    if (!path.isEmpty())
+        setPathOnCairoContext(cr, path.platformPath());
 
     cairo_fill_rule_t savedFillRule = cairo_get_fill_rule(cr);
     cairo_set_fill_rule(cr, clipRule == WindRule::EvenOdd ? CAIRO_FILL_RULE_EVEN_ODD : CAIRO_FILL_RULE_WINDING);

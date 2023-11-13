@@ -316,11 +316,6 @@ void UIScriptControllerMac::copyText(JSStringRef text)
     [pasteboard setString:text->string() forType:NSPasteboardTypeString];
 }
 
-void UIScriptControllerMac::setSpellCheckerResults(JSValueRef results)
-{
-    [[LayoutTestSpellChecker checker] setResultsFromJSValue:results inContext:m_context->jsContext()];
-}
-
 static NSString *const TopLevelEventInfoKey = @"events";
 static NSString *const EventTypeKey = @"type";
 static NSString *const ViewRelativeXPositionKey = @"viewX";
@@ -434,5 +429,9 @@ void UIScriptControllerMac::sendEventStream(JSStringRef eventsJSON, JSValueRef c
     });
 }
 
+JSRetainPtr<JSStringRef> UIScriptControllerMac::scrollbarStateForScrollingNodeID(unsigned long long scrollingNodeID, bool isVertical) const
+{
+    return adopt(JSStringCreateWithCFString((CFStringRef) [webView() _scrollbarStateForScrollingNodeID:scrollingNodeID isVertical:isVertical]));
+}
 
 } // namespace WTR

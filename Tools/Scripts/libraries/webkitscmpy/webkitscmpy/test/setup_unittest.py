@@ -1,4 +1,4 @@
-# Copyright (C) 2021, 2022 Apple Inc. All rights reserved.
+# Copyright (C) 2021-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -62,7 +62,7 @@ class TestSetup(testing.PathTestCase):
 
         self.assertEqual(
             captured.stdout.getvalue(),
-            "Create a private fork of 'WebKit' belonging to 'username' ([Yes]/No): \n"
+            "Create a private fork of 'WebKit/WebKit' named 'WebKit' belonging to 'username' ([Yes]/No): \n"
             'Setup succeeded!\n',
         )
         self.assertEqual(captured.stderr.getvalue(), '')
@@ -70,8 +70,10 @@ class TestSetup(testing.PathTestCase):
             captured.root.log.getvalue(),
             '''Saving GitHub credentials in system credential store...
 GitHub credentials saved via Keyring!
+https://github.example.com/WebKit/WebKit is public, enabling secret scanning on fork
 Verifying user owned fork...
 Created a private fork of 'WebKit' belonging to 'username'!
+Enabled secret scanning on https://github.example.com/username/WebKit!
 ''',
         )
 
@@ -118,6 +120,7 @@ Set git editor to 'SVN_LOG_EDITOR' for this repository
         )
 
     def test_github_checkout(self):
+        self.maxDiff = None
         with OutputCapture(level=logging.INFO) as captured, mocks.remote.GitHub() as remote, \
             MockTerminal.input('n', 'n', 'committer@webkit.org', 'n', 'Committer', 's', 'overwrite', 'y', 'disabled', '1', 'y'), \
             mocks.local.Git(self.path, remote='https://{}.git'.format(remote.remote)) as repo, \
@@ -157,7 +160,7 @@ a pull request branch? ([when-user-owned]/disabled/always/never):
 Pick a commit message editor for this repository:
     {}
 : 
-Create a private fork of 'WebKit' belonging to 'username' ([Yes]/No): 
+Create a private fork of 'WebKit/WebKit' named 'WebKit' belonging to 'username' ([Yes]/No): 
 Setup succeeded!
 '''.format('\n    '.join([
             '{}) {}'.format(
@@ -181,8 +184,10 @@ Setting git editor for {repository}...
 Using the default git editor for this repository
 Saving GitHub credentials in system credential store...
 GitHub credentials saved via Keyring!
+https://github.example.com/WebKit/WebKit is public, enabling secret scanning on fork
 Verifying user owned fork...
 Created a private fork of 'WebKit' belonging to 'username'!
+Enabled secret scanning on https://github.example.com/username/WebKit!
 Adding forked remote as 'fork'...
 Added remote 'fork'
 Fetching 'fork'

@@ -103,7 +103,7 @@ void h265DecompressionOutputCallback(void* decoderRef,
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-CMSampleBufferRef H265BufferToCMSampleBuffer(const uint8_t* buffer, size_t buffer_size, CMVideoFormatDescriptionRef video_format) {
+CMSampleBufferRef H265BufferToCMSampleBuffer(const uint8_t* buffer, size_t buffer_size, CMVideoFormatDescriptionRef video_format) CF_RETURNS_RETAINED {
   CMBlockBufferRef new_block_buffer;
   if (auto error = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, buffer_size, kCFAllocatorDefault, NULL, 0, buffer_size, kCMBlockBufferAssureMemoryNowFlag, &new_block_buffer)) {
     RTC_LOG(LS_ERROR) << "H265BufferToCMSampleBuffer CMBlockBufferCreateWithMemoryBlock failed with: " << error;
@@ -136,6 +136,10 @@ CMSampleBufferRef H265BufferToCMSampleBuffer(const uint8_t* buffer, size_t buffe
   if (_error != noErr) {
     RTC_LOG(LS_WARNING) << "Last frame decode failed.";
     _error = noErr;
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (!data || !size) {
+    RTC_LOG(LS_WARNING) << "Empty frame.";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -223,7 +227,7 @@ CMSampleBufferRef H265BufferToCMSampleBuffer(const uint8_t* buffer, size_t buffe
     &kCFTypeDictionaryValueCallBacks);
 
   CMVideoFormatDescriptionRef videoFormatDescription = nullptr;
-  auto err = CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, width, height, extensionsDict, &videoFormatDescription);
+  auto err = CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_HEVC, width, height, extensionsDict, &videoFormatDescription);
   CFRelease(codecConfig);
   CFRelease(atomsDict);
   CFRelease(extensionsDict);

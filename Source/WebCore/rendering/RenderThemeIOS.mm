@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,9 +47,7 @@
 #import "FontCache.h"
 #import "FontCacheCoreText.h"
 #import "FontCascade.h"
-#import "Frame.h"
 #import "FrameSelection.h"
-#import "FrameView.h"
 #import "GeometryUtilities.h"
 #import "Gradient.h"
 #import "GraphicsContext.h"
@@ -63,6 +61,8 @@
 #import "HTMLTextAreaElement.h"
 #import "IOSurface.h"
 #import "LocalCurrentTraitCollection.h"
+#import "LocalFrame.h"
+#import "LocalFrameView.h"
 #import "LocalizedDateCache.h"
 #import "NodeRenderStyle.h"
 #import "Page.h"
@@ -76,10 +76,11 @@
 #import "RenderObject.h"
 #import "RenderProgress.h"
 #import "RenderSlider.h"
-#import "RenderStyle.h"
+#import "RenderStyleSetters.h"
 #import "RenderView.h"
 #import "Settings.h"
 #import "Theme.h"
+#import "TypedElementDescendantIteratorInlines.h"
 #import "UTIUtilities.h"
 #import "WebCoreThreadRun.h"
 #import <CoreGraphics/CoreGraphics.h>
@@ -341,11 +342,12 @@ void RenderThemeIOS::adjustStyleForAlternateFormControlDesignTransition(RenderSt
 void RenderThemeIOS::adjustCheckboxStyle(RenderStyle& style, const Element* element) const
 {
     adjustStyleForAlternateFormControlDesignTransition(style, element);
+    adjustMinimumIntrinsicSizeForAppearance(StyleAppearance::Checkbox, style);
 
     if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
         return;
 
-    int size = std::max(style.computedFontPixelSize(), 10U);
+    auto size = std::max(style.computedFontSize(), 10.f);
     style.setWidth({ size, LengthType::Fixed });
     style.setHeight({ size, LengthType::Fixed });
 }
@@ -476,8 +478,8 @@ bool RenderThemeIOS::isControlStyled(const RenderStyle& style, const RenderStyle
     if (style.effectiveAppearance() == StyleAppearance::PushButton || style.effectiveAppearance() == StyleAppearance::MenulistButton)
         return !style.visitedDependentColor(CSSPropertyBackgroundColor).isVisible() || style.backgroundLayers().hasImage();
 
-    if (style.effectiveAppearance() == StyleAppearance::TextField || style.effectiveAppearance() == StyleAppearance::TextArea)
-        return style.backgroundLayers() != userAgentStyle.backgroundLayers();
+    if (style.effectiveAppearance() == StyleAppearance::TextField || style.effectiveAppearance() == StyleAppearance::TextArea || style.effectiveAppearance() == StyleAppearance::SearchField)
+        return !style.borderAndBackgroundEqual(userAgentStyle);
 
 #if ENABLE(DATALIST_ELEMENT)
     if (style.effectiveAppearance() == StyleAppearance::ListButton)
@@ -487,17 +489,27 @@ bool RenderThemeIOS::isControlStyled(const RenderStyle& style, const RenderStyle
     return RenderTheme::isControlStyled(style, userAgentStyle);
 }
 
+void RenderThemeIOS::adjustMinimumIntrinsicSizeForAppearance(StyleAppearance appearance, RenderStyle& style) const
+{
+    auto minControlSize = Theme::singleton().minimumControlSize(appearance, style.fontCascade(), { style.minWidth(), style.minHeight() }, { style.width(), style.height() }, style.effectiveZoom());
+    if (minControlSize.width.value() > style.minWidth().value())
+        style.setMinWidth(WTFMove(minControlSize.width));
+    if (minControlSize.height.value() > style.minHeight().value())
+        style.setMinHeight(WTFMove(minControlSize.height));
+}
+
 void RenderThemeIOS::adjustRadioStyle(RenderStyle& style, const Element* element) const
 {
     adjustStyleForAlternateFormControlDesignTransition(style, element);
+    adjustMinimumIntrinsicSizeForAppearance(StyleAppearance::Radio, style);
 
     if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
         return;
 
-    int size = std::max(style.computedFontPixelSize(), 10U);
+    auto size = std::max(style.computedFontSize(), 10.f);
     style.setWidth({ size, LengthType::Fixed });
     style.setHeight({ size, LengthType::Fixed });
-    style.setBorderRadius({ size / 2, size / 2 });
+    style.setBorderRadius({ static_cast<int>(size / 2), static_cast<int>(size / 2) });
 }
 
 void RenderThemeIOS::paintRadioDecorations(const RenderObject& box, const PaintInfo& paintInfo, const IntRect& rect)
@@ -560,7 +572,7 @@ void RenderThemeIOS::adjustTextFieldStyle(RenderStyle& style, const Element* ele
 
     auto adjustBackgroundColor = [&] {
         auto styleColorOptions = element->document().styleColorOptions(&style);
-        if (!style.backgroundColorEqualsToColorIgnoringVisited(systemColor(CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions)))
+        if (style.backgroundColor() != systemColor(CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions))
             return;
 
         style.setBackgroundColor(systemColor(CSSValueWebkitControlBackground, styleColorOptions));
@@ -589,7 +601,7 @@ void RenderThemeIOS::paintTextFieldInnerShadow(const PaintInfo& paintInfo, const
     const FloatSize innerShadowOffset { 0, 5 };
     constexpr auto innerShadowBlur = 10.0f;
     auto innerShadowColor = DisplayP3<float> { 0, 0, 0, 0.04f };
-    context.setShadow(innerShadowOffset, innerShadowBlur, innerShadowColor);
+    context.setDropShadow({ innerShadowOffset, innerShadowBlur, innerShadowColor, ShadowRadiusMode::Default });
     context.setFillColor(Color::black);
 
     Path innerShadowPath;
@@ -940,11 +952,11 @@ void RenderThemeIOS::paintMenuListButtonDecorations(const RenderBox& box, const 
         uint8_t opacity = isReadOnlyControl(box) ? 51 : 128;
         paintInfo.context().setStrokeColor(Color::black.colorWithAlphaByte(opacity));
         paintInfo.context().setFillColor(Color::black.colorWithAlphaByte(opacity));
-        paintInfo.context().drawPath(Path::polygonPathFromPoints(shadow));
+        paintInfo.context().drawPath(Path(shadow));
 
         paintInfo.context().setStrokeColor(Color::white);
         paintInfo.context().setFillColor(Color::white);
-        paintInfo.context().drawPath(Path::polygonPathFromPoints(arrow));
+        paintInfo.context().drawPath(Path(arrow));
     }
 }
 
@@ -1332,6 +1344,12 @@ static std::optional<Color>& cachedFocusRingColor()
     return color;
 }
 
+static std::optional<Color>& cachedInsertionPointColor()
+{
+    static NeverDestroyed<std::optional<Color>> color;
+    return color;
+}
+
 Color RenderThemeIOS::systemFocusRingColor()
 {
     if (!cachedFocusRingColor().has_value()) {
@@ -1344,6 +1362,36 @@ Color RenderThemeIOS::systemFocusRingColor()
 Color RenderThemeIOS::platformFocusRingColor(OptionSet<StyleColorOptions>) const
 {
     return systemFocusRingColor();
+}
+
+Color RenderThemeIOS::insertionPointColor()
+{
+    if (!cachedInsertionPointColor().has_value())
+        cachedInsertionPointColor() = Color::transparentBlack;
+    return *cachedInsertionPointColor();
+}
+
+Color RenderThemeIOS::autocorrectionReplacementMarkerColor(const RenderText& renderer) const
+{
+    auto caretColor = CaretBase::computeCaretColor(renderer.style(), renderer.textNode());
+    if (!caretColor.isValid())
+        caretColor = insertionPointColor();
+
+    auto hsla = caretColor.toColorTypeLossy<HSLA<float>>().resolved();
+    if (hsla.hue) {
+        hsla.saturation = 100;
+        if (renderer.styleColorOptions().contains(StyleColorOptions::UseDarkAppearance)) {
+            hsla.lightness = 50;
+            hsla.alpha = 0.5f;
+        } else {
+            hsla.lightness = 41;
+            hsla.alpha = 0.3f;
+        }
+
+        return hsla;
+    }
+
+    return caretColor.colorWithAlpha(0.3);
 }
 
 Color RenderThemeIOS::platformAnnotationHighlightColor(OptionSet<StyleColorOptions>) const
@@ -1413,6 +1461,8 @@ static const Vector<CSSValueSystemColorInformation>& cssValueSystemColorInformat
             // FIXME: <rdar://problem/75538507> UIKit should expose this color so that we maintain parity with system buttons.
             { CSSValueAppleSystemOpaqueSecondaryFillDisabled, @selector(secondarySystemFillColor), true, 0.75f },
             { CSSValueAppleSystemOpaqueTertiaryFill, @selector(tertiarySystemFillColor), true },
+            { CSSValueAppleSystemTertiaryFill, @selector(tertiarySystemFillColor) },
+            { CSSValueAppleSystemQuaternaryFill, @selector(quaternarySystemFillColor) },
             { CSSValueAppleSystemGroupedBackground, @selector(systemGroupedBackgroundColor) },
             { CSSValueAppleSystemSecondaryGroupedBackground, @selector(secondarySystemGroupedBackgroundColor) },
             { CSSValueAppleSystemTertiaryGroupedBackground, @selector(tertiarySystemGroupedBackgroundColor) },
@@ -1502,6 +1552,11 @@ void RenderThemeIOS::setFocusRingColor(const Color& color)
     cachedFocusRingColor() = color;
 }
 
+void RenderThemeIOS::setInsertionPointColor(const Color& color)
+{
+    cachedInsertionPointColor() = color;
+}
+
 Color RenderThemeIOS::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOptions> options) const
 {
     const bool forVisitedLink = options.contains(StyleColorOptions::ForVisitedLink);
@@ -1548,9 +1603,9 @@ Color RenderThemeIOS::controlTintColor(const RenderStyle& style, OptionSet<Style
 
 RenderThemeIOS::IconAndSize RenderThemeIOS::iconForAttachment(const String& fileName, const String& attachmentType, const String& title)
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto documentInteractionController = adoptNS([PAL::allocUIDocumentInteractionControllerInstance() init]);
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     [documentInteractionController setName:fileName.isEmpty() ? title : fileName];
 
@@ -1561,13 +1616,13 @@ RenderThemeIOS::IconAndSize RenderThemeIOS::iconForAttachment(const String& file
         else
             UTI = UTIFromMIMEType(attachmentType);
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
         [documentInteractionController setUTI:static_cast<NSString *>(UTI)];
 #endif
     }
 
     RetainPtr<UIImage> result;
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     NSArray *icons = [documentInteractionController icons];
     if (!icons.count)
         return IconAndSize { nil, FloatSize() };
@@ -1626,7 +1681,7 @@ static void paintAttachmentProgress(GraphicsContext& context, AttachmentLayout& 
     Path progressPath;
     progressPath.moveTo(center);
     progressPath.addLineTo(FloatPoint(center.x(), info.progressRect.y()));
-    progressPath.addArc(center, info.progressRect.width() / 2, -M_PI_2, info.progress * 2 * M_PI - M_PI_2, 0);
+    progressPath.addArc(center, info.progressRect.width() / 2, -M_PI_2, info.progress * 2 * M_PI - M_PI_2, RotationDirection::Counterclockwise);
     progressPath.closeSubpath();
     context.fillPath(progressPath);
 }
@@ -1654,6 +1709,9 @@ bool RenderThemeIOS::paintAttachment(const RenderObject& renderer, const PaintIn
         return false;
 
     const RenderAttachment& attachment = downcast<RenderAttachment>(renderer);
+
+    if (attachment.paintWideLayoutAttachmentOnly(paintInfo, paintRect.location()))
+        return true;
 
     AttachmentLayout info(attachment);
 
@@ -1794,7 +1852,7 @@ void RenderThemeIOS::paintCheckboxRadioInnerShadow(const PaintInfo& paintInfo, c
 
     bool isEmpty = !states.containsAny({ ControlStates::States::Checked, ControlStates::States::Indeterminate });
     auto firstShadowColor = DisplayP3<float> { 0, 0, 0, isEmpty ? 0.05f : 0.1f };
-    context.setShadow(innerShadowOffset, innerShadowBlur, firstShadowColor);
+    context.setDropShadow({ innerShadowOffset, innerShadowBlur, firstShadowColor, ShadowRadiusMode::Default });
     context.setFillColor(Color::black);
 
     Path innerShadowPath;
@@ -1811,7 +1869,7 @@ void RenderThemeIOS::paintCheckboxRadioInnerShadow(const PaintInfo& paintInfo, c
     context.fillPath(innerShadowPath);
 
     constexpr auto secondShadowColor = DisplayP3<float> { 1, 1, 1, 0.5f };
-    context.setShadow(FloatSize { 0, 0 }, 1, secondShadowColor);
+    context.setDropShadow({ FloatSize { 0, 0 }, 1, secondShadowColor, ShadowRadiusMode::Default });
 
     context.fillPath(innerShadowPath);
 }
@@ -1942,7 +2000,7 @@ bool RenderThemeIOS::paintRadio(const RenderObject& box, const PaintInfo& paintI
         context.fillEllipse(innerCircleRect);
     } else {
         Path path;
-        path.addEllipse(rect);
+        path.addEllipseInRect(rect);
         if (!useAlternateDesign) {
             context.setStrokeColor(checkboxRadioBorderColor(controlStates, styleColorOptions));
             context.setStrokeThickness(checkboxRadioBorderWidth * 2);
@@ -2371,7 +2429,7 @@ void RenderThemeIOS::paintMenuListButtonDecorationsWithFormControlRefresh(const 
         FloatRect ellipse(0, 0, length, length);
 
         for (int i = 0; i < count; ++i) {
-            glyphPath.addEllipse(ellipse);
+            glyphPath.addEllipseInRect(ellipse);
             ellipse.move(length + padding, 0);
         }
 

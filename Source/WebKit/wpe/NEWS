@@ -1,21 +1,23 @@
 =================
-WPE WebKit 2.40.4
+WPE WebKit 2.42.1
 =================
 
-What's new in WPE WebKit 2.40.4?
+What's new in WPE WebKit 2.42.1?
 
-  - Fix a bug in JavaScript reading variable arguments in a call.
+  - Fix enable-html5-database setting to properly enable/disable IndexedDB API.
+  - Fix the build with GBM disabled.
+  - Fix rendering on the Raspberry Pi.
+  - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.40.3
+WPE WebKit 2.42.0
 =================
 
-What's new in WPE WebKit 2.40.3?
+What's new in WPE WebKit 2.42.0?
 
-  - Make memory pressure monitor honor memory.memsw.usage_in_bytes if exists.
-  - Apply cookie blocking policy to WebSocket handshakes.
-  - Remove accidental dependency on GLib 2.70.
-  - Fix the build with BUBBLEWRAP_SANDBOX disabled.
+  - GBM is no longer required for WebGL implementation.
+  - Add API to configure experimental features at runtime.
+  - Add API to set the percentage of volume space that can be used for data storage.
   - Fix several crashes and rendering issues.
 
 =================
@@ -24,100 +26,24 @@ WPE WebKit 2.40.2
 
 What's new in WPE WebKit 2.40.2?
 
-  - Fix flickering on looped videos when starting again.
-  - Fix CPU usage on autoplaying videos.
-  - Enable threaded rendering by default.
-  - Choose amount of painting threads depending on available CPU cores.
-  - Make libgbm and libdrm optional dependencies.
-  - Fix several crashes and rendering issues.
-
-=================
-WPE WebKit 2.40.1
-=================
-
-What's new in WPE WebKit 2.40.1?
-
+  - Properly handle the modifier value when exporting/importing DMA-BUF buffers.
+  - Don't require GApplication for bubblewrap sandbox.
   - The Bubblewrap sandbox no longer requires setting an application
     identifier via GApplication to operate correctly. Using GApplication
     is still recommended, but optional.
-  - Improvements to the GStreamer multimedia playback, in particular
-    around MSE, WebRTC, and seeking.
-  - Make all supported image ypes appear in the Accept HTTP header.
-  - Long touch presses no longer generate mouse click events, to align
-    with other web engines and WebKit ports.
-  - Fix default database quota size definition.
-  - Fix application of all caps tags listed in the font-feature-settings
-    CSS property.
-  - Fix the build with journald support enabled when using elogind
-    instead of the systemd libraries.
-  - Fix the build when the libgcrypt provides a libgcrypt-config script
-    instead of a pkg-config module file.
-  - Fix font height calculations for the font-size-adjust CSS property.
-  - Fix the build when ccache is used in certain setups.
-  - Fix the build for RISC-V 64-bit targets.
-  - Fix the build with GCC 13.
-  - Fix several crashes and rendering issues.
-
-=================
-WPE WebKit 2.40.0
-=================
-
-What's new in WPE WebKit 2.40.0?
-
-  - Apply basic font properties as font variation settings.
-  - Fix input elements with type=range not having default touch handlers.
-  - Fix unmuting of web views.
-  - Fix the remote inspector when using the HTTP server.
-  - Fix the build with -Wl,--as-needed.
-  - Fix the build with LTO enabled.
-  - Fix the build with the journald logging support disabled.
-  - Fix the build with media stream support disabled.
-  - Fix several crashes and rendering issues.
-
-==================
-WPE WebKit 2.39.91
-==================
-
-What's new in WPE WebKit 2.39.91?
-
-  - Rename WebKitWebExtension to WebKitWebProcessExtension in the new API.
-  - Remove WebKitJavascriptResult in favor of using JSCValue directly in the
-    new API.
-  - Add new API to get the request body of WebKitURISchemeRequest.
-  - Make it possible to handle WebKitDownload::decide-destination signal
-    asynchronously.
-  - Allow WebKitDownload destination to be a path instead of a URI.
-  - Make the output from webkit://gpu exportable as JSON.
-  - Improve scrolling performance in accelerated compositing mode.
-  - Implement KeyboardEvent.repeat.
-  - Fix the build in Ubuntu 20.04 and Debian Stable.
-  - Fix several crashes and rendering issues.
-
-==================
-WPE WebKit 2.39.90
-==================
-
-  - Add network session API when building with the new API.
-  - Add new JavaScript execution APIs.
-  - Add support for speech synthesis using Flite.
-  - Always update the active URI of WebKitFrame.
-  - Bring back the WebKitConsoleMessage API implementation.
-  - Do not allow the sandbox to mount the entire home directory.
-  - Fix criticals from webkitOptionMenuSetEvent when opening any combo box.
-  - Fix large memory allocation when uploading content.
-  - Fix scrolling after a history navigation with PSON enabled.
-  - Fix the webkit.h public header causing applications failing to build.
-  - Enable WebGL2 by default, which was disabled by mistake.
-  - Fix the build with WebGL disabled.
-  - Remove the favicon functionality when building with the new API.
-  - Make most public types final (non-derivable) and class struct declarations
-    private when building with the new API.
-  - Merge functions of registering and unregistering script message handler in
-    the new API.
-  - Remove most of the webkit_web_view_new_with_*() constructors when building
-    with the new GLib API.
-  - Remove webkit_web_context_get/set_process_model when building with the new
-    GLib API.
+  - Show DRM device and render node if available in webkit://gpu.
+  - Long touch presses no longer generate mouse click events, to align with
+    other web engines and WebKit ports.
+  - New build options to fine-tune WPE for certain hardware platforms
+    (Westeros, Broadcom, Broadcom Nexus, Amlogic, Raspberry Pi).
+  - Ensure that the correct GPU device is used for WebGL when using GBM.
+  - Fix touchmove events not being produced.
+  - Fix cap height calculation in font metrics.
+  - Fix the build on i386.
+  - Fix the build with libgbm disabled.
+  - Fix the build with USE_WPE_VIDEO_PLANE_DISPLAY_DMABUF enabled.
+  - Translation updates: Swedish.
+  - Add WebKitClipboardPermissionRequest to handle DOM paste access requests.
   - Fix several crashes and rendering issues.
 
 =================

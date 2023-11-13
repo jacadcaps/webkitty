@@ -65,10 +65,11 @@ class VersionNameMap(object):
                 'Big Sur': Version(11, 0),
                 'Monterey': Version(12, 0),
                 'Ventura': Version(13, 0),
+                'Sonoma': Version(14, 0),
             },
-            'ios': self._automap_to_major_version('iOS', minimum=Version(10), maximum=Version(16)),
-            'tvos': self._automap_to_major_version('tvOS', minimum=Version(10), maximum=Version(16)),
-            'watchos': self._automap_to_major_version('watchOS', minimum=Version(1), maximum=Version(9)),
+            'ios': self._automap_to_major_version('iOS', minimum=Version(10), maximum=Version(17)),
+            'tvos': self._automap_to_major_version('tvOS', minimum=Version(10), maximum=Version(17)),
+            'watchos': self._automap_to_major_version('watchOS', minimum=Version(1), maximum=Version(10)),
             'win': {
                 'Win10': Version(10),
                 '8.1': Version(6, 3),
@@ -85,9 +86,6 @@ class VersionNameMap(object):
 
         # wincairo uses the same versions as Windows
         self.mapping[PUBLIC_TABLE]['wincairo'] = self.mapping[PUBLIC_TABLE]['win']
-
-        # FTW uses the same versions as Windows
-        self.mapping[PUBLIC_TABLE]['ftw'] = self.mapping[PUBLIC_TABLE]['win']
 
 
     @classmethod

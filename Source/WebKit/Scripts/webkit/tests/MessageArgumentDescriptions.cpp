@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "AudioMediaStreamTrackRendererInternalUnitIdentifier.h"
 #include "ContentWorldShared.h"
 #include "DataTaskIdentifier.h"
+#include "DownloadID.h"
 #include "GeolocationIdentifier.h"
 #include "GraphicsContextGLIdentifier.h"
 #include "IPCConnectionTesterIdentifier.h"
@@ -38,7 +39,6 @@
 #include "JSIPCBinding.h"
 #include "LegacyCustomProtocolID.h"
 #include "LibWebRTCResolverIdentifier.h"
-#include "MDNSRegisterIdentifier.h"
 #include "MarkSurfacesAsVolatileRequestIdentifier.h"
 #include "MediaRecorderIdentifier.h"
 #include "NetworkResourceLoadIdentifier.h"
@@ -69,7 +69,9 @@
 #include "RemoteVideoFrameIdentifier.h"
 #include "RenderingBackendIdentifier.h"
 #include "RenderingUpdateID.h"
+#include "RetrieveRecordResponseBodyCallbackIdentifier.h"
 #include "SampleBufferDisplayLayerIdentifier.h"
+#include "ShapeDetectionIdentifier.h"
 #include "StorageAreaIdentifier.h"
 #include "StorageAreaImplIdentifier.h"
 #include "StorageAreaMapIdentifier.h"
@@ -84,6 +86,7 @@
 #include "WebGPUIdentifier.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebURLSchemeHandlerIdentifier.h"
+#include <WebCore/BackgroundFetchRecordIdentifier.h>
 #include <WebCore/BroadcastChannelIdentifier.h>
 #include <WebCore/DOMCacheIdentifier.h>
 #include <WebCore/DictationContext.h>
@@ -103,6 +106,7 @@
 #include <WebCore/PortIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/PushSubscriptionIdentifier.h>
+#include <WebCore/RTCDataChannelLocalIdentifier.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
 #include <WebCore/RenderingResourceIdentifier.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
@@ -113,6 +117,7 @@
 #include <WebCore/SleepDisablerIdentifier.h>
 #include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
 #include <WebCore/TextCheckingRequestIdentifier.h>
+#include <WebCore/TextManipulationItemIdentifier.h>
 #include <WebCore/TextManipulationToken.h>
 #include <WebCore/UserMediaRequestIdentifier.h>
 #include <WebCore/WebSocketIdentifier.h>
@@ -130,6 +135,7 @@
 #include "TestWithStreamBatchedMessages.h" // NOLINT
 #include "TestWithStreamBufferMessages.h" // NOLINT
 #include "TestWithCVPixelBufferMessages.h" // NOLINT
+#include "TestWithStreamServerConnectionHandleMessages.h" // NOLINT
 
 namespace IPC {
 
@@ -316,6 +322,8 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
     case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
         return jsValueForDecodedMessage<MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer>(globalObject, decoder);
 #endif
+    case MessageName::TestWithStreamServerConnectionHandle_SendStreamServerConnection:
+        return jsValueForDecodedMessage<MessageName::TestWithStreamServerConnectionHandle_SendStreamServerConnection>(globalObject, decoder);
     default:
         break;
     }
@@ -399,6 +407,7 @@ std::optional<JSC::JSValue> jsValueForReplyArguments(JSC::JSGlobalObject* global
 
 Vector<ASCIILiteral> serializedIdentifiers()
 {
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::BackgroundFetchRecordIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::BroadcastChannelIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::DOMCacheIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::DictationContext));
@@ -422,6 +431,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::RealtimeMediaSourceIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::RenderingResourceIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ResourceLoaderIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::RTCDataChannelLocalIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SWServerConnectionIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ServiceWorkerIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ServiceWorkerJobIdentifier));
@@ -430,6 +440,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SleepDisablerIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SpeechRecognitionConnectionClientIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::TextCheckingRequestIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::TextManipulationItemIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::TextManipulationTokenIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::UserMediaRequestIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::WebSocketIdentifier));
@@ -437,14 +448,13 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebKit::AuthenticationChallengeIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::ContentWorldIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::DataTaskIdentifier));
-    static_assert(sizeof(uint64_t) == sizeof(WebKit::FormSubmitListenerIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebKit::DownloadID));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::GeolocationIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::GraphicsContextGLIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::IPCConnectionTesterIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::IPCStreamTesterIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::LegacyCustomProtocolID));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::LibWebRTCResolverIdentifier));
-    static_assert(sizeof(uint64_t) == sizeof(WebKit::MDNSRegisterIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::MarkSurfacesAsVolatileRequestIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::MediaRecorderIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::NetworkResourceLoadIdentifier));
@@ -476,7 +486,9 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebKit::RemoteRemoteCommandListenerIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::RenderingBackendIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::RenderingUpdateID));
+    static_assert(sizeof(uint64_t) == sizeof(WebKit::RetrieveRecordResponseBodyCallbackIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::SampleBufferDisplayLayerIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebKit::ShapeDetectionIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::StorageAreaIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::StorageAreaImplIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::StorageAreaMapIdentifier));
@@ -493,6 +505,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebPageProxyIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebURLSchemeHandlerIdentifier));
     return {
+        "WebCore::BackgroundFetchRecordIdentifier"_s,
         "WebCore::BroadcastChannelIdentifier"_s,
         "WebCore::DOMCacheIdentifier"_s,
         "WebCore::DictationContext"_s,
@@ -516,6 +529,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::RealtimeMediaSourceIdentifier"_s,
         "WebCore::RenderingResourceIdentifier"_s,
         "WebCore::ResourceLoaderIdentifier"_s,
+        "WebCore::RTCDataChannelLocalIdentifier"_s,
         "WebCore::SWServerConnectionIdentifier"_s,
         "WebCore::ServiceWorkerIdentifier"_s,
         "WebCore::ServiceWorkerJobIdentifier"_s,
@@ -524,6 +538,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::SleepDisablerIdentifier"_s,
         "WebCore::SpeechRecognitionConnectionClientIdentifier"_s,
         "WebCore::TextCheckingRequestIdentifier"_s,
+        "WebCore::TextManipulationItemIdentifier"_s,
         "WebCore::TextManipulationTokenIdentifier"_s,
         "WebCore::UserMediaRequestIdentifier"_s,
         "WebCore::WebSocketIdentifier"_s,
@@ -531,14 +546,13 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::AuthenticationChallengeIdentifier"_s,
         "WebKit::ContentWorldIdentifier"_s,
         "WebKit::DataTaskIdentifier"_s,
-        "WebKit::FormSubmitListenerIdentifier"_s,
+        "WebKit::DownloadID"_s,
         "WebKit::GeolocationIdentifier"_s,
         "WebKit::GraphicsContextGLIdentifier"_s,
         "WebKit::IPCConnectionTesterIdentifier"_s,
         "WebKit::IPCStreamTesterIdentifier"_s,
         "WebKit::LegacyCustomProtocolID"_s,
         "WebKit::LibWebRTCResolverIdentifier"_s,
-        "WebKit::MDNSRegisterIdentifier"_s,
         "WebKit::MarkSurfacesAsVolatileRequestIdentifier"_s,
         "WebKit::MediaRecorderIdentifier"_s,
         "WebKit::NetworkResourceLoadIdentifier"_s,
@@ -570,7 +584,9 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::RemoteRemoteCommandListenerIdentifier"_s,
         "WebKit::RenderingBackendIdentifier"_s,
         "WebKit::RenderingUpdateID"_s,
+        "WebKit::RetrieveRecordResponseBodyCallbackIdentifier"_s,
         "WebKit::SampleBufferDisplayLayerIdentifier"_s,
+        "WebKit::ShapeDetectionIdentifier"_s,
         "WebKit::StorageAreaIdentifier"_s,
         "WebKit::StorageAreaImplIdentifier"_s,
         "WebKit::StorageAreaMapIdentifier"_s,
@@ -703,7 +719,7 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
     case MessageName::TestWithLegacyReceiver_SetVideoLayerID:
         return Vector<ArgumentDescription> {
-            { "videoLayerID", "WebCore::GraphicsLayer::PlatformLayerID", nullptr, false },
+            { "videoLayerID", "WebCore::PlatformLayerIdentifier", nullptr, false },
         };
 #if PLATFORM(MAC)
     case MessageName::TestWithLegacyReceiver_DidCreateWebProcessConnection:
@@ -812,7 +828,7 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
     case MessageName::TestWithoutAttributes_SetVideoLayerID:
         return Vector<ArgumentDescription> {
-            { "videoLayerID", "WebCore::GraphicsLayer::PlatformLayerID", nullptr, false },
+            { "videoLayerID", "WebCore::PlatformLayerIdentifier", nullptr, false },
         };
 #if PLATFORM(MAC)
     case MessageName::TestWithoutAttributes_DidCreateWebProcessConnection:
@@ -905,6 +921,10 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
     case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
         return Vector<ArgumentDescription> { };
 #endif
+    case MessageName::TestWithStreamServerConnectionHandle_SendStreamServerConnection:
+        return Vector<ArgumentDescription> {
+            { "handle", "IPC::StreamServerConnection::Handle", nullptr, false },
+        };
     default:
         break;
     }

@@ -15,7 +15,7 @@
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 #include "libANGLE/trace.h"
-#include "platform/FeaturesGL_autogen.h"
+#include "platform/autogen/FeaturesGL_autogen.h"
 
 #include <iostream>
 
@@ -379,6 +379,11 @@ std::shared_ptr<WaitableCompileEvent> ShaderGL::compile(const gl::Context *conte
     if (features.emulateClipDistanceState.enabled)
     {
         options->emulateClipDistanceState = true;
+    }
+
+    if (features.scalarizeVecAndMatConstructorArgs.enabled)
+    {
+        options->scalarizeVecAndMatConstructorArgs = true;
     }
 
     if (mRenderer->getNativeExtensions().shaderPixelLocalStorageANGLE)

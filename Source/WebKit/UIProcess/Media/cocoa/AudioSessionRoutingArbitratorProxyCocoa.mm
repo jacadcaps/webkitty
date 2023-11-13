@@ -42,6 +42,8 @@ AudioSessionRoutingArbitratorProxy::AudioSessionRoutingArbitratorProxy(WebProces
     : m_process(proxy)
     , m_token(SharedRoutingArbitrator::Token::create())
 {
+    m_logIdentifier = m_token->logIdentifier();
+    SharedRoutingArbitrator::sharedInstance().setLogger(logger());
     m_process.addMessageReceiver(Messages::AudioSessionRoutingArbitratorProxy::messageReceiverName(), destinationId(), *this);
 }
 
@@ -58,18 +60,24 @@ void AudioSessionRoutingArbitratorProxy::processDidTerminate()
 
 void AudioSessionRoutingArbitratorProxy::beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType category, ArbitrationCallback&& callback)
 {
+    auto identifier = LOGIDENTIFIER;
+    ALWAYS_LOG(identifier, category);
+
     m_category = category;
     m_arbitrationStatus = ArbitrationStatus::Pending;
     m_arbitrationUpdateTime = WallTime::now();
-    SharedRoutingArbitrator::sharedInstance().beginRoutingArbitrationForToken(m_token, category, [weakThis = WeakPtr { *this }, callback = WTFMove(callback)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
-        if (weakThis)
+    SharedRoutingArbitrator::sharedInstance().beginRoutingArbitrationForToken(m_token, category, [this, weakThis = WeakPtr { *this }, callback = WTFMove(callback), identifier = WTFMove(identifier)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
+        if (weakThis) {
+            ALWAYS_LOG(identifier, "callback, error = ", error, ", routeChanged = ", routeChanged);
             weakThis->m_arbitrationStatus = error == RoutingArbitrationError::None ? ArbitrationStatus::Active : ArbitrationStatus::None;
+        }
         callback(error, routeChanged);
     });
 }
 
 void AudioSessionRoutingArbitratorProxy::endRoutingArbitration()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     SharedRoutingArbitrator::sharedInstance().endRoutingArbitrationForToken(m_token);
     m_arbitrationStatus = ArbitrationStatus::None;
 }

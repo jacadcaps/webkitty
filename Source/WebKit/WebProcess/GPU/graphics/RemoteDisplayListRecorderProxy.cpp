@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include "RemoteDisplayListRecorderMessages.h"
 #include "RemoteImageBufferProxy.h"
 #include "RemoteRenderingBackendProxy.h"
+#include "SharedVideoFrame.h"
 #include "StreamClientConnection.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/DisplayList.h>
@@ -41,6 +42,7 @@
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/NotImplemented.h>
+#include <WebCore/SVGFilter.h>
 #include <wtf/MathExtras.h>
 #include <wtf/text/TextStream.h>
 
@@ -60,7 +62,7 @@ void RemoteDisplayListRecorderProxy::convertToLuminanceMask()
     send(Messages::RemoteDisplayListRecorder::ConvertToLuminanceMask());
 }
 
-void RemoteDisplayListRecorderProxy::transformToColorSpace(const WebCore::DestinationColorSpace& colorSpace)
+void RemoteDisplayListRecorderProxy::transformToColorSpace(const DestinationColorSpace& colorSpace)
 {
     send(Messages::RemoteDisplayListRecorder::TransformToColorSpace(colorSpace));
 }
@@ -68,28 +70,47 @@ void RemoteDisplayListRecorderProxy::transformToColorSpace(const WebCore::Destin
 template<typename T>
 ALWAYS_INLINE void RemoteDisplayListRecorderProxy::send(T&& message)
 {
-    if (UNLIKELY(!(m_renderingBackend && m_imageBuffer)))
+    auto imageBuffer = m_imageBuffer.get();
+    if (UNLIKELY(!(m_renderingBackend && imageBuffer)))
         return;
 
-    m_imageBuffer->backingStoreWillChange();
-    m_renderingBackend->streamConnection().send(WTFMove(message), m_destinationBufferIdentifier, defaultSendTimeout);
+    imageBuffer->backingStoreWillChange();
+    auto result = m_renderingBackend->streamConnection().send(WTFMove(message), m_destinationBufferIdentifier, RemoteRenderingBackendProxy::defaultTimeout);
+#if !RELEASE_LOG_DISABLED
+    if (UNLIKELY(result != IPC::Error::NoError)) {
+        auto& parameters = m_renderingBackend->parameters();
+        RELEASE_LOG(RemoteLayerBuffers, "[pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", renderingBackend=%" PRIu64 "] RemoteDisplayListRecorderProxy::send - failed, name:%" PUBLIC_LOG_STRING ", error:%" PUBLIC_LOG_STRING,
+            parameters.pageProxyID.toUInt64(), parameters.pageID.toUInt64(), parameters.identifier.toUInt64(), IPC::description(T::name()), IPC::errorAsString(result));
+    }
+#else
+    UNUSED_VARIABLE(result);
+#endif
+}
+
+template<typename T>
+ALWAYS_INLINE void RemoteDisplayListRecorderProxy::sendSync(T&& message)
+{
+    auto imageBuffer = m_imageBuffer.get();
+    if (UNLIKELY(!(m_renderingBackend && imageBuffer)))
+        return;
+
+    imageBuffer->backingStoreWillChange();
+    auto result = m_renderingBackend->streamConnection().sendSync(WTFMove(message), m_destinationBufferIdentifier, RemoteRenderingBackendProxy::defaultTimeout);
+#if !RELEASE_LOG_DISABLED
+    if (UNLIKELY(!result.succeeded())) {
+        auto& parameters = m_renderingBackend->parameters();
+        RELEASE_LOG(RemoteLayerBuffers, "[pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", renderingBackend=%" PRIu64 "] RemoteDisplayListRecorderProxy::sendSync - failed, name:%" PUBLIC_LOG_STRING ", error:%" PUBLIC_LOG_STRING,
+            parameters.pageProxyID.toUInt64(), parameters.pageID.toUInt64(), parameters.identifier.toUInt64(), IPC::description(T::name()), IPC::errorAsString(result.error));
+    }
+#else
+    UNUSED_VARIABLE(result);
+#endif
 }
 
 RenderingMode RemoteDisplayListRecorderProxy::renderingMode() const
 {
-    return m_imageBuffer ? m_imageBuffer->renderingMode() : RenderingMode::Unaccelerated;
-}
-
-DecodingMode RemoteDisplayListRecorderProxy::preferredImageDecodingMode() const
-{
-    if (!m_imageBuffer)
-        return DecodingMode::Synchronous;
-
-    auto renderingPurpose = m_imageBuffer->renderingPurpose();
-    if (renderingPurpose == RenderingPurpose::DOM || renderingPurpose == RenderingPurpose::LayerBacking)
-        return DecodingMode::SynchronousThumbnail;
-
-    return DecodingMode::Synchronous;
+    auto imageBuffer = m_imageBuffer.get();
+    return imageBuffer ? imageBuffer->renderingMode() : RenderingMode::Unaccelerated;
 }
 
 void RemoteDisplayListRecorderProxy::recordSave()
@@ -177,9 +198,19 @@ void RemoteDisplayListRecorderProxy::recordClip(const FloatRect& rect)
     send(Messages::RemoteDisplayListRecorder::Clip(rect));
 }
 
+void RemoteDisplayListRecorderProxy::recordClipRoundedRect(const FloatRoundedRect& rect)
+{
+    send(Messages::RemoteDisplayListRecorder::ClipRoundedRect(rect));
+}
+
 void RemoteDisplayListRecorderProxy::recordClipOut(const FloatRect& rect)
 {
     send(Messages::RemoteDisplayListRecorder::ClipOut(rect));
+}
+
+void RemoteDisplayListRecorderProxy::recordClipOutRoundedRect(const FloatRoundedRect& rect)
+{
+    send(Messages::RemoteDisplayListRecorder::ClipOutRoundedRect(rect));
 }
 
 void RemoteDisplayListRecorderProxy::recordClipToImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destinationRect)
@@ -197,11 +228,21 @@ void RemoteDisplayListRecorderProxy::recordClipPath(const Path& path, WindRule r
     send(Messages::RemoteDisplayListRecorder::ClipPath(path, rule));
 }
 
+void RemoteDisplayListRecorderProxy::recordResetClip()
+{
+    send(Messages::RemoteDisplayListRecorder::ResetClip());
+}
+
 void RemoteDisplayListRecorderProxy::recordDrawFilteredImageBuffer(ImageBuffer* sourceImage, const FloatRect& sourceImageRect, Filter& filter)
 {
     std::optional<RenderingResourceIdentifier> identifier;
     if (sourceImage)
         identifier = sourceImage->renderingResourceIdentifier();
+
+    auto* svgFilter = dynamicDowncast<SVGFilter>(filter);
+    if (svgFilter && svgFilter->hasValidRenderingResourceIdentifier())
+        recordResourceUse(filter);
+
     send(Messages::RemoteDisplayListRecorder::DrawFilteredImageBuffer(WTFMove(identifier), sourceImageRect, filter));
 }
 
@@ -257,7 +298,7 @@ void RemoteDisplayListRecorderProxy::recordDrawLine(const FloatPoint& point1, co
 
 void RemoteDisplayListRecorderProxy::recordDrawLinesForText(const FloatPoint& blockLocation, const FloatSize& localAnchor, float thickness, const DashArray& widths, bool printing, bool doubleLines, StrokeStyle style)
 {
-    send(Messages::RemoteDisplayListRecorder::DrawLinesForText(DisplayList::DrawLinesForText { blockLocation, localAnchor, thickness, widths, printing, doubleLines, style }));
+    send(Messages::RemoteDisplayListRecorder::DrawLinesForText(DisplayList::DrawLinesForText { blockLocation, localAnchor, widths, thickness, printing, doubleLines, style }));
 }
 
 void RemoteDisplayListRecorderProxy::recordDrawDotsForDocumentMarker(const FloatRect& rect, const DocumentMarkerLineStyle& style)
@@ -317,27 +358,32 @@ void RemoteDisplayListRecorderProxy::recordFillRectWithRoundedHole(const FloatRe
 
 #if ENABLE(INLINE_PATH_DATA)
 
-void RemoteDisplayListRecorderProxy::recordFillLine(const LineData& data)
+void RemoteDisplayListRecorderProxy::recordFillLine(const PathDataLine& line)
 {
-    send(Messages::RemoteDisplayListRecorder::FillLine(data));
+    send(Messages::RemoteDisplayListRecorder::FillLine(line));
 }
 
-void RemoteDisplayListRecorderProxy::recordFillArc(const ArcData& data)
+void RemoteDisplayListRecorderProxy::recordFillArc(const PathArc& arc)
 {
-    send(Messages::RemoteDisplayListRecorder::FillArc(data));
+    send(Messages::RemoteDisplayListRecorder::FillArc(arc));
 }
 
-void RemoteDisplayListRecorderProxy::recordFillQuadCurve(const QuadCurveData& data)
+void RemoteDisplayListRecorderProxy::recordFillQuadCurve(const PathDataQuadCurve& curve)
 {
-    send(Messages::RemoteDisplayListRecorder::FillQuadCurve(data));
+    send(Messages::RemoteDisplayListRecorder::FillQuadCurve(curve));
 }
 
-void RemoteDisplayListRecorderProxy::recordFillBezierCurve(const BezierCurveData& data)
+void RemoteDisplayListRecorderProxy::recordFillBezierCurve(const PathDataBezierCurve& curve)
 {
-    send(Messages::RemoteDisplayListRecorder::FillBezierCurve(data));
+    send(Messages::RemoteDisplayListRecorder::FillBezierCurve(curve));
 }
 
 #endif // ENABLE(INLINE_PATH_DATA)
+
+void RemoteDisplayListRecorderProxy::recordFillPathSegment(const PathSegment& segment)
+{
+    send(Messages::RemoteDisplayListRecorder::FillPathSegment(segment));
+}
 
 void RemoteDisplayListRecorderProxy::recordFillPath(const Path& path)
 {
@@ -358,14 +404,14 @@ void RemoteDisplayListRecorderProxy::recordPaintFrameForMedia(MediaPlayer& playe
 void RemoteDisplayListRecorderProxy::recordPaintVideoFrame(VideoFrame& frame, const FloatRect& destination, bool shouldDiscardAlpha)
 {
 #if PLATFORM(COCOA)
-    auto sharedVideoFrame = m_sharedVideoFrameWriter.write(frame, [&](auto& semaphore) {
+    auto sharedVideoFrame = ensureSharedVideoFrameWriter().write(frame, [&](auto& semaphore) {
         send(Messages::RemoteDisplayListRecorder::SetSharedVideoFrameSemaphore { semaphore });
-    }, [&](auto& handle) {
-        send(Messages::RemoteDisplayListRecorder::SetSharedVideoFrameMemory { handle });
+    }, [&](auto&& handle) {
+        send(Messages::RemoteDisplayListRecorder::SetSharedVideoFrameMemory { WTFMove(handle) });
     });
     if (!sharedVideoFrame)
         return;
-    send(Messages::RemoteDisplayListRecorder::PaintVideoFrame(*sharedVideoFrame, destination, shouldDiscardAlpha));
+    send(Messages::RemoteDisplayListRecorder::PaintVideoFrame(WTFMove(*sharedVideoFrame), destination, shouldDiscardAlpha));
 #endif
 }
 #endif
@@ -377,32 +423,37 @@ void RemoteDisplayListRecorderProxy::recordStrokeRect(const FloatRect& rect, flo
 
 #if ENABLE(INLINE_PATH_DATA)
 
-void RemoteDisplayListRecorderProxy::recordStrokeLine(const LineData& data)
+void RemoteDisplayListRecorderProxy::recordStrokeLine(const PathDataLine& line)
 {
-    send(Messages::RemoteDisplayListRecorder::StrokeLine(data));
+    send(Messages::RemoteDisplayListRecorder::StrokeLine(line));
 }
 
-void RemoteDisplayListRecorderProxy::recordStrokeLineWithColorAndThickness(SRGBA<uint8_t> color, float thickness, const LineData& data)
+void RemoteDisplayListRecorderProxy::recordStrokeLineWithColorAndThickness(const PathDataLine& line, SRGBA<uint8_t> color, float thickness)
 {
-    send(Messages::RemoteDisplayListRecorder::StrokeLineWithColorAndThickness(color, thickness, data));
+    send(Messages::RemoteDisplayListRecorder::StrokeLineWithColorAndThickness(line, color, thickness));
 }
 
-void RemoteDisplayListRecorderProxy::recordStrokeArc(const ArcData& data)
+void RemoteDisplayListRecorderProxy::recordStrokeArc(const PathArc& arc)
 {
-    send(Messages::RemoteDisplayListRecorder::StrokeArc(data));
+    send(Messages::RemoteDisplayListRecorder::StrokeArc(arc));
 }
 
-void RemoteDisplayListRecorderProxy::recordStrokeQuadCurve(const QuadCurveData& data)
+void RemoteDisplayListRecorderProxy::recordStrokeQuadCurve(const PathDataQuadCurve& curve)
 {
-    send(Messages::RemoteDisplayListRecorder::StrokeQuadCurve(data));
+    send(Messages::RemoteDisplayListRecorder::StrokeQuadCurve(curve));
 }
 
-void RemoteDisplayListRecorderProxy::recordStrokeBezierCurve(const BezierCurveData& data)
+void RemoteDisplayListRecorderProxy::recordStrokeBezierCurve(const PathDataBezierCurve& curve)
 {
-    send(Messages::RemoteDisplayListRecorder::StrokeBezierCurve(data));
+    send(Messages::RemoteDisplayListRecorder::StrokeBezierCurve(curve));
 }
 
 #endif // ENABLE(INLINE_PATH_DATA)
+
+void RemoteDisplayListRecorderProxy::recordStrokePathSegment(const PathSegment& segment)
+{
+    send(Messages::RemoteDisplayListRecorder::StrokePathSegment(segment));
+}
 
 void RemoteDisplayListRecorderProxy::recordStrokePath(const Path& path)
 {
@@ -501,9 +552,36 @@ bool RemoteDisplayListRecorderProxy::recordResourceUse(DecomposedGlyphs& decompo
     return true;
 }
 
-void RemoteDisplayListRecorderProxy::flushContext(DisplayListRecorderFlushIdentifier identifier)
+bool RemoteDisplayListRecorderProxy::recordResourceUse(Gradient& gradient)
 {
-    send(Messages::RemoteDisplayListRecorder::FlushContext(identifier));
+    if (UNLIKELY(!m_renderingBackend)) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    m_renderingBackend->remoteResourceCacheProxy().recordGradientUse(gradient);
+    return true;
+}
+
+bool RemoteDisplayListRecorderProxy::recordResourceUse(Filter& filter)
+{
+    if (UNLIKELY(!m_renderingBackend)) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    m_renderingBackend->remoteResourceCacheProxy().recordFilterUse(filter);
+    return true;
+}
+
+void RemoteDisplayListRecorderProxy::flushContext(const IPC::Semaphore& semaphore)
+{
+    send(Messages::RemoteDisplayListRecorder::FlushContext(semaphore));
+}
+
+void RemoteDisplayListRecorderProxy::flushContextSync()
+{
+    sendSync(Messages::RemoteDisplayListRecorder::FlushContextSync());
 }
 
 RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createImageBuffer(const FloatSize& size, float resolutionScale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod) const
@@ -517,7 +595,7 @@ RefPtr<ImageBuffer> RemoteDisplayListRecorderProxy::createImageBuffer(const Floa
         return Recorder::createImageBuffer(size, resolutionScale, colorSpace, renderingMode, renderingMethod);
 
     // FIXME: Ideally we'd plumb the purpose through for callers of GraphicsContext::createImageBuffer().
-    RenderingPurpose purpose = m_imageBuffer ? m_imageBuffer->renderingPurpose() : RenderingPurpose::Unspecified;
+    RenderingPurpose purpose = RenderingPurpose::Unspecified;
     return m_renderingBackend->createImageBuffer(size, renderingMode.value_or(this->renderingMode()), purpose, resolutionScale, colorSpace, PixelFormat::BGRA8);
 }
 
@@ -537,9 +615,20 @@ void RemoteDisplayListRecorderProxy::disconnect()
 {
     m_renderingBackend = nullptr;
 #if PLATFORM(COCOA) && ENABLE(VIDEO)
-    m_sharedVideoFrameWriter.disable();
+    if (m_sharedVideoFrameWriter)
+        m_sharedVideoFrameWriter->disable();
 #endif
 }
+
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+SharedVideoFrameWriter& RemoteDisplayListRecorderProxy::ensureSharedVideoFrameWriter()
+{
+    if (!m_sharedVideoFrameWriter)
+        m_sharedVideoFrameWriter = makeUnique<SharedVideoFrameWriter>();
+
+    return *m_sharedVideoFrameWriter;
+}
+#endif
 
 } // namespace WebCore
 

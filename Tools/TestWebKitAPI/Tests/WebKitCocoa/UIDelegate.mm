@@ -25,8 +25,10 @@
 
 #import "config.h"
 
+#import "ClassMethodSwizzler.h"
 #import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
+#import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
 #import "TestNavigationDelegate.h"
 #import "TestURLSchemeHandler.h"
@@ -43,6 +45,7 @@
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKHitTestResult.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 
@@ -50,8 +53,7 @@
 #import <Carbon/Carbon.h>
 #endif
 
-#if PLATFORM(IOS)
-#import "ClassMethodSwizzler.h"
+#if PLATFORM(IOS) || PLATFORM(VISION)
 #import "UIKitSPI.h"
 #endif
 
@@ -395,7 +397,7 @@ TEST(WebKit, InjectedBundleNodeHandleIsSelectElement)
     TestWebKitAPI::Util::run(&done);
 }
 
-#if PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000) || PLATFORM(VISION)
 
 static int presentViewControllerCallCount = 0;
 
@@ -550,7 +552,81 @@ TEST(WebKit, LockdownModeAskAgainFirstUseMessage)
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:WebKitLockdownModeAlertShownKey];
 }
 
-#endif // PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000
+#endif // (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 160000) || PLATFORM(VISION)
+
+#if PLATFORM(IOS_FAMILY)
+
+static bool gShouldKeepScreenAwake = false;
+
+@interface SetShouldKeepScreenAwakeDelegate : NSObject <WKUIDelegatePrivate>
+@end
+
+@implementation SetShouldKeepScreenAwakeDelegate
+
+- (void)_webView:(WKWebView *)webView setShouldKeepScreenAwake:(BOOL)shouldKeepScreenAwake
+{
+    EXPECT_NE(gShouldKeepScreenAwake, shouldKeepScreenAwake);
+    gShouldKeepScreenAwake = shouldKeepScreenAwake;
+}
+
+@end
+
+TEST(WebKit, SetShouldKeepScreenAwake)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
+    auto delegate = adoptNS([SetShouldKeepScreenAwakeDelegate new]);
+    [webView setUIDelegate:delegate.get()];
+    [webView synchronouslyLoadHTMLString:@"<body></body>"];
+    [webView evaluateJavaScript:@"navigator.wakeLock.request('screen').then((wakeLock) => { window.lock = wakeLock; }); true;" completionHandler:nil];
+    TestWebKitAPI::Util::run(&gShouldKeepScreenAwake);
+    [webView evaluateJavaScript:@"window.lock.release(); true;" completionHandler:nil];
+    while (gShouldKeepScreenAwake)
+        TestWebKitAPI::Util::spinRunLoop(10);
+}
+
+TEST(WebKit, SetShouldKeepScreenAwakeLastPageIsClosed)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
+    auto delegate = adoptNS([SetShouldKeepScreenAwakeDelegate new]);
+    [webView setUIDelegate:delegate.get()];
+    [webView synchronouslyLoadHTMLString:@"<body></body>"];
+    [webView evaluateJavaScript:@"navigator.wakeLock.request('screen').then((wakeLock) => { window.lock = wakeLock; }); true;" completionHandler:nil];
+    TestWebKitAPI::Util::run(&gShouldKeepScreenAwake);
+
+    [webView evaluateJavaScript:@"navigator.wakeLock.request('screen').then((wakeLock) => { window.lock = wakeLock; }); true;" completionHandler:nil];
+    TestWebKitAPI::Util::run(&gShouldKeepScreenAwake);
+
+    // Close the last page while holding the lock.
+    [webView _close];
+    webView = nil;
+
+    while (gShouldKeepScreenAwake)
+        TestWebKitAPI::Util::spinRunLoop(10);
+}
+
+TEST(WebKit, SetShouldKeepScreenAwakeWebProcessCrash)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
+    auto delegate = adoptNS([SetShouldKeepScreenAwakeDelegate new]);
+    [webView setUIDelegate:delegate.get()];
+    [webView synchronouslyLoadHTMLString:@"<body></body>"];
+    [webView evaluateJavaScript:@"navigator.wakeLock.request('screen').then((wakeLock) => { window.lock = wakeLock; }); true;" completionHandler:nil];
+    TestWebKitAPI::Util::run(&gShouldKeepScreenAwake);
+
+    [webView evaluateJavaScript:@"navigator.wakeLock.request('screen').then((wakeLock) => { window.lock = wakeLock; }); true;" completionHandler:nil];
+    TestWebKitAPI::Util::run(&gShouldKeepScreenAwake);
+
+    // Kill the WebProcess while holding the screen lock.
+    kill([webView _webProcessIdentifier], 9);
+
+    while (gShouldKeepScreenAwake)
+        TestWebKitAPI::Util::spinRunLoop(10);
+}
+
+#endif // PLATFORM(IOS_FAMILY)
 
 #if PLATFORM(MAC)
 
@@ -703,8 +779,8 @@ static bool drawFooterCalled;
 - (void)_webView:(WKWebView *)webView drawHeaderInRect:(CGRect)rect forPageWithTitle:(NSString *)title URL:(NSURL *)url
 {
     EXPECT_EQ(rect.origin.x, 72);
-    EXPECT_TRUE(fabs(rect.origin.y - 698.858398) < .00001);
-    EXPECT_TRUE(fabs(rect.size.height - 3.141590) < .00001);
+    EXPECT_TRUE(std::abs(rect.origin.y - 698.858398) < .00001);
+    EXPECT_TRUE(std::abs(rect.size.height - 3.141590) < .00001);
     EXPECT_EQ(rect.size.width, 468.000000);
     EXPECT_STREQ(title.UTF8String, "test_title");
     EXPECT_STREQ(url.absoluteString.UTF8String, "http://example.com/");
@@ -715,7 +791,7 @@ static bool drawFooterCalled;
 {
     EXPECT_EQ(rect.origin.x, 72);
     EXPECT_EQ(rect.origin.y, 90);
-    EXPECT_TRUE(fabs(rect.size.height - 2.718280) < .00001);
+    EXPECT_TRUE(std::abs(rect.size.height - 2.718280) < .00001);
     EXPECT_EQ(rect.size.width, 468.000000);
     EXPECT_STREQ(url.absoluteString.UTF8String, "http://example.com/");
     drawFooterCalled = true;
@@ -903,6 +979,56 @@ TEST(WebKit, MouseMoveOverElement)
     [webView synchronouslyLoadHTMLString:@"<a href='http://example.com/path' title='link title'>link label</a>"];
     [webView mouseMoveToPoint:NSMakePoint(20, 600 - 20) withFlags:NSEventModifierFlagShift];
     TestWebKitAPI::Util::run(&done);
+}
+
+static BlockPtr<NSEvent*(NSEvent*)> gEventMonitorHandler;
+
+@interface TestEventMonitor : NSObject
+
++ (id)addLocalMonitorForEventsMatchingMask:(NSEventMask)mask handler:(NSEvent* (^)(NSEvent *event))block;
+
+@end
+
+@implementation TestEventMonitor
+
++ (id)addLocalMonitorForEventsMatchingMask:(NSEventMask)mask handler:(NSEvent* (^)(NSEvent *event))block
+{
+    gEventMonitorHandler = makeBlockPtr(block);
+    return nil;
+}
+
+@end
+
+TEST(WebKit, MouseMoveOverElementWithClosedWebView)
+{
+    auto linkLocation = NSMakePoint(200, 150);
+
+    ClassMethodSwizzler localMonitorSwizzler(NSEvent.class, @selector(addLocalMonitorForEventsMatchingMask:handler:), [TestEventMonitor methodForSelector:@selector(addLocalMonitorForEventsMatchingMask:handler:)]);
+
+    // We swizzle `NSWindow.mouseLocationOutsideOfEventStream` because manually calling the handler intercepted
+    // from the swizzled `+[NSEvent addLocalMonitorForEventsMatchingMask:handler:]` with a fake event means we
+    // skip over the bookkeeping required for this SPI to provide the correct mouse location.
+    InstanceMethodSwizzler mouseLocationSwizzler(NSWindow.class, @selector(mouseLocationOutsideOfEventStream), imp_implementationWithBlock(^{
+        return linkLocation;
+    }));
+
+    @autoreleasepool {
+        WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"FrameHandleSerialization"];
+        auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 400, 300) configuration:configuration]);
+        [webView removeFromSuperview];
+        [webView addToTestWindow];
+        auto uiDelegate = adoptNS([[MouseMoveOverElementDelegate alloc] init]);
+        [webView setUIDelegate:uiDelegate.get()];
+        [webView synchronouslyLoadHTMLString:@"<a id='link' href='http://example.com/path' style='font-size: 300px;' title='link title'>link label</a>"];
+        [webView mouseMoveToPoint:linkLocation withFlags:NSEventModifierFlagShift];
+        [webView waitForNextPresentationUpdate];
+        // This test just verifies that attempting to asynchronously dispatch a mouseDidMoveOverElement
+        // update when the WKWebView and its page client have been destructed does not trigger a crash.
+        gEventMonitorHandler([NSEvent mouseEventWithType:NSEventTypeMouseMoved location:linkLocation modifierFlags:0 timestamp:0 windowNumber:[[webView hostWindow] windowNumber] context:nil eventNumber:0 clickCount:0 pressure:0]);
+        [webView removeFromSuperview];
+    }
+
+    TestWebKitAPI::Util::runFor(10_ms);
 }
 
 static bool readyForClick;

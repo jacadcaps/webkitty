@@ -30,19 +30,22 @@
 
 #include "DrawingAreaProxyMessages.h"
 #include "LayerTreeHost.h"
+#include "MessageSenderInlines.h"
 #include "ShareableBitmap.h"
 #include "UpdateInfo.h"
 #include "WebPage.h"
 #include "WebPageCreationParameters.h"
+#include "WebPageInlines.h"
 #include "WebPreferencesKeys.h"
 #include "WebProcess.h"
-#include <WebCore/Frame.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 #include <WebCore/PageOverlayController.h>
 #include <WebCore/Region.h>
 #include <WebCore/Settings.h>
+#include <wtf/SetForScope.h>
 
 #if USE(GLIB_EVENT_LOOP)
 #include <wtf/glib/RunLoopSourcePriority.h>
@@ -53,6 +56,7 @@ using namespace WebCore;
 
 DrawingAreaCoordinatedGraphics::DrawingAreaCoordinatedGraphics(WebPage& webPage, const WebPageCreationParameters& parameters)
     : DrawingArea(DrawingAreaType::CoordinatedGraphics, parameters.drawingAreaIdentifier, webPage)
+    , m_isPaintingSuspended(!(parameters.activityState & ActivityState::IsVisible))
     , m_exitCompositingTimer(RunLoop::main(), this, &DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingMode)
     , m_discardPreviousLayerTreeHostTimer(RunLoop::main(), this, &DrawingAreaCoordinatedGraphics::discardPreviousLayerTreeHost)
     , m_displayTimer(RunLoop::main(), this, &DrawingAreaCoordinatedGraphics::displayTimerFired)
@@ -65,12 +69,6 @@ DrawingAreaCoordinatedGraphics::DrawingAreaCoordinatedGraphics(WebPage& webPage,
 #endif
 
     updatePreferences(parameters.store);
-
-    if (m_alwaysUseCompositing) {
-        enterAcceleratedCompositingMode(nullptr);
-        if (!parameters.isProcessSwap)
-            sendEnterAcceleratedCompositingModeIfNeeded();
-    }
 }
 
 DrawingAreaCoordinatedGraphics::~DrawingAreaCoordinatedGraphics() = default;
@@ -163,11 +161,8 @@ void DrawingAreaCoordinatedGraphics::scroll(const IntRect& scrollRect, const Int
 
 void DrawingAreaCoordinatedGraphics::forceRepaint()
 {
-    if (m_inUpdateBackingStoreState) {
-        m_forceRepaintAfterBackingStoreStateUpdate = true;
+    if (m_inUpdateGeometry)
         return;
-    }
-    m_forceRepaintAfterBackingStoreStateUpdate = false;
 
     if (!m_layerTreeHost) {
         m_isWaitingForDidUpdate = false;
@@ -264,7 +259,7 @@ void DrawingAreaCoordinatedGraphics::updatePreferences(const WebPreferencesStore
     }
 }
 
-void DrawingAreaCoordinatedGraphics::mainFrameContentSizeChanged(const IntSize& size)
+void DrawingAreaCoordinatedGraphics::mainFrameContentSizeChanged(WebCore::FrameIdentifier, const IntSize& size)
 {
     if (m_layerTreeHost)
         m_layerTreeHost->contentsSizeChanged(size);
@@ -288,7 +283,22 @@ void DrawingAreaCoordinatedGraphics::didChangeViewportAttributes(ViewportAttribu
     else if (m_previousLayerTreeHost)
         m_previousLayerTreeHost->didChangeViewportAttributes(WTFMove(attrs));
 }
+
+bool DrawingAreaCoordinatedGraphics::enterAcceleratedCompositingModeIfNeeded()
+{
+    ASSERT(!m_layerTreeHost);
+    if (!m_alwaysUseCompositing)
+        return false;
+
+    enterAcceleratedCompositingMode(nullptr);
+    return true;
+}
 #endif
+
+void DrawingAreaCoordinatedGraphics::setDeviceScaleFactor(float deviceScaleFactor)
+{
+    m_webPage.setDeviceScaleFactor(deviceScaleFactor);
+}
 
 bool DrawingAreaCoordinatedGraphics::supportsAsyncScrolling() const
 {
@@ -318,7 +328,7 @@ GraphicsLayerFactory* DrawingAreaCoordinatedGraphics::graphicsLayerFactory()
     return m_layerTreeHost ? m_layerTreeHost->graphicsLayerFactory() : nullptr;
 }
 
-void DrawingAreaCoordinatedGraphics::setRootCompositingLayer(GraphicsLayer* graphicsLayer)
+void DrawingAreaCoordinatedGraphics::setRootCompositingLayer(WebCore::Frame&, GraphicsLayer* graphicsLayer)
 {
     if (m_layerTreeHost) {
         if (graphicsLayer) {
@@ -338,7 +348,7 @@ void DrawingAreaCoordinatedGraphics::setRootCompositingLayer(GraphicsLayer* grap
             // compositing code via display() and layout.
             // If we're leaving compositing mode because of a setSize, it is safe to
             // exit accelerated compositing mode right away.
-            if (m_inUpdateBackingStoreState)
+            if (m_inUpdateGeometry)
                 exitAcceleratedCompositingMode();
             else
                 exitAcceleratedCompositingModeSoon();
@@ -369,11 +379,6 @@ void DrawingAreaCoordinatedGraphics::layerHostDidFlushLayers()
 {
     ASSERT(m_layerTreeHost);
     m_layerTreeHost->forceRepaint();
-
-    if (m_shouldSendDidUpdateBackingStoreState && !exitAcceleratedCompositingModePending()) {
-        sendDidUpdateBackingStoreState();
-        return;
-    }
 }
 #endif
 
@@ -384,7 +389,7 @@ RefPtr<DisplayRefreshMonitor> DrawingAreaCoordinatedGraphics::createDisplayRefre
     return m_layerTreeHost->createDisplayRefreshMonitor(displayID);
 }
 
-void DrawingAreaCoordinatedGraphics::activityStateDidChange(OptionSet<ActivityState::Flag> changed, ActivityStateChangeID, CompletionHandler<void()>&& completionHandler)
+void DrawingAreaCoordinatedGraphics::activityStateDidChange(OptionSet<ActivityState> changed, ActivityStateChangeID, CompletionHandler<void()>&& completionHandler)
 {
     if (changed & ActivityState::IsVisible) {
         if (m_webPage.isVisible())
@@ -395,7 +400,7 @@ void DrawingAreaCoordinatedGraphics::activityStateDidChange(OptionSet<ActivitySt
     completionHandler();
 }
 
-void DrawingAreaCoordinatedGraphics::attachViewOverlayGraphicsLayer(GraphicsLayer* viewOverlayRootLayer)
+void DrawingAreaCoordinatedGraphics::attachViewOverlayGraphicsLayer(WebCore::FrameIdentifier, GraphicsLayer* viewOverlayRootLayer)
 {
     if (m_layerTreeHost)
         m_layerTreeHost->setViewOverlayRootLayer(viewOverlayRootLayer);
@@ -403,65 +408,39 @@ void DrawingAreaCoordinatedGraphics::attachViewOverlayGraphicsLayer(GraphicsLaye
         m_previousLayerTreeHost->setViewOverlayRootLayer(viewOverlayRootLayer);
 }
 
-void DrawingAreaCoordinatedGraphics::updateBackingStoreState(uint64_t stateID, bool respondImmediately, float deviceScaleFactor, const IntSize& size, const IntSize& scrollOffset)
+void DrawingAreaCoordinatedGraphics::updateGeometry(const IntSize& size, CompletionHandler<void()>&& completionHandler)
 {
-    if (stateID != m_backingStoreStateID && !m_layerTreeHost)
+    SetForScope inUpdateGeometry(m_inUpdateGeometry, true);
+    m_webPage.setSize(size);
+    m_webPage.layoutIfNeeded();
+
+    if (!m_layerTreeHost)
         m_dirtyRegion = IntRect(IntPoint(), size);
 
-    ASSERT(!m_inUpdateBackingStoreState);
-    m_inUpdateBackingStoreState = true;
+    LayerTreeContext previousLayerTreeContext;
+    if (m_layerTreeHost) {
+        previousLayerTreeContext = m_layerTreeHost->layerTreeContext();
+        m_layerTreeHost->sizeDidChange(m_webPage.size());
+    } else if (m_previousLayerTreeHost)
+        m_previousLayerTreeHost->sizeDidChange(m_webPage.size());
 
-    ASSERT_ARG(stateID, stateID >= m_backingStoreStateID);
-    if (stateID != m_backingStoreStateID) {
-        m_backingStoreStateID = stateID;
-        m_shouldSendDidUpdateBackingStoreState = true;
-
-        m_webPage.setDeviceScaleFactor(deviceScaleFactor);
-        m_webPage.setSize(size);
-        m_webPage.updateRendering();
-        m_webPage.finalizeRenderingUpdate({ });
-        m_webPage.flushPendingEditorStateUpdate();
-        m_webPage.scrollMainFrameIfNotAtMaxScrollPosition(scrollOffset);
-        m_webPage.didUpdateRendering();
-
-        if (m_layerTreeHost)
-            m_layerTreeHost->sizeDidChange(m_webPage.size());
-        else if (m_previousLayerTreeHost)
-            m_previousLayerTreeHost->sizeDidChange(m_webPage.size());
+    if (m_layerTreeHost) {
+        auto layerTreeContext = m_layerTreeHost->layerTreeContext();
+        m_layerTreeHost->forceRepaint();
+        if (layerTreeContext != previousLayerTreeContext)
+            send(Messages::DrawingAreaProxy::UpdateAcceleratedCompositingMode(0, layerTreeContext));
     } else {
-        ASSERT(size == m_webPage.size());
-        if (!m_shouldSendDidUpdateBackingStoreState) {
-            // We've already sent a DidUpdateBackingStoreState message for this state. We have nothing more to do.
-            m_inUpdateBackingStoreState = false;
-            if (m_forceRepaintAfterBackingStoreStateUpdate)
-                forceRepaint();
-            return;
-        }
+        UpdateInfo updateInfo;
+        if (m_isPaintingSuspended) {
+            updateInfo.viewSize = m_webPage.size();
+            updateInfo.deviceScaleFactor = m_webPage.corePage()->deviceScaleFactor();
+        } else
+            display(updateInfo);
+        if (!m_layerTreeHost)
+            send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
     }
 
-    // The UI process has updated to a new backing store state. Any Update messages we sent before
-    // this point will be ignored. We wait to set this to false until after updating the page's
-    // size so that any displays triggered by the relayout will be ignored. If we're supposed to
-    // respond to the UpdateBackingStoreState message immediately, we'll do a display anyway in
-    // sendDidUpdateBackingStoreState; otherwise we shouldn't do one right now.
-    m_isWaitingForDidUpdate = false;
-
-    if (respondImmediately) {
-        // Make sure to resume painting if we're supposed to respond immediately, otherwise we'll just
-        // send back an empty UpdateInfo struct.
-        bool wasSuspended = m_isPaintingSuspended;
-        if (m_isPaintingSuspended)
-            resumePainting();
-
-        sendDidUpdateBackingStoreState();
-        if (wasSuspended)
-            suspendPainting();
-    }
-
-    m_inUpdateBackingStoreState = false;
-
-    if (m_forceRepaintAfterBackingStoreStateUpdate)
-        forceRepaint();
+    completionHandler();
 }
 
 void DrawingAreaCoordinatedGraphics::targetRefreshRateDidChange(unsigned rate)
@@ -494,8 +473,11 @@ void DrawingAreaCoordinatedGraphics::displayDidRefresh()
 void DrawingAreaCoordinatedGraphics::adjustTransientZoom(double scale, FloatPoint origin)
 {
     if (!m_transientZoom) {
-        FrameView& frameView = *m_webPage.mainFrameView();
-        FloatRect unobscuredContentRect = frameView.unobscuredContentRectIncludingScrollbars();
+        auto* frameView = m_webPage.localMainFrameView();
+        if (!frameView)
+            return;
+
+        FloatRect unobscuredContentRect = frameView->unobscuredContentRectIncludingScrollbars();
 
         m_transientZoom = true;
         m_transientZoomInitialOrigin = unobscuredContentRect.location();
@@ -527,47 +509,6 @@ void DrawingAreaCoordinatedGraphics::commitTransientZoom(double scale, FloatPoin
     m_transientZoom = false;
 }
 #endif
-
-void DrawingAreaCoordinatedGraphics::sendDidUpdateBackingStoreState()
-{
-    ASSERT(!m_isWaitingForDidUpdate);
-    ASSERT(m_shouldSendDidUpdateBackingStoreState);
-
-    if (!m_isPaintingSuspended && !m_layerTreeHost) {
-        UpdateInfo updateInfo;
-        display(updateInfo);
-        if (!m_layerTreeHost) {
-            m_shouldSendDidUpdateBackingStoreState = false;
-
-            LayerTreeContext layerTreeContext;
-            send(Messages::DrawingAreaProxy::DidUpdateBackingStoreState(m_backingStoreStateID, updateInfo, layerTreeContext));
-            m_compositingAccordingToProxyMessages = false;
-            return;
-        }
-    }
-
-    ASSERT(m_shouldSendDidUpdateBackingStoreState);
-    m_shouldSendDidUpdateBackingStoreState = false;
-
-    UpdateInfo updateInfo;
-    updateInfo.viewSize = m_webPage.size();
-    updateInfo.deviceScaleFactor = m_webPage.corePage()->deviceScaleFactor();
-
-    LayerTreeContext layerTreeContext;
-    if (m_layerTreeHost) {
-        layerTreeContext = m_layerTreeHost->layerTreeContext();
-
-        // We don't want the layer tree host to notify after the next scheduled
-        // layer flush because that might end up sending an EnterAcceleratedCompositingMode
-        // message back to the UI process, but the updated layer tree context
-        // will be sent back in the DidUpdateBackingStoreState message.
-        m_layerTreeHost->setShouldNotifyAfterNextScheduledLayerFlush(false);
-        m_layerTreeHost->forceRepaint();
-    }
-
-    send(Messages::DrawingAreaProxy::DidUpdateBackingStoreState(m_backingStoreStateID, updateInfo, layerTreeContext));
-    m_compositingAccordingToProxyMessages = !layerTreeContext.isEmpty();
-}
 
 void DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingModeSoon()
 {
@@ -664,7 +605,7 @@ void DrawingAreaCoordinatedGraphics::enterAcceleratedCompositingMode(GraphicsLay
             m_layerTreeHost->pauseRendering();
     }
 
-    if (!m_inUpdateBackingStoreState)
+    if (!m_inUpdateGeometry)
         m_layerTreeHost->setShouldNotifyAfterNextScheduledLayerFlush(true);
 
     m_layerTreeHost->setRootCompositingLayer(graphicsLayer);
@@ -690,7 +631,7 @@ void DrawingAreaCoordinatedGraphics::sendEnterAcceleratedCompositingModeIfNeeded
         return;
     }
 
-    send(Messages::DrawingAreaProxy::EnterAcceleratedCompositingMode(m_backingStoreStateID, m_layerTreeHost->layerTreeContext()));
+    send(Messages::DrawingAreaProxy::EnterAcceleratedCompositingMode(0, m_layerTreeHost->layerTreeContext()));
     m_compositingAccordingToProxyMessages = true;
 }
 
@@ -716,13 +657,8 @@ void DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingMode()
 
     m_dirtyRegion = m_webPage.bounds();
 
-    if (m_inUpdateBackingStoreState)
+    if (m_inUpdateGeometry)
         return;
-
-    if (m_shouldSendDidUpdateBackingStoreState) {
-        sendDidUpdateBackingStoreState();
-        return;
-    }
 
     UpdateInfo updateInfo;
     if (m_isPaintingSuspended) {
@@ -734,12 +670,12 @@ void DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingMode()
     // Send along a complete update of the page so we can paint the contents right after we exit the
     // accelerated compositing mode, eliminiating flicker.
     if (m_compositingAccordingToProxyMessages) {
-        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(m_backingStoreStateID, updateInfo));
+        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTFMove(updateInfo)));
         m_compositingAccordingToProxyMessages = false;
     } else {
         // If we left accelerated compositing mode before we sent an EnterAcceleratedCompositingMode message to the
         // UI process, we still need to let it know about the new contents, so send an Update message.
-        send(Messages::DrawingAreaProxy::Update(m_backingStoreStateID, updateInfo));
+        send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
     }
 }
 
@@ -770,18 +706,13 @@ void DrawingAreaCoordinatedGraphics::display()
 {
     ASSERT(!m_layerTreeHost);
     ASSERT(!m_isWaitingForDidUpdate);
-    ASSERT(!m_inUpdateBackingStoreState);
+    ASSERT(!m_inUpdateGeometry);
 
     if (m_layerTreeStateIsFrozen)
         return;
 
     if (m_isPaintingSuspended)
         return;
-
-    if (m_shouldSendDidUpdateBackingStoreState) {
-        sendDidUpdateBackingStoreState();
-        return;
-    }
 
     UpdateInfo updateInfo;
     display(updateInfo);
@@ -796,10 +727,10 @@ void DrawingAreaCoordinatedGraphics::display()
     }
 
     if (m_compositingAccordingToProxyMessages) {
-        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(m_backingStoreStateID, updateInfo));
+        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTFMove(updateInfo)));
         m_compositingAccordingToProxyMessages = false;
     } else
-        send(Messages::DrawingAreaProxy::Update(m_backingStoreStateID, updateInfo));
+        send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
     m_isWaitingForDidUpdate = true;
     m_scheduledWhileWaitingForDidUpdate = false;
 }
@@ -827,7 +758,7 @@ static bool shouldPaintBoundsRect(const IntRect& bounds, const Vector<IntRect, 1
 
 void DrawingAreaCoordinatedGraphics::display(UpdateInfo& updateInfo)
 {
-    ASSERT(!m_isPaintingSuspended);
+    ASSERT(!m_isPaintingSuspended || m_inUpdateGeometry);
     ASSERT(!m_layerTreeHost);
 
     m_webPage.updateRendering();
@@ -851,7 +782,7 @@ void DrawingAreaCoordinatedGraphics::display(UpdateInfo& updateInfo)
     IntSize bitmapSize = bounds.size();
     float deviceScaleFactor = m_webPage.corePage()->deviceScaleFactor();
     bitmapSize.scale(deviceScaleFactor);
-    auto bitmap = ShareableBitmap::create(bitmapSize, { });
+    auto bitmap = ShareableBitmap::create({ bitmapSize });
     if (!bitmap)
         return;
 
@@ -892,6 +823,21 @@ void DrawingAreaCoordinatedGraphics::display(UpdateInfo& updateInfo)
     // Layout can trigger more calls to setNeedsDisplay and we don't want to process them
     // until the UI process has painted the update, so we stop the timer here.
     m_displayTimer.stop();
+}
+
+void DrawingAreaCoordinatedGraphics::forceUpdate()
+{
+    if (m_isWaitingForDidUpdate || m_layerTreeHost)
+        return;
+
+    m_dirtyRegion = m_webPage.bounds();
+    display();
+}
+
+void DrawingAreaCoordinatedGraphics::didDiscardBackingStore()
+{
+    // Ensure the next update will cover the entire view, since the UI process discarded its backing store.
+    m_dirtyRegion = m_webPage.bounds();
 }
 
 } // namespace WebKit

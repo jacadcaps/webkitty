@@ -133,7 +133,11 @@ static RetainPtr<CFDictionaryRef> imageSourceOptions(SubsamplingLevel subsamplin
 
 static RetainPtr<CFDictionaryRef> imageSourceThumbnailOptions(SubsamplingLevel subsamplingLevel, const IntSize& sizeForDrawing)
 {
-    static const auto options = createImageSourceThumbnailOptions().leakRef();
+    static CFMutableDictionaryRef options;
+    static std::once_flag initializeThumbnailOptionsOnce;
+    std::call_once(initializeThumbnailOptionsOnce, [] {
+        options = createImageSourceThumbnailOptions().leakRef();
+    });
     return appendImageSourceOptions(adoptCF(CFDictionaryCreateMutableCopy(nullptr, 0, options)), subsamplingLevel, sizeForDrawing);
 }
 
@@ -345,6 +349,11 @@ size_t ImageDecoderCG::frameCount() const
     return CGImageSourceGetCount(m_nativeDecoder.get());
 }
 
+size_t ImageDecoderCG::primaryFrameIndex() const
+{
+    return CGImageSourceGetPrimaryImageIndex(m_nativeDecoder.get());
+}
+
 RepetitionCount ImageDecoderCG::repetitionCount() const
 {
     RetainPtr<CFDictionaryRef> properties = adoptCF(CGImageSourceCopyProperties(m_nativeDecoder.get(), imageSourceOptions().get()));
@@ -518,7 +527,7 @@ PlatformImagePtr ImageDecoderCG::createFrameImageAtIndex(size_t index, Subsampli
 
     ASSERT(decodingOptions.decodingMode() != DecodingMode::Auto);
 
-    if (decodingOptions.decodingMode() == DecodingMode::Synchronous && !decodingOptions.sizeForDrawing()) {
+    if (decodingOptions.decodingMode() == DecodingMode::Synchronous) {
         // Decode an image synchronously for its native size.
         options = imageSourceOptions(subsamplingLevel);
         image = adoptCF(CGImageSourceCreateImageAtIndex(m_nativeDecoder.get(), index, options.get()));
@@ -541,9 +550,9 @@ PlatformImagePtr ImageDecoderCG::createFrameImageAtIndex(size_t index, Subsampli
     // which caused a performance regression for us since the images had to be resampled/recreated every time we called
     // CGContextDrawImage. We now tell CG to cache the drawn images. See also <rdar://problem/14366755> -
     // CoreGraphics needs to un-deprecate kCGImageCachingTemporary since it's still not the default.
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CGImageSetCachingFlags(image.get(), kCGImageCachingTemporary);
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 #endif // PLATFORM(IOS_FAMILY)
     
     String uti = this->uti();

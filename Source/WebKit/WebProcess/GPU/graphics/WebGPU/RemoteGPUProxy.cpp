@@ -37,34 +37,62 @@
 #include "RemoteGPUProxyMessages.h"
 #include "RemotePresentationContextProxy.h"
 #include "WebGPUConvertToBackingContext.h"
-#include <pal/graphics/WebGPU/WebGPUPresentationContextDescriptor.h>
-#include <pal/graphics/WebGPU/WebGPUSupportedFeatures.h>
-#include <pal/graphics/WebGPU/WebGPUSupportedLimits.h>
+#include <WebCore/WebGPUPresentationContextDescriptor.h>
+#include <WebCore/WebGPUSupportedFeatures.h>
+#include <WebCore/WebGPUSupportedLimits.h>
 
 namespace WebKit {
 
-RemoteGPUProxy::RemoteGPUProxy(GPUProcessConnection& gpuProcessConnection, WebGPU::ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier, RenderingBackendIdentifier renderingBackend)
-    : m_backing(identifier)
-    , m_convertToBackingContext(convertToBackingContext)
-    , m_gpuProcessConnection(&gpuProcessConnection)
+RefPtr<RemoteGPUProxy> RemoteGPUProxy::create(GPUProcessConnection& gpuProcessConnection, WebGPU::ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier, RenderingBackendIdentifier renderingBackend)
 {
     constexpr size_t connectionBufferSizeLog2 = 21;
     auto [clientConnection, serverConnectionHandle] = IPC::StreamClientConnection::create(connectionBufferSizeLog2);
-    m_streamConnection = WTFMove(clientConnection);
-    m_gpuProcessConnection->addClient(*this);
-    m_gpuProcessConnection->connection().send(Messages::GPUConnectionToWebProcess::CreateRemoteGPU(identifier, renderingBackend, WTFMove(serverConnectionHandle)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    if (!clientConnection)
+        return nullptr;
+    auto remoteGPUProxy = adoptRef(new RemoteGPUProxy(gpuProcessConnection, clientConnection.releaseNonNull(), convertToBackingContext, identifier));
+    remoteGPUProxy->initializeIPC(WTFMove(serverConnectionHandle), renderingBackend);
+    return remoteGPUProxy;
+}
+
+
+RemoteGPUProxy::RemoteGPUProxy(GPUProcessConnection& gpuProcessConnection, Ref<IPC::StreamClientConnection> clientConnection, WebGPU::ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier)
+    : m_backing(identifier)
+    , m_convertToBackingContext(convertToBackingContext)
+    , m_gpuProcessConnection(&gpuProcessConnection)
+    , m_streamConnection(WTFMove(clientConnection))
+{
+}
+
+RemoteGPUProxy::~RemoteGPUProxy()
+{
+    disconnectGpuProcessIfNeeded();
+}
+
+void RemoteGPUProxy::initializeIPC(IPC::StreamServerConnection::Handle&& serverConnectionHandle, RenderingBackendIdentifier renderingBackend)
+{
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get()) {
+        gpuProcessConnection->addClient(*this);
+        gpuProcessConnection->connection().send(Messages::GPUConnectionToWebProcess::CreateRemoteGPU(m_backing, renderingBackend, WTFMove(serverConnectionHandle)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    }
     m_streamConnection->open(*this);
     // TODO: We must wait until initialized, because at the moment we cannot receive IPC messages
     // during wait while in synchronous stream send. Should be fixed as part of https://bugs.webkit.org/show_bug.cgi?id=217211.
     waitUntilInitialized();
 }
 
-RemoteGPUProxy::~RemoteGPUProxy() = default;
+void RemoteGPUProxy::disconnectGpuProcessIfNeeded()
+{
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get()) {
+        m_streamConnection->invalidate();
+        gpuProcessConnection->connection().send(Messages::GPUConnectionToWebProcess::ReleaseRemoteGPU(m_backing), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+        m_gpuProcessConnection = nullptr;
+    }
+}
 
 void RemoteGPUProxy::gpuProcessConnectionDidClose(GPUProcessConnection& connection)
 {
-    ASSERT(m_gpuProcessConnection);
-    ASSERT(&connection == m_gpuProcessConnection);
+    ASSERT(m_gpuProcessConnection.get());
+    ASSERT(&connection == m_gpuProcessConnection.get());
     abandonGPUProcess();
 }
 
@@ -87,12 +115,12 @@ void RemoteGPUProxy::waitUntilInitialized()
 {
     if (m_didInitialize)
         return;
-    if (m_streamConnection->waitForAndDispatchImmediately<Messages::RemoteGPUProxy::WasCreated>(m_backing, defaultSendTimeout))
+    if (m_streamConnection->waitForAndDispatchImmediately<Messages::RemoteGPUProxy::WasCreated>(m_backing, defaultSendTimeout) == IPC::Error::NoError)
         return;
     m_lost = true;
 }
 
-void RemoteGPUProxy::requestAdapter(const PAL::WebGPU::RequestAdapterOptions& options, CompletionHandler<void(RefPtr<PAL::WebGPU::Adapter>&&)>&& callback)
+void RemoteGPUProxy::requestAdapter(const WebCore::WebGPU::RequestAdapterOptions& options, CompletionHandler<void(RefPtr<WebCore::WebGPU::Adapter>&&)>&& callback)
 {
     if (m_lost) {
         callback(nullptr);
@@ -108,7 +136,7 @@ void RemoteGPUProxy::requestAdapter(const PAL::WebGPU::RequestAdapterOptions& op
 
     auto identifier = WebGPUIdentifier::generate();
     auto sendResult = sendSync(Messages::RemoteGPU::RequestAdapter(*convertedOptions, identifier));
-    if (!sendResult) {
+    if (!sendResult.succeeded()) {
         m_lost = true;
         callback(nullptr);
         return;
@@ -119,13 +147,14 @@ void RemoteGPUProxy::requestAdapter(const PAL::WebGPU::RequestAdapterOptions& op
         return;
     }
 
-    auto resultSupportedFeatures = PAL::WebGPU::SupportedFeatures::create(WTFMove(response->features.features));
-    auto resultSupportedLimits = PAL::WebGPU::SupportedLimits::create(
+    auto resultSupportedFeatures = WebCore::WebGPU::SupportedFeatures::create(WTFMove(response->features.features));
+    auto resultSupportedLimits = WebCore::WebGPU::SupportedLimits::create(
         response->limits.maxTextureDimension1D,
         response->limits.maxTextureDimension2D,
         response->limits.maxTextureDimension3D,
         response->limits.maxTextureArrayLayers,
         response->limits.maxBindGroups,
+        response->limits.maxBindingsPerBindGroup,
         response->limits.maxDynamicUniformBuffersPerPipelineLayout,
         response->limits.maxDynamicStorageBuffersPerPipelineLayout,
         response->limits.maxSampledTexturesPerShaderStage,
@@ -138,9 +167,13 @@ void RemoteGPUProxy::requestAdapter(const PAL::WebGPU::RequestAdapterOptions& op
         response->limits.minUniformBufferOffsetAlignment,
         response->limits.minStorageBufferOffsetAlignment,
         response->limits.maxVertexBuffers,
+        response->limits.maxBufferSize,
         response->limits.maxVertexAttributes,
         response->limits.maxVertexBufferArrayStride,
         response->limits.maxInterStageShaderComponents,
+        response->limits.maxInterStageShaderVariables,
+        response->limits.maxColorAttachments,
+        response->limits.maxColorAttachmentBytesPerSample,
         response->limits.maxComputeWorkgroupStorageSize,
         response->limits.maxComputeInvocationsPerWorkgroup,
         response->limits.maxComputeWorkgroupSizeX,
@@ -151,7 +184,7 @@ void RemoteGPUProxy::requestAdapter(const PAL::WebGPU::RequestAdapterOptions& op
     callback(WebGPU::RemoteAdapterProxy::create(WTFMove(response->name), WTFMove(resultSupportedFeatures), WTFMove(resultSupportedLimits), response->isFallbackAdapter, *this, m_convertToBackingContext, identifier));
 }
 
-Ref<PAL::WebGPU::PresentationContext> RemoteGPUProxy::createPresentationContext(const PAL::WebGPU::PresentationContextDescriptor& descriptor)
+Ref<WebCore::WebGPU::PresentationContext> RemoteGPUProxy::createPresentationContext(const WebCore::WebGPU::PresentationContextDescriptor& descriptor)
 {
     // FIXME: Should we be consulting m_lost?
 
@@ -174,7 +207,7 @@ Ref<PAL::WebGPU::PresentationContext> RemoteGPUProxy::createPresentationContext(
     return result;
 }
 
-Ref<PAL::WebGPU::CompositorIntegration> RemoteGPUProxy::createCompositorIntegration()
+Ref<WebCore::WebGPU::CompositorIntegration> RemoteGPUProxy::createCompositorIntegration()
 {
     // FIXME: Should we be consulting m_lost?
 

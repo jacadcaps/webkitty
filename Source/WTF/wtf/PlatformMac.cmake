@@ -13,7 +13,6 @@ list(APPEND WTF_PUBLIC_HEADERS
     WeakObjCPtr.h
 
     cf/CFURLExtras.h
-    cf/SpanCF.h
     cf/TypeCastsCF.h
     cf/VectorCF.h
 
@@ -22,7 +21,6 @@ list(APPEND WTF_PUBLIC_HEADERS
     cocoa/NSURLExtras.h
     cocoa/RuntimeApplicationChecksCocoa.h
     cocoa/SoftLinking.h
-    cocoa/SpanCocoa.h
     cocoa/TollFreeBridging.h
     cocoa/TypeCastsCocoa.h
     cocoa/VectorCocoa.h
@@ -115,7 +113,7 @@ add_custom_command(
         ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
     MAIN_DEPENDENCY mac/MachExceptions.defs
     WORKING_DIRECTORY ${WTF_DERIVED_SOURCES_DIR}
-    COMMAND mig -DMACH_EXC_SERVER_TASKIDTOKEN -sheader MachExceptionsServer.h MachExceptions2.defs
+    COMMAND mig -sheader MachExceptionsServer.h MachExceptions.defs
     VERBATIM)
 list(APPEND WTF_SOURCES
     ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c

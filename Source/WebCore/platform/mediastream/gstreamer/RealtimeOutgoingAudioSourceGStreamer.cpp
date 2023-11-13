@@ -33,8 +33,8 @@ GST_DEBUG_CATEGORY(webkit_webrtc_outgoing_audio_debug);
 
 namespace WebCore {
 
-RealtimeOutgoingAudioSourceGStreamer::RealtimeOutgoingAudioSourceGStreamer(const String& mediaStreamId, MediaStreamTrack& track)
-    : RealtimeOutgoingMediaSourceGStreamer(mediaStreamId, track)
+RealtimeOutgoingAudioSourceGStreamer::RealtimeOutgoingAudioSourceGStreamer(const RefPtr<UniqueSSRCGenerator>& ssrcGenerator, const String& mediaStreamId, MediaStreamTrack& track)
+    : RealtimeOutgoingMediaSourceGStreamer(ssrcGenerator, mediaStreamId, track)
 {
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -88,8 +88,6 @@ bool RealtimeOutgoingAudioSourceGStreamer::setPayloadType(const GRefPtr<GstCaps>
         m_encoder = makeGStreamerElement("alawenc", nullptr);
     else if (encoding == "pcmu"_s)
         m_encoder = makeGStreamerElement("mulawenc", nullptr);
-    else if (encoding == "isac"_s)
-        m_encoder = makeGStreamerElement("isacenc", nullptr);
     else {
         GST_ERROR_OBJECT(m_bin.get(), "Unsupported outgoing audio encoding: %s", encodingName);
         return false;
@@ -194,6 +192,13 @@ void RealtimeOutgoingAudioSourceGStreamer::linkOutgoingSource()
     gst_pad_link(srcPad.get(), sinkPad.get());
     g_object_set(m_inputSelector.get(), "active-pad", sinkPad.get(), nullptr);
 }
+
+void RealtimeOutgoingAudioSourceGStreamer::setParameters(GUniquePtr<GstStructure>&& parameters)
+{
+    m_parameters = WTFMove(parameters);
+}
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

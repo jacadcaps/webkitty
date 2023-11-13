@@ -307,10 +307,14 @@ const struct wl_pointer_listener WindowViewBackend::s_pointerListener = {
             window.m_seatData.axis_discrete.vertical = -discrete;
             break;
         }
-    },
+    }
 #ifdef WL_POINTER_AXIS_VALUE120_SINCE_VERSION
     // axis_value120
-    [](void*, struct wl_pointer*, uint32_t, int32_t) { }
+    , [](void*, struct wl_pointer*, uint32_t, int32_t) { }
+#endif
+#ifdef WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION
+    // axis_relative_direction
+    , [](void*, struct wl_pointer*, uint32_t, uint32_t) { }
 #endif
 };
 
@@ -822,10 +826,11 @@ WindowViewBackend::WindowViewBackend(uint32_t width, uint32_t height)
         m_program = glCreateProgram();
         glAttachShader(m_program, vertexShader);
         glAttachShader(m_program, fragmentShader);
-        glLinkProgram(m_program);
 
         glBindAttribLocation(m_program, 0, "pos");
         glBindAttribLocation(m_program, 1, "texture");
+
+        glLinkProgram(m_program);
         m_textureUniform = glGetUniformLocation(m_program, "u_texture");
     }
 

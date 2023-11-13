@@ -29,7 +29,6 @@
 
 #define ENABLE_MOMENTUM_EVENT_DISPATCHER_TEMPORARY_LOGGING 0
 
-#include "DisplayLinkObserverID.h"
 #include "ScrollingAccelerationCurve.h"
 #include "WebWheelEvent.h"
 #include <WebCore/FloatSize.h>
@@ -59,6 +58,10 @@ public:
 
     private:
         virtual void handleSyntheticWheelEvent(WebCore::PageIdentifier, const WebWheelEvent&, WebCore::RectEdges<bool> rubberBandableEdges) = 0;
+        
+        virtual void startDisplayDidRefreshCallbacks(WebCore::PlatformDisplayID) = 0;
+        virtual void stopDisplayDidRefreshCallbacks(WebCore::PlatformDisplayID) = 0;
+
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER_TEMPORARY_LOGGING)
         virtual void flushMomentumEventLoggingSoon() = 0;
 #endif
@@ -71,7 +74,7 @@ public:
 
     void setScrollingAccelerationCurve(WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>);
 
-    void displayWasRefreshed(WebCore::PlatformDisplayID, const WebCore::DisplayUpdate&);
+    void displayDidRefresh(WebCore::PlatformDisplayID);
 
     void pageScreenDidChange(WebCore::PageIdentifier, WebCore::PlatformDisplayID, std::optional<unsigned> nominalFramesPerSecond);
 
@@ -84,6 +87,8 @@ private:
     void didEndMomentumPhase();
 
     bool eventShouldStartSyntheticMomentumPhase(WebCore::PageIdentifier, const WebWheelEvent&) const;
+
+    std::optional<ScrollingAccelerationCurve> scrollingAccelerationCurveForPage(WebCore::PageIdentifier) const;
 
     void startDisplayLink();
     void stopDisplayLink();
@@ -167,10 +172,10 @@ private:
 #endif
     } m_currentGesture;
 
-    DisplayLinkObserverID m_observerID;
-
     HashMap<WebCore::PageIdentifier, DisplayProperties> m_displayProperties;
-    HashMap<WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>> m_accelerationCurves;
+
+    mutable Lock m_accelerationCurvesLock;
+    HashMap<WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>> m_accelerationCurves WTF_GUARDED_BY_LOCK(m_accelerationCurvesLock);
     Client& m_client;
 };
 

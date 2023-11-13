@@ -33,6 +33,7 @@
 #include <gtk/gtk.h>
 #include <wtf/Platform.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WTFProcess.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/Base64.h>
@@ -47,11 +48,6 @@ void TestController::notifyDone()
 
 void TestController::platformInitialize(const Options&)
 {
-}
-
-WKPreferencesRef TestController::platformPreferences()
-{
-    return WKPageGroupGetPreferences(m_pageGroup.get());
 }
 
 void TestController::platformDestroy()
@@ -90,7 +86,7 @@ static char* getEnvironmentVariableAsUTF8String(const char* variableName)
     const char* value = g_getenv(variableName);
     if (!value) {
         fprintf(stderr, "%s environment variable not found\n", variableName);
-        exit(0);
+        exitProcess(0);
     }
     gsize bytesWritten;
     return g_filename_to_utf8(value, -1, 0, &bytesWritten, 0);
@@ -104,8 +100,7 @@ void TestController::initializeInjectedBundlePath()
 
 void TestController::initializeTestPluginDirectory()
 {
-    GUniquePtr<char> testPluginPath(getEnvironmentVariableAsUTF8String("TEST_RUNNER_TEST_PLUGIN_PATH"));
-    m_testPluginDirectory.adopt(WKStringCreateWithUTF8CString(testPluginPath.get()));
+    // Plugins are no longer supported in WebKit (see WKContextSetAdditionalPluginsDirectory()).
 }
 
 void TestController::platformInitializeContext()

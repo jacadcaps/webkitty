@@ -94,11 +94,6 @@ public:
     const String& destinationFilename() const { return m_destinationFilename; }
     void setDestinationFilename(const String& d) { m_destinationFilename = d; }
 
-#if USE(SYSTEM_PREVIEW)
-    bool isSystemPreviewDownload() const { return request().isSystemPreview(); }
-    WebCore::SystemPreviewInfo systemPreviewDownloadInfo() const { RELEASE_ASSERT(request().systemPreviewInfo().has_value()); return *request().systemPreviewInfo(); }
-#endif
-
 #if PLATFORM(COCOA)
     void publishProgress(const URL&);
     void setProgress(NSProgress *progress) { m_progress = progress; }
@@ -122,7 +117,7 @@ public:
     void didCreateDestination(const String& path);
     void didFinish();
     void didFail(const WebCore::ResourceError&, const IPC::DataReference& resumeData);
-    void willSendRequest(WebCore::ResourceRequest&& redirectRequest, const WebCore::ResourceResponse& redirectResponse);
+    void willSendRequest(WebCore::ResourceRequest&& redirectRequest, const WebCore::ResourceResponse& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
     void decideDestinationWithSuggestedFilename(const WebCore::ResourceResponse&, String&& suggestedFilename, CompletionHandler<void(String, SandboxExtension::Handle, AllowOverwrite)>&&);
 
 private:

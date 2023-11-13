@@ -29,13 +29,13 @@
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
 
 #import "UIKitSPI.h"
-#import "UserInterfaceIdiom.h"
 #import "WKContentView.h"
 #import "WKContentViewInteraction.h"
 #import "WKWebViewPrivateForTesting.h"
 #import "WebPageProxy.h"
 #import <UIKit/UIDatePicker.h>
 #import <WebCore/LocalizedStrings.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SetForScope.h>
 
@@ -345,7 +345,8 @@ static const CGFloat kDateTimePickerToolbarHeight = 44;
         return nil;
     }
 
-    return [super initWithView:view control:adoptNS([[WKDateTimePicker alloc] initWithView:view datePickerMode:mode])];
+    self = [super initWithView:view control:adoptNS([[WKDateTimePicker alloc] initWithView:view datePickerMode:mode])];
+    return self;
 }
 
 @end

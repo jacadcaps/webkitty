@@ -1,5 +1,5 @@
 /*
-  * Copyright (C) 2017 Apple Inc. All rights reserved.
+  * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
   *
   * Redistribution and use in source and binary forms, with or without
   * modification, are permitted provided that the following conditions
@@ -35,7 +35,6 @@
 #import <UIKit/UIAction_Private.h>
 #import <UIKit/UIApplication_Private.h>
 #import <UIKit/UIBarButtonItemGroup_Private.h>
-#import <UIKit/UICalloutBar.h>
 #import <UIKit/UIKeyboardImpl.h>
 #import <UIKit/UIKeyboard_Private.h>
 #import <UIKit/UIResponder_Private.h>
@@ -50,7 +49,6 @@
 #import <UIKit/UIViewController_Private.h>
 #import <UIKit/UIWKTextInteractionAssistant.h>
 #import <UIKit/UIWebFormAccessory.h>
-#import <UIKit/UIWebTouchEventsGestureRecognizer.h>
 #import <UIKit/_UINavigationInteractiveTransition.h>
 
 IGNORE_WARNINGS_BEGIN("deprecated-implementations")
@@ -58,13 +56,13 @@ IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 #import <UIKit/UIWebView_Private.h>
 IGNORE_WARNINGS_END
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
 @protocol UIDragSession;
 @class UIDragInteraction;
 @class UIDragItem;
 #import <UIKit/NSItemProvider+UIKitAdditions_Private.h>
 #import <UIKit/UIDragInteraction_Private.h>
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS) || PLATFORM(VISION)
 
 #else // USE(APPLE_INTERNAL_SDK)
 
@@ -74,17 +72,6 @@ IGNORE_WARNINGS_END
 @property (readonly) NSArray<NSString *> *alternativeStrings;
 @property (readonly) BOOL isLowConfidence;
 @end
-
-#if !HAVE(NSTEXTLIST_MARKER_FORMATS)
-@interface NSParagraphStyle ()
-- (NSArray *)textLists;
-@end
-
-@interface NSTextList : NSObject
-@property NSInteger startingItemNumber;
-@property (readonly, copy) NSString *markerFormat;
-@end
-#endif
 
 WTF_EXTERN_C_BEGIN
 
@@ -100,7 +87,8 @@ WTF_EXTERN_C_END
 @protocol UITextInputTraits_Private <NSObject, UITextInputTraits>
 @property (nonatomic, readonly) UIColor *insertionPointColor;
 @property (nonatomic, readonly) UIColor *selectionBarColor;
-@property (nonatomic, readwrite) BOOL isSingleLineDocument;
+@property (nonatomic) BOOL isSingleLineDocument;
+@property (nonatomic) BOOL learnsCorrections;
 @end
 
 @interface UITextInputTraits : NSObject <UITextInputTraits, UITextInputTraits_Private, NSCopying>
@@ -153,11 +141,6 @@ WTF_EXTERN_C_END
 @end
 
 @interface UIKeyboard : UIView
-@end
-
-@interface UICalloutBar : UIView
-+ (UICalloutBar *)sharedCalloutBar;
-+ (UICalloutBar *)activeCalloutBar;
 @end
 
 @interface _UINavigationInteractiveTransitionBase : UIPercentDrivenInteractiveTransition
@@ -329,19 +312,20 @@ typedef NS_ENUM(NSInteger, _UITextSearchMatchMethod) {
 
 @interface UIKeyboard ()
 + (BOOL)isInHardwareKeyboardMode;
++ (BOOL)usesInputSystemUI;
 @end
 
 @interface UIKeyboardImpl (UIKitIPI)
 - (BOOL)_shouldSuppressSoftwareKeyboard;
 @end
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
 
 @protocol UIDropInteractionDelegate_Private <UIDropInteractionDelegate>
 - (void)_dropInteraction:(UIDropInteraction *)interaction delayedPreviewProviderForDroppingItem:(UIDragItem *)item previewProvider:(void(^)(UITargetedDragPreview *preview))previewProvider;
 @end
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS) || PLATFORM(VISION)
 
 typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
     _UIClickInteractionEventBegan = 0,
@@ -373,13 +357,6 @@ typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
 @property (nonatomic, readonly) BOOL _requiresKeyboardWhenFirstResponder;
 @end
 
-@interface UIWebGeolocationPolicyDecider : NSObject
-@end
-
-@interface UIWebGeolocationPolicyDecider ()
-+ (instancetype)sharedPolicyDecider;
-@end
-
 @protocol UIWKInteractionViewProtocol_Staging_91919121 <UIWKInteractionViewProtocol>
 @optional
 - (void)willInsertFinalDictationResult;
@@ -398,6 +375,12 @@ typedef NS_ENUM(NSUInteger, _UIClickInteractionEvent) {
 @property (nonatomic, readwrite) NSStringCompareOptions stringCompareOptions;
 @end
 
+#endif
+
+#if HAVE(AUTOCORRECTION_ENHANCEMENTS)
+@interface UIWKDocumentContext (Staging_112795757)
+@property (nonatomic, copy) NSArray<NSValue *> *autocorrectedRanges;
+@end
 #endif
 
 #endif // PLATFORM(IOS_FAMILY)

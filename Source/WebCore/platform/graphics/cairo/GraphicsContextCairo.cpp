@@ -192,6 +192,11 @@ void GraphicsContextCairo::fillRect(const FloatRect& rect, const Color& color)
     Cairo::fillRect(*this, rect, color, Cairo::ShadowState(state()));
 }
 
+void GraphicsContextCairo::resetClip()
+{
+    ASSERT_NOT_REACHED("resetClip is not supported on Cairo");
+}
+
 void GraphicsContextCairo::clip(const FloatRect& rect)
 {
     Cairo::clip(*this, rect);
@@ -263,12 +268,12 @@ void GraphicsContextCairo::didUpdateState(GraphicsContextState& state)
         Cairo::State::setStrokeStyle(*this, state.strokeStyle());
 
     // FIXME: m_state should not be changed to flip the shadow offset. This can happen when the shadow is applied to the platform context.
-    if (state.changes().contains(GraphicsContextState::Change::DropShadow)) {
-        if (state.shadowsIgnoreTransforms()) {
+    if (state.changes().contains(GraphicsContextState::Change::Style)) {
+        auto dropShadow = state.dropShadow();
+        if (dropShadow && state.shadowsIgnoreTransforms()) {
             // Meaning that this graphics context is associated with a CanvasRenderingContext
             // We flip the height since CG and HTML5 Canvas have opposite Y axis
-            auto& shadowOffset = state.dropShadow().offset;
-            m_state.m_dropShadow.offset = { shadowOffset.width(), -shadowOffset.height() };
+            m_state.m_style = GraphicsDropShadow { { dropShadow->offset.width(), -dropShadow->offset.height() }, dropShadow->radius, dropShadow->color, dropShadow->radiusMode };
         }
     }
 
@@ -379,41 +384,6 @@ void GraphicsContextCairo::drawPattern(NativeImage& nativeImage, const FloatRect
 RenderingMode GraphicsContextCairo::renderingMode() const
 {
     return Cairo::State::isAcceleratedContext(*platformContext()) ? RenderingMode::Accelerated : RenderingMode::Unaccelerated;
-}
-
-void GraphicsContextCairo::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothing)
-{
-    if (!font.platformData().size())
-        return;
-
-    auto xOffset = point.x();
-    Vector<cairo_glyph_t> cairoGlyphs(numGlyphs);
-    {
-        auto yOffset = point.y();
-        for (size_t i = 0; i < numGlyphs; ++i) {
-            cairoGlyphs[i] = { glyphs[i], xOffset, yOffset };
-            xOffset += advances[i].width();
-            yOffset += advances[i].height();
-        }
-    }
-
-    cairo_scaled_font_t* scaledFont = font.platformData().scaledFont();
-    double syntheticBoldOffset = font.syntheticBoldOffset();
-
-    if (!font.allowsAntialiasing())
-        fontSmoothing = FontSmoothingMode::NoSmoothing;
-
-    auto& state = this->state();
-    Cairo::drawGlyphs(*this, Cairo::FillSource(state), Cairo::StrokeSource(state),
-        Cairo::ShadowState(state), point, scaledFont, syntheticBoldOffset, cairoGlyphs, xOffset,
-        state.textDrawingMode(), state.strokeThickness(), state.dropShadow().offset, state.dropShadow().color,
-        fontSmoothing);
-}
-
-void GraphicsContextCairo::drawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
-{
-    auto positionedGlyphs = decomposedGlyphs.positionedGlyphs();
-    return drawGlyphs(font, positionedGlyphs.glyphs.data(), positionedGlyphs.advances.data(), positionedGlyphs.glyphs.size(), positionedGlyphs.localAnchor, positionedGlyphs.smoothingMode);
 }
 
 cairo_t* GraphicsContextCairo::cr() const

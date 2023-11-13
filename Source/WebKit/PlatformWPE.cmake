@@ -145,6 +145,7 @@ set(WPE_API_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditingCommands.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditorState.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitError.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFeature.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFileChooserRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFindController.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFormSubmissionRequest.h.in
@@ -337,7 +338,7 @@ add_custom_command(
     VERBATIM
 )
 
-list(APPEND WebKit_INCLUDE_DIRECTORIES
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${DERIVED_SOURCES_WPE_API_DIR}"
     "${FORWARDING_HEADERS_WPE_DIR}"
     "${FORWARDING_HEADERS_WPE_EXTENSION_DIR}"
@@ -351,6 +352,7 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/API/glib"
     "${WEBKIT_DIR}/Shared/CoordinatedGraphics"
     "${WEBKIT_DIR}/Shared/CoordinatedGraphics/threadedcompositor"
+    "${WEBKIT_DIR}/Shared/Extensions"
     "${WEBKIT_DIR}/Shared/glib"
     "${WEBKIT_DIR}/Shared/libwpe"
     "${WEBKIT_DIR}/Shared/soup"
@@ -429,6 +431,11 @@ else ()
         ${GSTREAMER_LIBRARIES}
     )
 endif ()
+
+list(APPEND WebKit_INTERFACE_INCLUDE_DIRECTORIES
+    ${FORWARDING_HEADERS_WPE_DIR}
+    ${WebKit_DERIVED_SOURCES_DIR}
+)
 
 if (ENABLE_MEDIA_STREAM)
     list(APPEND WebKit_SOURCES

@@ -24,21 +24,23 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerMediaStreamSource.h"
-#include "GStreamerWebRTCUtils.h"
 #include "MediaStreamTrack.h"
 
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
+#include <wtf/UUID.h>
+
 GST_DEBUG_CATEGORY(webkit_webrtc_outgoing_media_debug);
 #define GST_CAT_DEFAULT webkit_webrtc_outgoing_media_debug
 
 namespace WebCore {
 
-RealtimeOutgoingMediaSourceGStreamer::RealtimeOutgoingMediaSourceGStreamer(const String& mediaStreamId, MediaStreamTrack& track)
+RealtimeOutgoingMediaSourceGStreamer::RealtimeOutgoingMediaSourceGStreamer(const RefPtr<UniqueSSRCGenerator>& ssrcGenerator, const String& mediaStreamId, MediaStreamTrack& track)
     : m_mediaStreamId(mediaStreamId)
     , m_trackId(track.id())
+    , m_ssrcGenerator(ssrcGenerator)
 {
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -48,6 +50,7 @@ RealtimeOutgoingMediaSourceGStreamer::RealtimeOutgoingMediaSourceGStreamer(const
     m_bin = gst_bin_new(nullptr);
 
     m_inputSelector = gst_element_factory_make("input-selector", nullptr);
+    gst_util_set_object_arg(G_OBJECT(m_inputSelector.get()), "sync-mode", "clock");
 
     m_preEncoderQueue = gst_element_factory_make("queue", nullptr);
     m_postEncoderQueue = gst_element_factory_make("queue", nullptr);
@@ -67,6 +70,17 @@ RealtimeOutgoingMediaSourceGStreamer::~RealtimeOutgoingMediaSourceGStreamer()
 
     if (m_transceiver)
         g_signal_handlers_disconnect_by_data(m_transceiver.get(), this);
+
+    if (m_fallbackSource) {
+        gst_element_set_locked_state(m_fallbackSource.get(), TRUE);
+        gst_element_set_state(m_fallbackSource.get(), GST_STATE_READY);
+        gst_element_unlink(m_fallbackSource.get(), m_inputSelector.get());
+        gst_element_set_state(m_fallbackSource.get(), GST_STATE_NULL);
+        gst_element_release_request_pad(m_inputSelector.get(), m_fallbackPad.get());
+        gst_element_set_locked_state(m_fallbackSource.get(), FALSE);
+    }
+
+    stopOutgoingSource();
 
     if (GST_IS_PAD(m_webrtcSinkPad.get())) {
         auto srcPad = adoptGRef(gst_element_get_static_pad(m_bin.get(), "src"));
@@ -90,8 +104,8 @@ const GRefPtr<GstCaps>& RealtimeOutgoingMediaSourceGStreamer::allowedCaps() cons
         return m_allowedCaps;
 
     auto sdpMsIdLine = makeString(m_mediaStreamId, ' ', m_trackId);
-    m_allowedCaps = capsFromRtpCapabilities(rtpCapabilities(), [&sdpMsIdLine](GstStructure* structure) {
-        gst_structure_set(structure, "a-msid", G_TYPE_STRING, sdpMsIdLine.ascii().data(), nullptr);
+    m_allowedCaps = capsFromRtpCapabilities(m_ssrcGenerator, rtpCapabilities(), [&sdpMsIdLine](GstStructure* structure) {
+        gst_structure_set(structure, "a-msid", G_TYPE_STRING, sdpMsIdLine.utf8().data(), nullptr);
     });
 
     GST_DEBUG_OBJECT(m_bin.get(), "Allowed caps: %" GST_PTR_FORMAT, m_allowedCaps.get());
@@ -103,7 +117,7 @@ void RealtimeOutgoingMediaSourceGStreamer::setSource(Ref<MediaStreamTrackPrivate
     if (m_source && !m_initialSettings)
         m_initialSettings = m_source.value()->settings();
 
-    GST_DEBUG_OBJECT(m_bin.get(), "Setting source to %s", newSource->id().ascii().data());
+    GST_DEBUG_OBJECT(m_bin.get(), "Setting source to %s", newSource->id().utf8().data());
 
     if (m_source.has_value())
         stopOutgoingSource();
@@ -237,6 +251,35 @@ void RealtimeOutgoingMediaSourceGStreamer::setSinkPad(GRefPtr<GstPad>&& pad)
     }), this);
     g_object_get(m_transceiver.get(), "sender", &m_sender.outPtr(), nullptr);
 }
+
+GUniquePtr<GstStructure> RealtimeOutgoingMediaSourceGStreamer::parameters()
+{
+    if (!m_parameters) {
+        auto transactionId = createVersion4UUIDString();
+        m_parameters.reset(gst_structure_new("send-parameters", "transaction-id", G_TYPE_STRING, transactionId.ascii().data(), nullptr));
+
+        GUniquePtr<GstStructure> encodingParameters(gst_structure_new("encoding-parameters", "active", G_TYPE_BOOLEAN, TRUE, nullptr));
+
+        if (m_payloader) {
+            uint32_t ssrc;
+            g_object_get(m_payloader.get(), "ssrc", &ssrc, nullptr);
+            gst_structure_set(encodingParameters.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
+        }
+        fillEncodingParameters(encodingParameters);
+
+        GValue encodingsValue = G_VALUE_INIT;
+        g_value_init(&encodingsValue, GST_TYPE_LIST);
+        GValue value = G_VALUE_INIT;
+        g_value_init(&value, GST_TYPE_STRUCTURE);
+        gst_value_set_structure(&value, encodingParameters.get());
+        gst_value_list_append_value(&encodingsValue, &value);
+        g_value_unset(&value);
+        gst_structure_take_value(m_parameters.get(), "encodings", &encodingsValue);
+    }
+    return GUniquePtr<GstStructure>(gst_structure_copy(m_parameters.get()));
+}
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

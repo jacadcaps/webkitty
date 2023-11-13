@@ -25,7 +25,6 @@ import logging
 import os
 import json
 import re
-import six
 import subprocess
 import sys
 import time
@@ -324,6 +323,7 @@ class Git(Scm):
         'webkitscmpy.auto-create-commit': ['true', 'false'],
         'webkitscmpy.auto-prune': ['only-source', 'true', 'false'],
         'webkitscmpy.cc-radar': ['true', 'false'],
+        'webkitscmpy.set-upstream-on-push': ['false', 'true'],
     }
     CONFIG_LOCATIONS = ['global', 'repository', 'project']
 
@@ -538,15 +538,17 @@ class Git(Scm):
 
     @decorators.Memoize()
     def source_remotes(self, cached=True, personal=False):
-        candidates = [self.default_remote]
+        security_levels = {}
         config = self.config(cached=cached)
         for candidate in config.keys():
-            if not candidate.startswith('webkitscmpy.remotes'):
+            if not candidate.startswith('webkitscmpy.remotes') or not candidate.endswith('url'):
                 continue
-            candidate = candidate.split('.')[-1]
-            if candidate in candidates:
-                continue
+            candidate = candidate.split('.')[-2]
             if config.get('remote.{}.url'.format(candidate)):
+                security_levels[candidate] = int(config.get('webkitscmpy.remotes.{}.security-level'.format(candidate), '0'))
+        candidates = [self.default_remote] if security_levels.get(self.default_remote, 0) == 0 else []
+        for _, candidate in sorted([(v, k) for k, v in security_levels.items()]):
+            if candidate not in candidates:
                 candidates.append(candidate)
 
         personal_remotes = []
@@ -601,10 +603,22 @@ class Git(Scm):
         if remote is False:
             return sorted(result[None])
         if remote is True:
-            return sorted(set.union(*result.values()))
+            return sorted(set.union(*result.values())) if result else []
         if isinstance(remote, string_utils.basestring):
             return sorted(result.get(remote, []))
         return result
+
+    def _is_on_default_branch(self, hash):
+        branches = self.branches_for(remote=None)
+        remote_keys = [None] + self.source_remotes()
+        default_branch = self.default_branch
+        for key in remote_keys:
+            if default_branch in branches.get(key, []):
+                return run([
+                    self.executable(), 'merge-base', '--is-ancestor', hash,
+                    'remotes/{}/{}'.format(key, default_branch) if key else default_branch,
+                ], cwd=self.root_path, capture_output=True, encoding='utf-8').returncode == 0
+        return default_branch in self.branches_for(hash)
 
     def commit(self, hash=None, revision=None, identifier=None, branch=None, tag=None, include_log=True, include_identifier=True):
         # Only git-svn checkouts can convert revisions to fully qualified commits, unless we happen to have a SVN cache built
@@ -674,7 +688,7 @@ class Git(Scm):
                 baseline = branch or 'HEAD'
                 is_default = baseline == default_branch
                 if baseline == 'HEAD':
-                    is_default = default_branch in self.branches_for(baseline)
+                    is_default = self._is_on_default_branch(baseline)
 
                 if is_default and parsed_branch_point:
                     raise self.Exception('Cannot provide a branch point for a commit on the default branch')
@@ -688,7 +702,7 @@ class Git(Scm):
                     )
 
                 if identifier > base_count:
-                    raise self.Exception('Identifier {} cannot be found on the specified branch in the current checkout'.format(identifier))
+                    raise self.Exception('Identifier {} cannot be found on the specified branch in the current checkout. Latest identifier on this branch is {}'.format(identifier, base_count))
                 log = run(
                     [self.executable(), 'log', '{}~{}'.format(branch or 'HEAD', base_count - identifier)] + log_format + ['--'],
                     cwd=self.root_path,
@@ -730,16 +744,18 @@ class Git(Scm):
 
         branch_point = None
         # A commit is often on multiple branches, the canonical branch is the one with the highest priority
+        if self._is_on_default_branch(hash):
+            branch = default_branch
         if branch != default_branch:
             branch = self.prioritize_branches(self.branches_for(hash), self.branch)
 
-        if not identifier and include_identifier:
+        if not identifier and include_identifier and branch:
             cached_identifier = self.cache.to_identifier(hash=hash, branch=branch) if self.cache else None
             if cached_identifier:
                 branch_point, identifier, branch = Commit._parse_identifier(cached_identifier)
 
         # Compute the identifier if the function did not receive one and we were asked to
-        if not identifier and include_identifier:
+        if not identifier and include_identifier and branch:
             if branch == default_branch:
                 identifier = self._commit_count(hash)
             else:
@@ -749,7 +765,7 @@ class Git(Scm):
                 )
 
         # Only compute the branch point we're on something other than the default branch
-        if not branch_point and include_identifier and branch != default_branch:
+        if not branch_point and include_identifier and branch != default_branch and branch:
             branch_point = self._commit_count(hash) - identifier
         if branch_point and parsed_branch_point and branch_point != parsed_branch_point:
             raise ValueError("Provided 'branch_point' does not match branch point of specified branch")
@@ -906,7 +922,7 @@ class Git(Scm):
                 log.kill()
 
     def find(self, argument, include_log=True, include_identifier=True):
-        if not isinstance(argument, six.string_types):
+        if not isinstance(argument, string_utils.basestring):
             raise ValueError("Expected 'argument' to be a string, not '{}'".format(type(argument)))
 
         # Map any candidate default branch to the one used by this repository
@@ -940,7 +956,7 @@ class Git(Scm):
     def _to_git_ref(self, argument):
         if not argument:
             return None
-        if not isinstance(argument, six.string_types):
+        if not isinstance(argument, string_utils.basestring):
             raise ValueError("Expected 'argument' to be a string, not '{}'".format(type(argument)))
         parsed_commit = Commit.parse(argument, do_assert=False)
         try:

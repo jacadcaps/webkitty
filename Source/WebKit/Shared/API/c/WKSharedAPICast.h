@@ -42,11 +42,11 @@
 #include "WKGeometry.h"
 #include "WKImage.h"
 #include "WKPageLoadTypes.h"
-#include "WKPageLoadTypesPrivate.h"
 #include "WKPageVisibilityTypes.h"
 #include "WKUserContentInjectedFrames.h"
 #include "WKUserScriptInjectionTime.h"
 #include "WebFindOptions.h"
+#include "WebFrameProxy.h"
 #include "WebMouseEvent.h"
 #include <WebCore/ContextMenuItem.h>
 #include <WebCore/DiagnosticLoggingResultType.h>
@@ -932,8 +932,6 @@ inline WKLayoutMilestones toWKLayoutMilestones(OptionSet<WebCore::LayoutMileston
         wkMilestones |= kWKDidFirstVisuallyNonEmptyLayout;
     if (milestones & WebCore::DidHitRelevantRepaintedObjectsAreaThreshold)
         wkMilestones |= kWKDidHitRelevantRepaintedObjectsAreaThreshold;
-    if (milestones & WebCore::DidFirstFlushForHeaderLayer)
-        wkMilestones |= kWKDidFirstFlushForHeaderLayer;
     if (milestones & WebCore::DidFirstLayoutAfterSuppressedIncrementalRendering)
         wkMilestones |= kWKDidFirstLayoutAfterSuppressedIncrementalRendering;
     if (milestones & WebCore::DidFirstPaintAfterSuppressedIncrementalRendering)
@@ -956,8 +954,6 @@ inline OptionSet<WebCore::LayoutMilestone> toLayoutMilestones(WKLayoutMilestones
         milestones.add(WebCore::DidFirstVisuallyNonEmptyLayout);
     if (wkMilestones & kWKDidHitRelevantRepaintedObjectsAreaThreshold)
         milestones.add(WebCore::DidHitRelevantRepaintedObjectsAreaThreshold);
-    if (wkMilestones & kWKDidFirstFlushForHeaderLayer)
-        milestones.add(WebCore::DidFirstFlushForHeaderLayer);
     if (wkMilestones & kWKDidFirstLayoutAfterSuppressedIncrementalRendering)
         milestones.add(WebCore::DidFirstLayoutAfterSuppressedIncrementalRendering);
     if (wkMilestones & kWKDidFirstPaintAfterSuppressedIncrementalRendering)

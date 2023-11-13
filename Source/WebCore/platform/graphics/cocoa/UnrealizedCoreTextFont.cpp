@@ -31,8 +31,9 @@
 #include "FontDescription.h"
 #include "FontInterrogation.h"
 #include "FontMetricsNormalization.h"
-
+#include <CoreFoundation/CoreFoundation.h>
 #include <optional>
+#include <pal/spi/cf/CoreTextSPI.h>
 
 namespace WebCore {
 
@@ -73,6 +74,28 @@ UnrealizedCoreTextFont::operator bool() const
         return font;
     }, [](const RetainPtr<CTFontDescriptorRef>& fontDescriptor) -> bool {
         return fontDescriptor;
+    });
+}
+
+void UnrealizedCoreTextFont::addAttributesForOpticalSizing(CFMutableDictionaryRef attributes, VariationsMap& variationsToBeApplied, const OpticalSizingType& opticalSizingType, CGFloat size)
+{
+    WTF::switchOn(opticalSizingType, [&](OpticalSizingTypes::None) {
+        CFDictionarySetValue(attributes, kCTFontOpticalSizeAttribute, CFSTR("none"));
+    }, [&](OpticalSizingTypes::JustVariation) {
+#if USE(VARIABLE_OPTICAL_SIZING)
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=252592 We should never be enabling just the opsz variation without also enabling trak.
+        // We should delete this and use the OpticalSizingType::Everything path instead.
+        variationsToBeApplied.set({ { 'o', 'p', 's', 'z' } }, size);
+#else
+        UNUSED_PARAM(variationsToBeApplied);
+        UNUSED_PARAM(size);
+#endif
+    }, [&](const OpticalSizingTypes::Everything& everything) {
+        if (everything.opticalSizingValue) {
+            auto number = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &everything.opticalSizingValue.value()));
+            CFDictionarySetValue(attributes, kCTFontOpticalSizeAttribute, number.get());
+        } else
+            CFDictionarySetValue(attributes, kCTFontOpticalSizeAttribute, CFSTR("auto"));
     });
 }
 
@@ -153,8 +176,6 @@ static void addAttributesForFontPalettes(CFMutableDictionaryRef attributes, cons
     }
 }
 
-using VariationsMap = HashMap<FontTag, float, FourCharacterTagHash, FourCharacterTagHashTraits>;
-
 static void applyFeatures(CFMutableDictionaryRef attributes, const FeaturesMap& featuresToBeApplied)
 {
     if (featuresToBeApplied.isEmpty())
@@ -174,7 +195,7 @@ static void applyFeatures(CFMutableDictionaryRef attributes, const FeaturesMap& 
     CFDictionarySetValue(attributes, kCTFontFeatureSettingsAttribute, featureArray.get());
 }
 
-static void applyVariations(CFMutableDictionaryRef attributes, const VariationsMap& variationsToBeApplied)
+void UnrealizedCoreTextFont::applyVariations(CFMutableDictionaryRef attributes, const VariationsMap& variationsToBeApplied)
 {
     if (variationsToBeApplied.isEmpty())
         return;
@@ -195,9 +216,8 @@ static void applyVariations(CFMutableDictionaryRef attributes, const VariationsM
     CFDictionarySetValue(attributes, kCTFontVariationAttribute, variationDictionary.get());
 }
 
-static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, ApplyTraitsVariations applyTraitsVariations, float weight, float width, float slope)
+void UnrealizedCoreTextFont::modifyFromContext(CFMutableDictionaryRef attributes, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, ApplyTraitsVariations applyTraitsVariations, float weight, float width, float slope, CGFloat size, const OpticalSizingType& opticalSizingType)
 {
-    auto fontOpticalSizing = fontDescription.opticalSizing();
     auto fontStyleAxis = fontDescription.fontStyleAxis();
     const auto& variations = fontDescription.variationSettings();
     const auto& features = fontDescription.featureSettings();
@@ -209,9 +229,6 @@ static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescr
     FeaturesMap featuresToBeApplied;
     VariationsMap variationsToBeApplied;
 
-    // Step 1: CoreText handles default features (such as required ligatures).
-
-    // Step 2: font-weight, font-stretch, and font-style
     // The system font is somewhat magical. Don't mess with its variations.
     if (applyTraitsVariations == ApplyTraitsVariations::Yes) {
         variationsToBeApplied.set({ { 'w', 'g', 'h', 't' } }, weight);
@@ -222,23 +239,20 @@ static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescr
             variationsToBeApplied.set({ { 's', 'l', 'n', 't' } }, slope);
     }
 
-    // FIXME: Implement Step 5: font-named-instance
+    // FIXME: Implement font-named-instance
 
-    // FIXME: Implement Step 6: the font-variation-settings descriptor inside @font-face
+    // FIXME: Implement the font-variation-settings descriptor inside @font-face
 
-    // Step 7: Consult with font-feature-settings inside @font-face
     if (fontCreationContext.fontFaceFeatures()) {
         for (auto& fontFaceFeature : *fontCreationContext.fontFaceFeatures())
             featuresToBeApplied.set(fontFaceFeature.tag(), fontFaceFeature.value());
     }
 
-    // FIXME: Move font-optical-sizing handling here. It should be step 9.
+    addAttributesForOpticalSizing(attributes, variationsToBeApplied, opticalSizingType, size);
 
-    // Step 10: Font-variant
     for (auto& newFeature : computeFeatureSettingsFromVariants(variantSettings, fontCreationContext.fontFeatureValues()))
         featuresToBeApplied.set(newFeature.key, newFeature.value);
 
-    // Step 11: Other properties
     if (textRenderingMode == TextRenderingMode::OptimizeSpeed) {
         featuresToBeApplied.set(fontFeatureTag("liga"), 0);
         featuresToBeApplied.set(fontFeatureTag("clig"), 0);
@@ -254,23 +268,14 @@ static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescr
         // Core Text doesn't disable calt when letter-spacing is applied, so we won't either.
     }
 
-    // Step 13: Font-feature-settings
     for (auto& newFeature : features)
         featuresToBeApplied.set(newFeature.tag(), newFeature.value());
 
-    // Step 12: font-variation-settings
     for (auto& newVariation : variations)
         variationsToBeApplied.set(newVariation.tag(), newVariation.value());
 
     applyFeatures(attributes, featuresToBeApplied);
     applyVariations(attributes, variationsToBeApplied);
-
-    // Step 9: font-optical-sizing
-    // FIXME: Apply this before font-variation-settings
-    if (textRenderingMode == TextRenderingMode::OptimizeLegibility)
-        CFDictionarySetValue(attributes, kCTFontOpticalSizeAttribute, CFSTR("auto"));
-    else if (fontOpticalSizing == FontOpticalSizing::Disabled)
-        CFDictionarySetValue(attributes, kCTFontOpticalSizeAttribute, CFSTR("none"));
 
     addAttributesForFontPalettes(attributes, fontDescription.fontPalette(), fontCreationContext.fontPaletteValues());
 
@@ -280,10 +285,6 @@ static void modifyFromContext(CFMutableDictionaryRef attributes, const FontDescr
 void UnrealizedCoreTextFont::modifyFromContext(const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, FontTypeForPreparation fontTypeForPreparation, ApplyTraitsVariations applyTraitsVariations, bool shouldEnhanceTextLegibility)
 {
     m_applyTraitsVariations = applyTraitsVariations;
-#if USE(NON_VARIABLE_SYSTEM_FONT)
-    if (fontTypeForPreparation == FontTypeForPreparation::SystemFont)
-        m_applyTraitsVariations = ApplyTraitsVariations::No;
-#endif
 
     if (m_applyTraitsVariations == ApplyTraitsVariations::Yes) {
         auto fontSelectionRequest = fontDescription.fontSelectionRequest();
@@ -304,11 +305,107 @@ void UnrealizedCoreTextFont::modifyFromContext(const FontDescription& fontDescri
         }
     }
 
+    m_size = getSize();
+
     m_variationSettings = fontDescription.variationSettings();
 
+    if (fontDescription.textRenderingMode() == TextRenderingMode::OptimizeLegibility) {
+        std::optional<float> opticalSizingValue;
+#if USE(CORE_TEXT_OPTICAL_SIZING_WORKAROUND)
+        // We can delete this when rdar://problem/104370451 is fixed.
+        // And then we can change OpticalSizingType back to an enum instead of a variant.
+        auto iterator = std::find_if(std::begin(m_variationSettings), std::end(m_variationSettings), [opsz = fontFeatureTag("opsz")](const FontVariationSettings::Setting& setting) {
+            return setting.tag() == opsz;
+        });
+        if (iterator != m_variationSettings.end()) {
+            // Core Text's auto optical sizing clobbers whatever font-variation-settings says, which is not how the
+            // web is supposed to work, so we can explicitly specify a value for Core Text to use.
+            opticalSizingValue = iterator->value();
+        }
+#endif
+        m_opticalSizingType = OpticalSizingTypes::Everything { WTFMove(opticalSizingValue) };
+    } else if (fontDescription.opticalSizing() == FontOpticalSizing::Disabled)
+        m_opticalSizingType = OpticalSizingTypes::None { };
+    else
+        m_opticalSizingType = OpticalSizingTypes::JustVariation { };
+
     modify([&](CFMutableDictionaryRef attributes) {
-        WebCore::modifyFromContext(attributes, fontDescription, fontCreationContext, m_applyTraitsVariations, m_weight, m_width, m_slope);
+        modifyFromContext(attributes, fontDescription, fontCreationContext, m_applyTraitsVariations, m_weight, m_width, m_slope, m_size, m_opticalSizingType);
     });
+}
+
+// The purpose of this function is to determine whether we need to rebuild the font.
+// We need to rebuild the font if naively creating a big dictionary of attributes and giving it to Core Text
+// doesn't end up creating the font that CSS requires to be created.
+// The common case will be that we usually don't have to rebuild fonts.
+// Once rdar://problem/105483251 and rdar://problem/108877507 are solved, we can delete this function and the whole font rebuilding codepath.
+auto UnrealizedCoreTextFont::rebuildReason(CTFontRef font) const -> RebuildReason
+{
+    RebuildReason rebuildReason;
+    std::optional<VariationDefaultsMap> lazyDefaultVariations;
+
+    // Both OpenType 1.8 and TrueType GX support font variations, using the same named keys and values.
+    // However, the scale is different between the two: OpenType uses the CSS scale, whereas TrueType
+    // uses a 0-1-2 scale.
+    //
+    // However, we don't actually know whether the font is a TrueType GX font or not until we create a
+    // CTFont. Now, after we've created the font, we can check to see whether or not our guess was correct.
+    // If it wasn't, we have to recreate the font with the normalized values.
+    if (m_applyTraitsVariations == ApplyTraitsVariations::Yes && FontInterrogation(font).variationType == FontInterrogation::VariationType::TrueTypeGX) {
+        lazyDefaultVariations = defaultVariationValues(font, ShouldLocalizeAxisNames::No);
+        if (lazyDefaultVariations->contains({ { 'w', 'g', 'h', 't' } })
+            || lazyDefaultVariations->contains({ { 'w', 'd', 't', 'h' } })
+            || lazyDefaultVariations->contains({ { 'i', 't', 'a', 'l' } })
+            || lazyDefaultVariations->contains({ { 's', 'l', 'n', 't' } }))
+            rebuildReason.gxVariations = true;
+    }
+
+    // On some OSes, all out-of-bounds variations need to be manually clamped.
+    // Here, our job is just to detect if an out of bounds value exists.
+    // If one does, we'll set rebuildReason.variationDefaults, which realize() will use to actually do the clamping.
+    // When the fix for rdar://problem/108877507 is deployed everywhere, we can delete this.
+#if USE(CORE_TEXT_VARIATIONS_CLAMPING_WORKAROUND)
+    if (!lazyDefaultVariations)
+        lazyDefaultVariations = defaultVariationValues(font, ShouldLocalizeAxisNames::No);
+
+    auto isOutOfBounds = [&lazyDefaultVariations](FontTag fontTag, float value) {
+        auto iterator = lazyDefaultVariations->find(fontTag);
+        if (iterator == lazyDefaultVariations->end()) {
+            // We can't be out of bounds if there is no range.
+            return false;
+        }
+        return !iterator->value.contains(value);
+    };
+
+    auto isOpticalSizeOutOfBounds = [&isOutOfBounds](float value) {
+        return isOutOfBounds({ { 'o', 'p', 's', 'z' } }, value);
+    };
+
+    WTF::switchOn(m_opticalSizingType, [&](OpticalSizingTypes::None) {
+        // We can't be out of bounds if there is no value.
+    }, [&](OpticalSizingTypes::JustVariation) {
+        if (isOpticalSizeOutOfBounds(m_size))
+            rebuildReason.variationDefaults = lazyDefaultVariations;
+    }, [&](const OpticalSizingTypes::Everything& everything) {
+        if (!everything.opticalSizingValue) {
+            // We can't be out of bounds if there is no value.
+            return;
+        }
+        if (isOpticalSizeOutOfBounds(*everything.opticalSizingValue))
+            rebuildReason.variationDefaults = lazyDefaultVariations;
+    });
+
+    if (!rebuildReason.variationDefaults) {
+        for (const auto& variationSetting : m_variationSettings) {
+            if (isOutOfBounds(variationSetting.tag(), variationSetting.value())) {
+                rebuildReason.variationDefaults = lazyDefaultVariations;
+                break;
+            }
+        }
+    }
+#endif
+
+    return rebuildReason;
 }
 
 RetainPtr<CTFontRef> UnrealizedCoreTextFont::realize() const
@@ -316,64 +413,108 @@ RetainPtr<CTFontRef> UnrealizedCoreTextFont::realize() const
     if (!static_cast<bool>(*this))
         return nullptr;
 
-    auto size = getSize();
-
-    auto font = WTF::switchOn(m_baseFont, [this, size](const RetainPtr<CTFontRef>& font) -> RetainPtr<CTFontRef> {
+    auto font = WTF::switchOn(m_baseFont, [this](const RetainPtr<CTFontRef>& font) -> RetainPtr<CTFontRef> {
         if (!font)
             return nullptr;
         if (!CFDictionaryGetCount(m_attributes.get()))
             return font;
         auto modification = adoptCF(CTFontDescriptorCreateWithAttributes(m_attributes.get()));
-        return adoptCF(CTFontCreateCopyWithAttributes(font.get(), size, nullptr, modification.get()));
-    }, [this, size](const RetainPtr<CTFontDescriptorRef>& fontDescriptor) -> RetainPtr<CTFontRef> {
+        return adoptCF(CTFontCreateCopyWithAttributes(font.get(), m_size, nullptr, modification.get()));
+    }, [this](const RetainPtr<CTFontDescriptorRef>& fontDescriptor) -> RetainPtr<CTFontRef> {
         if (!fontDescriptor)
             return nullptr;
         if (!CFDictionaryGetCount(m_attributes.get()))
-            return adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), size, nullptr));
+            return adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), m_size, nullptr));
         auto updatedFontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor.get(), m_attributes.get()));
-        return adoptCF(CTFontCreateWithFontDescriptor(updatedFontDescriptor.get(), size, nullptr));
+        return adoptCF(CTFontCreateWithFontDescriptor(updatedFontDescriptor.get(), m_size, nullptr));
     });
     ASSERT(font);
 
-    // Both OpenType 1.8 and TrueType GX support font variations, using the same named keys and values.
-    // However, the scale is different between the two: OpenType uses the CSS scale, whereas TrueType
-    // uses a 0-1-2 scale.
-    //
-    // However, we don't actually know whether the font is a TrueType GX font or not until we create a
-    // CTFont (which is done just above). The vast majority of fonts are OpenType fonts, so we
-    // opportunistically assume the font at hand is one of those and set the values accordingly. Now,
-    // after we've created the font, we can check to see whether or not our guess was correct. If it
-    // wasn't, we have to recreate the font with the normalized values.
-    //
-    // Once rdar://problem/105483251 is solved, we can delete this section.
-    if (m_applyTraitsVariations == ApplyTraitsVariations::Yes && FontInterrogation(font.get()).variationType == FontInterrogation::VariationType::TrueTypeGX) {
-        auto variationValues = defaultVariationValues(font.get(), ShouldLocalizeAxisNames::No);
-        if (variationValues.contains({ { 'w', 'g', 'h', 't' } })
-            || variationValues.contains({ { 'w', 'd', 't', 'h' } })
-            || variationValues.contains({ { 'i', 't', 'a', 'l' } })
-            || variationValues.contains({ { 's', 'l', 'n', 't' } })) {
-            VariationsMap variationsToBeApplied;
+    if (auto rebuildReason = this->rebuildReason(font.get()); rebuildReason.hasEffect()) {
+        VariationsMap variationsToBeApplied;
+        std::optional<VariationDefaultsMap> variationDefaults = WTFMove(rebuildReason.variationDefaults);
+#if USE(CORE_TEXT_VARIATIONS_CLAMPING_WORKAROUND)
+        // Even if everything was in-bounds, we still have to clamp,
+        // because normalization might put us out-of-bounds.
+        if (!variationDefaults)
+            variationDefaults = defaultVariationValues(font.get(), ShouldLocalizeAxisNames::No);
+#endif
 
-            auto weight = denormalizeGXWeight(m_weight);
-            auto width = denormalizeVariationWidth(m_width);
-            auto slope = denormalizeSlope(m_slope);
+        auto maybeClampToRange = [&variationDefaults](FontTag fontTag, float value) -> std::optional<float> {
+#if USE(CORE_TEXT_VARIATIONS_CLAMPING_WORKAROUND)
+            ASSERT(variationDefaults);
+            auto iterator = variationDefaults->find(fontTag);
+            if (iterator == variationDefaults->end()) {
+                // The font doesn't support this variation axis.
+                return { };
+            }
+            return iterator->value.clamp(value);
+#else
+            UNUSED_PARAM(variationDefaults);
+            UNUSED_PARAM(fontTag);
+            return value;
+#endif
+        };
 
-            variationsToBeApplied.set({ { 'w', 'g', 'h', 't' } }, weight);
-            variationsToBeApplied.set({ { 'w', 'd', 't', 'h' } }, width);
-            if (m_fontStyleAxis == FontStyleAxis::ital)
-                variationsToBeApplied.set({ { 'i', 't', 'a', 'l' } }, 1);
-            else
-                variationsToBeApplied.set({ { 's', 'l', 'n', 't' } }, slope);
+        auto setVariation = [&variationsToBeApplied, &maybeClampToRange](FontTag fontTag, float value) {
+            if (auto clamped = maybeClampToRange(fontTag, value))
+                variationsToBeApplied.set(fontTag, value);
+        };
 
-            for (auto& newVariation : m_variationSettings)
-                variationsToBeApplied.set(newVariation.tag(), newVariation.value());
+        auto weight = m_weight;
+        auto width = m_width;
+        auto slope = m_slope;
 
-            auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-            applyVariations(attributes.get(), variationsToBeApplied);
-
-            auto modification = adoptCF(CTFontDescriptorCreateWithAttributes(attributes.get()));
-            return adoptCF(CTFontCreateCopyWithAttributes(font.get(), size, nullptr, modification.get()));
+        if (rebuildReason.gxVariations) {
+            weight = denormalizeGXWeight(m_weight);
+            width = denormalizeVariationWidth(m_width);
+            slope = denormalizeSlope(m_slope);
         }
+
+        {
+            setVariation({ { 'w', 'g', 'h', 't' } }, weight);
+            setVariation({ { 'w', 'd', 't', 'h' } }, width);
+            if (m_fontStyleAxis == FontStyleAxis::ital)
+                setVariation({ { 'i', 't', 'a', 'l' } }, 1);
+            else
+                setVariation({ { 's', 'l', 'n', 't' } }, slope);
+        }
+
+        auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+
+        {
+            auto maybeClampToOpticalSizingRange = [&maybeClampToRange](float value) {
+                return maybeClampToRange({ { 'o', 'p', 's', 'z' } }, value);
+            };
+
+            OpticalSizingType usedOpticalSizingType = m_opticalSizingType;
+            CGFloat usedSize = m_size;
+
+            WTF::switchOn(m_opticalSizingType, [&](OpticalSizingTypes::None) {
+                // No optical sizing means there's no value that needs to be clamped.
+            }, [&](OpticalSizingTypes::JustVariation) {
+                if (auto clampedValue = maybeClampToOpticalSizingRange(m_size))
+                    usedSize = *clampedValue;
+            }, [&](const OpticalSizingTypes::Everything& everything) {
+                if (!everything.opticalSizingValue) {
+                    // Auto optical sizing means there's no value that needs to be clamped.
+                    return;
+                }
+                if (auto clampedValue = maybeClampToOpticalSizingRange(*everything.opticalSizingValue))
+                    usedOpticalSizingType = OpticalSizingTypes::Everything { *clampedValue };
+            });
+            addAttributesForOpticalSizing(attributes.get(), variationsToBeApplied, usedOpticalSizingType, usedSize);
+        }
+
+        {
+            for (auto& variationSetting : m_variationSettings)
+                setVariation(variationSetting.tag(), variationSetting.value());
+
+            applyVariations(attributes.get(), variationsToBeApplied);
+        }
+
+        auto modification = adoptCF(CTFontDescriptorCreateWithAttributes(attributes.get()));
+        return adoptCF(CTFontCreateCopyWithAttributes(font.get(), m_size, nullptr, modification.get()));
     }
 
     return font;

@@ -41,7 +41,6 @@ constexpr char pathSeparator = '/';
 constexpr uint64_t defaultInitialCapacity = 1 * MB;
 constexpr uint64_t defaultMaxCapacityForExponentialGrowth = 256 * MB;
 constexpr uint64_t defaultCapacityStep = 128 * MB;
-constexpr uint64_t defaultMaxCapacity = 16 * GB;
 
 std::unique_ptr<FileSystemStorageHandle> FileSystemStorageHandle::create(FileSystemStorageManager& manager, Type type, String&& path, String&& name)
 {
@@ -67,7 +66,7 @@ std::unique_ptr<FileSystemStorageHandle> FileSystemStorageHandle::create(FileSys
 }
 
 FileSystemStorageHandle::FileSystemStorageHandle(FileSystemStorageManager& manager, Type type, String&& path, String&& name)
-    : m_identifier(WebCore::FileSystemHandleIdentifier::generateThreadSafe())
+    : m_identifier(WebCore::FileSystemHandleIdentifier::generate())
     , m_manager(manager)
     , m_type(type)
     , m_path(WTFMove(path))
@@ -201,7 +200,7 @@ Expected<FileSystemSyncAccessHandleInfo, FileSystemStorageError> FileSystemStora
     }
 
     ASSERT(!m_activeSyncAccessHandle);
-    m_activeSyncAccessHandle = SyncAccessHandleInfo { WebCore::FileSystemSyncAccessHandleIdentifier::generateThreadSafe() };
+    m_activeSyncAccessHandle = SyncAccessHandleInfo { WebCore::FileSystemSyncAccessHandleIdentifier::generate() };
     uint64_t initialCapacity = valueOrDefault(FileSystem::fileSize(m_path));
     return FileSystemSyncAccessHandleInfo { m_activeSyncAccessHandle->identifier, WTFMove(*ipcHandle), initialCapacity };
 }
@@ -260,9 +259,6 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::move(WebCore::Fil
         return FileSystemStorageError::InvalidName;
 
     auto destinationPath = FileSystem::pathByAppendingComponent(path, newName);
-    if (FileSystem::fileExists(destinationPath))
-        return FileSystemStorageError::Unknown;
-
     if (!FileSystem::moveFile(m_path, destinationPath))
         return FileSystemStorageError::Unknown;
 
@@ -304,9 +300,6 @@ void FileSystemStorageHandle::requestNewCapacityForSyncAccessHandle(WebCore::Fil
         return completionHandler(currentCapacity);
 
     if (!m_manager)
-        return completionHandler(std::nullopt);
-
-    if (newCapacity > defaultMaxCapacity)
         return completionHandler(std::nullopt);
 
     if (newCapacity < defaultInitialCapacity)

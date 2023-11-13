@@ -28,16 +28,17 @@
 
 #include "EditorState.h"
 #include "InputMethodState.h"
+#include "MessageSenderInlines.h"
 #include "UserMessage.h"
 #include "WebKitUserMessage.h"
 #include "WebKitWebPagePrivate.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcessExtensionManager.h"
 #include <WebCore/Editor.h>
-#include <WebCore/Frame.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/HTMLInputElement.h>
 #include <WebCore/HTMLTextAreaElement.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Range.h>
 #include <WebCore/TextIterator.h>
 #include <WebCore/UserAgent.h>
@@ -108,7 +109,7 @@ void WebPage::sendMessageToWebProcessExtension(UserMessage&& message)
     sendMessageToWebProcessExtensionWithReply(WTFMove(message), [](UserMessage&&) { });
 }
 
-void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
+void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const
 {
     if (!result.hasPostLayoutAndVisualData() || !frame.view() || frame.view()->needsLayout())
         return;
@@ -125,22 +126,22 @@ void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
     const Editor& editor = frame.editor();
     if (selection.isRange()) {
         if (editor.selectionHasStyle(CSSPropertyFontWeight, "bold"_s) == TriState::True)
-            postLayoutData.typingAttributes |= AttributeBold;
+            postLayoutData.typingAttributes.add(TypingAttribute::Bold);
         if (editor.selectionHasStyle(CSSPropertyFontStyle, "italic"_s) == TriState::True)
-            postLayoutData.typingAttributes |= AttributeItalics;
+            postLayoutData.typingAttributes.add(TypingAttribute::Italics);
         if (editor.selectionHasStyle(CSSPropertyWebkitTextDecorationsInEffect, "underline"_s) == TriState::True)
-            postLayoutData.typingAttributes |= AttributeUnderline;
+            postLayoutData.typingAttributes.add(TypingAttribute::Underline);
         if (editor.selectionHasStyle(CSSPropertyWebkitTextDecorationsInEffect, "line-through"_s) == TriState::True)
-            postLayoutData.typingAttributes |= AttributeStrikeThrough;
+            postLayoutData.typingAttributes.add(TypingAttribute::StrikeThrough);
     } else if (selection.isCaret()) {
         if (editor.selectionStartHasStyle(CSSPropertyFontWeight, "bold"_s))
-            postLayoutData.typingAttributes |= AttributeBold;
+            postLayoutData.typingAttributes.add(TypingAttribute::Bold);
         if (editor.selectionStartHasStyle(CSSPropertyFontStyle, "italic"_s))
-            postLayoutData.typingAttributes |= AttributeItalics;
+            postLayoutData.typingAttributes.add(TypingAttribute::Italics);
         if (editor.selectionStartHasStyle(CSSPropertyWebkitTextDecorationsInEffect, "underline"_s))
-            postLayoutData.typingAttributes |= AttributeUnderline;
+            postLayoutData.typingAttributes.add(TypingAttribute::Underline);
         if (editor.selectionStartHasStyle(CSSPropertyWebkitTextDecorationsInEffect, "line-through"_s))
-            postLayoutData.typingAttributes |= AttributeStrikeThrough;
+            postLayoutData.typingAttributes.add(TypingAttribute::StrikeThrough);
     }
 #endif
 

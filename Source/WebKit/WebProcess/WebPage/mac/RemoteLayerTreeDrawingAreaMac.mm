@@ -28,10 +28,11 @@
 
 #if PLATFORM(MAC)
 
+#import "Logging.h"
 #import "WebPage.h"
 #import "WebPageCreationParameters.h"
-#import <WebCore/FrameView.h>
 #import <WebCore/GraphicsLayer.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/RenderLayerBacking.h>
 
 namespace WebKit {
@@ -63,17 +64,19 @@ std::optional<WebCore::DestinationColorSpace> RemoteLayerTreeDrawingAreaMac::dis
     return m_displayColorSpace;
 }
 
-void RemoteLayerTreeDrawingAreaMac::mainFrameContentSizeChanged(const WebCore::IntSize&)
+void RemoteLayerTreeDrawingAreaMac::mainFrameContentSizeChanged(WebCore::FrameIdentifier, const WebCore::IntSize&)
 {
     // Do nothing. This is only relevant to DelegatedToNativeScrollView implementations.
 }
 
 void RemoteLayerTreeDrawingAreaMac::applyTransientZoomToPage(double scale, FloatPoint origin)
 {
-    auto& frameView = *m_webPage.mainFrameView();
+    auto* frameView = m_webPage.localMainFrameView();
+    if (!frameView)
+        return;
 
     auto unscrolledOrigin = origin;
-    FloatRect unobscuredContentRect = frameView.unobscuredContentRectIncludingScrollbars();
+    FloatRect unobscuredContentRect = frameView->unobscuredContentRectIncludingScrollbars();
     unscrolledOrigin.moveBy(-unobscuredContentRect.location());
     m_webPage.scalePage(scale / m_webPage.viewScaleFactor(), roundedIntPoint(-unscrolledOrigin));
     updateRendering();
@@ -96,14 +99,13 @@ void RemoteLayerTreeDrawingAreaMac::commitTransientZoom(double scale, WebCore::F
 
     scale *= m_webPage.viewScaleFactor();
     
-    // FIXME: Constrain scale and origin
     applyTransientZoomToPage(scale, origin);
 }
 
 void RemoteLayerTreeDrawingAreaMac::willCommitLayerTree(RemoteLayerTreeTransaction& transaction)
 {
     // FIXME: Probably need something here for PDF.
-    auto* frameView = m_webPage.mainFrameView();
+    auto* frameView = m_webPage.localMainFrameView();
     if (!frameView)
         return;
 
@@ -112,6 +114,12 @@ void RemoteLayerTreeDrawingAreaMac::willCommitLayerTree(RemoteLayerTreeTransacti
         return;
 
     transaction.setPageScalingLayerID(renderViewGraphicsLayer->primaryLayerID());
+
+    auto* scrolledContentsLayer = frameView->graphicsLayerForScrolledContents();
+    if (!scrolledContentsLayer)
+        return;
+
+    transaction.setScrolledContentsLayerID(scrolledContentsLayer->primaryLayerID());
 }
 
 } // namespace WebKit

@@ -26,6 +26,7 @@
 interface TestRunner {
     readonly attribute boolean isWebKit2;
     readonly attribute boolean isIOSFamily;
+    readonly attribute boolean isKeyboardImmediatelyAvailable;
 
     // The basics.
     undefined dumpAsText(boolean dumpPixels);
@@ -40,6 +41,7 @@ interface TestRunner {
     undefined waitUntilDownloadFinished();
     undefined setShouldLogDownloadCallbacks(boolean value);
     undefined setShouldLogDownloadSize(boolean value);
+    undefined setShouldDownloadContentDispositionAttachments(boolean value);
 
     const unsigned short RENDER_TREE_SHOW_ALL_LAYERS            = 1;
     const unsigned short RENDER_TREE_SHOW_LAYER_NESTING         = 2;
@@ -214,6 +216,18 @@ interface TestRunner {
     undefined simulateWebNotificationClick(object notification);
     undefined simulateWebNotificationClickForServiceWorkerNotifications();
 
+    // Background fech support
+    DOMString getBackgroundFetchIdentifier();
+    undefined abortBackgroundFetch(DOMString identifier);
+    undefined pauseBackgroundFetch(DOMString identifier);
+    undefined resumeBackgroundFetch(DOMString identifier);
+    undefined simulateClickBackgroundFetch(DOMString identifier);
+    undefined setBackgroundFetchPermission(boolean value);
+    DOMString lastAddedBackgroundFetchIdentifier();
+    DOMString lastRemovedBackgroundFetchIdentifier();
+    DOMString lastUpdatedBackgroundFetchIdentifier();
+    DOMString backgroundFetchState(DOMString identifier);
+
     // Geolocation
     undefined setGeolocationPermission(boolean value);
     undefined setMockGeolocationPosition(double latitude, double longitude, double accuracy, optional double? altitude, optional double? altitudeAccuracy, optional double? heading, optional double? speed, optional double? floorLevel);
@@ -224,6 +238,8 @@ interface TestRunner {
     undefined setScreenWakeLockPermission(boolean value);
 
     // MediaStream
+    undefined setCameraPermission(boolean value);
+    undefined setMicrophonePermission(boolean value);
     undefined setUserMediaPermission(boolean value);
     undefined resetUserMediaPermission();
     undefined setUserMediaPersistentPermissionForOrigin(boolean permission, DOMString origin, DOMString parentOrigin);
@@ -387,8 +403,8 @@ interface TestRunner {
 
     undefined installFakeHelvetica(DOMString configuration);
 
-    undefined addMockCameraDevice(DOMString persistentId, DOMString label);
-    undefined addMockMicrophoneDevice(DOMString persistentId, DOMString label);
+    undefined addMockCameraDevice(DOMString persistentId, DOMString label, object properties);
+    undefined addMockMicrophoneDevice(DOMString persistentId, DOMString label, object properties);
     undefined addMockScreenDevice(DOMString persistentId, DOMString label);
     undefined clearMockMediaDevices();
     undefined removeMockMediaDevice(DOMString persistentId);

@@ -37,6 +37,7 @@
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/InspectorController.h>
+#include <WebCore/Page.h>
 #include <WebCore/Settings.h>
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
@@ -295,7 +296,7 @@ bool RemoteWebInspectorUI::supportsWebExtensions()
     return true;
 }
 
-void RemoteWebInspectorUI::didShowExtensionTab(const Inspector::ExtensionID& extensionID, const Inspector::ExtensionTabID& extensionTabID, WebCore::FrameIdentifier frameID)
+void RemoteWebInspectorUI::didShowExtensionTab(const Inspector::ExtensionID& extensionID, const Inspector::ExtensionTabID& extensionTabID, const WebCore::FrameIdentifier& frameID)
 {
     if (!m_extensionController)
         return;

@@ -385,9 +385,20 @@ void GStreamerElementHarness::flush()
 {
     GST_DEBUG_OBJECT(element(), "Flushing");
 
+    if (!flushBuffers())
+        return;
+
+    m_inputCaps.clear();
+    m_stickyEventsSent.store(false);
+    GST_DEBUG_OBJECT(element(), "Flushing done, input caps and sticky events cleared");
+}
+
+bool GStreamerElementHarness::flushBuffers()
+{
+    GST_DEBUG_OBJECT(element(), "Flushing buffers");
     if (element()->current_state <= GST_STATE_PAUSED) {
         GST_DEBUG_OBJECT(element(), "No need to flush in paused state");
-        return;
+        return false;
     }
 
     processOutputBuffers();
@@ -403,9 +414,8 @@ void GStreamerElementHarness::flush()
         }
     }
 
-    m_inputCaps.clear();
-    m_stickyEventsSent.store(false);
-    GST_DEBUG_OBJECT(element(), "Flushing done");
+    GST_DEBUG_OBJECT(element(), "Buffers flushed");
+    return true;
 }
 
 #ifndef GST_DISABLE_GST_DEBUG
@@ -413,7 +423,7 @@ class MermaidBuilder {
 public:
     MermaidBuilder();
     void process(GStreamerElementHarness&, bool generateFooter = true);
-    Span<uint8_t> span();
+    std::span<uint8_t> span();
 
 private:
     String generatePadId(GStreamerElementHarness&,  GstPad*);
@@ -586,7 +596,7 @@ String MermaidBuilder::describeCaps(const GRefPtr<GstCaps>& caps)
             GUniquePtr<char> serializedValue(gst_value_serialize(value));
             auto valueString = makeString(serializedValue.get());
             if (valueString.length() > 25)
-                builder->append(valueString.substring(0, 25), "…"_s);
+                builder->append(valueString.substring(0, 25), "…");
             else
                 builder->append(valueString);
             builder->append("<br/>"_s);
@@ -596,10 +606,10 @@ String MermaidBuilder::describeCaps(const GRefPtr<GstCaps>& caps)
     return builder.toString();
 }
 
-Span<uint8_t> MermaidBuilder::span()
+std::span<uint8_t> MermaidBuilder::span()
 {
     auto data = m_stringBuilder.span<uint8_t>();
-    return Span { const_cast<uint8_t*>(data.data()), data.size_bytes() };
+    return std::span(const_cast<uint8_t*>(data.data()), data.size_bytes());
 }
 #endif
 
@@ -622,6 +632,8 @@ void GStreamerElementHarness::dumpGraph(const char* filenamePrefix)
     UNUSED_PARAM(filenamePrefix);
 #endif
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

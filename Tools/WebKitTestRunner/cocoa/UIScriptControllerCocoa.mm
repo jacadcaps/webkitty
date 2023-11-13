@@ -26,6 +26,7 @@
 #import "config.h"
 #import "UIScriptControllerCocoa.h"
 
+#import "LayoutTestSpellChecker.h"
 #import "PlatformWebView.h"
 #import "StringFunctions.h"
 #import "TestController.h"
@@ -296,6 +297,25 @@ void UIScriptControllerCocoa::dismissContactPickerWithContacts(JSValueRef contac
     JSContext *context = [JSContext contextWithJSGlobalContextRef:m_context->jsContext()];
     JSValue *value = [JSValue valueWithJSValueRef:contacts inContext:context];
     [webView() _dismissContactPickerWithContacts:[value toArray]];
+}
+
+unsigned long UIScriptControllerCocoa::countOfUpdatesWithLayerChanges() const
+{
+    return webView()._countOfUpdatesWithLayerChanges;
+}
+
+#if ENABLE(IMAGE_ANALYSIS)
+
+uint64_t UIScriptControllerCocoa::currentImageAnalysisRequestID() const
+{
+    return TestController::currentImageAnalysisRequestID();
+}
+
+#endif // ENABLE(IMAGE_ANALYSIS)
+
+void UIScriptControllerCocoa::setSpellCheckerResults(JSValueRef results)
+{
+    [[LayoutTestSpellChecker checker] setResultsFromJSValue:results inContext:m_context->jsContext()];
 }
 
 } // namespace WTR

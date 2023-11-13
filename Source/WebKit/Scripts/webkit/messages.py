@@ -29,7 +29,7 @@ from webkit import parser
 from webkit.model import BUILTIN_ATTRIBUTE, SYNCHRONOUS_ATTRIBUTE, ALLOWEDWHENWAITINGFORSYNCREPLY_ATTRIBUTE, ALLOWEDWHENWAITINGFORSYNCREPLYDURINGUNBOUNDEDIPC_ATTRIBUTE, MAINTHREADCALLBACK_ATTRIBUTE, STREAM_ATTRIBUTE, CALL_WITH_REPLY_ID_ATTRIBUTE, MessageReceiver, Message
 
 _license_header = """/*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -132,6 +132,30 @@ def surround_in_condition(string, condition):
     return '#if %s\n%s#endif\n' % (condition, string)
 
 
+def types_that_must_be_moved():
+    return [
+        'IPC::Connection::Handle',
+        'IPC::StreamServerConnection::Handle',
+        'MachSendRight',
+        'std::optional<MachSendRight>',
+        'std::optional<WebKit::SharedVideoFrame::Buffer>',
+        'Vector<WebKit::SharedMemory::Handle>',
+        'WebCore::GraphicsContextGL::EGLImageSource',
+        'WebKit::ConsumerSharedCARingBuffer::Handle',
+        'WebKit::GPUProcessConnectionParameters',
+        'WebKit::ImageBufferBackendHandle',
+        'WebKit::ShareableBitmap::Handle',
+        'WebKit::ShareableResource::Handle',
+        'WebKit::SharedMemory::Handle',
+        'WebKit::SharedVideoFrame',
+        'WebKit::SharedVideoFrame::Buffer',
+        'WebKit::UpdateInfo',
+        'WebKit::WebProcessCreationParameters',
+        'Win32Handle',
+        'std::optional<Win32Handle>'
+    ]
+
+
 def function_parameter_type(type, kind):
     # Don't use references for built-in types.
     builtin_types = frozenset([
@@ -152,15 +176,26 @@ def function_parameter_type(type, kind):
     if type in builtin_types:
         return type
 
+    if type in types_that_must_be_moved():
+        return '%s&&' % type
+
     if kind.startswith('enum:'):
         return type
 
     return 'const %s&' % type
 
 
+def arguments_constructor_name(type, name):
+    if type in types_that_must_be_moved():
+        return 'WTFMove(%s)' % name
+
+    return name
+
 def message_to_struct_declaration(receiver, message):
     result = []
     function_parameters = [(function_parameter_type(x.type, x.kind), x.name) for x in message.parameters]
+
+    arguments_constructor_parameters = [arguments_constructor_name(x.type, x.name) for x in message.parameters]
 
     result.append('class %s {\n' % message.name)
     result.append('public:\n')
@@ -189,12 +224,12 @@ def message_to_struct_declaration(receiver, message):
 
     if len(function_parameters):
         result.append('    %s%s(%s)' % (len(function_parameters) == 1 and 'explicit ' or '', message.name, ', '.join([' '.join(x) for x in function_parameters])))
-        result.append('\n        : m_arguments(%s)\n' % ', '.join([x[1] for x in function_parameters]))
+        result.append('\n        : m_arguments(%s)\n' % ', '.join(arguments_constructor_parameters))
         result.append('    {\n')
         result.append('    }\n\n')
-    result.append('    const auto& arguments() const\n')
+    result.append('    auto&& arguments()\n')
     result.append('    {\n')
-    result.append('        return m_arguments;\n')
+    result.append('        return WTFMove(m_arguments);\n')
     result.append('    }\n')
     result.append('\n')
     result.append('private:\n')
@@ -226,6 +261,7 @@ def forward_declarations_for_namespace(namespace, kind_and_types):
 # When updating this list, run "make -C Source/WebKit/Scripts/webkit/tests" to keep the webkitpy tests passing.
 def serialized_identifiers():
     return [
+        'WebCore::BackgroundFetchRecordIdentifier',
         'WebCore::BroadcastChannelIdentifier',
         'WebCore::DOMCacheIdentifier',
         'WebCore::DictationContext',
@@ -249,6 +285,7 @@ def serialized_identifiers():
         'WebCore::RealtimeMediaSourceIdentifier',
         'WebCore::RenderingResourceIdentifier',
         'WebCore::ResourceLoaderIdentifier',
+        'WebCore::RTCDataChannelLocalIdentifier',
         'WebCore::SWServerConnectionIdentifier',
         'WebCore::ServiceWorkerIdentifier',
         'WebCore::ServiceWorkerJobIdentifier',
@@ -257,6 +294,7 @@ def serialized_identifiers():
         'WebCore::SleepDisablerIdentifier',
         'WebCore::SpeechRecognitionConnectionClientIdentifier',
         'WebCore::TextCheckingRequestIdentifier',
+        'WebCore::TextManipulationItemIdentifier',
         'WebCore::TextManipulationTokenIdentifier',
         'WebCore::UserMediaRequestIdentifier',
         'WebCore::WebSocketIdentifier',
@@ -264,14 +302,13 @@ def serialized_identifiers():
         'WebKit::AuthenticationChallengeIdentifier',
         'WebKit::ContentWorldIdentifier',
         'WebKit::DataTaskIdentifier',
-        'WebKit::FormSubmitListenerIdentifier',
+        'WebKit::DownloadID',
         'WebKit::GeolocationIdentifier',
         'WebKit::GraphicsContextGLIdentifier',
         'WebKit::IPCConnectionTesterIdentifier',
         'WebKit::IPCStreamTesterIdentifier',
         'WebKit::LegacyCustomProtocolID',
         'WebKit::LibWebRTCResolverIdentifier',
-        'WebKit::MDNSRegisterIdentifier',
         'WebKit::MarkSurfacesAsVolatileRequestIdentifier',
         'WebKit::MediaRecorderIdentifier',
         'WebKit::NetworkResourceLoadIdentifier',
@@ -293,7 +330,9 @@ def serialized_identifiers():
         'WebKit::RemoteRemoteCommandListenerIdentifier',
         'WebKit::RenderingBackendIdentifier',
         'WebKit::RenderingUpdateID',
+        'WebKit::RetrieveRecordResponseBodyCallbackIdentifier',
         'WebKit::SampleBufferDisplayLayerIdentifier',
+        'WebKit::ShapeDetectionIdentifier',
         'WebKit::StorageAreaIdentifier',
         'WebKit::StorageAreaImplIdentifier',
         'WebKit::StorageAreaMapIdentifier',
@@ -334,10 +373,17 @@ def types_that_cannot_be_forward_declared():
         'WebCore::DictationContext',
         'WebCore::DragApplicationFlags',
         'WebCore::FrameIdentifier',
+        'WebCore::GraphicsContextGL::EGLImageSource',
         'WebCore::GraphicsContextGLAttributes',
-        'WebCore::GraphicsLayer::PlatformLayerID',
+        'WebCore::IntDegrees',
+        'WebCore::MediaAccessDenialReason',
         'WebCore::ModalContainerControlType',
         'WebCore::NativeImageReference',
+        'WebCore::PathArc',
+        'WebCore::PathDataBezierCurve',
+        'WebCore::PathDataLine',
+        'WebCore::PathDataQuadCurve',
+        'WebCore::PlatformLayerIdentifier',
         'WebCore::PluginLoadClientPolicy',
         'WebCore::PointerID',
         'WebCore::PolicyCheckIdentifier',
@@ -365,8 +411,6 @@ def types_that_cannot_be_forward_declared():
         'WebKit::RemoteSourceBufferIdentifier',
         'WebKit::RemoteVideoFrameWriteReference',
         'WebKit::RemoteVideoFrameReadReference',
-        'WebKit::RemoteSerializedImageBufferWriteReference',
-        'WebKit::RemoteSerializedImageBufferReadReference',
         'WebKit::RenderingUpdateID',
         'WebKit::TextCheckerRequestID',
         'WebKit::TransactionID',
@@ -374,7 +418,7 @@ def types_that_cannot_be_forward_declared():
         'WebKit::WCContentBufferIdentifier',
         'WebKit::WebExtensionEventListenerType',
         'WebKit::XRDeviceIdentifier',
-    ] + serialized_identifiers())
+    ] + serialized_identifiers() + types_that_must_be_moved())
 
 
 def conditions_for_header(header):
@@ -622,54 +666,7 @@ def headers_for_type(type):
         'MediaTime': ['<wtf/MediaTime.h>'],
         'MonotonicTime': ['<wtf/MonotonicTime.h>'],
         'PAL::SessionID': ['<pal/SessionID.h>'],
-        'PAL::WebGPU::AddressMode': ['<pal/graphics/WebGPU/WebGPUAddressMode.h>'],
-        'PAL::WebGPU::BlendFactor': ['<pal/graphics/WebGPU/WebGPUBlendFactor.h>'],
-        'PAL::WebGPU::BlendOperation': ['<pal/graphics/WebGPU/WebGPUBlendOperation.h>'],
-        'PAL::WebGPU::BufferBindingType': ['<pal/graphics/WebGPU/WebGPUBufferBindingType.h>'],
-        'PAL::WebGPU::BufferDynamicOffset': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::BufferUsageFlags': ['<pal/graphics/WebGPU/WebGPUBufferUsage.h>'],
-        'PAL::WebGPU::CanvasCompositingAlphaMode': ['<pal/graphics/WebGPU/WebGPUCanvasCompositingAlphaMode.h>'],
-        'PAL::WebGPU::ColorWriteFlags': ['<pal/graphics/WebGPU/WebGPUColorWrite.h>'],
-        'PAL::WebGPU::CompareFunction': ['<pal/graphics/WebGPU/WebGPUCompareFunction.h>'],
-        'PAL::WebGPU::CompilationMessageType': ['<pal/graphics/WebGPU/WebGPUCompilationMessageType.h>'],
-        'PAL::WebGPU::ComputePassTimestampLocation': ['<pal/graphics/WebGPU/WebGPUComputePassTimestampLocation.h>'],
-        'PAL::WebGPU::CullMode': ['<pal/graphics/WebGPU/WebGPUCullMode.h>'],
-        'PAL::WebGPU::DepthBias': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::DeviceLostReason': ['<pal/graphics/WebGPU/WebGPUDeviceLostReason.h>'],
-        'PAL::WebGPU::ErrorFilter': ['<pal/graphics/WebGPU/WebGPUErrorFilter.h>'],
-        'PAL::WebGPU::FeatureName': ['<pal/graphics/WebGPU/WebGPUFeatureName.h>'],
-        'PAL::WebGPU::FilterMode': ['<pal/graphics/WebGPU/WebGPUFilterMode.h>'],
-        'PAL::WebGPU::FlagsConstant': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::FrontFace': ['<pal/graphics/WebGPU/WebGPUFrontFace.h>'],
-        'PAL::WebGPU::Index32': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::IndexFormat': ['<pal/graphics/WebGPU/WebGPUIndexFormat.h>'],
-        'PAL::WebGPU::IntegerCoordinate': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::LoadOp': ['<pal/graphics/WebGPU/WebGPULoadOp.h>'],
-        'PAL::WebGPU::MapModeFlags': ['<pal/graphics/WebGPU/WebGPUMapMode.h>'],
-        'PAL::WebGPU::PipelineStatisticName': ['<pal/graphics/WebGPU/WebGPUPipelineStatisticName.h>'],
-        'PAL::WebGPU::PowerPreference': ['<pal/graphics/WebGPU/WebGPUPowerPreference.h>'],
-        'PAL::WebGPU::PredefinedColorSpace': ['<pal/graphics/WebGPU/WebGPUPredefinedColorSpace.h>'],
-        'PAL::WebGPU::PrimitiveTopology': ['<pal/graphics/WebGPU/WebGPUPrimitiveTopology.h>'],
-        'PAL::WebGPU::QueryType': ['<pal/graphics/WebGPU/WebGPUQueryType.h>'],
-        'PAL::WebGPU::RenderPassTimestampLocation': ['<pal/graphics/WebGPU/WebGPURenderPassTimestampLocation.h>'],
-        'PAL::WebGPU::SampleMask': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::SamplerBindingType': ['<pal/graphics/WebGPU/WebGPUSamplerBindingType.h>'],
-        'PAL::WebGPU::ShaderStageFlags': ['<pal/graphics/WebGPU/WebGPUShaderStage.h>'],
-        'PAL::WebGPU::SignedOffset32': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::Size32': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::Size64': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::StencilOperation': ['<pal/graphics/WebGPU/WebGPUStencilOperation.h>'],
-        'PAL::WebGPU::StencilValue': ['<pal/graphics/WebGPU/WebGPUIntegralTypes.h>'],
-        'PAL::WebGPU::StorageTextureAccess': ['<pal/graphics/WebGPU/WebGPUStorageTextureAccess.h>'],
-        'PAL::WebGPU::StoreOp': ['<pal/graphics/WebGPU/WebGPUStoreOp.h>'],
-        'PAL::WebGPU::TextureAspect': ['<pal/graphics/WebGPU/WebGPUTextureAspect.h>'],
-        'PAL::WebGPU::TextureDimension': ['<pal/graphics/WebGPU/WebGPUTextureDimension.h>'],
-        'PAL::WebGPU::TextureFormat': ['<pal/graphics/WebGPU/WebGPUTextureFormat.h>'],
-        'PAL::WebGPU::TextureSampleType': ['<pal/graphics/WebGPU/WebGPUTextureSampleType.h>'],
-        'PAL::WebGPU::TextureUsageFlags': ['<pal/graphics/WebGPU/WebGPUTextureUsage.h>'],
-        'PAL::WebGPU::TextureViewDimension': ['<pal/graphics/WebGPU/WebGPUTextureViewDimension.h>'],
-        'PAL::WebGPU::VertexFormat': ['<pal/graphics/WebGPU/WebGPUVertexFormat.h>'],
-        'PAL::WebGPU::VertexStepMode': ['<pal/graphics/WebGPU/WebGPUVertexStepMode.h>'],
+        'PAL::UserInterfaceIdiom': ['<pal/system/ios/UserInterfaceIdiom.h>'],
         'PlatformXR::Device::FrameData': ['<WebCore/PlatformXR.h>'],
         'PlatformXR::ReferenceSpaceType': ['<WebCore/PlatformXR.h>'],
         'PlatformXR::SessionFeature': ['<WebCore/PlatformXR.h>'],
@@ -678,22 +675,24 @@ def headers_for_type(type):
         'Seconds': ['<wtf/Seconds.h>'],
         'String': ['<wtf/text/WTFString.h>'],
         'URL': ['<wtf/URLHash.h>'],
-        'UUID': ['<wtf/UUID.h>'],
+        'WTF::UUID': ['<wtf/UUID.h>'],
         'WallTime': ['<wtf/WallTime.h>'],
         'WebCore::AlternativeTextType': ['<WebCore/AlternativeTextClient.h>'],
         'WebCore::ApplyTrackingPrevention': ['<WebCore/NetworkStorageSession.h>'],
-        'WebCore::ArcData': ['<WebCore/InlinePathData.h>'],
+        'WebCore::AutocorrectionResponse': ['<WebCore/AlternativeTextClient.h>'],
         'WebCore::AutoplayEventFlags': ['<WebCore/AutoplayEvent.h>'],
         'WebCore::BackForwardItemIdentifier': ['<WebCore/ProcessQualified.h>', '<WebCore/BackForwardItemIdentifier.h>', '<wtf/ObjectIdentifier.h>'],
-        'WebCore::BezierCurveData': ['<WebCore/InlinePathData.h>'],
         'WebCore::BlendMode': ['<WebCore/GraphicsTypes.h>'],
         'WebCore::BrowsingContextGroupSwitchDecision': ['<WebCore/FrameLoaderTypes.h>'],
+        'WebCore::CaptureSourceError': ['<WebCore/RealtimeMediaSource.h>'],
+        'WebCore::CaretAnimatorType': ['<WebCore/CaretAnimator.h>'],
         'WebCore::COEPDisposition': ['<WebCore/CrossOriginEmbedderPolicy.h>'],
         'WebCore::ColorSchemePreference': ['<WebCore/DocumentLoader.h>'],
         'WebCore::CompositeOperator': ['<WebCore/GraphicsTypes.h>'],
         'WebCore::Cookie': ['<WebCore/Cookie.h>'],
         'WebCore::COOPDisposition': ['<WebCore/CrossOriginOpenerPolicy.h>'],
         'WebCore::CreateNewGroupForHighlight': ['<WebCore/AppHighlight.h>'],
+        'WebCore::DiagnosticLoggingDomain': ['<WebCore/DiagnosticLoggingDomain.h>'],
         'WebCore::DictationContext': ['<WebCore/DictationContext.h>'],
         'WebCore::DisplayList::ItemBufferIdentifier': ['<WebCore/DisplayList.h>'],
         'WebCore::DocumentMarkerLineStyle': ['<WebCore/GraphicsTypes.h>'],
@@ -704,6 +703,7 @@ def headers_for_type(type):
         'WebCore::DragOperation': ['<WebCore/DragActions.h>'],
         'WebCore::DragSourceAction': ['<WebCore/DragActions.h>'],
         'WebCore::DynamicRangeMode': ['<WebCore/PlatformScreen.h>'],
+        'WebCore::ElementAnimationContext': ['<WebCore/ElementAnimationContext.h>'],
         'WebCore::ElementContext': ['<WebCore/ElementContext.h>'],
         'WebCore::EventMakesGamepadsVisible': ['<WebCore/GamepadProviderClient.h>'],
         'WebCore::ExceptionDetails': ['<WebCore/JSDOMExceptionHandling.h>'],
@@ -714,6 +714,7 @@ def headers_for_type(type):
         'WebCore::FrameLoadType': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::GenericCueData': ['<WebCore/InbandGenericCue.h>'],
         'WebCore::GrammarDetail': ['<WebCore/TextCheckerClient.h>'],
+        'WebCore::GraphicsContextGL::EGLImageSource': ['<WebCore/GraphicsContextGL.h>'],
         'WebCore::GraphicsContextGLActiveInfo': ['<WebCore/GraphicsContextGL.h>'],
         'WebCore::HasInsecureContent': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::HighlightRequestOriginatedInApp': ['<WebCore/AppHighlight.h>'],
@@ -728,7 +729,6 @@ def headers_for_type(type):
         'WebCore::LastNavigationWasAppInitiated': ['<WebCore/ServiceWorkerClientData.h>'],
         'WebCore::LegacyCDMSessionClient::MediaKeyErrorCode': ['<WebCore/LegacyCDMSession.h>'],
         'WebCore::LineCap': ['<WebCore/GraphicsTypes.h>'],
-        'WebCore::LineData': ['<WebCore/InlinePathData.h>'],
         'WebCore::LineJoin': ['<WebCore/GraphicsTypes.h>'],
         'WebCore::LockBackForwardList': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::MediaEngineSupportParameters': ['<WebCore/MediaPlayer.h>'],
@@ -739,13 +739,16 @@ def headers_for_type(type):
         'WebCore::ModalContainerControlType': ['<WebCore/ModalContainerTypes.h>'],
         'WebCore::ModalContainerDecision': ['<WebCore/ModalContainerTypes.h>'],
         'WebCore::MouseEventPolicy': ['<WebCore/DocumentLoader.h>'],
-        'WebCore::MoveData': ['<WebCore/InlinePathData.h>'],
         'WebCore::NetworkTransactionInformation': ['<WebCore/NetworkLoadInformation.h>'],
         'WebCore::OpaqueOriginIdentifier': ['<WebCore/SecurityOriginData.h>'],
         'WebCore::PasteboardCustomData': ['<WebCore/Pasteboard.h>'],
         'WebCore::PasteboardImage': ['<WebCore/Pasteboard.h>'],
         'WebCore::PasteboardURL': ['<WebCore/Pasteboard.h>'],
         'WebCore::PasteboardWebContent': ['<WebCore/Pasteboard.h>'],
+        'WebCore::PathArc': ['<WebCore/PathSegmentData.h>'],
+        'WebCore::PathDataBezierCurve': ['<WebCore/PathSegmentData.h>'],
+        'WebCore::PathDataLine': ['<WebCore/PathSegmentData.h>'],
+        'WebCore::PathDataQuadCurve': ['<WebCore/PathSegmentData.h>'],
         'WebCore::PixelFormat': ['<WebCore/ImageBufferBackend.h>'],
         'WebCore::PlatformTextTrackData': ['<WebCore/PlatformTextTrack.h>'],
         'WebCore::PlatformWheelEventPhase': ['<WebCore/PlatformWheelEvent.h>'],
@@ -757,9 +760,10 @@ def headers_for_type(type):
         'WebCore::PreserveResolution': ['<WebCore/ImageBufferBackend.h>'],
         'WebCore::ProcessIdentifier': ['<WebCore/ProcessIdentifier.h>'],
         'WebCore::PushSubscriptionIdentifier': ['<WebCore/PushSubscriptionIdentifier.h>'],
-        'WebCore::QuadCurveData': ['<WebCore/InlinePathData.h>'],
+        'WebCore::ReasonForDismissingAlternativeText': ['<WebCore/AlternativeTextClient.h>'],
         'WebCore::RecentSearch': ['<WebCore/SearchPopupMenu.h>'],
         'WebCore::ReloadOption': ['<WebCore/FrameLoaderTypes.h>'],
+        'WebCore::RenderAsTextFlag': ['<WebCore/RenderTreeAsText.h>'],
         'WebCore::RenderingPurpose': ['<WebCore/RenderingMode.h>'],
         'WebCore::RequestStorageAccessResult': ['<WebCore/DocumentStorageAccess.h>'],
         'WebCore::RouteSharingPolicy': ['<WebCore/AudioSession.h>'],
@@ -767,6 +771,7 @@ def headers_for_type(type):
         'WebCore::ScriptExecutionContextIdentifier': ['<WebCore/ProcessQualified.h>', '<WebCore/ScriptExecutionContextIdentifier.h>', '<wtf/ObjectIdentifier.h>'],
         'WebCore::ScrollGranularity': ['<WebCore/ScrollTypes.h>'],
         'WebCore::ScrollPinningBehavior': ['<WebCore/ScrollTypes.h>'],
+        'WebCore::ScrollbarOrientation': ['<WebCore/ScrollTypes.h>'],
         'WebCore::SecurityPolicyViolationEventInit': ['<WebCore/SecurityPolicyViolationEvent.h>'],
         'WebCore::SelectionDirection': ['<WebCore/VisibleSelection.h>'],
         'WebCore::SelectionGeometry': ['"EditorState.h"'],
@@ -776,6 +781,12 @@ def headers_for_type(type):
         'WebCore::ServiceWorkerRegistrationIdentifier': ['<WebCore/ServiceWorkerTypes.h>'],
         'WebCore::ServiceWorkerRegistrationState': ['<WebCore/ServiceWorkerTypes.h>'],
         'WebCore::ServiceWorkerState': ['<WebCore/ServiceWorkerTypes.h>'],
+        'WebCore::ShapeDetection::BarcodeDetectorOptions': ['<WebCore/BarcodeDetectorOptionsInterface.h>'],
+        'WebCore::ShapeDetection::BarcodeFormat': ['<WebCore/BarcodeFormatInterface.h>'],
+        'WebCore::ShapeDetection::DetectedBarcode': ['<WebCore/DetectedBarcodeInterface.h>'],
+        'WebCore::ShapeDetection::DetectedFace': ['<WebCore/DetectedFaceInterface.h>'],
+        'WebCore::ShapeDetection::DetectedText': ['<WebCore/DetectedTextInterface.h>'],
+        'WebCore::ShapeDetection::FaceDetectorOptions': ['<WebCore/FaceDetectorOptionsInterface.h>'],
         'WebCore::ShareDataWithParsedURL': ['<WebCore/ShareData.h>'],
         'WebCore::ShouldContinuePolicyCheck': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::ShouldNotifyWhenResolved': ['<WebCore/ServiceWorkerTypes.h>'],
@@ -797,7 +808,56 @@ def headers_for_type(type):
         'WebCore::VideoPlaybackQualityMetrics': ['<WebCore/VideoPlaybackQualityMetrics.h>'],
         'WebCore::VideoPresetData': ['<WebCore/VideoPreset.h>'],
         'WebCore::ViewportAttributes': ['<WebCore/ViewportArguments.h>'],
+        'WebCore::WebGPU::AddressMode': ['<WebCore/WebGPUAddressMode.h>'],
+        'WebCore::WebGPU::BlendFactor': ['<WebCore/WebGPUBlendFactor.h>'],
+        'WebCore::WebGPU::BlendOperation': ['<WebCore/WebGPUBlendOperation.h>'],
+        'WebCore::WebGPU::BufferBindingType': ['<WebCore/WebGPUBufferBindingType.h>'],
+        'WebCore::WebGPU::BufferDynamicOffset': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::BufferUsageFlags': ['<WebCore/WebGPUBufferUsage.h>'],
+        'WebCore::WebGPU::CanvasCompositingAlphaMode': ['<WebCore/WebGPUCanvasCompositingAlphaMode.h>'],
+        'WebCore::WebGPU::ColorWriteFlags': ['<WebCore/WebGPUColorWrite.h>'],
+        'WebCore::WebGPU::CompareFunction': ['<WebCore/WebGPUCompareFunction.h>'],
+        'WebCore::WebGPU::CompilationMessageType': ['<WebCore/WebGPUCompilationMessageType.h>'],
+        'WebCore::WebGPU::ComputePassTimestampLocation': ['<WebCore/WebGPUComputePassTimestampLocation.h>'],
+        'WebCore::WebGPU::CullMode': ['<WebCore/WebGPUCullMode.h>'],
+        'WebCore::WebGPU::DepthBias': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::DeviceLostReason': ['<WebCore/WebGPUDeviceLostReason.h>'],
+        'WebCore::WebGPU::ErrorFilter': ['<WebCore/WebGPUErrorFilter.h>'],
+        'WebCore::WebGPU::FeatureName': ['<WebCore/WebGPUFeatureName.h>'],
+        'WebCore::WebGPU::FilterMode': ['<WebCore/WebGPUFilterMode.h>'],
+        'WebCore::WebGPU::FlagsConstant': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::FrontFace': ['<WebCore/WebGPUFrontFace.h>'],
+        'WebCore::WebGPU::Index32': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::IndexFormat': ['<WebCore/WebGPUIndexFormat.h>'],
+        'WebCore::WebGPU::IntegerCoordinate': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::LoadOp': ['<WebCore/WebGPULoadOp.h>'],
+        'WebCore::WebGPU::MapModeFlags': ['<WebCore/WebGPUMapMode.h>'],
+        'WebCore::WebGPU::PipelineStatisticName': ['<WebCore/WebGPUPipelineStatisticName.h>'],
+        'WebCore::WebGPU::PowerPreference': ['<WebCore/WebGPUPowerPreference.h>'],
+        'WebCore::WebGPU::PredefinedColorSpace': ['<WebCore/WebGPUPredefinedColorSpace.h>'],
+        'WebCore::WebGPU::PrimitiveTopology': ['<WebCore/WebGPUPrimitiveTopology.h>'],
+        'WebCore::WebGPU::QueryType': ['<WebCore/WebGPUQueryType.h>'],
+        'WebCore::WebGPU::RenderPassTimestampLocation': ['<WebCore/WebGPURenderPassTimestampLocation.h>'],
+        'WebCore::WebGPU::SampleMask': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::SamplerBindingType': ['<WebCore/WebGPUSamplerBindingType.h>'],
+        'WebCore::WebGPU::ShaderStageFlags': ['<WebCore/WebGPUShaderStage.h>'],
+        'WebCore::WebGPU::SignedOffset32': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::Size32': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::Size64': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::StencilOperation': ['<WebCore/WebGPUStencilOperation.h>'],
+        'WebCore::WebGPU::StencilValue': ['<WebCore/WebGPUIntegralTypes.h>'],
+        'WebCore::WebGPU::StorageTextureAccess': ['<WebCore/WebGPUStorageTextureAccess.h>'],
+        'WebCore::WebGPU::StoreOp': ['<WebCore/WebGPUStoreOp.h>'],
+        'WebCore::WebGPU::TextureAspect': ['<WebCore/WebGPUTextureAspect.h>'],
+        'WebCore::WebGPU::TextureDimension': ['<WebCore/WebGPUTextureDimension.h>'],
+        'WebCore::WebGPU::TextureFormat': ['<WebCore/WebGPUTextureFormat.h>'],
+        'WebCore::WebGPU::TextureSampleType': ['<WebCore/WebGPUTextureSampleType.h>'],
+        'WebCore::WebGPU::TextureUsageFlags': ['<WebCore/WebGPUTextureUsage.h>'],
+        'WebCore::WebGPU::TextureViewDimension': ['<WebCore/WebGPUTextureViewDimension.h>'],
+        'WebCore::WebGPU::VertexFormat': ['<WebCore/WebGPUVertexFormat.h>'],
+        'WebCore::WebGPU::VertexStepMode': ['<WebCore/WebGPUVertexStepMode.h>'],
         'WebCore::WheelEventProcessingSteps': ['<WebCore/ScrollingCoordinatorTypes.h>'],
+        'WebCore::WheelScrollGestureState': ['<WebCore/PlatformWheelEvent.h>'],
         'WebCore::WillContinueLoading': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::WillInternallyHandleFailure': ['<WebCore/FrameLoaderTypes.h>'],
         'WebKit::ActivityStateChangeID': ['"DrawingAreaInfo.h"'],
@@ -811,7 +871,6 @@ def headers_for_type(type):
         'WebKit::DocumentEditingContextRequest': ['"DocumentEditingContext.h"'],
         'WebKit::FindDecorationStyle': ['"WebFindOptions.h"'],
         'WebKit::FindOptions': ['"WebFindOptions.h"'],
-        'WebKit::FormSubmitListenerIdentifier': ['"IdentifierTypes.h"'],
         'WebKit::GestureRecognizerState': ['"GestureTypes.h"'],
         'WebKit::GestureType': ['"GestureTypes.h"'],
         'WebKit::LastNavigationWasAppInitiated': ['"AppPrivacyReport.h"'],
@@ -823,8 +882,6 @@ def headers_for_type(type):
         'WebKit::PaymentSetupFeatures': ['"ApplePayPaymentSetupFeaturesWebKit.h"'],
         'WebKit::PrepareBackingStoreBuffersInputData': ['"PrepareBackingStoreBuffersData.h"'],
         'WebKit::PrepareBackingStoreBuffersOutputData': ['"PrepareBackingStoreBuffersData.h"'],
-        'WebKit::RemoteSerializedImageBufferReadReference': ['"RemoteSerializedImageBufferIdentifier.h"'],
-        'WebKit::RemoteSerializedImageBufferWriteReference': ['"RemoteSerializedImageBufferIdentifier.h"'],
         'WebKit::RemoteVideoFrameReadReference': ['"RemoteVideoFrameIdentifier.h"'],
         'WebKit::RemoteVideoFrameWriteReference': ['"RemoteVideoFrameIdentifier.h"'],
         'WebKit::RespectSelectionAnchor': ['"GestureTypes.h"'],
@@ -860,12 +917,14 @@ def headers_for_type(type):
         'WebKit::WebGPU::ExternalTextureBindingLayout': ['"WebGPUExternalTextureBindingLayout.h"'],
         'WebKit::WebGPU::ExternalTextureDescriptor': ['"WebGPUExternalTextureDescriptor.h"'],
         'WebKit::WebGPU::FragmentState': ['"WebGPUFragmentState.h"'],
+        'WebKit::WebGPU::HTMLVideoElementIdentifier': ['"WebGPUExternalTextureDescriptor.h"'],
         'WebKit::WebGPU::Identifier': ['"WebGPUIdentifier.h"'],
         'WebKit::WebGPU::ImageCopyBuffer': ['"WebGPUImageCopyBuffer.h"'],
         'WebKit::WebGPU::ImageCopyExternalImage': ['"WebGPUImageCopyExternalImage.h"'],
         'WebKit::WebGPU::ImageCopyTexture': ['"WebGPUImageCopyTexture.h"'],
         'WebKit::WebGPU::ImageCopyTextureTagged': ['"WebGPUImageCopyTextureTagged.h"'],
         'WebKit::WebGPU::ImageDataLayout': ['"WebGPUImageDataLayout.h"'],
+        'WebKit::WebGPU::InternalError': ['"WebGPUInternalError.h"'],
         'WebKit::WebGPU::MultisampleState': ['"WebGPUMultisampleState.h"'],
         'WebKit::WebGPU::ObjectDescriptorBase': ['"WebGPUObjectDescriptorBase.h"'],
         'WebKit::WebGPU::Origin2D': ['"WebGPUOrigin2D.h"'],
@@ -900,9 +959,11 @@ def headers_for_type(type):
         'WebKit::WebGPU::VertexAttribute': ['"WebGPUVertexAttribute.h"'],
         'WebKit::WebGPU::VertexBufferLayout': ['"WebGPUVertexBufferLayout.h"'],
         'WebKit::WebGPU::VertexState': ['"WebGPUVertexState.h"'],
+        'WebKit::WebGPU::WebCodecsVideoFrameIdentifier': ['"WebGPUExternalTextureDescriptor.h"'],
         'WebKit::WebScriptMessageHandlerData': ['"WebUserContentControllerDataTypes.h"'],
         'WebKit::WebUserScriptData': ['"WebUserContentControllerDataTypes.h"'],
         'WebKit::WebUserStyleSheetData': ['"WebUserContentControllerDataTypes.h"'],
+        'WTF::UnixFileDescriptor': ['<wtf/unix/UnixFileDescriptor.h>'],
         'webrtc::WebKitEncodedFrameInfo': ['"RTCWebKitEncodedFrameInfo.h"', '<WebCore/LibWebRTCEnumTraits.h>'],
     }
 

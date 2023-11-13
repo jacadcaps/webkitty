@@ -47,6 +47,8 @@ public:
     class Client {
     public:
         virtual uint64_t nativeSurfaceHandleForCompositing() = 0;
+        virtual void didCreateGLContext() = 0;
+        virtual void willDestroyGLContext() = 0;
         virtual void didDestroyGLContext() = 0;
 
         virtual void resize(const WebCore::IntSize&) = 0;
@@ -58,7 +60,6 @@ public:
     static Ref<ThreadedCompositor> create(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
     virtual ~ThreadedCompositor();
 
-    void setScaleFactor(float);
     void setScrollPosition(const WebCore::IntPoint&, float scale);
     void setViewportSize(const WebCore::IntSize&, float scale);
 
@@ -77,6 +78,8 @@ public:
 
     void suspend();
     void resume();
+
+    RunLoop& compositingRunLoop() const { return m_compositingRunLoop->runLoop(); }
 
 private:
     ThreadedCompositor(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);

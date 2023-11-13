@@ -52,7 +52,7 @@
 
 namespace WebCore {
 
-static inline bool fontNameIsSystemFont(CFStringRef fontName)
+bool fontNameIsSystemFont(CFStringRef fontName)
 {
     return CFStringGetLength(fontName) > 0 && CFStringGetCharacterAtIndex(fontName, 0) == '.';
 }
@@ -673,7 +673,7 @@ static void autoActivateFont(const String& name, CGFloat size)
 
 std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext)
 {
-    float size = fontDescription.computedPixelSize();
+    auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
     auto& fontDatabase = database(fontDescription.shouldAllowUserInstalledFonts());
     auto font = fontWithFamily(fontDatabase, family, fontDescription, fontCreationContext, size);
 
@@ -700,7 +700,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
     FontPlatformData platformData(font.get(), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
 
-    platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust());
+    platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust(), fontDescription.computedSize());
     return makeUnique<FontPlatformData>(platformData);
 }
 
@@ -793,10 +793,10 @@ RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& descr
 
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont, description, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
 
-    const FontPlatformData::CreationData* creationData = nullptr;
+    const FontCustomPlatformData* customPlatformData = nullptr;
     if (safeCFEqual(platformData.font(), substituteFont))
-        creationData = platformData.creationData();
-    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), creationData);
+        customPlatformData = platformData.customPlatformData();
+    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData);
 
     return fontForPlatformData(alternateFont);
 }
@@ -925,9 +925,9 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
 
     // LastResort is guaranteed to be non-null.
     auto fontDescriptor = adoptCF(CTFontDescriptorCreateLastResort());
-    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), fontDescription.computedPixelSize(), nullptr));
+    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), fontDescription.computedSize(), nullptr));
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(font.get(), fontDescription).boldObliquePair();
-    FontPlatformData platformData(font.get(), fontDescription.computedPixelSize(), syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
+    FontPlatformData platformData(font.get(), fontDescription.computedSize(), syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
     return fontForPlatformData(platformData);
 }
 
@@ -967,21 +967,34 @@ void FontCache::prewarmGlobally()
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure())
         return;
 
-    Vector<String> families {
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-        ".SF NS Text"_s,
-        ".SF NS Display"_s,
-#endif
+    Vector<String> seenFamilies {
+        "Apple SD Gothic Neo"_s,
         "Arial"_s,
+        "Geeza Pro"_s,
+        "Georgia"_s,
         "Helvetica"_s,
         "Helvetica Neue"_s,
+        "Hiragino Sans"_s,
         "Lucida Grande"_s,
+        "Menlo"_s,
+        "PingFang SC"_s,
         "Times"_s,
+        "Times New Roman"_s,
+        "Trebuchet MS"_s,
+        "Verdana"_s,
+    };
+    Vector<String> systemFallbackFamilies {
+        "Arial"_s,
+        "Arial Bold"_s,
+        "Helvetica"_s,
+        "Helvetica Neue Bold"_s,
+        "System Font Regular"_s,
         "Times New Roman"_s,
     };
 
     FontCache::PrewarmInformation prewarmInfo;
-    prewarmInfo.seenFamilies = WTFMove(families);
+    prewarmInfo.seenFamilies = WTFMove(seenFamilies);
+    prewarmInfo.fontNamesRequiringSystemFallback = WTFMove(systemFallbackFamilies);
     FontCache::forCurrentThread().prewarm(WTFMove(prewarmInfo));
 #endif
 }

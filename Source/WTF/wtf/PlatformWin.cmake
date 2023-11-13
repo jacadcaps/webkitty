@@ -36,7 +36,9 @@ list(APPEND WTF_SOURCES
     win/OSAllocatorWin.cpp
     win/PathWalker.cpp
     win/RunLoopWin.cpp
+    win/SignalsWin.cpp
     win/ThreadingWin.cpp
+    win/Win32Handle.cpp
 )
 
 list(APPEND WTF_LIBRARIES
@@ -44,27 +46,3 @@ list(APPEND WTF_LIBRARIES
     shlwapi
     winmm
 )
-
-if (USE_CF)
-    list(APPEND WTF_PUBLIC_HEADERS
-        cf/CFURLExtras.h
-        cf/SpanCF.h
-        cf/TypeCastsCF.h
-        cf/VectorCF.h
-
-        text/cf/StringConcatenateCF.h
-        text/cf/TextBreakIteratorCF.h
-    )
-    list(APPEND WTF_SOURCES
-        cf/CFURLExtras.cpp
-        cf/FileSystemCF.cpp
-        cf/URLCF.cpp
-
-        text/cf/AtomStringImplCF.cpp
-        text/cf/StringCF.cpp
-        text/cf/StringImplCF.cpp
-        text/cf/StringViewCF.cpp
-    )
-
-    list(APPEND WTF_LIBRARIES Apple::CoreFoundation)
-endif ()

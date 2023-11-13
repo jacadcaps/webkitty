@@ -28,7 +28,7 @@
 #include "libANGLE/ResourceManager.h"
 #include "libANGLE/renderer/GLImplFactory.h"
 #include "libANGLE/renderer/ShaderImpl.h"
-#include "platform/FrontendFeatures_autogen.h"
+#include "platform/autogen/FrontendFeatures_autogen.h"
 
 namespace gl
 {
@@ -47,7 +47,7 @@ size_t ComputeShaderHash(const std::string &mergedSource)
     return std::hash<std::string>{}(mergedSource);
 }
 
-std::string GetShaderDumpFilePath(size_t shaderHash)
+std::string GetShaderDumpFilePath(size_t shaderHash, const char *suffix)
 {
     std::stringstream path;
     std::string shaderDumpDir = GetShaderDumpFileDirectory();
@@ -55,7 +55,7 @@ std::string GetShaderDumpFilePath(size_t shaderHash)
     {
         path << shaderDumpDir << "/";
     }
-    path << shaderHash << ".essl";
+    path << shaderHash << "." << suffix;
 
     return path.str();
 }
@@ -185,26 +185,50 @@ ShaderProgramID Shader::getHandle() const
     return mHandle;
 }
 
+std::string Shader::joinShaderSources(GLsizei count, const char *const *string, const GLint *length)
+{
+    // Fast path for the most common case.
+    if (count == 1)
+    {
+        if (length == nullptr || length[0] < 0)
+            return std::string(string[0]);
+        else
+            return std::string(string[0], static_cast<size_t>(length[0]));
+    }
+
+    // Start with totalLength of 1 to reserve space for the null terminator
+    size_t totalLength = 1;
+
+    // First pass, calculate the total length of the joined string
+    for (GLsizei i = 0; i < count; ++i)
+    {
+        if (length == nullptr || length[i] < 0)
+            totalLength += std::strlen(string[i]);
+        else
+            totalLength += static_cast<size_t>(length[i]);
+    }
+
+    // Second pass, allocate the string and concatenate each shader source
+    // fragment
+    std::string joinedString;
+    joinedString.reserve(totalLength);
+    for (GLsizei i = 0; i < count; ++i)
+    {
+        if (length == nullptr || length[i] < 0)
+            joinedString.append(string[i]);
+        else
+            joinedString.append(string[i], static_cast<size_t>(length[i]));
+    }
+
+    return joinedString;
+}
+
 void Shader::setSource(const Context *context,
                        GLsizei count,
                        const char *const *string,
                        const GLint *length)
 {
-    std::ostringstream stream;
-
-    for (int i = 0; i < count; i++)
-    {
-        if (length == nullptr || length[i] < 0)
-        {
-            stream.write(string[i], strlen(string[i]));
-        }
-        else
-        {
-            stream.write(string[i], length[i]);
-        }
-    }
-
-    std::string source = stream.str();
+    std::string source = joinShaderSources(count, string, length);
 
     // Compute the hash based on the original source before any substitutions
     size_t sourceHash = ComputeShaderHash(source);
@@ -212,9 +236,10 @@ void Shader::setSource(const Context *context,
     const angle::FrontendFeatures &frontendFeatures = context->getFrontendFeatures();
 
     bool substitutedShader = false;
+    const char *suffix     = "essl";
     if (frontendFeatures.enableShaderSubstitution.enabled)
     {
-        std::string subsitutionShaderPath = GetShaderDumpFilePath(sourceHash);
+        std::string subsitutionShaderPath = GetShaderDumpFilePath(sourceHash, suffix);
 
         std::string substituteShader;
         if (angle::ReadFileToString(subsitutionShaderPath, &substituteShader))
@@ -229,7 +254,7 @@ void Shader::setSource(const Context *context,
     // back to the file.
     if (frontendFeatures.dumpShaderSource.enabled && !substitutedShader)
     {
-        std::string dumpFile = GetShaderDumpFilePath(sourceHash);
+        std::string dumpFile = GetShaderDumpFilePath(sourceHash, suffix);
 
         writeFile(dumpFile.c_str(), source.c_str(), source.length());
         INFO() << "Dumped shader source: " << dumpFile;
@@ -399,7 +424,6 @@ void Shader::compile(const Context *context)
 
     ShCompileOptions options = {};
     options.objectCode       = true;
-    options.variables        = true;
     options.emulateGLDrawID  = true;
 
     // Add default options to WebGL shaders to prevent unexpected behavior during
@@ -425,11 +449,6 @@ void Shader::compile(const Context *context)
     if (mRendererLimitations.shadersRequireIndexedLoopValidation)
     {
         options.validateLoopIndexing = true;
-    }
-
-    if (context->getFrontendFeatures().scalarizeVecAndMatConstructorArgs.enabled)
-    {
-        options.scalarizeVecAndMatConstructorArgs = true;
     }
 
     if (context->getFrontendFeatures().forceInitShaderVariables.enabled)
@@ -501,6 +520,52 @@ void Shader::resolveCompile(const Context *context)
     const ShShaderOutput outputType = mCompilingState->shCompilerInstance.getShaderOutputType();
     bool isBinaryOutput             = outputType == SH_SPIRV_VULKAN_OUTPUT;
     mState.mCompiledShaderState.buildCompiledShaderState(compilerHandle, isBinaryOutput);
+
+    const angle::FrontendFeatures &frontendFeatures = context->getFrontendFeatures();
+    bool substitutedTranslatedShader                = false;
+    const char *suffix                              = "translated";
+    if (frontendFeatures.enableTranslatedShaderSubstitution.enabled)
+    {
+        // To support reading/writing compiled binaries (SPIR-V
+        // representation), need more file input/output facilities,
+        // and figure out the byte ordering of writing the 32-bit
+        // words to disk.
+        if (isBinaryOutput)
+        {
+            INFO() << "Can not substitute compiled binary (SPIR-V) shaders yet";
+        }
+        else
+        {
+            std::string substituteShaderPath = GetShaderDumpFilePath(mState.mSourceHash, suffix);
+
+            std::string substituteShader;
+            if (angle::ReadFileToString(substituteShaderPath, &substituteShader))
+            {
+                mState.mCompiledShaderState.translatedSource = std::move(substituteShader);
+                substitutedTranslatedShader                  = true;
+                INFO() << "Trasnslated shader substitute found, loading from "
+                       << substituteShaderPath;
+            }
+        }
+    }
+
+    // Only dump translated shaders that have not been previously substituted. It would write the
+    // same data back to the file.
+    if (frontendFeatures.dumpTranslatedShaders.enabled && !substitutedTranslatedShader)
+    {
+        if (isBinaryOutput)
+        {
+            INFO() << "Can not dump compiled binary (SPIR-V) shaders yet";
+        }
+        else
+        {
+            std::string dumpFile = GetShaderDumpFilePath(mState.mSourceHash, suffix);
+
+            const std::string &translatedSource = mState.mCompiledShaderState.translatedSource;
+            writeFile(dumpFile.c_str(), translatedSource.c_str(), translatedSource.length());
+            INFO() << "Dumped translated source: " << dumpFile;
+        }
+    }
 
 #if !defined(NDEBUG)
     if (outputType != SH_SPIRV_VULKAN_OUTPUT)

@@ -3,11 +3,11 @@ sources:
 - kind: git_tag
   url: gitlab_com:freedesktop-sdk/freedesktop-sdk.git
   track: 'release/22.08'
-  ref: freedesktop-sdk-22.08.5-56-gaa9d9e526a5d5da18a4bdaa64d5bd4c4de1f8863
+  ref: freedesktop-sdk-22.08.13-17-g4cbd1d47a91cfa60269974bf84396dc12ff8df36
+- kind: patch
+  path: patches/fdo-0001-mesa-Bump-to-23.1.5.patch
 - kind: patch
   path: patches/fdo-0001-pipewire-base-Disable-AEC-module.patch
-- kind: patch
-  path: patches/fdo-0001-libnice-Bump-to-0.1.21.patch
 - kind: patch
   path: patches/fdo-0001-gst-plugins-bad-Add-support-Kate.patch
 - kind: patch
@@ -17,9 +17,19 @@ sources:
 - kind: patch
   path: patches/fdo-0004-gst-plugins-ugly-Enable-x264-encoder.patch
 - kind: patch
-  path: patches/fdo-0005-GStreamer-Bump-to-1.22.0.patch
+  path: patches/fdo-0005-GStreamer-Bump-to-1.22.5.patch
 - kind: patch
   path: patches/fdo-0006-gst-plugins-bad-Enable-soundtouch.patch
+- kind: patch
+  path: patches/fdo-0007-components-Bump-GLib-to-version-2.76.patch
+- kind: patch
+  path: patches/fdo-0008-components-Bump-g-i-to-version-1.76.patch
+- kind: patch
+  path: patches/fdo-0009-gst-plugins-bad-Enable-x265-encoder.patch
+- kind: patch
+  path: patches/fdo-0001-gst-plugins-base-Vendor-patch-scheduled-for-1.22.6.patch
+- kind: patch
+  path: patches/fdo-0001-gst-plugins-base-Vendor-patches-scheduled-for-1.22.6.patch
 config:
   options:
     target_arch: '%{arch}'

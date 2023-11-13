@@ -22,7 +22,6 @@
 
 import calendar
 import re
-import requests
 import sys
 import time
 import webkitcorepy
@@ -31,8 +30,10 @@ from .issue import Issue
 from .tracker import Tracker as GenericTracker
 
 from datetime import datetime
-from requests.auth import HTTPBasicAuth
 from webkitbugspy import User
+
+requests = webkitcorepy.CallByNeed(lambda: __import__('requests'))
+HTTPBasicAuth = webkitcorepy.CallByNeed(lambda: __import__('requests.auth', fromlist=['HTTPBasicAuth']).HTTPBasicAuth)
 
 
 class Tracker(GenericTracker):
@@ -80,8 +81,9 @@ class Tracker(GenericTracker):
             component_color=DEFAULT_COMPONENT_COLOR,
             version_color=DEFAULT_VERSION_COLOR,
             session=None, redact=None, hide_title=None,
+            redact_exemption=None,
     ):
-        super(Tracker, self).__init__(users=users, redact=redact, hide_title=hide_title)
+        super(Tracker, self).__init__(users=users, redact=redact, hide_title=hide_title, redact_exemption=redact_exemption)
 
         self.session = session or requests.Session()
         self.component_color = component_color

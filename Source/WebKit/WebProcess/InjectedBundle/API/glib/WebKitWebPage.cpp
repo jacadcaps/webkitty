@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,8 +20,16 @@
 #include "config.h"
 #include "WebKitWebPage.h"
 
+#include "APIInjectedBundleEditorClient.h"
+#include "APIInjectedBundleFormClient.h"
+#include "APIInjectedBundlePageContextMenuClient.h"
+#include "APIInjectedBundlePageLoaderClient.h"
+#include "APIInjectedBundlePageResourceLoadClient.h"
+#include "APIInjectedBundlePageUIClient.h"
 #include "APIString.h"
 #include "InjectedBundle.h"
+#include "InjectedBundlePageContextMenuClient.h"
+#include "MessageSenderInlines.h"
 #include "WebContextMenuItem.h"
 #include "WebKitContextMenuPrivate.h"
 #include "WebKitFramePrivate.h"
@@ -40,11 +48,11 @@
 #include <WebCore/ContextMenuContext.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentLoader.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameDestructionObserver.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/HTMLFormElement.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <glib/gi18n-lib.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -109,7 +117,7 @@ class WebKitFrameWrapper final: public FrameDestructionObserver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WebKitFrameWrapper(WebFrame& webFrame)
-        : FrameDestructionObserver(webFrame.coreFrame())
+        : FrameDestructionObserver(webFrame.coreLocalFrame())
         , m_webkitFrame(adoptGRef(webkitFrameCreate(&webFrame)))
     {
     }
@@ -192,7 +200,7 @@ private:
         if (!webKitFrame && !frame.isMainFrame())
             return;
 
-        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader());
+        const auto uri = getDocumentLoaderURL(frame.coreLocalFrame()->loader().provisionalDocumentLoader());
 
         if (webKitFrame)
             webkitFrameSetURI(webKitFrame, uri);
@@ -207,7 +215,7 @@ private:
         if (!webKitFrame && !frame.isMainFrame())
             return;
 
-        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().provisionalDocumentLoader());
+        const auto uri = getDocumentLoaderURL(frame.coreLocalFrame()->loader().provisionalDocumentLoader());
 
         if (webKitFrame)
             webkitFrameSetURI(webKitFrame, uri);
@@ -222,7 +230,7 @@ private:
         if (!webKitFrame && !frame.isMainFrame())
             return;
 
-        const auto uri = frame.coreFrame()->document()->url().string().utf8();
+        const auto uri = frame.coreLocalFrame()->document()->url().string().utf8();
 
         if (webKitFrame)
             webkitFrameSetURI(webKitFrame, uri);
@@ -237,7 +245,7 @@ private:
         if (!webKitFrame && !frame.isMainFrame())
             return;
 
-        const auto uri = getDocumentLoaderURL(frame.coreFrame()->loader().documentLoader());
+        const auto uri = getDocumentLoaderURL(frame.coreLocalFrame()->loader().documentLoader());
 
         if (webKitFrame)
             webkitFrameSetURI(webKitFrame, uri);
@@ -822,7 +830,7 @@ WebKitDOMDocument* webkit_web_page_get_dom_document(WebKitWebPage* webPage)
 {
     g_return_val_if_fail(WEBKIT_IS_WEB_PAGE(webPage), nullptr);
 
-    if (auto* coreFrame = webPage->priv->webPage->mainFrame())
+    if (auto* coreFrame = dynamicDowncast<WebCore::LocalFrame>(webPage->priv->webPage->mainFrame()))
         return kit(coreFrame->document());
 
     return nullptr;

@@ -28,6 +28,7 @@
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
+#import "TestProtocol.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
 #import <WebKit/WKProcessPoolPrivate.h>
@@ -77,7 +78,9 @@ TEST(WebKit, HTTPReferer)
     };
     
     Vector<char> a5k(5000, 'a');
+    a5k.append(0);
     Vector<char> a3k(3000, 'a');
+    a3k.append(0);
     NSString *longPath = [NSString stringWithFormat:@"http://webkit.org/%s?asdf", a5k.data()];
     NSString *shorterPath = [NSString stringWithFormat:@"http://webkit.org/%s?asdf", a3k.data()];
     NSString *longHost = [NSString stringWithFormat:@"http://webkit.org%s/path", a5k.data()];
@@ -507,7 +510,7 @@ TEST(_WKDataTask, Basic)
 
     done = false;
     __block RetainPtr<_WKDataTask> retainedTask;
-    [webView _dataTaskWithRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"blob:blank"]] completionHandler:^(_WKDataTask *task) {
+    [webView _dataTaskWithRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"unsupported:blank"]] completionHandler:^(_WKDataTask *task) {
         retainedTask = task;
         auto delegate = adoptNS([TestDataTaskDelegate new]);
         task.delegate = delegate.get();
@@ -682,6 +685,27 @@ TEST(_WKDataTask, Redirect)
     Util::run(&completed);
 }
 
+TEST(_WKDataTask, CrashDuringCreation)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer server(HTTPServer::respondWithOK);
+    auto webView = adoptNS([WKWebView new]);
+    __block bool done = false;
+    [webView _dataTaskWithRequest:server.request() completionHandler:^(_WKDataTask *task) {
+        auto delegate = adoptNS([TestDataTaskDelegate new]);
+        task.delegate = delegate.get();
+        delegate.get().didCompleteWithError = ^(_WKDataTask *, NSError *error) {
+            EXPECT_NOT_NULL(error);
+            done = true;
+        };
+    }];
+    auto* dataStore = webView.get().configuration.websiteDataStore;
+    while (!dataStore._networkProcessIdentifier)
+        Util::spinRunLoop();
+    [dataStore _terminateNetworkProcess];
+    Util::run(&done);
+}
+
 TEST(_WKDataTask, Crash)
 {
     using namespace TestWebKitAPI;
@@ -703,6 +727,38 @@ TEST(_WKDataTask, Crash)
         };
     }];
     Util::run(&done);
+}
+
+TEST(_WKDataTask, Blob)
+{
+    __block bool done { false };
+    auto webView = adoptNS([WKWebView new]);
+    NSString *html = @"<script>alert(window.URL.createObjectURL(new Blob(['Blob hello'], {type: 'application/octet-stream'})));</script>";
+    [webView loadHTMLString:html baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    NSString *url = [webView _test_waitForAlert];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    [webView _dataTaskWithRequest:request completionHandler:^(_WKDataTask *task) {
+        auto delegate = adoptNS([TestDataTaskDelegate new]);
+        task.delegate = delegate.get();
+        __block bool receivedResponse = false;
+        delegate.get().didReceiveResponse = ^(_WKDataTask *, NSURLResponse *response, void (^decisionHandler)(_WKDataTaskResponsePolicy)) {
+            receivedResponse = true;
+            decisionHandler(_WKDataTaskResponsePolicyAllow);
+        };
+        __block bool receivedData = false;
+        delegate.get().didReceiveData = ^(_WKDataTask *, NSData *data) {
+            EXPECT_TRUE(receivedResponse);
+            auto dataString = adoptNS([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+            EXPECT_WK_STREQ(dataString.get(), "Blob hello");
+            receivedData = true;
+        };
+        delegate.get().didCompleteWithError = ^(_WKDataTask *, NSError *error) {
+            EXPECT_TRUE(receivedData);
+            EXPECT_NULL(error);
+            done = true;
+        };
+    }];
+    TestWebKitAPI::Util::run(&done);
 }
 
 #endif // HAVE(NSURLSESSION_TASK_DELEGATE)
@@ -807,4 +863,39 @@ TEST(NetworkProcess, DoNotLaunchForDOMCacheDestruction)
 
     TestWebKitAPI::Util::spinRunLoop(50);
     EXPECT_FALSE([configuration.get().websiteDataStore _networkProcessExists]);
+}
+
+TEST(NetworkProcess, CustomSchemeWasPrivateRelayed)
+{
+    [TestProtocol registerWithScheme:@"custom"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
+    [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"custom://test"]]];
+
+    EXPECT_EQ(NO, [webView _wasPrivateRelayed]);
+
+    [TestProtocol unregister];
+}
+
+TEST(NetworkProcess, URLSchemeHandlerWasPrivateRelayed)
+{
+    auto handler = adoptNS([TestURLSchemeHandler new]);
+    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        auto result = @"<html></html>";
+        auto type = @"text/html";
+
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:type expectedContentLength:[result length] textEncodingName:nil]);
+        [task didReceiveResponse:response.get()];
+        [task didReceiveData:[result dataUsingEncoding:NSUTF8StringEncoding]];
+        [task didFinish];
+    }];
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"custom"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+
+    [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"custom://test"]]];
+
+    EXPECT_EQ(NO, [webView _wasPrivateRelayed]);
 }

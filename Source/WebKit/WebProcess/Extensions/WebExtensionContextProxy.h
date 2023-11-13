@@ -37,6 +37,8 @@
 #include <wtf/Forward.h>
 #include <wtf/WeakHashSet.h>
 
+OBJC_CLASS NSDictionary;
+
 namespace WebKit {
 
 class WebExtensionAPINamespace;
@@ -49,7 +51,7 @@ class WebExtensionContextProxy final : public RefCounted<WebExtensionContextProx
 
 public:
     static RefPtr<WebExtensionContextProxy> get(WebExtensionContextIdentifier);
-    static Ref<WebExtensionContextProxy> getOrCreate(WebExtensionContextParameters);
+    static Ref<WebExtensionContextProxy> getOrCreate(const WebExtensionContextParameters&);
 
     ~WebExtensionContextProxy();
 
@@ -58,12 +60,12 @@ public:
     WebExtensionContextIdentifier identifier() { return m_identifier; }
 
     bool operator==(const WebExtensionContextProxy& other) const { return (this == &other); }
-    bool operator!=(const WebExtensionContextProxy& other) const { return !(this == &other); }
 
     const URL& baseURL() { return m_baseURL; }
     const String& uniqueIdentifier() const { return m_uniqueIdentifier; }
 
     NSDictionary *manifest() { return m_manifest.get(); }
+    static RetainPtr<NSDictionary> parseManifest(API::Data&);
 
     double manifestVersion() { return m_manifestVersion; }
     bool supportsManifestVersion(double version) { return manifestVersion() >= version; }
@@ -79,7 +81,7 @@ public:
     void enumerateContentScriptNamespaceObjects(const Function<void(WebExtensionAPINamespace&)>& function) { ASSERT(contentScriptWorld()); enumerateNamespaceObjects(function, *contentScriptWorld()); };
 
 private:
-    explicit WebExtensionContextProxy(WebExtensionContextParameters);
+    explicit WebExtensionContextProxy(const WebExtensionContextParameters&);
 
     // webNavigation support
     void dispatchWebNavigationOnBeforeNavigateEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);

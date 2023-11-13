@@ -431,6 +431,10 @@ static void webKitMediaSrcLoop(void* userData)
     // By keeping the lock we are guaranteed that a flush will not happen while we send essential events.
     // These events should never block downstream, so the lock should be released in little time in every
     // case.
+    // There's one exception to this rule: a basetransform with not-in-place transformations (its sink thread
+    // is decoupled from its src thread) may have to handle a CAPS event, which may trigger renegotiation and
+    // an allocation query, which may be blocked because the pipeline sink is paused.
+    // FIXME: re-evaluate releasing the lock before pushing other events too, especially once early flush race conditions are fixed in GStreamer.
 
     if (!streamingMembers->hasPushedStreamCollectionEvent) {
         GST_DEBUG_OBJECT(pad, "Pushing STREAM_COLLECTION event.");
@@ -517,11 +521,18 @@ static void webKitMediaSrcLoop(void* userData)
 
         if (!gst_caps_is_equal(gst_sample_get_caps(sample.get()), streamingMembers->previousCaps.get())) {
             // This sample needs new caps (typically because of a quality change).
-            GST_DEBUG_OBJECT(pad, "Pushing new CAPS event: %" GST_PTR_FORMAT, gst_sample_get_caps(sample.get()));
-            bool result = gst_pad_push_event(stream->pad.get(), gst_event_new_caps(gst_sample_get_caps(sample.get())));
-            GST_DEBUG_OBJECT(pad, "CAPS event pushed, result = %s.", boolForPrinting(result));
-            ASSERT(result);
             streamingMembers->previousCaps = gst_sample_get_caps(sample.get());
+            // This CAPS event may block, so we release the lock and reevaluate later if there's been a flush in the meantime.
+            streamingMembers.runUnlocked([&stream, &sample, &pad]() {
+                GST_DEBUG_OBJECT(pad, "Pushing new CAPS event: %" GST_PTR_FORMAT, gst_sample_get_caps(sample.get()));
+                bool result = gst_pad_push_event(stream->pad.get(), gst_event_new_caps(gst_sample_get_caps(sample.get())));
+                GST_DEBUG_OBJECT(pad, "CAPS event pushed, result = %s.", boolForPrinting(result));
+                ASSERT(result);
+            });
+            if (streamingMembers->isFlushing) {
+                gst_pad_pause_task(pad);
+                return;
+            }
         }
 
         GRefPtr<GstBuffer> buffer = gst_sample_get_buffer(sample.get());
@@ -622,6 +633,7 @@ static void webKitMediaSrcStreamFlush(Stream* stream, bool isSeekingFlush)
         GstClockTime pipelineStreamTime;
         gst_element_query_position(findPipeline(GRefPtr<GstElement>(GST_ELEMENT(stream->source))).get(), GST_FORMAT_TIME,
             reinterpret_cast<gint64*>(&pipelineStreamTime));
+        GST_DEBUG_OBJECT(stream->source, "pipelineStreamTime from position query: %" GST_TIME_FORMAT, GST_TIME_ARGS(pipelineStreamTime));
         // GST_CLOCK_TIME_NONE is returned when the pipeline is not yet pre-rolled (e.g. just after a seek). In this case
         // we don't need to adjust the segment though, as running time has not advanced.
         if (GST_CLOCK_TIME_IS_VALID(pipelineStreamTime)) {

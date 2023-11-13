@@ -36,10 +36,9 @@ from twisted.internet import defer
 
 from factories import (APITestsFactory, BindingsFactory, BuildFactory, CommitQueueFactory, Factory, GTKBuildFactory,
                        GTKTestsFactory, JSCBuildFactory, JSCBuildAndTestsFactory, JSCTestsFactory, MergeQueueFactory, StressTestFactory,
-                       StyleFactory, TestFactory, tvOSBuildFactory, WPEFactory, WebKitPerlFactory, WebKitPyFactory,
-                       WinCairoFactory, iOSBuildFactory, iOSEmbeddedBuildFactory, iOSTestsFactory,
-                       macOSBuildFactory, macOSBuildOnlyFactory, macOSWK1Factory, macOSWK2Factory, ServicesFactory,
-                       UnsafeMergeQueueFactory, WatchListFactory, watchOSBuildFactory)
+                       StyleFactory, TestFactory, tvOSBuildFactory, WPEBuildFactory, WPETestsFactory, WebKitPerlFactory, WebKitPyFactory,
+                       WinCairoFactory, iOSBuildFactory, iOSEmbeddedBuildFactory, iOSTestsFactory, macOSBuildFactory, macOSBuildOnlyFactory,
+                       macOSWK1Factory, macOSWK2Factory, ServicesFactory, UnsafeMergeQueueFactory, WatchListFactory, watchOSBuildFactory)
 
 BUILDER_NAME_LENGTH_LIMIT = 70
 STEP_NAME_LENGTH_LIMIT = 50
@@ -112,7 +111,7 @@ def loadBuilderConfig(c, is_test_mode_enabled=False, master_prefix_path='./'):
                    project=FixedParameter(name='project', default=''),
                    branch=FixedParameter(name='branch', default=''))],
         # Add custom properties needed
-        properties=[StringParameter(name='patch_id', label='Patch id (not bug number)', regex='^[4-9]\d{5}$', required=True, maxsize=6),
+        properties=[StringParameter(name='patch_id', label='Patch id (not bug number)', regex=r'^[4-9]\d{5}$', required=True, maxsize=6),
                     StringParameter(name='ews_revision', label='WebKit git hash to checkout before trying patch (optional)', required=False, maxsize=40)],
     )
     c['schedulers'].append(forceScheduler)

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -163,6 +163,14 @@ public:
     GList* m_dataList { nullptr };
 };
 
+static void loadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, WebViewTest* test)
+{
+    if (loadEvent != WEBKIT_LOAD_FINISHED)
+        return;
+    g_signal_handlers_disconnect_by_func(webView, reinterpret_cast<void*>(loadChanged), test);
+    g_main_loop_quit(test->m_mainLoop);
+}
+
 static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
 {
 #if !ENABLE(2022_GLIB_API)
@@ -175,9 +183,12 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     test->loadURI(kServer->getURIForPath("/empty").data());
     test->waitUntilLoadFinished();
     test->runJavaScriptAndWaitUntilFinished("window.localStorage.myproperty = 42;", nullptr);
-    GUniquePtr<char> localStorageDirectory(g_build_filename(Test::dataDirectory(), "localstorage", nullptr));
 #if !ENABLE(2022_GLIB_API)
+    GUniquePtr<char> localStorageDirectory(g_build_filename(Test::dataDirectory(), "localstorage", nullptr));
     g_assert_cmpstr(localStorageDirectory.get(), ==, webkit_website_data_manager_get_local_storage_directory(test->m_manager));
+#endif
+#if ENABLE(2022_GLIB_API)
+    GUniquePtr<char> localStorageDirectory(g_build_filename(Test::dataDirectory(), "storage", nullptr));
 #endif
     test->assertFileIsCreated(localStorageDirectory.get());
     g_assert_true(g_file_test(localStorageDirectory.get(), G_FILE_TEST_IS_DIR));
@@ -186,9 +197,12 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     test->loadURI(kServer->getURIForPath("/empty").data());
     test->waitUntilLoadFinished();
     test->runJavaScriptAndWaitUntilFinished("window.indexedDB.open('TestDatabase');", nullptr);
-    GUniquePtr<char> indexedDBDirectory(g_build_filename(Test::dataDirectory(), "databases", "indexeddb", nullptr));
 #if !ENABLE(2022_GLIB_API)
+    GUniquePtr<char> indexedDBDirectory(g_build_filename(Test::dataDirectory(), "databases", "indexeddb", nullptr));
     g_assert_cmpstr(indexedDBDirectory.get(), ==, webkit_website_data_manager_get_indexeddb_directory(test->m_manager));
+#endif
+#if ENABLE(2022_GLIB_API)
+    GUniquePtr<char> indexedDBDirectory(g_build_filename(Test::dataDirectory(), "storage", nullptr));
 #endif
     test->assertFileIsCreated(indexedDBDirectory.get());
     g_assert_true(g_file_test(indexedDBDirectory.get(), G_FILE_TEST_IS_DIR));
@@ -279,6 +293,7 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     GRefPtr<WebKitWebsiteDataManager> baseDataManager = adoptGRef(webkit_website_data_manager_new(
         "base-data-directory", Test::dataDirectory(), "base-cache-directory", Test::dataDirectory(),
         "indexeddb-directory", indexedDBDirectory.get(), "offline-application-cache-directory", applicationCacheDirectory.get(),
+        "origin-storage-ratio", 1.0, "total-storage-ratio", 1.0,
         nullptr));
     g_assert_true(WEBKIT_IS_WEBSITE_DATA_MANAGER(baseDataManager.get()));
 
@@ -292,6 +307,29 @@ static void testWebsiteDataConfiguration(WebsiteDataTest* test, gconstpointer)
     g_assert_cmpstr(webkit_website_data_manager_get_disk_cache_directory(baseDataManager.get()), ==, diskCacheDirectory.get());
 
     ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+}
+
+static void testWebsiteDataOriginAndTotalStorageRatio(WebsiteDataTest* test, gconstpointer)
+{
+#if !ENABLE(2022_GLIB_API)
+    GUniquePtr<char> baseDirectory(g_build_filename(Test::dataDirectory(), "ShouldNotExist", nullptr));
+    GUniquePtr<char> indexedDBDirectory(g_build_filename(baseDirectory.get(), "databases", "indexeddb", nullptr));
+
+    GRefPtr<WebKitWebsiteDataManager> baseDataManager = adoptGRef(webkit_website_data_manager_new(
+        "base-data-directory", baseDirectory.get(), "base-cache-directory", baseDirectory.get(),
+        "origin-storage-ratio", 0.0, "total-storage-ratio", 0.0,
+        nullptr));
+    g_assert_true(WEBKIT_IS_WEBSITE_DATA_MANAGER(baseDataManager.get()));
+
+    GRefPtr<WebKitWebContext> webContext = adoptGRef(webkit_web_context_new_with_website_data_manager(baseDataManager.get()));
+    auto webView = Test::adoptView(Test::createWebView(webContext.get()));
+    g_signal_connect(webView.get(), "load-changed", G_CALLBACK(loadChanged), test);
+
+    webkit_web_view_load_uri(webView.get(), kServer->getURIForPath("/empty").data());
+    test->waitUntilLoadFinished(webView.get());
+    test->runJavaScriptAndWaitUntilFinished("window.indexedDB.open('TestDatabase');", nullptr, webView.get());
+    test->assertFileIsNotCreated(indexedDBDirectory.get());
 #endif
 }
 
@@ -343,6 +381,9 @@ static void testWebsiteDataEphemeral(WebViewTest* test, gconstpointer)
     // Non persistent data can be queried in an ephemeral manager.
 #if ENABLE(2022_GLIB_API)
     auto webView = Test::adoptView(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+#if PLATFORM(WPE)
+        "backend", Test::createWebViewBackend(),
+#endif
         "web-context", webkit_web_view_get_context(test->m_webView),
         "network-session", session.get(),
         nullptr));
@@ -619,7 +660,13 @@ static void prepopulateHstsData()
     // an IP address instead of a domain. In order to be able to test the data manager API with HSTS website data, we
     // prepopulate the HSTS storage using the libsoup API directly.
 
+#if !ENABLE(2022_GLIB_API)
     GUniquePtr<char> hstsDatabase(g_build_filename(Test::dataDirectory(), "hsts-storage.sqlite", nullptr));
+#else
+    GUniquePtr<char> hstsCacheDirectory(g_build_filename(Test::dataDirectory(), "HSTS", nullptr));
+    GUniquePtr<char> hstsDatabase(g_build_filename(hstsCacheDirectory.get(), "hsts-storage.sqlite", nullptr));
+    g_mkdir_with_parents(hstsCacheDirectory.get(), 0700);
+#endif
     GRefPtr<SoupHSTSEnforcer> enforcer = adoptGRef(soup_hsts_enforcer_db_new(hstsDatabase.get()));
     GUniquePtr<SoupHSTSPolicy> policy(soup_hsts_policy_new("webkitgtk.org", 3600, true));
     soup_hsts_enforcer_set_policy(enforcer.get(), policy.get());
@@ -894,7 +941,18 @@ static void testWebViewHandleCorruptedLocalStorage(WebsiteDataTest* test, gconst
     g_assert_cmpstr(fooValue.get(), ==, "");
 
     // Creating a second web view and loading a web page with the same url to read the item from localStorage.
+#if ENABLE(2022_GLIB_API)
+    auto webView = Test::adoptView(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+#if PLATFORM(WPE)
+        "backend", Test::createWebViewBackend(),
+#endif
+        "web-context", webkit_web_view_get_context(test->m_webView),
+        "network-session", test->m_networkSession.get(),
+        nullptr));
+    g_assert_true(webkit_web_view_get_network_session(webView.get()) == test->m_networkSession.get());
+#else
     auto webView = Test::adoptView(Test::createWebView(test->m_webContext.get()));
+#endif
     test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(webView.get()));
     webkit_web_view_load_html(webView.get(), html, "http://example.com");
     test->waitUntilLoadFinished(webView.get());
@@ -983,6 +1041,7 @@ void beforeAll()
     WebsiteDataTest::add("WebKitWebsiteData", "dom-cache", testWebsiteDataDOMCache);
     WebsiteDataTest::add("WebKitWebsiteData", "handle-corrupted-local-storage", testWebViewHandleCorruptedLocalStorage);
     MemoryPressureTest::add("WebKitWebsiteData", "memory-pressure", testMemoryPressureSettings);
+    WebsiteDataTest::add("WebKitWebsiteData", "origin-and-total-storage-ratio", testWebsiteDataOriginAndTotalStorageRatio);
 }
 
 void afterAll()

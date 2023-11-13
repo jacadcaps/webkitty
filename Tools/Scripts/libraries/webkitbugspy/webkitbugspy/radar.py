@@ -22,6 +22,7 @@
 
 import calendar
 import re
+import subprocess
 import sys
 import time
 import webkitcorepy
@@ -102,9 +103,9 @@ class Tracker(GenericTracker):
         except ImportError:
             return None
 
-    def __init__(self, users=None, authentication=None, project=None, projects=None, redact=None, hide_title=None):
+    def __init__(self, users=None, authentication=None, project=None, projects=None, redact=None, hide_title=None, redact_exemption=None):
         hide_title = True if hide_title is None else hide_title
-        super(Tracker, self).__init__(users=users, redact=redact, hide_title=hide_title)
+        super(Tracker, self).__init__(users=users, redact=redact, redact_exemption=redact_exemption, hide_title=hide_title)
         self._projects = [project] if project else (projects or [])
 
         self.library = self.radarclient()
@@ -145,17 +146,20 @@ class Tracker(GenericTracker):
             return user
         if not name or not username or not email:
             found = None
-            if isinstance(username, int):
-                found = self.library.AppleDirectoryQuery.user_entry_for_dsid(int(username))
-            elif username:
-                found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('uid', '{}@APPLECONNECT.APPLE.COM'.format(username))
-            elif email:
-                found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('mail', email)
-            elif name:
-                found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('cn', name)
+            try:
+                if isinstance(username, int):
+                    found = self.library.AppleDirectoryQuery.user_entry_for_dsid(int(username))
+                elif username:
+                    found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('uid', '{}@APPLECONNECT.APPLE.COM'.format(username))
+                elif email:
+                    found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('mail', email)
+                elif name:
+                    found = self.library.AppleDirectoryQuery.user_entry_for_attribute_value('cn', name)
+            except subprocess.CalledProcessError:
+                pass
             if not found:
                 return self.users.create(
-                    name=name,
+                    name=name or username,
                     username=None,
                     emails=[email],
                 )
@@ -454,10 +458,11 @@ class Tracker(GenericTracker):
             raise ValueError("'{}' is not a valid reproducibility argument".format(classification))
 
         try:
+            name = '{} {}'.format(project, component) if component else project
             response = self.client.create_radar(dict(
                 title=title,
                 description=description,
-                component=dict(name='{} {}'.format(project, component), version=version),
+                component=dict(name=name, version=version),
                 classification=classification,
                 reproducible=reproducible,
             ))
@@ -474,3 +479,34 @@ class Tracker(GenericTracker):
     def cc_radar(self, issue, block=False, timeout=None, radar=None):
         # cc-ing radar is a no-op for radar
         return issue
+
+    def clone(
+        self, issue, reason,
+        project=None, component=None, version=None,
+        assign=True,
+    ):
+        if not reason:
+            raise ValueError('Reason must be provided for a clone')
+        if (not self.client or not self.library) and member:
+            sys.stderr.write('radarclient inaccessible on this machine\n')
+            return None
+
+        project = project or issue.project
+        component = component or issue.component
+        version = version or issue.version
+
+        try:
+            name = '{} {}'.format(project, component) if component else project
+            clone = self.client.clone_radar(
+                issue.id, reason_text=reason,
+                component=dict(name=name.strip(), version=version),
+            )
+        except self.library.exceptions.UnsuccessfulResponseException as e:
+            sys.stderr.write('Failed to clone {}:\n'.format(issue))
+            sys.stderr.write('{}\n'.format(e))
+            return None
+
+        result = self.issue(clone.id)
+        if assign:
+            result.assign(self.me())
+        return result

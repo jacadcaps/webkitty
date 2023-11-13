@@ -28,12 +28,14 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import "Device.h"
 #import "SystemVersion.h"
+#import <WebCore/RuntimeApplicationChecks.h>
 #import <pal/spi/ios/MobileGestaltSPI.h>
 #import <pal/spi/ios/UIKitSPI.h>
+#import <pal/system/ios/Device.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cf/TypeCastsCF.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
 #import <pal/ios/UIKitSoftLink.h>
 
@@ -56,7 +58,7 @@ static inline bool isClassicPhone()
 
 ASCIILiteral osNameForUserAgent()
 {
-    if (deviceHasIPadCapability() && !isClassicPhone())
+    if (PAL::deviceHasIPadCapability() && !isClassicPhone())
         return "OS"_s;
     return "iPhone OS"_s;
 }
@@ -71,7 +73,7 @@ static StringView deviceNameForUserAgent()
     }
 
     static NeverDestroyed<String> name = [] {
-        auto name = deviceName();
+        auto name = PAL::deviceName();
 #if PLATFORM(IOS_FAMILY_SIMULATOR)
         size_t location = name.find(" Simulator"_s);
         if (location != notFound)
@@ -92,12 +94,18 @@ String standardUserAgentWithApplicationName(const String& applicationName, const
 
 #if USE(STATIC_IPAD_USER_AGENT_VALUE)
     UNUSED_PARAM(userAgentOSVersion);
-    UNUSED_PARAM(separator);
-    return makeString("Mozilla/5.0 (iPad; CPU OS 16_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.3 Mobile/15E148 Safari/604.1");
+    return makeString("Mozilla/5.0 (iPad; CPU OS 16_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)", separator, applicationName);
 #else
-    // FIXME: We should deprecate and remove this override; see https://bugs.webkit.org/show_bug.cgi?id=217927 for details.
-    if (auto override = dynamic_cf_cast<CFStringRef>(adoptCF(CFPreferencesCopyAppValue(CFSTR("UserAgent"), CFSTR("com.apple.WebFoundation")))))
-        return override.get();
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DoesNotOverrideUAFromNSUserDefault)) {
+        if (auto override = dynamic_cf_cast<CFStringRef>(adoptCF(CFPreferencesCopyAppValue(CFSTR("UserAgent"), CFSTR("com.apple.WebFoundation"))))) {
+            static BOOL hasLoggedDeprecationWarning = NO;
+            if (!hasLoggedDeprecationWarning) {
+                NSLog(@"Reading an override UA from the NSUserDefault [com.apple.WebFoundation UserAgent]. This is incompatible with the modern need to compose the UA and clients should use the API to set the application name or UA instead.");
+                hasLoggedDeprecationWarning = YES;
+            }
+            return override.get();
+        }
+    }
 
     auto osVersion = userAgentOSVersion.isEmpty() ? systemMarketingVersionForUserAgentString() : userAgentOSVersion;
     return makeString("Mozilla/5.0 (", deviceNameForUserAgent(), "; CPU ", osNameForUserAgent(), " ", osVersion, " like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)", separator, applicationName);

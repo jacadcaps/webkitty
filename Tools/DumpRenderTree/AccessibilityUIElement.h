@@ -147,6 +147,7 @@ public:
     JSRetainPtr<JSStringRef> valueDescription();
     int insertionPointLineNumber();
     JSRetainPtr<JSStringRef> selectedTextRange();
+    JSRetainPtr<JSStringRef> textInputMarkedRange() const;
     bool isAtomicLiveRegion() const;
     bool isBusy() const;
     bool isEnabled();
@@ -203,7 +204,8 @@ public:
     int columnCount();
     void rowHeaders(Vector<AccessibilityUIElement>& elements) const;
     void columnHeaders(Vector<AccessibilityUIElement>& elements) const;
-    
+    JSValueRef selectedCells(JSContextRef) const;
+
     // Tree/Outline specific attributes
     AccessibilityUIElement selectedRowAtIndex(unsigned);
     AccessibilityUIElement disclosedByRow();
@@ -214,6 +216,10 @@ public:
     AccessibilityUIElement ariaOwnsElementAtIndex(unsigned);
     AccessibilityUIElement ariaFlowToElementAtIndex(unsigned);
     AccessibilityUIElement ariaControlsElementAtIndex(unsigned);
+
+#if PLATFORM(COCOA)
+    JSRetainPtr<JSStringRef> customContent() const;
+#endif
 
     // ARIA Drag and Drop
     bool ariaIsGrabbed() const;
@@ -248,6 +254,7 @@ public:
     bool scrollPageRight();
     
     bool hasContainedByFieldsetTrait();
+    bool hasTextEntryTrait();
     AccessibilityUIElement fieldsetAncestorElement();
     JSRetainPtr<JSStringRef> attributedStringForElement();
     
@@ -294,6 +301,7 @@ public:
     bool setSelectedTextMarkerRange(AccessibilityTextMarkerRange*);
     bool replaceTextInRange(JSStringRef, int position, int length);
     bool insertText(JSStringRef);
+    AccessibilityTextMarkerRange textInputMarkedTextMarkerRange() const;
 
     JSRetainPtr<JSStringRef> stringForTextMarkerRange(AccessibilityTextMarkerRange*);
     JSRetainPtr<JSStringRef> attributedStringForTextMarkerRange(AccessibilityTextMarkerRange*);
@@ -344,9 +352,10 @@ public:
     JSRetainPtr<JSStringRef> mathPostscriptsDescription() const;
     JSRetainPtr<JSStringRef> mathPrescriptsDescription() const;
 #endif
-    
-private:
+
     static JSClassRef getJSClass();
+
+private:
 
 #if !PLATFORM(COCOA)
     PlatformUIElement m_element;

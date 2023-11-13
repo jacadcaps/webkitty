@@ -34,7 +34,7 @@ class GStreamerPeerConnectionBackend;
 class GStreamerRtpSenderBackend final : public RTCRtpSenderBackend {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend&, GRefPtr<GstWebRTCRTPSender>&&, GUniquePtr<GstStructure>&& initData);
+    GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend&, GRefPtr<GstWebRTCRTPSender>&&);
     using Source = std::variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSourceGStreamer>, Ref<RealtimeOutgoingVideoSourceGStreamer>>;
     GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend&, GRefPtr<GstWebRTCRTPSender>&&, Source&&, GUniquePtr<GstStructure>&& initData);
 
@@ -65,24 +65,9 @@ public:
         );
     }
 
-    void clearSource()
-    {
-        ASSERT(hasSource());
-        m_source = nullptr;
-    }
-
-    void setSource(Source&& source)
-    {
-        ASSERT(!hasSource());
-        m_source = WTFMove(source);
-        ASSERT(hasSource());
-    }
-
-    void takeSource(GStreamerRtpSenderBackend& backend)
-    {
-        ASSERT(backend.hasSource());
-        setSource(WTFMove(backend.m_source));
-    }
+    void clearSource();
+    void setSource(Source&&);
+    void takeSource(GStreamerRtpSenderBackend&);
 
     void stopSource();
 
@@ -101,6 +86,7 @@ private:
     GRefPtr<GstWebRTCRTPSender> m_rtcSender;
     Source m_source;
     GUniquePtr<GstStructure> m_initData;
+    mutable GUniquePtr<GstStructure> m_currentParameters;
 };
 
 } // namespace WebCore

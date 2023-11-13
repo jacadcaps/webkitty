@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,8 @@
 
 #import "WKSecurityOriginInternal.h"
 #import "WKWebViewInternal.h"
+#import "WebFrameProxy.h"
+#import "WebPageProxy.h"
 #import "_WKFrameHandleInternal.h"
 #import <WebCore/WebCoreObjCExtras.h>
 
@@ -99,8 +101,12 @@
 
 - (pid_t)_processIdentifier
 {
-    auto* frame = WebKit::WebFrameProxy::webFrame(_frameInfo->handle()->frameID());
-    return frame ? frame->processIdentifier() : 0;
+    return _frameInfo->processID();
+}
+
+- (BOOL)_isLocalFrame
+{
+    return _frameInfo->isLocalFrame();
 }
 
 @end

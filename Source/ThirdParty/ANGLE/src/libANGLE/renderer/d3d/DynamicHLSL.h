@@ -158,7 +158,8 @@ class DynamicHLSL : angle::NonCopyable
     std::string generatePixelShaderForOutputSignature(
         const std::string &sourceShader,
         const std::vector<PixelShaderOutputVariable> &outputVariables,
-        bool usesFragDepth,
+        FragDepthUsage fragDepthUsage,
+        bool usesSampleMask,
         const std::vector<GLenum> &outputLayout,
         const std::vector<rx::ShaderStorageBlock> &shaderStorageBlocks,
         size_t baseUAVRegister) const;
@@ -180,14 +181,14 @@ class DynamicHLSL : angle::NonCopyable
 
     std::string generateGeometryShaderPreamble(const gl::VaryingPacking &varyingPacking,
                                                const BuiltinVaryingsD3D &builtinsD3D,
-                                               const bool hasANGLEMultiviewEnabled,
+                                               const bool hasMultiviewEnabled,
                                                const bool selectViewInVS) const;
 
     std::string generateGeometryShaderHLSL(const gl::Caps &caps,
                                            gl::PrimitiveMode primitiveType,
                                            const gl::ProgramState &programData,
                                            const bool useViewScale,
-                                           const bool hasANGLEMultiviewEnabled,
+                                           const bool hasMultiviewEnabled,
                                            const bool selectViewInVS,
                                            const bool pointSpriteEmulation,
                                            const std::string &preambleString) const;

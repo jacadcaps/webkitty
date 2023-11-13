@@ -27,6 +27,7 @@
 
 #include "Test.h"
 #include <thread>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
@@ -2885,6 +2886,241 @@ TEST(WTF_ThreadSafeWeakPtr, ThreadSafeWeakHashSet)
     EXPECT_TRUE(set.isEmptyIgnoringNullReferences());
     first = nullptr;
     EXPECT_EQ(ThreadSafeInstanceCounter::instanceCount, 0u);
+}
+
+class ObjectAddingAndRemovingItself : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ObjectAddingAndRemovingItself> {
+public:
+    static Ref<ObjectAddingAndRemovingItself> create(ThreadSafeWeakHashSet<ObjectAddingAndRemovingItself>& set)
+    {
+        return adoptRef(*new ObjectAddingAndRemovingItself(set));
+    }
+
+    ~ObjectAddingAndRemovingItself()
+    {
+        static size_t i { 0 };
+        i++;
+        if (i == 8) {
+            // amortized cleanup of the set in contains makes this return false sometimes,
+            // but only in the destructor, where contains is less meaningful.
+            EXPECT_FALSE(m_set.contains(*this));
+        } else
+            EXPECT_TRUE(m_set.contains(*this));
+        m_set.remove(*this);
+        EXPECT_FALSE(m_set.contains(*this));
+    }
+
+private:
+    ObjectAddingAndRemovingItself(ThreadSafeWeakHashSet<ObjectAddingAndRemovingItself>& set)
+        : m_set(set)
+    {
+        EXPECT_FALSE(m_set.contains(*this));
+        m_set.add(*this);
+        EXPECT_TRUE(m_set.contains(*this));
+    }
+
+    ThreadSafeWeakHashSet<ObjectAddingAndRemovingItself>& m_set;
+};
+
+TEST(WTF_ThreadSafeWeakPtr, ThreadSafeWeakHashSetRemoveOnDestruction)
+{
+    ThreadSafeWeakHashSet<ObjectAddingAndRemovingItself> set;
+    Vector<Ref<ObjectAddingAndRemovingItself>> objects;
+    for (int i = 0; i < 10; ++i)
+        objects.append(ObjectAddingAndRemovingItself::create(set));
+    unsigned setSize = 0;
+    set.forEach([&](auto& object) { ++setSize; });
+    EXPECT_EQ(setSize, 10u);
+
+    objects.removeLast();
+    setSize = 0;
+    set.forEach([&](auto& object) { ++setSize; });
+    EXPECT_EQ(setSize, 9u);
+
+    objects.clear();
+    setSize = 0;
+    set.forEach([&](auto& object) { ++setSize; });
+    EXPECT_EQ(setSize, 0u);
+}
+
+class ObjectAddingItselfOnly : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ObjectAddingAndRemovingItself> {
+public:
+    static Ref<ObjectAddingItselfOnly> create(ThreadSafeWeakHashSet<ObjectAddingItselfOnly>& set)
+    {
+        return adoptRef(*new ObjectAddingItselfOnly(set));
+    }
+
+private:
+    ObjectAddingItselfOnly(ThreadSafeWeakHashSet<ObjectAddingItselfOnly>& set)
+        : m_set(set)
+    {
+        m_set.add(*this);
+    }
+
+    ThreadSafeWeakHashSet<ObjectAddingItselfOnly>& m_set;
+};
+
+TEST(WTF_ThreadSafeWeakPtr, ThreadSafeWeakHashAmortizedCleanupWhenOnlyAdding)
+{
+    struct Struct : ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Struct> {
+        Struct() = default;
+    };
+
+    ThreadSafeWeakHashSet<Struct> set;
+    for (int i = 0; i < 10000; ++i) {
+        auto obj = adoptRef(*new Struct);
+        set.add(obj.get());
+    }
+    EXPECT_LT(set.sizeIncludingEmptyEntriesForTesting(), 1000u);
+}
+
+// The test passes if it doesn't time out.
+TEST(WTF_ThreadSafeWeakPtr, AmortizedCleanupNotQuadratic)
+{
+    struct Struct : ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Struct> {
+        Struct() = default;
+    };
+
+    ThreadSafeWeakHashSet<Struct> set;
+    HashSet<Ref<Struct>> strongSet;
+    for (int i = 0; i < 1000000; ++i) {
+        auto obj = adoptRef(*new Struct);
+        set.add(obj.get());
+        strongSet.add(WTFMove(obj));
+    }
+}
+
+TEST(WTF_ThreadSafeWeakPtr, MultipleInheritance)
+{
+    enum class Destructor : uint8_t { Cat, Dog, CatDog };
+    static Vector<Destructor> destructors;
+
+    struct Cat : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Cat> {
+        virtual ~Cat() { destructors.append(Destructor::Cat); }
+        virtual void meow() = 0;
+
+        bool cat { true };
+    };
+
+    struct Dog {
+        ~Dog() { destructors.append(Destructor::Dog); }
+        virtual void woof() = 0;
+
+        virtual void ref() const = 0;
+        virtual void deref() const = 0;
+        virtual ThreadSafeWeakPtrControlBlock& controlBlock() const = 0;
+
+        bool dog { true };
+    };
+
+    struct CatDog : public Cat, public Dog {
+        ~CatDog() { destructors.append(Destructor::CatDog); }
+
+        void ref() const final { Cat::ref(); }
+        void deref() const final { Cat::deref(); }
+        ThreadSafeWeakPtrControlBlock& controlBlock() const final { return Cat::controlBlock(); }
+
+        void meow() final { meowed = true; }
+        void woof() final { barked = true; }
+
+        bool meowed { false };
+        bool barked { false };
+    };
+
+    ThreadSafeWeakHashSet<Dog> dogs;
+    ThreadSafeWeakHashSet<Cat> cats;
+    {
+        auto catDog = adoptRef(*new CatDog);
+        Cat* catPointer { nullptr };
+        Dog* dogPointer { nullptr };
+
+        cats.add(catDog.get());
+        dogs.add(catDog.get());
+        for (auto& cat : cats) {
+            cat.meow();
+            catPointer = &cat;
+        }
+        for (auto& dog : dogs) {
+            dogPointer = &dog;
+            dog.woof();
+        }
+        EXPECT_NE((size_t)catPointer, (size_t)dogPointer);
+        EXPECT_TRUE(catDog->meowed);
+        EXPECT_TRUE(catDog->barked);
+    }
+    EXPECT_TRUE(dogs.isEmptyIgnoringNullReferences());
+    EXPECT_TRUE(cats.isEmptyIgnoringNullReferences());
+
+    auto keepCat = adoptRef(new CatDog);
+    RefPtr<Cat> cat(keepCat.get());
+    keepCat = nullptr;
+    cat = nullptr;
+
+    auto keepDog = adoptRef(new CatDog);
+    RefPtr<Dog> dog(keepDog.get());
+    keepDog = nullptr;
+    dog = nullptr;
+
+    Vector<Destructor> expectedDestructors {
+        Destructor::CatDog,
+        Destructor::Dog,
+        Destructor::Cat,
+        Destructor::CatDog,
+        Destructor::Dog,
+        Destructor::Cat,
+        Destructor::CatDog,
+        Destructor::Dog,
+        Destructor::Cat,
+    };
+    EXPECT_EQ(destructors, expectedDestructors);
+}
+
+struct Struct : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Struct> {
+    Struct();
+    ~Struct();
+};
+
+static ThreadSafeWeakHashSet<Struct>& set()
+{
+    static NeverDestroyed<ThreadSafeWeakHashSet<Struct>> set;
+    return set.get();
+}
+
+Struct::Struct()
+{
+    set().add(*this);
+}
+
+Struct::~Struct()
+{
+    set().remove(*this);
+}
+
+TEST(WTF_ThreadSafeWeakPtr, RemoveInDestructor)
+{
+    for (size_t i = 0; i < 100; i++) {
+        Vector<Ref<Struct>> vector;
+        vector.reserveInitialCapacity(i);
+        ThreadSafeWeakHashSet<Struct> set;
+        for (size_t j = 0; j < i; j++) {
+            vector.uncheckedAppend(adoptRef(*new Struct()));
+            set.add(vector.last().get());
+        }
+    }
+}
+
+TEST(WTF_ThreadSafeWeakPtr, WeakRefInDestructor)
+{
+    struct S;
+    static ThreadSafeWeakPtr<S> weakPtr;
+    struct S : ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<S> {
+        ~S() { weakPtr = { *this }; }
+    };
+
+    {
+        auto s = adoptRef(*new S);
+    }
+    auto shouldBeNull = weakPtr.get();
+    EXPECT_NULL(shouldBeNull.get());
 }
 
 } // namespace TestWebKitAPI

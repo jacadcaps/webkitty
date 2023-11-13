@@ -30,6 +30,7 @@
 #import "WebKitTestRunnerDraggingInfo.h"
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
+#import <WebKit/_WKFormInputSession.h>
 #import <wtf/Assertions.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
@@ -110,6 +111,7 @@ IGNORE_WARNINGS_END
 #else
         [center addObserver:self selector:@selector(_invokeShowKeyboardCallbackIfNecessary) name:UIKeyboardDidShowNotification object:nil];
         [center addObserver:self selector:@selector(_invokeHideKeyboardCallbackIfNecessary) name:UIKeyboardDidHideNotification object:nil];
+        [center addObserver:self selector:@selector(_keyboardWillHide) name:UIKeyboardWillHideNotification object:nil];
         ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         [center addObserver:self selector:@selector(_didShowMenu) name:UIMenuControllerDidShowMenuNotification object:nil];
         [center addObserver:self selector:@selector(_willHideMenu) name:UIMenuControllerWillHideMenuNotification object:nil];
@@ -297,6 +299,11 @@ IGNORE_WARNINGS_END
 
     self.zoomToScaleCompletionHandler = completionHandler;
     [self.scrollView setZoomScale:scale animated:animated];
+}
+
+- (void)_keyboardWillHide
+{
+    _keyboardWillHideCount++;
 }
 
 - (void)_invokeShowKeyboardCallbackIfNecessary
@@ -539,6 +546,7 @@ static bool isQuickboardViewController(UIViewController *viewController)
 {
     if (self.willStartInputSessionCallback)
         self.willStartInputSessionCallback();
+    inputSession.accessoryViewShouldNotShow = self.suppressInputAccessoryView;
 }
 
 - (_WKFocusStartsInputSessionPolicy)_webView:(WKWebView *)webView decidePolicyForFocusedElement:(id<_WKFocusedElementInfo>)info

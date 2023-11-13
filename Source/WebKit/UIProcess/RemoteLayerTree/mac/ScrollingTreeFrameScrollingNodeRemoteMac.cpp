@@ -48,49 +48,35 @@ Ref<ScrollingTreeFrameScrollingNodeRemoteMac> ScrollingTreeFrameScrollingNodeRem
     return adoptRef(*new ScrollingTreeFrameScrollingNodeRemoteMac(tree, nodeType, nodeID));
 }
 
-bool ScrollingTreeFrameScrollingNodeRemoteMac::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
-{
-    if (!ScrollingTreeFrameScrollingNodeMac::commitStateBeforeChildren(stateNode))
-        return false;
-
-    if (!is<ScrollingStateFrameScrollingNode>(stateNode))
-        return false;
-
-    const auto& scrollingStateNode = downcast<ScrollingStateFrameScrollingNode>(stateNode);
-    
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::HorizontalScrollbarLayer) && horizontalNativeScrollbarVisibility() == NativeScrollbarVisibility::Visible)
-        m_scrollerPair->horizontalScroller().setHostLayer(static_cast<CALayer*>(scrollingStateNode.horizontalScrollbarLayer()));
-    
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::VerticalScrollbarLayer) && verticalNativeScrollbarVisibility() == NativeScrollbarVisibility::Visible)
-        m_scrollerPair->verticalScroller().setHostLayer(static_cast<CALayer*>(scrollingStateNode.verticalScrollbarLayer()));
-
-    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::ScrollableAreaParams)) {
-        if (scrollingStateNode.scrollableAreaParameters().horizontalNativeScrollbarVisibility != NativeScrollbarVisibility::Visible)
-            m_scrollerPair->horizontalScroller().setHostLayer(nullptr);
-        if (scrollingStateNode.scrollableAreaParameters().verticalNativeScrollbarVisibility != NativeScrollbarVisibility::Visible)
-            m_scrollerPair->verticalScroller().setHostLayer(nullptr);
-    }
-
-    m_scrollerPair->updateValues();
-    return true;
-}
-
 void ScrollingTreeFrameScrollingNodeRemoteMac::repositionRelatedLayers()
 {
     ScrollingTreeFrameScrollingNodeMac::repositionRelatedLayers();
     m_delegate->updateScrollbarLayers();
 }
 
-WheelEventHandlingResult ScrollingTreeFrameScrollingNodeRemoteMac::handleWheelEvent(const PlatformWheelEvent& wheelEvent, EventTargeting eventTargeting)
+void ScrollingTreeFrameScrollingNodeRemoteMac::handleWheelEventPhase(const PlatformWheelEventPhase phase)
 {
-    auto result = ScrollingTreeFrameScrollingNodeMac::handleWheelEvent(wheelEvent, eventTargeting);
-    m_delegate->handleWheelEventForScrollbars(wheelEvent);
-    return result;
+    m_delegate->handleWheelEventPhase(phase);
 }
 
-bool ScrollingTreeFrameScrollingNodeRemoteMac::handleMouseEvent(const PlatformMouseEvent& mouseEvent)
+void ScrollingTreeFrameScrollingNodeRemoteMac::viewWillStartLiveResize()
 {
-    return m_delegate->handleMouseEventForScrollbars(mouseEvent);
+    m_delegate->viewWillStartLiveResize();
+}
+
+void ScrollingTreeFrameScrollingNodeRemoteMac::viewWillEndLiveResize()
+{
+    m_delegate->viewWillEndLiveResize();
+}
+
+void ScrollingTreeFrameScrollingNodeRemoteMac::viewSizeDidChange()
+{
+    m_delegate->viewSizeDidChange();
+}
+
+String ScrollingTreeFrameScrollingNodeRemoteMac::scrollbarStateForOrientation(ScrollbarOrientation orientation) const
+{
+    return m_delegate->scrollbarStateForOrientation(orientation);
 }
 
 }

@@ -83,7 +83,7 @@ ideplugin = 'XCBSpecifications' if tuple(int(n) for n in xcode_version.split('.'
 
 XCSPEC_INFO = [dict(
     id='com.apple.product-type.tool',
-    dest=f'../PlugIns/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec',
+    dest=f'Library/Xcode/Plug-ins/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec' if tuple(int(n) for n in xcode_version.split('.')) >= (14, 3) else f'../PlugIns/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec',
     content='''
     // Tool (normal Unix command-line executable)
     {   Type = ProductType;
@@ -118,7 +118,7 @@ XCSPEC_INFO = [dict(
 ''',
 ), dict(
     id='com.apple.package-type.mach-o-executable',
-    dest=f'../PlugIns/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec',
+    dest=f'Library/Xcode/Plug-ins/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec' if tuple(int(n) for n in xcode_version.split('.')) >= (14, 3) else f'../PlugIns/{ideplugin}.ideplugin/Contents/Resources/Embedded-Shared.xcspec',
     content='''
     {   Type = PackageType;
         Identifier = com.apple.package-type.mach-o-executable;
@@ -139,37 +139,13 @@ XCSPEC_INFO = [dict(
 ''',
 )]
 
-AVAILABILITY_FILE = pathlib.Path("usr/local/include/AvailabilityProhibitedInternal.h")
-AVAILABILTY_TEXT = """\
-// Handle __IOS_PROHIBITED and friends.
-#undef __OS_AVAILABILITY
-#define __OS_AVAILABILITY(...)
-
-// Take care of {A,S}PI_AVAILABLE{,_BEGIN,_END}
-#undef __API_AVAILABLE_GET_MACRO
-#define __API_AVAILABLE_GET_MACRO(...) __NULL_AVAILABILITY
-
-#undef SWIFT_AVAILABILITY
-#define SWIFT_AVAILABILITY __NULL_AVAILABILITY
-
-// Take care of {A,S}PI_DEPRECATED{,WITH_REPLACEMENT}{,_BEGIN,_END}
-#undef __API_DEPRECATED_MSG_GET_MACRO
-#define __API_DEPRECATED_MSG_GET_MACRO(...) __NULL_AVAILABILITY
-
-// Take care of API_UNAVAILABLE{,_BEGIN,_END}
-#undef __API_UNAVAILABLE_GET_MACRO
-#define __API_UNAVAILABLE_GET_MACRO(...) __NULL_AVAILABILITY
-
-#define __NULL_AVAILABILITY(...)
-"""
-
 SDKS_TO_UPDATE = [
-    "iphoneos",
-    "iphonesimulator",
-    "appletvos",
-    "appletvsimulator",
-    "watchos",
-    "watchsimulator",
+    ("iphoneos", ("armv7-ios", "armv7s-ios", "arm64-ios", "arm64e-ios")),
+    ("iphonesimulator", ("i386-ios-simulator", "x86_64-ios-simulator", "arm64-ios-simulator")),
+    ("appletvos", ("arm64-tvos", "arm64e-tvos")),
+    ("appletvsimulator", ("x86_64-tvos-simulator", "arm64-tvos-simulator")),
+    ("watchos", ("armv7k-watchos", "arm64-watchos", "arm64e-watchos", "arm64_32-watchos")),
+    ("watchsimulator", ("i386-watchos-simulator", "x86_64-watchos-simulator", "arm64-watchos-simulator")),
 ]
 
 PLIST_BUDDY_PATH = pathlib.Path("/usr/libexec/PlistBuddy")
@@ -255,15 +231,15 @@ def do_copy(source_path, dest_path):
 # architectures for which WebKit is built, regardless of whether the associated
 # library/framework was actually built for all those architectures.
 
-def patch_tbd_architecture(framework_path):
+def patch_tbd_architecture(framework_path, targets):
     for tbd_path in framework_path.glob("*.tbd"):
         with open(tbd_path, "r") as f:
             lines = f.readlines()
 
         modified_lines = []
         for line in lines:
-            if re.match(".*(archs|targets): +\[.*\]", line) is not None:
-                line = re.sub("\[.*\]", "[ i386, x86_64, arm64, arm64e, arm64_32, armv7k ]", line)
+            if re.match(".*targets: +\[.*\]", line) is not None:
+                line = re.sub("\[.*\]", f"[ {', '.join(targets)} ]", line)
             modified_lines.append(line)
 
         with open(tbd_path, "w") as f:
@@ -324,7 +300,7 @@ def copy_missing_headers(source_sdk, dest_sdk):
         do_copy(source_sdk_path / missing_header, dest_sdk_path / missing_header)
 
 
-def copy_missing_frameworks(source_sdk, dest_sdk):
+def copy_missing_frameworks(source_sdk, dest_sdk, targets):
     if source_sdk == dest_sdk:
         return
     source_sdk_path, dest_sdk_path = get_and_check_sdk_directories(source_sdk, dest_sdk)
@@ -335,21 +311,7 @@ def copy_missing_frameworks(source_sdk, dest_sdk):
         dest_framework_path = dest_frameworks_path / missing_framework
         if force or not dest_framework_path.exists():
             do_copy(source_framework_path, dest_framework_path)
-            patch_tbd_architecture(dest_framework_path)
-
-
-# Some functions that WebKit needs to call are marked as "unavailable" on the
-# embedded platforms. Create a stub header that will nullify the effect of the
-# annotations on those functions. Note that there's no guarantee that the
-# resulting product can run -- we just want to build.
-
-def create_availability_header(sdk):
-    sdk_path = sdk_directory(sdk)
-    availability_header_path = sdk_path / AVAILABILITY_FILE
-    print(f"Creating/updating {availability_header_path}")
-    os.makedirs(availability_header_path.parent, exist_ok=True)
-    with open(availability_header_path, "w") as f:
-        f.write(AVAILABILTY_TEXT)
+            patch_tbd_architecture(dest_framework_path, targets)
 
 
 def main():
@@ -358,10 +320,9 @@ def main():
 
     update_xcspec_files()
 
-    for sdk in SDKS_TO_UPDATE:
+    for sdk, targets in SDKS_TO_UPDATE:
         copy_missing_headers("macosx", sdk)
-        copy_missing_frameworks("iphoneos", sdk)
-        create_availability_header(sdk)
+        copy_missing_frameworks("iphoneos", sdk, targets)
     return 0
 
 

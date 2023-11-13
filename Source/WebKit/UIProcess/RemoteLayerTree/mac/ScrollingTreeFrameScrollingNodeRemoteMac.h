@@ -38,14 +38,17 @@ public:
     static Ref<ScrollingTreeFrameScrollingNodeRemoteMac> create(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeRemoteMac();
 
-    bool handleMouseEvent(const WebCore::PlatformMouseEvent&);
-
 private:
     ScrollingTreeFrameScrollingNodeRemoteMac(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
 
-    bool commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
-    WebCore::WheelEventHandlingResult handleWheelEvent(const WebCore::PlatformWheelEvent&, WebCore::EventTargeting) override;
+    void handleWheelEventPhase(const WebCore::PlatformWheelEventPhase) override;
+
     void repositionRelatedLayers() override;
+    
+    void viewWillStartLiveResize() override;
+    void viewWillEndLiveResize() override;
+    void viewSizeDidChange() override;
+    String scrollbarStateForOrientation(WebCore::ScrollbarOrientation) const override;
 };
 
 }

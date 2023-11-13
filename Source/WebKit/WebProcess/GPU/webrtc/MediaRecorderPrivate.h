@@ -52,10 +52,16 @@ class MediaRecorderPrivate final
     , public GPUProcessConnection::Client {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    MediaRecorderPrivate(WebCore::MediaStreamPrivate&, const WebCore::MediaRecorderPrivateOptions&);
+    static Ref<MediaRecorderPrivate> create(WebCore::MediaStreamPrivate&, const WebCore::MediaRecorderPrivateOptions&);
     ~MediaRecorderPrivate();
 
+    void ref() const final { return WebCore::MediaRecorderPrivate::ref(); }
+    void deref() const final { return WebCore::MediaRecorderPrivate::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return WebCore::MediaRecorderPrivate::controlBlock(); }
+
 private:
+    MediaRecorderPrivate(WebCore::MediaStreamPrivate&, const WebCore::MediaRecorderPrivateOptions&);
+
     // WebCore::MediaRecorderPrivate
     void videoFrameAvailable(WebCore::VideoFrame&, WebCore::VideoFrameTimeMetadata) final;
     void fetchData(CompletionHandler<void(RefPtr<WebCore::FragmentedSharedBuffer>&&, const String& mimeType, double)>&&) final;

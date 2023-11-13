@@ -63,6 +63,7 @@
 
 @property (nonatomic, assign) UIEdgeInsets overrideSafeAreaInsets;
 
+@property (nonatomic, readonly) NSUInteger keyboardWillHideCount;
 @property (nonatomic, readonly) UIView *contentView;
 @property (nonatomic, readonly, getter=isShowingKeyboard) BOOL showingKeyboard;
 @property (nonatomic, readonly, getter=isDismissingMenu) BOOL dismissingMenu;
@@ -72,6 +73,7 @@
 @property (nonatomic) _WKFocusStartsInputSessionPolicy focusStartsInputSessionPolicy;
 
 @property (nonatomic, assign) UIInterfaceOrientationMask supportedInterfaceOrientations;
+@property (nonatomic) BOOL suppressInputAccessoryView;
 
 #endif
 

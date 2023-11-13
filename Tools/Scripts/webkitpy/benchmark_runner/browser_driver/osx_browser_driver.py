@@ -7,6 +7,7 @@ import time
 
 from contextlib import contextmanager
 
+from webkitcorepy import Timeout
 from webkitpy.benchmark_runner.browser_driver.browser_driver import BrowserDriver
 from webkitpy.benchmark_runner.utils import write_defaults
 
@@ -41,6 +42,43 @@ class OSXBrowserDriver(BrowserDriver):
     def close_browsers(self):
         self._terminate_processes(self.process_name, self.bundle_id)
 
+    @contextmanager
+    def profile(self, output_path, profile_filename, profiling_interval, trace_type='profile', timeout=300):
+        trace_process = None
+        additional_trace_arguments = {
+            'full': ['--type=full'],
+            'profile': ['--type=profile'],
+        }
+        if trace_type not in additional_trace_arguments:
+            _log.error('`{}` is not a valid type of trace. Defaulting to `profile`.'.format(trace_type))
+            trace_type = 'profile'
+        try:
+            _log.info('Gathering traces')
+            _log.info('If passwordless sudo is not enabled, you may see a prompt for your host machine\'s admin password.')
+            trace_command = ['sudo', 'ktrace', 'artrace', '-o', os.path.join(output_path, profile_filename + '.ktrace')]
+            trace_command += additional_trace_arguments[trace_type]
+            if profiling_interval:
+                trace_command += ['-i', profiling_interval]
+            _log.info('Running ktrace command: {}'.format(trace_command))
+            trace_process = subprocess.Popen(trace_command)
+            time.sleep(5)  # Wait a few seconds for `ktrace` process to start
+            yield
+        except Exception as error:
+            raise Exception('Failed to start ktrace. Error: {}'.format(error))
+        finally:
+            if not trace_process:
+                return
+            try:
+                subprocess.call(['sudo', 'pkill', '-2', 'ktrace'])
+                _log.info('Stopping ktrace task.')
+                with Timeout(timeout):
+                    trace_process.wait()
+            except Exception as error:
+                _log.error('Failed to quit ktrace.')
+            finally:
+                _log.info('Killing ktrace task.')
+                subprocess.call(['sudo', 'pkill', '-9', 'ktrace'])
+
     def _save_screenshot_to_path(self, output_directory, filename):
         jpg_image_path = os.path.join(output_directory, filename)
         try:
@@ -71,12 +109,12 @@ class OSXBrowserDriver(BrowserDriver):
 
         self._save_screenshot_to_path(diagnose_directory, 'test-failure-screenshot-{}.jpg'.format(int(time.time())))
 
-    @classmethod
-    def _launch_process(cls, build_dir, app_name, url, args, env=None):
+    def _launch_process(self, build_dir, app_name, url, args, env=None):
         if not build_dir:
             build_dir = '/Applications/'
         app_path = os.path.join(build_dir, app_name)
-
+        if self.browser_args:
+            args += self.browser_args
         _log.info('Launching {} with url {}. args:{}'.format(app_path, url, " ".join(args)))
         # FIXME: May need to be modified for a local build such as setting up DYLD libraries
         args = ['open', '-a', app_path] + args

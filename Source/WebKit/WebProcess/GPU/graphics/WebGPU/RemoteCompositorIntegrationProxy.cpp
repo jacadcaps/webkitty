@@ -41,17 +41,21 @@ RemoteCompositorIntegrationProxy::RemoteCompositorIntegrationProxy(RemoteGPUProx
 {
 }
 
-RemoteCompositorIntegrationProxy::~RemoteCompositorIntegrationProxy() = default;
+RemoteCompositorIntegrationProxy::~RemoteCompositorIntegrationProxy()
+{
+    auto sendResult = send(Messages::RemoteCompositorIntegration::Destruct());
+    UNUSED_VARIABLE(sendResult);
+}
 
 #if PLATFORM(COCOA)
 Vector<MachSendRight> RemoteCompositorIntegrationProxy::recreateRenderBuffers(int height, int width)
 {
     auto sendResult = sendSync(Messages::RemoteCompositorIntegration::RecreateRenderBuffers(height, width));
-    if (!sendResult)
+    if (!sendResult.succeeded())
         return { };
 
     auto [renderBuffers] = sendResult.takeReply();
-    return renderBuffers;
+    return WTFMove(renderBuffers);
 }
 #endif
 

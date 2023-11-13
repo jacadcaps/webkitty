@@ -20,11 +20,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import six
-
 from .tracker import Tracker
 from .user import User
 from datetime import datetime
+from webkitcorepy import string_utils
 
 
 class Issue(object):
@@ -35,13 +34,13 @@ class Issue(object):
             else:
                 self.user = user
 
-            if isinstance(timestamp, six.string_types) and timestamp.isdigit():
+            if isinstance(timestamp, string_utils.basestring) and timestamp.isdigit():
                 timestamp = int(timestamp)
             if timestamp and not isinstance(timestamp, int):
                 raise TypeError("Expected 'timestamp' to be of type int, got '{}'".format(timestamp))
             self.timestamp = timestamp
 
-            if content and not isinstance(content, six.string_types):
+            if content and not isinstance(content, string_utils.basestring):
                 raise ValueError("Expected 'content' to be a string, got '{}'".format(content))
             self.content = content
 
@@ -207,6 +206,16 @@ class Issue(object):
         match_string = ''
         for member in ('title', 'project', 'component', 'version', 'classification'):
             match_string += ';{}:{}'.format(member, getattr(self, member, ''))
+        match_string += ';keywords:{}'.format(','.join(self.keywords or []))
+
+        for key, value in self.tracker._redact_exemption.items():
+            if key.search(match_string) and value:
+                return self.tracker.Redaction(
+                    redacted=False,
+                    exemption=value,
+                    reason="is a {}".format(self.tracker.NAME) if key.pattern == '.*' else "matches '{}'".format(key.pattern),
+                )
+
         for key, value in self.tracker._redact.items():
             if key.search(match_string):
                 return self.tracker.Redaction(

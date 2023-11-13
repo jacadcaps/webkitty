@@ -51,7 +51,6 @@
 #include <WebCore/Region.h>
 #include <WebCore/WebCoreInstanceHandle.h>
 #include <WebCore/WindowMessageBroadcaster.h>
-#include <WebCore/WindowsTouch.h>
 #include <wtf/FileSystem.h>
 #include <wtf/SoftLinking.h>
 #include <wtf/text/StringBuffer.h>
@@ -379,7 +378,7 @@ LRESULT WebView::onWheelEvent(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         return 0;
     }
 
-    m_page->handleWheelEvent(wheelEvent);
+    m_page->handleNativeWheelEvent(wheelEvent);
 
     handled = true;
     return 0;

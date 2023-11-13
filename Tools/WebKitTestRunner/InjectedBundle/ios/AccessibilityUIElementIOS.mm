@@ -92,6 +92,7 @@ typedef void (*AXPostedNotificationCallback)(id element, NSString* notification,
 - (NSString *)accessibilityARIARelevantStatus;
 - (NSString *)accessibilityInvalidStatus;
 - (UIAccessibilityTraits)_axContainedByFieldsetTrait;
+- (UIAccessibilityTraits)_axTextEntryTrait;
 - (id)_accessibilityFieldsetAncestor;
 - (BOOL)_accessibilityHasTouchEventListener;
 - (NSString *)accessibilityExpandedTextValue;
@@ -456,6 +457,11 @@ JSValueRef AccessibilityUIElement::uiElementArrayAttributeValue(JSStringRef attr
 }
 
 JSValueRef AccessibilityUIElement::rowHeaders() const
+{
+    return nullptr;
+}
+
+JSValueRef AccessibilityUIElement::selectedCells() const
 {
     return nullptr;
 }
@@ -865,6 +871,12 @@ bool AccessibilityUIElement::hasContainedByFieldsetTrait()
     return (traits & [m_element _axContainedByFieldsetTrait]) == [m_element _axContainedByFieldsetTrait];
 }
 
+bool AccessibilityUIElement::hasTextEntryTrait()
+{
+    UIAccessibilityTraits traits = [m_element accessibilityTraits];
+    return (traits & [m_element _axTextEntryTrait]) == [m_element _axTextEntryTrait];
+}
+
 RefPtr<AccessibilityUIElement> AccessibilityUIElement::fieldsetAncestorElement()
 {
     id ancestorElement = [m_element _accessibilityFieldsetAncestor];
@@ -976,6 +988,11 @@ bool AccessibilityUIElement::setSelectedTextRange(unsigned location, unsigned le
 {
     [m_element _accessibilitySetSelectedTextRange:NSMakeRange(location, length)];
     return true;
+}
+
+JSRetainPtr<JSStringRef> AccessibilityUIElement::textInputMarkedRange() const
+{
+    return WTR::createJSString();
 }
 
 void AccessibilityUIElement::increment()

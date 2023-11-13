@@ -28,7 +28,7 @@ namespace WebCore {
 
 class RealtimeOutgoingVideoSourceGStreamer final : public RealtimeOutgoingMediaSourceGStreamer {
 public:
-    static Ref<RealtimeOutgoingVideoSourceGStreamer> create(const String& mediaStreamId, MediaStreamTrack& track) { return adoptRef(*new RealtimeOutgoingVideoSourceGStreamer(mediaStreamId, track)); }
+    static Ref<RealtimeOutgoingVideoSourceGStreamer> create(const RefPtr<UniqueSSRCGenerator>& ssrcGenerator, const String& mediaStreamId, MediaStreamTrack& track) { return adoptRef(*new RealtimeOutgoingVideoSourceGStreamer(ssrcGenerator, mediaStreamId, track)); }
 
     void setApplyRotation(bool shouldApplyRotation) { m_shouldApplyRotation = shouldApplyRotation; }
 
@@ -36,10 +36,13 @@ public:
     void teardown() final;
     void flush() final;
 
+    void setParameters(GUniquePtr<GstStructure>&&) final;
+    void fillEncodingParameters(const GUniquePtr<GstStructure>&) final;
+
     const GstStructure* stats() const { return m_stats.get(); }
 
 protected:
-    explicit RealtimeOutgoingVideoSourceGStreamer(const String& mediaStreamId, MediaStreamTrack&);
+    explicit RealtimeOutgoingVideoSourceGStreamer(const RefPtr<UniqueSSRCGenerator>&, const String& mediaStreamId, MediaStreamTrack&);
 
     void sourceEnabledChanged() final;
 
@@ -58,9 +61,11 @@ private:
 
     void updateStats(GstBuffer*);
 
-    GRefPtr<GstElement> m_fallbackSource;
     GRefPtr<GstElement> m_videoConvert;
     GRefPtr<GstElement> m_videoFlip;
+    GRefPtr<GstElement> m_videoRate;
+    GRefPtr<GstElement> m_frameRateCapsFilter;
+
     GUniquePtr<GstStructure> m_stats;
 
     unsigned long m_statsPadProbeId { 0 };

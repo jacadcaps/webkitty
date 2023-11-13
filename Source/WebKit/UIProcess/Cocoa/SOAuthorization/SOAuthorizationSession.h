@@ -43,13 +43,14 @@ class NavigationAction;
 
 namespace WebCore {
 class ResourceResponse;
+class SecurityOrigin;
 }
 
 namespace WebKit {
 
 class WebPageProxy;
 
-enum class SOAuthorizationLoadPolicy : uint8_t;
+enum class SOAuthorizationLoadPolicy : bool;
 
 // A session will only be executed once.
 class SOAuthorizationSession : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<SOAuthorizationSession, WTF::DestructionThread::MainRunLoop> {
@@ -112,6 +113,9 @@ private:
 #endif
     void continueStartAfterGetAuthorizationHints(const String&);
     void continueStartAfterDecidePolicy(const SOAuthorizationLoadPolicy&);
+
+    bool shouldInterruptLoadForCSPFrameAncestorsOrXFrameOptions(const WebCore::ResourceResponse&);
+    bool shouldInterruptLoadForXFrameOptions(Vector<RefPtr<WebCore::SecurityOrigin>>&& frameAncestorOrigins, const String& xFrameOptions, const URL&);
 
     State m_state  { State::Idle };
     RetainPtr<SOAuthorization> m_soAuthorization;

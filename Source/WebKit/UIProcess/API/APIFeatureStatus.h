@@ -47,8 +47,10 @@ enum class FeatureStatus : uint8_t {
 
 enum class FeatureCategory : uint8_t {
     None,
+    Animation,
     CSS,
     DOM,
+    HTML,
     Javascript,
     Media,
     Networking,

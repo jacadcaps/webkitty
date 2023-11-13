@@ -406,7 +406,7 @@ void CairoOperationRecorder::fillEllipse(const FloatRect& rect)
         void execute(PaintingOperationReplay& replayer) override
         {
             Path path;
-            path.addEllipse(arg<0>());
+            path.addEllipseInRect(arg<0>());
             Cairo::fillPath(contextForReplay(replayer), path, arg<1>(), arg<2>());
         }
 
@@ -471,7 +471,7 @@ void CairoOperationRecorder::strokeEllipse(const FloatRect& rect)
         void execute(PaintingOperationReplay& replayer) override
         {
             Path path;
-            path.addEllipse(arg<0>());
+            path.addEllipseInRect(arg<0>());
             Cairo::strokePath(contextForReplay(replayer), path, arg<1>(), arg<2>());
         }
 
@@ -506,13 +506,13 @@ void CairoOperationRecorder::clearRect(const FloatRect& rect)
 
 void CairoOperationRecorder::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothing)
 {
-    struct DrawGlyphs final : PaintingOperation, OperationData<Cairo::FillSource, Cairo::StrokeSource, Cairo::ShadowState, FloatPoint, RefPtr<cairo_scaled_font_t>, float, Vector<cairo_glyph_t>, float, TextDrawingModeFlags, float, FloatSize, Color, FontSmoothingMode> {
+    struct DrawGlyphs final : PaintingOperation, OperationData<Cairo::FillSource, Cairo::StrokeSource, Cairo::ShadowState, FloatPoint, RefPtr<cairo_scaled_font_t>, float, Vector<cairo_glyph_t>, float, TextDrawingModeFlags, float, std::optional<GraphicsDropShadow>, FontSmoothingMode> {
         virtual ~DrawGlyphs() = default;
 
         void execute(PaintingOperationReplay& replayer) override
         {
             Cairo::drawGlyphs(contextForReplay(replayer), arg<0>(), arg<1>(), arg<2>(), arg<3>(), arg<4>().get(),
-                arg<5>(), arg<6>(), arg<7>(), arg<8>(), arg<9>(), arg<10>(), arg<11>(), arg<12>());
+                arg<5>(), arg<6>(), arg<7>(), arg<8>(), arg<9>(), arg<10>(), arg<11>());
         }
 
         void dump(TextStream& ts) override
@@ -539,7 +539,7 @@ void CairoOperationRecorder::drawGlyphs(const Font& font, const GlyphBufferGlyph
         Cairo::ShadowState(state), point,
         RefPtr<cairo_scaled_font_t>(font.platformData().scaledFont()),
         font.syntheticBoldOffset(), WTFMove(cairoGlyphs), xOffset, state.textDrawingMode(),
-        state.strokeThickness(), state.dropShadow().offset, state.dropShadow().color, fontSmoothing));
+        state.strokeThickness(), state.dropShadow(), fontSmoothing));
 }
 
 void CairoOperationRecorder::drawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
@@ -1046,6 +1046,11 @@ void CairoOperationRecorder::endTransparencyLayer()
     GraphicsContext::endTransparencyLayer();
 
     append(createCommand<EndTransparencyLayer>());
+}
+
+void CairoOperationRecorder::resetClip()
+{
+    ASSERT_NOT_REACHED("resetClip is not supported on Cairo");
 }
 
 void CairoOperationRecorder::clip(const FloatRect& rect)

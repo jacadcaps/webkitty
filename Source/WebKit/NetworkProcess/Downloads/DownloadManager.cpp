@@ -28,6 +28,7 @@
 
 #include "Download.h"
 #include "DownloadProxyMessages.h"
+#include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkLoad.h"
 #include "NetworkSession.h"
@@ -58,7 +59,7 @@ void DownloadManager::startDownload(PAL::SessionID sessionID, DownloadID downloa
         parameters.blobFileReferences = client().networkSession(sessionID)->blobRegistry().filesInBlob(request.url());
     parameters.storedCredentialsPolicy = sessionID.isEphemeral() ? StoredCredentialsPolicy::DoNotUse : StoredCredentialsPolicy::Use;
 
-    m_pendingDownloads.add(downloadID, makeUnique<PendingDownload>(m_client.parentProcessConnectionForDownloads(), WTFMove(parameters), downloadID, *networkSession, &client().networkSession(sessionID)->blobRegistry(), suggestedName));
+    m_pendingDownloads.add(downloadID, makeUnique<PendingDownload>(m_client.parentProcessConnectionForDownloads(), WTFMove(parameters), downloadID, *networkSession, suggestedName));
 }
 
 void DownloadManager::dataTaskBecameDownloadTask(DownloadID downloadID, std::unique_ptr<Download>&& download)
@@ -72,14 +73,6 @@ void DownloadManager::dataTaskBecameDownloadTask(DownloadID downloadID, std::uni
     ASSERT(!m_downloads.contains(downloadID));
     m_downloadsAfterDestinationDecided.remove(downloadID);
     m_downloads.add(downloadID, WTFMove(download));
-}
-
-void DownloadManager::continueWillSendRequest(DownloadID downloadID, WebCore::ResourceRequest&& request)
-{
-    auto* pendingDownload = m_pendingDownloads.get(downloadID);
-    ASSERT(pendingDownload);
-    if (pendingDownload)
-        pendingDownload->continueWillSendRequest(WTFMove(request));
 }
 
 void DownloadManager::convertNetworkLoadToDownload(DownloadID downloadID, std::unique_ptr<NetworkLoad>&& networkLoad, ResponseCompletionHandler&& completionHandler, Vector<RefPtr<WebCore::BlobDataFileReference>>&& blobFileReferences, const ResourceRequest& request, const ResourceResponse& response)

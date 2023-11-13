@@ -20,6 +20,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
 import sys
 
 from .branch import Branch
@@ -44,7 +45,7 @@ class CherryPick(Command):
         )
         parser.add_argument(
             '--use-original', '--no-original',
-            dest='original', default=True,
+            dest='original', default=None,
             help='When cherry-picking a cherry-pick, use the original commit instead of a double cherry-pick.',
             action=arguments.NoAction,
         )
@@ -86,11 +87,19 @@ class CherryPick(Command):
         else:
             cherry_pick_string = '{} ({})'.format(commit, commit.hash[:commit.HASH_LABEL_SIZE])
 
+        env = os.environ.copy()
+        env['GIT_WEBKIT_CHERRY_PICKED'] = cherry_pick_string
+        env['COMMIT_MESSAGE_BUG'] = issue.link if issue else ''
+
+        cls.write_branch_variables(
+            repository, repository.branch,
+            cherry_pick=cherry_pick_string,
+            bug=[issue.link] if issue else [],
+        )
+
         return run(
             [repository.executable(), 'cherry-pick', '-e', commit.hash],
             cwd=repository.root_path,
-            env=dict(
-                GIT_WEBKIT_CHERRY_PICKED=cherry_pick_string,
-                GIT_WEBKIT_BUG=issue.link if issue else '',
-            ), capture_output=False,
+            env=env,
+            capture_output=False,
         ).returncode

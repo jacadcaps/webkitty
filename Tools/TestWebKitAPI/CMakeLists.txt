@@ -26,7 +26,7 @@ set(TestWTF_SOURCES
     Utilities.cpp
 
     Tests/WTF/AtomString.cpp
-    Tests/WTF/Bitmap.cpp
+    Tests/WTF/BitSet.cpp
     Tests/WTF/BloomFilter.cpp
     Tests/WTF/BoxPtr.cpp
     Tests/WTF/BumpPointerAllocator.cpp
@@ -96,9 +96,9 @@ set(TestWTF_SOURCES
     Tests/WTF/ScopedLambda.cpp
     Tests/WTF/SentinelLinkedList.cpp
     Tests/WTF/SetForScope.cpp
-    Tests/WTF/Span.cpp
+    Tests/WTF/Signals.cpp
     Tests/WTF/StackTraceTest.cpp
-    Tests/WTF/StdLibExtras.cpp
+    Tests/WTF/StdLibExtrasTests.cpp
     Tests/WTF/StringBuilder.cpp
     Tests/WTF/StringCommon.cpp
     Tests/WTF/StringConcatenate.cpp
@@ -202,6 +202,7 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/NowPlayingInfoTests.cpp
         Tests/WebCore/ParsedContentRange.cpp
         Tests/WebCore/PublicSuffix.cpp
+        Tests/WebCore/RenderStyleChange.cpp
         Tests/WebCore/SecurityOrigin.cpp
         Tests/WebCore/SharedBuffer.cpp
         Tests/WebCore/SharedBufferTest.cpp

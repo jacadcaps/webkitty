@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2009, 2010, 2012 Google Inc. All rights reserved.
 # Copyright (C) 2009 Torch Mobile Inc.
-# Copyright (C) 2009-2022 Apple Inc. All rights reserved.
+# Copyright (C) 2009-2023 Apple Inc. All rights reserved.
 # Copyright (C) 2010 Chris Jerdonek (cjerdonek@webkit.org)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -147,7 +147,7 @@ _NO_CONFIG_H_PATH_PATTERNS = [
 ]
 
 _EXPORT_MACRO_SPEC = {
-    'BEXPORT': 'Source/bmalloc',
+    'BEXPORT': '(Source/bmalloc|Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h)',
     'JS_EXPORT': 'Source/JavaScriptCore/API',
     'JS_EXPORT_PRIVATE': 'Source/JavaScriptCore',
     'PAL_EXPORT': 'Source/WebCore/PAL',
@@ -155,7 +155,7 @@ _EXPORT_MACRO_SPEC = {
     # Excludes PAL and testing directories
     'WEBCORE_EXPORT': 'Source/WebCore/(?!(PAL|testing))',
     'WK_EXPORT': 'Source/WebKit',
-    'WTF_EXPORT_PRIVATE': 'Source/WTF',
+    'WTF_EXPORT_PRIVATE': '(Source/WTF|Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h)',
 }
 
 _EXPORT_MACROS = sorted(_EXPORT_MACRO_SPEC.keys())
@@ -1364,6 +1364,8 @@ class _EnumState(object):
                 if self.is_webidl_enum:
                     return False
                 if enum_name in _ALLOW_ALL_UPPERCASE_ENUM:
+                    return False
+                if len(all_uppercase.group('value')) < 2:
                     return False
                 return not all_uppercase.group('value') in _ALLOW_ABBREVIATION_ENUM_VALUES
             return match(expr_starts_lowercase, value_declaration)
@@ -4019,7 +4021,7 @@ def check_language(filename, clean_lines, line_number, file_extension, include_s
               'http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Namespaces'
               ' for more information.')
 
-    # Check for plain bitfields declared without either "singed" or "unsigned".
+    # Check for plain bitfields declared without either "signed" or "unsigned".
     # Most compilers treat such bitfields as signed, but there are still compilers like
     # RVCT 4.0 that use unsigned by default.
     matched = re.match(r'\s*((const|mutable)\s+)?(char|(short(\s+int)?)|int|long(\s+(long|int))?)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*\d+\s*;', line)
@@ -4034,7 +4036,7 @@ def check_language(filename, clean_lines, line_number, file_extension, include_s
     matched = re.match(r'\s*((const|mutable)\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*\d+\s*;', line)
     if matched:
         # Make sure the type is an enum and not an integral type
-        if not match(r'bool|char|(short(\s+int)?)|int|long(\s+(long|int))|(signed|unsigned)(\s+int)?', matched.group(3)):
+        if not match(r'bool|char|(short(\s+int)?)|u?int(8|16|32|64)_t|int|long(\s+(long|int))|(signed|unsigned)(\s+int)?', matched.group(3)):
             error(line_number, 'runtime/enum_bitfields', 5,
                   'Please declare enum bitfields as unsigned integral types.')
 

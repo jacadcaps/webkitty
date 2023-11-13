@@ -24,6 +24,7 @@ namespace gl
 // This small structure encapsulates binding sampler uniforms to active GL textures.
 struct SamplerBinding
 {
+    SamplerBinding();
     SamplerBinding(TextureType textureTypeIn,
                    GLenum samplerTypeIn,
                    SamplerFormat formatIn,
@@ -45,6 +46,7 @@ struct SamplerBinding
 
 struct ImageBinding
 {
+    ImageBinding();
     ImageBinding(size_t count, TextureType textureTypeIn);
     ImageBinding(GLuint imageUnit, size_t count, TextureType textureTypeIn);
     ImageBinding(const ImageBinding &other);
@@ -62,6 +64,8 @@ struct ImageBinding
 // elements specified by 'arrayIndex' can set to be enabled.
 struct TransformFeedbackVarying : public sh::ShaderVariable
 {
+    TransformFeedbackVarying() = default;
+
     TransformFeedbackVarying(const sh::ShaderVariable &varyingIn, GLuint arrayIndexIn)
         : sh::ShaderVariable(varyingIn), arrayIndex(arrayIndexIn)
     {
@@ -125,7 +129,7 @@ class ProgramExecutable final : public angle::Subject
     void resetInfoLog() { mInfoLog.reset(); }
 
     void resetLinkedShaderStages() { mLinkedShaderStages.reset(); }
-    const ShaderBitSet &getLinkedShaderStages() const { return mLinkedShaderStages; }
+    const ShaderBitSet getLinkedShaderStages() const { return mLinkedShaderStages; }
     void setLinkedShaderStages(ShaderType shaderType)
     {
         mLinkedShaderStages.set(shaderType);

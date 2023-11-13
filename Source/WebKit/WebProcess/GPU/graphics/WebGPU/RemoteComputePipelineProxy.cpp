@@ -43,9 +43,11 @@ RemoteComputePipelineProxy::RemoteComputePipelineProxy(RemoteDeviceProxy& parent
 
 RemoteComputePipelineProxy::~RemoteComputePipelineProxy()
 {
+    auto sendResult = send(Messages::RemoteComputePipeline::Destruct());
+    UNUSED_VARIABLE(sendResult);
 }
 
-Ref<PAL::WebGPU::BindGroupLayout> RemoteComputePipelineProxy::getBindGroupLayout(uint32_t index)
+Ref<WebCore::WebGPU::BindGroupLayout> RemoteComputePipelineProxy::getBindGroupLayout(uint32_t index)
 {
     // "A new GPUBindGroupLayout wrapper is returned each time"
     auto identifier = WebGPUIdentifier::generate();

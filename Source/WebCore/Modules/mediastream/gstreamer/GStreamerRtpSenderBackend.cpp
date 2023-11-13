@@ -46,12 +46,12 @@ static void ensureDebugCategoryIsRegistered()
     });
 }
 
-GStreamerRtpSenderBackend::GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend& backend, GRefPtr<GstWebRTCRTPSender>&& rtcSender, GUniquePtr<GstStructure>&& initData)
+GStreamerRtpSenderBackend::GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend& backend, GRefPtr<GstWebRTCRTPSender>&& rtcSender)
     : m_peerConnectionBackend(WeakPtr { &backend })
     , m_rtcSender(WTFMove(rtcSender))
-    , m_initData(WTFMove(initData))
 {
     ensureDebugCategoryIsRegistered();
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "constructed without associated source");
 }
 
 GStreamerRtpSenderBackend::GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend& backend, GRefPtr<GstWebRTCRTPSender>&& rtcSender, Source&& source, GUniquePtr<GstStructure>&& initData)
@@ -61,6 +61,29 @@ GStreamerRtpSenderBackend::GStreamerRtpSenderBackend(GStreamerPeerConnectionBack
     , m_initData(WTFMove(initData))
 {
     ensureDebugCategoryIsRegistered();
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "constructed with associated source");
+}
+
+void GStreamerRtpSenderBackend::clearSource()
+{
+    ASSERT(hasSource());
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "Clearing source");
+    m_source = nullptr;
+}
+
+void GStreamerRtpSenderBackend::setSource(Source&& source)
+{
+    ASSERT(!hasSource());
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "Setting source");
+    m_source = WTFMove(source);
+    ASSERT(hasSource());
+}
+
+void GStreamerRtpSenderBackend::takeSource(GStreamerRtpSenderBackend& backend)
+{
+    ASSERT(backend.hasSource());
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "Taking source from %" GST_PTR_FORMAT, backend.rtcSender());
+    setSource(WTFMove(backend.m_source));
 }
 
 template<typename Source>
@@ -138,17 +161,94 @@ bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender& sender, MediaStreamTr
 
 RTCRtpSendParameters GStreamerRtpSenderBackend::getParameters() const
 {
-    return toRTCRtpSendParameters(m_initData.get());
+    switchOn(m_source, [&](const Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
+        m_currentParameters = source->parameters();
+    }, [&](const Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
+        m_currentParameters = source->parameters();
+    }, [](const std::nullptr_t&) {
+    });
+
+    GST_DEBUG_OBJECT(m_rtcSender.get(), "Current parameters: %" GST_PTR_FORMAT, m_currentParameters.get());
+    if (!m_currentParameters)
+        return toRTCRtpSendParameters(m_initData.get());
+
+    return toRTCRtpSendParameters(m_currentParameters.get());
 }
 
-void GStreamerRtpSenderBackend::setParameters(const RTCRtpSendParameters&, DOMPromiseDeferred<void>&& promise)
+static bool validateModifiedParameters(const RTCRtpSendParameters& newParameters, const RTCRtpSendParameters& oldParameters)
 {
-    if (!m_rtcSender) {
+    if (oldParameters.transactionId != newParameters.transactionId)
+        return false;
+
+    if (oldParameters.encodings.size() != newParameters.encodings.size())
+        return false;
+
+    for (size_t i = 0; i < oldParameters.encodings.size(); ++i) {
+        if (oldParameters.encodings[i].rid != newParameters.encodings[i].rid)
+            return false;
+    }
+
+    if (oldParameters.headerExtensions.size() != newParameters.headerExtensions.size())
+        return false;
+
+    for (size_t i = 0; i < oldParameters.headerExtensions.size(); ++i) {
+        const auto& oldExtension = oldParameters.headerExtensions[i];
+        const auto& newExtension = newParameters.headerExtensions[i];
+        if (oldExtension.uri != newExtension.uri || oldExtension.id != newExtension.id)
+            return false;
+    }
+
+    if (oldParameters.rtcp.cname != newParameters.rtcp.cname)
+        return false;
+
+    if (!!oldParameters.rtcp.reducedSize != !!newParameters.rtcp.reducedSize)
+        return false;
+
+    if (oldParameters.rtcp.reducedSize && *oldParameters.rtcp.reducedSize != *newParameters.rtcp.reducedSize)
+        return false;
+
+    if (oldParameters.codecs.size() != newParameters.codecs.size())
+        return false;
+
+    for (size_t i = 0; i < oldParameters.codecs.size(); ++i) {
+        const auto& oldCodec = oldParameters.codecs[i];
+        const auto& newCodec = newParameters.codecs[i];
+        if (oldCodec.payloadType != newCodec.payloadType
+            || oldCodec.mimeType != newCodec.mimeType
+            || oldCodec.clockRate != newCodec.clockRate
+            || oldCodec.channels != newCodec.channels
+            || oldCodec.sdpFmtpLine != newCodec.sdpFmtpLine)
+            return false;
+    }
+
+    return true;
+}
+
+void GStreamerRtpSenderBackend::setParameters(const RTCRtpSendParameters& parameters, DOMPromiseDeferred<void>&& promise)
+{
+    if (!hasSource()) {
         promise.reject(NotSupportedError);
         return;
     }
 
-    notImplemented();
+    if (!m_currentParameters) {
+        promise.reject(Exception { InvalidStateError, "getParameters must be called before setParameters"_s });
+        return;
+    }
+
+    if (!validateModifiedParameters(parameters, toRTCRtpSendParameters(m_currentParameters.get()))) {
+        promise.reject(InvalidModificationError, "parameters are not valid"_s);
+        return;
+    }
+
+    auto newParameters(fromRTCSendParameters(parameters));
+    switchOn(m_source, [&](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
+        source->setParameters(WTFMove(newParameters));
+    }, [&](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
+        source->setParameters(WTFMove(newParameters));
+    }, [](const std::nullptr_t&) {
+    });
+
     promise.resolve();
 }
 
@@ -169,10 +269,17 @@ void GStreamerRtpSenderBackend::setMediaStreamIds(const FixedVector<String>&)
 
 std::unique_ptr<RTCDtlsTransportBackend> GStreamerRtpSenderBackend::dtlsTransportBackend()
 {
+    if (!m_rtcSender)
+        return nullptr;
+
     GRefPtr<GstWebRTCDTLSTransport> transport;
     g_object_get(m_rtcSender.get(), "transport", &transport.outPtr(), nullptr);
-    return transport ? makeUnique<GStreamerDtlsTransportBackend>(transport) : nullptr;
+    if (!transport)
+        return nullptr;
+    return makeUnique<GStreamerDtlsTransportBackend>(WTFMove(transport));
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

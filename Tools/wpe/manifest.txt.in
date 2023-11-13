@@ -47,7 +47,7 @@ exclude .*\/(Configurations|mac|ios|cf|cg|cocoa|Cocoa|objc|avfoundation|ca|curl|
 
 directory Source
 exclude Source/JavaScriptCore/tests
-exclude Source/WebCore/PAL/libavif
+exclude Source/WebCore/PAL/ThirdParty
 exclude Source/WebCore/platform/audio/resources
 exclude Source/WebCore/bindings/scripts/test
 exclude Source/WebCore/Resources
@@ -102,4 +102,4 @@ file Tools/PlatformWPE.cmake
 
 directory ${CMAKE_BINARY_DIR}/Documentation/wpe-javascriptcore-${WPE_API_VERSION} Documentation/wpe-javascriptcore-${WPE_API_VERSION}
 directory ${CMAKE_BINARY_DIR}/Documentation/wpe-webkit-${WPE_API_VERSION} Documentation/wpe-webkit-${WPE_API_VERSION}
-directory ${CMAKE_BINARY_DIR}/Documentation/wpe-web-process-extension-${WPE_API_VERSION} Documentation/wpe-web-process-extension-${WPE_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/wpe-web-extension-${WPE_API_VERSION} Documentation/wpe-web-extension-${WPE_API_VERSION}

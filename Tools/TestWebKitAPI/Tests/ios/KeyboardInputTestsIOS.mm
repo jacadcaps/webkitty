@@ -27,6 +27,7 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "CGImagePixelReader.h"
 #import "PlatformUtilities.h"
 #import "TestCocoa.h"
 #import "TestInputDelegate.h"
@@ -41,6 +42,13 @@
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKitLegacy/WebEvent.h>
 #import <cmath>
+#import <pal/spi/cocoa/NSAttributedStringSPI.h>
+
+namespace TestWebKitAPI {
+
+enum class CaretVisibility : bool { Hidden, Visible };
+
+}
 
 @interface WKContentView ()
 @property (nonatomic, readonly) NSUndoManager *undoManagerForWebView;
@@ -109,20 +117,20 @@ static CGRect rounded(CGRect rect)
     return CGRectMake(std::round(rect.origin.x), std::round(rect.origin.y), std::round(rect.size.width), std::round(rect.size.height));
 }
 
-- (void)waitForCaretViewFrameToBecome:(CGRect)frame
+- (void)waitForCaretVisibility:(TestWebKitAPI::CaretVisibility)visibility
 {
     BOOL hasEmittedWarning = NO;
     NSTimeInterval secondsToWaitUntilWarning = 2;
     NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
     while ([[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]]) {
-        CGRect currentFrame = rounded(self.caretViewRectInContentCoordinates);
-        if (CGRectEqualToRect(currentFrame, frame))
+        BOOL sizeIsEmpty = CGSizeEqualToSize(self.caretViewRectInContentCoordinates.size, CGSizeZero);
+        if ((visibility == TestWebKitAPI::CaretVisibility::Hidden) == sizeIsEmpty)
             break;
 
         if (hasEmittedWarning || startTime + secondsToWaitUntilWarning >= [NSDate timeIntervalSinceReferenceDate])
             continue;
 
-        NSLog(@"Expected a caret rect of %@, but still observed %@", NSStringFromCGRect(frame), NSStringFromCGRect(currentFrame));
+        NSLog(@"Expected the caret to %s", visibility == TestWebKitAPI::CaretVisibility::Hidden ? "disappear" : "appear");
         hasEmittedWarning = YES;
     }
 }
@@ -477,19 +485,17 @@ TEST(KeyboardInputTests, HandleKeyEventsWhileSwappingWebProcess)
 
 TEST(KeyboardInputTests, CaretSelectionRectAfterRestoringFirstResponderWithRetainActiveFocusedState)
 {
-    // This difference in caret width is due to the fact that we don't zoom in to the input field on iPad, but do on iPhone.
-    auto expectedCaretRect = CGRectMake(14, 11, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
     auto [webView, inputDelegate] = webViewAndInputDelegateWithAutofocusedInput();
     EXPECT_WK_STREQ("INPUT", [webView stringByEvaluatingJavaScript:@"document.activeElement.tagName"]);
-    [webView waitForCaretViewFrameToBecome:expectedCaretRect];
+    [webView waitForCaretVisibility:CaretVisibility::Visible];
 
     dispatch_block_t restoreActiveFocusState = [webView _retainActiveFocusedState];
     [webView resignFirstResponder];
     restoreActiveFocusState();
-    [webView waitForCaretViewFrameToBecome:CGRectZero];
+    [webView waitForCaretVisibility:CaretVisibility::Hidden];
 
     [webView becomeFirstResponder];
-    [webView waitForCaretViewFrameToBecome:expectedCaretRect];
+    [webView waitForCaretVisibility:CaretVisibility::Visible];
 }
 
 TEST(KeyboardInputTests, RangedSelectionRectAfterRestoringFirstResponderWithRetainActiveFocusedState)
@@ -513,17 +519,15 @@ TEST(KeyboardInputTests, RangedSelectionRectAfterRestoringFirstResponderWithReta
 
 TEST(KeyboardInputTests, CaretSelectionRectAfterRestoringFirstResponder)
 {
-    // This difference in caret width is due to the fact that we don't zoom in to the input field on iPad, but do on iPhone.
-    auto expectedCaretRect = CGRectMake(14, 11, UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 3 : 2, 15);
     auto [webView, inputDelegate] = webViewAndInputDelegateWithAutofocusedInput();
     EXPECT_WK_STREQ("INPUT", [webView stringByEvaluatingJavaScript:@"document.activeElement.tagName"]);
-    [webView waitForCaretViewFrameToBecome:expectedCaretRect];
+    [webView waitForCaretVisibility:CaretVisibility::Visible];
 
     [webView resignFirstResponder];
-    [webView waitForCaretViewFrameToBecome:CGRectZero];
+    [webView waitForCaretVisibility:CaretVisibility::Hidden];
 
     [webView becomeFirstResponder];
-    [webView waitForCaretViewFrameToBecome:expectedCaretRect];
+    [webView waitForCaretVisibility:CaretVisibility::Visible];
 }
 
 TEST(KeyboardInputTests, RangedSelectionRectAfterRestoringFirstResponder)
@@ -1014,6 +1018,109 @@ TEST(KeyboardInputTests, InputSessionWhenEvaluatingJavaScript)
     EXPECT_TRUE(willStartInputSession);
     EXPECT_TRUE(didStartInputSession);
 }
+
+TEST(KeyboardInputTests, NoCrashWhenDiscardingMarkedText)
+{
+    auto processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+    [processPoolConfiguration setProcessSwapsOnNavigation:YES];
+
+    auto processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setProcessPool:processPool.get()];
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView setNavigationDelegate:navigationDelegate.get()];
+    [webView _setEditable:YES];
+
+    auto navigateAndSetMarkedText = [&](const String& urlString) {
+        auto request = [NSURLRequest requestWithURL:[NSURL URLWithString:(NSString *)urlString]];
+        [webView loadSimulatedRequest:request responseHTMLString:@"<body>Hello world</body>"];
+        [navigationDelegate waitForDidFinishNavigation];
+        [webView selectAll:nil];
+        [[webView textInputContentView] setMarkedText:@"Hello" selectedRange:NSMakeRange(0, 5)];
+        [webView waitForNextPresentationUpdate];
+    };
+
+    navigateAndSetMarkedText("https://foo.com"_s);
+    navigateAndSetMarkedText("https://bar.com"_s);
+    navigateAndSetMarkedText("https://baz.com"_s);
+    navigateAndSetMarkedText("https://foo.com"_s);
+    [webView _close];
+
+    Util::runFor(100_ms);
+}
+
+#if HAVE(REDESIGNED_TEXT_CURSOR)
+
+TEST(KeyboardInputTests, MarkedTextSegmentsWithUnderlines)
+{
+    auto frame = CGRectMake(0, 0, 100, 100);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:frame configuration:configuration.get() addToWindow:NO]);
+
+    auto window = adoptNS([[UIWindow alloc] initWithFrame:[webView frame]]);
+    [window addSubview:webView.get()];
+
+    [webView _setEditable:YES];
+    [webView synchronouslyLoadHTMLString:@"<meta name='viewport' content='width=device-width'><meta charset='utf-8'><body>なんですか？</body>"];
+    [webView selectAll:nil];
+
+    auto setMarkedTextWithUnderlines = [&](NSUnderlineStyle firstUnderlineStyle, NSUnderlineStyle secondUnderlineStyle) {
+        auto composition = adoptNS([[NSMutableAttributedString alloc] initWithString:@"なんですか？"]);
+        [composition addAttributes:@{
+            NSMarkedClauseSegmentAttributeName: @(0),
+            NSUnderlineStyleAttributeName: @(firstUnderlineStyle),
+            NSUnderlineColorAttributeName: UIColor.tintColor
+        } range:NSMakeRange(0, 5)];
+
+        [composition addAttributes:@{
+            NSMarkedClauseSegmentAttributeName: @(1),
+            NSUnderlineStyleAttributeName: @(secondUnderlineStyle),
+            NSUnderlineColorAttributeName: UIColor.tintColor
+        } range:NSMakeRange(5, 1)];
+
+        [[webView textInputContentView] setAttributedMarkedText:composition.get() selectedRange:NSMakeRange(0, 6)];
+    };
+
+    setMarkedTextWithUnderlines(NSUnderlineStyleSingle, NSUnderlineStyleThick);
+    [webView waitForNextPresentationUpdate];
+
+    auto snapshotConfiguration = adoptNS([[WKSnapshotConfiguration alloc] init]);
+    [snapshotConfiguration setAfterScreenUpdates:YES];
+
+    auto takeSnapshot = [&] {
+        __block RetainPtr<CGImage> result;
+        __block bool done = false;
+        [webView takeSnapshotWithConfiguration:snapshotConfiguration.get() completionHandler:^(UIImage *snapshot, NSError *error) {
+            result = snapshot.CGImage;
+            done = true;
+        }];
+        Util::run(&done);
+        return result;
+    };
+
+    auto snapshotBefore = takeSnapshot();
+
+    setMarkedTextWithUnderlines(NSUnderlineStyleThick, NSUnderlineStyleSingle);
+    [webView waitForNextPresentationUpdate];
+
+    auto snapshotAfter = takeSnapshot();
+
+    CGImagePixelReader snapshotReaderBefore { snapshotBefore.get() };
+    CGImagePixelReader snapshotReaderAfter { snapshotAfter.get() };
+
+    unsigned numberOfDifferentPixels = 0;
+    for (int x = 0; x < 200; ++x) {
+        for (int y = 0; y < 200; ++y) {
+            if (snapshotReaderBefore.at(x, y) != snapshotReaderAfter.at(x, y))
+                numberOfDifferentPixels++;
+        }
+    }
+    EXPECT_GT(numberOfDifferentPixels, 0U);
+}
+
+#endif // HAVE(REDESIGNED_TEXT_CURSOR)
 
 } // namespace TestWebKitAPI
 

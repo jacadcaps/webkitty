@@ -49,12 +49,11 @@ list(APPEND WebCore_SOURCES
     platform/generic/KeyedDecoderGeneric.cpp
     platform/generic/KeyedEncoderGeneric.cpp
 
-    platform/graphics/GLContext.cpp
     platform/graphics/PlatformDisplay.cpp
 
-    platform/graphics/egl/GLContextEGL.cpp
+    platform/graphics/angle/PlatformDisplayANGLE.cpp
 
-    platform/graphics/opengl/TemporaryOpenGLSetting.cpp
+    platform/graphics/egl/GLContext.cpp
 
     platform/graphics/opentype/OpenTypeUtilities.cpp
 
@@ -88,36 +87,27 @@ list(APPEND WebCore_SOURCES
     platform/graphics/win/TransformationMatrixWin.cpp
 
     platform/network/win/CurlSSLHandleWin.cpp
-    platform/network/win/DownloadBundleWin.cpp
     platform/network/win/NetworkStateNotifierWin.cpp
 
+    platform/text/Hyphenation.cpp
     platform/text/win/LocaleWin.cpp
 
     platform/win/BString.cpp
     platform/win/BitmapInfo.cpp
     platform/win/ClipboardUtilitiesWin.cpp
     platform/win/CursorWin.cpp
-    platform/win/DefWndProcWindowClass.cpp
-    platform/win/DelayLoadedModulesEnumerator.cpp
     platform/win/DragDataWin.cpp
     platform/win/DragImageCairoWin.cpp
     platform/win/DragImageWin.cpp
-    platform/win/GDIObjectCounter.cpp
     platform/win/GDIUtilities.cpp
-    platform/win/ImportedFunctionsEnumerator.cpp
-    platform/win/ImportedModulesEnumerator.cpp
     platform/win/KeyEventWin.cpp
-    platform/win/LocalizedStringsWin.cpp
     platform/win/LoggingWin.cpp
     platform/win/MIMETypeRegistryWin.cpp
     platform/win/MainThreadSharedTimerWin.cpp
-    platform/win/PEImage.cpp
     platform/win/PasteboardWin.cpp
     platform/win/PlatformMouseEventWin.cpp
     platform/win/PlatformScreenWin.cpp
-    platform/win/PopupMenuWin.cpp
     platform/win/SearchPopupMenuDB.cpp
-    platform/win/SearchPopupMenuWin.cpp
     platform/win/SystemInfo.cpp
     platform/win/UserAgentWin.cpp
     platform/win/WCDataObject.cpp
@@ -141,20 +131,15 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/win/FullScreenController.h
     platform/graphics/win/FullScreenControllerClient.h
     platform/graphics/win/FullScreenWindow.h
-    platform/graphics/win/GraphicsContextWin.h
     platform/graphics/win/LocalWindowsContext.h
     platform/graphics/win/SharedGDIObject.h
 
     platform/win/BString.h
     platform/win/BitmapInfo.h
     platform/win/COMPtr.h
-    platform/win/DefWndProcWindowClass.h
-    platform/win/GDIObjectCounter.h
     platform/win/GDIUtilities.h
     platform/win/HWndDC.h
-    platform/win/PopupMenuWin.h
     platform/win/SearchPopupMenuDB.h
-    platform/win/SearchPopupMenuWin.h
     platform/win/SystemInfo.h
     platform/win/WCDataObject.h
     platform/win/WebCoreBundleWin.h
@@ -163,7 +148,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/win/WindowMessageBroadcaster.h
     platform/win/WindowMessageListener.h
     platform/win/WindowsKeyNames.h
-    platform/win/WindowsTouch.h
 )
 
 list(APPEND WebCore_LIBRARIES
@@ -172,40 +156,21 @@ list(APPEND WebCore_LIBRARIES
     usp10
 )
 
+set(iconFiles
+    Resources/missingImage.png
+    Resources/missingImage@2x.png
+    Resources/missingImage@3x.png
+    Resources/panIcon.png
+    Resources/textAreaResizeCorner.png
+    Resources/textAreaResizeCorner@2x.png
+)
 
+file(COPY ${iconFiles} DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/icons)
 
 file(COPY ${ModernMediaControlsImageFiles}
     DESTINATION
     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/media-controls
 )
-
-if (USE_CF)
-    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-        "${WEBCORE_DIR}/loader/archive/cf"
-        "${WEBCORE_DIR}/platform/cf"
-    )
-
-    list(APPEND WebCore_SOURCES
-        editing/SmartReplaceCF.cpp
-
-        loader/archive/cf/LegacyWebArchive.cpp
-
-        platform/cf/SharedBufferCF.cpp
-
-        platform/text/cf/HyphenationCF.cpp
-    )
-
-    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-        loader/archive/cf/LegacyWebArchive.h
-    )
-
-    list(APPEND WebCore_LIBRARIES Apple::CoreFoundation)
-    list(APPEND WebCoreTestSupport_LIBRARIES Apple::CoreFoundation)
-else ()
-    list(APPEND WebCore_SOURCES
-        platform/text/Hyphenation.cpp
-    )
-endif ()
 
 if (ENABLE_VIDEO AND USE_MEDIA_FOUNDATION)
     # Define a INTERFACE library for MediaFoundation and link it
@@ -238,8 +203,8 @@ if (USE_WOFF2)
     # The WOFF2 libraries don't compile as DLLs on Windows, so add in
     # the additional libraries WOFF2::dec requires
     list(APPEND WebCore_LIBRARIES
+        Brotli::dec
         WOFF2::common
-        brotlidec
     )
 endif ()
 

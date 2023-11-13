@@ -469,16 +469,6 @@ angle::Result ProgramPipeline::link(const Context *context)
     InfoLog &infoLog = mState.mExecutable->getInfoLog();
     infoLog.reset();
 
-    // Build shader variable uniforms map for gl::UniformLinker.
-    ShaderMap<std::vector<sh::ShaderVariable>> shaderUniforms;
-    for (ShaderType shaderType : mState.mExecutable->mLinkedShaderStages)
-    {
-        for (const LinkedUniform &uniform : mState.mPrograms[shaderType]->getUniforms())
-        {
-            shaderUniforms[shaderType].push_back(uniform);
-        }
-    }
-
     if (mState.mExecutable->hasLinkedShaderStage(gl::ShaderType::Vertex))
     {
         if (!linkVaryings(infoLog))
@@ -683,6 +673,37 @@ void ProgramPipeline::validate(const gl::Context *context)
             {
                 infoLog << shaderInfoString << "\n";
             }
+        }
+    }
+}
+
+angle::Result ProgramPipeline::syncState(const Context *context)
+{
+    Program::DirtyBits dirtyBits;
+    for (const ShaderType shaderType : mState.mExecutable->getLinkedShaderStages())
+    {
+        Program *shaderProgram = mState.mPrograms[shaderType];
+        if (shaderProgram)
+        {
+            dirtyBits |= shaderProgram->mDirtyBits;
+        }
+    }
+    if (dirtyBits.any())
+    {
+        ANGLE_TRY(mProgramPipelineImpl->syncState(context, dirtyBits));
+    }
+
+    return angle::Result::Continue;
+}
+
+void ProgramPipeline::onUniformBufferStateChange(size_t uniformBufferIndex)
+{
+    for (const ShaderType shaderType : mState.mExecutable->getLinkedShaderStages())
+    {
+        Program *shaderProgram = mState.mPrograms[shaderType];
+        if (shaderProgram)
+        {
+            shaderProgram->onUniformBufferStateChange(uniformBufferIndex);
         }
     }
 }

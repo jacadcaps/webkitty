@@ -37,6 +37,17 @@ GraphicsContextState::GraphicsContextState(const ChangeFlags& changeFlags, Inter
 {
 }
 
+std::optional<GraphicsDropShadow> GraphicsContextState::dropShadow() const
+{
+    if (!m_style)
+        return std::nullopt;
+
+    if (!std::holds_alternative<GraphicsDropShadow>(*m_style))
+        return std::nullopt;
+
+    return std::get<GraphicsDropShadow>(*m_style);
+}
+
 GraphicsContextState GraphicsContextState::cloneForRecording() const
 {
     auto clone = *this;
@@ -46,13 +57,24 @@ GraphicsContextState GraphicsContextState::cloneForRecording() const
 
 bool GraphicsContextState::containsOnlyInlineChanges() const
 {
-    if (m_changeFlags != (m_changeFlags & basicChangeFlags))
+    if (m_changeFlags.isEmpty() || m_changeFlags != (m_changeFlags & basicChangeFlags))
         return false;
 
     if (m_changeFlags.contains(Change::StrokeBrush) && !m_strokeBrush.isInlineColor())
         return false;
 
     if (m_changeFlags.contains(Change::FillBrush) && !m_fillBrush.isInlineColor())
+        return false;
+
+    return true;
+}
+
+bool GraphicsContextState::containsOnlyInlineStrokeChanges() const
+{
+    if (m_changeFlags.isEmpty() || m_changeFlags != (m_changeFlags & strokeChangeFlags))
+        return false;
+
+    if (m_changeFlags.contains(Change::StrokeBrush) && !m_strokeBrush.isInlineColor())
         return false;
 
     return true;
@@ -93,9 +115,6 @@ void GraphicsContextState::mergeLastChanges(const GraphicsContextState& state, c
 
         case toIndex(Change::CompositeMode):
             mergeChange(&GraphicsContextState::m_compositeMode);
-            break;
-        case toIndex(Change::DropShadow):
-            mergeChange(&GraphicsContextState::m_dropShadow);
             break;
         case toIndex(Change::Style):
             mergeChange(&GraphicsContextState::m_style);
@@ -154,7 +173,6 @@ void GraphicsContextState::mergeAllChanges(const GraphicsContextState& state)
     mergeChange(Change::StrokeStyle,                 &GraphicsContextState::m_strokeStyle);
 
     mergeChange(Change::CompositeMode,               &GraphicsContextState::m_compositeMode);
-    mergeChange(Change::DropShadow,                  &GraphicsContextState::m_dropShadow);
 
     mergeChange(Change::Alpha,                       &GraphicsContextState::m_alpha);
     mergeChange(Change::ImageInterpolationQuality,   &GraphicsContextState::m_textDrawingMode);
@@ -198,9 +216,6 @@ static const char* stateChangeName(GraphicsContextState::Change change)
 
     case GraphicsContextState::Change::CompositeMode:
         return "composite-mode";
-
-    case GraphicsContextState::Change::DropShadow:
-        return "drop-shadow";
 
     case GraphicsContextState::Change::Style:
         return "style";
@@ -255,7 +270,6 @@ TextStream& GraphicsContextState::dump(TextStream& ts) const
     dump(Change::StrokeStyle,                   &GraphicsContextState::m_strokeStyle);
 
     dump(Change::CompositeMode,                 &GraphicsContextState::m_compositeMode);
-    dump(Change::DropShadow,                    &GraphicsContextState::m_dropShadow);
     dump(Change::Style,                         &GraphicsContextState::m_style);
 
     dump(Change::Alpha,                         &GraphicsContextState::m_alpha);

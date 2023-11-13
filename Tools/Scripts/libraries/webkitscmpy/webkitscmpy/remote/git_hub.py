@@ -23,18 +23,18 @@
 import calendar
 import os
 import re
-import requests
-import six
 import sys
 
 from datetime import datetime
-from requests.auth import HTTPBasicAuth
 from webkitbugspy import User
 from webkitbugspy.github import Tracker
-from webkitcorepy import decorators
+from webkitcorepy import decorators, string_utils, CallByNeed
 from webkitscmpy import Commit, Contributor, PullRequest
 from webkitscmpy.remote.scm import Scm
 from xml.dom import minidom
+
+requests = CallByNeed(lambda: __import__('requests'))
+HTTPBasicAuth = CallByNeed(lambda: __import__('requests.auth', fromlist=['HTTPBasicAuth']).HTTPBasicAuth)
 
 
 class GitHub(Scm):
@@ -362,6 +362,7 @@ class GitHub(Scm):
         if not match:
             raise self.Exception("'{}' is not a valid GitHub project".format(url))
         self.api_url = 'https://api.github.{}'.format(match.group('domain'))
+        self.domain = 'github.{}'.format(match.group('domain'))
         self.owner = match.group('owner')
         self.name = match.group('repository')
         self.session = requests.Session()
@@ -394,6 +395,13 @@ class GitHub(Scm):
     @property
     def is_git(self):
         return True
+
+    def checkout_url(self, ssh=False, http=False):
+        if ssh and http:
+            raise ValueError('Cannot specify request both a ssh and http URL')
+        if http:
+            return 'https://{}/{}/{}.git'.format(self.domain, self.owner, self.name)
+        return 'git@{}:{}/{}.git'.format(self.domain, self.owner, self.name)
 
     def request(self, path=None, params=None, headers=None, authenticated=None, paginate=True, json=None, method='GET', endpoint_url=None, files=None, data=None, stream=False):
         headers = {key: value for key, value in headers.items()} if headers else dict()
@@ -729,7 +737,7 @@ class GitHub(Scm):
 
 
     def find(self, argument, include_log=True, include_identifier=True):
-        if not isinstance(argument, six.string_types):
+        if not isinstance(argument, string_utils.basestring):
             raise ValueError("Expected 'argument' to be a string, not '{}'".format(type(argument)))
 
         if argument in self.DEFAULT_BRANCHES:
