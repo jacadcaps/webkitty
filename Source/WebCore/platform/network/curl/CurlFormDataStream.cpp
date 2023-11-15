@@ -137,14 +137,31 @@ std::optional<size_t> CurlFormDataStream::read(char* buffer, size_t size)
 
 std::optional<size_t> CurlFormDataStream::readFromFile(const FormDataElement::EncodedFileData& fileData, char* buffer, size_t size)
 {
-    if (m_fileHandle == FileSystem::invalidPlatformFileHandle)
-        m_fileHandle = FileSystem::openFile(fileData.filename, FileSystem::FileOpenMode::Read);
+     if (m_fileHandle == FileSystem::invalidPlatformFileHandle)
+    {
+        // Check if the file has been changed.
+        if (!fileData.fileModificationTimeMatchesExpectation()) {
+            return std::nullopt;
+    }
+
+    m_fileHandle = FileSystem::openFile(fileData.filename, FileSystem::FileOpenMode::Read);
+    if (FileSystem::isHandleValid(m_fileHandle)) {
+        if (-1 == FileSystem::seekFile(m_fileHandle, fileData.fileStart, FileSystem::FileSeekOrigin::Beginning)) {
+            LOG(Network, "Curl - Failed seeking in the file %s\n", fileData.filename.utf8().data());
+            FileSystem::closeFile(m_fileHandle);
+            m_fileHandle = FileSystem::invalidPlatformFileHandle;
+        }
+        }
+    }
 
     if (!FileSystem::isHandleValid(m_fileHandle)) {
         LOG(Network, "Curl - Failed while trying to open %s for upload\n", fileData.filename.utf8().data());
         m_fileHandle = FileSystem::invalidPlatformFileHandle;
         return std::nullopt;
     }
+
+    if (fileData.fileLength > 0 && fileData.fileLength - m_dataOffset < size)
+        size = fileData.fileLength - m_dataOffset;
 
     auto readBytes = FileSystem::readFromFile(m_fileHandle, buffer, size);
     if (readBytes < 0) {
@@ -153,11 +170,15 @@ std::optional<size_t> CurlFormDataStream::readFromFile(const FormDataElement::En
         m_fileHandle = FileSystem::invalidPlatformFileHandle;
         return std::nullopt;
     }
+    else {
+        m_dataOffset += readBytes;
+    }
 
-    if (!readBytes) {
+    if (!readBytes || (m_dataOffset == fileData.fileLength)) {
         FileSystem::closeFile(m_fileHandle);
         m_fileHandle = FileSystem::invalidPlatformFileHandle;
         m_elementPosition++;
+        m_dataOffset = 0;
     }
 
     return readBytes;

@@ -2158,6 +2158,13 @@ bool LocalFrameView::shouldSetCursor() const
     return page && page->isVisible() && page->focusController().isActive();
 }
 
+#if OS(MORPHOS)
+void FrameView::setCursor(const Cursor& cursor)
+{
+    frame().page()->chrome().setCursor(cursor);
+}
+#endif
+
 #if ENABLE(DARK_MODE_CSS)
 RenderObject* LocalFrameView::rendererForColorScheme() const
 {

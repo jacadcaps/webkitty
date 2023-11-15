@@ -118,6 +118,12 @@ public:
     void unschedule(WTF::SchedulePair&);
 #endif
 
+#if OS(MORPHOS)
+    WEBCORE_EXPORT static void setHostAllowsAnyHTTPSCertificate(const String&);
+    static void setClientCertificateInfo(const String&, const String&, const String&);
+    static void clearClientCertificateInfo(const String&);
+#endif
+
     bool shouldContentSniff() const;
     static bool shouldContentSniffURL(const URL&);
 

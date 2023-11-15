@@ -53,10 +53,12 @@ public:
     CurlSSLHandle();
 
     const CString& cipherList() const { return m_cipherList; }
+    const CString& cipherListTLS1_3() const { return m_cipherListTLS1_3; }
     const CString& signatureAlgorithmsList() const { return m_signatureAlgorithmsList; }
     const CString& ecCurves() const { return m_ecCurves; }
 
     void setCipherList(CString&& data) { m_cipherList = WTFMove(data); }
+    void setCipherListTLS1_3(CString&& data) { m_cipherListTLS1_3 = WTFMove(data); }
     void setSignatureAlgorithmsList(CString&& data) { m_signatureAlgorithmsList = WTFMove(data); }
     void setECCurves(CString&& data) { m_ecCurves = WTFMove(data); }
 
@@ -99,6 +101,7 @@ private:
     void platformInitialize();
 
     CString m_cipherList;
+    CString m_cipherListTLS1_3;
     CString m_signatureAlgorithmsList;
     CString m_ecCurves;
     CACertInfo m_caCertInfo;

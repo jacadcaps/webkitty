@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include <WebCore/BroadcastChannelRegistry.h>
 #include <WebCore/PartitionedSecurityOrigin.h>
 #include <wtf/Forward.h>

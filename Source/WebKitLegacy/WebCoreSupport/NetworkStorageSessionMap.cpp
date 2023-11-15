@@ -60,6 +60,12 @@ WebCore::NetworkStorageSession& NetworkStorageSessionMap::defaultStorageSession(
     return *defaultNetworkStorageSession();
 }
 
+void NetworkStorageSessionMap::destroyAllSessions()
+{
+	globalSessionMap().clear();
+	defaultNetworkStorageSession() = nullptr;
+}
+
 void NetworkStorageSessionMap::switchToNewTestingSession()
 {
 #if PLATFORM(COCOA)

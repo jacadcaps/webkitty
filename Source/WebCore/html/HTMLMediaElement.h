@@ -651,6 +651,10 @@ public:
     void setVideoInlineSizeFenced(const FloatSize&, WTF::MachSendRight&&);
     void updateMediaState();
 
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
+#endif
+
 protected:
     constexpr static auto CreateHTMLMediaElement = CreateHTMLElement | NodeFlag::HasCustomStyleResolveCallbacks;
     HTMLMediaElement(const QualifiedName&, Document&, bool createdByParser);

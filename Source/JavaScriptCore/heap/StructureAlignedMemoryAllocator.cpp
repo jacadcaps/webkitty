@@ -36,6 +36,10 @@
 
 #include <wtf/OSAllocator.h>
 
+#ifndef UINTPTR_MAX
+#define UINTPTR_MAX 0xffffffff
+#endif
+
 #if OS(UNIX) && ASSERT_ENABLED
 #include <sys/mman.h>
 #endif

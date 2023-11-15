@@ -213,6 +213,9 @@ void BaseAudioContext::uninitialize()
     derefUnfinishedSourceNodes();
 
     m_isInitialized = false;
+
+    if (m_worklet->proxy() && m_worklet->proxy()->workletThread().thread())
+		m_worklet->proxy()->workletThread().stop();
 }
 
 void BaseAudioContext::addReaction(State state, DOMPromiseDeferred<void>&& promise)
@@ -471,7 +474,12 @@ ExceptionOr<Ref<ChannelMergerNode>> BaseAudioContext::createChannelMerger(size_t
 ExceptionOr<Ref<OscillatorNode>> BaseAudioContext::createOscillator()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    
+#if OS(MORPHOS)
+       // There is some memory trashing going on in the PeriodicWave.cpp/generateBasicWaveform
+       // But so far - impossible to pinpoint where exactly
+       return Exception { InvalidStateError };
+#endif
+
     ASSERT(isMainThread());
     return OscillatorNode::create(*this);
 }

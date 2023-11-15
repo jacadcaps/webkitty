@@ -51,7 +51,10 @@ CurlRequest::CurlRequest(const ResourceRequest&request, CurlRequestClient* clien
     ASSERT(isMainThread());
 }
 
-CurlRequest::~CurlRequest() = default;
+CurlRequest::~CurlRequest()
+{
+    cleanupDownloadFile();
+}
 
 void CurlRequest::invalidateClient()
 {
@@ -120,7 +123,6 @@ void CurlRequest::resume()
 void CurlRequest::startWithJobManager()
 {
     ASSERT(isMainThread());
-
     CurlContext::singleton().scheduler().add(this);
 }
 
@@ -130,9 +132,12 @@ void CurlRequest::cancel()
 
     {
         Locker locker { m_statusMutex };
-        if (m_cancelled)
+        if (m_cancelled) {
+            // must ensure invalidateClient is called or we could end up with
+            // it dying while we still reference it
+            invalidateClient();
             return;
-
+        }
         m_cancelled = true;
     }
 
@@ -220,6 +225,13 @@ CURL* CurlRequest::setupTransfer()
         m_curlHandle->setDebugCallbackFunction(didReceiveDebugInfoCallback, this);
 
     m_curlHandle->setTimeout(timeoutInterval());
+
+    if (m_downloadResumeOffset > 0)
+        m_curlHandle->setResumeOffset(m_downloadResumeOffset);
+
+    // Disable automatic decompression when downloading to a file
+    if (m_isEnabledDownloadToFile)
+        m_curlHandle->disableAcceptEncoding();
 
     m_performStartTime = MonotonicTime::now();
 
@@ -452,9 +464,14 @@ void CurlRequest::didCompleteTransfer(CURLcode result)
 
         CertificateInfo certificateInfo;
         if (auto info = m_curlHandle->certificateInfo())
+        {
+        	resourceError.setCertificateInfo(info->isolatedCopy());
             certificateInfo = WTFMove(*info);
+		}
 
+		m_cancelled = true;
         finalizeTransfer();
+		cleanupDownloadFile();
         callClient([error = WTFMove(resourceError), certificateInfo = WTFMove(certificateInfo)](CurlRequest& request, CurlRequestClient& client) mutable {
             client.curlDidFailWithError(request, WTFMove(error), WTFMove(certificateInfo));
         });

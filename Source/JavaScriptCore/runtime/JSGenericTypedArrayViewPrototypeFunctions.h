@@ -389,9 +389,33 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
 
     size_t searchLength = std::min<size_t>(length, updatedLength);
     if constexpr (ViewClass::Adaptor::isFloat) {
-        if (std::isnan(static_cast<double>(*targetOption))) {
+    double targetOptionLittleEndianAsDouble;
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == ViewClass::TypedArrayStorageType || TypeFloat64 == ViewClass::TypedArrayStorageType) {
+        targetOptionLittleEndianAsDouble = static_cast<double>(*targetOption);
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        targetOptionLittleEndianAsDouble = static_cast<double>(flipBytes(*targetOption));
+    }
+#else
+    targetOptionLittleEndianAsDouble = static_cast<double>(*targetOption);
+#endif
+        if (std::isnan(static_cast<double>(targetOptionLittleEndianAsDouble))) {
             for (; index < searchLength; ++index) {
-                if (std::isnan(static_cast<double>(array[index])))
+            double arrayElementLittleEndianAsDouble;
+#if CPU(BIG_ENDIAN)
+            if constexpr (TypeFloat32 == ViewClass::TypedArrayStorageType || TypeFloat64 == ViewClass::TypedArrayStorageType) {
+                arrayElementLittleEndianAsDouble = static_cast<double>(array[index]);
+            }
+            else {
+                // typed array views are commonly expected to be little endian views of the underlying data
+                arrayElementLittleEndianAsDouble = static_cast<double>(flipBytes(array[index]));
+            }
+#else
+            arrayElementLittleEndianAsDouble = static_cast<double>(array[index]);
+#endif
+            if (std::isnan(arrayElementLittleEndianAsDouble))
                     return JSValue::encode(jsBoolean(true));
             }
             return JSValue::encode(jsBoolean(false));
@@ -481,6 +505,11 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
                 value = thisObject->getIndexQuickly(i);
             else {
                 auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(i);
+#if CPU(BIG_ENDIAN)
+                if constexpr (TypeFloat32 != ViewClass::Adaptor::typeValue && TypeFloat64 != ViewClass::Adaptor::typeValue) {
+                    nativeValue = flipBytes(nativeValue);
+                }
+#endif
                 value = ViewClass::Adaptor::toJSValue(globalObject, nativeValue);
                 RETURN_IF_EXCEPTION(scope, { });
             }

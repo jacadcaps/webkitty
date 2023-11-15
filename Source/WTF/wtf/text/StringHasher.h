@@ -25,6 +25,9 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/text/LChar.h>
 
+#pragma GCC push_options
+#pragma GCC optimize ("O1")
+
 namespace WTF {
 
 // Paul Hsieh's SuperFastHash
@@ -331,5 +334,7 @@ private:
 };
 
 } // namespace WTF
+
+#pragma GCC pop_options
 
 using WTF::StringHasher;

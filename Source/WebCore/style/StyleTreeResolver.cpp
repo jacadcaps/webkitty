@@ -57,6 +57,8 @@
 #include "WebAnimationTypes.h"
 #include "WebAnimationUtilities.h"
 
+#include <proto/exec.h>
+
 namespace WebCore {
 
 namespace Style {
@@ -635,7 +637,7 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
 
     // Deduplication speeds up equality comparisons as the properties inherit to descendants.
     // FIXME: There should be a more general mechanism for this.
-    if (oldStyle)
+    if (oldStyle != nullptr)
         newStyle->deduplicateCustomProperties(*oldStyle);
 
     auto change = oldStyle ? determineChange(*oldStyle, *newStyle) : Change::Renderer;

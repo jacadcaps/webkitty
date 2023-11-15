@@ -24,6 +24,7 @@
  */
 
 #include "StorageAreaSync.h"
+#include <wtf/FastMalloc.h>
 
 #include "StorageAreaImpl.h"
 #include "StorageSyncManager.h"

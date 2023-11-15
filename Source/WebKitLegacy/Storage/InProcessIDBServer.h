@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/IDBConnectionToClient.h>
 #include <WebCore/IDBConnectionToServer.h>
 #include <WebCore/IDBServer.h>
@@ -56,6 +57,10 @@ public:
     static Ref<InProcessIDBServer> create(PAL::SessionID, const String& databaseDirectoryPath);
 
     virtual ~InProcessIDBServer();
+
+#if OS(MORPHOS)
+    void shutdown();
+#endif
 
     WebCore::IDBClient::IDBConnectionToServer& connectionToServer() const;
     WebCore::IDBServer::IDBConnectionToClient& connectionToClient() const;

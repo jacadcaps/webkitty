@@ -71,7 +71,11 @@ static String databaseFilePath(const String& directory)
     if (directory.isEmpty())
         return emptyString();
 
+#if OS(MORPHOS)
+    return makeString("PROGDIR:Cache/ServiceWorkerRegistrations-", SWRegistrationDatabase::schemaVersion, ".sqlite3");
+#else
     return FileSystem::pathByAppendingComponent(directory, makeString("ServiceWorkerRegistrations-", SWRegistrationDatabase::schemaVersion, ".sqlite3"));
+#endif
 }
 
 static String scriptDirectoryPath(const String& directory)

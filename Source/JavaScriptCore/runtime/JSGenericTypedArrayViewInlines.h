@@ -36,6 +36,7 @@
 #include "TypedArrays.h"
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/FlipBytes.h>
 
 namespace JSC {
 
@@ -648,6 +649,10 @@ bool JSGenericTypedArrayView<Adaptor>::getOwnPropertySlotByIndex(
         value = thisObject->getIndexQuickly(propertyName);
     } else {
         auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(propertyName);
+#if CPU(BIG_ENDIAN)
+        if constexpr (TypeFloat32 != Adaptor::typeValue && TypeFloat64 != Adaptor::typeValue)
+            nativeValue = flipBytes(nativeValue);
+#endif
         value = Adaptor::toJSValue(globalObject, nativeValue);
         RETURN_IF_EXCEPTION(scope, false);
     }
@@ -813,7 +818,17 @@ template<typename Adaptor> inline typename Adaptor::Type JSGenericTypedArrayView
 
 template<typename Adaptor> inline JSValue JSGenericTypedArrayView<Adaptor>::getIndexQuickly(size_t i) const
 {
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+        return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return Adaptor::toJSValue(nullptr, flipBytes(getIndexQuicklyAsNativeValue(i)));
+    }
+#else
     return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+#endif
 }
 
 template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setIndexQuicklyToNativeValue(size_t i, typename Adaptor::Type value)
@@ -824,8 +839,17 @@ template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setInde
 
 template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setIndexQuickly(size_t i, JSValue value)
 {
-    ASSERT(!value.isObject());
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+        setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        setIndexQuicklyToNativeValue(i, flipBytes(toNativeFromValue<Adaptor>(value)));
+    }
+#else
     setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+#endif
 }
 
 template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setIndex(JSGlobalObject* globalObject, size_t i, JSValue jsValue)
@@ -842,18 +866,47 @@ template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setInde
     if (!inBounds(i))
         return false;
 
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+        setIndexQuicklyToNativeValue(i, value);
+    }
+    else {
+        setIndexQuicklyToNativeValue(i, flipBytes(value));
+    }
+#else
     setIndexQuicklyToNativeValue(i, value);
+#endif
     return true;
 }
 
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue) -> ElementType
 {
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+        return toNativeFromValue<Adaptor>(globalObject, jsValue);
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return flipBytes(toNativeFromValue<Adaptor>(globalObject, jsValue));
+    }
+#else
     return toNativeFromValue<Adaptor>(globalObject, jsValue);
+#endif
 }
 
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue) -> std::optional<ElementType>
 {
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+        return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return flipBytes(toNativeFromValueWithoutCoercion<Adaptor>(jsValue));
+    }
+#else
     return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+#endif
 }
 
 template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::sort()

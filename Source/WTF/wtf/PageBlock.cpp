@@ -55,6 +55,13 @@ inline size_t systemPageSize()
     return system_info.dwPageSize;
 }
 
+#elif OS(MORPHOS)
+
+inline size_t systemPageSize()
+{
+	return 16;
+}
+
 #endif
 
 size_t pageSize()

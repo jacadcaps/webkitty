@@ -211,3 +211,9 @@
 #else
 #define OFFLINE_ASM_HAVE_FAST_TLS 0
 #endif
+
+#if CPU(BIG_ENDIAN)
+#define OFFLINE_ASM_BIG_ENDIAN 1
+#else
+#define OFFLINE_ASM_BIG_ENDIAN 0
+#endif

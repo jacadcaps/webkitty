@@ -48,6 +48,17 @@
 #include <shlwapi.h>
 #endif
 
+#if OS(MORPHOS)
+#include <exec/libraries.h>
+#include <proto/exec.h>
+#include <ppcinline/macros.h>
+
+extern "C" { void dprintf(const char *fmt, ... ); };
+#define CURL_TRACES 0
+#define CURL_DUMPDATA 0
+#endif
+
+
 #if !defined(ENABLE_CURL_HTTP3)
 #define ENABLE_CURL_HTTP3 0
 #endif
@@ -149,6 +160,13 @@ CurlContext::~CurlContext()
         fclose(m_logFile);
 #endif
 }
+
+#if OS(MORPHOS)
+void CurlContext::stopThread()
+{
+	m_scheduler->stopCurlThread();
+}
+#endif
 
 void CurlContext::initShareHandle()
 {
@@ -278,6 +296,11 @@ CURLMcode CurlMultiHandle::wakeUp()
     return curl_multi_wakeup(m_multiHandle);
 }
 
+CURLMcode CurlMultiHandle::getTimeout(long &timeout)
+{
+	return curl_multi_timeout(m_multiHandle, &timeout);
+}
+
 CURLMcode CurlMultiHandle::perform(int& runningHandles)
 {
     return curl_multi_perform(m_multiHandle, &runningHandles);
@@ -289,6 +312,89 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 }
 
 // CurlHandle -------------------------------------------------
+
+#if CURL_TRACES
+static void dump(const char *text, unsigned char *ptr, size_t size)
+{
+  size_t i;
+  size_t c;
+  unsigned int width=0x20;
+	
+  dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
+          text, (long)size, (long)size);
+	
+  for(i=0; i<size; i+= width) {
+    dprintf( "%4.4lx: ", (long)i);
+ 
+    /* show hex to the left */
+    for(c = 0; c < width; c++) {
+      if(i+c < size)
+        dprintf("%02x ", ptr[i+c]);
+      else
+        dprintf("   ");
+    }
+ 
+    /* show data on the right */
+    for(c = 0; (c < width) && (i+c < size); c++) {
+      char x = (ptr[i+c] >= 0x20 && ptr[i+c] < 0x80) ? ptr[i+c] : '.';
+      dprintf("%c", x);
+    }
+ 
+    dprintf("\n"); /* newline */
+  }
+}
+	
+static int my_trace(CURL *handle, curl_infotype type,
+             char *data, size_t size,
+             void *userp)
+{
+  const char *text;
+  (void)handle; /* prevent compiler warning */
+  (void)userp;
+	
+  switch (type) {
+  case CURLINFO_TEXT:
+    dprintf("== Info: %s", data);
+  default: /* in case a new one is introduced to shock us */
+    return 0;
+ 
+  case CURLINFO_HEADER_OUT:
+    text = "=> Send header";
+    dump(text, (unsigned char *)data, size);
+    break;
+  case CURLINFO_DATA_OUT:
+    text = "=> Send data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_SSL_DATA_OUT:
+    text = "=> Send SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_HEADER_IN:
+    text = "<= Recv header";
+    dump(text, (unsigned char *)data, size);
+    break;
+  case CURLINFO_DATA_IN:
+    text = "<= Recv data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_SSL_DATA_IN:
+    text = "<= Recv SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  }
+
+  return 0;
+}
+#endif
 
 CurlHandle::CurlHandle()
 {
@@ -311,6 +417,15 @@ CurlHandle::CurlHandle()
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
+
+#if OS(MORPHOS)
+    curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
+#endif
+
+#if CURL_TRACES
+	curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
+#endif
 }
 
 CurlHandle::~CurlHandle()
@@ -324,6 +439,16 @@ const String CurlHandle::errorDescription(CURLcode errorCode)
     return String::fromLatin1(curl_easy_strerror(errorCode));
 }
 
+bool CurlContext::isHttp2Enabled(bool forPost) const
+{
+    if (!m_http2Enabled)
+        return false;
+    if (forPost && !m_http2POSTEnabled)
+        return false;
+    curl_version_info_data* data = curl_version_info(CURLVERSION_NOW);
+    return data->features & CURL_VERSION_HTTP2;
+}
+ 
 void CurlHandle::enableSSL()
 {
     auto& sslHandle = CurlContext::singleton().sslHandle();
@@ -336,13 +461,22 @@ void CurlHandle::enableSSL()
     }
 
     setSslCipherList(sslHandle.cipherList().data());
+    setSslCipherListTLS1_3(sslHandle.cipherListTLS1_3().data());
 
     if (const auto& ecCurves = sslHandle.ecCurves(); !ecCurves.isNull())
         setSslECCurves(ecCurves.data());
 
     setSslCtxCallbackFunction(willSetupSslCtxCallback, this);
 
-#if OS(WINDOWS)
+#if OS(MORPHOS)
+	if (caCertOverride)
+		setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
+	else
+	{
+		if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
+			setCACertPath(path->utf8().data());
+	}
+#elif OS(WINDOWS)
     curl_easy_setopt(m_handle, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
 #else
     if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
@@ -472,6 +606,11 @@ void CurlHandle::enableHttp()
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 }
 
+void CurlHandle::disableAcceptEncoding()
+{
+    curl_easy_setopt(m_handle, CURLOPT_ENCODING, NULL);
+}
+
 void CurlHandle::enableHttpGetRequest()
 {
     enableHttp();
@@ -502,6 +641,11 @@ void CurlHandle::setHttpCustomRequest(const String& method)
 {
     enableHttp();
     curl_easy_setopt(m_handle, CURLOPT_CUSTOMREQUEST, method.ascii().data());
+}
+
+void CurlHandle::setResumeOffset(long long offset)
+{
+	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
 }
 
 void CurlHandle::enableAcceptEncoding()
@@ -576,6 +720,11 @@ void CurlHandle::setSslVerifyHost(VerifyHost verifyHost)
 void CurlHandle::setSslCipherList(const char* cipherList)
 {
     curl_easy_setopt(m_handle, CURLOPT_SSL_CIPHER_LIST, cipherList);
+}
+
+void CurlHandle::setSslCipherListTLS1_3(const char* cipherList)
+{
+    curl_easy_setopt(m_handle, CURLOPT_TLS13_CIPHERS, cipherList);
 }
 
 void CurlHandle::setSslECCurves(const char* ecCurves)

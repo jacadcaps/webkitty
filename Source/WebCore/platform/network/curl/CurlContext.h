@@ -26,6 +26,10 @@
 
 #pragma once
 
+#if OS(MORPHOS)
+#define PROTO_SOCKET_H
+#endif
+
 #include "CertificateInfo.h"
 #include "CurlProxySettings.h"
 #include "CurlSSLHandle.h"
@@ -60,7 +64,7 @@ class CurlGlobal {
 protected:
     CurlGlobal()
     {
-        curl_global_init(CURL_GLOBAL_ALL);
+        curl_global_init(CURL_GLOBAL_ALL | CURL_GLOBAL_NO_GETENV);
     }
     
     virtual ~CurlGlobal()
@@ -126,10 +130,19 @@ public:
     bool isHttp2Enabled() const { return m_isHttp2Enabled; }
     bool isHttp3Enabled() const { return m_isHttp3Enabled; }
 
+#if OS(MORPHOS)
+    bool isHttp2Enabled(bool forPost = false) const;
+    void setIsHttp2Enabled(bool enabled, bool enabledForPost) { m_http2Enabled = enabled; m_http2POSTEnabled = enabledForPost; }
+#endif
+
     // Timeout
     Seconds dnsCacheTimeout() const { return m_dnsCacheTimeout; }
     Seconds connectTimeout() const { return m_connectTimeout; }
     Seconds defaultTimeoutInterval() const { return m_defaultTimeoutInterval; }
+
+#if OS(MORPHOS)
+    void stopThread();
+#endif
 
 #ifndef NDEBUG
     FILE* getLogFile() const { return m_logFile; }
@@ -181,6 +194,7 @@ public:
     CURLMcode poll(const Vector<curl_waitfd>&, int);
     CURLMcode wakeUp();
     CURLMcode perform(int&);
+	CURLMcode getTimeout(long &timeout);
     CURLMsg* readInfo(int&);
 
 private:
@@ -256,7 +270,11 @@ public:
     void appendRequestHeader(const String& name);
     void removeRequestHeader(const String& name);
 
+#if OS(MORPHOS)
+    void enableHttp(bool post = false);
+#else
     void enableHttp();
+#endif
     void enableHttpGetRequest();
     void enableHttpHeadRequest();
     void enableHttpPostRequest(curl_off_t size);
@@ -266,6 +284,9 @@ public:
     void enableConnectionOnly();
 
     void enableAcceptEncoding();
+#if OS(MORPHOS)
+    void disableAcceptEncoding();
+#endif
     void enableAllowedProtocols();
     void enableAltSvc();
 
@@ -277,6 +298,9 @@ public:
     void setSslVerifyPeer(VerifyPeer);
     void setSslVerifyHost(VerifyHost);
     void setSslCipherList(const char*);
+#if OS(MORPHOS)
+    void setSslCipherListTLS1_3(const char*);
+#endif
     void setSslECCurves(const char*);
 
     void enableProxyIfExists();

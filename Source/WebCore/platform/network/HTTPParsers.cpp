@@ -345,8 +345,32 @@ StringView filenameFromHTTPContentDisposition(StringView value)
 
         auto key = keyValuePair.left(valueStartPos).trim(isUnicodeCompatibleASCIIWhitespace<UChar>);
 
+#if OS(MORPHOS)
+        if (key == "filename"_s) {
+            auto fn = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
+            if (fn[0] == '\"')
+                fn = fn.substring(1, fn.length() - 2);
+            return fn;
+        }
+        else if (key == "filename*"_s) {
+            auto encname = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace().split('\'');
+            StringView::SplitResult::Iterator encnameIt = encname.begin();
+            if (encnameIt != encname.end() && equalIgnoringASCIICase(*encnameIt, "utf-8"_s)) {
+                ++encnameIt;
+                if (encnameIt != encname.end()) {
+                    if ((*encnameIt)[0] == '\'')
+                        return (*encnameIt).substring(1);
+                    else
+                        return (*encnameIt);
+                }
+            }
+        }
+        else
+            continue;
+#else
         if (key.isEmpty() || key != "filename"_s)
             continue;
+#endif
 
         auto value = keyValuePair.substring(valueStartPos + 1).trim(isUnicodeCompatibleASCIIWhitespace<UChar>);
 

@@ -314,6 +314,11 @@ static void initiateFontLoadingByAccessingGlyphDataIfApplicable(const String& te
         fontCascade.glyphDataForCharacter(textContent[i], false, fontVariant);
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O2")
+#endif
+
 void RenderText::styleDidChange(StyleDifference diff, const RenderStyle* oldStyle)
 {
     // There is no need to ever schedule repaints from a style change of a text run, since
@@ -343,6 +348,7 @@ void RenderText::styleDidChange(StyleDifference diff, const RenderStyle* oldStyl
     if (needsResetText || oldTransform != newStyle.textTransform() || oldSecurity != newStyle.textSecurity())
         RenderText::setText(originalText(), true);
 }
+#pragma GCC diagnostic pop
 
 void RenderText::removeAndDestroyTextBoxes()
 {
