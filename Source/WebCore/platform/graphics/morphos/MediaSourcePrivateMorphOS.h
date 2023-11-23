@@ -40,7 +40,7 @@ public:
 
     MediaTime duration();
     MediaTime currentMediaTime();
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    const PlatformTimeRanges& buffered();
 
 	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings();
 	void onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS>&);

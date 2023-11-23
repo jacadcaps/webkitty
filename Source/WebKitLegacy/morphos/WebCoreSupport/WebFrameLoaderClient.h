@@ -25,10 +25,20 @@
 
 #pragma once
 
-#include <WebCore/FrameLoaderClient.h>
+#include <WebCore/LocalFrameLoaderClient.h>
 
 namespace WebCore {
+class AuthenticationChallenge;
+class CachedFrame;
 class FragmentedSharedBuffer;
+class HistoryItem;
+class Frame;
+class LocalFrame;
+class ProtectionSpace;
+class ResourceLoader;
+class ResourceRequest;
+class SharedBuffer;
+class DocumentLoader;
 }
 
 namespace WebKit {
@@ -36,7 +46,7 @@ namespace WebKit {
 class WebFrame;
 struct WebsitePoliciesData;
     
-class WebFrameLoaderClient final : public WebCore::FrameLoaderClient {
+class WebFrameLoaderClient final : public WebCore::LocalFrameLoaderClient, public CanMakeWeakPtr<WebFrameLoaderClient> {
 public:
     WebFrameLoaderClient(Ref<WebFrame>&&);
     ~WebFrameLoaderClient();
@@ -48,8 +58,6 @@ public:
     void setUseIconLoadingClient(bool useIconLoadingClient) { m_useIconLoadingClient = useIconLoadingClient; }
 
     void applyToDocumentLoader(WebsitePoliciesData&&);
-
-    std::optional<WebCore::PageIdentifier> pageID() const final;
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     bool hasFrameSpecificStorageAccess() final { return !!m_frameSpecificStorageAccessIdentifier; }
@@ -114,12 +122,13 @@ private:
     void dispatchDidReachLayoutMilestone(OptionSet<WebCore::LayoutMilestone>) final;
     void dispatchDidLayout() final;
 
-    WebCore::Frame* dispatchCreatePage(const WebCore::NavigationAction&, WebCore::NewFrameOpenerPolicy) final;
+    WebCore::LocalFrame* dispatchCreatePage(const WebCore::NavigationAction&, WebCore::NewFrameOpenerPolicy) final;
     void dispatchShow() final;
 
     void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, WebCore::PolicyCheckIdentifier, const String&, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const String& frameName, WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, WebCore::PolicyDecisionMode, WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&) final;
+    void broadcastFrameRemovalToOtherProcesses() final { }
     void cancelPolicyCheck() final;
     
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
@@ -164,7 +173,8 @@ private:
     WebCore::ResourceError cannotShowMIMETypeError(const WebCore::ResourceResponse&) const final;
     WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&) const final;
     WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&) const final;
-    
+    WebCore::ResourceError httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const final;
+
     bool shouldFallBack(const WebCore::ResourceError&) const final;
     
     bool canHandleRequest(const WebCore::ResourceRequest&) const final;
@@ -201,7 +211,7 @@ private:
     bool canCachePage() const final;
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
 
-    RefPtr<WebCore::Frame> createFrame(const WTF::AtomString& name, WebCore::HTMLFrameOwnerElement&) final;
+    RefPtr<WebCore::LocalFrame> createFrame(const WTF::AtomString& name, WebCore::HTMLFrameOwnerElement&) final;
 
     RefPtr<WebCore::Widget> createPlugin(const WebCore::IntSize&, WebCore::HTMLPlugInElement&, const URL&,
     const Vector<WTF::AtomString>&, const Vector<WTF::AtomString>&, const WTF::String&, bool) final;
@@ -265,13 +275,11 @@ private:
 };
 
 // As long as EmptyFrameLoaderClient exists in WebCore, this can return 0.
-inline WebFrameLoaderClient* toWebFrameLoaderClient(WebCore::FrameLoaderClient& client)
-{
+inline WebFrameLoaderClient* toWebFrameLoaderClient(WebCore::LocalFrameLoaderClient& client) {
     return client.isEmptyFrameLoaderClient() ? 0 : static_cast<WebFrameLoaderClient*>(&client);
 }
 
-inline WebFrameLoaderClient* toWebFrameLoaderClient(const WebCore::FrameLoaderClient& client)
-{
+inline WebFrameLoaderClient* toWebFrameLoaderClient(const WebCore::LocalFrameLoaderClient& client) {
     return client.isEmptyFrameLoaderClient() ? 0 : const_cast<WebFrameLoaderClient*>(static_cast<const WebFrameLoaderClient*>(&client));
 }
 

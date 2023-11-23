@@ -2159,7 +2159,7 @@ bool LocalFrameView::shouldSetCursor() const
 }
 
 #if OS(MORPHOS)
-void FrameView::setCursor(const Cursor& cursor)
+void LocalFrameView::setCursor(const Cursor& cursor)
 {
     frame().page()->chrome().setCursor(cursor);
 }

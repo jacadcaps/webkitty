@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
- #include "config.h"
+#include "config.h"
 #include "DragData.h"
 #include "SelectionData.h"
 
@@ -84,7 +84,7 @@ String DragData::asURL(FilenameConversionPolicy filenamePolicy, String* title) c
     if (!m_platformDragData->hasURL())
         return String();
     if (filenamePolicy != ConvertFilenames) {
-        if (m_platformDragData->url().isLocalFile())
+        if (m_platformDragData->url().protocolIsFile())
             return { };
     }
 

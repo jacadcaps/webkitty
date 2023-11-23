@@ -49,7 +49,7 @@
 
 namespace WebCore {
 
-static RefPtr<DocumentFragment> createFragmentFromPasteboardData(Pasteboard& pasteboard, Frame& frame, const SimpleRange& range, bool allowPlainText, bool& chosePlainText)
+static RefPtr<DocumentFragment> createFragmentFromPasteboardData(Pasteboard& pasteboard, LocalFrame& frame, const SimpleRange& range, bool allowPlainText, bool& chosePlainText)
 {
     chosePlainText = false;
 
@@ -116,7 +116,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element&imageElement
         return;
     ASSERT(pasteboardImage.image);
 
-    pasteboardImage.url.url = imageElement.document().completeURL(stripLeadingAndTrailingHTMLSpaces(elementURL(imageElement)));
+    pasteboardImage.url.url = imageElement.document().completeURL(elementURL(imageElement));
     pasteboardImage.url.title = title;
     pasteboard.write(pasteboardImage);
 }

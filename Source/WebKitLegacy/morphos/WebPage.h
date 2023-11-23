@@ -18,6 +18,7 @@ namespace WebCore {
 	class Page;
 	class Frame;
 	class FrameView;
+    class LocalFrame;
 	class IntRect;
 	class KeyboardEvent;
 	class ResourceError;
@@ -51,8 +52,8 @@ class BackForwardClientMorphOS;
 WebCore::Page* core(WebPage *webView);
 WebPage *kit(WebCore::Page* page);
 
-WebCore::Frame& mainframe(WebCore::Page& page);
-const WebCore::Frame& mainframe(const WebCore::Page& page);
+WebCore::LocalFrame& mainframe(WebCore::Page& page);
+const WebCore::LocalFrame& mainframe(const WebCore::Page& page);
 
 class WebPage : public WebViewDelegate, public WTF::RefCounted<WebPage>
 {
@@ -180,7 +181,7 @@ public:
 
     WebFrame& topLevelFrame() const { return m_mainFrame; }
 
-    WebCore::Frame* mainFrame() const; // May return nullptr.
+    WebCore::LocalFrame* mainFrame() const; // May return nullptr.
     WebCore::FrameView* mainFrameView() const; // May return nullptr.
 
 	WTF::RefPtr<WebKit::BackForwardClientMorphOS> backForwardClient();
@@ -250,7 +251,7 @@ public:
 	ContextMenuHandling contextMenuHandling() const { return m_cmHandling; }
 
 	// WkHitTest support...
-	WebCore::Frame *fromHitTest(WebCore::HitTestResult &hitTest) const;
+	WebCore::LocalFrame *fromHitTest(WebCore::HitTestResult &hitTest) const;
 	bool hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const;
 	bool hitTestSaveImageToFile(WebCore::HitTestResult &hitTest, const WTF::String &path) const;
 	void hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, const WTF::String &text) const;
@@ -283,7 +284,7 @@ public:
 	void undo();
 	void redo();
 
-	void startDrag(WebCore::DragItem&&, WebCore::DataTransfer&, WebCore::Frame&);
+	void startDrag(WebCore::DragItem&&, WebCore::DataTransfer&, WebCore::LocalFrame&);
 	bool isDragging(void) const { return m_dragging; };
 	void drawDragImage(struct RastPort *rp, const int x, const int y, const int width, const int height);
 

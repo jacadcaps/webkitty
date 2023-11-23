@@ -29,7 +29,6 @@
 #include "WebChromeClient.h"
 #include "WebPage.h"
 #include "WebProcess.h"
-#include "FrameInfoData.h"
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSContextRef.h>
@@ -69,6 +68,7 @@
 #include <WebCore/NetworkingContext.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Color.h>
+#include <WebCore/OriginAccessPatterns.h>
 #include <wtf/text/StringBuilder.h>
 
 #if PLATFORM(COCOA)
@@ -89,24 +89,13 @@ using namespace WebCore;
 
 DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, webFrameCounter, ("WebFrame"));
 
-Ref<WebFrame> WebFrame::createWithCoreMainFrame(WebPage* , WebCore::Frame* coreFrame)
-{
-    auto frame = create();
-//    page->send(Messages::WebPageProxy::DidCreateMainFrame(frame->frameID()));
-
-    frame->m_coreFrame = coreFrame;
-    frame->m_coreFrame->tree().setName(emptyAtom());
-    frame->m_coreFrame->init();
-    return frame;
-}
-
 Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& frameName, HTMLFrameOwnerElement* ownerElement)
 {
     auto frame = create();
-    auto coreFrame = Frame::create(page->corePage(), ownerElement, makeUniqueRef<WebFrameLoaderClient>(frame.get()), WebCore::FrameIdentifier::generate());
+    auto coreFrame = LocalFrame::createSubframe(*page->corePage(), makeUniqueRef<WebFrameLoaderClient>(frame.get()), WebCore::FrameIdentifier::generate(), *ownerElement);
     frame->m_coreFrame = coreFrame.ptr();
 
-    coreFrame->tree().setName(frameName);
+    coreFrame->tree().setSpecifiedName(frameName);
     coreFrame->init();
 
     return frame;
@@ -115,8 +104,8 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& fra
 void WebFrame::initWithCoreMainFrame(WebPage& page, Frame& coreFrame)
 {
 	(void)page;
-    m_coreFrame = &coreFrame;
-    m_coreFrame->tree().setName(emptyAtom());
+    m_coreFrame = dynamicDowncast<WebCore::LocalFrame>(&coreFrame);
+    m_coreFrame->tree().setSpecifiedName(emptyAtom());
     m_coreFrame->init();
 }
 
@@ -155,39 +144,19 @@ WebPage* WebFrame::page() const
     return nullptr;
 }
 
-WebFrame* WebFrame::fromCoreFrame(const Frame& frame)
+WebFrame* WebFrame::fromCoreFrame(const WebCore::LocalFrame& localFrame)
 {
-    auto* webFrameLoaderClient = toWebFrameLoaderClient(frame.loader().client());
-    if (!webFrameLoaderClient)
-        return nullptr;
-
-    return &webFrameLoaderClient->webFrame();
+    auto loader = toWebFrameLoaderClient(localFrame.loader().client());
+    if (loader)
+        return &loader->webFrame();
+    return nullptr;
 }
 
-WebFrame* WebFrame::fromCoreFrame(const WebCore::Frame* frame)
+WebFrame* WebFrame::fromCoreFrame(const WebCore::LocalFrame* localFrame)
 {
-    if (!frame)
+    if (!localFrame)
         return nullptr;
-
-    auto* webFrameLoaderClient = toWebFrameLoaderClient(frame->loader().client());
-    if (!webFrameLoaderClient)
-        return nullptr;
-
-    return &webFrameLoaderClient->webFrame();
-
-}
-
-FrameInfoData WebFrame::info() const
-{
-    FrameInfoData info;
-
-    info.isMainFrame = isMainFrame();
-    // FIXME: This should use the full request.
-    info.request = ResourceRequest({});
-    info.securityOrigin = SecurityOriginData::fromFrame(m_coreFrame);
-    info.frameID = m_frameID;
-    
-    return info;
+    return fromCoreFrame(*localFrame);
 }
 
 void WebFrame::invalidate()
@@ -329,7 +298,7 @@ String WebFrame::contentsAsString() const
 
     if (isFrameSet()) {
         StringBuilder builder;
-        for (AbstractFrame* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
+        for (auto* child = m_coreFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
             if (!builder.isEmpty())
                 builder.append(' ');
 
@@ -483,7 +452,7 @@ bool WebFrame::allowsFollowingLink(const URL& url) const
     if (!m_coreFrame)
         return true;
         
-    return m_coreFrame->document()->securityOrigin().canDisplay(url);
+    return m_coreFrame->document()->securityOrigin().canDisplay(url, WebCore::OriginAccessPatternsForWebProcess::singleton());
 }
 
 JSGlobalContextRef WebFrame::jsContext()
@@ -619,27 +588,6 @@ RefPtr<InjectedBundleHitTestResult> WebFrame::hitTest(const IntPoint point) cons
 }
 #endif
 
-bool WebFrame::getDocumentBackgroundColor(double* red, double* green, double* blue, double* alpha)
-{
-    if (!m_coreFrame)
-        return false;
-
-    FrameView* view = m_coreFrame->view();
-    if (!view)
-        return false;
-
-    Color bgColor = view->documentBackgroundColor();
-    if (!bgColor.isValid())
-        return false;
-
-    auto [r, g, b, a] = bgColor.toColorTypeLossy<SRGBA<float>>().resolved();
-    *red = r;
-    *green = g;
-    *blue = b;
-    *alpha = a;
-    return true;
-}
-
 bool WebFrame::containsAnyFormElements() const
 {
     if (!m_coreFrame)
@@ -686,7 +634,7 @@ void WebFrame::stopLoading()
 
 WebFrame* WebFrame::frameForContext(JSContextRef context)
 {
-    auto* coreFrame = WebCore::Frame::fromJSContext(context);
+    auto* coreFrame = LocalFrame::fromJSContext(context);
     return coreFrame ? WebFrame::fromCoreFrame(*coreFrame) : nullptr;
 }
 

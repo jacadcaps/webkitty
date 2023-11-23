@@ -21,6 +21,7 @@
 #include <WebCore/FontCache.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/RemoteFrameClient.h>
 #include <WebCore/FrameSelection.h>
 #include <WebCore/FrameTree.h>
 #include <WebCore/FrameView.h>
@@ -109,6 +110,7 @@
 #include <wtf/HexNumber.h>
 #include <WebCore/DummySpeechRecognitionProvider.h>
 #include <WebCore/EmptyBadgeClient.h>
+#include "LegacySocketProvider.h"
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArrayPrototype.h>
@@ -228,8 +230,8 @@ extern "C" {
 
 namespace WebCore {
 // from JSDOMWindowCustom.h
-class JSDOMWindow;
-JSDOMWindow& mainWorldGlobalObject(Frame&);
+class JSLocalDOMWindow;
+JSLocalDOMWindow& mainWorldGlobalObject(LocalFrame& frame);
 }
 
 using namespace std;
@@ -636,6 +638,7 @@ public:
 	void repair(WebCore::FrameView *frameView, WebCore::GraphicsLayer *rootLayer, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
 	{
 		EP_SCOPE(repair);
+        (void)rootLayer;
 		
 		if (WebCore::InterpolationQuality::Default != interpolation)
 		{
@@ -1186,14 +1189,14 @@ WebCore::Page* core(WebPage *webpage)
 	return nullptr;
 }
 
-WebCore::Frame& mainframe(WebCore::Page& page)
+WebCore::LocalFrame& mainframe(WebCore::Page& page)
 {
-	return page.mainFrame();
+	return *dynamicDowncast<WebCore::LocalFrame>(&page.mainFrame());
 }
 
-const WebCore::Frame& mainframe(const WebCore::Page& page)
+const WebCore::LocalFrame& mainframe(const WebCore::Page& page)
 {
-	return page.mainFrame();
+	return *dynamicDowncast<WebCore::LocalFrame>(&page.mainFrame());
 }
 
 WebPage *kit(WebCore::Page* page)
@@ -1241,33 +1244,35 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	auto storageProvider = PageStorageSessionProvider::create();
 
 	WebCore::PageConfiguration pageConfiguration(
+        WebCore::PageIdentifier::generate(),
 		WebProcess::singleton().sessionID(),
         makeUniqueRef<WebEditorClient>(this),
-        WebCore::SocketProvider::create(),
+        LegacySocketProvider::create(),
         WebCore::WebRTCProvider::create(),
         WebProcess::singleton().cacheStorageProvider(),
         m_webPageGroup->userContentController(),
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
-        makeUniqueRef<WebFrameLoaderClient>(m_mainFrame.copyRef()),
+        UniqueRef<WebCore::LocalFrameLoaderClient>(makeUniqueRef<WebFrameLoaderClient>(m_mainFrame.copyRef())),
+        WebCore::FrameIdentifier::generate(),
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         makeUniqueRef<MediaRecorderProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         makeUniqueRef<WebCore::DummyModelPlayerProvider>(),
-        WebCore::EmptyBadgeClient::create()
+        WebCore::EmptyBadgeClient::create(),
+        makeUniqueRef<WebContextMenuClient>(this),
+        makeUniqueRef<WebChromeClient>(*this)
     );
 
-	pageConfiguration.chromeClient = new WebChromeClient(*this);
-	pageConfiguration.inspectorClient = new WebInspectorClient(this);
+	pageConfiguration.inspectorClient = makeUnique<WebInspectorClient>(this);
 //    pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient();
     pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
     pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
     pageConfiguration.pluginInfoProvider = &WebPluginInfoProvider::singleton();
     pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
-	pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
 	pageConfiguration.dragClient = makeUnique<WebDragClient>(this);
 
 //dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
@@ -1381,9 +1386,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	m_page->effectiveAppearanceDidChange(m_darkMode, false);
 
-    // m_mainFrame = WebFrame::createWithCoreMainFrame(this, &m_page->mainFrame());
-//    static_cast<WebFrameLoaderClient&>(m_page->mainFrame().loader().client()).setWebFrame(m_mainFrame.get());
-
 	m_mainFrame->initWithCoreMainFrame(*this, m_page->mainFrame());
     m_page->layoutIfNeeded();
 
@@ -1467,7 +1469,7 @@ bool WebPage::reload(const char *url)
 		OptionSet<ReloadOption> options;
 		options.add(ReloadOption::FromOrigin);
 
-		DocumentLoader *loader = mainframe->loader().documentLoader();
+		DocumentLoader *loader = mainFrame()->loader().documentLoader();
 		
 		bool canReload = loader && loader->request().url() == expectedURL;
 		
@@ -1532,7 +1534,7 @@ void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb
 		return cb("");
 	}
 
-    WebCore::Frame& frameRef(*coreFrame);
+    WebCore::LocalFrame& frameRef(*coreFrame);
     auto state = static_cast<JSC::JSGlobalObject*>(&mainWorldGlobalObject(frameRef));
     JSC::JSLockHolder lock(state);
 	WTF::String string = result.toWTFString(state);
@@ -1542,7 +1544,7 @@ void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb
 
 void *WebPage::getInnerHTML(WTF::Function<void *(const char *)>&& cb)
 {
-    WebCore::Frame* coreFrame = m_mainFrame->coreFrame();
+    auto* coreFrame = m_mainFrame->coreFrame();
 	if (coreFrame)
 	{
 		WTF::String inner = coreFrame->document()->documentElement()->innerHTML();
@@ -1555,7 +1557,7 @@ void *WebPage::getInnerHTML(WTF::Function<void *(const char *)>&& cb)
 
 void WebPage::setInnerHTML(const char *html)
 {
-    WebCore::Frame* coreFrame = m_mainFrame->coreFrame();
+    auto* coreFrame = m_mainFrame->coreFrame();
 	if (coreFrame)
 	{
 		coreFrame->document()->documentElement()->setInnerHTML(WTF::String::fromUTF8(html));
@@ -1616,14 +1618,14 @@ void WebPage::willBeDisposed()
 	D(dprintf("%s done mf %p\n", __PRETTY_FUNCTION__, mainframe));
 }
 
-Frame* WebPage::mainFrame() const
+LocalFrame* WebPage::mainFrame() const
 {
-    return m_page ? &m_page->mainFrame() : nullptr;
+    return m_page ? dynamicDowncast<WebCore::LocalFrame>(&m_page->mainFrame()) : nullptr;
 }
 
 FrameView* WebPage::mainFrameView() const
 {
-    if (Frame* frame = mainFrame())
+    if (auto* frame = mainFrame())
         return frame->view();
 	
     return nullptr;
@@ -2180,7 +2182,7 @@ void WebPage::setAlwaysShowsHorizontalScroller(bool alwaysShowsHorizontalScrolle
         return;
 
     m_alwaysShowsHorizontalScroller = alwaysShowsHorizontalScroller;
-    auto view = corePage()->mainFrame().view();
+    auto view = mainFrame()->view();
     if (!alwaysShowsHorizontalScroller)
         view->setHorizontalScrollbarLock(false);
     view->setHorizontalScrollbarMode(alwaysShowsHorizontalScroller ? ScrollbarMode::AlwaysOn : m_mainFrameIsScrollable ? ScrollbarMode::Auto : ScrollbarMode::AlwaysOff, alwaysShowsHorizontalScroller || !m_mainFrameIsScrollable);
@@ -2192,7 +2194,7 @@ void WebPage::setAlwaysShowsVerticalScroller(bool alwaysShowsVerticalScroller)
         return;
 
     m_alwaysShowsVerticalScroller = alwaysShowsVerticalScroller;
-    auto view = corePage()->mainFrame().view();
+    auto view = mainFrame()->view();
     if (!alwaysShowsVerticalScroller)
         view->setVerticalScrollbarLock(false);
     view->setVerticalScrollbarMode(alwaysShowsVerticalScroller ? ScrollbarMode::AlwaysOn : m_mainFrameIsScrollable ? ScrollbarMode::Auto : ScrollbarMode::AlwaysOff, alwaysShowsVerticalScroller || !m_mainFrameIsScrollable);
@@ -2354,7 +2356,7 @@ int WebPage::scrollTop()
 
 void WebPage::scrollBy(int xDelta, int yDelta, WebPage::WebPageScrollByMode mode, WebCore::Frame *inFrame)
 {
-	auto* coreFrame = inFrame ? inFrame : m_mainFrame->coreFrame();
+	auto* coreFrame = inFrame ? downcast<LocalFrame>(inFrame) : m_mainFrame->coreFrame();
 	if (!coreFrame)
 		return;
 	WebCore::FrameView *view = coreFrame->view();
@@ -2416,7 +2418,7 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 		return;
 	}
 	
-    WebCore::FrameView* frameView = coreFrame->view();
+    auto* frameView = coreFrame->view();
     if (!frameView)
 	{
 		return;
@@ -2846,7 +2848,7 @@ bool WebPage::drawRect(const int x, const int y, const int width, const int heig
 	if (m_transitioning)
 		return false;
 	
-    WebCore::FrameView* frameView = coreFrame->view();
+    auto* frameView = coreFrame->view();
     if (!frameView)
     {
     	return false;
@@ -3360,7 +3362,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						if (doEvent)
 						{
 							bool rmbHandled = bridge.handleMousePressEvent(pme);
-							Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+							LocalFrame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
 
 							if (targetFrame)
 							{
@@ -3495,7 +3497,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForBlockingDOMEventDispatch });
+					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch });
 					if (!handled)
 						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
 
@@ -3524,7 +3526,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
-					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::MainThreadForScrolling, WheelEventProcessingSteps::MainThreadForBlockingDOMEventDispatch });
+					bool handled = bridge.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch });
 					if (!handled)
 						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
 
@@ -3540,7 +3542,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					if (m_justWentActive)
 					{
-						Frame& frame = m_page->focusController().focusedOrMainFrame();
+						auto& frame = m_page->focusController().focusedOrMainFrame();
 						frame.document()->setFocusedElement(0);
 						m_page->focusController().setInitialFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ?
 							FocusDirection::Backward : FocusDirection::Forward, nullptr);
@@ -3748,14 +3750,14 @@ void WebPage::onContextMenuItemSelected(ULONG action, const char *title)
 	page->contextMenuController().contextMenuItemSelected(cmaction, wtftitle);
 }
 
-WebCore::Frame * WebPage::fromHitTest(WebCore::HitTestResult &hitTest) const
+WebCore::LocalFrame * WebPage::fromHitTest(WebCore::HitTestResult &hitTest) const
 {
 	return hitTest.innerNonSharedNode()->document().frame();
 }
 
 bool WebPage::hitTestImageToClipboard(WebCore::HitTestResult &hitTest) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 
 	if (frame)
 	{
@@ -3773,7 +3775,7 @@ bool WebPage::hitTestSaveImageToFile(WebCore::HitTestResult &, const WTF::String
 
 void WebPage::hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, const WTF::String &text) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		frame->editor().insertText(text, nullptr);
@@ -3782,7 +3784,7 @@ void WebPage::hitTestReplaceSelectedTextWidth(WebCore::HitTestResult &hitTest, c
 
 void WebPage::hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		frame->editor().command("Cut"_s).execute();
@@ -3791,7 +3793,7 @@ void WebPage::hitTestCutSelectedText(WebCore::HitTestResult &hitTest) const
 
 void WebPage::hitTestCopySelectedText(WebCore::HitTestResult &hitTest) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		frame->editor().command("Copy"_s).execute();
@@ -3800,7 +3802,7 @@ void WebPage::hitTestCopySelectedText(WebCore::HitTestResult &hitTest) const
 
 void WebPage::hitTestPaste(WebCore::HitTestResult &hitTest) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		frame->editor().command("Paste"_s).execute();
@@ -3809,7 +3811,7 @@ void WebPage::hitTestPaste(WebCore::HitTestResult &hitTest) const
 
 void WebPage::hitTestSelectAll(WebCore::HitTestResult &hitTest) const
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		frame->editor().command("SelectAll"_s).execute();
@@ -3853,7 +3855,7 @@ WebPage::ContextMenuImageFloat WebPage::hitTestImageFloat(WebCore::HitTestResult
 
 WTF::String WebPage::misspelledWord(WebCore::HitTestResult &hitTest)
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		return frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
@@ -3864,7 +3866,7 @@ WTF::String WebPage::misspelledWord(WebCore::HitTestResult &hitTest)
 
 void WebPage::markWord(WebCore::HitTestResult &hitTest)
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		VisibleSelection selection = frame->selection().selection();
@@ -3886,7 +3888,7 @@ WTF::Vector<WTF::String> WebPage::misspelledWordSuggestions(WebCore::HitTestResu
 {
 	WTF::Vector<WTF::String> out;
 
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
@@ -3899,7 +3901,7 @@ WTF::Vector<WTF::String> WebPage::misspelledWordSuggestions(WebCore::HitTestResu
 
 void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
@@ -3909,7 +3911,7 @@ void WebPage::learnMisspelled(WebCore::HitTestResult &hitTest)
 
 void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		auto miss = frame->editor().misspelledWordAtCaretOrRange(hitTest.innerNode());
@@ -3919,7 +3921,7 @@ void WebPage::ignoreMisspelled(WebCore::HitTestResult &hitTest)
 
 void WebPage::replaceMisspelled(WebCore::HitTestResult &hitTest, const WTF::String &replacement)
 {
-	WebCore::Frame *frame = fromHitTest(hitTest);
+	auto* frame = fromHitTest(hitTest);
 	if (frame)
 	{
 		VisibleSelection selection = frame->selection().selection();
@@ -4002,7 +4004,7 @@ void WebPage::redo()
 	}
 }
 
-void WebPage::startDrag(WebCore::DragItem&& item, WebCore::DataTransfer& transfer, WebCore::Frame&)
+void WebPage::startDrag(WebCore::DragItem&& item, WebCore::DataTransfer& transfer, WebCore::LocalFrame&)
 {
 	m_dragging = true;
 	m_dragImage = WTFMove(item.image);
@@ -4037,8 +4039,8 @@ void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlo
 		m_page->dragController().performDragOperation(WTFMove(drag));
 		m_page->dragController().dragEnded();
 
-		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, LeftButton, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), WallTime::now(), 0, WebCore::NoTap);
-		m_page->mainFrame().eventHandler().dragSourceEndedAt(event, m_page->dragController().sourceDragOperationMask());
+		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, LeftButton, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), WallTime::now(), 0, WebCore::SyntheticClickType::NoTap);
+		m_mainFrame->coreFrame()->eventHandler().dragSourceEndedAt(event, m_page->dragController().sourceDragOperationMask());
 	}
 	else
 	{

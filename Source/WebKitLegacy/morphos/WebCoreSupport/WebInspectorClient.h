@@ -46,8 +46,10 @@ class WebNodeHighlight;
 class WebPage;
 
 class WebInspectorClient final : public WebCore::InspectorClient, public Inspector::FrontendChannel {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit WebInspectorClient(WebPage*);
+    ~WebInspectorClient();
 
     // InspectorClient API.
     void inspectedPageDestroyed() override;
@@ -65,9 +67,6 @@ public:
     // FrontendChannel API.
     ConnectionType connectionType() const override { return ConnectionType::Local; }
     void sendMessageToFrontend(const WTF::String&) override;
-
-private:
-    virtual ~WebInspectorClient();
     
 private:
 	WebPage *m_inspectedPage;

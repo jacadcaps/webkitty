@@ -82,7 +82,7 @@ public:
 
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
-    std::unique_ptr<PlatformTimeRanges> buffered() const final;
+    const PlatformTimeRanges& buffered() const override;
     void paint(GraphicsContext&, const FloatRect&) final;
     bool didLoadingProgress() const final;
 	MediaPlayer::MovieLoadType movieLoadType() const final;
@@ -124,6 +124,7 @@ protected:
 	MediaPlayerMorphOSStreamSettings m_streamSettings;
 	MediaTime m_duration = MediaTime::invalidTime();
 	MediaTime m_currentTime;
+    PlatformTimeRanges m_buffered;
 	int   m_width = 1280;
 	int   m_height = 740;
 	bool  m_prepareToPlay = false;

@@ -1847,7 +1847,7 @@ elseif (USE_LIBEPOXY)
     )
     add_definitions(${LIBEPOXY_DEFINITIONS})
 else ()
-    list(APPEND WebCore_LIBRARIES OpenGL::GLES)
+#    list(APPEND WebCore_LIBRARIES OpenGL::GLES)
 
     if (USE_EGL)
         list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES

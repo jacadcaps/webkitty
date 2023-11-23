@@ -44,7 +44,7 @@ private:
     void willPerformDragSourceAction(WebCore::DragSourceAction, const WebCore::IntPoint&, WebCore::DataTransfer&) override;
     OptionSet<WebCore::DragSourceAction> dragSourceActionMaskForPoint(const WebCore::IntPoint& rootViewPoint) override;
 
-    void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::Frame&) override;
+    void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::LocalFrame&) override;
     void didConcludeEditDrag() override;
 
     WebPage* m_page;

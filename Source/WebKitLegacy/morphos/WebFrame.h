@@ -43,6 +43,7 @@ class SessionID;
 namespace WebCore {
 class CertificateInfo;
 class Frame;
+class LocalFrame;
 class HTMLFrameOwnerElement;
 class IntPoint;
 class IntRect;
@@ -51,13 +52,11 @@ class IntRect;
 namespace WebKit {
 
 class WebPage;
-struct FrameInfoData;
 struct WebsitePoliciesData;
 
 class WebFrame : public WTF::RefCounted<WebFrame> {
 public:
 	static Ref<WebFrame> create() { return adoptRef(*new WebFrame); }
-    static Ref<WebFrame> createWithCoreMainFrame(WebPage*, WebCore::Frame*);
     static Ref<WebFrame> createSubframe(WebPage*, const WTF::AtomString& name, WebCore::HTMLFrameOwnerElement*);
     ~WebFrame();
 
@@ -68,11 +67,10 @@ public:
 
     WebPage* page() const;
 
-    static WebFrame* fromCoreFrame(const WebCore::Frame&);
-    static WebFrame* fromCoreFrame(const WebCore::Frame*);
-    WebCore::Frame* coreFrame() const { return m_coreFrame; }
+    static WebFrame* fromCoreFrame(const WebCore::LocalFrame&);
+    static WebFrame* fromCoreFrame(const WebCore::LocalFrame*);
+    WebCore::LocalFrame* coreFrame() const { return m_coreFrame; }
 
-    FrameInfoData info() const;
     WebCore::FrameIdentifier frameID() const { return m_frameID; }
 
 #if 0
@@ -114,7 +112,6 @@ public:
     WebCore::IntSize scrollOffset() const;
     bool hasHorizontalScrollbar() const;
     bool hasVerticalScrollbar() const;
-    bool getDocumentBackgroundColor(double* red, double* green, double* blue, double* alpha);
     bool containsAnyFormElements() const;
     bool containsAnyFormControls() const;
     void stopLoading();
@@ -148,7 +145,7 @@ public:
 private:
     WebFrame();
 
-    WebCore::Frame* m_coreFrame { nullptr };
+    WebCore::LocalFrame* m_coreFrame { nullptr };
 
     uint64_t m_policyListenerID { 0 };
     std::optional<WebCore::PolicyCheckIdentifier> m_policyIdentifier;

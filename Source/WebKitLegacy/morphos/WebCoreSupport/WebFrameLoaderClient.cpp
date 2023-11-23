@@ -707,99 +707,6 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
 	}
 
 	function(PolicyAction::Use, requestIdentifier);
-
-#if 0
-    RefPtr<API::Object> userData;
-
-    Ref<InjectedBundleNavigationAction> action = InjectedBundleNavigationAction::create(m_frame, navigationAction, formState);
-
-    // Notify the bundle client.
-    WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNavigationAction(webPage, m_frame, action.ptr(), request, userData);
-    if (policy == WKBundlePagePolicyActionUse) {
-        function(PolicyAction::Use, requestIdentifier);
-        return;
-    }
-
-    uint64_t listenerID = m_frame->setUpPolicyListener(requestIdentifier, WTFMove(function), WebFrame::ForNavigationAction::Yes);
-
-    ASSERT(navigationAction.requester());
-    auto requester = navigationAction.requester().value();
-
-    FrameInfoData originatingFrameInfoData;
-    originatingFrameInfoData.isMainFrame = navigationAction.initiatedByMainFrame() == InitiatedByMainFrame::Yes;
-    originatingFrameInfoData.request = ResourceRequest { requester.url() };
-    originatingFrameInfoData.securityOrigin = requester.securityOrigin().data();
-    if (requester.frameID() && WebProcess::singleton().webFrame(requester.frameID()))
-        originatingFrameInfoData.frameID = requester.frameID();
-
-    std::optional<PageIdentifier> originatingPageID;
-    if (requester.pageID() && WebProcess::singleton().webPage(requester.pageID()))
-        originatingPageID = requester.pageID();
-
-    NavigationActionData navigationActionData;
-    navigationActionData.navigationType = action->navigationType();
-    navigationActionData.modifiers = action->modifiers();
-    navigationActionData.mouseButton = action->mouseButton();
-    navigationActionData.syntheticClickType = action->syntheticClickType();
-    navigationActionData.clickLocationInRootViewCoordinates = action->clickLocationInRootViewCoordinates();
-    navigationActionData.userGestureTokenIdentifier = WebProcess::singleton().userGestureTokenIdentifier(navigationAction.userGestureToken());
-    navigationActionData.canHandleRequest = webPage->canHandleRequest(request);
-    navigationActionData.shouldOpenExternalURLsPolicy = navigationAction.shouldOpenExternalURLsPolicy();
-    navigationActionData.downloadAttribute = navigationAction.downloadAttribute();
-    navigationActionData.isRedirect = !redirectResponse.isNull();
-    navigationActionData.treatAsSameOriginNavigation = navigationAction.treatAsSameOriginNavigation();
-    navigationActionData.hasOpenedFrames = navigationAction.hasOpenedFrames();
-    navigationActionData.openedByDOMWithOpener = navigationAction.openedByDOMWithOpener();
-    if (auto& requester = navigationAction.requester())
-        navigationActionData.requesterOrigin = requester->securityOrigin().data();
-    navigationActionData.targetBackForwardItemIdentifier = navigationAction.targetBackForwardItemIdentifier();
-    navigationActionData.sourceBackForwardItemIdentifier = navigationAction.sourceBackForwardItemIdentifier();
-    navigationActionData.lockHistory = navigationAction.lockHistory();
-    navigationActionData.lockBackForwardList = navigationAction.lockBackForwardList();
-    navigationActionData.adClickAttribution = navigationAction.adClickAttribution();
-
-    WebCore::Frame* coreFrame = m_frame->coreFrame();
-    if (!coreFrame)
-        return function(PolicyAction::Ignore, requestIdentifier);
-    WebDocumentLoader* documentLoader = static_cast<WebDocumentLoader*>(coreFrame->loader().policyDocumentLoader());
-    if (!documentLoader) {
-        // FIXME: When we receive a redirect after the navigation policy has been decided for the initial request,
-        // the provisional load's DocumentLoader needs to receive navigation policy decisions. We need a better model for this state.
-        documentLoader = static_cast<WebDocumentLoader*>(coreFrame->loader().provisionalDocumentLoader());
-    }
-    if (!documentLoader)
-        documentLoader = static_cast<WebDocumentLoader*>(coreFrame->loader().documentLoader());
-
-    navigationActionData.clientRedirectSourceForHistory = documentLoader->clientRedirectSourceForHistory();
-
-    // Notify the UIProcess.
-    Ref<WebFrame> protect(m_frame);
-
-    if (policyDecisionMode == PolicyDecisionMode::Synchronous) {
-        uint64_t newNavigationID;
-        WebCore::PolicyCheckIdentifier responseIdentifier;
-        PolicyAction policyAction;
-        DownloadID downloadID;
-        std::optional<WebsitePoliciesData> websitePolicies;
-
-        if (!webPage->sendSync(Messages::WebPageProxy::DecidePolicyForNavigationActionSync(m_frame->frameID(), m_frame->isMainFrame(), SecurityOriginData::fromFrame(coreFrame),
-            requestIdentifier, documentLoader->navigationID(), navigationActionData, originatingFrameInfoData, originatingPageID, navigationAction.resourceRequest(), request,
-            IPC::FormDataReference { request.httpBody() }, redirectResponse, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())),
-            Messages::WebPageProxy::DecidePolicyForNavigationActionSync::Reply(responseIdentifier, policyAction, newNavigationID, downloadID, websitePolicies))) {
-            m_frame->didReceivePolicyDecision(listenerID, requestIdentifier, PolicyAction::Ignore, 0, { }, { });
-            return;
-        }
-
-        m_frame->didReceivePolicyDecision(listenerID, responseIdentifier, policyAction, 0, downloadID, { });
-        return;
-    }
-
-    ASSERT(policyDecisionMode == PolicyDecisionMode::Asynchronous);
-    if (!webPage->send(Messages::WebPageProxy::DecidePolicyForNavigationActionAsync(m_frame->frameID(), SecurityOriginData::fromFrame(coreFrame),
-        requestIdentifier, documentLoader->navigationID(), navigationActionData, originatingFrameInfoData, originatingPageID, navigationAction.resourceRequest(), request,
-        IPC::FormDataReference { request.httpBody() }, redirectResponse, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), listenerID)))
-        m_frame->didReceivePolicyDecision(listenerID, requestIdentifier, PolicyAction::Ignore, 0, { }, { });
-#endif
 }
 
 void WebFrameLoaderClient::cancelPolicyCheck()
@@ -1134,6 +1041,11 @@ ResourceError WebFrameLoaderClient::fileDoesNotExistError(const ResourceResponse
 ResourceError WebFrameLoaderClient::pluginWillHandleLoadError(const ResourceResponse& response) const
 {
     return ResourceError();//WebKit::pluginWillHandleLoadError(response);
+}
+
+WebCore::ResourceError WebFrameLoaderClient::httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError();
 }
 
 bool WebFrameLoaderClient::shouldFallBack(const ResourceError& error) const

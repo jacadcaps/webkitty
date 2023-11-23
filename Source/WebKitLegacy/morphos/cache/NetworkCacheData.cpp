@@ -27,7 +27,6 @@
 #include "NetworkCacheData.h"
 
 #include <fcntl.h>
-#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FileSystem.h>
 
 #if !OS(WINDOWS)
@@ -42,7 +41,7 @@ namespace NetworkCache {
 Data Data::mapToFile(const String& path) const
 {
     FileSystem::PlatformFileHandle handle;
-    auto applyData = [&](const Function<bool(Span<const uint8_t>)>& applier) {
+    auto applyData = [&](const Function<bool(std::span<const uint8_t>)>& applier) {
         apply(applier);
     };
     auto mappedFile = FileSystem::mapToFile(path, size(), WTFMove(applyData), &handle);
@@ -51,9 +50,9 @@ Data Data::mapToFile(const String& path) const
     return Data::adoptMap(WTFMove(mappedFile), handle);
 }
 
-Data mapFile(const char* path)
+Data mapFile(const String& path)
 {
-    auto file = FileSystem::openFile(String::fromUTF8(path), FileSystem::FileOpenMode::Read);
+    auto file = FileSystem::openFile(path, FileSystem::FileOpenMode::Read);
     if (!FileSystem::isHandleValid(file))
         return { };
     auto size = FileSystem::fileSize(file);
@@ -62,11 +61,6 @@ Data mapFile(const char* path)
         return { };
     }
     return adoptAndMapFile(file, 0, *size);
-}
-
-Data mapFile(const String& path)
-{
-    return mapFile(FileSystem::fileSystemRepresentation(path).data());
 }
 
 Data adoptAndMapFile(FileSystem::PlatformFileHandle handle, size_t offset, size_t size)
@@ -89,7 +83,7 @@ SHA1::Digest computeSHA1(const Data& data, const Salt& salt)
 {
     SHA1 sha1;
     sha1.addBytes(salt.data(), salt.size());
-    data.apply([&sha1](Span<const uint8_t> span) {
+    data.apply([&sha1](std::span<const uint8_t> span) {
         sha1.addBytes(span.data(), span.size());
         return true;
     });

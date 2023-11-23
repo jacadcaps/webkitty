@@ -345,14 +345,9 @@ void WebEditorClient::respondToChangedContents()
 		m_webPage->_fTextChanged();
 }
 
-void WebEditorClient::respondToChangedSelection(Frame*)
+void WebEditorClient::respondToChangedSelection(LocalFrame*)
 {
 //    m_webPage->selectionChanged();
-    notImplemented();
-}
-
-void WebEditorClient::discardedComposition(Frame*)
-{
     notImplemented();
 }
 
@@ -567,12 +562,12 @@ void WebEditorClient::clearUndoRedoOperations()
 		m_webPage->_fUndoRedoChanged();
 }
 
-bool WebEditorClient::canCopyCut(Frame*, bool defaultValue) const
+bool WebEditorClient::canCopyCut(LocalFrame*, bool defaultValue) const
 {
     return defaultValue;
 }
 
-bool WebEditorClient::canPaste(Frame*, bool defaultValue) const
+bool WebEditorClient::canPaste(LocalFrame*, bool defaultValue) const
 {
     return defaultValue;
 }

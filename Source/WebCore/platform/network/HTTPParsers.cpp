@@ -347,13 +347,13 @@ StringView filenameFromHTTPContentDisposition(StringView value)
 
 #if OS(MORPHOS)
         if (key == "filename"_s) {
-            auto fn = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace();
+            auto fn = keyValuePair.substring(valueStartPos + 1).trim(deprecatedIsSpaceOrNewline);
             if (fn[0] == '\"')
                 fn = fn.substring(1, fn.length() - 2);
             return fn;
         }
         else if (key == "filename*"_s) {
-            auto encname = keyValuePair.substring(valueStartPos + 1).stripWhiteSpace().split('\'');
+            auto encname = keyValuePair.substring(valueStartPos + 1).trim(deprecatedIsSpaceOrNewline).split('\'');
             StringView::SplitResult::Iterator encnameIt = encname.begin();
             if (encnameIt != encname.end() && equalIgnoringASCIICase(*encnameIt, "utf-8"_s)) {
                 ++encnameIt;

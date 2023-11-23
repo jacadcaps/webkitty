@@ -162,7 +162,7 @@ const float MaxDragLabelStringWidth = (MaxDragLabelWidth - 2 * DragLabelBorderX)
 const float DragLinkLabelFontsize = 11;
 const float DragLinkUrlFontSize = 10;
 
-static FontCascade dragLabelFont(int size, bool bold, FontRenderingMode renderingMode)
+static FontCascade dragLabelFont(int size, bool bold)
 {
     FontCascade result;
 
@@ -171,7 +171,6 @@ static FontCascade dragLabelFont(int size, bool bold, FontRenderingMode renderin
     description.setOneFamily("Times New Roman"_s);
     description.setSpecifiedSize((float)size);
     description.setComputedSize((float)size);
-    description.setRenderingMode(renderingMode);
     result = FontCascade(WTFMove(description), 0, 0);
     result.update();
     return result;
@@ -182,24 +181,17 @@ DragImageRef createDragImageIconForCachedImageFilename(const String&)
     return nullptr;
 }
 
-DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, TextIndicatorData&, FontRenderingMode fontRenderingMode, float)
+DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, TextIndicatorData&, float)
 {
     // This is more or less an exact match for the Mac OS X code.
 
     const FontCascade* labelFont;
     const FontCascade* urlFont;
 
-    if (fontRenderingMode == FontRenderingMode::Alternate) {
-        static const FontCascade alternateRenderingModeLabelFont = dragLabelFont(DragLinkLabelFontsize, true, FontRenderingMode::Alternate);
-        static const FontCascade alternateRenderingModeURLFont = dragLabelFont(DragLinkUrlFontSize, false, FontRenderingMode::Alternate);
-        labelFont = &alternateRenderingModeLabelFont;
-        urlFont = &alternateRenderingModeURLFont;
-    } else {
-        static const FontCascade normalRenderingModeLabelFont = dragLabelFont(DragLinkLabelFontsize, true, FontRenderingMode::Normal);
-        static const FontCascade normalRenderingModeURLFont = dragLabelFont(DragLinkUrlFontSize, false, FontRenderingMode::Normal);
-        labelFont = &normalRenderingModeLabelFont;
-        urlFont = &normalRenderingModeURLFont;
-    }
+    static const FontCascade normalRenderingModeLabelFont = dragLabelFont(DragLinkLabelFontsize, true);
+    static const FontCascade normalRenderingModeURLFont = dragLabelFont(DragLinkUrlFontSize, false);
+    labelFont = &normalRenderingModeLabelFont;
+    urlFont = &normalRenderingModeURLFont;
 
     bool drawURLString = true;
     bool clipURLString = false;
@@ -265,7 +257,7 @@ DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, T
                 if (clipLabelString)
                     label = StringTruncator::rightTruncate(label, imageSize.width() - (DragLabelBorderX * 2.0f), *labelFont);
 
-                IntPoint textPos(DragLabelBorderX, DragLabelBorderY + labelFont->pixelSize());
+                IntPoint textPos(DragLabelBorderX, DragLabelBorderY + labelFont->metricsOfPrimaryFont().descent());
                 WebCoreDrawDoubledTextAtPoint(*context, label, textPos, *labelFont, topColor, bottomColor);
 
                 delete context;

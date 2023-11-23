@@ -77,7 +77,7 @@ extern "C" { void dprintf(const char *fmt, ...); };
             havePrinted = true; \
         } \
     } while (0)
-
+#endif
 #endif // LOG_DISABLED
 
 #endif // NotImplemented_h

@@ -68,8 +68,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TOUCH_EVENTS PUBLIC ON)
 # Doesn't work with curl backend
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTPDIR PRIVATE OFF)
 
-# TODO
+# TODO ? avif doesn't work on big endian - most codecs fail
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PUBLIC OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
 ### Things that'll stay off:
 # Payment things
@@ -102,7 +103,7 @@ find_package(OpenSSL 1.1.1 REQUIRED)
 find_package(ZLIB 1.2.11 REQUIRED)
 find_package(PNG REQUIRED)
 find_package(SQLite3 REQUIRED)
-find_package(Nghttp2 REQUIRED)
+#find_package(Nghttp2 REQUIRED)
 find_package(Hyphen REQUIRED)
 find_package(LibPSL REQUIRED)
 find_package(WebP REQUIRED)

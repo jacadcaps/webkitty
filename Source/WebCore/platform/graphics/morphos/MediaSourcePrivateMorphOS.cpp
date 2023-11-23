@@ -156,7 +156,7 @@ bool MediaSourcePrivateMorphOS::isLiveStream() const
 	return std::isinf(m_client->duration().toFloat());
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateMorphOS::buffered()
+const PlatformTimeRanges& MediaSourcePrivateMorphOS::buffered()
 {
 	return m_client->buffered();
 }

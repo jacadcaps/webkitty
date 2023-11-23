@@ -116,10 +116,10 @@ private:
 
     void didEndUserTriggeredSelectionChanges() final { }
     void respondToChangedContents() final;
-    void respondToChangedSelection(WebCore::Frame*) final;
+    void respondToChangedSelection(WebCore::LocalFrame*) final;
     void updateEditorStateAfterLayoutIfEditabilityChanged() final { } 
     void canceledComposition() final;
-    void discardedComposition(WebCore::Frame*) final;
+    void discardedComposition(const WebCore::Document&) final { }
     void didUpdateComposition() final { }
 
     bool shouldDeleteRange(const std::optional<WebCore::SimpleRange>&) final;
@@ -135,8 +135,8 @@ private:
     void registerRedoStep(WebCore::UndoStep&) final;
     void clearUndoRedoOperations();
 
-    bool canCopyCut(WebCore::Frame*, bool defaultValue) const final;
-    bool canPaste(WebCore::Frame*, bool defaultValue) const final;
+    bool canCopyCut(WebCore::LocalFrame*, bool defaultValue) const final;
+    bool canPaste(WebCore::LocalFrame*, bool defaultValue) const final;
     bool canUndo() const final;
     bool canRedo() const final;
     

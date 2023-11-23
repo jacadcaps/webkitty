@@ -39,7 +39,7 @@
 #include <WebCore/FileChooser.h>
 #include <WebCore/FileIconLoader.h>
 #include <WebCore/FloatRect.h>
-#include <WebCore/Frame.h>
+#include <WebCore/WebCore::LocalFrame.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameView.h>
 //#include <WebCore/FullScreenController.h>
@@ -138,11 +138,7 @@ void WebChromeClient::focusedElementChanged(Element* element)
 	m_webPage.setFocusedElement(element);
 }
 
-void WebChromeClient::focusedFrameChanged(Frame*)
-{
-}
-
-Page* WebChromeClient::createWindow(Frame& frame, const WindowFeatures& features, const NavigationAction& navigationAction)
+Page* WebChromeClient::createWindow(LocalFrame& frame, const WindowFeatures& features, const NavigationAction& navigationAction)
 {
 	if (!m_webPage._fCanOpenWindow || !m_webPage._fCanOpenWindow(navigationAction.url().string(), features))
 		return nullptr;
@@ -155,58 +151,14 @@ void WebChromeClient::show()
 	notImplemented();
 }
 
-bool WebChromeClient::canRunModal()
-{
-	notImplemented();
-	return false;
-}
-
-void WebChromeClient::runModal()
-{
-	notImplemented();
-}
-
-void WebChromeClient::setToolbarsVisible(bool visible)
-{
-	notImplemented();
-}
-
-bool WebChromeClient::toolbarsVisible()
-{
-	notImplemented();
-	return false;
-}
-
-void WebChromeClient::setStatusbarVisible(bool visible)
-{
-	notImplemented();
-}
-
-bool WebChromeClient::statusbarVisible()
-{
-	notImplemented();
-	return false;
-}
-
 void WebChromeClient::setScrollbarsVisible(bool b)
 {
 	m_webPage.setAllowsScrolling(b);
 }
 
-bool WebChromeClient::scrollbarsVisible()
+bool WebChromeClient::scrollbarsVisible() const
 {
 	return m_webPage.allowsScrolling();
-}
-
-void WebChromeClient::setMenubarVisible(bool visible)
-{
-	notImplemented();
-}
-
-bool WebChromeClient::menubarVisible()
-{
-	notImplemented();
-	return true;
 }
 
 void WebChromeClient::setResizable(bool resizable)
@@ -233,8 +185,9 @@ bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
     return false;
 }
 
-bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, Frame& frame)
+bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, LocalFrame& frame)
 {
+// TODO!
 	notImplemented();
 	return true;
 }
@@ -262,20 +215,20 @@ void WebChromeClient::closeWindow()
 #endif
 }
 
-void WebChromeClient::runJavaScriptAlert(Frame&, const String& message)
+void WebChromeClient::runJavaScriptAlert(WebCore::LocalFrame&, const String& message)
 {
 	if (m_webPage._fAlert)
 		m_webPage._fAlert(message);
 }
 
-bool WebChromeClient::runJavaScriptConfirm(Frame&, const String& message)
+bool WebChromeClient::runJavaScriptConfirm(WebCore::LocalFrame&, const String& message)
 {
 	if (m_webPage._fConfirm)
 		return m_webPage._fConfirm(message);
 	return false;
 }
 
-bool WebChromeClient::runJavaScriptPrompt(Frame&, const String& message, const String& defaultValue, String& result)
+bool WebChromeClient::runJavaScriptPrompt(WebCore::LocalFrame&, const String& message, const String& defaultValue, String& result)
 {
 	if (m_webPage._fPrompt)
 		return m_webPage._fPrompt(message, defaultValue, result);
@@ -345,7 +298,7 @@ PlatformPageClient WebChromeClient::platformPageClient() const
 	return 0;
 }
 
-void WebChromeClient::contentsSizeChanged(Frame& frame, const IntSize& size) const
+void WebChromeClient::contentsSizeChanged(WebCore::LocalFrame& frame, const IntSize& size) const
 {
 //    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
     m_webPage.frameSizeChanged(frame, size.width(), size.height());
@@ -354,11 +307,6 @@ void WebChromeClient::contentsSizeChanged(Frame& frame, const IntSize& size) con
 void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
 {
 //    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
-}
-
-void WebChromeClient::mouseDidMoveOverElement(const WebCore::HitTestResult&, unsigned modifierFlags, const WTF::String& toolTip, WebCore::TextDirection)
-{
-	notImplemented();
 }
 
 bool WebChromeClient::shouldUnavailablePluginMessageBeButton(RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
@@ -371,13 +319,13 @@ void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmb
 	notImplemented();
 }
 
-void WebChromeClient::print(WebCore::Frame&, const WebCore::StringWithDirection&)
+void WebChromeClient::print(WebCore::LocalFrame&, const WebCore::StringWithDirection&)
 {
     if (m_webPage._fPrint)
         m_webPage._fPrint();
 }
 
-void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& databaseIdentifier, DatabaseDetails)
+void WebChromeClient::exceededDatabaseQuota(WebCore::LocalFrame& frame, const String& databaseIdentifier, DatabaseDetails)
 {
 	notImplemented();
 }
@@ -393,7 +341,7 @@ void WebChromeClient::reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_
     notImplemented();
 }
 
-void WebChromeClient::runOpenPanel(Frame&, FileChooser& fileChooser)
+void WebChromeClient::runOpenPanel(WebCore::LocalFrame&, FileChooser& fileChooser)
 {
 	if (m_webPage._fFile)
 		m_webPage._fFile(fileChooser);
@@ -423,7 +371,7 @@ void WebChromeClient::setCursorHiddenUntilMouseMoves(bool)
     notImplemented();
 }
 
-void WebChromeClient::attachRootGraphicsLayer(Frame&, GraphicsLayer* graphicsLayer)
+void WebChromeClient::attachRootGraphicsLayer(WebCore::LocalFrame&, GraphicsLayer* graphicsLayer)
 {
     m_webPage.setRootGraphicsLayer(graphicsLayer);
 }
@@ -517,17 +465,8 @@ void WebChromeClient::clearPlaybackControlsManager()
 
 void WebChromeClient::requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&& completion)
 {
+// TODO!
     completion(CookieConsentDecisionResult::NotSupported);
-}
-
-void WebChromeClient::classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<ModalContainerControlType>&&)>&& completion)
-{
-    completion({ });
-}
-
-void WebChromeClient::decidePolicyForModalContainer(OptionSet<ModalContainerControlType>, CompletionHandler<void(ModalContainerDecision)>&& completion)
-{
-    completion(ModalContainerDecision::Show);
 }
 
 }

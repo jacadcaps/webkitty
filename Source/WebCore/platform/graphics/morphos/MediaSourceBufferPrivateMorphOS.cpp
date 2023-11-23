@@ -495,21 +495,29 @@ MediaSourceBufferPrivateMorphOS::~MediaSourceBufferPrivateMorphOS()
 	clearMediaSource();
 }
 
-void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
+void MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuffer>&& buffer)
 {
 	EP_EVENT(append);
 	DAPPEND(dprintf("[MS][%c]%s bytes %lu main %d appendcnt %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, vector.size(), isMainThread(), m_appendCount));
 
 	if (m_initializationBuffer.size() == 0)
 	{
-		m_initializationBuffer = vector;
+        m_initializationBuffer.resize(buffer->size());
+        if (m_initializationBuffer.size() == buffer->size())
+        {
+            unsigned char *dest = m_initializationBuffer.data();
+            buffer->copyTo(dest, m_initializationBuffer.size());
+        }
 	}
 	else if (m_mustAppendInitializationSegment)
 	{
 		Vector<unsigned char> merged;
-		merged.reserveCapacity(m_initializationBuffer.size() + vector.size());
+		merged.reserveCapacity(m_initializationBuffer.size() + buffer->size());
 		merged.append(m_initializationBuffer.data(), m_initializationBuffer.size());
-		merged.append(vector.data(), vector.size());
+        merged.resize(m_initializationBuffer.size() + buffer->size());
+        unsigned char *dest = merged.data();
+        dest += m_initializationBuffer.size();
+        buffer->copyTo(dest, buffer->size());
 		m_reader->decode(WTFMove(merged));
 		m_appendCount ++;
 		m_mustAppendInitializationSegment = false;
@@ -529,7 +537,9 @@ void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
 
     if (m_appendCount > 3 && !m_isLive)
     {
-        int is_initialization = ac_is_initialization_segment(vector.data(), vector.size(), nullptr, 1);
+        unsigned char tmp[1024];
+        buffer->copyTo(tmp, std::min(size_t(1024), buffer->size()));
+        int is_initialization = ac_is_initialization_segment(tmp, std::min(size_t(1024), buffer->size()), nullptr, 1);
         DAPPEND(dprintf("[MS][%c]%s: %p appended chunk is initialization segment score %d; duration %f oldduration %f\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this, is_initialization, m_mediaSource->duration().toFloat(), m_durationAtAppend.toFloat()));
 
         if (m_mediaSource->duration() > m_durationAtAppend)
@@ -556,11 +566,22 @@ void MediaSourceBufferPrivateMorphOS::append(Vector<unsigned char>&&vector)
                 }
             );
             
-            m_initializationBuffer = vector;
+            m_initializationBuffer.resize(buffer->size());
+            if (m_initializationBuffer.size() == buffer->size())
+            {
+                unsigned char *dest = m_initializationBuffer.data();
+                buffer->copyTo(dest, m_initializationBuffer.size());
+            }
         }
     }
 
-	m_reader->decode(WTFMove(vector));
+    Vector<unsigned char> vector;
+    vector.resize(buffer->size());
+    if (vector.size() == buffer->size())
+    {
+        buffer->copyTo(vector.data(), vector.size());
+        m_reader->decode(WTFMove(vector));
+    }
 	m_appendCount ++;
 }
 
@@ -800,7 +821,7 @@ void MediaSourceBufferPrivateMorphOS::terminate()
 
 }
 
-void MediaSourceBufferPrivateMorphOS::resetParserState()
+void MediaSourceBufferPrivateMorphOS::resetParserStateInternal()
 {
 	D(dprintf("[MS]%s\n", __func__));
 	m_appendCompletePending = false;
@@ -1118,7 +1139,7 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 		WTF::callOnMainThread([segment, duration, this, protect = Ref{*this}]() {
 			DM(dprintf("[MS] calling sourceBufferPrivateDidReceiveInitializationSegment, duration %f size %dx%d\n", float(duration), m_info.m_width, m_info.m_height));
             auto initSegment = SourceBufferPrivateClient::InitializationSegment(segment);
-			didReceiveInitializationSegment(WTFMove(initSegment), [](SourceBufferPrivateClient::ReceiveResult) {
+			didReceiveInitializationSegment(WTFMove(initSegment), [] (auto&) { return true; }, [](SourceBufferPrivateClient::ReceiveResult) {
 				DM(dprintf("[MS] eaten initialization segment!\n"));
 			});
 		});

@@ -144,7 +144,7 @@ public:
 		}
 		else
 		{
-			Document *doc = page->mainFrame().document();
+			Document *doc = dynamicDowncast<LocalFrame>(page->mainFrame())->document();
 			DMHOST(dprintf("%s: doc %p urlvalid %d (%s)\n", __func__, doc, parameters.url.isValid(), parameters.url.string().utf8().data()));
 			if (doc)
 			{
@@ -348,7 +348,7 @@ bool MediaPlayerPrivateMorphOS::canLoad(bool isMediaSource)
 {
 	Page *page = m_player->client().mediaPlayerPage();
 	String host;
-	Document *doc = page ? page->mainFrame().document() : nullptr;
+	Document *doc = page ? dynamicDowncast<LocalFrame>(page->mainFrame())->document() : nullptr;
 	if (doc)
 	{
 		host = doc->url().host().toString();
@@ -603,14 +603,14 @@ MediaPlayer::ReadyState MediaPlayerPrivateMorphOS::readyState() const
 	return m_readyState;
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMorphOS::buffered() const
+const PlatformTimeRanges& MediaPlayerPrivateMorphOS::buffered() const
 {
 #if ENABLE(MEDIA_SOURCE)
 	if (m_mediaSourcePrivate)
-		return m_mediaSourcePrivate->buffered();
+        m_mediaSourcePrivate->buffered();
 #endif
-	return makeUnique<PlatformTimeRanges>(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
-		MediaTime::createWithDouble(m_currentTime.toDouble() + 10.0));
+
+    return m_buffered;
 }
 
 void MediaPlayerPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)
@@ -827,6 +827,8 @@ void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 {
 	D(dprintf("%s: timechanged to %f\n", __func__, float(pos)));
 	m_currentTime = MediaTime::createWithDouble(pos);
+    m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
+		MediaTime::createWithDouble(m_currentTime.toDouble() + 10.0));
 	m_player->timeChanged();
 }
 
@@ -851,6 +853,8 @@ void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 void MediaPlayerPrivateMorphOS::accEnded()
 {
 	m_currentTime = m_duration;
+    m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
+		MediaTime::createWithDouble(m_currentTime.toDouble()));
 	m_player->timeChanged();
 	m_player->characteristicChanged();
 	m_player->playbackStateChanged();

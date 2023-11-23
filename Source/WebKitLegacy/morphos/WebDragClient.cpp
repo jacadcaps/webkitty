@@ -22,7 +22,7 @@ OptionSet<WebCore::DragSourceAction> WebDragClient::dragSourceActionMaskForPoint
     return WebCore::anyDragSourceAction(); //m_page->allowedDragSourceActions();
 }
 
-void WebDragClient::startDrag(DragItem item, DataTransfer& transfer, Frame& frame)
+void WebDragClient::startDrag(DragItem item, DataTransfer& transfer, LocalFrame& frame)
 {
 //	dprintf("%s\n", __PRETTY_FUNCTION__);
 	m_page->startDrag(WTFMove(item), transfer, frame);

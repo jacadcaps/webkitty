@@ -143,9 +143,9 @@ public:
 private:
 	explicit MediaSourceBufferPrivateMorphOS(MediaSourcePrivateMorphOS*);
 
-    void append(Vector<unsigned char>&&) override;
+    void appendInternal(Ref<SharedBuffer>&&) override;
     void abort() override;
-    void resetParserState() override;
+    void resetParserStateInternal() override;
     void removedFromMediaSource() override;
 
     void flush(const AtomString&) override;
@@ -206,7 +206,7 @@ private:
 	BinarySemaphore                               m_event;
 	Lock                                          m_lock;
 
-	Vector<unsigned char>                         m_initializationBuffer;
+    Vector<unsigned char>                         m_initializationBuffer;
 
 	uint32_t                                      m_audioDecoderMask = 0;
 	bool                                          m_enableVideo = false;
